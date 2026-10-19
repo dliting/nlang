@@ -1,0 +1,12 @@
+//0.9.11 D4: an initializer may not read an inherited field either —
+//the fold surface is literals only, independent of the inheritance
+//chain.
+class Base {
+	public int base = 1;
+}
+
+class Derived : Base {
+	public int x = base;
+}
+
+int main() { return 0; }

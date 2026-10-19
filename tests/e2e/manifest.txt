@@ -1585,3 +1585,11 @@ interface_constant_assign compile_error is a constant and cannot be assigned
 interface_constant_bare_name compile_error is an interface constant
 class_field_init_nonconst compile_error the initializer of field "x" must be a constant expression
 class_field_init_array compile_error cannot have an initializer: only scalar and string fields support compile-time defaults
+class_field_init_base_field_error compile_error the initializer of field "x" must be a constant expression
+class_field_init_super_mid_error compile_error field initializers require super() to be the first statement of the constructor
+class_field_init_native_ctor_error compile_error class field initializers cannot be applied to native or bodyless constructors
+class_field_init_bodyless_ctor_error compile_error class field initializers cannot be applied to native or bodyless constructors
+class_field_init_basic 75
+class_field_init_brace_form 6
+class_field_init_super_first 7
+class_field_init_with_args 7

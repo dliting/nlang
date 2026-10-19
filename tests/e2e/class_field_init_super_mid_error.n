@@ -1,0 +1,16 @@
+//0.9.11 D9: with field initializers present, super() must be the first
+//statement — the injection point is undefined otherwise.
+class Base {
+	public int a;
+	Base() { this.a = 1; }
+}
+
+class Derived : Base {
+	public int b = 2;
+	Derived() {
+		int t = 1;
+		super();
+	}
+}
+
+int main() { return 0; }

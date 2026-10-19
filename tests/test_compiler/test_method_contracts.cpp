@@ -14,6 +14,8 @@
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SnExpressions.h>
+#include <nlang/compiler/SnStatements.h>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -148,6 +150,39 @@ const SnFunction* onlyCtor(const SnStructDecl* pStruct)
     for (auto& ctor : pStruct->Ctors())
         return &ctor;
     return nullptr;
+}
+
+//0.9.11 T3: statement count of a paragraph's child view (the view's
+//wrapper iterator predates the iterator traits std::distance needs).
+int stmtCount(SnStatementList& stmts)
+{
+    int count = 0;
+    for (auto& stmt : stmts)
+    {
+        (void)stmt;
+        ++count;
+    }
+    return count;
+}
+
+//0.9.11 T3: shape probe for an injected `this.<field> = <default>;`
+//statement (an NK_AssignStmt marked NF_Generated whose left side is a
+//member access on `this`). Returns the target field name, or an empty
+//string when the statement does not match the injected shape.
+std::string injectedAssignName(const SnStatement& stmt)
+{
+    if (stmt.Kind() != NK_AssignStmt || !stmt.ContainFlags(NF_Generated))
+        return {};
+    auto* pLeft = static_cast<const SnAssignStmt&>(stmt).Left();
+    if (!pLeft || pLeft->Kind() != NK_MemberExpr)
+        return {};
+    auto& member = static_cast<const SnMemberExpr&>(*pLeft);
+    if (!member.Outer() || member.Outer()->Kind() != NK_ThisExpr)
+        return {};
+    auto* pInner = member.Inner();
+    if (!pInner || pInner->Kind() != NK_IdentifierExpr)
+        return {};
+    return static_cast<const SnIdentifierExpr*>(pInner)->Name();
 }
 
 } //namespace
@@ -907,6 +942,128 @@ private slots:
             "int main() { return 0; }\n");
         QCOMPARE(countErrorsContaining(out,
             "'super' is only valid inside a class constructor"), 1);
+    }
+
+    //=== class field initializer injection (0.9.11 T3, D4/D9) ===
+
+    //A class with field initializers and no user constructor gets a
+    //synthesized public zero-arg constructor whose body is exactly the
+    //injected `this.<field> = <default>;` statements, in declaration
+    //order, each marked NF_Generated.
+    void TestClassFieldInitSynthesizesCtor() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int x = 5;\n"
+            "    public string s = \"hi\";\n"
+            "    public bool b = true;\n"
+            "    public float f = -1.5;\n"
+            "}\n"
+            "int main() { Cfg c = Cfg(); return c.x; }\n");
+        QVERIFY(out.ok);
+        auto* pCtor = findMethod(out, "Cfg", "Cfg");
+        QVERIFY(pCtor);
+        QVERIFY(pCtor->Params().size() == 0);
+        QCOMPARE(pCtor->AccessType(), FA_Public);
+        QVERIFY(!pCtor->HasReturn());
+        QVERIFY(pCtor->ContainFlags(NF_Generated));
+        QVERIFY(pCtor->Body() != nullptr);
+        auto& stmts = pCtor->Body()->Statements();
+        QVERIFY(stmtCount(stmts) == 4);
+        const char* expectedNames[] = {"x", "s", "b", "f"};
+        int index = 0;
+        for (auto& stmt : stmts)
+            QCOMPARE(injectedAssignName(stmt).c_str(),
+                expectedNames[index++]);
+    }
+
+    //A user constructor receives the injected defaults at body start
+    //(no super here); its own statements keep their position and the
+    //constructor itself is not marked generated.
+    void TestClassFieldInitInjectsUserCtor() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int x = 3;\n"
+            "    Cfg(int y) { this.x = this.x + y; }\n"
+            "}\n"
+            "int main() { Cfg c = Cfg(4); return c.x; }\n");
+        QVERIFY(out.ok);
+        auto* pCtor = findMethod(out, "Cfg", "Cfg");
+        QVERIFY(pCtor);
+        QVERIFY(pCtor->Params().size() == 1);
+        QVERIFY(!pCtor->ContainFlags(NF_Generated));
+        auto& stmts = pCtor->Body()->Statements();
+        QVERIFY(stmtCount(stmts) == 2);
+        auto it = stmts.begin();
+        QCOMPARE(injectedAssignName(*it).c_str(), "x");
+        ++it;
+        QVERIFY(it->Kind() == NK_AssignStmt);
+        QVERIFY(!it->ContainFlags(NF_Generated));
+    }
+
+    //Base-first (D9): with super() first the injection lands right after
+    //the super call; the base's own synthesized constructor applies the
+    //base default during super().
+    void TestClassFieldInitInjectsAfterSuper() {
+        auto out = compileOne(
+            "class Base {\n"
+            "    public int a = 1;\n"
+            "}\n"
+            "class Derived : Base {\n"
+            "    public int b = 2;\n"
+            "    Derived() { super(); }\n"
+            "}\n"
+            "int main() { Derived d = Derived(); return d.b; }\n");
+        QVERIFY(out.ok);
+        auto* pBaseCtor = findMethod(out, "Base", "Base");
+        QVERIFY(pBaseCtor);
+        QVERIFY(pBaseCtor->ContainFlags(NF_Generated));
+        auto& baseStmts = pBaseCtor->Body()->Statements();
+        QVERIFY(stmtCount(baseStmts) == 1);
+        QCOMPARE(injectedAssignName(*baseStmts.begin()).c_str(), "a");
+        auto* pCtor = findMethod(out, "Derived", "Derived");
+        QVERIFY(pCtor);
+        auto& stmts = pCtor->Body()->Statements();
+        QVERIFY(stmtCount(stmts) == 2);
+        auto it = stmts.begin();
+        QVERIFY(it->Kind() == NK_SuperCallStmt);
+        ++it;
+        QCOMPARE(injectedAssignName(*it).c_str(), "b");
+    }
+
+    //super() not first + initializers: the injection point is undefined,
+    //so exactly one diagnostic (the e2e manifest only pins substring
+    //presence; the count is this file's job) and no half-injected AST.
+    void TestClassFieldInitSuperMidSingleError() {
+        auto out = compileOne(
+            "class Base {\n"
+            "    public int a;\n"
+            "    Base() { this.a = 1; }\n"
+            "}\n"
+            "class Derived : Base {\n"
+            "    public int b = 2;\n"
+            "    Derived() {\n"
+            "        int t = 1;\n"
+            "        super();\n"
+            "    }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "field initializers require super() to be the first"), 1);
+    }
+
+    //A native constructor has no body to inject into: exactly one
+    //diagnostic naming the native/bodyless rule.
+    void TestClassFieldInitNativeCtorSingleError() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int x = 5;\n"
+            "    public native Cfg();\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "cannot be applied to native or bodyless constructors"), 1);
     }
 };
 
