@@ -149,12 +149,12 @@ private:
 	//when the binding failed (diagnostic logged).
 	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
 	//0.9.11 D1: constructor declaration-shape predicates. IsCtorNameShape
-	//= a class member function whose name equals the class name,
-	//regardless of flags — the declaration contract must also adjudicate
-	//the static/virtual/const spellings the no-return productions admit.
-	//IsConstructorFunction = the same shape restricted to instance
-	//members (ctor-slot semantics; a same-name static lives in the
-	//static namespace, 0.9.10 D2.4). Definitions in
+	//= a member function of a class or struct whose name equals the type
+	//name, regardless of flags — the declaration contract must also
+	//adjudicate the static/virtual/const spellings the no-return
+	//productions admit. IsConstructorFunction = the same shape restricted
+	//to instance members (ctor-slot semantics; a same-name static lives
+	//in the static namespace, 0.9.10 D2.4). Definitions in
 	//StatementResolverDeclCtor.cpp.
 	static bool IsCtorNameShape(SnFunction &sn);
 	static bool IsConstructorFunction(SnFunction &sn);
@@ -163,6 +163,11 @@ private:
 	//for plain class members. Logs all diagnostics; never mutates the AST.
 	//Definition in StatementResolverDeclCtor.cpp.
 	void CheckCtorDeclarationContract(SnFunction &sn);
+	//0.9.11 D2: the struct member contract — a struct declares fields and
+	//constructors only, and a struct constructor must not carry static/
+	//virtual/const. Logs all diagnostics; never mutates the AST. Definition
+	//in StatementResolverDeclCtor.cpp.
+	void CheckStructCtorContract(SnStructDecl &owner, SnFunction &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);

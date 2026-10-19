@@ -119,6 +119,37 @@ const SnFunction* findMethod(const CompileOutcome& out,
     return scan(out.builder->TreeRootView());
 }
 
+//Struct-side parse probes (0.9.11 T2.5): the first struct declaration
+//with the given name, and its single constructor.
+const SnStructDecl* findStruct(const CompileOutcome& out,
+    const std::string& name)
+{
+    std::function<const SnStructDecl*(const SnFunctionParentField&)> scan =
+        [&](const SnFunctionParentField& parent) -> const SnStructDecl* {
+        for (auto& member : parent.Members())
+        {
+            if (member.Kind() == NK_StructDecl && member.Name() == name)
+                return static_cast<const SnStructDecl*>(&member);
+            if (CanBeFuncParentEx(member.Kind()))
+            {
+                if (auto* hit = scan(static_cast<const SnFunctionParentField&>(member)))
+                    return hit;
+            }
+        }
+        return nullptr;
+    };
+    return scan(out.builder->TreeRootView());
+}
+
+const SnFunction* onlyCtor(const SnStructDecl* pStruct)
+{
+    if (!pStruct || pStruct->Ctors().size() != 1)
+        return nullptr;
+    for (auto& ctor : pStruct->Ctors())
+        return &ctor;
+    return nullptr;
+}
+
 } //namespace
 
 class TestMethodContracts : public QObject
@@ -677,6 +708,205 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         QVERIFY(out.ok);
+    }
+
+    //=== struct constructor spelling (0.9.11 T2.5) ===
+
+    //sc1: default-access constructor parses; the AST member is an
+    //NK_Function with no return type. The declaration contract and the
+    //binding land in T2.6/T2.9 — at this stage the member is inert.
+    //The bare spelling carries FA_Default into the node and
+    //SnField::OnAddedToParent resolves it to the struct's private member
+    //default — the same reading a bare class constructor gets.
+    void TestStructCtorParsesDefaultAccess() {
+        auto out = compileOne(
+            "struct Point {\n"
+            "    Point(int x) { }\n"
+            "    int x;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out, "syntax error"), 0);
+        auto* pStruct = findStruct(out, "Point");
+        QVERIFY(pStruct);
+        QVERIFY(pStruct->Ctors().size() == 1);
+        const SnFunction* pCtor = nullptr;
+        for (auto& ctor : pStruct->Ctors())
+            if (ctor.Name() == "Point")
+                pCtor = &ctor;
+        QVERIFY(pCtor);
+        QVERIFY(pCtor->ReturnType() == nullptr);
+        QVERIFY(pCtor->Params().size() == 1);
+        QCOMPARE(int(pCtor->AccessType()), int(FA_Private));
+    }
+
+    //sc2: the access/modifier spellings parse (public, private, static,
+    //public static). The contract that rejects struct constructors
+    //carrying static/virtual arrives with T2.6.
+    void TestStructCtorParsesAccessAndFlags() {
+        auto out = compileOne(
+            "struct A {\n"
+            "    public A() { }\n"
+            "}\n"
+            "struct B {\n"
+            "    private B() { }\n"
+            "}\n"
+            "struct C {\n"
+            "    static C() { }\n"
+            "}\n"
+            "struct D {\n"
+            "    public static D(int x) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out, "syntax error"), 0);
+        auto* pA = onlyCtor(findStruct(out, "A"));
+        auto* pB = onlyCtor(findStruct(out, "B"));
+        auto* pC = onlyCtor(findStruct(out, "C"));
+        auto* pD = onlyCtor(findStruct(out, "D"));
+        QVERIFY(pA && pB && pC && pD);
+        QCOMPARE(int(pA->AccessType()), int(FA_Public));
+        QCOMPARE(int(pB->AccessType()), int(FA_Private));
+        QCOMPARE(int(pC->AccessType()), int(FA_Private));
+        QVERIFY(pC->IsStatic());
+        QCOMPARE(int(pD->AccessType()), int(FA_Public));
+        QVERIFY(pD->IsStatic());
+    }
+
+    //sc3: a member name that is also a visible type name stays one-token
+    //discriminated: `Point p;` is a field, `Box()` a constructor.
+    void TestStructFieldAndCtorCoexist() {
+        auto out = compileOne(
+            "struct Point {\n"
+            "    Point(int x) { }\n"
+            "    int x;\n"
+            "}\n"
+            "struct Box {\n"
+            "    Point p;\n"
+            "    Box() { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out, "syntax error"), 0);
+        auto* pBox = findStruct(out, "Box");
+        QVERIFY(pBox);
+        QVERIFY(pBox->FieldCount() == 1);
+        QVERIFY(pBox->Ctors().size() == 1);
+        QVERIFY(pBox->FindField("p") != nullptr);
+    }
+
+    //=== struct member contract (0.9.11 T2.6) ===
+
+    //sc4: a function member whose name differs from the struct is not a
+    //constructor — structs declare fields and constructors only.
+    void TestStructRejectsPlainFunction() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    int x;\n"
+            "    foo() { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out,
+            "may only declare fields and constructors"), 1);
+    }
+
+    //sc5: a name-matching constructor must not carry static/virtual/const
+    //(the same contract text as the class constructor flags).
+    void TestStructCtorRejectsModifiers() {
+        const char *spellings[] = {
+            "    static S() { }\n",
+            "    virtual S() { }\n",
+            "    const S() { }\n",
+        };
+        for (auto spelling : spellings) {
+            std::string src = std::string("struct S {\n") + spelling +
+                "    int x;\n"
+                "}\n"
+                "int main() { return 0; }\n";
+            auto out = compileOne(src.c_str());
+            QCOMPARE(countErrorsContaining(out,
+                "cannot be declared static, virtual, or const"), 1);
+        }
+    }
+
+    //sc6: the legal spelling resolves end to end; the constructor is
+    //inert until the binding lands (T2.9), so the program still compiles.
+    void TestStructCtorLegalSpellingCompiles() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    public S(int v) { }\n"
+            "    int x;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+    }
+
+    //sc7: `this` inside a struct constructor binds to the struct type
+    //and the member assignment resolves (0.9.11 T2.7).
+    void TestStructCtorThisBinds() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    public S(int v) { this.x = v; }\n"
+            "    int x;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+    }
+
+    //sc8: the this-position diagnostic now names struct alongside class
+    //and enum (0.9.11 T2.7).
+    void TestThisOutsideMethodText() {
+        auto out = compileOne(
+            "int main() {\n"
+            "    this.x = 1;\n"
+            "    return 0;\n"
+            "}\n");
+        QCOMPARE(countErrorsContaining(out,
+            "'this' can only be used inside a class, struct, or enum "
+            "method."), 1);
+    }
+
+    //sc9: a value return in a struct constructor gets the constructor
+    //wording, not the plain no-return-function wording (T2.8).
+    void TestStructCtorRejectsReturnValue() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    public S() { return 5; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out,
+            "constructor \"S\" cannot return a value"), 1);
+    }
+
+    //sc10/sc11: a struct constructor default that references this —
+    //explicitly or through a bare field — is rejected at the declaration
+    //like the class form (T2.8).
+    void TestStructCtorDefaultRejectsThis() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    public S(int v = this.x) { }\n"
+            "    int x;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out,
+            "cannot reference 'this'"), 1);
+        auto out2 = compileOne(
+            "struct S {\n"
+            "    public S(int v = x) { }\n"
+            "    int x;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out2,
+            "cannot reference 'this'"), 1);
+    }
+
+    //sc12: super(...) inside a struct constructor — structs have no
+    //inheritance; the diagnostic names the class-only rule (T2.8).
+    void TestStructCtorRejectsSuper() {
+        auto out = compileOne(
+            "struct S {\n"
+            "    public S() { super(); }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out,
+            "'super' is only valid inside a class constructor"), 1);
     }
 };
 

@@ -11,14 +11,22 @@ namespace nlang
 {
 
 //0.9.11 D1: relaxed declaration-shape predicate for the constructor
-//contract — a class member function whose name equals the class name,
-//regardless of flags (the contract must also see the static/virtual/
-//const spellings the no-return productions admit).
+//contract — a member function whose name equals the enclosing type's
+//name, regardless of flags (the contract must also see the static/
+//virtual/const spellings the no-return productions admit). 0.9.11 D2:
+//struct constructors share the shape rule; the struct member productions
+//have no return-type slot, so the contract's return checks are inert
+//there and only the flag contract applies.
 bool StatementResolveAccessor::IsCtorNameShape(SnFunction& sn)
 {
 	auto* pParent = sn.Parent();
-	return pParent && pParent->Kind() == NK_ClassDecl
-		&& sn.Name() == static_cast<SnClassDecl*>(pParent)->Name();
+	if (!pParent)
+		return false;
+	if (pParent->Kind() == NK_ClassDecl)
+		return sn.Name() == static_cast<SnClassDecl*>(pParent)->Name();
+	if (pParent->Kind() == NK_StructDecl)
+		return sn.Name() == static_cast<SnStructDecl*>(pParent)->Name();
+	return false;
 }
 
 //P3 review: true when sn is a constructor — an instance member function
@@ -76,6 +84,26 @@ void StatementResolveAccessor::CheckCtorDeclarationContract(SnFunction &sn)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"function \"%s\" must declare a return type",
 			sn.Name().c_str());
+	}
+}
+
+//0.9.11 D2: struct member contract. A struct declares fields and
+//constructors only: a function member whose name differs from the
+//struct's is not a constructor and is rejected outright. The flag
+//contract (no static/virtual/const) is shared with class — IsCtorNameShape
+//covers struct members, so CheckCtorDeclarationContract emits the single
+//flag diagnostic when the member resolves. The no-return shape is
+//structural here: the struct member productions have no return-type slot.
+//Imported stubs are producer-validated and skip the name check.
+void StatementResolveAccessor::CheckStructCtorContract(
+	SnStructDecl &owner, SnFunction &sn)
+{
+	if (sn.IsImported())
+		return;
+	if (sn.Name() != owner.Name()) {
+		m_Env.Log(CLL_Error, sn.Location(),
+			"struct \"%s\" may only declare fields and constructors",
+			owner.Name().c_str());
 	}
 }
 

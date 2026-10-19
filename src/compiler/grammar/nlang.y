@@ -255,7 +255,7 @@ static bool CollectQualifiedSegments(
 	nlang::PtrList<nlang::SnFunction> *	v_pEnumMethodList;
 	nlang::SnStructDecl *				v_pStructDecl;
 	nlang::SnStructField *				v_pStructField;
-	nlang::PtrList<nlang::SnField> *	v_pStructFieldList;
+	nlang::PtrList<nlang::SnField> *	v_pStructMemberList;
 	nlang::SnClassDecl *				v_pClassDecl;
 	nlang::PtrList<nlang::SnField> *	v_pClassMemberList;
 	nlang::SnInterfaceDecl *			v_pInterfaceDecl;
@@ -335,7 +335,9 @@ static bool CollectQualifiedSegments(
 %type <v_pFunction>		EnumMethod
 %type <v_pStructDecl>		StructDecl
 %type <v_pStructField>		StructField
-%type <v_pStructFieldList>	StructFieldList
+%type <v_pField>			StructMember
+%type <v_pFunction>		StructCtor
+%type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
 %type <v_pInterfaceDecl>	InterfaceDecl
 %type <v_pNameExprList>		ImplementsOpt NameList
@@ -1266,21 +1268,75 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 /*
 Struct type declaration.
 */
-StructDecl:	KT_Struct TT_Identifier '{' StructFieldList '}' {
+StructDecl:	KT_Struct TT_Identifier '{' StructMemberList '}' {
 					$$ = new SnStructDecl($2, $4, @1);
 				} ;
 
-StructFieldList:	StructFieldList StructField {
+StructMemberList:	StructMemberList StructMember {
 					$1->push_back($2);
 					$$ = $1;
 				} |
-					StructField {
+					StructMember {
 					$$ = new PtrList<SnField>();
 					$$->push_back($1);
 				} ;
 
+StructMember:	StructField {
+					$$ = $1;
+				} |
+					StructCtor {
+					$$ = $1;
+				} ;
+
 StructField:	Type TT_Identifier ';' {
 					$$ = new SnStructField($1, $2, @1);
+				} ;
+
+//0.9.11 D2: struct constructor spelling -- no return type, the same
+//member shape as the class constructor arms; whether the member name
+//matches the struct (constructor) or not is decided by the declaration
+//contract. LALR: at the member position '(' after the leading identifier
+//separates the constructor from the field's `Type name ';'` (after a
+//reduced Type the parser needs a name token, not '('). The classic
+//AccessType layer cannot prefix these arms the way it prefixes
+//ClassMember (whose every arm shares the AccessType prefix): its epsilon
+//would have to reduce on the TT_Identifier lookahead that the field's
+//Type->TT_Identifier shift claims, and bison's shift default would hide
+//default-access constructors. The access slot is therefore split the way
+//TopModHeader splits it: AccessTypeNonEmpty never derives empty, the bare
+//arms carry FA_Default in the action, and NodeFlagsNonEmpty (never
+//empty) covers one-or-more modifiers.
+StructCtor:	TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction(FA_Default, NF_NONE, nullptr, $1, $3, @1);
+					if ($5 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($5);
+					$$ = func;
+				} |
+					NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction(FA_Default, $1, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
+					$$ = func;
+				} |
+					AccessTypeNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
+					$$ = func;
+				} |
+					AccessTypeNonEmpty NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
 				} ;
 
 

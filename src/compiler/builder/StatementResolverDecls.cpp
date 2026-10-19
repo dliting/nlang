@@ -38,9 +38,11 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 
 //P3 review: walk an expression subtree looking for a `this` reference —
 //an explicit SnThisExpr, or a bare identifier that resolved to a class
-//field (the implicit this.field binding; NK_ClassField distinguishes it
-//from formals/locals, and bare names cannot reach another class's
-//fields). Same traversal contract as ReferencesFormal above.
+//or struct field (the implicit this.field binding; NK_ClassField/
+//NK_StructField distinguishes it from formals/locals, and bare names
+//cannot reach another type's fields). Same traversal contract as
+//ReferencesFormal above. 0.9.11 D2: struct constructor defaults join
+//the rejection surface.
 static bool ReferencesThis(SnExpression& expr)
 {
 	if (expr.Kind() == NK_ThisExpr)
@@ -48,7 +50,8 @@ static bool ReferencesThis(SnExpression& expr)
 	if (expr.Kind() == NK_IdentifierExpr) {
 		auto& id = static_cast<SnIdentifierExpr&>(expr);
 		auto* pField = id.Field();
-		if (pField && pField->Kind() == NK_ClassField)
+		if (pField && (pField->Kind() == NK_ClassField
+			|| pField->Kind() == NK_StructField))
 			return true;
 	}
 	for (auto& child : expr.Children()) {

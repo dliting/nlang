@@ -103,12 +103,14 @@ void StatementResolveAccessor::Access(SnSuperCallStmt &sn)
 	assert(m_pVisitor);
 	sn.AddFlags(NF_Resolved);
 
-	//1. Must be inside a constructor of a user class.
+	//1. Must be inside a constructor of a user class. 0.9.11 D2: this
+	//also fires for super(...) inside a struct constructor — structs
+	//have no inheritance, and the text names the class-only rule.
 	if (!m_pCurrClass || !m_pCurrType
 		|| m_pCurrType->Kind() != NK_Function
 		|| m_pCurrType->Name() != m_pCurrClass->Name()) {
 		m_Env.Log(CLL_Error, sn.Location(),
-			"super(...) is only valid inside a constructor");
+			"'super' is only valid inside a class constructor");
 		return;
 	}
 	//2. Direct parent must exist (Object and extension-less classes

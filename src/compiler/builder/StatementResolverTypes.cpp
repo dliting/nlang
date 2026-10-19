@@ -39,6 +39,17 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 		RejectTypeNameVariable(field.Name(), sn, sn, field.Location());
 		field.Type()->Accept(*m_pVisitor);
 	}
+	//0.9.11 D2: struct constructors. The member contract rejects plain
+	//function members; the flag contract is shared with class through
+	//IsCtorNameShape and fires from CheckCtorDeclarationContract when the
+	//member resolves. Body scoping (this/super) reads the AST parent
+	//chain, not a tracker member: m_pCurrClass stays null here, which is
+	//exactly what rejects super(...) inside a struct constructor.
+	for (auto &ctor : sn.Ctors())
+	{
+		CheckStructCtorContract(sn, ctor);
+		ctor.Accept(*m_pVisitor);
+	}
 	sn.AddFlags(NF_Resolved);
 }
 
