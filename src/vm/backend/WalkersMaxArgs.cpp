@@ -252,7 +252,8 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
     //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
-    if (invoke.CtorClass()) {
+    //0.9.11 D2: the struct twin joins (same claim layout).
+    if (invoke.CtorClass() || invoke.CtorStruct()) {
         MaxArgsCtorInvoke(invoke, maxArgs);
         return;
     }
@@ -297,7 +298,11 @@ void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
     for (auto& param : invoke.Params()) ++argCount;
     //P3: omitted trailing formals stage their defaults, so the claim
     //covers the ctor's full formal count.
-    SnFunction* pCtorFn = FindCtorFunction(invoke.CtorClass());
+    //0.9.11 D2: struct invokes carry the selected ctor in the AST; the
+    //registered filter keeps the walker in step with codegen.
+    SnFunction* pCtorFn = invoke.CtorStruct()
+        ? RegisteredCtor(invoke.CtorFunction())
+        : FindCtorFunction(invoke.CtorClass());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
@@ -353,7 +358,11 @@ void VmBackend::MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs) {
         if (&arg == newExpr.ClassName()) continue;
         ++argCount;
     }
-    SnFunction* pCtorFn = FindCtorFunction(newExpr.ClassDecl());
+    //0.9.11 D2: struct new-expressions carry the selected ctor in the
+    //AST (see MaxArgsCtorInvoke for the registered-filter rationale).
+    SnFunction* pCtorFn = newExpr.StructDecl()
+        ? RegisteredCtor(newExpr.CtorFunction())
+        : FindCtorFunction(newExpr.ClassDecl());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);

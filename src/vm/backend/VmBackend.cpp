@@ -44,8 +44,14 @@ void VmBackend::ForEachDeclNode(SnField& parent,
             fn(method);
         return;
     }
-    //Only namespace/class/interface own a member list to descend. Structs
-    //hold fields only; fields/params/values are leaves here.
+    //0.9.11 D2: struct constructors join the function walks (a struct
+    //holds fields + constructors, no general methods; fields are leaves).
+    if (parent.Kind() == NK_StructDecl) {
+        for (auto& ctor : static_cast<SnStructDecl&>(parent).Ctors())
+            fn(ctor);
+        return;
+    }
+    //Only namespace/class/interface own a member list to descend.
     if (parent.Kind() != NK_Namespace
         && parent.Kind() != NK_ClassDecl
         && parent.Kind() != NK_InterfaceDecl)
@@ -59,15 +65,19 @@ void VmBackend::ForEachDeclNode(SnField& parent,
 }
 
 void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
-    //Enum methods (enum is not a SnFunctionParentField).
-    if (parent.Kind() == NK_EnumDecl) {
-        for (auto& method : static_cast<SnEnumDecl&>(parent).Methods()) {
-            if (!method.Body() && !method.ContainFlags(NF_Native))
-                continue;
-            auto it = m_funcIndexMap.find(&method);
+    //Function lists outside SnFunctionParentField: enum methods and
+    //(0.9.11 D2) struct constructors — both walk through ForEachDeclNode.
+    //m_pCurrClass stays unset for structs: super() is rejected inside a
+    //struct constructor body (T2.8), so the super path never reads it.
+    if (parent.Kind() == NK_EnumDecl || parent.Kind() == NK_StructDecl) {
+        ForEachDeclNode(parent, [this](SnField& member) {
+            auto& func = static_cast<SnFunction&>(member);
+            if (!func.Body() && !func.ContainFlags(NF_Native))
+                return;
+            auto it = m_funcIndexMap.find(&func);
             if (it != m_funcIndexMap.end())
-                GenerateFunction(method, it->second);
-        }
+                GenerateFunction(func, it->second);
+        });
         return;
     }
     if (parent.Kind() != NK_Namespace
@@ -113,6 +123,32 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
             func.ReturnType()->Field(), LeafSlotResolvers());
 }
 
+//True when the frame carries a slot-0 `this` receiver: class/struct/enum
+//methods only. 0.9.10: a static method has no receiver — its frame starts
+//at the first formal, matching the free-function layout it is called with.
+//0.9.11 D2: struct constructors join (structs hold no general methods, so
+//only ctors reach this predicate).
+static bool HasThisReceiver(const SnFunction& func) {
+    return func.Parent()
+        && (func.Parent()->Kind() == NK_ClassDecl
+            || func.Parent()->Kind() == NK_StructDecl
+            || func.Parent()->Kind() == NK_EnumDecl)
+        && !func.ContainFlags(NF_Static);
+}
+
+//GC kind of the `this` slot. Phase 12: an enum method's `this` is the enum
+//VALUE (int32), not a heap reference — RTK_Class here would make GC root
+//scanning treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
+//0.9.11 D2: a struct constructor's `this` is the struct heap handle —
+//RTK_Struct keeps GC root scanning on the right pool.
+static uint8_t ThisReceiverKind(const SnFunction& func) {
+    if (func.Parent()->Kind() == NK_EnumDecl)
+        return RTK_Int32;
+    if (func.Parent()->Kind() == NK_StructDecl)
+        return RTK_Struct;
+    return RTK_Class;
+}
+
 //Phase 9f: native function declaration (`native int f(...);`). No
 //bytecode — the VM dispatches by name through the host-registered
 //native table (VmExecutor::RegisterNative). The record carries only
@@ -123,10 +159,7 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     compiledFunc.isNative = true;
     //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
-    bool isMethod = func.Parent()
-        && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_EnumDecl)
-        && !func.ContainFlags(NF_Static);
+    bool isMethod = HasThisReceiver(func);
     //Frame-layout locals (this + one per formal) with the true runtime
     //kinds. The native path emits no bytecode, so this is metadata-only —
     //the GC never scans a native function's frame (CallNative stages its
@@ -136,14 +169,8 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     //containers), so a reference cell must carry the reference kind, not
     //the int32 placeholder. Mirrors AllocParamsAndDefaults (the non-native
     //path).
-    if (isMethod) {
-        //Phase 12: an enum method's `this` is the enum VALUE (int32), not
-        //a heap reference — RTK_Class here would make GC root scanning
-        //treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
-        uint8_t thisKind =
-            (func.Parent()->Kind() == NK_EnumDecl) ? RTK_Int32 : RTK_Class;
-        AllocLocal("__this", kFrameSlotBytes, thisKind, true);
-    }
+    if (isMethod)
+        AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
     for (auto& param : func.Params())
         AllocLocal(param.Name(), kFrameSlotBytes,
                    RuntimeTypeKind(param.EvalDataType()), true);
@@ -176,21 +203,11 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
     //0.9.10: the serialized static flag drives name-based dispatch
     //(FindMethodByName skips statics) and mirrors the frame layout below.
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
-    // If this is a class or enum method, allocate slot 0 for 'this'.
-    //0.9.10: a static method has no receiver — its frame starts at the
-    //first formal, matching the free-function layout it is called with.
-    bool isMethod = func.Parent()
-        && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_EnumDecl)
-        && !func.ContainFlags(NF_Static);
-    if (isMethod) {
-        //Phase 12: an enum method's `this` is the enum VALUE (int32), not
-        //a heap reference — RTK_Class here would make GC root scanning
-        //treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
-        uint8_t thisKind =
-            (func.Parent()->Kind() == NK_EnumDecl) ? RTK_Int32 : RTK_Class;
-        AllocLocal("__this", kFrameSlotBytes, thisKind, true);
-    }
+    // If this is a class, struct, or enum method, allocate slot 0 for
+    // 'this' (see HasThisReceiver/ThisReceiverKind).
+    bool isMethod = HasThisReceiver(func);
+    if (isMethod)
+        AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
 
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
@@ -421,8 +438,14 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
         t.localOffset = it->second;
         return t;
     }
-    if (auto* pOwner = OwningClassOfMemberField(field)) {
-        int off = FindClassFieldOffset(*pOwner, field->Name());
+    if (auto* pOwner = OwningTypeOfMemberField(field)) {
+        //0.9.11 D2: struct fields flatten through the struct helper (the
+        //class helper walks the inheritance chain, which structs lack).
+        int off = (field->Kind() == NK_StructField)
+            ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
+                              field->Name())
+            : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
+                                   field->Name());
         if (off >= 0) {
             t.kind = BareIdTarget::ThisField;
             t.owner = pOwner;

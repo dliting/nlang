@@ -1,0 +1,7 @@
+struct S {
+    int a;
+    public f() { }
+}
+int main() {
+    return 0;
+}

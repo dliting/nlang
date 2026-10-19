@@ -170,6 +170,11 @@ struct_nested 7
 struct_nested_assign 10
 struct_nested_param 5
 struct_nested_mixed 42
+struct_ctor_basic 0
+struct_ctor_defaults 0
+struct_ctor_this_bare_field 0
+err_struct_ctor_super compile_error 'super' is only valid inside a class constructor
+err_struct_method compile_error struct "S" may only declare fields and constructors
 
 # --- class ---
 class_basic 42

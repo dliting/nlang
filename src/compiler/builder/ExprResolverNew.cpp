@@ -70,17 +70,39 @@ size_t ExprResolveAccessor::CountPositionalCtorArgs(SnInvokeExpr &sn)
 	return argCount;
 }
 
-//Expected ctor arity range. User classes look up the ctor SnFunction;
-//the rest are intrinsic ctor stubs registered by
-//VmBackend::RegisterBuiltinClasses (arity excludes `this`). requiredArity
-//counts the formals without a default expression, totalArity all of them;
-//both stay equal where defaults cannot exist (builtins/generics).
-//False = the class has no constructor.
-bool ExprResolveAccessor::FindCtorParamRange(SnClassDecl *pClassDecl,
+//Arity of one ctor declaration: requiredArity counts the formals without a
+//default expression, totalArity all of them.
+static void CountCtorArity(const SnFunction &ctor,
+	size_t &requiredArity, size_t &totalArity)
+{
+	totalArity = ctor.Params().size();
+	requiredArity = totalArity;
+	for (auto &param : ctor.Params())
+	{
+		if (param.Value())
+			--requiredArity;
+	}
+}
+
+//Expected ctor arity range. User classes and structs take the same
+//declaration the call site binds to (SelectCtorFunction — the first
+//declaration-order ctor; T6 swaps in overload matching). The rest are
+//intrinsic ctor stubs registered by VmBackend::RegisterBuiltinClasses
+//(arity excludes `this`); requiredArity and totalArity stay equal where
+//defaults cannot exist (builtins/generics). False = no constructor.
+bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	size_t &requiredArity, size_t &totalArity)
 {
 	requiredArity = 0;
 	totalArity = 0;
+	if (auto *pCtor = SelectCtorFunction(pTypeDecl))
+	{
+		CountCtorArity(*pCtor, requiredArity, totalArity);
+		return true;
+	}
+	if (pTypeDecl->Kind() != NK_ClassDecl)
+		return false;  //struct without a constructor
+	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
 	if (IsGenericClassDecl(pClassDecl))
 		return true;  //List/Dict ctor stubs take only `this`
 	if (pClassDecl->IsBuiltinClass())
@@ -93,26 +115,39 @@ bool ExprResolveAccessor::FindCtorParamRange(SnClassDecl *pClassDecl,
 			requiredArity = totalArity = 1;
 		return true;
 	}
-	for (auto& member : pClassDecl->Members())
+	return false;
+}
+
+//0.9.11 D2: the constructor a call site binds to. Structs take the first
+//declaration-order Ctors() entry; user classes the first same-name
+//non-static member (a same-name static lives in the static namespace,
+//0.9.10 D2.4). Builtin and generic classes answer null — their ctor is an
+//intrinsic stub living only in the CompiledClass, reached through
+//FindCtorFunction at codegen; imported stubs answer null too (their AST
+//carries no ctor member — T5 wires the cross-module path). Until T6
+//replaces the first-scan with overload matching, codegen and the frame
+//walkers must use this AST-recorded selection, never a fresh scan.
+SnFunction *ExprResolveAccessor::SelectCtorFunction(SnField *pTypeDecl)
+{
+	if (pTypeDecl->Kind() == NK_StructDecl)
 	{
-		//0.9.10 D2.4: a static method may share the class name — it lives
-		//in the static namespace and is never the constructor.
+		for (auto &ctor : static_cast<SnStructDecl*>(pTypeDecl)->Ctors())
+			return &ctor;
+		return nullptr;
+	}
+	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
+	if (IsGenericClassDecl(pClassDecl) || pClassDecl->IsBuiltinClass())
+		return nullptr;
+	for (auto &member : pClassDecl->Members())
+	{
 		if (member.Kind() == NK_Function
 			&& member.Name() == pClassDecl->Name()
 			&& !member.ContainFlags(NF_Static))
 		{
-			auto& ctorFn = static_cast<SnFunction&>(member);
-			totalArity = ctorFn.Params().size();
-			requiredArity = totalArity;
-			for (auto& param : ctorFn.Params())
-			{
-				if (param.Value())
-					--requiredArity;
-			}
-			return true;
+			return static_cast<SnFunction*>(&member);
 		}
 	}
-	return false;
+	return nullptr;
 }
 
 //Constructor-call arity check for the ctor-invoke forms (bare and
@@ -123,22 +158,26 @@ bool ExprResolveAccessor::FindCtorParamRange(SnClassDecl *pClassDecl,
 //never a required one. Pre-fix a mismatched call compiled clean: missing
 //args read uninitialized callParam slots (a defaulted param arrived as
 //garbage), extras were silently dropped, named args hit codegen's
-//unhandled-kind internal error. Imported class stubs are skipped — their
-//ctor lives only in the merged CompiledClass, not in AST members.
+//unhandled-kind internal error. Imported type stubs are skipped — their
+//ctor lives only in the merged CompiledClass/CompiledStruct, not in AST
+//members.
 void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
-	SnClassDecl *pClassDecl, size_t argCount)
+	SnField *pTypeDecl, size_t argCount)
 {
-	if (pClassDecl->IsImported())
+	if (pTypeDecl->IsImported())
 		return;
+	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
+		? "struct" : "class";
 	size_t requiredArity = 0;
 	size_t totalArity = 0;
-	if (!FindCtorParamRange(pClassDecl, requiredArity, totalArity))
+	if (!FindCtorParamRange(pTypeDecl, requiredArity, totalArity))
 	{
 		if (argCount != 0)
 			m_Env.Log(CLL_Error, pLoc,
-				"class \"%s\" has no constructor; %s() cannot take "
+				"%s \"%s\" has no constructor; %s() cannot take "
 				"arguments",
-				pClassDecl->Name().c_str(), pClassDecl->Name().c_str());
+				kindWord, pTypeDecl->Name().c_str(),
+				pTypeDecl->Name().c_str());
 	}
 	else if (argCount < requiredArity || argCount > totalArity)
 	{
@@ -146,23 +185,23 @@ void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
 		{
 			m_Env.Log(CLL_Error, pLoc,
 				"constructor of \"%s\" expects %zu argument(s), got %zu",
-				pClassDecl->Name().c_str(), requiredArity, argCount);
+				pTypeDecl->Name().c_str(), requiredArity, argCount);
 		}
 		else
 		{
 			m_Env.Log(CLL_Error, pLoc,
 				"constructor of \"%s\" expects between %zu and %zu "
 				"argument(s), got %zu",
-				pClassDecl->Name().c_str(), requiredArity, totalArity,
+				pTypeDecl->Name().c_str(), requiredArity, totalArity,
 				argCount);
 		}
 	}
 }
 
 void ExprResolveAccessor::CheckNewExprCtorArity(SnNewExpr &sn,
-	SnClassDecl *pClassDecl)
+	SnField *pTypeDecl)
 {
-	CheckCtorArgCount(sn.Location(), pClassDecl,
+	CheckCtorArgCount(sn.Location(), pTypeDecl,
 		CountPositionalCtorArgs(sn));
 }
 
@@ -181,6 +220,32 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 			GetBuiltinClassDecl(name, fieldExpr.Location()));
 }
 
+//Binds the resolved type declaration to the new-expression. Classes keep
+//the Phase 13 func-type rejection (func values come only from function or
+//method references, never by-name construction); structs join directly
+//(0.9.11 D2). False = the diagnostic was logged, abort resolution.
+bool ExprResolveAccessor::BindNewExprType(SnNewExpr &sn, SnField &typeField)
+{
+	if (typeField.Kind() == NK_ClassDecl)
+	{
+		auto pClassDecl = static_cast<SnClassDecl*>(&typeField);
+		if (IsGenericClassDecl(pClassDecl)
+			&& pClassDecl->BaseName() == kBuiltinFuncTypeName)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"func types cannot be constructed by name; bind a "
+				"function or method reference");
+			return false;
+		}
+		sn.ClassDecl(pClassDecl);
+	}
+	else
+	{
+		sn.StructDecl(static_cast<SnStructDecl*>(&typeField));
+	}
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnNewExpr &sn)
 {
 	assert(!sn.IsResolved());
@@ -193,30 +258,26 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	if (!pClassName->IsResolved())
 		return;
 
-	auto pClassField = pClassName->Field();
-	if (!pClassField || pClassField->Kind() != NK_ClassDecl)
+	auto pTypeField = pClassName->Field();
+	//0.9.11 D2: struct types join classes on the new-expression path (the
+	//direct-init `S name(args);` spelling decomposes into one of these).
+	if (!pTypeField
+		|| (pTypeField->Kind() != NK_ClassDecl
+			&& pTypeField->Kind() != NK_StructDecl))
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
-			"\"%s\" is not a class type.", pClassName->ToString().c_str());
+			"\"%s\" is not a class or struct type.",
+			pClassName->ToString().c_str());
 		return;
 	}
 
-	auto pClassDecl = static_cast<SnClassDecl*>(pClassField);
-	//Phase 13: func types are structural — values come only from function
-	//or method references, so there is no by-name construction.
-	if (IsGenericClassDecl(pClassDecl)
-		&& pClassDecl->BaseName() == kBuiltinFuncTypeName)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"func types cannot be constructed by name; bind a function "
-			"or method reference");
+	if (!BindNewExprType(sn, *pTypeField))
 		return;
-	}
-	sn.ClassDecl(pClassDecl);
-	sn.EvalDataType(pClassDecl);
+	sn.CtorFunction(SelectCtorFunction(pTypeField));
+	sn.EvalDataType(pTypeField);
 	sn.AddFlags(NF_Resolved);
 
-	CheckNewExprCtorArity(sn, pClassDecl);
+	CheckNewExprCtorArity(sn, pTypeField);
 
 	if (!ResolveExpressionList(sn.Args()))
 		return;
@@ -263,25 +324,29 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	BindArrayTypeToken(sn);
 }
 
-//0.9.0 (Phase A): resolve a bare name to a class the way
-//Access(SnNewExpr&) resolves its class name (builtin table first, then
+//0.9.0 (Phase A): resolve a bare name to a class or struct the way
+//Access(SnNewExpr&) resolves its type name (builtin table first, then
 //the scope chain), but as a silent probe — a miss must not add a second
 //diagnostic next to the caller's own failure text. Null = the name does
-//not address a class (the caller falls through to its generic failure).
-SnClassDecl *ExprResolveAccessor::ProbeCtorClass(const std::string &name,
+//not address a constructible type (the caller falls through to its
+//generic failure). 0.9.11 D2: structs join classes as targets.
+SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 	const ISourceLocation *pLoc)
 {
 	if (IsBuiltinClassName(name))
 		return GetBuiltinClassDecl(name, pLoc);
 	auto *pField = FindFieldInAncestor(name, *m_pContext, *m_pAccessor,
 		Flags());
-	if (pField && pField->Kind() == NK_ClassDecl)
-		return static_cast<SnClassDecl *>(pField);
+	if (pField && (pField->Kind() == NK_ClassDecl
+		|| pField->Kind() == NK_StructDecl))
+	{
+		return pField;
+	}
 	//0.9.0: `P(args)` with `using P = Point;` — the invoke callee sits in
 	//expression position, where the alias pre-pass never expands; probe
 	//the TU alias table last. Silent on a miss: the caller owns the
 	//generic failure text.
-	return ProbeAliasClass(name, pLoc);
+	return ProbeAliasType(name, pLoc);
 }
 
 //Bare `Foo(args)` without new: bind the invoke as a constructor call.
@@ -292,9 +357,9 @@ SnClassDecl *ExprResolveAccessor::ProbeCtorClass(const std::string &name,
 //generic failure.
 bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 {
-	auto *pClassDecl = ProbeCtorClass(snInvoke.CalleeName(),
+	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
 		snInvoke.Location());
-	if (!pClassDecl)
+	if (!pTypeDecl)
 	{
 		//0.9.0: List/Dict exist only as typed instantiations — no class
 		//declaration a probe could find. Name the fix instead of letting
@@ -310,12 +375,18 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 		}
 		return false;
 	}
-	//ResolveFieldExprAs carries the class in both Field() (member chains
+	//ResolveFieldExprAs carries the type in both Field() (member chains
 	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType
-	//(SnClassDecl is its own type).
-	ResolveFieldExprAs(snInvoke, pClassDecl);
-	snInvoke.CtorClass(pClassDecl);
-	CheckCtorArgCount(snInvoke.Location(), pClassDecl,
+	//(SnClassDecl/SnStructDecl is its own type). 0.9.11 D2: the kind
+	//decides which ctor slot the invoke carries; CtorFunction() records
+	//the selected constructor for codegen and the frame walkers.
+	ResolveFieldExprAs(snInvoke, pTypeDecl);
+	if (pTypeDecl->Kind() == NK_StructDecl)
+		snInvoke.CtorStruct(static_cast<SnStructDecl*>(pTypeDecl));
+	else
+		snInvoke.CtorClass(static_cast<SnClassDecl*>(pTypeDecl));
+	snInvoke.CtorFunction(SelectCtorFunction(pTypeDecl));
+	CheckCtorArgCount(snInvoke.Location(), pTypeDecl,
 		CountPositionalCtorArgs(snInvoke));
 	return true;
 }
@@ -323,13 +394,15 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 //Module-qualified `shapes.Point(args)` without new: the module table has
 //no function of the name and the type table does. Member wiring mirrors
 //BindQualifiedInvoke (direct field/type slots; the caller's
-//FinishConsumedMember adds the resolved flags).
+//FinishConsumedMember adds the resolved flags). 0.9.11 D2: structs join
+//classes as module-qualified ctor targets.
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
 	auto *pType = m_Env.Registry().FindModuleType(modulePath,
 		invoke.CalleeName());
-	if (!pType || pType->Kind() != NK_ClassDecl)
+	if (!pType
+		|| (pType->Kind() != NK_ClassDecl && pType->Kind() != NK_StructDecl))
 	{
 		//0.9.0: the qualified twin of the bare-name reject. Builtin generics
 		//own no module declaration (FindModuleType scans unit-owned AST
@@ -350,12 +423,15 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		}
 		return false;
 	}
-	auto *pClassDecl = static_cast<SnClassDecl *>(pType);
-	ResolveFieldExprAs(invoke, pClassDecl);
-	invoke.CtorClass(pClassDecl);
-	snMember.m_pField = pClassDecl;
-	snMember.EvalDataType(pClassDecl);
-	CheckCtorArgCount(invoke.Location(), pClassDecl,
+	ResolveFieldExprAs(invoke, pType);
+	if (pType->Kind() == NK_StructDecl)
+		invoke.CtorStruct(static_cast<SnStructDecl*>(pType));
+	else
+		invoke.CtorClass(static_cast<SnClassDecl*>(pType));
+	invoke.CtorFunction(SelectCtorFunction(pType));
+	snMember.m_pField = pType;
+	snMember.EvalDataType(pType);
+	CheckCtorArgCount(invoke.Location(), pType,
 		CountPositionalCtorArgs(invoke));
 	return true;
 }

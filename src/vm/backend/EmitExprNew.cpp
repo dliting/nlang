@@ -20,8 +20,15 @@ namespace nlang {
 
 void VmBackend::Access(SnNewExpr& expr) {
     auto& newExpr = static_cast<SnNewExpr&>(expr);
-    EmitNewObject(newExpr.ClassDecl(), newExpr.Args(), newExpr.ClassName(),
-                  m_resultOffset);
+    //0.9.11 D2: exactly one of the two type slots is bound by the resolver
+    //(the direct-init `S name(args);` spelling decomposes into a struct-
+    //typed new expression); CtorFunction() carries the selected ctor.
+    if (auto* pStructDecl = newExpr.StructDecl())
+        EmitStructCtor(*pStructDecl, newExpr.CtorFunction(), newExpr.Args(),
+                       newExpr.ClassName(), m_resultOffset);
+    else
+        EmitNewObject(newExpr.ClassDecl(), newExpr.Args(),
+                      newExpr.ClassName(), m_resultOffset);
 }
 
 //Shared new-object emission: `new Foo(args)` and the 0.9.0 ctor-invoke
@@ -48,8 +55,9 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
         static_cast<uint16_t>(ClassSlotFor(*pClassDecl));
     const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
     if (ctorIdx != 0xFFFF) {
-        EmitCtorInvocation(pClassDecl, ctorArgs, pSkipArg, *m_pCurrEmitter,
-                           classIdx, ctorIdx, resultOffset);
+        EmitCtorInvocation(FindCtorFunction(pClassDecl), ctorArgs, pSkipArg,
+                           *m_pCurrEmitter, ctorIdx,
+                           CtorAlloc{false, classIdx, 0}, resultOffset);
         return;
     }
 
@@ -59,19 +67,23 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     emitter.EmitUint16(classIdx);
 }
 
-//The class has a ctor — claim {this, formals...} in evalArea, emit one
-//FormalBinding per formal (caller args first, then the defaults of the
-//omitted trailing formals — P3), OP_New into resultOffset, bulk-copy the
-//claim to callParamBase, then OP_CallMethodDirect on the ctor. pSkipArg
-//is the class-name child the NewExpr arg view carries (skipped by
-//identity; null for the invoke twin). The resolver rejects named/out
-//args and range-checks the count, so every supplied entry is a
-//positional value expression.
-void VmBackend::EmitCtorInvocation(SnClassDecl* pClassDecl,
+//The type has a registered ctor — claim {this, formals...} in evalArea,
+//emit one FormalBinding per formal (caller args first, then the defaults
+//of the omitted trailing formals — P3), allocate the object into
+//resultOffset (OP_New for a class, OP_AllocStruct for a struct — see
+//CtorAlloc), bulk-copy the claim to callParamBase, then
+//OP_CallMethodDirect on the ctor. pSkipArg is the class-name child the
+//NewExpr arg view carries (skipped by identity; null for the invoke
+//twin). The resolver rejects named/out args and range-checks the count,
+//so every supplied entry is a positional value expression. pCtorFn is
+//the AST ctor for the default-binding pass; null for builtins/generics
+//and for shapes the front end never binds one for.
+void VmBackend::EmitCtorInvocation(SnFunction* pCtorFn,
                                    SnExpressionList& ctorArgs,
                                    SnExpression* pSkipArg,
-                                   BytecodeEmitter& emitter, uint16_t classIdx,
-                                   uint16_t ctorIdx, uint16_t resultOffset) {
+                                   BytecodeEmitter& emitter, uint16_t ctorIdx,
+                                   const CtorAlloc& alloc,
+                                   uint16_t resultOffset) {
     std::vector<SnExpression*> callerArgs;
     for (auto& param : ctorArgs) {
         if (&param == pSkipArg) continue;
@@ -83,7 +95,6 @@ void VmBackend::EmitCtorInvocation(SnClassDecl* pClassDecl,
     //pre-P3 positional shape. No kMaxFuncParams re-check: the
     //declaration-time cap already bounds a ctor's formal count.
     std::vector<FormalBinding> bindings;
-    SnFunction* pCtorFn = FindCtorFunction(pClassDecl);
     const size_t totalFormals = BuildCtorBindings(pCtorFn, callerArgs,
                                                   bindings);
     //Recursion guard shared with the function/method default emission
@@ -105,9 +116,39 @@ void VmBackend::EmitCtorInvocation(SnClassDecl* pClassDecl,
                          UINT16_MAX);
     //Allocate to resultOffset (no conflict with bindings — they're in
     //evalArea), stage the object as claim[0], and invoke the ctor.
-    EmitCtorCallTail(resultOffset, claimBase, n, classIdx, ctorIdx,
-                     emitter);
+    EmitCtorCallTail(resultOffset, claimBase, n, alloc, ctorIdx, emitter);
     //claim releases on scope exit.
+}
+
+//0.9.11 D2/D3: struct construction lowering (see VmBackend.h). The
+//allocator is OP_AllocStruct; the claim layout, this staging, and the
+//dispatch tail are the class path's (EmitCtorInvocation/EmitCtorCallTail).
+//An unregistered selected ctor (body-less, non-native) mirrors the class
+//CtorSlotFor 0xFFFF shape: allocate only — the arguments are not
+//evaluated and no call is emitted (D3: the call forms still compile).
+void VmBackend::EmitStructCtor(SnStructDecl& structDecl,
+                               SnFunction* pCtorFn,
+                               SnExpressionList& ctorArgs,
+                               SnExpression* pSkipArg,
+                               uint16_t resultOffset) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    const uint16_t structIdx =
+        static_cast<uint16_t>(StructSlotFor(structDecl));
+    const uint16_t fieldCount =
+        static_cast<uint16_t>(structDecl.FieldCount());
+    SnFunction* pRegistered = RegisteredCtor(pCtorFn);
+    if (!pRegistered) {
+        emitter.Emit(OpCode::OP_AllocStruct);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(structIdx);
+        emitter.EmitUint16(fieldCount);
+        return;
+    }
+    const uint16_t ctorIdx =
+        static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
+    EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, emitter, ctorIdx,
+                       CtorAlloc{true, structIdx, fieldCount},
+                       resultOffset);
 }
 
     // This expression - reads the implicit first parameter

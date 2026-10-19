@@ -119,7 +119,8 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
     //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
-    if (invoke.CtorClass())
+    //0.9.11 D2: the struct twin joins (same claim layout).
+    if (invoke.CtorClass() || invoke.CtorStruct())
         return CtorInvokePeakDepth(invoke, visited);
     auto* callee = invoke.Callee();
     size_t formalCount = callee ? callee->Params().size() : 0;
@@ -176,7 +177,13 @@ uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
         uint16_t ad = ExprPeakDepth(param, visited, false);
         if (ad > argDepth) argDepth = ad;
     }
-    SnFunction* pCtorFn = FindCtorFunction(invoke.CtorClass());
+    //0.9.11 D2: struct invokes carry the selected ctor in the AST; the
+    //registered filter keeps the walker in step with codegen (an
+    //unregistered ctor allocates without a claim — over-reserving here
+    //is the safe direction).
+    SnFunction* pCtorFn = invoke.CtorStruct()
+        ? RegisteredCtor(invoke.CtorFunction())
+        : FindCtorFunction(invoke.CtorClass());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     return static_cast<uint16_t>(1 + totalFormals)
@@ -304,7 +311,11 @@ uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
         if (&arg == newExpr.ClassName()) continue;
         ++argCount;
     }
-    SnFunction* pCtorFn = FindCtorFunction(newExpr.ClassDecl());
+    //0.9.11 D2: struct new-expressions carry the selected ctor in the
+    //AST (see CtorInvokePeakDepth for the registered-filter rationale).
+    SnFunction* pCtorFn = newExpr.StructDecl()
+        ? RegisteredCtor(newExpr.CtorFunction())
+        : FindCtorFunction(newExpr.ClassDecl());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);

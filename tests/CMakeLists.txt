@@ -439,6 +439,33 @@ target_compile_definitions(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
+# 0.9.11 D2 struct constructor unit tests (console suite): in-process
+# compile+run pinning that the ctor runs on explicit construction calls
+# only, never on bare declarations (test_stdlib's runSource shape).
+add_executable(test_struct_ctor
+    test_vm/test_struct_ctor.cpp
+)
+
+target_include_directories(test_struct_ctor
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_struct_ctor
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_struct_ctor)
+target_compile_definitions(test_struct_ctor
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME struct_ctor_tests COMMAND test_struct_ctor)
+
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
 # key split (List<int> vs List<int[]> mint distinct classes) and the

@@ -101,19 +101,27 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
     return -1;
 }
 
-//Bare identifier that resolved to a class member (implicit this.field,
-//e.g. `v = 1;` inside a method): returns the SnClassDecl that owns the
-//field node. For inherited fields the field node belongs to the ancestor
-//decl, and FindClassFieldOffset walking from that owner yields the same
-//flattened offset as from any subclass. Returns null when pField is not
-//a class data member (locals, formals, enum members).
-SnClassDecl* VmBackend::OwningClassOfMemberField(SnField* pField)
+//Bare identifier that resolved to a type member (implicit this.field,
+//e.g. `v = 1;` inside a method or a 0.9.11 D2 struct constructor):
+//returns the owning type decl (SnClassDecl or SnStructDecl). For
+//inherited fields the field node belongs to the ancestor decl, and
+//FindClassFieldOffset walking from that owner yields the same flattened
+//offset as from any subclass. Returns null when pField is not a class
+//or struct data member (locals, formals, enum members).
+SnField* VmBackend::OwningTypeOfMemberField(SnField* pField)
 {
-    if (!pField || pField->Kind() != NK_ClassField)
+    if (!pField)
         return nullptr;
     auto* pParent = pField->Parent();
-    if (pParent && pParent->Kind() == NK_ClassDecl)
+    if (!pParent)
+        return nullptr;
+    if (pField->Kind() == NK_ClassField
+        && pParent->Kind() == NK_ClassDecl)
         return static_cast<SnClassDecl*>(pParent);
+    //0.9.11 D2: struct constructors get the same bare-field binding.
+    if (pField->Kind() == NK_StructField
+        && pParent->Kind() == NK_StructDecl)
+        return static_cast<SnStructDecl*>(pParent);
     return nullptr;
 }
 

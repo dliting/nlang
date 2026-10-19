@@ -222,7 +222,11 @@ private:
     static int ClassAncestorFieldOffset(SnClassDecl& ancestor,
                                         const std::string& fieldName,
                                         uint16_t& off);
-    static SnClassDecl* OwningClassOfMemberField(SnField* pField);
+    //0.9.11 D2: generalized to struct fields — returns the owning type
+    //decl (SnClassDecl or SnStructDecl) for a member field of either,
+    //null otherwise; the caller dispatches the offset helper by the
+    //field's kind.
+    static SnField* OwningTypeOfMemberField(SnField* pField);
 
     //--- Member-expression emission helpers (definitions in
     //EmitExprMember*.cpp, split by responsibility: reads and
@@ -881,6 +885,15 @@ private:
     //frame-size walkers consume it too.
     static SnFunction* FindCtorFunction(SnClassDecl* pClassDecl);
 
+    //0.9.11 D2: the AST-selected constructor (SnNewExpr/SnInvokeExpr
+    //CtorFunction()) when it is registered — has a body or the native
+    //flag — else null. Mirrors FindCtorFunction's body/native filter for
+    //the struct path, where the resolver's selection replaces the member
+    //scan: a body-less non-native struct ctor allocates without running
+    //(the class path's CtorSlotFor 0xFFFF shape). Static: the frame-size
+    //walkers consume it too.
+    static SnFunction* RegisteredCtor(SnFunction* pCtorFn);
+
     //Build the defaults-aware FormalBinding array shared by the ctor
     //invocation and super() forwarding: the caller arguments bind the
     //leading formals positionally, each omitted trailing formal stages
@@ -906,11 +919,22 @@ private:
         const std::vector<SnExpression*>& callerArgs, uint16_t claimBase,
         BytecodeEmitter& emitter, uint16_t thisSlot);
 
+    //0.9.11 D2: which allocator the ctor-call tail emits. A class
+    //allocates through OP_New(typeIdx); a struct through
+    //OP_AllocStruct(typeIdx, fieldCount). Everything else in the ctor
+    //lowering (claim layout {this, formals...}, this staging,
+    //callParamBase copy, OP_CallMethodDirect) is shared.
+    struct CtorAlloc {
+        bool isStruct = false;
+        uint16_t typeIdx = 0;     //class slot or struct slot
+        uint16_t fieldCount = 0;  //struct only (OP_AllocStruct operand)
+    };
+
     //Ctor-call tail after the bindings: allocate the object into
-    //allocSlot (OP_New), stage it as claim[0] (= this), bulk-copy the
-    //claim to callParamBase, and invoke the ctor.
+    //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
+    //(= this), bulk-copy the claim to callParamBase, and invoke the ctor.
     void EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
-        uint16_t slotCount, uint16_t classIdx, uint16_t ctorIdx,
+        uint16_t slotCount, const CtorAlloc& alloc, uint16_t ctorIdx,
         BytecodeEmitter& emitter);
 
     //One iteration of the resolved-binding loop: emit + optional boxing
@@ -1193,16 +1217,29 @@ private:
     //Params() has no such child).
     void EmitNewObject(SnClassDecl* pClassDecl, SnExpressionList& ctorArgs,
                        SnExpression* pSkipArg, uint16_t resultOffset);
+    //0.9.11 D2/D3: struct construction lowering for the explicit call
+    //forms (the direct-init `S name(args);` spelling decomposes into a
+    //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).
+    //pCtorFn is the AST-selected constructor; null or unregistered
+    //(body-less, non-native) mirrors the class no-ctor path: plain
+    //OP_AllocStruct, arguments unevaluated, no call (D3 keeps bare
+    //declarations, init lists, and copies constructor-free — only these
+    //call forms reach here).
+    void EmitStructCtor(SnStructDecl& structDecl, SnFunction* pCtorFn,
+                        SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                        uint16_t resultOffset);
     //Ctor call lowering: one FormalBinding per formal (caller args first,
     //then the defaults of the omitted trailing formals) emitted through
     //the shared EmitBinding — the same mixed-form loop as EmitCallArgs.
-    //pClassDecl feeds FindCtorFunction for the defaults; thisSlot is
-    //UINT16_MAX (the object under construction does not exist yet, so a
-    //ctor default must not reference `this`).
-    void EmitCtorInvocation(SnClassDecl* pClassDecl,
+    //pCtorFn is the registered AST ctor (null for builtin/generic/
+    //imported targets — the legacy positional shape, nothing to default);
+    //alloc selects the allocator opcode; thisSlot is UINT16_MAX (the
+    //object under construction does not exist yet, so a ctor default must
+    //not reference `this`).
+    void EmitCtorInvocation(SnFunction* pCtorFn,
                             SnExpressionList& ctorArgs, SnExpression* pSkipArg,
-                            BytecodeEmitter& emitter, uint16_t classIdx,
-                            uint16_t ctorIdx, uint16_t resultOffset);
+                            BytecodeEmitter& emitter, uint16_t ctorIdx,
+                            const CtorAlloc& alloc, uint16_t resultOffset);
 
     //New-array emission, shared by the SnNewArrayExpr arm and the 0.9.0
     //type-subscript twin (`int[n]` / `Foo[n]`, subscript.NewArrayElem()):
@@ -1269,9 +1306,12 @@ private:
     struct BareIdTarget {
         enum Kind { Local, ThisField, NotFound };
         Kind kind = NotFound;
-        uint16_t localOffset = 0;     //Local
-        SnClassDecl* owner = nullptr; //ThisField: owning class decl
-        int fieldOff = -1;            //ThisField: flattened field offset
+        uint16_t localOffset = 0;   //Local
+        //ThisField: owning type decl (SnClassDecl or SnStructDecl —
+        //0.9.11 D2). Consumers read fieldOff only; the owner exists to
+        //keep the binding auditable.
+        SnField* owner = nullptr;
+        int fieldOff = -1;          //ThisField: flattened field offset
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
 

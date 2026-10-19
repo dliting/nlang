@@ -906,11 +906,25 @@ private:
 	size_t CountPositionalCtorArgs(SnNewExpr &sn);
 	size_t CountPositionalCtorArgs(SnInvokeExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
-	bool FindCtorParamRange(SnClassDecl *pClassDecl,
+	//0.9.11 D2: the ctor-arity family takes the type-declaration field of a
+	//class OR a struct (NK_ClassDecl / NK_StructDecl); builtin and generic
+	//classes keep their intrinsic arity tables, structs scan Ctors().
+	//SelectCtorFunction returns the constructor a call binds to: the first
+	//declaration-order ctor of a struct, the first same-name non-static
+	//member of a user class, null for builtins/generics (their ctor lives
+	//only in the CompiledClass). T6 replaces the first-scan with overload
+	//matching; until then codegen and the walkers must read the selected
+	//ctor from the AST slot, never re-scan the owner.
+	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
-	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
+	SnFunction *SelectCtorFunction(SnField *pTypeDecl);
+	void CheckNewExprCtorArity(SnNewExpr &sn, SnField *pTypeDecl);
 	void CheckCtorArgCount(const ISourceLocation *pLoc,
-		SnClassDecl *pClassDecl, size_t argCount);
+		SnField *pTypeDecl, size_t argCount);
+	//Binds the resolved type declaration to the new-expression: classes keep
+	//the Phase 13 func-type rejection, structs join directly (0.9.11 D2).
+	//False = the diagnostic was logged and the caller must abort.
+	bool BindNewExprType(SnNewExpr &sn, SnField &typeField);
 
 	/*
 	0.9.0 (Phase A): constructor calls without `new`. TryResolveCtorInvoke
@@ -923,14 +937,14 @@ private:
 	after its function lookup failed with no name-matched candidate.
 	Both return true when the invoke is consumed (resolved as a ctor call,
 	or rejected with a named diagnostic); false falls through to the
-	caller's generic failure. ProbeCtorClass resolves a bare name to a
-	class the way Access(SnNewExpr&) resolves its class name, but as a
+	caller's generic failure. ProbeCtorType resolves a bare name to a class
+	or struct the way Access(SnNewExpr&) resolves its type name, but as a
 	silent probe — a miss must not add a second diagnostic.
 	*/
 	bool TryResolveCtorInvoke(SnInvokeExpr &snInvoke);
 	bool TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
-	SnClassDecl *ProbeCtorClass(const std::string &name,
+	SnField *ProbeCtorType(const std::string &name,
 		const ISourceLocation *pLoc);
 
 	/*
@@ -982,13 +996,13 @@ private:
 	//reach the resolver as bare identifiers. The subscript-base resolve
 	//with the alias splice, the chain-following TU alias lookup (null =
 	//the name addresses no alias), the splice itself, and the silent
-	//class probe behind an alias for the ctor-invoke twin. All defined
-	//in ExprResolverAlias.cpp.
+	//class-or-struct probe behind an alias for the ctor-invoke twin. All
+	//defined in ExprResolverAlias.cpp.
 	bool ResolveArrayBase(SnSubscriptExpr &sn);
 	SnFieldExpr *FindAliasTarget(const ISourceLocation *pLoc,
 		const std::string &name);
 	void TrySpliceAliasType(SnIdentifierExpr &idExpr);
-	SnClassDecl *ProbeAliasClass(const std::string &name,
+	SnField *ProbeAliasType(const std::string &name,
 		const ISourceLocation *pLoc);
 
 	/*

@@ -35,13 +35,16 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 
 } // namespace
 
-//True when the node sits directly inside a class/interface/enum body —
-//i.e. it is a type member (method/field), not a namespace member.
-//Shared by QualifiedName (members keep bare keys) and the entry-point
-//scan (methods are never the entry).
+//True when the node sits directly inside a class/struct/interface/enum
+//body — i.e. it is a type member (method/field/constructor), not a
+//namespace member. Shared by QualifiedName (members keep bare keys) and
+//the entry-point scan (methods are never the entry). 0.9.11 D2: struct
+//constructors join — their table key stays bare like every other type
+//member, and a struct-typed `main` is never the entry point.
 static bool IsTypeMember(const SyntaxNode& node) {
     const SyntaxNode* pParent = node.Parent();
     return pParent && (pParent->Kind() == NK_ClassDecl
+        || pParent->Kind() == NK_StructDecl
         || pParent->Kind() == NK_InterfaceDecl
         || pParent->Kind() == NK_EnumDecl);
 }

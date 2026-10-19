@@ -360,6 +360,14 @@ void VmBackend::Access(SnInvokeExpr& expr) {
                           resultOffset);
             return;
         }
+        //0.9.11 D2: the struct twin (`S(args)` / `m.S(args)` — bare or
+        //module-qualified ctor invoke; exactly one of the two type slots
+        //is bound by the resolver).
+        if (invoke.CtorStruct()) {
+            EmitStructCtor(*invoke.CtorStruct(), invoke.CtorFunction(),
+                           invoke.Params(), nullptr, resultOffset);
+            return;
+        }
 
         auto* callee = invoke.Callee();
 

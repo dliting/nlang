@@ -34,6 +34,7 @@ add_library(nlang_vm
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
+    backend/EmitCtorCall.cpp
     backend/WalkersExpr.cpp
     backend/WalkersStmt.cpp
     backend/WalkersMaxArgs.cpp

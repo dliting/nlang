@@ -40,8 +40,11 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //qualified EnumMethodKey and they resolve through the namespace
     //branch; 0.9.10 D5: interface statics join them (enclosure-qualified
     //key, resolved against the per-unit interface table's function
-    //records). Arity follows the TABLE convention (formals + this for
-    //class and enum instance methods, mirroring AllocParamsAndDefaults):
+    //records). 0.9.11 D2: struct constructors join the class rule
+    //(owner key = the struct's qualified key, arity carries this) — the
+    //cross-unit path lights up with the T5 imported-ctor infrastructure.
+    //Arity follows the TABLE convention (formals + this for class,
+    //struct, and enum instance methods, mirroring AllocParamsAndDefaults):
     //the import record must match the owning unit's registration or
     //nlink's name+paramCount+staticness resolution reports a signature
     //miss. Statics take no this slot (their producer frame has none) and
@@ -50,11 +53,14 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     const bool isStatic = callee.ContainFlags(NF_Static);
     const bool needsThis = pParent
         && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_StructDecl
             || pParent->Kind() == NK_EnumDecl)
         && !isStatic;
     std::string ownerClassKey;
-    if (pParent && pParent->Kind() == NK_ClassDecl && !isStatic)
-        ownerClassKey = KeyOf(static_cast<const SnClassDecl&>(*pParent));
+    if (pParent && !isStatic
+        && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_StructDecl))
+        ownerClassKey = KeyOf(static_cast<const SnField&>(*pParent));
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(
