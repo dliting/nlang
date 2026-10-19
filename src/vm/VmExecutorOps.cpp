@@ -81,18 +81,27 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         //Window drained: every frame above baseDepth has returned.
         if (m_callStack.size() <= baseDepth)
             return;
-        //Copy out everything the inner loop reads — hold NO CallFrame
-        //reference across instructions. A false-returning op can still
-        //move m_callStack: a native host callback re-enters the VM via
-        //CallByName, whose nested window pushes frames (a vector growth
+        //Copy out everything the inner loop reads and let the
+        //CallFrame reference die at the end of the block — NO
+        //reference may survive across instructions. A false-returning
+        //op can still move m_callStack: a nested evaluation window
+        //(user toString via collection formatting, or a native host
+        //callback's CallByName) pushes frames, and a vector growth
         //frees the old element array; only the per-frame localsBuf
-        //pointers are move-stable). locals/pResult survive by that
-        //invariant; a CallFrame& would not.
-        CallFrame& frame = m_callStack.back();
-        uint8_t* locals = frame.localsBuf.data();
-        uint8_t* pResult = FrameResultCell(frame);
-        const CompiledFunction* func = frame.func;
-        const uint16_t resumePc = frame.pc;
+        //pointers are move-stable. locals/pResult survive by that
+        //invariant; a CallFrame& would not (v0.10.0 final review:
+        //OP_DebugInfo read opPc through the stale one).
+        uint8_t* locals;
+        uint8_t* pResult;
+        const CompiledFunction* func;
+        uint16_t resumePc;
+        {
+            CallFrame& entryFrame = m_callStack.back();
+            locals = entryFrame.localsBuf.data();
+            pResult = FrameResultCell(entryFrame);
+            func = entryFrame.func;
+            resumePc = entryFrame.pc;
+        }
         BytecodeReader reader(func->bytecode.data(),
                               func->bytecode.size());
         reader.Seek(resumePc);
@@ -105,11 +114,14 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         bool frameDone = false;
         while (!reader.Eof() && !frameDone) {
             //Offset of the in-flight instruction: the tryBlocks range
-            //test in TryEnterCatchHandler reads it when an op throws.
-            //Written through a FRESH back() each iteration (the comment
-            //above: even false-returning ops may have reallocated).
-            m_callStack.back().opPc =
+            //test in TryEnterCatchHandler reads it when an op throws,
+            //and OP_DebugInfo below consumes it. Stored through a
+            //FRESH back() each iteration (the comment above: even
+            //false-returning ops may have reallocated) and kept in a
+            //local so consumers never touch a stale frame reference.
+            const uint16_t opPc =
                 static_cast<uint16_t>(reader.CurrentOffset());
+            m_callStack.back().opPc = opPc;
             OpCode op = reader.ReadOp();
 
             switch (op) {
@@ -282,7 +294,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             break;
 
         case OpCode::OP_DebugInfo:
-            OpDebugInfo(reader, frame.opPc);
+            OpDebugInfo(reader, opPc);
             break;
 
         case OpCode::OP_Concat_str:

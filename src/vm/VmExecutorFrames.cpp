@@ -12,6 +12,35 @@
 
 namespace nlang {
 
+namespace {
+
+//Stage the parameter block into a freshly pushed frame. A malformed
+//module (parameter block wider than the callee's frame) must fail
+//loudly, not silently skip the copy — the delegate paths reject the
+//same shape. The size check also guards the bound arm's shifted copy.
+void StageFrameParams(CallFrame& fr, const CompiledFunction& callee,
+    const uint8_t* callerLocals, uint16_t callParamBase,
+    int32_t boundThisIdx)
+{
+    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
+    if (paramBytes > callee.localsSize)
+        throw std::runtime_error(
+            "NLang VM: callee locals smaller than the parameter "
+            "block in PushFrameCore: " + callee.name);
+    if (boundThisIdx > 0) {
+        std::memcpy(fr.localsBuf.data(), &boundThisIdx, sizeof(boundThisIdx));
+        uint16_t argBytes = paramBytes - kFrameSlotBytes;
+        if (argBytes > 0)
+            std::memcpy(fr.localsBuf.data() + kFrameSlotBytes,
+                        callerLocals + callParamBase, argBytes);
+    } else if (paramBytes > 0) {
+        std::memcpy(fr.localsBuf.data(), callerLocals + callParamBase,
+                    paramBytes);
+    }
+}
+
+} // namespace
+
 //Shared push core. boundThisIdx > 0 selects bound-method staging (the
 //captured receiver rides at slot 0, caller args shift one right);
 //otherwise params copy verbatim from the caller's callParamBase cells.
@@ -33,17 +62,7 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     m_callStack.emplace_back();
     CallFrame& fr = m_callStack.back();
     fr.localsBuf.assign(callee.localsSize, 0);
-    uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
-    if (boundThisIdx > 0) {
-        std::memcpy(fr.localsBuf.data(), &boundThisIdx, sizeof(boundThisIdx));
-        uint16_t argBytes = paramBytes - kFrameSlotBytes;
-        if (argBytes > 0)
-            std::memcpy(fr.localsBuf.data() + kFrameSlotBytes,
-                        callerLocals + callParamBase, argBytes);
-    } else if (paramBytes > 0 && paramBytes <= callee.localsSize) {
-        std::memcpy(fr.localsBuf.data(), callerLocals + callParamBase,
-                    paramBytes);
-    }
+    StageFrameParams(fr, callee, callerLocals, callParamBase, boundThisIdx);
     //Result-cell inheritance: the callee's return lands in the same cell
     //the caller's frame writes to (accumulator threading — a call's
     //result IS the current expression's result).

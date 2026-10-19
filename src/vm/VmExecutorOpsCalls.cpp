@@ -159,6 +159,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
     //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
+        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }

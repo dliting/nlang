@@ -415,6 +415,80 @@ void test_hooks_cpp_exception_propagates()
     PASS();
 }
 
+//v0.10.0 final review: OP_DebugInfo must report the in-flight
+//instruction's pc from a live source. A nested evaluation window (the
+//user toString override a collection formatter invokes) grows the
+//frame stack mid-instruction; a dispatch loop that held a CallFrame&
+//across instructions would read opPc through the freed element array
+//after that growth — every later statement checkpoint reports the
+//frozen pre-growth pc. Ground truth is the disassembler's line-to-pc
+//anchor map: each main-segment stop must sit exactly on its line's
+//statement anchor, so any stale read fails.
+class StatementPcHooks : public IDebugHooks {
+public:
+    std::vector<std::pair<uint16_t, uint16_t>> mainStops;  //(pc, line)
+    uint16_t mainFuncIdx = 0;
+    void OnStatement(const DebugStopInfo& s, IVmDebugView&) override {
+        if (mainStops.empty()) mainFuncIdx = s.funcIdx;
+        if (s.depth == 1 && s.funcIdx == mainFuncIdx)
+            mainStops.push_back({s.pc, s.line});
+    }
+    void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
+};
+
+void test_hooks_pc_after_nested_window()
+{
+    TEST(hooks_pc_after_nested_window);
+    //pad recursion drives the nested window ~9 frames deep — beyond any
+    //capacity the earlier calls could have grown — so the frame stack's
+    //element array is guaranteed to move while main's dispatch segment
+    //is still in flight.
+    BuildOutcome b = buildSource("hook_nested_pc",
+        "string pad(int n) {\n"                //1
+        "    if (n <= 0) { return \"w\"; }\n"   //2
+        "    return pad(n - 1);\n"             //3
+        "}\n"                                  //4
+        "class W {\n"                          //5
+        "    public int tag;\n"                //6
+        "    public string toString() { return pad(tag); }\n" //7
+        "}\n"                                  //8
+        "int main() {\n"                       //9
+        "    List<W> xs = {};\n"               //10
+        "    W item = W();\n"                  //11
+        "    item.tag = 8;\n"                  //12
+        "    xs.add(item);\n"                  //13
+        "    string s = xs.toString();\n"      //14  ← nested window here
+        "    int a = 1;\n"                     //15
+        "    int b = 2;\n"                     //16
+        "    if (s == \"[w]\") { return a + b; }\n" //17
+        "    return 9;\n"                      //18
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadBuilt("hook_nested_pc");
+    VmExecutor exec;
+    StatementPcHooks hooks;
+    exec.SetDebugHooks(&hooks);
+    CHECK(exec.Execute(mod) == 3, "program result (toString ran: \"[w]\"");
+    CHECK(hooks.mainStops.size() >= 5,
+        "main's statements must all fire checkpoints");
+    CHECK(hooks.mainFuncIdx < mod.functions.size(),
+        "main function index in range");
+    std::vector<LinePcEntry> anchors =
+        BuildLinePcMap(mod.functions[hooks.mainFuncIdx]);
+    for (const auto& stop : hooks.mainStops) {
+        bool onAnchor = false;
+        for (const auto& e : anchors)
+            if (e.line == stop.second && e.pc == stop.first) {
+                onAnchor = true;
+                break;
+            }
+        CHECK(onAnchor, "stop at line " + std::to_string(stop.second)
+            + " reports pc " + std::to_string(stop.first)
+            + ", which is not that line's statement anchor");
+    }
+    PASS();
+}
+
 void run_debugger_hooks_tests()
 {
     test_hooks_line_sequence();
@@ -426,4 +500,5 @@ void run_debugger_hooks_tests()
     test_view_value_kinds();
     test_view_struct_array_field_local();
     test_hooks_cpp_exception_propagates();
+    test_hooks_pc_after_nested_window();
 }

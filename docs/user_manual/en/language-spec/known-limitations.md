@@ -188,3 +188,9 @@
   `yield`/`sleep`/`join` on an unfinished target/`lock` on a contended
   mutex/`recv` on an empty channel/`spawn` are all rejected with a
   "cannot suspend" runtime error.
+- **Concurrency: blocking host operations freeze the whole carrier**:
+  when a virtual thread calls a blocking host facility (synchronous
+  input/output inside a native function or an embedding host callback,
+  for example), the carrier thread blocks with it and every other
+  virtual thread stalls; asynchronous or non-blocking host interfaces
+  are a later stage.
