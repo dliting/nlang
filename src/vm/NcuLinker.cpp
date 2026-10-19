@@ -276,6 +276,22 @@ static void RemapStructMetadata(CompiledModule& merged,
     }
 }
 
+//默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
+//DefaultValueDesc 契约）；v2.3 表达式默认值（RTK_Expr）的
+//ED_Literal_String 臂同走字符串映射。字节流畸形则拒绝链接而非静默
+//携带坏默认值。函数形参默认值与 0.9.10 接口常量共用。
+static void RemapDefaultValueStrings(DefaultValueDesc& dv,
+                                     const NcuOperandMaps& m,
+                                     const std::string& context) {
+    if (dv.tag == RTK_String)
+        dv.stringIdx = Lookup(m.strings, dv.stringIdx);
+    if (!dv.exprBytes.empty()
+        && !ExprDescRemapStrings(dv.exprBytes,
+            [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
+        throw std::runtime_error("nlink: " + context
+            + ": malformed default expression (corrupt image)");
+}
+
 //合并记录已整体拷贝（含单元局部编码的 bytecode/描述符/默认值），这里
 //以本单元映射原地重映射。
 static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
@@ -293,20 +309,9 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
     for (auto& ptd : f.paramTypeDescs)
         RemapTypeDesc(ptd.type, m.structs, m.classes);
     RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes);
-    //defaultValues.stringIdx 是生产者侧字符串下标（CompiledModule.h 的
-    //DefaultValueDesc 契约），跨单元合并必须换算。v2.3 起表达式默认值
-    //（RTK_Expr）的 ED_Literal_String 臂同样持有生产者侧下标，走同一张
-    //映射表；字节流畸形则拒绝链接而非静默携带坏默认值。
+    const std::string context = "function '" + f.name + "'";
     for (auto& dv : f.defaultValues)
-    {
-        if (dv.tag == RTK_String)
-            dv.stringIdx = Lookup(m.strings, dv.stringIdx);
-        if (!dv.exprBytes.empty()
-            && !ExprDescRemapStrings(dv.exprBytes,
-                [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
-            throw std::runtime_error("nlink: function '" + f.name
-                + "': malformed default expression (corrupt image)");
-    }
+        RemapDefaultValueStrings(dv, m, context);
 }
 
 static void FinalizeUnits(const std::vector<CompiledModule>& units,
@@ -320,10 +325,23 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
         //0.9.10 v2.4: interface static indices are function-table
-        //indices — remap them like the class method block.
+        //indices — remap them like the class method block. D3 constants
+        //carry unit-local type descriptors and pooled string defaults,
+        //so they remap through the same maps as function records.
         for (uint32_t idx : pushes[ui].interfaces)
-            for (auto& i : merged.interfaces[idx].staticMethodIndices)
-                i = static_cast<uint16_t>(Lookup(maps[ui].functions, i));
+        {
+            auto& iface = merged.interfaces[idx];
+            for (auto& i : iface.staticMethodIndices)
+                i = static_cast<uint16_t>(
+                    Lookup(maps[ui].functions, i));
+            for (auto& constant : iface.constants)
+            {
+                RemapTypeDesc(constant.type, maps[ui].structs,
+                    maps[ui].classes);
+                RemapDefaultValueStrings(constant.value, maps[ui],
+                    "interface '" + iface.name + "'");
+            }
+        }
     }
 }
 

@@ -1,0 +1,7 @@
+//0.9.10 D3.3: virtual is a method-only modifier; the constant contract
+//names it, not the static+const requirement it does not violate.
+interface ILimits {
+	static const virtual int MAX = 1;
+}
+
+int main() { return 0; }

@@ -35,6 +35,22 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
             ci.staticMethodIndices.push_back(
                 static_cast<uint16_t>(it->second));
         }
+        //0.9.10 D3: constants export their declared type plus the folded
+        //initializer. The wire channel reuses the formal-default
+        //descriptor (RTK tag + payload); the consumer rebuilds a literal
+        //stub and folds it at its own use sites.
+        for (auto& member : sn.Members()) {
+            if (member.Kind() != NK_ClassField
+                || !IsInterfaceConstantField(member))
+                continue;
+            auto& field = static_cast<SnClassField&>(member);
+            CompiledInterfaceConstant constant;
+            constant.name = field.Name();
+            constant.type = BuildTypeDesc(field.EvalDataType(),
+                LeafSlotResolvers());
+            constant.value = ExtractDefaultValue(field.Initializer());
+            ci.constants.push_back(std::move(constant));
+        }
         m_compiledModule.interfaces.push_back(std::move(ci));
     });
 }

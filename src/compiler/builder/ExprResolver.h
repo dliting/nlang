@@ -387,6 +387,12 @@ private:
 	//always-reject arm of ApplyReceiverNamespaceFilter. False = rejected.
 	bool RejectTypeNameMethodValue(SnIdentifierExpr &idExpr);
 
+	//0.9.10 D3.4: an interface constant is referenced only through the
+	//qualified `I.NAME` member form. True = the bare binding was
+	//rejected with the qualification hint.
+	bool RejectBareInterfaceConstant(SnIdentifierExpr &idExpr,
+		SnField &field);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	/*
@@ -995,6 +1001,11 @@ private:
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
 		std::vector<uint8> &outFlags);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
+		uint32_t curModule);
+	//The value-position bare lookup of Access(SnIdentifierExpr&): the
+	//ancestor walk with the bare-pool owner filter, then the optional
+	//usings fallback. Null = not found (the caller reports it).
+	SnField *FindBareValueField(SnIdentifierExpr &idExpr,
 		uint32_t curModule);
 
 	//Phase 4b: the namespace named by a qualified type is not imported

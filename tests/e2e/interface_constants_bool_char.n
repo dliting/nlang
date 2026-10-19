@@ -1,0 +1,28 @@
+//0.9.10 D3: bool/char literals fold at the declaration; value and
+//declared type both survive to the use site. `"" + c` is the implicit
+//char -> string bridge, so its length pins char-ness ('中' = 3 bytes,
+//int would render "20013" at length 5). Expected exit:
+//10 + 1 + 3 + 1 = 15.
+interface Flags {
+	public static const bool ENABLED = true;
+	public static const bool DISABLED = false;
+	public static const char MARK = 'A';
+	public static const char WIDE = '中';
+
+	public static bool isOn() {
+		return Flags.ENABLED;
+	}
+}
+
+int main() {
+	bool on = Flags.ENABLED;
+	bool off = Flags.DISABLED;
+	string mark = "" + Flags.MARK;
+	string wide = "" + Flags.WIDE;
+	int score = 0;
+	if (on) { score = 10; }
+	if (off) { score = 0; }
+	score = score + mark.length() + wide.length();
+	if (Flags.isOn()) { score = score + 1; }
+	return score;
+}

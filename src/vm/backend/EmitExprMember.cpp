@@ -11,6 +11,7 @@
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cassert>
 #include <map>
 #include <unordered_set>
@@ -168,9 +169,31 @@ static bool IsModuleFuncRefTarget(SnField& field) {
     return owner == nullptr || owner->Kind() == NK_Namespace;
 }
 
-//Access head phase: namespace-qualified stdlib call, enum member constant,
-//Phase 13 bound method reference, Phase 12 enum method call. Returns true
-//when one of these families emitted the expression.
+//Compile-time constant read phase: an enum member constant (Color.Red)
+//and an interface constant (I.NAME) both emit an inline literal. The
+//receiver names a type, so no receiver value is emitted.
+bool VmBackend::EmitMemberConstantRead(SnField* field,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset) {
+    if (field && field->Kind() == NK_EnumMember) {
+        auto* pEnumMember = static_cast<SnEnumMember*>(field);
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(pEnumMember->Value());
+    } else if (field && field->Kind() == NK_ClassField
+               && IsInterfaceConstantField(*field)) {
+        EmitInterfaceConstantRead(*static_cast<SnClassField*>(field),
+                                  emitter);
+    } else {
+        return false;
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
+}
+
+//Access head phase: namespace-qualified stdlib call, compile-time
+//constants, Phase 13 bound method reference, Phase 12 enum method call.
+//Returns true when one of these families emitted the expression.
 bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
                                          BytecodeEmitter& emitter,
                                          uint16_t resultOffset) {
@@ -191,15 +214,8 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
             return true;
         }
     }
-    if (field && field->Kind() == NK_EnumMember) {
-        //Enum member constant (e.g. Color.Red).
-        auto* pEnumMember = static_cast<SnEnumMember*>(field);
-        emitter.Emit(OpCode::OP_ConstInt32);
-        emitter.EmitInt32(pEnumMember->Value());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
+    if (EmitMemberConstantRead(field, emitter, resultOffset))
         return true;
-    }
     //Function references in value position: the module form first
     //(lib.seven, v2.2 — receiver-less static OP_MakeFunc), then the
     //bound-method form (c.foo, Phase 13 Step 2). The full shape notes
@@ -214,6 +230,84 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
     if (EmitMemberEnumMethodCall(member, emitter, resultOffset))
         return true;
     return false;
+}
+
+//The folded payload in the channel matching its literal kind. Integer
+//kinds stay integral (a floating bridge would drop bits above 2^53);
+//the float-category kinds widen through double.
+static int64_t FoldedSignedValue(const DefaultValueDesc& dv) {
+    switch (dv.tag) {
+        case RTK_Bool:
+        case RTK_Char:
+        case RTK_Int32:  return static_cast<int32_t>(dv.intValue);
+        case RTK_Long:   return dv.longValue;
+        case RTK_ULong:  return static_cast<int64_t>(dv.longValue);
+        case RTK_Float:  return static_cast<int64_t>(dv.floatValue);
+        case RTK_Double: return static_cast<int64_t>(dv.doubleValue);
+        default:
+            throw std::runtime_error(
+                "NLang backend: interface constant folded tag "
+                + std::to_string(static_cast<int>(dv.tag))
+                + " has no integer value");
+    }
+}
+
+static double FoldedFloatingValue(const DefaultValueDesc& dv) {
+    switch (dv.tag) {
+        case RTK_Int32:  return static_cast<int32_t>(dv.intValue);
+        case RTK_Long:   return static_cast<double>(dv.longValue);
+        case RTK_ULong:
+            return static_cast<double>(
+                static_cast<uint64_t>(dv.longValue));
+        case RTK_Float:  return dv.floatValue;
+        case RTK_Double: return dv.doubleValue;
+        default:
+            throw std::runtime_error(
+                "NLang backend: interface constant folded tag "
+                + std::to_string(static_cast<int>(dv.tag))
+                + " has no floating value");
+    }
+}
+
+//0.9.10 D3.5: interface constant use site. The declaration contract
+//guarantees the initializer folds and the declared type is scalar or
+//string, so emission is a plain inline literal (the caller's constant
+//phase assigns it to the result slot).
+void VmBackend::EmitInterfaceConstantRead(SnClassField& field,
+                                          BytecodeEmitter& emitter) {
+    DefaultValueDesc dv = ExtractDefaultValue(field.Initializer());
+    if (dv.tag == RTK_Void) {
+        //Declaration contract violation — an internal invariant break.
+        throw std::runtime_error(
+            "NLang backend: interface constant without a folded value: "
+            + field.Name());
+    }
+    SnField* pDeclared = field.EvalDataType();
+    const NodeKind declaredKind = pDeclared ? pDeclared->Kind() : NK_Int32;
+    if (dv.tag == RTK_Null) {
+        //No payload in any declared type; zero the whole uniform cell
+        //so an 8-byte slot reads 0 too.
+        emitter.Emit(OpCode::OP_ConstZero);
+    } else if (declaredKind == NK_String) {
+        emitter.Emit(OpCode::OP_ConstString);
+        emitter.EmitUint16(static_cast<uint16_t>(dv.stringIdx));
+    } else if (declaredKind == NK_Float) {
+        emitter.Emit(OpCode::OP_ConstFloat);
+        emitter.EmitFloat(static_cast<float>(FoldedFloatingValue(dv)));
+    } else if (declaredKind == NK_Double) {
+        emitter.Emit(OpCode::OP_ConstDouble);
+        emitter.EmitDouble(FoldedFloatingValue(dv));
+    } else {
+        const int primIdx = ScalarPrimIndexOf(declaredKind);
+        const int64_t value = FoldedSignedValue(dv);
+        if (primIdx >= 0 && kScalarPrims[primIdx].slotWidth == 8) {
+            emitter.Emit(OpCode::OP_ConstInt64);
+            emitter.EmitInt64(value);
+        } else {
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(static_cast<int32_t>(value));
+        }
+    }
 }
 
 //Builtin phase: non-class receiver toString() dispatch, then the array

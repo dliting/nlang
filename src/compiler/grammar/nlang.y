@@ -1357,7 +1357,7 @@ InterfaceMemberList:	InterfaceMemberList InterfaceMember {
 //bodyless form still sets NF_Abstract, and a parsed body is kept for
 //the resolver to admit (static) or reject (instance) per the 0.9.10
 //declaration contract.
-InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
@@ -1373,7 +1373,7 @@ InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' 
 						func->Body($7);
 					$$ = func;
 				}
-				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
@@ -1388,6 +1388,16 @@ InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' 
 					else
 						func->Body($7);
 					$$ = func;
+				} |
+				//0.9.10 D3: interface member variables exist only as
+				//`static const` constants folded at compile time. The
+				//declaration contract (StatementResolverTypes.cpp)
+				//enforces the flag set, foldability, type compatibility
+				//and the method-name clash.
+				AccessType NodeFlagsNonEmpty Type TT_Identifier '=' Expression ';' {
+					auto* field = new SnClassField($3, $4, $1, @1, $6);
+					field->AddFlags($2);
+					$$ = field;
 				} ;
 
 ClassMemberList:	ClassMemberList ClassMember {

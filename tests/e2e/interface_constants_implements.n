@@ -1,0 +1,18 @@
+//0.9.10 D3.6: an interface constant is not an implements obligation —
+//only the abstract instance method is. Expected exit code: 4 + 5 = 9.
+interface IShape {
+	public static const int SIDES = 4;
+
+	public int area();
+}
+
+class Square implements IShape {
+	public int area() {
+		return 5;
+	}
+}
+
+int main() {
+	Square s = Square();
+	return IShape.SIDES + s.area();
+}

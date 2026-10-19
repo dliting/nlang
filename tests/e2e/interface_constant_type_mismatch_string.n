@@ -1,0 +1,8 @@
+//0.9.10 D3.3: a string initializer never binds a numeric constant
+//slot; this pins the graded mismatch diagnostic (the existing
+//type_mismatch fixture pins the explicit-conversion arm instead).
+interface ILimits {
+	public static const int MAX = "s";
+}
+
+int main() { return 0; }

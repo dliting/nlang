@@ -1,0 +1,9 @@
+//0.9.10 D3.3: a call initializer is outside the fold surface; the
+//declaration takes the constant-expression diagnostic.
+int seed() { return 1; }
+
+interface ILimits {
+	public static const int MAX = seed();
+}
+
+int main() { return 0; }

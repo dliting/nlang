@@ -53,56 +53,61 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
 //  - SnBinaryExpr(OP_Neg, SnLiteralExpr NK_Int32)     → RTK_Int32 (negative)
 //  - 0.7.5: long/ulong/double literals (and their negations) fold the
 //    same way through the 8-byte channels
+//  - 0.9.10: bool/char literals fold through RTK_Bool/RTK_Char with the
+//    carrier bits in intValue, so the consumer stub rebuilds the literal
+//    with its declared type (RTK_Int32 would make it int-typed)
 //Anything else (identifier ref, function call, cast, member access, etc.)
 //returns RTK_Void — caller-side (Step 5 declaration check) rejects this
 //for IsImported functions. In-module callers don't consult this vector
 //at all, so a RTK_Void entry is harmless for them.
-//Direct-literal arm of ExtractDefaultValue. Fills dv from a null / int /
-//float / string literal; an unknown literal type leaves dv at its
-//RTK_Void default (not foldable).
+//Direct-literal arm of ExtractDefaultValue. Fills dv from a null / scalar
+//literal; an unknown literal type leaves dv at its RTK_Void default
+//(not foldable).
 void VmBackend::ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv) {
     //Null literal: stamped with NF_NullLiteral by KT_Null rule.
     if (lit->ContainFlags(NF_NullLiteral)) {
         dv.tag = RTK_Null;
         return;
     }
-    //Type-driven literal dispatch. SnLiteralExpr's Variant Type()
-    //points at the RnDataType — match pointer identity against the
-    //global singletons (RnInt32/RnFloat/RnString).
-    auto* litType = lit->Value().Type();
-    if (litType == RnInt32::Instance()) {
-        dv.tag = RTK_Int32;
-        dv.intValue = static_cast<uint32_t>(
-            lit->Value().Data().m_Int);
+    //Kind-keyed literal dispatch: the Variant stores each carrier's bit
+    //pattern, so 4-byte bool/char read m_Int exactly like int32 (char
+    //rides the uint32 carrier; the 4 raw bytes are the code point).
+    const NodeKind kind = lit->Value().Type()->Kind();
+    VariantData& data = lit->Value().Data();
+    switch (kind) {
+    //4-byte integer-family carriers; the registry supplies the tag
+    //(RTK_Int32 / RTK_Bool / RTK_Char).
+    case NK_Int32:
+    case NK_Bool:
+    case NK_Char:
+        dv.tag = RtkOfKind(kind);
+        dv.intValue = static_cast<uint32_t>(data.m_Int);
         return;
-    }
-    if (litType == RnFloat::Instance()) {
+    case NK_Float:
         dv.tag = RTK_Float;
-        dv.floatValue = lit->Value().Data().m_Float;
+        dv.floatValue = data.m_Float;
         return;
-    }
-    if (litType == RnDouble::Instance()) {
+    case NK_Double:
         dv.tag = RTK_Double;
-        dv.doubleValue = lit->Value().Data().m_Double;
+        dv.doubleValue = data.m_Double;
         return;
-    }
     //0.7.5: 8-byte scalar literals — kind-exact Variant member reads.
-    if (litType == RnLong::Instance()) {
+    case NK_Long:
         dv.tag = RTK_Long;
-        dv.longValue = lit->Value().Data().m_Long;
+        dv.longValue = data.m_Long;
         return;
-    }
-    if (litType == RnULong::Instance()) {
+    case NK_ULong:
         dv.tag = RTK_ULong;
-        dv.longValue = static_cast<int64_t>(
-            lit->Value().Data().m_ULong);
+        dv.longValue = static_cast<int64_t>(data.m_ULong);
         return;
-    }
-    if (litType == RnString::Instance()) {
+    case NK_String: {
         dv.tag = RTK_String;
         //Intern into producer's pool. Consumer remaps during load.
-        auto* sPtr = lit->Value().Data().m_String;
+        auto* sPtr = data.m_String;
         dv.stringIdx = AddStringConstant(sPtr ? *sPtr : std::string());
+        return;
+    }
+    default:
         return;
     }
 }
@@ -125,6 +130,16 @@ void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
         if (lit->Value().Type() == RnLong::Instance()) {
             dv.tag = RTK_Long;
             dv.longValue = -lit->Value().Data().m_Long;
+            return;
+        }
+        //A negated ulong is never negative in range except the one
+        //writable form: 2^63 lexes unsigned and negates to INT64_MIN.
+        //This mirrors TryGetConstantLiteral's single special case.
+        if (lit->Value().Type() == RnULong::Instance()) {
+            if (lit->Value().Data().m_ULong == (uint64_t(1) << 63)) {
+                dv.tag = RTK_Long;
+                dv.longValue = INT64_MIN;
+            }
             return;
         }
         if (lit->Value().Type() == RnFloat::Instance()) {
@@ -186,9 +201,10 @@ void AppendF64(std::vector<uint8_t>& out, double v) {
 }
 }  //namespace
 
-//Literal arm of the ExprDesc encoder. Mirrors the fold arms of
-//ExtractLiteralDefault (same kind set); bool/char/byte literals stay
-//outside the subset and return false.
+//Literal arm of the ExprDesc encoder. Narrower than the folded-default
+//surface by design: bool/char/byte literals are either folded by
+//ExtractDefaultValue or outside the cross-module subset, so they return
+//false here.
 bool VmBackend::EncodeLiteralDesc(SnLiteralExpr& lit,
                                   std::vector<uint8_t>& out) {
     if (lit.ContainFlags(NF_NullLiteral)) {

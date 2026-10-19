@@ -189,12 +189,16 @@ std::string SnStructDecl::ToString() const
 //--- SnClassField ---
 
 SnClassField::SnClassField(SnFieldExpr *pType, std::string *pName,
-	FieldAccessType access, const ISourceLocation &loc) :
+	FieldAccessType access, const ISourceLocation &loc,
+	SnExpression *pInitializer) :
 	Super_(s_Kind, access, s_DefaultFlags, pName, loc),
-	m_pType(pType), m_upChildren(new ImmutableNodeList())
+	m_pType(pType), m_pInitializer(pInitializer),
+	m_upChildren(new ImmutableNodeList())
 {
 	assert(m_pType);
 	AddChild(m_pType);
+	if (m_pInitializer)
+		AddChild(m_pInitializer);
 }
 
 SnClassField::~SnClassField()
@@ -231,6 +235,8 @@ std::string SnClassField::ToString() const
 	else if (m_pType)
 		result = m_pType->ToString();
 	result += " " + Name();
+	if (m_pInitializer)
+		result += " = " + m_pInitializer->ToString();
 	return result;
 }
 
@@ -244,6 +250,11 @@ bool SnClassField::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	if (m_pType == pOld)
 	{
 		ResetChild(m_pType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	if (m_pInitializer == pOld)
+	{
+		ResetChild(m_pInitializer, static_cast<SnExpression *>(pNew));
 		return true;
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);

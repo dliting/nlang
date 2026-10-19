@@ -1,0 +1,8 @@
+//0.9.10 D3.3: the constant-fit exemption applies only while the value
+//fits the declared narrow type; an out-of-range constant keeps the
+//range diagnostic rather than being accepted or downgraded.
+interface ILimits {
+	public static const byte SMALL = 300;
+}
+
+int main() { return 0; }

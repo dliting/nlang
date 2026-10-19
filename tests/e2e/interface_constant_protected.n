@@ -1,0 +1,7 @@
+//0.9.10 D3.3: interface members are public; an explicit protected
+//modifier takes the same must-be-public gate as private.
+interface ILimits {
+	protected static const int MAX = 1;
+}
+
+int main() { return 0; }

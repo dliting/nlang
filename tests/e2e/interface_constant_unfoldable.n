@@ -1,0 +1,7 @@
+//0.9.10 D3.3: the initializer must fold through the default-parameter
+//constant surface (literals and unary minus); `1 + 2` does not.
+interface ILimits {
+	static const int MAX = 1 + 2;
+}
+
+int main() { return 0; }

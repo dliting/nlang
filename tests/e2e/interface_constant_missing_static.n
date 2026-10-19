@@ -1,0 +1,7 @@
+//0.9.10 D3.3: interface member variables must carry exactly the
+//static+const flag pair. Missing static is rejected at the declaration.
+interface ILimits {
+	const int MAX = 1;
+}
+
+int main() { return 0; }

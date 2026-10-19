@@ -1,0 +1,11 @@
+//0.9.10 D3.4: interface constants are reachable through the qualified
+//form only — even inside the interface's own static method body.
+interface ILimits {
+	public static const int MAX = 3;
+
+	public static int get() {
+		return MAX;
+	}
+}
+
+int main() { return 0; }

@@ -1,0 +1,13 @@
+//0.9.10 D3: object constants would need shared runtime storage and
+//construction at load time. Only scalar and string constants exist;
+//the declared type gate rejects this before foldability is considered.
+class Box {
+	public int v;
+	public int Box(int v) { this.v = v; return 0; }
+}
+
+interface IBox {
+	static const Box B = Box(1);
+}
+
+int main() { return 0; }

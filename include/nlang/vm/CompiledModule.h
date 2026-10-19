@@ -95,7 +95,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //interface statics, and function import records gain the static flag
 //the linker matches on. A v2.3 module has no flag byte and misparses
 //every record after the native flag; refuse v2.3 and older.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
+//v2.5 (interface constants): every interface record gains a constants
+//block after its static method indices — per constant, a u16 name, a
+//length-prefixed TypeDesc, and a DefaultValueDesc folded value. A v2.4
+//module has no such block and misparses the bytes after the method
+//indices as the constant count; refuse v2.4 and older.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 5;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
 //exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
@@ -205,10 +210,10 @@ struct CompiledArrayType {
 //AST from it and lets
 //the normal declaration-side resolution pass bind it (formal references,
 //module-qualified calls). RTK_Unfoldable remains the reject stamp for
-//expressions outside the ExprDesc subset (casts, bool literals, …).
+//expressions outside the ExprDesc subset (casts, …).
 struct DefaultValueDesc {
     uint8_t  tag = RTK_Void;
-    uint32_t intValue = 0;     // RTK_Int32
+    uint32_t intValue = 0;     // RTK_Int32 / RTK_Bool / RTK_Char
     float    floatValue = 0.0f;// RTK_Float
     uint32_t stringIdx = 0;    // RTK_String (producer-side index)
     //0.7.5: 8-byte scalar channels (RTK_Long/RTK_ULong/RTK_Double).
@@ -305,9 +310,20 @@ struct CompiledClass {
 //the module border (instance members need a receiver the consumer cannot
 //construct here); name is the interface's qualified key and the indices
 //point at its static function records.
+//0.9.10 D3: one exported interface constant. `type` is the declared
+//type (scalar or string by the declaration contract); `value` is the
+//folded initializer in the same RTK channel as a formal default
+//(stringIdx is a producer-side pool index, remapped on merge).
+struct CompiledInterfaceConstant {
+    std::string name;
+    TypeDesc type;
+    DefaultValueDesc value;
+};
+
 struct CompiledInterface {
     std::string name;
     std::vector<uint16_t> staticMethodIndices;
+    std::vector<CompiledInterfaceConstant> constants;
 };
 
 struct CompiledModule {

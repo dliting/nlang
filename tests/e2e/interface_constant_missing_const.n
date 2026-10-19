@@ -1,0 +1,7 @@
+//0.9.10 D3.3: missing const is rejected like every other flag-set
+//violation — interfaces declare constants only, never mutable statics.
+interface ILimits {
+	static int MAX = 1;
+}
+
+int main() { return 0; }

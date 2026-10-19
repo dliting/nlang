@@ -279,6 +279,71 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 //implicit this.field meaning; a static method has no receiver, so the
 //binding is rejected here (the explicit `this` form is gated in
 //Access(SnThisExpr&)). True = rejected with its diagnostic.
+namespace
+{
+
+//0.9.10 D3.4: the only legal reference to an interface constant is the
+//qualified member form `I.NAME`, where the receiver names the interface
+//that owns the field. Bare names would make the constant look like a
+//function-local value and are rejected before the implicit-this gate
+//can misreport the reference.
+bool IsQualifiedInterfaceConstantAccess(const SnIdentifierExpr &idExpr,
+	const SnField &field)
+{
+	auto *pOwner = field.Parent();
+	auto *pParent = idExpr.Parent();
+	if (!pOwner || !pParent || pParent->Kind() != NK_MemberExpr)
+		return false;
+	auto &member = static_cast<SnMemberExpr &>(*pParent);
+	if (member.Inner() != &idExpr)
+		return false;
+	auto *pOuter = member.Outer();
+	if (!pOuter || (pOuter->Kind() != NK_IdentifierExpr
+		&& pOuter->Kind() != NK_MemberExpr))
+		return false;
+	return static_cast<SnFieldExpr *>(pOuter)->Field() == pOwner;
+}
+
+} //namespace
+
+SnField *ExprResolveAccessor::FindBareValueField(SnIdentifierExpr &idExpr,
+	uint32_t curModule)
+{
+	//This is the BARE-POOL owner filter (IsBareVisible), not the import
+	//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
+	std::function<bool(SnField &)> bareFuncFilter =
+		[this, curModule](SnField &field) -> bool
+	{
+		//No NK_Function pre-check: FindFieldInAncestor only invokes the
+		//filter on function candidates in bare-pool scopes.
+		return IsBareVisible(static_cast<SnFunction &>(field), curModule);
+	};
+	SnField *pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
+		*m_pAccessor, Flags(), bareFuncFilter);
+	if (!pField && ContainFlags(ERF_IgnoreUsings))
+	{
+		assert(idExpr.Usings());
+		pField = FindFieldInUsings(idExpr.Name(), *idExpr.Usings(),
+			*m_pAccessor);
+	}
+	return pField;
+}
+
+bool ExprResolveAccessor::RejectBareInterfaceConstant(
+	SnIdentifierExpr &idExpr, SnField &field)
+{
+	if (!IsInterfaceConstantField(field)
+		|| IsQualifiedInterfaceConstantAccess(idExpr, field))
+		return false;
+	auto *pOwner = static_cast<SnField *>(field.Parent());
+	m_Env.Log(CLL_Error, idExpr.Location(),
+		"\"%s\" is an interface constant: reference it as \"%s.%s\".",
+		idExpr.Name().c_str(),
+		pOwner ? pOwner->Name().c_str() : "",
+		idExpr.Name().c_str());
+	return true;
+}
+
 bool ExprResolveAccessor::RejectImplicitThisInStatic(SnIdentifierExpr &idExpr,
 	SnField *pField)
 {
@@ -301,36 +366,23 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 		return;
 	}
 
-	SnField *pField;
 	//Module import visibility (D1/D7): the value-position bare pool spans
 	//the current TU's directory too — foreign root/namespace function
 	//candidates are skipped (ownerless symbols stay visible). curModule is
-	//computed once and shared by the filter and the visibility hint below.
-	//This is the BARE-POOL owner filter (IsBareVisible), not the import
-	//gate — the gate policy lives in ModuleRegistry::ImportGateAllows.
+	//computed once and shared by the lookup filter and the hint below.
 	const uint32_t curModule = m_Env.Registry().OwnerOfContext(*m_pContext);
-	std::function<bool(SnField &)> bareFuncFilter =
-		[this, curModule](SnField &field) -> bool
-	{
-		//No NK_Function pre-check: FindFieldInAncestor only invokes the
-		//filter on function candidates in bare-pool scopes.
-		return IsBareVisible(static_cast<SnFunction &>(field), curModule);
-	};
-	pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
-		*m_pAccessor, Flags(), bareFuncFilter);
-
-	if (!pField && ContainFlags(ERF_IgnoreUsings))
-	{
-		assert(idExpr.Usings());
-		pField = FindFieldInUsings(idExpr.Name(), *idExpr.Usings(),
-			*m_pAccessor);
-	}
-
+	SnField *pField = FindBareValueField(idExpr, curModule);
 	if (!pField)
 	{
 		TryResolveBuiltinNameFallback(idExpr, curModule);
 		return;
 	}
+
+	//0.9.10 D3.4: interface constants are qualified-only. This runs
+	//before the implicit-this gate, which would otherwise report the
+	//bare constant read as a `this` use inside a static method.
+	if (RejectBareInterfaceConstant(idExpr, *pField))
+		return;
 
 	if (RejectImplicitThisInStatic(idExpr, pField))
 		return;

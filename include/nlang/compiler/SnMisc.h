@@ -228,12 +228,17 @@ public:
 	static const NodeKind	s_Kind			= NK_ClassField;
 	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
 public:
+	//pInitializer is non-null for an interface constant (0.9.10 D3);
+	//plain class fields keep the declaration-only form. The initializer
+	//carries no layout or storage semantics: it is folded at the use
+	//site. Children() includes it so tree walks see the subtree.
 	SnClassField(SnFieldExpr *pType, std::string *pName, FieldAccessType access,
-		const ISourceLocation &loc);
+		const ISourceLocation &loc, SnExpression *pInitializer = nullptr);
 
 	~SnClassField() override;
 
 	SnFieldExpr *Type() const { return m_pType; }
+	SnExpression *Initializer() const { return m_pInitializer; }
 	//Access control lives in the Node base's m_AccessType bitfield —
 	//read it via AccessType(). SnClassField once redeclared a private
 	//m_access that no constructor initialized, so serialized fieldAccess
@@ -248,6 +253,7 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
+	SnExpression *m_pInitializer;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 
@@ -360,6 +366,19 @@ public:
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 };
+
+//0.9.10 D3: an interface `static const` member. Only the declaration
+//contract, the resolver and the backend consult this shape; interface
+//fields carry no storage or layout.
+inline bool IsInterfaceConstantField(const SnField &field)
+{
+	if (field.Kind() != NK_ClassField
+		|| !field.ContainFlags(NF_Static)
+		|| !field.ContainFlags(NF_Const))
+		return false;
+	auto *pParent = field.Parent();
+	return pParent && pParent->Kind() == NK_InterfaceDecl;
+}
 
 //The "using" directive in nlang.
 //Phase 13 adds the type alias form: "using Name = Type;". The namespace

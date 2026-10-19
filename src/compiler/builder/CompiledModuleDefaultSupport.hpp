@@ -49,6 +49,14 @@ inline SnExpression *SynthScalarDefault(const DefaultValueDesc &dv,
 		case RTK_Int32:
 			return new SnLiteralExpr(*RnInt32::Instance(),
 				static_cast<int32_t>(dv.intValue), loc);
+		//0.9.10: typed 4-byte carriers; plain RTK_Int32 would make the
+		//rebuilt constant int-typed at every consumer use site.
+		case RTK_Bool:
+			return new SnLiteralExpr(*RnBool::Instance(),
+				static_cast<int32>(dv.intValue), loc);
+		case RTK_Char:
+			return new SnLiteralExpr(*RnChar::Instance(),
+				static_cast<uint32>(dv.intValue), loc);
 		case RTK_Long:
 			return new SnLiteralExpr(*RnLong::Instance(),
 				static_cast<int64>(dv.longValue), loc);
@@ -300,8 +308,8 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 	}
 	if (dv.tag == RTK_Unfoldable)
 	{
-		//Producer's original default was outside the ExprDesc subset
-		//(e.g. a cast or a bool literal). Cross-module callers can't
+		//Producer's original default was outside the fold surface and
+		//the ExprDesc subset (e.g. a cast). Cross-module callers can't
 		//reconstruct it; reject at consumer-side stub construction
 		//(LoadImports catches + logs as compile error).
 		throw std::runtime_error(
@@ -309,10 +317,10 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 			"parameter " +
 			std::to_string(static_cast<unsigned long>(paramIdx)) +
 			" outside the cross-module subset; supported: "
-			"int/float/double/long/ulong/string/null literals, formal "
-			"parameter references, unary negation, calls to the "
-			"exporting module's free functions, and + - * / % "
-			"arithmetic over those");
+			"int/float/double/long/ulong/string/bool/char/null "
+			"literals, formal parameter references, unary negation, "
+			"calls to the exporting module's free functions, and "
+			"+ - * / % arithmetic over those");
 	}
 	return SynthScalarDefault(dv, cm, loc);
 }

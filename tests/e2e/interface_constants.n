@@ -1,0 +1,17 @@
+//0.9.10 D3: interface constants fold at the declaration and inline at
+//use sites — qualified access only, including inside interface method
+//bodies. Expected exit code: 100 + 3 + 102 + 1 = 206.
+interface Limits {
+	public static const int MAX = 100;
+	public static const string NAME = "lim";
+	public static const double RATIO = 0.5;
+
+	public static int plusMax(int x) {
+		return x + Limits.MAX;
+	}
+}
+
+int main() {
+	return Limits.MAX + Limits.NAME.length() + Limits.plusMax(2)
+		+ (Limits.RATIO * 2) as int;
+}

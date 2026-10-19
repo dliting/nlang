@@ -648,6 +648,8 @@ cross_mod_default_expr 52
 cross_mod_default_ident 10
 # 0.9.9: shift expressions in cross-module defaults ride the ExprDesc subset
 cross_mod_default_shift 0
+# 0.9.10 D3: bool/char literals fold into RTK_Bool/RTK_Char defaults
+cross_mod_default_bool_char 8
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected
 cross_mod_default_cast compile_error outside the cross-module subset
 # Cross-module named arguments: imported stubs carry real formal names
@@ -1542,3 +1544,28 @@ static_funcref_value_shadow 6
 static_funcref_via_object_reject compile_error the static method "f" must be called through the type name
 static_funcref_typename_reject compile_error cannot reference the static method
 static_funcref_typename_instance_reject compile_error must be called through a receiver object
+
+# --- 0.9.10: interface static const constants (D3) ---
+interface_constants 206
+interface_constants_types 231
+interface_constants_bool_char 15
+cross_mod_interface_constant 43
+cross_mod_interface_constant_bool_char 3
+interface_constants_implements 9
+interface_constant_missing_static compile_error must be static const
+interface_constant_missing_const compile_error must be static const
+interface_constant_extra_flag compile_error cannot be virtual
+interface_constant_private compile_error must be public
+interface_constant_unfoldable compile_error must be a constant expression
+interface_constant_object compile_error must have a compile-time scalar or string type
+interface_constant_type_mismatch compile_error has incompatible type "Double"; expected "Int32"
+interface_constant_type_mismatch_string compile_error has incompatible type "String"; expected "Int32"
+interface_constant_out_of_range compile_error constant 300 out of range for 'byte'
+interface_constant_protected compile_error must be public
+interface_constant_native compile_error cannot be native
+interface_constant_array compile_error must have a compile-time scalar or string type
+interface_constant_unfoldable_identifier compile_error must be a constant expression
+interface_constant_unfoldable_call compile_error must be a constant expression
+interface_constant_name_clash compile_error ambiguous with the method of the same name
+interface_constant_assign compile_error is a constant and cannot be assigned
+interface_constant_bare_name compile_error is an interface constant

@@ -1,0 +1,7 @@
+//0.9.10 D3.8: interface constants cross modules through the folded-value
+//channel shared with default parameters. Consumer reads all three shapes.
+interface Limits {
+	public static const int MAX = 40;
+	public static const string NAME = "ab";
+	public static const double RATIO = 0.5;
+}

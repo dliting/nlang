@@ -126,6 +126,12 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
             for (const auto& td : cc.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
                     mod.classes.size());
+        //0.9.10 D3: interface constant declared types carry descriptors
+        //like any other exported type.
+        for (const auto& iface : mod.interfaces)
+            for (const auto& constant : iface.constants)
+                ValidateTypeDescIndices(constant.type, mod.structs.size(),
+                    mod.classes.size());
     }
 
     //Array type descriptors

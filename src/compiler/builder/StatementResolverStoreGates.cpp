@@ -3,6 +3,7 @@
     从 StatementResolverAssign.cpp 抽取（0.9.0 尺寸守卫解除，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/compiler/SnMisc.h>
 
 namespace nlang
 {
@@ -10,9 +11,20 @@ namespace nlang
 //Phase 9a: reject assignment to a const local (identifier targets only;
 //the const-init decomposition sets NF_Const AFTER resolving the
 //initializer AssignStmt, so initializer writes correctly pass).
+//0.9.10 D3.5: interface constants are folded values with no location —
+//a member-expression store targeting one is rejected here too.
 void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 	const ISourceLocation *pLoc)
 {
+	if (left.Kind() == NK_MemberExpr)
+	{
+		auto *pMemberField = static_cast<SnMemberExpr &>(left).Field();
+		if (pMemberField && IsInterfaceConstantField(*pMemberField))
+			m_Env.Log(CLL_Error, pLoc,
+				"\"%s\" is a constant and cannot be assigned.",
+				pMemberField->Name().c_str());
+		return;
+	}
 	if (left.Kind() != NK_IdentifierExpr)
 		return;
 	auto* pLeftField = static_cast<SnIdentifierExpr&>(left).Field();

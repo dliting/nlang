@@ -1,0 +1,7 @@
+//0.9.10 D3.8: imported interface constants resolve exactly like local
+//ones. Expected exit code: 40 + 2 + (0.5 * 2) as int = 43.
+import lib;
+
+int main() {
+	return Limits.MAX + Limits.NAME.length() + (Limits.RATIO * 2) as int;
+}

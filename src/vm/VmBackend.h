@@ -26,6 +26,7 @@ class SnInvokeExpr;
 class SnClassDecl;
 class SnSubscriptAssignStmt;
 class SnStructDecl;
+class SnClassField;
 class SnFieldExpr;
 class SnLiteralExpr;
 class SnBinaryExpr;
@@ -242,6 +243,15 @@ private:
     bool EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset);
+    //Compile-time constant reads: enum member and (0.9.10 D3) interface
+    //constant. Both fan out to an inline literal with no receiver.
+    bool EmitMemberConstantRead(SnField* field, BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
+    //0.9.10 D3: interface constant literal — the initializer is folded
+    //at the use site into a Const* op writing pResult (the caller
+    //assigns it to the result slot, like the enum-member arm).
+    void EmitInterfaceConstantRead(SnClassField& field,
+                                   BytecodeEmitter& emitter);
     bool EmitMemberBuiltinDispatch(SnMemberExpr& member,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);

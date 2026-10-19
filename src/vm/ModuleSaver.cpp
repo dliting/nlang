@@ -30,6 +30,30 @@ static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
         fs.write(reinterpret_cast<const char*>(bytes.data()), len);
 }
 
+//Option B v1.3 fixed default-value record: tag + both 4-byte channels +
+//the 8-byte channels (v1.13) + the always-present u16 expr length with
+//its v2.3 payload. Shared by the formal-default block and the 0.9.10
+//interface-constant block so the two records cannot drift.
+static void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
+{
+    fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
+    fs.write(reinterpret_cast<const char*>(&dv.intValue),
+             sizeof(dv.intValue));
+    fs.write(reinterpret_cast<const char*>(&dv.floatValue),
+             sizeof(dv.floatValue));
+    fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
+             sizeof(dv.stringIdx));
+    fs.write(reinterpret_cast<const char*>(&dv.longValue),
+             sizeof(dv.longValue));
+    fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
+             sizeof(dv.doubleValue));
+    uint16_t exprLen = static_cast<uint16_t>(dv.exprBytes.size());
+    fs.write(reinterpret_cast<const char*>(&exprLen), sizeof(exprLen));
+    if (exprLen > 0)
+        fs.write(reinterpret_cast<const char*>(dv.exprBytes.data()),
+                 exprLen);
+}
+
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                          const std::string& entryKey) {
     if (!fs.good()) return false;
@@ -123,32 +147,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
             func.defaultValues.size());
         fs.write(reinterpret_cast<const char*>(&defaultCount),
                  sizeof(defaultCount));
-        for (const auto& dv : func.defaultValues) {
-            fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
-            fs.write(reinterpret_cast<const char*>(&dv.intValue),
-                     sizeof(dv.intValue));
-            fs.write(reinterpret_cast<const char*>(&dv.floatValue),
-                     sizeof(dv.floatValue));
-            fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
-                     sizeof(dv.stringIdx));
-            //0.7.5 v1.13: 8-byte scalar channels (RTK_Long/RTK_ULong/
-            //RTK_Double payloads). Unconditional — the v1.13 floor
-            //readers expect the extended record.
-            fs.write(reinterpret_cast<const char*>(&dv.longValue),
-                     sizeof(dv.longValue));
-            fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
-                     sizeof(dv.doubleValue));
-            //v2.3: ExprDesc payload for RTK_Expr defaults, u16-length-
-            //prefixed and always emitted (empty = no expression) so the
-            //record stays fixed-shape. The depth cap bounds an encoded
-            //tree far under 64 KiB, so the prefix cannot truncate.
-            uint16_t exprLen = static_cast<uint16_t>(dv.exprBytes.size());
-            fs.write(reinterpret_cast<const char*>(&exprLen),
-                     sizeof(exprLen));
-            if (exprLen > 0)
-                fs.write(reinterpret_cast<const char*>(dv.exprBytes.data()),
-                         exprLen);
-        }
+        //The record layout lives in WriteDefaultValueDesc (shared with
+        //the interface-constant block below).
+        for (const auto& dv : func.defaultValues)
+            WriteDefaultValueDesc(fs, dv);
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
         fs.write(reinterpret_cast<const char*>(&bcSize), sizeof(bcSize));
@@ -348,7 +350,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
 
     //0.9.10 v2.4: interface statics table. Format mirrors the class
     //method block: u32 count, then per interface the u16-length-prefixed
-    //qualified key plus its static function indices.
+    //qualified key plus its static function indices and (v2.5, D3) its
+    //constants: u16 count, then per constant a u16 name, a
+    //length-prefixed TypeDesc and a DefaultValueDesc record.
     uint32_t ifaceCount = static_cast<uint32_t>(mod.interfaces.size());
     fs.write(reinterpret_cast<const char*>(&ifaceCount),
              sizeof(ifaceCount));
@@ -363,6 +367,18 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                  sizeof(staticCount));
         for (auto idx : ci.staticMethodIndices)
             fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+        uint16_t constantCount = static_cast<uint16_t>(
+            ci.constants.size());
+        fs.write(reinterpret_cast<const char*>(&constantCount),
+                 sizeof(constantCount));
+        for (const auto& constant : ci.constants) {
+            uint16_t cnameLen = static_cast<uint16_t>(constant.name.size());
+            fs.write(reinterpret_cast<const char*>(&cnameLen),
+                     sizeof(cnameLen));
+            fs.write(constant.name.c_str(), cnameLen);
+            WriteLenPrefixedTypeDesc(fs, constant.type);
+            WriteDefaultValueDesc(fs, constant.value);
+        }
     }
 
     //Array type descriptors

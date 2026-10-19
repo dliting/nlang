@@ -363,6 +363,24 @@ private:
 				pMembers->push_back(
 					CreateFunctionStub(cm.functions[idx], cm, loc));
 		}
+		//0.9.10 D3: exported constants rebuild as `public static const`
+		//fields whose synthesized literal initializer folds again at the
+		//consumer's use sites (the declaration contract already ran at
+		//the producer; imported stubs are exempt from re-checking).
+		for (const auto &constant : ci.constants)
+		{
+			SnExpression *pInit = SynthScalarDefault(constant.value, cm, loc);
+			if (!pInit)
+				throw std::runtime_error(
+					"imported interface '" + ci.name
+					+ "' has a malformed constant value record");
+			auto *pField = new SnClassField(
+				SynthTypeExprFromDesc(constant.type, cm, loc),
+				new std::string(constant.name), FA_Public, loc, pInit);
+			pField->AddFlags(NF_Static);
+			pField->AddFlags(NF_Const);
+			pMembers->push_back(pField);
+		}
 		auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
 		pDecl->AddFlags(NF_Imported);   //R6-2
 		return pDecl;
