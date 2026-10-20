@@ -1254,6 +1254,7 @@ private:
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
+    int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
     //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
     //only — std::uniform_*_distribution is implementation-defined and

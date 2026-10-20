@@ -351,14 +351,16 @@ bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
     return true;
 }
 
-//send(v)：永不停泊（无界缓冲）。closed → 基础异常；有等待者 → 值直接
-//交付队首（缓冲必空——不变量）；否则入缓冲尾。值即擦除后的堆句柄（装箱
-//记录或类引用）。
+//send(v)：无界缓冲时永不停泊（K3 Task 4 起有界容量可停泊）。closed →
+//抛可捕获的 ChannelClosedException（语言面异常，用户代码可恢复）；
+//有等待者 → 值直接交付队首（缓冲必空——不变量）；否则入缓冲尾。值即
+//擦除后的堆句柄（装箱记录或类引用）。
 bool VmExecutor::IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals)
 {
     ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
     if (slot.closed)
-        throw std::runtime_error("NLang VM: send on closed channel");
+        RaiseNlangException(m_channelClosedExcClassIdx,
+                            "send on a closed channel");
     int32_t value;
     std::memcpy(&value, locals + callParamBase + kFrameSlotBytes,
                 sizeof(value));
@@ -371,11 +373,11 @@ bool VmExecutor::IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals)
     return true;
 }
 
-//recv()：缓冲非空 → 弹头写 pResult；closed 且空 → 写 0（null 引用；T
-//为基元类型时由调用点拆箱报错——擦除机制在运行期无从合成带 T 标签的
-//零值装箱记录，且基元类型不可空，无值即诚实结局）；空且开放 → 停泊：
-//登记唤醒时写值的目标指针 pResult（停泊的调用不会重执行——pc 推进不
-//变量），send 的直接交付或 close 的全员唤醒经 DeliverToWaiter 写回。
+//recv()：缓冲非空 → 弹头写 pResult；closed 且空 → 抛可捕获的
+//ChannelClosedException（K3 Task 3：诚实的通道终点，取代 K1 的 null
+//返回——拆箱形态下 null 对基元 T 本就无解）；空且开放 → 停泊：登记唤
+//醒时写值的目标指针 pResult（停泊的调用不会重执行——pc 推进不变量），
+//send 的直接交付或 close 的交付/异常唤醒写回。
 bool VmExecutor::IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
                                       uint8_t* pResult)
 {
@@ -386,11 +388,9 @@ bool VmExecutor::IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
         std::memcpy(pResult, &value, sizeof(value));
         return true;
     }
-    if (slot.closed) {
-        const int32_t nullValue = 0;
-        std::memcpy(pResult, &nullValue, sizeof(nullValue));
-        return true;
-    }
+    if (slot.closed)
+        RaiseNlangException(m_channelClosedExcClassIdx,
+                            "recv on a closed and drained channel");
     //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
     //nested-window rejection must not leave a half-parked context.
     EnsureSuspensionAllowed();
@@ -400,23 +400,43 @@ bool VmExecutor::IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
     RequestPark(ParkSignal::Reason::ChanRecv);   //[[noreturn]]
 }
 
-//close()：幂等置位；首闭时唤醒全部等待者——缓冲值先排干再交 0（Go 语
-//义：已发送的值先于 null 被取走）。等待者必伴随空缓冲（不变量），排干
-//分支为防御形态。
+//close()：幂等置位；首闭时唤醒全部等待者——缓冲值先排干（已发送的值
+//先于关闭信号被取走），排干后剩余等待者以 ChannelClosedException 唤醒
+//（K3 Task 3：停泊中的消费者同样看见诚实的通道终点）。等待者必伴随空
+//缓冲（不变量），异常分支为常规形态。
 bool VmExecutor::IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals)
 {
     ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
     if (slot.closed)
         return true;
     slot.closed = true;
+    //K3 Task 3: waiters the buffer can't satisfy wake with the
+    //catchable ChannelClosedException instead of a silent null. The
+    //object is prebuilt once (first drained waiter) and rooted the
+    //moment it lands on the waiter's context — a scheduler root — so
+    //the gap until that context resumes is covered. No GC safepoint
+    //exists inside this intrinsic, so the build-and-arm window is
+    //atomic with respect to collection.
+    int32_t closedExc = 0;
     while (!slot.waiters.empty()) {
-        int32_t value = 0;
-        if (!slot.buffered.empty()) {
-            value = slot.buffered.front();
-            slot.buffered.pop_front();
-        }
-        DeliverToWaiter(slot.waiters.front(), value);
+        ChannelWaiter waiter = slot.waiters.front();
         slot.waiters.pop_front();
+        if (!slot.buffered.empty()) {
+            const int32_t value = slot.buffered.front();
+            slot.buffered.pop_front();
+            DeliverToWaiter(waiter, value);
+            continue;
+        }
+        ExecutionContext* parkedCtx
+            = m_spScheduler->FindMutable(waiter.contextId);
+        if (!parkedCtx)
+            continue;   //corrupt registry — nothing to wake
+        if (closedExc == 0)
+            closedExc = BuildNlangException(m_channelClosedExcClassIdx,
+                "recv on a closed and drained channel");
+        parkedCtx->rethrowOnResume = true;
+        parkedCtx->resumeExcHeapIdx = closedExc;
+        m_spScheduler->WakeForChanRecv(waiter.contextId);
     }
     return true;
 }

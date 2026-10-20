@@ -124,6 +124,11 @@ struct ExecutionContext {
     //目标 Finished 时由 DeliverJoinResults 写入并清空；join 停泊者
     //恒为 null。失败唤醒时随 rethrowOnResume 一并清空（帧即将 unwind）。
     uint8_t* joinResultDst = nullptr;
+    //K3：恢复时重抛的异常对象（通道 close 唤醒已排干 recv 等待者的臂
+    //——对象在 close 调用内预建并经本字段扎根，恢复时
+    //ArmResumeRethrow 直取；join 失败重抛不走此字段，仍按 parkHandle
+    //取目标 failExcHeapIdx）。
+    int32_t resumeExcHeapIdx = 0;
 };
 
 //调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、

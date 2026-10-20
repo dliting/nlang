@@ -28,6 +28,7 @@ static SnClassDecl* s_pOobExcClass = nullptr;
 static SnClassDecl* s_pAssertExcClass = nullptr;
 static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
 static SnClassDecl* s_pInvalidCastExcClass = nullptr;  //v0.8.5: InvalidCastException
+static SnClassDecl* s_pChannelClosedExcClass = nullptr;  //K3: ChannelClosedException
 //K1: concurrency built-ins. Type-system stand-ins — the real method/field
 //surface lives in VmBackend's s_BuiltinClassDecls rows (BuiltinClasses.cpp).
 //Channel needs no stand-in: it exists only as Channel<T>, a generic
@@ -76,6 +77,7 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "AssertionException") ? s_pAssertExcClass
 		: (name == "IOException") ? s_pIoExcClass
 		: (name == "InvalidCastException") ? s_pInvalidCastExcClass
+		: (name == "ChannelClosedException") ? s_pChannelClosedExcClass
 		: (name == "Thread") ? s_pThreadClass
 		: (name == "Mutex") ? s_pMutexClass
 		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above

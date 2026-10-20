@@ -1,0 +1,23 @@
+//K3: closed-channel semantics — buffered values drain first, then both
+//recv and send raise the catchable ChannelClosedException.
+import io;
+
+int main() {
+    Channel<int> c = {};
+    c.send(1);
+    c.close();
+    int drained = c.recv();
+    try {
+        int gone = c.recv();
+        io.write("no-throw");
+        return 1;
+    } catch (ChannelClosedException e) {
+        try {
+            c.send(2);
+            return 2;
+        } catch (ChannelClosedException e2) {
+            io.write("drained=" + drained);
+            return 0;
+        }
+    }
+}

@@ -18,7 +18,7 @@ inline bool IsBuiltinExceptionClassName(const std::string& name)
 	return name == "Exception" || name == "NullPointerException"
 		|| name == "DivByZeroException" || name == "IndexOutOfBoundsException"
 		|| name == "AssertionException" || name == "IOException"
-		|| name == "InvalidCastException";
+		|| name == "InvalidCastException" || name == "ChannelClosedException";
 }
 
 //Phase 10 audit H2: single predicate for every name GetBuiltinClassDecl

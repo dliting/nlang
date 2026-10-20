@@ -78,6 +78,7 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
+    cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
     //K1 Slice 6: cache the Thread class index (spawn mints instances).
     int threadIdx = module.FindClass("Thread");
@@ -279,6 +280,14 @@ void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
     if (!info->rethrowOnResume)
         return;
     info->rethrowOnResume = false;
+    //K3: the channel-close arm prebuilt the exception object and rooted
+    //it on the parked context — throw it directly. The failed-join arm
+    //below instead rethrows the TARGET's stored exception.
+    if (info->resumeExcHeapIdx > 0) {
+        m_resumeThrowExcIdx = info->resumeExcHeapIdx;
+        info->resumeExcHeapIdx = 0;
+        return;
+    }
     const ExecutionContext* target = m_spScheduler->Find(info->parkHandle);
     info->parkHandle = 0;
     //Only failure arms the flag; a missing/exceptionless target is a

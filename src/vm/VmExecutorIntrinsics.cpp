@@ -132,7 +132,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         || intrinsicId == INTR_IndexOutOfBoundsException_Ctor
         || intrinsicId == INTR_AssertionException_Ctor
         || intrinsicId == INTR_IOException_Ctor
-        || intrinsicId == INTR_InvalidCastException_Ctor) {
+        || intrinsicId == INTR_InvalidCastException_Ctor
+        || intrinsicId == INTR_ChannelClosedException_Ctor) {
         int32_t thisHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
         if (thisHeapIdx <= 0)

@@ -164,5 +164,8 @@ static constexpr uint16_t INTR_Channel_Close = 141;
 //Channel family (slot 0 = this, the Future instance).
 static constexpr uint16_t INTR_Future_Get     = 142;
 static constexpr uint16_t INTR_Future_IsDone  = 143;
+//K3 (v0.10.3): ChannelClosedException ctor — the (this, message) shape
+//shared by the Exception family (dispatch collapses to the shared body).
+static constexpr uint16_t INTR_ChannelClosedException_Ctor = 144;
 
 }  // namespace nlang

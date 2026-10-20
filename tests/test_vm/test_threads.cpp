@@ -1529,12 +1529,72 @@ void test_channel_recv_parks_until_send()
     PASS();
 }
 
-//Slice 9：close 语义。缓冲值先于 close 送入：接收先取缓冲值（close 不
-//丢已缓冲数据），缓冲耗尽后接收返回 null——类引用 T 直接 == null 可判
-//（string T 的接收走拆箱，null 经拆箱表现为异常，故用用户类）。
-void test_channel_close_drains_then_null()
+//K3 Task 3：close 后缓冲先排干、随后 recv/send 均抛可捕获的
+//ChannelClosedException（取代 K1 的 null/终局基础异常两套语义）。
+void test_channel_closed_semantics()
 {
-    TEST(channel_close_drains_then_null);
+    TEST(channel_closed_semantics);
+    CompiledModule mod = buildLinkedModule("k3_chan_closed",
+        "int main() {\n"
+        "    Channel<int> c = {};\n"
+        "    c.send(1);\n"
+        "    c.close();\n"
+        "    int drained = c.recv();\n"
+        "    try {\n"
+        "        int gone = c.recv();\n"
+        "        return 1;\n"
+        "    } catch (ChannelClosedException e) {\n"
+        "        try {\n"
+        "            c.send(2);\n"
+        "            return 2;\n"
+        "        } catch (ChannelClosedException e2) {\n"
+        "            if (drained == 1) return 0;\n"
+        "            return 3;\n"
+        "        }\n"
+        "    }\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 0, "closed channel: drain then throw, both sites");
+    PASS();
+}
+
+//K3 Task 3：排干循环形态——缓冲 FIFO 每值恰交付一次，耗尽后以异常
+//终止循环（消费者侧的惯用法）。
+void test_channel_closed_drain_fifo()
+{
+    TEST(channel_closed_drain_fifo);
+    CompiledModule mod = buildLinkedModule("k3_chan_drain",
+        "int main() {\n"
+        "    Channel<int> c = {};\n"
+        "    int i = 0;\n"
+        "    while (i < 5) { c.send(i); i = i + 1; }\n"
+        "    c.close();\n"
+        "    int sum = 0;\n"
+        "    int got = 0;\n"
+        "    bool open = true;\n"
+        "    while (open) {\n"
+        "        try {\n"
+        "            sum = sum + c.recv();\n"
+        "            got = got + 1;\n"
+        "        } catch (ChannelClosedException e) {\n"
+        "            open = false;\n"
+        "        }\n"
+        "    }\n"
+        "    if (sum == 10 && got == 5) return 0;\n"
+        "    return 1;\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 0,
+          "drain delivers each buffered value exactly once");
+    PASS();
+}
+
+//Slice 9：close 语义。缓冲值先于 close 送入：接收先取缓冲值（close 不
+//丢已缓冲数据），缓冲耗尽后接收抛 ChannelClosedException（K3 Task 3：
+//取代 K1 的 null 返回——诚实的通道终点）。
+void test_channel_close_drains_then_closed_throws()
+{
+    TEST(channel_close_drains_then_closed_throws);
     std::string out;
     const int rc = runSourceCapturing("ch_close",
         "import io;\n"
@@ -1548,37 +1608,77 @@ void test_channel_close_drains_then_null()
         "    c.send(b);\n"
         "    c.close();\n"
         "    io.write(c.recv().tag);\n"
-        "    if (c.recv() == null) io.write(\"n\");\n"
-        "    return 0;\n"
+        "    try {\n"
+        "        c.recv();\n"
+        "        return 1;\n"
+        "    } catch (ChannelClosedException e) {\n"
+        "        io.write(\"x\");\n"
+        "        return 0;\n"
+        "    }\n"
         "}\n",
         out);
     CHECK(rc == 0, "close program completes");
-    CHECK(out == "vn",
-        "buffered value drains, then null (got: " + out + ")");
+    CHECK(out == "vx",
+        "buffered value drains, then closed recv throws (got: "
+        + out + ")");
     PASS();
 }
 
-//Slice 9：已关闭通道再发送是对语言面的误用——基础异常，消息点名。
-void test_channel_send_after_close_rejected()
+//K3 Task 3：已关闭通道再发送抛可捕获的 ChannelClosedException，消息
+//点名（K1 的不可捕获基础异常升级为语言面异常——用户代码可恢复）。
+void test_channel_send_after_close_catchable()
 {
-    TEST(channel_send_after_close_rejected);
-    bool threw = false;
-    std::string what;
-    try {
-        runSource("ch_send_closed",
-            "int main() {\n"
-            "    Channel<int> c = {};\n"
-            "    c.close();\n"
-            "    c.send(1);\n"
-            "    return 0;\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        threw = true;
-        what = e.what();
-    }
-    CHECK(threw, "send after close must be an error");
-    CHECK(what.find("closed") != std::string::npos,
-        "message names the rule (got: " + what + ")");
+    TEST(channel_send_after_close_catchable);
+    const int rc = runSource("ch_send_closed",
+        "int main() {\n"
+        "    Channel<int> c = {};\n"
+        "    c.close();\n"
+        "    try {\n"
+        "        c.send(1);\n"
+        "        return 2;\n"
+        "    } catch (ChannelClosedException e) {\n"
+        "        if (e.message != \"send on a closed channel\") return 3;\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n");
+    CHECK(rc == 0, "send after close throws the catchable channel exception");
+    PASS();
+}
+
+//K3 Task 3：close 时仍停泊在 recv 上的等待者——缓冲交付完毕后剩余
+//等待者以 ChannelClosedException 唤醒（同一异常对象；取代 K1 的静默
+//null 唤醒——停泊中的消费者也必须看见通道终点）。
+void test_channel_close_wakes_parked_recv_with_throw()
+{
+    TEST(channel_close_wakes_parked_recv_with_throw);
+    std::string out;
+    const int rc = runSourceCapturing("ch_close_wake",
+        "import io;\n"
+        "class Slack {\n"
+        "    public Channel<int> ch;\n"
+        "    public void take() {\n"
+        "        try {\n"
+        "            int v = ch.recv();\n"
+        "            io.write(\"got\" + v);\n"
+        "        } catch (ChannelClosedException e) {\n"
+        "            io.write(\"closed\");\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Slack s = Slack();\n"
+        "    s.ch = {};\n"
+        "    Thread w = thread.spawn(s.take);\n"
+        "    thread.yield();\n"
+        "    s.ch.close();\n"
+        "    thread.join(w);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "close-wake program completes");
+    CHECK(out == "closed",
+        "parked recv wakes with the channel-closed exception (got: "
+        + out + ")");
     PASS();
 }
 
@@ -2780,8 +2880,11 @@ int main()
         runGuarded(test_mutex_relock_deadlock_surfaces);
         runGuarded(test_channel_fifo_buffer_order);
         runGuarded(test_channel_recv_parks_until_send);
-        runGuarded(test_channel_close_drains_then_null);
-        runGuarded(test_channel_send_after_close_rejected);
+        runGuarded(test_channel_closed_semantics);
+        runGuarded(test_channel_closed_drain_fifo);
+        runGuarded(test_channel_close_drains_then_closed_throws);
+        runGuarded(test_channel_send_after_close_catchable);
+        runGuarded(test_channel_close_wakes_parked_recv_with_throw);
         runGuarded(test_channel_typed_roundtrip);
         runGuarded(test_channel_buffered_survives_gc_storm);
         runGuarded(test_channel_bare_name_rejected);

@@ -50,7 +50,7 @@ enum BuiltinSuperRef : int8_t {
 enum BuiltinIdxMember : uint8_t {
     BIDX_None, BIDX_Object, BIDX_List, BIDX_Dict, BIDX_Exception,
     BIDX_NullPtrExc, BIDX_DivZeroExc, BIDX_OobExc, BIDX_AssertExc, BIDX_IoExc,
-    BIDX_InvalidCastExc,
+    BIDX_InvalidCastExc, BIDX_ChannelClosedExc,
 };
 
 struct BuiltinClassDecl {
@@ -253,6 +253,12 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"Future",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         false, 0, 0,
         s_FutureMethods, std::size(s_FutureMethods), BIDX_None},
+    //K3 (v0.10.3): closed-channel recv/send raise this catchable
+    //exception. Appended at the END like the concurrency block —
+    //existing class indices stay stable for the serialized .ncu.
+    {"ChannelClosedException", BSR_ExceptionBase, s_ExceptionFields,
+        std::size(s_ExceptionFields), true, INTR_ChannelClosedException_Ctor,
+        2, nullptr, 0, BIDX_ChannelClosedExc},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.
@@ -318,6 +324,7 @@ void VmBackend::RegisterBuiltinClasses() {
             case BIDX_AssertExc:  m_assertExcClassIdx  = static_cast<int16_t>(classIdx); break;
             case BIDX_IoExc:      m_ioExcClassIdx      = static_cast<int16_t>(classIdx); break;
             case BIDX_InvalidCastExc: m_invalidCastExcClassIdx = static_cast<int16_t>(classIdx); break;
+            case BIDX_ChannelClosedExc: m_channelClosedExcClassIdx = static_cast<int16_t>(classIdx); break;
             default: break;  //BIDX_None — ByteStream/FileStream
         }
     }

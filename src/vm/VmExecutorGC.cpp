@@ -104,8 +104,9 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
             MarkFrameResult(parkedFrame, worklist);
             MarkFrameBand(parkedFrame, worklist);
         }
-        const int32_t ctxRoots[2] = { ctx->threadObjHeapIdx,
-                                      ctx->failExcHeapIdx };
+        const int32_t ctxRoots[3] = { ctx->threadObjHeapIdx,
+                                      ctx->failExcHeapIdx,
+                                      ctx->resumeExcHeapIdx };
         for (int32_t val : ctxRoots) {
             if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
                 && !m_markBits[val])
