@@ -6,5 +6,6 @@
 NLANG_DEFINE_NATIVE_INIT {
     (void)registry;
     (void)reg;
+    (void)regBlocking;
     return 999999;
 }

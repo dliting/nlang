@@ -49,6 +49,10 @@ void VmExecutor::MarkPhase() {
         MarkFrameBand(frame, worklist);
     }
     MarkSchedulerRoots(worklist);
+    //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
+    //return slot) and callback-minted handles — roots for as long as
+    //their carrier's GIL is away.
+    MarkNativeCallRoots(worklist);
     //Extension point ③: host-registered roots (host-held reference
     //Values). Same string/heap split as the frame scans — RTK_String
     //values are string-store handles routed to MarkString (its own
@@ -152,12 +156,45 @@ void VmExecutor::MarkFrameBand(const CallFrame& frame,
     for (; off + kFrameSlotBytes <= size; off += kFrameSlotBytes) {
         int32_t val;
         std::memcpy(&val, frame.localsBuf.data() + off, sizeof(val));
-        if (val <= 0)
-            continue;
-        if (static_cast<size_t>(val) < m_stringObjs.size())
-            MarkString(val);
-        if (static_cast<size_t>(val) < m_slotKinds.size() && !m_markBits[val])
-            PushMarked(val, worklist);
+        TestRootValue(val, worklist);
+    }
+}
+
+//K2 slice 4: the conservative value test shared by the frame band scan
+//and the staged native-call roots (below). Both domains are tested;
+//see MarkFrameBand for the over-mark-only argument.
+void VmExecutor::TestRootValue(int32_t val,
+                               std::vector<int32_t>& worklist) {
+    if (val <= 0)
+        return;
+    if (static_cast<size_t>(val) < m_stringObjs.size())
+        MarkString(val);
+    if (static_cast<size_t>(val) < m_slotKinds.size() && !m_markBits[val])
+        PushMarked(val, worklist);
+}
+
+//K2 slice 4 (§2.5 staged roots): in-flight blocking native calls. The
+//address form covers the staged argument cells and the staged return
+//cell — their contents exist only after entry (the ret cell is written
+//by the native itself), so only an address can see the final values;
+//argument cells are immutable past the entry copy (const in the ABI).
+//The value form covers handles minted by re-entrant NativeHost
+//callbacks during the blocking section. Everything mutates under the
+//GIL (arm before release, truncate after reacquire), so a collection —
+//which itself holds the GIL — reads a consistent list.
+void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
+    for (const NativeCallRoot& root : m_nativeCallRoots) {
+        if (root.cells) {
+            for (uint32_t i = 0; i < root.cellCount; ++i) {
+                int32_t val;
+                std::memcpy(&val,
+                    root.cells + static_cast<size_t>(i) * kFrameSlotBytes,
+                    sizeof(val));
+                TestRootValue(val, worklist);
+            }
+        } else {
+            TestRootValue(root.value, worklist);
+        }
     }
 }
 

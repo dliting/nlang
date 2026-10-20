@@ -50,6 +50,9 @@ void VmExecutor::RunFrames(size_t baseDepth)
             //otherwise corrupt m_unwindFrames (the O2 audit's one
             //mandatory ordering).
             throw;
+        } catch (ShutdownSignal&) {
+            //K2 slice 4: parked frames, not an unwind — pass it on.
+            throw;
         } catch (...) {
             //Non-NLang error (unknown opcode, malformed module, ...):
             //record one unwind entry per frame of this window, innermost

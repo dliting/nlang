@@ -24,6 +24,7 @@ void VmScheduler::Reset() {
     m_timers.clear();
     m_stopRequested = false;
     m_idleCarrierCount = 0;
+    m_blockedNativeCount = 0;
     m_nextId = 0;
     m_auxDispatchCount = 0;
     m_gilWaitersPeak.store(0, std::memory_order_relaxed);
@@ -50,7 +51,10 @@ int VmScheduler::RegisterContext() {
 //等待前：全部在飞载体都将等待（本载体即将成为最后一个空闲者）且队
 //列与定时器表皆空——没有任何唤醒源，直接抛错；main 未完成即无法返
 //回，与其静默挂死不如拒绝；定时器表非空则必有未来唤醒，不构成死
-//锁。等待中的载体计入 m_idleCarrierCount（锁内维护，检测的输入）。
+//锁。K2 slice 4：BlockedNative 在飞同样是唤醒源（原生可能返回），
+//与定时器表同为排除项——原生级死锁（等待永不返回）不在检测范围，
+//由原生自身负责。等待中的载体计入 m_idleCarrierCount（锁内维护，
+//检测的输入）。
 int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     for (;;) {
         if (!m_runQueue.empty()) {
@@ -63,7 +67,7 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
         }
         if (m_stopRequested)
             return -1;
-        if (m_timers.empty()
+        if (m_timers.empty() && m_blockedNativeCount == 0
                 && m_idleCarrierCount + 1 >= m_activeCarrierCount.load()) {
             throw std::runtime_error(
                 "NLang VM: deadlock — no runnable contexts remain");
@@ -288,6 +292,27 @@ void VmScheduler::WakeForChanRecv(int id) {
     ctx->state = ContextState::Runnable;
     m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
+}
+
+//K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用
+//原生的一方），currentContextId 保持——与 Parked* 家族不同，唤醒不
+//经队列事件，而是载体在原生返回后原地续跑。计数供死锁检测排除。
+void VmScheduler::MarkBlockedNative(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::BlockedNative;
+    ++m_blockedNativeCount;
+}
+
+//K2 slice 4（§2.5）：阻塞原生复原——载体已重取 GIL、帧已搬回
+//m_callStack；状态回 Runnable 但不入队（载体持有，同运行中上下文）。
+void VmScheduler::MarkRunnableHeld(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    --m_blockedNativeCount;
 }
 
 const ExecutionContext* VmScheduler::Find(int id) const {

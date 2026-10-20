@@ -7,35 +7,13 @@
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 #include <cstdio>
-#include <exception>
 
 namespace nlang {
 
-
-void VmExecutor::RegisterNative(const std::string& name, NativeFn fn)
-{
-    m_natives[name] = fn;
-}
-
-void VmExecutor::CallNative(const CompiledFunction& callee,
-    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
-{
-    //Extension point ⑤: the host dispatch hook answers first — host
-    //registrations win over same-named DLL natives and never trigger a
-    //DLL load attempt (that is why this precedes EnsureNativeAvailable).
-    if (m_pHostFunctions
-            && m_pHostFunctions->Call(callee, locals + callParamBase,
-                                      callee.paramCount, pResult))
-        return;
-    EnsureNativeAvailable(callee.name);
-    auto it = m_natives.find(callee.name);
-    if (it == m_natives.end())
-        throw std::runtime_error(
-            "NLang VM: native function not registered: " + callee.name);
-    VmNativeHost host;
-    InitNativeHost(host);
-    it->second(&host.c, pResult, locals + callParamBase, callee.paramCount);
-}
+//K2 slice 4: the native-call bridge (registration, CallNative dispatch
+//and the blocking-native protocol) lives in VmExecutorNativeHost.cpp
+//with the rest of the native ABI surface. This file keeps the VM-side
+//intrinsic dispatch.
 
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)

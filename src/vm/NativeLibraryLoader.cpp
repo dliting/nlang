@@ -68,7 +68,15 @@ struct RegistrationContext {
 void RegisterTrampoline(void* registry, const char* ns, const char* name,
                         NativeFn fn) {
     auto* ctx = static_cast<RegistrationContext*>(registry);
-    (*ctx->callback)(ns ? ns : "", name ? name : "", fn);
+    (*ctx->callback)(ns ? ns : "", name ? name : "", fn, /*blocking=*/false);
+}
+
+//ABI v5: the blocking channel forwards the same tuple with the flag
+//set — the callback (executor-side) records it in the registry entry.
+void RegisterBlockingTrampoline(void* registry, const char* ns,
+                                const char* name, NativeFn fn) {
+    auto* ctx = static_cast<RegistrationContext*>(registry);
+    (*ctx->callback)(ns ? ns : "", name ? name : "", fn, /*blocking=*/true);
 }
 
 } // namespace
@@ -140,7 +148,8 @@ void NativeLibraryLoader::EnsureLoaded(
 
     auto init = reinterpret_cast<NativeModuleInitFn>(symbol);
     RegistrationContext context{&registerFn};
-    const int reportedAbi = init(&context, &RegisterTrampoline);
+    const int reportedAbi = init(&context, &RegisterTrampoline,
+                                 &RegisterBlockingTrampoline);
     if (static_cast<uint32_t>(reportedAbi) != NLANG_HOST_ABI_VERSION) {
         CloseShared(handle);
         throw std::runtime_error(

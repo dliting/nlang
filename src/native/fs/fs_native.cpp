@@ -129,15 +129,17 @@ void FsJoin(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 } // namespace
 
-// Module entry point.
+// Module entry point. Everything touches the filesystem (unbounded
+// latency) and registers through the blocking channel — except join,
+// pure string composition on already-fetched arguments.
 NLANG_DEFINE_NATIVE_INIT {
-    reg(registry, "fs", "exists",      &FsExists);
-    reg(registry, "fs", "isFile",      &FsIsFile);
-    reg(registry, "fs", "isDirectory", &FsIsDirectory);
-    reg(registry, "fs", "size",        &FsSize);
-    reg(registry, "fs", "listFiles",   &FsListFiles);
-    reg(registry, "fs", "makeDirs",    &FsMakeDirs);
-    reg(registry, "fs", "remove",      &FsRemove);
+    regBlocking(registry, "fs", "exists",      &FsExists);
+    regBlocking(registry, "fs", "isFile",      &FsIsFile);
+    regBlocking(registry, "fs", "isDirectory", &FsIsDirectory);
+    regBlocking(registry, "fs", "size",        &FsSize);
+    regBlocking(registry, "fs", "listFiles",   &FsListFiles);
+    regBlocking(registry, "fs", "makeDirs",    &FsMakeDirs);
+    regBlocking(registry, "fs", "remove",      &FsRemove);
     reg(registry, "fs", "join",        &FsJoin);
     return NLANG_HOST_ABI_VERSION;
 }

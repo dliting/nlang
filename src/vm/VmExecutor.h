@@ -231,6 +231,12 @@ public:
     //library functions, a bare name for host-registered natives).
     using NativeFn = ::NativeFn;
     void RegisterNative(const std::string& name, NativeFn fn);
+    //K2 slice 4 (§2.5): declare a native that may take unbounded time.
+    //The VM stages its arguments/result off the frame, parks the context
+    //as BlockedNative and releases the GIL around the call, so other
+    //carriers keep running. Duplicate registration of one name through
+    //either channel is a load error.
+    void RegisterNativeBlocking(const std::string& name, NativeFn fn);
 
     //Append a directory searched for native modules (nlang_<ns>.dll /
     //libnlang_<ns>.so). The executable directory is searched by default.
@@ -542,6 +548,13 @@ private:
     //Thread object and a Failed context's exception object (join rethrows
     //it by heap idx). Same three frame arms as the running stack.
     void MarkSchedulerRoots(std::vector<int32_t>& worklist);
+    //K2 slice 4: blocking-native local roots (staged cells and minted
+    //handles) — same dual-domain value test as the frame band.
+    void MarkNativeCallRoots(std::vector<int32_t>& worklist);
+    //Shared value test behind the frame band and the native roots: a
+    //true reference is valid in exactly its own domain (string-store
+    //handle vs heap idx); a cross-domain hit can only over-mark.
+    void TestRootValue(int32_t val, std::vector<int32_t>& worklist);
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
@@ -645,13 +658,26 @@ private:
     //during unwinding would be UB anyway). K2 slice 2: the constructor
     //maintains the GIL-waiter count around the lock acquisition — the
     //yield rule reads it to keep lock contenders from starving.
-    class GilWindowGuard {
+    //K2 slice 4 (§2.5): the GIL holder this thread currently owns the
+    //lock through — normally the carrier's window guard; transiently a
+    //re-entrant host callback's GilEnsureGuard while a blocking native
+    //has the window's lock away. The blocking-native arm hands the lock
+    //off through the current holder, so blocking works at any re-entry
+    //depth. The owner designation is thread state, not lock state:
+    //during PopNextRunnable's internal cv wait the lock is momentarily
+    //away while the designation persists (only VM-internal code runs
+    //there — nothing can observe the gap).
+    class GilHolder {
+    public:
+        virtual ~GilHolder() = default;
+        virtual void Release() = 0;   //unlock + clear owner
+        virtual void Acquire() = 0;   //counted lock + set owner
+    };
+
+    class GilWindowGuard : public GilHolder {
     public:
         explicit GilWindowGuard(VmExecutor& exec) : m_rExec(exec) {
-            exec.m_spScheduler->BeginGilWait();
-            m_lock = std::unique_lock<std::mutex>(
-                exec.m_spScheduler->Gil());
-            exec.m_spScheduler->EndGilWait();
+            Acquire();
         }
         GilWindowGuard(const GilWindowGuard&) = delete;
         GilWindowGuard& operator=(const GilWindowGuard&) = delete;
@@ -659,14 +685,69 @@ private:
             if (!m_rExec.m_callStack.empty()) {
                 std::terminate();   //INV-2 broken: refuse to continue
             }
+            if (m_lock.owns_lock()) {
+                m_lock.unlock();
+                if (t_gilOwner == this)
+                    t_gilOwner = nullptr;
+            }
         }
         //PopNextRunnable needs the lock itself (its cv wait releases
         //and reacquires it).
         std::unique_lock<std::mutex>& Lock() { return m_lock; }
+        void Release() override {
+            m_lock.unlock();
+            if (t_gilOwner == this)
+                t_gilOwner = nullptr;
+        }
+        void Acquire() override {
+            m_rExec.m_spScheduler->BeginGilWait();
+            m_lock.lock();
+            m_rExec.m_spScheduler->EndGilWait();
+            t_gilOwner = this;
+        }
     private:
-        std::unique_lock<std::mutex> m_lock;
+        //Declaration order matters: m_lock's initializer reads m_rExec.
         VmExecutor& m_rExec;
+        std::unique_lock<std::mutex> m_lock{
+            m_rExec.m_spScheduler->Gil(), std::defer_lock};
     };
+
+    //K2 slice 4 (§2.5 re-entrant callback GIL): acquire the GIL unless
+    //this thread already holds it (carrier window or an outer ensure
+    //guard). NativeHost callbacks and the by-name bridge enter the VM
+    //through here — including from inside a blocking native, where the
+    //carrier's window lock is away.
+    class GilEnsureGuard : public GilHolder {
+    public:
+        explicit GilEnsureGuard(VmExecutor& exec) : m_rExec(exec) {
+            if (t_gilOwner != nullptr)
+                return;   //already held on this thread — nested no-op
+            Acquire();
+        }
+        GilEnsureGuard(const GilEnsureGuard&) = delete;
+        GilEnsureGuard& operator=(const GilEnsureGuard&) = delete;
+        ~GilEnsureGuard() {
+            if (m_lock.owns_lock())
+                Release();
+        }
+        void Release() override {
+            m_lock.unlock();
+            if (t_gilOwner == this)
+                t_gilOwner = nullptr;
+        }
+        void Acquire() override {
+            m_rExec.m_spScheduler->BeginGilWait();
+            m_lock.lock();
+            m_rExec.m_spScheduler->EndGilWait();
+            t_gilOwner = this;
+        }
+    private:
+        //Declaration order matters: m_lock's initializer reads m_rExec.
+        VmExecutor& m_rExec;
+        std::unique_lock<std::mutex> m_lock{
+            m_rExec.m_spScheduler->Gil(), std::defer_lock};
+    };
+    static thread_local GilHolder* t_gilOwner;
 
     //K1 decision 7: debug callbacks fire for the main context only
     //(spawned contexts stay silent — full multi-context debugging is
@@ -831,6 +912,31 @@ private:
     void CallNative(const CompiledFunction& callee, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //K2 slice 4 (§2.5): the blocking-native arm. `invoke` runs the
+    //native (or the host hook) against the staged cells and returns
+    //whether the call was handled (the host hook may decline). The arm
+    //stages args, arms local roots, steals the frame stack into the
+    //context, releases the GIL through the current holder, invokes,
+    //reacquires, truncates the roots to the watermark, honors the stop
+    //flag (ShutdownSignal passthrough — frames stay parked), restores
+    //the frames, and memcpy's the staged result into pResult.
+    using BlockingInvoke =
+        std::function<bool(const uint8_t* args, uint32_t argc,
+                           uint8_t* ret)>;
+    bool RunBlockingNative(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
+        const BlockingInvoke& invoke);
+    //Steal m_callStack into the context (BlockedNative) / restore
+    //exactly the stolen tail (Runnable-held). Split out of
+    //RunBlockingNative for the source-size guard; park also raises
+    //t_blockingNativeDepth (the restore lowers it in the caller,
+    //next to the GIL reacquire).
+    void ParkFramesForBlockingNative(ExecutionContext* ctx);
+    void RestoreStolenFrames(ExecutionContext* ctx, size_t stolenDepth);
+    //Root a handle minted by a NativeHost callback — no-op outside a
+    //blocking section (see t_blockingNativeDepth). Called under the GIL.
+    void RootMintedNativeHandle(int32_t handle);
+
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
     void InitNativeHost(VmNativeHost& host);
     int32_t BuildListString(const char* const* items, int count);
@@ -929,8 +1035,33 @@ private:
     std::vector<int32_t> m_strFreeList;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
     int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
-    //Name → host function table for native calls.
-    std::unordered_map<std::string, NativeFn> m_natives;
+    //Name → host function table for native calls. The flag carries the
+    //K2 slice 4 blocking declaration (registration channel); non-blocking
+    //natives run with the GIL held as before.
+    struct NativeEntry {
+        NativeFn fn = nullptr;
+        bool blocking = false;
+    };
+    std::unordered_map<std::string, NativeEntry> m_natives;
+    //K2 slice 4 (§2.5): local roots live during a blocking native call
+    //(JNI local-ref shape). Address entries cover the staged arg/ret
+    //cells on the carrier's C++ stack (the native writes them after
+    //entry, so only address rooting sees the final values); value
+    //entries cover handles minted by NativeHost callbacks mid-call
+    //(newString et al.) before the native copies them into ret. All
+    //mutations happen under the GIL; CallNative truncates to its
+    //watermark on every exit path after reacquiring.
+    struct NativeCallRoot {
+        const uint8_t* cells = nullptr;  //address form base (null = value)
+        uint32_t cellCount = 0;          //address form: 8-byte cell count
+        int32_t value = 0;               //value form: minted handle
+    };
+    std::vector<NativeCallRoot> m_nativeCallRoots;
+    //Depth of blocking-native sections entered on this thread. Minting
+    //callbacks root their handles only while this is non-zero (a
+    //non-blocking native holds the GIL across the whole call, so no GC
+    //can intervene between mint and the native writing the handle).
+    static thread_local int t_blockingNativeDepth;
     //Lazy on-demand loader for native modules (standard-library DLLs and
     //third-party modules use it). Created on first native-module need.
     std::unique_ptr<NativeLibraryLoader> m_upNativeLoader;
@@ -1111,6 +1242,10 @@ private:
     //to be a converted `throw std::runtime_error(...)` site; the caller
     //supplies the human-readable message (used for what() / debugging).
     [[noreturn]] void RaiseNlangException(int16_t classIdx, const std::string& msg);
+    //K2 slice 4: building half of the above (no throw) — the NativeHost
+    //raiseException callback roots the fresh object before throwing it
+    //across the blocking-native GIL gap.
+    int32_t BuildNlangException(int16_t classIdx, const std::string& msg);
 
     //v0.8.5: the message an NLangThrow carries for a thrown exception
     //object. cell[1] holds the message string handle (the ctor intrinsic

@@ -29,6 +29,7 @@ static void Greet(NativeHost* host, uint8_t* ret,
 
 NLANG_DEFINE_NATIVE_INIT
 {
+    (void)regBlocking;
     reg(registry, "mylib", "add", &Add);
     reg(registry, "mylib", "mul", &Mul);
     reg(registry, "mylib", "greet", &Greet);

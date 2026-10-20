@@ -15,6 +15,7 @@
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"
@@ -26,6 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -2194,6 +2196,138 @@ static void test_aux_carrier_error_confluence()
     PASS();
 }
 
+// --- K2 Task 4（声明式阻塞原生协议，ABI v5）---
+
+//进程内注册的慢原生（阻塞通道）：函数体真实睡眠——只有协议（暂存实参/
+//结果、窃帧停泊、GIL 释放）使它们可被安全调用。nbEchoSlow 刻意先铸造
+//结果再睡：句柄在暂存结果格里暴露于整个阻塞窗口，正是地址形态根必须
+//存活的形状；铸造本身又经值形态根（RootMintedNativeHandle）覆盖。
+static void NbWait(NativeHost*, uint8_t*, const uint8_t* args, int)
+{
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(native::ArgInt(args, 0)));
+}
+
+static void NbEchoSlow(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, int)
+{
+    const std::string s = native::ArgString(host, args, 1);
+    native::ReturnString(host, ret, "echo:" + s);
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(native::ArgInt(args, 0)));
+}
+
+//runBlockingNative：注册两个阻塞原生后执行，捕获输出；gcStress 非零时
+//压低 GC 阈值制造分配风暴。
+static int runBlockingNative(const std::string& tag,
+                             const std::string& source, uint32_t carriers,
+                             std::string& rOut, size_t gcStress = 0)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(carriers);
+    if (gcStress)
+        exec.SetGcStressThresholds(gcStress);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    //注册键 = <TU 名>.<名>（自由函数的 VM 键带包前缀，同
+    //test_native_host 的 RegisterHs 模式）。
+    exec.RegisterNativeBlocking(tag + ".nbWait", &NbWait);
+    exec.RegisterNativeBlocking(tag + ".nbEchoSlow", &NbEchoSlow);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc;
+}
+
+//协议判别器 1（GIL 释放）：main 阻塞 150ms，worker 在窗口内抢到 GIL 并
+//输出。main 从 spawn 到阻塞调用之间无回边（不会被配额抢占），故 worker
+//的输出先于 main-after 只能来自「阻塞期间 GIL 离手」；不释放则顺序反转
+//（worker 只能在 main 返回后运行）——测试变红。
+static void test_blocking_native_releases_gil()
+{
+    TEST(blocking_native_releases_gil);
+    std::string out;
+    const int rc = runBlockingNative("bn_gil",
+        "import io;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { io.write(\"worker|\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    nbWait(150);\n"
+        "    io.write(\"main-after|\");\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        2, out);
+    CHECK(rc == 0, "blocking-native program completes");
+    const size_t pw = out.find("worker|");
+    const size_t pm = out.find("main-after|");
+    CHECK(pw != std::string::npos && pm != std::string::npos,
+          "both outputs landed (got: " + out + ")");
+    CHECK(pw < pm,
+          "the worker ran inside the blocking window — the GIL was "
+          "released (got: " + out + ")");
+    PASS();
+}
+
+//协议判别器 2（暂存根存活 GC 风暴，回归针）：churner 在阻塞窗口内以压
+//低阈值反复触发回收；nbEchoSlow 先把铸造好的句柄写进暂存结果格再睡，
+//整个风暴期间该句柄只有原生调用根保护。根缺失 ⇒ 句柄被清扫 ⇒ 输出非
+//echo:payload（或崩溃）——测试变红。
+static void test_blocking_native_staged_roots_survive_gc_storm()
+{
+    TEST(blocking_native_staged_roots_survive_gc_storm);
+    std::string out;
+    const int rc = runBlockingNative("bn_gcstorm",
+        "import io;\n"
+        "native string nbEchoSlow(int ms, string s);\n"
+        "void churner() {\n"
+        "    int i = 0;\n"
+        "    while (i < 50000) {\n"
+        "        string garbage = \"g\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churner);\n"
+        "    string s = nbEchoSlow(150, \"payload\");\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        2, out, /*gcStress=*/64);
+    CHECK(rc == 0, "GC-storm blocking-native program completes");
+    CHECK(out.find("echo:payload") != std::string::npos,
+          "the staged result handle survived every collection in the "
+          "window (got: " + out + ")");
+    PASS();
+}
+
+//协议判别器 3（停机穿透）：worker 在阻塞原生内时 main 返回（停机请求）
+//——原生返回后必须经 ShutdownSignal 丢弃该上下文：无输出、无结果消费、
+//帧留 ctx、INV-2 成立。缺停机检查 ⇒ worker 复活并输出 after-native——
+//测试变红。main 先阻塞 10ms 保证 worker 确实进入原生（判别前提成立）。
+static void test_shutdown_signal_passthrough()
+{
+    TEST(shutdown_signal_passthrough);
+    std::string out;
+    const int rc = runBlockingNative("bn_stop",
+        "import io;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { nbWait(60); io.write(\"after-native|\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    nbWait(10);\n"
+        "    return 0;\n"
+        "}\n",
+        2, out);
+    CHECK(rc == 0, "main returns cleanly while a worker sits blocked");
+    CHECK(out.find("after-native") == std::string::npos,
+          "the blocked context was abandoned at stop, before its next "
+          "output (got: " + out + ")");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -2218,6 +2352,9 @@ int main()
         test_aux_carriers_actually_execute();
         test_timer_wake_under_multi_carrier();
         test_aux_carrier_error_confluence();
+        runGuarded(test_blocking_native_releases_gil);
+        runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
+        runGuarded(test_shutdown_signal_passthrough);
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();

@@ -20,6 +20,11 @@ void VmExecutor::CallByName(const std::string& qualifiedName,
     if (!m_currModule)
         throw std::runtime_error(
             "NLang VM: CallByName before InitializeForRun");
+    //K2 slice 4: the by-name entry may run on a host thread outside any
+    //carrier window — hold the GIL across the whole call (it allocates,
+    //collects, dispatches natives). Inside a window the guard nests as
+    //a no-op and the caller's holding is preserved.
+    GilEnsureGuard gil(*this);
     //Scan all functions carrying the key (overloads share it); the
     //arity test is argc <= paramCount <= argc + defaults-available.
     //The adapter already disambiguated; here take the first whose

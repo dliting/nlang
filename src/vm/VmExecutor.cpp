@@ -214,6 +214,12 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
                 if (FailContextContained(ctx, ex.heapIdx))
                     throw;   //main: outer catch snapshots the backtrace
                 continue;
+            } catch (ShutdownSignal&) {
+                //K2 slice 4: stop while this context sat in a blocking
+                //native (main returned on another carrier). Frames stay
+                //parked — end the loop like the -1 dequeue above; the
+                //blocked context is dropped per the K1 exit policy.
+                break;
             } catch (...) {
                 //Non-NLang errors (VM-internal, or the deadlock guard)
                 //are fatal for the whole run regardless of context —
@@ -337,6 +343,20 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //nearest catch handler (or top-level if none).
 [[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
                                                    const std::string& msg) {
+    const int32_t heapIdx = BuildNlangException(classIdx, msg);
+    //Debugger checkpoint at the throw site, before unwinding starts
+    //(the full NLang stack is still alive).
+    FireOnThrow();
+    throw NLangThrow(heapIdx, msg);
+}
+
+//K2 slice 4: the building half of RaiseNlangException, split out so
+//NativeRaiseException can root the fresh object before throwing —
+//between the throw and the blocking arm's catch the GIL is away (the
+//unwinding callback guard releases it), and a GC on another carrier
+//must not sweep the in-flight exception.
+int32_t VmExecutor::BuildNlangException(int16_t classIdx,
+                                         const std::string& msg) {
     if (classIdx < 0)
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
@@ -381,10 +401,7 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     //further allocations happen before the throw.
     if (listHeapIdx > 0)
         m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
-    //Debugger checkpoint at the throw site, before unwinding starts
-    //(the full NLang stack is still alive).
-    FireOnThrow();
-    throw NLangThrow(heapIdx, msg);
+    return heapIdx;
 }
 
 }

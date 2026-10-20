@@ -138,17 +138,22 @@ void IoAppendFile(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 } // namespace
 
-// Module entry point.
+// Module entry point. Registration channel per function: print/write/
+// eprint only forward already-built strings through the host callbacks
+// (non-blocking, run under the VM's lock); every input and file function
+// may wait unbounded on the outside world (stdin, disk) and registers
+// through the blocking channel — the VM parks the calling context and
+// releases its lock around those calls.
 NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "io", "print",      &IoPrint);
     reg(registry, "io", "write",      &IoWrite);
     reg(registry, "io", "eprint",     &IoEprint);
-    reg(registry, "io", "readLine",   &IoReadLine);
-    reg(registry, "io", "hasInput",   &IoHasInput);
-    reg(registry, "io", "readToken",  &IoReadToken);
-    reg(registry, "io", "readChar",   &IoReadChar);
-    reg(registry, "io", "readFile",   &IoReadFile);
-    reg(registry, "io", "writeFile",  &IoWriteFile);
-    reg(registry, "io", "appendFile", &IoAppendFile);
+    regBlocking(registry, "io", "readLine",   &IoReadLine);
+    regBlocking(registry, "io", "hasInput",   &IoHasInput);
+    regBlocking(registry, "io", "readToken",  &IoReadToken);
+    regBlocking(registry, "io", "readChar",   &IoReadChar);
+    regBlocking(registry, "io", "readFile",   &IoReadFile);
+    regBlocking(registry, "io", "writeFile",  &IoWriteFile);
+    regBlocking(registry, "io", "appendFile", &IoAppendFile);
     return NLANG_HOST_ABI_VERSION;
 }

@@ -48,6 +48,12 @@ struct ParkSignal {
     explicit ParkSignal(Reason r) : reason(r) {}
 };
 
+//K2 slice 4（§2.5）：关停穿透信号。载体在阻塞原生中期间 run 结束（main
+//返回/失败或致命错误）——原生返回后发现 stop 已置位即抛本信号：不是错
+//误，与 ParkSignal 同样的直通待遇；载体循环捕获后静默退出（帧已整栈
+//停泊在 ctx，K1 退出策略原样丢弃）。
+struct ShutdownSignal {};
+
 //RAII：嵌套求值窗口（toString / 宿主 CallByName）进行期间递增本载体
 //的嵌套深度。窗口内的指令中途回不来，停泊必须整帧栈让渡，因此窗口
 //内禁止一切挂起（配额直接跳过；RequestPark 将内在函数的挂起请求转为
@@ -88,6 +94,8 @@ enum class ContextState {
     ParkedJoin,      //Slice 6：join 目标未完成停泊
     ParkedMutex,     //Slice 8：锁竞争停泊
     ParkedChanRecv,  //Slice 9：空通道接收停泊
+    BlockedNative,   //K2 slice 4：载体在阻塞原生中（帧已窃入 ctx、
+                     //GIL 已释放；原生返回后载体原地续跑，不入队）
     Finished,        //根帧正常返回
     Failed,          //根帧异常逃逸
 };
@@ -171,6 +179,18 @@ public:
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
     //的 failExcHeapIdx）。多 joiner 皆唤醒（计划决策 6）。
     void WakeJoiners(int targetId, bool failed);
+
+    //K2 slice 4（§2.5）：阻塞原生停泊/复原对。MarkBlockedNative 在窃帧
+    //后、释放 GIL 前调用（帧已入 ctx、载体仍持有该上下文——
+    //currentContextId 不清零）；MarkRunnableHeld 在重取 GIL、复原帧后调
+    //用（状态回 Runnable 但不入队——载体持有语义，同运行中上下文）。
+    //计数是死锁检测的排除项：阻塞原生完成即唤醒源，全部载体等待＋队
+    //列/定时器皆空时若仍有阻塞节在飞，不得判死锁。须持 GIL。
+    void MarkBlockedNative(int id);
+    void MarkRunnableHeld(int id);
+    //stop 标志读取（须持 GIL——阻塞臂在重取 GIL 后检查）。main 终结或
+    //运行失败后置位；载体循环以此区分 run 已结束。
+    bool StopRequested() const { return m_stopRequested; }
 
     void MarkFinished(int id, int64_t result);
     void MarkFailed(int id, int32_t failExcHeapIdx);
@@ -311,6 +331,9 @@ private:
     bool m_stopRequested = false;          //main 终结或运行失败后置位
     //正在 cv 上等待出队的载体数（锁内维护；死锁检测的输入）。
     int m_idleCarrierCount = 0;
+    //K2 slice 4：处于 BlockedNative 的上下文数（锁内维护；死锁检测的
+    //排除项——阻塞原生的完成是潜在唤醒源）。
+    int m_blockedNativeCount = 0;
     std::atomic<int> m_activeCarrierCount{0};  //在飞载体（spawn 门）
     std::atomic<int> m_gilWaiters{0};          //GIL 竞争者（让渡规则）
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
