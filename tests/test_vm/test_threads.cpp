@@ -1165,8 +1165,8 @@ void test_sleep_rejects_negative_duration()
 void test_thread_ns_sleep_join_in_tostring_rejected()
 {
     TEST(thread_ns_sleep_join_in_tostring_rejected);
-    bool sleepThrew = false, joinThrew = false;
-    std::string sleepWhat, joinWhat;
+    bool sleepThrew = false, joinThrew = false, getThrew = false;
+    std::string sleepWhat, joinWhat, getWhat;
     try {
         runSource("thread_sleep_ts",
             "class Box {\n"
@@ -1205,14 +1205,37 @@ void test_thread_ns_sleep_join_in_tostring_rejected()
         joinThrew = true;
         joinWhat = e.what();
     }
-    CHECK(sleepThrew && joinThrew,
-        "sleep and join inside a nested evaluation window both throw");
+    try {
+        runSource("future_get_ts",
+            "class Box {\n"
+            "    public string toString() {\n"
+            "        Future<int> f = thread.spawn(producer);\n"
+            "        f.get();\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "int producer() { return 1; }\n"
+            "int main() {\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    string t = arr;\n"
+            "    return t.length();\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        getThrew = true;
+        getWhat = e.what();
+    }
+    CHECK(sleepThrew && joinThrew && getThrew,
+        "sleep, join and future.get inside a nested evaluation window "
+        "all throw");
     CHECK(sleepWhat.find("cannot suspend inside a nested evaluation")
               != std::string::npos
           && joinWhat.find("cannot suspend inside a nested evaluation")
+              != std::string::npos
+          && getWhat.find("cannot suspend inside a nested evaluation")
               != std::string::npos,
-        "both rejections name the nested-evaluation rule (sleep: "
-        + sleepWhat + "; join: " + joinWhat + ")");
+        "all rejections name the nested-evaluation rule (sleep: "
+        + sleepWhat + "; join: " + joinWhat + "; get: " + getWhat + ")");
     PASS();
 }
 
@@ -2020,6 +2043,134 @@ void test_spawn_future_result_survives_gc()
     PASS();
 }
 
+//K3 task 2：get() 的基础取值路径。main 在目标结束前调用 get——停泊在
+//join 机制上，目标 OP_Return 写入 resultCell 后经唤醒投递回填取值点；
+//恢复的调用不重执行（recv 同款 pc-advance 不变量）。
+void test_future_get_value_and_park()
+{
+    TEST(future_get_value_and_park);
+    std::string out;
+    const int rc = runSourceCapturing("future_get_park",
+        "import io;\n"
+        "int slow() {\n"
+        "    thread.yield();\n"
+        "    thread.yield();\n"
+        "    return 42;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(slow);\n"
+        "    int v = f.get();\n"
+        "    io.write(\"v=\" + v);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "get on a pending future parks and completes");
+    CHECK(out == "v=42", "get returns the spawned function's result "
+          "(got: " + out + ")");
+    PASS();
+}
+
+//K3 task 2：引用类型 T 的取值。两重风险一起钉：①目标 Finished 后
+//resultCell 独自持有字符串——spawn 时必须记录返回种类，否则 GC 根臂
+//按 RTK_Int32 跳过，等待期间的回收风暴把值抽走；②二次 get 走 Finished
+//快路径（同值往返，不重停泊）。spammer 在 make 完成后、main 恢复前
+//持续分配——FIFO 下它先于被唤醒的 main 运行，把回收窗口拉满。
+void test_future_get_string_result_survives_gc()
+{
+    TEST(future_get_string_result_survives_gc);
+    CompiledModule mod = buildLinkedModule("future_get_gc",
+        "string make() {\n"
+        "    return \"abc\" + \"def\";\n"
+        "}\n"
+        "void spammer() {\n"
+        "    int i = 0;\n"
+        "    while (i < 100) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<string> f = thread.spawn(make);\n"
+        "    thread.spawn(spammer);\n"
+        "    string r = f.get();\n"
+        "    if (r != \"abcdef\") return 1;\n"
+        "    string again = f.get();\n"
+        "    if (again != \"abcdef\") return 2;\n"
+        "    return 7;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(1);   //每次分配都回收——最大化风暴
+    CHECK(exec.Execute(mod) == 7,
+          "string future result survives gc storm on both get paths");
+    PASS();
+}
+
+//K3 task 2：多等待者。main 与 worker 上下文先后对同一 Future 调用
+//get，都停泊在 join 机制上；目标完成时双双唤醒，各自独立取得同一值。
+void test_future_get_multi_waiter()
+{
+    TEST(future_get_multi_waiter);
+    std::string out;
+    const int rc = runSourceCapturing("future_get_multi",
+        "import io;\n"
+        "int answer() {\n"
+        "    thread.yield();\n"
+        "    return 9;\n"
+        "}\n"
+        "class Holder {\n"
+        "    public Future<int> f;\n"
+        "    public int part;\n"
+        "    public void take() {\n"
+        "        part = f.get();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Holder h = Holder();\n"
+        "    h.f = thread.spawn(answer);\n"
+        "    Thread w = thread.spawn(h.take);\n"
+        "    int mine = h.f.get();\n"
+        "    thread.join(w);\n"
+        "    io.write(\"v=\" + (mine + h.part));\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "two waiters on one future both complete");
+    CHECK(out == "v=18", "each waiter receives the same value "
+          "(got: " + out + ")");
+    PASS();
+}
+
+//K3 task 2：目标失败时 get 重抛原异常对象（join 同款语义，保留消息）。
+//main 先停泊、boom 后失败——覆盖唤醒侧 rethrowOnResume 路径。
+void test_future_get_rethrows_target_failure()
+{
+    TEST(future_get_rethrows_target_failure);
+    const int rc = runSource("future_get_fail",
+        "class Boom : Exception {\n"
+        "    public int Boom(string m) {\n"
+        "        super(m);\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n"
+        "int boom() {\n"
+        "    throw Boom(\"k3-boom\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(boom);\n"
+        "    try {\n"
+        "        int v = f.get();\n"
+        "        return 5;\n"
+        "    } catch (Boom e) {\n"
+        "        if (e.message != \"k3-boom\") return 2;\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n");
+    CHECK(rc == 0,
+          "get on a failed future rethrows the original exception");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -2644,6 +2795,10 @@ int main()
         runGuarded(test_mixed_storm_channels_mutex_gc);
         runGuarded(test_spawn_future_typed_and_isdone);
         runGuarded(test_spawn_future_result_survives_gc);
+        runGuarded(test_future_get_value_and_park);
+        runGuarded(test_future_get_string_result_survives_gc);
+        runGuarded(test_future_get_multi_waiter);
+        runGuarded(test_future_get_rethrows_target_failure);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

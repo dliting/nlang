@@ -38,8 +38,8 @@ static bool IsGenericContainerMethod(const std::string &baseName,
 	} else if (baseName == kBuiltinChannelTypeName) {
 		return (name == "send" || name == "recv" || name == "close");
 	} else if (baseName == kBuiltinFutureTypeName) {
-		//K3: Future<T> surface. get() lands with its intrinsic (task 2).
-		return (name == "isDone");
+		//K3: Future<T> surface — blocking take plus the non-blocking peek.
+		return (name == "get" || name == "isDone");
 	} else if (baseName == kBuiltinFuncTypeName) {
 		//Phase 13: function handles expose toString only.
 		return (name == "toString");
@@ -68,7 +68,7 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 		{"send", 1}, {"recv", 0}, {"close", 0},
 	};
 	static const std::map<std::string, size_t> kFutureMethodArities = {
-		{"isDone", 0},
+		{"get", 0}, {"isDone", 0},
 	};
 	static const std::map<std::string, size_t> kFuncMethodArities = {
 		{"toString", 0},
@@ -274,6 +274,14 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 	} else if (baseName == kBuiltinChannelTypeName && name == "recv") {
 		//K1 Slice 9: recv returns T (typeArgs[0]). send/close return
 		//void — no branch, pResultField stays null.
+		if (!typeArgs.empty() && typeArgs[0]) {
+			snMember.EvalDataType(typeArgs[0]);
+			pResultField = typeArgs[0];
+		}
+	} else if (baseName == kBuiltinFutureTypeName && name == "get") {
+		//K3: get returns T (typeArgs[0]). The value rides as raw T bits
+		//(OP_Return wrote them into the target context's result cell) —
+		//no boxing round-trip, unlike recv's boxed payloads.
 		if (!typeArgs.empty() && typeArgs[0]) {
 			snMember.EvalDataType(typeArgs[0]);
 			pResultField = typeArgs[0];

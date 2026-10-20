@@ -60,4 +60,36 @@ bool VmExecutor::IntrinsicFutureIsDone(uint16_t callParamBase,
     return true;
 }
 
+//future.get(): blocking take. Finished copies the target's result cell
+//(the raw T bits — OP_Return wrote them; no boxing round-trip), Failed
+//rethrows the target's original exception object (join's shape), and a
+//still-running target parks the caller on the join mechanism with its
+//result destination registered — the finishing context delivers into it
+//before the wake (VmScheduler::DeliverJoinResults), so the resumed call
+//never re-executes (the pc-advance invariant). A context cannot await
+//itself — basic exception, same shape as join's self-join rejection.
+bool VmExecutor::IntrinsicFutureGet(uint16_t callParamBase,
+                                    uint8_t* locals, uint8_t* pResult)
+{
+    const ExecutionContext& ctx
+        = ResolveFutureContext(callParamBase, locals);
+    const int selfId = m_spScheduler->CurrentContextId();
+    if (ctx.id == selfId)
+        throw std::runtime_error(
+            "NLang VM: a future cannot be awaited by its own context");
+    if (ctx.state == ContextState::Finished)
+    {
+        std::memcpy(pResult, &ctx.resultCell, sizeof(ctx.resultCell));
+        return true;
+    }
+    if (ctx.state == ContextState::Failed)
+        ThrowJoinTargetFailure(ctx.failExcHeapIdx);
+    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
+    //nested-window rejection must not leave a half-parked context.
+    EnsureSuspensionAllowed();
+    m_spScheduler->FindMutable(selfId)->joinResultDst = pResult;
+    m_spScheduler->ParkForJoin(selfId, ctx.id);
+    RequestPark(ParkSignal::Reason::Join);   //[[noreturn]]
+}
+
 } // namespace nlang

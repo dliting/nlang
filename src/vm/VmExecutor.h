@@ -856,13 +856,17 @@ private:
         const std::vector<int32_t>& handle, int32_t& receiverIdx);
     int32_t MintThreadObject(int ctxId);
     //K3: Future<T> — same receiver shape as the Thread face (slot 1 =
-    //context id, no side table) plus the isDone membership probe. The
-    //resolved context is shared by get() (task 2).
+    //context id, no side table) plus the isDone membership probe. get()
+    //shares the resolved context: Finished copies the result cell, Failed
+    //rethrows the target's exception, otherwise the caller parks on the
+    //join mechanism with a result destination for wake-time delivery.
     int32_t MintFutureObject(int ctxId);
     const ExecutionContext& ResolveFutureContext(uint16_t callParamBase,
                                                  uint8_t* locals);
     bool IntrinsicFutureIsDone(uint16_t callParamBase, uint8_t* locals,
                                uint8_t* pResult);
+    bool IntrinsicFutureGet(uint16_t callParamBase, uint8_t* locals,
+                            uint8_t* pResult);
     //Rethrow a failed join target's original exception object (by heap
     //idx — same object, same raise-time backtrace). Shared by the join
     //intrinsic (target already Failed) and the resume path.

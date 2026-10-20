@@ -264,6 +264,10 @@ void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
                       reinterpret_cast<uint8_t*>(&info->resultCell));
         m_spScheduler->MarkFinished(ctx, info->resultCell);
     }
+    //K3: fill get()-waiters' destinations BEFORE waking them — a parked
+    //call is not re-executed on resume (the pc-advance invariant), so the
+    //value must already be in place when the waiter's frame re-enters.
+    m_spScheduler->DeliverJoinResults(ctx, info->resultCell);
     m_spScheduler->WakeJoiners(ctx, /*failed=*/false);
 }
 

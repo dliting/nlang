@@ -119,6 +119,11 @@ struct ExecutionContext {
     //resultCell 不再被任何帧根覆盖，GC 的调度器根臂据本字段判定
     //resultCell 是否持引用域值（MarkFrameResult 同款判别）。
     uint8_t resultKind = 0;
+    //K3：get() 停泊者的取值目的地（调用点的 pResult 槽，指向停泊帧
+    //localsBuf 内部——停泊期间帧整体驻留注册表，缓冲地址稳定）。
+    //目标 Finished 时由 DeliverJoinResults 写入并清空；join 停泊者
+    //恒为 null。失败唤醒时随 rethrowOnResume 一并清空（帧即将 unwind）。
+    uint8_t* joinResultDst = nullptr;
 };
 
 //调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、
@@ -184,6 +189,12 @@ public:
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
     //的 failExcHeapIdx）。多 joiner 皆唤醒（计划决策 6）。
     void WakeJoiners(int targetId, bool failed);
+
+    //K3：把 Finished 目标的取值投递给全部 get() 停泊者（joinResultDst
+    //非 null、parkHandle 命中本目标的 ParkedJoin 上下文）——停泊的调用
+    //恢复时不重执行，值须在唤醒前写入（recv 同款唤醒时交付契约）。
+    //在 WakeJoiners 之前调用：先填值后入队，唤醒者恢复即见已填槽。
+    void DeliverJoinResults(int targetId, int64_t resultCell);
 
     //K2 slice 4（§2.5）：阻塞原生停泊/复原对。MarkBlockedNative 在窃帧
     //后、释放 GIL 前调用（帧已入 ctx、载体仍持有该上下文——

@@ -70,10 +70,10 @@ bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
         return IntrinsicChannelRecv(callParamBase, locals, pResult);
     case INTR_Channel_Close:
         return IntrinsicChannelClose(callParamBase, locals);
-    //get() lands with task 2 — until then an unknown Future id falls
-    //to the default arm's throw.
     case INTR_Future_IsDone:
         return IntrinsicFutureIsDone(callParamBase, locals, pResult);
+    case INTR_Future_Get:
+        return IntrinsicFutureGet(callParamBase, locals, pResult);
     default:
         return false;
     }
@@ -115,6 +115,9 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
 
     const int ctxId = m_spScheduler->RegisterContext();
     ExecutionContext* ctx = m_spScheduler->FindMutable(ctxId);
+    //K3: the GC root arm classifies a Finished context's resultCell by
+    //this kind — a reference-T Future would lose its value before get().
+    ctx->resultKind = callee.returnTypeKind;
     CallFrame root;
     root.localsBuf.assign(callee.localsSize, 0);
     if (receiverIdx != 0)
@@ -123,8 +126,7 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     //Result threads to the context's own cell (deque-stable across later
     //registrations — see VmScheduler.h). Writes are ≤ kFrameSlotBytes
     //memcpys, so the int64_t cell is a valid uniform result cell.
-    root.externalResult =
-        reinterpret_cast<uint8_t*>(&ctx->resultCell);
+    root.externalResult = reinterpret_cast<uint8_t*>(&ctx->resultCell);
     root.func = &callee;
     ctx->frames.push_back(std::move(root));
 

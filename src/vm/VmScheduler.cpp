@@ -6,6 +6,7 @@
 ---*/
 #include "VmScheduler.h"
 #include <algorithm>
+#include <cstring>
 #include <thread>
 
 namespace nlang {
@@ -139,11 +140,29 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
             || ctx.parkHandle != targetId)
             continue;
         ctx.state = ContextState::Runnable;
-        if (failed)
+        if (failed) {
             ctx.rethrowOnResume = true;
+            //K3：失败路径不走取值投递，目的地随帧 unwind 作废——
+            //立即清空，避免悬垂指针残留注册表。
+            ctx.joinResultDst = nullptr;
+        }
         m_runQueue.push_back(ctx.id);
     }
     m_runQueueCv.notify_all();
+}
+
+//K3：取值投递（见头文件）。逐停泊者 memcpy kFrameSlotBytes——resultCell
+//是 int64_t 统一槽，任何返回种类都按原始 8 字节搬运。join 停泊者
+//（joinResultDst 为 null）跳过。
+void VmScheduler::DeliverJoinResults(int targetId, int64_t resultCell) {
+    for (auto& ctx : m_contexts) {
+        if (ctx.state != ContextState::ParkedJoin
+            || ctx.parkHandle != targetId
+            || !ctx.joinResultDst)
+            continue;
+        std::memcpy(ctx.joinResultDst, &resultCell, sizeof(resultCell));
+        ctx.joinResultDst = nullptr;
+    }
 }
 
 //sleep 停泊（Slice 7）：状态与唤醒时刻登记、入定时器表；当前上下文
