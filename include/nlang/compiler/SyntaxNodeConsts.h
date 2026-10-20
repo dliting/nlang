@@ -113,7 +113,8 @@ static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	MACRO_IMPL(Invalid,		7, "invalid node")								\
 	MACRO_IMPL(NullLiteral,	8, "null literal (Option B)")	\
 	MACRO_IMPL(Out,		9, "out parameter (Phase 9e)") \
-	MACRO_IMPL(ExplicitVoid, 10, "explicit 'void' return type")
+	MACRO_IMPL(ExplicitVoid, 10, "explicit 'void' return type") \
+	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)")
 
 enum CompNodeFlag: NodeBits
 {

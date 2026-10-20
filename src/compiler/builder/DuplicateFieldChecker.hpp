@@ -197,6 +197,30 @@ private:
 				|| f1.Kind() == NK_InterfaceDecl)
 			&& !SameBarePool(f1, f2))
 			return false;
+		//D8: the synthesized script entry (NF_ScriptEntry) and a user-written
+		//top-level main() in the same unit are the same-name "main" pair the
+		//script-mode duplicate check exists to catch. Give them a dedicated
+		//diagnostic instead of the generic redefinition text: report at the
+		//explicit main's location (the one without the flag) and emit a
+		//single error so the caller can abort before statement resolution
+		//(no cascade). Two user-written mains (neither flagged) or a main in
+		//a different bare pool keep the generic diagnostic below.
+		if (f1.Kind() == NK_Function && f2.Kind() == NK_Function
+			&& f1.Name() == "main" && f2.Name() == "main")
+		{
+			const bool f1Script = f1.ContainFlags(NF_ScriptEntry);
+			const bool f2Script = f2.ContainFlags(NF_ScriptEntry);
+			if (f1Script != f2Script)
+			{
+				const SnField &explicitMain = f1Script ? f2 : f1;
+				m_Env.Log(CLL_Error, explicitMain.Location(),
+					"top-level statements cannot be combined with an "
+					"explicit main() function; move the statements into "
+					"main() or remove main()");
+				m_bScriptEntryConflict = true;
+				return true;
+			}
+		}
 		auto &errorField = (f1.IsImported()) ? f2 : f1;
 		auto &existField = (&errorField == &f1) ? f2 : f1;
 		m_Env.Log(CLL_Error, errorField.Location(),
@@ -210,6 +234,11 @@ private:
 
 	BuildEnvironment &m_Env;
 	ISyntaxNodeVisitor *m_pVisitor;
+	//D8: set when a synthesized script entry (NF_ScriptEntry) clashes with a
+	//user-written top-level main() in the same unit. The checker reports the
+	//dedicated diagnostic and the caller uses this to abort resolution before
+	//statement resolution cascades further errors.
+	bool m_bScriptEntryConflict = false;
 };
 
 //The helper class to detect conflict fields.
@@ -227,6 +256,13 @@ public:
 		SyntaxNodeVisitor<DuplicateFieldCheckAccessor> visitor(m_Accessor);
 		m_Accessor.m_pVisitor = &visitor;
 		root.Accept(visitor);
+	}
+
+	//D8: true when Check reported a synthesized script entry (NF_ScriptEntry)
+	//clashing with a user-written top-level main() in the same unit.
+	bool HasScriptEntryConflict() const
+	{
+		return m_Accessor.m_bScriptEntryConflict;
 	}
 
 	/*

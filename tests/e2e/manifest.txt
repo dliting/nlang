@@ -1486,7 +1486,7 @@ script_bare_fn_ret 42
 script_pub_fn 42
 script_native_fn 7
 script_func_decl 3
-err_script_dup_main compile_error (line 1, char 1): Error: The field "Int32 main()" is conflicted
+err_script_dup_main compile_error (line 2, char 1): Error: top-level statements cannot be combined with an explicit main() function; move the statements into main() or remove main()
 err_script_bare_return compile_error Missing return value
 err_top_undefined compile_error The function "nope" does not exist
 err_top_const_reassign compile_error cannot assign to const local

@@ -64,6 +64,7 @@ void writeFile(const fs::path& path, const char* content) {
 struct ScenarioBuild {
     bool ok = false;
     std::string log;   //every CLL_* message, concatenated
+    size_t errors = 0; //CLL_Error count (D8: pin "exactly one error")
 };
 
 ScenarioBuild compileScenario(const fs::path& dir,
@@ -89,6 +90,7 @@ ScenarioBuild compileScenario(const fs::path& dir,
     }
     for (auto it = logger.cbegin(); it != logger.cend(); ++it)
         out.log += (*it)->Message() + "\n";
+    out.errors = logger.Errors();
     return out;
 }
 
@@ -159,18 +161,57 @@ void TestDeclarationsOnlyNoEntry() {
     }
 }
 
-//Top-level statements plus an explicit main(): synthesis is unconditional
-//by design (silently skipping it would drop every statement), so both
-//mains land in the same bare pool and the duplicate-field checker
-//rejects the file.
+//D8: top-level statements plus an explicit main() is a hard error.
+//Synthesis is unconditional by design (silently skipping it would drop
+//every statement), so the synthesized script entry and the user main land
+//in the same bare pool. The duplicate-field checker gives them a dedicated
+//diagnostic (not the generic redefinition text), reports it at the explicit
+//main's location, and emits exactly one error: the builder aborts before
+//statement resolution, so no further errors cascade.
 void TestDuplicateMainRejected() {
     const fs::path dir = scenarioDir("dup_main");
     writeFile(dir / "main.n",
         "int x = 1;\nint main() { return 5; }\n");
     ScenarioBuild build = compileScenario(dir, {dir.string()});
     CHECK(!build.ok, "statements + explicit main fails to build");
+    CHECK(build.errors == 1, "exactly one error is reported");
+    CHECK(build.log.find(
+        "top-level statements cannot be combined with an explicit "
+        "main() function") != std::string::npos,
+        "D8 dedicated diagnostic");
+    CHECK(build.log.find("is conflicted") == std::string::npos,
+        "no generic redefinition diagnostic");
+}
+
+//D8 scope: a main nested inside a class is a method of that class, not a
+//top-level function. It lives in the class's member table, so it does not
+//share a bare pool with the synthesized top-level main and must not trigger
+//the duplicate-main diagnostic. The file still synthesizes its entry from
+//the top-level statements and builds cleanly.
+void TestNestedMainNotRejected() {
+    const fs::path dir = scenarioDir("nested_main");
+    writeFile(dir / "main.n",
+        "class A {\n    int main() { return 1; }\n}\n"
+        "int x = 2;\nreturn x;\n");
+    ScenarioBuild build = compileScenario(dir, {dir.string()});
+    CHECK(build.ok, "nested main does not conflict with the entry");
+    CHECK(build.log.find("top-level statements cannot be combined")
+            == std::string::npos,
+        "no D8 diagnostic for a nested main");
+}
+
+//D8 regression guard: the duplicate-field checker's generic redefinition
+//diagnostic must survive for ordinary same-name collisions that are NOT
+//the script-entry case (here two top-level functions named "foo"; neither
+//is the synthesized entry, so the legacy "is conflicted" text applies).
+void TestGenericDuplicateStillRejected() {
+    const fs::path dir = scenarioDir("dup_generic");
+    writeFile(dir / "main.n",
+        "int foo() { return 1; }\nint foo() { return 2; }\n");
+    ScenarioBuild build = compileScenario(dir, {dir.string()});
+    CHECK(!build.ok, "duplicate top-level function fails to build");
     CHECK(build.log.find("is conflicted") != std::string::npos,
-        "duplicate-main diagnostic");
+        "generic redefinition diagnostic preserved");
 }
 
 //D14: an imported unit's declarations load, its statements may not
@@ -202,6 +243,8 @@ int main() {
     TestEntrySynthesizedFromStatements();
     TestDeclarationsOnlyNoEntry();
     TestDuplicateMainRejected();
+    TestNestedMainNotRejected();
+    TestGenericDuplicateStillRejected();
     TestLibraryStatementsRejected();
 
     std::printf("script_wrap_tests: %d passed, %d failed\n", g_pass, g_fail);
