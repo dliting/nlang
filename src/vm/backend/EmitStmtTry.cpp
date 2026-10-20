@@ -268,9 +268,11 @@ void VmBackend::EmitSuperCtorCall(SnSuperCallStmt& sc, SnClassDecl* pParent) {
     //bindings (StageReceiverInClaim contract).
     StageReceiverInClaim(1, 0, claimBase, emitter);
 
-    //Bindings → claim[1..N] (positional only; resolver rejected
-    //named). thisSlot=0: a parent-ctor default referencing `this`
-    //reads the object under construction, like a method default.
+    //Bindings → claim[1..N] (positional only; resolver rejected named).
+    //thisSlot=0 (local 0 = this): the receiver is staged at claim[0], so
+    //0 is where a `this` default would read — a `new` call instead passes
+    //UINT16_MAX (its object is not allocated yet). A parent-ctor default
+    //can no longer reference `this` (rejected at the parent's declaration).
     EmitCtorCallBindings(bindings, callerArgs, claimBase, emitter, 0);
 
     //Bulk-copy claim → callParamBase, then call the parent ctor.
