@@ -804,6 +804,51 @@ void test_spawn_round_robin_under_quota()
     PASS();
 }
 
+//K1 终审遗留项钉板（预算残留泄漏）：自愿停泊（yield）发生在配额中途
+//时，残留预算不得被下一个分派的上下文继承——CarrierLoop 每次分派重装
+//满额配额，新窗口恒得完整时间片。配额 3 下主上下文烧掉 2 条回边后
+//yield（残留 1）；worker 首片必须是 3 条回边（"www"）。K1 的执行器级
+//单一预算（无每分派重装）下 worker 首片只有 1 条回边（"w"），输出为
+//"mmwMMMwwww"；正确输出 "mmwwwMMMwww"。突变验证：注释掉 CarrierLoop
+//的每分派重置行即转红。
+void test_yield_park_rearms_fresh_quantum()
+{
+    TEST(yield_park_rearms_fresh_quantum);
+    CompiledModule mod = buildLinkedModule("sp_yield_rearm",
+        "import io;\n"
+        "void worker() {\n"
+        "    int i = 0;\n"
+        "    while (i < 6) {\n"
+        "        io.write(\"w\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    int i = 0;\n"
+        "    while (i < 2) {\n"
+        "        io.write(\"m\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.yield();\n"
+        "    while (i < 5) {\n"
+        "        io.write(\"M\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(3);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0, "yield-rearm program completes");
+    CHECK(io.m_out == "mmwwwMMMwww",
+          "a context dispatched after a mid-quantum yield starts a FULL "
+          "quota slice (got: " + io.m_out + ")");
+    PASS();
+}
+
 //join 幂等：目标已 Finished 后再次 join 立即返回（不挂起、不报错）。
 void test_join_idempotent_after_finish()
 {
@@ -2496,6 +2541,7 @@ int main()
         test_thread_ns_cross_module();
         runGuarded(test_spawn_join_runs_worker);
         runGuarded(test_spawn_round_robin_under_quota);
+        runGuarded(test_yield_park_rearms_fresh_quantum);
         runGuarded(test_join_idempotent_after_finish);
         runGuarded(test_join_before_target_runs);
         runGuarded(test_join_failed_target_rethrows_original);
