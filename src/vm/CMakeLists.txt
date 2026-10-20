@@ -17,6 +17,7 @@ add_library(nlang_vm
     VmExecutorOpsObjects.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
+    VmExecutorGCRoots.cpp
     VmExecutorAlloc.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp

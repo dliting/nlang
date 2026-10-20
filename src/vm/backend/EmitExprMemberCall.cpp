@@ -216,7 +216,9 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
             "NLang backend: class field offset not found: "
             + invoke.CalleeName());
     }
-    EvalAreaClaim calleeClaim(*this, 1);
+    //K2 slice 5: the parked delegate handle is a bound-func record
+    //index — always the heap domain.
+    EvalAreaClaim calleeClaim(*this, 1, ESC_HeapIndex);
     uint16_t calleeSlot = calleeClaim.base();
     emitter.Emit(OpCode::OP_LoadField);
     emitter.EmitUint16(calleeSlot);

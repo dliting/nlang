@@ -188,6 +188,34 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
             if (func.returnTypeKind != RTK_Void)
                 func.returnTypeDesc = ReadTypeDesc(fs);
         }
+
+        //K2 slice 5: eval-area handle mask, the record's trailing field.
+        //The length must agree with the frame layout the same record
+        //declares — a mismatch is module corruption, not a fallback
+        //case (the GC's mask-length fallback only guards in-memory
+        //records an embedder built by hand).
+        {
+            uint32_t maskBytes = 0;
+            fs.read(reinterpret_cast<char*>(&maskBytes),
+                    sizeof(maskBytes));
+            if (!fs.good() || maskBytes > (1u << 16))
+                throw std::runtime_error(
+                    "Invalid module: bad handle-mask length");
+            func.evalAreaHandleMask.resize(maskBytes);
+            if (maskBytes > 0)
+                fs.read(reinterpret_cast<char*>(
+                    func.evalAreaHandleMask.data()), maskBytes);
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated handle mask");
+            const size_t totalSlots = func.localsSize / kFrameSlotBytes;
+            const size_t expected = totalSlots > func.paramCount
+                ? (totalSlots - func.paramCount + 3) / 4 : 0;
+            if (maskBytes != expected)
+                throw std::runtime_error(
+                    "Invalid module: handle mask length disagrees with "
+                    "frame layout in '" + func.name + "'");
+        }
     }
 }
 

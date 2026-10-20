@@ -2328,6 +2328,117 @@ static void test_shutdown_signal_passthrough()
     PASS();
 }
 
+// --- K2 Task 5（精确根集位图，NCU minor 4）---
+
+//同一程序在指定位带模式下执行：压低 GC 阈值制造分配风暴，返回退出码
+//并带回输出。conservative=true 强制走 K1 保守双域带扫描（对拍基准）。
+static bool runGcBandMode(const std::string& tag, const std::string& source,
+                          size_t gcStress, bool conservative,
+                          std::string& rOut)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    exec.SetGcStressThresholds(gcStress);
+    exec.SetConservativeBandForTests(conservative);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc == 0;
+}
+
+//位图判别源：混合三类求值带占用——嵌套调用实参（对象跨安全点存活于
+//求值带，F2 原型形态）、字符串拼接、数值二元运算；循环内持续分配制
+//造风暴。tag 刻意返回超过短串驻留上限（40 字节）的长串，保证停泊值
+//可清扫——短串不朽会让错标不可见。四条活根各跨一次安全点：acc（命名
+//StrHandle 槽）全程存活；tag("x") 的长串结果停泊在外层二元 claim 槽
+//（默认 Dual 类——嵌套发射的中间值也会路过该槽，故二元位点不能按外
+//层操作数类型精化）、跨 tag("y") 调用入口安全点存活；churn2 的
+//Box(i+1) 实参停泊在调用实参 claim 槽（默认 Dual 类），跨 drain 调用
+//入口安全点存活，且 drain 内部再分配一个 Box 并从自由表复用槽位——
+//若停泊实参被错标清扫，复用会改写其载荷、c.get() 读到 i+7 而非 i+1，
+//让欠标经由槽位复用变得可观测（单纯清扫后陈旧读仍返回原值）；b 在
+//字符串分配之后仍被读取（命名 HeapIndex 槽）。
+static const char* kGcBandSource =
+    "import io;\n"
+    "class Box {\n"
+    "    int v;\n"
+    "    public int Box(int x) { v = x; return 0; }\n"
+    "    public int get() { return v; }\n"
+    "}\n"
+    "int churn2(Box c, int k) { return c.get() * 2 + k; }\n"
+    "string tag(string s) {\n"
+    "    return \"0123456789012345678901234567890123456789\" + s;\n"
+    "}\n"
+    "int drain(Box p) {\n"
+    "    Box w = Box(p.get() + 7);\n"
+    "    return w.get();\n"
+    "}\n"
+    "int main() {\n"
+    "    string acc = \"\";\n"
+    "    int sum = 0;\n"
+    "    int i = 0;\n"
+    "    while (i < 400) {\n"
+    "        Box b = Box(i);\n"
+    "        acc = acc + (tag(\"x\") + tag(\"y\"));\n"
+    "        sum = sum + churn2(Box(i + 1), drain(b)) + b.get();\n"
+    "        i = i + 1;\n"
+    "    }\n"
+    "    io.print(sum);\n"
+    "    io.print(acc);\n"
+    "    return 0;\n"
+    "}\n";
+
+//判别器 1（对拍）：同一程序、同一风暴阈值，位图模式与保守带模式的输出
+//逐字节一致、退出码一致。两类标记对同一对象图必须得出同一存活集——
+//位图错标（把句柄槽标 None/单域错配） ⇒ 存活集缩小 ⇒ 悬垂句柄 ⇒ 输出
+//分叉或崩溃——测试变红。
+static void test_gc_bitmap_matches_conservative_band()
+{
+    TEST(gc_bitmap_matches_conservative_band);
+    std::string outBitmap, outConservative;
+    const bool okBm = runGcBandMode("gc_band_bm", kGcBandSource,
+                                    /*gcStress=*/4, false, outBitmap);
+    const bool okCs = runGcBandMode("gc_band_cs", kGcBandSource,
+                                    /*gcStress=*/4, true, outConservative);
+    CHECK(okBm && okCs, "both band modes complete the storm program");
+    CHECK(!outBitmap.empty(), "the program produced output");
+    CHECK(outBitmap == outConservative,
+          "bitmap and conservative band scans keep the same object "
+          "graph alive (bitmap: " + outBitmap + ", conservative: "
+          + outConservative + ")");
+    PASS();
+}
+
+//判别器 2（NCU 往返）：加载后的模块里每个函数的位图长度与其帧布局吻合
+//（〔localsSize/8 − paramCount〕槽、每槽 2 位——saver 写、loader 读两侧
+//对齐）；且至少存在一个非 Dual 槽——全 Dual 的位图证明不了类别分派真
+//被走过（等价于保守带的恒等替换）。
+static void test_gc_bitmap_survives_ncu_roundtrip()
+{
+    TEST(gc_bitmap_survives_ncu_roundtrip);
+    CompiledModule mod = buildLinkedModule("gc_band_rt", kGcBandSource);
+    bool sawPreciseSlot = false;
+    for (const auto& fn : mod.functions) {
+        const size_t bandSlots =
+            static_cast<size_t>(fn.localsSize) / kFrameSlotBytes
+            - fn.paramCount;
+        const size_t expectedBytes = (bandSlots + 3) / 4;
+        CHECK(fn.evalAreaHandleMask.size() == expectedBytes,
+              "mask length matches the frame layout for " + fn.name);
+        for (size_t i = 0; i < bandSlots; ++i) {
+            const unsigned cls =
+                (fn.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3u;
+            if (cls != 3u)
+                sawPreciseSlot = true;
+        }
+    }
+    CHECK(sawPreciseSlot,
+          "at least one band slot carries a precise class (None/"
+          "StrHandle/HeapIndex), not the Dual default");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -2355,6 +2466,8 @@ int main()
         runGuarded(test_blocking_native_releases_gil);
         runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
         runGuarded(test_shutdown_signal_passthrough);
+        runGuarded(test_gc_bitmap_matches_conservative_band);
+        runGuarded(test_gc_bitmap_survives_ncu_roundtrip);
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();

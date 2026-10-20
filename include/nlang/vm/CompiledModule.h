@@ -94,7 +94,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //serialize as ordinary function records (ModuleSaver writes the
 //intrinsicId) and dedup at link by (name, paramCount, intrinsicId).
 //NCU_FORMAT_MINOR stays 3.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 3;
+//K2 slice 5: every function record gains a trailing eval-area handle
+//mask (uint32 byte count + packed bytes; see EvalSlotClass). It gives
+//the GC a per-slot root class for the whole frame band, replacing the
+//conservative both-domain value test. Older modules are refused by the
+//minor floor as usual — no compatibility shim.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values
 //exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
@@ -134,6 +139,24 @@ static constexpr uint16_t kFrameSlotBytes = 8;
 //1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
 static constexpr uint16_t kHeapCellBytes = 4;
 static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
+
+//--- Eval-area slot classes (K2 slice 5) ----------------------------------
+//Precise GC root class for one frame-band slot (the band is
+//[paramCount, localsSize) — return slot, temps, call staging, evalArea
+//and the user locals). Packed 2 bits per slot into CompiledFunction::
+//evalAreaHandleMask, byte i's low half holding slot 4i. The class says
+//which domain a slot's value can belong to at a safepoint; the GC tests
+//only that domain (None skips the slot entirely). Dual == StrHandle |
+//HeapIndex by construction — overlapping claim classes merge by OR, a
+//union that can only widen toward Dual (no site's claim narrows what
+//another site's claim widened; soundness of a narrow class is each
+//site's own contract, see EvalAreaClaim).
+enum EvalSlotClass : uint8_t {
+    ESC_None      = 0,  //scalar kinds — never a reference, never tested
+    ESC_StrHandle = 1,  //string-store handle (RTK_String slots)
+    ESC_HeapIndex = 2,  //struct/class/array/func heap index
+    ESC_Dual      = 3   //unknown — value-test both domains (conservative)
+};
 
 //Cells occupied by one array element of the given RTK elem kind:
 //2 for the 8-byte scalar family (long/ulong, double when it lands),
@@ -270,6 +293,16 @@ struct CompiledFunction {
     //the AST capture pass and never become stubs).
     std::vector<ParamTypeDesc> paramTypeDescs;
     TypeDesc returnTypeDesc;
+    //K2 slice 5: per-slot root classes for the frame band (see
+    //EvalSlotClass). Built by the backend at function finalize: the
+    //fixed scratch region (temps + call staging) is Dual, named slots
+    //and the return slot take their declared kinds, evalArea slots
+    //start None and widen by OR-merged claim classes. Serialized as
+    //the function record's trailing field. Empty when the band is
+    //empty (native/builtin bandless records); a length that disagrees
+    //with localsSize/paramCount makes the GC fall back to the
+    //conservative band scan.
+    std::vector<uint8_t> evalAreaHandleMask;
 };
 
 struct CompiledModule;

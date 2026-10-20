@@ -1,7 +1,8 @@
 /*---
     VmExecutorGC.cpp — 垃圾回收（标记/清扫/释放）
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）；
-    容器元素追踪臂在 VmExecutorGCContainers.cpp（2026-10-20 拆出）。
+    容器元素追踪臂在 VmExecutorGCContainers.cpp（2026-10-20 拆出）；
+    帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）。
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -111,66 +112,6 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
                 PushMarked(val, worklist);
         }
     }
-}
-
-//Root scan: one frame's declared locals. Heap-reference kinds and the
-//string kind route differently (strings carry a store handle).
-void VmExecutor::MarkFrameLocals(const CallFrame& frame,
-                                 std::vector<int32_t>& worklist) {
-    for (auto& ld : frame.func->locals) {
-        if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
-            && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
-            && ld.typeKind != RTK_String)
-            continue;
-        int32_t val;
-        std::memcpy(&val, frame.localsBuf.data() + ld.offset, sizeof(val));
-        //String locals carry a string-store handle, not a heap index —
-        //route before the heap-index guard below (a valid handle may
-        //lie beyond the struct heap's size). MarkString does its own
-        //validation (0 = null, out-of-range skipped).
-        if (ld.typeKind == RTK_String) {
-            MarkString(val);
-            continue;
-        }
-        if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
-            continue;
-        if (!m_markBits[val])
-            PushMarked(val, worklist);
-    }
-}
-
-//Root scan: one frame's evalArea band, conservative. Named slots are
-//covered precisely by the locals scan above; the evalArea holds staged
-//call arguments and claim temporaries with no locals-table entry, so a
-//co-argument's safepoint could otherwise sweep them (the F2 gap:
-//f(g(), h()) lost g's object while h allocated). Value-test each cell
-//in BOTH domains — a true reference is valid in exactly its own domain
-//and a cross-domain hit can only over-mark (GC is non-moving), never
-//under-mark. Unwritten cells are zero from frame initialization and
-//fail both guards. Params are excluded: their kinds are declared.
-void VmExecutor::MarkFrameBand(const CallFrame& frame,
-                               std::vector<int32_t>& worklist) {
-    const size_t size = frame.localsBuf.size();
-    size_t off = static_cast<size_t>(frame.func->paramCount)
-        * kFrameSlotBytes;
-    for (; off + kFrameSlotBytes <= size; off += kFrameSlotBytes) {
-        int32_t val;
-        std::memcpy(&val, frame.localsBuf.data() + off, sizeof(val));
-        TestRootValue(val, worklist);
-    }
-}
-
-//K2 slice 4: the conservative value test shared by the frame band scan
-//and the staged native-call roots (below). Both domains are tested;
-//see MarkFrameBand for the over-mark-only argument.
-void VmExecutor::TestRootValue(int32_t val,
-                               std::vector<int32_t>& worklist) {
-    if (val <= 0)
-        return;
-    if (static_cast<size_t>(val) < m_stringObjs.size())
-        MarkString(val);
-    if (static_cast<size_t>(val) < m_slotKinds.size() && !m_markBits[val])
-        PushMarked(val, worklist);
 }
 
 //K2 slice 4 (§2.5 staged roots): in-flight blocking native calls. The

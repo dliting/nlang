@@ -392,6 +392,13 @@ private:
     //Finalize-time tripwire: evalArea claims must fit the reserved peakDepth.
     void CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
                                   const CallSlotStats& stats);
+    //K2 slice 5: pack the per-slot band classes into the mask (see
+    //CompiledFunction::evalAreaHandleMask).
+    void BuildEvalAreaHandleMask(CompiledFunction& cf,
+                                 const FuncContext& ctx);
+    //K2 slice 5: root class for one RTK kind byte (the serialized form
+    //the locals table and the return kind arrive in).
+    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
 
     //Recursive frame-depth walkers behind ComputeCallSlotStats.
     //visited guards recursion through callee default expressions.
@@ -1415,6 +1422,15 @@ private:
         uint16_t evalAreaBase = 0;   //base of evalArea (disjoint from callParamBase)
         uint16_t evalAreaCursor = 0; //current claim offset in evalArea (stack-disciplined)
         uint16_t observedPeakCursor = 0; //max evalAreaCursor seen — asserted ≤ walker's peakDepth at function finalize (walker drift must fail loudly at compile time, not OOB at runtime)
+        //K2 slice 5: every EvalAreaClaim appends its slice + root class;
+        //BuildEvalAreaHandleMask OR-merges them per slot (the same slot
+        //serves many claims across the function — union, not last-wins).
+        struct ClaimClassRecord {
+            uint16_t baseOffset;  //absolute frame offset of the slice
+            uint16_t slots;
+            uint8_t  slotClass;   //EvalSlotClass
+        };
+        std::vector<ClaimClassRecord> claimClasses;
         //Phase 8e-5: per-function counter for foreach hidden-local uniquification.
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
@@ -1488,12 +1504,23 @@ private:
         VmBackend& m_B;
         uint16_t   m_slots;
     public:
-        EvalAreaClaim(VmBackend& b, uint16_t slots) : m_B(b), m_slots(slots)
+        //slotClass (K2 slice 5): the EvalSlotClass of every value this
+        //claim parks. Dual (default) keeps the conservative both-domain
+        //test. A site may pass a narrower class ONLY when it can
+        //enumerate everything that transits the slice: nested emissions
+        //use claim slots as their resultOffset, so a subtree argument
+        //parks all its intermediates there (typing from the subtree's
+        //final type alone is unsound). Overlapping claims OR-merge at
+        //finalize — union, not last-wins.
+        EvalAreaClaim(VmBackend& b, uint16_t slots,
+                      uint8_t slotClass = ESC_Dual)
+            : m_B(b), m_slots(slots)
         {
             auto& ctx = *m_B.m_currFunc;
             ctx.evalAreaCursor += m_slots * kFrameSlotBytes;
             if (ctx.evalAreaCursor > ctx.observedPeakCursor)
                 ctx.observedPeakCursor = ctx.evalAreaCursor;
+            ctx.claimClasses.push_back({ base(), m_slots, slotClass });
         }
         ~EvalAreaClaim()
         { m_B.m_currFunc->evalAreaCursor -= m_slots * kFrameSlotBytes; }

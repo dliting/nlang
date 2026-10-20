@@ -178,6 +178,12 @@ public:
         m_strGcThreshold = records;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
+    //K2 slice 5 white-box knob: force the conservative both-domain band
+    //scan even when a valid handle mask is present — the A/B baseline
+    //for proving the precise scan keeps the same object graph alive.
+    void SetConservativeBandForTests(bool conservative) {
+        m_conservativeBandForTests = conservative;
+    }
 
     //Testing knobs (scheduler quota injection + observability, K1
     //decision 5): clamp the back-edge trip limit, then observe the
@@ -1166,6 +1172,7 @@ private:
     std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
     bool   m_gcPending = false;
+    bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 
     //String-store GC plumbing (collection activates in Task 2).
     static const size_t kStrGcThresholdDefault = 1024;

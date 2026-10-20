@@ -219,6 +219,17 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         //value (RTK_Void keeps ctor/void records shaped as before).
         if (func.returnTypeKind != RTK_Void)
             WriteLenPrefixedTypeDesc(fs, func.returnTypeDesc);
+
+        //K2 slice 5: eval-area handle mask, the record's trailing field
+        //(uint32 byte count + packed 2-bit classes; see EvalSlotClass).
+        //Always emitted — bandless records carry a zero count.
+        uint32_t maskBytes = static_cast<uint32_t>(
+            func.evalAreaHandleMask.size());
+        fs.write(reinterpret_cast<const char*>(&maskBytes),
+                 sizeof(maskBytes));
+        if (maskBytes > 0)
+            fs.write(reinterpret_cast<const char*>(
+                func.evalAreaHandleMask.data()), maskBytes);
     }
 
     // Struct descriptors

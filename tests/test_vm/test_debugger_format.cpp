@@ -115,10 +115,11 @@ void test_loader_rejects_v1_9()
     CHECK(bytes.size() >= 12, "module file should have a full header");
     //Guard the patch anchor: if a future header change moves the version
     //fields, the patch below would silently hit another field — fail
-    //loudly on layout drift instead (fresh build must be stamped 2.3).
+    //loudly on layout drift instead (fresh build must carry the current
+    //minor).
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == NCU_FORMAT_MINOR,
+        "fresh module should carry the current format minor");
     //v2.0: the downgrade is a MAJOR step (1.x predates package identity).
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -164,8 +165,8 @@ void test_loader_rejects_v1_10()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == NCU_FORMAT_MINOR,
+        "fresh module should carry the current format minor");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -213,8 +214,8 @@ void test_loader_rejects_v1_11()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == NCU_FORMAT_MINOR,
+        "fresh module should carry the current format minor");
     //v2.0: the downgrade is a MAJOR step.
     bytes[8] = 0x01;
     bytes[9] = 0x00;
@@ -239,7 +240,7 @@ void test_loader_rejects_v1_11()
 
 //The minor-floor arm (ported from the pre-2.0 v1.12/v1.13 pins): keep
 //the major at 2 and patch the minorVer field (header offset 10,
-//little-endian u16) down to 0 -- below the 2.3 floor. The 2.2 minor
+//little-endian u16) down to 0 -- below the exact-pinned current minor. The 2.2 minor
 //carries the debugger declPc layout (two bytes of declaration PC per
 //local in every locals block); a 2.0 record would read every local
 //name length from the wrong offset. No migration path by design.
@@ -261,8 +262,8 @@ void test_loader_rejects_minor_below_floor()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == NCU_FORMAT_MINOR,
+        "fresh module should carry the current format minor");
     bytes[10] = 0x00;
     bytes[11] = 0x00;
     const auto oldPath = scratchDir() / "oldver_v200.ncu";
@@ -286,9 +287,9 @@ void test_loader_rejects_minor_below_floor()
 
 //Boundary negative for BOTH version gates (before this there was only a
 //"too old" pin; nothing stopped a floor-only regression from silently
-//accepting newer modules). The fresh build is stamped 13; patch the
-//header byte up to 14 (ceiling) and assert the newer-ncc wording, then
-//down to 12 (floor) and assert the outdated wording — the exact loader
+//accepting newer modules). Patch the major byte up (above the
+//ceiling) and assert the newer-ncc wording, then the minor byte down
+//(below the floor) and assert the outdated wording — the exact loader
 //sentences, not just "it threw" (same reason as the v1.8 pin).
 void test_loader_accepts_ceiling_and_floor()
 {
@@ -308,8 +309,8 @@ void test_loader_accepts_ceiling_and_floor()
     }
     CHECK(bytes.size() >= 12, "module file should have a full header");
     CHECK(static_cast<uint8_t>(bytes[8]) == 0x02
-        && static_cast<uint8_t>(bytes[10]) == 0x03,
-        "fresh module should be stamped format 2.3");
+        && static_cast<uint8_t>(bytes[10]) == NCU_FORMAT_MINOR,
+        "fresh module should carry the current format minor");
 
     //Above the ceiling: a v3.0 module — the reader must refuse it (it
     //would misparse every record after the first layout change).
