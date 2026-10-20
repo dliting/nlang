@@ -796,6 +796,11 @@ private:
     //= this).
     bool ExecuteIntrinsicThread(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //The __handle builtin methods (Mutex/Channel/K3 Future —
+    //receiver-dispatched, slot 0 = this); ExecuteIntrinsicThread's
+    //default arm forwards here (50-line function budget).
+    bool ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     //K1 Slice 6 spawn/join bodies (IntrinsicsThread.cpp), extracted from
     //ExecuteIntrinsicThread for the file/function size guards. spawn
     //resolves the func<void> handle, registers the context, builds its
@@ -850,6 +855,14 @@ private:
     const CompiledFunction& ResolveSpawnTarget(
         const std::vector<int32_t>& handle, int32_t& receiverIdx);
     int32_t MintThreadObject(int ctxId);
+    //K3: Future<T> — same receiver shape as the Thread face (slot 1 =
+    //context id, no side table) plus the isDone membership probe. The
+    //resolved context is shared by get() (task 2).
+    int32_t MintFutureObject(int ctxId);
+    const ExecutionContext& ResolveFutureContext(uint16_t callParamBase,
+                                                 uint8_t* locals);
+    bool IntrinsicFutureIsDone(uint16_t callParamBase, uint8_t* locals,
+                               uint8_t* pResult);
     //Rethrow a failed join target's original exception object (by heap
     //idx — same object, same raise-time backtrace). Shared by the join
     //intrinsic (target already Failed) and the resume path.
@@ -1223,6 +1236,8 @@ private:
     int32_t m_resumeThrowExcIdx = 0;
     //K1 Slice 6: cached "Thread" class index (spawn mints instances).
     int16_t m_threadClassIdx = -1;
+    //K3: cached "Future" class index (typed spawn mints instances).
+    int16_t m_futureClassIdx = -1;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
     //Initialized in Execute() via module.FindClass; -1 = not found (only

@@ -29,18 +29,21 @@ inline constexpr const char* kBuiltinListTypeName = "List";
 inline constexpr const char* kBuiltinDictTypeName = "Dict";
 inline constexpr const char* kBuiltinFuncTypeName = "func";
 inline constexpr const char* kBuiltinChannelTypeName = "Channel";
+inline constexpr const char* kBuiltinFutureTypeName = "Future";
 
 //Returns true if name is a recognized built-in generic type name.
 //Phase 8e-3: List (arity 1). Phase 8e-4: Dict (arity 2). Phase 13:
 //func (variadic, at least the return type); 0.8.3 renamed the func form
 //to the lowercase keyword spelling. K1 Slice 9: Channel (arity 1 — the
 //element type decides send's boxing and recv's unboxing, so a bare
-//Channel is not a type).
+//Channel is not a type). K3: Future (arity 1 — the type argument is the
+//spawned function's return type, delivered by Future.get).
 inline bool IsBuiltinGenericTypeName(const std::string& name)
 {
 	return name == kBuiltinListTypeName || name == kBuiltinDictTypeName
 		|| name == kBuiltinFuncTypeName
-		|| name == kBuiltinChannelTypeName;
+		|| name == kBuiltinChannelTypeName
+		|| name == kBuiltinFutureTypeName;
 }
 
 } //namespace nlang

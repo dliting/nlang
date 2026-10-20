@@ -607,18 +607,25 @@ void test_thread_ns_spawn_arg_not_func()
     PASS();
 }
 
-//spawn 参数形态：返回值非 void 的函数拒绝。
+//K3 Task 1：有返回值委托的编译面——func<T> 实参被接受（运行期行为
+//属 spawn_future_* 行为测试）；带参与非函数仍拒绝（见各自测试）。
 void test_thread_ns_spawn_arg_nonvoid()
 {
     TEST(thread_ns_spawn_arg_nonvoid);
-    CHECK(buildFailsWith("thread_sp_nv",
-        "int f() { return 1; }\n"
-        "int main() {\n"
-        "    thread.spawn(f);\n"
-        "    return 0;\n"
-        "}\n",
-        "spawn"),
-        "spawn of a non-void function is a compile error");
+    bool built = true;
+    std::string diag;
+    try {
+        buildLinkedModule("thread_sp_nv",
+            "int f() { return 1; }\n"
+            "int main() {\n"
+            "    Future<int> h = thread.spawn(f);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        built = false;
+        diag = e.what();
+    }
+    CHECK(built, "spawn of a func<T> compiles to Future<T>: " + diag);
     PASS();
 }
 
@@ -1953,6 +1960,66 @@ void test_mixed_storm_channels_mutex_gc()
     PASS();
 }
 
+// --- K3 Task 1：Future<T> 类型面 + 有返回值 spawn + isDone ---
+
+//spawn 依赖返回类型：func<int>/func<string> 得 Future<T>，func<void>
+//仍得 Thread（K1 语义不变）；isDone 在目标完成后翻真。
+void test_spawn_future_typed_and_isdone()
+{
+    TEST(spawn_future_typed_and_isdone);
+    std::string out;
+    const int rc = runSourceCapturing("k3_sp_future",
+        "import io;\n"
+        "int compute() { return 42; }\n"
+        "string greet() { return \"hi\"; }\n"
+        "void plain() { io.write(\"p\"); }\n"
+        "int main() {\n"
+        "    Future<int> fi = thread.spawn(compute);\n"
+        "    Future<string> fs = thread.spawn(greet);\n"
+        "    Thread t = thread.spawn(plain);\n"
+        "    while (!fi.isDone()) { thread.yield(); }\n"
+        "    while (!fs.isDone()) { thread.yield(); }\n"
+        "    thread.join(t);\n"
+        "    io.write(\"done\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "future program completes");
+    CHECK(out == "pdone",
+        "spawn dispatched both forms and isDone flipped (got: " + out + ")");
+    PASS();
+}
+
+//GC 风暴下在飞 Future 的结果句柄仍被扎根（结果观察在 Task 2 的 get；
+//此处先钉 isDone 轮询 + 风暴共存的编译与运行面）。
+void test_spawn_future_result_survives_gc()
+{
+    TEST(spawn_future_result_survives_gc);
+    CompiledModule mod = buildLinkedModule("k3_future_gc",
+        "string make() {\n"
+        "    string s = \"payload-\";\n"
+        "    int i = 0;\n"
+        "    while (i < 200) { s = s + \"x\"; i = i + 1; }\n"
+        "    return s;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<string> f = thread.spawn(make);\n"
+        "    int i = 0;\n"
+        "    while (i < 50) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    while (!f.isDone()) { thread.yield(); }\n"
+        "    if (f.isDone()) return 7;\n"
+        "    return 1;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(1);   //每次分配都回收——最大化风暴
+    CHECK(exec.Execute(mod) == 7, "future isDone survives gc storm");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -2575,6 +2642,8 @@ int main()
         runGuarded(test_worker_finally_after_recv_park);
         runGuarded(test_park_inside_catch_body);
         runGuarded(test_mixed_storm_channels_mutex_gc);
+        runGuarded(test_spawn_future_typed_and_isdone);
+        runGuarded(test_spawn_future_result_survives_gc);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

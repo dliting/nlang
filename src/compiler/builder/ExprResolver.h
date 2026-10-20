@@ -979,6 +979,29 @@ private:
 	//matching with the spawn-specific diagnostic, shared close-out.
 	bool BindThreadNsCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
 		const ThreadNsFuncEntry& entry);
+	//K3 typed-spawn arm: a single-argument spawn whose argument is a
+	//zero-parameter func<T> binds the delegate and wires the call site's
+	//result type to Future<T> (T=void keeps the Thread face). True =
+	//consumed (bound or diagnosed); false = not this arm's shape.
+	bool TryBindTypedSpawn(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		const ThreadNsFuncEntry& entry);
+	//TryBindTypedSpawn's argument classification (50-line function
+	//budget): one pass over the single spawn argument.
+	enum class SpawnArgOutcome
+	{
+		Declined,   //not this arm's shape — the fixed path reports it
+		Diagnosed,  //rejected with a logged error — the member is consumed
+		Bound,      //rpT carries the delegate's return type node
+	};
+	SpawnArgOutcome ClassifyTypedSpawnArg(SnExpression &arg,
+		SnField *&rpT);
+	SpawnArgOutcome SpawnTFromBareRef(SnExpression &arg, SnField *&rpT);
+	//Fixed-path spawn mismatch: name the actual contract when a bare
+	//function reference failed the func<void> formal (the generic
+	//pending-ref diagnostic would mislead). True = logged.
+	bool ReportSpawnFuncRefFailure(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, FindFuncResult res,
+		const ThreadNsFuncEntry& entry);
 	void BindThreadNsFormalTypes(const ThreadNsFuncEntry& entry);
 	SnField* ThreadNsTypeNode(unsigned char kind);
 	//Post-match close-out half of ResolveModuleQualifiedCallee

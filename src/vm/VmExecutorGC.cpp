@@ -111,6 +111,25 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
                 && !m_markBits[val])
                 PushMarked(val, worklist);
         }
+        //K3: once the root frame has finished, frames is empty and the
+        //context's return value lives only in resultCell — classify it
+        //by the snapshotted return kind (MarkFrameResult's same split:
+        //string handle vs heap index) so a Future<T> of a reference T
+        //keeps the value alive between the spawn and the get().
+        if (ctx->frames.empty()) {
+            uint8_t retKind = ctx->resultKind;
+            int32_t val;
+            std::memcpy(&val, &ctx->resultCell, sizeof(val));
+            if (retKind == RTK_String) {
+                MarkString(val);
+            } else if (retKind == RTK_Class || retKind == RTK_Struct
+                || retKind == RTK_Array || retKind == RTK_Func) {
+                if (val > 0
+                    && static_cast<size_t>(val) < m_slotKinds.size()
+                    && !m_markBits[val])
+                    PushMarked(val, worklist);
+            }
+        }
     }
 }
 

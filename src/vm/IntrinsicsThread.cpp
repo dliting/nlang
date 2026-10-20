@@ -6,6 +6,8 @@
     Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep，
     Slice 8 接入 Mutex 全族，Slice 9 接入 Channel 全族——K1 内在函数族
     至此全部落地；Slice 10 补 spawn 的载体在飞门（无载体窗口拒绝）。
+    K3 接入 Future 族（isDone 先行，get 随任务 2）：spawn 依委托返回
+    种类铸造 Thread 或 Future 句柄。
 ---*/
 #include "VmExecutor.h"
 #include <chrono>
@@ -36,8 +38,22 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicJoin(callParamBase, locals);
     case INTR_Thread_Sleep:
         return IntrinsicSleep(callParamBase, locals);
-    //Slice 8: the Mutex family (see the bodies below the join/sleep
-    //intrinsics — receiver-dispatch shape, slot 0 = the instance).
+    default:
+        //Mutex/Channel/Future (the __handle builtin methods) dispatch
+        //in their own switch (50-line budget).
+        return ExecuteIntrinsicHandleMethods(intrinsicId, callParamBase,
+                                             locals, pResult);
+    }
+}
+
+//The receiver-dispatched concurrency builtins (slot 0 = the instance):
+//Mutex (Slice 8), Channel (Slice 9), Future (K3). An unknown id returns
+//false — ExecuteIntrinsic reaches the unknown-id throw.
+bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    switch (intrinsicId)
+    {
     case INTR_Mutex_Ctor:
         return IntrinsicMutexCtor(callParamBase, locals);
     case INTR_Mutex_Lock:
@@ -46,8 +62,6 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicMutexUnlock(callParamBase, locals);
     case INTR_Mutex_TryLock:
         return IntrinsicMutexTryLock(callParamBase, locals, pResult);
-    //Slice 9: the Channel family (see the bodies below the Mutex
-    //helpers — receiver-dispatched shape, slot 0 = the instance).
     case INTR_Channel_Ctor:
         return IntrinsicChannelCtor(callParamBase, locals);
     case INTR_Channel_Send:
@@ -56,17 +70,23 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicChannelRecv(callParamBase, locals, pResult);
     case INTR_Channel_Close:
         return IntrinsicChannelClose(callParamBase, locals);
+    //get() lands with task 2 — until then an unknown Future id falls
+    //to the default arm's throw.
+    case INTR_Future_IsDone:
+        return IntrinsicFutureIsDone(callParamBase, locals, pResult);
     default:
-        return false;   //not ours — ExecuteIntrinsic reaches the
-                        //unknown-id throw
+        return false;
     }
 }
 
-//thread.spawn(func<void> f) -> Thread. The root frame is built AT spawn
+//thread.spawn(f) -> Thread | Future<T>. The root frame is built AT spawn
 //(plan decision 6): the delegate's target resolves now (virtual handles
 //bind the receiver's runtime class), the receiver rides slot 0 for bound
 //handles, and the whole frame parks in the new context — the precise
 //frame-local scan covers it from the first GC, no extra root storage.
+//K3: the delegate's return kind decides the handle face — void keeps
+//the K1 Thread object, anything else mints a Future<T>; resultKind
+//snapshots the same kind for the GC's finished-context root arm.
 bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                                 uint8_t* pResult)
 {
@@ -108,9 +128,10 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     root.func = &callee;
     ctx->frames.push_back(std::move(root));
 
-    int32_t threadObj = MintThreadObject(ctxId);
-    ctx->threadObjHeapIdx = threadObj;
-    std::memcpy(pResult, &threadObj, sizeof(threadObj));
+    int32_t handleObj = (callee.returnTypeKind != RTK_Void)
+        ? MintFutureObject(ctxId) : MintThreadObject(ctxId);
+    ctx->threadObjHeapIdx = handleObj;
+    std::memcpy(pResult, &handleObj, sizeof(handleObj));
     CheckGCSafepoint();
     return true;
 }
@@ -136,7 +157,7 @@ const CompiledFunction& VmExecutor::ResolveSpawnTarget(
     receiverIdx = handle[1];
     if (callee.paramCount != (receiverIdx != 0 ? 1 : 0))
         throw std::runtime_error(
-            "NLang VM: thread.spawn requires a zero-argument void function");
+            "NLang VM: thread.spawn requires a zero-argument function");
     return callee;
 }
 

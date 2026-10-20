@@ -232,6 +232,16 @@ bool ExprResolveAccessor::BindThreadNsCall(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const ThreadNsFuncEntry& entry)
 {
 	BindThreadNsFormalTypes(entry);
+	//K3: spawn's result type depends on the delegate's return type — a
+	//fixed-signature table entry cannot express that. Single-argument
+	//spawn sites take the dedicated typed arm first; every other shape
+	//falls through to the fixed match below.
+	if (entry.memberName == "spawn"
+		&& TryBindTypedSpawn(snMember, invoke, entry))
+	{
+		FinishConsumedMember(snMember);
+		return true;
+	}
 	std::vector<SnFunction*> candidates{
 		GetThreadNsCallee(static_cast<size_t>(&entry - ThreadNsFuncTable()))};
 	SnFunction *pCallee = nullptr;
@@ -241,25 +251,8 @@ bool ExprResolveAccessor::BindThreadNsCall(SnMemberExpr &snMember,
 		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
 	{
-		//A function reference that failed to match a func<> formal would
-		//otherwise get the generic pending-ref sweep ("requires an
-		//expected function type") — misleading here: an expected type
-		//did exist, the signature disagreed. Name the actual contract.
-		if (res == FFR_Incompatible && entry.paramKind == TNP_FuncVoid)
-		{
-			for (auto& arg : invoke.Params())
-			{
-				if (arg.Kind() != NK_NamedArgExpr && IsUnboundFuncRef(arg))
-				{
-					m_Env.Log(CLL_Error, arg.Location(),
-						"thread.spawn requires a zero-argument void "
-						"function: \"%s\" does not match func<void>.",
-						arg.ToString().c_str());
-					FinishConsumedMember(snMember);
-					return true;
-				}
-			}
-		}
+		if (ReportSpawnFuncRefFailure(snMember, invoke, res, entry))
+			return true;
 		LogInvokeFailure(invoke, res, pCallee, false, candidates);
 		FinishConsumedMember(snMember);
 		return true;

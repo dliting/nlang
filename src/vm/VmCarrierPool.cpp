@@ -27,6 +27,11 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
     CarrierActiveGuard carrierActive(
         m_spScheduler->ActiveCarrierCountRef());
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
+    //K3: snapshot main's return kind so the GC's scheduler-root arm can
+    //classify resultCell once the root frame finishes (spawned contexts
+    //get theirs at spawn time).
+    m_spScheduler->FindMutable(VmScheduler::kMainThreadId)->resultKind
+        = mainFunc.returnTypeKind;
     LaunchAuxiliaryCarriers(mainFunc);
     try {
         CarrierLoop(mainFunc);

@@ -37,6 +37,9 @@ static bool IsGenericContainerMethod(const std::string &baseName,
 			|| name == "keys" || name == "toString");
 	} else if (baseName == kBuiltinChannelTypeName) {
 		return (name == "send" || name == "recv" || name == "close");
+	} else if (baseName == kBuiltinFutureTypeName) {
+		//K3: Future<T> surface. get() lands with its intrinsic (task 2).
+		return (name == "isDone");
 	} else if (baseName == kBuiltinFuncTypeName) {
 		//Phase 13: function handles expose toString only.
 		return (name == "toString");
@@ -64,6 +67,9 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 	static const std::map<std::string, size_t> kChannelMethodArities = {
 		{"send", 1}, {"recv", 0}, {"close", 0},
 	};
+	static const std::map<std::string, size_t> kFutureMethodArities = {
+		{"isDone", 0},
+	};
 	static const std::map<std::string, size_t> kFuncMethodArities = {
 		{"toString", 0},
 	};
@@ -71,6 +77,7 @@ bool ExprResolveAccessor::CheckContainerMethodArity(SnInvokeExpr &invoke,
 		? kListMethodArities
 		: (baseName == kBuiltinDictTypeName) ? kDictMethodArities
 		: (baseName == kBuiltinChannelTypeName) ? kChannelMethodArities
+		: (baseName == kBuiltinFutureTypeName) ? kFutureMethodArities
 			: kFuncMethodArities;
 	auto arityIt = arities.find(name);
 	if (arityIt != arities.end() && ArgCountOf(invoke) != arityIt->second)
@@ -271,6 +278,12 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 			snMember.EvalDataType(typeArgs[0]);
 			pResultField = typeArgs[0];
 		}
+	} else if (baseName == kBuiltinFutureTypeName && name == "isDone") {
+		//K3: non-blocking peek — bool (the membership-predicate shape:
+		//the intrinsic writes 0/1 into the int32 carrier slot).
+		auto* pBool = SnBuiltinDataType::InstanceOf(NK_Bool);
+		snMember.EvalDataType(pBool);
+		pResultField = pBool;
 	} else if ((baseName == kBuiltinListTypeName && name == "contains")
 		|| (baseName == kBuiltinDictTypeName && name == "containsKey")
 	) {

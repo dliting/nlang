@@ -160,5 +160,9 @@ static constexpr uint16_t INTR_Channel_Ctor  = 138;
 static constexpr uint16_t INTR_Channel_Send  = 139;
 static constexpr uint16_t INTR_Channel_Recv  = 140;
 static constexpr uint16_t INTR_Channel_Close = 141;
+//K3 Future methods (142-143): receiver-dispatched like the Mutex/
+//Channel family (slot 0 = this, the Future instance).
+static constexpr uint16_t INTR_Future_Get     = 142;
+static constexpr uint16_t INTR_Future_IsDone  = 143;
 
 }  // namespace nlang

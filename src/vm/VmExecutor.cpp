@@ -82,6 +82,9 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     //K1 Slice 6: cache the Thread class index (spawn mints instances).
     int threadIdx = module.FindClass("Thread");
     m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
+    //K3: same for the Future face of typed spawn.
+    int futureIdx = module.FindClass("Future");
+    m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
 }
 
 //String objectization: eagerly materialize every module string constant

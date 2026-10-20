@@ -187,6 +187,15 @@ const BuiltinMethod s_ChannelMethods[] = {
     {"close", INTR_Channel_Close, 1, RTK_Void},
 };
 
+//K3: Future<T> — the typed-spawn result handle. __handle = context id
+//(same shape as Thread); no ctor — thread.spawn mints instances. get's
+//RTK_Int32 is the placeholder return kind (the call site's boxing plan
+//unboxes per T, like recv).
+const BuiltinMethod s_FutureMethods[] = {
+    {"get",     INTR_Future_Get,    1, RTK_Int32},  //this; returns T
+    {"isDone",  INTR_Future_IsDone, 1, RTK_Bool},
+};
+
 //The builtin class registration table. Row order IS registration order —
 //class and function indices derive from it, so any reorder changes the
 //serialized .ncu (golden compare guards this).
@@ -241,6 +250,9 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         true, INTR_Channel_Ctor, 1,
         s_ChannelMethods, std::size(s_ChannelMethods), BIDX_None},
+    {"Future",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        false, 0, 0,
+        s_FutureMethods, std::size(s_FutureMethods), BIDX_None},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.

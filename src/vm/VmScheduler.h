@@ -106,14 +106,19 @@ struct ExecutionContext {
     int id = 0;
     ContextState state = ContextState::Runnable;
     std::vector<CallFrame> frames;
-    int32_t threadObjHeapIdx = 0;   //Slice 6：Thread 对象（join 入口）
+    int32_t threadObjHeapIdx = 0;   //Slice 6：句柄对象（K1 Thread / K3
+                                    //Future，GC 根 + join 入口）
     int32_t failExcHeapIdx = 0;     //Slice 6：失败重抛的异常对象
     //Slice 7：ParkedTimer 的唤醒时刻（epoch = 未排定）。
     std::chrono::steady_clock::time_point wakeAt{};
     //Slice 8/9：停泊目标（互斥体/通道）的句柄；0 = 无。
     int32_t parkHandle = 0;
     bool rethrowOnResume = false;   //Slice 6：join 失败重抛标记
-    int64_t resultCell = 0;         //根帧返回值（main 退出码 / 后续取值）
+    int64_t resultCell = 0;         //根帧返回值（main 退出码 / Future 取值）
+    //K3：根帧返回种类（RTK_*）。根帧 Finished 后 frames 已空、
+    //resultCell 不再被任何帧根覆盖，GC 的调度器根臂据本字段判定
+    //resultCell 是否持引用域值（MarkFrameResult 同款判别）。
+    uint8_t resultKind = 0;
 };
 
 //调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、
