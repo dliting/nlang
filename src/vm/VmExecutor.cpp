@@ -24,6 +24,10 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_resumeThrowExcIdx = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
+    //K2 slice 1: confluence slot resets per run (an executor reuse must
+    //not rethrow a stale auxiliary error).
+    m_auxError = nullptr;
+    m_auxBacktrace.clear();
     m_byteStreams.clear();
     m_byteStreamFreeList.clear();
     m_fileStreams.clear();
@@ -142,43 +146,70 @@ int VmExecutor::Execute(const CompiledModule& module) {
     //pResult contract is a full uniform frame cell (kFrameSlotBytes): the
     //callee's final OP_VarLocal return copy writes 8 bytes, so a narrow
     //host-side int would be overflowed (ASan-confirmed stack corruption).
-    //The 4-byte main return value sits in the low half.
-    alignas(int64_t) uint8_t resultCell[kFrameSlotBytes] = {0};
-    RunCarrier(mainFunc, resultCell);
+    //The 4-byte main return value sits in the low half. K2 slice 1: the
+    //result is routed through the scheduler registry (main's
+    //ctx->resultCell — written by whichever carrier ran it) and read
+    //here, on the Execute thread, after the run completes; main and
+    //spawned contexts are symmetric now, and no carrier ever writes a
+    //host stack cell.
+    RunPrimaryCarrier(mainFunc);
+    const int64_t result64 =
+        m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
     int32_t result;
-    std::memcpy(&result, resultCell, sizeof(result));
+    std::memcpy(&result, &result64, sizeof(result));
     return result;
 }
 
 //K1 Slice 10: see VmExecutor.h. The entryIdx trust level matches
 //Execute()'s (a linked module's entryPoint; intrinsics have no callable
-//body and grammar keeps main a plain function).
+//body and grammar keeps main a plain function). K2 slice 1: same
+//registry routing; the whole cell copies out to the host buffer —
+//embedding contract unchanged (kFrameSlotBytes == sizeof(int64_t)).
 void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
     if (!m_currModule || entryIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid entry index");
-    RunCarrier(m_currModule->functions[entryIdx], resultCell);
+    RunPrimaryCarrier(m_currModule->functions[entryIdx]);
+    const int64_t result64 =
+        m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
+    std::memcpy(resultCell, &result64, kFrameSlotBytes);
 }
 
-//K1 Slice 6: the carrier loop. Contexts (main + spawned) come off the
-//scheduler's FIFO run queue. Frame ownership follows the steal model
-//(VmScheduler.h): a context's frames ARE m_callStack while it runs, and
-//move into ctx->frames on every park — so dispatching a context is
-//either a fresh main root (frames empty) or moving its frames back and
-//re-entering RunFrames at the parked pc. main's return ends the run
-//(unfinished contexts are dropped silently — the K1 exit policy).
-void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
-                            uint8_t* resultCell) {
+//K2 slice 1: the primary carrier — the loop plus the auxiliary-pool
+//join/rethrow tail (the pool itself arrives in slice 2; JoinAndCollect
+//is the structural no-op for now).
+void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
+    CarrierLoop(mainFunc);
+    JoinAndCollect();
+}
+
+void VmExecutor::JoinAndCollect() {
+    //K2 slice 2 fills this in: join auxiliary carriers (2s grace, then
+    //detach) and rethrow the conflated error exactly once.
+}
+
+//K1 Slice 6 / K2 slice 1: the shared carrier loop. Contexts (main +
+//spawned) come off the scheduler's FIFO run queue. Frame ownership
+//follows the steal model (VmScheduler.h): a context's frames ARE
+//m_callStack while it runs, and move into ctx->frames on every park —
+//so dispatching a context is either a fresh main root (frames empty)
+//or moving its frames back and re-entering RunFrames at the parked pc.
+//main's return ends the run (unfinished contexts are dropped silently
+//— the K1 exit policy). K2: one loop iteration = one GIL holding
+//window (INV-1); the window guard releases the lock and checks INV-2
+//(no frames survive outside a holding window) on every exit path.
+void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
     //Slice 10: the carrier is in flight for the whole run (spawn gate).
     CarrierActiveGuard carrierActive(m_carrierActive);
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
     try {
         for (;;) {
+            GilWindowGuard gil(*this);
             const int ctx = m_spScheduler->PopNextRunnable();
             if (ctx < 0)
                 break;   //queue drained: run over (see the exit check)
             ExecutionContext* info = m_spScheduler->FindMutable(ctx);
             try {
-                RunContextWindow(ctx, info, mainFunc, resultCell);
+                RunContextWindow(ctx, info, mainFunc);
             } catch (ParkSignal& park) {
                 //Not an error: steal the whole frame stack into the
                 //context (the steal model). Preempted requeues; the other
@@ -194,8 +225,12 @@ void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
                 continue;
             } catch (...) {
                 //Non-NLang errors (VM-internal) are fatal for the whole
-                //run regardless of context — propagate to the host.
+                //run regardless of context — propagate to the host. The
+                //frames die with the run (the backtrace comes from
+                //m_unwindFrames, not the frame stack): clear them so the
+                //GIL release upholds INV-2.
                 m_spScheduler->MarkFailed(ctx, 0);
+                m_callStack.clear();
                 throw;
             }
             if (ctx == VmScheduler::kMainThreadId)
@@ -212,29 +247,23 @@ void VmExecutor::RunCarrier(const CompiledFunction& mainFunc,
 //context's first dispatch included) moves its frames back onto
 //m_callStack — RunFrames re-enters at each frame's parked pc, after
 //the failed-join rethrow arm; a fresh main root goes through the root
-//window. On return, record the result and wake joiners.
+//window. On return, record the result and wake joiners. K2 slice 1:
+//every context, main included, writes its result into ctx->resultCell
+//(registry cell — stable across carriers); the host reads it after the
+//run. The fresh main root points its frame's result cell at the same
+//registry slot (deque stability), so the pointer survives every steal.
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
-    const CompiledFunction& mainFunc, uint8_t* hostResultCell) {
+    const CompiledFunction& mainFunc) {
     if (!info->frames.empty()) {
         m_callStack = std::move(info->frames);
         info->frames.clear();
         ArmResumeRethrow(info);
         RunFrames(0);
-        //Result cell differs by context: main's root frame writes the
-        //host cell (fresh and resumed both — the pointer lives in the
-        //frame and survives the steal); spawned roots write their own.
-        if (ctx == VmScheduler::kMainThreadId) {
-            int64_t result64;
-            std::memcpy(&result64, hostResultCell, sizeof(result64));
-            m_spScheduler->MarkFinished(ctx, result64);
-        } else {
-            m_spScheduler->MarkFinished(ctx, info->resultCell);
-        }
+        m_spScheduler->MarkFinished(ctx, info->resultCell);
     } else {
-        RunRootWindow(mainFunc, hostResultCell);
-        int64_t result64;
-        std::memcpy(&result64, hostResultCell, sizeof(result64));
-        m_spScheduler->MarkFinished(ctx, result64);
+        RunRootWindow(mainFunc,
+                      reinterpret_cast<uint8_t*>(&info->resultCell));
+        m_spScheduler->MarkFinished(ctx, info->resultCell);
     }
     m_spScheduler->WakeJoiners(ctx, /*failed=*/false);
 }

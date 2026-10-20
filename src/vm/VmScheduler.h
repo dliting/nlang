@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <vector>
 
 namespace nlang {
@@ -177,6 +178,16 @@ private:
     std::vector<TimerEntry> m_timers;
     int m_currentId = -1;   //载体正在执行的上下文（-1 = 空闲）
     int m_nextId = 0;
+
+public:
+    //K2 INV-1: the GIL — one mutex guarding all mutable executor state
+    //(this scheduler included). One carrier-loop iteration = one holding
+    //window: acquire → pop → execute → handle result → release. Slice 2
+    //adds the waiting-carrier accounting on top of the same mutex.
+    std::mutex& Gil() { return m_gil; }
+
+private:
+    std::mutex m_gil;
 };
 
 } // namespace nlang

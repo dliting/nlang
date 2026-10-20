@@ -12,7 +12,9 @@
 #include "VmScheduler.h"
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <fstream>
+#include <mutex>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -562,18 +564,30 @@ private:
     void RunRootWindow(const CompiledFunction& entryFunc,
                        uint8_t* resultCell);
 
-    //K1 Slice 4: the carrier loop — runs contexts off the scheduler's
-    //FIFO queue until main returns (or the queue drains); the root
-    //window's result lands in resultCell.
-    void RunCarrier(const CompiledFunction& mainFunc, uint8_t* resultCell);
+    //K1 Slice 4 / K2 slice 1: the carrier loop — runs contexts off the
+    //scheduler's FIFO queue until main returns (or the queue drains).
+    //K2: one loop iteration = one GIL holding window (INV-1/INV-2); the
+    //loop body is shared by the primary carrier and (slice 2) the
+    //auxiliary pool threads.
+    void CarrierLoop(const CompiledFunction& mainFunc);
+
+    //K2 slice 1: the primary carrier — runs the loop on the Execute
+    //thread, then joins the auxiliary pool (slice 2) and rethrows any
+    //conflated auxiliary error exactly once. Result routing goes through
+    //the scheduler registry (main's ctx->resultCell), so no host cell is
+    //passed in.
+    void RunPrimaryCarrier(const CompiledFunction& mainFunc);
+    void JoinAndCollect();
 
     //K1 Slice 6: one context's turn on the carrier — resume (frames
     //return to m_callStack; a failed-join joiner rethrows before
     //dispatch) or start main's fresh root window; on return, record the
-    //result and wake joiners. May throw anything RunFrames throws.
+    //result and wake joiners. K2: every context, main included, writes
+    //its result into ctx->resultCell (registry cell — stable across
+    //carriers); the host reads it after the run. May throw anything
+    //RunFrames throws.
     void RunContextWindow(int ctx, ExecutionContext* info,
-                          const CompiledFunction& mainFunc,
-                          uint8_t* hostResultCell);
+                          const CompiledFunction& mainFunc);
 
     //K1 Slice 6: arm m_resumeThrowExcIdx when this context was woken
     //over a FAILED join target (rethrowOnResume). Refuses loudly on a
@@ -590,6 +604,29 @@ private:
     //(every survivor parked). Unreachable in K1 (no join cycle
     //constructible); guards against silently returning garbage.
     void ThrowIfMainUnfinished() const;
+
+    //K2 slice 1: one carrier-loop iteration's GIL holding window. The
+    //destructor releases the lock and checks INV-2 on every exit path
+    //(fallthrough, continue, break, stack-unwinding throw): no frame may
+    //survive outside a holding window. Runtime check (not assert) so
+    //Release gates exercise it too — a frame leaking across a released
+    //GIL is silent corruption once slice 2 adds carriers, so a broken
+    //invariant terminates rather than throws (throwing from a destructor
+    //during unwinding would be UB anyway).
+    class GilWindowGuard {
+    public:
+        explicit GilWindowGuard(VmExecutor& exec)
+            : m_lock(exec.m_spScheduler->Gil()), m_rExec(exec) {}
+        GilWindowGuard(const GilWindowGuard&) = delete;
+        GilWindowGuard& operator=(const GilWindowGuard&) = delete;
+        ~GilWindowGuard() {
+            if (!m_rExec.m_callStack.empty())
+                std::terminate();   //INV-2 broken: refuse to continue
+        }
+    private:
+        std::unique_lock<std::mutex> m_lock;
+        VmExecutor& m_rExec;
+    };
 
     //K1 decision 7: debug callbacks fire for the main context only
     //(spawned contexts stay silent — full multi-context debugging is
@@ -860,6 +897,13 @@ private:
 
     //Last captured backtrace (filled by Execute's catch block).
     std::string m_lastBacktrace;
+
+    //K2 slice 1: confluence slot for an auxiliary-carrier error (slice 2
+    //writes it; the primary carrier rethrows it exactly once in
+    //JoinAndCollect). Backtrace snapshotted at the capture site because
+    //m_unwindFrames is executor-global mutable state.
+    std::exception_ptr m_auxError;
+    std::string m_auxBacktrace;
 
     //ndb: debugger front end (null = disabled).
     IDebugHooks* m_pDebugHooks = nullptr;

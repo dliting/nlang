@@ -1915,6 +1915,26 @@ static void runGuarded(void (*fn)())
     }
 }
 
+// --- K2 Task 1 钉死测试（结果路由经调度器注册表，重构安全网）---
+
+//同一执行器连续两次 Execute（嵌入宿主复用形态）：注册表每 run 复位、
+//两次各自返回正确值。Task 1 把 main 结果路由改为经 ctx->resultCell，
+//本测试钉死复用语义在重构前后不回退。
+static void test_executor_reuse_two_runs()
+{
+    TEST(executor_reuse_two_runs);
+    CompiledModule modA = buildLinkedModule("reuse_a",
+        "int main() { thread.sleep(0); return 41; }\n");
+    CompiledModule modB = buildLinkedModule("reuse_b",
+        "int main() { return 1; }\n");
+    VmExecutor exec;
+    const int r1 = exec.Execute(modA);
+    const int r2 = exec.Execute(modB);
+    CHECK(r1 == 41, "first run returns 41");
+    CHECK(r2 == 1, "second run returns 1");
+    PASS();
+}
+
 //K2 slice 0: 全局初始化进程级线程安全——多线程并发调用 StaticInit
 //（幂等）与并发 IdString 构造（命中/未命中路径交替）不得有数据竞争；
 //同值字符串经两条构造路径得到的索引必须一致。
@@ -1963,6 +1983,7 @@ int main()
 
     try {
         test_concurrent_global_init();
+        test_executor_reuse_two_runs();
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();
