@@ -60,9 +60,8 @@
   `int a, b[3];` is a syntax error — declare `b` separately.
 - **Direct-init paren arm on the first declarator only**:
   `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
-  this page stands for a class-with-constructor example; the struct
-  `Point` is covered in [Struct](struct.md) — structs have no
-  constructors).
+  this page stands for a type-with-constructor example; see
+  [Class](class.md) and [Struct](struct.md)).
 - **Mixed declarators take the array type**: in `int a[3], b;` the
   sibling `b` is a null `int[]` (array-typed), not an int.
 - **Partial initialization is the bracket form at the declaration**:
@@ -114,12 +113,14 @@
 - **Instance members of imported classes are unreachable through
   `.ncu`-only imports**: the class stub carries no instance members —
   field reads (`w.w`) and instance method calls (`w.doubled()`) fail
-  at compile time (not-found errors), and construction through the
-  stub (`Mix()`) reports a backend internal error. The stub does
-  carry the class's public static methods (callable through the type
-  name) and interface constants. The class name is still usable as a
-  type: declaring a variable of it and receiving instances returned
-  by the producing module's own functions both work.
+  at compile time (not-found errors). Construction through the stub
+  does work (`Calc c = lib.Calc(21);`) and the resulting object can be
+  passed to the producing module's own functions, but its fields and
+  methods are not reachable from the consumer. The stub also carries
+  the class's public static methods (callable through the type name)
+  and interface constants. The class name is usable as a type:
+  declaring a variable of it and receiving instances returned by the
+  producing module's own functions both work.
 - **Mixed import layout (source alongside its `.ncu`)**: when the
   producer's source is present in the import path, instance members
   become usable — with one gap: if a class declares a static and an

@@ -48,7 +48,7 @@ parse; give the literal a typed target instead (`List<int> l = {60};`).
 - `Expression` (no key) — list element, or a positional struct
   entry: structs fill fields in declaration order, so `Point{3, 7}` is
   `Point{x:3, y:7}`, and you may give only the first few fields (the
-  rest keep their zero values). Class targets do not accept positional
+  rest keep their default values). Class targets do not accept positional
   entries — `P{3, 7}` reports `class initializer "P{...}" requires
   field:value entries; the positional form is only valid for
   struct/array targets`.

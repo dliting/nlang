@@ -35,7 +35,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 
 - `字符串字面量 : 表达式` —— 字典条目（string键）
 - `标识符 : 表达式` —— struct/class字段（例如`x:1, y:2`）
-- `表达式`（无键）—— 列表元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持零值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
+- `表达式`（无键）—— 列表元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持默认值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
 
 **字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
 

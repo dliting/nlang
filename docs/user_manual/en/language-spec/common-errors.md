@@ -417,7 +417,7 @@ non-string-keyed `Dict<K,V>` with the empty initializer, then fill
 entries with `set()`. See →
 [Collection Initializers](collection-initializers.md).
 
-### Structs have no constructors
+### A struct without a constructor cannot take arguments
 
 ```nlang
 struct Point { int x; int y; }
@@ -428,14 +428,15 @@ int main() {
 ```
 
 ```text
-Error: The function "Point" does not exist or is not accessible.
+Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
-Structs have no constructors — `Point(2, 3)` parses as a call to a
-function named `Point`, which fails to resolve. Create structs with
-braced entries instead: named `Point{x: 2, y: 3}` or positional
-`Point{2, 3}` (see [Struct](struct.md) and [Collection
-Initializers](collection-initializers.md)).
+A struct that declares no constructor can only be created with a bare
+declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
+`Point{2, 3}`) — it cannot be called with arguments. Declare a constructor
+to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
+run it (see [Struct](struct.md) "Creating and initializing" and
+[Collection Initializers](collection-initializers.md)).
 
 ### Generic braced anchors
 

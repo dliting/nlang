@@ -55,12 +55,12 @@ int x = 5;
 float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
-Point pt;                   // struct（零初始化）
+Point pt;                   // struct（字段默认值，或0）
 Node n = Node(7);        // class（堆上分配）
 Node n2;                    // class（null）
 ```
 
-struct变量零初始化（所有字段 = 0）。class变量默认为null。
+struct变量取字段默认值——未声明初始化器时所有字段 = 0，声明了则为所声明的默认值。class变量默认为null。
 
 ### 默认值
 
@@ -74,7 +74,7 @@ struct变量零初始化（所有字段 = 0）。class变量默认为null。
 | `char` | 码位0 |
 | `string` | null句柄，读作空字符串 |
 | enum | 底座值0 |
-| struct | 所有字段零初始化 |
+| struct | 每个字段的默认值（未声明初始化器时0） |
 | class、interface、`Object` | null |
 | 数组、`List`、`Dict` | null |
 | `func` | null |

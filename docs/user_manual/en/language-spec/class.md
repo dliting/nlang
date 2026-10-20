@@ -95,6 +95,34 @@ assignments, compound assignments (`v += 1`), and default-parameter
 expressions (`int add(int x, int y = v)`). A local variable or parameter with
 the same name shadows the field, matching Java/C# semantics.
 
+### Field initializers
+
+A class field may carry a compile-time constant default:
+
+```nlang
+class Cfg {
+    public int x = 5;
+    public string s = "hi";
+    public float f = -1.5;
+}
+```
+
+- The initializer must be a **constant expression**: null, bool, char,
+  int-family, float-family, and string literals, plus unary negation — it
+  may not reference another field or `this` (neither exists yet at
+  initialization).
+- The default is **injected into every constructor** before its body runs,
+  base-first (matching C#/Java): a constructor that calls `super(...)` gets
+  the injection right after the `super(...)`; one with no `super(...)` gets
+  it at the top of the body. When the class declares no constructor at all, a
+  **synthesized public zero-arg constructor** carries the defaults, so `Cfg()`
+  and the brace form `Cfg{}` both apply them.
+- With a field default present, `super(...)` must be the constructor's
+  **first statement** — otherwise the injection point is undefined and the
+  constructor is a compile error.
+- A `native` or bodyless constructor cannot carry field defaults (compile
+  error).
+
 ### Static methods
 
 ```nlang
@@ -200,7 +228,9 @@ class Kid : Base {
   `this` object. Valid only inside a constructor of a class that has a parent
   (`Object` has none).
 - May appear at **any statement position** in the ctor (not restricted to the
-  first statement).
+  first statement) — except when the class carries a field default, which
+  requires `super(...)` to be the first statement (see [Field
+  initializers](#field-initializers) below).
 - Argument count must match the parent ctor's parameter count. For parents in
   the built-in Exception family the ctor takes exactly one `message` argument.
 - Named arguments (`super(x = 1)`) are not supported (compile error).

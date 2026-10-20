@@ -20,8 +20,9 @@ int foo(int a, int b = 0, int c) { return c; }     // default not at end
 Note: enum methods do **not** support default parameters (see
 [Enum](enum.md) "Enum methods").
 
-A constructor's default parameter expressions cannot reference `this` —
-both the explicit `this.a` form and the implicit bare-field form are
-compile errors, because defaults evaluate at the construction call site,
-where the object under construction does not exist yet (see
-[Classes](class.md) "Constructors").
+A class or struct constructor's default parameter expressions cannot
+reference `this` — both the explicit `this.a` form and the implicit
+bare-field form are compile errors, because defaults evaluate at the
+construction call site, where the object under construction does not
+exist yet (see [Classes](class.md) "Constructors" and
+[Structs](struct.md) "Creating and initializing").

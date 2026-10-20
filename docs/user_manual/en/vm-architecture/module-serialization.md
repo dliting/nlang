@@ -13,7 +13,7 @@ Compiled unit images are saved as `.ncu` files with this layout:
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 3
+uint16 minorVer = 6
 string modulePath        v2.0: this unit's dotted module path (package identity)
 string moduleName
 string entryKey          v2.0: the entry function's qualified name; empty = no entry
@@ -26,9 +26,14 @@ enumNames[] / enumKeys[] two parallel enum tables
 importSlots × 4          v2.0: the function/class/struct/enum import-slot tables
 ```
 
-Each of the four import-slot tables is a list of "module path + name +
-parameter count" entries (the function table also carries an
-ownerClassKey, empty = namespace-level function). The own entries
+Each of the four import-slot tables is a list of entries carrying the
+target's module path and the qualified name; the function table
+additionally carries the parameter count, an owner key (empty = a
+namespace-level function, otherwise the owning class's or struct's
+qualified key), a static flag, an owner kind (0 namespace-level, 1
+class member, 2 struct member), and a constructor ordinal (0xFFFF = not
+a constructor, else the index into the owner's constructorIndices).
+The own entries
 occupy each table's prefix indices 0..n-1 and the import slots are
 appended after them (n..n+m) — a cross-unit call's operand shares the
 same index space with own calls, the linker remaps every operand
@@ -36,19 +41,26 @@ uniformly, and no opcode distinction is needed. The entry is no longer
 serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
-minimum format version only rises with the toolchain (currently 2.3;
+minimum format version only rises with the toolchain (currently 2.6;
 from 2.2 the type descriptors carry `func` signatures, from 2.3
 default-value expressions serialize with the image — imported stubs
-bind the formal names the function records always carried): the
-loader refuses any image below the current version, so older modules
-must be recompiled.
+bind the formal names the function records always carried, from 2.4
+function records gain a static flag and class records gain the exported
+public-static method indices, from 2.5 interface records gain a
+constants block, from 2.6 struct records gain a per-field defaults
+block and constructor-index segments and function import records gain
+an owner kind and a constructor ordinal): the loader refuses any image
+below the current version, so older modules must be recompiled.
 
 Each struct includes: name, fieldCount, fieldNames[], fieldTypeKinds[],
-fieldStructIndices[], fieldClassIndices[], fieldTypeDescs[].
+fieldStructIndices[], fieldClassIndices[], fieldTypeDescs[],
+constructorIndices (declaration order; empty = no constructor),
+fieldDefaults (one DefaultValueDesc per field, RTK_Void = no default).
 
 Each class includes: name, fieldCount, superClassIdx, fieldNames[],
 fieldTypeKinds[], fieldStructIndices[], fieldClassIndices[],
-fieldTypeDescs[], fieldAccess[], methodIndices[], constructorIdx.
+fieldTypeDescs[], fieldAccess[], methodIndices[], constructorIndices
+(declaration order; empty = no constructor), publicStaticMethodIndices.
 
 ## Package archives (.npkg, format 1.0)
 

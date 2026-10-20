@@ -6,6 +6,61 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.11] - 2026-10-20
+
+### Added
+
+- **Constructor declarations without a return type** — a class constructor
+  is written `public C(int a) { ... }` with no return type; the legacy
+  typed form (`int C()`) and an explicit `void` are rejected, and a
+  `return <expr>;` inside a constructor is a compile error. A same-name
+  static method with a return type stays legal.
+- **Struct constructors** — a `struct` may declare constructors with the
+  same syntax as a class (optional access modifier, default parameters,
+  overloads, implicit `this` bare-field access). They run only on an
+  explicit construction (`S(2, 3)`, direct-init `S s(2, 3);`, `new S(...)`);
+  a bare declaration `S s;`, an init list `S{...}`, array elements, nested
+  struct fields, and a deep copy do not run a constructor.
+- **Field initializers** — a class or struct field may carry a compile-time
+  constant default (`int x = 5;`, `string tag = "pt";`, unary negation
+  allowed; no field or `this` reference). A class field default is injected
+  into every constructor before its body runs (a synthesized public
+  zero-arg constructor appears when the class declares none), and `super()`
+  must be the constructor's first statement when a field default is present.
+  A struct field default is applied at every heap allocation, independent
+  of any constructor, and materializes through the `.ncu` import record.
+- **Constructor overload resolution** — a class or struct may declare
+  several constructors; a construction call selects one by the same
+  type-distance rule as method overloading, and a genuine tie reports
+  `ambiguous constructor call to <type> "<name>": multiple constructors
+  match the argument list`.
+- **Cross-module constructors** — an imported `.ncu` module's class and
+  struct constructors are callable through the qualified call form
+  (`lib.Calc c = lib.Calc(21);`); the constructor index and a struct's
+  field defaults ride the NCU v2.6 records. The imported class is usable
+  via construction plus its imported functions; instance field access across
+  the module boundary remains out of scope.
+- **Dedicated diagnostic for script-mode statements plus an explicit
+  `main()`** — top-level statements combined with a handwritten `main()` in
+  the same file report `top-level statements cannot be combined with an
+  explicit main() function; move the statements into main() or remove main()`
+  as a single error, without the cascade the generic redefinition message
+  used to produce.
+
+### Changed
+
+- **Array initializers use the bracket form** — `int[] a = {1, 2, 3};` is
+  rejected with `array initializers use '[...]'; the brace form '{...}' is
+  reserved for collection, struct, and class initializers`; the brace form
+  is reserved for collection, struct, and class initializers.
+
+### Fixed
+
+- **Struct field defaults materialize from an imported `.ncu`** — a struct
+  whose fields carry defaults now applies them through the v2.6 struct
+  record across a module boundary, and a consumer constructing the struct
+  no longer compiles a ghost constructor.
+
 ## [0.9.10] - 2026-10-19
 
 ### Added

@@ -7,7 +7,7 @@
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 3
+uint16 minorVer = 6
 string modulePath        v2.0：本单元的点分模块路径（包身份）
 string moduleName
 string entryKey          v2.0：入口函数的限定名；空 = 本单元无入口
@@ -20,11 +20,11 @@ enumNames[] / enumKeys[] 并行的两张枚举表
 importSlots × 4          v2.0：function/class/struct/enum 四张导入槽表
 ```
 
-四张导入槽表各为一列「模块路径 + 名字 + 形参数」条目（函数表另带ownerClassKey，空 = 命名空间级函数）。自有条目占用各表前缀下标0..n-1，导入槽追加在其后（n..n+m）——跨单元调用的操作数与自有调用共用同一个下标空间，链接器对全部操作数统一重映射，无需区分操作码。入口不再序列化为索引：程序包的入口记录（`.npkg`头部）或裸单元的`<modulePath>.main`约定，在加载期按限定名解析成表下标。最低格式版本随工具链只升不降，当前为2.3（2.2起类型描述符携带`func`签名，2.3起默认值表达式随映像序列化——导入桩绑定的形参名来自函数记录一直在序列化的locals表）：加载器拒绝一切低于当前版本的映像，旧模块必须重新编译。
+四张导入槽表各为一列条目，携带目标的模块路径与限定名；函数表另带形参数、属主键（空 = 命名空间级函数，否则为所属class或struct的限定键）、静态标志、属主种类（0 = 命名空间级，1 = class成员，2 = struct成员）、构造器序号（0xFFFF = 非构造器，否则为属主constructorIndices的下标）。自有条目占用各表前缀下标0..n-1，导入槽追加在其后（n..n+m）——跨单元调用的操作数与自有调用共用同一个下标空间，链接器对全部操作数统一重映射，无需区分操作码。入口不再序列化为索引：程序包的入口记录（`.npkg`头部）或裸单元的`<modulePath>.main`约定，在加载期按限定名解析成表下标。最低格式版本随工具链只升不降，当前为2.6（2.2起类型描述符携带`func`签名，2.3起默认值表达式随映像序列化——导入桩绑定的形参名来自函数记录一直在序列化的locals表，2.4起函数记录增加静态标志、class记录增加导出的public-static方法下标，2.5起interface记录增加常量块，2.6起struct记录增加逐字段默认值块与构造器下标段、函数导入记录增加属主种类与构造器序号）：加载器拒绝一切低于当前版本的映像，旧模块必须重新编译。
 
-每个struct包含：name、fieldCount、fieldNames[]、fieldTypeKinds[]、fieldStructIndices[]、fieldClassIndices[]、fieldTypeDescs[]。
+每个struct包含：name、fieldCount、fieldNames[]、fieldTypeKinds[]、fieldStructIndices[]、fieldClassIndices[]、fieldTypeDescs[]、constructorIndices（声明序；空 = 无构造器）、fieldDefaults（每字段一条DefaultValueDesc，RTK_Void = 无默认值）。
 
-每个class包含：name、fieldCount、superClassIdx、fieldNames[]、fieldTypeKinds[]、fieldStructIndices[]、fieldClassIndices[]、fieldTypeDescs[]、fieldAccess[]、methodIndices[]、constructorIdx。
+每个class包含：name、fieldCount、superClassIdx、fieldNames[]、fieldTypeKinds[]、fieldStructIndices[]、fieldClassIndices[]、fieldTypeDescs[]、fieldAccess[]、methodIndices[]、constructorIndices（声明序；空 = 无构造器）、publicStaticMethodIndices。
 
 ## 包归档（.npkg，格式1.0）
 

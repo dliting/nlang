@@ -1,8 +1,9 @@
 # Struct
 
 
-A `struct` is a value-typed aggregate of fields. It holds data only — no
-method bodies, no `this`. Use a `class` for behavior.
+A `struct` is a value-typed aggregate of fields. It holds data plus
+optional constructors — no general method bodies. Use a `class` for
+behavior.
 
 ```nlang
 struct Point {
@@ -16,7 +17,9 @@ struct Point {
 A struct is a **value type** with **deep-copy** semantics throughout the
 language:
 
-- **Declaration** (`Point p;`) zero-initializes every field.
+- **Declaration** (`Point p;`) gives every field its default value —
+  zero when no initializer is declared, the declared default when one is
+  (see [Field initializers](#field-initializers) below).
 - **Assignment / copy** (`Point q = p;`) copies the whole struct by value,
   including any nested struct fields, so the source and the copy are
   independent.
@@ -55,28 +58,58 @@ int main() {
 
 ### Creating and initializing
 
-A struct **has no constructors** — you cannot declare one, and writing
-`Point p = Point(2, 3);` fails with `The function "Point" does not exist
-or is not accessible.`. Initialization takes one of three routes:
+A struct may declare constructors with the same syntax as a class (optional
+access modifier, default parameters, overloads, and implicit `this` bare-field
+access — see [Class](class.md) "Constructors"). A constructor runs **only on
+explicit construction**:
 
 ```nlang
-Point a;                       // zero-initialized: every field is 0
-Point b = Point{x: 1, y: 2};   // named entries: fill fields by name
-Point c = Point{3, 7};         // positional entries: fill in declaration order
+Point p(2, 3);                  // direct-init declaration
+Point q = Point(1, 4);          // constructor call, assigned
+Point r;                        // bare declaration: no constructor runs
+Point s = Point{5};             // init list: no constructor runs
 ```
 
+- **Constructor call** `Point(1, 4)` and **direct-init** `Point p(2, 3);`
+  run the constructor. `new Point(...)` does too (the value is placed on the
+  heap, matching the class-typed `new` — see [Class](class.md)).
+- **Bare declaration** `Point r;` and **init lists** `Point{...}` do **not**
+  run a constructor — every field takes its default value (zero when no
+  initializer, the declared default when one is). Array elements, nested
+  struct fields, and a deep copy behave the same way.
 - **Named entries** `Point{x: 1, y: 2}`: assign by field name; fields
-  left out keep their zero value.
+  left out keep their default value.
 - **Positional entries** `Point{3, 7}`: assign in field declaration
   order; you may give only the first few — `Point{5}` fills `x` only and
-  zero-initializes the rest.
+  leaves the rest at their defaults.
 - A struct array `Point[3]` eagerly materializes a fresh instance per
   element — see reference semantics above and [Array](array.md).
 
-A field is read or written through the member expression `p.x`; a struct has no
-method body, so there is no `this` to bind one to. See
-[Collection Initializers](collection-initializers.md) for the
-full init-list rules (target shapes and disambiguation).
+A field is read or written through the member expression `p.x`; a constructor
+may use `this` to name a field. See [Collection
+Initializers](collection-initializers.md) for the full init-list rules (target
+shapes and disambiguation).
+
+### Field initializers
+
+A struct field may carry a compile-time constant default, like a class field
+(see [Class](class.md) "Field initializers"):
+
+```nlang
+struct Point {
+    int x = 3;
+    int y = 4;
+    string tag = "pt";
+}
+```
+
+Unlike a class, a struct default is **not injected into a constructor** — it
+is applied at every allocation. A bare declaration, an array element, a
+nested field, and a partial init list all materialize the defaults (an
+init-list entry stores over them). A deep copy copies the stored values and
+does not re-apply them. The defaults ride the `.ncu` struct record, so they
+stay visible after an `import` — see [Module
+Serialization](../vm-architecture/module-serialization.md).
 
 ### What a struct can contain
 
@@ -84,8 +117,9 @@ full init-list rules (target shapes and disambiguation).
 - Enum fields (stored as int32)
 - Struct fields (deep-copied, owned by the containing struct)
 - Class fields (reference, shallow-copied)
+- Constructors (same syntax as a class)
 
-Structs cannot contain methods. Use classes for behavior.
+Structs cannot contain general methods. Use classes for behavior.
 
 ### Output
 

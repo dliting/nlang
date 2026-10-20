@@ -6,6 +6,22 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.11] - 2026-10-20
+
+### 新增
+- **无返回类型的构造器声明**——类构造器写作`public C(int a) {...}`，不写返回类型；旧的带类型形态（`int C()`）与显式`void`被拒绝，构造器内的`return <expr>;`是编译错误。带返回类型的同名静态方法保持合法。
+- **struct构造器**——`struct`可用与class相同的语法声明构造器（可选访问修饰、默认参数、重载、隐式`this`裸字段访问）。仅显式构造调用时运行（`S(2, 3)`、direct-init`S s(2, 3);`、`new S(...)`）；裸声明`S s;`、初始化列表`S{...}`、数组元素、嵌套struct字段与深拷贝都不运行构造器。
+- **字段初始化器**——class或struct字段可带编译期常量默认值（`int x = 5;`、`string tag = "pt";`，允许一元负号；不得引用字段或`this`）。class字段默认值在构造器体执行前注入到每个构造器（类未声明构造器时合成一个public零参构造器），且带字段默认值时`super()`必须是构造器的首条语句。struct字段默认值在每次堆分配时应用（与构造器无关），并经`.ncu`导入记录物化。
+- **构造器重载决议**——class或struct可声明多个构造器；构造调用按与方法重载相同的类型距离规则选中一个，真歧义报`ambiguous constructor call to <type> "<name>": multiple constructors match the argument list`。
+- **跨模块构造器**——导入`.ncu`模块的class与struct构造器可经限定调用形态调用（`lib.Calc c = lib.Calc(21);`）；构造器下标与struct字段默认值走NCU v2.6记录。导入的class保证可构造并经导入函数使用；跨模块的实例字段访问不在范围内。
+- **脚本模式语句＋显式`main()`的专用诊断**——同一文件内顶层语句与手写的`main()`组合时，报`top-level statements cannot be combined with an explicit main() function; move the statements into main() or remove main()`单条错误，不再级联通用重定义消息。
+
+### 变更
+- **数组初始化器改用括号形态**——`int[] a = {1, 2, 3};`被拒绝，报`array initializers use '[...]'; the brace form '{...}' is reserved for collection, struct, and class initializers`；花括号形态保留给集合、struct与class初始化器。
+
+### 修复
+- **导入`.ncu`的struct字段默认值生效**——字段带默认值的struct跨模块边界时经v2.6 struct记录应用默认值，构造该struct的消费者不再编译幽灵构造器。
+
 ## [0.9.10] - 2026-10-19
 
 ### 新增
