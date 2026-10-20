@@ -1315,6 +1315,13 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
     set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
+    # K2 slice 6: --carriers=N is parity-neutral for a spawn-free program
+    # and refuses out-of-range values with an explicit diagnostic.
+    add_test(NAME nvm_carriers_flag
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_carriers.py
+            $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
+    set_tests_properties(nvm_carriers_flag PROPERTIES TIMEOUT 60)
     # nlang script runner: the three behavior faces of the tool (script
     # mode end to end incl. the D3 empty-script mapping, -c inline
     # statements incl. the non-ASCII wide-argv path, and the CLI

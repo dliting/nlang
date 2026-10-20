@@ -35,15 +35,19 @@ but share the same mark-sweep cycle:
    class, struct, array, or function record — are scanned; string locals
    and string return slots mark string objects by handle instead;
    primitives never are. Frame staging slots the declaration table cannot
-   see (nested-call arguments, the evaluation scratch area) get a
-   conservative band scan: a slot whose value falls in the valid
-   string-handle range or the valid heap-index range is marked as that
-   kind — the collector never moves objects, so a false positive merely
-   retains, it never reclaims wrongly. Class/struct string fields, string
-   array elements, boxed-string contents inside containers, and
-   concatenation node children are marked as string roots too; the parked
-   frame stacks of virtual threads, channel buffer elements, and
-   host-held references are roots as well (see the
+   see (nested-call arguments, the evaluation scratch area) are classified
+   by a per-function handle bitmap serialized with the function record:
+   each slot is a scalar (not tested), a string handle, a heap index, or
+   unknown (both domains value-tested). The collector tests only the
+   classified domain, and the bitmap needs no byte-level knowledge of
+   frame layout; an unknown slot whose value falls in either valid range
+   is marked as that kind — the collector never moves objects, so a false
+   positive merely retains, it never reclaims wrongly. Class/struct string
+   fields, string array elements, boxed-string contents inside containers,
+   and concatenation node children are marked as string roots too; the
+   parked frame stacks of virtual threads, channel buffer elements,
+   host-held references, and the staged cells of in-flight blocking native
+   calls are roots as well (see the
    [garbage collector design](../vm-architecture/garbage-collection-design.md)).
    Marking uses an iterative worklist (not recursive) to avoid stack
    overflow on deep object chains.
@@ -63,9 +67,11 @@ comments in `VmExecutor.h`):
 - Safepoint-triggered, not allocation-point-triggered (avoids tracing
   temp slots in the mark phase)
 - Precise scan of declared slots via the local-variable descriptor, plus
-  a conservative range test over the staging-slot band the declaration
-  table cannot see (GC therefore needs no byte-level knowledge of frame
-  layout, and staging values are never missed)
+  a per-slot handle bitmap over the staging-slot band the declaration
+  table cannot see (a slot classified as scalar, string handle, or heap
+  index is tested only in its domain; the unknown class keeps the
+  conservative two-domain value test, so GC needs no byte-level knowledge
+  of frame layout and staging values are never missed)
 - A struct-type index table parallel to the heap slots identifies
   struct types (structs have no type header; smaller change than adding
   one)

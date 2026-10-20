@@ -1,8 +1,39 @@
 # Concurrency
 
-NLang provides lightweight concurrency: the `thread` namespace spawns **virtual threads** — execution contexts interleaved on a single carrier, not operating-system threads. `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `join` establishes completion order. All primitives work without any `import` (`thread` is a reserved package name — declaring your own package with that name is rejected at compile time with a message telling you to rename it).
+NLang provides lightweight concurrency: the `thread` namespace spawns **virtual threads** — execution contexts that share a carrier pool and run one at a time under a global interpreter lock, not operating-system threads of their own. `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `join` establishes completion order. All primitives work without any `import` (`thread` is a reserved package name — declaring your own package with that name is rejected at compile time with a message telling you to rename it).
 
-Scheduling is fully deterministic: a single carrier rotates contexts from a first-in-first-out (FIFO) queue, and a context yields only after exhausting a fixed back-edge quota (and only when another runnable context exists); `sleep` wakes in deadline order. The same program with the same inputs produces the same interleaving — tests assert order and final values, never durations.
+Scheduling is fully deterministic: carriers rotate contexts from a first-in-first-out (FIFO) queue, and a context yields only after exhausting a fixed back-edge quota (and only when another runnable context exists); `sleep` wakes in deadline order. The same program with the same inputs produces the same interleaving — tests assert order and final values, never durations.
+
+## The GIL and multiple carriers
+
+The VM holds a **global interpreter lock** (GIL): exactly one virtual
+thread executes bytecode at a time. Context switches happen only at
+safepoints (function entry and loop back edges), bounded by a scheduler
+budget of about 1000 back edges per turn. The GIL makes bytecode
+execution mutually exclusive, so language code never has to guard
+shared memory against a second virtual thread.
+
+A **carrier** is an operating system thread that runs virtual threads.
+The library defaults to a single carrier; embedding hosts opt in with
+`VmExecutor::SetCarrierThreadCount`, and `nvm` defaults to at most four
+(`--carriers=N`, 1..64). Multi-carrier parallelism comes from one kind
+of window only: a native call that declared a blocking section under
+version 5 of the native application binary interface (ABI) — the VM
+releases the GIL for its duration, so other carriers run other virtual
+threads (typically overlapping an input/output wait with other work),
+and the GIL is reacquired before the native returns. A third-party
+native that does not declare its blocking section holds the GIL for the
+whole call and every carrier stalls.
+
+Determinism: the same program with the same input produces the same
+interleaving (FIFO queue plus a fixed back-edge budget), and changing
+the carrier count does not change the observable behavior of a program
+that never blocks natively — tests assert order and final values, never
+timing. `sleep` is a scheduling hint with a lower bound: once every
+carrier is parked, a sleeper wakes within the operating system's timer
+granularity (about 15.6 ms on Windows). A paused debugger holds the GIL
+and freezes every virtual thread (see
+[Known limitations](known-limitations.md)).
 
 ## The thread namespace
 

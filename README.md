@@ -259,8 +259,12 @@ objects included), register `native` host functions, and redirect
 `io.print`/`io.eprint` to host callbacks. Scripts can also run straight
 from source: `runSource`/`runFile` compile and execute ad-hoc scripts
 in-process (no `main()` boilerplate), and `runScript` wraps the whole
-flow for one-shot use. A minimal host ships in `examples/embed_host/`;
-the full chapter is `docs/user_manual/en/libraries/embedding-api.md`.
+flow for one-shot use. Script threads run under a global interpreter
+lock; an `Interpreter` uses a single carrier by default, and a host
+embedding at the `VmExecutor` layer can opt into parallel carriers with
+`SetCarrierThreadCount` (blocking native calls release the lock).
+A minimal host ships in `examples/embed_host/`; the full chapter is
+`docs/user_manual/en/libraries/embedding-api.md`.
 
 ## IDE (nide)
 

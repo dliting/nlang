@@ -14,12 +14,14 @@
 #ifdef _WIN32
 #include <crtdbg.h>
 #endif
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -70,7 +72,7 @@ void ExitProcessFlushed(UINT code) {
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
-                     "[--verbose | -v] [--gc-stress=N]\n"
+                     "[--verbose | -v] [--gc-stress=N] [--carriers=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
@@ -111,6 +113,12 @@ int main(int argc, char* argv[]) {
     //threshold. The flag parses from any position; the first non-flag
     //argument is the module.
     size_t gcStress = 0;
+    //K2: carrier count override. The nvm default keeps tools parallel out
+    //of the box (capped by the machine); the library default stays 1 so
+    //embedding hosts opt in explicitly (plan ruling P1).
+    constexpr uint32_t kDefaultCarrierThreads = 4;
+    constexpr long kMaxCarrierThreads = 64;
+    uint32_t carriers = 0;  //0 = auto (cap the default by the machine)
     std::vector<std::string> importDirs;
     bool verbose = false;
     int moduleArg = -1;
@@ -131,6 +139,25 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             gcStress = static_cast<size_t>(parsed);
+        } else if (a.rfind("--carriers=", 0) == 0) {
+            //Refuse bad values up front: a silently ignored knob could
+            //green a carrier matrix for the wrong reason (same rationale
+            //as the --gc-stress diagnostic, stricter outcome because a
+            //wrong carrier count changes the execution model, not just
+            //collection timing).
+            const char* digits = a.c_str() + 11;   //past "--carriers="
+            errno = 0;
+            char* parseEnd = nullptr;
+            long parsed = std::strtol(digits, &parseEnd, 10);
+            if (digits[0] == '-' || parseEnd == digits
+                    || *parseEnd != '\0' || errno == ERANGE
+                    || parsed < 1 || parsed > kMaxCarrierThreads) {
+                std::fprintf(stderr,
+                    "nvm: --carriers expects 1..%ld, got '%s'\n",
+                    kMaxCarrierThreads, digits);
+                return 1;
+            }
+            carriers = static_cast<uint32_t>(parsed);
         } else if (a == "-I") {
             //Library search dir (native DLLs); a missing value is a mistake.
             if (i + 1 >= argc) {
@@ -149,12 +176,18 @@ int main(int argc, char* argv[]) {
     }
     if (moduleArg < 0) {
         std::cerr << "Usage: nvm <program.ncu|.npkg> [-I <dir>...] "
-                     "[--verbose | -v] [--gc-stress=N]\n"
+                     "[--verbose | -v] [--gc-stress=N] [--carriers=N]\n"
                   << "       nvm --version\n";
         return 1;
     }
     if (gcStress)
         executor.SetGcStressThresholds(gcStress);
+    if (carriers == 0) {
+        const unsigned hw = std::thread::hardware_concurrency();
+        //Parenthesized: windows.h defines a `min` macro on this platform.
+        carriers = (std::min)(kDefaultCarrierThreads, hw ? hw : 1u);
+    }
+    executor.SetCarrierThreadCount(carriers);
     //Phase 9f: host-provided natives (e2e test surface).
     RegisterTestNatives(executor);
     int result = 1;

@@ -94,11 +94,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //serialize as ordinary function records (ModuleSaver writes the
 //intrinsicId) and dedup at link by (name, paramCount, intrinsicId).
 //NCU_FORMAT_MINOR stays 3.
-//K2 slice 5: every function record gains a trailing eval-area handle
-//mask (uint32 byte count + packed bytes; see EvalSlotClass). It gives
-//the GC a per-slot root class for the whole frame band, replacing the
-//conservative both-domain value test. Older modules are refused by the
-//minor floor as usual — no compatibility shim.
+//K2 (v0.10.1, GIL and multiple carriers): every function record gains
+//a trailing eval-area handle mask (uint32 byte count + packed bytes; see
+//EvalSlotClass). It gives the GC a per-slot root class for the whole
+//frame band, replacing the conservative both-domain value test. Older
+//modules are refused by the minor floor as usual — no compatibility shim.
 inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values

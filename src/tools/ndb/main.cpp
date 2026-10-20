@@ -104,6 +104,10 @@ static int RunMachine(const char* modulePath,
                       bool verbose) {
     CompiledModule module;
     VmExecutor executor;
+    //K2: debugging pins one carrier. Hooks fire only for the main
+    //context (by design), but single-carrier execution also keeps
+    //step/break behavior deterministic when the program itself spawns.
+    executor.SetCarrierThreadCount(1);
     //Phase 9f: host-provided natives (e2e test surface) — CLI parity.
     RegisterTestNatives(executor);
     MachineFrontEnd front(module, std::cin, std::cout);
@@ -237,6 +241,9 @@ int main(int argc, char* argv[]) {
 
     CompiledModule module;
     VmExecutor executor;
+    //K2: single carrier for deterministic debugging (same pin as machine
+    //mode above).
+    executor.SetCarrierThreadCount(1);
     //Phase 9f: host-provided natives (e2e test surface).
     RegisterTestNatives(executor);
     int result = 1;

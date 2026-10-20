@@ -28,13 +28,13 @@ Nested evaluation windows (`toString` evaluation, the embedding host's `call()`)
 The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, or a channel receive; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
 
 - **Run queue**: first-in-first-out. The carrier loop repeatedly takes the head context and runs it until it returns, parks, or is preempted.
-- **Timer list**: `thread.sleep` parkings are ordered by wake-up time; an idle carrier sleeps until the nearest deadline.
+- **Timer list**: `thread.sleep` parkings are ordered by wake-up time; a dedicated timer thread (started on the first sleep) moves due sleepers back to the run queue, so a deadline is honored even when every carrier is parked or blocked in a native call.
 - **Context lifecycle**: `thread.spawn` mints the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
 - **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If the queue drains while main is still unfinished, the virtual machine reports a deadlock instead of spinning.
 
 ## Where the garbage collector plugs in
 
-Parked frame stacks are part of the root set: beyond the precise scan (the local-variable declaration table and the result slot), the frame's evaluation staging area gets a conservative band scan. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
+Parked frame stacks are part of the root set: parameters and the result slot are scanned through the declaration table, and every other frame slot — the evaluation staging area included — is scanned through the per-function handle bitmap. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
 
 ## Debugger boundary
 

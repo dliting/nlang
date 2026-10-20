@@ -164,9 +164,19 @@
   implicit wait-for-all; establish completion order explicitly with
   `thread.join`. If the run queue drains while main is still unfinished,
   the VM reports a deadlock error. See [Concurrency](concurrency.md).
-- **Concurrency: one carrier, no parallelism**: all virtual threads
-  interleave on a single carrier — exactly one context runs at any
-  moment; multi-carrier parallelism belongs to a later stage.
+- **Concurrency: bytecode runs serially under the GIL**: the VM holds a
+  global interpreter lock, so exactly one virtual thread executes
+  bytecode at a time. Multi-carrier parallelism comes only from that
+  lock being released during blocking native calls (typically overlapping
+  input/output waits with other virtual threads); CPU-bound virtual
+  threads do not run in parallel. The scheduler's budget of about 1000
+  back edges (loop iterations) between yield points rotates contexts
+  fairly. Set the carrier count with `VmExecutor::SetCarrierThreadCount`
+  (embedding hosts, default 1) or `nvm --carriers=N` (tool, at most 4 by
+  default).
+- **Concurrency: pausing the debugger freezes every context**: a paused
+  debugger holds the GIL and every virtual thread freezes with it; `ndb`
+  pins a single carrier to keep stepping and breakpoints deterministic.
 - **Concurrency: no `await`/`Future`**: `thread.join` is the only waiting
   primitive; `thread.spawn` returns no result value (a spawned context's
   return value cannot be retrieved — pass results through a channel or a
@@ -187,10 +197,16 @@
   `toString` evaluation and the embedding host's `call()` window,
   `yield`/`sleep`/`join` on an unfinished target/`lock` on a contended
   mutex/`recv` on an empty channel/`spawn` are all rejected with a
-  "cannot suspend" runtime error.
-- **Concurrency: blocking host operations freeze the whole carrier**:
-  when a virtual thread calls a blocking host facility (synchronous
-  input/output inside a native function or an embedding host callback,
-  for example), the carrier thread blocks with it and every other
-  virtual thread stalls; asynchronous or non-blocking host interfaces
-  are a later stage.
+  "cannot suspend" runtime error. Blocking native calls are exempt: they
+  do not park the virtual thread, they release the GIL for their
+  duration, so other carriers keep running.
+- **Concurrency: concurrent blocking is capped by the carrier pool**:
+  a native call declared blocking under version 5 of the native
+  application binary interface (ABI) releases the GIL for its duration,
+  so other carriers keep running other virtual threads;
+  blocking native calls in flight at once are bounded by the carrier
+  pool size, degrading to queued waiting at worst. A third-party native
+  that does not declare its blocking section holds the GIL for the whole
+  call and every carrier stalls — adding the blocking declaration
+  restores the concurrency. Output-redirection callbacks run while
+  holding the GIL as well; keep them short.

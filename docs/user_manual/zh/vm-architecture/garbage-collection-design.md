@@ -1,6 +1,6 @@
 # 垃圾回收设计
 
-NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、精确扫描与保守带、并行数组、迭代式标记——以及完整的标记-清扫算法、停泊上下文的根集与数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
+NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、按槽位句柄位图的精确扫描（带保守回退）、并行数组、迭代式标记——以及完整的标记-清扫算法、停泊上下文与在途阻塞原生的根集、数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
 
 ### 设计决策
 
@@ -10,15 +10,22 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
 
-安全点（函数入口 + 循环回边）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入保守带扫描（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
+安全点（函数入口 + 循环回边）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入句柄位图（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
 
-**2. 精确扫描声明槽，保守带扫描暂存槽**
+**2. 按槽位句柄位图给出精确根类别**
 
-对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。声明槽因此走精确路线——`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位，基于语义信息而非物理布局，无论栈帧布局如何变化都保持正确。
+对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。槽位因此携带语义信息。参数走声明路线（`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位）。帧带`[paramCount, localsSize)`内的其余槽位——返回槽、临时池、调用实参暂存区、求值暂存区与命名的局部变量——由随函数记录一起序列化的**句柄位图**（NCU格式2.4）分类：每槽2位，共四种类别。
 
-但声明表覆盖不了帧内的暂存槽：嵌套调用的实参、求值暂存区里的中间结果没有任何局部描述符。`f(g(), h())`中g的返回值在h入帧（安全点）时只活在调用帧的求值暂存区里，精确扫描看不见它。补上这个洞的是**保守带扫描**：对参数区之后的帧尾带，每个8字节槽做双域值测试——值落在字符串句柄有效域则标记字符串对象，落在堆索引有效域则入工作列表。参数槽排除在外（它们有声明种类）；帧建立时零初始化，未写的槽值为0，两个域都不命中。GC不移动对象，因此跨域误命中只可能多标（对象暂留），绝不漏标。
+- `None`：标量；槽位永不持有引用，不测试。
+- `StrHandle`：字符串仓句柄；只测字符串域。
+- `HeapIndex`：struct/class/数组/函数的堆索引；只测堆域。
+- `Dual`：未知；双域值测试——即保守测试本身，作为回退类别保留。
 
-停泊上下文的帧可能冻结在指令中途，暂存值同样必须存活——保守带让停泊帧与运行帧用同一套三臂扫描（见「停泊上下文与调度器根集」），不需要为停泊形态另建一套根集机制。
+后端由栈帧布局推导类别：求值区之下的固定暂存区（临时池与调用暂存）为`Dual`，因为任何表达式都可能流经；命名的局部变量与返回槽取各自声明的种类；求值区槽位初值为`None`，由使用它的代码位点所声明的类别（`EvalAreaClaim`）加宽。只有能枚举全部过路值的位点才可声明窄类别——例如委托调用的类别是`HeapIndex`，因为该槽只由一条`OP_LoadField`写入。若同一槽位还可能接收表达式中间值，声明保持`Dual`；被多个位点声明的槽位取各类别的并集（按位或），只会向`Dual`加宽。
+
+意义所在：声明表看不见暂存槽。`f(g(), h())`中g的返回值在h入帧（安全点）时只活在调用帧的求值暂存区里。位图以每次收集更少的测试工作补上这个洞，且不依赖物理布局：只有`Dual`槽位才付双域值测试的代价。帧建立时零初始化，未写的槽值为0，两个域都不命中；GC不移动对象，因此`Dual`槽位的跨域命中只可能多标（对象暂留），绝不漏标。手工构造的内存函数记录若位图长度与帧布局不符（装载器在产物中拒绝这种形态），整带回退为双域保守扫描。
+
+停泊上下文的帧可能冻结在指令中途，暂存值同样必须存活——位图对停泊帧与运行帧一视同仁（见「停泊上下文与调度器根集」），不需要为停泊形态另建一套根集机制。
 
 **3. 用m_slotStructIdx并行数组识别struct类型**
 
@@ -48,26 +55,29 @@ CollectGarbage():
 MarkPhase():
   clear all mark bits (heap and string stores)
   for each CallFrame (running stack):
-    for each LocalDescriptor with typeKind in {RTK_Class, RTK_Struct, RTK_Array, RTK_Func}:
-      read heap index from frame.locals + ld.offset
-      if valid and not marked: set mark bit, push to worklist
-    for each LocalDescriptor with typeKind == RTK_String:
-      read string handle from frame.locals + ld.offset
-      MarkString(handle)          //marks the object and its cons subtree
-    if pResult has reference return type:
-      read heap index from pResult
-      if valid and not marked: set mark bit, push to worklist
-    if pResult return type is RTK_String:
-      MarkString(handle)          //conservative over-mark, kept as defense
-    //conservative band: slots past the parameter area have no descriptor
-    //(staged call arguments, evalArea claims, temp slots)
-    for each 8-byte cell in [paramCount*8, localsSize):
-      if value in string-handle range: MarkString(value)
-      if value in heap-index range and not marked:
-        set mark bit, push to worklist
+    //parameters: declared descriptors
+    for each LocalDescriptor with isParam and a reference typeKind:
+      RTK_String: MarkString(value)      //handle, not heap index
+      otherwise:  if valid and not marked: set mark bit, push to worklist
+    //return slot: declared return kind
+    if returnTypeKind is a reference kind:
+      RTK_String: MarkString(value)      //conservative over-mark, as defense
+      otherwise:  mark and push if valid
+    //band: two-bit root class per slot (NCU 2.4 handle bitmap)
+    for each band slot i, slot number paramCount + i:
+      class = (func.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3
+      None:      skip
+      StrHandle: MarkString(value)
+      HeapIndex: mark and push if valid
+      Dual:      value-test both domains
+    //fallback for a bitmap whose length disagrees with the frame layout:
+    //value-test both domains over the whole band
   for each scheduler context:      //parked/queued contexts (steal model)
-    for each parked CallFrame: run the same three arms (locals, result, band)
+    for each parked CallFrame: run the same three arms (params, result, band)
     if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
+  for each in-flight blocking native call:
+    staged argument cells and return slot: value-test both domains
+    handles minted by re-entrant callbacks: value-test both domains
   for each host-registered root:
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
@@ -108,11 +118,20 @@ SweepStrings():
 
 帧栈机下，正在执行的上下文的帧就是调用栈本身；**停泊**（睡眠、等待join、竞争互斥体、空通道接收、被抢占）的上下文的整条帧栈保存在调度器里，不在调用栈上。收集时二者都是根：
 
-- 每个停泊上下文的每个帧跑与运行帧相同的三个扫描臂（声明局部、返回值槽、保守带）——停泊可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
+- 每个停泊上下文的每个帧跑与运行帧相同的三个扫描臂（参数描述符、返回值槽、帧带位图）——停泊可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
 - 上下文的`Thread`对象（`join`按其句柄识别目标）与失败上下文保留的异常对象（`join`要按原对象重抛）单独作为根；
 - 通道缓冲里的值经工作列表的class分支追踪（`Channel<T>`是带句柄字段的内建class，缓冲元素随对象标记）。
 
 `thread.spawn`在铸好根帧与`Thread`对象后即经过一次安全点检查，派生上下文的帧从诞生起就被根集覆盖。上下文与并发语义的总览见[并发](../language-spec/concurrency.md)与[帧机与调度器](frame-machine-and-scheduler.md)。
+
+### GIL下的回收与阻塞原生扎根
+
+堆的每一次改动——分配、标记、清扫——都持有全局解释器锁（GIL，global interpreter lock；见[并发](../language-spec/concurrency.md)）。回收在持有GIL的载体上运行，其余载体此时无法触碰堆：不需要另设停止世界的握手。
+
+- 非阻塞原生调用全程持有GIL，回收不可能与其交错，实参无需额外扎根。
+- **阻塞**原生调用使用暂存格（staged cells）：此类调用按ABI（应用二进制接口，application binary interface）第5版的注册通道声明。VM把实参拷入自有格子，释放GIL，调用原生，重新取GIL（先查停止标志），复原帧，再把结果拷回。无锁窗口内其他载体上的回收可以运行，因此暂存的实参格与返回槽在整个调用期间都是根；返回格按地址作为根——原生自己写入其中。
+- 阻塞原生内对VM的回调（构造字符串、构造列表、抛出异常）每次回调重新获取GIL。它们铸造的句柄压入执行器的本地根向量，调用返回时截断到水印；它存放在执行器而非载体的C++栈上，因为运行在另一载体上的回收器看不见那条栈。
+- 根向量的改动都在GIL下进行（释放前登记，重新获取后截断），回收读到的列表因此始终一致。
 
 ### 数组字段与元素追踪
 
@@ -139,3 +158,5 @@ Thread intrinsic (spawn, after minting the context) → CheckGCSafepoint()
 CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()
 ```
+
+安全点只在持有GIL的载体上触发；停泊中的上下文不在运行，无需配合即可被扫描。

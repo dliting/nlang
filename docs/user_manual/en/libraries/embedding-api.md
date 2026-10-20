@@ -94,6 +94,10 @@ Re-entering one `Interpreter` instance is not allowed: calling its `run()`/`call
 
 `run()` executes through the scheduler carrier: `thread.sleep` wakes on its deadline, contexts spawned by `thread.spawn` get scheduled, and `thread.join` parks and waits — exactly as under the `nvm` command line. When `main` parks with no runnable context left (an empty-channel `recv` with no sender, for example), `run()` throws a catchable `std::runtime_error` (the message contains `deadlock`) instead of hanging.
 
+`run()` executes under a global interpreter lock (GIL): exactly one virtual thread interprets bytecode at a time. An `Interpreter` drives the scheduler with a single carrier — the library default — so contexts make progress only at suspension points. Hosts that embed at the `VmExecutor` layer can opt into parallel carriers by calling `SetCarrierThreadCount(n)` before `Execute`; a native call registered as blocking under version 5 of the native application binary interface (ABI) then runs without the GIL, and the other carriers execute other virtual threads in that window. Host callbacks may then run concurrently with bytecode on other carriers and with one another, so shared host state needs its own synchronization. An executor still runs at most one `Execute` at a time; concurrent `CallByName` calls from several host threads each acquire the GIL and therefore run one after another. Drive one `Interpreter` instance from one host thread at a time — its re-entry guard is a misuse check, not a concurrency primitive.
+
+Host functions registered through `registerHostFunction` always run through the blocking-native protocol: the VM stages their arguments, releases the GIL for the duration of the callback, and reacquires it before resuming. The staged argument cells and the return slot stay rooted across that gap, so a collection on another carrier cannot reclaim handles in flight; VM callbacks made from inside such a call re-acquire the GIL per callback.
+
 `call()` is a host-initiated nested evaluation window without a carrier turn of its own:
 
 - Intrinsics that would park are rejected with a `std::runtime_error` (message contains `cannot suspend`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, a contended `Mutex.lock`, and `Channel.recv` on an empty open channel.
@@ -150,7 +154,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 
 ## 8. Input and output redirection
 
-`setOutputHandler(out, err)` forwards the script's `io.print` and `io.eprint` to two separate callbacks (text arrives as Unicode Transformation Format (UTF-8) bytes); passing two empty callbacks uninstalls the handlers and returns to the real standard streams. Callbacks fire on the execution thread and must not throw. The input side defaults to no channel: the script's first `io.readLine` raises a catchable `IOException`; host-injected input is future work.
+`setOutputHandler(out, err)` forwards the script's `io.print` and `io.eprint` to two separate callbacks (text arrives as Unicode Transformation Format (UTF-8) bytes); passing two empty callbacks uninstalls the handlers and returns to the real standard streams. Callbacks fire on the execution thread, run while holding the GIL (keep them short), and must not throw. The input side defaults to no channel: the script's first `io.readLine` raises a catchable `IOException`; host-injected input is future work.
 
 ```cpp
 itp.setOutputHandler(

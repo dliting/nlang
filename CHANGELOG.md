@@ -6,6 +6,49 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-10-20
+
+### Added
+
+- **Multiple carrier threads under a global interpreter lock** — exactly
+  one virtual thread interprets bytecode at a time (a global interpreter
+  lock, GIL), and a pool of carriers absorbs waits: a blocking native
+  call releases the GIL, and other carriers keep running other virtual
+  threads meanwhile. `VmExecutor::SetCarrierThreadCount(n)` opts in; the
+  library default stays one carrier, so embedding hosts that do not ask
+  for more keep single-threaded callbacks. `nvm` runs
+  `min(4, hardware concurrency)` carriers by default and accepts
+  `--carriers=N` (1..64; any other value is rejected with a diagnostic),
+  and `ndb` pins one carrier so stepping and breakpoints stay
+  deterministic. A dedicated timer thread services `thread.sleep`
+  deadlines, so a sleeper still wakes when every carrier is busy; once
+  all carriers park, wake precision is bounded by the operating
+  system's timer granularity (about 15.6 ms on Windows). An error raised
+  on any carrier reaches the host identically, with its original
+  backtrace.
+- **Declarative blocking-native protocol (native ABI v5)** — a native
+  that may block registers through the new blocking channel. The VM
+  stages its arguments, releases the GIL for the duration of the call,
+  reacquires it, and copies the result back. The staged argument cells
+  and the return slot stay rooted across the lock gap, so a collection
+  on another carrier cannot reclaim them, and VM callbacks made from
+  inside a blocking native reacquire the GIL per callback. Native
+  modules must be rebuilt against ABI v5; the loader refuses older
+  versions with a diagnostic and there is no compatibility shim.
+- **Precise GC root bitmap for frame slots (NCU format 2.4)** — every
+  function record now serializes a two-bit class per frame-band slot:
+  scalar (never tested), string handle, heap index, or unknown (both
+  domains value-tested — the previous conservative test, kept as the
+  fallback). The collector routes each slot by its class; evaluation-area
+  classes are claimed by the code sites that use the slot and merge by
+  widening only. Artifacts built by an older compiler are refused with
+  "is outdated; recompile with current ncc".
+- **Documentation** — the Concurrency pages (Chinese and English in
+  lockstep) gain a GIL and multiple-carriers section, the known
+  limitations, embedding API, and garbage-collection design pages
+  describe the revised execution and rooting rules, and the carrier-count
+  switches are documented for both tools.
+
 ## [0.10.0] - 2026-10-20
 
 ### Added
