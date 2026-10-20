@@ -1,0 +1,30 @@
+//0.9.10 v2.4 canary: a class carrying two same-named member methods
+//that differ only in staticness. Per NCU v2.4 the staticness flag is
+//part of the linkage identity, so the static and instance overloads
+//resolve to distinct slots across the .ncu wire.
+//
+//Pins the bug2 scenario (temp/p31/bug2/): a cross-module instance
+//method call that "returns the wrong value." The root cause was never
+//a resolution bug — the instance overload resolved correctly and
+//returned 999 — but bash/POSIX `$?` truncates the full 32-bit exit
+//code to its low 8 bits (999 mod 256 == 231), so the value *looked*
+//wrong. The expected value is pinned at 42 (<= 255) so the assertion
+//is unambiguous under any shell; see memory nlang-exit-code-limit.
+//
+//The external-stub path does not support calling an imported class's
+//instance method directly (`m.f()` in the consumer); instance access
+//happens inside lib via the imported free function callF. See the
+//known-limitations entry on cross-module instance access (0.9.11 O2).
+class Mix {
+	public static int f(int x) {
+		return x * 1001;
+	}
+	public int f() {
+		return 42;
+	}
+	public Mix() {
+	}
+}
+int callF(Mix m) {
+	return m.f();
+}
