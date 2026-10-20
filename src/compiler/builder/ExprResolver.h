@@ -975,6 +975,10 @@ private:
 	//node left unresolved).
 	bool RejectNonCollectionInitTarget(SnInitListExpr &sn,
 		SnField *pTargetField, bool bIsArray);
+	//0.9.11 T7 (D6): array initializers use the bracket form; the brace
+	//form is reserved for collection, struct, and class initializers.
+	//True = rejected.
+	bool RejectBraceArrayInitTarget(SnInitListExpr &sn, bool bIsArray);
 	//0.9.0: nested bare brace entries inherit the slot type they store
 	//into — the element type for array/List/Dict targets, or the
 	//addressed field's declared type for struct/class targets.

@@ -1613,3 +1613,9 @@ err_super_ambiguous compile_error ambiguous constructor call to class "P"
 ctor_overload_initlist 0
 cross_mod_ctor_overload 42
 cross_mod_ctor_overload_struct 42
+# --- 0.9.11 T7 (D6): array initializers use the bracket form; the
+# brace form is reserved for collection, struct, and class initializers ---
+err_array_brace_init compile_error array initializers use '[...]'
+err_array_brace_assign compile_error array initializers use '[...]'
+err_array_brace_arg compile_error array initializers use '[...]'
+err_array_brace_empty compile_error array initializers use '[...]'

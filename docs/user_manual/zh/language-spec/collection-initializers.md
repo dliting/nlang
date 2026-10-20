@@ -12,12 +12,11 @@ List<int> nums = [10, 20, 30];
 List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 ```
 
-**裸花括号形式`{...}`** —— 由带类型目标决定读法：键值条目初始化字典与struct/class聚合，位置条目初始化列表与数组。适用推断位与`[...]`相同：
+**裸花括号形式`{...}`** —— 由带类型目标决定读法：键值条目初始化字典与struct/class聚合，位置条目初始化列表。适用推断位与`[...]`相同：
 
 ```nlang
 Dict<string, int> d = {"a":1, "b":2};
 List<int> lst = {1, 2, 3};
-int[] a = {1, 2};
 take({7, 0});
 List<int> mk() { return {1, 2}; }
 ```
@@ -36,7 +35,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 
 - `字符串字面量 : 表达式` —— 字典条目（string键）
 - `标识符 : 表达式` —— struct/class字段（例如`x:1, y:2`）
-- `表达式`（无键）—— 列表/数组元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持零值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
+- `表达式`（无键）—— 列表元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持零值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
 
 **字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
 
@@ -44,7 +43,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 
 | 目标类型              | 形式              | 条目种类                          |
 |------------------------|-------------------|-----------------------------------|
-| `T[]`（数组）           | `[...]`或`{...}`   | 仅值                              |
+| `T[]`（数组）           | `[...]`            | 仅值                              |
 | `List<T>`               | `[...]`或`{...}`   | 仅值                              |
 | `Dict<K,V>`              | `{...}`            | `key : value`（string键） |
 | struct                   | `{...}`或`StructName{...}` | `field : value`（标识符键）或位置值（按字段声明序） |
@@ -54,8 +53,8 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 
 **递归嵌套**：初始化列表可包含其他初始化列表。内层使用方括号形式（`List<List<int>> ll = [[1,2],[3,4]];`）——花括号字面量内再嵌裸花括号无法解析（`{{1,2},{3,4}}`是语法错误）。嵌套泛型元素类型（`List<List<int>>`、`Dict<K, List<V>>`）受支持（见[内建泛型类](builtin-generic-classes.md) `List<T>`下的嵌套泛型）。
 
-**空集合**：空字面量对所有容器目标都写作`{}`——`List<int> l = {};`、`Dict<K,V> d = {};`、`int[] a = {};`。裸`[]`不是空形式（词法器把`[]`匹配为单个token，供数组类型后缀语法使用）；定长空数组写`int[0]`（见[数组](array.md)）。
+**空集合**：空字面量对`List<T>`与`Dict<K,V>`目标写作`{}`——`List<int> l = {};`、`Dict<K,V> d = {};`。数组目标无花括号形式（`int[] a = {};`被拒绝——数组初始化用方括号形式）；空数组写`int[0]`或不带初始化声明（见[数组](array.md)）。裸`[]`不解析为初始化器（词法器把`[]`匹配为单个token，供数组类型后缀语法使用）。
 
-**函数实参**：位置实参从形参类型推断目标——位置条目适用于struct、数组与`List<T>`形参（struct `Point`形参可写`take({7, 0})`）；class形参须用`字段:值`条目（见上表）。命名实参不推断——先绑定一个带类型局部，或改用锚定形式。
+**函数实参**：位置实参从形参类型推断目标——位置条目适用于struct与`List<T>`形参（struct `Point`形参可写`take({7, 0})`）；数组形参用方括号形式（`take([7, 0])`）；class形参须用`字段:值`条目（见上表）。命名实参不推断——先绑定一个带类型局部，或改用锚定形式。
 
 **初始化期间变更是未定义行为。**条目从左到右求值并按序赋值；在条目表达式内读部分构造的集合（例如`[1, foo(arr)]`中`foo`读`arr`）是未定义行为。抛异常的条目会留下部分构造的集合。

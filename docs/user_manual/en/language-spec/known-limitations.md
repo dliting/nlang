@@ -46,10 +46,13 @@
   needs a typed target — as a method-call receiver (`{}.length()`) or a
   named argument it does not infer; bind a typed local first. See
   [Collection Initializers](collection-initializers.md).
-- **Bare `[]` empty init**: the empty literal is `{}` (`List<T> l = {};`,
-  `Dict<K,V> d = {};`, `int[] a = {};`); a sized empty array is
-  `int[0]`. The lexer tokenizes `[]` as a single token used by the
-  array-type suffix rule, so bare `[]` is not the empty form.
+- **Bare `[]` empty init**: the empty literal is `{}` for `List<T>` and
+  `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an
+  array target takes no brace form (`int[] a = {};` is rejected —
+  array initializers use the bracket form), so an empty array is
+  `int[0]` or a declaration without an initializer. The lexer tokenizes
+  `[]` as a single token used by the array-type suffix rule, so bare
+  `[]` does not parse as an initializer.
 - **Bare init list as a named argument**: positional arguments infer
   their target from the parameter type; named arguments do not — use a
   typed local or the anchored `Type{...}` form.

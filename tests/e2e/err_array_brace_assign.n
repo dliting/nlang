@@ -1,0 +1,7 @@
+//0.9.11 T7 (D6): the brace form is reserved for collection, struct,
+//and class initializers; array initializers use the bracket form.
+int main() {
+    int[] a;
+    a = {1, 2, 3};
+    return a[1];
+}

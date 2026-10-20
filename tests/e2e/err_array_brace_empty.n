@@ -1,0 +1,6 @@
+//0.9.11 T7 (D6): the empty brace form is also rejected for array targets
+//(an array has no brace form; use int[0] or no initializer).
+int main() {
+    int[] a = {};
+    return a[0];
+}

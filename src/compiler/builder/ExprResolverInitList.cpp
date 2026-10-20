@@ -127,6 +127,22 @@ bool ExprResolveAccessor::RejectNonCollectionInitTarget(SnInitListExpr &sn,
     return true;
 }
 
+//0.9.11 T7 (D6): array initializers use the bracket form; the brace
+//form is reserved for collection, struct, and class initializers.
+//True = rejected.
+bool ExprResolveAccessor::RejectBraceArrayInitTarget(SnInitListExpr &sn,
+    bool bIsArray)
+{
+    if (bIsArray && !sn.IsArrayForm())
+    {
+        m_Env.Log(CLL_Error, sn.Location(),
+            "array initializers use '[...]'; the brace form '{...}' is "
+            "reserved for collection, struct, and class initializers");
+        return true;
+    }
+    return false;
+}
+
 //Class init lists lower to `new C()` + per-field stores; the implicit
 //ctor call must not require arguments (spec: class init requires a
 //no-arg constructor, explicit or implicit). Without this check the
@@ -443,6 +459,9 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     //0.9.0: the target must be a shape the lowering can write.
     if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
         return;
+
+    //0.9.11 T7 (D6): arrays use the bracket form.
+    if (RejectBraceArrayInitTarget(sn, bIsArray)) return;
 
     sn.EvalDataType(pTargetField);
     sn.TargetIsArray(bIsArray);
