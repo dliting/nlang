@@ -201,9 +201,12 @@ private:
 		SwitchLabelKey& key);
 	static bool ExtractLiteralLabel(SnLiteralExpr& lit, SwitchLabelKey& key);
 	void ResolveSuperCallArgs(SnSuperCallStmt &sn);
-	bool FindParentCtorShape(SnClassDecl *pParent,
-		size_t &requiredArity, size_t &totalArity);
-	void CheckSuperCtorArity(SnSuperCallStmt &sn, SnClassDecl *pParent);
+	//0.9.11 T6 (D10): the parent ctor a super(...) call binds to — the
+	//overload match over the parent's same-name non-static members, with
+	//the builtin-parent intrinsic arity path kept. Null = builtin parent
+	//or a logged rejection; a bare super() on a parent without ctors is
+	//the legal no-op shape and also answers null.
+	SnFunction *SelectSuperCtor(SnSuperCallStmt &sn, SnClassDecl *pParent);
 
 public:
 

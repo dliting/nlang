@@ -174,9 +174,14 @@ SnFunction *ExprResolveAccessor::SelectRoutableCandidate(
 	SnInvokeExpr &invoke, const std::vector<SnFunction*> &candidates,
 	std::vector<FormalBinding> &outBindings)
 {
+	//0.9.11 T6: the binding core takes the resolved actual-pointer list;
+	//built once for the whole candidate sweep.
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
 	for (auto *pCandidate : candidates)
 	{
-		if (TryBindInvoke(invoke, *pCandidate, outBindings))
+		if (TryBindArgs(actuals, *pCandidate, outBindings))
 			return pCandidate;
 	}
 	return nullptr;

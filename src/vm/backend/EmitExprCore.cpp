@@ -356,8 +356,8 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         //in the dispatch tail would misread the bound class as a func
         //value.
         if (invoke.CtorClass()) {
-            EmitNewObject(invoke.CtorClass(), invoke.Params(), nullptr,
-                          resultOffset);
+            EmitNewObject(invoke.CtorClass(), invoke.CtorFunction(),
+                          invoke.Params(), nullptr, resultOffset);
             return;
         }
         //0.9.11 D2: the struct twin (`S(args)` / `m.S(args)` — bare or

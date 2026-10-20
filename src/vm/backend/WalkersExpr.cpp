@@ -177,13 +177,11 @@ uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
         uint16_t ad = ExprPeakDepth(param, visited, false);
         if (ad > argDepth) argDepth = ad;
     }
-    //0.9.11 D2: struct invokes carry the selected ctor in the AST; the
-    //registered filter keeps the walker in step with codegen (an
-    //unregistered ctor allocates without a claim — over-reserving here
-    //is the safe direction).
-    SnFunction* pCtorFn = invoke.CtorStruct()
-        ? RegisteredCtor(invoke.CtorFunction())
-        : FindCtorFunction(invoke.CtorClass());
+    //0.9.11 T6 (D10): class and struct invokes both carry the
+    //resolver-selected ctor in the AST; the registered filter keeps the
+    //walker in step with codegen (an unregistered ctor allocates
+    //without a claim — over-reserving here is the safe direction).
+    SnFunction* pCtorFn = RegisteredCtor(invoke.CtorFunction());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     return static_cast<uint16_t>(1 + totalFormals)
@@ -311,11 +309,10 @@ uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
         if (&arg == newExpr.ClassName()) continue;
         ++argCount;
     }
-    //0.9.11 D2: struct new-expressions carry the selected ctor in the
-    //AST (see CtorInvokePeakDepth for the registered-filter rationale).
-    SnFunction* pCtorFn = newExpr.StructDecl()
-        ? RegisteredCtor(newExpr.CtorFunction())
-        : FindCtorFunction(newExpr.ClassDecl());
+    //0.9.11 T6 (D10): class and struct new-expressions both carry the
+    //resolver-selected ctor in the AST (see CtorInvokePeakDepth for the
+    //registered-filter rationale).
+    SnFunction* pCtorFn = RegisteredCtor(newExpr.CtorFunction());
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);

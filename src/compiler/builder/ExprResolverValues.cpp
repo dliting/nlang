@@ -97,7 +97,7 @@ bool ExprResolveAccessor::TryRebindShadowedTypeName(SnNameExpr &nameExpr,
 	return true;
 }
 
-//Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindInvoke
+//Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindArgs
 //when matching formals; here we only need to resolve the inner expression
 //and propagate its EvalDataType / resolved flag so the parent invoke can
 //type-check the binding.

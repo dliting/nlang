@@ -1,0 +1,10 @@
+//0.9.11 T6 (D10): consumer selects among the imported struct's
+//overloaded constructors. Expected exit 42 (21 * 2).
+import lib;
+
+int main() {
+	lib.Vec a = lib.Vec(21);
+	lib.Vec b = lib.Vec("s");
+	if (lib.raw(b) != 100) return 7;
+	return lib.scaled(a);
+}

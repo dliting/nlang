@@ -248,13 +248,13 @@ public:
 	//Phase 9c: resolve a named argument `name = expr` at a call site.
 	//Resolves the inner expression and propagates its EvalDataType so
 	//the parent SnInvokeExpr sees the value's type for overload matching.
-	//The name itself is consumed by TryBindInvoke when matching formals.
+	//The name itself is consumed by TryBindArgs when matching formals.
 	void Access(SnNamedArgExpr &);
 
 	//Phase 9e: resolve an out argument `out ident` at a call site.
 	//Validates the identifier binds to a caller-frame slot (local var or
 	//formal param — both register as NK_FormalParam-kind fields), then
-	//propagates the inner's EvalDataType. Consumed by TryBindInvoke, which
+	//propagates the inner's EvalDataType. Consumed by TryBindArgs, which
 	//requires the matched formal to carry NF_Out.
 	void Access(SnOutArgExpr &);
 
@@ -621,7 +621,7 @@ private:
 		std::vector<SnFunction*> *pOutCandidates = nullptr);
 
 	/*
-	Module import visibility (M3b): the TryBindInvoke / type-distance core
+	Module import visibility (M3b): the TryBindArgs / type-distance core
 	of FindFuncByInvoke — the single matching implementation shared by the
 	bare path (candidates collected along the scope chain there) and the
 	module-qualified call path (candidates from the module table). Silent
@@ -634,6 +634,19 @@ private:
 	FindFuncResult MatchInvokeAgainst(SnInvokeExpr &invoke,
 		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
 		std::vector<FormalBinding> &outBindings, bool &rbAmbiguous);
+
+	/*
+	0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst —
+	overload matching over the candidate ctors of one class/struct with
+	the same TryBindArgs / ComputeBindingDistance core (closest binding
+	wins, a tie at the smallest viable distance is ambiguous). Fully
+	silent: the caller owns the class/struct-flavored diagnostics, so no
+	out-bindings are handed back (codegen rebuilds them from the selected
+	ctor's Params()). Returns the selected ctor, or null on no viable
+	bind; rbAmbiguous separates the tie from a plain no-match.
+	*/
+	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous);
 
 	/*
 	Module import visibility (M3b): the SUCCESS tail of Access(SnInvokeExpr),
@@ -752,16 +765,17 @@ private:
 	bool ValidateInvokeSyntax(const SnInvokeExpr &invoke);
 
 	/*
-	Phase 9c: try to bind an invoke's actual arguments to a candidate
-	callee's formal parameters. Handles positional args, named args, and
-	default param expressions. Returns true if every formal is bound
-	(either by caller or by default); false if any required formal is left
-	unbound or a caller-side error occurs (positional after named, etc.).
-	Does NOT log — caller reports a generic "not compatible" error when
-	no candidate matches.
+	Phase 9c: try to bind an actual-argument list to a candidate callee's
+	formal parameters. Handles positional args, named args, and default
+	param expressions. Returns true if every formal is bound (either by
+	caller or by default); false if any required formal is left unbound or
+	a caller-side error occurs (positional after named, etc.). Does NOT
+	log — caller reports a generic "not compatible" error when no
+	candidate matches. 0.9.11 T6: the list parameter (not an invoke node)
+	lets constructor matching reuse this core from every call shape.
 	*/
-	bool TryBindInvoke(const SnInvokeExpr &invoke, const SnFunction &callee,
-		std::vector<FormalBinding> &outBindings);
+	bool TryBindArgs(const std::vector<SnExpression*> &actuals,
+		const SnFunction &callee, std::vector<FormalBinding> &outBindings);
 
 	/*
 	Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
@@ -900,27 +914,26 @@ private:
 
 	/*
 	2026-09-27 decomposition of the allocation resolution family
-	(ExprResolverNew.cpp) — the ctor-arity check of Access(SnNewExpr&)
-	and the allocation binding of Access(SnNewArrayExpr&).
+	(ExprResolverNew.cpp) — the ctor-binding of Access(SnNewExpr&) and
+	the allocation binding of Access(SnNewArrayExpr&).
 	*/
-	size_t CountPositionalCtorArgs(SnNewExpr &sn);
-	size_t CountPositionalCtorArgs(SnInvokeExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
-	//0.9.11 D2: the ctor-arity family takes the type-declaration field of a
-	//class OR a struct (NK_ClassDecl / NK_StructDecl); builtin and generic
-	//classes keep their intrinsic arity tables, structs scan Ctors().
-	//SelectCtorFunction returns the constructor a call binds to: the first
-	//declaration-order ctor of a struct, the first same-name non-static
-	//member of a user class, null for builtins/generics (their ctor lives
-	//only in the CompiledClass). T6 replaces the first-scan with overload
-	//matching; until then codegen and the walkers must read the selected
-	//ctor from the AST slot, never re-scan the owner.
+	//0.9.11 T6 (D10): the intrinsic arity table of the builtin/generic
+	//classes (FileStream 2, the Exception family 1, List/Dict/generic 0,
+	//Object 0) — their ctors live only in the CompiledClass, so a call
+	//against them is arity-checked, never overload-matched. User classes
+	//and structs answer false: their ctors are AST candidates.
 	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
-	SnFunction *SelectCtorFunction(SnField *pTypeDecl);
-	void CheckNewExprCtorArity(SnNewExpr &sn, SnField *pTypeDecl);
-	void CheckCtorArgCount(const ISourceLocation *pLoc,
-		SnField *pTypeDecl, size_t argCount);
+	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
+	//the same-name candidate set (class Members() / struct Ctors()),
+	//runs MatchCtorAgainst, and reports the catalog diagnostics on
+	//ambiguity / no-match; the intrinsic-arity shapes keep the legacy
+	//arity texts. Null = a diagnostic was logged (or the type has no
+	//ctor and no arguments — the legal bare-allocation shape).
+	SnFunction *SelectCtorForArgs(SnField *pTypeDecl,
+		const std::vector<SnExpression*> &actuals,
+		const ISourceLocation *pLoc);
 	//Binds the resolved type declaration to the new-expression: classes keep
 	//the Phase 13 func-type rejection, structs join directly (0.9.11 D2).
 	//False = the diagnostic was logged and the caller must abort.
@@ -968,6 +981,11 @@ private:
 	void PropagateNestedInitListTargets(SnInitListExpr &sn,
 		SnField *pTargetField, SnField *pElemType, bool bIsArray);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
+	//0.9.11 T6 (D10): select the zero-formal ctor for an init list —
+	//the ctor-selection step of CheckClassInitListForm, split out for
+	//size.
+	void CheckClassCtorForInitList(SnInitListExpr &sn,
+		SnClassDecl *pClassDecl);
 	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
 	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
 	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
@@ -1141,6 +1159,17 @@ public:
 		const ISourceLocation *pLoc, const char *opName)
 	{
 		return m_Accessor.AdmitShiftCount(iCount, pCarrier, pLoc, opName);
+	}
+
+	//0.9.11 T6 (D10): statement-side entry of the ctor overload match —
+	//the super(...) selection in StatementResolverSuper. Same contract as
+	//the accessor member of the same name; the match reads only the
+	//resolved actuals and the candidate signatures, so no Resolve()
+	//context is required.
+	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
+	{
+		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

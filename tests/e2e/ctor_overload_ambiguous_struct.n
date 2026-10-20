@@ -1,0 +1,11 @@
+//0.9.11 T6 (D10): the struct twin of the default-tie ambiguity —
+//both struct ctors bind at distance 0.
+struct W {
+    int tag;
+    public W(int a) { tag = 1; }
+    public W(int a, int b = 5) { tag = 2; }
+}
+int main() {
+    W w = W(1);
+    return 0;
+}

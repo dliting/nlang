@@ -155,6 +155,19 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
             break;
         }
     }
+    CheckClassCtorForInitList(sn, pClassDecl);
+}
+
+//0.9.11 T6 (D10): select the zero-formal ctor among the candidates —
+//the init list calls through it (codegen no longer scans for the
+//first same-name member). With no zero-formal candidate the text
+//names the first non-zero-formal one's arity (declaration order);
+//with no candidates at all the implicit/table shape stays legal.
+void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
+    SnClassDecl *pClassDecl)
+{
+    SnFunction *pNoArgCtor = nullptr;
+    SnFunction *pFirstCtor = nullptr;
     for (auto& field : pClassDecl->Members())
     {
         //0.9.10 D2.4: a same-name static is not the constructor — skip it
@@ -163,18 +176,27 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
             && field.Name() == pClassDecl->Name()
             && !field.ContainFlags(NF_Static))
         {
-            size_t arity = static_cast<SnFunction&>(field).Params().size();
-            if (arity > 0)
-            {
-                m_Env.Log(CLL_Error, sn.Location(),
-                    "class initializer \"%s{...}\" requires a "
-                    "no-arg constructor; \"%s\" takes %zu "
-                    "argument(s)",
-                    pClassDecl->Name().c_str(),
-                    pClassDecl->Name().c_str(), arity);
-            }
-            break;
+            auto &ctor = static_cast<SnFunction&>(field);
+            if (!pFirstCtor)
+                pFirstCtor = &ctor;
+            if (!pNoArgCtor && ctor.Params().size() == 0)
+                pNoArgCtor = &ctor;
         }
+    }
+    if (pNoArgCtor)
+    {
+        sn.CtorFunction(pNoArgCtor);
+        return;
+    }
+    if (pFirstCtor)
+    {
+        m_Env.Log(CLL_Error, sn.Location(),
+            "class initializer \"%s{...}\" requires a "
+            "no-arg constructor; \"%s\" takes %zu "
+            "argument(s)",
+            pClassDecl->Name().c_str(),
+            pClassDecl->Name().c_str(),
+            pFirstCtor->Params().size());
     }
 }
 

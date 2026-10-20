@@ -1,0 +1,20 @@
+//0.9.11 T6 (D10): class constructor overload selection across the
+//call forms (bare invoke, direct-init, expression position) — the
+//closest binding wins; a string argument only matches the string ctor.
+class Shape {
+    public int tag;
+    public Shape() { this.tag = 0; }
+    public Shape(int r) { this.tag = 10 + r; }
+    public Shape(string name) { this.tag = 2; }
+}
+int main() {
+    Shape a = Shape();
+    if (a.tag != 0) return 1;
+    Shape b(3);
+    if (b.tag != 13) return 2;
+    Shape c = Shape("n");
+    if (c.tag != 2) return 3;
+    Shape(6);
+    if (Shape(5).tag != 15) return 4;
+    return 0;
+}

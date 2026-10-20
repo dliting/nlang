@@ -1,0 +1,13 @@
+//0.9.11 T6 (D10): a class init list binds the zero-formal constructor
+//even when it is not the first declaration — the pre-T6 first-scan
+//would have picked C(int) and rejected the list.
+class C {
+    public int x;
+    public C(int v) { this.x = v; }
+    public C() { this.x = 9; }
+}
+int main() {
+    C c = C{x:5};
+    if (c.x != 5) return 1;
+    return 0;
+}

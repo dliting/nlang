@@ -1,6 +1,7 @@
 /*---
     StatementResolverSuper.cpp — super(...) 调用解析：实参检查与父类
-    构造器 arity 区间判定（尾随默认形参可省略，required..total）。
+    构造器重载选择（0.9.11 T6：绑定距离最近者胜出；内置父类保持
+    固有 arity 判定）。
     从 StatementResolverSwitchTry.cpp 抽取（2026-10-17 P3 缺陷批，
     super 调用点开始应用形参默认值）。
 ---*/
@@ -29,67 +30,65 @@ void StatementResolveAccessor::ResolveSuperCallArgs(SnSuperCallStmt &sn)
 	}
 }
 
-//Arity range of the parent constructor; false when the parent has none.
-//Built-in Exception family ctor is (this, message) → 1 user arg; other
-//built-ins are not subclassable. requiredArity counts formals without a
-//default expression, totalArity all of them.
-bool StatementResolveAccessor::FindParentCtorShape(SnClassDecl *pParent,
-	size_t &requiredArity, size_t &totalArity)
+//0.9.11 T6 (D10): the parent ctor a super(...) call binds to. User
+//parents run the overload match over the parent's same-name non-static
+//members (a same-name static lives in the static namespace, 0.9.10
+//D2.4); builtin parents keep the intrinsic Exception-ctor arity check
+//and answer null — their ctor is a table entry, not an AST member. A
+//parent without ctors is a legal no-op for a bare super(); anything
+//else logs and answers null.
+SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
+	SnClassDecl *pParent)
 {
+	std::vector<SnExpression*> actuals;
+	for (auto *pArg : sn.Args())
+		actuals.push_back(pArg);
+
 	if (pParent->IsBuiltinClass()) {
-		requiredArity = totalArity = 1;
-		return true;
+		//Builtin Exception family ctor is (this, message) → 1 user arg;
+		//other built-ins are not subclassable.
+		if (actuals.size() != 1) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"super(...) expects %zu argument(s), got %zu",
+				static_cast<size_t>(1), actuals.size());
+		}
+		return nullptr;  //table-path ctor (codegen reads CtorSlotFor)
 	}
+
+	std::vector<SnFunction*> candidates;
 	for (auto& field : pParent->Members()) {
-		//0.9.10 D2.4: a same-name static is not the constructor — the
-		//arity range must come from the instance ctor, regardless of
-		//declaration order.
 		if (field.Kind() == NK_Function
 			&& field.Name() == pParent->Name()
 			&& !field.ContainFlags(NF_Static)) {
-			auto& parentCtor = static_cast<SnFunction&>(field);
-			totalArity = parentCtor.Params().size();
-			requiredArity = totalArity;
-			for (auto& param : parentCtor.Params())
-				if (param.Value())
-					--requiredArity;
-			return true;
+			candidates.push_back(static_cast<SnFunction*>(&field));
 		}
 	}
-	return false;
-}
-
-//super(args); verdict against the parent ctor's arity range. A parent
-//without a ctor is a legal no-op for a bare super(); anything outside
-//the range is an error — the exact-count form stays verbatim for ctors
-//without defaults, the range form names the accepted span.
-void StatementResolveAccessor::CheckSuperCtorArity(SnSuperCallStmt &sn,
-	SnClassDecl *pParent)
-{
-	size_t requiredArity = 0;
-	size_t totalArity = 0;
-	if (!FindParentCtorShape(pParent, requiredArity, totalArity)) {
-		if (!sn.Args().empty()) {
+	if (candidates.empty()) {
+		if (!actuals.empty()) {
 			m_Env.Log(CLL_Error, sn.Location(),
 				"parent class \"%s\" has no constructor; super(...) "
 				"cannot take arguments",
 				pParent->Name().c_str());
 		}
-		return;  //bare super(); with no parent ctor is a legal no-op
+		return nullptr;  //bare super(); with no parent ctor is a legal no-op
 	}
-	if (sn.Args().size() >= requiredArity
-		&& sn.Args().size() <= totalArity)
-		return;
-	if (requiredArity == totalArity) {
+
+	bool bAmbiguous = false;
+	auto *pCtor = m_ExprResolver.MatchCtorAgainst(actuals, candidates,
+		bAmbiguous);
+	if (pCtor)
+		return pCtor;
+	if (bAmbiguous) {
 		m_Env.Log(CLL_Error, sn.Location(),
-			"super(...) expects %zu argument(s), got %zu",
-			requiredArity, sn.Args().size());
+			"ambiguous constructor call to class \"%s\": multiple "
+			"constructors match the argument list",
+			pParent->Name().c_str());
 	} else {
 		m_Env.Log(CLL_Error, sn.Location(),
-			"super(...) expects between %zu and %zu argument(s), "
-			"got %zu",
-			requiredArity, totalArity, sn.Args().size());
+			"no constructor of class \"%s\" matches the argument list",
+			pParent->Name().c_str());
 	}
+	return nullptr;
 }
 
 //Phase 9d-2: super(args); — forwards ctor args to the direct parent
@@ -123,7 +122,7 @@ void StatementResolveAccessor::Access(SnSuperCallStmt &sn)
 		return;
 	}
 	ResolveSuperCallArgs(sn);
-	CheckSuperCtorArity(sn, pParent);
+	sn.CtorFunction(SelectSuperCtor(sn, pParent));
 }
 
 } //namespace nlang

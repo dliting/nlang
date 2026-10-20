@@ -374,7 +374,17 @@ FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
 	return res;
 }
 
-//M3b: the TryBindInvoke / type-distance core of FindFuncByInvoke — the
+//0.9.11 T6: the resolved actual-pointer list of an invoke — built once
+//for the whole candidate sweep.
+static std::vector<SnExpression*> CollectInvokeActuals(SnInvokeExpr &invoke)
+{
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	return actuals;
+}
+
+//M3b: the TryBindArgs / type-distance core of FindFuncByInvoke — the
 //single matching implementation shared by the bare path (candidates
 //collected along the scope chain there) and the module-qualified path
 //(candidates from the module table). Silent on not-found / incompatible
@@ -391,6 +401,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 	if (candidates.empty())
 		return FFR_FuncNameNotFound;
 
+	const std::vector<SnExpression*> actuals = CollectInvokeActuals(invoke);
 	int nBestDistance = -1;
 	SnFunction *pBest = nullptr;
 	std::vector<FormalBinding> bestBindings;
@@ -399,7 +410,7 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 	//smallest viable distance is ambiguous.
 	auto consider = [&](SnFunction *pCandidate) {
 		std::vector<FormalBinding> tryBind;
-		if (!TryBindInvoke(invoke, *pCandidate, tryBind))
+		if (!TryBindArgs(actuals, *pCandidate, tryBind))
 			return;
 		int n = ComputeBindingDistance(tryBind);
 		if (n < 0)
@@ -430,6 +441,47 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 	pFunc = pBest;
 	outBindings = std::move(bestBindings);
 	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+}
+
+//0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst — the
+//same bind-then-closest-distance core over the candidate ctors of one
+//class/struct. Fully silent: the caller owns the class/struct-flavored
+//diagnostics, so no bindings are handed back (codegen rebuilds them
+//from the selected ctor's Params()). rbAmbiguous separates a tie at the
+//smallest viable distance from a plain no-viable-bind; both answer null.
+SnFunction *ExprResolveAccessor::MatchCtorAgainst(
+	const std::vector<SnExpression*> &actuals,
+	const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
+{
+	rbAmbiguous = false;
+	if (candidates.empty())
+		return nullptr;
+
+	int nBestDistance = -1;
+	SnFunction *pBest = nullptr;
+
+	for (auto *pCandidate : candidates)
+	{
+		std::vector<FormalBinding> tryBind;
+		if (!TryBindArgs(actuals, *pCandidate, tryBind))
+			continue;
+		int n = ComputeBindingDistance(tryBind);
+		if (n < 0)
+			continue;
+		if (nBestDistance < 0 || n < nBestDistance)
+		{
+			nBestDistance = n;
+			pBest = pCandidate;
+			rbAmbiguous = false;
+		}
+		else if (n == nBestDistance)
+		{
+			rbAmbiguous = true;
+		}
+	}
+	if (nBestDistance < 0 || rbAmbiguous)
+		return nullptr;
+	return pBest;
 }
 
 } //namespace nlang

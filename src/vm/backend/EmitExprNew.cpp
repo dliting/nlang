@@ -27,8 +27,8 @@ void VmBackend::Access(SnNewExpr& expr) {
         EmitStructCtor(*pStructDecl, newExpr.CtorFunction(), newExpr.Args(),
                        newExpr.ClassName(), m_resultOffset);
     else
-        EmitNewObject(newExpr.ClassDecl(), newExpr.Args(),
-                      newExpr.ClassName(), m_resultOffset);
+        EmitNewObject(newExpr.ClassDecl(), newExpr.CtorFunction(),
+                      newExpr.Args(), newExpr.ClassName(), m_resultOffset);
 }
 
 //Shared new-object emission: `new Foo(args)` and the 0.9.0 ctor-invoke
@@ -36,6 +36,7 @@ void VmBackend::Access(SnNewExpr& expr) {
 //internal invariant breaks (Round-12) — codegen only runs when the
 //front-end saw no errors.
 void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
+                              SnFunction* pCtorFn,
                               SnExpressionList& ctorArgs,
                               SnExpression* pSkipArg, uint16_t resultOffset) {
     if (!pClassDecl) {
@@ -49,16 +50,34 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     //KeyOf keeps the erased builtin key ("List") for a generic
     //instantiation and the bare name for ownerless builtins, so the
     //own branch of the slot helper covers every ownerless shape.
-    //Own/builtin records carry the ctor index in the table; a cross-unit
-    //placeholder discovers its ctor in the AST (CtorSlotFor).
     const uint16_t classIdx =
         static_cast<uint16_t>(ClassSlotFor(*pClassDecl));
-    const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
-    if (ctorIdx != 0xFFFF) {
-        EmitCtorInvocation(FindCtorFunction(pClassDecl), ctorArgs, pSkipArg,
-                           *m_pCurrEmitter, ctorIdx,
-                           CtorAlloc{false, classIdx, 0}, resultOffset);
+    //0.9.11 T6 (D10): the resolver-selected ctor drives the call — the
+    //first-same-name scan is gone. A registered selection calls through
+    //its function slot; a null selection (builtin/generic intrinsic ctor,
+    //or a type without ctors) keeps the table path; a selected-but-
+    //unregistered ctor mirrors EmitStructCtor: plain alloc, arguments
+    //unevaluated, no call.
+    SnFunction* pRegistered = RegisteredCtor(pCtorFn);
+    if (pRegistered) {
+        const uint16_t ctorIdx =
+            static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
+        EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, *m_pCurrEmitter,
+                           ctorIdx, CtorAlloc{false, classIdx, 0},
+                           resultOffset);
         return;
+    }
+    if (!pCtorFn) {
+        //Own/builtin records carry the ctor index in the table; a cross-
+        //unit placeholder without a selection falls back to the AST scan
+        //(defensive: the resolver selects for every user-type call).
+        const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
+        if (ctorIdx != 0xFFFF) {
+            EmitCtorInvocation(nullptr, ctorArgs, pSkipArg, *m_pCurrEmitter,
+                               ctorIdx, CtorAlloc{false, classIdx, 0},
+                               resultOffset);
+            return;
+        }
     }
 
     BytecodeEmitter& emitter = *m_pCurrEmitter;

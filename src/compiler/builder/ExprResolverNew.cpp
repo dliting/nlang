@@ -43,65 +43,20 @@ static bool RejectNonPositionalCtorArg(BuildEnvironment &env,
 	return false;
 }
 
-//Count the positional ctor arguments of a new expression.
-size_t ExprResolveAccessor::CountPositionalCtorArgs(SnNewExpr &sn)
-{
-	size_t argCount = 0;
-	for (auto &arg : sn.Args())
-	{
-		if (&arg == sn.ClassName()) continue;  //Args() view includes it
-		if (RejectNonPositionalCtorArg(m_Env, arg))
-			continue;
-		++argCount;
-	}
-	return argCount;
-}
-
-//Ctor-invoke twin: SnInvokeExpr::Params() has no class-name child.
-size_t ExprResolveAccessor::CountPositionalCtorArgs(SnInvokeExpr &sn)
-{
-	size_t argCount = 0;
-	for (auto &arg : sn.Params())
-	{
-		if (RejectNonPositionalCtorArg(m_Env, arg))
-			continue;
-		++argCount;
-	}
-	return argCount;
-}
-
-//Arity of one ctor declaration: requiredArity counts the formals without a
-//default expression, totalArity all of them.
-static void CountCtorArity(const SnFunction &ctor,
-	size_t &requiredArity, size_t &totalArity)
-{
-	totalArity = ctor.Params().size();
-	requiredArity = totalArity;
-	for (auto &param : ctor.Params())
-	{
-		if (param.Value())
-			--requiredArity;
-	}
-}
-
-//Expected ctor arity range. User classes and structs take the same
-//declaration the call site binds to (SelectCtorFunction — the first
-//declaration-order ctor; T6 swaps in overload matching). The rest are
-//intrinsic ctor stubs registered by VmBackend::RegisterBuiltinClasses
-//(arity excludes `this`); requiredArity and totalArity stay equal where
-//defaults cannot exist (builtins/generics). False = no constructor.
+//0.9.11 T6 (D10): the intrinsic ctor arity table of the builtin and
+//generic classes — their ctors are stubs registered by
+//VmBackend::RegisterBuiltinClasses (arity excludes `this`) and live only
+//in the CompiledClass, so a call against them is arity-checked, never
+//overload-matched; requiredArity and totalArity stay equal where
+//defaults cannot exist. User classes and structs answer false: their
+//ctors are AST candidates for MatchCtorAgainst. False = no constructor.
 bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	size_t &requiredArity, size_t &totalArity)
 {
 	requiredArity = 0;
 	totalArity = 0;
-	if (auto *pCtor = SelectCtorFunction(pTypeDecl))
-	{
-		CountCtorArity(*pCtor, requiredArity, totalArity);
-		return true;
-	}
 	if (pTypeDecl->Kind() != NK_ClassDecl)
-		return false;  //struct without a constructor
+		return false;  //struct ctors are always AST candidates
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
 	if (IsGenericClassDecl(pClassDecl))
 		return true;  //List/Dict ctor stubs take only `this`
@@ -118,92 +73,125 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	return false;
 }
 
-//0.9.11 D2: the constructor a call site binds to. Structs take the first
-//declaration-order Ctors() entry; user classes the first same-name
-//non-static member (a same-name static lives in the static namespace,
-//0.9.10 D2.4). Builtin and generic classes answer null — their ctor is an
-//intrinsic stub living only in the CompiledClass, reached through
-//FindCtorFunction at codegen. 0.9.11 v2.6: imported class/struct stubs
-//answer their rebuilt ctor member (CreateClassStub/CreateStructStub
-//rebuild the constructor members from the .ncu record), so cross-module
-//calls bind and arity-check like source peers. Until T6 replaces the
-//first-scan with overload matching, codegen and the frame walkers must
-//use this AST-recorded selection, never a fresh scan.
-SnFunction *ExprResolveAccessor::SelectCtorFunction(SnField *pTypeDecl)
+//0.9.11 T6 (D10): the overload candidate set of one constructible type,
+//in declaration order. Structs answer every Ctors() entry; user classes
+//every same-name non-static member (a same-name static lives in the
+//static namespace, 0.9.10 D2.4). Builtin and generic classes answer the
+//empty set — FindCtorParamRange arity-checks calls against them instead.
+//0.9.11 v2.6: imported class/struct stubs carry rebuilt ctor members
+//(CreateClassStub/CreateStructStub), so cross-module calls match like
+//source peers. The set is signature-only: registration (IsRegisteredCtor)
+//is a codegen concern — matching binds any AST-visible ctor.
+static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl)
 {
+	std::vector<SnFunction*> candidates;
 	if (pTypeDecl->Kind() == NK_StructDecl)
 	{
 		for (auto &ctor : static_cast<SnStructDecl*>(pTypeDecl)->Ctors())
-			return &ctor;
-		return nullptr;
+			candidates.push_back(&ctor);
+		return candidates;
 	}
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
 	if (IsGenericClassDecl(pClassDecl) || pClassDecl->IsBuiltinClass())
-		return nullptr;
+		return candidates;
 	for (auto &member : pClassDecl->Members())
 	{
 		if (member.Kind() == NK_Function
 			&& member.Name() == pClassDecl->Name()
 			&& !member.ContainFlags(NF_Static))
 		{
-			return static_cast<SnFunction*>(&member);
+			candidates.push_back(static_cast<SnFunction*>(&member));
 		}
 	}
-	return nullptr;
+	return candidates;
 }
 
-//Constructor-call arity check for the ctor-invoke forms (bare and
-//module-qualified). Constructor calls stage their arguments positionally
-//(one FormalBinding per formal — caller args first, then the defaults of
-//the omitted trailing formals), so named and out arguments stay rejected
-//and the count is a range: a call may omit any trailing defaulted formal,
-//never a required one. Pre-fix a mismatched call compiled clean: missing
-//args read uninitialized callParam slots (a defaulted param arrived as
-//garbage), extras were silently dropped, named args hit codegen's
-//unhandled-kind internal error. 0.9.11 v2.6: imported type stubs are no
-//longer skipped — their rebuilt ctor members give the same arity range
-//as source peers (the pre-v2.6 skip existed because the ctor lived only
-//in the merged table, invisible to the AST).
-void ExprResolveAccessor::CheckCtorArgCount(const ISourceLocation *pLoc,
-	SnField *pTypeDecl, size_t argCount)
+//0.9.11 T6 (D10): select the constructor a call binds to (all three call
+//forms — new, bare/qualified invoke, direct-init — funnel here with their
+//arguments already resolved). Constructor calls stage their arguments
+//positionally (one FormalBinding per formal — caller args first, then
+//the defaults of the omitted trailing formals), so named and out
+//arguments stay rejected before matching. User classes and structs run
+//the overload match (closest binding wins, a tie is ambiguous); the
+//builtin/generic shapes keep the legacy arity texts. Pre-0.9.11 a
+//mismatched call compiled clean: missing args read uninitialized
+//callParam slots (a defaulted param arrived as garbage), extras were
+//silently dropped, named args hit codegen's unhandled-kind internal
+//error. Null = the call is not bound: either a diagnostic was logged,
+//or the type has no constructor and no arguments were supplied (the
+//legal bare-allocation shape).
+SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
+	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
 {
 	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
 		? "struct" : "class";
+
+	//One pass over the actuals: a named/out reject is logged once and
+	//skips matching (a single error instead of the old cascade behind
+	//the match diagnostics).
+	bool bRejected = false;
+	for (auto *pActual : actuals)
+	{
+		if (RejectNonPositionalCtorArg(m_Env, *pActual))
+			bRejected = true;
+	}
+	if (bRejected)
+		return nullptr;
+
+	auto candidates = CollectCtorCandidates(pTypeDecl);
+	if (!candidates.empty())
+	{
+		bool bAmbiguous = false;
+		auto *pCtor = MatchCtorAgainst(actuals, candidates, bAmbiguous);
+		if (pCtor)
+			return pCtor;
+		if (bAmbiguous)
+			m_Env.Log(CLL_Error, pLoc,
+				"ambiguous constructor call to %s \"%s\": multiple "
+				"constructors match the argument list",
+				kindWord, pTypeDecl->Name().c_str());
+		else
+			m_Env.Log(CLL_Error, pLoc,
+				"no constructor of %s \"%s\" matches the argument list",
+				kindWord, pTypeDecl->Name().c_str());
+		return nullptr;
+	}
+
+	//No AST candidates: the intrinsic-arity shapes (builtin/generic
+	//classes) keep the legacy arity texts; a type with no constructor
+	//at all rejects only when arguments were supplied.
 	size_t requiredArity = 0;
 	size_t totalArity = 0;
-	if (!FindCtorParamRange(pTypeDecl, requiredArity, totalArity))
+	const size_t argCount = actuals.size();
+	if (FindCtorParamRange(pTypeDecl, requiredArity, totalArity))
 	{
-		if (argCount != 0)
-			m_Env.Log(CLL_Error, pLoc,
-				"%s \"%s\" has no constructor; %s() cannot take "
-				"arguments",
-				kindWord, pTypeDecl->Name().c_str(),
-				pTypeDecl->Name().c_str());
+		if (argCount < requiredArity || argCount > totalArity)
+		{
+			if (requiredArity == totalArity)
+			{
+				m_Env.Log(CLL_Error, pLoc,
+					"constructor of \"%s\" expects %zu argument(s), got %zu",
+					pTypeDecl->Name().c_str(), requiredArity, argCount);
+			}
+			else
+			{
+				m_Env.Log(CLL_Error, pLoc,
+					"constructor of \"%s\" expects between %zu and %zu "
+					"argument(s), got %zu",
+					pTypeDecl->Name().c_str(), requiredArity, totalArity,
+					argCount);
+			}
+		}
+		return nullptr;
 	}
-	else if (argCount < requiredArity || argCount > totalArity)
+	if (argCount != 0)
 	{
-		if (requiredArity == totalArity)
-		{
-			m_Env.Log(CLL_Error, pLoc,
-				"constructor of \"%s\" expects %zu argument(s), got %zu",
-				pTypeDecl->Name().c_str(), requiredArity, argCount);
-		}
-		else
-		{
-			m_Env.Log(CLL_Error, pLoc,
-				"constructor of \"%s\" expects between %zu and %zu "
-				"argument(s), got %zu",
-				pTypeDecl->Name().c_str(), requiredArity, totalArity,
-				argCount);
-		}
+		m_Env.Log(CLL_Error, pLoc,
+			"%s \"%s\" has no constructor; %s() cannot take arguments",
+			kindWord, pTypeDecl->Name().c_str(),
+			pTypeDecl->Name().c_str());
 	}
-}
-
-void ExprResolveAccessor::CheckNewExprCtorArity(SnNewExpr &sn,
-	SnField *pTypeDecl)
-{
-	CheckCtorArgCount(sn.Location(), pTypeDecl,
-		CountPositionalCtorArgs(sn));
+	return nullptr;
 }
 
 //Builtin class names: ByteStream, FileStream, Object.
@@ -274,14 +262,22 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 
 	if (!BindNewExprType(sn, *pTypeField))
 		return;
-	sn.CtorFunction(SelectCtorFunction(pTypeField));
 	sn.EvalDataType(pTypeField);
 	sn.AddFlags(NF_Resolved);
 
-	CheckNewExprCtorArity(sn, pTypeField);
-
+	//0.9.11 T6: the arguments resolve before the ctor is selected — the
+	//overload match reads their types. ResolveExpressionList skips the
+	//already-resolved class-name child, so Args() stays safe here.
 	if (!ResolveExpressionList(sn.Args()))
 		return;
+
+	std::vector<SnExpression*> actuals;
+	for (auto &arg : sn.Args())
+	{
+		if (&arg == sn.ClassName()) continue;  //Args() view includes it
+		actuals.push_back(&arg);
+	}
+	sn.CtorFunction(SelectCtorForArgs(pTypeField, actuals, sn.Location()));
 }
 
 void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
@@ -353,9 +349,9 @@ SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 //Bare `Foo(args)` without new: bind the invoke as a constructor call.
 //Runs ONLY in the invoke-resolution failure branch (functions keep
 //priority), with the arguments already resolved. True = consumed —
-//resolved as a ctor call, or rejected through the shared arity check;
-//false = the name addresses no class, the caller reports its own
-//generic failure.
+//resolved as a ctor call, or rejected through the shared selection
+//diagnostics; false = the name addresses no class, the caller reports
+//its own generic failure.
 bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 {
 	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
@@ -380,15 +376,19 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType
 	//(SnClassDecl/SnStructDecl is its own type). 0.9.11 D2: the kind
 	//decides which ctor slot the invoke carries; CtorFunction() records
-	//the selected constructor for codegen and the frame walkers.
+	//the selected constructor for codegen and the frame walkers. The
+	//parameters are already resolved (this runs in the invoke failure
+	//branch), so the overload match reads them directly.
 	ResolveFieldExprAs(snInvoke, pTypeDecl);
 	if (pTypeDecl->Kind() == NK_StructDecl)
 		snInvoke.CtorStruct(static_cast<SnStructDecl*>(pTypeDecl));
 	else
 		snInvoke.CtorClass(static_cast<SnClassDecl*>(pTypeDecl));
-	snInvoke.CtorFunction(SelectCtorFunction(pTypeDecl));
-	CheckCtorArgCount(snInvoke.Location(), pTypeDecl,
-		CountPositionalCtorArgs(snInvoke));
+	std::vector<SnExpression*> actuals;
+	for (auto &param : snInvoke.Params())
+		actuals.push_back(&param);
+	snInvoke.CtorFunction(SelectCtorForArgs(pTypeDecl, actuals,
+		snInvoke.Location()));
 	return true;
 }
 
@@ -429,11 +429,13 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		invoke.CtorStruct(static_cast<SnStructDecl*>(pType));
 	else
 		invoke.CtorClass(static_cast<SnClassDecl*>(pType));
-	invoke.CtorFunction(SelectCtorFunction(pType));
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	invoke.CtorFunction(SelectCtorForArgs(pType, actuals,
+		invoke.Location()));
 	snMember.m_pField = pType;
 	snMember.EvalDataType(pType);
-	CheckCtorArgCount(invoke.Location(), pType,
-		CountPositionalCtorArgs(invoke));
 	return true;
 }
 

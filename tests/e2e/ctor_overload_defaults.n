@@ -1,0 +1,16 @@
+//0.9.11 T6 (D10): default parameters take part in overload distance —
+//the defaulted candidate wins on exact type match (V(1) binds
+//V(int, int) at 0 against V(float)'s int-to-float hop), and a float
+//argument rejects the int candidate (V(1.5f) narrows to int).
+class V {
+    public int tag;
+    public V(int a, int b = 7) { this.tag = 1; }
+    public V(float a) { this.tag = 2; }
+}
+int main() {
+    V a = V(1);
+    if (a.tag != 1) return 1;
+    V b = V(1.5f);
+    if (b.tag != 2) return 2;
+    return 0;
+}

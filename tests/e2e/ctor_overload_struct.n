@@ -1,0 +1,19 @@
+//0.9.11 T6 (D10): struct constructor overload selection across the
+//call forms — the struct path shares the class distance rule.
+struct Point {
+    int tag;
+    public Point() { tag = 0; }
+    public Point(int r) { tag = 10 + r; }
+    public Point(string name) { tag = 2; }
+}
+int main() {
+    Point a = Point();
+    if (a.tag != 0) return 1;
+    Point b(3);
+    if (b.tag != 13) return 2;
+    Point c = Point("n");
+    if (c.tag != 2) return 3;
+    Point(6);
+    if (Point(5).tag != 15) return 4;
+    return 0;
+}

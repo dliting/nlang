@@ -952,6 +952,16 @@ public:
 		m_entries[nIdx].pValue = pValue;
 	}
 
+	//0.9.11 T6 (D10): the zero-formal constructor the resolver selected
+	//for a class-shaped init list (CheckClassInitListForm); codegen and
+	//the frame walkers call through it instead of scanning for the first
+	//same-name member. Null = no selection (array/List/Dict/struct forms
+	//and the table path). Non-owning: the ctor member belongs to the
+	//class declaration.
+	SnFunction *CtorFunction() const { return m_pCtorFunction; }
+	void CtorFunction(SnFunction *pCtorFunction)
+	{ m_pCtorFunction = pCtorFunction; }
+
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
@@ -962,6 +972,7 @@ private:
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
 	bool                         m_bTargetIsArray = false;     //resolver-set
+	SnFunction                  *m_pCtorFunction = nullptr;    //resolver-set, class form
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.
@@ -999,7 +1010,7 @@ private:
 //Phase 9e: out argument expression `out ident` at call sites.
 //Wraps the inner identifier; ExprResolver validates the inner refers to a
 //local/formal slot and requires the matched formal to be an out parameter.
-//TryBindInvoke unwraps the node into FormalBinding (pCallerExpr = Inner())
+//TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
 //with bIsOut set, so codegen emits the inner read into the staging slot
 //and records a writeback pair for OP_CallFuncOut/OP_CallMethodDirectOut.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr

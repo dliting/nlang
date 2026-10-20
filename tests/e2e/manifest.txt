@@ -738,8 +738,8 @@ ctor_default_formal_ref 10
 ctor_default_nested 11
 ctor_struct_arg_copy 10
 super_default 12
-ctor_default_missing_required compile_error expects between 1 and 2 argument(s)
-ctor_default_over_range compile_error expects between 1 and 2 argument(s)
+ctor_default_missing_required compile_error no constructor of class "Vec" matches the argument list
+ctor_default_over_range compile_error no constructor of class "Vec" matches the argument list
 ctor_default_zero_args 0
 # --- P3 review fixes: MaxArgs default descent + this-reference rejection ---
 ctor_default_bigcall 7
@@ -1551,7 +1551,7 @@ static_protocol_name_reject compile_error must be called through a receiver obje
 static_ctor_initlist_order 74
 static_ctor_initlist_reject compile_error requires a no-arg constructor
 static_super_arity 7
-static_super_arity_reject compile_error super(...) expects 1 argument(s)
+static_super_arity_reject compile_error no constructor of class "A" matches the argument list
 static_enum_tostring_reject compile_error must be called through a receiver object
 static_native_func_ref 6
 static_funcref_value_shadow 6
@@ -1601,3 +1601,15 @@ struct_field_init_array 7
 struct_field_init_nested 7
 cross_mod_struct_ctor 12
 cross_mod_class_ctor 42
+ctor_overload_class 0
+ctor_overload_struct 0
+ctor_overload_defaults 0
+ctor_overload_ambiguous compile_error ambiguous constructor call to class "W"
+ctor_overload_ambiguous_struct compile_error ambiguous constructor call to struct "W"
+ctor_overload_no_match compile_error no constructor of class "U" matches the argument list
+ctor_overload_no_match_struct compile_error no constructor of struct "U" matches the argument list
+ctor_overload_super 0
+err_super_ambiguous compile_error ambiguous constructor call to class "P"
+ctor_overload_initlist 0
+cross_mod_ctor_overload 42
+cross_mod_ctor_overload_struct 42

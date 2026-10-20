@@ -145,16 +145,25 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
 }
 
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,
-//then the no-arg ctor call when the class declares one. classDecl feeds
-//CtorSlotFor — a cross-unit placeholder carries no table ctor.
+//then the no-arg ctor call when one is available. 0.9.11 T6 (D10):
+//pCtorFn is the zero-formal ctor the resolver selected for the init
+//list (CheckClassInitListForm) — registered → its function slot; null
+//(List/Dict arms, or a class whose ctor comes only from the table) →
+//classDecl feeds CtorSlotFor, a cross-unit placeholder carries no table
+//ctor; a selected-but-unregistered ctor allocates without a call.
 void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
+                                          SnFunction* pCtorFn,
                                           uint16_t classIdx,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
-    uint16_t ctorIdx = CtorSlotFor(classDecl, classIdx);
+    uint16_t ctorIdx = 0xFFFF;
+    if (SnFunction* pRegistered = RegisteredCtor(pCtorFn))
+        ctorIdx = static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
+    else if (!pCtorFn)
+        ctorIdx = CtorSlotFor(classDecl, classIdx);
     if (ctorIdx != 0xFFFF) {
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(resultOffset);
@@ -182,7 +191,9 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: List class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+    //The List ctor is the builtin table entry — no AST selection.
+    EmitNewObjectAndNoArgCtor(classDecl, nullptr,
+                              static_cast<uint16_t>(classIdx),
                               emitter, resultOffset);
     //Boxing plan for primitive T. An array-typed T is the
     //interned token — BoxingTagFor's default (not primitive)
@@ -237,7 +248,9 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: Dict class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+    //The Dict ctor is the builtin table entry — no AST selection.
+    EmitNewObjectAndNoArgCtor(classDecl, nullptr,
+                              static_cast<uint16_t>(classIdx),
                               emitter, resultOffset);
     const auto& typeArgs = classDecl.GenericTypeArgs();
     //Array-typed K/V slots are interned tokens — raw handles,
@@ -308,7 +321,9 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
     //a cross-unit class becomes an import placeholder slot.
     const uint16_t classIdx = static_cast<uint16_t>(
         ClassSlotFor(classDecl));
-    EmitNewObjectAndNoArgCtor(classDecl, classIdx,
+    //0.9.11 T6: the resolver picked the zero-formal ctor for the init
+    //list (CheckClassInitListForm); null keeps the table path.
+    EmitNewObjectAndNoArgCtor(classDecl, initList.CtorFunction(), classIdx,
                               emitter, resultOffset);
     //Per-field store. Entry values stage in an evalArea claim,
     //never a temp — same clobber family as the array form

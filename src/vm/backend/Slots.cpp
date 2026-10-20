@@ -165,12 +165,15 @@ TypeLeafSlots VmBackend::LeafSlotResolvers() {
 }
 
 uint16_t VmBackend::CtorSlotFor(SnClassDecl& decl, uint16_t classSlot) {
+    //0.9.11 T6 (D10) invariant: callers reach this only when the
+    //resolver recorded no selected ctor (every user-type call site
+    //routes through the AST-selected ctor via FunctionSlotFor) — i.e.
+    //builtin/generic types with their single intrinsic ctor, and
+    //ctor-less types answering 0xFFFF.
     //Own/builtin record (invariant: own entries occupy 0..n-1): the
     //table carries the ctor indices — PopulateClassMethods writes user
-    //ctors in declaration order, the builtin writers push intrinsic
-    //ctors. [0] = first registered ctor, the same function
-    //FindCtorFunction's first-scan selects (T6 replaces both with the
-    //resolver's selected ctor).
+    //ctors in declaration order, the builtin writers push the intrinsic
+    //ctor. [0] = that intrinsic ctor.
     const uint32_t ownCount = static_cast<uint32_t>(
         m_compiledModule.classes.size()
         - m_compiledModule.classImports.size());
@@ -182,11 +185,12 @@ uint16_t VmBackend::CtorSlotFor(SnClassDecl& decl, uint16_t classSlot) {
     //Cross-unit placeholder: no metadata by design — discover the ctor
     //declaration in the AST (PopulateClassMethods' Name() rule) and
     //slot it through FunctionSlotFor, which carries the v2.6 ownerKind
-    //+ ctorOrdinal record. The scan answers both source-peer classes
-    //(.nproj per-unit path) and .ncu stub classes (0.9.11 v2.6:
-    //CreateClassStub rebuilds the ctor members in constructorIndices
-    //order); the shared IsRegisteredCtor filter keeps the walker claim
-    //and the codegen claim over the same function.
+    //+ ctorOrdinal record. Post-T6 a user-type call always gets a
+    //resolver selection (stub classes rebuild their ctor members in
+    //constructorIndices order, source-peer classes carry the full AST),
+    //so the scan only answers ctor-less placeholders; the shared
+    //IsRegisteredCtor filter keeps the answer in step with what
+    //codegen could register.
     for (auto& member : decl.Members()) {
         if (member.Kind() != NK_Function
             || member.Name() != decl.Name())

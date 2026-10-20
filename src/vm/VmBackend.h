@@ -97,15 +97,14 @@ public:
     uint32_t StructSlotFor(SnStructDecl& decl);
     uint32_t EnumSlotFor(SnEnumDecl& decl);
 
-    //Ctor slot for a class that already has its class slot: own/builtin
-    //records carry constructorIndices (PopulateClassMethods and the
-    //builtin writers; [0] = first declaration-order ctor, matching
-    //FindCtorFunction's first-scan); a cross-unit placeholder carries no
-    //metadata, so the ctor declaration is discovered in the AST (the
-    //Name()==class-name rule) and slotted through FunctionSlotFor —
-    //0.9.11 v2.6: the scan answers both source-peer classes and .ncu
-    //stub classes (CreateClassStub rebuilds the ctor members).
-    //0xFFFF = no ctor.
+    //Ctor slot for a class that already has its class slot. 0.9.11 T6
+    //invariant: reached only when the resolver recorded no selected ctor
+    //for the call — the builtin/generic intrinsic single-ctor shapes and
+    //types without any ctor. Own/builtin records carry
+    //constructorIndices (the builtin writers; [0] = the intrinsic ctor);
+    //the cross-unit AST scan is a defensive dead branch for user types
+    //since T6 (their calls always carry an AST selection slotted
+    //through FunctionSlotFor). 0xFFFF = no ctor.
     uint16_t CtorSlotFor(SnClassDecl& decl, uint16_t classSlot);
 
     //Phase 6 per-unit build: one image per unit in unitIdxs (module
@@ -887,11 +886,11 @@ private:
     //the native flag, or is an imported stub — stub members are
     //registered by construction (the import record IS the registration;
     //no bytecode is emitted for them). Every consumer (CtorSlotFor's
-    //placeholder scan, FunctionSlotFor's ordinal scan, FindCtorFunction,
-    //RegisteredCtor, and the frame walkers through them) must use this
-    //one predicate: divergent filters split the walker claim (1) from
-    //the codegen claim (1+formals) and trip the observedPeakCursor
-    //tripwire far from the cause.
+    //placeholder scan, FunctionSlotFor's ordinal scan, RegisteredCtor,
+    //and the frame walkers through them) must use this one predicate:
+    //divergent filters split the walker claim (1) from the codegen claim
+    //(1+formals) and trip the observedPeakCursor tripwire far from the
+    //cause.
     static bool IsRegisteredCtor(const SnFunction& ctor);
 
     //v2.6 import-record owner metadata for a cross-unit callee
@@ -907,23 +906,18 @@ private:
     };
     CtorOwnerMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
 
-    //The AST constructor declaration of a class (same Name() rule and
-    //IsRegisteredCtor filter as CtorSlotFor's placeholder scan). Null
-    //for builtin/generic classes — their ctors are intrinsic, so no
-    //default parameters exist to apply. 0.9.11 v2.6: imported stub
-    //classes answer their rebuilt ctor member (default-argument binding
-    //and the slot scan share one AST node). Static: the frame-size
-    //walkers consume it too.
-    static SnFunction* FindCtorFunction(SnClassDecl* pClassDecl);
-
-    //0.9.11 D2: the AST-selected constructor (SnNewExpr/SnInvokeExpr
-    //CtorFunction()) when it is registered (IsRegisteredCtor) — else
-    //null. Mirrors FindCtorFunction's filter for the struct path, where
-    //the resolver's selection replaces the member scan: a body-less
-    //non-native struct ctor allocates without running (the class path's
-    //CtorSlotFor 0xFFFF shape). Static: the frame-size walkers consume
-    //it too.
+    //0.9.11 D2/T6: the AST-selected constructor (SnNewExpr/SnInvokeExpr/
+    //SnSuperCallStmt CtorFunction()) when it is registered
+    //(IsRegisteredCtor) — else null. The resolver's overload selection
+    //replaced every first-scan path: a body-less non-native ctor
+    //allocates without running (the class path's CtorSlotFor 0xFFFF
+    //shape). Static: the frame-size walkers consume it too.
     static SnFunction* RegisteredCtor(SnFunction* pCtorFn);
+
+    //0.9.11 T6 (D10): the super-call tail of Access(SnSuperCallStmt&) —
+    //the resolver-selected parent ctor drives the invocation
+    //(EmitStmtTry.cpp).
+    void EmitSuperCtorCall(SnSuperCallStmt& sc, SnClassDecl* pParent);
 
     //Build the defaults-aware FormalBinding array shared by the ctor
     //invocation and super() forwarding: the caller arguments bind the
@@ -1253,9 +1247,13 @@ private:
     //ctor invocation ({this, args} claim → OP_New → OP_CallMethodDirect)
     //or the plain alloc when the class has no ctor. pSkipArg drops the
     //class-name child the NewExpr arg view carries (null for invokes —
-    //Params() has no such child).
-    void EmitNewObject(SnClassDecl* pClassDecl, SnExpressionList& ctorArgs,
-                       SnExpression* pSkipArg, uint16_t resultOffset);
+    //Params() has no such child). pCtorFn is the AST-selected ctor
+    //(0.9.11 T6): registered → its function slot; null (builtin/generic,
+    //no AST ctor) → the CtorSlotFor table path; selected but unregistered
+    //→ plain alloc (the mirror of EmitStructCtor's third branch).
+    void EmitNewObject(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
+                       SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                       uint16_t resultOffset);
     //0.9.11 D2/D3: struct construction lowering for the explicit call
     //forms (the direct-init `S name(args);` spelling decomposes into a
     //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).
@@ -1270,8 +1268,8 @@ private:
     //Ctor call lowering: one FormalBinding per formal (caller args first,
     //then the defaults of the omitted trailing formals) emitted through
     //the shared EmitBinding — the same mixed-form loop as EmitCallArgs.
-    //pCtorFn is the registered AST ctor (null for builtin/generic/
-    //imported targets — the legacy positional shape, nothing to default);
+    //pCtorFn is the registered AST ctor (null for the builtin/generic
+    //table path — the legacy positional shape, nothing to default);
     //alloc selects the allocator opcode; thisSlot is UINT16_MAX (the
     //object under construction does not exist yet, so a ctor default must
     //not reference `this`).
@@ -1290,14 +1288,17 @@ private:
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the
     //OP_New + optional no-arg-ctor sequence shared by the class-shaped
-    //arms; classDecl feeds CtorSlotFor (placeholders have no table
-    //ctor). The per-entry helpers stage values in evalArea claims.
+    //arms; pCtorFn is the zero-formal ctor the resolver selected for the
+    //init list (0.9.11 T6; null on the List/Dict arms and on the table
+    //path, where classDecl feeds CtorSlotFor — placeholders have no
+    //table ctor). The per-entry helpers stage values in evalArea claims.
     void EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
                            BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
                                 SnField* pElemField, BytecodeEmitter& emitter,
                                 uint16_t resultOffset, uint16_t valueSlot);
-    void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl, uint16_t classIdx,
+    void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
+                                   SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,

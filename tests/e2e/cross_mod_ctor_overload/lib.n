@@ -1,0 +1,14 @@
+//0.9.11 T6 (D10): producer exports a class whose same-arity overload
+//pair (int vs string) is disambiguated by the v2.6 ctorOrdinal import
+//record — each imported call site binds its own constructor.
+class Calc {
+	public int base;
+	public Calc(int b) { base = b; }
+	public Calc(string s) { base = 100; }
+}
+int twice(Calc c) {
+	return c.base * 2;
+}
+int hundred(Calc c) {
+	return c.base;
+}

@@ -1,7 +1,9 @@
 /*---
-    EmitCtorCall.cpp — 构造器调用发射族：构造器声明查找与注册过滤、
-    形参绑定构建（含默认值绑定）、构造器调用尾部（分配器 + 直调）。
-    从 EmitCall.cpp 抽取（0.9.11 T2 可维护性拆分，零行为变化）。
+    EmitCtorCall.cpp — 构造器调用发射族：注册过滤、形参绑定构建
+    （含默认值绑定）、构造器调用尾部（分配器 + 直调）。
+    从 EmitCall.cpp 抽取（0.9.11 T2 可维护性拆分，零行为变化）；
+    0.9.11 T6 起构造器由解析期选中（AST 记录），首个同名扫描的
+    FindCtorFunction 随之删除。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
@@ -17,32 +19,9 @@ bool VmBackend::IsRegisteredCtor(const SnFunction& ctor) {
     return ctor.IsImported() || ctor.Body() || ctor.ContainFlags(NF_Native);
 }
 
-//The AST constructor declaration of a class — the same Name() rule and
-//IsRegisteredCtor filter CtorSlotFor's placeholder scan applies, so the
-//returned function is the one whose slot the invocation targets.
-//0.9.11 v2.6: imported stub classes answer their rebuilt ctor member
-//(BuildCtorBindings reads its formals/defaults for the call).
-SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
-    if (!pClassDecl || pClassDecl->IsBuiltinClass())
-        return nullptr;
-    for (auto& member : pClassDecl->Members()) {
-        if (member.Kind() != NK_Function
-            || member.Name() != pClassDecl->Name())
-            continue;
-        auto& ctor = static_cast<SnFunction&>(member);
-        //0.9.10 D2.4: a same-name static is not the constructor.
-        if (ctor.ContainFlags(NF_Static))
-            continue;
-        if (!IsRegisteredCtor(ctor))
-            continue;
-        return &ctor;
-    }
-    return nullptr;
-}
-
-//0.9.11 D2: the AST-selected struct ctor when it is registered
-//(IsRegisteredCtor), else null. Mirrors FindCtorFunction's filter so an
-//unregistered ctor allocates without running; codegen and the frame
+//0.9.11 D2: the AST-selected ctor (class or struct, 0.9.11 T6) when it is
+//registered (IsRegisteredCtor), else null. The filter keeps an
+//unregistered ctor allocating without running; codegen and the frame
 //walkers share the predicate (walker symmetry, P3 discipline).
 SnFunction* VmBackend::RegisteredCtor(SnFunction* pCtorFn) {
     if (!pCtorFn || !IsRegisteredCtor(*pCtorFn))
