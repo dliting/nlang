@@ -1614,6 +1614,16 @@ err_super_ambiguous compile_error ambiguous constructor call to class "P"
 ctor_overload_initlist 0
 cross_mod_ctor_overload 42
 cross_mod_ctor_overload_struct 42
+# --- 0.9.11: a body-less, non-native constructor has no implementation
+# to run, so it is not a call candidate — the resolver matches the same
+# predicate the backend's IsRegisteredCtor uses. A call that would only
+# match such a constructor reports a clear error instead of allocating
+# and silently dropping the arguments; a zero-argument call still
+# allocates (the abstract shape). ---
+ctor_bodyless_arg_no_match compile_error no constructor of class "Cfg" matches the argument list
+ctor_bodyless_only_args compile_error class "Cfg" has no constructor; Cfg() cannot take arguments
+ctor_bodyless_arg_no_match_struct compile_error no constructor of struct "Vec" matches the argument list
+ctor_bodyless_zero_arg_alloc 0
 # --- 0.9.11 T7 (D6): array initializers use the bracket form; the
 # brace form is reserved for collection, struct, and class initializers ---
 err_array_brace_init compile_error array initializers use '[...]'

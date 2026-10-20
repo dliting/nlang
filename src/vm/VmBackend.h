@@ -885,12 +885,14 @@ private:
     //a ctor participates in the unit table when it has a body, carries
     //the native flag, or is an imported stub — stub members are
     //registered by construction (the import record IS the registration;
-    //no bytecode is emitted for them). Every consumer (CtorSlotFor's
-    //placeholder scan, FunctionSlotFor's ordinal scan, RegisteredCtor,
-    //and the frame walkers through them) must use this one predicate:
-    //divergent filters split the walker claim (1) from the codegen claim
-    //(1+formals) and trip the observedPeakCursor tripwire far from the
-    //cause.
+    //no bytecode is emitted for them). The predicate's single definition
+    //is the AST-level SnFunction::HasImplementation; this delegates to it
+    //so the resolver's ctor-candidate filter (ExprResolverNew.cpp) and the
+    //backend share one source. Every consumer (CtorSlotFor's placeholder
+    //scan, FunctionSlotFor's ordinal scan, RegisteredCtor, and the frame
+    //walkers through them) must use this one predicate: divergent filters
+    //split the walker claim (1) from the codegen claim (1+formals) and
+    //trip the observedPeakCursor tripwire far from the cause.
     static bool IsRegisteredCtor(const SnFunction& ctor);
 
     //v2.6 import-record owner metadata for a cross-unit callee

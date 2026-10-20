@@ -1,0 +1,12 @@
+//0.9.11: a class whose only constructor is body-less and non-native has
+//no runnable constructor. A call that supplies arguments reports that the
+//type has no constructor to receive them, rather than allocating the
+//object and silently dropping the arguments.
+class Cfg {
+    public int tag;
+    Cfg(int x);
+}
+int main() {
+    Cfg c = Cfg(5);
+    return 0;
+}

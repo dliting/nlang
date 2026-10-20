@@ -80,15 +80,21 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 //empty set — FindCtorParamRange arity-checks calls against them instead.
 //0.9.11 v2.6: imported class/struct stubs carry rebuilt ctor members
 //(CreateClassStub/CreateStructStub), so cross-module calls match like
-//source peers. The set is signature-only: registration (IsRegisteredCtor)
-//is a codegen concern — matching binds any AST-visible ctor.
+//source peers. A ctor with no implementation (body-less, non-native,
+//non-imported — SnFunction::HasImplementation) is skipped: it has
+//nothing to run, so codegen would only allocate and silently drop the
+//arguments. The filter is the same predicate the backend's
+//IsRegisteredCtor uses, keeping the resolver's selection in step with
+//codegen — a call that would only match such a ctor now reports a clear
+//no-match error instead of binding a ctor that never runs.
 static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl)
 {
 	std::vector<SnFunction*> candidates;
 	if (pTypeDecl->Kind() == NK_StructDecl)
 	{
 		for (auto &ctor : static_cast<SnStructDecl*>(pTypeDecl)->Ctors())
-			candidates.push_back(&ctor);
+			if (ctor.HasImplementation())
+				candidates.push_back(&ctor);
 		return candidates;
 	}
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
@@ -100,7 +106,9 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl)
 			&& member.Name() == pClassDecl->Name()
 			&& !member.ContainFlags(NF_Static))
 		{
-			candidates.push_back(static_cast<SnFunction*>(&member));
+			auto *pCtor = static_cast<SnFunction*>(&member);
+			if (pCtor->HasImplementation())
+				candidates.push_back(pCtor);
 		}
 	}
 	return candidates;

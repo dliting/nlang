@@ -1,0 +1,15 @@
+//0.9.11: a body-less, non-native constructor has no implementation to
+//run, so it is not an overload candidate. A call whose only signature
+//match is such a constructor reports the no-match error instead of
+//binding a constructor that would allocate and silently drop the
+//argument. The registered zero-argument constructor stays a candidate
+//but does not match the one-argument call.
+class Cfg {
+    public int tag;
+    public Cfg() { this.tag = 0; }
+    Cfg(int x);
+}
+int main() {
+    Cfg c = Cfg(5);
+    return 0;
+}

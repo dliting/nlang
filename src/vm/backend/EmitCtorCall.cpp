@@ -14,9 +14,11 @@ namespace nlang {
 //The shared registration predicate (see VmBackend.h). Imported stubs
 //count: the compiler registers their import record without emitting a
 //body, so the old body/native filter would reject a .ncu ctor member and
-//desync the walker claim from the codegen claim.
+//desync the walker claim from the codegen claim. The predicate is the
+//AST-level SnFunction::HasImplementation — the resolver's ctor-candidate
+//filter calls the same method, so selection and codegen never diverge.
 bool VmBackend::IsRegisteredCtor(const SnFunction& ctor) {
-    return ctor.IsImported() || ctor.Body() || ctor.ContainFlags(NF_Native);
+    return ctor.HasImplementation();
 }
 
 //0.9.11 D2: the AST-selected ctor (class or struct, 0.9.11 T6) when it is
