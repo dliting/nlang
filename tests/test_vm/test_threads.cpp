@@ -25,6 +25,9 @@
 #include <list>
 #include <stdexcept>
 #include <string>
+#include <atomic>
+#include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1912,6 +1915,36 @@ static void runGuarded(void (*fn)())
     }
 }
 
+//K2 slice 0: 全局初始化进程级线程安全——多线程并发调用 StaticInit
+//（幂等）与并发 IdString 构造（命中/未命中路径交替）不得有数据竞争；
+//同值字符串经两条构造路径得到的索引必须一致。
+static void test_concurrent_global_init()
+{
+    TEST(concurrent_global_init);
+    std::atomic<bool> mismatch{false};
+    std::vector<std::thread> workers;
+    for (int w = 0; w < 8; ++w) {
+        workers.emplace_back([&, w] {
+            //Concurrent re-entry of the global init: must be idempotent
+            //(call_once) — the embedding host may trigger it from several
+            //threads before any of them interns a string.
+            Runtime::StaticInit();
+            for (int k = 0; k < 200; ++k) {
+                const std::string name =
+                    "k2_probe_" + std::to_string((w * 31 + k) % 211);
+                const IdString a(name);
+                const IdString b(name.c_str());
+                if (a.Index() != b.Index() || a.ToString() != name)
+                    mismatch.store(true);
+            }
+        });
+    }
+    for (auto& t : workers)
+        t.join();
+    CHECK(!mismatch.load(), "concurrent intern mismatched indexes");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -1929,6 +1962,7 @@ int main()
     std::cerr << "=== NLang Threads Unit Tests ===\n\n";
 
     try {
+        test_concurrent_global_init();
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();

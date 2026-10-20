@@ -5,6 +5,7 @@
 #include "Runtime.h"
 #include "RnMisc.h"
 #include "Utils.h"
+#include <mutex>
 
 namespace nlang
 {
@@ -20,11 +21,18 @@ RnNamespace	*Runtime::s_pGlobalNamespace	= nullptr;
 //fail to resolve the compiler symbol.
 void Runtime::StaticInit()
 {
-	IdString::StaticInit();
-	static RnNamespace s_GlobalNamespace(GlobalNamespaceName());
-	s_GlobalNamespace.AddFlags(NF_DontDelete | NF_Hidden);
-	s_pGlobalNamespace = &s_GlobalNamespace;
-	RnBuiltinDataType::StaticInit();
+	//K2 slice 0: embedding hosts may trigger the first call from several
+	//threads at once; call_once keeps the whole table set single-shot.
+	//The nested StaticInits are individually idempotent (IdString now
+	//guards itself) but not thread-safe on their own.
+	static std::once_flag s_initOnce;
+	std::call_once(s_initOnce, [] {
+		IdString::StaticInit();
+		static RnNamespace s_GlobalNamespace(GlobalNamespaceName());
+		s_GlobalNamespace.AddFlags(NF_DontDelete | NF_Hidden);
+		s_pGlobalNamespace = &s_GlobalNamespace;
+		RnBuiltinDataType::StaticInit();
+	});
 }
 
 const IdString &Runtime::GlobalNamespaceName()
