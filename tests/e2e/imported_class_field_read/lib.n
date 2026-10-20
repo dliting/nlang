@@ -1,0 +1,10 @@
+//Producer exports a class with a public instance field and a public
+//instance method. A pure-.ncu import rebuilds the class stub with the
+//constructor and public statics but NOT instance members, so the
+//consumer can construct the object and hand it to producer functions,
+//yet cannot reach the field or method directly.
+class Calc {
+	public int base;
+	public Calc(int b) { base = b; }
+	public int doubled() { return base * 2; }
+}

@@ -1,0 +1,10 @@
+//Sealed .ncu import: the class stub carries no instance fields, so a
+//consumer-side field read fails to resolve at compile time. The
+//construction on the line above is fine (0.9.11 external .ncu ctors);
+//only the field access is rejected.
+import lib;
+
+int main() {
+	lib.Calc c = lib.Calc(21);
+	return c.base;
+}

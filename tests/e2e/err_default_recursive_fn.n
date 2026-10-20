@@ -1,0 +1,8 @@
+//A default expression that calls the same function re-enters that
+//function's own default emission. The shared DefaultEmitGuard catches the
+//re-entry and reports it, instead of recursing forever at compile time.
+int f(int a = f()) { return a; }
+
+int main() {
+	return f();
+}

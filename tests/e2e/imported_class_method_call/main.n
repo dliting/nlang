@@ -1,0 +1,10 @@
+//Sealed .ncu import: the class stub carries no instance methods, so a
+//consumer-side instance method call reports it does not exist. The
+//construction on the line above is fine (0.9.11 external .ncu ctors);
+//only the method call is rejected.
+import lib;
+
+int main() {
+	lib.Calc c = lib.Calc(21);
+	return c.doubled();
+}
