@@ -124,17 +124,23 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
 //are exempt: a park there is impossible (RequestPark would reject), so
 //counting their back-edges would only misattribute budget — and in a
 //multi-context run, exhaust the quota mid-instruction where preemption
-//cannot be honored.
+//cannot be honored. K2 slice 2: the budget is per carrier (scheduler
+//slot), and the yield rule widens — preempt when another runnable
+//context exists OR another carrier is waiting on the GIL (otherwise
+//the waiter starves behind a single-context loop that never parks).
 void VmExecutor::CheckSchedulerQuota() {
-    if (m_nestDepth > 0)
+    if (m_spScheduler->CarrierNestDepthRef() > 0)
         return;
-    if (--m_schedTripBudget > 0)
+    int& budget = m_spScheduler->CarrierTripBudgetRef();
+    if (--budget > 0)
         return;
-    m_schedTripBudget = m_schedTripLimit;
+    budget = m_schedTripLimit;
     ++m_quotaFires;
-    if (!m_spScheduler->HasOtherRunnable()) {
-        //Alone on the carrier: reload and keep running. A single-context
-        //program stays bit-identical — no signal, no state change.
+    if (!m_spScheduler->HasOtherRunnable()
+            && m_spScheduler->GilWaiters() == 0) {
+        //Alone on the carrier, no lock contender: reload and keep
+        //running. A single-context program stays bit-identical — no
+        //signal, no state change.
         ++m_preemptSkips;
         return;
     }
@@ -148,9 +154,9 @@ void VmExecutor::CheckSchedulerQuota() {
 //K1 决策 2 实现规约 (a)：内在函数必须「完成或挂起」二态——禁止部分变
 //更调度器状态后再抛。会先变异状态的挂起（join/sleep 的 ParkFor* 登记）
 //必须在变异之前过本门；RequestPark 内保留同一检查作为零变异直挂路径
-//（yield）的唯一守卫与纵深防御。
+//（yield）的唯一守卫与纵深防御。K2 slice 2: 嵌套深度读运行载体的槽。
 void VmExecutor::EnsureSuspensionAllowed() const {
-    if (m_nestDepth > 0)
+    if (m_spScheduler->CarrierNestDepthRef() > 0)
         throw std::runtime_error(
             "NLang VM: cannot suspend inside a nested evaluation "
             "(toString or host callback)");

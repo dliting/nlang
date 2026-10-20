@@ -1965,6 +1965,188 @@ static void test_concurrent_global_init()
     PASS();
 }
 
+// --- K2 Task 2（辅助载体池＋多载体确定性对拍）---
+
+//runWithCarriers：以指定载体数（主载体＋n-1 辅助线程）执行一次并捕获
+//输出——多载体对拍的基础帮手。配额压到 1 强制细粒度窗口，最大化暴露
+//交错差异。
+static int runWithCarriers(const std::string& tag, const std::string& source,
+                           uint32_t carriers, std::string& rOut)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    exec.SetCarrierThreadCount(carriers);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc;
+}
+
+//K2 INV-3：FIFO 队列＋GIL＋「取队与执行同一持有窗口」⇒ 上下文的执行
+//窗口序只由出队序决定，与载体数无关。同一程序在 1 载体与 4 载体下输出
+//必须逐字节一致；4 载体重复运行若干次以覆盖窗口竞争的唤醒顺序差异。
+static void test_carrier_count_deterministic_parity()
+{
+    TEST(carrier_count_deterministic_parity);
+    const char* src =
+        "import io;\n"
+        "void w1() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) { io.write(\"a\"); i = i + 1; }\n"
+        "}\n"
+        "void w2() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) { io.write(\"b\"); i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t1 = thread.spawn(w1);\n"
+        "    Thread t2 = thread.spawn(w2);\n"
+        "    int i = 0;\n"
+        "    while (i < 3) { io.write(\"m\"); i = i + 1; }\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    return 0;\n"
+        "}\n";
+    std::string out1;
+    const int rc1 = runWithCarriers("carrier_parity_1", src, 1, out1);
+    CHECK(rc1 == 0, "single carrier completes the program");
+    size_t countM = 0, countA = 0, countB = 0;
+    for (char c : out1) {
+        countM += (c == 'm');
+        countA += (c == 'a');
+        countB += (c == 'b');
+    }
+    CHECK(countM == 3 && countA == 3 && countB == 3,
+          "join guarantees every loop iteration ran (got: " + out1 + ")");
+    CHECK(out1.find("mm") == std::string::npos
+              && out1.find("aa") == std::string::npos
+              && out1.find("bb") == std::string::npos,
+          "quota 1 truly interleaves under a single carrier (got: "
+          + out1 + ")");
+    for (int round = 0; round < 5; ++round) {
+        std::string out4;
+        const int rc4 = runWithCarriers("carrier_parity_4", src, 4, out4);
+        CHECK(rc4 == 0, "four carriers complete the program");
+        CHECK(out4 == out1,
+              "INV-3: output is byte-identical across carrier counts (got: "
+              + out4 + ", want: " + out1 + ")");
+    }
+    PASS();
+}
+
+//池生命周期：同一执行器（池已创建过线程）连续两次 Execute——辅助线程
+//按 run 启停、调度器状态每 run 复位，两次结果各自正确且无跨 run 残留。
+static void test_carrier_pool_two_runs()
+{
+    TEST(carrier_pool_two_runs);
+    const char* src =
+        "import io;\n"
+        "void w() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    thread.join(t);\n"
+        "    return 7;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("carrier_reuse", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 7, "first run with the pool returns 7");
+    CHECK(exec.Execute(mod) == 7, "second run with the pool returns 7");
+    CHECK(io.m_out == "ww", "the worker ran exactly once per run");
+    PASS();
+}
+
+//多载体并非空转的白盒证明（对拍测试无法区分「4 载体真并行」与「池
+//未启动的单载体退化」）：三个 worker 纯计算＋配额 1 强制细窗口，数千
+//次出队让全部载体充分轮转——辅助载体分派计数必须非零；辅助载体等待
+//GIL 的峰值同样必须非零。「哪个载体执行哪个窗口」在 GIL 竞争语义下
+//本质非确定，本测试断言的是池的真实参与而非特定分配。
+static void test_aux_carriers_actually_execute()
+{
+    TEST(aux_carriers_actually_execute);
+    CompiledModule mod = buildLinkedModule("carrier_alive",
+        "import io;\n"
+        "void w() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        int j = 0;\n"
+        "        while (j < 400) { j = j + 1; }\n"
+        "        io.write(\"x\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread a = thread.spawn(w);\n"
+        "    Thread b = thread.spawn(w);\n"
+        "    Thread c = thread.spawn(w);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    exec.SetCarrierThreadCount(4);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "four-carrier three-worker program completes");
+    CHECK(io.m_out.size() == 9,
+          "every worker iteration wrote (got: " + io.m_out + ")");
+    CHECK(exec.SchedulerAuxDispatchCount() > 0,
+          "contexts were dispatched on auxiliary carriers (pool is "
+          "genuinely executing, not a single-carrier no-op)");
+    CHECK(exec.SchedulerGilWaitersPeak() > 0,
+          "auxiliary carriers contended for the GIL during the run");
+    PASS();
+}
+
+//辅助载体异常汇合（Review Focus #3）：死锁检测在最后一个即将空闲的
+//载体上触发——可能是主载体（直接传播）也可能是辅助载体（异常进汇合
+//槽，主载体在汇合点唯一重抛）。无论哪条路径，Execute 抛出的错误与消
+//息必须一致；多轮重复以覆盖两条路径。
+static void test_aux_carrier_error_confluence()
+{
+    TEST(aux_carrier_error_confluence);
+    const char* src =
+        "class Gate {\n"
+        "    public Mutex m;\n"
+        "    public void relock() {\n"
+        "        m.lock();\n"
+        "        m.lock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = Mutex();\n"
+        "    Thread t = thread.spawn(g.relock);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n";
+    for (int round = 0; round < 5; ++round) {
+        bool threw = false;
+        std::string what;
+        try {
+            std::string out;
+            runWithCarriers("carrier_deadlock_" + std::to_string(round),
+                            src, 4, out);
+        } catch (const std::exception& e) {
+            threw = true;
+            what = e.what();
+        }
+        CHECK(threw,
+              "the deadlock surfaces through Execute in every round");
+        CHECK(what.find("deadlock") != std::string::npos,
+              "message names the deadlock guard regardless of which "
+              "carrier detected it (got: " + what + ")");
+    }
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -1984,6 +2166,10 @@ int main()
     try {
         test_concurrent_global_init();
         test_executor_reuse_two_runs();
+        test_carrier_count_deterministic_parity();
+        test_carrier_pool_two_runs();
+        test_aux_carriers_actually_execute();
+        test_aux_carrier_error_confluence();
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();

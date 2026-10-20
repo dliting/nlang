@@ -76,7 +76,8 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
         //Nested evaluation window: suspension is impossible here (see
         //CallToStringOverride's guard — same reasoning: the window
         //belongs to a host-initiated call mid-instruction).
-        NestEvalGuard nestedWindow(m_nestDepth);
+        //K2 slice 2: the depth lives on the running carrier's slot.
+        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
         RunFrames(baseDepth);
     } catch (...) {
         m_lastBacktrace = FormatBacktrace();

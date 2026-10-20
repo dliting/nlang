@@ -2,6 +2,7 @@ add_library(nlang_vm
     OpCodeTable.cpp
     VmScheduler.cpp
     VmExecutor.cpp
+    VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp

@@ -18,7 +18,6 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     //LIMIT survives (SetSchedulerTripForTests semantics); the budget
     //and counters reset.
     m_spScheduler->Reset();
-    m_schedTripBudget = m_schedTripLimit;
     m_quotaFires = 0;
     m_preemptSkips = 0;
     m_resumeThrowExcIdx = 0;
@@ -174,39 +173,31 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
     std::memcpy(resultCell, &result64, kFrameSlotBytes);
 }
 
-//K2 slice 1: the primary carrier — the loop plus the auxiliary-pool
-//join/rethrow tail (the pool itself arrives in slice 2; JoinAndCollect
-//is the structural no-op for now).
-void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
-    CarrierLoop(mainFunc);
-    JoinAndCollect();
-}
-
-void VmExecutor::JoinAndCollect() {
-    //K2 slice 2 fills this in: join auxiliary carriers (2s grace, then
-    //detach) and rethrow the conflated error exactly once.
-}
-
-//K1 Slice 6 / K2 slice 1: the shared carrier loop. Contexts (main +
-//spawned) come off the scheduler's FIFO run queue. Frame ownership
-//follows the steal model (VmScheduler.h): a context's frames ARE
-//m_callStack while it runs, and move into ctx->frames on every park —
-//so dispatching a context is either a fresh main root (frames empty)
-//or moving its frames back and re-entering RunFrames at the parked pc.
-//main's return ends the run (unfinished contexts are dropped silently
-//— the K1 exit policy). K2: one loop iteration = one GIL holding
-//window (INV-1); the window guard releases the lock and checks INV-2
-//(no frames survive outside a holding window) on every exit path.
+//K1 Slice 6 / K2 slice 1/2: the shared carrier loop (installation of
+//the carrier slot, the active-count guard, and main's registration all
+//belong to the callers — RunPrimaryCarrier/RunAuxiliaryCarrier).
+//Contexts (main + spawned) come off the scheduler's FIFO run queue.
+//Frame ownership follows the steal model (VmScheduler.h): a context's
+//frames ARE m_callStack while it runs, and move into ctx->frames on
+//every park — so dispatching a context is either a fresh main root
+//(frames empty, primary carrier only) or moving its frames back and
+//re-entering RunFrames at the parked pc. main's return ends the run
+//(unfinished contexts are dropped silently — the K1 exit policy;
+//MarkFinished on main also requests the pool stop). K2: one loop
+//iteration = one GIL holding window (INV-1); the window guard releases
+//the lock and checks INV-2 (no frames survive outside a holding
+//window) on every exit path. The empty-queue wait happens inside
+//PopNextRunnable (the lock is released while waiting — see
+//VmScheduler.cpp).
 void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
-    //Slice 10: the carrier is in flight for the whole run (spawn gate).
-    CarrierActiveGuard carrierActive(m_carrierActive);
-    m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
     try {
         for (;;) {
             GilWindowGuard gil(*this);
-            const int ctx = m_spScheduler->PopNextRunnable();
+            const int ctx = m_spScheduler->PopNextRunnable(gil.Lock());
             if (ctx < 0)
-                break;   //queue drained: run over (see the exit check)
+                break;   //stop requested: the run is over
+            //K2 slice 2: each dispatch re-arms this carrier's quota.
+            m_spScheduler->ResetCarrierTripBudget(m_schedTripLimit);
             ExecutionContext* info = m_spScheduler->FindMutable(ctx);
             try {
                 RunContextWindow(ctx, info, mainFunc);
@@ -224,11 +215,11 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
                     throw;   //main: outer catch snapshots the backtrace
                 continue;
             } catch (...) {
-                //Non-NLang errors (VM-internal) are fatal for the whole
-                //run regardless of context — propagate to the host. The
-                //frames die with the run (the backtrace comes from
-                //m_unwindFrames, not the frame stack): clear them so the
-                //GIL release upholds INV-2.
+                //Non-NLang errors (VM-internal, or the deadlock guard)
+                //are fatal for the whole run regardless of context —
+                //propagate. The frames die with the run (the backtrace
+                //comes from m_unwindFrames, not the frame stack): clear
+                //them so the GIL release upholds INV-2.
                 m_spScheduler->MarkFailed(ctx, 0);
                 m_callStack.clear();
                 throw;
@@ -236,7 +227,6 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
             if (ctx == VmScheduler::kMainThreadId)
                 break;   //main returned: the run is over
         }
-        ThrowIfMainUnfinished();
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
@@ -297,17 +287,6 @@ bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
     m_unwindFrames.clear();   //dead context's records
     m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
     return false;
-}
-
-//K1 Slice 6: exit check — the queue drained but main never returned,
-//so every surviving context sits parked (unreachable in K1: no cycle
-//of joins is constructible, a spawned context cannot reference its
-//spawner's Thread). Refuse loudly instead of returning garbage.
-void VmExecutor::ThrowIfMainUnfinished() const {
-    if (m_spScheduler->Find(VmScheduler::kMainThreadId)->state
-            != ContextState::Finished)
-        throw std::runtime_error(
-            "NLang VM: deadlock — no runnable contexts remain");
 }
 
 //K1 Slice 4: one context's root window — Execute's former run body,

@@ -77,7 +77,7 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     //spawn would silently mint a never-run context whose Thread object
     //looks alive while join always rejects). Refuse the second at the
     //spawn site.
-    if (!m_carrierActive)
+    if (m_spScheduler->ActiveCarrierCount() == 0)
         throw std::runtime_error(
             "NLang VM: thread.spawn requires an active scheduler carrier "
             "(a host call() window cannot schedule the new context)");

@@ -29,6 +29,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # default to UTF-8, so the flag is only needed there.
 if(MSVC)
     add_compile_options(/utf-8)
+    #Exception unwinding semantics must hold in every build, including
+    #ones that override CMAKE_CXX_FLAGS (e.g. -fsanitize=address): an
+    #explicit override replaces CMake's default flags and silently drops
+    #this switch, after which destructors are not guaranteed to run
+    #during unwinding (C4530). Pinning it here makes that impossible.
+    add_compile_options(/EHsc)
 endif()
 
 #Generated version header (build tree only, single source: the VERSION

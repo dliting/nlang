@@ -10,6 +10,8 @@
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "VmScheduler.h"
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -19,6 +21,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -177,16 +180,36 @@ public:
     size_t LiveStringObjectCount() const;   //live slots, immortal included
 
     //Testing knobs (scheduler quota injection + observability, K1
-    //decision 5): clamp the back-edge trip budget, then observe the
+    //decision 5): clamp the back-edge trip limit, then observe the
     //quota-fire/skip counters and the context registry after a run.
     //Single-context runs must fire-and-skip forever — preemption
-    //requires another runnable context.
+    //requires another runnable context (or a carrier waiting on the
+    //GIL — the K2 yield rule).
     void SetSchedulerTripForTests(int backedges) {
         m_schedTripLimit = backedges > 0 ? backedges : 1;
-        m_schedTripBudget = m_schedTripLimit;
     }
     int SchedulerQuotaFires() const { return m_quotaFires; }
     int SchedulerPreemptSkips() const { return m_preemptSkips; }
+    //K2 slice 2 white-box observability: contexts dispatched on
+    //auxiliary carriers, and the peak number of carriers contending
+    //for the GIL — together they prove a configured pool genuinely
+    //works (not a silently single-carrier no-op).
+    int SchedulerAuxDispatchCount() const {
+        return m_spScheduler->AuxDispatchCount();
+    }
+    int SchedulerGilWaitersPeak() const {
+        return m_spScheduler->GilWaitersPeak();
+    }
+
+    //K2 slice 2 (plan ruling P1): carrier-thread count for the next run —
+    //1 means the Execute thread alone (the library default: an embedding
+    //host opts into parallel carriers explicitly); n>1 adds n-1 auxiliary
+    //carriers, launched per run and joined at its end. Must be called
+    //before Execute; takes effect on the next run.
+    void SetCarrierThreadCount(uint32_t threads) {
+        m_carrierThreadCount = threads > 0 ? threads : 1;
+    }
+    uint32_t CarrierThreadCount() const { return m_carrierThreadCount; }
     size_t SchedulerContextCount() const {
         return m_spScheduler->ContextCount();
     }
@@ -572,12 +595,24 @@ private:
     void CarrierLoop(const CompiledFunction& mainFunc);
 
     //K2 slice 1: the primary carrier — runs the loop on the Execute
-    //thread, then joins the auxiliary pool (slice 2) and rethrows any
-    //conflated auxiliary error exactly once. Result routing goes through
-    //the scheduler registry (main's ctx->resultCell), so no host cell is
+    //thread, then joins the auxiliary pool and rethrows any conflated
+    //auxiliary error exactly once. Result routing goes through the
+    //scheduler registry (main's ctx->resultCell), so no host cell is
     //passed in.
     void RunPrimaryCarrier(const CompiledFunction& mainFunc);
+
+    //K2 slice 2: launch the auxiliary pool (n-1 threads for a configured
+    //count of n; each thread installs its own carrier slot and runs the
+    //same loop). JoinAndCollect waits for pool exit with a grace
+    //deadline (a carrier stuck inside a host callback past the deadline
+    //is detached — a leaked thread beats a hung host), then joins or
+    //detaches per thread and clears the pool. RethrowAuxiliaryError is
+    //the single rethrow point for the conflated slot.
+    void LaunchAuxiliaryCarriers(const CompiledFunction& mainFunc);
+    void RunAuxiliaryCarrier(const CompiledFunction& mainFunc);
     void JoinAndCollect();
+    void RecordAuxiliaryError();
+    void RethrowAuxiliaryError();
 
     //K1 Slice 6: one context's turn on the carrier — resume (frames
     //return to m_callStack; a failed-join joiner rethrows before
@@ -600,11 +635,6 @@ private:
     //drop). Main: rethrow to the host. Returns true for main.
     bool FailContextContained(int ctx, int32_t excHeapIdx);
 
-    //K1 Slice 6: exit check — queue drained but main never returned
-    //(every survivor parked). Unreachable in K1 (no join cycle
-    //constructible); guards against silently returning garbage.
-    void ThrowIfMainUnfinished() const;
-
     //K2 slice 1: one carrier-loop iteration's GIL holding window. The
     //destructor releases the lock and checks INV-2 on every exit path
     //(fallthrough, continue, break, stack-unwinding throw): no frame may
@@ -612,17 +642,27 @@ private:
     //Release gates exercise it too — a frame leaking across a released
     //GIL is silent corruption once slice 2 adds carriers, so a broken
     //invariant terminates rather than throws (throwing from a destructor
-    //during unwinding would be UB anyway).
+    //during unwinding would be UB anyway). K2 slice 2: the constructor
+    //maintains the GIL-waiter count around the lock acquisition — the
+    //yield rule reads it to keep lock contenders from starving.
     class GilWindowGuard {
     public:
-        explicit GilWindowGuard(VmExecutor& exec)
-            : m_lock(exec.m_spScheduler->Gil()), m_rExec(exec) {}
+        explicit GilWindowGuard(VmExecutor& exec) : m_rExec(exec) {
+            exec.m_spScheduler->BeginGilWait();
+            m_lock = std::unique_lock<std::mutex>(
+                exec.m_spScheduler->Gil());
+            exec.m_spScheduler->EndGilWait();
+        }
         GilWindowGuard(const GilWindowGuard&) = delete;
         GilWindowGuard& operator=(const GilWindowGuard&) = delete;
         ~GilWindowGuard() {
-            if (!m_rExec.m_callStack.empty())
+            if (!m_rExec.m_callStack.empty()) {
                 std::terminate();   //INV-2 broken: refuse to continue
+            }
         }
+        //PopNextRunnable needs the lock itself (its cv wait releases
+        //and reacquires it).
+        std::unique_lock<std::mutex>& Lock() { return m_lock; }
     private:
         std::unique_lock<std::mutex> m_lock;
         VmExecutor& m_rExec;
@@ -1015,25 +1055,27 @@ private:
     std::unique_ptr<VmScheduler> m_spScheduler =
         std::make_unique<VmScheduler>();
 
-    //Back-edge quota state (K1 decision 5). Trip limit = configured
-    //budget (test knob survives ResetPerRunState); budget counts down
-    //per back-edge safepoint; fire/skip counters feed the white-box
-    //tests. Nested evaluation windows skip the quota entirely (a park
-    //there is impossible — see RequestPark).
+    //Back-edge quota state (K1 decision 5; K2 slice 2 carrier-ized).
+    //Trip limit = configured budget (test knob survives ResetPerRunState);
+    //the budget itself lives on the running carrier's scheduler slot
+    //(_several carriers are in flight at once — a single member would
+    //serialize them wrongly_), reset per dispatch; fire/skip counters
+    //feed the white-box tests. Nested evaluation windows skip the quota
+    //entirely (a park there is impossible — see RequestPark).
     int m_schedTripLimit = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
-    int m_schedTripBudget = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
     int m_quotaFires = 0;
     int m_preemptSkips = 0;
-    //>0 while a nested evaluation window (toString / host CallByName)
-    //is in flight — NestEvalGuard owns the count.
-    int m_nestDepth = 0;
-    //K1 Slice 10: true while RunCarrier is on the C++ stack — the
-    //carrier is in flight and will service spawned contexts. Distinguishes
-    //a host callback taken mid-run (spawn legal: the carrier picks the
-    //context up after the callback returns) from an embed call() window
-    //with no carrier (spawn would mint a context nobody ever schedules).
-    //CarrierActiveGuard owns the flag.
-    bool m_carrierActive = false;
+    //K2 slice 2: the auxiliary carrier pool. One record per launched
+    //thread; exited is shared_ptr so a detached thread (grace deadline
+    //hit mid-host-callback) still owns its flag safely.
+    struct AuxCarrier {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> exited;
+    };
+    std::vector<AuxCarrier> m_auxCarriers;
+    uint32_t m_carrierThreadCount = 1;   //plan ruling P1: library default 1
+    std::mutex m_auxExitMutex;
+    std::condition_variable m_auxExitCv;
     //K1 Slice 6: a pending exception object to throw at the next RunFrames
     //entry (a joiner resumed after its FAILED target rethrows the target's
     //original exception INTO the restored frame stack, so the joiner's own

@@ -298,7 +298,8 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         //not resume instruction-granularly). NestEvalGuard arms the
         //depth that RequestPark checks — the quota already skips
         //nested windows; Slice 6+ intrinsics route through the guard.
-        NestEvalGuard nestedWindow(m_nestDepth);
+        //K2 slice 2: the depth lives on the running carrier's slot.
+        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
         RunFrames(baseDepth);
     }
     int32_t strIdx;
