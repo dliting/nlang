@@ -125,9 +125,22 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
 //counting their back-edges would only misattribute budget — and in a
 //multi-context run, exhaust the quota mid-instruction where preemption
 //cannot be honored. K2 slice 2: the budget is per carrier (scheduler
-//slot), and the yield rule widens — preempt when another runnable
-//context exists OR another carrier is waiting on the GIL (otherwise
-//the waiter starves behind a single-context loop that never parks).
+//slot). K2 slice 3 (spec D6): yield on queued work ONLY. Every wake
+//path (timer expiry, join/mutex/channel, future blocking-native
+//completion) enqueues the woken context before notifying, so a
+//non-empty run queue is the complete work signal. Yielding to a bare
+//GIL waiter is self-sustaining churn: with carriers > 1 the
+//non-running carrier is structurally always mid-lock-acquire (it must
+// take the GIL to discover the queue is empty and cv-wait), so a
+//waiter-count rule preempts every quota fire — park, frame steal,
+//requeue, two lock handoffs, thread switches — the GIL convoy effect
+// (cf. the pre-3.2 CPython "GIL battle", fixed by keying handoff on
+//work signals, not lock contention). GilWaiters stays pure telemetry.
+//Quota fires also service due timers on the spot — the timer thread
+//cannot acquire the GIL while this carrier runs (a cv-internal
+//reacquisition is invisible to any accounting), so whoever holds the
+//lock does the expiry; the enqueued wakeups then drive the ordinary
+//preempt path below.
 void VmExecutor::CheckSchedulerQuota() {
     if (m_spScheduler->CarrierNestDepthRef() > 0)
         return;
@@ -136,11 +149,11 @@ void VmExecutor::CheckSchedulerQuota() {
         return;
     budget = m_schedTripLimit;
     ++m_quotaFires;
-    if (!m_spScheduler->HasOtherRunnable()
-            && m_spScheduler->GilWaiters() == 0) {
-        //Alone on the carrier, no lock contender: reload and keep
-        //running. A single-context program stays bit-identical — no
-        //signal, no state change.
+    m_spScheduler->ServiceDueTimers();
+    if (!m_spScheduler->HasOtherRunnable()) {
+        //Nothing queued anywhere: reload and keep running. A
+        //single-context program stays bit-identical — no signal, no
+        //state change.
         ++m_preemptSkips;
         return;
     }

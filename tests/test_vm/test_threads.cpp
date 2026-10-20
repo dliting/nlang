@@ -2105,6 +2105,53 @@ static void test_aux_carriers_actually_execute()
     PASS();
 }
 
+//K2 Task 3：定时器唤醒＋死锁非误报。三个 sleeper 错峰睡眠（10/30/50
+//毫秒），一个忙循环 worker 与之并发；main 在 join 处停泊——此刻全部
+//载体空闲、仅有定时器在飞。断言：sleeper 依到期顺序完成（错峰保证确
+//定序）、忙循环在睡眠窗口内穿插、程序正常返回。定时器唤醒缺失（sleeper
+//永不清醒→join 挂起或死锁报告）或「有定时器在飞仍误报死锁」都会失败。
+static void test_timer_wake_under_multi_carrier()
+{
+    TEST(timer_wake_under_multi_carrier);
+    std::string out;
+    const int rc = runWithCarriers("timer_wake_4",
+        "import io;\n"
+        "void s0() { thread.sleep(10); io.write(\"0\"); }\n"
+        "void s1() { thread.sleep(30); io.write(\"1\"); }\n"
+        "void s2() { thread.sleep(50); io.write(\"2\"); }\n"
+        "void busy() {\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { i = i + 1; }\n"
+        "    io.write(\"b\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t0 = thread.spawn(s0);\n"
+        "    Thread t1 = thread.spawn(s1);\n"
+        "    Thread t2 = thread.spawn(s2);\n"
+        "    Thread tb = thread.spawn(busy);\n"
+        "    thread.join(tb);\n"
+        "    thread.join(t0);\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0, "four-carrier program with sleepers completes");
+    const size_t npos = std::string::npos;
+    const size_t p0 = out.find('0'), p1 = out.find('1'),
+                 p2 = out.find('2'), pb = out.find('b');
+    CHECK(out.size() == 4 && p0 != npos && p1 != npos && p2 != npos
+              && pb != npos,
+          "exactly four writes landed (got: " + out + ")");
+    CHECK(p0 < p1 && p1 < p2,
+          "staggered sleepers complete in deadline order (got: " + out
+          + ")");
+    CHECK(pb < p2,
+          "the busy worker finished inside the sleep window (got: " + out
+          + ")");
+    PASS();
+}
+
 //辅助载体异常汇合（Review Focus #3）：死锁检测在最后一个即将空闲的
 //载体上触发——可能是主载体（直接传播）也可能是辅助载体（异常进汇合
 //槽，主载体在汇合点唯一重抛）。无论哪条路径，Execute 抛出的错误与消
@@ -2169,6 +2216,7 @@ int main()
         test_carrier_count_deterministic_parity();
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
+        test_timer_wake_under_multi_carrier();
         test_aux_carrier_error_confluence();
         test_harness_smoke();
         test_harness_smoke_exception_path();

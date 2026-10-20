@@ -4,17 +4,19 @@
 
     所有上下文（main 与后续 spawned 虚拟线程/协程）由载体执行：FIFO
     运行队列逐上下文出队；回边配额（DEFAULT_SCHEDULER_TRIP_BACKEDGES）
-    到期且另有 Runnable 上下文（或另有载体在等 GIL）时经
-    ParkSignal(Preempted) 让渡。K2 起载体可有多个（主载体＝宿主线程＋
-    辅助线程池），全部经同一把 GIL 串行化——「取队与执行同处一个持有
-    窗口」＋FIFO ⇒ 上下文的执行窗口序与载体数无关（INV-3）。
+    到期且另有 Runnable 上下文时经 ParkSignal(Preempted) 让渡（D6：
+    仅以队列为工作信号，GIL 等待计数不参与让渡决策）。K2 起载体可有
+    多个（主载体＝宿主线程＋辅助线程池），全部经同一把 GIL 串行化——
+    「取队与执行同处一个持有窗口」＋FIFO ⇒ 上下文的执行窗口序与载体数
+    无关（INV-3）。
 
     Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 sleep 定时器 +
     Slice 8 互斥停泊/唤醒 + Slice 9 通道停泊/唤醒 + Slice 10 载体在飞
     标志 + K2：条件变量谓词等待（空队列时载体让出 GIL 等待，替代 K1 的
     sleep_until）、死锁检测（全部载体将等待且无唤醒源即抛）、每载体
     状态（当前上下文/嵌套深度/配额预算——多个载体并发在飞，单成员会
-    错误串行化）。
+    错误串行化）、定时器专用懒线程（到期迁移集中在该线程，载体对运行
+    队列纯谓词等待，无截止时间簿记）。
 
     帧的存放约定（「停泊即窃取」）：运行中上下文的帧就是 VmExecutor::
     m_callStack；挂起时整栈 move 进 ExecutionContext::frames，恢复时
@@ -29,6 +31,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace nlang {
@@ -123,11 +126,12 @@ public:
 
     //FIFO 弹出下一个待运行上下文并记为本载体当前上下文（须持 GIL；
     //gil 即该锁——等待期间锁被释放，醒来重取，重取后调用方继续持有）。
-    //队列空时在条件变量上谓词等待；若仍有定时器，等待界限取最近到期
-    //时刻，醒来后把到期上下文迁回运行队列再出队。关停请求置位返回 -1。
+    //队列空时在条件变量上纯谓词等待（无截止时间——定时器的到期迁移
+    //由专用线程负责，到期入队即唤醒载体）。关停请求置位返回 -1。
     //死锁检测：全部在飞载体都将等待（本载体即将成为最后一个空闲载
     //体）且队列与定时器表皆空——没有任何唤醒源，直接抛错（main 未完
-    //成即无法返回，与其静默挂死不如拒绝）。
+    //成即无法返回，与其静默挂死不如拒绝）；定时器表非空则必有未来唤
+    //醒，不构成死锁。
     int PopNextRunnable(std::unique_lock<std::mutex>& gil);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
@@ -188,8 +192,10 @@ public:
     std::atomic<int>& ActiveCarrierCountRef() {
         return m_activeCarrierCount;
     }
-    //正在竞争 GIL 的载体数（让渡规则的另一半：即便队列只有本上下文
-    //一员，有人在等锁也必须让渡，否则等者饿死）。
+    //正在竞争 GIL 的载体数。K2 D6：纯白盒观测（多载体真实竞争的证
+    //据），不再是让渡规则的输入——一切唤醒路径先入队再通知，空队列
+    //的锁等待者必无工作，按计数让渡会自激振荡（convoy 效应，见
+    //VmExecutorOpsControl.cpp 的 CheckSchedulerQuota 注释）。
     int GilWaiters() const {
         return m_gilWaiters.load(std::memory_order_acquire);
     }
@@ -247,8 +253,27 @@ public:
         m_runQueueCv.notify_all();
     }
 
+    //K2 slice 3：配额点的到期服务（须持 GIL——载体的回边安全点调用）。
+    //死线已到而定时器线程尚未获得锁时（计算密集上下文连续跳过让渡会
+    //把线程饿死——条件变量内部的锁重取不计入 GIL 等待计数），持有锁
+    //的载体顺手完成到期迁移并唤醒空闲载体：定时器活性不依赖线程调度
+    //时序。到期序（非登记序）入队——服务方迟到时多个死线可能同时已
+    //过，唤醒顺序必须跟随到期时刻。
+    void ServiceDueTimers() {
+        if (m_timers.empty())
+            return;
+        if (NearestTimerDeadline() > std::chrono::steady_clock::now())
+            return;
+        ExpireDueTimers();
+        m_runQueueCv.notify_all();
+    }
+
     //执行器侧的可变访问（帧搬运/根登记）；id 越界返回 nullptr。
     ExecutionContext* FindMutable(int id);
+
+    //K2 slice 3: join 定时器线程（执行器析构路径）。置停泊关停标志、
+    //唤醒、join——线程体见 TimerThreadMain。
+    ~VmScheduler();
 
 private:
     CarrierState& carrierSlot() {
@@ -259,6 +284,14 @@ private:
     //把 wakeAt 已到的 ParkedTimer 上下文迁回 Runnable 入队尾；状态已变
     //的陈旧条目直接丢弃（K1 无取消路径，防御后续切片）。
     void ExpireDueTimers();
+
+    //K2 slice 3: 定时器线程体（懒启动——首个 sleep 停泊才创建；常驻执
+    //行器跨 run 复用，析构经 m_timerShutdown 退出）。睡至最近到期时刻，
+    //把到期上下文迁回运行队列并唤醒载体；更早截止的新登记（或列表被
+    //Reset 清空）以最近截止变化打断等待、重算后继续。
+    void TimerThreadMain();
+    //m_timers 中最早的唤醒时刻（调用前提：表非空；须持 GIL）。
+    std::chrono::steady_clock::time_point NearestTimerDeadline() const;
 
     //上下文注册表。deque 是有意的：push_back 不搬移既有元素，&
     //ctx->resultCell（spawned 根帧的 externalResult）在后续 spawn 下
@@ -283,6 +316,12 @@ private:
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
+
+    //K2 slice 3: 定时器线程（全部标志/列表访问均在 GIL 内）。
+    std::condition_variable m_timerCv;    //定时器表变化的通知通道
+    std::thread m_timerThread;            //懒启动；常驻执行器
+    bool m_timerThreadStarted = false;    //ParkForTimer 首次登记时置位
+    bool m_timerShutdown = false;         //仅析构置位（每 run 不动）
 
     static thread_local CarrierState t_selfCarrier;
     static thread_local CarrierState* t_carrier;

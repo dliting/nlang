@@ -1,9 +1,11 @@
 /*---
     VmScheduler.cpp — 上下文调度器实现（并发 K1；K2 多载体化 2026-10-20）
     Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 7 定时器 + Slice 8 互斥
-    停泊/唤醒 + K2：条件变量谓词等待、关停通知、死锁检测、每载体状态。
+    停泊/唤醒 + K2：条件变量谓词等待、关停通知、死锁检测、每载体状态、
+    定时器专用懒线程（K2 slice 3）。
 ---*/
 #include "VmScheduler.h"
+#include <algorithm>
 #include <thread>
 
 namespace nlang {
@@ -11,7 +13,12 @@ namespace nlang {
 thread_local VmScheduler::CarrierState VmScheduler::t_selfCarrier;
 thread_local VmScheduler::CarrierState* VmScheduler::t_carrier = nullptr;
 
+//GIL 内清空：定时器线程常驻跨 run，其谓词在锁内读 m_timers——无锁的
+//clear 会与它数据竞争（K1 单载体时代无此读者）。调用时机在池启动之
+//前，锁无竞争。定时器线程本身不重置：谓词见空表即回落静默等待，下
+//一轮首个 sleep 登记再唤醒它。
 void VmScheduler::Reset() {
+    std::lock_guard<std::mutex> g(m_gil);
     m_contexts.clear();
     m_runQueue.clear();
     m_timers.clear();
@@ -20,6 +27,7 @@ void VmScheduler::Reset() {
     m_nextId = 0;
     m_auxDispatchCount = 0;
     m_gilWaitersPeak.store(0, std::memory_order_relaxed);
+    m_timerCv.notify_all();
 }
 
 int VmScheduler::RegisterContext() {
@@ -37,13 +45,12 @@ int VmScheduler::RegisterContext() {
 }
 
 //空队列时的等待分支（须持 GIL，gil 即其锁——wait 期间释放、醒来重
-//取）：全部载体在条件变量上谓词等待，任何入队/关停路径 notify_all 唤
-//醒。若仍有定时器，等待界限取最近到期时刻，醒来后迁移到期者再回到
-//正常出队（循环而非单次等待：一次醒来可能只迁移定时器、或到期条目
-//全部陈旧）。死锁检测在进入等待前：全部在飞载体都将等待（本载体即
-//将成为最后一个空闲者）且队列与定时器表皆空——没有任何唤醒源，直
-//接抛错；main 未完成即无法返回，与其静默挂死不如拒绝。等待中的载体
-//计入 m_idleCarrierCount（锁内维护，检测的输入）。
+//取）：全部载体在条件变量上纯谓词等待（无截止时间——定时器到期迁
+//移由专用线程负责，其入队经同一条件变量唤醒载体）。死锁检测在进入
+//等待前：全部在飞载体都将等待（本载体即将成为最后一个空闲者）且队
+//列与定时器表皆空——没有任何唤醒源，直接抛错；main 未完成即无法返
+//回，与其静默挂死不如拒绝；定时器表非空则必有未来唤醒，不构成死
+//锁。等待中的载体计入 m_idleCarrierCount（锁内维护，检测的输入）。
 int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     for (;;) {
         if (!m_runQueue.empty()) {
@@ -62,20 +69,9 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
                 "NLang VM: deadlock — no runnable contexts remain");
         }
         ++m_idleCarrierCount;
-        if (m_timers.empty()) {
-            m_runQueueCv.wait(gil, [this] {
-                return m_stopRequested || !m_runQueue.empty();
-            });
-        } else {
-            auto nearest = m_timers.front().wakeAt;
-            for (const TimerEntry& t : m_timers)
-                if (t.wakeAt < nearest)
-                    nearest = t.wakeAt;
-            m_runQueueCv.wait_until(gil, nearest, [this] {
-                return m_stopRequested || !m_runQueue.empty();
-            });
-            ExpireDueTimers();
-        }
+        m_runQueueCv.wait(gil, [this] {
+            return m_stopRequested || !m_runQueue.empty();
+        });
         --m_idleCarrierCount;
     }
 }
@@ -147,7 +143,9 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
 }
 
 //sleep 停泊（Slice 7）：状态与唤醒时刻登记、入定时器表；当前上下文
-//让出载体。帧的搬运由载体在 ParkSignal 捕获处统一完成。
+//让出载体。帧的搬运由载体在 ParkSignal 捕获处统一完成。K2 slice 3：
+//首个登记懒启动定时器线程（此后常驻执行器），每次登记唤醒它重算最
+//近截止。
 void VmScheduler::ParkForTimer(int id,
                                std::chrono::steady_clock::time_point wakeAt) {
     ExecutionContext* ctx = FindMutable(id);
@@ -158,27 +156,93 @@ void VmScheduler::ParkForTimer(int id,
     m_timers.push_back(TimerEntry{id, wakeAt});
     if (t_carrier && t_carrier->currentContextId == id)
         t_carrier->currentContextId = -1;
+    if (!m_timerThreadStarted) {
+        m_timerThreadStarted = true;
+        m_timerThread = std::thread([this] { TimerThreadMain(); });
+    }
+    m_timerCv.notify_all();
 }
 
 //到期迁移（见头文件）。线性表规模 = 停泊中的 sleep 上下文数，K1 量级
 //下无需堆结构。陈旧条目（状态已非 ParkedTimer）必须丢弃：保留会使
-//PopNextRunnable 对一个已过的截止时间无限空转（活锁）。
+//PopNextRunnable 对一个已过的截止时间无限空转（活锁）。K2 slice 3：
+//到期者按到期时刻排序入队——服务方迟到（定时器线程被 GIL 独占饿死、
+//或冷启动慢）时多个死线可能同时已过，唤醒顺序须跟随到期时刻而非登记
+//序（登记序与睡眠时长序无关）。
 void VmScheduler::ExpireDueTimers() {
     const auto now = std::chrono::steady_clock::now();
     std::vector<TimerEntry> remaining;
+    std::vector<TimerEntry> due;
     remaining.reserve(m_timers.size());
     for (const TimerEntry& t : m_timers) {
         ExecutionContext* ctx = FindMutable(t.contextId);
         if (!ctx || ctx->state != ContextState::ParkedTimer)
             continue;   //stale — dropped, never re-armed
-        if (t.wakeAt <= now) {
-            ctx->state = ContextState::Runnable;
-            m_runQueue.push_back(ctx->id);
-        } else {
+        if (t.wakeAt <= now)
+            due.push_back(t);
+        else
             remaining.push_back(t);
-        }
+    }
+    std::stable_sort(due.begin(), due.end(),
+        [](const TimerEntry& a, const TimerEntry& b) {
+            return a.wakeAt < b.wakeAt;
+        });
+    for (const TimerEntry& t : due) {
+        ExecutionContext* ctx = FindMutable(t.contextId);
+        ctx->state = ContextState::Runnable;
+        m_runQueue.push_back(ctx->id);
     }
     m_timers = std::move(remaining);
+}
+
+//K2 slice 3：析构——置关停、唤醒、join。唯一让定时器线程退出的路径；
+//每 run 的关停标志（m_stopRequested）不影响它（常驻执行器，避免每轮
+//运行反复创建销毁线程的开销）。
+VmScheduler::~VmScheduler() {
+    {
+        std::lock_guard<std::mutex> g(m_gil);
+        m_timerShutdown = true;
+    }
+    m_timerCv.notify_all();
+    if (m_timerThread.joinable())
+        m_timerThread.join();
+}
+
+std::chrono::steady_clock::time_point VmScheduler::NearestTimerDeadline() const {
+    auto nearest = m_timers.front().wakeAt;
+    for (const TimerEntry& t : m_timers)
+        if (t.wakeAt < nearest)
+            nearest = t.wakeAt;
+    return nearest;
+}
+
+//K2 slice 3：定时器线程体（懒启动，见 ParkForTimer）。外层等待「有定
+//时器可管」；内层睡至最近截止。中途醒于三种变化（关停、表被清空、
+//更早截止的新登记——以最近截止变化统一识别）则重算继续，否则到期迁
+//移并把载体唤醒。陈旧条目若全部被丢弃且无一入队，循环回落外层等待
+//（当前语义下停泊中的 sleep 上下文状态不会变，陈旧分支仅为防御）。
+void VmScheduler::TimerThreadMain() {
+    for (;;) {
+        std::unique_lock<std::mutex> gil(m_gil);
+        m_timerCv.wait(gil, [this] {
+            return m_timerShutdown || !m_timers.empty();
+        });
+        if (m_timerShutdown)
+            return;
+        const auto nearest = NearestTimerDeadline();
+        const bool deadlineReached = !m_timerCv.wait_until(gil, nearest,
+            [this, &nearest] {
+                return m_timerShutdown || m_timers.empty()
+                    || NearestTimerDeadline() != nearest;
+            });
+        if (m_timerShutdown)
+            return;
+        if (!deadlineReached)
+            continue;   //表已变：重算最近截止
+        ExpireDueTimers();
+        gil.unlock();
+        m_runQueueCv.notify_all();   //到期上下文已入队：唤醒载体
+    }
 }
 
 //互斥停泊（Slice 8）：仅状态迁移——等待者集合在执行器的 MutexSlot 侧
