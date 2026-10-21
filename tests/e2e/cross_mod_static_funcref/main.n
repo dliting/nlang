@@ -1,0 +1,13 @@
+//0.9.14 D-new-8: the consumer module binds imported static methods as
+//function references through the bare imported type names, and two
+//references to the same method compare equal (same function slot).
+import lib;
+
+int main() {
+    func<int, int> h = C.add2;
+    func<int, int> g = I.twice;
+    func<int, int> h2 = C.add2;
+    if (h != h2)
+        return 1;
+    return h(g(20));
+}

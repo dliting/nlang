@@ -1732,3 +1732,4 @@ static_funcref_default_reject compile_error functions with default parameters ca
 static_funcref_sig_reject compile_error function "f" does not match the signature of
 static_funcref_private_reject compile_error Cannot resolve the field: f
 static_funcref_bare_in_class 42
+cross_mod_static_funcref 42
