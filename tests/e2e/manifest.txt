@@ -1705,3 +1705,5 @@ err_cross_mod_private_virtual_claim compile_error does not implement the method 
 cross_mod_private_virtual_ok 101
 infer_array_return 3
 list_intarr_boxing 3
+infer_foreach_bracket_source 10
+foreach_jagged_supply compile_error jagged arrays
