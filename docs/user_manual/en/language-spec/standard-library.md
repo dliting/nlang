@@ -1,9 +1,9 @@
 # Standard Library
 
 
-The standard library consists of three packages — `math`, `io`, `fs`
-(package-qualified free functions) — plus string methods
-(receiver-dispatched). A package is
+The standard library consists of five packages — `math`, `io`, `fs`,
+`thread`, `concurrent` (package-qualified free functions) — plus string
+methods (receiver-dispatched). A package is
 identified by its file's path — `stdlib/io.n` is the package `io` — and
 one build may contain only one package of each name (a duplicate is a
 compile error naming both sources; a project directory named `io` is an
@@ -11,14 +11,20 @@ ordinary directory). Calls use the qualified name only (`math.sin(x)`);
 bare names are not in scope. A package name used as a value
 (`int x = math;`) fails to resolve — packages are not values. In
 terms of duties, io carries content input/output (IO), math numeric
-computation, and fs the filesystem's names and metadata.
+computation, fs the filesystem's names and metadata, thread the
+virtual-thread spawn and parking primitives, and concurrent the
+`WaitGroup` and `Semaphore` synchronization tools (the
+`Mutex`/`Channel`/`Future` built-in classes excepted — they need no
+import; see [Concurrency](concurrency.md)).
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler
 and editor (completion, hover, go-to-definition) through the language
 service's symbol index. The shape is the one a third-party library uses:
 `stdlib/*.n` declares the surface, the `native` members are implemented in
-`nlang_<ns>.dll` and reached through the host application binary interface (ABI) at run time. A qualified
+`nlang_<ns>.dll` and reached through the host application binary interface (ABI) at run time (the `thread` package is the one
+exception: its `native` declarations are implemented inside the virtual
+machine itself and dispatched on the intrinsic channel). A qualified
 call type-checks against the declaration and emits `OP_CallFunc`; the
 built-in string methods are receiver-dispatched and emit
 `OP_CallIntrinsic`. See [Libraries and search paths](stdlib-search-paths.md)
@@ -43,6 +49,7 @@ The detailed reference is one page per topic:
 - [math — 25 functions](stdlib-math.md)
 - [io — content IO](stdlib-io.md) (token reads and mixed semantics included)
 - [fs — names, directories, metadata](stdlib-fs.md)
+- [Concurrency — virtual threads, Mutex, Channel, Future, and synchronization tools](concurrency.md)
 - [string methods — 18 built-ins](stdlib-string.md)
 - [Streams — ByteStream and FileStream](stdlib-streams.md)
 - [Libraries and search paths](stdlib-search-paths.md) (nide configuration and the third-party library shape included)

@@ -197,7 +197,8 @@ O(1), with memory bounded at 2x the live set.
 
 Under the frame-stack machine, the running context's frames ARE the call
 stack; a **parked** context's whole frame stack (sleeping, waiting on a
-join, contending a mutex, parked on an empty-channel receive, preempted)
+join or a `Future.get`, contending a mutex, parked on an empty-channel
+receive or a full-channel send, preempted)
 lives in the scheduler, off the call stack. At collection time both are
 roots:
 

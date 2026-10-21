@@ -6,6 +6,61 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.3] - 2026-10-21
+
+### Added
+
+- **`Future<T>`: typed spawn with a return value** — a zero-argument
+  delegate with a return value (`func<T>`) now spawns through
+  `thread.spawn` into a `Future<T>` handle instead of a `Thread`.
+  `get()` is an honest blocking take: the caller parks, and the
+  returned value arrives as the declared type `T`; if the spawned
+  context failed, `get()` rethrows the original exception object into
+  the caller (the `join` shape, `message`/`backtrace` preserved).
+  `isDone()` is a non-parking probe. Several contexts may `get()` the
+  same `Future`; all wake with the same value, and an already-finished
+  target returns immediately and repeatedly. Functions stay un-colored:
+  there is no `await` keyword — `f.get()` written inline reads as
+  sequential code.
+- **Bounded channels** — `Channel(n)` constructs a channel with a
+  bounded buffer: `n >= 1` sets the capacity, `0` matches the unbounded
+  default (`{}`), and a negative value is a runtime error naming the
+  accepted range. On a full bounded channel, `send` parks in a
+  first-in-first-out queue; a `recv` frees a slot and wakes the head
+  sender, so earlier sends enter the buffer first.
+- **Standard-library `concurrent` package** — `WaitGroup` and
+  `Semaphore` implemented in NLang itself on top of the kernel
+  primitives (`import concurrent;`), keeping the VM kernel small:
+  `WaitGroup` is a Go-shaped counting barrier (`add`/`done`/`wait`),
+  and `Semaphore(n)` is a counting semaphore (`acquire`/`release`,
+  waiting by yielding while the count is zero).
+- **The `thread` package is now an ordinary standard-library package** —
+  its five declarations (`spawn`, `join`, `yield`, `id`, `sleep`) live
+  in `stdlib/thread.n` and reach the compiler, completion, hover, and
+  go-to-definition through the same symbol index as `io` and `math`;
+  the implementations stay inside the virtual machine (intrinsic
+  channel — no `nlang_thread.dll`). `spawn`'s typed form (`func<T>`
+  delegate → `Future<T>`) is bound by a dedicated compiler arm on top
+  of the declared `func<void>` base form.
+
+### Changed
+
+- **Channel close semantics now drawn by `ChannelClosedException`** —
+  this replaces the K1 behavior where a closed channel's empty `recv`
+  returned `null` and a post-close `send` was a fatal virtual-machine
+  error. After `close`, buffered values are still delivered by `recv`;
+  once drained, a further `recv` — and any `send` after closing —
+  raises the catchable `ChannelClosedException` (a subclass of
+  `Exception`). Parked waiters see the same boundary: `close` drains
+  the buffer into them first, then wakes the remaining receivers and
+  every parked sender with that exception. "Closed" now works as a
+  broadcast signal that receivers finish with `try`/`catch`.
+- **Breaking: `thread` now needs an explicit `import thread;`** — like
+  every other standard-library package. The reserved-name gate is gone:
+  a user package named `thread` collides with the standard library
+  under the ordinary duplicate-package rule (the diagnostic names both
+  sources), the same shape as a user `io.n`.
+
 ## [0.10.1] - 2026-10-20
 
 ### Added

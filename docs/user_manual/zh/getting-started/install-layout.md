@@ -10,7 +10,7 @@
 | 目录/文件 | 内容 |
 |---|---|
 | `bin\` | ncc.exe、nvm.exe、ndisasm.exe、ndb.exe、nide.exe、Qt运行时与标准库的native动态库（`nlang_io.dll`等） |
-| `stdlib\` | 标准库：声明源`io.n`/`math.n`/`fs.n`与编译好的`stdlib.npkg`库包（运行期按依赖闭包装载，从这里解析） |
+| `stdlib\` | 标准库：声明源`io.n`/`math.n`/`fs.n`/`thread.n`/`concurrent.n`与编译好的`stdlib.npkg`库包（运行期按依赖闭包装载，从这里解析） |
 | `examples\` | 全部示例程序，含多文件项目`hello_project` |
 | `docs\site\` | 本帮助文档站——nide内嵌帮助窗口加载的正是它 |
 | `LICENSE`、`README.md` | 许可证与项目说明 |

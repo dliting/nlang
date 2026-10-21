@@ -100,9 +100,9 @@ Host functions registered through `registerHostFunction` always run through the 
 
 `call()` is a host-initiated nested evaluation window without a carrier turn of its own:
 
-- Intrinsics that would park are rejected with a `std::runtime_error` (message contains `cannot suspend`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, a contended `Mutex.lock`, and `Channel.recv` on an empty open channel.
+- Intrinsics that would park are rejected with a `std::runtime_error` (message contains `cannot suspend`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, `Future.get` on an unfinished target, a contended `Mutex.lock`, `Channel.recv` on an empty open channel, and `send` on a full bounded channel.
 - `thread.spawn` is likewise rejected (message contains `spawn`) — no carrier exists to schedule the new context; host flows that need concurrency should enter through `run()`.
-- Non-parking forms work as usual: `Mutex.tryLock`, `Channel.send`, a buffered `recv`, and `join` on a finished target.
+- Non-parking forms work as usual: `Mutex.tryLock`, `Future.isDone`, `send` on a non-full channel, a buffered `recv`, `join` on a finished target, and `Future.get` on a finished target.
 
 ## 5. Host functions
 

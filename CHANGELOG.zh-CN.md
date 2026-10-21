@@ -6,6 +6,43 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.3] - 2026-10-21
+
+### 新增
+- **`Future<T>`：带返回值的类型化派生**——零参有返回值委托（`func<T>`）
+  经`thread.spawn`派生得到`Future<T>`句柄而非`Thread`。`get()`是诚实的
+  阻塞取值：调用者停泊，返回值按声明类型`T`送达；派生上下文失败时，
+  `get()`向调用者重抛原异常对象（`join`同款，`message`/`backtrace`原样
+  保留）。`isDone()`是非停泊探测。多个上下文可以`get()`同一个
+  `Future`，全部被唤醒并拿到同一个值；已完成的目标立即返回且可重复调
+  用。函数不做异步着色：没有`await`关键字——内联书写的`f.get()`读起来
+  就是顺序代码。
+- **有界通道**——`Channel(n)`构造带界限缓冲的通道：`n≥1`设定容量，`0`
+  等价无界缺省（`{}`），负值是运行期错误（消息给出取值范围）。有界通
+  道缓冲满时`send`先进先出停泊排队；`recv`取走一个值即腾出空位并唤醒
+  队首发送者——先发的值先进缓冲。
+- **标准库`concurrent`包**——用NLang自身在内核原语之上实现`WaitGroup`
+  与`Semaphore`（`import concurrent;`），保持VM内核精小：`WaitGroup`是
+  Go同形的计数屏障（`add`/`done`/`wait`）；`Semaphore(n)`是计数信号量
+  （`acquire`/`release`，计数为零时以让出方式等待）。
+- **`thread`包真实化为普通标准库包**——五个声明（`spawn`/`join`/`yield`/
+  `id`/`sleep`）落在`stdlib/thread.n`，经与`io`/`math`同一符号索引到达
+  编译器与编辑器（补全、悬停、转到定义）；实现仍在虚拟机本体内（内建
+  通道，无`nlang_thread.dll`）。`spawn`的类型化形态（`func<T>`委托→
+  `Future<T>`）由编译器专用绑定臂在声明的`func<void>`基础形态之上附加。
+
+### 变更
+- **通道关闭语义改由`ChannelClosedException`划定**——取代K1行为（已关
+  闭通道的空`recv`返回`null`、关闭后`send`是虚拟机致命错误）。`close`
+  后缓冲里已有的值照常被`recv`取走；缓冲排空后再`recv`、以及关闭后的
+  `send`，都抛可捕获的`ChannelClosedException`（`Exception`的子类）。
+  停泊中的等待者看到同一条边界：`close`先把缓冲排干交付，再以该异常唤
+  醒剩余接收者与全部停泊发送者。"关闭"从此可以作广播信号，接收方用
+  `try`/`catch`收尾。
+- **破坏性变更：`thread`需要显式`import thread;`**——与其他标准库包一
+  致。保留名门移除：自建`thread`包与标准库撞名，走通用重复包规则（诊
+  断指名两条来源），与用户`io.n`同形。
+
 ## [0.10.1] - 2026-10-20
 
 ### 新增

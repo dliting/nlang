@@ -33,7 +33,7 @@ int main()
 | `bin\ndisasm.exe` | 字节码反汇编 | 深度诊断 |
 | `bin\nide.exe`与Qt运行时 | 集成开发环境（IDE，integrated development environment）及其依赖 | 仅图形界面开发 |
 | `bin\nlang_{io,math,fs}.dll` | 标准库的native实现 | 程序用到对应命名空间 |
-| `stdlib\` | 标准库 | io/math/fs任意一项 |
+| `stdlib\` | 标准库 | io/math/fs/thread/concurrent任意一项 |
 | `docs\site\` | 手册站点 | 可选 |
 
 只做运行不做编译时，`ncc`可以不带；Qt运行时只有`nide`需要。

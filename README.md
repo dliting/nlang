@@ -219,10 +219,13 @@ is in `CHANGELOG.md`.
 
 ## Standard Library
 
-`math`, `io` and `fs` are the standard library's three packages — sources
-shipped with the toolchain (`stdlib/*.n`), provided at run time by
-`stdlib.npkg` through the same mechanism as any library package; their
-qualified calls still need an explicit `import`. Strings carry built-in
+`math`, `io`, `fs`, `thread` and `concurrent` are the standard library's
+five packages — sources shipped with the toolchain (`stdlib/*.n`),
+provided at run time by `stdlib.npkg` through the same mechanism as any
+library package; their qualified calls still need an explicit `import`
+(`thread` carries the virtual-thread spawn and parking primitives;
+`concurrent` adds `WaitGroup` and `Semaphore` on top of the kernel
+concurrency primitives). Strings carry built-in
 methods:
 
 ```n

@@ -100,9 +100,9 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 `call()`是宿主发起的嵌套求值窗口，没有自己的载体轮转：
 
-- 会挂起的内在函数一律拒绝，抛`std::runtime_error`（消息含`cannot suspend`）：`thread.yield`、`thread.sleep`、目标未完成的`thread.join`、竞争中的`Mutex.lock`、空通道`Channel.recv`。
+- 会挂起的内在函数一律拒绝，抛`std::runtime_error`（消息含`cannot suspend`）：`thread.yield`、`thread.sleep`、目标未完成的`thread.join`、目标未完成的`Future.get`、竞争中的`Mutex.lock`、空通道`Channel.recv`、满通道`Channel.send`。
 - `thread.spawn`同样拒绝（消息含`spawn`）——新上下文无载体可调度；需要并发的宿主流程请经`run()`进入。
-- 不挂起的形态照常可用：`Mutex.tryLock`、`Channel.send`、缓冲非空的`recv`、目标已完成的`join`。
+- 不挂起的形态照常可用：`Mutex.tryLock`、`Future.isDone`、未满通道的`Channel.send`、缓冲非空的`recv`、目标已完成的`join`、目标已完成的`Future.get`。
 
 ## 5. 宿主函数
 

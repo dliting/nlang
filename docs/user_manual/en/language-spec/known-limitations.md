@@ -177,10 +177,15 @@
 - **Concurrency: pausing the debugger freezes every context**: a paused
   debugger holds the GIL and every virtual thread freezes with it; `ndb`
   pins a single carrier to keep stepping and breakpoints deterministic.
-- **Concurrency: no `await`/`Future`**: `thread.join` is the only waiting
-  primitive; `thread.spawn` returns no result value (a spawned context's
-  return value cannot be retrieved — pass results through a channel or a
-  shared field).
+- **Concurrency: no `await` keyword**: functions are not async-colored
+  (see the model section in [Concurrency](concurrency.md));
+  `Future.get()` is an honest blocking wait, and `thread.join` waits on
+  a valueless `Thread`.
+- **Concurrency: `Future` comes only from `spawn`**: there is no manual
+  completion source (you cannot construct an unfinished `Future` in the
+  current context and fill it yourself), and no `select`-style
+  multi-way wait — for "whichever is ready first", spawn one waiter per
+  source and converge through a channel.
 - **Concurrency: the debugger sees the main context only**: debug hooks
   fire for main alone, and the call-stack and locals views reflect
   main's frames; spawned threads execute straight past breakpoints and
@@ -189,16 +194,20 @@
   `join`**: uncaught exceptions propagate to neither the host nor main —
   the failed context is contained, and joiners receive a rethrow of the
   original exception object; with no joiner, the failure is silent.
-- **Concurrency: `Channel<T>` is unbounded, `Mutex` is non-reentrant**:
-  the channel buffer has no capacity limit (`send` never parks); the
-  mutex cannot be reentered — locking it again while holding it parks
-  until the deadlock report.
+- **Concurrency: `Mutex` is non-reentrant, `Semaphore` waits by
+  yielding**: the mutex cannot be reentered — locking it again while
+  holding it parks until the deadlock report; the standard-library
+  `Semaphore`'s `acquire` takes turns via `thread.yield` while the
+  permit count is zero (the kernel has no condition-variable primitive
+  yet), so a tight permit supply raises the yield count without
+  producing wrong behavior.
 - **Concurrency: no parking inside nested evaluation windows**: inside
   `toString` evaluation and the embedding host's `call()` window,
-  `yield`/`sleep`/`join` on an unfinished target/`lock` on a contended
-  mutex/`recv` on an empty channel/`spawn` are all rejected with a
-  "cannot suspend" runtime error. Blocking native calls are exempt: they
-  do not park the virtual thread, they release the GIL for their
+  `yield`/`sleep`/`join` on an unfinished target/`Future.get` on an
+  unfinished target/`lock` on a contended mutex/`recv` on an empty
+  channel/`send` on a full bounded channel/`spawn` are all rejected with
+  a "cannot suspend" runtime error. Blocking native calls are exempt:
+  they do not park the virtual thread, they release the GIL for their
   duration, so other carriers keep running.
 - **Concurrency: concurrent blocking is capped by the carrier pool**:
   a native call declared blocking under version 5 of the native

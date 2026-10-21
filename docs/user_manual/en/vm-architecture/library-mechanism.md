@@ -44,9 +44,12 @@ freely mixed (a *mixed library*):
   package is a compile-time diagnostic).
 
 The standard library follows the same shape: `stdlib/io.n`, `math.n`,
-`fs.n` are hand-written authoritative declaration files (the io/math/fs
-packages are pure native today), built as `nlang_math.dll`,
-`nlang_io.dll`, `nlang_fs.dll` from `src/native/`.
+`fs.n`, and `thread.n` are hand-written authoritative declaration files;
+the io/math/fs packages are pure native, built as `nlang_math.dll`,
+`nlang_io.dll`, `nlang_fs.dll` from `src/native/`; thread's native
+declarations are implemented inside the virtual machine itself
+(intrinsic-channel dispatch, no separate DLL); concurrent is pure NLang
+(no native members).
 
 ## 3. Compilation model: full source inlining
 

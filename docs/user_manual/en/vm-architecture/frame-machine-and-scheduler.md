@@ -25,7 +25,7 @@ Nested evaluation windows (`toString` evaluation, the embedding host's `call()`)
 
 ## The scheduler
 
-The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, or a channel receive; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
+The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, a channel receive, or a full-channel send; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
 
 - **Run queue**: first-in-first-out. The carrier loop repeatedly takes the head context and runs it until it returns, parks, or is preempted.
 - **Timer list**: `thread.sleep` parkings are ordered by wake-up time; a dedicated timer thread (started on the first sleep) moves due sleepers back to the run queue, so a deadline is honored even when every carrier is parked or blocked in a native call.
