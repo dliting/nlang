@@ -1,0 +1,5 @@
+class C { public int x; public C(){ x = 42; } }
+int main() {
+    C c();
+    return c.x;
+}

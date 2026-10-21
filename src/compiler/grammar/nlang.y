@@ -602,11 +602,12 @@ TopItem:	NamespaceMember {
 						$$ = $1;
 					} ;
 
-//v3H: the bare form must carry a body. A bodyless bare "T name();" would
-//be indistinguishable from a zero-argument construction at the shared paren
-//state, and the double-epsilon there must favor the function header (else
-//zero-parameter definitions die), so the declaration-only form moves behind
-//the explicit KT_Func marker (func Foo f();).
+//v3H (updated 0.9.15): the bare form without a body is a declaration and
+//moves behind the explicit KT_Func marker (func Foo f();). The bare
+//"T name();" is no longer ambiguous: the explicit empty-parens arms make
+//')' a shift, and the token after ')' decides — '{' reads a zero-parameter
+//definition, ';' or ',' reads a zero-argument construction (the same
+//reading the in-body form has always had).
 TopBareFunc:	TopBareHeader Paragraph {
 						$1->Body($2);
 						$$ = $1;
@@ -618,6 +619,9 @@ TopBareFunc:	TopBareHeader Paragraph {
 
 TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
+					} |
+					HeadType TT_Identifier '(' ')' {
+						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, new PtrList<SnFormalParam>(), @1);
 					} |
 					KT_Void TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $4, @1);
@@ -874,6 +878,14 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					TT_Identifier '(' ConcreteParamList ')' {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, $3, nullptr});
+					} |
+					//0.9.15: zero-argument direct-init `T name();` — the
+					//explicit empty-parens arms make ')' a shift instead of
+					//the double-epsilon reduce that forced the function
+					//header reading; the token after ')' decides.
+					TT_Identifier '(' ')' {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, nullptr, new PtrList<SnExpression>(), nullptr});
 					} |
 					//0.9.0: C-style sized array declaration `T name[n];`
 					//(and the partial-init form `T name[n] = [e1, e2];`).

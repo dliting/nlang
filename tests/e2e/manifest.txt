@@ -1481,7 +1481,6 @@ err_type_var_catch compile_error cannot be used as a variable name
 err_type_var_foreach compile_error cannot be used as a variable name
 err_type_var_for compile_error cannot be used as a variable name
 err_type_var_builtin_class compile_error cannot be used as a variable name
-err_top_bare_fwd_decl compile_error syntax error
 script_basic 42
 script_return 42
 script_defs_and_calls 42
@@ -1734,3 +1733,12 @@ static_funcref_private_reject compile_error Cannot resolve the field: f
 static_funcref_bare_in_class 42
 cross_mod_static_funcref 42
 static_funcref_hof_arg_reject compile_error function reference "Util.twice" requires an expected function type.
+
+# --- 0.9.15: top-level zero-arg construction (P4) ---
+top_level_zero_arg_ctor 42
+top_level_zero_arg_def 7
+top_level_zero_arg_continuation 42
+body_zero_arg_ctor 42
+err_top_level_prim_ctor compile_error "Int32" is not a class or struct type.
+err_top_level_zero_arg_with_main compile_error top-level statements cannot be combined with an explicit main() function
+top_level_const_zero_arg_ctor 42

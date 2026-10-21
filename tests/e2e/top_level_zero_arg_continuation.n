@@ -1,0 +1,4 @@
+class Foo { public int x; public Foo(){ x = 42; } }
+Foo f(), g;
+if (g == null) { return f.x; }
+return 1;
