@@ -66,7 +66,7 @@ void VmBackend::EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
 //load-time linker resolves. A method form never reaches here (the
 //dispatch splits the shapes before calling). The byte stream is exactly
 //the identifier arm's, so the body delegates to it.
-void VmBackend::EmitModuleFuncHandleRef(SnField& func,
+void VmBackend::EmitReceiverlessFuncHandleRef(SnField& func,
                                         BytecodeEmitter& emitter,
                                         uint16_t resultOffset) {
     EmitIdentifierFuncHandleRead(emitter, resultOffset, &func);

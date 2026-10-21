@@ -197,7 +197,7 @@ static bool HasNativeMethodOverride(SnFunction &method)
 //(ExprResolver.h). These bind through the same member channel as method
 //references but carry no receiver and always take the static OP_MakeFunc
 //form.
-static bool IsModuleFuncRefTarget(SnFunction *pFunc)
+static bool IsReceiverlessFuncRefTarget(SnFunction *pFunc)
 {
 	return IsModuleOwnedFunction(*pFunc);
 }
@@ -213,7 +213,7 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	if (!IsFuncTypeDecl(pExpected))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			IsModuleFuncRefTarget(pMethod)
+			IsReceiverlessFuncRefTarget(pMethod)
 				? "function reference \"%s\" requires an expected function "
 				  "type."
 				: "bound method reference \"%s\" requires an expected "
@@ -244,7 +244,7 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
 	SnField *pExpected, bool bDispatchesByName)
 {
-	if (!IsModuleFuncRefTarget(pMethod))
+	if (!IsReceiverlessFuncRefTarget(pMethod))
 	{
 		if (pMethod->ContainFlags(NF_Native)
 			|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
@@ -279,7 +279,7 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 		if (param.Value())
 		{
 			env.Log(CLL_Error, snMember.Location(),
-				IsModuleFuncRefTarget(pMethod)
+				IsReceiverlessFuncRefTarget(pMethod)
 					? "functions with default parameters cannot be "
 					  "referenced: \"%s\"."
 					: "methods with default parameters cannot be "
@@ -304,7 +304,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	//override of a parent virtual method carries NF_Virtual too).
 	//Module-form targets have no receiver and always take the static
 	//handle — dispatch never resolves by name.
-	bool bDispatchesByName = !IsModuleFuncRefTarget(pMethod)
+	bool bDispatchesByName = !IsReceiverlessFuncRefTarget(pMethod)
 		&& (pMethod->ContainFlags(NF_Virtual)
 			|| (pOwner && pOwner->Kind() == NK_InterfaceDecl));
 	if (RejectMemberFuncRefForm(env, snMember, inner, pExpected, pMethod))
@@ -316,7 +316,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			IsModuleFuncRefTarget(pMethod)
+			IsReceiverlessFuncRefTarget(pMethod)
 				? "function \"%s\" does not match the signature of \"%s\"."
 				: "method \"%s\" does not match the signature of \"%s\".",
 			inner.Name().c_str(), pFuncDecl->Name().c_str());

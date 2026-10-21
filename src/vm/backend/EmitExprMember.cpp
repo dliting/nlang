@@ -93,7 +93,7 @@ static bool IsValueFuncRefShape(SnField& field, SnMemberExpr& member) {
 //v2.2: module-qualified free-function reference (`lib.seven`): the
 //function is owned by a namespace — or by nothing at all for a detached
 //imported stub. These carry no receiver, unlike the bound-method form.
-static bool IsModuleFuncRefTarget(SnField& field) {
+static bool IsReceiverlessFuncRefTarget(SnField& field) {
     auto* owner = field.Parent();
     return owner == nullptr || owner->Kind() == NK_Namespace;
 }
@@ -150,8 +150,8 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
     //bound-method form (c.foo, Phase 13 Step 2). The full shape notes
     //travel with the emission helpers.
     if (field && IsValueFuncRefShape(*field, member)) {
-        if (IsModuleFuncRefTarget(*field))
-            EmitModuleFuncHandleRef(*field, emitter, resultOffset);
+        if (IsReceiverlessFuncRefTarget(*field))
+            EmitReceiverlessFuncHandleRef(*field, emitter, resultOffset);
         else
             EmitMemberFuncHandleRef(member, field, emitter, resultOffset);
         return true;
