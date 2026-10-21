@@ -75,6 +75,13 @@ nav:
           - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Concurrency:
           - Concurrency: language-spec/concurrency.md
+          - The GIL and Multiple Carriers: language-spec/concurrency-gil-carriers.md
+          - The thread Package: language-spec/concurrency-thread.md
+          - Future: language-spec/concurrency-future.md
+          - Mutex: language-spec/concurrency-mutex.md
+          - Channel: language-spec/concurrency-channel.md
+          - The concurrent Package: language-spec/concurrency-concurrent.md
+          - Parking and Scheduling Limits: language-spec/concurrency-parking.md
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
