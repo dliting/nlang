@@ -30,16 +30,6 @@ namespace nlang
 //bound callee; the member carries the per-site result decl. True =
 //consumed (bound or diagnosed); false = not this arm's shape, the fixed
 //path's diagnostics cover the rejection.
-//K3 typed-spawn arm (see BindThreadNsCall's dispatch). The argument must
-//be a zero-parameter func<T>; a bare function reference binds against
-//the func<T> instantiation of its own signature (BindFuncRefToExpected
-//runs the method/default-parameter gates), a func<T>-typed value
-//contributes its type argument directly. The call site's result type is
-//Future<T>; T=void keeps the K1 Thread face. Dispatch still rides the
-//fixed spawn singleton — OP_CallFunc's built-in arm reads the invoke's
-//bound callee; the member carries the per-site result decl. True =
-//consumed (bound or diagnosed); false = not this arm's shape, the fixed
-//path's diagnostics cover the rejection.
 bool ExprResolveAccessor::TryBindTypedSpawn(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const ThreadNsFuncEntry &entry)
 {

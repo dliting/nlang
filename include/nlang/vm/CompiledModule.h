@@ -99,6 +99,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //EvalSlotClass). It gives the GC a per-slot root class for the whole
 //frame band, replacing the conservative both-domain value test. Older
 //modules are refused by the minor floor as usual — no compatibility shim.
+//K3 (v0.10.3, futures and bounded channels): no format change. Future
+//and ChannelClosedException are builtin class rows appended at the end
+//(indices stay stable), Future.get/isDone and the Channel capacity ctor
+//ride the existing intrinsic-stub serialization, and the concurrent
+//package is ordinary NLang source.
 inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values

@@ -7,28 +7,43 @@
 // add() must happen before wait(), and every added unit calls done()
 // exactly once — a done() without a matching add() releases waiters
 // early, an add() without done()s parks them at the deadlock guard.
+// The counter is mutex-guarded like any shared mutable state (the same
+// discipline Semaphore models), so correctness does not lean on the
+// interpreter's coarse-grained GIL windows.
 class WaitGroup {
     private int m_pending;
+    private Mutex m_gate;
     private Channel<int> m_done;
 
     public int WaitGroup() {
         this.m_pending = 0;
+        this.m_gate = Mutex();
         this.m_done = Channel(0);
         return 0;
     }
 
     public void add(int n) {
+        m_gate.lock();
         m_pending = m_pending + n;
+        m_gate.unlock();
     }
 
     public void done() {
+        m_gate.lock();
         m_pending = m_pending - 1;
+        m_gate.unlock();
         m_done.send(1);
     }
 
     public void wait() {
-        while (m_pending > 0) {
-            m_done.recv();
+        bool pending = true;
+        while (pending) {
+            m_gate.lock();
+            pending = m_pending > 0;
+            m_gate.unlock();
+            if (pending) {
+                m_done.recv();
+            }
         }
     }
 }
