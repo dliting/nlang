@@ -1,0 +1,8 @@
+import lib;
+class Impl implements lib.ICalc {
+    public int calc(int x, int y = 5) { return x + y; }
+}
+int main() {
+    lib.ICalc i = Impl();
+    return i.calc(1) + i.calc(2, 3);
+}

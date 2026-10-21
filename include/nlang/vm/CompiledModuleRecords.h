@@ -109,7 +109,7 @@ struct CompiledStruct {
     //0.9.11 (v2.6): constructor function indices in declaration order —
     //struct constructors are registered bare-name members, so the
     //ordinal within this vector is the only stable cross-module selector
-    //(SymbolImport::ctorOrdinal). Empty = the struct has no constructor.
+    //(SymbolImport::ownerOrdinal). Empty = the struct has no constructor.
     std::vector<uint16_t> constructorIndices;
     //0.9.12 (v2.7): FA_* per constructor, parallel to constructorIndices
     //(size equality enforced by the loader). A consumer stub rebuilds
@@ -221,7 +221,7 @@ struct CompiledClass {
     std::vector<uint8_t> methodVirtual;
     //0.9.11 (v2.6): constructor function indices in declaration order —
     //replaces the single constructorIdx (last-wins) record; the
-    //cross-unit ctorOrdinal is the index into this vector. Empty = the
+    //cross-unit ownerOrdinal is the index into this vector. Empty = the
     //class has no constructor. Constructors also appear in methodIndices
     //and in the parallel access/virtual arrays (the producer registers
     //every member function once); the stub rebuilder must skip those

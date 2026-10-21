@@ -1,0 +1,6 @@
+//Producer exports a class with a public static method. The consumer
+//reaches it through the bare imported type name (0.9.12): the stub
+//surface makes the bare `Mix.f(3)` spelling resolve and run.
+class Mix {
+	public static int f(int x) { return x * 333; }
+}

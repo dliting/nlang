@@ -211,7 +211,7 @@ void VmBackend::AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc) {
         //0.9.10 D2.4: a same-name static method is not the constructor
         //(declaration order must not matter). 0.9.11 (v2.6): plural
         //record in declaration order — the ordinal within this vector is
-        //the cross-module ctorOrdinal selector (overloads share the bare
+        //the cross-module ownerOrdinal selector (overloads share the bare
         //name). 0.9.12 (v2.7): constructorAccess parallels it so the
         //consumer rebuilds each ctor with its declared access.
         if (child.Name() == sn.Name()
@@ -249,7 +249,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
 //0.9.11 D2: struct constructors are registered bare-name members (a
 //struct declares no general methods), so the declaration-order ordinal
 //within constructorIndices is the only stable cross-module selector
-//(SymbolImport::ctorOrdinal). Only registered functions — a body or a
+//(SymbolImport::ownerOrdinal). Only registered functions — a body or a
 //native binding — own a function record; m_funcIndexMap is exactly that
 //set, so an unregistered ctor contributes nothing.
 void VmBackend::PopulateStructMethods(SnNamespace& root) {

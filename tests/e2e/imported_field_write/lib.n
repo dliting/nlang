@@ -1,0 +1,4 @@
+class Box {
+    public int val;
+    public Box() { val = 1; }
+}

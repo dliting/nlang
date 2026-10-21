@@ -1,0 +1,13 @@
+import lib;
+class Holder : lib.Named {
+    public string own;
+    public Holder() { super(); own = "consumer-string-0123456789"; }
+}
+int main() {
+    int sum = 0;
+    for (int i = 0; i < 200; i = i + 1) {
+        Holder h = Holder();
+        sum = sum + h.name.length() + h.own.length();
+    }
+    return sum % 2;
+}

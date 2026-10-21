@@ -1,0 +1,4 @@
+class Calc {
+    public Calc() { }
+    public int add(int a, int b = 10) { return a + b; }
+}

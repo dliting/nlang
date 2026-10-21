@@ -40,13 +40,15 @@ inline std::string SymbolSlotModulePath(const ModuleRegistry &reg,
 //同名同参的静态/实例成员对是两个不同的槽，静态记录的形参数不含 this
 //槽位。0.9.11（v2.6）：ownerKind 区分属主表类别（0 命名空间/1 class/
 //2 struct，裸键本身无法区分 struct 构造器与同名 class 方法）；
-//ctorOrdinal 是构造器在属主 constructorIndices 中的序号——重载构造器
-//同名同参（如 Vec(int) 与 Vec(float)）仅靠名字+形参数无法区分。
+//ownerOrdinal 是成员在属主表内的序号——构造器＝constructorIndices
+//下标（重载构造器同名同参，如 Vec(int) 与 Vec(float)，仅靠名字+形参
+//数无法区分），方法/静态方法＝methodIndices 剔除构造器条目后的位置
+//（0.9.12 D-new-8：同名同参重载同理需要序号单选）；0xFFFF＝无序号。
 inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	const std::string &modulePath, const std::string &name,
 	uint32_t paramCount, const std::string &ownerClassKey = "",
 	bool isStatic = false, uint8_t ownerKind = 0,
-	uint16_t ctorOrdinal = 0xFFFF)
+	uint16_t ownerOrdinal = 0xFFFF)
 {
 	const uint32_t ownCount = static_cast<uint32_t>(
 		mod.functions.size() - mod.functionImports.size());
@@ -58,7 +60,7 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 			&& mod.functionImports[i - ownCount].modulePath == modulePath
 			&& mod.functionImports[i - ownCount].ownerClassKey == ownerClassKey
 			&& mod.functionImports[i - ownCount].ownerKind == ownerKind
-			&& mod.functionImports[i - ownCount].ctorOrdinal == ctorOrdinal)
+			&& mod.functionImports[i - ownCount].ownerOrdinal == ownerOrdinal)
 			return i;
 	}
 	CompiledFunction placeholder;
@@ -69,7 +71,7 @@ inline uint32_t FunctionSymbolSlot(CompiledModule &mod,
 	mod.functions.push_back(std::move(placeholder));
 	mod.functionImports.push_back(
 		{modulePath, name, paramCount, ownerClassKey, isStatic,
-		 ownerKind, ctorOrdinal});
+		 ownerKind, ownerOrdinal});
 	return slot;
 }
 

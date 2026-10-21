@@ -1125,6 +1125,27 @@ private slots:
             "the class/module conflict note must be appended");
     }
 
+    //0.9.12 D4: the note may only claim a path that IS a module path.
+    //A failing name that is merely a strict prefix of one (bare "utils"
+    //while the build knows "utils.helper") must stay silent — the prefix
+    //match logged "a module path 'utils' exists", naming a path that
+    //exists nowhere. The exact-match positive half is pinned by
+    //classModuleConflictHint above (the chain "utils.helper" equals the
+    //module path, so the note still fires there).
+    void moduleHintOnlyForExactModulePath()
+    {
+        auto res = buildGateProject({
+            "int main() { return utils.gone(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "the unresolvable chain must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Cannot resolve the field: utils."),
+            "the chain must die on the unresolvable head");
+        QVERIFY2(!containsError(res.errors, "(note: a module path"),
+            "a strict prefix of a module path must not fire the note");
+    }
+
     //--- Executed qualified paths (review I2) --------------------------
     //The qualified-path tests above are compile-only; the C1 review bug
     //(a module-qualified call returning func<...> was emitted as a bound

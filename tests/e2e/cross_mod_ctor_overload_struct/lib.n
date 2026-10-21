@@ -1,5 +1,5 @@
 //0.9.11 T6 (D10): producer exports a struct with a same-arity
-//overload pair — the struct path shares the class ctorOrdinal record.
+//overload pair — the struct path shares the class ownerOrdinal record.
 struct Vec {
 	int x;
 	public Vec(int v) { x = v; }

@@ -271,7 +271,7 @@ static void RemapClassMetadata(CompiledModule& merged,
         for (auto& i : cc.methodIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         //v2.6: plural ctor record — every declaration-order index
-        //remaps (the cross-unit ctorOrdinal addresses this list).
+        //remaps (the cross-unit ownerOrdinal addresses this list).
         for (auto& i : cc.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cc.fieldTypeDescs)
@@ -306,7 +306,7 @@ static void RemapStructMetadata(CompiledModule& merged,
         for (auto& i : cs.fieldClassIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.classes, i));
         //v2.6: ctor indices are function-table indices (the ordinal
-        //position in the list is the cross-unit ctorOrdinal).
+        //position in the list is the cross-unit ownerOrdinal).
         for (auto& i : cs.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cs.fieldTypeDescs)

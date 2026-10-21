@@ -1102,6 +1102,13 @@ private:
 	//decline — the package-value path and the generic path keep them.
 	bool TryResolveModuleFuncValue(SnMemberExpr &snMember);
 
+	//0.9.12 D4: module-qualified TYPE reference (`lib.Mix` in expression
+	//position): binds the unit's type declaration through the registry so
+	//the generic type-receiver path resolves the member or static call in
+	//the type scope — the qualified spelling shares the stub record and
+	//the diagnostics of the bare `Mix` form.
+	bool TryResolveModuleTypeRef(SnMemberExpr &snMember);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;

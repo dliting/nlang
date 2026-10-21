@@ -1,0 +1,5 @@
+class Box {
+    public int val;
+    public Box() { val = 1; }
+    private int hidden() { return 5; }
+}

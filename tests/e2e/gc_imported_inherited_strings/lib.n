@@ -1,0 +1,4 @@
+class Named {
+    public string name;
+    public Named() { name = "imported-base-string-0123456789"; }
+}

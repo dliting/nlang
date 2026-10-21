@@ -196,7 +196,7 @@ void test_module_import_slots_roundtrip() {
     //first import is owner-keyed (a method of class lib.Rec, v2.6
     //ownerKind 1); the second is a namespace-level function (qualified
     //key, empty owner class key); the third is a constructor import
-    //carrying ctorOrdinal 0 (paramCount includes the hidden this).
+    //carrying ownerOrdinal 0 (paramCount includes the hidden this).
     CompiledFunction methodPlaceholder;
     methodPlaceholder.name = "add";
     methodPlaceholder.paramCount = 1;
@@ -254,7 +254,7 @@ void test_module_import_slots_roundtrip() {
     //v2.6: the owner kind + ctor ordinal ride the function import record.
     CHECK(loaded.functionImports[0].ownerKind == 1,
           "fn import owner kind (class member)");
-    CHECK(loaded.functionImports[0].ctorOrdinal == 0xFFFF,
+    CHECK(loaded.functionImports[0].ownerOrdinal == 0xFFFF,
           "method import is not a ctor slot");
     CHECK(loaded.functionImports[1].modulePath == "lib", "fn import modulePath");
     CHECK(loaded.functionImports[1].name == "lib.f", "fn import name");
@@ -268,7 +268,7 @@ void test_module_import_slots_roundtrip() {
           "ctor import owner class key");
     CHECK(loaded.functionImports[2].ownerKind == 1,
           "ctor import owner kind (class member)");
-    CHECK(loaded.functionImports[2].ctorOrdinal == 0,
+    CHECK(loaded.functionImports[2].ownerOrdinal == 0,
           "ctor import carries the ctor ordinal");
     CHECK(loaded.classImports.size() == 1, "class import count");
     CHECK(loaded.classImports[0].modulePath == "gfx.color", "cls import modulePath");

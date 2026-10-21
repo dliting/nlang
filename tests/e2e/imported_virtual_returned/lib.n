@@ -1,0 +1,5 @@
+class Base {
+    public Base() { }
+    public virtual int f() { return 1; }
+}
+int use(Base b) { return b.f(); }

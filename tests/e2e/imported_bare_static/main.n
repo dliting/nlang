@@ -1,0 +1,8 @@
+//Sealed .ncu import: the bare static call `Mix.f(3)` resolves the
+//imported class stub by bare name, then the static method through the
+//type scope (0.9.12).
+import lib;
+
+int main() {
+	return Mix.f(3);
+}

@@ -103,7 +103,7 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //defaults block after its type descriptors — a u16 count (== fieldCount)
 //plus one DefaultValueDesc per field (RTK_Void = no default). The same
 //version line also carries the constructor-index and import ownerKind/
-//ctorOrdinal segments; a v2.5 module has no defaults block and misparses
+//ownerOrdinal segments; a v2.5 module has no defaults block and misparses
 //the bytes after the type descriptors as the next record; refuse v2.5
 //and older.
 //v2.7 (imported instance members): class field lists become OWN-ONLY —
@@ -204,11 +204,14 @@ struct CompiledModule {
         //this (a bare key alone cannot tell a struct constructor from a
         //same-named class method). Unused (0) on the type import lists.
         uint8_t ownerKind = 0;
-        //0.9.11 (v2.6): constructor slots only — the index into the
-        //owner's constructorIndices (constructors share the owner's bare
-        //name, so name+paramCount cannot single one out once overloads
-        //exist). 0xFFFF = not a constructor slot.
-        uint16_t ctorOrdinal = 0xFFFF;
+        //0.9.11 (v2.6), generalized 0.9.12 D-new-8: the member's ordinal
+        //in the owner's table — constructors: index into
+        //constructorIndices; methods and statics: position in
+        //methodIndices with constructor entries skipped. Overloaded
+        //members share name+paramCount, so the ordinal single-selects.
+        //0xFFFF = no ordinal (namespace-level records, malformed or
+        //legacy method matches).
+        uint16_t ownerOrdinal = 0xFFFF;
     };
     std::vector<SymbolImport> functionImports;   //slots after own functions
     std::vector<SymbolImport> classImports;      //slots after own classes

@@ -1,0 +1,5 @@
+class Box {
+    public int val;
+    private int secret;
+    public Box() { val = 1; secret = 2; }
+}

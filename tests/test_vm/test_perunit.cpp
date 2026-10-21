@@ -835,7 +835,7 @@ void TestStructCtorExternalNcu() {
 //
 // The class side of the same imported-ctor infrastructure: the stub
 // class answers its rebuilt ctor member to the CtorSlotFor scan, the
-// import record carries ownerKind=1 + ctorOrdinal, and the producer's
+// import record carries ownerKind=1 + ownerOrdinal, and the producer's
 // ctor body runs on the consumer-allocated object (21 * 2 = 42).
 void TestClassCtorExternalNcuParity() {
     const auto libDir = scenarioDir("cctor_lib");
@@ -872,7 +872,7 @@ void TestClassCtorExternalNcuParity() {
 // The per-unit invariant for struct ctors (the class twin is shape 10):
 // the consumer image carries no foreign ctor bytecode, and the import
 // record is the v2.6 owner-keyed ctor record — ownerKind=2 (struct) +
-// ctorOrdinal=0, the linker's authoritative ctor selector.
+// ownerOrdinal=0, the linker's authoritative ctor selector.
 void TestStructCtorNoGhostCompilation() {
     const auto dir = scenarioDir("sctor_noghost");
     writeFiles(dir, {
@@ -906,10 +906,87 @@ void TestStructCtorNoGhostCompilation() {
     for (const auto& imp : b.images.units[0].functionImports) {
         if (imp.modulePath == "alib" && imp.name == "Vec"
             && imp.paramCount == 3 && imp.ownerClassKey == "alib.Vec"
-            && imp.ownerKind == 2 && imp.ctorOrdinal == 0)
+            && imp.ownerKind == 2 && imp.ownerOrdinal == 0)
             ctorImport = true;   //3 = 2 formals + this, table convention
     }
     CHECK(ctorImport, "struct ctor import carries ownerKind + ordinal");
+}
+
+// --- shape 17: cross-module static method overloads (0.9.12 D-new-8) ---
+//
+// Two static overloads of one name and arity share every field of the
+// old name-matching linkage identity (name+paramCount+staticness), so
+// the linker saw two matching records and refused the link as
+// ambiguous. The member ordinal — the callee's position in the owner's
+// method table, ctor entries excluded — is the authoritative selector:
+// each overload links to its own record (1 + 2 = 3).
+void TestClassStaticOverloadCrossUnit() {
+    const auto dir = scenarioDir("static_ovl");
+    writeFiles(dir, {
+        { "alib.n",
+          "class Mix {\n"
+          "  public static int f(int x) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(string s) {\n"
+          "    return 2;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  return alib.Mix.f(1) + alib.Mix.f(\"x\");\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(dir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "static-overload consumer builds and links");
+    CHECK(r.rc == 3, "both static overloads link to their own records (1+2)");
+}
+
+// --- shape 18: member-ordinal record shape (0.9.12 D-new-8) ---
+//
+// The ordinal counts REGISTERED non-ctor members in declaration order,
+// mirroring the producer's methodIndices push and the stub rebuild
+// filter: a body-less same-name ctor has no table record at all (the
+// registration filter is Body||Native) and contributes nothing, while
+// a same-name static method is a method entry, not a ctor. The method
+// table here is [Mix(int) static, f(int), f(string)] — the two f
+// import records must carry ordinals 1 and 2.
+void TestMemberOrdinalRecordShape() {
+    const auto dir = scenarioDir("ord_shape");
+    writeFiles(dir, {
+        { "alib.n",
+          "class Mix {\n"
+          "  Mix();\n"
+          "  public static int Mix(int z) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(int x) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(string s) {\n"
+          "    return 2;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  return alib.Mix.f(1) + alib.Mix.f(\"x\");\n"
+          "}\n" } });
+    const PerUnitBuild b = perUnitBuild(dir, { "main.n", "alib.n" });
+    CHECK(b.ok, "ordinal-shape scenario builds");
+    if (!b.ok) return;
+    int seen1 = 0, seen2 = 0;
+    for (const auto& imp : b.images.units[0].functionImports) {
+        if (imp.modulePath == "alib" && imp.name == "f"
+            && imp.paramCount == 1 && imp.isStatic
+            && imp.ownerClassKey == "alib.Mix" && imp.ownerKind == 1) {
+            if (imp.ownerOrdinal == 1) ++seen1;
+            if (imp.ownerOrdinal == 2) ++seen2;
+        }
+    }
+    CHECK(seen1 == 1 && seen2 == 1,
+        "the two f overloads carry distinct member ordinals (1, 2)");
 }
 
 } // namespace
@@ -935,6 +1012,8 @@ int main() {
     TestStructCtorExternalNcu();
     TestClassCtorExternalNcuParity();
     TestStructCtorNoGhostCompilation();
+    TestClassStaticOverloadCrossUnit();
+    TestMemberOrdinalRecordShape();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

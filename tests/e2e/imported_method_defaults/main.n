@@ -1,0 +1,4 @@
+import lib;
+int main() {
+    return lib.Calc().add(5);
+}

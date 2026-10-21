@@ -1384,18 +1384,19 @@ ClassInheritOpt:	':' TypeName { $$ = $2; } |
 					{ $$ = nullptr; } ;
 
 //A type spelled at a position that has a unique leading token (':' after a
-//class name, `as`): the dotted chain may be reduced freely, so NameExpr and
-//QualifiedType both derive here without fighting over '.'. Measured: +2
-//shift/reduce, both on '.', both benign — no production expects a '.' AFTER
-//a type name, so bison's shift default is the only correct reading. A
-//statement head cannot use this shape (see the HeadType comment above).
+//class name, `as`, `implements`): the dotted chain may be reduced freely,
+//so NameExpr and QualifiedType both derive here without fighting over '.'.
+//Measured: +2 shift/reduce, both on '.', both benign — no production
+//expects a '.' AFTER a type name, so bison's shift default is the only
+//correct reading. A statement head cannot use this shape (see the
+//HeadType comment above).
 TypeName:	NameExpr { $$ = $1; } |
 			QualifiedType { $$ = $1; } ;
 
 /*
 Optional "implements I1, I2" clause on a class. Empty when omitted.
-The list carries SnFieldExpr* (name expressions) resolved to interface
-decls during semantic analysis.
+The list carries SnFieldExpr* type names (dotted chains allowed for
+imported interfaces) resolved to interface decls during semantic analysis.
 */
 ImplementsOpt:	KT_Implements NameList {
 					$$ = $2;
@@ -1405,14 +1406,14 @@ ImplementsOpt:	KT_Implements NameList {
 				} ;
 
 /*
-Comma-separated list of NameExpr values (for the implements clause).
-Returns a PtrList<SnFieldExpr> owning the name expressions.
+Comma-separated list of TypeName values (for the implements clause).
+Returns a PtrList<SnFieldExpr> owning the type-name expressions.
 */
-NameList:	NameExpr {
+NameList:	TypeName {
 					$$ = new PtrList<SnFieldExpr>();
 					$$->push_back($1);
 				} |
-				NameList ',' NameExpr {
+				NameList ',' TypeName {
 					$1->push_back($3);
 					$$ = $1;
 				} ;

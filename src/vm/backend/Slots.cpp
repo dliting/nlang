@@ -37,10 +37,12 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //below in the slot record. Arity follows the TABLE convention
     //(formals + this for class, struct, and enum instance methods,
     //mirroring AllocParamsAndDefaults): the import record must match the
-    //owning unit's registration or nlink's name+paramCount+staticness
-    //resolution reports a signature miss. Statics take no this slot
-    //(their producer frame has none) and no owner key — staticness alone
-    //is the linkage disambiguator.
+    //owning unit's registration or nlink's owner-keyed resolution
+    //reports a signature miss. Statics take no this slot (their producer
+    //frame has none); class/struct statics still carry the owner key and
+    //member ordinal — 0.9.12 D-new-8: same-name same-arity static
+    //overloads need the ordinal to single out a record, staticness alone
+    //no longer disambiguates.
     const SyntaxNode* pParent = callee.Parent();
     const bool isStatic = callee.ContainFlags(NF_Static);
     const bool needsThis = pParent
@@ -53,53 +55,67 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(
             callee.Params().size() + (needsThis ? 1 : 0)),
-        meta.ownerClassKey, isStatic, meta.ownerKind, meta.ctorOrdinal);
+        meta.ownerClassKey, isStatic, meta.ownerKind, meta.ownerOrdinal);
 }
 
 //v2.6 owner metadata for the cross-unit import record (phase6 design
 //section 2: bare table keys cannot disambiguate two same-named
-//same-arity members of one unit). A non-static class/struct member
-//carries the owner's qualified key and table kind (1 = class, 2 =
-//struct — a bare key cannot tell a struct ctor from a same-named class
-//method); enum methods and 0.9.10 D5 interface statics keep the
-//namespace branch (kind 0): KeyOf gives them the enclosure-qualified
-//key and the linker resolves them against the per-unit tables' function
-//records. 0.9.11 D2: struct constructors join the class rule (owner key
-//= the struct's qualified key, arity carries this). Overloaded
-//constructors share name+paramCount (Vec(int) vs Vec(float)), so a
-//constructor additionally carries its ordinal in the owner's
-//declaration-order registered-ctor list — the producer's
-//constructorIndices index. IsRegisteredCtor is the producer's fill
-//filter and the stub rebuild replays it in order, so the ordinal
-//computed here addresses the right record on the wire. A non-ctor
-//member keeps 0xFFFF (the linker's method branch matches by
-//name+paramCount+staticness).
-VmBackend::CtorOwnerMeta VmBackend::CrossUnitOwnerMeta(
+//same-arity members of one unit). A class/struct member — instance
+//method, static method, or constructor — carries the owner's qualified
+//key, the table kind (1 = class, 2 = struct — a bare key cannot tell a
+//struct ctor from a same-named class method), and its ordinal in the
+//owner's member table; enum methods and 0.9.10 D5 interface statics
+//keep the namespace branch (kind 0): KeyOf gives them the
+//enclosure-qualified key and the linker resolves them against the
+//per-unit tables' function records. 0.9.11 D2: struct constructors
+//join the class rule (owner key = the struct's qualified key, arity
+//carries this). Overloaded members share name+paramCount (Vec(int) vs
+//Vec(float), f(int) vs f(string)), so every member carries its ordinal
+//— 0.9.12 D-new-8 generalized the ctor-only ordinal to all members.
+//The producer registers every body-or-native member into methodIndices
+//in declaration order (constructors additionally into the parallel
+//constructorIndices), so the scan below replays that fill order and
+//counts within the list the callee belongs to: constructors index the
+//ctor list, methods and statics index the method list with ctor
+//entries skipped. IsRegisteredCtor (= SnFunction::HasImplementation)
+//is the producer's registration filter and the stub rebuild replays it
+//in order, so the ordinal computed here addresses the right record on
+//the wire in both .nproj and .ncu modes.
+VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
         const SnFunction& callee) const {
-    CtorOwnerMeta meta;
+    OwnerMemberMeta meta;
     const SyntaxNode* pParent = callee.Parent();
-    if (!pParent || callee.ContainFlags(NF_Static)
+    if (!pParent
         || (pParent->Kind() != NK_ClassDecl
             && pParent->Kind() != NK_StructDecl))
         return meta;
     auto& owner = static_cast<const SnField&>(*pParent);
     meta.ownerClassKey = KeyOf(owner);
     meta.ownerKind = (pParent->Kind() == NK_ClassDecl) ? 1 : 2;
-    if (callee.Name() != owner.Name())
-        return meta;
     auto& members = (pParent->Kind() == NK_ClassDecl)
         ? static_cast<const SnClassDecl&>(*pParent).Members()
         : static_cast<const SnStructDecl&>(*pParent).Members();
+    //The ctor/method split replays the producer's classification
+    //(0.9.10 D2.4: a same-name static is a method, not the
+    //constructor); the ordinal counts within the callee's own list.
+    const bool calleeIsCtor = callee.Name() == owner.Name()
+        && !callee.ContainFlags(NF_Static);
     uint16_t ordinal = 0;
     for (auto& member : members) {
-        if (member.Kind() != NK_Function || member.Name() != owner.Name())
+        if (member.Kind() != NK_Function)
             continue;
-        auto& ctor = static_cast<const SnFunction&>(member);
-        //0.9.10 D2.4: a same-name static is not the constructor.
-        if (ctor.ContainFlags(NF_Static) || !IsRegisteredCtor(ctor))
+        auto& fn = static_cast<const SnFunction&>(member);
+        //Unregistered members have no table record at all (the
+        //producer's filter skips bodyless non-native decls; stub
+        //members pass by construction).
+        if (!IsRegisteredCtor(fn))
             continue;
-        if (&ctor == &callee) {
-            meta.ctorOrdinal = ordinal;
+        const bool memberIsCtor = fn.Name() == owner.Name()
+            && !fn.ContainFlags(NF_Static);
+        if (memberIsCtor != calleeIsCtor)
+            continue;
+        if (&fn == &callee) {
+            meta.ownerOrdinal = ordinal;
             break;
         }
         ++ordinal;
@@ -185,7 +201,7 @@ uint16_t VmBackend::CtorSlotFor(SnClassDecl& decl, uint16_t classSlot) {
     //Cross-unit placeholder: no metadata by design — discover the ctor
     //declaration in the AST (PopulateClassMethods' Name() rule) and
     //slot it through FunctionSlotFor, which carries the v2.6 ownerKind
-    //+ ctorOrdinal record. Post-T6 a user-type call always gets a
+    //+ ownerOrdinal record. Post-T6 a user-type call always gets a
     //resolver selection (stub classes rebuild their ctor members in
     //constructorIndices order, source-peer classes carry the full AST),
     //so the scan only answers ctor-less placeholders; the shared

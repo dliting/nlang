@@ -201,7 +201,7 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     //function section additionally carries u16 ownerClassKeyLen + bytes
     //(empty = namespace-level function; see SymbolImport), the
     //0.9.10 v2.4 static flag byte (linkage identity, see SymbolImport),
-    //and the 0.9.11 v2.6 ownerKind byte + ctorOrdinal u16 (owner table
+    //and the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table
     //kind and constructor ordinal, see SymbolImport).
     auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports,
                              bool withOwnerKey)
@@ -248,12 +248,12 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 imp.isStatic = (staticFlag != 0);
                 //0.9.11 v2.6: owner table kind + constructor ordinal.
                 //ownerKind must name one of the three owner kinds; a
-                //ctorOrdinal is only bounds-checked against the target
+                //ownerOrdinal is only bounds-checked against the target
                 //table by the linker (the producer's table is gone).
                 fs.read(reinterpret_cast<char*>(&imp.ownerKind),
                         sizeof(imp.ownerKind));
-                fs.read(reinterpret_cast<char*>(&imp.ctorOrdinal),
-                        sizeof(imp.ctorOrdinal));
+                fs.read(reinterpret_cast<char*>(&imp.ownerOrdinal),
+                        sizeof(imp.ownerOrdinal));
                 if (!fs.good())
                     throw std::runtime_error(
                         "Invalid module: truncated import owner fields");

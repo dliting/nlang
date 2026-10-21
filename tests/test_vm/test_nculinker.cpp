@@ -662,7 +662,7 @@ static void test_link_owner_keyed_methods() {
     TEST(link_owner_keyed_methods);
     //Two classes in ONE unit each own add(int) — the same bare key and
     //arity the namespace-level scan must refuse. Owner-class keys
-    //disambiguate; the ctor import resolves through its v2.6 ctorOrdinal
+    //disambiguate; the ctor import resolves through its v2.6 ownerOrdinal
     //record into the owner's constructorIndices.
     CompiledModule lib = MakeUnit("lib");
     lib.functions.push_back(MakeFunc("add", 1));   //own 0 (lib.A.add)
@@ -695,7 +695,7 @@ static void test_link_owner_keyed_methods() {
     app.functions.push_back(MakeFunc("add", 1));   //slot 2
     app.functionImports.push_back({"lib", "add", 1, "lib.B", false, 1});
     app.functions.push_back(MakeFunc("B", 0));     //slot 3 (ctor)
-    //v2.6 ctor record: ownerKind 1 = class, ctorOrdinal 0 = lib.B's
+    //v2.6 ctor record: ownerKind 1 = class, ownerOrdinal 0 = lib.B's
     //constructorIndices[0] (function 3).
     app.functionImports.push_back({"lib", "B", 0, "lib.B", false, 1, 0});
 
@@ -714,7 +714,7 @@ static void test_link_owner_keyed_methods() {
           "lib.B.add slot 2 -> merged 3");
     r0.ReadUint16();
     CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 4,
-          "lib.B ctor slot 3 -> merged 4 (ctorOrdinal path)");
+          "lib.B ctor slot 3 -> merged 4 (ownerOrdinal path)");
     CHECK(merged.classes.size() == 2, "both classes merged");
     CHECK(merged.classes[0].methodIndices.size() == 1
        && merged.classes[0].methodIndices[0] == 1, "lib.A method remap");
@@ -778,7 +778,7 @@ static void test_link_owner_keyed_methods() {
 static void test_link_struct_ctor_metadata() {
     TEST(link_struct_ctor_metadata);
 
-    //Happy path: a struct ctor import (ownerKind 2, ctorOrdinal 0) resolves
+    //Happy path: a struct ctor import (ownerKind 2, ownerOrdinal 0) resolves
     //through the owner's constructorIndices, and the struct's fieldDefaults
     //ride the merge with their producer-pool string indices remapped.
     {
@@ -810,7 +810,7 @@ static void test_link_struct_ctor_metadata() {
         }
         app.functions.push_back(std::move(mainf));  //own 0
         app.functions.push_back(MakeFunc("Vec", 1));  //slot 1 (ctor)
-        //ownerKind 2 = struct, ctorOrdinal 0 = lib.Vec's ctor #0.
+        //ownerKind 2 = struct, ownerOrdinal 0 = lib.Vec's ctor #0.
         app.functionImports.push_back({"lib", "Vec", 1, "lib.Vec",
                                        false, 2, 0});
         CompiledStruct stSlot;
@@ -827,7 +827,7 @@ static void test_link_struct_ctor_metadata() {
         BytecodeReader r0(merged.functions[0].bytecode.data(),
                           merged.functions[0].bytecode.size());
         CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 1,
-              "struct ctor slot resolves through ctorOrdinal");
+              "struct ctor slot resolves through ownerOrdinal");
         CHECK(merged.structs.size() == 1
            && merged.structs[0].constructorIndices.size() == 1
            && merged.structs[0].constructorIndices[0] == 1,
@@ -884,7 +884,7 @@ static void test_link_struct_ctor_metadata() {
               "diagnostic names both counts and the corrupt-image cause");
     }
 
-    //Malicious import record: ctorOrdinal beyond the owner's ctor list is
+    //Malicious import record: ownerOrdinal beyond the owner's ctor list is
     //a signature miss on the found struct (not a missing unit) — the
     //diagnostic uses the struct wording.
     {
@@ -897,13 +897,13 @@ static void test_link_struct_ctor_metadata() {
         app.functions.push_back(MakeFunc("app.main", 0));
         app.functions.push_back(MakeFunc("Vec", 1));  //slot 1
         app.functionImports.push_back({"lib", "Vec", 1, "lib.Vec",
-                                       false, 2, 1});  //ctorOrdinal 1: none
+                                       false, 2, 1});  //ownerOrdinal 1: none
         std::vector<CompiledModule> units;
         units.push_back(std::move(app));
         units.push_back(std::move(lib));
         std::string msg;
         CHECK(LinkThrows(std::move(units), "app.main", &msg),
-              "ctorOrdinal past the owner's ctor list throws");
+              "ownerOrdinal past the owner's ctor list throws");
         CHECK(Contains(msg, "struct 'lib.Vec'")
            && Contains(msg, "provides no member with that signature"),
               "diagnostic names the struct and the signature miss");

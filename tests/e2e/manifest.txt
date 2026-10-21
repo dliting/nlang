@@ -1639,6 +1639,13 @@ ctor_bodyless_zero_arg_alloc 0
 # resolve and execute across the .ncu boundary. ---
 imported_class_field_read 21
 imported_class_method_call 42
+# --- 0.9.12 D4: a module-qualified type reference in expression
+# position (`lib.Mix.f(3)`) binds the imported class stub through the
+# same record the bare spelling (`Mix.f(3)`) uses, so both static-call
+# forms resolve and run across the .ncu boundary. 999 also pins the
+# full 32-bit exit-code comparison (bash would truncate it to 231). ---
+imported_qualified_static 999
+imported_bare_static 999
 # --- 0.9.11: a default expression that re-enters the same function's own
 # default emission is caught by the shared DefaultEmitGuard instead of
 # recursing forever at compile time; both the free-function and the
@@ -1662,3 +1669,24 @@ err_struct_ctor_protected compile_error The struct member "S" must be public.
 enum_value_public 0
 err_class_field_protected_outside compile_error Cannot resolve the field: prot.
 err_class_field_private_outside compile_error Cannot resolve the field: secret.
+# --- 0.9.12 D3/D4/D7: imported class and interface instance members
+# across the .ncu boundary — field read/write, inherited fields,
+# protected access from subclasses, private-member and private-ctor
+# rejection, struct constructors, virtual dispatch, implements with
+# interface defaults, method overloads, and GC-traced inherited
+# string fields. ---
+imported_field_write 7
+err_imported_field_private compile_error Cannot resolve the field: secret.
+err_imported_method_private compile_error The function "hidden" does not exist or is not accessible.
+imported_protected_in_subclass 6
+err_imported_protected_outside compile_error Cannot resolve the field: prot.
+err_imported_ctor_private compile_error constructor of class "Lock" is not accessible
+imported_struct_ctor 3
+imported_inherited_field 30
+imported_virtual_override 99
+imported_virtual_returned 99
+imported_nonvirtual_call 2
+implements_imported_interface 11
+imported_method_defaults 15
+imported_method_overloads 3
+gc_imported_inherited_strings 0

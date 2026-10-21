@@ -899,17 +899,18 @@ private:
     static bool IsRegisteredCtor(const SnFunction& ctor);
 
     //v2.6 import-record owner metadata for a cross-unit callee
-    //(Slots.cpp): the owning class/
-    //struct's qualified key + table kind, and for a constructor its
-    //ordinal in the owner's declaration-order registered-ctor list.
-    //The defaults are the namespace-level shape (kind 0, ordinal
-    //0xFFFF = non-ctor member).
-    struct CtorOwnerMeta {
+    //(Slots.cpp): the owning class/struct's qualified key + table kind,
+    //and the callee's ordinal in the owner's member table — the
+    //declaration-order registered-ctor list for a constructor, the
+    //method list (ctor entries skipped) for methods and statics
+    //(0.9.12 D-new-8). The defaults are the namespace-level shape
+    //(kind 0, ordinal 0xFFFF = no ordinal).
+    struct OwnerMemberMeta {
         std::string ownerClassKey;
         uint8_t ownerKind = 0;
-        uint16_t ctorOrdinal = 0xFFFF;
+        uint16_t ownerOrdinal = 0xFFFF;
     };
-    CtorOwnerMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
+    OwnerMemberMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
 
     //0.9.11 D2/T6: the AST-selected constructor (SnNewExpr/SnInvokeExpr/
     //SnSuperCallStmt CtorFunction()) when it is registered

@@ -474,9 +474,18 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	std::vector<SnExpression*> actuals;
 	for (auto &param : invoke.Params())
 		actuals.push_back(&param);
-	invoke.CtorFunction(SelectCtorForArgs(pType, actuals,
-		invoke.Location()));
-	snMember.m_pField = pType;
+	auto *pCtor = SelectCtorForArgs(pType, actuals, invoke.Location());
+	invoke.CtorFunction(pCtor);
+	//0.9.12 D-new-7: Field() answers "what was called" — bind the selected
+	//constructor so the invoke-receiver classifier sees a value-producing
+	//call here, not a type name (ReceiverNamesType treats a member whose
+	//Field() is a type declaration as a type name, which mis-routes
+	//`lib.Calc().add(5)` into the type-name receiver reject). EvalDataType
+	//answers "what it produces" and stays the type: the access context
+	//switch and codegen read that channel. On failed selection (the
+	//diagnostic is already logged) keep the type binding — SnFieldExpr::
+	//IsDataExpr dereferences Field() unconditionally.
+	snMember.m_pField = pCtor ? pCtor : pType;
 	snMember.EvalDataType(pType);
 	return true;
 }

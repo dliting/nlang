@@ -1,0 +1,8 @@
+class Base {
+    public int bf;
+    public Base() { bf = 10; }
+}
+class Derived : Base {
+    public int df;
+    public Derived() { super(); df = 20; }
+}

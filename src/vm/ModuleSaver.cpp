@@ -276,7 +276,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         }
 
         //v2.6: ctor indices in declaration order; the cross-module
-        //ctorOrdinal indexes this list (overloads share the bare name).
+        //ownerOrdinal indexes this list (overloads share the bare name).
         uint16_t ctorCount = static_cast<uint16_t>(
             st.constructorIndices.size());
         fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
@@ -372,7 +372,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
             fs.write(reinterpret_cast<const char*>(&v), sizeof(v));
 
         //v2.6: ctor indices in declaration order; the cross-module
-        //ctorOrdinal indexes this list (replaces v2.5's single index).
+        //ownerOrdinal indexes this list (replaces v2.5's single index).
         uint16_t ctorCount = static_cast<uint16_t>(
             cc.constructorIndices.size());
         fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
@@ -437,7 +437,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //(empty = namespace-level function; see SymbolImport), the
     //0.9.10 v2.4 static flag byte (linkage identity: a static and an
     //instance member of the same name and arity are distinct slots), and
-    //the 0.9.11 v2.6 ownerKind byte + ctorOrdinal u16 (owner table kind
+    //the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table kind
     //and constructor ordinal — overloads share the bare name).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
@@ -473,8 +473,8 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 //constructorIndices (0xFFFF = not a constructor slot).
                 fs.write(reinterpret_cast<const char*>(&imp.ownerKind),
                          sizeof(imp.ownerKind));
-                fs.write(reinterpret_cast<const char*>(&imp.ctorOrdinal),
-                         sizeof(imp.ctorOrdinal));
+                fs.write(reinterpret_cast<const char*>(&imp.ownerOrdinal),
+                         sizeof(imp.ownerOrdinal));
             }
         }
     };

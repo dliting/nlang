@@ -69,41 +69,44 @@ static bool FindOwnerType(const CompiledModule& tgt,
     return false;
 }
 
-//属主键分支（方法/构造器）：先按限定键定位属主类型（FindOwnerType），
-//再类型内消歧。构造器按 ctorOrdinal 定址属主的 constructorIndices
-//（v2.6：重载构造器同名同参，名＋形参数无法单选），方法按裸名＋形参
-//数＋静态性（类内无重载；struct 无方法，非构造器属主键记录落空）。
-//表键保持裸名，属主键只活在槽记录里。
-static FunctionSlotHit ResolveOwnerKeyedFunction(
-    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
+//methodIndices 条目是否构造器条目（0.9.12 D-new-8：方法表按声明序含
+//构造器条目，成员序号计数时跳过它们）。
+static bool IsCtorMethodEntry(const CompiledClass& tc, uint16_t mi) {
+    for (uint16_t ci : tc.constructorIndices)
+        if (ci == mi)
+            return true;
+    return false;
+}
+
+//方法记录解析（属主键分支）。0.9.12 D-new-8：ownerOrdinal 是权威选择器
+//——回放生产侧 methodIndices 填充（全部已注册成员按声明序），跳过构造器
+//条目取第 ownerOrdinal 个，再复核名＋形参数＋静态性，防序号与签名漂移
+//后错连；0xFFFF＝畸形/遗留记录，退回名＋形参数＋静态性匹配（多重命中
+//报歧义，不猜）。
+static FunctionSlotHit ResolveMethodRecord(const CompiledModule& tgt,
+    const CompiledClass& tc, const CompiledModule::SymbolImport& imp) {
     FunctionSlotHit r;
     const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
-    //构造器记录：ctorOrdinal 是权威选择器（0xFFFF＝非构造器槽）。
-    const bool isCtorSlot = imp.ctorOrdinal != 0xFFFF;
-    const CompiledClass* tc = nullptr;
-    const CompiledStruct* ts = nullptr;
-    if (!FindOwnerType(tgt, imp, tc, ts))
-        return r;
-    r.ownerClassFound = true;
-    if (isCtorSlot) {
-        const std::vector<uint16_t>& ctors = tc
-            ? tc->constructorIndices : ts->constructorIndices;
-        //越界＝目标类型没有该序号的构造器（签名未命中，非闭包缺
-        //单元）；形参数再校验一次，防序号与签名漂移后错连。
-        if (imp.ctorOrdinal < ctors.size()) {
-            const uint16_t ci = ctors[imp.ctorOrdinal];
-            if (ci != 0xFFFF && ci < tgtOwn
-                && tgt.functions[ci].paramCount == imp.paramCount) {
-                r.hit = static_cast<int>(ci);
+    if (imp.ownerOrdinal != 0xFFFF) {
+        uint16_t ordinal = 0;
+        for (uint16_t mi : tc.methodIndices) {
+            if (mi >= tgtOwn || IsCtorMethodEntry(tc, mi))
+                continue;
+            if (ordinal != imp.ownerOrdinal) {
+                ++ordinal;
+                continue;
+            }
+            if (tgt.functions[mi].name == imp.name
+                && tgt.functions[mi].paramCount == imp.paramCount
+                && tgt.functions[mi].isStatic == imp.isStatic) {
+                r.hit = static_cast<int>(mi);
                 r.hits = 1;
             }
+            break;
         }
         return r;
     }
-    //方法记录：struct 无方法，直接落空（诊断走"无该签名成员"措辞）。
-    if (!tc)
-        return r;
-    for (uint16_t mi : tc->methodIndices) {
+    for (uint16_t mi : tc.methodIndices) {
         //0.9.10 v2.4: 静态性参与消歧（同名静态/实例方法对跨线缆后仍
         //是两个槽）。
         if (mi < tgtOwn && tgt.functions[mi].name == imp.name
@@ -111,6 +114,50 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
             && tgt.functions[mi].isStatic == imp.isStatic) {
             if (r.hit < 0) r.hit = static_cast<int>(mi);
             ++r.hits;
+        }
+    }
+    return r;
+}
+
+//属主键分支（方法/构造器）：先按限定键定位属主类型（FindOwnerType），
+//再类型内消歧。0.9.12 D-new-8：ownerOrdinal 对两类记录都是权威选择器
+//——构造器定址属主的 constructorIndices，方法/静态方法走
+//ResolveMethodRecord（同名同参重载无法靠名＋形参数单选）。表键保持裸名，
+//属主键只活在槽记录里。
+static FunctionSlotHit ResolveOwnerKeyedFunction(
+    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
+    FunctionSlotHit r;
+    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    const CompiledClass* tc = nullptr;
+    const CompiledStruct* ts = nullptr;
+    if (!FindOwnerType(tgt, imp, tc, ts))
+        return r;
+    r.ownerClassFound = true;
+    //构造器/方法判别：生产侧以"裸名＝属主类型名且非静态"识别构造器
+    //（同名静态是方法，0.9.10 D2.4），槽记录照同一规则判别——imp.name
+    //是裸表键，属主限定键的末段即类型裸名。
+    const std::string ownerBare = imp.ownerClassKey.substr(
+        imp.ownerClassKey.find_last_of('.') + 1);
+    if (imp.isStatic || imp.name != ownerBare) {
+        //方法记录：struct 无方法，直接落空（诊断走"无该签名成员"措辞）。
+        if (!tc)
+            return r;
+        //属主类型已定位＝本函数的结论，记录解析器无从知道（其默认值为
+        //false）；漏传会把签名未命中误报成闭包缺单元。
+        FunctionSlotHit m = ResolveMethodRecord(tgt, *tc, imp);
+        m.ownerClassFound = true;
+        return m;
+    }
+    const std::vector<uint16_t>& ctors = tc
+        ? tc->constructorIndices : ts->constructorIndices;
+    //越界＝目标类型没有该序号的构造器（签名未命中，非闭包缺单元）；
+    //形参数再校验一次，防序号与签名漂移后错连。
+    if (imp.ownerOrdinal != 0xFFFF && imp.ownerOrdinal < ctors.size()) {
+        const uint16_t ci = ctors[imp.ownerOrdinal];
+        if (ci != 0xFFFF && ci < tgtOwn
+            && tgt.functions[ci].paramCount == imp.paramCount) {
+            r.hit = static_cast<int>(ci);
+            r.hits = 1;
         }
     }
     return r;
