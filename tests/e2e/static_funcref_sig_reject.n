@@ -1,5 +1,5 @@
 //0.9.14: a signature mismatch on a static method reference reports the
-//module-form wording.
+//receiverless wording.
 class B {
     public static int f(int x) { return x; }
 }

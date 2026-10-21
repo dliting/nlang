@@ -1,5 +1,5 @@
 //0.9.14 D-new-7: a static method with default parameters stays rejected,
-//with the module-form wording.
+//with the receiverless wording.
 class B {
     public static int f(int x = 3) { return x; }
 }

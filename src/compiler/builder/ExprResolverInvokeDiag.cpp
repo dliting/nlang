@@ -74,14 +74,15 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 		}
 		if (IsUnboundMemberFuncRef(*pValue))
 		{
-			//Wording follows the form: a module-qualified free function
-			//(the shared IsModuleOwnedFunction test) is a function
-			//reference; only a receiver-bound member is a method one.
+			//Wording follows the form: a receiverless target (module-
+			//qualified free function or static method — the shared
+			//IsReceiverlessFuncRefTarget test) is a function reference;
+			//only a receiver-bound member is a method one.
 			auto *pRef = static_cast<SnIdentifierExpr*>(
 				static_cast<SnMemberExpr*>(pValue)->Inner())->Field();
-			const bool bModuleForm = pRef && IsModuleOwnedFunction(*pRef);
+			const bool bReceiverless = pRef && IsReceiverlessFuncRefTarget(*pRef);
 			m_Env.Log(CLL_Error, pValue->Location(),
-				bModuleForm
+				bReceiverless
 					? "function reference \"%s\" requires an expected "
 					  "function type."
 					: "bound method reference \"%s\" requires an expected "

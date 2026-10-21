@@ -297,8 +297,8 @@ private:
     void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
-    //Module-qualified free-function reference in value position
-    //(lib.seven) — the receiver-less static func handle.
+    //Receiverless function reference in value position (lib.seven or a
+    //static method) — the bare static func handle.
     void EmitReceiverlessFuncHandleRef(SnField& func, BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //User-defined enum method call.

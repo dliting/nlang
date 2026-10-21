@@ -60,12 +60,12 @@ void VmBackend::EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
     emitter.EmitUint16(resultOffset);
 }
 
-//v2.2: module-qualified free-function reference (lib.seven in value
-//position) — the bare OP_MakeFunc form of the identifier arm (no
+//v2.2: receiverless function reference (lib.seven or a static method in
+//value position) — the bare OP_MakeFunc form of the identifier arm (no
 //receiver); a cross-unit reference becomes an import placeholder the
-//load-time linker resolves. A method form never reaches here (the
-//dispatch splits the shapes before calling). The byte stream is exactly
-//the identifier arm's, so the body delegates to it.
+//load-time linker resolves. A receiver-bound method form never reaches
+//here (the dispatch splits the shapes before calling). The byte stream
+//is exactly the identifier arm's, so the body delegates to it.
 void VmBackend::EmitReceiverlessFuncHandleRef(SnField& func,
                                         BytecodeEmitter& emitter,
                                         uint16_t resultOffset) {

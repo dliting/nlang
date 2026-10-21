@@ -1,0 +1,11 @@
+//0.9.14: a static method reference in a non-func argument position is
+//worded as a function reference (receiverless), not a bound method one.
+class Util {
+    public static int twice(int x) { return x * 2; }
+}
+
+int take(int x) { return x; }
+
+int main() {
+    return take(Util.twice);
+}

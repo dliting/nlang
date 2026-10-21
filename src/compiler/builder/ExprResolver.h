@@ -141,6 +141,16 @@ inline bool IsModuleOwnedFunction(const SnField &func)
 	auto *pOwner = func.Parent();
 	return pOwner == nullptr || pOwner->Kind() == NK_Namespace;
 }
+//0.9.14 D-new-3: the receiverless arm of the member func-reference
+//channel — a module-owned free function (`lib.seven`) or a static method
+//(`B.f` through the type name, bare `f` inside the owning class). Both
+//carry no receiver and always take the static OP_MakeFunc form; wording
+//and gate checks branch on this predicate (the VM side keeps its own
+//static copy in EmitExprMember.cpp: subsystem boundary).
+inline bool IsReceiverlessFuncRefTarget(const SnField &func)
+{
+	return IsModuleOwnedFunction(func) || func.ContainFlags(NF_Static);
+}
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site.
