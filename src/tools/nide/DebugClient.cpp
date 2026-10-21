@@ -143,6 +143,23 @@ bool DebugClient::requestLocals(int frameIndex)
     return true;
 }
 
+bool DebugClient::requestContexts()
+{
+    if (m_state != State::Stopped)
+        return false;
+    writeLine(QStringLiteral("contexts"));
+    return true;
+}
+
+bool DebugClient::selectContext(int contextId)
+{
+    if (m_state != State::Stopped)
+        return false;
+    writeLine(encodeCommand(QStringLiteral("context"),
+        {QString::number(contextId)}));
+    return true;
+}
+
 bool DebugClient::setBreakOnThrow(bool enabled)
 {
     if (m_state != State::Launching && m_state != State::Stopped)
@@ -229,11 +246,16 @@ void DebugClient::handleEvent(const DebugEvent& ev)
         m_state = State::Stopped;
         emit stopped(f.value(1), f.value(2).toInt(), f.value(3),
             f.value(4), f.value(5).toInt(), f.value(6).toInt(),
-            f.value(7).toInt());
+            f.value(7).toInt(), f.value(8).toInt());
+        break;
+    case DebugEvent::Context:
+        emit contextReceived(f.value(1).toInt(), f.value(2),
+            f.value(3).toInt(), f.value(4), f.value(5),
+            f.value(6).toInt());
         break;
     case DebugEvent::Frame:
         emit frameReceived(f.value(1).toInt(), f.value(2), f.value(3),
-            f.value(4).toInt());
+            f.value(4).toInt(), f.value(5).toInt());
         break;
     case DebugEvent::Local:
         emit localReceived(f.value(1), f.value(2), f.value(3));
@@ -243,6 +265,8 @@ void DebugClient::handleEvent(const DebugEvent& ev)
             emit backtraceReady();
         else if (f.value(1) == QLatin1String("locals"))
             emit localsReady();
+        else if (f.value(1) == QLatin1String("contexts"))
+            emit contextsReady();
         break;
     case DebugEvent::Output:
         emit outputReceived(f.value(1));
