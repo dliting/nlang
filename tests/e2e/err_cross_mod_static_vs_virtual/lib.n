@@ -1,0 +1,7 @@
+// err_cross_mod_static_vs_virtual — the 0.9.10 static/instance namespace
+// rule reaches across the .ncu boundary: a same-parameter-list static on
+// the subclass claims the dispatch slot of the imported base virtual
+// (the declaration would look like an override yet never dispatch).
+class B {
+    public virtual int f(int x) { return x; }
+}

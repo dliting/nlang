@@ -1,0 +1,10 @@
+// err_cross_mod_private_virtual_claim — contract collection is access-
+// agnostic (0.9.12 D-new-10): runtime dispatch matches by name only, so
+// a same-name different-signature method against an imported base
+// PRIVATE virtual is rejected just like the public-base case (the
+// producer's own caller this.f(1) would dispatch to the consumer method
+// by name and read arguments bit-wrong).
+class B {
+    private virtual int f(int x) { return x; }
+    public int g() { return this.f(1); }
+}

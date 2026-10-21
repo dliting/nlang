@@ -57,7 +57,7 @@ bool CheckStaticVirtualCollision(SnClassDecl &cls,
 		pSuper = pSuper->SuperClass())
 	{
 		seen.insert(pSuper);
-		if (pSuper->ContainFlags(NF_Imported) || pSuper->IsBuiltinClass())
+		if (pSuper->IsBuiltinClass())
 			break;
 		for (auto &member : pSuper->Members())
 		{

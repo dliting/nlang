@@ -1,0 +1,8 @@
+import lib;
+class D : lib.B {
+    public int f(int x) { return x + 100; }
+}
+int main() {
+    D d = D();
+    return d.g();
+}

@@ -1690,3 +1690,17 @@ implements_imported_interface 11
 imported_method_defaults 15
 imported_method_overloads 3
 gc_imported_inherited_strings 0
+# --- 0.9.12 D5/D-new-10: override and implements contracts enforced
+# across the .ncu boundary (imported stubs join the contract walk on
+# equal footing, access-agnostic — runtime dispatch is name-only). The
+# ok cases pin the two producer-side dispatch paths (inherited caller,
+# base-typed formal) and the private-virtual template-method pattern;
+# the override is written without the `virtual` keyword throughout
+# (implicit propagation by name + parameter count). ---
+cross_mod_override_ok 24
+err_cross_mod_override_mismatch compile_error claims the virtual dispatch slot of "B.f(Int32): Int32"
+err_implements_imported_interface_missing compile_error required by interface "I"
+err_implements_imported_interface_mismatch compile_error claims the virtual dispatch slot of "I.f(Int32): Int32"
+err_cross_mod_static_vs_virtual compile_error with a different signature "static f(Int32): Int32"
+err_cross_mod_private_virtual_claim compile_error does not implement the method "f(Int32): Int32" required by its inheritance contract
+cross_mod_private_virtual_ok 101

@@ -1,0 +1,7 @@
+// err_implements_imported_interface_mismatch — a same-name method whose
+// signature differs from the imported interface signature cannot satisfy
+// the implements contract (the interface-typed call site laid out
+// arguments per the stub signature).
+interface I {
+    int f(int x);
+}

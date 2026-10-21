@@ -1781,6 +1781,55 @@ private slots:
         QVERIFY(greet.Params().size() == 1);
         QVERIFY(greet.HasReturn());
     }
+
+    //T5.2 (0.9.12 D-new-10 contract substrate): repeated qualified
+    //references to one imported type must bind to the SAME stub node.
+    //The contract checker's signature identity (TypeExprsIdentical)
+    //compares resolved type-declaration pointers, so a per-occurrence
+    //stub copy would silently break cross-module override and
+    //implements checks (every consumer signature would differ from the
+    //stub signature it is matched against).
+    void importedTypeBindsToOneStubNode()
+    {
+        GateProjectOptions opts;
+        opts.withRichLib = true;
+        opts.szMainBody =
+            "import rlib;\n"
+            "int takeA(rlib.Widget w) { return 0; }\n"
+            "int takeB(rlib.Widget w, rlib.Widget v) { return 0; }\n"
+            "int main() { return 0; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "project importing the rich lib must build");
+        const SnNamespace& rootView = res.builder->TreeRootView();
+
+        const SnField* pWidget =
+            findMember(rootView.Members(), NK_ClassDecl, "Widget");
+        QVERIFY2(pWidget != nullptr, "Widget stub must reach the merged root");
+        QVERIFY(pWidget->ContainFlags(NF_Imported));
+
+        const SnField* pTakeA =
+            findMember(rootView.Members(), NK_Function, "takeA");
+        const SnField* pTakeB =
+            findMember(rootView.Members(), NK_Function, "takeB");
+        QVERIFY2(pTakeA && pTakeB, "consumer functions must reach the root");
+        const auto& a = static_cast<const SnFunction&>(*pTakeA);
+        const auto& b = static_cast<const SnFunction&>(*pTakeB);
+
+        //Index-collect via range-for (the ChildFieldList pairing idiom
+        //used by the contract checker itself).
+        std::vector<const SnFormalParam*> pa, pb;
+        for (const auto& p : a.Params()) pa.push_back(&p);
+        for (const auto& p : b.Params()) pb.push_back(&p);
+        QCOMPARE(pa.size(), size_t(1));
+        QCOMPARE(pb.size(), size_t(2));
+
+        //All three rlib.Widget formal types resolve to the one stub.
+        const SnField* pW = pa[0]->Type()->Field();
+        QVERIFY2(pW != nullptr, "the rlib.Widget formal type must resolve");
+        QVERIFY(pW == pWidget);
+        QVERIFY(pb[0]->Type()->Field() == pW);
+        QVERIFY(pb[1]->Type()->Field() == pW);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

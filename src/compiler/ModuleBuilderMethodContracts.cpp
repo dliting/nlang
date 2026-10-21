@@ -30,6 +30,12 @@ namespace nlang
 //the one a call site bound to therefore reads arguments bit-wrong with
 //no diagnostic. These checks reject every such shape at the declaration
 //site.
+//
+//0.9.12 D-new-10: imported base stubs take part on equal footing — the
+//runtime walk crosses module boundaries the same way, so the contract
+//walk must too (access levels are not filtered either). Only builtin
+//classes terminate the walk: their AST stubs carry no full member
+//surface.
 
 namespace {
 
@@ -74,9 +80,10 @@ bool SignaturesIdentical(const SnFunction &a, const SnFunction &b)
 
 //Interfaces reachable along the inheritance chain (the dispatch domain
 //walks ancestors' implements lists too — ExprResolverFuncRef), deduped
-//by pointer. Chain walks stop at imported stubs (empty) and builtin
-//base classes (Object stub, ByteStream/FileStream — native-binding
-//domain, not AST-comparable).
+//by pointer. Chain walks stop only at builtin base classes (Object stub,
+//ByteStream/FileStream — native-binding domain, not AST-comparable);
+//imported stubs carry the full member surface since 0.9.12 (D-new-10)
+//and are walked like own-unit classes.
 //Every chain walk below guards against inheritance cycles with a seen
 //set: CheckClassCircularInheritance reports the cycle but does not stop
 //the build, so a cyclic tree reaches these checks and a bare
@@ -89,7 +96,7 @@ void CollectChainImplements(const SnClassDecl &cls,
 		pChain = pChain->SuperClass())
 	{
 		seen.insert(pChain);
-		if (pChain->ContainFlags(NF_Imported) || pChain->IsBuiltinClass())
+		if (pChain->IsBuiltinClass())
 			break;
 		for (auto *pIface : pChain->ImplementsList())
 			if (std::find(out.begin(), out.end(), pIface) == out.end())
@@ -108,7 +115,7 @@ SnFunction* FindDispatchWinner(SnClassDecl &cls, const std::string &name)
 		pChain = pChain->SuperClass())
 	{
 		seen.insert(pChain);
-		if (pChain->ContainFlags(NF_Imported) || pChain->IsBuiltinClass())
+		if (pChain->IsBuiltinClass())
 			break;
 		for (auto &member : pChain->Members())
 			if (member.Kind() == NK_Function && member.Name() == name
@@ -133,7 +140,7 @@ void CollectContractSet(SnClassDecl &cls,
 		pSuper = pSuper->SuperClass())
 	{
 		seen.insert(pSuper);
-		if (pSuper->ContainFlags(NF_Imported) || pSuper->IsBuiltinClass())
+		if (pSuper->IsBuiltinClass())
 			break;
 		for (auto &member : pSuper->Members())
 			if (member.Kind() == NK_Function && member.Name() == name
