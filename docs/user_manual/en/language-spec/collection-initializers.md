@@ -6,8 +6,8 @@ aggregate (struct/class) initialization. Three syntactic forms:
 
 **Bare bracket form `[...]`** — allowed where the target type lets the
 compiler infer the collection (declaration initializers, assignments,
-positional function arguments, container elements). Works for arrays
-(`T[]`) and `List<T>`:
+return values, `foreach` sources, positional and named function
+arguments, container elements). Works for arrays (`T[]`) and `List<T>`:
 
 ```nlang
 int[] arr = [1, 2, 3];
@@ -19,12 +19,14 @@ List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 **Bare brace form `{...}`** — the typed target decides the reading:
 keyed entries initialize dicts and struct/class aggregates, positional
 entries initialize lists. It works in the same inference positions as
-`[...]`:
+`[...]`, except as a `foreach` source — there the target is always the
+loop variable's array type, and the brace form is rejected:
 
 ```nlang
 Dict<string, int> d = {"a":1, "b":2};
 List<int> lst = {1, 2, 3};
 take({7, 0});
+count(items = {1, 2});
 List<int> mk() { return {1, 2}; }
 ```
 
@@ -78,10 +80,12 @@ anchored type name to pick the kind:
 (explicit or implicit). Codegen lowers `C{f1:v1, ...}` as a no-arg
 construction followed by per-field `OP_StoreField` assignments.
 
-**Recursive nesting:** init lists may contain other init lists. The
-inner levels use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)
-— bare braces nested inside a brace literal do not parse
-(`{{1,2},{3,4}}` is a syntax error). Nested generic element types
+**Recursive nesting:** init lists may contain other init lists. Inner
+levels may use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)
+or bare braces in value position (`List<List<int>> m = {{1,2},{3,4}};`).
+Keyed entries still require an expression value — `{items: {1,2}}`
+inside a struct/class literal is a syntax error; write
+`{items: [1,2]}`. Nested generic element types
 (`List<List<int>>`, `Dict<K, List<V>>`) are supported (see
 Nested generics under `List<T>` in
 [Built-in Generic Classes](builtin-generic-classes.md)).
@@ -89,17 +93,17 @@ Nested generics under `List<T>` in
 **Empty collections:** the empty literal is `{}` for `List<T>` and
 `Dict<K,V>` targets — `List<int> l = {};`, `Dict<K,V> d = {};`. An
 array target takes no brace form (`int[] a = {};` is rejected — array
-initializers use the bracket form); an empty array is `int[0]` or a
-declaration without an initializer (see [Array](array.md)). Bare `[]`
-does not parse as an initializer (the lexer matches `[]` as a single
-token, used by the array-type suffix grammar).
+initializers use the bracket form); an empty array is `int[] a = [];`
+(see [Array](array.md)). The empty bracket literal also works as a
+`foreach` source and as a function argument.
 
 **Function arguments:** a positional argument infers its target from
 the parameter type — positional entries work for struct and `List<T>`
 parameters (`take({7, 0})` for a struct `Point` parameter); an array
 parameter takes the bracket form (`take([7, 0])`); a class parameter
 takes `field:value` entries (see the table above). A named argument
-does not infer — bind a typed local first, or use the anchored form.
+infers the same way (`count_of(items = {1, 2, 3})` for a `List<int>`
+parameter).
 
 **Mutation during init is UB.** Entries are evaluated left-to-right and
 assigned in order; reading the partially-constructed collection from within

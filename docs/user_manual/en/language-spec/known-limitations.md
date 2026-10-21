@@ -42,20 +42,15 @@
   variables, and as generic type arguments. The VM has no
   multi-dimensional array layout; declare flat arrays or use
   `List<List<T>>`-style containers instead.
-- **Bare `{...}` at non-inference positions**: a bare brace literal
-  needs a typed target — as a method-call receiver (`{}.length()`) or a
-  named argument it does not infer; bind a typed local first. See
+- **Bare `{...}` as a method-call receiver**: a bare brace literal needs
+  a typed target; as a receiver (`{}.length()`) there is none, so it
+  stays rejected — bind a typed local first. Named arguments do infer
+  (`count(items = {1, 2})`). See
   [Collection Initializers](collection-initializers.md).
-- **Bare `[]` empty init**: the empty literal is `{}` for `List<T>` and
-  `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an
-  array target takes no brace form (`int[] a = {};` is rejected —
-  array initializers use the bracket form), so an empty array is
-  `int[0]` or a declaration without an initializer. The lexer tokenizes
-  `[]` as a single token used by the array-type suffix rule, so bare
-  `[]` does not parse as an initializer.
-- **Bare init list as a named argument**: positional arguments infer
-  their target from the parameter type; named arguments do not — use a
-  typed local or the anchored `Type{...}` form.
+- **Empty array literal**: the empty literal is `{}` for `List<T>` and
+  `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array
+  target takes no brace form (`int[] a = {};` is rejected — array
+  initializers use the bracket form), so an empty array is `int[] a = [];`.
 - **Sized-array declaration: size arm on the first declarator only**:
   `int a, b[3];` is a syntax error — declare `b` separately.
 - **Direct-init paren arm on the first declarator only**:
@@ -70,20 +65,9 @@
 - **Generic instantiation has no anchored head**: `List<int>{60}` does
   not parse — give the literal a typed declaration (see
   [Collection Initializers](collection-initializers.md)).
-- **Nested bare braces in a brace literal do not parse**: use bracket
-  nesting (`[[1,2],[3,4]]`).
-- **Bare list in an array-return position is rejected**: `return [1, 2];`
-  from an `int[]` function is a type error (container returns infer).
-- **Bare collection literals are not foreach sources**: `foreach (int x in
-  [1, 2, 3])` fails type inference ("Collection initializer requires an
-  explicit type or an LHS context to infer the target type."); the brace
-  form is a syntax error. Bind the literal to a typed local first.
 - **Generic-element fixed arrays are declaration-only**:
   `List<int> a[2];` declares the array; there is no expression-position
   creation twin.
-- **Bare same-class-name call inside a class body is not a constructor
-  call**: it reports a method-needs-receiver style error; construct via
-  `Vec(2, 3)` in expression position.
 - **`using` alias declarations belong to the file prologue**: a `using`
   placed after another top-level declaration is a syntax error.
 - **`List<struct>` value semantics**: adding the same struct variable

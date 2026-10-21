@@ -8,7 +8,7 @@ Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 ```nlang
 int[] a = int[3];         // expression position: fixed length, elements zero-initialized
 int[] b = [1, 2, 3];      // bare bracket literal
-int[] e = int[0];         // empty array
+int[] e = [];             // empty array literal (int[0] is equivalent)
 
 int d[3];                 // declaration position, fixed length: zero-filled
 int f[100] = [7, 8];      // declaration position, partial init: rest zero-filled

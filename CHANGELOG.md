@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.13] - 2026-10-21
+
+### Added
+
+- **Inferred array literals** — `foreach (int x in [1, 2, 3])` and
+  `return [1, 2, 3];` from an `int[]` function now infer their element
+  type from the loop variable and the function's return type.
+- **Empty array literal** — `int[] a = [];` parses as a zero-length
+  array and works in `foreach` sources and function arguments.
+- **Named-argument initializers** — `count(items = {1, 2, 3})` infers
+  the initializer's target from the named parameter's type.
+- **Nested brace entries** — `List<List<int>> m = {{1, 2}, {3}};`:
+  bare braces nest in value position inside a brace literal.
+- **Clearer foreach brace-source diagnostic** — `foreach (int x in
+  {1, 2})` reports the array-initializer form diagnostic instead of a
+  syntax error.
+
 ## [0.9.12] - 2026-10-21
 
 ### Added

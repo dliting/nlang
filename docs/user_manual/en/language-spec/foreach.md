@@ -18,7 +18,9 @@ Supported iterables:
 **Source constraint**: the source expression must be an array, `List`,
 `Dict`, or `string` — any shape works: an lvalue, a container- or
 array-valued call result (`li.get(0)` on a `List<int[]>`), member access,
-`int[n]`, a dict subscript. The source is evaluated exactly once (bound
+`int[n]`, a dict subscript, or a bare array literal (`[1, 2, 3]`, `[]` —
+the element type is inferred from the loop variable). The source is
+evaluated exactly once (bound
 to a hidden iteration local), so side-effecting sources run once. Any other
 source (an `int` local, a non-container call result) is a compile error:
 "the foreach source must be an array, List, Dict, or string".
