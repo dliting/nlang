@@ -1492,3 +1492,4 @@ vovld_ok_nonvirtual_parent_virtual_child 10
 # --- 0.10.0: concurrency acceptance (K1 threads) ---
 threads_producer_consumer 0 consumed=50 sum=3100
 channel_closed_semantics 0 drained=1
+channel_bounded_semantics 0 Ev12

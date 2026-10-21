@@ -875,6 +875,16 @@ private:
 		SnInvokeExpr &invoke, const std::string &modulePath);
 	SnClassDecl *ProbeCtorClass(const std::string &name,
 		const ISourceLocation *pLoc);
+	//K3 task 4: `Channel<int> c = Channel(n);` — the assign resolver
+	//publishes the declared LHS type here before resolving the RHS, and
+	//this arm binds the bare-name Channel invoke as the bounded-capacity
+	//ctor call against that instantiation. False = no usable Channel
+	//target (the caller keeps its generic reject).
+	bool TryBindChannelCtorInvoke(SnInvokeExpr &snInvoke);
+	//K3 task 4: the LHS declared type published by the assign resolver
+	//for the arm above; null outside an assignment's RHS resolution.
+	//Consumed (cleared) by TryBindChannelCtorInvoke.
+	SnField *m_pCtorInvokeTarget = nullptr;
 
 	/*
 	2026-09-29 split of the collection-initializer resolution family
@@ -1066,6 +1076,13 @@ public:
 		m_Accessor.Flags(flags);
 		sn.Accept(m_Visitor);
 		return sn.IsResolved();
+	}
+
+	//K3 task 4: pass-through for the statement resolver's ctor-invoke
+	//target hint (see ExprResolveAccessor::m_pCtorInvokeTarget).
+	void SetCtorInvokeTarget(SnField *pTarget)
+	{
+		m_Accessor.m_pCtorInvokeTarget = pTarget;
 	}
 
 	//Resolve the child data type nodes in a specified field.

@@ -1221,7 +1221,8 @@ private:
                                 uint16_t resultOffset, uint16_t valueSlot);
     void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl, uint16_t classIdx,
                                    BytecodeEmitter& emitter,
-                                   uint16_t resultOffset);
+                                   uint16_t resultOffset,
+                                   const int32_t* pExtraConstSlot = nullptr);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitInitListEntryAdd(const InitEntry& entry, BoxingTagResult tBox,

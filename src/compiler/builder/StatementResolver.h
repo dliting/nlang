@@ -144,6 +144,9 @@ private:
 	//when the binding failed (diagnostic logged).
 	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
 	void PropagateInitListTarget(SnAssignStmt &sn);
+	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
+	//arm when the RHS is a bare invoke (TryBindChannelCtorInvoke).
+	void PropagateCtorInvokeTarget(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);

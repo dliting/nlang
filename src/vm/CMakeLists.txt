@@ -31,6 +31,7 @@ add_library(nlang_vm
     IntrinsicsFileStream.cpp
     IntrinsicsThread.cpp
     IntrinsicsFuture.cpp
+    IntrinsicsChannel.cpp
     backend/VmBackend.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp

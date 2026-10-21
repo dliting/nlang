@@ -2271,6 +2271,243 @@ void test_future_get_rethrows_target_failure()
     PASS();
 }
 
+// --- K3 Task 4：有界通道 ---
+
+//K3 Task 4：`Channel<int> c = Channel(2);` ——目标类型推导的裸 ctor
+//invoke（计划骨架的 `new Channel<int>(2)` 无文法支撑，见台账 Ruling）。
+//容量 2：两次 send 进缓冲，FIFO 取出。
+void test_channel_bounded_ctor_capacity()
+{
+    TEST(channel_bounded_ctor_capacity);
+    const int rc = runSource("chan_bounded_ctor",
+        "int main() {\n"
+        "    Channel<int> c = Channel(2);\n"
+        "    c.send(1);\n"
+        "    c.send(2);\n"
+        "    int first = c.recv();\n"
+        "    int second = c.recv();\n"
+        "    if (first == 1 && second == 2) return 0;\n"
+        "    return 1;\n"
+        "}\n");
+    CHECK(rc == 0, "Channel(2) constructs bounded and drains FIFO");
+    PASS();
+}
+
+//K3 Task 4：容量满时 send 停泊、recv 腾位后按 FIFO 唤醒队首发送者。
+//单载体确定性编排：worker 填满 cap=2 后在 send(3) 停泊（写 "s3"），
+//main 每次让步后取一个值（写 "rN"），唤醒的 sender 续写 "s4"。
+void test_channel_bounded_send_parks_fifo()
+{
+    TEST(channel_bounded_send_parks_fifo);
+    std::string out;
+    const int rc = runSourceCapturing("chan_bounded_fifo",
+        "import io;\n"
+        "class Pump {\n"
+        "    public Channel<int> ch;\n"
+        "    public void fill() {\n"
+        "        ch.send(1);\n"
+        "        ch.send(2);\n"
+        "        io.write(\"s3\");\n"
+        "        ch.send(3);\n"
+        "        io.write(\"s4\");\n"
+        "        ch.send(4);\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Pump p = Pump();\n"
+        "    p.ch = Channel(2);\n"
+        "    Thread t = thread.spawn(p.fill);\n"
+        "    thread.yield();\n"
+        "    io.write(\"r\" + p.ch.recv());\n"
+        "    thread.yield();\n"
+        "    io.write(\"r\" + p.ch.recv());\n"
+        "    thread.yield();\n"
+        "    io.write(\"r\" + p.ch.recv());\n"
+        "    io.write(\"r\" + p.ch.recv());\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "bounded-channel program completes");
+    CHECK(out == "s3r1s4r2r3r4",
+          "send parks at capacity, recv wakes senders FIFO (got: "
+          + out + ")");
+    PASS();
+}
+
+//K3 Task 4：close 唤醒停泊中的发送者——以可捕获的
+//ChannelClosedException 恢复（取代静默丢弃），未投递的待发值作废。
+void test_channel_bounded_close_wakes_sender()
+{
+    TEST(channel_bounded_close_wakes_sender);
+    std::string out;
+    const int rc = runSourceCapturing("chan_bounded_close",
+        "import io;\n"
+        "class Late {\n"
+        "    public Channel<int> ch;\n"
+        "    public void deliver() {\n"
+        "        ch.send(1);\n"
+        "        try {\n"
+        "            ch.send(2);\n"
+        "        } catch (ChannelClosedException e) {\n"
+        "            io.write(\"E\");\n"
+        "            return;\n"
+        "        }\n"
+        "        io.write(\"x\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Late l = Late();\n"
+        "    l.ch = Channel(1);\n"
+        "    Thread t = thread.spawn(l.deliver);\n"
+        "    thread.yield();\n"
+        "    l.ch.close();\n"
+        "    int drained = l.ch.recv();\n"
+        "    thread.yield();\n"
+        "    thread.join(t);\n"
+        "    if (drained == 1) return 0;\n"
+        "    return 1;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "close-with-parked-sender program completes");
+    CHECK(out == "E", "parked sender wakes with the catchable close "
+          "exception (got: " + out + ")");
+    PASS();
+}
+
+//K3 Task 4：容量 0 = 无界（Python queue.Queue 惯例——与缺省同义）。
+void test_channel_capacity_zero_unbounded()
+{
+    TEST(channel_capacity_zero_unbounded);
+    const int rc = runSource("chan_cap_zero",
+        "int main() {\n"
+        "    Channel<string> c = Channel(0);\n"
+        "    c.send(\"a\");\n"
+        "    c.send(\"b\");\n"
+        "    string first = c.recv();\n"
+        "    string second = c.recv();\n"
+        "    if (first == \"a\" && second == \"b\") return 0;\n"
+        "    return 1;\n"
+        "}\n");
+    CHECK(rc == 0, "Channel(0) is unbounded");
+    PASS();
+}
+
+//K3 Task 4：最小调用形态钉死——main 里只有 1 槽调用（close/recv 各仅
+//this），`{}` 构造的容量 staging 须自成尺寸：callParam 区若只按 1 槽定
+//尺寸，容量写会别名到 evalArea[0]（恰好是 init-list 句柄槽），c 变 null。
+void test_channel_default_ctor_smallest_call_shape()
+{
+    TEST(channel_default_ctor_smallest_call_shape);
+    const int rc = runSource("chan_default_minimal",
+        "int main() {\n"
+        "    Channel<int> c = {};\n"
+        "    c.close();\n"
+        "    try {\n"
+        "        int v = c.recv();\n"
+        "        return 1;\n"
+        "    } catch (ChannelClosedException e) {\n"
+        "        return 0;\n"
+        "    }\n"
+        "}\n");
+    //已关闭空通道 recv 抛 ChannelClosedException（Task 3 收拢语义）。
+    CHECK(rc == 0, "default `{}` ctor stays correct when every other "
+          "call in the function takes one slot");
+    PASS();
+}
+
+//K3 Task 4：负容量在构造时抛可捕获的基础 Exception（0 合法=无界，消息
+//须如实区分）。
+void test_channel_negative_capacity_throws()
+{
+    TEST(channel_negative_capacity_throws);
+    const int rc = runSource("chan_cap_negative",
+        "int main() {\n"
+        "    try {\n"
+        "        Channel<int> c = Channel(-1);\n"
+        "        return 1;\n"
+        "    } catch (Exception e) {\n"
+        "        if (e.message == \"channel capacity must be 0 (unbounded) "
+        "or at least 1\") return 0;\n"
+        "        return 2;\n"
+        "    }\n"
+        "}\n");
+    CHECK(rc == 0, "negative capacity raises the catchable capacity error");
+    PASS();
+}
+
+//K3 Task 4：0 实参裸构造拒绝——内建 ctor invoke 是精确 arity 契约（无
+//默认参数机制），漏摆容量槽会读到 evalArea 残留垃圾；无界缺省走 {}。
+void test_channel_bare_ctor_no_args_rejected()
+{
+    TEST(channel_bare_ctor_no_args_rejected);
+    CHECK(buildFailsWith("chan_no_args",
+        "int main() {\n"
+        "    Channel<int> c = Channel();\n"
+        "    return 0;\n"
+        "}\n",
+        "one capacity argument"),
+        "zero-arg bare channel constructor is rejected (exact staging)");
+    PASS();
+}
+
+//K3 Task 4：容量实参类型门——唯一可选实参必须是 int（容量槽 4 字节
+//读，其余形态编译期拒绝）。
+void test_channel_capacity_non_int_rejected()
+{
+    TEST(channel_capacity_non_int_rejected);
+    CHECK(buildFailsWith("chan_cap_type",
+        "int main() {\n"
+        "    Channel<int> c = Channel(\"x\");\n"
+        "    return 0;\n"
+        "}\n",
+        "capacity must be an int"),
+        "non-int capacity argument is rejected at compile time");
+    PASS();
+}
+
+//K3 Task 4：待发值（pendingSends——只存在于停泊发送者的侧表队列）在
+//GC 风暴下存活。cap=1：worker 填满缓冲后带 "gold!!" 停泊，main 分配
+//风暴拉满回收窗口，随后两次 recv 应先取 "fill" 再取 "gold!!"。
+void test_channel_bounded_pending_survives_gc()
+{
+    TEST(channel_bounded_pending_survives_gc);
+    CompiledModule mod = buildLinkedModule("chan_bounded_gc",
+        "import io;\n"
+        "struct Cell {\n"
+        "    int v;\n"
+        "}\n"
+        "class Bringer {\n"
+        "    public Channel<string> ch;\n"
+        "    public void bring() {\n"
+        "        ch.send(\"fill\");\n"
+        "        ch.send(\"gold\" + \"!!\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Bringer b = Bringer();\n"
+        "    b.ch = Channel(1);\n"
+        "    Thread t = thread.spawn(b.bring);\n"
+        "    thread.yield();\n"
+        "    int i = 0;\n"
+        "    while (i < 200) {\n"
+        "        Cell storm;\n"
+        "        storm.v = i + 1000;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    string first = b.ch.recv();\n"
+        "    string gold = b.ch.recv();\n"
+        "    thread.join(t);\n"
+        "    if (first == \"fill\" && gold == \"gold!!\") return 0;\n"
+        "    return 1;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0,
+          "pending send value survives the GC storm");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -2902,6 +3139,15 @@ int main()
         runGuarded(test_future_get_string_result_survives_gc);
         runGuarded(test_future_get_multi_waiter);
         runGuarded(test_future_get_rethrows_target_failure);
+        runGuarded(test_channel_bounded_ctor_capacity);
+        runGuarded(test_channel_bounded_send_parks_fifo);
+        runGuarded(test_channel_bounded_close_wakes_sender);
+        runGuarded(test_channel_capacity_zero_unbounded);
+        runGuarded(test_channel_default_ctor_smallest_call_shape);
+        runGuarded(test_channel_negative_capacity_throws);
+        runGuarded(test_channel_capacity_non_int_rejected);
+        runGuarded(test_channel_bare_ctor_no_args_rejected);
+        runGuarded(test_channel_bounded_pending_survives_gc);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

@@ -68,7 +68,11 @@ void VmExecutor::MarkDictEntries(int32_t idx,
 
 //K1 Slice 9: trace Channel<T> buffered elements (heap idxs in FIFO
 //order — boxed primitives or class refs). Waiters carry no heap idxs
-// (raw result pointers only), so the buffer is the only trace arm.
+// (raw result pointers only). K3 task 4: the pending-send queue needs
+// NO trace arm — a parked sender's value is anchored by its own parked
+// frame (the formals region is precisely scanned) for the value's whole
+// lifetime in pendingSends (mutation-verified: disabling a hypothetical
+// pending trace arm changes nothing).
 void VmExecutor::MarkChannelElements(int32_t idx,
                                      std::vector<int32_t>& worklist) {
     int32_t classIdx = m_structHeap[idx][0];

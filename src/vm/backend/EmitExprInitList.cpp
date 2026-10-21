@@ -135,10 +135,15 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,
 //then the no-arg ctor call when the class declares one. classDecl feeds
 //CtorSlotFor — a cross-unit placeholder carries no table ctor.
+//pExtraConstSlot: a Channel ctor stub is (this, capacity) and the frame
+//push copies stub-paramCount cells from the caller's callParamBase, so
+//the no-arg init-list form stages an explicit constant (0 = unbounded)
+//into the given slot — an unstaged slot would copy garbage.
 void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                           uint16_t classIdx,
                                           BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
+                                          uint16_t resultOffset,
+                                          const int32_t* pExtraConstSlot) {
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
@@ -148,6 +153,17 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
         emitter.EmitUint16(resultOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(m_currFunc->callParamBase);
+        if (pExtraConstSlot) {
+            //Full-cell stage: OP_ConstInt32 writes 4 bytes but OP_Assign
+            //copies the whole 8-byte slot — zero the cell first so no
+            //stale upper half rides into the capacity.
+            emitter.Emit(OpCode::OP_ConstZero);
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(*pExtraConstSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(static_cast<uint16_t>(
+                m_currFunc->callParamBase + kFrameSlotBytes));
+        }
         emitter.Emit(OpCode::OP_CallMethodDirect);
         emitter.EmitUint16(ctorIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);
@@ -329,7 +345,10 @@ void VmBackend::EmitInitListChannelForm(SnInitListExpr& initList,
             "NLang backend: Channel class not registered in module");
     }
     EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
-                              emitter, resultOffset);
+                              emitter, resultOffset,
+                              //K3 task 4: the ctor stub is (this, capacity)
+                              //— stage the unbounded default explicitly.
+                              /*pExtraConstSlot=*/&nlang::kChannelUnboundedCapacity);
 }
 
 //Arm: user class init form — allocate via OP_New, then per-field

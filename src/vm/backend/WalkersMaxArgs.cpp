@@ -379,6 +379,12 @@ void VmBackend::MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs) {
         const std::string& bn = pClassDecl->BaseName();
         if (bn == kBuiltinDictTypeName && 3 > maxArgs) maxArgs = 3;
         else if (bn == kBuiltinListTypeName && 2 > maxArgs) maxArgs = 2;
+        //K3 task 4: Channel's `{}` form stages (this, capacity) before
+        //the intrinsic ctor call — the same sizing contract as List's
+        //implicit add. Without this arm a function whose other calls all
+        //take one slot sizes callParamBase at 1, and the capacity store
+        //aliases evalArea[0] (the init-list's own handle slot).
+        else if (bn == kBuiltinChannelTypeName && 2 > maxArgs) maxArgs = 2;
     }
     for (auto& entry : init.Entries())
         if (entry.pValue) MaxArgsWalkExpr(*entry.pValue, maxArgs);

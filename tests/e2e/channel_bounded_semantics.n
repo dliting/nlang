@@ -1,0 +1,29 @@
+//K3: bounded channel — capacity construction, park-at-full send, and
+//close waking a parked sender with the catchable exception.
+import io;
+
+class Pump {
+    public Channel<int> ch;
+    public void fill() {
+        ch.send(1);
+        ch.send(2);
+        try {
+            ch.send(3);
+        } catch (ChannelClosedException e) {
+            io.write("E");
+        }
+    }
+}
+
+int main() {
+    Pump p = Pump();
+    p.ch = Channel(2);
+    Thread t = thread.spawn(p.fill);
+    thread.yield();
+    p.ch.close();
+    int first = p.ch.recv();
+    int second = p.ch.recv();
+    thread.join(t);
+    io.write("v" + first + second);
+    return 0;
+}

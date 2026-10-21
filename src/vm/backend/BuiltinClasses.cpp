@@ -248,7 +248,9 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
         true, INTR_Mutex_Ctor, 1,
         s_MutexMethods, std::size(s_MutexMethods), BIDX_None},
     {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        true, INTR_Channel_Ctor, 1,
+        //K3 task 4: ctor is (this, capacity) — capacity 0 = unbounded;
+        //the init-list arm stages the 0 explicitly.
+        true, INTR_Channel_Ctor, 2,
         s_ChannelMethods, std::size(s_ChannelMethods), BIDX_None},
     {"Future",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         false, 0, 0,

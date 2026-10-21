@@ -43,7 +43,7 @@ constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
 //它不是错误，任何按 std::exception 捕获的位点不得拦截；RunFrames 的
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
-    enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv };
+    enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend };
     Reason reason;
     explicit ParkSignal(Reason r) : reason(r) {}
 };
@@ -94,6 +94,7 @@ enum class ContextState {
     ParkedJoin,      //Slice 6：join 目标未完成停泊
     ParkedMutex,     //Slice 8：锁竞争停泊
     ParkedChanRecv,  //Slice 9：空通道接收停泊
+    ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
     BlockedNative,   //K2 slice 4：载体在阻塞原生中（帧已窃入 ctx、
                      //GIL 已释放；原生返回后载体原地续跑，不入队）
     Finished,        //根帧正常返回
@@ -189,6 +190,13 @@ public:
     //通道唤醒（Slice 9）：回 Runnable 入队尾（值已由执行器在调用本方
     //法前写入停泊帧的结果槽）。
     void WakeForChanRecv(int id);
+
+    //K3 task 4：有界通道发送停泊——待发值与属主队列（FIFO）在执行器的
+    //ChannelSlot 侧表，调度器只做状态迁移（同 ParkForChanRecv 形态）。
+    void ParkForChanSend(int id);
+    //K3 task 4：唤醒停泊发送者——recv 已把队首待发值挪入缓冲（仅续跑，
+    //停泊的调用不会重执行），或 close 已在其上预置关闭异常重抛。
+    void WakeForChanSend(int id);
 
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
     //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标

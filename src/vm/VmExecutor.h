@@ -849,6 +849,10 @@ private:
     //Wake-time value delivery shared by send and close: write through
     //the waiter's saved destination, then make the context runnable.
     void DeliverToWaiter(ChannelWaiter& waiter, int32_t value);
+    //K3 task 4: close's sender arm — every parked sender wakes with the
+    //prebuilt catchable closed exception (armed + rooted on its context,
+    //same discipline as the recv-waiter arm); pending values are dropped.
+    void WakeClosedPendingSenders(ChannelSlot& slot);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).
@@ -1398,6 +1402,18 @@ private:
         std::deque<int32_t> buffered;
         std::deque<ChannelWaiter> waiters;
         bool closed = false;
+        //K3 task 4: bounded capacity (0 = unbounded). When the buffer is
+        //full and no recv waits, send parks the value+owner in the two
+        //pending queues (same indices — pendingSends[i] belongs to
+        //pendingSenders[i]); recv frees a slot by moving the head pending
+        //value into the buffer and waking its owner (resume only — the
+        //parked call is not re-executed). close delivers the closed
+        //exception to every pending sender and drops the pending values.
+        //No trace arm for pendingSends: each parked value is anchored by
+        //its sender's parked frame (formals are precisely scanned).
+        int32_t capacity = 0;
+        std::deque<int32_t> pendingSends;
+        std::deque<int> pendingSenders;
     };
     std::vector<ChannelSlot> m_channelStore;   //index = handle-1 (0 reserved for null)
     std::vector<int32_t>     m_channelFreeList;//recycled slots after GC sweep

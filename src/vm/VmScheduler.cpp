@@ -313,6 +313,28 @@ void VmScheduler::WakeForChanRecv(int id) {
     m_runQueueCv.notify_all();
 }
 
+//K3 task 4：有界通道发送停泊——仅状态迁移，待发值/属主队列在执行器的
+//ChannelSlot 侧表。
+void VmScheduler::ParkForChanSend(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedChanSend;
+    if (t_carrier && t_carrier->currentContextId == id)
+        t_carrier->currentContextId = -1;
+}
+
+//K3 task 4：发送者唤醒——回 Runnable 入队尾。recv 已把队首待发值挪入
+//缓冲（或 close 已预置异常重抛），停泊的调用不会重执行。
+void VmScheduler::WakeForChanSend(int id) {
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    m_runQueue.push_back(id);
+    m_runQueueCv.notify_all();
+}
+
 //K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用
 //原生的一方），currentContextId 保持——与 Parked* 家族不同，唤醒不
 //经队列事件，而是载体在原生返回后原地续跑。计数供死锁检测排除。

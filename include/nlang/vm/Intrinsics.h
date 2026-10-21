@@ -160,6 +160,11 @@ static constexpr uint16_t INTR_Channel_Ctor  = 138;
 static constexpr uint16_t INTR_Channel_Send  = 139;
 static constexpr uint16_t INTR_Channel_Recv  = 140;
 static constexpr uint16_t INTR_Channel_Close = 141;
+//K3 task 4: the Channel ctor's capacity contract — the invoke form takes
+//exactly one int (builtin invokes stage exact arity); the init-list `{}`
+//arm stages 0 = unbounded; >= 1 = bounded; < 0 raises the catchable
+//capacity error. Shared by the emitter and the intrinsic.
+static constexpr int32_t kChannelUnboundedCapacity = 0;
 //K3 Future methods (142-143): receiver-dispatched like the Mutex/
 //Channel family (slot 0 = this, the Future instance).
 static constexpr uint16_t INTR_Future_Get     = 142;
