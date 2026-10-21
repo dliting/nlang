@@ -74,6 +74,8 @@ private:
     std::istream& m_in;
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController
+    int m_contextId = 0;        //context of the current stop (frame/locals
+                                //queries address it)
     size_t m_selectedFrame = 0;   //`frame <n>` selection (display concern)
     SourceCache m_sourceCache;   //`l` source resolution + caching
 };

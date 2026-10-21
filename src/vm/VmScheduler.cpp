@@ -61,6 +61,36 @@ int VmScheduler::RegisterContext() {
 //与定时器表同为排除项——原生级死锁（等待永不返回）不在检测范围，
 //由原生自身负责。等待中的载体计入 m_idleCarrierCount（锁内维护，
 //检测的输入）。
+//K4：焦点门出队尝试（须持 GIL）。焦点 Runnable 且在队列中→越队首
+//摘出焦点、落账分派并返回其 id；其余一切情形返回 -1（不构成出队）。
+int VmScheduler::TryStealFocusedRunnable() {
+    if (m_debugFocusContext < 0)
+        return -1;
+    const ExecutionContext* focus = Find(m_debugFocusContext);
+    if (!focus || focus->state != ContextState::Runnable)
+        return -1;
+    const auto it = std::find(m_runQueue.begin(), m_runQueue.end(),
+                              m_debugFocusContext);
+    if (it == m_runQueue.end())
+        return -1;
+    const int id = *it;
+    m_runQueue.erase(it);
+    DispatchedToCarrier(id);
+    return id;
+}
+
+//K4：焦点被持时的门等待（须持 GIL，gil 即其锁——wait 期间释放、醒
+//来重取）。纯谓词等待门开或关停；返回 false = 关停（调用方必须退出
+//出队循环——谓词真后回到焦点臂会空转）。
+bool VmScheduler::WaitForHeldFocus(std::unique_lock<std::mutex>& gil) {
+    ++m_idleCarrierCount;
+    m_runQueueCv.wait(gil, [this] {
+        return m_stopRequested || FocusGateOpen();
+    });
+    --m_idleCarrierCount;
+    return !m_stopRequested;
+}
+
 int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     for (;;) {
         //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
@@ -68,27 +98,14 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
         //载体持有→无物可分派，等焦点状态迁移（持有者的停泊/终结/重新
         //入队位点都 notify_all）。
         if (m_debugFocusContext >= 0) {
-            const ExecutionContext* focus =
-                Find(m_debugFocusContext);
+            const ExecutionContext* focus = Find(m_debugFocusContext);
             if (focus && focus->state == ContextState::Runnable) {
-                const auto it = std::find(m_runQueue.begin(),
-                                          m_runQueue.end(),
-                                          m_debugFocusContext);
-                if (it != m_runQueue.end()) {
-                    const int id = *it;
-                    m_runQueue.erase(it);
-                    DispatchedToCarrier(id);
+                if (const int id = TryStealFocusedRunnable(); id >= 0)
                     return id;
-                }
                 //焦点被持：不做死锁检测（焦点 Runnable 即存在工作），
                 //纯谓词等待门开或关停。关停同空队臂——返回 -1 退出循环
                 //（谓词真后 continue 回到焦点臂会空转，必须在此出口）。
-                ++m_idleCarrierCount;
-                m_runQueueCv.wait(gil, [this] {
-                    return m_stopRequested || FocusGateOpen();
-                });
-                --m_idleCarrierCount;
-                if (m_stopRequested)
+                if (!WaitForHeldFocus(gil))
                     return -1;
                 continue;
             }

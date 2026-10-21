@@ -108,14 +108,17 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
     //frozen at this statement; returning resumes in place.
     //Front ends must not let exceptions escape into the VM
     //(they would cross the NLang try/catch boundary).
-    //K1 decision 7: main context only (DebugHooksActive).
+    //K4: every context checkpoints (breakpoints and stepping cover
+    //spawned contexts; the stop payload identifies which one).
     if (DebugHooksActive()) {
         DebugStopInfo stop;
+        stop.contextId = m_spScheduler->CurrentContextId();
         stop.pc = opPc;
         stop.line = line;
         stop.funcIdx = CurrentFuncIdx();
         stop.depth = m_callStack.size();
         m_pDebugHooks->OnStatement(stop, *this);
+        SyncDebugFocus();
     }
 }
 

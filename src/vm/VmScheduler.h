@@ -321,11 +321,23 @@ public:
             return -1;
         return m_heldByCarrier[static_cast<size_t>(carrierId)];
     }
+    //K4：反查——哪个载体的执行窗口正持有该上下文（-1 = 无：停泊/
+    //排队/已终结）。须持 GIL（读集中登记表）。载体数是载体池上限
+    //量级，线性扫足够。
+    int HoldingCarrierOf(int contextId) const {
+        for (size_t i = 0; i < m_heldByCarrier.size(); ++i)
+            if (m_heldByCarrier[i] == contextId)
+                return static_cast<int>(i);
+        return -1;
+    }
     //K4（D2）：调试焦点上下文（-1 = 无）。Step* 设焦点、Continue 清焦
     //点；PopNextRunnable 据此独占分派。须持 GIL 调用（冻结窗口内——
     //与全部调度器状态同一把锁）。切换/清除可能放开门（新焦点已在队
-    //列/非 Runnable，或无焦点）——唤醒 held-wait 等待者立即重评。
+    //列/非 Runnable，或无焦点）——唤醒 held-wait 等待者立即重评；同值
+    //重复同步是无操作（每个检查点后都会同步，勿产生虚假唤醒）。
     void SetDebugFocusContext(int id) {
+        if (m_debugFocusContext == id)
+            return;
         m_debugFocusContext = id;
         m_runQueueCv.notify_all();
     }
@@ -382,6 +394,11 @@ private:
     //GIL）。无焦点时不可能存在门等待者（held-wait 只在焦点 Runnable
     //且被持时进入）——跳过广播，阻塞热路径不因调试机制空转。
     void NotifyGateWaiters();
+    //K4：焦点门的两臂（PopNextRunnable 的门注释）——越队首摘焦点并
+    //落账（其余一切情形 -1，不构成出队）；焦点被持时的纯谓词等待
+    //（false = 关停，调用方须退出出队循环）。
+    int TryStealFocusedRunnable();
+    bool WaitForHeldFocus(std::unique_lock<std::mutex>& gil);
 
     //把 wakeAt 已到的 ParkedTimer 上下文迁回 Runnable 入队尾；状态已变
     //的陈旧条目直接丢弃（K1 无取消路径，防御后续切片）。

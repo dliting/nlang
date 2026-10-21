@@ -178,6 +178,8 @@ private:
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController
     bool m_started = false;   //run issued: the frozen window governs now
+    int m_contextId = 0;      //context of the current stop (frame/locals
+                              //queries address it)
     size_t m_selectedFrame = 0;   //frame <n> selection for locals
     //Program input lines from stdin data commands, in arrival order.
     //Type-ahead (prelude / frozen stop) parks here until the program

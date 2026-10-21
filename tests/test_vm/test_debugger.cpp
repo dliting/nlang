@@ -24,6 +24,7 @@ int main()
     run_debugger_hostio_tests();
     run_debugger_machine_tests();
     run_debugger_loop_tests();
+    run_debugger_multicontext_tests();
     run_backtrace_tests();
 
     std::cerr << "\ndebugger_tests: " << g_pass << " passed, "

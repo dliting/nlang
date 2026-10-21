@@ -229,10 +229,20 @@ public:
         return m_spScheduler->Find(id);
     }
 
-    //IVmDebugView — definitions in VmExecutorDebug.cpp.
-    size_t FrameCount() const override;
-    DebugFrameInfo FrameInfo(size_t depth) const override;
-    std::vector<DebugLocalValue> FrameLocals(size_t depth) const override;
+    //IVmDebugView — definitions in VmExecutorDebug.cpp. Frame queries
+    //address one context by id: the context in this carrier's execution
+    //window reads m_callStack, every other context reads its parked
+    //frames in the scheduler registry (K4: unified inspection face).
+    size_t ContextCount() const override;
+    DebugContextInfo ContextInfo(int contextId) const override;
+    size_t FrameCount(int contextId) const override;
+    DebugFrameInfo FrameInfo(int contextId, size_t depth) const override;
+    std::vector<DebugLocalValue> FrameLocals(int contextId,
+        size_t depth) const override;
+    //Frame source resolution behind the view face (see
+    //VmExecutorDebug.cpp): execution-window context → m_callStack,
+    //otherwise the registry's parked stack.
+    const std::vector<CallFrame>* FramesOfContext(int contextId) const;
 
     //Native functions (standard library AND third-party) share the public
     //NativeHost ABI (nlang/vm/NativeHost.h): each call receives a NativeHost
@@ -761,13 +771,20 @@ private:
     };
     static thread_local GilHolder* t_gilOwner;
 
-    //K1 decision 7: debug callbacks fire for the main context only
-    //(spawned contexts stay silent — full multi-context debugging is
-    //K4). Slice 4 runs main only, so behavior is unchanged.
+    //K4: checkpoints fire for every context (K1 decision 7 lifted) —
+    //the hooks see spawned contexts' statements and throws too.
     bool DebugHooksActive() const {
-        return m_pDebugHooks != nullptr
-            && m_spScheduler->CurrentContextId()
-                == VmScheduler::kMainThreadId;
+        return m_pDebugHooks != nullptr;
+    }
+
+    //K4: apply the hooks' declared focus to the scheduler's exclusive
+    //dispatch gate. Called after every checkpoint callback (the front
+    //end's resume command settles the desired focus inside the frozen
+    //window; stepping holds the gate, Continue releases it). Runs while
+    //the carrier still holds the GIL — the scheduler lock discipline.
+    void SyncDebugFocus() {
+        m_spScheduler->SetDebugFocusContext(
+            m_pDebugHooks->DebugFocusContext());
     }
 
     //Execute a VM-side intrinsic function. Called from OP_CallMethod{,Direct}

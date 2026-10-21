@@ -22,14 +22,15 @@ the first run (a front end may preset breakpoints).
 namespace nlang {
 
 //Payload of one freeze. reason selects the front end's report flavor;
-//line/funcIdx/depth mirror the engine's DebugStopInfo; breakpointId is
-//set only for Reason::Breakpoint. (No pc: front ends that need it read
-//FrameInfo, which also carries the func/file the reports are built
-//from.)
+//contextId/line/funcIdx/depth mirror the engine's DebugStopInfo;
+//breakpointId is set only for Reason::Breakpoint. (No pc: front ends
+//that need it read FrameInfo, which also carries the func/file the
+//reports are built from.)
 struct StopInfo
 {
     enum class Reason { Initial, Breakpoint, Step, Throw };
     Reason reason = Reason::Initial;
+    int contextId = 0;
     int breakpointId = 0;
     uint16_t line = 0, funcIdx = 0;
     size_t depth = 0;
@@ -87,7 +88,12 @@ public:
 
     //Resume commands. Valid only inside the frozen window; elsewhere
     //they throw std::logic_error (a resume queued outside the window
-    //would silently corrupt the next stop decision).
+    //would silently corrupt the next stop decision). K4: Step* targets
+    //the stopped context — it becomes the exclusive-dispatch focus
+    //(other contexts freeze out of dispatch while it stays runnable);
+    //Continue releases the focus. Stepping never follows spawns: a
+    //spawned context enters view through breakpoint hits or its own
+    //stops.
     void Continue();
     void StepInto();
     void StepOver();
@@ -126,6 +132,10 @@ public:
     //IDebugHooks — install via VmExecutor::SetDebugHooks.
     void OnStatement(const DebugStopInfo& stop, IVmDebugView& view) override;
     void OnThrow(const DebugStopInfo& stop, IVmDebugView& view) override;
+    //Exclusive-dispatch focus the executor applies after each
+    //checkpoint: the step target while a Step* mode is armed (-1 when
+    //running free).
+    int DebugFocusContext() const override { return m_stepFocusContext; }
 
 private:
     enum class RunMode
@@ -149,6 +159,9 @@ private:
 
     //Refuse window-bound calls made outside the frozen window.
     void RequireFrozenWindow(const char* who) const;
+    //Step/initial stop decision for one statement checkpoint (K4: step
+    //modes stop only in the step focus).
+    bool ShouldStepStop(const DebugStopInfo& stop) const;
     //Announce the freeze, then block in the front end's pump.
     void Freeze(const StopInfo& info);
 
@@ -157,6 +170,10 @@ private:
     IVmDebugView* m_pView = nullptr;  //valid only inside the frozen window
     RunMode m_mode = RunMode::InitialStop;
     size_t m_stepDepth = 0;     //depth captured when StepOver/Out was issued
+    //K4: context of the current freeze (Step* targets it) and the focus
+    //it arms (DebugFocusContext below reads it; -1 = no focus).
+    int m_stopContextId = 0;
+    int m_stepFocusContext = -1;
     int m_nextBreakpointId = 1;
     std::vector<Breakpoint> m_breakpoints;
     bool m_breakOnThrow = false;   //`catch on|off` (default off)

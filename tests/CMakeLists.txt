@@ -647,6 +647,7 @@ add_executable(test_debugger
     test_vm/test_debugger_session.cpp
     test_vm/test_debugger_controller.cpp
     test_vm/test_debugger_machine.cpp
+    test_vm/test_debugger_multicontext.cpp
     test_vm/test_backtrace.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/MachineFrontEnd.cpp

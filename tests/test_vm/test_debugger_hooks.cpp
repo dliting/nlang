@@ -84,13 +84,14 @@ public:
     std::vector<std::string> localLines;  //"name=display"
     void OnStatement(const DebugStopInfo& s, IVmDebugView& view) override {
         if (captured || s.line != stopLine
-            || view.FrameInfo(0).funcName != target) return;
+            || view.FrameInfo(s.contextId, 0).funcName != target) return;
         captured = true;
         line = s.line;
-        frameCount = view.FrameCount();
+        frameCount = view.FrameCount(s.contextId);
         for (size_t d = 0; d < frameCount; ++d)
-            frameNames.push_back(view.FrameInfo(d).funcName);
-        for (const auto& l : view.FrameLocals(0))
+            frameNames.push_back(
+                view.FrameInfo(s.contextId, d).funcName);
+        for (const auto& l : view.FrameLocals(s.contextId, 0))
             localLines.push_back(l.name + "=" + l.display);
     }
     void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
@@ -220,9 +221,10 @@ public:
     bool captured = false;
     void OnStatement(const DebugStopInfo& s, IVmDebugView& view) override {
         if (captured || s.line != stopLine
-            || view.FrameInfo(0).funcName != "family_locals.main") return;
+            || view.FrameInfo(s.contextId, 0).funcName
+                != "family_locals.main") return;
         captured = true;
-        for (const auto& l : view.FrameLocals(0))
+        for (const auto& l : view.FrameLocals(s.contextId, 0))
             rows.push_back(l.name + ":" + l.kindName + "=" + l.display);
     }
     void OnThrow(const DebugStopInfo&, IVmDebugView&) override {}
