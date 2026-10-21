@@ -1,0 +1,5 @@
+class V { public int x; public V(int a){ x = a; } }
+int a = 3;
+int b = 4;
+V p(a<b);
+return p.x;

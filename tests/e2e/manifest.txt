@@ -1742,3 +1742,6 @@ body_zero_arg_ctor 42
 err_top_level_prim_ctor compile_error "Int32" is not a class or struct type.
 err_top_level_zero_arg_with_main compile_error top-level statements cannot be combined with an explicit main() function
 top_level_const_zero_arg_ctor 42
+top_level_workaround 5
+err_top_level_rel_arg compile_error syntax error
+err_top_level_member_arg compile_error syntax error
