@@ -206,6 +206,12 @@ public:
     int SchedulerGilWaitersPeak() const {
         return m_spScheduler->GilWaitersPeak();
     }
+    //K4: carrier -> context currently held in its execution window (the
+    //scheduler's GIL-guarded mirror; -1 = idle). White-box only — the
+    //threads listing and tests consume it.
+    int SchedulerHeldContextOfCarrier(int carrierId) const {
+        return m_spScheduler->HeldContextOfCarrier(carrierId);
+    }
 
     //K2 slice 2 (plan ruling P1): carrier-thread count for the next run —
     //1 means the Execute thread alone (the library default: an embedding
@@ -628,7 +634,7 @@ private:
     //detaches per thread and clears the pool. RethrowAuxiliaryError is
     //the single rethrow point for the conflated slot.
     void LaunchAuxiliaryCarriers(const CompiledFunction& mainFunc);
-    void RunAuxiliaryCarrier(const CompiledFunction& mainFunc);
+    void RunAuxiliaryCarrier(const CompiledFunction& mainFunc, int carrierId);
     void JoinAndCollect();
     void RecordAuxiliaryError();
     void RethrowAuxiliaryError();

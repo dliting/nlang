@@ -28,6 +28,11 @@ void VmScheduler::Reset() {
     m_blockedNativeCount = 0;
     m_nextId = 0;
     m_auxDispatchCount = 0;
+    //K4：跨 run 残留的调试焦点会饿死新一轮运行的全部其他上下文——
+    //每 run 复位；登记表按既定载体数重新置空（定容由
+    //ConfigureCarriers 每 run 重申）。
+    m_debugFocusContext = -1;
+    m_heldByCarrier.assign(m_carrierCount, -1);
     m_gilWaitersPeak.store(0, std::memory_order_relaxed);
     m_timerCv.notify_all();
 }
@@ -58,12 +63,40 @@ int VmScheduler::RegisterContext() {
 //检测的输入）。
 int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     for (;;) {
+        //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
+        //可分派者。排队中→本次出队取焦点（越过队首非焦点项）；被别的
+        //载体持有→无物可分派，等焦点状态迁移（持有者的停泊/终结/重新
+        //入队位点都 notify_all）。
+        if (m_debugFocusContext >= 0) {
+            const ExecutionContext* focus =
+                Find(m_debugFocusContext);
+            if (focus && focus->state == ContextState::Runnable) {
+                const auto it = std::find(m_runQueue.begin(),
+                                          m_runQueue.end(),
+                                          m_debugFocusContext);
+                if (it != m_runQueue.end()) {
+                    const int id = *it;
+                    m_runQueue.erase(it);
+                    DispatchedToCarrier(id);
+                    return id;
+                }
+                //焦点被持：不做死锁检测（焦点 Runnable 即存在工作），
+                //纯谓词等待门开或关停。关停同空队臂——返回 -1 退出循环
+                //（谓词真后 continue 回到焦点臂会空转，必须在此出口）。
+                ++m_idleCarrierCount;
+                m_runQueueCv.wait(gil, [this] {
+                    return m_stopRequested || FocusGateOpen();
+                });
+                --m_idleCarrierCount;
+                if (m_stopRequested)
+                    return -1;
+                continue;
+            }
+        }
         if (!m_runQueue.empty()) {
             const int id = m_runQueue.front();
             m_runQueue.pop_front();
-            t_carrier->currentContextId = id;
-            if (std::this_thread::get_id() != m_primaryThreadId)
-                ++m_auxDispatchCount;
+            DispatchedToCarrier(id);
             return id;
         }
         if (m_stopRequested)
@@ -81,11 +114,50 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     }
 }
 
+//K4：分派落账（须持 GIL）。辅助载体计数沿旧位（出队即记）。
+void VmScheduler::DispatchedToCarrier(int id) {
+    t_carrier->currentContextId = id;
+    if (t_carrier->carrierId >= 0
+        && static_cast<size_t>(t_carrier->carrierId)
+               < m_heldByCarrier.size())
+        m_heldByCarrier[static_cast<size_t>(t_carrier->carrierId)] = id;
+    if (std::this_thread::get_id() != m_primaryThreadId)
+        ++m_auxDispatchCount;
+}
+
+//K4：窗口结束时清集中登记（须持 GIL）。thread_local 槽先行判断——
+//登记表只在持有匹配时才写。
+void VmScheduler::ReleaseHeldIfCurrent(int id) {
+    if (!t_carrier || t_carrier->currentContextId != id)
+        return;
+    t_carrier->currentContextId = -1;
+    if (t_carrier->carrierId >= 0
+        && static_cast<size_t>(t_carrier->carrierId)
+               < m_heldByCarrier.size())
+        m_heldByCarrier[static_cast<size_t>(t_carrier->carrierId)] = -1;
+}
+
+//K4：门放开＝焦点无效/不存在/非 Runnable/已在队列。闭门仅一种形态：
+//焦点 Runnable 且被别的载体持有（对持有着本身不构成——它不在出队）。
+bool VmScheduler::FocusGateOpen() const {
+    if (m_debugFocusContext < 0)
+        return true;
+    const ExecutionContext* focus = Find(m_debugFocusContext);
+    if (!focus || focus->state != ContextState::Runnable)
+        return true;
+    return std::find(m_runQueue.begin(), m_runQueue.end(),
+                     m_debugFocusContext) != m_runQueue.end();
+}
+
+void VmScheduler::NotifyGateWaiters() {
+    if (m_debugFocusContext >= 0)
+        m_runQueueCv.notify_all();
+}
+
 void VmScheduler::Requeue(int id) {
     m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
 }
 
 void VmScheduler::MarkFinished(int id, int64_t result) {
@@ -94,8 +166,10 @@ void VmScheduler::MarkFinished(int id, int64_t result) {
         return;
     ctx->state = ContextState::Finished;
     ctx->resultCell = result;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点可能正终结（离开 Runnable）——唤醒门等待者（main 分支的
+    //关停通知是重复通知，无害）。
+    NotifyGateWaiters();
     //main 终结即本轮运行结束：请求关停，等待中的辅助载体在下次出队
     //看到 -1 退出（挂起上下文静默丢弃——K1 退出策略不变）。
     if (id == kMainThreadId) {
@@ -110,8 +184,9 @@ void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
         return;
     ctx->state = ContextState::Failed;
     ctx->failExcHeapIdx = failExcHeapIdx;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：同 MarkFinished——焦点终结唤醒门等待者。
+    NotifyGateWaiters();
     //main 失败同样终结本轮运行（错误经主载体重抛到宿主）。
     if (id == kMainThreadId) {
         m_stopRequested = true;
@@ -127,8 +202,9 @@ void VmScheduler::ParkForJoin(int id, int targetId) {
         return;
     ctx->state = ContextState::ParkedJoin;
     ctx->parkHandle = targetId;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊（离开 Runnable）——门等待者须重评（放行）。
+    NotifyGateWaiters();
 }
 
 //目标终结：全部 ParkedJoin 于该目标的上下文回 Runnable 入队尾；
@@ -177,8 +253,9 @@ void VmScheduler::ParkForTimer(int id,
     ctx->state = ContextState::ParkedTimer;
     ctx->wakeAt = wakeAt;
     m_timers.push_back(TimerEntry{id, wakeAt});
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行（m_timerCv 是定时器线程的，不够）。
+    NotifyGateWaiters();
     if (!m_timerThreadStarted) {
         m_timerThreadStarted = true;
         m_timerThread = std::thread([this] { TimerThreadMain(); });
@@ -275,8 +352,9 @@ void VmScheduler::ParkForMutex(int id) {
     if (!ctx)
         return;
     ctx->state = ContextState::ParkedMutex;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行。
+    NotifyGateWaiters();
 }
 
 //互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
@@ -298,8 +376,9 @@ void VmScheduler::ParkForChanRecv(int id) {
     if (!ctx)
         return;
     ctx->state = ContextState::ParkedChanRecv;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行。
+    NotifyGateWaiters();
 }
 
 //通道唤醒（Slice 9）：回 Runnable 入队尾。值已由执行器在调用本方法
@@ -320,8 +399,9 @@ void VmScheduler::ParkForChanSend(int id) {
     if (!ctx)
         return;
     ctx->state = ContextState::ParkedChanSend;
-    if (t_carrier && t_carrier->currentContextId == id)
-        t_carrier->currentContextId = -1;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行。
+    NotifyGateWaiters();
 }
 
 //K3 task 4：发送者唤醒——回 Runnable 入队尾。recv 已把队首待发值挪入

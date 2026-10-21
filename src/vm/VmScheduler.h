@@ -130,6 +130,9 @@ struct ExecutionContext {
     //ArmResumeRethrow 直取；join 失败重抛不走此字段，仍按 parkHandle
     //取目标 failExcHeapIdx）。
     int32_t resumeExcHeapIdx = 0;
+    //K4：最近一次分派本上下文的载体编号（255 = 从未分派）。唤醒亲和
+    //（lastRunner 偏好）在分派时盖戳、出队时消费；Task 1 只落字段。
+    uint8_t lastCarrier = 255;
 };
 
 //调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、
@@ -150,12 +153,17 @@ public:
 
     //FIFO 弹出下一个待运行上下文并记为本载体当前上下文（须持 GIL；
     //gil 即该锁——等待期间锁被释放，醒来重取，重取后调用方继续持有）。
-    //队列空时在条件变量上纯谓词等待（无截止时间——定时器的到期迁移
-    //由专用线程负责，到期入队即唤醒载体）。关停请求置位返回 -1。
-    //死锁检测：全部在飞载体都将等待（本载体即将成为最后一个空闲载
-    //体）且队列与定时器表皆空——没有任何唤醒源，直接抛错（main 未完
-    //成即无法返回，与其静默挂死不如拒绝）；定时器表非空则必有未来唤
-    //醒，不构成死锁。
+    //K4 调试焦点门（D2）：焦点上下文 Runnable 时它是唯一可分派者——
+    //排队中则本次出队即取焦点（越过队首非焦点项）；被某载体的执行窗
+    //口持有时无物可分派，在条件变量上等焦点释放（停泊/终结/重新入队
+    //都会通知）；焦点停泊/终结则无状态放行（每次出队按当前状态重判，
+    //无清除路径）。队列空时在条件变量上纯谓词等待（无截止时间——定时
+    //器的到期迁移由专用线程负责，到期入队即唤醒载体）。关停请求置位
+    //返回 -1。死锁检测：全部在飞载体都将等待（本载体即将成为最后一个
+    //空闲载体）且队列与定时器表皆空——没有任何唤醒源，直接抛错（main
+    //未完成即无法返回，与其静默挂死不如拒绝）；定时器表非空则必有未来
+    //唤醒，不构成死锁。焦点被持等待臂不做死锁检测：焦点 Runnable 即
+    //存在工作，持有者的窗口必然结束并通知。
     int PopNextRunnable(std::unique_lock<std::mutex>& gil);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
@@ -252,15 +260,18 @@ public:
     //K2 slice 2: 每载体状态。载体循环入口（主/辅助同一点）安装本线程
     //的槽；InstallSelfCarrier 幂等重置——同一 OS 线程跑过多个执行器
     //或多次 run 时不携带旧值。槽按线程隔离，多个载体并发在飞时各自
-    //读写互不可见。
+    //读写互不可见。K4：载体编号（主=0、辅助=1..N）随槽安装——集中登记
+    //表与唤醒亲和都以它为键。
     struct CarrierState {
         int currentContextId = -1;  //本载体正在执行的上下文
+        int carrierId = -1;         //K4：本载体编号（主=0、辅助=1..N）
         int nestDepth = 0;          //本载体上的嵌套求值深度
         int schedTripBudget = 0;    //本载体当前窗口的回边预算
     };
-    void InstallSelfCarrier() {
+    void InstallSelfCarrier(int carrierId) {
         t_carrier = &t_selfCarrier;
         t_carrier->currentContextId = -1;
+        t_carrier->carrierId = carrierId;
         t_carrier->nestDepth = 0;
         t_carrier->schedTripBudget = 0;
     }
@@ -292,6 +303,33 @@ public:
     //辅助载体上的分派次数（白盒观测：多载体并非空转的证据）。主载体
     //线程在 RegisterContext（主载体专属路径）时记录。
     int AuxDispatchCount() const { return m_auxDispatchCount; }
+
+    //K4：登记载体数并给集中登记表定容（主载体路径 RunPrimaryCarrier
+    //在池启动前调用——单线程时点，无并发定容竞争；每 run 重申）。
+    //镜像表按载体编号下标存「该载体当前持有的上下文」（-1 = 空闲），
+    //是调试器 threads 列表 held 标注与亲和观测的数据源；帧可达性不
+    //依赖它（检查面两路完备：执行窗口上下文→单份 m_callStack，其余
+    //→注册表停泊帧）。
+    void ConfigureCarriers(uint32_t count) {
+        m_carrierCount = count;
+        m_heldByCarrier.assign(count, -1);
+    }
+    //K4：载体当前持有的上下文（白盒观测；越界载体号返回 -1）。
+    int HeldContextOfCarrier(int carrierId) const {
+        if (carrierId < 0
+            || static_cast<size_t>(carrierId) >= m_heldByCarrier.size())
+            return -1;
+        return m_heldByCarrier[static_cast<size_t>(carrierId)];
+    }
+    //K4（D2）：调试焦点上下文（-1 = 无）。Step* 设焦点、Continue 清焦
+    //点；PopNextRunnable 据此独占分派。须持 GIL 调用（冻结窗口内——
+    //与全部调度器状态同一把锁）。切换/清除可能放开门（新焦点已在队
+    //列/非 Runnable，或无焦点）——唤醒 held-wait 等待者立即重评。
+    void SetDebugFocusContext(int id) {
+        m_debugFocusContext = id;
+        m_runQueueCv.notify_all();
+    }
+    int DebugFocusContext() const { return m_debugFocusContext; }
 
     //请求关停：置位并唤醒全部等待载体（它们在下次出队时看到 -1 退
     //出）。自取 GIL——供未持锁的路径（RunPrimaryCarrier 的异常兜底）
@@ -329,6 +367,21 @@ private:
         static thread_local CarrierState s_fallback;
         return t_carrier ? *t_carrier : s_fallback;
     }
+
+    //K4：分派落账——记本载体槽与集中登记表（须持 GIL；调用前提
+    //t_carrier 已安装，与既有出队路径同一不变量）。
+    void DispatchedToCarrier(int id);
+    //K4：窗口结束（停泊/终结/重新入队）时清集中登记——仅当清的是本
+    //载体当前持有的上下文（须持 GIL）。
+    void ReleaseHeldIfCurrent(int id);
+    //K4：焦点门是否放开（须持 GIL）。放开＝焦点无效/不存在/非
+    //Runnable/已在队列（可被独占分派）——闭门仅一种形态：焦点
+    // Runnable 且被别的载体持有。
+    bool FocusGateOpen() const;
+    //K4：焦点状态迁出 Runnable（停泊/终结）时唤醒门等待者（须持
+    //GIL）。无焦点时不可能存在门等待者（held-wait 只在焦点 Runnable
+    //且被持时进入）——跳过广播，阻塞热路径不因调试机制空转。
+    void NotifyGateWaiters();
 
     //把 wakeAt 已到的 ParkedTimer 上下文迁回 Runnable 入队尾；状态已变
     //的陈旧条目直接丢弃（K1 无取消路径，防御后续切片）。
@@ -368,6 +421,11 @@ private:
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
+    //K4：调试焦点（D2；-1 = 无）与载体→当前上下文集中登记表（按载体
+    //编号下标；-1 = 空闲）。全部读写都在 GIL 内。
+    int m_debugFocusContext = -1;
+    uint32_t m_carrierCount = 0;
+    std::vector<int> m_heldByCarrier;
 
     //K2 slice 3: 定时器线程（全部标志/列表访问均在 GIL 内）。
     std::condition_variable m_timerCv;    //定时器表变化的通知通道

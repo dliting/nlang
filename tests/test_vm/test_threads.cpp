@@ -2845,6 +2845,130 @@ static void test_aux_carriers_actually_execute()
     PASS();
 }
 
+// --- K4 Task 1（载体身份＋当前上下文集中登记＋调试焦点分派）---
+
+//焦点独占分派（调度器白盒，D2）：焦点 Runnable 时它是唯一可分派上下文
+//——排队中则任意出队者取得焦点（哪怕它不在队首）；焦点停泊后无状态放
+//行（队首照常出队）；焦点重新入队恢复独占；焦点终结后门全开。集中登记
+//表随分派/释放同步翻转。
+static void test_debug_focus_exclusive_dispatch()
+{
+    TEST(debug_focus_exclusive_dispatch);
+    VmScheduler sched;
+    sched.ConfigureCarriers(1);
+    sched.InstallSelfCarrier(0);
+    std::unique_lock<std::mutex> gil(sched.Gil());
+    CHECK(sched.RegisterContext() == 0, "main registers as id 0");
+    CHECK(sched.RegisterContext() == 1, "first worker registers as id 1");
+    CHECK(sched.RegisterContext() == 2, "second worker registers as id 2");
+    CHECK(sched.PopNextRunnable(gil) == 0,
+          "no focus set: the FIFO head dispatches");
+    CHECK(sched.HeldContextOfCarrier(0) == 0,
+          "the held mirror records the dispatched context");
+    //焦点钉在队尾：独占分派必须取焦点而非队首（纯 FIFO 会返回 1）
+    sched.SetDebugFocusContext(2);
+    CHECK(sched.PopNextRunnable(gil) == 2,
+          "queued focus dispatches exclusively, jumping the queue");
+    CHECK(sched.HeldContextOfCarrier(0) == 2,
+          "the mirror follows the focus dispatch");
+    //焦点停泊（模拟步进落到空通道 recv/竞争锁）：门无状态放开
+    sched.ParkForMutex(2);
+    CHECK(sched.HeldContextOfCarrier(0) == -1,
+          "parking releases the held mirror slot");
+    CHECK(sched.PopNextRunnable(gil) == 1,
+          "parked focus opens the gate: the head dispatches");
+    sched.Requeue(1);
+    sched.WakeForMutex(2);   //queue [1, 2] — focus at the tail again
+    CHECK(sched.PopNextRunnable(gil) == 2,
+          "requeued focus resumes exclusivity over the head");
+    //焦点终结：门开，常规分派照常（此后队列空，用关停收尾）
+    sched.MarkFinished(2, 0);
+    CHECK(sched.PopNextRunnable(gil) == 1,
+          "a finished focus leaves the gate open");
+    //RequestStop 自取 GIL（供未持锁路径调用）——持有者须先放锁再调。
+    {
+        gil.unlock();
+        sched.RequestStop();
+        gil.lock();
+    }
+    CHECK(sched.PopNextRunnable(gil) == -1,
+          "stop ends the dequeue loop");
+    PASS();
+}
+
+//焦点被持等待（held-wait，D2 的另一臂）：焦点 Runnable 且不在队列（被某
+//载体的执行窗口持有）时，出队者必须等待——不得窃取队首。白盒模拟：焦点
+//由本线程先行出队（生产中持有者是另一载体，规则同一条），另一线程迟滞
+//RequestStop；错误实现会立即返回队首，正确实现等到关停通知返回 -1。
+static void test_debug_focus_held_wait()
+{
+    TEST(debug_focus_held_wait);
+    VmScheduler sched;
+    sched.ConfigureCarriers(1);
+    sched.InstallSelfCarrier(0);
+    std::unique_lock<std::mutex> gil(sched.Gil());
+    sched.RegisterContext();                //0 main
+    const int focusId = sched.RegisterContext();   //1: focus-to-be
+    sched.RegisterContext();                //2: head contender
+    CHECK(sched.PopNextRunnable(gil) == 0, "main dispatches first");
+    CHECK(sched.PopNextRunnable(gil) == focusId,
+          "the focus context is dispatched (now held, not queued)");
+    sched.SetDebugFocusContext(focusId);    //Runnable + held: gate closed
+    std::thread stopper([&sched] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        sched.RequestStop();
+    });
+    const int got = sched.PopNextRunnable(gil);
+    stopper.join();
+    CHECK(got == -1,
+          "focus held by a window: the dequeue waits for its release "
+          "(stop ends it) instead of stealing the head");
+    PASS();
+}
+
+//集中登记表（held 镜像）的运行期归属与收尾：多载体真实运行后（池已汇
+//合、全部载体退出），每条载体槽必须归 -1——任何窗口结束路径（停泊/终
+//结/重新入队）都释放了登记。threads 列表（Task 3）以本表为数据源。
+static void test_held_context_mirror_reset_after_run()
+{
+    TEST(held_context_mirror_reset_after_run);
+    const char* src =
+        "import thread;\n"
+        "import io;\n"
+        "void w() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        int j = 0;\n"
+        "        while (j < 400) { j = j + 1; }\n"
+        "        io.write(\"x\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread a = thread.spawn(w);\n"
+        "    Thread b = thread.spawn(w);\n"
+        "    Thread c = thread.spawn(w);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    return 0;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("k4_mirror_reset", src);
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    exec.SetCarrierThreadCount(4);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0, "four-carrier three-worker program ends");
+    bool allReleased = true;
+    for (int carrier = 0; carrier < 4; ++carrier)
+        allReleased = allReleased
+            && exec.SchedulerHeldContextOfCarrier(carrier) == -1;
+    CHECK(allReleased,
+          "after the pool joins, no carrier still holds a context");
+    PASS();
+}
+
 //K2 Task 3：定时器唤醒＋死锁非误报。三个 sleeper 错峰睡眠（10/30/50
 //毫秒），一个忙循环 worker 与之并发；main 在 join 处停泊——此刻全部
 //载体空闲、仅有定时器在飞。断言：sleeper 依到期顺序完成（错峰保证确
@@ -3204,6 +3328,9 @@ int main()
         test_carrier_count_deterministic_parity();
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
+        test_debug_focus_exclusive_dispatch();
+        test_debug_focus_held_wait();
+        test_held_context_mirror_reset_after_run();
         test_timer_wake_under_multi_carrier();
         test_aux_carrier_error_confluence();
         runGuarded(test_blocking_native_releases_gil);

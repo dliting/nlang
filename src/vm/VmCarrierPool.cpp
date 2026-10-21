@@ -23,7 +23,11 @@ constexpr auto kAuxCarrierJoinGrace = std::chrono::seconds(2);
 //MarkFailed on main inside the loop, and any exception escaping it),
 //join it, and rethrow the conflated auxiliary error exactly once.
 void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
-    m_spScheduler->InstallSelfCarrier();
+    //K4: carrier ids — primary=0, auxiliary=1..N. ConfigureCarriers sizes
+    //the held-context mirror before any dispatch can occur (pool not yet
+    //launched, single-threaded — no lock competition).
+    m_spScheduler->ConfigureCarriers(m_carrierThreadCount);
+    m_spScheduler->InstallSelfCarrier(0);
     CarrierActiveGuard carrierActive(
         m_spScheduler->ActiveCarrierCountRef());
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
@@ -50,8 +54,10 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
 //main-only — a spawned context always resumes with frames). Errors
 //never escape the thread: they go to the confluence slot for the
 //primary carrier's single rethrow; the exit flag signals the join.
-void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc) {
-    m_spScheduler->InstallSelfCarrier();
+//K4: carrierId = the pool-assigned index (1..N).
+void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc,
+                                     int carrierId) {
+    m_spScheduler->InstallSelfCarrier(carrierId);
     CarrierActiveGuard carrierActive(
         m_spScheduler->ActiveCarrierCountRef());
     try {
@@ -89,8 +95,8 @@ void VmExecutor::LaunchAuxiliaryCarriers(const CompiledFunction& mainFunc) {
         AuxCarrier& rec = m_auxCarriers.emplace_back();
         rec.exited = std::make_shared<std::atomic<bool>>(false);
         auto exited = rec.exited;
-        rec.thread = std::thread([this, &mainFunc, exited] {
-            RunAuxiliaryCarrier(mainFunc);
+        rec.thread = std::thread([this, &mainFunc, exited, i] {
+            RunAuxiliaryCarrier(mainFunc, static_cast<int>(i));
             exited->store(true, std::memory_order_release);
             std::lock_guard<std::mutex> lk(m_auxExitMutex);
             m_auxExitCv.notify_all();
