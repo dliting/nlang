@@ -799,8 +799,11 @@ private:
 	overload is chosen — each formal's declared type becomes the init
 	list's target. False when an argument failed (its diagnostic is
 	logged); the invoke stays unresolved, mirroring the func-ref path.
+	0.9.13 B2: named arguments resolve through their SnNamedArgExpr
+	wrapper, located via the invoke's child list.
 	*/
-	bool ResolveDeferredBraceArgs(std::vector<FormalBinding> &bindings);
+	bool ResolveDeferredBraceArgs(SnInvokeExpr &invoke,
+		std::vector<FormalBinding> &bindings);
 
 	/*
 	Calculate the type "distance" from source type to target type.

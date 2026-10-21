@@ -1142,6 +1142,10 @@ Iterates Array / List<T> / Dict<K,V> (keys).
 */
 ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
 					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+				} |
+				//0.9.13 B1: bare brace source for foreach.
+				KT_Foreach '(' Type TT_Identifier KT_In BracedInitExpr ')' Statement {
+					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
 				} ;
 
 /*
@@ -1816,6 +1820,8 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
 				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				//0.9.13 B5: the lexer collapses `[]` into one OT_Brackets token.
+				OT_Brackets	{ auto* pEmpty = new std::vector<nlang::InitEntry>(); $$ = new SnInitListExpr(nullptr, *pEmpty, true, @1); delete pEmpty; } |
 				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. The identifier
 				//reads as a type name at resolve time.
 				//No LALR conflict: a legal
@@ -1998,6 +2004,13 @@ InitEntry:	TT_String ':' Expression {
 						pE->keyKind = nlang::InitEntry::KeyKind::None;
 						pE->pValue = $1;
 						$$ = pE;
+					} |
+					//0.9.13 B6: nested bare brace entry.
+					BracedInitExpr {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::None;
+						pE->pValue = $1;
+						$$ = pE;
 					} ;
 
 ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
@@ -2027,7 +2040,10 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 //expression) or a named argument `name = expr`. The `=` here is at the
 //call-site parameter level — NLang has no assignment-as-expression, so
 //inside `foo(...)` the form `Identifier '=' Expression` is unambiguous.
-ConcreteParam:	TT_Identifier '=' Expression {
+ConcreteParam:	TT_Identifier '=' BracedInitExpr {
+						$$ = new SnNamedArgExpr($1, $3, @1);
+					} |
+					TT_Identifier '=' Expression {
 						$$ = new SnNamedArgExpr($1, $3, @1);
 					} |
 					/* Phase 9e: out argument. Restricted to a plain identifier

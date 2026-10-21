@@ -1707,3 +1707,12 @@ infer_array_return 3
 list_intarr_boxing 3
 infer_foreach_bracket_source 10
 foreach_jagged_supply compile_error jagged arrays
+foreach_brace_source compile_error the brace form
+named_arg_brace 3
+named_arg_brace_int_formal compile_error is not compatible with the declaration
+empty_array_decl 0
+empty_array_foreach 0
+empty_array_arg 0
+nested_brace 3
+err_generic_anchor_brace compile_error syntax error
+err_bracket_receiver compile_error requires an explicit type

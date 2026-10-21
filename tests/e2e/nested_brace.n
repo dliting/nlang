@@ -1,0 +1,4 @@
+public int main() {
+    List<List<int>> m = {{1, 2}, {3, 4}};
+    return m[1][0];
+}

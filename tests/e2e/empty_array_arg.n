@@ -1,0 +1,7 @@
+public int len_of(int[] a) {
+    return a.length();
+}
+
+public int main() {
+    return len_of([]);
+}

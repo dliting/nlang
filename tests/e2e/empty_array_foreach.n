@@ -1,0 +1,6 @@
+public int main() {
+    int n = 0;
+    foreach (int x in [])
+        n = n + 1;
+    return n;
+}
