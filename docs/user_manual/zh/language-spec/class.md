@@ -37,6 +37,13 @@ class在整个语言中遵循**引用语义**：
 
 字段带访问修饰符`public` / `private` / `protected`。类成员的默认访问修饰符是`private`；接口成员相反，默认`public`（见[接口](interface.md)）。
 
+- `public`——在类可见的一切位置可达。
+- `private`——只在声明类自己的方法内可达。
+- `protected`——在声明类内与其子类的类体内可达（裸名或经基类类型名皆可）；其余位置不可达。
+- 构造函数遵循同一规则：非`public`构造函数不能在类外调用（`constructor of class "C" is not accessible`）。
+
+同样的可见性规则跨模块成立——见下文「跨模块的类」。
+
 ### 创建实例
 
 ```nlang
@@ -144,6 +151,25 @@ class Kid : Base {
 - 实参个数必须与父类构造函数的形参个数匹配。对内建Exception家族的父类，构造函数恰好接收一个`message`实参。
 - 具名实参（`super(x = 1)`）不支持（编译错误）。
 - 对无构造函数的父类，`super()`无参是合法无操作；此时传参是编译错误。
+
+### 跨模块的类
+
+导入模块的类是完整类型：`import lib;`之后，`lib.B`的`public`实例字段可读写、`public`实例方法可调（含继承成员、默认参数与重载），虚调用与同单元内一样动态分派。
+
+```nlang
+import lib;   // lib 声明：class B { public virtual int f(int x) { ... } }
+class D : lib.B {
+    public int f(int x) { return x + 10; }   // 覆写 lib.B.f
+}
+int main() {
+    D d = D();
+    return d.f(3);
+}
+```
+
+- **继承与契约**：`class D : lib.B`继承导入基类，`class C implements lib.I`实现导入接口。覆写与`implements`契约跨模块边界强制，与同单元完全一致：与继承的虚方法同名但签名不同的方法、漏实现的接口成员、与继承的虚方法冲突的静态方法，都是编译错误。
+- **可见性到哪都是同一套规则**：导入类只有`public`成员对导入方可达；`private`不可达，`protected`在子类体内可达。非`public`构造函数不能跨边界调用。
+- **外部struct与枚举**：导入`struct`的字段跨模块不可访问（可构造、可把值传给生产方函数），`enum`不作为模块成员导出——见[已知限制](known-limitations.md)。
 
 ### Null检查
 

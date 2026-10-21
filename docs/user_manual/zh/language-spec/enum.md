@@ -61,7 +61,7 @@ enum Color {
 - **参数：**不支持默认值（`int f(int a, int b = 5)`被拒绝），也不支持`out`参数。
 - **`toString`保留。**`toString()`内建函数（值 → 名字）不能被用户方法遮蔽。
 - **`this.<成员>`按常量解析。**方法内的`this.Red`读的是成员`Red`的值——不与接收者比较。方便，但容易误读；拿不准时请显式命名接收者。
-- **成员/方法同名即冲突**（`enum E { f; int f() {...} }`被拒绝）。访问修饰符遵循class方法规则。
+- **成员/方法同名即冲突**（`enum E { f; int f() {...} }`被拒绝）。方法默认`public`——方法是枚举值表面的一部分；显式写出`private`或`protected`则遵循与class方法相同的可见性规则（类外调用非`public`方法报`The function "..." does not exist or is not accessible.`）。
 - 枚举数组：不能对数组本身调用方法——先索引出元素（`a[i].rank()`，不是`a.rank()`）。见[数组](array.md)。
 
 ### 输出

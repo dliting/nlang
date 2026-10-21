@@ -92,7 +92,10 @@ syntax. Every method must have a body (abstract methods are rejected).
   the member `Red`'s value — it does not compare against the receiver.
   Convenient, but easy to misread; name receivers explicitly when in doubt.
 - **Member/method name sharing is a conflict** (`enum E { f; int f() {...} }`
-  is rejected). Access modifiers follow class-method rules.
+  is rejected). Methods default to `public` — they are part of the enum's
+  value surface; a spelled-out `private` or `protected` follows the same
+  visibility rules as class methods (calling a non-`public` method from
+  outside reports `The function "..." does not exist or is not accessible.`).
 - Arrays of enums: methods cannot be called on the array itself — index an
   element first (`a[i].rank()`, not `a.rank()`). See [Array](array.md).
 

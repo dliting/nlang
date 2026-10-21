@@ -44,6 +44,18 @@ Fields carry access modifiers `public` / `private` / `protected`. Class
 members default to `private`; interface members are the opposite and
 default to `public` (see [Interface](interface.md)).
 
+- `public` — reachable wherever the class itself is visible.
+- `private` — reachable only inside the declaring class's own methods.
+- `protected` — reachable inside the declaring class and inside the
+  bodies of its subclasses (by bare name or through the base type
+  name); everywhere else it is inaccessible.
+- Constructors obey the same rule: a non-`public` constructor cannot
+  be called from outside the class
+  (`constructor of class "C" is not accessible`).
+
+The same visibility rules hold across module boundaries — see
+[Classes across modules](#classes-across-modules).
+
 ### Creating instances
 
 ```nlang
@@ -236,6 +248,43 @@ class Kid : Base {
 - Named arguments (`super(x = 1)`) are not supported (compile error).
 - `super()` with no arguments against a parent with no constructor is a legal
   no-op; passing arguments in that case is a compile error.
+
+### Classes across modules
+
+An imported module's classes are full types: after `import lib;` the
+`public` instance fields of `lib.B` are readable and writable, its
+`public` instance methods callable (inherited members, default
+arguments, and overloads included), and virtual calls dispatch
+dynamically exactly as within one unit.
+
+```nlang
+import lib;   // lib declares: class B { public virtual int f(int x) { ... } }
+class D : lib.B {
+    public int f(int x) { return x + 10; }   // overrides lib.B.f
+}
+int main() {
+    D d = D();
+    return d.f(3);
+}
+```
+
+- **Inheritance and contracts**: `class D : lib.B` extends an imported
+  base class, `class C implements lib.I` implements an imported
+  interface. The override and `implements` contracts are enforced
+  across the module boundary exactly as within a unit: a same-name
+  method whose signature differs from the inherited virtual method, a
+  missing interface member, or a static method colliding with an
+  inherited virtual method is a compile error.
+- **Visibility is the same rule everywhere**: only `public` members of
+  an imported class are reachable from the importing module; `private`
+  members are not, and `protected` members are reachable inside a
+  subclass body. A non-`public` constructor cannot be called across
+  the boundary.
+- **External structs and enums**: an imported `struct`'s fields are
+  not accessible across the module boundary (construction and passing
+  the value to the producer's functions work), and an `enum` is not
+  exported as a module member — see [Known
+  Limitations](known-limitations.md).
 
 ### Null check
 

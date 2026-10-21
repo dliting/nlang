@@ -105,28 +105,21 @@
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
-- **Cross-module base classes stay outside override-signature checking**:
-  class stubs of imported modules carry no instance members (with
-  `.ncu`-only imports), so subclass override-signature checking is idle
-  in that direction; when the imported module's source is present, the
-  check applies normally.
-- **Instance members of imported classes are unreachable through
-  `.ncu`-only imports**: the class stub carries no instance members —
-  field reads (`w.w`) and instance method calls (`w.doubled()`) fail
-  at compile time (not-found errors). Construction through the stub
-  does work (`Calc c = lib.Calc(21);`) and the resulting object can be
-  passed to the producing module's own functions, but its fields and
-  methods are not reachable from the consumer. The stub also carries
-  the class's public static methods (callable through the type name)
-  and interface constants. The class name is usable as a type:
-  declaring a variable of it and receiving instances returned by the
-  producing module's own functions both work.
-- **Mixed import layout (source alongside its `.ncu`)**: when the
-  producer's source is present in the import path, instance members
-  become usable — with one gap: if a class declares a static and an
-  instance method with the same name, the instance call is mislinked
-  at run time and returns garbage. Keep imports `.ncu`-only so
-  unsupported use fails loudly at compile time.
+- **Instance fields of imported structs are inaccessible across the
+  module boundary**: the struct stub carries no fields — reading or
+  writing `s.x` on an imported struct is a compile error. Construction
+  (`lib.Vec(3, 4);`) and passing the value to the producing module's
+  own functions work, and the struct's field defaults still apply at
+  allocation.
+- **Enums cannot be imported across modules**: an `enum` is not
+  exported as a module member — a qualified reference (`lib.Color.Red`)
+  reports `Type 'Color' is not a member of package 'lib'.`
+- **Cross-module overloads with the same parameter count**: imported
+  free functions, interface static methods, and enum methods are
+  matched by name and parameter count; two same-name overloads with
+  the same parameter count but different parameter types fail at link
+  time with an explicit ambiguity error instead of silently
+  mislinking.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and

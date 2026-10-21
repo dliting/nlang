@@ -10,6 +10,8 @@ struct Point {
 }
 ```
 
+struct成员始终公开可及：字段与构造器默认`public`，可显式写出的修饰符也只有`public`本身——struct成员写出`private`或`protected`是编译错误（`The struct member "%s" must be public.`）。struct是无隐藏状态的纯数据记录，不适用可见性规则。
+
 ### 值语义
 
 struct是具**深拷贝**语义的**值类型**，贯穿整个语言：
@@ -39,7 +41,7 @@ int main() {
 
 ### 创建与初始化
 
-struct可用与class相同的语法声明构造器（可选访问修饰符、默认参数、重载、以及隐式`this`裸字段访问——见[类](class.md)「构造函数」）。构造器**仅在显式构造时**运行：
+struct可用与class相同的语法声明构造器（可选`public`修饰符、默认参数、重载、以及隐式`this`裸字段访问——见[类](class.md)「构造函数」）。构造器**仅在显式构造时**运行：
 
 ```nlang
 Point p(2, 3);                  // 直接初始化声明

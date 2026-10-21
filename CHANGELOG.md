@@ -6,6 +6,55 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.12] - 2026-10-21
+
+### Added
+
+- **Cross-module instance members** — an imported `.ncu` class is a
+  full citizen: its public instance fields are readable and writable,
+  its public instance methods callable (inherited members, default
+  parameters, overloads, and virtual dispatch included), consumers may
+  extend it with `class D : lib.B`, override its virtual methods, and
+  `implements` imported interfaces. The override and `implements`
+  contracts are enforced across the module boundary exactly as within
+  a unit: a signature mismatch, a missing interface member, or a
+  static colliding with an inherited virtual method is a compile error.
+- **Member access defaults and visibility modernized** — `struct`
+  members and enum methods are `public` by default; a `struct` member
+  may only carry the `public` modifier (anything else reports
+  `The struct member "%s" must be public.`). The `protected` subclass
+  rule now works: a subclass body reaches its base class's protected
+  members, by bare name or through the base type name. Constructors
+  gained an access gate — a non-public constructor cannot be called
+  from outside its class, in-unit or across modules.
+- **Interface instance signatures cross module boundaries** — an
+  imported interface's instance method signatures (parameter types,
+  `out` flags, return types, default values) ride the module record,
+  so calls through an imported interface-typed variable work,
+  including omitted default arguments.
+
+### Changed
+
+- **NCU format v2.7** — a class record now serializes only its own
+  declared fields (the full instance layout is derived along the
+  superclass chain at load time, as JVM class files and .NET metadata
+  do it) and carries per-method access and virtual flags plus
+  per-constructor access; `publicStaticMethodIndices` is dropped. A
+  struct record carries constructor access. Existing `.ncu` images
+  must be recompiled.
+
+### Fixed
+
+- **Qualified static calls on imported types** — `lib.Type.f()` always
+  worked; the limitation note claiming otherwise was wrong, and the
+  misleading "a module path exists" hint (which fired on prefixes) now
+  matches the full dotted name exactly.
+- **Field access checks no longer leak** — a private or protected
+  field rejected by the access check used to slip through on the
+  member-access path; reading `c.secret` from outside the class now
+  reports `Cannot resolve the field: secret.` like any other
+  inaccessible name.
+
 ## [0.9.11] - 2026-10-20
 
 ### Added

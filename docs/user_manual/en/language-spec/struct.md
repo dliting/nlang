@@ -12,6 +12,12 @@ struct Point {
 }
 ```
 
+Struct members are always publicly accessible: fields and constructors
+default to `public`, and the only modifier you may spell out is `public`
+itself — writing `private` or `protected` on a struct member is a compile
+error (`The struct member "%s" must be public.`). A struct is a plain data
+record with no hidden state, so visibility rules do not apply to it.
+
 ### Value semantics
 
 A struct is a **value type** with **deep-copy** semantics throughout the
@@ -59,9 +65,9 @@ int main() {
 ### Creating and initializing
 
 A struct may declare constructors with the same syntax as a class (optional
-access modifier, default parameters, overloads, and implicit `this` bare-field
-access — see [Class](class.md) "Constructors"). A constructor runs **only on
-explicit construction**:
+`public` modifier, default parameters, overloads, and implicit `this`
+bare-field access — see [Class](class.md) "Constructors"). A constructor runs
+**only on explicit construction**:
 
 ```nlang
 Point p(2, 3);                  // direct-init declaration
