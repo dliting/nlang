@@ -58,10 +58,12 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
 int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     if (classIdx >= m_currModule->classes.size())
         throw std::runtime_error("NLang VM: invalid class index in AllocClassOnHeap");
-    const auto& cc = m_currModule->classes[classIdx];
+    //0.9.12 T1: field surface comes from the layout view (mirrors the
+    //record today; joins the superclass chain from T2 on).
+    const auto& fields = m_classLayout.Fields(classIdx);
     //0.7.5 Step A2: cell 0 = classIdx (1 cell), then 2 cells per data
     //field — field i lives at cell 1 + 2i.
-    const size_t recordCells = 1 + static_cast<size_t>(cc.fieldCount)
+    const size_t recordCells = 1 + fields.size()
         * (kHeapFieldStrideBytes / kHeapCellBytes);
     int32_t heapIdx;
     if (!m_freeList.empty()) {
@@ -77,10 +79,9 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
         m_slotStructIdx.push_back(0);
     }
     m_structHeap[static_cast<size_t>(heapIdx)][0] = static_cast<int32_t>(classIdx);
-    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
-        if (cc.fieldTypeKinds[i] == RTK_Struct
-            && cc.fieldStructIndices[i] != 0xFFFF) {
-            int32_t innerIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
+    for (size_t i = 0; i < fields.size(); ++i) {
+        if (fields[i].kind == RTK_Struct && fields[i].structIdx != 0xFFFF) {
+            int32_t innerIdx = AllocStructOnHeap(fields[i].structIdx);
             m_structHeap[static_cast<size_t>(heapIdx)][i * 2 + 1] = innerIdx;
         }
     }

@@ -496,6 +496,29 @@ target_compile_definitions(test_struct_field_init
 
 add_test(NAME struct_field_init_tests COMMAND test_struct_field_init)
 
+# 0.9.12 T1 VmClassLayout unit tests (console suite): hand-built
+# CompiledClass records (no codegen, no linking) pinning that the
+# runtime instance-field layout view mirrors the records field-for-field
+# while the producer still ships flattened arrays (T2 switches Build to
+# the base-first chain join).
+add_executable(test_class_layout
+    test_vm/test_class_layout.cpp
+)
+
+target_include_directories(test_class_layout
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_class_layout
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+
+add_test(NAME class_layout_tests COMMAND test_class_layout)
+
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
 # key split (List<int> vs List<int[]> mint distinct classes) and the

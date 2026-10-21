@@ -219,13 +219,15 @@ std::string VmExecutor::FormatDebugClassInstance(int32_t heapIdx) const {
     //Leaf name: the table key is package-qualified linkage identity; the
     //debugger value display names the type as source wrote it.
     std::string result = LeafNameOfKey(cc.name) + "{";
+    //0.9.12 T1: field names/kinds come from the layout view; the type
+    //name (cc.name) stays a record read.
+    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
     int shown = 0;
-    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+    for (size_t i = 0; i < fields.size(); ++i) {
         if (shown == kMaxElementsShown) { result += ", ..."; break; }
         if (shown > 0) result += ", ";
-        result += cc.fieldNames[i] + "="
-            + FormatDebugField(slot, 1 + static_cast<size_t>(i) * 2,
-                cc.fieldTypeKinds[i]);
+        result += *fields[i].name + "="
+            + FormatDebugField(slot, 1 + i * 2, fields[i].kind);
         ++shown;
     }
     result += "}";

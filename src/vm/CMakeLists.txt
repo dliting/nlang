@@ -14,6 +14,7 @@ add_library(nlang_vm
     VmExecutorOpsObjects.cpp
     VmExecutorGC.cpp
     VmExecutorAlloc.cpp
+    VmClassLayout.cpp
     VmDefaultMaterializer.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp

@@ -292,15 +292,14 @@ bool VmExecutor::HostBoxedRead(int32_t boxHeapIdx, uint8_t& tagOut,
     return true;
 }
 
-//Descriptor + base cell for a host field access. The heap slot's
-//runtime kind decides the descriptor table: RTK_Class reads the class
-//idx from slot[0]; RTK_Struct reads m_slotStructIdx (structs[] is a
+//Declared kind + base cell for a host field access. The heap slot's
+//runtime kind decides the table: RTK_Class reads the class idx from
+//slot[0] and the field surface from the VmClassLayout view (0.9.12 T1);
+//RTK_Struct reads m_slotStructIdx and the record (structs[] is a
 //separate table). CompiledStruct and CompiledClass are UNRELATED types
-//(no inheritance, CompiledModule.h:148/:384) whose field members merely
-//share names, so the descriptor returns as a small nested view struct
-//(HostFieldDesc below) — one code path serves both tables. Both use
-//the uniform 2-cells-per-field stride.
-VmExecutor::HostFieldDesc VmExecutor::ResolveHostField(
+//(no inheritance, CompiledModule.h:148/:384). Both use the uniform
+//2-cells-per-field stride.
+uint16_t VmExecutor::ResolveHostField(
         int32_t heapIdx, uint16_t fieldIndex, size_t& baseOut) const {
     if (heapIdx < 0
             || static_cast<size_t>(heapIdx) >= m_structHeap.size())
@@ -308,45 +307,40 @@ VmExecutor::HostFieldDesc VmExecutor::ResolveHostField(
             "NLang VM: host field access on bad heap idx");
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    HostFieldDesc desc = {};
-    size_t base = 0;
     if (kind == RTK_Struct) {
         const uint16_t idx =
             m_slotStructIdx[static_cast<size_t>(heapIdx)];
         if (idx >= m_currModule->structs.size())
             throw std::runtime_error("NLang VM: struct idx out of range");
         const CompiledStruct& st = m_currModule->structs[idx];
-        desc.fieldNames = &st.fieldNames;
-        desc.fieldTypeKinds = &st.fieldTypeKinds;
-        desc.fieldCount = st.fieldCount;
-        base = static_cast<size_t>(fieldIndex) * 2;   //uniform stride
-    } else if (kind == RTK_Class) {
+        if (fieldIndex >= st.fieldCount)
+            throw std::runtime_error("NLang VM: field index out of range");
+        baseOut = static_cast<size_t>(fieldIndex) * 2;   //uniform stride
+        if (baseOut + 1 >= slot.size())
+            throw std::runtime_error("NLang VM: instance slot too small");
+        return st.fieldTypeKinds[fieldIndex];
+    }
+    if (kind == RTK_Class) {
         const uint16_t idx = static_cast<uint16_t>(slot[0]);
         if (idx >= m_currModule->classes.size())
             throw std::runtime_error("NLang VM: class idx out of range");
-        const CompiledClass& cl = m_currModule->classes[idx];
-        desc.fieldNames = &cl.fieldNames;
-        desc.fieldTypeKinds = &cl.fieldTypeKinds;
-        desc.fieldCount = cl.fieldCount;
-        base = 1 + static_cast<size_t>(fieldIndex) * 2;  //[0]=class id
-    } else {
-        throw std::runtime_error(
-            "NLang VM: host field access on non-instance slot");
+        const auto& fields = m_classLayout.Fields(idx);
+        if (fieldIndex >= fields.size())
+            throw std::runtime_error("NLang VM: field index out of range");
+        baseOut = 1 + static_cast<size_t>(fieldIndex) * 2;  //[0]=class id
+        if (baseOut + 1 >= slot.size())
+            throw std::runtime_error("NLang VM: instance slot too small");
+        return fields[fieldIndex].kind;
     }
-    if (fieldIndex >= desc.fieldCount)
-        throw std::runtime_error("NLang VM: field index out of range");
-    if (base + 1 >= slot.size())
-        throw std::runtime_error("NLang VM: instance slot too small");
-    baseOut = base;
-    return desc;
+    throw std::runtime_error(
+        "NLang VM: host field access on non-instance slot");
 }
 
 uint8_t VmExecutor::HostFieldCellGet(int32_t heapIdx, uint16_t fieldIndex,
                                      uint8_t outCell[8]) const {
     size_t base = 0;
-    const HostFieldDesc desc = ResolveHostField(heapIdx, fieldIndex, base);
     const uint8_t declaredKind =
-        static_cast<uint8_t>((*desc.fieldTypeKinds)[fieldIndex]);
+        static_cast<uint8_t>(ResolveHostField(heapIdx, fieldIndex, base));
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     std::memset(outCell, 0, kFrameSlotBytes);
     std::memcpy(outCell, &slot[base], sizeof(int32_t));
@@ -360,9 +354,8 @@ uint8_t VmExecutor::HostFieldCellGet(int32_t heapIdx, uint16_t fieldIndex,
 void VmExecutor::HostFieldCellSet(int32_t heapIdx, uint16_t fieldIndex,
                                   const uint8_t cell[8]) {
     size_t base = 0;
-    const HostFieldDesc desc = ResolveHostField(heapIdx, fieldIndex, base);
     const uint8_t declaredKind =
-        static_cast<uint8_t>((*desc.fieldTypeKinds)[fieldIndex]);
+        static_cast<uint8_t>(ResolveHostField(heapIdx, fieldIndex, base));
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     std::memcpy(&slot[base], cell, sizeof(int32_t));
     if (declaredKind == RTK_Long || declaredKind == RTK_ULong
@@ -380,11 +373,27 @@ bool VmExecutor::HostFieldNameToIndex(int32_t heapIdx,
     //instance fails either way; the adapter translates the
     //runtime_error to BadValue).
     size_t base = 0;   //validates heapIdx/instance-ness as a side effect
-    const HostFieldDesc desc = ResolveHostField(heapIdx, 0, base);
-    for (uint16_t i = 0; i < desc.fieldCount; ++i) {
-        if ((*desc.fieldNames)[i] == fieldName) {
-            indexOut = i;
-            return true;
+    ResolveHostField(heapIdx, 0, base);
+    //The runtime kind was validated by the call above; re-reading the
+    //tables is safe (bounds already checked).
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Class) {
+        const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+        const auto& fields = m_classLayout.Fields(
+            static_cast<uint16_t>(slot[0]));
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (*fields[i].name == fieldName) {
+                indexOut = static_cast<uint16_t>(i);
+                return true;
+            }
+        }
+    } else {
+        const uint16_t idx = m_slotStructIdx[static_cast<size_t>(heapIdx)];
+        const CompiledStruct& st = m_currModule->structs[idx];
+        for (uint16_t i = 0; i < st.fieldCount; ++i) {
+            if (st.fieldNames[i] == fieldName) {
+                indexOut = i;
+                return true;
+            }
         }
     }
     return false;
