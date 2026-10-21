@@ -129,19 +129,13 @@
   legal spelling for a top-level const function (function bodies are
   unaffected).
 - **Type-line hijack of the first direct-init argument at top level**:
-  when the first argument of `Vec p(base.x);` / `Vec p(a<b);`
-  starts with a qualified name or a generic form, the parser reads it
-  as a type and reports a clear syntax error. Workaround: assignment
-  initialization, `Vec p = Vec(base.x);` (function bodies are
-  unaffected).
-- **Top-level empty-parameter asymmetry**: `Foo f();` at top level
-  fails with a clear syntax error, because the empty-parameter form
-  must belong to a function definition: the parser has to choose
-  between an empty-param function head and a zero-argument direct
-  initialization. Workaround: construct with `Foo f = Foo();`,
-  forward-declare with `func Foo f();`. Inside a function body,
-  `Foo f();` is a zero-argument direct initialization and keeps
-  working.
+  when the first argument of `Vec p(base.x);` / `Vec p(a<b);` starts with
+  an identifier followed by `.` or `<`, the parser reads the identifier
+  as a type head (a qualified or generic type) and reports a clear syntax
+  error. Only the first argument is affected — call expressions
+  (`Vec p(f());`), subscripts (`Vec p(g[0]);`) and every later argument
+  parse fine, and function bodies are unaffected. Workaround: assignment
+  initialization, `Vec p = Vec(base.x);`.
 - **The `implements qualified-name.interface` form is not accepted by
   the grammar** (e.g. `implements lib.IF`): `import` first, then use
   the unqualified name.

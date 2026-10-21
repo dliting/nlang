@@ -6,6 +6,16 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.15] - 2026-10-22
+
+### Added
+
+- **Top-level zero-argument construction** — `Foo f();` now runs the
+  zero-argument constructor at top level, the same reading the form has
+  always had inside a function body; `Foo f() { ... }` stays a
+  zero-parameter definition, and the bodyless declaration keeps its
+  `func Foo f();` spelling.
+
 ## [0.9.14] - 2026-10-22
 
 ### Added

@@ -113,6 +113,26 @@ function invoke "foo(y)" is not compatible with the declaration.`. See
 → [Statements](statements.md) "Unbraced body" and
 [Out Parameters](out-parameters.md).
 
+### Top-level direct-init with a member or relational first argument
+
+```nlang
+class Vec { public int x; public Vec(int v){ x = v; } }
+Vec base = Vec(5);
+Vec p(base.x);
+return 0;
+```
+
+```text
+Error: syntax error
+```
+
+At top level, a direct-init declaration whose **first** argument starts
+with an identifier followed by `.` or `<` is read as a type line and
+rejected. Call expressions, subscripts, and every argument after the
+first parse fine; function bodies are unaffected. Workaround: assignment
+initialization — `Vec p = Vec(base.x);`. See →
+[Known Limitations](known-limitations.md).
+
 ### Assignment targets
 
 ```nlang

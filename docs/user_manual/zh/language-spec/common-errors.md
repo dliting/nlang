@@ -87,6 +87,21 @@ Error: a local declaration cannot be the unbraced body of a control-flow stateme
 invoke "foo(y)" is not compatible with the declaration.`。详见 →
 [语句](statements.md)「无大括号的裸语句体」与[out参数](out-parameters.md)。
 
+### 顶层直接初始化的成员或关系首实参
+
+```nlang
+class Vec { public int x; public Vec(int v){ x = v; } }
+Vec base = Vec(5);
+Vec p(base.x);
+return 0;
+```
+
+```text
+Error: syntax error
+```
+
+顶层直接初始化声明的首实参以标识符开头且该标识符后跟`.`或`<`时，会被当作类型线而报错。调用表达式、下标以及首实参之后的每个实参都可正常解析；函数体内不受影响。变通：改用赋值初始化——`Vec p = Vec(base.x);`。详见 → [已知限制](known-limitations.md)。
+
 ### 赋值目标
 
 ```nlang

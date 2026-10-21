@@ -91,6 +91,13 @@ Node n2;                    // class (null)
 Struct variables take their field defaults — zero when no initializer, the
 declared default when one is. Class variables default to null.
 
+`T name();` is a **zero-argument construction**: it runs the type's
+zero-argument constructor, at top level and inside function bodies alike
+(`Foo f();` is the same as `Foo f = Foo();`). A primitive type in this
+form is a compile error (`"Int32" is not a class or struct type.`). The
+bodyless function-declaration spelling keeps the `func` marker
+(`func Foo f();`).
+
 ### Default Values
 
 A declaration without an initializer gets the type's default value (no
