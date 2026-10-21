@@ -71,9 +71,12 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 	}
 	//Methods are not free-function references (receiver-bound references
 	//arrive in Step 2); enum methods additionally carry an int receiver,
-	//which cannot live in a heap-index slot.
+	//which cannot live in a heap-index slot. 0.9.14 D-new-2: a static
+	//method inside its owning class is a receiverless target — the bare
+	//form binds exactly like a free function.
 	auto *pOwner = pFunc->Parent();
-	if (pOwner && (pOwner->Kind() == NK_ClassDecl
+	if (!pFunc->ContainFlags(NF_Static)
+		&& pOwner && (pOwner->Kind() == NK_ClassDecl
 		|| pOwner->Kind() == NK_InterfaceDecl
 		|| pOwner->Kind() == NK_EnumDecl))
 	{

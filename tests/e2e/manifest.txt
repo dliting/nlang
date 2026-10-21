@@ -1731,3 +1731,4 @@ static_funcref_nonfunc_reject compile_error function reference "f" requires an e
 static_funcref_default_reject compile_error functions with default parameters cannot be referenced: "f".
 static_funcref_sig_reject compile_error function "f" does not match the signature of
 static_funcref_private_reject compile_error Cannot resolve the field: f
+static_funcref_bare_in_class 42
