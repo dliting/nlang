@@ -518,6 +518,7 @@ void test_thread_ns_id_main()
 {
     TEST(thread_ns_id_main);
     const int rc = runSource("thread_id",
+        "import thread;\n"
         "int main() {\n"
         "    if (thread.id() != 0) return 1;\n"
         "    return 0;\n"
@@ -532,6 +533,7 @@ void test_thread_ns_yield_single_context()
 {
     TEST(thread_ns_yield_single_context);
     const int rc = runSource("thread_yield",
+        "import thread;\n"
         "int main() {\n"
         "    int s = 0;\n"
         "    int i = 1;\n"
@@ -556,6 +558,7 @@ void test_thread_ns_yield_in_tostring_rejected()
     std::string what;
     try {
         runSource("thread_yield_ts",
+            "import thread;\n"
             "class Box {\n"
             "    public string toString() {\n"
             "        thread.yield();\n"
@@ -579,17 +582,19 @@ void test_thread_ns_yield_in_tostring_rejected()
     PASS();
 }
 
-//未知 thread.foo()：编译期诊断点名成员。
+//未知 thread.foo()：已导入包的未知成员走普通包诊断（与 io 缺成员同
+//形——措辞不含点分前缀）。
 void test_thread_ns_unknown_member()
 {
     TEST(thread_ns_unknown_member);
     CHECK(buildFailsWith("thread_unknown",
+        "import thread;\n"
         "int main() {\n"
         "    thread.nope();\n"
         "    return 0;\n"
         "}\n",
-        "thread.nope"),
-        "unknown thread namespace member is a compile error naming it");
+        "The function \"nope\" does not exist or is not accessible."),
+        "unknown thread package member is a compile error naming it");
     PASS();
 }
 
@@ -598,6 +603,7 @@ void test_thread_ns_spawn_arg_not_func()
 {
     TEST(thread_ns_spawn_arg_not_func);
     CHECK(buildFailsWith("thread_sp_int",
+        "import thread;\n"
         "int main() {\n"
         "    thread.spawn(42);\n"
         "    return 0;\n"
@@ -616,6 +622,7 @@ void test_thread_ns_spawn_arg_nonvoid()
     std::string diag;
     try {
         buildLinkedModule("thread_sp_nv",
+            "import thread;\n"
             "int f() { return 1; }\n"
             "int main() {\n"
             "    Future<int> h = thread.spawn(f);\n"
@@ -634,6 +641,7 @@ void test_thread_ns_spawn_arg_with_params()
 {
     TEST(thread_ns_spawn_arg_with_params);
     CHECK(buildFailsWith("thread_sp_wp",
+        "import thread;\n"
         "void g(int x) { }\n"
         "int main() {\n"
         "    thread.spawn(g);\n"
@@ -653,6 +661,7 @@ void test_thread_ns_spawn_compile_ok()
     std::string diag;
     try {
         buildLinkedModule("thread_sp_ok",
+            "import thread;\n"
             "void worker() { }\n"
             "int main() {\n"
             "    Thread t = thread.spawn(worker);\n"
@@ -693,15 +702,99 @@ void test_thread_mutex_channel_compile_ok()
     PASS();
 }
 
-//O1：包名 thread 保留 — 源文件 thread.n 派生模块路径 "thread"，编译期
-//拒绝且报错指路内建命名空间。
-void test_thread_package_name_reserved()
+//包真实化：`import thread;` 后常规调用编译并运行——thread 是普通标准库
+//native 包（stdlib/thread.n 承载声明，实现内建于 VM 本体）。
+void test_thread_package_import()
 {
-    TEST(thread_package_name_reserved);
-    CHECK(buildFailsWith("thread",
-        "int main() { return 0; }\n",
-        "reserved"),
-        "a package named 'thread' is rejected with a pointing message");
+    TEST(thread_package_import);
+    bool ran = false;
+    std::string diag;
+    int rc = -1;
+    try {
+        rc = runSource("thread_pkg_import",
+            "import thread;\n"
+            "int main() {\n"
+            "    if (thread.id() != 0) return 1;\n"
+            "    return 0;\n"
+            "}\n");
+        ran = true;
+    } catch (const std::exception& e) {
+        diag = e.what();
+    }
+    CHECK(ran, "import thread resolves and thread.id() runs: " + diag);
+    CHECK(rc == 0, "thread.id() returns 0 on the main context");
+    PASS();
+}
+
+//包名 thread 与标准库撞名 — 通用 duplicate-package 规则接管（K1 的保留
+//名门已随包真实化删除）：import 把两份同名单元拉进同一次构建，错误指
+//名两条来源，与撞名 io 同形。构建在隔离子目录进行——单元文件名就是
+//thread.n，落在共享 scratch 根目录会被同目录自动收编（D7）拖进后续每
+//个测试的构建。
+void test_thread_package_name_duplicate()
+{
+    TEST(thread_package_name_duplicate);
+    const auto dir = scratchDir() / "dup";
+    std::filesystem::create_directories(dir);
+    const auto nPath = dir / "thread.n";
+    {
+        std::ofstream out(nPath, std::ios::binary);
+        out << "import thread;\n"
+               "int main() { return 0; }\n";
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(nPath.string());
+    params.m_sOutputModule = "thread";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    std::string diag;
+    try {
+        builder.BuildArtifacts();
+    } catch (const std::exception& e) {
+        diag = e.what();
+    }
+    for (auto it = logger.cbegin(); it != logger.cend(); ++it)
+        diag += (*it)->Message() + "\n";
+    std::filesystem::remove(nPath);
+    std::filesystem::remove(dir / "thread.ncu");
+    CHECK(diag.find("Duplicate package 'thread'") != std::string::npos,
+        "a package named 'thread' collides with stdlib (both sources "
+        "named): " + diag);
+    PASS();
+}
+
+//包真实化准入：无 import 的 thread.id() 报包导入诊断（与 io 缺 import
+//同形），不再静默走内建拦截臂。
+void test_thread_requires_import()
+{
+    TEST(thread_requires_import);
+    CHECK(buildFailsWith("thread_no_import",
+        "int main() {\n"
+        "    if (thread.id() != 0) return 1;\n"
+        "    return 0;\n"
+        "}\n",
+        "Package 'thread' is not imported. Add 'import thread;'"),
+        "thread.id() without import names the missing import");
+    PASS();
+}
+
+//包真实化准入（typed spawn 窄臂）：无 import 的 thread.spawn(produce) 同样
+//报包导入诊断——窄臂在绑定前先施与包路径相同的 import 准入判定，杜绝
+//"typed spawn 静默成功而 yield 报错"的同一包两套准入行为。
+void test_typed_spawn_requires_import()
+{
+    TEST(typed_spawn_requires_import);
+    CHECK(buildFailsWith("thread_ts_no_import",
+        "int produce() { return 1; }\n"
+        "int main() {\n"
+        "    Future<int> h = thread.spawn(produce);\n"
+        "    return 0;\n"
+        "}\n",
+        "Package 'thread' is not imported. Add 'import thread;'"),
+        "typed spawn without import names the missing import");
     PASS();
 }
 
@@ -732,6 +825,7 @@ void test_thread_ns_cross_module()
     TEST(thread_ns_cross_module);
     const auto dir = scratchDir();
     compileUnitToDisk("thread_xmod_b",
+        "import thread;\n"
         "int helper() { return thread.id(); }\n");
     const auto aNcu = compileUnitToDisk("thread_xmod_a",
         "import thread_xmod_b;\n"
@@ -759,6 +853,7 @@ void test_spawn_join_runs_worker()
     TEST(spawn_join_runs_worker);
     std::string out;
     const int rc = runSourceCapturing("sp_join_run",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"w\"); }\n"
         "int main() {\n"
@@ -782,6 +877,7 @@ void test_spawn_round_robin_under_quota()
 {
     TEST(spawn_round_robin_under_quota);
     CompiledModule mod = buildLinkedModule("sp_round_robin",
+        "import thread;\n"
         "import io;\n"
         "void worker() {\n"
         "    int i = 0;\n"
@@ -822,6 +918,7 @@ void test_yield_park_rearms_fresh_quantum()
 {
     TEST(yield_park_rearms_fresh_quantum);
     CompiledModule mod = buildLinkedModule("sp_yield_rearm",
+        "import thread;\n"
         "import io;\n"
         "void worker() {\n"
         "    int i = 0;\n"
@@ -862,6 +959,7 @@ void test_join_idempotent_after_finish()
     TEST(join_idempotent_after_finish);
     std::string out;
     const int rc = runSourceCapturing("sp_join_twice",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"w\"); }\n"
         "int main() {\n"
@@ -883,6 +981,7 @@ void test_join_before_target_runs()
     TEST(join_before_target_runs);
     std::string out;
     const int rc = runSourceCapturing("sp_join_early",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"w\"); }\n"
         "int main() {\n"
@@ -904,6 +1003,7 @@ void test_join_failed_target_rethrows_original()
     TEST(join_failed_target_rethrows_original);
     std::string out;
     const int rc = runSourceCapturing("sp_join_fail",
+        "import thread;\n"
         "import io;\n"
         "class Boom : Exception {\n"
         "    public int Boom(string m) {\n"
@@ -936,6 +1036,7 @@ void test_spawn_bound_method_root()
     TEST(spawn_bound_method_root);
     std::string out;
     const int rc = runSourceCapturing("sp_bound_method",
+        "import thread;\n"
         "import io;\n"
         "class Worker {\n"
         "    int tag;\n"
@@ -964,6 +1065,7 @@ void test_spawn_via_delegate_variable()
     TEST(spawn_via_delegate_variable);
     std::string out;
     const int rc = runSourceCapturing("sp_deleg_var",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"d\"); }\n"
         "int main() {\n"
@@ -985,6 +1087,7 @@ void test_worker_thread_id_nonzero()
     TEST(worker_thread_id_nonzero);
     std::string out;
     const int rc = runSourceCapturing("sp_worker_id",
+        "import thread;\n"
         "import io;\n"
         "void worker() {\n"
         "    if (thread.id() == 0) throw Exception(\"main id in worker\");\n"
@@ -1009,6 +1112,7 @@ void test_main_return_drops_unfinished_worker()
     TEST(main_return_drops_unfinished_worker);
     std::string out;
     const int rc = runSourceCapturing("sp_drop_unfinished",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"late\"); }\n"
         "int main() {\n"
@@ -1037,6 +1141,7 @@ void test_gc_keeps_parked_context_roots()
 {
     TEST(gc_keeps_parked_context_roots);
     CompiledModule mod = buildLinkedModule("sp_gc_roots",
+        "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
         "    int v;\n"
@@ -1091,6 +1196,7 @@ void test_sleep_zero_yields()
     TEST(sleep_zero_yields);
     std::string out;
     const int rc = runSourceCapturing("sp_sleep_zero",
+        "import thread;\n"
         "import io;\n"
         "void worker() { io.write(\"w\"); }\n"
         "int main() {\n"
@@ -1116,6 +1222,7 @@ void test_sleep_wakes_by_deadline()
     TEST(sleep_wakes_by_deadline);
     std::string out;
     const int rc = runSourceCapturing("sp_sleep_order",
+        "import thread;\n"
         "import io;\n"
         "void slow() { thread.sleep(30); io.write(\"a\"); }\n"
         "void fast() { thread.sleep(10); io.write(\"b\"); }\n"
@@ -1143,6 +1250,7 @@ void test_sleep_rejects_negative_duration()
     std::string what;
     try {
         runSource("sp_sleep_neg",
+            "import thread;\n"
             "int main() {\n"
             "    thread.sleep(-1);\n"
             "    return 0;\n"
@@ -1169,6 +1277,7 @@ void test_thread_ns_sleep_join_in_tostring_rejected()
     std::string sleepWhat, joinWhat, getWhat;
     try {
         runSource("thread_sleep_ts",
+            "import thread;\n"
             "class Box {\n"
             "    public string toString() {\n"
             "        thread.sleep(1);\n"
@@ -1187,6 +1296,7 @@ void test_thread_ns_sleep_join_in_tostring_rejected()
     }
     try {
         runSource("thread_join_ts",
+            "import thread;\n"
             "class Box {\n"
             "    public string toString() {\n"
             "        Thread u = thread.spawn(worker);\n"
@@ -1207,6 +1317,7 @@ void test_thread_ns_sleep_join_in_tostring_rejected()
     }
     try {
         runSource("future_get_ts",
+            "import thread;\n"
             "class Box {\n"
             "    public string toString() {\n"
             "        Future<int> f = thread.spawn(producer);\n"
@@ -1247,6 +1358,7 @@ void test_mutex_serializes_critical_section()
     TEST(mutex_serializes_critical_section);
     std::string out;
     const int rc = runSourceCapturing("mx_serial",
+        "import thread;\n"
         "import io;\n"
         "class Counter {\n"
         "    public Mutex gate;\n"
@@ -1284,6 +1396,7 @@ void test_mutex_wakes_waiters_fifo()
     TEST(mutex_wakes_waiters_fifo);
     std::string out;
     const int rc = runSourceCapturing("mx_fifo",
+        "import thread;\n"
         "import io;\n"
         "class Gate {\n"
         "    public Mutex m;\n"
@@ -1332,6 +1445,7 @@ void test_mutex_trylock_reports_held_state()
     TEST(mutex_trylock_reports_held_state);
     std::string out;
     const int rc = runSourceCapturing("mx_trylock",
+        "import thread;\n"
         "import io;\n"
         "class Holder {\n"
         "    public Mutex gate;\n"
@@ -1392,6 +1506,7 @@ void test_gc_keeps_mutex_parked_roots()
 {
     TEST(gc_keeps_mutex_parked_roots);
     CompiledModule mod = buildLinkedModule("mx_gc_storm",
+        "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
         "    int v;\n"
@@ -1444,6 +1559,7 @@ void test_mutex_relock_deadlock_surfaces()
     std::string what;
     try {
         runSource("mx_relock",
+            "import thread;\n"
             "class Gate {\n"
             "    public Mutex m;\n"
             "    public void relock() {\n"
@@ -1475,6 +1591,7 @@ void test_channel_fifo_buffer_order()
     TEST(channel_fifo_buffer_order);
     std::string out;
     const int rc = runSourceCapturing("ch_fifo",
+        "import thread;\n"
         "import io;\n"
         "class Sender {\n"
         "    public Channel<string> ch;\n"
@@ -1507,6 +1624,7 @@ void test_channel_recv_parks_until_send()
     TEST(channel_recv_parks_until_send);
     std::string out;
     const int rc = runSourceCapturing("ch_recv_park",
+        "import thread;\n"
         "import io;\n"
         "class Peer {\n"
         "    public Channel<string> ch;\n"
@@ -1653,6 +1771,7 @@ void test_channel_close_wakes_parked_recv_with_throw()
     TEST(channel_close_wakes_parked_recv_with_throw);
     std::string out;
     const int rc = runSourceCapturing("ch_close_wake",
+        "import thread;\n"
         "import io;\n"
         "class Slack {\n"
         "    public Channel<int> ch;\n"
@@ -1824,6 +1943,7 @@ void test_park_in_try_throw_after_resume_caught()
     TEST(park_in_try_throw_after_resume_caught);
     std::string out;
     const int rc = runSourceCapturing("s11_try_park",
+        "import thread;\n"
         "import io;\n"
         "void worker() { thread.sleep(5); io.write(\"w\"); }\n"
         "int main() {\n"
@@ -1855,6 +1975,7 @@ void test_worker_recv_park_throw_cross_frame_caught()
     TEST(worker_recv_park_throw_cross_frame_caught);
     std::string out;
     const int rc = runSourceCapturing("s11_xframe_park",
+        "import thread;\n"
         "import io;\n"
         "class Peer {\n"
         "    public Channel<int> ch;\n"
@@ -1898,6 +2019,7 @@ void test_finally_runs_after_timer_park()
     TEST(finally_runs_after_timer_park);
     std::string out;
     const int rc = runSourceCapturing("s11_finally_park",
+        "import thread;\n"
         "import io;\n"
         "void worker() { thread.sleep(5); io.write(\"w\"); }\n"
         "int main() {\n"
@@ -1927,6 +2049,7 @@ void test_worker_finally_after_recv_park()
     TEST(worker_finally_after_recv_park);
     std::string out;
     const int rc = runSourceCapturing("s11_worker_finally",
+        "import thread;\n"
         "import io;\n"
         "class Peer {\n"
         "    public Channel<int> ch;\n"
@@ -1965,6 +2088,7 @@ void test_park_inside_catch_body()
     TEST(park_inside_catch_body);
     std::string out;
     const int rc = runSourceCapturing("s11_catch_park",
+        "import thread;\n"
         "import io;\n"
         "int main() {\n"
         "    try {\n"
@@ -2000,6 +2124,7 @@ void test_mixed_storm_channels_mutex_gc()
 {
     TEST(mixed_storm_channels_mutex_gc);
     CompiledModule mod = buildLinkedModule("s11_storm",
+        "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
         "    int v;\n"
@@ -2092,6 +2217,7 @@ void test_spawn_future_typed_and_isdone()
     TEST(spawn_future_typed_and_isdone);
     std::string out;
     const int rc = runSourceCapturing("k3_sp_future",
+        "import thread;\n"
         "import io;\n"
         "int compute() { return 42; }\n"
         "string greet() { return \"hi\"; }\n"
@@ -2119,6 +2245,7 @@ void test_spawn_future_result_survives_gc()
 {
     TEST(spawn_future_result_survives_gc);
     CompiledModule mod = buildLinkedModule("k3_future_gc",
+        "import thread;\n"
         "string make() {\n"
         "    string s = \"payload-\";\n"
         "    int i = 0;\n"
@@ -2151,6 +2278,7 @@ void test_future_get_value_and_park()
     TEST(future_get_value_and_park);
     std::string out;
     const int rc = runSourceCapturing("future_get_park",
+        "import thread;\n"
         "import io;\n"
         "int slow() {\n"
         "    thread.yield();\n"
@@ -2179,6 +2307,7 @@ void test_future_get_string_result_survives_gc()
 {
     TEST(future_get_string_result_survives_gc);
     CompiledModule mod = buildLinkedModule("future_get_gc",
+        "import thread;\n"
         "string make() {\n"
         "    return \"abc\" + \"def\";\n"
         "}\n"
@@ -2213,6 +2342,7 @@ void test_future_get_multi_waiter()
     TEST(future_get_multi_waiter);
     std::string out;
     const int rc = runSourceCapturing("future_get_multi",
+        "import thread;\n"
         "import io;\n"
         "int answer() {\n"
         "    thread.yield();\n"
@@ -2247,6 +2377,7 @@ void test_future_get_rethrows_target_failure()
 {
     TEST(future_get_rethrows_target_failure);
     const int rc = runSource("future_get_fail",
+        "import thread;\n"
         "class Boom : Exception {\n"
         "    public int Boom(string m) {\n"
         "        super(m);\n"
@@ -2301,6 +2432,7 @@ void test_channel_bounded_send_parks_fifo()
     TEST(channel_bounded_send_parks_fifo);
     std::string out;
     const int rc = runSourceCapturing("chan_bounded_fifo",
+        "import thread;\n"
         "import io;\n"
         "class Pump {\n"
         "    public Channel<int> ch;\n"
@@ -2342,6 +2474,7 @@ void test_channel_bounded_close_wakes_sender()
     TEST(channel_bounded_close_wakes_sender);
     std::string out;
     const int rc = runSourceCapturing("chan_bounded_close",
+        "import thread;\n"
         "import io;\n"
         "class Late {\n"
         "    public Channel<int> ch;\n"
@@ -2473,6 +2606,7 @@ void test_channel_bounded_pending_survives_gc()
 {
     TEST(channel_bounded_pending_survives_gc);
     CompiledModule mod = buildLinkedModule("chan_bounded_gc",
+        "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
         "    int v;\n"
@@ -2526,6 +2660,7 @@ static void test_executor_reuse_two_runs()
 {
     TEST(executor_reuse_two_runs);
     CompiledModule modA = buildLinkedModule("reuse_a",
+        "import thread;\n"
         "int main() { thread.sleep(0); return 41; }\n");
     CompiledModule modB = buildLinkedModule("reuse_b",
         "int main() { return 1; }\n");
@@ -2593,6 +2728,7 @@ static void test_carrier_count_deterministic_parity()
 {
     TEST(carrier_count_deterministic_parity);
     const char* src =
+        "import thread;\n"
         "import io;\n"
         "void w1() {\n"
         "    int i = 0;\n"
@@ -2644,6 +2780,7 @@ static void test_carrier_pool_two_runs()
 {
     TEST(carrier_pool_two_runs);
     const char* src =
+        "import thread;\n"
         "import io;\n"
         "void w() { io.write(\"w\"); }\n"
         "int main() {\n"
@@ -2671,6 +2808,7 @@ static void test_aux_carriers_actually_execute()
 {
     TEST(aux_carriers_actually_execute);
     CompiledModule mod = buildLinkedModule("carrier_alive",
+        "import thread;\n"
         "import io;\n"
         "void w() {\n"
         "    int i = 0;\n"
@@ -2717,6 +2855,7 @@ static void test_timer_wake_under_multi_carrier()
     TEST(timer_wake_under_multi_carrier);
     std::string out;
     const int rc = runWithCarriers("timer_wake_4",
+        "import thread;\n"
         "import io;\n"
         "void s0() { thread.sleep(10); io.write(\"0\"); }\n"
         "void s1() { thread.sleep(30); io.write(\"1\"); }\n"
@@ -2762,6 +2901,7 @@ static void test_aux_carrier_error_confluence()
 {
     TEST(aux_carrier_error_confluence);
     const char* src =
+        "import thread;\n"
         "class Gate {\n"
         "    public Mutex m;\n"
         "    public void relock() {\n"
@@ -2848,6 +2988,7 @@ static void test_blocking_native_releases_gil()
     TEST(blocking_native_releases_gil);
     std::string out;
     const int rc = runBlockingNative("bn_gil",
+        "import thread;\n"
         "import io;\n"
         "native void nbWait(int ms);\n"
         "void w() { io.write(\"worker|\"); }\n"
@@ -2879,6 +3020,7 @@ static void test_blocking_native_staged_roots_survive_gc_storm()
     TEST(blocking_native_staged_roots_survive_gc_storm);
     std::string out;
     const int rc = runBlockingNative("bn_gcstorm",
+        "import thread;\n"
         "import io;\n"
         "native string nbEchoSlow(int ms, string s);\n"
         "void churner() {\n"
@@ -2912,6 +3054,7 @@ static void test_shutdown_signal_passthrough()
     TEST(shutdown_signal_passthrough);
     std::string out;
     const int rc = runBlockingNative("bn_stop",
+        "import thread;\n"
         "import io;\n"
         "native void nbWait(int ms);\n"
         "void w() { nbWait(60); io.write(\"after-native|\"); }\n"
@@ -3091,7 +3234,10 @@ int main()
         test_thread_ns_spawn_arg_with_params();
         test_thread_ns_spawn_compile_ok();
         test_thread_mutex_channel_compile_ok();
-        test_thread_package_name_reserved();
+        test_thread_package_import();
+        test_thread_package_name_duplicate();
+        test_thread_requires_import();
+        test_typed_spawn_requires_import();
         test_thread_ns_user_name_shadows();
         test_thread_ns_cross_module();
         runGuarded(test_spawn_join_runs_worker);

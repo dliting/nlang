@@ -1,6 +1,7 @@
 //K3: bounded channel — capacity construction, park-at-full send, and
 //close waking a parked sender with the catchable exception.
 import io;
+import thread;
 
 class Pump {
     public Channel<int> ch;

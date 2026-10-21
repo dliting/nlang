@@ -103,7 +103,10 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //and ChannelClosedException are builtin class rows appended at the end
 //(indices stay stable), Future.get/isDone and the Channel capacity ctor
 //ride the existing intrinsic-stub serialization, and the concurrent
-//package is ordinary NLang source.
+//package is ordinary NLang source. The thread package materialized as
+//stdlib/thread.n native declarations: its five records register like
+//any native and the backend stamps them onto the intrinsic channel, so
+//they serialize exactly like the K1 stubs did — wire shape unchanged.
 inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
 
 //Runtime type kind constants for serialization (compile-time NK_* values

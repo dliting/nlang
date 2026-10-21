@@ -597,8 +597,10 @@ static void TestConveniencePartialChannels() {
 static void TestRunSourceServicesSleep() {
     TEST(TestRunSourceServicesSleep);
     Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
     try {
-        const int rc = itp.runSource("thread.sleep(5); return 7;");
+        const int rc = itp.runSource(
+            "import thread;\nthread.sleep(5); return 7;");
         CHECK(rc == 7, "sleeping main wakes and returns its exit code");
     } catch (const std::exception& e) {
         FAIL(std::string("sleeping program rejected: ") + e.what());
@@ -612,8 +614,10 @@ static void TestRunSourceServicesSleep() {
 static void TestRunSourceSpawnJoinSharesWork() {
     TEST(TestRunSourceSpawnJoinSharesWork);
     Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
     try {
         const int rc = itp.runSource(
+            "import thread;\n"
             "class Counter {\n"
             "    public int v;\n"
             "    public void bump() { v = v + 1; }\n"
@@ -660,7 +664,9 @@ static void TestRunSourceDeadlockIsCatchable() {
 static void TestCallRejectsSuspension() {
     TEST(TestCallRejectsSuspension);
     Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
     (void)itp.runSource(
+        "import thread;\n"
         "int yieldOnce() { thread.yield(); return 1; }\n"
         "return 0;");
     bool threw = false;
@@ -682,7 +688,9 @@ static void TestCallRejectsSuspension() {
 static void TestCallRejectsSpawnWithoutCarrier() {
     TEST(TestCallRejectsSpawnWithoutCarrier);
     Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
     (void)itp.runSource(
+        "import thread;\n"
         "void idle() { }\n"
         "int spawnOnce() { Thread t = thread.spawn(idle); return 2; }\n"
         "return 0;");

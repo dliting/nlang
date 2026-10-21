@@ -5,6 +5,7 @@
 ---*/
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
+#include "builder/ThreadNamespace.h"
 #include <nlang/compiler/SnData.h>
 
 namespace nlang {
@@ -32,17 +33,8 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     if (func.ContainFlags(NF_Native)) {
         //Multi-segment refusal already happened in the whole-tree pre-check
         //(RejectMultiSegmentNatives) — every native the build accepted
-        //reaches the record with its signature descriptors. A FuncContext
-        //lets FillNativeFunctionRecord call AllocLocal (frame-layout locals
-        //for the kind-裁决 chain); null the emitter so AllocLocal reads a
-        //defined null (not the previous function's destroyed emitter).
-        FuncContext ctx;
-        ctx.func = &compiledFunc;
-        ctx.nextOffset = 0;
-        m_currFunc = &ctx;
-        m_pCurrEmitter = nullptr;
-        FillNativeFunctionRecord(func, compiledFunc);
-        m_currFunc = nullptr;
+        //reaches the record with its signature descriptors.
+        EmitNativeFunctionRecord(func, compiledFunc);
         m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
         return;
     }
@@ -74,6 +66,46 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
 }
 
+//GenerateFunction's native arm. A FuncContext lets FillNativeFunctionRecord
+//call AllocLocal (frame-layout locals for the kind-裁决 chain); null the
+//emitter so AllocLocal reads a defined null (not the previous function's
+//destroyed emitter).
+void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
+                                        CompiledFunction& compiledFunc) {
+    FuncContext ctx;
+    ctx.func = &compiledFunc;
+    ctx.nextOffset = 0;
+    m_currFunc = &ctx;
+    m_pCurrEmitter = nullptr;
+    FillNativeFunctionRecord(func, compiledFunc);
+    //K3 thread-package materialization: stdlib/thread.n's natives are
+    //implemented inside the VM, not by a host library — flip the record
+    //onto the intrinsic channel (signature metadata stays; cross-module
+    //stubs rebuild from it). Identity is the OWNING unit's module path
+    //alone, never the library flag: stdlib.nproj packs thread.n as a
+    //project unit, so a library-flag test would leave the packaged
+    //records unstamped. A thread-package name outside the intrinsic
+    //table keeps host-native dispatch (the ordinary native channel);
+    //type members never stamp — methods dispatch through their receiver,
+    //not the free-function channel.
+    const SyntaxNode* pParent = func.Parent();
+    const bool bTypeMember = pParent
+        && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_InterfaceDecl
+            || pParent->Kind() == NK_EnumDecl
+            || pParent->Kind() == NK_StructDecl);
+    const uint32_t owner = m_pRegistry->OwnerOf(func);
+    if (!bTypeMember && owner != ModuleRegistry::NO_OWNER
+        && m_pRegistry->ModulePathOf(owner) == kThreadNamespaceName) {
+        const uint16_t intrinsicId = FindThreadIntrinsicId(func.Name());
+        if (intrinsicId != INTR_None) {
+            compiledFunc.isNative = false;
+            compiledFunc.intrinsicId = intrinsicId;
+        }
+    }
+    m_currFunc = nullptr;
+}
+
 //Phase 6 per-unit build (VmBackend.h contract): one image per unit, every
 //cross-unit reference left as a placeholder slot + import record — nothing
 //external is merged in; the load-time linker resolves the placeholders
@@ -96,9 +128,6 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         RegisterArrayTypes(root);
         RegisterEnums(root);
         RegisterFunctions(root);
-        //K1: after RegisterFunctions — it clears m_funcIndexMap, whose
-        //entries the thread-namespace stubs below depend on surviving.
-        RegisterThreadNamespaceFunctions();
         PopulateClassMethods(root);
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit

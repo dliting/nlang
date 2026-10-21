@@ -4,7 +4,6 @@ ModuleRegistry.cpp - compile-time module registry of the NLang compiler.
 #include "ModuleRegistry.h"
 #include "TranslationUnit.h"
 #include "SyntaxTree.h"
-#include "ThreadNamespace.h"
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
@@ -74,9 +73,9 @@ std::string ModuleNotFoundText(const std::string& moduleName)
 		"path.";
 }
 
-//RegisterUnit's validation half: the three module-path gates, in
-//rejection order — dotted stem shape, K1's reserved thread namespace,
-//duplicate package. True = rejected (the error is in outErrors).
+//RegisterUnit's validation half: the two module-path gates, in
+//rejection order — dotted stem shape, duplicate package. True =
+//rejected (the error is in outErrors).
 bool ModuleRegistry::RejectsModulePath(const std::string& stem,
 	const std::string& sourceFile, const std::string& modulePath,
 	std::vector<std::string>& outErrors) const
@@ -93,25 +92,12 @@ bool ModuleRegistry::RejectsModulePath(const std::string& stem,
 			" a dot in a module name stands for a directory.");
 		return true;
 	}
-	//K1 O1: `thread` is the built-in concurrency namespace — a user
-	//package under that path would shadow it (the resolver intercepts
-	//`thread.*` calls before module resolution, so the shadow would just
-	//be unreachable; rejecting names the conflict instead).
-	const std::string threadNsPrefix =
-		std::string(kThreadNamespaceName) + ".";
-	if (modulePath == kThreadNamespaceName
-		|| modulePath.rfind(threadNsPrefix, 0) == 0)
-	{
-		outErrors.push_back("Package name '" + modulePath
-			+ "' is reserved for the built-in thread namespace "
-			"(thread.spawn, thread.join, thread.yield, thread.id, "
-			"thread.sleep). Rename the package.");
-		return true;
-	}
-	//Duplicate-package rule (the reserved-name table's replacement): two
-	//units resolving to the same dotted package in one build is an error
-	//naming BOTH source paths — first-wins would silently bind the import
-	//to whichever root the search hit first.
+	//Duplicate-package rule: two units resolving to the same dotted
+	//package in one build is an error naming BOTH source paths —
+	//first-wins would silently bind the import to whichever root the
+	//search hit first. Standard library units inline when imported, so a
+	//user package named like one (io, thread, ...) collides the moment
+	//the program imports that name.
 	for (const ModuleEntry& existing : m_modules)
 	{
 		if (existing.path == modulePath)

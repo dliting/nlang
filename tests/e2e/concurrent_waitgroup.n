@@ -5,6 +5,7 @@
 //unbounded done-channel drain across a multicarrier run.
 import concurrent;
 import io;
+import thread;
 
 class Worker {
     public WaitGroup wg;

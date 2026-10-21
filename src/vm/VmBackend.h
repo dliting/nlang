@@ -196,6 +196,11 @@ public:
 
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
+    //GenerateFunction's native arm (split for the 50-line function
+    //budget): signature fill via FillNativeFunctionRecord, then the
+    //thread-package intrinsic stamp (K3 materialization).
+    void EmitNativeFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
@@ -968,9 +973,6 @@ private:
     void WalkArrayTypeNode(SnField& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
-    //K1: intrinsic stubs for thread.* free calls; AFTER RegisterFunctions
-    //(it clears m_funcIndexMap).
-    void RegisterThreadNamespaceFunctions();
     void PopulateClassMethods(SnNamespace& root);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function

@@ -1,6 +1,9 @@
 // Standard library source for the "concurrent" package — pure NLang
 // concurrency utilities built on the kernel primitives (thread, Mutex,
 // Channel). No native backing: everything here is ordinary NLang code.
+// A library unit imports its peers through the ordinary gate, exactly
+// like a user unit (thread.yield below).
+import thread;
 
 // Counts outstanding units of work; wait() blocks the calling virtual
 // thread until the counter reaches zero. Contract (Go WaitGroup shape):

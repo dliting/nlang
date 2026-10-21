@@ -6,6 +6,7 @@
 //lower would mean acquire() did not block, higher would mean permits
 //leaked.
 import concurrent;
+import thread;
 import io;
 
 class Probe {

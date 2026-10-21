@@ -354,29 +354,12 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
     });
 }
 
-//K1: module-level intrinsic stubs for the built-in thread namespace
-//(thread.spawn/join/yield/id/sleep). The m_funcIndexMap keys are the very
-//singleton SnFunction pointers the resolver binds call sites to
-//(builder/ThreadNamespace.h) — nlang_vm links nlang_compiler privately,
-//so both sides share one factory. Must run AFTER RegisterFunctions,
-//which clears the map.
-void VmBackend::RegisterThreadNamespaceFunctions() {
-    const ThreadNsFuncEntry* table = ThreadNsFuncTable();
-    for (size_t i = 0; i < ThreadNsFuncCount(); ++i) {
-        const ThreadNsFuncEntry& entry = table[i];
-        CompiledFunction cf;
-        cf.name = std::string(kThreadNamespaceName) + "." + entry.memberName;
-        cf.paramCount = (entry.paramKind != TNP_Void) ? 1 : 0;
-        cf.localsSize = static_cast<uint16_t>(cf.paramCount * kFrameSlotBytes);
-        cf.returnTypeKind =
-            (entry.returnKind == TNP_Int32) ? RTK_Int32
-            : (entry.returnKind == TNP_ThreadObj) ? RTK_Class : RTK_Void;
-        cf.intrinsicId = entry.intrinsicId;
-        m_compiledModule.functions.push_back(std::move(cf));
-        m_funcIndexMap[GetThreadNsCallee(i)] =
-            m_compiledModule.functions.size() - 1;
-    }
-}
+//K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)
+//is gone: K3 materialized the thread package as stdlib/thread.n native
+//declarations, which register through RegisterFunctions like every other
+//native and get stamped onto the intrinsic channel by GenerateFunction's
+//package-identity branch (GenerateUnits.cpp).
+
 //Entry-candidate collection shared by the per-unit scan and the unit-set
 //ambiguity pre-check: every root-level (non-method) `main` declared by a
 //PROJECT unit, regardless of which unit owns it. Libraries never provide

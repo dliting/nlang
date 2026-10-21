@@ -10,9 +10,8 @@
 namespace nlang
 {
 
-//K1 thread namespace (ThreadNamespace.h defines them; a reference
-//parameter needs no full type here).
-struct ThreadNsFuncEntry;
+//K3 sync-primitive method shape (ThreadNamespace.h defines it; a
+//reference parameter needs no full type here).
 struct SyncMethodShape;
 
 enum FindFuncResult
@@ -980,21 +979,26 @@ private:
 		SnInvokeExpr &invoke);
 	bool ResolveModuleQualifiedCallee(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
-	//K1: the built-in thread namespace rides the same chain shape —
-	//interception, signature-table matching, and the lazy type binding
-	//of the synthetic singletons' formals (ExprResolverThreadNs.cpp).
-	bool TryResolveThreadNamespace(SnMemberExpr &snMember);
-	//TryResolveThreadNamespace's match-and-bind tail (split for the
-	//50-line function budget): lazy formal rebind, one-candidate
-	//matching with the spawn-specific diagnostic, shared close-out.
-	bool BindThreadNsCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
-		const ThreadNsFuncEntry& entry);
-	//K3 typed-spawn arm: a single-argument spawn whose argument is a
-	//zero-parameter func<T> binds the delegate and wires the call site's
-	//result type to Future<T> (T=void keeps the Thread face). True =
-	//consumed (bound or diagnosed); false = not this arm's shape.
+	//K3 thread-package materialization's narrow arm: `thread.spawn(...)`
+	//is the one shape a static prototype cannot express (func<T> delegate
+	//→ Future<T>), so it keeps a dedicated try ahead of the
+	//module-qualified fallback. Runs the same import admission first;
+	//every other thread.* shape declines to TryResolveModuleQualified
+	//(ExprResolverThreadNs.cpp). True = consumed; false = declined.
+	bool TryResolveThreadSpawn(SnMemberExpr &snMember);
+	//TryResolveThreadSpawn's bind tail (split for the 50-line function
+	//budget): caller-scope args, the typed func<T>→Future<T> arm, the
+	//fixed match against the declared func<void> prototype. Always
+	//consumes the member.
+	bool BindThreadSpawnCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		std::vector<SnFunction*> &candidates);
+	//The narrow arm's typed half: a single-argument spawn whose argument
+	//is a zero-parameter func<T> binds the delegate and wires the call
+	//site's result type to Future<T> (T=void keeps the Thread face).
+	//spawnDecl = the stdlib thread.n declaration the import inlined.
+	//True = consumed (bound or diagnosed); false = not this arm's shape.
 	bool TryBindTypedSpawn(SnMemberExpr &snMember, SnInvokeExpr &invoke,
-		const ThreadNsFuncEntry& entry);
+		SnFunction &spawnDecl);
 	//TryBindTypedSpawn's argument classification (50-line function
 	//budget): one pass over the single spawn argument.
 	enum class SpawnArgOutcome
@@ -1007,13 +1011,10 @@ private:
 		SnField *&rpT);
 	SpawnArgOutcome SpawnTFromBareRef(SnExpression &arg, SnField *&rpT);
 	//Fixed-path spawn mismatch: name the actual contract when a bare
-	//function reference failed the func<void> formal (the generic
-	//pending-ref diagnostic would mislead). True = logged.
+	//function reference failed the declared func<void> formal (the
+	//generic pending-ref diagnostic would mislead). True = logged.
 	bool ReportSpawnFuncRefFailure(SnMemberExpr &snMember,
-		SnInvokeExpr &invoke, FindFuncResult res,
-		const ThreadNsFuncEntry& entry);
-	void BindThreadNsFormalTypes(const ThreadNsFuncEntry& entry);
-	SnField* ThreadNsTypeNode(unsigned char kind);
+		SnInvokeExpr &invoke, FindFuncResult res);
 	//Post-match close-out half of ResolveModuleQualifiedCallee
 	//(out-argument veto, invoke binding, member callee/result wiring);
 	//split out of it for the 50-line function budget.

@@ -1,0 +1,26 @@
+// Standard library source for the "thread" package — authoritative
+// declarations for the virtual-thread primitives. Native package: the
+// implementations are built into the VM itself (not nlang_<ns>.dll), so
+// the wire shape is the intrinsic channel, not the host ABI. Needs an
+// explicit `import thread;`. spawn's typed form (func<T> delegate →
+// Future<T>) is bound by a dedicated compiler arm; the prototype below
+// shows the func<void> form.
+
+// Spawns a new virtual thread running the zero-argument delegate and
+// returns immediately: func<void> yields a Thread handle, func<T> yields
+// a Future<T> whose get() delivers the return value.
+native Thread spawn(func<void> f);
+
+// Parks the calling context until the target finishes; a failed target
+// rethrows its original exception object into this context.
+native void join(Thread t);
+
+// Voluntary yield: the context goes to the back of the run queue.
+native void yield();
+
+// The current context's identifier; main is always 0.
+native int id();
+
+// Parks until the deadline; sleep(0) equals yield; negative is a
+// runtime error.
+native void sleep(int ms);

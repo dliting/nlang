@@ -98,6 +98,7 @@ void test_waitgroup_releases_waiters()
     TEST(waitgroup_releases_waiters);
     std::string out;
     const int rc = runSourceCapturing("wg_wait",
+        "import thread;\n"
         "import concurrent;\n"
         "import io;\n"
         "class Worker {\n"
@@ -136,6 +137,7 @@ void test_waitgroup_add_accumulates()
     TEST(waitgroup_add_accumulates);
     std::string out;
     const int rc = runSourceCapturing("wg_add",
+        "import thread;\n"
         "import concurrent;\n"
         "import io;\n"
         "class Worker {\n"
@@ -174,6 +176,7 @@ void test_semaphore_limits_concurrency()
     TEST(semaphore_limits_concurrency);
     std::string out;
     const int rc = runSourceCapturing("sem_limit",
+        "import thread;\n"
         "import concurrent;\n"
         "import io;\n"
         "class Runner {\n"

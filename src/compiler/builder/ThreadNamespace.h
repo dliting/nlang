@@ -1,18 +1,19 @@
 /*-----------------------------------------------------------------------------
 	ncomp/builder/ThreadNamespace.h
-	K1 (v0.10.0): the built-in `thread` namespace call surface
-	(thread.spawn/join/yield/id/sleep). One table and one singleton
-	factory serve both sides: the resolver (signature checks against the
-	synthetic SnFunction formals) and VmBackend (module-level intrinsic
-	stub registration keyed by the very same singleton pointers — nlang_vm
-	links nlang_compiler privately and includes builder headers, the
-	same arrangement SymbolSlots.hpp uses).
-	The formals' type expressions are minted UNbound; binding an
-	expression's Field() is an ExprResolveAccessor-only operation, so the
-	resolver binds them lazily on first use (BindThreadNsFormalTypes).
+	K3 (v0.10.3): the "thread" package materialized as an ordinary stdlib
+	native package (stdlib/thread.n carries the declarations; the
+	implementations live inside the VM). This header is what remains of
+	the K1 built-in-namespace machinery after the materialization:
+	① the package name (shared by the resolver's typed-spawn arm and the
+	backend's intrinsic stamping);
+	② the name → intrinsic id table the backend stamps thread.n's native
+	records with (nlang_vm links nlang_compiler privately and includes
+	builder headers, the same arrangement SymbolSlots.hpp uses);
+	③ the Mutex method-shape struct for the sync-primitive resolver arm
+	(ExprResolverThreadNs.cpp).
 -----------------------------------------------------------------------------*/
 #pragma once
-#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <nlang/runtime/NodeConsts.h>
 #include <nlang/vm/Intrinsics.h>
@@ -20,36 +21,23 @@
 namespace nlang
 {
 
-class SnNamespace;
-class SnFunction;
-struct ThreadNsFuncEntry;
-
-//The reserved namespace/package name (O1: RegisterUnit rejects a user
-//package under this path so it can never shadow the built-in surface).
+//The standard library's concurrency-primitives package name. The package
+//declares itself in stdlib/thread.n; a user unit under the same path
+//collides with it through the ordinary duplicate-package rule.
 inline constexpr const char* kThreadNamespaceName = "thread";
 
-//Parameter/return kinds the table can describe. The K1 surface carries
-//at most one parameter per function; TNP_Void doubles as "no value" for
-//the return column.
-enum ThreadNsParamKind : unsigned char {
-	TNP_Void,      //void return / zero-parameter function
-	TNP_Int32,     //int value or return
-	TNP_ThreadObj, //Thread instance (class reference)
-	TNP_FuncVoid   //func<void> delegate (spawn's parameter)
-};
-
-struct ThreadNsFuncEntry {
+//The five VM-implemented members of the thread package: stdlib/thread.n
+//declares them `native`, and the backend flips each record onto the
+//intrinsic channel (isNative=false + intrinsicId) because the
+//implementations are built into the VM, not a host library.
+struct ThreadIntrinsicEntry {
 	const char* memberName;
 	uint16_t intrinsicId;
-	unsigned char paramKind;   //ThreadNsParamKind of the single parameter
-	unsigned char returnKind;  //ThreadNsParamKind of the return value
 };
 
-//The five-entry K1 surface. Order is table order — registration order of
-//the backend stubs derives from it.
-const ThreadNsFuncEntry* ThreadNsFuncTable();
-size_t ThreadNsFuncCount();
-const ThreadNsFuncEntry* FindThreadNsFunc(const std::string& memberName);
+//INTR_None when the name is not a VM-implemented thread member (such a
+//declaration keeps host-native dispatch — the ordinary native channel).
+uint16_t FindThreadIntrinsicId(const std::string& memberName);
 
 //Fixed call shape of one Mutex/Channel method (the resolver side's
 //classification result; Channel.recv arrives in Slice 9 with its
@@ -58,11 +46,5 @@ struct SyncMethodShape {
 	int paramCount;
 	NodeKind returnType;   //NK_Void = no result value on the member
 };
-
-//Singleton decls (lazily minted, never freed — process-lifetime
-//built-ins, the GetBuiltinClassDecl arrangement). The callee factory
-//is index-based: tableIndex must address ThreadNsFuncTable().
-SnNamespace* GetThreadNamespaceDecl();
-SnFunction* GetThreadNsCallee(size_t tableIndex);
 
 } //namespace nlang

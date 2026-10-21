@@ -247,11 +247,13 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	SnExpression *pOuterExpr)
 {
 	//Module import visibility (spec §6.2 rule 5): module-table fallback
-	//K1: the built-in thread namespace rides the same dotted-call shape
-	//and the same head position (before the outer resolves, so its
-	//diagnostics never double). m12 priority lives inside both helpers
-	//via the same probes — a user local/field/type named `thread` wins.
-	if (TryResolveThreadNamespace(snMember))
+	//K3 thread-package materialization: the typed-spawn narrow arm rides
+	//the same head position, ahead of the module-qualified fallback, so
+	//its diagnostics never double. Every other thread.* shape declines
+	//to the fallback — thread is an ordinary stdlib package now. m12
+	//priority lives inside both helpers via the same probes — a user
+	//local/field/type named `thread` wins.
+	if (TryResolveThreadSpawn(snMember))
 		return true;
 	//for dotted call chains. Runs BEFORE the outer resolves — a module
 	//diagnostic must not double with a spurious "Cannot resolve the field",

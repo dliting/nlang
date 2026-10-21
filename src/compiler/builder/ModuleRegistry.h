@@ -208,9 +208,9 @@ private:
 	//matched by their single-segment .ncu name only.
 	bool IsProjectModule(const std::string& dottedPath) const;
 
-	//RegisterUnit's validation half: the three module-path gates, in
-	//rejection order (dotted stem shape, the reserved thread namespace,
-	//duplicate package). True = rejected, error already in outErrors.
+	//RegisterUnit's validation half: the two module-path gates, in
+	//rejection order (dotted stem shape, duplicate package). True =
+	//rejected, error already in outErrors.
 	bool RejectsModulePath(const std::string& stem,
 		const std::string& sourceFile, const std::string& modulePath,
 		std::vector<std::string>& outErrors) const;

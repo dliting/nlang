@@ -1,17 +1,20 @@
 /*---
-    ExprResolverThreadNs.cpp — K1 并发语言面（解析侧）：
-    ① 内建 thread 命名空间：签名表/单例工厂与调用拦截。
-    形态与模块限定调用（TryResolveModuleQualified）同构：链形 [thread][member]()，
-    先过 m12 遮蔽探针（用户局部/字段/类型名为 thread 者胜），再对签名表匹配。
-    发射走既有自由调用轨：外层标识符绑定命名空间单例（EmitMemberHeaderDispatch
-    的命名空间臂要求），内层 invoke 绑定合成 SnFunction，OP_CallFunc 的内建臂派发。
-    ② Mutex 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
+    ExprResolverThreadNs.cpp — thread 包解析侧（K3 真实化后）：
+    ① 类型化 spawn 窄臂（TryResolveThreadSpawn）：thread.spawn 的
+    func<T>→Future<T> 形态无法用单一静态原型表达，保留一个先于模块
+    限定回退的专用臂；其余 thread.* 形态（join/yield/id/sleep、
+    spawn-void、未知成员）全部落回 TryResolveModuleQualified＋import
+    准入——thread 与 io 等普通标准库包同轨。
+    ② intrinsic 名→id 表（FindThreadIntrinsicId）：后端给
+    stdlib/thread.n 的 native 记录盖 intrinsic 章用。
+    ③ Mutex 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
     ＋流方法族尾态（调用方作用域实参解析、void 不留类型），发射走
     OP_CallMethod-by-name 既有轨。Channel<T> 方法走泛型容器方法族
     （ExprResolverMemberContainer.cpp）。
 ---*/
 #include "ExprResolver.h"
 #include "ThreadNamespace.h"
+#include "ModuleRegistry.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "ScriptLocation.h"
@@ -26,232 +29,95 @@
 namespace nlang
 {
 
-//--- 签名表与单例工厂 ------------------------------------------------------
+//--- intrinsic 表 -----------------------------------------------------------
 
-static const ThreadNsFuncEntry s_ThreadNsFuncs[] = {
-	{"spawn", INTR_Thread_Spawn, TNP_FuncVoid,  TNP_ThreadObj},
-	{"join",  INTR_Thread_Join,  TNP_ThreadObj, TNP_Void},
-	{"yield", INTR_Thread_Yield, TNP_Void,      TNP_Void},
-	{"id",    INTR_Thread_Id,    TNP_Void,      TNP_Int32},
-	{"sleep", INTR_Thread_Sleep, TNP_Int32,     TNP_Void},
+static const ThreadIntrinsicEntry s_ThreadIntrinsics[] = {
+    {"spawn", INTR_Thread_Spawn},
+    {"join",  INTR_Thread_Join},
+    {"yield", INTR_Thread_Yield},
+    {"id",    INTR_Thread_Id},
+    {"sleep", INTR_Thread_Sleep},
 };
 
-const ThreadNsFuncEntry* ThreadNsFuncTable()
+uint16_t FindThreadIntrinsicId(const std::string& memberName)
 {
-	return s_ThreadNsFuncs;
+    for (const auto& e : s_ThreadIntrinsics)
+        if (memberName == e.memberName)
+            return e.intrinsicId;
+    return INTR_None;
 }
 
-size_t ThreadNsFuncCount()
-{
-	return std::size(s_ThreadNsFuncs);
-}
+//--- 类型化 spawn 窄臂 ------------------------------------------------------
 
-const ThreadNsFuncEntry* FindThreadNsFunc(const std::string& memberName)
-{
-	for (const auto& e : s_ThreadNsFuncs)
-		if (memberName == e.memberName)
-			return &e;
-	return nullptr;
-}
-
-//The namespace singleton. Members stay empty forever: the surface is a
-//flat function table, and only the node kind matters to the emission
-//contract (EmitMemberHeaderDispatch's namespace arm).
-SnNamespace* GetThreadNamespaceDecl()
-{
-	static SnNamespace* s_pNs = nullptr;
-	if (!s_pNs)
-	{
-		ScriptLocation fallback;
-		s_pNs = new SnNamespace(new std::string(kThreadNamespaceName),
-			new std::list<SnField*>(), fallback);
-	}
-	return s_pNs;
-}
-
-//Type EXPRESSION minting for one table kind. The expression starts
-//unbound: Field() binding is an ExprResolveAccessor-only operation
-//(BindThreadNsFormalTypes does it lazily on the resolver side).
-static SnIdentifierExpr* NewThreadNsTypeRef(const char* pDisplayName)
-{
-	ScriptLocation fallback;
-	return new SnIdentifierExpr(new std::string(pDisplayName), fallback);
-}
-
-//The synthetic callee of table entry `tableIndex`. Formals carry the
-//declared kind; the function's return type flows through the return
-//expression's later-bound Field() (SnFunction::EvalDataType reads it).
-//Singletons: process-lifetime built-ins, minted once per entry.
-SnFunction* GetThreadNsCallee(size_t tableIndex)
-{
-	static SnFunction* s_Callees[std::size(s_ThreadNsFuncs)] = {};
-	assert(tableIndex < std::size(s_ThreadNsFuncs));
-	SnFunction*& rpRef = s_Callees[tableIndex];
-	if (rpRef)
-		return rpRef;
-	const ThreadNsFuncEntry& entry = s_ThreadNsFuncs[tableIndex];
-	ScriptLocation fallback;
-	UniquePtrList<SnFormalParam> params;
-	if (entry.paramKind != TNP_Void)
-	{
-		const char* pParamName =
-			(entry.paramKind == TNP_FuncVoid) ? "f"
-			: (entry.paramKind == TNP_ThreadObj) ? "t" : "ms";
-		params.Add(new SnFormalParam(NF_NONE,
-			NewThreadNsTypeRef(
-				(entry.paramKind == TNP_FuncVoid) ? "func"
-				: (entry.paramKind == TNP_ThreadObj) ? "Thread" : "int"),
-			new std::string(pParamName), nullptr, fallback));
-	}
-	SnFieldExpr* pReturnType = (entry.returnKind == TNP_Void) ? nullptr
-		: NewThreadNsTypeRef(
-			(entry.returnKind == TNP_ThreadObj) ? "Thread" : "int");
-	rpRef = new SnFunction(FA_Public, NF_NONE, pReturnType,
-		new std::string(entry.memberName), std::move(params), fallback);
-	return rpRef;
-}
-
-//--- 解析侧 ----------------------------------------------------------------
-
-//Bind one minted type expression to its type node. The synthetic callee
-//is a process-lifetime singleton, but SnBuiltinDataType::InstanceOf (and
-//the func<...> instantiations built on it) resolve through TheAST() — a
-//process-singleton tree whose builtin nodes are re-minted on EVERY build
-//(ModuleBuilder::InitSyntaxTree clears and rebuilds it). A Field()
-//captured by an earlier build therefore dangles once that build ends:
-//an in-process host compiling many programs would match thread.spawn
-//against freed-then-reused nodes. The guard compares against the
-//CURRENT build's node and rebinds on rotation — a manual rebind, since
-//ResolveFieldExprAs asserts on already-resolved expressions. Within one
-//build the interned nodes are stable and the bind is idempotent.
-void ExprResolveAccessor::BindThreadNsFormalTypes(
-	const ThreadNsFuncEntry& entry)
-{
-	const size_t tableIndex = &entry - ThreadNsFuncTable();
-	SnFunction& callee = *GetThreadNsCallee(tableIndex);
-	auto bind = [this](SnFieldExpr& expr, SnField* pType)
-	{
-		if (expr.Field() == pType)
-			return;   //already bound to this build's node
-		if (expr.IsResolved())
-		{
-			//Cross-build rotation: refresh the stale capture. Same writes
-			//ResolveFieldExprAs makes, minus its unresolved-only assert.
-			expr.m_pField = pType;
-			expr.EvalDataType(pType->EvalDataType());
-			return;
-		}
-		ResolveFieldExprAs(expr, pType);
-	};
-	if (entry.paramKind != TNP_Void)
-	{
-		//The K1 surface carries at most one parameter per function.
-		for (auto& formal : callee.Params())
-		{
-			bind(*formal.Type(), ThreadNsTypeNode(entry.paramKind));
-			break;
-		}
-	}
-	if (callee.ReturnType())
-		bind(*callee.ReturnType(), ThreadNsTypeNode(entry.returnKind));
-}
-
-//The type NODE of one table kind — resolved here, on the resolver side
-//only (the backend never reads the synthetic formals).
-SnField* ExprResolveAccessor::ThreadNsTypeNode(unsigned char kind)
-{
-	ScriptLocation fallback;
-	switch (kind)
-	{
-	case TNP_Int32:
-		return SnBuiltinDataType::InstanceOf(NK_Int32);
-	case TNP_ThreadObj:
-		return GetBuiltinClassDecl("Thread", &fallback);
-	case TNP_FuncVoid:
-		return GetGenericClassDecl(kBuiltinFuncTypeName,
-			{SnBuiltinDataType::InstanceOf(NK_Void)}, {}, &fallback);
-	default:
-		return nullptr;   //TNP_Void: no node to build
-	}
-}
-
-//Built-in thread namespace: `thread.<member>(...)`, resolved against
-//the signature table. Same chain shape and m12 priority as the
-//module-qualified fallback (a user local/field/type named `thread`
-//wins; O1's reserved-name gate guarantees no module can ever sit at
-//the path). True = consumed (resolved or diagnosed); false = declined.
-bool ExprResolveAccessor::TryResolveThreadNamespace(SnMemberExpr &snMember)
+//K3 materialization's narrow arm: chain head `thread` + member `spawn` —
+//the one shape a static prototype cannot express (func<T> delegate →
+//Future<T>), so it keeps a dedicated try before the module-qualified
+//fallback. Runs the SAME import admission first (a typed spawn must not
+//slip past the gate the package path enforces); every other thread.*
+//shape declines to TryResolveModuleQualified, whose admission and
+//diagnostics then apply unchanged. m12 priority: the same probes as the
+//fallback — a user local/field/type named `thread` wins. True = consumed
+//(bound or diagnosed); false = declined.
+bool ExprResolveAccessor::TryResolveThreadSpawn(SnMemberExpr &snMember)
 {
 	if (!snMember.Outer() || !snMember.Inner()
 		|| snMember.Inner()->Kind() != NK_InvokeExpr)
 		return false;
 	const std::vector<std::string> pathSegs =
 		OuterIdentifierChain(snMember);
-	if (pathSegs.empty() || pathSegs.front() != kThreadNamespaceName)
+	if (pathSegs.size() != 1 || pathSegs.front() != kThreadNamespaceName)
 		return false;
 	if (ProbeNonFunctionField(pathSegs.front())
 		|| IsBuiltinClassName(pathSegs.front()))
 		return false;
 	auto &invoke = static_cast<SnInvokeExpr &>(*snMember.Inner());
+	if (invoke.CalleeName() != "spawn")
+		return false;
+	//Import admission BEFORE any binding. A closed gate declines — the
+	//module-qualified fallback then names the missing import with the
+	//ordinary package wording (no separate typed-spawn wording exists).
+	const uint32_t owner =
+		m_Env.Registry().OwnerOfContext(*m_pContext);
+	if (!m_Env.Registry().ImportGateAllows(owner, kThreadNamespaceName))
+		return false;
+	//The stdlib thread.n declaration this import inlined; an empty scan
+	//means the package is not what the index promised — decline and let
+	//the fallback diagnose it.
+	std::vector<SnFunction*> candidates = m_Env.Registry().ModuleFunctions(
+		kThreadNamespaceName, "spawn");
+	if (candidates.empty())
+		return false;
+	return BindThreadSpawnCall(snMember, invoke, candidates);
+}
 
-	const ThreadNsFuncEntry* entry = nullptr;
-	if (pathSegs.size() == 1)
-		entry = FindThreadNsFunc(invoke.CalleeName());
-	if (!entry)
-	{
-		std::string dotted = kThreadNamespaceName;
-		for (const auto& seg : pathSegs)
-			dotted += "." + seg;
-		dotted += "." + invoke.CalleeName();
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"'%s' is not a member of the built-in thread namespace "
-			"(thread.spawn, thread.join, thread.yield, thread.id, "
-			"thread.sleep).", dotted.c_str());
-		FinishConsumedMember(snMember);
-		return true;
-	}
-
-	//Emission contract: the outer identifier's Field() must be the
-	//namespace singleton (EmitMemberHeaderDispatch's namespace arm).
-	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Outer()),
-		GetThreadNamespaceDecl());
-
+//TryResolveThreadSpawn's bind tail (split for the 50-line function
+//budget): caller-scope argument resolution, the typed func<T>→Future<T>
+//arm, then the fixed match against the declared func<void> prototype.
+//Always consumes the member.
+bool ExprResolveAccessor::BindThreadSpawnCall(SnMemberExpr &snMember,
+	SnInvokeExpr &invoke, std::vector<SnFunction*> &candidates)
+{
 	//Arguments resolve in the caller's scope — same contract and tail
 	//(diagnosed failures consume the member) as module-qualified calls.
 	if (!TryResolveModuleQualifiedArgs(snMember, invoke))
 		return true;
 
-	return BindThreadNsCall(snMember, invoke, *entry);
-}
-
-//TryResolveThreadNamespace's match-and-bind tail: lazily rebind the
-//synthetic callee's formal types to the current build, match the invoke
-//against the one-entry candidate list, and wire the call site through
-//the shared module-qualified close-out. Always consumes the member.
-bool ExprResolveAccessor::BindThreadNsCall(SnMemberExpr &snMember,
-	SnInvokeExpr &invoke, const ThreadNsFuncEntry& entry)
-{
-	BindThreadNsFormalTypes(entry);
-	//K3: spawn's result type depends on the delegate's return type — a
-	//fixed-signature table entry cannot express that. Single-argument
-	//spawn sites take the dedicated typed arm first; every other shape
-	//falls through to the fixed match below.
-	if (entry.memberName == "spawn"
-		&& TryBindTypedSpawn(snMember, invoke, entry))
+	//Typed arm first: func<T> → Future<T> (T=void keeps the Thread face).
+	if (TryBindTypedSpawn(snMember, invoke, *candidates.front()))
 	{
 		FinishConsumedMember(snMember);
 		return true;
 	}
-	std::vector<SnFunction*> candidates{
-		GetThreadNsCallee(static_cast<size_t>(&entry - ThreadNsFuncTable()))};
-	SnFunction *pCallee = nullptr;
+	//Fixed match against the declared func<void> prototype, with the
+	//spawn-specific mismatch wording for bare function references.
 	std::vector<FormalBinding> bindings;
+	SnFunction *pCallee = nullptr;
 	bool bAmbiguous = false;
 	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings,
 		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
 	{
-		if (ReportSpawnFuncRefFailure(snMember, invoke, res, entry))
+		if (ReportSpawnFuncRefFailure(snMember, invoke, res))
 			return true;
 		LogInvokeFailure(invoke, res, pCallee, false, candidates);
 		FinishConsumedMember(snMember);
@@ -335,7 +201,7 @@ bool ExprResolveAccessor::FinishSyncPrimitiveCall(SnMemberExpr &snMember,
 	m_pContext = pSavedContext;
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
-	//Params() is a child-node view without size() — count by iteration.
+	//Params()is a child-node view without size() — count by iteration.
 	int argCount = 0;
 	for (auto& param : invoke.Params())
 	{
