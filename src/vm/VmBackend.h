@@ -24,6 +24,7 @@ class SnFunction;
 class SnEnumDecl;
 class SnInvokeExpr;
 class SnClassDecl;
+class SnInterfaceDecl;
 class SnSubscriptAssignStmt;
 class SnStructDecl;
 class SnClassField;
@@ -54,9 +55,11 @@ namespace langservice { class SymbolIndex; struct SymbolInfo; }
 class ModuleRegistry;
 
 //Phase 9d: the built-in Exception family — synthetic declarations carry
-//no AST fields but a fixed two-field (message/backtrace) runtime layout.
-//Shared by field-offset lookup (EmitExprMember.cpp) and the registration
-//side layout injection (RegisterClass.cpp).
+//no AST fields; the Exception row owns the two-field (message/backtrace)
+//runtime layout and every subclass sees the pair through the chain view
+//(0.9.12 v2.7 own-only records). Used by the field-offset lookup
+//(backend/FieldOffsets.cpp), which may only advance the offset on the
+//Exception row itself.
 inline bool IsBuiltinExceptionName(const std::string& name) {
     return name == "Exception" || name == "NullPointerException"
         || name == "DivByZeroException"
@@ -993,8 +996,6 @@ private:
     //resolution pass; the Phase 8e-1 implicit-Object parent fixup.
     void RegisterClassDecl(SnClassDecl& sn,
         std::unordered_map<std::string, SnClassDecl*>& declMap);
-    void CollectInheritedClassFields(SnClassDecl& sn, CompiledClass& cc);
-    void AppendBuiltinExceptionFields(CompiledClass& cc);
     void CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc);
     void ResolveClassMetadata(std::unordered_map<std::string, SnClassDecl*>& declMap);
     //classIdx (not a CompiledClass&) because slot resolution can append
@@ -1021,6 +1022,9 @@ private:
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
+    //PopulateClassMethods worker: one class's method/ctor tables from its
+    //AST members in declaration order (keys on m_funcIndexMap).
+    void AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc);
     //0.9.11 D2: struct counterpart — fills CompiledStruct.constructorIndices
     //in declaration order (structs declare constructors only).
     void PopulateStructMethods(SnNamespace& root);
@@ -1028,6 +1032,10 @@ private:
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
     void RegisterInterfaces(SnNamespace& root);
+    //RegisterInterfaces worker: one interface's instance-method signature
+    //records from its AST members (uses the leaf-slot resolvers and the
+    //default-value encoders, hence a member).
+    void AppendInterfaceSignatures(SnInterfaceDecl& sn, CompiledInterface& ci);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it

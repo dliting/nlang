@@ -127,11 +127,20 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 ValidateTypeDescIndices(td, mod.structs.size(),
                     mod.classes.size());
         //0.9.10 D3: interface constant declared types carry descriptors
-        //like any other exported type.
-        for (const auto& iface : mod.interfaces)
+        //like any other exported type. 0.9.12 (v2.7): so do the
+        //instance-method signatures (formals and return).
+        for (const auto& iface : mod.interfaces) {
             for (const auto& constant : iface.constants)
                 ValidateTypeDescIndices(constant.type, mod.structs.size(),
                     mod.classes.size());
+            for (const auto& sig : iface.instanceMethods) {
+                for (const auto& ptd : sig.paramTypeDescs)
+                    ValidateTypeDescIndices(ptd.type, mod.structs.size(),
+                        mod.classes.size());
+                ValidateTypeDescIndices(sig.returnType, mod.structs.size(),
+                    mod.classes.size());
+            }
+        }
     }
 
     //Array type descriptors

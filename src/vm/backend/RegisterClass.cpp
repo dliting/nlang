@@ -1,7 +1,9 @@
 /*---
-    RegisterClass.cpp — 类注册族：内建异常字段、继承/自有字段收集、
-    类元数据解析、隐式 Object 继承与类方法表填充。
+    RegisterClass.cpp — 类注册族：自有字段收集、类元数据解析、
+    隐式 Object 继承与类方法表（含访问级别/虚标志）填充。
     从 Register.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
+    0.9.12 (v2.7)：字段列表改为仅自有字段，继承字段由运行期沿
+    superClassIdx 链拼接（VmClassLayout），线格式不再重复携带。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
@@ -14,63 +16,14 @@
 
 namespace nlang {
 
-//Append the synthesized Exception-family layout: message (RTK_String)
-//and backtrace (heap ref into List).
-void VmBackend::AppendBuiltinExceptionFields(CompiledClass& cc) {
-    cc.fieldNames.push_back("message");
-    cc.fieldTypeKinds.push_back(RTK_String);
-    cc.fieldStructIndices.push_back(0xFFFF);
-    cc.fieldClassIndices.push_back(0xFFFF);
-    cc.fieldAccess.push_back(0);
-    cc.fieldNames.push_back("backtrace");
-    cc.fieldTypeKinds.push_back(RTK_Class);
-    cc.fieldStructIndices.push_back(0xFFFF);
-    cc.fieldClassIndices.push_back(
-        static_cast<uint16_t>(m_listClassIdx));
-    cc.fieldAccess.push_back(0);
-}
-
-//Collect inherited fields: walk from root ancestor to direct parent,
-//collecting each ancestor's own fields (not their inherited fields).
-void VmBackend::CollectInheritedClassFields(SnClassDecl& sn, CompiledClass& cc) {
-    std::vector<SnClassDecl*> ancestors;
-    auto* pSuper = sn.SuperClass();
-    while (pSuper) {
-        ancestors.push_back(pSuper);
-        pSuper = pSuper->SuperClass();
-    }
-    //Add fields from root ancestor first (reversed order)
-    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
-        //Phase 9d: a built-in Exception ancestor's synthetic decl has
-        //no Members(), but its runtime layout carries 2 fields
-        //(message=slot[1], backtrace=slot[2]). Inject them so user
-        //subclasses of Exception get the correct flattened layout
-        //(matching FindClassFieldOffset and the ctor intrinsic).
-        if ((*it)->IsBuiltinClass()) {
-            if (IsBuiltinExceptionName((*it)->Name())) {
-                AppendBuiltinExceptionFields(cc);
-                continue;
-            }
-        }
-        for (auto& member : (*it)->Members()) {
-            if (member.Kind() == NK_ClassField) {
-                auto& cf = static_cast<SnClassField&>(member);
-                cc.fieldNames.push_back(cf.Name());
-                //0.7.3 B: array fields carry their interned token in
-                //EvalDataType — RuntimeTypeKind files both arrays and
-                //scalars (mirrors RegisterStructs).
-                cc.fieldTypeKinds.push_back(
-                    RuntimeTypeKind(cf.EvalDataType()));
-                cc.fieldStructIndices.push_back(0xFFFF);
-                cc.fieldClassIndices.push_back(0xFFFF);
-                cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
-            }
-        }
-    }
-}
-
+//0.9.12 (v2.7): the class record carries OWN instance fields only.
+//Inherited fields are no longer flattened here — the runtime view
+//(VmClassLayout) joins the superClassIdx chain base-first, and the
+//compile-time offset walk (FindClassFieldOffset) already reads the
+//ancestor AST. The built-in Exception family's message/backtrace pair
+//lives on the Exception base record (BuiltinClasses.cpp), so user
+//subclasses see it through the chain instead of a per-subclass copy.
 void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
-    //Collect own fields
     for (auto& member : sn.Members()) {
         if (member.Kind() == NK_ClassField) {
             auto& cf = static_cast<SnClassField&>(member);
@@ -87,8 +40,9 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
     }
 }
 
-//Build one CompiledClass: inherited fields (ancestor chain), own fields,
-//then register in declMap for the post-registration resolution pass.
+//Build one CompiledClass: own fields only (0.9.12 v2.7 — inherited
+//fields ride the superClassIdx chain, not the record), then register
+//in declMap for the post-registration resolution pass.
 void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     std::unordered_map<std::string, SnClassDecl*>& declMap) {
     CompiledClass cc;
@@ -98,7 +52,6 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
-    CollectInheritedClassFields(sn, cc);
     CollectOwnClassFields(sn, cc);
     cc.fieldCount = static_cast<uint16_t>(cc.fieldNames.size());
     declMap[cc.name] = &sn;   //key = the qualified name just written
@@ -146,12 +99,12 @@ void VmBackend::ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx) {
 
 //v1.12: field type descriptors piggyback on the resolution loop
 //(all classes are registered, so BuildTypeDesc's name lookups
-//succeed). Inherited fields resolve through pDecl's ancestor
-//chain; the synthesized Exception-family fields (message /
-//backtrace) have no AST node and degrade from the recorded kind
-//byte + class index. Cross-unit classes are placeholder records
-//absent from declMap — they never reach here; their descriptors
-//live in their own unit's image.
+//succeed). 0.9.12 (v2.7): records are own-only, so every field name
+//resolves to an own AST node (FindField checks own members before
+//the ancestor chain); the degrade path that synthesized descriptors
+//for inherited/Exception-family entries is gone. Cross-unit classes
+//are placeholder records absent from declMap — they never reach
+//here; their descriptors live in their own unit's image.
 //classIdx instead of CompiledClass& for the same reallocation
 //reason as ResolveClassFieldRefs.
 void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx) {
@@ -160,29 +113,14 @@ void VmBackend::BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx) {
     for (size_t i = 0; i < fieldCount; ++i) {
         auto* pField = pDecl->FindField(
             m_compiledModule.classes[classIdx].fieldNames[i]);
-        if (pField && pField->Kind() == NK_ClassField) {
-            //Desc computed before the push_back statement: a leaf slot
-            //inside BuildTypeDesc can append placeholders to classes,
-            //and a member-call receiver must not predate that append.
-            TypeDesc td = BuildTypeDesc(pField->EvalDataType(),
-                                        LeafSlotResolvers());
-            m_compiledModule.classes[classIdx].fieldTypeDescs.push_back(td);
-            continue;
-        }
-        TypeDesc td;
-        if (m_compiledModule.classes[classIdx].fieldTypeKinds[i]
-                == RTK_String)
-            td.kind = RTK_String;
-        else if (m_compiledModule.classes[classIdx].fieldTypeKinds[i]
-                     == RTK_Class
-            && m_compiledModule.classes[classIdx]
-                     .fieldClassIndices[i] != 0xFFFF) {
-            td.kind = RTK_Class;
-            td.typeIdx = m_compiledModule.classes[classIdx]
-                .fieldClassIndices[i];
-        }
-        m_compiledModule.classes[classIdx].fieldTypeDescs
-            .push_back(td);  //default = NonSerialized
+        //Desc computed before the push_back statement: a leaf slot
+        //inside BuildTypeDesc can append placeholders to classes,
+        //and a member-call receiver must not predate that append.
+        TypeDesc td;  //default = NonSerialized
+        if (pField && pField->Kind() == NK_ClassField)
+            td = BuildTypeDesc(pField->EvalDataType(),
+                               LeafSlotResolvers());
+        m_compiledModule.classes[classIdx].fieldTypeDescs.push_back(td);
     }
 }
 
@@ -247,6 +185,45 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     ApplyImplicitObjectInheritance();
 }
 
+//PopulateClassMethods worker: one class's method/ctor tables from its AST
+//members in declaration order (keys on m_funcIndexMap, hence a member).
+void VmBackend::AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc) {
+    for (auto& child : sn.Members()) {
+        if (child.Kind() != NK_Function)
+            continue;
+        auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+        if (it == m_funcIndexMap.end())
+            continue;
+        uint16_t funcIdx = static_cast<uint16_t>(it->second);
+        //0.9.12 (v2.7): the method table carries every member function —
+        //static and instance — with its declared access and virtuality in
+        //parallel byte arrays, so a consumer stub rebuilds the same
+        //visibility the producer compiled. The v2.4 public-static index
+        //block is gone: staticness already rides CompiledFunction
+        //.isStatic, and private statics now travel on the wire for the
+        //consumer's contract checks (they stay call-invisible through the
+        //rebuilt stub's access).
+        cc.methodIndices.push_back(funcIdx);
+        cc.methodAccess.push_back(
+            static_cast<uint8_t>(child.AccessType()));
+        cc.methodVirtual.push_back(
+            child.ContainFlags(NF_Virtual) ? 1 : 0);
+        //0.9.10 D2.4: a same-name static method is not the constructor
+        //(declaration order must not matter). 0.9.11 (v2.6): plural
+        //record in declaration order — the ordinal within this vector is
+        //the cross-module ctorOrdinal selector (overloads share the bare
+        //name). 0.9.12 (v2.7): constructorAccess parallels it so the
+        //consumer rebuilds each ctor with its declared access.
+        if (child.Name() == sn.Name()
+            && !child.ContainFlags(NF_Static))
+        {
+            cc.constructorIndices.push_back(funcIdx);
+            cc.constructorAccess.push_back(
+                static_cast<uint8_t>(child.AccessType()));
+        }
+    }
+}
+
 void VmBackend::PopulateClassMethods(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
         if (node.Kind() != NK_ClassDecl)
@@ -261,31 +238,11 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
         if (ccIdx < 0) return;
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
         cc.methodIndices.clear();
+        cc.methodAccess.clear();
+        cc.methodVirtual.clear();
         cc.constructorIndices.clear();
-        cc.publicStaticMethodIndices.clear();
-        for (auto& child : sn.Members()) {
-            if (child.Kind() == NK_Function) {
-                auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
-                if (it != m_funcIndexMap.end()) {
-                    uint16_t funcIdx = static_cast<uint16_t>(it->second);
-                    cc.methodIndices.push_back(funcIdx);
-                    //0.9.10 D2.4: a same-name static method is not the
-                    //constructor (declaration order must not matter).
-                    //0.9.11 (v2.6): plural record in declaration order —
-                    //the ordinal within this vector is the cross-module
-                    //ctorOrdinal selector (overloads share the bare name).
-                    if (child.Name() == sn.Name()
-                        && !child.ContainFlags(NF_Static))
-                        cc.constructorIndices.push_back(funcIdx);
-                    //0.9.10 D5: the public statics a consumer stub may
-                    //rebuild — private statics stay invisible across the
-                    //module border.
-                    else if (child.ContainFlags(NF_Static)
-                        && child.AccessType() == FA_Public)
-                        cc.publicStaticMethodIndices.push_back(funcIdx);
-                }
-            }
-        }
+        cc.constructorAccess.clear();
+        AppendClassMemberMethods(sn, cc);
     });
 }
 
@@ -308,11 +265,19 @@ void VmBackend::PopulateStructMethods(SnNamespace& root) {
         if (csIdx < 0) return;
         auto& cs = m_compiledModule.structs[static_cast<size_t>(csIdx)];
         cs.constructorIndices.clear();
+        cs.constructorAccess.clear();
         for (auto& child : sn.Ctors()) {
             auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
-            if (it != m_funcIndexMap.end())
+            if (it != m_funcIndexMap.end()) {
                 cs.constructorIndices.push_back(
                     static_cast<uint16_t>(it->second));
+                //0.9.12 (v2.7): declared access parallel to the index
+                //vector — the consumer stub rebuilds each ctor with its
+                //visibility (a private struct ctor stays private across
+                //the module border).
+                cs.constructorAccess.push_back(
+                    static_cast<uint8_t>(child.AccessType()));
+            }
         }
     });
 }

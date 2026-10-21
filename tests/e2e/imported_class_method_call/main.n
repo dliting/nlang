@@ -1,7 +1,6 @@
-//Sealed .ncu import: the class stub carries no instance methods, so a
-//consumer-side instance method call reports it does not exist. The
-//construction on the line above is fine (0.9.11 external .ncu ctors);
-//only the method call is rejected.
+//Sealed .ncu import: the class stub carries the instance-method
+//signatures (0.9.12 NCU v2.7), so the consumer-side call binds and
+//runs the producer's method body.
 import lib;
 
 int main() {

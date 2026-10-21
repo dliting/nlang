@@ -912,6 +912,89 @@ static void test_link_struct_ctor_metadata() {
     PASS();
 }
 
+// --- v2.7 interface instance signatures: cross-unit descriptor + default remap ---
+
+static void test_link_interface_signature_remap() {
+    TEST(link_interface_signature_remap);
+
+    //lib: one class + one struct (the descriptor targets) and one
+    //interface whose instance signature references both by UNIT-LOCAL
+    //indices, with a pooled string default.
+    CompiledModule lib = MakeUnit("lib");
+    lib.stringConstants = {"greet-tag"};             //lib-local pool index 0
+    lib.classes.push_back(MakeClass("lib.Widget"));  //own 0
+    lib.structs.push_back(MakeStruct("lib.Point"));  //own 0
+    CompiledInterface iface;
+    iface.name = "lib.Greeter";
+    CompiledInterfaceMethod sig;
+    sig.name = "greet";
+    sig.paramCount = 2;
+    ParamTypeDesc clsParam;
+    clsParam.type.kind = RTK_Class;
+    clsParam.type.typeIdx = 0;                       //lib-local class 0
+    ParamTypeDesc structParam;
+    structParam.type.kind = RTK_Struct;
+    structParam.type.typeIdx = 0;                    //lib-local struct 0
+    structParam.flags = PTDF_Out;
+    sig.paramTypeDescs = {clsParam, structParam};
+    sig.returnType.kind = RTK_Class;
+    sig.returnType.typeIdx = 0;                      //lib-local class 0
+    DefaultValueDesc dv;                             //RTK_String "greet-tag"
+    dv.tag = RTK_String;
+    dv.stringIdx = 0;                                //lib-local pool index
+    sig.defaultValues = {dv, DefaultValueDesc{}};    //2nd slot: no default
+    iface.instanceMethods.push_back(std::move(sig));
+    lib.interfaces.push_back(std::move(iface));
+
+    //app: its own class + string shift every lib index by one on merge,
+    //so the class-channel remap is non-identity and genuinely pinned.
+    CompiledModule app = MakeUnit("app");
+    app.stringConstants = {"app-str"};
+    app.classes.push_back(MakeClass("app.Host"));    //own 0 -> merged 0
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));       //own 0
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //merged classes: app.Host=0, lib.Widget=1; merged strings:
+    //app-str=0, greet-tag=1. The signature's unit-local indices must
+    //have been remapped through the lib unit's maps.
+    CHECK(merged.interfaces.size() == 1
+       && merged.interfaces[0].name == "lib.Greeter"
+       && merged.interfaces[0].instanceMethods.size() == 1,
+          "interface signature reaches the merged table");
+    const CompiledInterfaceMethod& m =
+        merged.interfaces[0].instanceMethods[0];
+    CHECK(m.paramTypeDescs.size() == 2
+       && m.paramTypeDescs[0].type.kind == RTK_Class
+       && m.paramTypeDescs[0].type.typeIdx == 1,
+          "class-typed formal remapped to the merged class table");
+    CHECK(m.paramTypeDescs[1].type.kind == RTK_Struct
+       && m.paramTypeDescs[1].type.typeIdx == 0
+       && m.paramTypeDescs[1].flags == PTDF_Out,
+          "struct-typed formal remapped and its out flag preserved");
+    CHECK(m.returnType.kind == RTK_Class && m.returnType.typeIdx == 1,
+          "class-typed return remapped to the merged class table");
+    CHECK(m.defaultValues.size() == 2
+       && m.defaultValues[0].tag == RTK_String
+       && m.defaultValues[0].stringIdx == 1
+       && merged.stringConstants.size() == 2
+       && merged.stringConstants[1] == "greet-tag",
+          "default string index remapped to the merged pool");
+    CHECK(m.defaultValues[1].tag == RTK_Void,
+          "the no-default slot stays RTK_Void through the remap");
+
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -978,6 +1061,11 @@ int main() {
         g_fail++;
     }
     try { test_link_struct_ctor_metadata(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_interface_signature_remap(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

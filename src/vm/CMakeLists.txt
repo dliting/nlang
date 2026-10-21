@@ -46,6 +46,7 @@ add_library(nlang_vm
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
     backend/EmitExprMember.cpp
+    backend/FieldOffsets.cpp
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberString.cpp
     backend/EmitStmtDecl.cpp
@@ -62,7 +63,9 @@ add_library(nlang_vm
     DisassemblerWalk.cpp
     ModuleLoader.cpp
     ModuleLoaderRecords.cpp
+    ModuleLoaderRecordsInterfaces.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsInterfaces.cpp
     NcuPackage.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp

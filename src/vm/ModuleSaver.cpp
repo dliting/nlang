@@ -11,13 +11,15 @@ ModuleLoader.cpp — keep the two in lockstep via NCU_FORMAT_* in
 CompiledModule.h.
 ---*/
 #include "nlang/vm/CompiledModule.h"
+#include "ModuleSaverRecords.h"
 
 namespace nlang {
 
 //v1.12: one length-prefixed type descriptor (u16 len + wire bytes).
 //len==0 means "no descriptor" — the reader keeps the NonSerialized
-//default. Shared by the param / return / per-field sites below.
-static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
+//default. Shared by the param / return / per-field sites below and (via
+//ModuleSaverRecords.h) by the interface record TU.
+void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 {
     std::vector<uint8_t> bytes;
     AppendTypeDescBytes(bytes, td);
@@ -33,8 +35,9 @@ static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 //Option B v1.3 fixed default-value record: tag + both 4-byte channels +
 //the 8-byte channels (v1.13) + the always-present u16 expr length with
 //its v2.3 payload. Shared by the formal-default block and the 0.9.10
-//interface-constant block so the two records cannot drift.
-static void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
+//interface-constant block so the two records cannot drift (the second
+//site lives in the interface record TU, see ModuleSaverRecords.h).
+void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 {
     fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
     fs.write(reinterpret_cast<const char*>(&dv.intValue),
@@ -289,6 +292,12 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 (i < st.fieldDefaults.size()) ? st.fieldDefaults[i]
                                               : DefaultValueDesc{});
         }
+
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount) — the consumer
+        //stub rebuilds each struct ctor with its visibility.
+        for (auto a : st.constructorAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
     }
 
     // Class descriptors
@@ -351,6 +360,17 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(cc.methodIndices[i]));
         }
 
+        //0.9.12 (v2.7): declared access and virtuality per method,
+        //parallel to methodIndices (counts ride on methodCount — the
+        //producer keeps the vectors parallel by construction, same
+        //invariant as fieldAccess above). The consumer stub rebuilds
+        //each member with its visibility, and the cross-module
+        //override contract reads the virtuality.
+        for (auto a : cc.methodAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
+        for (auto v : cc.methodVirtual)
+            fs.write(reinterpret_cast<const char*>(&v), sizeof(v));
+
         //v2.6: ctor indices in declaration order; the cross-module
         //ctorOrdinal indexes this list (replaces v2.5's single index).
         uint16_t ctorCount = static_cast<uint16_t>(
@@ -359,49 +379,20 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         for (auto idx : cc.constructorIndices)
             fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
 
-        //0.9.10 v2.4: exported public static method indices (count +
-        //entries). A v2.3 module lacks them entirely — refused by the
-        //version floor, so the reader always consumes this block.
-        uint16_t staticCount = static_cast<uint16_t>(
-            cc.publicStaticMethodIndices.size());
-        fs.write(reinterpret_cast<const char*>(&staticCount),
-                 sizeof(staticCount));
-        for (auto idx : cc.publicStaticMethodIndices)
-            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount). Replaces the
+        //v2.4 publicStaticMethodIndices block, removed in place: every
+        //member function — static included — now travels in
+        //methodIndices, and staticness rides the function record's
+        //isStatic flag.
+        for (auto a : cc.constructorAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
     }
 
-    //0.9.10 v2.4: interface statics table. Format mirrors the class
-    //method block: u32 count, then per interface the u16-length-prefixed
-    //qualified key plus its static function indices and (v2.5, D3) its
-    //constants: u16 count, then per constant a u16 name, a
-    //length-prefixed TypeDesc and a DefaultValueDesc record.
-    uint32_t ifaceCount = static_cast<uint32_t>(mod.interfaces.size());
-    fs.write(reinterpret_cast<const char*>(&ifaceCount),
-             sizeof(ifaceCount));
-    for (auto& ci : mod.interfaces) {
-        uint16_t nameLen = static_cast<uint16_t>(ci.name.size());
-        fs.write(reinterpret_cast<const char*>(&nameLen),
-                 sizeof(nameLen));
-        fs.write(ci.name.c_str(), nameLen);
-        uint16_t staticCount = static_cast<uint16_t>(
-            ci.staticMethodIndices.size());
-        fs.write(reinterpret_cast<const char*>(&staticCount),
-                 sizeof(staticCount));
-        for (auto idx : ci.staticMethodIndices)
-            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
-        uint16_t constantCount = static_cast<uint16_t>(
-            ci.constants.size());
-        fs.write(reinterpret_cast<const char*>(&constantCount),
-                 sizeof(constantCount));
-        for (const auto& constant : ci.constants) {
-            uint16_t cnameLen = static_cast<uint16_t>(constant.name.size());
-            fs.write(reinterpret_cast<const char*>(&cnameLen),
-                     sizeof(cnameLen));
-            fs.write(constant.name.c_str(), cnameLen);
-            WriteLenPrefixedTypeDesc(fs, constant.type);
-            WriteDefaultValueDesc(fs, constant.value);
-        }
-    }
+    //0.9.10 v2.4 + 0.9.12 v2.7: interface statics / constants /
+    //instance-method signature tables (the wire layout lives with the
+    //writer in ModuleSaverRecordsInterfaces.cpp).
+    WriteInterfaceRecords(fs, mod);
 
     //Array type descriptors
     uint32_t arrayTypeCount = static_cast<uint32_t>(mod.arrayTypes.size());

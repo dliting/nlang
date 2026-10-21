@@ -1,11 +1,17 @@
 /*---
     ModuleLoaderRecords.cpp — .ncu 复合记录表解析（functions / structs /
     classes 三段），从 ModuleLoader.cpp 逐字搬移（源尺寸守卫拆分，零行为
-    变化）。段间顺序、字段序、错误措辞与原实现完全一致；ReadTypeDesc 是
-    三段共用的流级适配器（u16 长度前缀 + TypeDesc.cpp 的字节层解析）。
+    变化）。段间顺序、字段序、错误措辞与原实现完全一致；ReadTypeDesc /
+    ReadDefaultValueDesc 是各段共用的流级适配器（u16 长度前缀 +
+    TypeDesc.cpp 的字节层解析），0.9.12 (v2.7) 起经头文件跨 TU 共享给
+    接口段 ModuleLoaderRecordsInterfaces.cpp（一表一 TU）。
+    0.9.12 (v2.7)：类记录改读自有字段＋方法访问/虚标志＋构造器访问
+    （publicStatic 块删除）；结构记录尾部读构造器访问；超类链终止/无环/
+    深度校验在读毕统一执行。
 ---*/
 #include "ModuleLoaderRecords.h"
 #include <nlang/vm/ExprDesc.h>
+#include <nlang/runtime/NodeConsts.h>
 #include <stdexcept>
 #include <vector>
 
@@ -14,7 +20,7 @@ namespace nlang {
 //v1.12: read one length-prefixed type descriptor (u16 len + wire bytes).
 //len==0 means "no descriptor" — the caller keeps the NonSerialized
 //default. Throws on a bad length or a malformed wire form.
-static TypeDesc ReadTypeDesc(std::istream& fs)
+TypeDesc ReadTypeDesc(std::istream& fs)
 {
     uint16_t len = 0;
     fs.read(reinterpret_cast<char*>(&len), sizeof(len));
@@ -32,8 +38,9 @@ static TypeDesc ReadTypeDesc(std::istream& fs)
 
 //Option B v1.3 fixed default-value record (see the saver's
 //WriteDefaultValueDesc for the layout). Shared by the formal-default
-//block and the 0.9.10 interface-constant block.
-static DefaultValueDesc ReadDefaultValueDesc(std::istream& fs)
+//block, the struct field-default block and (via the header) the
+//interface blocks in ModuleLoaderRecordsInterfaces.cpp.
+DefaultValueDesc ReadDefaultValueDesc(std::istream& fs)
 {
     DefaultValueDesc dv;
     fs.read(reinterpret_cast<char*>(&dv.tag), sizeof(dv.tag));
@@ -58,32 +65,6 @@ static DefaultValueDesc ReadDefaultValueDesc(std::istream& fs)
         throw std::runtime_error(
             "Invalid module: truncated default expression");
     return dv;
-}
-
-//0.9.10 D3 exported-constant block of one interface: u16 count, then per
-//constant a u16 name, a length-prefixed TypeDesc and a DefaultValueDesc
-//record (see the saver's per-interface block).
-static void ReadInterfaceConstants(std::istream& fs, CompiledInterface& ci)
-{
-    uint16_t constantCount = 0;
-    fs.read(reinterpret_cast<char*>(&constantCount),
-            sizeof(constantCount));
-    if (!fs.good() || constantCount > (1u << 12))
-        throw std::runtime_error(
-            "Invalid module: bad interface constant count");
-    ci.constants.resize(constantCount);
-    for (uint16_t j = 0; j < constantCount; ++j) {
-        auto& constant = ci.constants[j];
-        uint16_t nameLen = 0;
-        fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
-        if (!fs.good() || nameLen > (1u << 16))
-            throw std::runtime_error(
-                "Invalid module: bad interface constant name length");
-        constant.name.resize(nameLen);
-        fs.read(constant.name.data(), nameLen);
-        constant.type = ReadTypeDesc(fs);
-        constant.value = ReadDefaultValueDesc(fs);
-    }
 }
 
 void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
@@ -296,6 +277,12 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
         if (!fs.good())
             throw std::runtime_error(
                 "Invalid module: truncated struct constructor indices");
+        //0.9.12 (v2.7): same function-table bound as the class ctor
+        //indices — the consumer stub rebuilds a ctor per entry.
+        for (auto idx : st.constructorIndices)
+            if (idx >= mod.functions.size())
+                throw std::runtime_error(
+                    "Invalid module: struct constructor index out of range");
 
         //v2.6: per-field compile-time defaults, dense (RTK_Void = no
         //default). The count must equal fieldCount — a mismatch means the
@@ -309,6 +296,17 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
         st.fieldDefaults.resize(defCount);
         for (uint16_t j = 0; j < defCount; ++j)
             st.fieldDefaults[j] = ReadDefaultValueDesc(fs);
+
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount) — the consumer
+        //stub rebuilds each struct ctor with its visibility.
+        st.constructorAccess.resize(ctorCount);
+        for (auto& a : st.constructorAccess) {
+            fs.read(reinterpret_cast<char*>(&a), sizeof(a));
+            if (!fs.good() || a > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad struct constructor access");
+        }
     }
 }
 
@@ -375,15 +373,57 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
         for (uint16_t j = 0; j < cc.fieldCount; ++j) {
             fs.read(reinterpret_cast<char*>(&cc.fieldAccess[j]),
                     sizeof(cc.fieldAccess[j]));
+            //0.9.12 (v2.7): access bytes are the compiler's AccessType
+            //values; anything outside {FA_Private..FA_Public} is a
+            //corrupt image (the consumer stub rebuilds visibility from
+            //them, so a wild value would silently mis-gate members).
+            if (!fs.good() || cc.fieldAccess[j] > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad class field access");
         }
 
-        //Method indices
-        uint16_t methodCount;
+        //Method indices. 0.9.12 (v2.7): the table carries every member
+        //function (static included; staticness rides the function
+        //record's isStatic flag) — the v2.4 publicStaticMethodIndices
+        //block is gone.
+        uint16_t methodCount = 0;
         fs.read(reinterpret_cast<char*>(&methodCount), sizeof(methodCount));
+        if (!fs.good() || methodCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad class method count");
         cc.methodIndices.resize(methodCount);
         for (uint16_t j = 0; j < methodCount; ++j) {
             fs.read(reinterpret_cast<char*>(&cc.methodIndices[j]),
                     sizeof(cc.methodIndices[j]));
+        }
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated class method indices");
+        //Every entry must address the function table: the consumer
+        //stub rebuilds a member per index and nlink's Lookup faults on
+        //an out-of-range entry — refusing here gives the precise
+        //diagnostic at load time.
+        for (auto idx : cc.methodIndices)
+            if (idx >= mod.functions.size())
+                throw std::runtime_error(
+                    "Invalid module: class method index out of range");
+
+        //0.9.12 (v2.7): declared access and virtuality per method,
+        //parallel to methodIndices (counts ride on methodCount — the
+        //saver writes exactly methodCount bytes of each).
+        cc.methodAccess.resize(methodCount);
+        for (auto& a : cc.methodAccess) {
+            fs.read(reinterpret_cast<char*>(&a), sizeof(a));
+            if (!fs.good() || a > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad class method access");
+        }
+        cc.methodVirtual.resize(methodCount);
+        for (auto& v : cc.methodVirtual) {
+            fs.read(reinterpret_cast<char*>(&v), sizeof(v));
+            if (!fs.good() || v > 1)
+                throw std::runtime_error(
+                    "Invalid module: bad class method virtual flag");
         }
 
         //v2.6: constructor function indices in declaration order (see
@@ -400,62 +440,39 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
         if (!fs.good())
             throw std::runtime_error(
                 "Invalid module: truncated class constructor indices");
+        for (auto idx : cc.constructorIndices)
+            if (idx >= mod.functions.size())
+                throw std::runtime_error(
+                    "Invalid module: class constructor index out of range");
 
-        //0.9.10 v2.4: exported public static method indices (see
-        //ModuleSaver). Count + entries, no gate — the v2.4 floor
-        //guarantees the block.
-        uint16_t staticCount = 0;
-        fs.read(reinterpret_cast<char*>(&staticCount),
-                sizeof(staticCount));
-        if (!fs.good() || staticCount > (1u << 12))
-            throw std::runtime_error(
-                "Invalid module: bad public static method count");
-        cc.publicStaticMethodIndices.resize(staticCount);
-        for (uint16_t j = 0; j < staticCount; ++j)
-            fs.read(reinterpret_cast<char*>(&cc.publicStaticMethodIndices[j]),
-                    sizeof(uint16_t));
-        if (!fs.good())
-            throw std::runtime_error(
-                "Invalid module: truncated class static method indices");
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount).
+        cc.constructorAccess.resize(ctorCount);
+        for (auto& a : cc.constructorAccess) {
+            fs.read(reinterpret_cast<char*>(&a), sizeof(a));
+            if (!fs.good() || a > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad class constructor access");
+        }
     }
-}
 
-//0.9.10 v2.4: interface statics table — per interface a u16-length-
-//prefixed qualified key plus its static function indices. Mirrors the
-//class method block; the qualified key is the linkage identity (like
-//enumKeys).
-void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
-{
-    uint32_t ifaceCount = 0;
-    fs.read(reinterpret_cast<char*>(&ifaceCount), sizeof(ifaceCount));
-    if (!fs.good() || ifaceCount > (1u << 20))
-        throw std::runtime_error("Invalid module: bad interface count");
-    mod.interfaces.resize(ifaceCount);
-
-    for (uint32_t i = 0; i < ifaceCount; ++i) {
-        auto& ci = mod.interfaces[i];
-        uint16_t nameLen = 0;
-        fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
-        if (!fs.good() || nameLen > (1u << 16))
-            throw std::runtime_error("Invalid module: bad interface name length");
-        ci.name.resize(nameLen);
-        fs.read(ci.name.data(), nameLen);
-
-        uint16_t staticCount = 0;
-        fs.read(reinterpret_cast<char*>(&staticCount), sizeof(staticCount));
-        if (!fs.good() || staticCount > (1u << 12))
-            throw std::runtime_error(
-                "Invalid module: bad interface static method count");
-        ci.staticMethodIndices.resize(staticCount);
-        for (uint16_t j = 0; j < staticCount; ++j)
-            fs.read(reinterpret_cast<char*>(&ci.staticMethodIndices[j]),
-                    sizeof(uint16_t));
-
-        //0.9.10 D3: exported constants.
-        ReadInterfaceConstants(fs, ci);
+    //0.9.12 (v2.7): the class records carry OWN fields and join their
+    //superclasses through superClassIdx, so a broken chain (dangling
+    //index, cycle, or depth beyond the table) would silently corrupt
+    //every derived layout — walk it once now that all records are in.
+    //The depth bound doubles as the cycle detector: a chain that takes
+    //more steps than there are classes must revisit a class.
+    for (uint32_t i = 0; i < classCount; ++i) {
+        int steps = 0;
+        int16_t link = mod.classes[i].superClassIdx;
+        while (link != -1) {
+            if (link < 0 || static_cast<uint32_t>(link) >= classCount
+                || ++steps > static_cast<int>(classCount))
+                throw std::runtime_error(
+                    "Invalid module: corrupt class superclass chain");
+            link = mod.classes[static_cast<size_t>(link)].superClassIdx;
+        }
     }
-    if (!fs.good())
-        throw std::runtime_error("Invalid module: truncated interface table");
 }
 
 } // namespace nlang

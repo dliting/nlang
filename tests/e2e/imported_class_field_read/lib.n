@@ -1,8 +1,7 @@
 //Producer exports a class with a public instance field and a public
 //instance method. A pure-.ncu import rebuilds the class stub with the
-//constructor and public statics but NOT instance members, so the
-//consumer can construct the object and hand it to producer functions,
-//yet cannot reach the field or method directly.
+//full member surface (0.9.12 NCU v2.7), so the consumer can construct
+//the object and reach the field or method directly across the boundary.
 class Calc {
 	public int base;
 	public Calc(int b) { base = b; }

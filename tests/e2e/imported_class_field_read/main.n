@@ -1,7 +1,6 @@
-//Sealed .ncu import: the class stub carries no instance fields, so a
-//consumer-side field read fails to resolve at compile time. The
-//construction on the line above is fine (0.9.11 external .ncu ctors);
-//only the field access is rejected.
+//Sealed .ncu import: the class stub carries the producer's own-field
+//records (0.9.12 NCU v2.7), so the consumer-side public field read
+//resolves and reads the producer-initialized slot.
 import lib;
 
 int main() {

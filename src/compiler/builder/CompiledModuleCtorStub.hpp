@@ -1,9 +1,10 @@
 #pragma once
 /*---
-    CompiledModuleCtorStub.hpp — imported 构造器（method-layout 函数记录）
-    的 AST stub 构建（0.9.11 D10/O2）。从 CompiledModuleNodeBuilder.hpp 拆出
-    （源尺寸守卫）；所依赖的自由助手（SynthTypeExprFromDesc /
-    SynthDefaultExpr / LeafNameOfKey）住在同族支持头文件里。
+    CompiledModuleCtorStub.hpp — imported method-layout 函数记录（构造器与
+    实例方法）的 AST stub 构建（0.9.11 D10/O2；0.9.12 起实例方法共用）。
+    从 CompiledModuleNodeBuilder.hpp 拆出（源尺寸守卫）；所依赖的自由助手
+    （SynthTypeExprFromDesc / SynthDefaultExpr / LeafNameOfKey）住在同族
+    支持头文件里。
 ---*/
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
@@ -18,24 +19,28 @@
 namespace nlang
 {
 
-//Build a SnFunction stub for an imported METHOD-layout record — the
-//constructor member of an imported class/struct. The method layout differs
-//from the free-function layout CreateFunctionStub consumes: paramCount
-//counts the hidden __this (paramCount == formals + 1), the locals table
-//lists __this as its FIRST isParam entry, and paramTypeDescs/defaultValues
-//are per-formal (index 0 == first visible parameter). The stub therefore
-//mints formals = paramCount - 1 params, named from the locals entries after
-//__this, with defaults/descriptors aligned from 0 — the same shapes the
-//parser emits for a hand-written `C(int x)` member. A record that cannot
-//name a __this slot is a corrupt image: refusing it beats minting a stub
-//whose call frame is one slot off (the walker/codegen claim split would
-//trip the observedPeakCursor tripwire far from the cause).
+//Build a SnFunction stub for an imported METHOD-layout record — a
+//constructor or an instance-method member of an imported class/struct
+//(0.9.12: instance methods ride the same layout). The method layout
+//differs from the free-function layout CreateFunctionStub consumes:
+//paramCount counts the hidden __this (paramCount == formals + 1), the
+//locals table lists __this as its FIRST isParam entry, and
+//paramTypeDescs/defaultValues are per-formal (index 0 == first visible
+//parameter). The stub therefore mints formals = paramCount - 1 params,
+//named from the locals entries after __this, with defaults/descriptors
+//aligned from 0 — the same shapes the parser emits for a hand-written
+//`C(int x)` member. `access` is the member's declared access (v2.7 wire).
+//A record that cannot name a __this slot is a corrupt image: refusing it
+//beats minting a stub whose call frame is one slot off (the
+//walker/codegen claim split would trip the observedPeakCursor tripwire
+//far from the cause).
 inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
-	const CompiledModule &cm, const ISourceLocation &loc)
+	const CompiledModule &cm, const ISourceLocation &loc,
+	FieldAccessType access)
 {
 	if (cf.paramCount < 1)
 		throw std::runtime_error(
-			"imported constructor '" + cf.name
+			"imported member '" + cf.name
 			+ "' has an inconsistent frame layout");
 	const uint16_t formals = cf.paramCount - 1;
 
@@ -89,9 +94,9 @@ inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	}
 
 	//Leaf name (phase 5 key vs. stub-name split): the resolver binds the
-	//ctor member by the caller's bare callee name.
+	//member by the caller's bare callee name.
 	auto pName = new std::string(LeafNameOfKey(cf.name));
-	auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType, pName,
+	auto *pFunc = new SnFunction(access, NF_Data, pRetType, pName,
 		pParams, loc);
 	pFunc->AddFlags(NF_Imported);   //R6-2
 	if (cf.isStatic)

@@ -1,5 +1,5 @@
 #pragma once
-#include "CompiledModuleCtorStub.hpp"
+#include "CompiledModuleStubMembers.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
 #include "SyntaxTree.h"
@@ -124,7 +124,10 @@ public:
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
-			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm, loc);
+			//Free functions have no declared member access on the wire —
+			//the stub mints public (top-level declarations are public).
+			SnFunction *stub =
+				CreateFunctionStub(cm.functions[i], cm, loc, FA_Public);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -150,10 +153,11 @@ public:
 			m_importedTypes.push_back(stub);
 		}
 
-		//Classes. 0.9.10 D5: each stub rebuilds its exported public
-		//statics (CreateClassStub); the super links run after the loop so
-		//a subclass stub can point at its peer stub regardless of
-		//declaration order.
+		//Classes. 0.9.12 (v2.7): each stub rebuilds its full member
+		//surface — own fields, methods (static/instance, access, virtual
+		//flag) and constructors (CreateClassStub); the super links run
+		//after the loop so a subclass stub can point at its peer stub
+		//regardless of declaration order.
 		std::vector<std::pair<SnClassDecl*, const CompiledClass*>> classStubs;
 		std::unordered_map<std::string, SnClassDecl*> peerStubs;
 		for (size_t ci = 0; ci < ownClasses; ++ci)
@@ -167,9 +171,11 @@ public:
 			peerStubs.emplace(LeafNameOfKey(cm.classes[ci].name), stub);
 		}
 		for (auto &link : classStubs)
-			LinkSuperclassStub(*link.first, *link.second, cm, peerStubs);
+			LinkSuperclassStub(*link.first, *link.second, cm, peerStubs,
+				TheRoot());
 
-		//0.9.10 D5: interfaces — static-member stubs only.
+		//0.9.10 D5 + 0.9.12 (v2.7): interfaces — statics, constants and
+		//bodyless instance-method stubs.
 		for (const auto &iface : cm.interfaces)
 		{
 			if (nameExistsInRoot(LeafNameOfKey(iface.name)))
@@ -215,232 +221,6 @@ public:
 	}
 
 private:
-	//Build a SnFunction stub for an imported CompiledFunction.
-	//The stub has no Body() — VmBackend.RegisterFunctions and
-	//GenerateAllBytecode already skip bodyless functions, and the
-	//NF_Imported flag adds an explicit IsImported() gate for safety.
-	SnFunction *CreateFunctionStub(const CompiledFunction &cf,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
-		//v1.12: the serialized descriptor supplies the true type; the
-		//NonSerialized sentinel (func/interface returns) degrades to the
-		//int32 placeholder.
-		SnFieldExpr *pRetType = nullptr;
-		if (cf.returnTypeKind != RTK_Void)
-			pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
-
-		//Synthesize paramCount SnFormalParam nodes. v1.12: each formal's true
-		//type and out flag come from the serialized descriptors (free
-		//functions carry exactly paramCount of them — methods never reach
-		//stub construction, the methodOrCtorIndices filter owns those).
-		//Option B: if cf.defaultValues[i] carries a constant-foldable default,
-		//attach the reconstructed SnLiteralExpr to the stub formal so the
-		//resolver can apply it at consumer call sites.
-		//Use raw PtrList<SnFormalParam>* — SnFunction takes UniquePtrList by
-		//value, whose inner_collection* constructor assumes ownership and
-		//deletes the source list.
-		auto *pParams = new PtrList<SnFormalParam>();
-		//Formal names from the producer's frame-layout locals table
-		//(ModuleSaver serializes every AllocLocal name with its isParam
-		//flag; for free functions those entries are exactly the params,
-		//in declaration order). Named-argument binding (BindNamedActual)
-		//matches actuals to formals by name, so the former "p0"/"p1"
-		//placeholders made every cross-module named call unbindable.
-		//Missing/misaligned entries fall back to the placeholders —
-		//stub construction never rejects a module over naming.
-		std::vector<std::string> formalNames;
-		for (const auto &ld : cf.locals)
-			if (ld.isParam)
-				formalNames.push_back(ld.name);
-		//Effective per-formal names (locals entries with the placeholder
-		//fallback), shared by the param nodes and the v2.3 ExprDesc
-		//formal-reference rebuild — a rebuilt `b = a * 2` must name the
-		//formals exactly as the stub's own params do.
-		std::vector<std::string> stubFormalNames(cf.paramCount);
-		for (uint16_t i = 0; i < cf.paramCount; ++i)
-			stubFormalNames[i] =
-				(i < formalNames.size() && !formalNames[i].empty())
-					? formalNames[i]
-					: "p" + std::to_string(i);
-		for (uint16_t i = 0; i < cf.paramCount; ++i)
-		{
-			auto paramName = new std::string(stubFormalNames[i]);
-			NodeBits paramFlags = NF_NONE;
-			SnFieldExpr *pParamType;
-			if (i < cf.paramTypeDescs.size())
-			{
-				const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
-				if (ptd.flags & PTDF_Out)
-					paramFlags |= NF_Out;
-				pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
-			}
-			else
-			{
-				pParamType = new SnIdentifierExpr(NK_Int32, loc);
-			}
-			SnExpression *pDefault = nullptr;
-			if (i < cf.defaultValues.size())
-				pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,
-					cf.name, i, stubFormalNames, loc);
-			auto *pParam = new SnFormalParam(paramFlags, pParamType, paramName,
-				pDefault, loc);
-			pParams->push_back(pParam);
-		}
-
-		//Mint the function name as a heap string (SnFunction takes ownership).
-		//Leaf name: see LeafNameOfKey (phase 5 key vs. stub-name split).
-		auto pName = new std::string(LeafNameOfKey(cf.name));
-
-		auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType, pName,
-			pParams, loc);
-		//R6-2: explicitly add NF_Imported. SnFunction's constructor does
-		//not auto-set this flag (unlike SnIdentifierExpr). Without it,
-		//RegisterStructs/Classes/.../PopulateClassMethods' IsImported()
-		//gates would not skip these stubs.
-		pFunc->AddFlags(NF_Imported);
-		//0.9.10 D5: the static flag rides the record — the resolver's
-		//receiver-namespace split (MatchesReceiverForm) and the emitter's
-		//slot arity (FunctionSlotFor: statics take no this slot) both key
-		//on it.
-		if (cf.isStatic)
-			pFunc->AddFlags(NF_Static);
-
-		return pFunc;
-	}
-
-	//Build a SnStructDecl stub for an imported CompiledStruct.
-	//Fields stay wire-only — VmBackend.RegisterStructs skips imported
-	//stubs entirely (R3 + IsImported gating) and external struct FIELD
-	//access is out of scope. 0.9.11 v2.6: the CONSTRUCTORS are rebuilt
-	//(from constructorIndices, declaration order) — a cross-module
-	//`pkg.Vec(3,4)` needs member declarations to bind against; the call
-	//itself emits an imported function slot, never local bytecode.
-	SnStructDecl *CreateStructStub(const CompiledStruct &cs,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		//Field info stays in the loaded CompiledModule, which rides along
-		//to the load-time linker as a peer image.
-		//SnStructDecl takes UniquePtrList<SnField> by value; pass a raw
-		//PtrList* whose ownership is transferred via the implicit
-		//inner_collection* constructor.
-		auto *pMembers = new PtrList<SnField>();
-		for (auto idx : cs.constructorIndices)
-		{
-			//Out-of-range is a corrupt image — the loader validated the
-			//counts, the bound check keeps stub minting defensive.
-			if (idx < cm.functions.size())
-				pMembers->push_back(
-					CreateMethodStub(cm.functions[idx], cm, loc));
-		}
-		auto pName = new std::string(LeafNameOfKey(cs.name));
-		auto *pDecl = new SnStructDecl(pName, pMembers, loc);
-		pDecl->AddFlags(NF_Imported);   //R6-2
-		return pDecl;
-	}
-
-	//Build a SnClassDecl stub for an imported CompiledClass.
-	//Instance fields/methods stay wire-only — VmBackend skips imported
-	//class registration and a stub cannot host a receiver anyway.
-	//0.9.10 D5: the PUBLIC static members ARE rebuilt (from
-	//publicStaticMethodIndices) — a static call needs no receiver, only a
-	//declaration to bind against; private statics stay invisible.
-	//0.9.11 v2.6: the CONSTRUCTORS are rebuilt too (from
-	//constructorIndices, declaration order) — `new pkg.Calc(21)` /
-	//`pkg.Calc(21)` bind against these member stubs; the call emits an
-	//imported function slot. Access is not carried on the wire, so every
-	//exported ctor stub is public at the consumer.
-	SnClassDecl *CreateClassStub(const CompiledClass &cc,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		auto pName = new std::string(LeafNameOfKey(cc.name));
-		auto *pMembers = new PtrList<SnField>();
-		for (auto idx : cc.publicStaticMethodIndices)
-		{
-			//Out-of-range is a corrupt image — the loader validated the
-			//counts, the bound check keeps stub minting defensive.
-			if (idx < cm.functions.size())
-				pMembers->push_back(
-					CreateFunctionStub(cm.functions[idx], cm, loc));
-		}
-		for (auto idx : cc.constructorIndices)
-		{
-			if (idx < cm.functions.size())
-				pMembers->push_back(
-					CreateMethodStub(cm.functions[idx], cm, loc));
-		}
-		auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
-		pDecl->AddFlags(NF_Imported);   //R6-2
-		return pDecl;
-	}
-
-	//0.9.10 D5: build a SnInterfaceDecl stub — the static members are
-	//the only content (interface instance members are abstract; the
-	//producer exports nothing else).
-	SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		auto pName = new std::string(LeafNameOfKey(ci.name));
-		auto *pMembers = new PtrList<SnField>();
-		for (auto idx : ci.staticMethodIndices)
-		{
-			if (idx < cm.functions.size())
-				pMembers->push_back(
-					CreateFunctionStub(cm.functions[idx], cm, loc));
-		}
-		//0.9.10 D3: exported constants rebuild as `public static const`
-		//fields whose synthesized literal initializer folds again at the
-		//consumer's use sites (the declaration contract already ran at
-		//the producer; imported stubs are exempt from re-checking).
-		for (const auto &constant : ci.constants)
-		{
-			SnExpression *pInit = SynthScalarDefault(constant.value, cm, loc);
-			if (!pInit)
-				throw std::runtime_error(
-					"imported interface '" + ci.name
-					+ "' has a malformed constant value record");
-			auto *pField = new SnClassField(
-				SynthTypeExprFromDesc(constant.type, cm, loc),
-				new std::string(constant.name), FA_Public, loc, pInit);
-			pField->AddFlags(NF_Static);
-			pField->AddFlags(NF_Const);
-			pMembers->push_back(pField);
-		}
-		auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
-		pDecl->AddFlags(NF_Imported);   //R6-2
-		return pDecl;
-	}
-
-	//0.9.10 D5: point a class stub's SuperClass at its peer stub from the
-	//same module so inherited statics resolve through the normal chain
-	//walk. A super from another imported module or a builtin (Exception
-	//family) falls back to the consumer root's imported/builtin entry; a
-	//consumer-owned class of the same name is NOT hijacked.
-	void LinkSuperclassStub(SnClassDecl &stub, const CompiledClass &cc,
-		const CompiledModule &cm,
-		const std::unordered_map<std::string, SnClassDecl*> &peerStubs)
-	{
-		if (cc.superClassIdx < 0
-			|| cc.superClassIdx >= static_cast<int16_t>(cm.classes.size()))
-			return;
-		const std::string superLeaf =
-			LeafNameOfKey(cm.classes[cc.superClassIdx].name);
-		auto it = peerStubs.find(superLeaf);
-		if (it != peerStubs.end())
-		{
-			stub.SuperClass(it->second);
-			return;
-		}
-		SnField *pRoot = TheRoot().FindField(superLeaf);
-		if (pRoot && pRoot->Kind() == NK_ClassDecl)
-		{
-			auto *pRootClass = static_cast<SnClassDecl*>(pRoot);
-			if (pRootClass->ContainFlags(NF_Imported)
-				|| pRootClass->IsBuiltinClass())
-				stub.SuperClass(pRootClass);
-		}
-	}
-
 	//Layer 6 policy: imported module must not define main().
 	//Phase 5: the entry judgment uses the qualified key — a root main.n
 	//in the imported module is keyed "<module>.main", so the bare "main"

@@ -354,9 +354,14 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         //indices — remap them like the class method block. D3 constants
         //carry unit-local type descriptors and pooled string defaults,
         //so they remap through the same maps as function records.
+        //0.9.12 (v2.7): instance-method signatures ride the same
+        //channels (formal/return descriptors and pooled default
+        //strings); the signatures carry no function or type indices
+        //beyond the descriptors, so nothing else remaps here.
         for (uint32_t idx : pushes[ui].interfaces)
         {
             auto& iface = merged.interfaces[idx];
+            const std::string context = "interface '" + iface.name + "'";
             for (auto& i : iface.staticMethodIndices)
                 i = static_cast<uint16_t>(
                     Lookup(maps[ui].functions, i));
@@ -365,7 +370,17 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
                 RemapTypeDesc(constant.type, maps[ui].structs,
                     maps[ui].classes);
                 RemapDefaultValueStrings(constant.value, maps[ui],
-                    "interface '" + iface.name + "'");
+                    context);
+            }
+            for (auto& sig : iface.instanceMethods)
+            {
+                for (auto& ptd : sig.paramTypeDescs)
+                    RemapTypeDesc(ptd.type, maps[ui].structs,
+                        maps[ui].classes);
+                RemapTypeDesc(sig.returnType, maps[ui].structs,
+                    maps[ui].classes);
+                for (auto& dv : sig.defaultValues)
+                    RemapDefaultValueStrings(dv, maps[ui], context);
             }
         }
     }

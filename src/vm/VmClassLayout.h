@@ -6,10 +6,10 @@
    view is owned by VmExecutor and rebuilt whenever InitializeForRun
    binds a module.
 
-   0.9.12 T1: Build mirrors each record's own flattened field arrays, so
-   runtime behavior is bit-for-bit unchanged. T2 replaces the Build body
-   with a base-first walk of the superClassIdx chain (own-only wire
-   records, NCU v2.7); the consumer API below does not change.
+   0.9.12 T2 (NCU v2.7): wire records carry OWN fields only; Build joins
+   the superClassIdx chain base-first once per class. The joined field
+   order matches the pre-v2.7 flattened records exactly, so every heap
+   offset stays put; the consumer API below never changed.
 
    Entry::name borrows the record's string — the module outlives the
    view (both are reset together on the next InitializeForRun).
