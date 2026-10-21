@@ -300,6 +300,7 @@ fs_struct_roundtrip 30
 
 # --- array redesign B Task 5: array-field kind fix ---
 write_struct_array_field_throws 1
+write_struct_func_field_throws 1
 class_array_field_tostring 0
 
 # --- Phase 8c: class field serialization ---
@@ -1075,8 +1076,8 @@ func_bound_basic 7
 func_bound_virtual 30
 func_bound_interface 42
 func_bound_field_store 11
-func_bound_null_receiver 1
-func_bound_null_virtual 1
+func_bound_null_receiver_throws 1
+func_bound_null_virtual_throws 1
 func_out_basic 7
 func_out_bound 45
 func_out_second_position 18
@@ -1085,7 +1086,6 @@ func_gc_collect 9
 func_array_store 115
 func_dict_value 10
 func_cross_mod_internal 7
-func_bs_write_reject 1
 func_enum_method_reject compile_error cannot reference the enum method
 func_iface_decl_ref_reject compile_error Incompatible type
 func_cross_module_reject compile_error
