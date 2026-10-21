@@ -565,6 +565,72 @@ void test_machine_contexts_and_focus()
     PASS();
 }
 
+//K5 selection-as-step-target over the wire: `context <id>` arms the
+//selected context as the s/n/f target. The rendezvous is deterministic
+//on one carrier (library default): main parks in ch.recv before the
+//spawned worker's post-loop breakpoint, so `context 0` selects a PARKED
+//context; `n` releases the worker (its send wakes main) and the next
+//stopped event lands in main on the statement after the recv.
+void test_machine_context_selection_steps_target()
+{
+    TEST(machine_context_selection_steps_target);
+    BuildOutcome b = buildSource("mach_sel",
+        "import thread;\n"                          //1
+        "class Receiver {\n"                        //2
+        "    public Channel<int> ch;\n"             //3
+        "    public void run() {\n"                 //4
+        "        int k = 0;\n"                      //5
+        "        while (k < 50) {\n"                //6
+        "            k = k + 1;\n"                  //7
+        "        }\n"                               //8
+        "        int ready = 1;\n"                  //9  <- bp
+        "        ch.send(99);\n"                    //10 wakes main
+        "        int after = 2;\n"                  //11
+        "    }\n"                                   //12
+        "}\n"                                       //13
+        "int main() {\n"                            //14
+        "    Receiver r = Receiver();\n"            //15
+        "    r.ch = {};\n"                          //16
+        "    Thread t = thread.spawn(r.run);\n"     //17
+        "    int v = r.ch.recv();\n"                //18 <- parks
+        "    int done = v + 1;\n"                   //19 <- step lands
+        "    thread.join(t);\n"                     //20
+        "    return 0;\n"                           //21
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("mach_sel");
+    const std::string src = (scratchDir() / "mach_sel.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "b mach_sel.n 9\n"   //worker's post-loop statement
+        "run\n"              //initial stop at main's first statement
+        "c\n"                //main parks in recv; worker reaches the bp
+        "contexts\n"         //precondition: main parked, worker held
+        "context 0\n"        //select the parked main = step target
+        "n\n"                //release worker; main wakes; step stop
+        "c\n");              //rendezvous completes
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_sel.main\t"
+            + escaped + "\t18\n") != std::string::npos,
+        "precondition: the freeze shows main parked in recv");
+    CHECK(wire.find("stopped\tstep\t0\tmach_sel.main\t" + escaped
+            + "\t19\t1\t1\t0\n") != std::string::npos,
+        "the step after selecting the parked main stops in main, on the "
+        "statement after the recv");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
+        "the rendezvous completes: exited 0");
+    PASS();
+}
+
 // --- Loop per-iteration anchors (VmBackend) ---
 
 //Loop anchors must fire every iteration (the back edge has to land on
@@ -647,6 +713,7 @@ void run_debugger_machine_tests()
     test_machine_frame_and_discipline();
     test_machine_method_locals_show_this();
     test_machine_contexts_and_focus();
+    test_machine_context_selection_steps_target();
 }
 
 void run_debugger_loop_tests()

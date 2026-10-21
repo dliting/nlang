@@ -201,24 +201,32 @@ void DebugSessionController::Continue() {
     m_stepFocusContext = -1;   //release the exclusive-dispatch focus
 }
 
+void DebugSessionController::SetStepTargetContext(int contextId) {
+    RequireFrozenWindow("SetStepTargetContext");
+    m_selectedContextId = contextId;
+}
+
 void DebugSessionController::StepInto() {
     RequireFrozenWindow("StepInto");
     m_mode = RunMode::StepInto;
-    m_stepFocusContext = m_stopContextId;
+    m_stepFocusContext = m_selectedContextId;
 }
 
 void DebugSessionController::StepOver() {
     RequireFrozenWindow("StepOver");
     m_mode = RunMode::StepOver;
-    m_stepFocusContext = m_stopContextId;
-    m_stepDepth = m_pView->FrameCount(m_stopContextId);
+    m_stepFocusContext = m_selectedContextId;
+    //The depth baseline belongs to the context being stepped: a selected
+    //context other than the stopped one must be measured in its own
+    //frames (parked frames are enumerable — K4).
+    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
 }
 
 void DebugSessionController::StepOut() {
     RequireFrozenWindow("StepOut");
     m_mode = RunMode::StepOut;
-    m_stepFocusContext = m_stopContextId;
-    m_stepDepth = m_pView->FrameCount(m_stopContextId);
+    m_stepFocusContext = m_selectedContextId;
+    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
 }
 
 const IVmDebugView& DebugSessionController::View() const {
@@ -238,10 +246,12 @@ DebugSessionController::BreakpointRows() const {
 // --- IDebugHooks ---
 
 //Step/initial stop decision for one statement checkpoint (K4): step
-//modes stop only in the step focus — the scheduler's exclusive dispatch
-//keeps the focus running while armed, so other contexts' statements
-//never trip the state machine. InitialStop stays unconditional (the
-//run's first statement, before any focus exists).
+//modes stop only in the step focus. A RUNNABLE focus holds exclusive
+//dispatch, so other contexts' statements never reach this state
+//machine; a PARKED focus (K5: stepping a selected parked context)
+//releases the others — their checkpoints DO arrive here and the focus
+//filter rejects them until the parked context wakes. InitialStop stays
+//unconditional (the run's first statement, before any focus exists).
 bool DebugSessionController::ShouldStepStop(
     const DebugStopInfo& stop) const {
     switch (m_mode) {
@@ -276,7 +286,6 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
     //next command re-targets the focus).
     if (it != m_breakpoints.end()) {
         it->hits += 1;
-        m_stopContextId = stop.contextId;
         Freeze(StopInfo{StopInfo::Reason::Breakpoint, stop.contextId,
                         it->id, stop.line, stop.funcIdx, stop.depth});
         m_pView = nullptr;
@@ -286,7 +295,6 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
         const auto reason = (m_mode == RunMode::InitialStop)
             ? StopInfo::Reason::Initial
             : StopInfo::Reason::Step;
-        m_stopContextId = stop.contextId;
         Freeze(StopInfo{reason, stop.contextId, 0,
                         stop.line, stop.funcIdx, stop.depth});
     }
@@ -301,7 +309,6 @@ void DebugSessionController::OnThrow(const DebugStopInfo& stop,
     if (!m_breakOnThrow)
         return;
     m_pView = &view;
-    m_stopContextId = stop.contextId;
     Freeze(StopInfo{StopInfo::Reason::Throw, stop.contextId, 0,
                     stop.line, stop.funcIdx, stop.depth});
     m_pView = nullptr;
@@ -309,8 +316,12 @@ void DebugSessionController::OnThrow(const DebugStopInfo& stop,
 
 //Announce the freeze, then block in the front end's pump until a resume
 //command comes back (the front end calls the resume methods inside the
-//window; WaitUntilResume returning resumes in place).
+//window; WaitUntilResume returning resumes in place). A new stop
+//re-targets the selection to the stopped context BEFORE OnStopped, so
+//the window opens with view and step target pointing there (both front
+//ends reset their own inspection selection in OnStopped — same instant).
 void DebugSessionController::Freeze(const StopInfo& info) {
+    m_selectedContextId = info.contextId;
     m_frontEnd.OnStopped(info);
     m_frontEnd.WaitUntilResume();
 }

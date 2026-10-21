@@ -290,7 +290,7 @@ void DebugSession::DoHelp() {
         "c                                  continue\n"
         "s / n / f                          step into / over / out\n"
         "threads                            list contexts (state/location)\n"
-        "t <id>                             switch inspection context\n"
+        "t <id>                             switch context (view + step target)\n"
         "bt                                 backtrace\n"
         "frame <n>                          select frame\n"
         "info locals                        locals of selected frame\n"

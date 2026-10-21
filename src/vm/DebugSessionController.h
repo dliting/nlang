@@ -88,16 +88,24 @@ public:
 
     //Resume commands. Valid only inside the frozen window; elsewhere
     //they throw std::logic_error (a resume queued outside the window
-    //would silently corrupt the next stop decision). K4: Step* targets
-    //the stopped context — it becomes the exclusive-dispatch focus
-    //(other contexts freeze out of dispatch while it stays runnable);
-    //Continue releases the focus. Stepping never follows spawns: a
-    //spawned context enters view through breakpoint hits or its own
-    //stops.
+    //would silently corrupt the next stop decision). K5: Step* targets
+    //the SELECTED context — the front end's selection (t / context
+    //<id>), which a fresh stop resets to the stopped context. A parked
+    //target steps on wake: the others are released while it waits, and
+    //it stops at its next statement after resuming. Continue releases
+    //the focus. Stepping never follows spawns: a spawned context enters
+    //view through breakpoint hits or its own stops.
     void Continue();
     void StepInto();
     void StepOver();
     void StepOut();
+
+    //K5: report the front end's context selection (t / context <id>) —
+    //the view AND step target. Valid only inside the frozen window; the
+    //front ends validate the id against the registry, the controller
+    //guards only the window. Every new stop resets the selection to the
+    //stopped context.
+    void SetStepTargetContext(int contextId);
 
     //Read-only view over the frozen VM state. Valid only inside the
     //frozen window (std::logic_error outside).
@@ -170,9 +178,13 @@ private:
     IVmDebugView* m_pView = nullptr;  //valid only inside the frozen window
     RunMode m_mode = RunMode::InitialStop;
     size_t m_stepDepth = 0;     //depth captured when StepOver/Out was issued
-    //K4: context of the current freeze (Step* targets it) and the focus
-    //it arms (DebugFocusContext below reads it; -1 = no focus).
-    int m_stopContextId = 0;
+    //K4/K5: the focus Step* arms (DebugFocusContext below reads it;
+    //-1 = no focus) and the front end's selection it arms from (view +
+    //step target; SetStepTargetContext). Freeze resets the selection to
+    //the stopped context, so it is a valid id inside every window; -1
+    //only before the first freeze (Step* cannot run there — the window
+    //guard fires first).
+    int m_selectedContextId = -1;
     int m_stepFocusContext = -1;
     int m_nextBreakpointId = 1;
     std::vector<Breakpoint> m_breakpoints;

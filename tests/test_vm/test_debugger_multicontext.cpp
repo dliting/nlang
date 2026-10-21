@@ -1,7 +1,8 @@
 // --- K4 Task 2: multi-context debug hooks + context-aware inspection ---
-// Derived contexts hit breakpoints/throw-freezes, stepping is gated to the
-// step focus (other contexts keep running), and parked contexts are
-// enumerable with readable frames/locals through the unified view face.
+// Derived contexts hit breakpoints/throw-freezes, stepping is gated to
+// the step focus (K5: the front end's context selection arms it — a
+// parked selection steps on wake), and parked contexts are enumerable
+// with readable frames/locals through the unified view face.
 // All scenarios run on a single carrier (the determinism pin ndb uses);
 // SetSchedulerTripForTests(1) forces window alternation where a worker
 // must have dispatched before main reaches the probe line.
@@ -244,6 +245,174 @@ void test_parked_context_enumeration_and_locals()
     PASS();
 }
 
+//K5: selection is the step target. At a worker bp stop the front end
+//selects the PARKED main (empty-channel recv); StepOver releases the
+//worker (it never stops), and main — woken by the worker's send — stops
+//on the statement after the recv. The bp sits after the 50-iteration
+//loop so main is deterministically parked at the freeze: main parks
+//within ~5 statements while the worker needs ~52 to reach the anchor.
+void test_selected_parked_context_steps_on_wake()
+{
+    TEST(selected_parked_context_steps_on_wake);
+    BuildOutcome b = buildSource("mc_sel_parked",
+        "import thread;\n"                          //1
+        "class Receiver {\n"                        //2
+        "    public Channel<int> ch;\n"             //3
+        "    public void run() {\n"                 //4
+        "        int k = 0;\n"                      //5
+        "        while (k < 50) {\n"                //6
+        "            k = k + 1;\n"                  //7
+        "        }\n"                               //8
+        "        int ready = 1;\n"                  //9  <- bp
+        "        ch.send(99);\n"                    //10 wakes main
+        "        int after = 2;\n"                  //11
+        "    }\n"                                   //12
+        "}\n"                                       //13
+        "int main() {\n"                            //14
+        "    Receiver r = Receiver();\n"            //15
+        "    r.ch = {};\n"                          //16
+        "    Thread t = thread.spawn(r.run);\n"     //17
+        "    int v = r.ch.recv();\n"                //18 <- parks
+        "    int done = v + 1;\n"                   //19 <- step lands
+        "    thread.join(t);\n"                     //20
+        "    return 0;\n"                           //21
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("mc_sel_parked");
+    MultiFrontEnd fe;
+    DebugSessionController controller(mod, fe);
+    fe.controller = &controller;
+    REQUIRE(controller.AddBreakpoint("mc_sel_parked.n", 9) != 0);
+    std::string mainStateAtBp;
+    fe.onStopped = [&](DebugSessionController& c) {
+        if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
+            return;
+        mainStateAtBp = c.View().ContextInfo(0).stateName;
+        c.SetStepTargetContext(0);   //select the parked main
+        fe.resume = MultiFrontEnd::Resume::Over;
+    };
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetSchedulerTripForTests(1);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(mainStateAtBp == "parked-chan-recv",
+        "precondition: main is parked at the bp freeze (got: "
+        + mainStateAtBp + ")");
+    CHECK(fe.stops.size() == 3, "initial + bp + step shape");
+    CHECK(fe.stops[2].reason == StopInfo::Reason::Step
+        && fe.stops[2].contextId == 0,
+        "the step stops in the SELECTED parked context after it wakes");
+    CHECK(fe.stops[2].line == 19,
+        "the step lands on the statement after the parking recv");
+    PASS();
+}
+
+//K5: the selection also retargets stepping to a RUNNABLE context. At a
+//worker bp stop the front end selects main (spinning, runnable-queued);
+//StepInto then stops at MAIN's next statement — the stopped worker is
+//frozen out by the focus gate and never produces a step stop.
+void test_selected_runnable_context_steps_exclusively()
+{
+    TEST(selected_runnable_context_steps_exclusively);
+    BuildOutcome b = buildSource("mc_sel_runnable",
+        "import thread;\n"                       //1
+        "void worker() {\n"                      //2
+        "    int a = 5;\n"                       //3  <- bp (hits once)
+        "    int b = a + 1;\n"                   //4
+        "}\n"                                    //5
+        "int main() {\n"                         //6
+        "    Thread t = thread.spawn(worker);\n" //7
+        "    int m = 0;\n"                       //8
+        "    while (m < 50) {\n"                 //9
+        "        m = m + 1;\n"                   //10
+        "    }\n"                                //11
+        "    thread.join(t);\n"                  //12
+        "    return 0;\n"                        //13
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("mc_sel_runnable");
+    MultiFrontEnd fe;
+    DebugSessionController controller(mod, fe);
+    fe.controller = &controller;
+    REQUIRE(controller.AddBreakpoint("mc_sel_runnable.n", 3) != 0);
+    fe.onStopped = [&](DebugSessionController& c) {
+        if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
+            return;
+        c.SetStepTargetContext(0);   //select the spinning main
+        fe.resume = MultiFrontEnd::Resume::Into;
+    };
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetSchedulerTripForTests(1);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(fe.stops.size() == 3, "initial + bp + step shape");
+    CHECK(fe.stops[2].reason == StopInfo::Reason::Step
+        && fe.stops[2].contextId == 0,
+        "StepInto stops in the selected runnable context, not the "
+        "stopped one");
+    PASS();
+}
+
+//K5 deadlock interaction (regression pin): selecting a context that can
+//never wake and stepping it must not mask the deadlock guard — the
+//released others run out, nothing remains runnable, and the guard's
+//report still surfaces out of Execute instead of a hang.
+void test_selected_never_waking_context_keeps_deadlock_report()
+{
+    TEST(selected_never_waking_context_keeps_deadlock_report);
+    BuildOutcome b = buildSource("mc_sel_deadlock",
+        "import thread;\n"                          //1
+        "class Receiver {\n"                        //2
+        "    public Channel<int> ch;\n"             //3
+        "    public void run() {\n"                 //4
+        "        int k = 0;\n"                      //5
+        "        while (k < 50) {\n"                //6
+        "            k = k + 1;\n"                  //7
+        "        }\n"                               //8
+        "        int ready = 1;\n"                  //9  <- bp
+        "    }\n"                                   //10
+        "}\n"                                       //11
+        "int main() {\n"                            //12
+        "    Receiver r = Receiver();\n"            //13
+        "    r.ch = {};\n"                          //14
+        "    Thread t = thread.spawn(r.run);\n"     //15
+        "    int v = r.ch.recv();\n"                //16 <- parks forever
+        "    thread.join(t);\n"                     //17
+        "    return 0;\n"                           //18
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("mc_sel_deadlock");
+    MultiFrontEnd fe;
+    DebugSessionController controller(mod, fe);
+    fe.controller = &controller;
+    REQUIRE(controller.AddBreakpoint("mc_sel_deadlock.n", 9) != 0);
+    fe.onStopped = [&](DebugSessionController& c) {
+        if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
+            return;
+        c.SetStepTargetContext(0);   //select the never-waking main
+        fe.resume = MultiFrontEnd::Resume::Over;
+    };
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    exec.SetSchedulerTripForTests(1);
+    bool threw = false;
+    std::string what;
+    try {
+        exec.Execute(mod);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "stepping a never-waking selection surfaces the "
+        "deadlock guard instead of hanging");
+    CHECK(what.find("deadlock") != std::string::npos,
+        "message names the deadlock guard (got: " + what + ")");
+    CHECK(fe.stops.size() == 2,
+        "initial + bp only: the parked selection never produces a step "
+        "stop");
+    PASS();
+}
+
 //K4 time-freeze semantics (regression pin, passes by design): the freeze
 //holds the GIL, so the timer thread cannot migrate expiries while
 //stopped — a sleeper whose deadline passes during a freeze still wakes
@@ -286,5 +455,8 @@ void run_debugger_multicontext_tests()
     test_derived_throw_break_on_throw();
     test_step_stops_only_at_focus();
     test_parked_context_enumeration_and_locals();
+    test_selected_parked_context_steps_on_wake();
+    test_selected_runnable_context_steps_exclusively();
+    test_selected_never_waking_context_keeps_deadlock_report();
     test_timer_freeze_semantics();
 }

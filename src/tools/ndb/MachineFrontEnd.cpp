@@ -233,7 +233,8 @@ void MachineFrontEnd::DoContexts()
 }
 
 //context <id>: select the context bt/frame/locals address (resets the
-//frame selection — frame indices are per-context).
+//frame selection — frame indices are per-context) and arm it as the
+//step target of the next s/n/f (K5).
 void MachineFrontEnd::DoContext(const std::string& arg)
 {
     if (!IsAllDigits(arg))
@@ -245,6 +246,7 @@ void MachineFrontEnd::DoContext(const std::string& arg)
         throw std::runtime_error("no context " + arg);
     m_contextId = id;
     m_selectedFrame = 0;
+    m_pController->SetStepTargetContext(id);
     EmitLine(protocol::MakeEvent("done", {"context"}));
 }
 

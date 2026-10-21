@@ -44,10 +44,11 @@ void DebugSession::DoThreads() {
     m_out.flush();
 }
 
-//t <id>: switch the inspection focus (bt/f/l/x/p/i locals address the
-//selected context, parked frames included). Frame selection resets —
-//frame indices are per-context. Stepping still targets the stopped
-//context; `t` only redirects inspection.
+//t <id>: switch the context selection — the inspection focus (bt/f/l/
+//x/p/i locals address the selected context, parked frames included) AND
+//the step target (K5: a later s/n/f steps the selected context; a
+//parked one steps on wake). Frame selection resets — frame indices are
+//per-context.
 void DebugSession::DoContextFocus(const std::string& arg) {
     if (!IsAllDigits(arg)) {
         m_out << "Usage: t <id>\n";
@@ -63,6 +64,7 @@ void DebugSession::DoContextFocus(const std::string& arg) {
     }
     m_contextId = id;
     m_selectedFrame = 0;
+    m_pController->SetStepTargetContext(id);
     PrintContextRow(view.ContextInfo(id));
     m_out.flush();
 }

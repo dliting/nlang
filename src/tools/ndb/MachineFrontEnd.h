@@ -29,14 +29,17 @@ events carry the contextId they describe as their LAST field (v2).
 Commands (IDE -> front end) are plain space-separated tokens, unescaped:
 b <file> <line> (file/line split at the LAST space), bfunc <name>,
 d <id>, breakthrow on|off, contexts, context <id> (selects the context
-bt/frame/locals address; also resets the frame selection), bt,
+bt/frame/locals address — resets the frame selection — and arms it as
+the s/n/f step target), bt,
 frame <n> (also selects for locals), locals, run (prelude only),
 c/s/n/f. Non-resume commands answer in place
 (bp receipt, done <req> or err); a resume command answers with the next
 event (the following stop or exit). `run` ends the prelude started by
 PumpUntilRun; before it, window-bound commands err (no frozen window).
-A new stop re-targets inspection to the stopped context (gdb's
-stopped-thread behavior): both selections reset in OnStopped.
+A new stop re-targets inspection AND the step target to the stopped
+context (gdb's stopped-thread behavior): the front end's two selections
+reset in OnStopped, the controller's step-target selection at the
+freeze that opens the window.
 stdin\t<payload> is a DATA command, not a control command: <payload> is
 one EncodeField'd program-input line, and the line is recognized on the
 RAW wire text (before trimming) so payload leading/trailing spaces

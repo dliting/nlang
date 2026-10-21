@@ -80,10 +80,12 @@ private:
     std::istream& m_in;
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController
-    int m_contextId = 0;        //inspection focus: `threads`/`t <id>`
+    int m_contextId = 0;        //context selection: `threads`/`t <id>`
                                 //switch it; every stop resets it to the
-                                //stopped context (frame/locals queries
-                                //address it)
+                                //stopped context. Inspection (frame/
+                                //locals queries) addresses it, and `t`
+                                //mirrors it into the controller as the
+                                //step target (K5)
     size_t m_selectedFrame = 0;   //`frame <n>` selection (display concern)
     SourceCache m_sourceCache;   //`l` source resolution + caching
 };
