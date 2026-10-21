@@ -139,14 +139,22 @@ void VmBackend::EmitShortCircuitOp(SnBinaryExpr& bin,
 //start at the evalArea cursor; resultOffset always sits below it).
 void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                              uint16_t resultOffset) {
-    EvalAreaClaim rightClaim(*this, 1);
-    uint16_t rightSlot = rightClaim.base();
     auto& binChildren = bin.Children();
     auto binIt = binChildren.begin();
     auto& leftChild = static_cast<SnExpression&>(*binIt);
-    EmitExpression(leftChild, emitter, resultOffset);
     ++binIt;
-    EmitExpression(static_cast<SnExpression&>(*binIt), emitter, rightSlot);
+    auto& rightChild = static_cast<SnExpression&>(*binIt);
+    //K2 slice 5: this claim stays Dual on purpose. Nested emissions use
+    //this slot as their resultOffset, so it transitively parks every
+    //intermediate of the subtree — e.g. the LEFT operand of a nested
+    //binary (`x + ((s1 + tag(s2)) == s3)` parks the string s1 here
+    //across tag's entry safepoint, while the outer right type is int).
+    //A type-driven class keyed on the outer operand is unsound; only a
+    //subtree-widest analysis could refine this site.
+    EvalAreaClaim rightClaim(*this, 1);
+    uint16_t rightSlot = rightClaim.base();
+    EmitExpression(leftChild, emitter, resultOffset);
+    EmitExpression(rightChild, emitter, rightSlot);
 
     auto* evalType = leftChild.EvalDataType();
     //0.7.5: the numeric family keys on the LEFT operand's kind

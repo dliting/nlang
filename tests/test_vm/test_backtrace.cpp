@@ -234,6 +234,93 @@ static void TestStripDebugInfoRemovesAnchors() {
     PASS();
 }
 
+// --- 帧机等价钉死（K1 Slice 2）：回溯仅有的两种可观测形态各一条字节级断言。
+// 等价性论证：m_unwindFrames 在 catch 命中时清空 → 文本回溯只在未捕获路径
+// 可观测；字段回溯（RaiseNlangException 在抛出点从调用栈构造）是第二种。
+// 两者逐字节钉死后，帧机与递归引擎的可观测行为收口于此。
+
+//形态一：未捕获用户 throw 的整段文本回溯 —— 全等断言（非子串）钉死
+//「最内帧在前、每帧一行、两空格 at 前缀、无多余/重复帧」。
+static void TestUncaughtBacktraceTextByteExact() {
+    TEST(TestUncaughtBacktraceTextByteExact);
+    {
+        BuildOutcome bo = buildSource("bt_pin_uncaught",
+            "int inner() {\n"                    // 1
+            "    throw Exception(\"deep\");\n"   // 2
+            "}\n"                                // 3
+            "int mid() {\n"                      // 4
+            "    return inner();\n"              // 5
+            "}\n"                                // 6
+            "int main() {\n"                     // 7
+            "    return mid();\n"                // 8
+            "}\n");                              // 9
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_pin_uncaught");
+        VmExecutor exec;
+        std::string what;
+        try {
+            exec.Execute(mod);
+        } catch (const std::exception& e) {
+            what = e.what();
+        }
+        REQUIRE(what == "deep");
+        const std::string file = (scratchDir() / "bt_pin_uncaught.n").string();
+        const std::string want =
+            "  at bt_pin_uncaught.inner (" + file + ":2)\n"
+            "  at bt_pin_uncaught.mid ("   + file + ":5)\n"
+            "  at bt_pin_uncaught.main ("  + file + ":8)\n";
+        CHECK(exec.Backtrace() == want,
+              "uncaught backtrace text is byte-exact: innermost-first, "
+              "one line per frame, no extra frames");
+    }
+    PASS();
+}
+
+//形态二：VM 抛出异常的 e.backtrace 字段 —— 源码内拼接本机真实源路径，
+//在 NLang 侧做全等比较，钉死「帧数=活跃调用栈、逐字节条目、顺序」。
+//（用户 throw 的字段恒空是既有设计，exception_backtrace_access.n 已覆盖。）
+static void TestExceptionBacktraceFieldByteExact() {
+    TEST(TestExceptionBacktraceFieldByteExact);
+    {
+        //NLang 字符串字面量里反斜杠要成对转义。
+        const std::string file = (scratchDir() / "bt_pin_field.n").string();
+        std::string escaped;
+        for (char c : file) {
+            if (c == '\\') escaped += "\\\\";
+            else escaped += c;
+        }
+        const std::string src =
+            "int helper() {\n"                                  // 1
+            "    int x = 0;\n"                                  // 2
+            "    return 1 / x;\n"                               // 3
+            "}\n"                                               // 4
+            "int main() {\n"                                    // 5
+            "    try {\n"                                       // 6
+            "        return helper();\n"                        // 7
+            "    } catch (DivByZeroException e) {\n"            // 8
+            "        if (e.backtrace.length() != 2) return 100;\n" // 9
+            "        string f0 = e.backtrace.get(0);\n"         // 10
+            "        string f1 = e.backtrace.get(1);\n"         // 11
+            "        if (f0 == \"bt_pin_field.helper (\" + \"" + escaped + "\" + \":3)\") {\n" // 12
+            "            if (f1 == \"bt_pin_field.main (\" + \"" + escaped + "\" + \":7)\") {\n" // 13
+            "                return 7;\n"                       // 14
+            "            }\n"                                   // 15
+            "            return 102;\n"                         // 16
+            "        }\n"                                       // 17
+            "        return 101;\n"                             // 18
+            "    }\n"                                           // 19
+            "}\n";                                              // 20
+        BuildOutcome bo = buildSource("bt_pin_field", src);
+        REQUIRE(bo.ok);
+        CompiledModule mod = loadBuilt("bt_pin_field");
+        VmExecutor exec;
+        CHECK(exec.Execute(mod) == 7,
+              "backtrace field is byte-exact: exactly the two active "
+              "frames, innermost-first, full path + line per entry");
+    }
+    PASS();
+}
+
 void run_backtrace_tests() {
     TestFormatBacktraceFrameShapes();
     TestBacktraceCarriesRealSourceFile();
@@ -243,4 +330,6 @@ void run_backtrace_tests() {
     TestInvalidCastIsCatchable();
     TestUserConstructedInvalidCast();
     TestStripDebugInfoRemovesAnchors();
+    TestUncaughtBacktraceTextByteExact();
+    TestExceptionBacktraceFieldByteExact();
 }

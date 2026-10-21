@@ -67,6 +67,7 @@ DebugEvent parseEvent(const QString& line)
     if (keyword == QLatin1String("hello")) ev.kind = DebugEvent::Hello;
     else if (keyword == QLatin1String("bp")) ev.kind = DebugEvent::Bp;
     else if (keyword == QLatin1String("stopped")) ev.kind = DebugEvent::Stopped;
+    else if (keyword == QLatin1String("context")) ev.kind = DebugEvent::Context;
     else if (keyword == QLatin1String("frame")) ev.kind = DebugEvent::Frame;
     else if (keyword == QLatin1String("local")) ev.kind = DebugEvent::Local;
     else if (keyword == QLatin1String("done")) ev.kind = DebugEvent::Done;

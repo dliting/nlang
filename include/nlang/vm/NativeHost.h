@@ -31,8 +31,13 @@ extern "C" {
 // the writeError callback added (io.eprint's stderr channel — only the
 // host knows whether a session owns the streams). Version 4: the input
 // side — readToken/readChar/hasInput added and readLine's null-at-end-
-// of-input contract made explicit.
-#define NLANG_HOST_ABI_VERSION 4u
+// of-input contract made explicit. Version 5: the registration side
+// gained a blocking channel — nlang_native_init takes a second
+// registrar, regBlocking, for natives that may take unbounded time
+// (file and stream I/O). The VM stages their arguments and result off
+// the frame, parks the context and releases its global lock around the
+// call; NativeFn itself is unchanged (the staging is transparent).
+#define NLANG_HOST_ABI_VERSION 5u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -108,11 +113,18 @@ struct NativeHost {
 
 // Module entry point. The host loads the shared library, resolves
 // `nlang_native_init`, and calls it once. The module registers each of
-// its functions via `reg`, forwarding the opaque `registry` pointer.
+// its functions via `reg` (non-blocking: runs while the VM's global
+// lock is held) or `regBlocking` (may take unbounded time: the VM
+// stages args/result, parks the context and releases the lock around
+// the call), forwarding the opaque `registry` pointer. Registering the
+// same ns.name through both channels is a load error.
 // Returns NLANG_HOST_ABI_VERSION so the host can verify compatibility.
 typedef void (*RegisterNativeFn)(void* registry, const char* ns,
                                  const char* name, NativeFn fn);
-typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg);
+typedef void (*RegisterNativeBlockingFn)(void* registry, const char* ns,
+                                         const char* name, NativeFn fn);
+typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
+                                  RegisterNativeBlockingFn regBlocking);
 
 #define NLANG_NATIVE_INIT_SYMBOL nlang_native_init
 
@@ -131,10 +143,14 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg);
 #endif
 
 // Convenience macro for the entry point:
-//   NLANG_DEFINE_NATIVE_INIT { reg(registry, "math", "sqrt", &...); ... }
+//   NLANG_DEFINE_NATIVE_INIT {
+//       reg(registry, "math", "sqrt", &...);          //fast, GIL held
+//       regBlocking(registry, "io", "readFile", &...); //may wait
+//   }
 #define NLANG_DEFINE_NATIVE_INIT \
     NLANG_NATIVE_EXPORT int nlang_native_init(void* registry, \
-                                              RegisterNativeFn reg)
+                                              RegisterNativeFn reg, \
+                                              RegisterNativeBlockingFn regBlocking)
 
 #ifdef __cplusplus
 } // extern "C"

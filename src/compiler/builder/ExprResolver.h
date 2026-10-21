@@ -10,6 +10,10 @@
 namespace nlang
 {
 
+//K3 sync-primitive method shape (ThreadNamespace.h defines it; a
+//reference parameter needs no full type here).
+struct SyncMethodShape;
+
 enum FindFuncResult
 {
 	//The function name is not found.
@@ -460,6 +464,20 @@ private:
 		uint8_t want);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//K1: Mutex/Channel by-name methods — runs BEFORE the stream family
+	//(close is also a stream method name and would be captured there).
+	bool TryResolveSyncPrimitiveMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//TryResolveSyncPrimitiveMethod's post-classification tail: named/out
+	//veto, caller-scope argument resolution, arity check, type wiring.
+	bool FinishSyncPrimitiveCall(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, SnFieldExpr *pInnerExpr,
+		const SyncMethodShape &shape, SyntaxNode *pSavedContext);
+	//Access's builtin by-name method families, historical dispatch order
+	//(extracted for the 50-line function budget).
+	bool TryResolveBuiltinMethodFamilies(SnMemberExpr &snMember,
+		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
+		SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	//0.9.10 D2.4: type-name receiver in the Object protocol arm with no
@@ -927,6 +945,10 @@ private:
 	the allocation binding of Access(SnNewArrayExpr&).
 	*/
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
+	//Shared per-argument reject of the two ctor call forms (named / out
+	//arguments — ctor calls stage arguments positionally). True =
+	//rejected (diagnostic logged). Defined in ExprResolverNewCtor.cpp.
+	bool RejectNonPositionalCtorArg(SnExpression &arg);
 	//0.9.11 T6 (D10): the intrinsic arity table of the builtin/generic
 	//classes (FileStream 2, the Exception family 1, List/Dict/generic 0,
 	//Object 0) — their ctors live only in the CompiledClass, so a call
@@ -968,6 +990,16 @@ private:
 		SnInvokeExpr &invoke, const std::string &modulePath);
 	SnField *ProbeCtorType(const std::string &name,
 		const ISourceLocation *pLoc);
+	//K3 task 4: `Channel<int> c = Channel(n);` — the assign resolver
+	//publishes the declared LHS type here before resolving the RHS, and
+	//this arm binds the bare-name Channel invoke as the bounded-capacity
+	//ctor call against that instantiation. False = no usable Channel
+	//target (the caller keeps its generic reject).
+	bool TryBindChannelCtorInvoke(SnInvokeExpr &snInvoke);
+	//K3 task 4: the LHS declared type published by the assign resolver
+	//for the arm above; null outside an assignment's RHS resolution.
+	//Consumed (cleared) by TryBindChannelCtorInvoke.
+	SnField *m_pCtorInvokeTarget = nullptr;
 
 	/*
 	2026-09-29 split of the collection-initializer resolution family
@@ -1007,6 +1039,15 @@ private:
 		const SnInitListExpr &sn, size_t entryIdx);
 	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
 		SnField *pTargetField);
+	//K1 Slice 9: channel initializers must be empty (send() is the only
+	//insertion path). True = rejected.
+	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
+		SnField *pTargetField);
+	//Target-shape phase of Access(SnInitListExpr&) (split out for size):
+	//the three form gates, then stamping the resolved type token and the
+	//class-form ctor contract. True = rejected.
+	bool PrepareInitListShape(SnInitListExpr &sn,
+		SnField *pTargetField, bool bIsArray);
 
 	/*
 	2026-09-27 decomposition of the value resolution family
@@ -1073,6 +1114,42 @@ private:
 		SnInvokeExpr &invoke);
 	bool ResolveModuleQualifiedCallee(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
+	//K3 thread-package materialization's narrow arm: `thread.spawn(...)`
+	//is the one shape a static prototype cannot express (func<T> delegate
+	//→ Future<T>), so it keeps a dedicated try ahead of the
+	//module-qualified fallback. Runs the same import admission first;
+	//every other thread.* shape declines to TryResolveModuleQualified
+	//(ExprResolverThreadNs.cpp). True = consumed; false = declined.
+	bool TryResolveThreadSpawn(SnMemberExpr &snMember);
+	//TryResolveThreadSpawn's bind tail (split for the 50-line function
+	//budget): caller-scope args, the typed func<T>→Future<T> arm, the
+	//fixed match against the declared func<void> prototype. Always
+	//consumes the member.
+	bool BindThreadSpawnCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		std::vector<SnFunction*> &candidates);
+	//The narrow arm's typed half: a single-argument spawn whose argument
+	//is a zero-parameter func<T> binds the delegate and wires the call
+	//site's result type to Future<T> (T=void keeps the Thread face).
+	//spawnDecl = the stdlib thread.n declaration the import inlined.
+	//True = consumed (bound or diagnosed); false = not this arm's shape.
+	bool TryBindTypedSpawn(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		SnFunction &spawnDecl);
+	//TryBindTypedSpawn's argument classification (50-line function
+	//budget): one pass over the single spawn argument.
+	enum class SpawnArgOutcome
+	{
+		Declined,   //not this arm's shape — the fixed path reports it
+		Diagnosed,  //rejected with a logged error — the member is consumed
+		Bound,      //rpT carries the delegate's return type node
+	};
+	SpawnArgOutcome ClassifyTypedSpawnArg(SnExpression &arg,
+		SnField *&rpT);
+	SpawnArgOutcome SpawnTFromBareRef(SnExpression &arg, SnField *&rpT);
+	//Fixed-path spawn mismatch: name the actual contract when a bare
+	//function reference failed the declared func<void> formal (the
+	//generic pending-ref diagnostic would mislead). True = logged.
+	bool ReportSpawnFuncRefFailure(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, FindFuncResult res);
 	//Post-match close-out half of ResolveModuleQualifiedCallee
 	//(out-argument veto, invoke binding, member callee/result wiring);
 	//split out of it for the 50-line function budget.
@@ -1142,6 +1219,13 @@ public:
 		m_Accessor.Flags(flags);
 		sn.Accept(m_Visitor);
 		return sn.IsResolved();
+	}
+
+	//K3 task 4: pass-through for the statement resolver's ctor-invoke
+	//target hint (see ExprResolveAccessor::m_pCtorInvokeTarget).
+	void SetCtorInvokeTarget(SnField *pTarget)
+	{
+		m_Accessor.m_pCtorInvokeTarget = pTarget;
 	}
 
 	//Resolve the child data type nodes in a specified field.

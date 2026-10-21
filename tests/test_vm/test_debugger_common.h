@@ -94,6 +94,9 @@ void run_debugger_sourcecache_tests();
 void run_debugger_hostio_tests();
 void run_debugger_machine_tests();
 void run_debugger_loop_tests();
+//K4 task 2: derived-context breakpoints/stepping, parked-context
+//inspection through the unified view face — test_debugger_multicontext.cpp.
+void run_debugger_multicontext_tests();
 
 //v0.8.5: runtime error reporting (backtrace file paths, throw messages,
 //InvalidCastException, --no-debug-info anchors) — test_backtrace.cpp.

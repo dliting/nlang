@@ -166,6 +166,7 @@ private slots:
     void on_tvwSolution_customContextMenuRequested(const QPoint& pos);
     void on_dckSolution_visibilityChanged(bool visible);
     void on_tvwDebugStack_itemClicked(QTreeWidgetItem* item, int column);
+    void on_tvwDebugContexts_itemClicked(QTreeWidgetItem* item, int column);
 
     //--- embedded terminal (PtyProcess + TerminalWidget) ---
     void onPtyOutput(const QByteArray& bytes);
@@ -193,11 +194,16 @@ private slots:
                                 bool bound);
     void onDebugStopped(const QString& reason, int breakpointId,
                         const QString& funcName, const QString& file,
-                        int line, int depth, int frameCount);
+                        int line, int depth, int frameCount,
+                        int contextId);
     void onDebugFrameReceived(int frameIndex, const QString& funcName,
                               const QString& file, int line);
     void onDebugLocalReceived(const QString& name, const QString& typeName,
                               const QString& value);
+    void onDebugContextReceived(int contextId, const QString& state,
+                                int heldByCarrier,
+                                const QString& funcName,
+                                const QString& file, int line);
     void onDebugOutput(const QString& text);
     void onDebugError(const QString& report);
     void onDebugExited(int exitCode);
@@ -466,6 +472,11 @@ private:
     std::unique_ptr<DebugClient> m_debugClient;
     bool m_debugStopRequested = false;  //stop was user-initiated
     QString m_debugBaseDir;  //anchors project-relative stopped files
+    //K5: the context the debug page inspects (selected row of the context
+    //tree — the single marker doubles as the step target the wire armed
+    //server-side). Every stop resets it to the stopped context; -1 only
+    //outside a live session's frozen window.
+    int m_selectedDebugContext = -1;
     //v0.8.5: run-error page backing — the run working dir resolves
     //relative backtrace paths; the tail bytes feed the exit-time scan.
     QString m_runBaseDir;

@@ -73,6 +73,44 @@ std::string ModuleNotFoundText(const std::string& moduleName)
 		"path.";
 }
 
+//RegisterUnit's validation half: the two module-path gates, in
+//rejection order — dotted stem shape, duplicate package. True =
+//rejected (the error is in outErrors).
+bool ModuleRegistry::RejectsModulePath(const std::string& stem,
+	const std::string& sourceFile, const std::string& modulePath,
+	std::vector<std::string>& outErrors) const
+{
+	//A stem containing a dot ("my.lib.n") would register as module path
+	//"my.lib" while DirectoryOf reports "my" — the same-directory set and
+	//the `import my.*;` wildcard surface would both silently mis-include
+	//it. Dots in a module name mean directories, so the stem must be a
+	//single identifier; reject the shape instead of mis-registering it.
+	if (stem.find('.') != std::string::npos)
+	{
+		outErrors.push_back("Source file name '" + stem +
+			"' contains a dot before the '.n' extension. Rename the file:"
+			" a dot in a module name stands for a directory.");
+		return true;
+	}
+	//Duplicate-package rule: two units resolving to the same dotted
+	//package in one build is an error naming BOTH source paths —
+	//first-wins would silently bind the import to whichever root the
+	//search hit first. Standard library units inline when imported, so a
+	//user package named like one (io, thread, ...) collides the moment
+	//the program imports that name.
+	for (const ModuleEntry& existing : m_modules)
+	{
+		if (existing.path == modulePath)
+		{
+			outErrors.push_back("Duplicate package '" + modulePath
+				+ "': '" + existing.sourceFile + "' and '" + sourceFile
+				+ "'.");
+			return true;
+		}
+	}
+	return false;
+}
+
 bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 	const TranslationUnit& tu, const std::string& packageRoot,
 	std::vector<std::string>& outErrors, bool isLibrary)
@@ -83,36 +121,10 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 
 	const std::filesystem::path filePath =
 		std::filesystem::path(tu.FilePath()).lexically_normal();
-
-	//A stem containing a dot ("my.lib.n") would register as module path
-	//"my.lib" while DirectoryOf reports "my" — the same-directory set and
-	//the `import my.*;` wildcard surface would both silently mis-include
-	//it. Dots in a module name mean directories, so the stem must be a
-	//single identifier; reject the shape instead of mis-registering it.
-	const std::string stem = filePath.stem().string();
-	if (stem.find('.') != std::string::npos)
-	{
-		outErrors.push_back("Source file name '" + stem +
-			"' contains a dot before the '.n' extension. Rename the file:"
-			" a dot in a module name stands for a directory.");
-		return false;
-	}
-
 	const std::string modulePath = DeriveModulePath(filePath, packageRoot);
-	//Duplicate-package rule (the reserved-name table's replacement): two
-	//units resolving to the same dotted package in one build is an error
-	//naming BOTH source paths — first-wins would silently bind the import
-	//to whichever root the search hit first.
-	for (const ModuleEntry& existing : m_modules)
-	{
-		if (existing.path == modulePath)
-		{
-			outErrors.push_back("Duplicate package '" + modulePath
-				+ "': '" + existing.sourceFile + "' and '"
-				+ filePath.string() + "'.");
-			return false;
-		}
-	}
+	if (RejectsModulePath(filePath.stem().string(), filePath.string(),
+			modulePath, outErrors))
+		return false;
 
 	ModuleEntry entry;
 	entry.path = std::move(modulePath);

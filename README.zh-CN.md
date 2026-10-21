@@ -136,7 +136,8 @@ ndb <program.ncu|.npkg>   调试已编译的程序（像 gdb `start` 一样在
 当前帧的文件中解析；函数名按包限定，如 `utils.addBoth`），`i b` 列出断点，`d <id>` 删除，`c` 继续，
 `s`/`n`/`f` 单步进入/跳过/跳出，`bt` 回溯，`frame <n>` 选择帧，
 `info locals` 列出局部变量，`p <name>` 打印一个局部变量，
-`l [line]` 源码窗口，`x` 当前帧的反汇编，`catch on|off` 抛异常时
+`l [line]` 源码窗口，`x` 当前帧的反汇编，`threads` 列出全部上下文，
+`t <id>` 切换调试焦点，`catch on|off` 抛异常时
 中断（默认 off），`q` 退出——stdin EOF 等同 `q`。程序结束时 ndb
 打印 `Program exited with code N.` 并以同一退出码退出。
 
@@ -202,9 +203,10 @@ import 来源共用一种语法：
 
 ## 标准库
 
-`math`、`io` 和 `fs` 是标准库的三个包——源码随工具链分发
+`math`、`io`、`fs`、`thread` 和 `concurrent` 是标准库的五个包——源码随工具链分发
 （`stdlib/*.n`），运行期由 `stdlib.npkg` 提供，与其他库包同一机制；
-限定调用前需要显式 `import`。字符串自带内建方法：
+限定调用前需要显式 `import`（`thread` 承载虚拟线程的派生与停泊原语；
+`concurrent` 在内核并发原语之上补足 `WaitGroup` 与 `Semaphore`）。字符串自带内建方法：
 
 ```n
 import io;
@@ -237,8 +239,10 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 类型化的值（含容器与对象），注册 `native` 宿主函数，并把
 `io.print`/`io.eprint` 重定向到宿主回调。脚本也可以直接从源码运行：
 `runSource`/`runFile` 进程内编译并执行 ad-hoc 脚本（免写 `main()`
-样板），`runScript` 则把整套流程封装成一次性调用。最小宿主示例随包
-分发（`examples/embed_host/`），完整章节见
+样板），`runScript` 则把整套流程封装成一次性调用。脚本线程在全局
+解释器锁下运行；`Interpreter`默认使用单载体，在`VmExecutor`层嵌入的
+宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用会释放
+锁）。最小宿主示例随包分发（`examples/embed_host/`），完整章节见
 `docs/user_manual/zh/libraries/embedding-api.md`。
 
 ## IDE（nide）

@@ -1,0 +1,61 @@
+//K3 task 5 acceptance: the stdlib WaitGroup (pure NLang, concurrent
+//package). Four workers each add 10 to a mutex-guarded total and call
+//done(); main's wait() is a real barrier — the printed total can only
+//be 40 if every increment landed before the read. Exercises the
+//unbounded done-channel drain across a multicarrier run.
+import concurrent;
+import io;
+import thread;
+
+class Worker {
+    public WaitGroup wg;
+    public Mutex gate;
+    public Total board;
+    public void work() {
+        gate.lock();
+        board.sum = board.sum + 10;
+        gate.unlock();
+        wg.done();
+    }
+}
+
+class Total {
+    public int sum;
+}
+
+int main() {
+    Total t = Total();
+    Mutex m = Mutex();
+    WaitGroup wg = WaitGroup();
+    wg.add(4);
+    Worker w1 = Worker();
+    w1.wg = wg;
+    w1.gate = m;
+    w1.board = t;
+    Worker w2 = Worker();
+    w2.wg = wg;
+    w2.gate = m;
+    w2.board = t;
+    Worker w3 = Worker();
+    w3.wg = wg;
+    w3.gate = m;
+    w3.board = t;
+    Worker w4 = Worker();
+    w4.wg = wg;
+    w4.gate = m;
+    w4.board = t;
+    Thread a = thread.spawn(w1.work);
+    Thread b = thread.spawn(w2.work);
+    Thread c = thread.spawn(w3.work);
+    Thread d = thread.spawn(w4.work);
+    wg.wait();
+    io.print("sum=" + t.sum.toString());
+    thread.join(a);
+    thread.join(b);
+    thread.join(c);
+    thread.join(d);
+    if (t.sum == 40) {
+        return 0;
+    }
+    return 1;
+}

@@ -1,6 +1,8 @@
 /*---
-    VmExecutorOps.cpp — 操作码主分派（ExecuteFunction 骨架：帧守卫/异常收尾 + 纯分派 switch）
-    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    VmExecutorOps.cpp — 操作码主分派（帧机：RunFrames 异常收尾 + DispatchFrames 纯分派 switch）
+    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构）；2026-10-18 并发 K1
+    改造为显式帧栈机（零行为变化：NLang 调用不再消耗 C++ 栈，语义/报错/回溯
+    逐项保持）。帧构造/弹出/处理器走查在同日抽取至 VmExecutorFrames.cpp。
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -9,66 +11,132 @@
 
 namespace nlang {
 
-void VmExecutor::ExecuteFunction(const CompiledFunction& func,
-    uint8_t* pResult, uint8_t* locals) {
-    if (m_recurseDepth >= RECURSE_LIMIT)
-        throw std::runtime_error("NLang VM: recursion limit exceeded");
+//Frame machine core (see VmExecutor.h for the contract group). RunFrames
+//owns the exception machinery; DispatchFrames owns the instruction loop.
 
-    //RAII guard: ensures m_recurseDepth is decremented even if an exception
-    //is thrown (e.g. division by zero, unknown opcode).
-    struct RecurseGuard {
-        size_t &depth;
-        RecurseGuard(size_t &d) : depth(d) { ++depth; }
-        ~RecurseGuard() { --depth; }
-    } guard(m_recurseDepth);
+//K1 Slice 6: a joiner resumed over a FAILED target throws the target's
+//original exception object HERE — inside RunFrames' handler-search try,
+//so the handler walk covers the just-restored frames with the join call
+//site's opPc (exactly as if join had thrown). No-op unless the carrier
+//armed the flag (ArmResumeRethrow); consumed at most once per resume.
+void VmExecutor::ConsumeResumeThrow() {
+    if (m_resumeThrowExcIdx == 0)
+        return;
+    const int32_t excIdx = m_resumeThrowExcIdx;
+    m_resumeThrowExcIdx = 0;
+    ThrowJoinTargetFailure(excIdx);
+}
 
-    //Push call frame for GC root set. RAII pop on exit.
-    m_callStack.push_back({locals, pResult, &func, 0, 0});
-    struct FrameGuard {
-        std::vector<CallFrame>& stack;
-        std::vector<UnwindFrame>& unwind;
-        const CompiledFunction* func;
-        FrameGuard(std::vector<CallFrame>& s,
-                   std::vector<UnwindFrame>& u,
-                   const CompiledFunction* f)
-            : stack(s), unwind(u), func(f) {}
-        ~FrameGuard() {
-            //If an exception is propagating, capture this frame for the
-            //backtrace before popping. Innermost frame runs first.
-            if (std::uncaught_exceptions() > 0 && !stack.empty()) {
-                unwind.push_back({func ? func->name : std::string("<unknown>"),
-                                  func ? func->sourceFile : std::string(),
-                                  stack.back().currentLine});
-            }
-            stack.pop_back();
+void VmExecutor::RunFrames(size_t baseDepth)
+{
+    for (;;) {
+        std::exception_ptr inflight;
+        int32_t inflightExc = 0;
+        try {
+            ConsumeResumeThrow();
+            DispatchFrames(baseDepth);
+            return;
+        } catch (NLangThrow& ex) {
+            //Keep the original exception object alive across the handler
+            //search (rethrown by pointer below — no copy; heapIdx is the
+            //payload the tryBlocks walk needs frame by frame).
+            inflightExc = ex.heapIdx;
+            inflight = std::current_exception();
+        } catch (ParkSignal&) {
+            //Suspension/preemption is not an error (K1 decision 2):
+            //frames stay untouched — no unwind records, no handler
+            //search — and the carrier loop routes by the signal's
+            //reason. Must precede the catch-all below, which would
+            //otherwise corrupt m_unwindFrames (the O2 audit's one
+            //mandatory ordering).
+            throw;
+        } catch (ShutdownSignal&) {
+            //K2 slice 4: parked frames, not an unwind — pass it on.
+            throw;
+        } catch (...) {
+            //Non-NLang error (unknown opcode, malformed module, ...):
+            //record one unwind entry per frame of this window, innermost
+            //first, so the uncaught-path backtrace covers these frames
+            //too, then propagate unchanged.
+            while (m_callStack.size() > baseDepth)
+                RecordUnwindAndPopFrame();
+            throw;
         }
-    } frameGuard(m_callStack, m_unwindFrames, &func);
+        //NLang throw in flight: search handlers frame by frame without
+        //dispatching instructions. Innermost frame first — the same order
+        //the recursive unwind visited frames in.
+        while (m_callStack.size() > baseDepth) {
+            if (TryEnterCatchHandler(m_callStack.back(), inflightExc)) {
+                inflight = nullptr;
+                break;
+            }
+            RecordUnwindAndPopFrame();
+        }
+        if (inflight)
+            std::rethrow_exception(inflight);
+        //else: a handler was entered — resume dispatch on the top frame.
+    }
+}
 
-    //Safepoint: function entry is a natural GC point (tempSlot is empty).
-    CheckGCSafepoint();
+void VmExecutor::DispatchFrames(size_t baseDepth)
+{
+    for (;;) {
+        //Window drained: every frame above baseDepth has returned.
+        if (m_callStack.size() <= baseDepth)
+            return;
+        //Copy out everything the inner loop reads and let the
+        //CallFrame reference die at the end of the block — NO
+        //reference may survive across instructions. A false-returning
+        //op can still move m_callStack: a nested evaluation window
+        //(user toString via collection formatting, or a native host
+        //callback's CallByName) pushes frames, and a vector growth
+        //frees the old element array; only the per-frame localsBuf
+        //pointers are move-stable. locals/pResult survive by that
+        //invariant; a CallFrame& would not (v0.10.0 final review:
+        //OP_DebugInfo read opPc through the stale one).
+        uint8_t* locals;
+        uint8_t* pResult;
+        const CompiledFunction* func;
+        uint16_t resumePc;
+        {
+            CallFrame& entryFrame = m_callStack.back();
+            locals = entryFrame.localsBuf.data();
+            pResult = FrameResultCell(entryFrame);
+            func = entryFrame.func;
+            resumePc = entryFrame.pc;
+        }
+        BytecodeReader reader(func->bytecode.data(),
+                              func->bytecode.size());
+        reader.Seek(resumePc);
 
-    BytecodeReader reader(func.bytecode.data(), func.bytecode.size());
+        //frameDone = the top frame changed (call pushed / frame returned)
+        //and every pointer captured above is suspect — re-fetch on the
+        //next outer iteration. The op handlers that can switch frames
+        //are exactly the call family (they return true) and the return
+        //family below.
+        bool frameDone = false;
+        while (!reader.Eof() && !frameDone) {
+            //Offset of the in-flight instruction: the tryBlocks range
+            //test in TryEnterCatchHandler reads it when an op throws,
+            //and OP_DebugInfo below consumes it. Stored through a
+            //FRESH back() each iteration (the comment above: even
+            //false-returning ops may have reallocated) and kept in a
+            //local so consumers never touch a stale frame reference.
+            const uint16_t opPc =
+                static_cast<uint16_t>(reader.CurrentOffset());
+            m_callStack.back().opPc = opPc;
+            OpCode op = reader.ReadOp();
 
-    //Phase 9d: try/catch dispatch. opPc is declared OUTSIDE the try so the
-    //NLangThrow catch block can read the throwing instruction's offset. The
-    //for(;;) loop re-enters the try/while after a caught exception seeks the
-    //reader to a handler PC.
-    uint16_t opPc = 0;
-    for(;;) {
-    try {
-    while (!reader.Eof()) {
-        opPc = static_cast<uint16_t>(reader.CurrentOffset());
-        OpCode op = reader.ReadOp();
-
-        switch (op) {
+            switch (op) {
         case OpCode::OP_Return:
-            return;
-
         case OpCode::OP_Stop:
-            return;
+            PopFrameWithWriteback();
+            frameDone = true;
+            break;
 
         case OpCode::OP_AssertFail:
             OpAssertFail(reader);
+            break;
 
         case OpCode::OP_ConstInt32:
             OpConstInt32(reader, pResult);
@@ -170,7 +238,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
 
         case OpCode::OP_CallFunc:
-            OpCallFunc(reader, locals, pResult);
+            if (OpCallFunc(reader, locals, pResult))
+                frameDone = true;
             break;
 
         // === Phase 13: first-class function values ===
@@ -179,11 +248,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
 
         case OpCode::OP_CallDelegate:
-            OpCallDelegate(reader, locals, pResult);
+            if (OpCallDelegate(reader, locals, pResult))
+                frameDone = true;
             break;
 
         case OpCode::OP_CallDelegateOut:
-            OpCallDelegateOut(reader, locals, pResult);
+            if (OpCallDelegateOut(reader, locals, pResult))
+                frameDone = true;
             break;
 
         case OpCode::OP_MakeBoundFunc:
@@ -207,9 +278,11 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         //outMask marks staging slot i as an out param — after the callee
         //returns, its frame slot i is copied back to the caller's
         //staging area. The backend then spills it into the user variable
-        //with plain OP_VarLocal + OP_Assign instructions.
+        //with plain OP_VarLocal + OP_Assign instructions. The writeback
+        //itself now runs in PopFrameWithWriteback (frame machine).
         case OpCode::OP_CallFuncOut:
-            OpCallFuncOut(reader, locals, pResult);
+            if (OpCallFuncOut(reader, locals, pResult))
+                frameDone = true;
             break;
 
         case OpCode::OP_ParaEnd:
@@ -288,7 +361,8 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
             break;
 
         case OpCode::OP_CallMethodDirect:
-            OpCallMethodDirect(reader, locals, pResult);
+            if (OpCallMethodDirect(reader, locals, pResult))
+                frameDone = true;
             break;
 
         //Phase 9e: OP_CallMethodDirect + out writeback (same protocol as
@@ -296,11 +370,13 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
         //start at slot 1). Out args on virtual dispatch are rejected at
         //compile time, so no OP_CallMethod variant is needed.
         case OpCode::OP_CallMethodDirectOut:
-            OpCallMethodDirectOut(reader, locals, pResult);
+            if (OpCallMethodDirectOut(reader, locals, pResult))
+                frameDone = true;
             break;
 
         case OpCode::OP_CallMethod:
-            OpCallMethod(reader, locals, pResult);
+            if (OpCallMethod(reader, locals, pResult))
+                frameDone = true;
             break;
 
         case OpCode::OP_CallIntrinsic:
@@ -373,36 +449,12 @@ void VmExecutor::ExecuteFunction(const CompiledFunction& func,
                 std::string("NLang VM: unknown opcode ") +
                 std::to_string(static_cast<int>(op)));
         }
-    }
-    //Fell off the end of bytecode (no explicit OP_Return). Normal exit.
-    return;
-    }  // end of try
-    catch (const NLangThrow& ex) {
-        //opPc = offset of the throwing instruction. Scan func.tryBlocks
-        //in declaration order; the first match (range + type) handles it.
-        bool handled = false;
-        for (const auto& tb : func.tryBlocks) {
-            if (opPc < tb.startPc || opPc >= tb.endPc)
-                continue;
-            if (tb.exceptionClassIdx != 0xFFFF &&
-                !IsInstanceOrSubclass(ex.heapIdx, tb.exceptionClassIdx))
-                continue;
-            //Match. Bind catch var, push handler exception (for throw;),
-            //clear unwind frames (so a subsequent throw's backtrace starts
-            //fresh), and seek the reader to the handler.
-            std::memcpy(locals + tb.catchLocalOff, &ex.heapIdx,
-                        sizeof(int32_t));
-            m_callStack.back().handlerExcStack.push_back(ex.heapIdx);
-            m_unwindFrames.clear();
-            reader.Seek(tb.handlerPc);
-            handled = true;
-            break;
         }
-        if (!handled)
-            throw;  // propagate to outer frame / top-level
-        //else: fall through to the for(;;) re-entry, which re-enters try.
+        //Fell off the end of bytecode (no explicit OP_Return). Normal
+        //frame exit — same handling as OP_Return.
+        if (!frameDone)
+            PopFrameWithWriteback();
     }
-    }  // end of for(;;)
 }
 
 } // namespace nlang

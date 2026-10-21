@@ -175,8 +175,12 @@ void MathRandomi(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 } // namespace
 
-// Module entry point: register every math function under the "math" namespace.
+// Module entry point: register every math function under the "math"
+// namespace. Every function is pure computation (no unbounded waits), so
+// all of them use the non-blocking channel; the blocking registrar is
+// deliberately unused here.
 NLANG_DEFINE_NATIVE_INIT {
+    (void)regBlocking;
     reg(registry, "math", "sqrt",   &MathSqrt);
     reg(registry, "math", "sin",    &MathSin);
     reg(registry, "math", "cos",    &MathCos);

@@ -285,6 +285,95 @@ void test_deep_chain_append_bounded_time()
     PASS();
 }
 
+//F2 存量缺陷复现（K1 Slice 3 先决门）：f(g(), h()) 中 g 的结果在 h 求值
+//期间只存活于调用帧 evalArea claim 槽 —— MarkFrameLocals 只扫声明局部
+//表，claim 槽不可见 → 安全点把 g 的字符串扫掉 → f 收到悬垂句柄。
+//g 的值经不透明参数构造（常量折叠会把它变成不朽常量，复现失效）。
+void test_call_arg_staged_survives_gc()
+{
+    TEST(call_arg_staged_survives_gc);
+    CompiledModule mod;
+    CHECK(loadSource("f2_staged_arg",
+        "string buildKey(int n) {\n"
+        "    return \"F2-\" + n;\n"        //runtime concat: fresh store object
+        "}\n"
+        "string churn(int n) {\n"
+        "    string keep = \"\";\n"
+        "    int i = 0;\n"
+        "    while (i < n) {\n"
+        "        keep = \"garbage-\" + i;\n"   //allocations arm the GC
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return keep;\n"
+        "}\n"
+        "string join(string a, string b) {\n"
+        "    return a + \"/\" + b;\n"
+        "}\n"
+        "int main() {\n"
+        "    string r = join(buildKey(7), churn(200));\n"
+        "    if (!r.contains(\"F2-7\")) return 1;\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    int rc = -1;
+    bool threw = false;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception&) {
+        threw = true;   //dangling-handle reads can surface as VM errors
+    }
+    CHECK(!threw && rc == 0,
+        "staged call argument survives the co-argument's GC cycles");
+    PASS();
+}
+
+//保守带第二域：class 实例作暂存参数（堆句柄域，非字符串域）——同形态
+//证明带扫描的堆索引臂，而不只是字符串臂。
+void test_call_arg_staged_class_survives_gc()
+{
+    TEST(call_arg_staged_class_survives_gc);
+    CompiledModule mod;
+    CHECK(loadSource("f2_staged_class",
+        "class Box {\n"
+        "    public string tag;\n"
+        "}\n"
+        "Box buildBox(int n) {\n"
+        "    Box b = Box();\n"
+        "    b.tag = \"BOX-\" + n;\n"
+        "    return b;\n"
+        "}\n"
+        "string churn(int n) {\n"
+        "    string keep = \"\";\n"
+        "    int i = 0;\n"
+        "    while (i < n) {\n"
+        "        keep = \"garbage-\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return keep;\n"
+        "}\n"
+        "string readTag(Box b, string noise) {\n"
+        "    return b.tag + \"/\" + noise;\n"
+        "}\n"
+        "int main() {\n"
+        "    string r = readTag(buildBox(9), churn(200));\n"
+        "    if (!r.contains(\"BOX-9\")) return 1;\n"
+        "    return 0;\n"
+        "}\n", mod), "build failed");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    int rc = -1;
+    bool threw = false;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    CHECK(!threw && rc == 0,
+        "staged class argument survives the co-argument's GC cycles");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
@@ -296,6 +385,8 @@ int main()
     test_constants_immortal_under_stress();
     test_cons_chain_flatten_and_reclaim();
     test_uninitialized_string_reads_empty();
+    test_call_arg_staged_survives_gc();
+    test_call_arg_staged_class_survives_gc();
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

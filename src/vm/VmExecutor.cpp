@@ -12,9 +12,21 @@ VmExecutor::~VmExecutor() = default;
 //2026-09-26 maintainability split: Execute's per-run phases. Bodies are
 //verbatim extracts; Execute keeps the original operation order.
 void VmExecutor::ResetPerRunState(const CompiledModule& module) {
-    m_recurseDepth = 0;
+    //K1 decision 5: scheduler state resets explicitly per run — the
+    //context registry, run queue, and timer list all clear (the
+    //embedding host may reuse one executor across runs). The trip
+    //LIMIT survives (SetSchedulerTripForTests semantics); the budget
+    //and counters reset.
+    m_spScheduler->Reset();
+    m_quotaFires = 0;
+    m_preemptSkips = 0;
+    m_resumeThrowExcIdx = 0;
     m_unwindFrames.clear();
     m_lastBacktrace.clear();
+    //K2 slice 1: confluence slot resets per run (an executor reuse must
+    //not rethrow a stale auxiliary error).
+    m_auxError = nullptr;
+    m_auxBacktrace.clear();
     m_byteStreams.clear();
     m_byteStreamFreeList.clear();
     m_fileStreams.clear();
@@ -33,11 +45,28 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     int dictIdx = module.FindClass(kBuiltinDictTypeName);
     m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
 
-    //Phase 9d: cache Exception hierarchy class indices. These are required
-    //by RaiseNlangException to allocate the right subclass instance.
-    //All FindClass calls in this function use bare names deliberately:
-    //the builtin List/Dict/Exception family carries no owner tag, so its
-    //table keys stay bare even after phase 5 qualified user keys.
+    //K1 Slice 8: reset the Mutex side table and cache the class index.
+    m_mutexStore.clear();
+    m_mutexFreeList.clear();
+    int mutexIdx = module.FindClass("Mutex");
+    m_mutexClassIdx = (mutexIdx >= 0) ? static_cast<int16_t>(mutexIdx) : -1;
+
+    //K1 Slice 9: reset the Channel side table and cache the class index.
+    m_channelStore.clear();
+    m_channelFreeList.clear();
+    int channelIdx = module.FindClass(kBuiltinChannelTypeName);
+    m_channelClassIdx = (channelIdx >= 0)
+        ? static_cast<int16_t>(channelIdx) : -1;
+
+    CacheBuiltinClassIndexes(module);
+}
+
+//Phase 9d: cache Exception hierarchy class indices. These are required
+//by RaiseNlangException to allocate the right subclass instance.
+//All FindClass calls here use bare names deliberately: the builtin
+//List/Dict/Exception family carries no owner tag, so its table keys
+//stay bare even after phase 5 qualified user keys.
+void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     auto cacheExcClass = [&](const char* name, int16_t* out) {
         int idx = module.FindClass(name);
         *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
@@ -49,6 +78,14 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
+    cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
+
+    //K1 Slice 6: cache the Thread class index (spawn mints instances).
+    int threadIdx = module.FindClass("Thread");
+    m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
+    //K3: same for the Future face of typed spawn.
+    int futureIdx = module.FindClass("Future");
+    m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
 }
 
 //String objectization: eagerly materialize every module string constant
@@ -110,27 +147,186 @@ int VmExecutor::Execute(const CompiledModule& module) {
         throw std::runtime_error("NLang VM: module has no entry point");
 
     const CompiledFunction& mainFunc = module.functions[mainIdx];
-    std::vector<uint8_t> locals(mainFunc.localsSize, 0);
     //pResult contract is a full uniform frame cell (kFrameSlotBytes): the
     //callee's final OP_VarLocal return copy writes 8 bytes, so a narrow
     //host-side int would be overflowed (ASan-confirmed stack corruption).
-    //The 4-byte main return value sits in the low half.
-    alignas(int64_t) uint8_t resultCell[kFrameSlotBytes] = {0};
+    //The 4-byte main return value sits in the low half. K2 slice 1: the
+    //result is routed through the scheduler registry (main's
+    //ctx->resultCell — written by whichever carrier ran it) and read
+    //here, on the Execute thread, after the run completes; main and
+    //spawned contexts are symmetric now, and no carrier ever writes a
+    //host stack cell.
+    RunPrimaryCarrier(mainFunc);
+    const int64_t result64 =
+        m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
+    int32_t result;
+    std::memcpy(&result, &result64, sizeof(result));
+    return result;
+}
+
+//K1 Slice 10: see VmExecutor.h. The entryIdx trust level matches
+//Execute()'s (a linked module's entryPoint; intrinsics have no callable
+//body and grammar keeps main a plain function). K2 slice 1: same
+//registry routing; the whole cell copies out to the host buffer —
+//embedding contract unchanged (kFrameSlotBytes == sizeof(int64_t)).
+void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
+    if (!m_currModule || entryIdx >= m_currModule->functions.size())
+        throw std::runtime_error("NLang VM: invalid entry index");
+    RunPrimaryCarrier(m_currModule->functions[entryIdx]);
+    const int64_t result64 =
+        m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
+    std::memcpy(resultCell, &result64, kFrameSlotBytes);
+}
+
+//K1 Slice 6 / K2 slice 1/2: the shared carrier loop (installation of
+//the carrier slot, the active-count guard, and main's registration all
+//belong to the callers — RunPrimaryCarrier/RunAuxiliaryCarrier).
+//Contexts (main + spawned) come off the scheduler's FIFO run queue.
+//Frame ownership follows the steal model (VmScheduler.h): a context's
+//frames ARE m_callStack while it runs, and move into ctx->frames on
+//every park — so dispatching a context is either a fresh main root
+//(frames empty, primary carrier only) or moving its frames back and
+//re-entering RunFrames at the parked pc. main's return ends the run
+//(unfinished contexts are dropped silently — the K1 exit policy;
+//MarkFinished on main also requests the pool stop). K2: one loop
+//iteration = one GIL holding window (INV-1); the window guard releases
+//the lock and checks INV-2 (no frames survive outside a holding
+//window) on every exit path. The empty-queue wait happens inside
+//PopNextRunnable (the lock is released while waiting — see
+//VmScheduler.cpp).
+void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
     try {
-        //Phase 9f: a pathological `native int main();` still dispatches
-        //through the host table — executing the declaration's empty
-        //bytecode would silently return 0.
-        if (mainFunc.isNative)
-            CallNative(mainFunc, 0, locals.data(), resultCell);
-        else
-            ExecuteFunction(mainFunc, resultCell, locals.data());
+        for (;;) {
+            GilWindowGuard gil(*this);
+            const int ctx = m_spScheduler->PopNextRunnable(gil.Lock());
+            if (ctx < 0)
+                break;   //stop requested: the run is over
+            //K2 slice 2: each dispatch re-arms this carrier's quota.
+            m_spScheduler->ResetCarrierTripBudget(m_schedTripLimit);
+            ExecutionContext* info = m_spScheduler->FindMutable(ctx);
+            try {
+                RunContextWindow(ctx, info, mainFunc);
+            } catch (ParkSignal& park) {
+                //Not an error: steal the whole frame stack into the
+                //context (the steal model). Preempted requeues; the other
+                //reasons already recorded their state+target at the park
+                //site (ParkForJoin et al.) and wait for their wake event.
+                info->frames = std::move(m_callStack);
+                if (park.reason == ParkSignal::Reason::Preempted)
+                    m_spScheduler->Requeue(ctx);
+                continue;
+            } catch (NLangThrow& ex) {
+                if (FailContextContained(ctx, ex.heapIdx))
+                    throw;   //main: outer catch snapshots the backtrace
+                continue;
+            } catch (ShutdownSignal&) {
+                //K2 slice 4: stop while this context sat in a blocking
+                //native (main returned on another carrier). Frames stay
+                //parked — end the loop like the -1 dequeue above; the
+                //blocked context is dropped per the K1 exit policy.
+                break;
+            } catch (...) {
+                //Non-NLang errors (VM-internal, or the deadlock guard)
+                //are fatal for the whole run regardless of context —
+                //propagate. The frames die with the run (the backtrace
+                //comes from m_unwindFrames, not the frame stack): clear
+                //them so the GIL release upholds INV-2.
+                m_spScheduler->MarkFailed(ctx, 0);
+                m_callStack.clear();
+                throw;
+            }
+            if (ctx == VmScheduler::kMainThreadId)
+                break;   //main returned: the run is over
+        }
     } catch (const std::exception&) {
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
-    int32_t result;
-    std::memcpy(&result, resultCell, sizeof(result));
-    return result;
+}
+
+//K1 Slice 6: one context's turn on the carrier. Resume (a spawned
+//context's first dispatch included) moves its frames back onto
+//m_callStack — RunFrames re-enters at each frame's parked pc, after
+//the failed-join rethrow arm; a fresh main root goes through the root
+//window. On return, record the result and wake joiners. K2 slice 1:
+//every context, main included, writes its result into ctx->resultCell
+//(registry cell — stable across carriers); the host reads it after the
+//run. The fresh main root points its frame's result cell at the same
+//registry slot (deque stability), so the pointer survives every steal.
+void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
+    const CompiledFunction& mainFunc) {
+    if (!info->frames.empty()) {
+        m_callStack = std::move(info->frames);
+        info->frames.clear();
+        ArmResumeRethrow(info);
+        RunFrames(0);
+        m_spScheduler->MarkFinished(ctx, info->resultCell);
+    } else {
+        RunRootWindow(mainFunc,
+                      reinterpret_cast<uint8_t*>(&info->resultCell));
+        m_spScheduler->MarkFinished(ctx, info->resultCell);
+    }
+    //K3: fill get()-waiters' destinations BEFORE waking them — a parked
+    //call is not re-executed on resume (the pc-advance invariant), so the
+    //value must already be in place when the waiter's frame re-enters.
+    m_spScheduler->DeliverJoinResults(ctx, info->resultCell);
+    m_spScheduler->WakeJoiners(ctx, /*failed=*/false);
+}
+
+//K1 Slice 6: a joiner woken over a FAILED target rethrows the target's
+//exception into its own frame stack before dispatch — m_resumeThrowExcIdx
+//consumed at RunFrames entry, inside the handler-search try (the join
+//call site's opPc matches, exactly as if join had thrown).
+void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
+    if (!info->rethrowOnResume)
+        return;
+    info->rethrowOnResume = false;
+    //K3: the channel-close arm prebuilt the exception object and rooted
+    //it on the parked context — throw it directly. The failed-join arm
+    //below instead rethrows the TARGET's stored exception.
+    if (info->resumeExcHeapIdx > 0) {
+        m_resumeThrowExcIdx = info->resumeExcHeapIdx;
+        info->resumeExcHeapIdx = 0;
+        return;
+    }
+    const ExecutionContext* target = m_spScheduler->Find(info->parkHandle);
+    info->parkHandle = 0;
+    //Only failure arms the flag; a missing/exceptionless target is a
+    //corrupt registry — refuse loudly, never silently no-op.
+    if (!target || target->failExcHeapIdx <= 0)
+        throw std::runtime_error(
+            "NLang VM: join target failed without an exception object");
+    m_resumeThrowExcIdx = target->failExcHeapIdx;
+}
+
+//K1 Slice 6: containment for an uncaught NLang exception escaping a
+//context root. Spawned contexts never reach the host with their
+//failure — Failed + wake joiners (with rethrow), dead frames' unwind
+//records dropped; the failure surfaces only through join.
+bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
+    m_spScheduler->MarkFailed(ctx, excHeapIdx);
+    if (ctx == VmScheduler::kMainThreadId)
+        return true;
+    m_unwindFrames.clear();   //dead context's records
+    m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
+    return false;
+}
+
+//K1 Slice 4: one context's root window — Execute's former run body,
+//unchanged: native entries dispatch through the host table (a
+//pathological `native int main();` must not silently return 0 on the
+//declaration's empty bytecode; the zeroed staging cell keeps exact
+//parity with the recursive engine's ABI), byte-code entries push the
+//root frame and run to completion.
+void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
+                               uint8_t* resultCell) {
+    if (entryFunc.isNative) {
+        std::vector<uint8_t> staged(entryFunc.localsSize, 0);
+        CallNative(entryFunc, 0, staged.data(), resultCell);
+    } else {
+        PushRootFrame(entryFunc, resultCell);
+        RunFrames(0);
+    }
 }
 
 std::string VmExecutor::FormatBacktrace() const {
@@ -164,6 +360,20 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //nearest catch handler (or top-level if none).
 [[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
                                                    const std::string& msg) {
+    const int32_t heapIdx = BuildNlangException(classIdx, msg);
+    //Debugger checkpoint at the throw site, before unwinding starts
+    //(the full NLang stack is still alive).
+    FireOnThrow();
+    throw NLangThrow(heapIdx, msg);
+}
+
+//K2 slice 4: the building half of RaiseNlangException, split out so
+//NativeRaiseException can root the fresh object before throwing —
+//between the throw and the blocking arm's catch the GIL is away (the
+//unwinding callback guard releases it), and a GC on another carrier
+//must not sweep the in-flight exception.
+int32_t VmExecutor::BuildNlangException(int16_t classIdx,
+                                         const std::string& msg) {
     if (classIdx < 0)
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
@@ -208,10 +418,7 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     //further allocations happen before the throw.
     if (listHeapIdx > 0)
         m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
-    //Debugger checkpoint at the throw site, before unwinding starts
-    //(the full NLang stack is still alive).
-    FireOnThrow();
-    throw NLangThrow(heapIdx, msg);
+    return heapIdx;
 }
 
 }

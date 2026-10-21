@@ -8,13 +8,15 @@ nide调试器经线路协议复用的正是同一引擎层（debugpy/dlv式的�
 - `IDebugHooks`（src/vm/IDebugHooks.h）——回调接口。两个检查点：
   - `OnStatement`在每条`OP_DebugInfo`之后触发（每条语句前都有一条，携带其源码行号）。
   - `OnThrow`在每个抛出点触发（`RaiseNlangException`中的内建失败、用户`throw`与`rethrow`各自的指令处），在异常对象已经存在、但**尚未**开始展开的时刻——此刻完整的NLang调用栈与每一帧的局部变量都还活着。
-- `IVmDebugView`——对冻结状态的只读查询：帧数、每帧的函数名/源文件/行号/pc，以及每帧带显示字符串的局部变量。
+- `IVmDebugView`——对冻结状态的只读查询：上下文枚举（编号、调度状态、持有载体、最内层帧位置），以及按上下文进行的帧查询——帧数、每帧的函数名/源文件/行号/pc与带显示字符串的局部变量。
 
 安装钩子（`VmExecutor::SetDebugHooks`）是可选的；没有前端安装时，检查点的开销只是每条语句一次空指针测试。锚点指令由`ncc`默认发射；以`--no-debug-info`编译的模块不含锚点，断点与语句级单步在其上不可用（`ndb`装载时打警告）。
 
 ## 停止语义
 
-回调运行时程序处于冻结状态（NLang函数调用就是C++递归，因此整条栈都活在`OnStatement`内部）。不返回就保持冻结；返回即原地恢复。ndb的命令循环就跑在回调里。
+回调运行时程序处于冻结状态（虚拟机是帧栈机，整条NLang调用栈作为调用帧序列活在解释循环里，`OnStatement`触发时整条栈完整在场）。不返回就保持冻结；返回即原地恢复。ndb的命令循环就跑在回调里。
+
+并发语义：钩子安装在执行器上，覆盖**全部上下文**——main与`thread.spawn`派生者命中断点、throw或步进锚点都会触发**全停**：回调在持全局解释器锁（GIL，global interpreter lock）的窗口内运行，停机时所有载体一并冻结。检查也按上下文进行：停泊上下文（等待通道接收、竞争锁或未完成的`Future.get`）与正被执行窗口持有的上下文同样可查。停机期间时间冻结——定时器线程的到期迁移同样需要GIL，延迟到恢复后补做。
 
 语句粒度：每条语句停一次。同一行上的两条语句停两次；跨行的语句只停一次。
 
@@ -31,10 +33,10 @@ WaitUntilResume / OnExited / OnRuntimeError），经`StopInfo`载荷驱动。随
 
 ## 机器模式
 
-`ndb --machine <program.ncu|.npkg>`在stdin/stdout上讲一套线路协议（完整文档见src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/
+`ndb --machine <program.ncu|.npkg>`在stdin/stdout上讲一套线路协议（完整文档见src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`context`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/
-`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/`n`/`f`）。一条数据命令走同一通道：`stdin<TAB><payload>`（payload与任何字段同样转义）送达一行程序输入——识别发生在原始线路文本上，因此payload的首尾空格得以保留；它在所有读取位置都被接受（`run`之前作为提前输入排队、冻结停止期间排队而不打断停止、程序停在`io.readLine`时被实时消费），且从不应答；程序的下一次读取就是应答。会话以一段前奏开场，断点在此时预置；`run`结束前奏并开始执行——在此之前，窗口绑定命令一律应答`err`（还没有任何东西被冻结）。恢复命令应答下一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询命令先流出数据事件再`done`（`bt` → `frame`* + `done`、`locals` →
-`local`* + `done`）；设断点命令以`bp`回执应答，其余选择与变更命令只应答`done`——`frame`事件绝不出现在`bt`应答之外，消费方因此可以每条`frame`事件追加一行栈帧而不会重复。帧编号：`stopped`的深度从1计起且恒等于帧数（一次停止冻结最内层帧），而`bt`/`frame`从0计起，最内层为0。
+`breakthrow`/`bt`/`frame`/`locals`/`contexts`/`context`/`run`/`c`/`s`/`n`/`f`）。一条数据命令走同一通道：`stdin<TAB><payload>`（payload与任何字段同样转义）送达一行程序输入——识别发生在原始线路文本上，因此payload的首尾空格得以保留；它在所有读取位置都被接受（`run`之前作为提前输入排队、冻结停止期间排队而不打断停止、程序停在`io.readLine`时被实时消费），且从不应答；程序的下一次读取就是应答。会话以一段前奏开场，断点在此时预置；`run`结束前奏并开始执行——在此之前，窗口绑定命令一律应答`err`（还没有任何东西被冻结）。恢复命令应答下一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询命令先流出数据事件再`done`（`bt` → `frame`* + `done`、`locals` →
+`local`* + `done`、`contexts` → `context`* + `done`）；设断点命令以`bp`回执应答，其余选择与变更命令只应答`done`——`frame`事件绝不出现在`bt`应答之外，消费方因此可以每条`frame`事件追加一行栈帧而不会重复。帧编号：`stopped`的深度从1计起且恒等于帧数（一次停止冻结最内层帧），而`bt`/`frame`从0计起，最内层为0。多上下文：`stopped`与`frame`报文的最后一个字段都是所属上下文的contextId；检查命令（`bt`/`frame`/`locals`）作用于当前选中的上下文——停机时即停机上下文，`context <id>`改选（`contexts`先列出每个上下文一行：编号、调度状态、持有载体、最内层帧位置）。
 
 ## 宿主I/O接缝
 

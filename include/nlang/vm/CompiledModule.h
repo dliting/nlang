@@ -120,7 +120,16 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //paramCount, per-formal ParamTypeDesc, return TypeDesc, DefaultValueDesc
 //list) so consumer units can resolve and contract-check imported
 //instance members. Refuse v2.6 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 7;
+//v2.8 (concurrency merge, from the master line): every function record
+//gains a trailing eval-area handle mask (uint32 byte count + packed
+//2-bit classes; see EvalSlotClass). It gives the GC a per-slot root
+//class for the whole frame band, replacing the conservative both-domain
+//value test. The master line's other concurrency releases changed no
+//wire shape (K1 thread stubs and K3 futures/bounded channels ride the
+//existing intrinsic-stub serialization). A v2.7 module has no trailing
+//mask and misparses the next record's leading bytes; refuse v2.7 and
+//older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 8;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -144,6 +153,24 @@ static constexpr uint16_t kFrameSlotBytes = 8;
 //1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
 static constexpr uint16_t kHeapCellBytes = 4;
 static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
+
+//--- Eval-area slot classes (K2 slice 5) ----------------------------------
+//Precise GC root class for one frame-band slot (the band is
+//[paramCount, localsSize) — return slot, temps, call staging, evalArea
+//and the user locals). Packed 2 bits per slot into CompiledFunction::
+//evalAreaHandleMask, byte i's low half holding slot 4i. The class says
+//which domain a slot's value can belong to at a safepoint; the GC tests
+//only that domain (None skips the slot entirely). Dual == StrHandle |
+//HeapIndex by construction — overlapping claim classes merge by OR, a
+//union that can only widen toward Dual (no site's claim narrows what
+//another site's claim widened; soundness of a narrow class is each
+//site's own contract, see EvalAreaClaim).
+enum EvalSlotClass : uint8_t {
+    ESC_None      = 0,  //scalar kinds — never a reference, never tested
+    ESC_StrHandle = 1,  //string-store handle (RTK_String slots)
+    ESC_HeapIndex = 2,  //struct/class/array/func heap index
+    ESC_Dual      = 3   //unknown — value-test both domains (conservative)
+};
 
 //Cells occupied by one array element of the given RTK elem kind:
 //2 for the 8-byte scalar family (long/ulong, double when it lands),

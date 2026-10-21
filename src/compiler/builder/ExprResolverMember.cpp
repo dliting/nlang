@@ -247,6 +247,14 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	SnExpression *pOuterExpr)
 {
 	//Module import visibility (spec §6.2 rule 5): module-table fallback
+	//K3 thread-package materialization: the typed-spawn narrow arm rides
+	//the same head position, ahead of the module-qualified fallback, so
+	//its diagnostics never double. Every other thread.* shape declines
+	//to the fallback — thread is an ordinary stdlib package now. m12
+	//priority lives inside both helpers via the same probes — a user
+	//local/field/type named `thread` wins.
+	if (TryResolveThreadSpawn(snMember))
+		return true;
 	//for dotted call chains. Runs BEFORE the outer resolves — a module
 	//diagnostic must not double with a spurious "Cannot resolve the field",
 	//and a declined chain leaves normal resolution untouched.
@@ -278,6 +286,34 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	return false;
 }
 
+//Access's builtin by-name method families, in the historical dispatch
+//order (each family logs its own rejections; the sync primitives run
+//before the stream family — close() is a stream method name too).
+bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
+	SnMemberExpr &snMember, SnExpression *pOuterExpr,
+	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
+{
+	if (TryResolveStringBuiltinMethod(snMember, pInnerExpr, pSavedContext))
+		return true;
+	if (TryResolveArrayLengthMethod(snMember, pOuterExpr, pInnerExpr,
+		pSavedContext))
+		return true;
+	if (TryResolveSyncPrimitiveMethod(snMember, pInnerExpr, pSavedContext))
+		return true;
+	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))
+		return true;
+	if (TryResolveObjectProtocolMethod(snMember, pInnerExpr, pSavedContext))
+		return true;
+	if (TryResolveNonClassToString(snMember, pInnerExpr, pSavedContext))
+		return true;
+	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,
+		pSavedContext))
+		return true;
+	if (TryResolveExceptionField(snMember, pInnerExpr, pSavedContext))
+		return true;
+	return false;
+}
+
 void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 {
 	assert(!snMember.IsResolved());
@@ -302,22 +338,9 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	assert(pInnerExpr);
 
 	//Builtin by-name method families, in the historical dispatch order
-	//(each phase logs its own rejections).
-	if (TryResolveStringBuiltinMethod(snMember, pInnerExpr, pSavedContext))
-		return;
-	if (TryResolveArrayLengthMethod(snMember, pOuterExpr, pInnerExpr,
+	//(each family logs its own rejections).
+	if (TryResolveBuiltinMethodFamilies(snMember, pOuterExpr, pInnerExpr,
 		pSavedContext))
-		return;
-	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))
-		return;
-	if (TryResolveObjectProtocolMethod(snMember, pInnerExpr, pSavedContext))
-		return;
-	if (TryResolveNonClassToString(snMember, pInnerExpr, pSavedContext))
-		return;
-	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,
-		pSavedContext))
-		return;
-	if (TryResolveExceptionField(snMember, pInnerExpr, pSavedContext))
 		return;
 
 	ResolveInvokeArgsInCallerScope(pInnerExpr, pSavedContext);

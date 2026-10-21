@@ -14,6 +14,7 @@
 #include <nlang/compiler/Logger.h>
 #include <nlang/runtime/NodeConsts.h>
 #include "builder/ModuleRegistry.h"
+#include "builder/ThreadNamespace.h"
 #include "BuildEnvironment.h"
 #include <cassert>
 #include <vector>
@@ -374,6 +375,13 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
     });
 }
+
+//K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)
+//is gone: K3 materialized the thread package as stdlib/thread.n native
+//declarations, which register through RegisterFunctions like every other
+//native and get stamped onto the intrinsic channel by GenerateFunction's
+//package-identity branch (GenerateUnits.cpp).
+
 //Entry-candidate collection shared by the per-unit scan and the unit-set
 //ambiguity pre-check: every root-level (non-method) `main` declared by a
 //PROJECT unit, regardless of which unit owns it. Libraries never provide

@@ -144,7 +144,8 @@ package-qualified, e.g. `utils.addBoth`), `i b` list breakpoints,
 `d <id>` delete, `c` continue, `s`/`n`/`f` step into/over/out, `bt`
 backtrace, `frame <n>` select a frame, `info locals`, `p <name>` print
 one local, `l [line]` source window, `x` disassembly of the selected
-frame, `catch on|off` break on throw (default off), `q` quit — stdin EOF
+frame, `threads` list all contexts, `t <id>` switch the debug focus,
+`catch on|off` break on throw (default off), `q` quit — stdin EOF
 behaves like `q`. When the program finishes, ndb prints
 `Program exited with code N.` and exits with that same code.
 
@@ -219,10 +220,13 @@ is in `CHANGELOG.md`.
 
 ## Standard Library
 
-`math`, `io` and `fs` are the standard library's three packages — sources
-shipped with the toolchain (`stdlib/*.n`), provided at run time by
-`stdlib.npkg` through the same mechanism as any library package; their
-qualified calls still need an explicit `import`. Strings carry built-in
+`math`, `io`, `fs`, `thread` and `concurrent` are the standard library's
+five packages — sources shipped with the toolchain (`stdlib/*.n`),
+provided at run time by `stdlib.npkg` through the same mechanism as any
+library package; their qualified calls still need an explicit `import`
+(`thread` carries the virtual-thread spawn and parking primitives;
+`concurrent` adds `WaitGroup` and `Semaphore` on top of the kernel
+concurrency primitives). Strings carry built-in
 methods:
 
 ```n
@@ -259,8 +263,12 @@ objects included), register `native` host functions, and redirect
 `io.print`/`io.eprint` to host callbacks. Scripts can also run straight
 from source: `runSource`/`runFile` compile and execute ad-hoc scripts
 in-process (no `main()` boilerplate), and `runScript` wraps the whole
-flow for one-shot use. A minimal host ships in `examples/embed_host/`;
-the full chapter is `docs/user_manual/en/libraries/embedding-api.md`.
+flow for one-shot use. Script threads run under a global interpreter
+lock; an `Interpreter` uses a single carrier by default, and a host
+embedding at the `VmExecutor` layer can opt into parallel carriers with
+`SetCarrierThreadCount` (blocking native calls release the lock).
+A minimal host ships in `examples/embed_host/`; the full chapter is
+`docs/user_manual/en/libraries/embedding-api.md`.
 
 ## IDE (nide)
 

@@ -29,9 +29,18 @@ void sample_greet(NativeHost* host, uint8_t* ret, const uint8_t* args,
     native::ReturnString(host, ret, std::string("hello ") + name);
 }
 
+// Registered through the blocking channel (ABI v5). The body itself is
+// instant — the loader test asserts the channel routing, not a wait.
+void sample_block_ping(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, int /*argc*/) {
+    std::string name = native::ArgString(host, args, 0);
+    native::ReturnString(host, ret, "blocking:" + name);
+}
+
 NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "sample", "add", &sample_add);
     reg(registry, "sample", "doubleFloat", &sample_double_float);
     reg(registry, "sample", "greet", &sample_greet);
+    regBlocking(registry, "sample", "blockPing", &sample_block_ping);
     return static_cast<int>(NLANG_HOST_ABI_VERSION);
 }

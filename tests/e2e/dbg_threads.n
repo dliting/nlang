@@ -1,0 +1,17 @@
+//e2e dbg_threads: threads listing + context focus switch (CLI).
+import thread;
+class Peer {
+    public Channel<int> ch;
+    public void run() {
+        int k = 7;
+        ch.send(9);
+    }
+}
+int main() {
+    Peer p = Peer();
+    p.ch = {};
+    Thread t = thread.spawn(p.run);
+    int x = p.ch.recv();
+    thread.join(t);
+    return x;
+}

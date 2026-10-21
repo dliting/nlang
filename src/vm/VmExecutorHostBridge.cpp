@@ -20,6 +20,11 @@ void VmExecutor::CallByName(const std::string& qualifiedName,
     if (!m_currModule)
         throw std::runtime_error(
             "NLang VM: CallByName before InitializeForRun");
+    //K2 slice 4: the by-name entry may run on a host thread outside any
+    //carrier window — hold the GIL across the whole call (it allocates,
+    //collects, dispatches natives). Inside a window the guard nests as
+    //a no-op and the caller's holding is preserved.
+    GilEnsureGuard gil(*this);
     //Scan all functions carrying the key (overloads share it); the
     //arity test is argc <= paramCount <= argc + defaults-available.
     //The adapter already disambiguated; here take the first whose
@@ -63,13 +68,22 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
         CallNative(callee, 0, staged.data(), resultCell);
         return;
     }
-    std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+    //Nested window: push onto the shared frame stack and run until the
+    //depth captured at entry. The catch-all preserves the by-name bridge
+    //contract: any escaping error carries the backtrace snapshot.
+    const size_t baseDepth = m_callStack.size();
+    uint8_t* staged = PushRootFrame(callee, resultCell);
     if (argc)
-        std::memcpy(calleeLocals.data(), argCells,
+        std::memcpy(staged, argCells,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
-    FillDefaults(callee, calleeLocals.data(), argc);
+    FillDefaults(callee, staged, argc);
     try {
-        ExecuteFunction(callee, resultCell, calleeLocals.data());
+        //Nested evaluation window: suspension is impossible here (see
+        //CallToStringOverride's guard — same reasoning: the window
+        //belongs to a host-initiated call mid-instruction).
+        //K2 slice 2: the depth lives on the running carrier's slot.
+        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
+        RunFrames(baseDepth);
     } catch (...) {
         m_lastBacktrace = FormatBacktrace();
         throw;

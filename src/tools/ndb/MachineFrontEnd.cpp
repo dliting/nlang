@@ -125,6 +125,8 @@ bool MachineFrontEnd::Dispatch(const std::string& line)
         if (head == "bfunc") { DoBreakFunction(arg); return false; }
         if (head == "d") { DoDelete(arg); return false; }
         if (head == "breakthrow") { DoBreakThrow(arg); return false; }
+        if (head == "contexts") { DoContexts(); return false; }
+        if (head == "context") { DoContext(arg); return false; }
         if (head == "bt") { DoBacktrace(); return false; }
         if (head == "frame") { DoFrame(arg); return false; }
         if (head == "locals") { DoLocals(); return false; }
@@ -213,10 +215,45 @@ void MachineFrontEnd::DoBreakThrow(const std::string& arg)
     EmitLine(protocol::MakeEvent("done", {"breakthrow"}));
 }
 
+//contexts: one context event per context of the run (registry order =
+//id ascending). A frameless context (finished) carries an empty
+//location; the carrier is -1 when no execution window holds it.
+void MachineFrontEnd::DoContexts()
+{
+    const IVmDebugView& view = m_pController->View();
+    for (size_t id = 0; id < view.ContextCount(); ++id) {
+        const DebugContextInfo ci = view.ContextInfo(
+            static_cast<int>(id));
+        EmitLine(protocol::MakeEvent("context",
+            {std::to_string(ci.id), ci.stateName,
+             std::to_string(ci.heldByCarrier), ci.funcName,
+             ci.sourceFile, std::to_string(ci.line)}));
+    }
+    EmitLine(protocol::MakeEvent("done", {"contexts"}));
+}
+
+//context <id>: select the context bt/frame/locals address (resets the
+//frame selection — frame indices are per-context) and arm it as the
+//step target of the next s/n/f (K5).
+void MachineFrontEnd::DoContext(const std::string& arg)
+{
+    if (!IsAllDigits(arg))
+        throw std::runtime_error("context expects <id>");
+    //View() first: outside the frozen window this errs like bt/locals.
+    const IVmDebugView& view = m_pController->View();
+    const int id = std::atoi(arg.c_str());
+    if (static_cast<size_t>(id) >= view.ContextCount())
+        throw std::runtime_error("no context " + arg);
+    m_contextId = id;
+    m_selectedFrame = 0;
+    m_pController->SetStepTargetContext(id);
+    EmitLine(protocol::MakeEvent("done", {"context"}));
+}
+
 void MachineFrontEnd::DoBacktrace()
 {
     const IVmDebugView& view = m_pController->View();
-    const size_t count = view.FrameCount();
+    const size_t count = view.FrameCount(m_contextId);
     for (size_t depth = 0; depth < count; ++depth)
         EmitFrame(depth);
     EmitLine(protocol::MakeEvent("done", {"bt"}));
@@ -229,7 +266,7 @@ void MachineFrontEnd::DoFrame(const std::string& arg)
     //View() first: outside the frozen window this errs like bt/locals.
     const IVmDebugView& view = m_pController->View();
     const size_t depth = static_cast<size_t>(std::atoi(arg.c_str()));
-    if (depth >= view.FrameCount())
+    if (depth >= view.FrameCount(m_contextId))
         throw std::runtime_error("no frame " + arg);
     m_selectedFrame = depth;   //selection routes later locals requests
     //Selection answers done only -- frame events belong exclusively to
@@ -241,8 +278,8 @@ void MachineFrontEnd::DoFrame(const std::string& arg)
 
 void MachineFrontEnd::DoLocals()
 {
-    for (const auto& local
-            : m_pController->View().FrameLocals(m_selectedFrame)) {
+    for (const auto& local : m_pController->View()
+                                .FrameLocals(m_contextId, m_selectedFrame)) {
         if (DebugSessionController::IsHiddenLocalName(local.name))
             continue;
         EmitLine(protocol::MakeEvent("local",
@@ -256,13 +293,17 @@ void MachineFrontEnd::DoLocals()
 
 void MachineFrontEnd::OnStopped(const StopInfo& stop)
 {
+    m_contextId = stop.contextId;
     m_selectedFrame = 0;
-    const DebugFrameInfo frame = m_pController->View().FrameInfo(0);
+    const DebugFrameInfo frame = m_pController->View()
+                                     .FrameInfo(stop.contextId, 0);
     EmitLine(protocol::MakeEvent("stopped",
         {ReasonName(stop.reason), std::to_string(stop.breakpointId),
          frame.funcName, frame.sourceFile, std::to_string(frame.line),
          std::to_string(stop.depth),
-         std::to_string(m_pController->View().FrameCount())}));
+         std::to_string(m_pController->View()
+                            .FrameCount(stop.contextId)),
+         std::to_string(stop.contextId)}));
 }
 
 void MachineFrontEnd::OnExited(int code)
@@ -327,10 +368,11 @@ bool MachineFrontEnd::HasInputLine()
 
 void MachineFrontEnd::EmitFrame(size_t depth)
 {
-    const DebugFrameInfo frame = m_pController->View().FrameInfo(depth);
+    const DebugFrameInfo frame = m_pController->View()
+                                     .FrameInfo(m_contextId, depth);
     EmitLine(protocol::MakeEvent("frame",
         {std::to_string(depth), frame.funcName, frame.sourceFile,
-         std::to_string(frame.line)}));
+         std::to_string(frame.line), std::to_string(m_contextId)}));
 }
 
 void MachineFrontEnd::EmitLine(const std::string& line)

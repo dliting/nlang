@@ -51,7 +51,7 @@ enum BuiltinSuperRef : int8_t {
 enum BuiltinIdxMember : uint8_t {
     BIDX_None, BIDX_Object, BIDX_List, BIDX_Dict, BIDX_Exception,
     BIDX_NullPtrExc, BIDX_DivZeroExc, BIDX_OobExc, BIDX_AssertExc, BIDX_IoExc,
-    BIDX_InvalidCastExc,
+    BIDX_InvalidCastExc, BIDX_ChannelClosedExc,
 };
 
 struct BuiltinClassDecl {
@@ -173,6 +173,34 @@ const BuiltinMethod s_DictMethods[] = {
     {"toString",    INTR_Dict_toString,    1, RTK_String},
 };
 
+//K1 concurrency builtins. Thread carries the __handle field (the spawned
+//context id) but no ctor — thread.spawn mints instances — and no methods
+//in K1. Mutex/Channel take the same __handle shape as the containers
+//(index into the VM-side sync stores). Channel's methods are generic-
+//container surface (the element type is erased at runtime — every
+//element is a heap idx; recv's RTK_Int32 is the placeholder return kind,
+//the call site's boxing plan unboxes per T).
+const BuiltinMethod s_MutexMethods[] = {
+    {"lock",    INTR_Mutex_Lock,    1, RTK_Void},
+    {"unlock",  INTR_Mutex_Unlock,  1, RTK_Void},
+    {"tryLock", INTR_Mutex_TryLock, 1, RTK_Bool},
+};
+
+const BuiltinMethod s_ChannelMethods[] = {
+    {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
+    {"recv",  INTR_Channel_Recv,  1, RTK_Int32},  //this; returns T
+    {"close", INTR_Channel_Close, 1, RTK_Void},
+};
+
+//K3: Future<T> — the typed-spawn result handle. __handle = context id
+//(same shape as Thread); no ctor — thread.spawn mints instances. get's
+//RTK_Int32 is the placeholder return kind (the call site's boxing plan
+//unboxes per T, like recv).
+const BuiltinMethod s_FutureMethods[] = {
+    {"get",     INTR_Future_Get,    1, RTK_Int32},  //this; returns T
+    {"isDone",  INTR_Future_IsDone, 1, RTK_Bool},
+};
+
 //The builtin class registration table. Row order IS registration order —
 //class and function indices derive from it, so any reorder changes the
 //serialized .ncu (golden compare guards this).
@@ -219,6 +247,31 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"InvalidCastException",      BSR_ExceptionBase, nullptr, 0,
         true, INTR_InvalidCastException_Ctor, 2,
         nullptr, 0, BIDX_InvalidCastExc},
+    //K1 concurrency builtins — appended at the END (existing indices are
+    //stable; a reorder changes the serialized .ncu).
+    {"Thread",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        false, 0, 0, nullptr, 0, BIDX_None},
+    {"Mutex",   BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        true, INTR_Mutex_Ctor, 1,
+        s_MutexMethods, std::size(s_MutexMethods), BIDX_None},
+    {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        //K3 task 4: ctor is (this, capacity) — capacity 0 = unbounded;
+        //the init-list arm stages the 0 explicitly.
+        true, INTR_Channel_Ctor, 2,
+        s_ChannelMethods, std::size(s_ChannelMethods), BIDX_None},
+    {"Future",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        false, 0, 0,
+        s_FutureMethods, std::size(s_FutureMethods), BIDX_None},
+    //K3 (v0.10.3): closed-channel recv/send raise this catchable
+    //exception. Appended at the END like the concurrency block —
+    //existing class indices stay stable for the serialized .ncu.
+    //0.9.12 (v2.7) merge note: like the other subclass rows, no own
+    //fields — message/backtrace come from the Exception base through
+    //the superClassIdx chain view (RaiseNlangException writes the
+    //base cells 1/3; a flattened own pair would double the layout).
+    {"ChannelClosedException", BSR_ExceptionBase, nullptr, 0,
+        true, INTR_ChannelClosedException_Ctor,
+        2, nullptr, 0, BIDX_ChannelClosedExc},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.
@@ -306,6 +359,7 @@ void VmBackend::RegisterBuiltinClasses() {
             case BIDX_AssertExc:  m_assertExcClassIdx  = static_cast<int16_t>(classIdx); break;
             case BIDX_IoExc:      m_ioExcClassIdx      = static_cast<int16_t>(classIdx); break;
             case BIDX_InvalidCastExc: m_invalidCastExcClassIdx = static_cast<int16_t>(classIdx); break;
+            case BIDX_ChannelClosedExc: m_channelClosedExcClassIdx = static_cast<int16_t>(classIdx); break;
             default: break;  //BIDX_None — ByteStream/FileStream
         }
     }

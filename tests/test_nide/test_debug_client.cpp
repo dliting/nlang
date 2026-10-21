@@ -88,6 +88,30 @@ const char kEchoSource[] =
     "    return 0;\n"                       //7
     "}\n";                                  //8
 
+//spawn.n: main spawns the worker, then parks on the empty channel's
+//recv; the worker runs into the line-5 breakpoint. On the single-carrier
+//ndb this is deterministic AT the stop: the worker is the stopped
+//context (held by carrier 0) and main is parked (carrier -1). The
+//reverse construction (bp in main, worker parked) is not deterministic
+//-- the worker may still sit in the runnable queue.
+const char kSpawnSource[] =
+    "import thread;\n"                      //1
+    "class Worker {\n"                      //2
+    "    public Channel<int> ch;\n"         //3
+    "    public void run() {\n"             //4
+    "        int k = 7;\n"                  //5
+    "        ch.send(9);\n"                 //6
+    "    }\n"                               //7
+    "}\n"                                   //8
+    "int main() {\n"                        //9
+    "    Worker w = Worker();\n"            //10
+    "    w.ch = {};\n"                      //11
+    "    Thread t = thread.spawn(w.run);\n" //12
+    "    int x = w.ch.recv();\n"            //13
+    "    thread.join(t);\n"                 //14
+    "    return x;\n"                       //15
+    "}\n";                                  //16
+
 } // namespace
 
 class TestDebugClient : public QObject {
@@ -107,6 +131,8 @@ private slots:
     void deleteBreakpointRemovesTheHit();
     void launchPassesLibraryDirsAsIArgs();
     void stackQueriesDoNotDuplicateFramesAndShowThis();
+    void contextsListAndSelectSwitchInspection();
+    void contextCommandsObeyTheWindowGuards();
 
 private:
     //Void-on-purpose: QVERIFY/QFAIL expand to `return;`, so helpers
@@ -123,6 +149,8 @@ private:
     QString m_pointNmod;
     QString m_pointSource;
     QString m_echoNmod;
+    QString m_spawnSource;
+    QString m_spawnNmod;
 };
 
 void TestDebugClient::initTestCase() {
@@ -134,6 +162,8 @@ void TestDebugClient::initTestCase() {
     m_pointSource = m_dir.filePath("point.n");
     QVERIFY(buildModule("point", kPointSource, &m_pointNmod));
     QVERIFY(buildModule("echo", kEchoSource, &m_echoNmod));
+    m_spawnSource = m_dir.filePath("spawn.n");
+    QVERIFY(buildModule("spawn", kSpawnSource, &m_spawnNmod));
 }
 
 //Write the source, compile with the real ncc, store the .ncu path.
@@ -208,6 +238,7 @@ void TestDebugClient::fullSessionRunsToTheExitCode() {
     QCOMPARE(stop.at(4).toInt(), 7);
     QCOMPARE(stop.at(5).toInt(), 1);   //depth: 1-based
     QCOMPARE(stop.at(6).toInt(), 1);   //frameCount
+    QCOMPARE(stop.at(7).toInt(), 0);   //contextId: the main context
     //Program output streamed while running to the breakpoint.
     QString joined;
     for (const QList<QVariant>& o : output)
@@ -391,6 +422,8 @@ void TestDebugClient::stateGuardsAndLaunchRejection() {
     QVERIFY(!client.stepInto());
     QVERIFY(!client.requestBacktrace());
     QVERIFY(!client.requestLocals(0));
+    QVERIFY(!client.requestContexts());
+    QVERIFY(!client.selectContext(0));
     QVERIFY(!client.setBreakOnThrow(true));
     QVERIFY(!client.deleteBreakpoint(1));
     client.stop();   //no-op, must not crash
@@ -534,6 +567,137 @@ void TestDebugClient::stackQueriesDoNotDuplicateFramesAndShowThis() {
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
     QCOMPARE(exited.first().at(0).toInt(), 7);
+}
+
+//Machine-protocol context queries (K5). The deterministic spawn fixture
+//pins the whole surface at one stop: the contexts rows carry the parked
+//main (state, carrier -1, recv line) and the stopped worker (carrier 0,
+//breakpoint line); stopped and frame events pass their trailing
+//contextId through; selectContext re-addresses bt/locals to the chosen
+//context (a parked context's registry frames ARE inspectable); a stale
+//id fails the command without failing the session.
+void TestDebugClient::contextsListAndSelectSwitchInspection() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+    QSignalSpy contextsReady(&client, &DebugClient::contextsReady);
+    QSignalSpy contexts(&client, &DebugClient::contextReceived);
+    QSignalSpy btReady(&client, &DebugClient::backtraceReady);
+    QSignalSpy frames(&client, &DebugClient::frameReceived);
+    QSignalSpy localsReady(&client, &DebugClient::localsReady);
+    QSignalSpy locals(&client, &DebugClient::localReceived);
+    QSignalSpy exited(&client, &DebugClient::exited);
+    QSignalSpy failed(&client, &DebugClient::commandFailed);
+
+    QVERIFY(client.launch(m_spawnNmod));
+    QVERIFY(client.addBreakpoint(m_spawnSource, 5));   //run() body
+    QVERIFY(client.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 1);
+    //The worker is the stopped context; main is context 0.
+    const QList<QVariant> stop = stoppedSpy.first();
+    QCOMPARE(stop.at(2).toString(), QStringLiteral("run"));
+    QCOMPARE(stop.at(4).toInt(), 5);
+    QCOMPARE(stop.at(7).toInt(), 1);
+
+    //The frozen run lists both contexts, registry order (id ascending).
+    QVERIFY(client.requestContexts());
+    QTRY_COMPARE_WITH_TIMEOUT(contextsReady.count(), 1, kSessionTimeoutMs);
+    QCOMPARE(contexts.count(), 2);
+    const QList<QVariant> mainRow = contexts.at(0);
+    const QList<QVariant> workerRow = contexts.at(1);
+    QCOMPARE(mainRow.at(0).toInt(), 0);
+    QCOMPARE(mainRow.at(1).toString(), QStringLiteral("parked-chan-recv"));
+    QCOMPARE(mainRow.at(2).toInt(), -1);   //parked: no window holds it
+    QCOMPARE(mainRow.at(3).toString(), QStringLiteral("spawn.main"));
+    QVERIFY(mainRow.at(4).toString().endsWith(QLatin1String("spawn.n")));
+    QCOMPARE(mainRow.at(5).toInt(), 13);   //the recv park line
+    QCOMPARE(workerRow.at(0).toInt(), 1);
+    QCOMPARE(workerRow.at(1).toString(), QStringLiteral("runnable"));
+    QCOMPARE(workerRow.at(2).toInt(), 0);  //carrier 0 holds the stop
+    QCOMPARE(workerRow.at(3).toString(), QStringLiteral("run"));
+    QCOMPARE(workerRow.at(5).toInt(), 5);
+
+    //Frames pass their contextId through (arg 4 of the signal): bt
+    //addresses the stopped worker, whose stack is exactly run().
+    QVERIFY(client.requestBacktrace());
+    QTRY_COMPARE_WITH_TIMEOUT(btReady.count(), 1, kSessionTimeoutMs);
+    QCOMPARE(frames.count(), 1);
+    QCOMPARE(frames.first().at(1).toString(), QStringLiteral("run"));
+    QCOMPARE(frames.first().at(4).toInt(), 1);
+
+    //Worker locals: the method frame's only executed slot is `this`.
+    QVERIFY(client.requestLocals(0));
+    QTRY_COMPARE_WITH_TIMEOUT(localsReady.count(), 1, kSessionTimeoutMs);
+    bool sawThis = false;
+    for (const QList<QVariant>& l : locals)
+        if (l.at(0).toString() == QLatin1String("this"))
+            sawThis = true;
+    QVERIFY(sawThis);
+
+    //Select the parked main: bt re-addresses to main's registry frame
+    //(one frame, main itself), frames now carry contextId 0, and the
+    //locals are main's (w holds the Worker instance).
+    QVERIFY(client.selectContext(0));
+    QVERIFY(client.requestBacktrace());
+    QTRY_COMPARE_WITH_TIMEOUT(btReady.count(), 2, kSessionTimeoutMs);
+    QCOMPARE(frames.count(), 2);
+    QCOMPARE(frames.last().at(1).toString(), QStringLiteral("spawn.main"));
+    QCOMPARE(frames.last().at(4).toInt(), 0);
+    QVERIFY(client.requestLocals(0));
+    QTRY_COMPARE_WITH_TIMEOUT(localsReady.count(), 2, kSessionTimeoutMs);
+    bool sawW = false;
+    for (const QList<QVariant>& l : locals)
+        if (l.at(0).toString() == QLatin1String("w"))
+            sawW = true;
+    QVERIFY(sawW);
+
+    //Cross-pin: contexts and bt in the same stopped window stay on
+    //their own channels (context rows never masquerade as frames).
+    QVERIFY(client.requestContexts());
+    QTRY_COMPARE_WITH_TIMEOUT(contextsReady.count(), 2, kSessionTimeoutMs);
+    QCOMPARE(contexts.count(), 4);
+    QCOMPARE(frames.count(), 2);
+
+    //A stale id fails the command, not the session (still Stopped).
+    QVERIFY(client.selectContext(99));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, kSessionTimeoutMs);
+    QCOMPARE(client.state(), DebugClient::State::Stopped);
+
+    //Back to the worker, then the run converges through the channel:
+    //the worker sends 9, main's recv returns it as the exit code.
+    QVERIFY(client.selectContext(1));
+    QVERIFY(client.requestBacktrace());
+    QTRY_COMPARE_WITH_TIMEOUT(btReady.count(), 3, kSessionTimeoutMs);
+    QCOMPARE(frames.last().at(1).toString(), QStringLiteral("run"));
+    QCOMPARE(frames.last().at(4).toInt(), 1);
+
+    QVERIFY(client.continueRun());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kSessionTimeoutMs);
+    QCOMPARE(exited.first().at(0).toInt(), 9);
+}
+
+//Context queries obey the same window as bt/locals: Running rejects
+//(the frozen run is the only world view, matching the server's
+//RequireFrozenWindow), so a stale UI refresh cannot race a resume.
+void TestDebugClient::contextCommandsObeyTheWindowGuards() {
+    DebugClient client(QString::fromUtf8(NDB_EXE));
+    QSignalSpy contexts(&client, &DebugClient::contextReceived);
+    QSignalSpy stoppedSpy(&client, &DebugClient::stopped);
+
+    QVERIFY(client.launch(m_spinNmod));
+    QVERIFY(client.run());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Running, kSessionTimeoutMs);
+    QVERIFY(!client.requestContexts());
+    QVERIFY(!client.selectContext(0));
+    QCOMPARE(contexts.count(), 0);
+
+    client.stop();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        client.state(), DebugClient::State::Ended, kKillTimeoutMs);
+    QCOMPARE(stoppedSpy.count(), 0);
 }
 
 void TestDebugClient::failedToLaunchWhenNdbIsMissing() {

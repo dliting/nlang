@@ -1,5 +1,6 @@
 /*--- MainWindowDebug.cpp - debugging of the NLang IDE main window:
-    ndb session lifecycle, breakpoint wiring and the debug views. ---*/
+    the ndb session lifecycle and the debug views (breakpoint bookkeeping
+    lives in MainWindowBreakpoints.cpp). ---*/
 #include "MainWindow.h"
 #include "BreakpointStore.h"
 #include "CodeEditor.h"
@@ -15,11 +16,9 @@
 
 #include <QDir>
 #include <QFileInfo>
-#include <QSettings>
 #include <QTextCursor>
 #include <QTreeWidgetItem>
 
-#include <map>
 #include <utility>
 
 namespace nlang {
@@ -121,6 +120,7 @@ void MainWindow::createDebugClient() {
     //also gives tests a findChildren seam).
     m_debugClient = std::make_unique<DebugClient>(toolPath("ndb"), this);
     m_debugStopRequested = false;
+    m_selectedDebugContext = -1;
     m_breakpointIds.clear();
     m_pendingBreakpointChanges.clear();
     m_deferredBreakpointRetires.clear();
@@ -133,6 +133,8 @@ void MainWindow::createDebugClient() {
             &MainWindow::onDebugFrameReceived);
     connect(client, &DebugClient::localReceived, this,
             &MainWindow::onDebugLocalReceived);
+    connect(client, &DebugClient::contextReceived, this,
+            &MainWindow::onDebugContextReceived);
     connect(client, &DebugClient::outputReceived, this,
             &MainWindow::onDebugOutput);
     connect(client, &DebugClient::errorReceived, this,
@@ -207,7 +209,7 @@ void MainWindow::onDebugBreakpointBound(int id, const QString& file,
 void MainWindow::onDebugStopped(const QString& reason, int breakpointId,
                                 const QString& funcName,
                                 const QString& file, int line, int depth,
-                                int frameCount) {
+                                int frameCount, int contextId) {
     Q_UNUSED(reason);
     Q_UNUSED(breakpointId);
     Q_UNUSED(depth);
@@ -218,6 +220,9 @@ void MainWindow::onDebugStopped(const QString& reason, int breakpointId,
     flushDeferredBreakpointRetires();
     flushPendingBreakpointChanges();
     clearStoppedMarker();
+    //The server redirected inspection AND step target to the stopped
+    //context; the page's selection marker follows the same instant.
+    m_selectedDebugContext = contextId;
     const QString absolute = resolveDebugPath(file);
     locateSource(absolute, line, 1);   // same jump the compile log uses
     if (FileEditor* editor = m_editors.find(absolute)) {
@@ -227,10 +232,12 @@ void MainWindow::onDebugStopped(const QString& reason, int breakpointId,
     clearDebugViews();
     m_debugClient->requestBacktrace();   // fills the stack tree
     m_debugClient->requestLocals(0);     // innermost frame's variables
-    setDebugStatus(tr("Paused: %1 (%2:%3)")
+    m_debugClient->requestContexts();    // fills the context tree
+    setDebugStatus(tr("Paused: %1 (%2:%3) in context %4")
                        .arg(funcName,
                             QFileInfo(absolute).fileName())
-                       .arg(line));
+                       .arg(line)
+                       .arg(contextId));
     updateMenuState();
 }
 
@@ -262,6 +269,36 @@ void MainWindow::on_tvwDebugStack_itemClicked(QTreeWidgetItem* item,
     locateSource(file, item->data(0, Qt::UserRole + 2).toInt(), 1);
 }
 
+void MainWindow::on_tvwDebugContexts_itemClicked(QTreeWidgetItem* item,
+                                                 int column) {
+    Q_UNUSED(column);
+    if (item == nullptr || m_debugClient == nullptr
+        || m_debugClient->state() != DebugClient::State::Stopped)
+        return;
+    //Selection = inspection AND step target (mainstream-IDE semantics):
+    //the wire's `context <id>` re-addresses bt/frame/locals and arms the
+    //context the next s/n/f steps. The selection member moves FIRST, so
+    //context rows still arriving from an earlier request cannot pull the
+    //marker back to the stopped context.
+    m_selectedDebugContext = item->data(0, Qt::UserRole).toInt();
+    m_debugClient->selectContext(m_selectedDebugContext);
+    m_ui->tvwDebugStack->clear();
+    m_ui->tvwDebugVars->clear();
+    //The server-side frame selection reset with the context switch, so
+    //the locals restart from frame 0; a frameless (finished) context
+    //answers empty and the trees simply stay empty.
+    m_debugClient->requestBacktrace();
+    m_debugClient->requestLocals(0);
+    const QString file = resolveDebugPath(
+        item->data(0, Qt::UserRole + 1).toString());
+    locateSource(file, item->data(0, Qt::UserRole + 2).toInt(), 1);
+    setDebugStatus(tr("Context %1: %2 (%3:%4)")
+                       .arg(m_selectedDebugContext)
+                       .arg(item->data(0, Qt::UserRole + 3).toString(),
+                            QFileInfo(file).fileName())
+                       .arg(item->data(0, Qt::UserRole + 2).toInt()));
+}
+
 void MainWindow::onDebugLocalReceived(const QString& name,
                                       const QString& typeName,
                                       const QString& value) {
@@ -269,6 +306,36 @@ void MainWindow::onDebugLocalReceived(const QString& name,
     item->setText(0, name);
     item->setText(1, typeName);
     item->setText(2, value);
+}
+
+void MainWindow::onDebugContextReceived(int contextId, const QString& state,
+                                        int heldByCarrier,
+                                        const QString& funcName,
+                                        const QString& file, int line) {
+    auto* item = new QTreeWidgetItem(m_ui->tvwDebugContexts);
+    item->setText(0, QString::number(contextId));
+    //Carrier suffix mirrors ndb's threads row: who holds the execution
+    //window (-1 = parked/queued/finished).
+    QString location;
+    if (!funcName.isEmpty())
+        location = QStringLiteral("%1 (%2:%3)")
+                       .arg(funcName, QFileInfo(file).fileName())
+                       .arg(line);
+    item->setText(1, heldByCarrier >= 0
+                         ? QStringLiteral("%1 @%2").arg(state)
+                               .arg(heldByCarrier)
+                         : state);
+    item->setText(2, location);   //frameless: stays empty
+    //Click payload: the context id (selection), the location for the
+    //editor jump, and the function for the status line.
+    item->setData(0, Qt::UserRole, contextId);
+    item->setData(0, Qt::UserRole + 1, file);
+    item->setData(0, Qt::UserRole + 2, line);
+    item->setData(0, Qt::UserRole + 3, funcName);
+    //The single marker IS the tree's current item: the row matching the
+    //selection (set by the stop or the user's click) carries it.
+    if (contextId == m_selectedDebugContext)
+        m_ui->tvwDebugContexts->setCurrentItem(item);
 }
 
 void MainWindow::onDebugOutput(const QString& text) {
@@ -332,9 +399,11 @@ void MainWindow::endDebugSession() {
         m_debugClient->deleteLater();
         m_debugClient.release();
     }
-    //Every session end converges here: the paused-line highlight must
-    //not survive the session (exit, error, user stop, window close).
+    //Every session end converges here: the paused-line highlight and
+    //the debug trees must not survive the session (exit, error, user
+    //stop, window close).
     clearStoppedMarker();
+    clearDebugViews();
     refreshBreakpointMarkers();   // the dots go hollow
     m_pTerminal->setMode(terminal::TerminalWidget::Mode::Idle);
     updateMenuState();
@@ -342,101 +411,6 @@ void MainWindow::endDebugSession() {
 
 bool MainWindow::debugSessionLive() const {
     return m_debugClient != nullptr;
-}
-
-//--- breakpoints ---
-
-void MainWindow::on_actToggleBreakpoint_triggered() {
-    FileEditor* editor = currentEditor();
-    if (editor == nullptr)
-        return;
-    if (CodeEditor* code = qobject_cast<CodeEditor*>(editor->widget()))
-        toggleBreakpoint(code, code->textCursor().blockNumber() + 1);
-}
-
-void MainWindow::onBreakpointGutterClicked(int line) {
-    if (CodeEditor* code = qobject_cast<CodeEditor*>(sender()))
-        toggleBreakpoint(code, line);
-}
-
-void MainWindow::toggleBreakpoint(CodeEditor* code, int line) {
-    FileEditor* editor = m_editors.findEditor(code);
-    if (editor == nullptr)
-        return;
-    const QString filePath = editor->filePath();
-    const bool added = m_breakpoints.toggle(filePath, line);
-    saveBreakpoints();
-    refreshBreakpointMarkers();
-    sendBreakpointChange(filePath, line, added);
-}
-
-void MainWindow::sendBreakpointChange(const QString& filePath, int line,
-                                      bool add) {
-    if (m_debugClient == nullptr)
-        return;   // no session: the stored table is the whole truth
-    if (m_debugClient->state() == DebugClient::State::Running) {
-        //The wire has no command window while the program runs; replay
-        //the toggle at the next frozen window.
-        m_pendingBreakpointChanges.push_back({filePath, line, add});
-        return;
-    }
-    if (add) {
-        m_debugClient->addBreakpoint(filePath, line);
-        return;
-    }
-    const auto it = m_breakpointIds.find(
-        {BreakpointStore::normalizedKey(filePath), line});
-    if (it != m_breakpointIds.end() && it->second > 0) {
-        m_debugClient->deleteBreakpoint(it->second);
-        m_breakpointIds.erase(it);
-    }
-}
-
-void MainWindow::flushPendingBreakpointChanges() {
-    //The stored table is the truth; the wire needs the NET effect per
-    //line only. Coalescing to the last toggle keeps an F9 on/off/on
-    //burst from replaying raw wire commands (a re-add next to an
-    //already-materialized twin), and makes an add+undo pair send
-    //nothing at all -- so no receipt can lag behind its own removal.
-    std::map<std::pair<QString, int>, PendingBreakpointChange>
-        lastChangeByLine;
-    for (const PendingBreakpointChange& change : m_pendingBreakpointChanges)
-        lastChangeByLine[{BreakpointStore::normalizedKey(change.filePath),
-                          change.line}] = change;
-    for (const auto& last : lastChangeByLine)
-        sendBreakpointChange(last.second.filePath, last.second.line,
-                             last.second.add);
-    m_pendingBreakpointChanges.clear();
-}
-
-void MainWindow::flushDeferredBreakpointRetires() {
-    for (int breakpointId : m_deferredBreakpointRetires)
-        m_debugClient->deleteBreakpoint(breakpointId);
-    m_deferredBreakpointRetires.clear();
-}
-
-void MainWindow::refreshBreakpointMarkers() {
-    for (FileEditor* editor : m_editors.editors()) {
-        CodeEditor* code = qobject_cast<CodeEditor*>(editor->widget());
-        if (code == nullptr)
-            continue;
-        QSet<int> lines = m_breakpoints.linesOf(editor->filePath());
-        QSet<int> boundLines;
-        if (m_debugClient != nullptr) {
-            const QString key =
-                BreakpointStore::normalizedKey(editor->filePath());
-            for (const auto& bound : m_breakpointIds)
-                if (bound.first.first == key)
-                    boundLines.insert(bound.first.second);
-        }
-        code->setBreakpointLines(lines);
-        code->setBoundBreakpointLines(boundLines);
-    }
-}
-
-void MainWindow::saveBreakpoints() {
-    QSettings settings;
-    m_breakpoints.save(settings);
 }
 
 //--- debug view helpers ---
@@ -449,6 +423,7 @@ void MainWindow::clearStoppedMarker() {
 }
 
 void MainWindow::clearDebugViews() {
+    m_ui->tvwDebugContexts->clear();
     m_ui->tvwDebugStack->clear();
     m_ui->tvwDebugVars->clear();
 }

@@ -58,9 +58,20 @@ void VmExecutor::OpAssign(BytecodeReader& reader, uint8_t* locals, uint8_t* pRes
 void VmExecutor::OpJump(BytecodeReader& reader) {
     uint16_t target = reader.ReadUint16();
     //Loop back-edge safepoint: if jumping backward, this is a loop
-    //iteration. Check GC here (tempSlot is consumed at this point).
-    if (target <= reader.CurrentOffset())
+    //iteration. Check GC here (tempSlot is consumed at this point); the
+    //scheduler quota rides the same site (K1 decision 5) — GC keeps its
+    //exact former position and ordering.
+    if (target <= reader.CurrentOffset()) {
         CheckGCSafepoint();
+        //The quota check below may park mid-instruction — park the
+        //resume point at the jump destination FIRST, or a resumed
+        //context would re-execute the whole iteration and hit the same
+        //exhausted quota forever (zero-progress ping-pong; the fresh
+        //worker root restarts at pc 0 outright). On the non-park path
+        //the value is inert — normal flow seeks via the reader.
+        m_callStack.back().pc = target;
+        CheckSchedulerQuota();
+    }
     reader.Seek(target);
 }
 
@@ -97,14 +108,79 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
     //frozen at this statement; returning resumes in place.
     //Front ends must not let exceptions escape into the VM
     //(they would cross the NLang try/catch boundary).
-    if (m_pDebugHooks) {
+    //K4: every context checkpoints (breakpoints and stepping cover
+    //spawned contexts; the stop payload identifies which one).
+    if (DebugHooksActive()) {
         DebugStopInfo stop;
+        stop.contextId = m_spScheduler->CurrentContextId();
         stop.pc = opPc;
         stop.line = line;
         stop.funcIdx = CurrentFuncIdx();
         stop.depth = m_callStack.size();
         m_pDebugHooks->OnStatement(stop, *this);
+        SyncDebugFocus();
     }
+}
+
+//K1 decision 5 — back-edge quota. Called only from the back-edge
+//safepoint beside CheckGCSafepoint (OpJump). Nested evaluation windows
+//are exempt: a park there is impossible (RequestPark would reject), so
+//counting their back-edges would only misattribute budget — and in a
+//multi-context run, exhaust the quota mid-instruction where preemption
+//cannot be honored. K2 slice 2: the budget is per carrier (scheduler
+//slot). K2 slice 3 (spec D6): yield on queued work ONLY. Every wake
+//path (timer expiry, join/mutex/channel, future blocking-native
+//completion) enqueues the woken context before notifying, so a
+//non-empty run queue is the complete work signal. Yielding to a bare
+//GIL waiter is self-sustaining churn: with carriers > 1 the
+//non-running carrier is structurally always mid-lock-acquire (it must
+// take the GIL to discover the queue is empty and cv-wait), so a
+//waiter-count rule preempts every quota fire — park, frame steal,
+//requeue, two lock handoffs, thread switches — the GIL convoy effect
+// (cf. the pre-3.2 CPython "GIL battle", fixed by keying handoff on
+//work signals, not lock contention). GilWaiters stays pure telemetry.
+//Quota fires also service due timers on the spot — the timer thread
+//cannot acquire the GIL while this carrier runs (a cv-internal
+//reacquisition is invisible to any accounting), so whoever holds the
+//lock does the expiry; the enqueued wakeups then drive the ordinary
+//preempt path below.
+void VmExecutor::CheckSchedulerQuota() {
+    if (m_spScheduler->CarrierNestDepthRef() > 0)
+        return;
+    int& budget = m_spScheduler->CarrierTripBudgetRef();
+    if (--budget > 0)
+        return;
+    budget = m_schedTripLimit;
+    ++m_quotaFires;
+    m_spScheduler->ServiceDueTimers();
+    if (!m_spScheduler->HasOtherRunnable()) {
+        //Nothing queued anywhere: reload and keep running. A
+        //single-context program stays bit-identical — no signal, no
+        //state change.
+        ++m_preemptSkips;
+        return;
+    }
+    RequestPark(ParkSignal::Reason::Preempted);
+}
+
+//O2-audit chokepoint — see VmExecutor.h. The quota path never reaches
+//here nested (CheckSchedulerQuota exempts it); the guard serves the
+//thread intrinsics from Slice 6 on (yield/sleep/join/recv called inside
+//a toString body or a host callback must fail loudly, not park).
+//K1 决策 2 实现规约 (a)：内在函数必须「完成或挂起」二态——禁止部分变
+//更调度器状态后再抛。会先变异状态的挂起（join/sleep 的 ParkFor* 登记）
+//必须在变异之前过本门；RequestPark 内保留同一检查作为零变异直挂路径
+//（yield）的唯一守卫与纵深防御。K2 slice 2: 嵌套深度读运行载体的槽。
+void VmExecutor::EnsureSuspensionAllowed() const {
+    if (m_spScheduler->CarrierNestDepthRef() > 0)
+        throw std::runtime_error(
+            "NLang VM: cannot suspend inside a nested evaluation "
+            "(toString or host callback)");
+}
+
+void VmExecutor::RequestPark(ParkSignal::Reason reason) {
+    EnsureSuspensionAllowed();
+    throw ParkSignal(reason);
 }
 
 } // namespace nlang

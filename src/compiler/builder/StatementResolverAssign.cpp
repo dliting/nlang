@@ -96,8 +96,13 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 	RejectConstStoreTarget(*sn.Left(), sn.Location());
 	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
 	PropagateInitListTarget(sn);
+	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
+	//arm (`Channel<int> c = Channel(2);`); cleared after RHS resolution
+	//so the hint never leaks past this statement.
+	PropagateCtorInvokeTarget(sn);
 
 	sn.Right()->Accept(*m_pVisitor);
+	m_ExprResolver.SetCtorInvokeTarget(nullptr);
 
 	//Init lists set their own EvalDataType and don't go through the
 	//cast-info path — skip cast fixup for them.
@@ -308,30 +313,9 @@ bool StatementResolveAccessor::FinishInitListAssign(SnAssignStmt &sn)
 	return true;
 }
 
-//Init lists set their own type and don't go through the cast-info path,
-//so an untyped `[]`/`{...}` RHS inherits the LHS field as its target.
-//0.9.0: member stores (`b.m = {...}`) read the resolved field the same
-//way — the left walk has already bound the member's inner identifier.
-void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
-{
-	auto *pInitList = UntypedInitListOf(*sn.Right());
-	if (!pInitList)
-		return;
-	SnField* pLeftField = nullptr;
-	if (sn.Left()->Kind() == NK_IdentifierExpr)
-		pLeftField = static_cast<SnIdentifierExpr&>(
-			*sn.Left()).Field();
-	else if (sn.Left()->Kind() == NK_MemberExpr)
-	{
-		auto* pInner = static_cast<SnMemberExpr&>(
-			*sn.Left()).Inner();
-		if (pInner && pInner->Kind() == NK_IdentifierExpr)
-			pLeftField = static_cast<SnIdentifierExpr*>(
-				pInner)->Field();
-	}
-	if (pLeftField)
-		pInitList->InferredTarget(pLeftField);
-}
+//Init-list and ctor-invoke target propagation live in
+//StatementResolverStoreGates.cpp beside the other assign-target
+//helpers (source-size split; see AssignLeftField there).
 
 //Phase 13 (subscript store): a function reference stored into an array
 //element binds against the element type (an array-typed field's

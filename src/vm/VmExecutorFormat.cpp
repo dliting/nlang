@@ -265,7 +265,7 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
 std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
     int32_t thisHeapIdx, int32_t classIdx) {
     //Synthetic one-slot locals frame: just thisHeapIdx at offset 0.
-    //Both buffers must be full uniform frame cells — ExecuteFunction's
+    //Both buffers must be full uniform frame cells — the override's
     //final OP_VarLocal return copy and the param-block memcpy both
     //move kFrameSlotBytes.
     alignas(int64_t) uint8_t paramFrame[kFrameSlotBytes] = {0};
@@ -274,7 +274,7 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
     if (callee.intrinsicId != INTR_None) {
         ExecuteIntrinsic(callee.intrinsicId, 0, paramFrame, resultBuf);
     } else if (callee.isNative) {
-        //Never run a native record through ExecuteFunction: its bytecode
+        //Never run a native record through the dispatch loop: its bytecode
         //is empty, so the loop falls straight through and the untouched
         //(zeroed) result buffer fabricates a string. The by-name native
         //table cannot express a per-class toString and a NativeFn cannot
@@ -284,11 +284,23 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
             + LeafNameOfKey(
                 m_currModule->classes[static_cast<size_t>(classIdx)].name));
     } else {
-        std::vector<uint8_t> calleeLocals(callee.localsSize, 0);
+        //Nested window: push onto the shared frame stack and run until
+        //the depth captured at entry (GC keeps seeing the nested frames;
+        //an unhandled throw unwinds only this window before propagating
+        //to the caller's frame — exactly the recursive engine's shape).
+        const size_t baseDepth = m_callStack.size();
+        uint8_t* staged = PushRootFrame(callee, resultBuf);
         uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
-            std::memcpy(calleeLocals.data(), paramFrame, paramBytes);
-        ExecuteFunction(callee, resultBuf, calleeLocals.data());
+            std::memcpy(staged, paramFrame, paramBytes);
+        //Nested evaluation window: suspension is impossible here (the
+        //window belongs to an in-flight outer instruction; a park could
+        //not resume instruction-granularly). NestEvalGuard arms the
+        //depth that RequestPark checks — the quota already skips
+        //nested windows; Slice 6+ intrinsics route through the guard.
+        //K2 slice 2: the depth lives on the running carrier's slot.
+        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
+        RunFrames(baseDepth);
     }
     int32_t strIdx;
     std::memcpy(&strIdx, resultBuf, sizeof(strIdx));

@@ -114,4 +114,47 @@ bool StatementResolveAccessor::RejectStringBase(SnExpression &base,
 	return false;
 }
 
+//K3 task 4: the resolved field behind an assign target — identifier
+//targets directly, member stores through the already-bound inner
+//identifier (the left walk binds `b.m`'s base before the RHS resolves).
+//Shared by the init-list and ctor-invoke target propagations below.
+static SnField* AssignLeftField(SnAssignStmt &sn)
+{
+	if (sn.Left()->Kind() == NK_IdentifierExpr)
+		return static_cast<SnIdentifierExpr&>(*sn.Left()).Field();
+	if (sn.Left()->Kind() == NK_MemberExpr)
+	{
+		auto* pInner = static_cast<SnMemberExpr&>(*sn.Left()).Inner();
+		if (pInner && pInner->Kind() == NK_IdentifierExpr)
+			return static_cast<SnIdentifierExpr*>(pInner)->Field();
+	}
+	return nullptr;
+}
+
+//Init lists set their own type and don't go through the cast-info path,
+//so an untyped `[]`/`{...}` RHS inherits the LHS field as its target.
+//0.9.0: member stores (`b.m = {...}`) read the resolved field the same
+//way — the left walk has already bound the member's inner identifier.
+void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
+{
+	auto *pInitList = UntypedInitListOf(*sn.Right());
+	if (!pInitList)
+		return;
+	SnField* pLeftField = AssignLeftField(sn);
+	if (pLeftField)
+		pInitList->InferredTarget(pLeftField);
+}
+
+//K3 task 4: when the RHS is a bare invoke, hand the resolved LHS field
+//to the ctor-invoke arm (TryBindChannelCtorInvoke consumes it for
+//`Channel(n)`).
+void StatementResolveAccessor::PropagateCtorInvokeTarget(SnAssignStmt &sn)
+{
+	if (sn.Right()->Kind() != NK_InvokeExpr)
+		return;
+	SnField* pLeftField = AssignLeftField(sn);
+	if (pLeftField)
+		m_ExprResolver.SetCtorInvokeTarget(pLeftField);
+}
+
 } //namespace nlang

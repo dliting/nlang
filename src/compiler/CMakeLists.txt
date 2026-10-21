@@ -77,6 +77,8 @@ add_library(nlang_compiler
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
     builder/ExprResolverBuiltinClasses.cpp
+    builder/ExprResolverThreadNs.cpp
+    builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
     builder/ExprResolverSubscript.cpp
@@ -84,6 +86,7 @@ add_library(nlang_compiler
     builder/ExprResolverBinary.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
+    builder/ExprResolverNewCtor.cpp
     builder/ExprResolverInitList.cpp
     builder/ExprResolverInitListCtor.cpp
     builder/ExprResolverInvoke.cpp

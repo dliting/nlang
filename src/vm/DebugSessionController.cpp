@@ -198,23 +198,35 @@ void DebugSessionController::RequireFrozenWindow(const char* who) const {
 void DebugSessionController::Continue() {
     RequireFrozenWindow("Continue");
     m_mode = RunMode::Continue;
+    m_stepFocusContext = -1;   //release the exclusive-dispatch focus
+}
+
+void DebugSessionController::SetStepTargetContext(int contextId) {
+    RequireFrozenWindow("SetStepTargetContext");
+    m_selectedContextId = contextId;
 }
 
 void DebugSessionController::StepInto() {
     RequireFrozenWindow("StepInto");
     m_mode = RunMode::StepInto;
+    m_stepFocusContext = m_selectedContextId;
 }
 
 void DebugSessionController::StepOver() {
     RequireFrozenWindow("StepOver");
     m_mode = RunMode::StepOver;
-    m_stepDepth = m_pView->FrameCount();
+    m_stepFocusContext = m_selectedContextId;
+    //The depth baseline belongs to the context being stepped: a selected
+    //context other than the stopped one must be measured in its own
+    //frames (parked frames are enumerable — K4).
+    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
 }
 
 void DebugSessionController::StepOut() {
     RequireFrozenWindow("StepOut");
     m_mode = RunMode::StepOut;
-    m_stepDepth = m_pView->FrameCount();
+    m_stepFocusContext = m_selectedContextId;
+    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
 }
 
 const IVmDebugView& DebugSessionController::View() const {
@@ -233,6 +245,32 @@ DebugSessionController::BreakpointRows() const {
 
 // --- IDebugHooks ---
 
+//Step/initial stop decision for one statement checkpoint (K4): step
+//modes stop only in the step focus. A RUNNABLE focus holds exclusive
+//dispatch, so other contexts' statements never reach this state
+//machine; a PARKED focus (K5: stepping a selected parked context)
+//releases the others — their checkpoints DO arrive here and the focus
+//filter rejects them until the parked context wakes. InitialStop stays
+//unconditional (the run's first statement, before any focus exists).
+bool DebugSessionController::ShouldStepStop(
+    const DebugStopInfo& stop) const {
+    switch (m_mode) {
+    case RunMode::Continue:
+        return false;
+    case RunMode::InitialStop:
+        return true;
+    case RunMode::StepInto:
+        return stop.contextId == m_stepFocusContext;
+    case RunMode::StepOver:
+        return stop.contextId == m_stepFocusContext
+            && stop.depth <= m_stepDepth;
+    case RunMode::StepOut:
+        return stop.contextId == m_stepFocusContext
+            && stop.depth < m_stepDepth;
+    }
+    return false;
+}
+
 void DebugSessionController::OnStatement(const DebugStopInfo& stop,
     IVmDebugView& view) {
     m_pView = &view;
@@ -243,33 +281,22 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
             return std::find(bp.anchors.begin(), bp.anchors.end(), anchor)
                 != bp.anchors.end();
         });
+    //Breakpoints are global: any context hitting an anchor freezes the
+    //run — including one interrupting an armed step (the front end's
+    //next command re-targets the focus).
     if (it != m_breakpoints.end()) {
         it->hits += 1;
-        Freeze(StopInfo{StopInfo::Reason::Breakpoint, it->id,
-                        stop.line, stop.funcIdx, stop.depth});
+        Freeze(StopInfo{StopInfo::Reason::Breakpoint, stop.contextId,
+                        it->id, stop.line, stop.funcIdx, stop.depth});
         m_pView = nullptr;
         return;
     }
-    bool stopHere = false;
-    switch (m_mode) {
-    case RunMode::Continue:
-        break;
-    case RunMode::InitialStop:
-    case RunMode::StepInto:
-        stopHere = true;
-        break;
-    case RunMode::StepOver:
-        stopHere = (stop.depth <= m_stepDepth);
-        break;
-    case RunMode::StepOut:
-        stopHere = (stop.depth < m_stepDepth);
-        break;
-    }
-    if (stopHere) {
+    if (ShouldStepStop(stop)) {
         const auto reason = (m_mode == RunMode::InitialStop)
             ? StopInfo::Reason::Initial
             : StopInfo::Reason::Step;
-        Freeze(StopInfo{reason, 0, stop.line, stop.funcIdx, stop.depth});
+        Freeze(StopInfo{reason, stop.contextId, 0,
+                        stop.line, stop.funcIdx, stop.depth});
     }
     m_pView = nullptr;
 }
@@ -277,19 +304,24 @@ void DebugSessionController::OnStatement(const DebugStopInfo& stop,
 void DebugSessionController::OnThrow(const DebugStopInfo& stop,
     IVmDebugView& view) {
     //`break on throw`: freeze at the throw site before unwinding starts —
-    //the full NLang stack and locals are still alive here.
+    //the full NLang stack and locals are still alive here. Covers every
+    //context (K4).
     if (!m_breakOnThrow)
         return;
     m_pView = &view;
-    Freeze(StopInfo{StopInfo::Reason::Throw, 0,
+    Freeze(StopInfo{StopInfo::Reason::Throw, stop.contextId, 0,
                     stop.line, stop.funcIdx, stop.depth});
     m_pView = nullptr;
 }
 
 //Announce the freeze, then block in the front end's pump until a resume
 //command comes back (the front end calls the resume methods inside the
-//window; WaitUntilResume returning resumes in place).
+//window; WaitUntilResume returning resumes in place). A new stop
+//re-targets the selection to the stopped context BEFORE OnStopped, so
+//the window opens with view and step target pointing there (both front
+//ends reset their own inspection selection in OnStopped — same instant).
 void DebugSessionController::Freeze(const StopInfo& info) {
+    m_selectedContextId = info.contextId;
     m_frontEnd.OnStopped(info);
     m_frontEnd.WaitUntilResume();
 }

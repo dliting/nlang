@@ -16,9 +16,11 @@ front ends" model).
     `RaiseNlangException`, user `throw` and `rethrow` at their opcodes)
     after the exception object exists but **before** unwinding starts —
     the full NLang call stack and every frame's locals are still alive.
-- `IVmDebugView` — read-only queries over the frozen state: frame
-  count, per-frame function name/source file/line/pc, and per-frame
-  locals with display strings.
+- `IVmDebugView` — read-only queries over the frozen state: context
+  enumeration (id, scheduling state, holding carrier, innermost frame
+  location) and per-context frame queries — frame count, per-frame
+  function name/source file/line/pc, and per-frame locals with display
+  strings.
 
 Installing hooks (`VmExecutor::SetDebugHooks`) is optional; with no
 front end installed the checkpoints cost one null test per statement.
@@ -28,10 +30,21 @@ statement-level stepping are unavailable on it (`ndb` warns at load).
 
 ## Stop semantics
 
-The callback runs with the program frozen (NLang function calls are
-C++ recursion, so the whole stack lives inside `OnStatement`). Not
-returning keeps it frozen; returning resumes in place. ndb's command
-loop runs inside the callback.
+The callback runs with the program frozen (the VM is a frame-stack
+machine: the whole NLang call stack lives in the interpreter loop as a
+sequence of call frames, so when `OnStatement` fires the entire stack is
+present). Not returning keeps it frozen; returning resumes in place.
+ndb's command loop runs inside the callback.
+
+Concurrency semantics: hooks install on the executor and cover **every
+context** — a breakpoint, throw or step anchor hit in main or in a
+`thread.spawn`-derived context triggers an **all-stop**: the callback
+runs inside the global interpreter lock (GIL) window, so a stop freezes
+every carrier at once. Inspection is per-context too: parked contexts
+(waiting on a channel receive, contending a mutex, or an unfinished
+`Future.get`) inspect the same as one held by an execution window.
+While stopped, time freezes — the timer thread's expiry migrations also
+need the GIL and are replayed after the resume.
 
 Statement granularity: one stop per statement. Two statements on the
 same line stop twice; a statement spanning lines stops once.
@@ -75,9 +88,9 @@ stop reports the shared id.
 `ndb --machine <program.ncu|.npkg>` speaks a line protocol on stdin/stdout
 (documented in full in src/tools/ndb/MachineFrontEnd.h): events are
 tab-joined lines with escaped fields
-(`hello`/`bp`/`stopped`/`frame`/`local`/`done`/`output`/`exited`/
+(`hello`/`bp`/`stopped`/`frame`/`local`/`context`/`done`/`output`/`exited`/
 `error`/`err`), commands are plain space-separated tokens
-(`b`/`bfunc`/`d`/`breakthrow`/`bt`/`frame`/`locals`/`run`/`c`/`s`/
+(`b`/`bfunc`/`d`/`breakthrow`/`bt`/`frame`/`locals`/`contexts`/`context`/`run`/`c`/`s`/
 `n`/`f`). One data command rides the same channel: `stdin<TAB><payload>`
 (payload escaped like any field) delivers one program input line —
 recognized on the raw wire text so payload spaces survive, accepted at
@@ -90,13 +103,18 @@ window-bound commands answer `err` (nothing is frozen yet). A resume
 command answers with the next stop or exit event; other commands answer
 in place. Response shapes follow one grammar: query commands stream
 their data events then `done` (`bt` → `frame`* + `done`, `locals` →
-`local`* + `done`); breakpoint-set commands answer with their `bp`
+`local`* + `done`, `contexts` → `context`* + `done`); breakpoint-set commands answer with their `bp`
 receipt, and the remaining selection and mutation commands answer
 `done` alone — `frame` events never appear outside a `bt` response, so a
 consumer can append one stack row per `frame` event without duplication.
 Frame numbering: `stopped`'s depth is 1-based and always
 equals the frame count (a stop freezes the innermost frame), while
-`bt`/`frame` index 0-based, innermost = 0.
+`bt`/`frame` index 0-based, innermost = 0. Multiple contexts: the last
+field of `stopped` and `frame` messages is the owning context's
+contextId; the inspection commands (`bt`/`frame`/`locals`) address the
+selected context — the stopped one on a stop, reselectable with
+`context <id>` (`contexts` lists one row per context: id, scheduling
+state, holding carrier, innermost frame location).
 
 ## Host I/O seam
 
@@ -151,7 +169,8 @@ inspectable.
 No conditional breakpoints or watchpoints; empty-bodied `b func` never
 hits; function names render bare (no `Class.method` qualification); the
 exception object is not exposed as a pseudo-variable at the throw stop;
-no attach to running processes; native calls step through transparently;
+no attach to running processes;
+native calls step through transparently;
 throw stops anchor at the statement's pc approximation; pc values are
 16-bit bytecode offsets (the executor's existing `uint16_t opPc` — a
 function with >64 KiB of

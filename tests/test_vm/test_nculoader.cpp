@@ -418,8 +418,8 @@ void TestVersionMismatchReported() {
     CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
 }
 
-// --- shape 9b: the exact minor-version floor. The literals 6/8 pin the
-// --- v2.7 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
+// --- shape 9b: the exact minor-version floor. The literals 7/9 pin the
+// --- v2.8 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
 // --- bump must consciously re-affirm this test instead of silently
 // --- sliding the floor out from under the format contract.
 
@@ -432,7 +432,7 @@ void TestMinorBelowFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 6);   //one below the v2.7 floor
+    PatchMinorVersion(dir / "old.ncu", 7);   //one below the v2.8 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -450,7 +450,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 8);   //one above the v2.7 floor
+    PatchMinorVersion(dir / "old.ncu", 9);   //one above the v2.8 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });

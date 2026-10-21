@@ -184,6 +184,16 @@ struct CompiledFunction {
     //the AST capture pass and never become stubs).
     std::vector<ParamTypeDesc> paramTypeDescs;
     TypeDesc returnTypeDesc;
+    //K2 slice 5 (v2.8): per-slot root classes for the frame band (see
+    //EvalSlotClass). Built by the backend at function finalize: the
+    //fixed scratch region (temps + call staging) is Dual, named slots
+    //and the return slot take their declared kinds, evalArea slots
+    //start None and widen by OR-merged claim classes. Serialized as
+    //the function record's trailing field. Empty when the band is
+    //empty (native/builtin bandless records); a length that disagrees
+    //with localsSize/paramCount makes the GC fall back to the
+    //conservative band scan.
+    std::vector<uint8_t> evalAreaHandleMask;
 };
 
 struct CompiledModule;

@@ -20,6 +20,10 @@
     "reason": "single-class VmExecutor declaration; C++ has no partial class, splitting would fragment the class"
   },
   {
+    "path": "src/tools/nide/MainWindow.h",
+    "reason": "single-class MainWindow declaration (Qt slot surface plus per-concern state); C++ has no partial class, splitting would fragment the class"
+  },
+  {
     "path": "src/compiler/CastInfo.cpp",
     "function": "TypeCastInfo::CalcCastKind",
     "reason": "cast-decision table over source/target kind pairs"
@@ -85,7 +89,7 @@
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/vm/ModuleLoaderRecordsClasses.cpp",
     "function": "ReadClassRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
@@ -106,7 +110,7 @@
   },
   {
     "path": "src/vm/VmExecutorOps.cpp",
-    "function": "VmExecutor::ExecuteFunction",
+    "function": "VmExecutor::DispatchFrames",
     "reason": "flat dispatch skeleton: the opcode switch routes each case to a short Op helper call"
   },
   {

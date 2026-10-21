@@ -21,7 +21,7 @@ mylib/
 - **普通NLang函数**——有函数体；编译进自己所在包的单元映像（如`stdlib.npkg`的成员），运行期与消费方链接后按字节码执行；
 - **`native`函数**——只有签名与文档注释（无函数体）；运行时经宿主应用二进制接口（ABI，application binary interface）分派到`nlang_<包名>.dll`（第5节；DLL按包名第一个点之前的段命名，因此多段包里的`native`声明是编译期诊断）。
 
-标准库同形：`stdlib/io.n`、`math.n`、`fs.n`是手写的权威声明文件（io/math/fs三个包目前为纯native），实现由`src/native/`构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll`。
+标准库同形：`stdlib/io.n`、`math.n`、`fs.n`、`thread.n`是手写的权威声明文件；io/math/fs三个包为纯native，实现由`src/native/`构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll`；thread的native声明由虚拟机本体实现（内建通道分发，无独立动态库）；concurrent是纯NLang实现（无native成员）。
 
 ## 3. 编译模型：源码完整内联
 

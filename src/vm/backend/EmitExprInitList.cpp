@@ -43,23 +43,11 @@ void VmBackend::Access(SnInitListExpr& expr) {
         return;
     }
 
-    //---- List<T> form ----
-    //pTarget is the resolved SnClassDecl for List<T> (generic
-    //instantiation). Erasure: runtime class name is "List".
+    //---- Class-shaped forms dispatch on the base name ----
     if (pTarget->Kind() == NK_ClassDecl) {
-        auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
-        const std::string& baseName = pClassDecl->BaseName();
-        if (baseName == kBuiltinListTypeName) {
-            EmitInitListListForm(initList, *pClassDecl, emitter, resultOffset);
-            return;
-        }
-        if (baseName == kBuiltinDictTypeName) {
-            //---- Dict<K,V> form ----
-            EmitInitListDictForm(initList, *pClassDecl, emitter, resultOffset);
-            return;
-        }
-        //---- User class init form: new ClassName{field1:v1, ...} ----
-        EmitInitListClassForm(initList, *pClassDecl, emitter, resultOffset);
+        EmitInitListClassTarget(initList,
+                                *static_cast<SnClassDecl*>(pTarget),
+                                emitter, resultOffset);
         return;
     }
 
@@ -155,11 +143,16 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
 //(List/Dict arms, or a class whose ctor comes only from the table) →
 //classDecl feeds CtorSlotFor, a cross-unit placeholder carries no table
 //ctor; a selected-but-unregistered ctor allocates without a call.
+//pExtraConstSlot: a Channel ctor stub is (this, capacity) and the frame
+//push copies stub-paramCount cells from the caller's callParamBase, so
+//the no-arg init-list form stages an explicit constant (0 = unbounded)
+//into the given slot — an unstaged slot would copy garbage.
 void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                           SnFunction* pCtorFn,
                                           uint16_t classIdx,
                                           BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
+                                          uint16_t resultOffset,
+                                          const int32_t* pExtraConstSlot) {
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
@@ -173,11 +166,48 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
         emitter.EmitUint16(resultOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(m_currFunc->callParamBase);
+        if (pExtraConstSlot) {
+            //Full-cell stage: OP_ConstInt32 writes 4 bytes but OP_Assign
+            //copies the whole 8-byte slot — zero the cell first so no
+            //stale upper half rides into the capacity.
+            emitter.Emit(OpCode::OP_ConstZero);
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(*pExtraConstSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(static_cast<uint16_t>(
+                m_currFunc->callParamBase + kFrameSlotBytes));
+        }
         emitter.Emit(OpCode::OP_CallMethodDirect);
         emitter.EmitUint16(ctorIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.Emit(OpCode::OP_ParaEnd);
     }
+}
+
+//Class-shaped arm dispatcher: the List<T>/Dict<K,V>/Channel<T> generic
+//instantiations by base name (erasure — the runtime class is the bare
+//name); every other class-shaped target is the user class init form.
+void VmBackend::EmitInitListClassTarget(SnInitListExpr& initList,
+                                        SnClassDecl& classDecl,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset) {
+    const std::string& baseName = classDecl.BaseName();
+    if (baseName == kBuiltinListTypeName) {
+        EmitInitListListForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    if (baseName == kBuiltinDictTypeName) {
+        EmitInitListDictForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    if (baseName == kBuiltinChannelTypeName) {
+        //Channel<T> (K1 Slice 9): construction only — the resolver
+        //rejects any entry (values enter through send()).
+        EmitInitListChannelForm(initList, classDecl, emitter, resultOffset);
+        return;
+    }
+    //User class init form: new ClassName{field1:v1, ...}
+    EmitInitListClassForm(initList, classDecl, emitter, resultOffset);
 }
 
 //Arm: List<T> form — pTarget is the resolved SnClassDecl for List<T>
@@ -313,6 +343,33 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
     }
     EmitInitListMethodCallTail(claimBase, 3, setNameIdx, resultOffset,
                                emitter);
+}
+
+//Arm: Channel<T> form (K1 Slice 9) — allocate the erased "Channel"
+//instance and run its constructor (the side-table slot materializer).
+//The resolver guarantees an empty entry list, so there is no per-entry
+//emission (unlike the List/Dict forms).
+void VmBackend::EmitInitListChannelForm(SnInitListExpr& initList,
+                                        SnClassDecl& classDecl,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset) {
+    (void)initList;
+    int classIdx = m_compiledModule.FindClass(kBuiltinChannelTypeName);
+    if (classIdx < 0) {
+        //Round-12 shape: Channel is a built-in class — always registered
+        //(the bare literal is the erasure key).
+        throw std::runtime_error(
+            "NLang backend: Channel class not registered in module");
+    }
+    //Built-in target: the resolver's IsBuiltinClass early-return keeps
+    //CtorFunction() null, so the table path (CtorSlotFor) is the ctor
+    //source — pass a null selected-ctor to take it (0.9.11 T6 merge).
+    EmitNewObjectAndNoArgCtor(classDecl, /*pCtorFn=*/nullptr,
+                              static_cast<uint16_t>(classIdx),
+                              emitter, resultOffset,
+                              //K3 task 4: the ctor stub is (this, capacity)
+                              //— stage the unbounded default explicitly.
+                              /*pExtraConstSlot=*/&nlang::kChannelUnboundedCapacity);
 }
 
 //Arm: user class init form — allocate via OP_New, then per-field

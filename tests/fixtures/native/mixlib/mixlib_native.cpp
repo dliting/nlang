@@ -14,6 +14,7 @@ static void Dbl(NativeHost* host, uint8_t* ret,
 
 NLANG_DEFINE_NATIVE_INIT
 {
+    (void)regBlocking;
     reg(registry, "mixlib", "dbl", &Dbl);
     return NLANG_HOST_ABI_VERSION;
 }

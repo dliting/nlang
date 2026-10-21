@@ -128,7 +128,7 @@ void test_machine_session_roundtrip()
     //Every event is tab-joined with all fields encoded; data tabs are
     //escaped, so a raw tab in the wire is always a field separator.
     const std::string wire = events.str();
-    CHECK(wire.find("hello\t1\n") == 0, "hello is the first event");
+    CHECK(wire.find("hello\t2\n") == 0, "hello is the first event");
     CHECK(wire.find("err\tunknown command 'wat'\n") != std::string::npos,
         "unknown commands answer err");
     CHECK(wire.find("err\tView outside the frozen window")
@@ -141,15 +141,15 @@ void test_machine_session_roundtrip()
             != std::string::npos,
         "bound requests report the receipt");
     CHECK(wire.find("stopped\tinitial\t0\tmach_basic.main\t" + escaped
-            + "\t2\t1\t1\n") != std::string::npos,
-        "initial stop event (tab-joined fields)");
-    CHECK(wire.find("frame\t0\tmach_basic.main\t" + escaped + "\t2\n")
+            + "\t2\t1\t1\t0\n") != std::string::npos,
+        "initial stop event (tab-joined fields, contextId last)");
+    CHECK(wire.find("frame\t0\tmach_basic.main\t" + escaped + "\t2\t0\n")
             != std::string::npos,
-        "bt frame 0 anchors at the initial stop");
+        "bt frame 0 anchors at the initial stop (contextId last)");
     CHECK(wire.find("done\tbt\n") != std::string::npos,
         "bt terminates with done");
     CHECK(wire.find("stopped\tbreakpoint\t1\tmach_basic.main\t" + escaped
-            + "\t4\t1\t1\n") != std::string::npos,
+            + "\t4\t1\t1\t0\n") != std::string::npos,
         "breakpoint stop carries the id");
     CHECK(wire.find("local\ttotal\tint\t0\n") != std::string::npos,
         "locals render tab-joined name/type/value");
@@ -209,7 +209,7 @@ void test_machine_bfunc_and_output()
     CHECK(wire.find("bp\t0\t\t0\tunbound\n") != std::string::npos,
         "unknown bfunc reports id 0 with an empty location");
     CHECK(wire.find("stopped\tinitial\t0\tmach_bfunc.main\t" + escaped
-            + "\t8\t1\t1\n") != std::string::npos,
+            + "\t8\t1\t1\t0\n") != std::string::npos,
         "initial stop anchors main's first statement");
     CHECK(wire.find("output\ta\\tb\n") != std::string::npos,
         "print text arrives as one escaped output event");
@@ -218,7 +218,7 @@ void test_machine_bfunc_and_output()
     CHECK(wire.find("output\ta\\tb\n") < wire.find("exited\t7\n"),
         "output events stream before the exit event");
     CHECK(wire.find("stopped\tbreakpoint\t1\tmach_bfunc.helper\t" + escaped
-            + "\t4\t2\t2\n") != std::string::npos,
+            + "\t4\t2\t2\t0\n") != std::string::npos,
         "the bfunc breakpoint hits inside helper (depth is 1-based: "
         "2 frames total)");
     CHECK(wire.find("exited\t7\n") != std::string::npos,
@@ -389,7 +389,7 @@ void test_machine_frame_and_discipline()
 
     const std::string wire = events.str();
     CHECK(wire.find("stopped\tbreakpoint\t1\tmach_frame.helper\t" + escaped
-            + "\t2\t2\t2\n") != std::string::npos,
+            + "\t2\t2\t2\t0\n") != std::string::npos,
         "the bfunc bp freezes inside helper (depth == frameCount == 2)");
     //Selection answers done only -- frame events belong exclusively to
     //bt responses. An echo here appends phantom rows to an IDE stack
@@ -409,7 +409,7 @@ void test_machine_frame_and_discipline()
     CHECK(wire.find("bp\t2\t" + escaped + "\t2\tbound\n")
             != std::string::npos,
         "re-adding binds with a fresh id and a trimmed file part");
-    CHECK(wire.find("stopped\tstep\t0\tmach_frame.main\t" + escaped + "\t8\t1\t1\n")
+    CHECK(wire.find("stopped\tstep\t0\tmach_frame.main\t" + escaped + "\t8\t1\t1\t0\n")
             != std::string::npos,
         "stepping out of helper reports the step and drops to 1 frame");
     CHECK(wire.find("err\trun is only valid before the program starts\n")
@@ -478,6 +478,156 @@ void test_machine_method_locals_show_this()
         "the internal slot name stays out of the wire");
     CHECK(wire.find("exited\t7\n") != std::string::npos,
         "session ends with the program's exit code");
+    PASS();
+}
+
+//K4 multi-context protocol: `contexts` enumerates every context of the
+//run (state + carrier + location), `context <id>` retargets inspection
+//(bt/locals address it), and stopped/frame events carry the contextId
+//they describe as their last field. The rendezvous choreography is
+//deterministic on one carrier: main parks in ch.recv, then the spawned
+//worker hits the breakpoint — so the freeze shows one parked context
+//and one held (runnable@carrier) context.
+void test_machine_contexts_and_focus()
+{
+    TEST(machine_contexts_and_focus);
+    BuildOutcome b = buildSource("mach_ctx",
+        "import thread;\n"                       //1
+        "class Peer {\n"                          //2
+        "    public Channel<int> ch;\n"           //3
+        "    public void run() {\n"               //4
+        "        int k = 7;\n"                    //5  <- breakpoint
+        "        ch.send(9);\n"                   //6
+        "    }\n"                                 //7
+        "}\n"                                     //8
+        "int main() {\n"                          //9
+        "    Peer p = Peer();\n"                  //10
+        "    p.ch = {};\n"                        //11
+        "    Thread t = thread.spawn(p.run);\n"   //12
+        "    int x = p.ch.recv();\n"              //13 <- parks (empty)
+        "    thread.join(t);\n"                   //14
+        "    return x;\n"                         //15
+        "}\n");                                   //16
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    //thread joins the closure at load time (stdlib.npkg via STDLIB_DIR).
+    CompiledModule mod = loadLinked("mach_ctx");
+    const std::string src = (scratchDir() / "mach_ctx.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "b mach_ctx.n 5\n"   //binds worker's first statement
+        "run\n"              //initial stop at main's first statement
+        "c\n"                //main parks in recv; worker hits the bp
+        "contexts\n"         //enumerate: parked main + held worker
+        "context 0\n"        //retarget inspection to the parked main
+        "bt\n"               //parked frame is enumerable
+        "context 99\n"       //no such context -> err
+        "c\n");              //rendezvous delivers; both finish
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("hello\t2\n") == 0,
+        "hello announces protocol version 2 (multi-context epoch)");
+    CHECK(wire.find("bp\t1\tmach_ctx.n\t5\tbound\n") != std::string::npos,
+        "the worker breakpoint binds");
+    CHECK(wire.find("stopped\tinitial\t0\tmach_ctx.main\t" + escaped
+            + "\t10\t1\t1\t0\n") != std::string::npos,
+        "stopped carries the contextId as its last field (initial: main "
+        "is context 0)");
+    CHECK(wire.find("stopped\tbreakpoint\t1\trun\t" + escaped
+            + "\t5\t1\t1\t1\n") != std::string::npos,
+        "the bp stop identifies the worker as context 1 (methods report "
+        "their bare name)");
+    CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_ctx.main\t"
+            + escaped + "\t13\n") != std::string::npos,
+        "contexts lists the parked main (no carrier holds it)");
+    CHECK(wire.find("context\t1\trunnable\t0\trun\t" + escaped
+            + "\t5\n") != std::string::npos,
+        "contexts lists the held worker (runnable on carrier 0)");
+    CHECK(wire.find("done\tcontexts\n") != std::string::npos,
+        "contexts terminates with done");
+    CHECK(wire.find("done\tcontext\n") != std::string::npos,
+        "context selection confirms with done");
+    CHECK(wire.find("frame\t0\tmach_ctx.main\t" + escaped + "\t13\t0\n")
+            != std::string::npos,
+        "bt of the parked context enumerates its frame, tagged with the "
+        "selected contextId");
+    CHECK(wire.find("err\tno context 99\n") != std::string::npos,
+        "selecting an unknown context errs");
+    CHECK(wire.find("exited\t9\n") != std::string::npos,
+        "the rendezvous completes: exited 9");
+    PASS();
+}
+
+//K5 selection-as-step-target over the wire: `context <id>` arms the
+//selected context as the s/n/f target. The rendezvous is deterministic
+//on one carrier (library default): main parks in ch.recv before the
+//spawned worker's post-loop breakpoint, so `context 0` selects a PARKED
+//context; `n` releases the worker (its send wakes main) and the next
+//stopped event lands in main on the statement after the recv.
+void test_machine_context_selection_steps_target()
+{
+    TEST(machine_context_selection_steps_target);
+    BuildOutcome b = buildSource("mach_sel",
+        "import thread;\n"                          //1
+        "class Receiver {\n"                        //2
+        "    public Channel<int> ch;\n"             //3
+        "    public void run() {\n"                 //4
+        "        int k = 0;\n"                      //5
+        "        while (k < 50) {\n"                //6
+        "            k = k + 1;\n"                  //7
+        "        }\n"                               //8
+        "        int ready = 1;\n"                  //9  <- bp
+        "        ch.send(99);\n"                    //10 wakes main
+        "        int after = 2;\n"                  //11
+        "    }\n"                                   //12
+        "}\n"                                       //13
+        "int main() {\n"                            //14
+        "    Receiver r = Receiver();\n"            //15
+        "    r.ch = {};\n"                          //16
+        "    Thread t = thread.spawn(r.run);\n"     //17
+        "    int v = r.ch.recv();\n"                //18 <- parks
+        "    int done = v + 1;\n"                   //19 <- step lands
+        "    thread.join(t);\n"                     //20
+        "    return 0;\n"                           //21
+        "}\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("mach_sel");
+    const std::string src = (scratchDir() / "mach_sel.n").string();
+    const std::string escaped = protocol::EncodeField(src);
+    std::ostringstream events;
+    std::istringstream in(
+        "b mach_sel.n 9\n"   //worker's post-loop statement
+        "run\n"              //initial stop at main's first statement
+        "c\n"                //main parks in recv; worker reaches the bp
+        "contexts\n"         //precondition: main parked, worker held
+        "context 0\n"        //select the parked main = step target
+        "n\n"                //release worker; main wakes; step stop
+        "c\n");              //rendezvous completes
+    MachineFrontEnd front(mod, in, events);
+    DebugSessionController controller(mod, front);
+    front.SetController(&controller);
+    VmExecutor exec;
+    exec.SetDebugHooks(&controller);
+    front.PumpUntilRun();
+    front.OnExited(exec.Execute(mod));
+
+    const std::string wire = events.str();
+    CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_sel.main\t"
+            + escaped + "\t18\n") != std::string::npos,
+        "precondition: the freeze shows main parked in recv");
+    CHECK(wire.find("stopped\tstep\t0\tmach_sel.main\t" + escaped
+            + "\t19\t1\t1\t0\n") != std::string::npos,
+        "the step after selecting the parked main stops in main, on the "
+        "statement after the recv");
+    CHECK(wire.find("exited\t0\n") != std::string::npos,
+        "the rendezvous completes: exited 0");
     PASS();
 }
 
@@ -562,6 +712,8 @@ void run_debugger_machine_tests()
     test_machine_stdin_dispatch_while_parked();
     test_machine_frame_and_discipline();
     test_machine_method_locals_show_this();
+    test_machine_contexts_and_focus();
+    test_machine_context_selection_steps_target();
 }
 
 void run_debugger_loop_tests()

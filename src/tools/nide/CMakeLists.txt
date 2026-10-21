@@ -167,6 +167,7 @@ add_library(nide_mainwindow
     MainWindowEditors.cpp
     MainWindowBuildRun.cpp
     MainWindowDebug.cpp
+    MainWindowBreakpoints.cpp
     MainWindowHelp.cpp
     HelpBrowser.cpp
     MainStatusBar.cpp

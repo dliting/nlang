@@ -68,8 +68,11 @@ uint16_t VmExecutor::CurrentFuncIdx() const {
 }
 
 void VmExecutor::FireOnThrow() {
-    if (!m_pDebugHooks) return;
+    //K4: every context reports throws (break-on-throw covers spawned
+    //contexts; the payload identifies which one).
+    if (!DebugHooksActive()) return;
     DebugStopInfo stop;
+    stop.contextId = m_spScheduler->CurrentContextId();
     if (!m_callStack.empty()) {
         stop.pc = m_callStack.back().currentPc;
         stop.line = m_callStack.back().currentLine;
@@ -77,18 +80,86 @@ void VmExecutor::FireOnThrow() {
     stop.funcIdx = CurrentFuncIdx();
     stop.depth = m_callStack.size();
     m_pDebugHooks->OnThrow(stop, *this);
+    SyncDebugFocus();
 }
 
 // --- IVmDebugView ---
 
-size_t VmExecutor::FrameCount() const {
-    return m_callStack.size();
+namespace {
+
+//Scheduler state names for context listings (the ndb `threads` column
+//and machine-protocol context events share them).
+const char* ContextStateName(ContextState state) {
+    switch (state) {
+    case ContextState::Runnable:      return "runnable";
+    case ContextState::ParkedTimer:   return "parked-timer";
+    case ContextState::ParkedJoin:    return "parked-join";
+    case ContextState::ParkedMutex:   return "parked-mutex";
+    case ContextState::ParkedChanRecv: return "parked-chan-recv";
+    case ContextState::ParkedChanSend: return "parked-chan-send";
+    case ContextState::BlockedNative: return "blocked-native";
+    case ContextState::Finished:      return "finished";
+    case ContextState::Failed:        return "failed";
+    }
+    return "unknown";
 }
 
-DebugFrameInfo VmExecutor::FrameInfo(size_t depth) const {
+} // namespace
+
+size_t VmExecutor::ContextCount() const {
+    return m_spScheduler->ContextCount();
+}
+
+DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
+    DebugContextInfo info;
+    info.id = contextId;
+    const ExecutionContext* ctx = m_spScheduler->Find(contextId);
+    if (!ctx) {
+        info.stateName = "unknown";
+        return info;
+    }
+    info.stateName = ContextStateName(ctx->state);
+    info.heldByCarrier = m_spScheduler->HoldingCarrierOf(contextId);
+    //Frames of the context in this carrier's execution window live in
+    //m_callStack; every other context keeps its whole stack parked in
+    //the registry (FramesOfContext below applies the same split).
+    const std::vector<CallFrame>* frames = FramesOfContext(contextId);
+    info.frameCount = frames->size();
+    if (!frames->empty()) {
+        const CallFrame& innermost = frames->back();
+        if (innermost.func) {
+            info.funcName = innermost.func->name;
+            info.sourceFile = innermost.func->sourceFile;
+        }
+        info.line = innermost.currentLine;
+    }
+    return info;
+}
+
+//K4: the frames of one context for inspection. The context in this
+//carrier's execution window owns m_callStack (its registry copy is
+//empty — the stack was stolen into the window); every other context
+//parks its whole stack in the scheduler registry. Frozen-window only:
+//the GIL is held by this carrier while a checkpoint runs, so no other
+//window can concurrently steal frames back.
+const std::vector<CallFrame>* VmExecutor::FramesOfContext(
+    int contextId) const {
+    if (contextId == m_spScheduler->CurrentContextId())
+        return &m_callStack;
+    const ExecutionContext* ctx = m_spScheduler->Find(contextId);
+    return ctx ? &ctx->frames : nullptr;
+}
+
+size_t VmExecutor::FrameCount(int contextId) const {
+    const std::vector<CallFrame>* frames = FramesOfContext(contextId);
+    return frames ? frames->size() : 0;
+}
+
+DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
     DebugFrameInfo info;
-    if (depth >= m_callStack.size()) return info;
-    const auto& frame = m_callStack[m_callStack.size() - 1 - depth];
+    const std::vector<CallFrame>* frames = FramesOfContext(contextId);
+    if (!frames || depth >= frames->size()) return info;
+    const auto& frame = (*frames)[frames->size() - 1 - depth];
     if (frame.func) {
         //D13: the table key IS the display name — free functions show as
         //"<package>.<name>" since phase 5, methods keep bare names.
@@ -107,10 +178,12 @@ DebugFrameInfo VmExecutor::FrameInfo(size_t depth) const {
     return info;
 }
 
-std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
+std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
+    size_t depth) const {
     std::vector<DebugLocalValue> out;
-    if (depth >= m_callStack.size()) return out;
-    const auto& frame = m_callStack[m_callStack.size() - 1 - depth];
+    const std::vector<CallFrame>* frames = FramesOfContext(contextId);
+    if (!frames || depth >= frames->size()) return out;
+    const auto& frame = (*frames)[frames->size() - 1 - depth];
     if (!frame.func) return out;
     for (const auto& ld : frame.func->locals) {
         //Scope visibility: the frame is flat (slots exist from entry),
@@ -122,13 +195,14 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(size_t depth) const {
         //meaningful and must stay allocated: the GC root scan walks the
         //whole table from function entry. Same-name redeclarations
         //reuse the first declaration's position (over-approximation:
-        //strictly fewer false leaks than no filter).
+        //strictly fewer false leaks than no filter). Parked frames
+        //apply the same rule against their stolen-window anchor pc.
         if (ld.declPc > frame.currentPc)
             continue;
         DebugLocalValue v;
         v.name = ld.name;
         v.kindName = DebugKindName(ld.typeKind);
-        v.display = FormatDebugLocalSlot(ld, frame.locals);
+        v.display = FormatDebugLocalSlot(ld, frame.localsBuf.data());
         out.push_back(std::move(v));
     }
     return out;

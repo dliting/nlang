@@ -60,7 +60,11 @@ bool IsInitListTargetShape(SnField *pType)
         return false;
     if (pClass->IsGenericInstantiation())
         return pClass->BaseName() == kBuiltinListTypeName
-            || pClass->BaseName() == kBuiltinDictTypeName;
+            || pClass->BaseName() == kBuiltinDictTypeName
+            //K1 Slice 9: `Channel<T> c = {};` constructs an empty
+            //channel (the only legal entry count — see the reject
+            //gate in Access(SnInitListExpr&)).
+            || pClass->BaseName() == kBuiltinChannelTypeName;
     return !pClass->IsBuiltinClass();
 }
 
@@ -350,6 +354,27 @@ bool ExprResolveAccessor::RejectNonStringDictInitKeys(SnInitListExpr &sn,
     return true;
 }
 
+//K1 Slice 9: gate of Access(SnInitListExpr&) — a channel initializer
+//must be empty. Values enter a channel through send() alone (the
+//synchronized surface); an initializer entry would be a second,
+//unsynchronized insertion path, and the lowering has no entry form for
+//it. True = rejected.
+bool ExprResolveAccessor::RejectNonEmptyChannelInit(SnInitListExpr &sn,
+    SnField *pTargetField)
+{
+    if (pTargetField->Kind() != NK_ClassDecl)
+        return false;
+    auto *pGen = static_cast<SnClassDecl *>(pTargetField);
+    if (!pGen->IsGenericInstantiation()
+        || pGen->BaseName() != kBuiltinChannelTypeName
+        || sn.Entries().empty())
+        return false;
+    m_Env.Log(CLL_Error, sn.Location(),
+        "a channel initializer must be empty; values enter through "
+        "send()");
+    return true;
+}
+
 //0.9.0: nested bare brace entries inherit the slot type they store into
 //— the element type for array/List/Dict targets, or the addressed
 //field's declared type for struct/class targets (InitListEntryFieldType).
@@ -371,6 +396,35 @@ void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
     }
 }
 
+//Target-shape phase of Access(SnInitListExpr&) (split out for size):
+//the three form gates, then stamping the resolved type token and the
+//class-form ctor contract. True = rejected (the firing gate logged
+//its diagnostic).
+bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
+    SnField *pTargetField, bool bIsArray)
+{
+    //0.9.0: the target must be a shape the lowering can write.
+    if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+        return true;
+
+    //0.9.11 T7 (D6): arrays use the bracket form.
+    if (RejectBraceArrayInitTarget(sn, bIsArray)) return true;
+
+    //K1 Slice 9: channel construction is the empty initializer only.
+    if (RejectNonEmptyChannelInit(sn, pTargetField))
+        return true;
+
+    //0.9.13 D-new-1: array targets mint the interned array token.
+    sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
+        : pTargetField);
+    sn.AddFlags(NF_Resolved);
+
+    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
+        CheckClassInitListForm(sn,
+            static_cast<SnClassDecl*>(pTargetField));
+    return false;
+}
+
 //Phase 8e-6: Collection initializer resolver — target determination,
 //class-form checks, entry resolution, func-ref binding and the
 //entry-type gates, in that order. Entry values are resolved via
@@ -386,21 +440,8 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     if (!ResolveInitListTarget(sn, pTargetField, bIsArray))
         return;
 
-    //0.9.0: the target must be a shape the lowering can write.
-    if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+    if (PrepareInitListShape(sn, pTargetField, bIsArray))
         return;
-
-    //0.9.11 T7 (D6): arrays use the bracket form.
-    if (RejectBraceArrayInitTarget(sn, bIsArray)) return;
-
-    //0.9.13 D-new-1: array targets mint the interned array token.
-    sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
-        : pTargetField);
-    sn.AddFlags(NF_Resolved);
-
-    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
-        CheckClassInitListForm(sn,
-            static_cast<SnClassDecl*>(pTargetField));
 
     //0.9.0: nested bare brace entries infer their target from the slot
     //they store into, before the entry walk resolves them.

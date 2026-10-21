@@ -68,6 +68,14 @@ public:
     bool stepOut();
     bool requestBacktrace();
     bool requestLocals(int frameIndex);
+    //Context queries of the frozen run (machine protocol v2):
+    //requestContexts lists every execution context (contextReceived
+    //rows, then contextsReady); selectContext re-addresses later
+    //bt/frame/locals commands to that context (the frame selection
+    //resets server-side — frame indexes are per-context). The answer is
+    //`done context` only, no data events.
+    bool requestContexts();
+    bool selectContext(int contextId);
     //Non-resume toggles/removals, valid in the Launching prelude and the
     //Stopped window like addBreakpoint; the `done` receipts carry no
     //signal (observable through the session behavior, not the wire).
@@ -89,19 +97,29 @@ signals:
         bool bound);
     //reason: initial|breakpoint|step|throw. depth is 1-based and equals
     //frameCount; frame indexes (bt/requestLocals) are 0-based, innermost
-    //frame = 0.
+    //frame = 0. The trailing contextId is the stopped context the
+    //server redirected inspection to.
     void stopped(const QString& reason, int breakpointId,
         const QString& funcName, const QString& file, int line,
-        int depth, int frameCount);
+        int depth, int frameCount, int contextId);
     void frameReceived(int frameIndex, const QString& funcName,
-        const QString& file, int line);
+        const QString& file, int line, int contextId);
     void localReceived(const QString& name, const QString& typeName,
         const QString& value);
     void outputReceived(const QString& text);
     //done-terminated multi-line responses: bt = frameCount frame lines
-    //then backtraceReady(); locals = the local lines then localsReady().
+    //then backtraceReady(); locals = the local lines then localsReady();
+    //contexts = one contextReceived row per context then contextsReady().
     void backtraceReady();
     void localsReady();
+    //One `contexts` row, registry order (id ascending): the scheduler
+    //state name (server vocabulary), the carrier holding the execution
+    //window (-1 = none: parked/queued/finished), and the top-frame
+    //location (frameless contexts keep empty func/file and line 0).
+    void contextReceived(int contextId, const QString& state,
+        int heldByCarrier, const QString& funcName, const QString& file,
+        int line);
+    void contextsReady();
     void exited(int exitCode);
     //Uncaught NLang exception or a failed module load (may precede
     //hello!): the session's diagnostic end -- the ndb process then

@@ -203,6 +203,11 @@ public:
 
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
+    //GenerateFunction's native arm (split for the 50-line function
+    //budget): signature fill via FillNativeFunctionRecord, then the
+    //thread-package intrinsic stamp (K3 materialization).
+    void EmitNativeFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
@@ -351,6 +356,12 @@ private:
                               const std::string& methodName,
                               std::map<uint16_t, ArgBoxPlan>& argPlans,
                               bool& returnsBoxed, uint8_t& returnTag);
+    //K1 Slice 9: Channel<T> (send boxes the value, recv unboxes the
+    //return).
+    void PlanChannelMethodBoxing(const std::vector<SnField*>& typeArgs,
+                                 const std::string& methodName,
+                                 std::map<uint16_t, ArgBoxPlan>& argPlans,
+                                 bool& returnsBoxed, uint8_t& returnTag);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
     //assign, out spills, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
@@ -410,6 +421,13 @@ private:
     //Finalize-time tripwire: evalArea claims must fit the reserved peakDepth.
     void CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
                                   const CallSlotStats& stats);
+    //K2 slice 5: pack the per-slot band classes into the mask (see
+    //CompiledFunction::evalAreaHandleMask).
+    void BuildEvalAreaHandleMask(CompiledFunction& cf,
+                                 const FuncContext& ctx);
+    //K2 slice 5: root class for one RTK kind byte (the serialized form
+    //the locals table and the return kind arrive in).
+    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
 
     //Recursive frame-depth walkers behind ComputeCallSlotStats.
     //visited guards recursion through callee default expressions.
@@ -1311,7 +1329,8 @@ private:
     void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                    SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,
-                                   uint16_t resultOffset);
+                                   uint16_t resultOffset,
+                                   const int32_t* pExtraConstSlot = nullptr);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitInitListEntryAdd(const InitEntry& entry, BoxingTagResult tBox,
@@ -1324,6 +1343,16 @@ private:
                               uint16_t resultOffset, BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);
+    //K1 Slice 9: `Channel<T> c = {};` — construct only (no entries).
+    void EmitInitListChannelForm(SnInitListExpr& initList,
+                                 SnClassDecl& classDecl,
+                                 BytecodeEmitter& emitter, uint16_t resultOffset);
+    //Class-shaped dispatcher by base name (List/Dict/Channel erasure;
+    //default arm = user class init form).
+    void EmitInitListClassTarget(SnInitListExpr& initList,
+                                 SnClassDecl& classDecl,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset);
     void EmitInitListStructForm(SnInitListExpr& initList,
                                 SnStructDecl& structDecl,
                                 BytecodeEmitter& emitter, uint16_t resultOffset);
@@ -1415,6 +1444,7 @@ private:
     int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
     int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
+    int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
@@ -1505,6 +1535,15 @@ private:
         uint16_t evalAreaBase = 0;   //base of evalArea (disjoint from callParamBase)
         uint16_t evalAreaCursor = 0; //current claim offset in evalArea (stack-disciplined)
         uint16_t observedPeakCursor = 0; //max evalAreaCursor seen — asserted ≤ walker's peakDepth at function finalize (walker drift must fail loudly at compile time, not OOB at runtime)
+        //K2 slice 5: every EvalAreaClaim appends its slice + root class;
+        //BuildEvalAreaHandleMask OR-merges them per slot (the same slot
+        //serves many claims across the function — union, not last-wins).
+        struct ClaimClassRecord {
+            uint16_t baseOffset;  //absolute frame offset of the slice
+            uint16_t slots;
+            uint8_t  slotClass;   //EvalSlotClass
+        };
+        std::vector<ClaimClassRecord> claimClasses;
         //Phase 8e-5: per-function counter for foreach hidden-local uniquification.
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
@@ -1578,12 +1617,23 @@ private:
         VmBackend& m_B;
         uint16_t   m_slots;
     public:
-        EvalAreaClaim(VmBackend& b, uint16_t slots) : m_B(b), m_slots(slots)
+        //slotClass (K2 slice 5): the EvalSlotClass of every value this
+        //claim parks. Dual (default) keeps the conservative both-domain
+        //test. A site may pass a narrower class ONLY when it can
+        //enumerate everything that transits the slice: nested emissions
+        //use claim slots as their resultOffset, so a subtree argument
+        //parks all its intermediates there (typing from the subtree's
+        //final type alone is unsound). Overlapping claims OR-merge at
+        //finalize — union, not last-wins.
+        EvalAreaClaim(VmBackend& b, uint16_t slots,
+                      uint8_t slotClass = ESC_Dual)
+            : m_B(b), m_slots(slots)
         {
             auto& ctx = *m_B.m_currFunc;
             ctx.evalAreaCursor += m_slots * kFrameSlotBytes;
             if (ctx.evalAreaCursor > ctx.observedPeakCursor)
                 ctx.observedPeakCursor = ctx.evalAreaCursor;
+            ctx.claimClasses.push_back({ base(), m_slots, slotClass });
         }
         ~EvalAreaClaim()
         { m_B.m_currFunc->evalAreaCursor -= m_slots * kFrameSlotBytes; }

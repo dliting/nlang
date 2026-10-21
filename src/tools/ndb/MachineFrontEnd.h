@@ -8,11 +8,14 @@ protocol channel doubles as the program's input channel.
 Events (front end -> IDE) are tab-joined lines and every field is
 protocol::EncodeField'd, so data tabs/newlines never break the framing —
 a raw tab in the wire is always a field separator:
-  hello\t1
+  hello\t2
   bp\t<id>\t<file>\t<line>\t<bound|unbound>   (id 0 = unbound)
   stopped\t<initial|breakpoint|step|throw>\t<bpId>\t<func>\t<file>
-          \t<line>\t<depth>\t<frameCount>
-  frame\t<n>\t<func>\t<file>\t<line>          (bt responses only)
+          \t<line>\t<depth>\t<frameCount>\t<contextId>
+  context\t<id>\t<state>\t<carrier>\t<func>\t<file>\t<line>
+          (contexts responses only; carrier -1 = held by none; a
+          frameless context carries empty func/file and line 0)
+  frame\t<n>\t<func>\t<file>\t<line>\t<contextId>  (bt responses only)
   local\t<name>\t<type>\t<value>
   done\t<req>
   output\t<text>
@@ -21,14 +24,22 @@ a raw tab in the wire is always a field separator:
   err\t<message>
 Frame numbering: <depth> in stopped is 1-based and always equals
 <frameCount> (a stop freezes the innermost frame); the frame command
-and bt index frames 0-based, innermost frame = 0.
+and bt index frames 0-based, innermost frame = 0. stopped and frame
+events carry the contextId they describe as their LAST field (v2).
 Commands (IDE -> front end) are plain space-separated tokens, unescaped:
 b <file> <line> (file/line split at the LAST space), bfunc <name>,
-d <id>, breakthrow on|off, bt, frame <n> (also selects for locals),
-locals, run (prelude only), c/s/n/f. Non-resume commands answer in place
+d <id>, breakthrow on|off, contexts, context <id> (selects the context
+bt/frame/locals address — resets the frame selection — and arms it as
+the s/n/f step target), bt,
+frame <n> (also selects for locals), locals, run (prelude only),
+c/s/n/f. Non-resume commands answer in place
 (bp receipt, done <req> or err); a resume command answers with the next
 event (the following stop or exit). `run` ends the prelude started by
 PumpUntilRun; before it, window-bound commands err (no frozen window).
+A new stop re-targets inspection AND the step target to the stopped
+context (gdb's stopped-thread behavior): the front end's two selections
+reset in OnStopped, the controller's step-target selection at the
+freeze that opens the window.
 stdin\t<payload> is a DATA command, not a control command: <payload> is
 one EncodeField'd program-input line, and the line is recognized on the
 RAW wire text (before trimming) so payload leading/trailing spaces
@@ -37,7 +48,8 @@ the prelude, queued without breaking a frozen stop, and consumed live
 while the program is parked in io.readLine — and never answers (the
 program's next readLine is the response).
 Response-shape grammar: query commands stream their data events followed
-by done (bt -> frame* + done; locals -> local* + done); breakpoint-set
+by done (bt -> frame* + done; locals -> local* + done; contexts ->
+context* + done); breakpoint-set
 commands answer with their bp receipt, and the remaining selection and
 mutation commands answer done only — frame events NEVER appear
 outside a bt response (consumers append per frame event, so a data echo
@@ -61,8 +73,12 @@ namespace nlang {
 //format here, mirror the change in the nide codec and its tests.
 namespace protocol {
 
-//Version announced by the hello event.
-inline constexpr char kProtocolVersion[] = "1";
+//Version announced by the hello event. 2 = the multi-context epoch:
+//stopped/frame events carry a trailing contextId, and the contexts/
+//context commands exist. Older fields kept their positions, so a v1
+//client that indexes positionally and ignores unknown keywords still
+//functions (nide does).
+inline constexpr char kProtocolVersion[] = "2";
 
 //Escape the framing metacharacters so one field stays one line and
 //tab-joined fields stay unambiguous: \ -> \\, tab -> \t, newline ->
@@ -163,6 +179,8 @@ private:
     void DoBreakFunction(const std::string& name);
     void DoDelete(const std::string& arg);
     void DoBreakThrow(const std::string& arg);
+    void DoContexts();
+    void DoContext(const std::string& arg);
     void DoBacktrace();
     void DoFrame(const std::string& arg);
     void DoLocals();
@@ -178,6 +196,8 @@ private:
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController
     bool m_started = false;   //run issued: the frozen window governs now
+    int m_contextId = 0;      //context of the current stop (frame/locals
+                              //queries address it)
     size_t m_selectedFrame = 0;   //frame <n> selection for locals
     //Program input lines from stdin data commands, in arrival order.
     //Type-ahead (prelude / frozen stop) parks here until the program

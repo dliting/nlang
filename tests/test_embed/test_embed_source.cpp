@@ -14,6 +14,7 @@
 #include <fstream>
 #include <io.h>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #ifdef _WIN32
 #include <windows.h>   //GetCurrentProcessId（ScratchDir 的 PID 前缀）
@@ -588,6 +589,124 @@ static void TestConveniencePartialChannels() {
     PASS();
 }
 
+//--- K1 Slice 10：并发经嵌入入口 ------------------------------------------
+
+//run() 经调度器载体执行：睡眠中的 main 按截止时刻唤醒并完成（切片 10
+//之前 run() 走宿主发起的嵌套求值窗口，sleep 被「cannot suspend」一拒
+//了之——嵌入宿主跑不了任何含挂起内在函数的程序）。
+static void TestRunSourceServicesSleep() {
+    TEST(TestRunSourceServicesSleep);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    try {
+        const int rc = itp.runSource(
+            "import thread;\nthread.sleep(5); return 7;");
+        CHECK(rc == 7, "sleeping main wakes and returns its exit code");
+    } catch (const std::exception& e) {
+        FAIL(std::string("sleeping program rejected: ") + e.what());
+        return;
+    }
+    PASS();
+}
+
+//载体调度派生上下文：绑定方法 worker 修改共享实例，join 建立
+//happens-before，返回值证明 worker 真的运行过。
+static void TestRunSourceSpawnJoinSharesWork() {
+    TEST(TestRunSourceSpawnJoinSharesWork);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    try {
+        const int rc = itp.runSource(
+            "import thread;\n"
+            "class Counter {\n"
+            "    public int v;\n"
+            "    public void bump() { v = v + 1; }\n"
+            "}\n"
+            "int main() {\n"
+            "    Counter c = Counter();\n"
+            "    Thread t = thread.spawn(c.bump);\n"
+            "    thread.join(t);\n"
+            "    return c.v;\n"
+            "}\n");
+        CHECK(rc == 1, "worker ran before the joined read");
+    } catch (const std::exception& e) {
+        FAIL(std::string("spawn/join program rejected: ") + e.what());
+        return;
+    }
+    PASS();
+}
+
+//main 停泊且再无可运行上下文 → 可捕获的 deadlock 错误（不是挂死，也
+//不是私有 ParkSignal 逃逸进宿主）。
+static void TestRunSourceDeadlockIsCatchable() {
+    TEST(TestRunSourceDeadlockIsCatchable);
+    Interpreter itp;
+    bool threw = false;
+    try {
+        (void)itp.runSource(
+            "int main() {\n"
+            "    Channel<int> c = {};\n"
+            "    int v = c.recv();\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        const std::string msg(e.what());
+        CHECK(msg.find("deadlock") != std::string::npos,
+            "message names the deadlock (got: " + msg + ")");
+    }
+    CHECK(threw, "unserviceable park -> catchable std::runtime_error");
+    PASS();
+}
+
+//call() 是宿主发起的嵌套求值窗口——载体轮转不在飞，挂起类内在函数干
+//净拒绝（可捕获的基础异常，绝不放出私有 ParkSignal）。
+static void TestCallRejectsSuspension() {
+    TEST(TestCallRejectsSuspension);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    (void)itp.runSource(
+        "import thread;\n"
+        "int yieldOnce() { thread.yield(); return 1; }\n"
+        "return 0;");
+    bool threw = false;
+    try {
+        (void)itp.call("script.yieldOnce", {});
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        const std::string msg(e.what());
+        CHECK(msg.find("cannot suspend") != std::string::npos,
+            "message names the suspension rule (got: " + msg + ")");
+    }
+    CHECK(threw, "yield inside call() -> catchable rejection");
+    PASS();
+}
+
+//call() 内 spawn 无载体可调度新上下文（K1：载体只在 run() 内轮转）——
+//当场拒绝而非静默铸出一个永不执行的上下文（Thread 对象看似有效、join
+//永远拒绝的隐形空转）。
+static void TestCallRejectsSpawnWithoutCarrier() {
+    TEST(TestCallRejectsSpawnWithoutCarrier);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    (void)itp.runSource(
+        "import thread;\n"
+        "void idle() { }\n"
+        "int spawnOnce() { Thread t = thread.spawn(idle); return 2; }\n"
+        "return 0;");
+    bool threw = false;
+    try {
+        (void)itp.call("script.spawnOnce", {});
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        const std::string msg(e.what());
+        CHECK(msg.find("spawn") != std::string::npos,
+            "message names the spawn rule (got: " + msg + ")");
+    }
+    CHECK(threw, "spawn inside call() -> catchable rejection");
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -611,6 +730,11 @@ int main() {
     TestHostFunctionInAdHocScript();
     TestStdlibFromImportDir();
     TestConvenienceRunScript();
+    TestRunSourceServicesSleep();
+    TestRunSourceSpawnJoinSharesWork();
+    TestRunSourceDeadlockIsCatchable();
+    TestCallRejectsSuspension();
+    TestCallRejectsSpawnWithoutCarrier();
     TestConveniencePartialChannels();   //置尾：本测试动过 fd 1
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

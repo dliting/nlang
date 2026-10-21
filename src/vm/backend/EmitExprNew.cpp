@@ -190,6 +190,10 @@ void VmBackend::EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
     //tempSlot (EmitBinding CopyStruct scratch) — silently corrupting
     //the parked value. Claim slots are exclusive to this expression.
     //ExprPeakDepth's NewArrayExpr case tracks the claim=1.
+    //K2 slice 5: stays Dual — the size expression's nested emissions
+    //park their intermediates in this slot (same resultOffset flow as
+    //the binary right claim; a plain int32 only when the size expr is
+    //trivially typed, which is not provable here).
     EvalAreaClaim sizeClaim(*this, 1);
     uint16_t sizeSlot = sizeClaim.base();
     EmitExpression(sizeExpr, emitter, sizeSlot);

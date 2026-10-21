@@ -6,6 +6,212 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.5] - 2026-10-22
+
+### Added
+
+- **Merged language-feature line** — this release merges the
+  0.9.10–0.9.15 language-feature series into the concurrency line, so
+  both feature sets ship in one binary: interface static methods and
+  static constants, type-name-qualified static calls, compound shift
+  assignment (`<<=` / `>>=`), constructor declarations without a
+  return type, struct constructors, field initializers, constructor
+  overload resolution, cross-module constructors and instance
+  members, inferred and empty array literals, named-argument
+  initializers, static-method function references, and top-level
+  zero-argument construction.
+
+### Changed
+
+- **NCU format v2.8** — the merged module format carries both
+  lines' record extensions (the v2.7 class/struct records plus the
+  eval-area handle mask); `.ncu` files written by either line must be
+  recompiled.
+- **Class field visibility enforced** — reading a private-by-default
+  class field through an instance is now rejected at compile time
+  (the merged access-control rule); fields accessed from outside the
+  class must be declared `public`.
+
+## [0.10.4] - 2026-10-21
+
+### Added
+
+- **Multi-context debugging** — debug hooks (statement callbacks,
+  breakpoints, throw triggers) now fire for every context, not main
+  alone: a hit in any context is an all-stop pause (the debugger holds
+  the GIL, every virtual thread freezes, and timer expirations that
+  fall due during the pause are migrated only after the resume).
+  `ndb` gained `threads` (list all contexts with state and location)
+  and `t <id>` (switch the debug focus that stepping targets);
+  `bt`/`frame`/`info locals` inspect the focused context, parked
+  frames included. The `--machine` protocol carries a `contextId` tail
+  field on stopped/frame events and new `contexts`/`context` commands
+  (protocol version 2).
+- **Wake affinity** — dequeuing now prefers locality: a carrier scans
+  a constant window at the head of the run queue and takes the
+  earliest context it last ran itself (a never-dispatched context
+  matches any carrier); if the window holds no match, the head
+  dispatches. Every dequeue consumes exactly one entry, so there is no
+  starvation; under a single carrier every entry matches and the queue
+  stays strictly FIFO.
+
+### Changed
+
+- **Multi-carrier scheduling order is unspecified**: the single-carrier
+  mode (the library default) is the deterministic tier — the same
+  program produces the same interleaving on every run; with multiple
+  carriers the interleaving depends on wake affinity and is not
+  guaranteed. Program correctness rests only on the `join`, channel,
+  and mutex happens-before edges.
+
+## [0.10.3] - 2026-10-21
+
+### Added
+
+- **`Future<T>`: typed spawn with a return value** — a zero-argument
+  delegate with a return value (`func<T>`) now spawns through
+  `thread.spawn` into a `Future<T>` handle instead of a `Thread`.
+  `get()` is an honest blocking take: the caller parks, and the
+  returned value arrives as the declared type `T`; if the spawned
+  context failed, `get()` rethrows the original exception object into
+  the caller (the `join` shape, `message`/`backtrace` preserved).
+  `isDone()` is a non-parking probe. Several contexts may `get()` the
+  same `Future`; all wake with the same value, and an already-finished
+  target returns immediately and repeatedly. Functions stay un-colored:
+  there is no `await` keyword — `f.get()` written inline reads as
+  sequential code.
+- **Bounded channels** — `Channel(n)` constructs a channel with a
+  bounded buffer: `n >= 1` sets the capacity, `0` matches the unbounded
+  default (`{}`), and a negative value is a runtime error naming the
+  accepted range. On a full bounded channel, `send` parks in a
+  first-in-first-out queue; a `recv` frees a slot and wakes the head
+  sender, so earlier sends enter the buffer first.
+- **Standard-library `concurrent` package** — `WaitGroup` and
+  `Semaphore` implemented in NLang itself on top of the kernel
+  primitives (`import concurrent;`), keeping the VM kernel small:
+  `WaitGroup` is a Go-shaped counting barrier (`add`/`done`/`wait`),
+  and `Semaphore(n)` is a counting semaphore (`acquire`/`release`,
+  waiting by yielding while the count is zero).
+- **The `thread` package is now an ordinary standard-library package** —
+  its five declarations (`spawn`, `join`, `yield`, `id`, `sleep`) live
+  in `stdlib/thread.n` and reach the compiler, completion, hover, and
+  go-to-definition through the same symbol index as `io` and `math`;
+  the implementations stay inside the virtual machine (intrinsic
+  channel — no `nlang_thread.dll`). `spawn`'s typed form (`func<T>`
+  delegate → `Future<T>`) is bound by a dedicated compiler arm on top
+  of the declared `func<void>` base form.
+
+### Changed
+
+- **Channel close semantics now drawn by `ChannelClosedException`** —
+  this replaces the K1 behavior where a closed channel's empty `recv`
+  returned `null` and a post-close `send` was a fatal virtual-machine
+  error. After `close`, buffered values are still delivered by `recv`;
+  once drained, a further `recv` — and any `send` after closing —
+  raises the catchable `ChannelClosedException` (a subclass of
+  `Exception`). Parked waiters see the same boundary: `close` drains
+  the buffer into them first, then wakes the remaining receivers and
+  every parked sender with that exception. "Closed" now works as a
+  broadcast signal that receivers finish with `try`/`catch`.
+- **Breaking: `thread` now needs an explicit `import thread;`** — like
+  every other standard-library package. The reserved-name gate is gone:
+  a user package named `thread` collides with the standard library
+  under the ordinary duplicate-package rule (the diagnostic names both
+  sources), the same shape as a user `io.n`.
+
+## [0.10.1] - 2026-10-20
+
+### Added
+
+- **Multiple carrier threads under a global interpreter lock** — exactly
+  one virtual thread interprets bytecode at a time (a global interpreter
+  lock, GIL), and a pool of carriers absorbs waits: a blocking native
+  call releases the GIL, and other carriers keep running other virtual
+  threads meanwhile. `VmExecutor::SetCarrierThreadCount(n)` opts in; the
+  library default stays one carrier, so embedding hosts that do not ask
+  for more keep single-threaded callbacks. `nvm` runs
+  `min(4, hardware concurrency)` carriers by default and accepts
+  `--carriers=N` (1..64; any other value is rejected with a diagnostic),
+  and `ndb` pins one carrier so stepping and breakpoints stay
+  deterministic. A dedicated timer thread services `thread.sleep`
+  deadlines, so a sleeper still wakes when every carrier is busy; once
+  all carriers park, wake precision is bounded by the operating
+  system's timer granularity (about 15.6 ms on Windows). An error raised
+  on any carrier reaches the host identically, with its original
+  backtrace.
+- **Declarative blocking-native protocol (native ABI v5)** — a native
+  that may block registers through the new blocking channel. The VM
+  stages its arguments, releases the GIL for the duration of the call,
+  reacquires it, and copies the result back. The staged argument cells
+  and the return slot stay rooted across the lock gap, so a collection
+  on another carrier cannot reclaim them, and VM callbacks made from
+  inside a blocking native reacquire the GIL per callback. Native
+  modules must be rebuilt against ABI v5; the loader refuses older
+  versions with a diagnostic and there is no compatibility shim.
+- **Precise GC root bitmap for frame slots (NCU format 2.4)** — every
+  function record now serializes a two-bit class per frame-band slot:
+  scalar (never tested), string handle, heap index, or unknown (both
+  domains value-tested — the previous conservative test, kept as the
+  fallback). The collector routes each slot by its class; evaluation-area
+  classes are claimed by the code sites that use the slot and merge by
+  widening only. Artifacts built by an older compiler are refused with
+  "is outdated; recompile with current ncc".
+- **Documentation** — the Concurrency pages (Chinese and English in
+  lockstep) gain a GIL and multiple-carriers section, the known
+  limitations, embedding API, and garbage-collection design pages
+  describe the revised execution and rooting rules, and the carrier-count
+  switches are documented for both tools.
+
+## [0.10.0] - 2026-10-20
+
+### Added
+
+- **Virtual threads with deterministic single-carrier scheduling** — the
+  interpreter is now a frame-stack machine: NLang calls are explicit
+  call frames driven by one iterative loop, no C++ recursion, so a
+  running context can park anywhere and its whole call stack freezes
+  intact (locals, `try`/`catch`/`finally` handler state, and the
+  instruction position survive verbatim; bare `throw;` works across a
+  park). A first-in-first-out scheduler rotates contexts on a single
+  carrier, with a back-edge quota that preempts only when another
+  context is runnable — single-context programs are unchanged — and
+  `sleep` parks wake in deadline order. When main parks and nothing
+  remains runnable, the VM reports a deadlock error instead of hanging;
+  when main returns, parked contexts are dropped silently.
+- **The `thread` namespace (no import needed; `thread` is a reserved
+  package name)** — `thread.spawn(f)` takes a zero-argument
+  `func<void>` delegate and returns a `Thread` object; `thread.join(t)`
+  suspends until the target finishes and rethrows the target's original
+  exception object if it failed (multiple joiners are all woken);
+  `thread.yield`, `thread.id` (main is 0), and `thread.sleep(ms)`
+  (`sleep(0)` yields; a negative duration is a runtime error).
+- **`Mutex` and `Channel<T>` builtins** — a non-reentrant mutex with
+  first-in-first-out waiters, `tryLock`, and a named runtime error on
+  unlocking a lock you do not hold; an unbounded message channel where
+  `send` never parks, an empty `recv` parks until a send or close, and
+  an idempotent `close` drains buffered values first — a drained,
+  closed channel delivers `null` to reference-typed elements (primitive
+  elements surface a runtime error instead, having no null
+  representation), with values boxed exactly like `List<T>`.
+- **Concurrency documentation** — a new Concurrency page in the
+  language specification and a Frame Machine and Scheduler page in the
+  VM architecture section (Chinese and English in lockstep), and the
+  garbage collector design page now documents the parked-context root
+  set.
+
+### Fixed
+
+- **Evaluation staging values can no longer be swept mid-call** — in
+  `f(g(), h())`, g's object lived only in the caller's evaluation
+  scratch area when h's frame push reached the safepoint; the precise
+  locals scan could not see it, and a collection there swept it. Every
+  frame now also gets a conservative band scan over the slots past the
+  parameter area (a two-domain value test; the collector never moves
+  objects, so a false hit can only over-mark). The same band covers
+  parked contexts' frozen frames.
+- **nvm and ndb no longer drop trailing output** — stdout is flushed
+  before process exit.
+
 ## [0.9.15] - 2026-10-22
 
 ### Added

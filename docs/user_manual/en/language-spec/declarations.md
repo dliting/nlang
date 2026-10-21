@@ -23,7 +23,7 @@ files. Three sources share one syntax:
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
 | External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` / `lib.npkg` → `lib` |
-| Standard library package | `io` / `math` / `fs` (library sources shipped with the toolchain) | `io` |
+| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` (library sources shipped with the toolchain) | `io` |
 
 Visibility:
 
@@ -33,7 +33,7 @@ Visibility:
 | Same directory, other project files | no (implicit) | bare **or** qualified |
 | Cross-directory, same project | **yes** (`import utils.helper;` or `import utils.*;`) | qualified only: `utils.helper.f()` |
 | External module | **yes** (`import lib;`) | qualified only: `lib.f()` |
-| Standard library `io`/`math`/`fs` | **yes** (`import io;`) | qualified: `io.print` |
+| Standard library `io`/`math`/`fs`/`thread`/`concurrent` | **yes** (`import io;`) | qualified: `io.print` |
 
 - Bare-name resolution covers only the own file plus same-directory
   files; everything else must be qualified by module path. Ownerless
@@ -158,9 +158,9 @@ int apply(BinOp f) { ... }   // parameters and returns
   a compile error.
 - An alias name must not collide with classes, functions, other
   aliases, built-in type names (`List`, `Dict`, `func`, `int`, ...),
-  or an indexed library package name (`math`, `io`, `fs`, or a
-  third-party package found on the search path) in the same
-  translation unit.
+  or an indexed library package name (`math`, `io`, `fs`, `thread`,
+  `concurrent`, or a third-party package found on the search path) in
+  the same translation unit.
 - The scope-opening form `using Foo;` (no `=`) is unchanged and
   unrelated.
 

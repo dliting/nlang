@@ -1,11 +1,14 @@
 add_library(nlang_vm
     OpCodeTable.cpp
+    VmScheduler.cpp
     VmExecutor.cpp
+    VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
     VmExecutorOps.cpp
+    VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp
     VmExecutorOpsPrim.cpp
     VmExecutorOpsControl.cpp
@@ -13,6 +16,8 @@ add_library(nlang_vm
     VmExecutorOpsStrings.cpp
     VmExecutorOpsObjects.cpp
     VmExecutorGC.cpp
+    VmExecutorGCContainers.cpp
+    VmExecutorGCRoots.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
     VmDefaultMaterializer.cpp
@@ -26,6 +31,9 @@ add_library(nlang_vm
     IntrinsicsString.cpp
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp
+    IntrinsicsThread.cpp
+    IntrinsicsFuture.cpp
+    IntrinsicsChannel.cpp
     backend/VmBackend.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
@@ -64,6 +72,7 @@ add_library(nlang_vm
     ModuleLoader.cpp
     ModuleLoaderRecords.cpp
     ModuleLoaderRecordsInterfaces.cpp
+    ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
     ModuleSaverRecordsInterfaces.cpp
     NcuPackage.cpp

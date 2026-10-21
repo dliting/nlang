@@ -22,6 +22,7 @@ private slots:
     void trailingLoneBackslashPassesThrough();
     void encodeCommandJoinsWithSingleSpaces();
     void parseStoppedCarriesAllFields();
+    void parseContextCarriesAllFields();
     void parseHelloExitedAndDone();
     void parseBpKeepsAnEmptyFileField();
     void parseLocalAndOutputDecodeFields();
@@ -67,6 +68,36 @@ void TestDebugProtocol::parseStoppedCarriesAllFields() {
     QCOMPARE(ev.fields.at(5), QStringLiteral("9"));
     QCOMPARE(ev.fields.at(6), QStringLiteral("1"));
     QCOMPARE(ev.fields.at(7), QStringLiteral("2"));
+}
+
+//context events (contexts responses only) carry the scheduler state,
+//the holding carrier (-1 = held by none), and the top-frame location;
+//a frameless context keeps the field COUNT with empty func/file and
+//line 0 -- empty fields must survive the tab split exactly like bp's.
+void TestDebugProtocol::parseContextCarriesAllFields() {
+    const DebugEvent ev = parseEvent(QStringLiteral(
+        "context\t3\tRunnable\t-1\tmain\tC:\\x\\m.n\t12"));
+    QCOMPARE(ev.kind, DebugEvent::Context);
+    QCOMPARE(ev.fields.size(), 7);
+    QCOMPARE(ev.fields.at(1), QStringLiteral("3"));
+    QCOMPARE(ev.fields.at(2), QStringLiteral("Runnable"));
+    QCOMPARE(ev.fields.at(3), QStringLiteral("-1"));
+    QCOMPARE(ev.fields.at(4), QStringLiteral("main"));
+    QCOMPARE(ev.fields.at(5), QStringLiteral("C:\\x\\m.n"));
+    QCOMPARE(ev.fields.at(6), QStringLiteral("12"));
+
+    const DebugEvent held = parseEvent(QStringLiteral(
+        "context\t1\tRunnable\t0\tworker\tC:\\w\\w.n\t7"));
+    QCOMPARE(held.kind, DebugEvent::Context);
+    QCOMPARE(held.fields.at(3), QStringLiteral("0"));
+
+    const DebugEvent frameless = parseEvent(QStringLiteral(
+        "context\t5\tFinished\t-1\t\t\t0"));
+    QCOMPARE(frameless.kind, DebugEvent::Context);
+    QCOMPARE(frameless.fields.size(), 7);
+    QCOMPARE(frameless.fields.at(4), QString());
+    QCOMPARE(frameless.fields.at(5), QString());
+    QCOMPARE(frameless.fields.at(6), QStringLiteral("0"));
 }
 
 void TestDebugProtocol::parseHelloExitedAndDone() {

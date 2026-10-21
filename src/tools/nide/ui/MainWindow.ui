@@ -294,6 +294,29 @@ QDockWidgets); the 17 referenced icons are ported (nide.qrc).-->
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>
+               <widget class="QTreeWidget" name="tvwDebugContexts">
+                <property name="columnCount">
+                 <number>3</number>
+                </property>
+                <attribute name="headerVisible">
+                 <bool>true</bool>
+                </attribute>
+                <column>
+                 <property name="text">
+                  <string>上下文</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>状态</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>位置</string>
+                 </property>
+                </column>
+               </widget>
                <widget class="QTreeWidget" name="tvwDebugStack">
                 <property name="columnCount">
                  <number>3</number>

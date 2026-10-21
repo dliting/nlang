@@ -1,6 +1,7 @@
 add_executable(ndb
     main.cpp
     DebugSession.cpp
+    DebugSessionInspect.cpp
     MachineFrontEnd.cpp
     SourceCache.cpp
 )

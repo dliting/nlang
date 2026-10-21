@@ -1,10 +1,11 @@
 /*---
     VmExecutorGC.cpp — 垃圾回收（标记/清扫/释放）
-    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）；
+    容器元素追踪臂在 VmExecutorGCContainers.cpp（2026-10-20 拆出）；
+    帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）。
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
-#include <cstdio>
 #include <exception>
 
 namespace nlang {
@@ -29,18 +30,6 @@ void VmExecutor::CollectGarbage() {
     SweepStrings();
 }
 
-namespace {
-//Single source for the container trace arms' kind set (was four
-//hand-expanded literals: List/Dict x mark/push). At kind granularity the
-//mark set and the worklist push set coincide — every traced kind has
-//children for the dispatch below to walk (func's receiver, array
-//elements, boxed payload, class/struct fields).
-inline bool IsChildBearingHeapKind(uint8_t kind) {
-    return kind == RTK_Class || kind == RTK_Struct || kind == RTK_Boxed
-        || kind == RTK_Func || kind == RTK_Array;
-}
-} // namespace
-
 //2026-09-26 maintainability split: MarkPhase was a 233-line method; the
 //root scans and per-kind trace arms below are its decomposition (bodies
 //verbatim modulo the extracted mark+enqueue step and guard-to-early-return
@@ -58,7 +47,13 @@ void VmExecutor::MarkPhase() {
     for (auto& frame : m_callStack) {
         MarkFrameLocals(frame, worklist);
         MarkFrameResult(frame, worklist);
+        MarkFrameBand(frame, worklist);
     }
+    MarkSchedulerRoots(worklist);
+    //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
+    //return slot) and callback-minted handles — roots for as long as
+    //their carrier's GIL is away.
+    MarkNativeCallRoots(worklist);
     //Extension point ③: host-registered roots (host-held reference
     //Values). Same string/heap split as the frame scans — RTK_String
     //values are string-store handles routed to MarkString (its own
@@ -84,6 +79,7 @@ void VmExecutor::MarkPhase() {
             MarkClassFields(idx, worklist);
             MarkListElements(idx, worklist);
             MarkDictEntries(idx, worklist);
+            MarkChannelElements(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Struct) {
             MarkStructFields(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Array) {
@@ -92,41 +88,90 @@ void VmExecutor::MarkPhase() {
     }
 }
 
-//Root scan: one frame's declared locals. Heap-reference kinds and the
-//string kind route differently (strings carry a store handle).
-void VmExecutor::MarkFrameLocals(const CallFrame& frame,
-                                 std::vector<int32_t>& worklist) {
-    for (auto& ld : frame.func->locals) {
-        if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
-            && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
-            && ld.typeKind != RTK_String)
-            continue;
-        int32_t val;
-        std::memcpy(&val, frame.locals + ld.offset, sizeof(val));
-        //String locals carry a string-store handle, not a heap index —
-        //route before the heap-index guard below (a valid handle may
-        //lie beyond the struct heap's size). MarkString does its own
-        //validation (0 = null, out-of-range skipped).
-        if (ld.typeKind == RTK_String) {
-            MarkString(val);
-            continue;
+//K1 Slice 6 root arm: parked/queued contexts are not in m_callStack
+//(the steal model) — their whole frame stacks are roots here, plus each
+//context's Thread object (join reads __handle) and a Failed context's
+//exception object (join rethrows it by heap idx; it must survive until
+//every joiner has thrown). Same three frame arms as the running stack;
+//MarkFrameResult is safe on parked frames (externalResult points at
+//the stable result cells).
+void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
+    for (size_t i = 0; i < m_spScheduler->ContextCount(); ++i) {
+        const ExecutionContext* ctx = m_spScheduler->Find(
+            static_cast<int>(i));
+        for (const CallFrame& parkedFrame : ctx->frames) {
+            MarkFrameLocals(parkedFrame, worklist);
+            MarkFrameResult(parkedFrame, worklist);
+            MarkFrameBand(parkedFrame, worklist);
         }
-        if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())
-            continue;
-        if (!m_markBits[val])
-            PushMarked(val, worklist);
+        const int32_t ctxRoots[3] = { ctx->threadObjHeapIdx,
+                                      ctx->failExcHeapIdx,
+                                      ctx->resumeExcHeapIdx };
+        for (int32_t val : ctxRoots) {
+            if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+                && !m_markBits[val])
+                PushMarked(val, worklist);
+        }
+        //K3: once the root frame has finished, frames is empty and the
+        //context's return value lives only in resultCell — classify it
+        //by the snapshotted return kind (MarkFrameResult's same split:
+        //string handle vs heap index) so a Future<T> of a reference T
+        //keeps the value alive between the spawn and the get().
+        if (ctx->frames.empty()) {
+            uint8_t retKind = ctx->resultKind;
+            int32_t val;
+            std::memcpy(&val, &ctx->resultCell, sizeof(val));
+            if (retKind == RTK_String) {
+                MarkString(val);
+            } else if (retKind == RTK_Class || retKind == RTK_Struct
+                || retKind == RTK_Array || retKind == RTK_Func) {
+                if (val > 0
+                    && static_cast<size_t>(val) < m_slotKinds.size()
+                    && !m_markBits[val])
+                    PushMarked(val, worklist);
+            }
+        }
     }
 }
 
-//Root scan: one frame's pResult slot (same string-handle split as the
-//locals scan above).
+//K2 slice 4 (§2.5 staged roots): in-flight blocking native calls. The
+//address form covers the staged argument cells and the staged return
+//cell — their contents exist only after entry (the ret cell is written
+//by the native itself), so only an address can see the final values;
+//argument cells are immutable past the entry copy (const in the ABI).
+//The value form covers handles minted by re-entrant NativeHost
+//callbacks during the blocking section. Everything mutates under the
+//GIL (arm before release, truncate after reacquire), so a collection —
+//which itself holds the GIL — reads a consistent list.
+void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
+    for (const NativeCallRoot& root : m_nativeCallRoots) {
+        if (root.cells) {
+            for (uint32_t i = 0; i < root.cellCount; ++i) {
+                int32_t val;
+                std::memcpy(&val,
+                    root.cells + static_cast<size_t>(i) * kFrameSlotBytes,
+                    sizeof(val));
+                TestRootValue(val, worklist);
+            }
+        } else {
+            TestRootValue(root.value, worklist);
+        }
+    }
+}
+
+//Root scan: one frame's result cell (same string-handle split as the
+//locals scan above). FrameResultCell resolves the threading model
+//(external C++ cell for root/toString/host windows, caller-frame slot
+//for call-pushed frames); a null cell means the frame carries no
+//result destination (defensive — never armed today).
 void VmExecutor::MarkFrameResult(const CallFrame& frame,
                                  std::vector<int32_t>& worklist) {
-    if (!frame.pResult)
+    uint8_t* resultCell = FrameResultCell(frame);
+    if (!resultCell)
         return;
     uint8_t retKind = frame.func->returnTypeKind;
     int32_t val;
-    std::memcpy(&val, frame.pResult, sizeof(val));
+    std::memcpy(&val, resultCell, sizeof(val));
     //String return slot: same handle-not-heap-index split as locals.
     //Deliberately conservative (adjudicated over-mark, spec D6
     //note): a pResult-resident string is also reachable from the
@@ -203,52 +248,6 @@ void VmExecutor::MarkClassFields(int32_t idx,
             || (fields[i].kind == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
             if (!m_markBits[refIdx])
                 PushMarked(refIdx, worklist);
-        }
-    }
-}
-
-//Phase 8e-3: trace List<T> elements as additional GC roots.
-void VmExecutor::MarkListElements(int32_t idx,
-                                  std::vector<int32_t>& worklist) {
-    int32_t classIdx = m_structHeap[idx][0];
-    if (static_cast<int16_t>(classIdx) != m_listClassIdx)
-        return;
-    int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
-    if (handle <= 0)
-        return;
-    size_t h = static_cast<size_t>(handle - 1);
-    if (h >= m_listStore.size())
-        return;
-    for (int32_t elem : m_listStore[h].elements) {
-        if (elem > 0
-            && static_cast<size_t>(elem) < m_slotKinds.size()
-            && !m_markBits[elem]) {
-            if (IsChildBearingHeapKind(m_slotKinds[elem]))
-                PushMarked(elem, worklist);
-        }
-    }
-}
-
-//Phase 8e-4: trace Dict<K,V> entries (both K and V are heap idxs).
-void VmExecutor::MarkDictEntries(int32_t idx,
-                                 std::vector<int32_t>& worklist) {
-    int32_t classIdx = m_structHeap[idx][0];
-    if (static_cast<int16_t>(classIdx) != m_dictClassIdx)
-        return;
-    int32_t handle = m_structHeap[idx][kListHandleFieldOffset];
-    if (handle <= 0)
-        return;
-    size_t h = static_cast<size_t>(handle - 1);
-    if (h >= m_dictStore.size())
-        return;
-    for (auto& kv : m_dictStore[h].entries) {
-        for (int32_t elem : {kv.first, kv.second}) {
-            if (elem > 0
-                && static_cast<size_t>(elem) < m_slotKinds.size()
-                && !m_markBits[elem]) {
-                if (IsChildBearingHeapKind(m_slotKinds[elem]))
-                    PushMarked(elem, worklist);
-            }
         }
     }
 }
@@ -350,6 +349,22 @@ void VmExecutor::SweepPhase() {
                     int32_t handle = m_structHeap[i][kListHandleFieldOffset];
                     if (handle > 0)
                         m_dictFreeList.push_back(handle);
+                }
+                //K1 Slice 8: recycle Mutex handle when an instance is freed.
+                //A dropped-while-held mutex leaves its waiters parked
+                //forever — the carrier's exit guard reports that shape.
+                if (static_cast<int16_t>(classIdx) == m_mutexClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_mutexFreeList.push_back(handle);
+                }
+                //K1 Slice 9: recycle Channel handle when an instance is
+                //freed (same parked-waiter hazard and exit-guard report
+                //as a dropped mutex).
+                if (static_cast<int16_t>(classIdx) == m_channelClassIdx) {
+                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+                    if (handle > 0)
+                        m_channelFreeList.push_back(handle);
                 }
                 FreeOwnedStructs(static_cast<int32_t>(i));
             }

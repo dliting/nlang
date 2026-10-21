@@ -141,3 +141,70 @@
   the unqualified name.
 - **A class body cannot be empty**: `class B : A { }` is a syntax
   error; declare at least one member.
+- **Concurrency: main's return ends the program**: virtual threads still
+  parked or queued when `main` returns are dropped silently — there is no
+  implicit wait-for-all; establish completion order explicitly with
+  `thread.join`. If the run queue drains while main is still unfinished,
+  the VM reports a deadlock error. See [Concurrency](concurrency.md).
+- **Concurrency: bytecode runs serially under the GIL**: the VM holds a
+  global interpreter lock, so exactly one virtual thread executes
+  bytecode at a time. Multi-carrier parallelism comes only from that
+  lock being released during blocking native calls (typically overlapping
+  input/output waits with other virtual threads); CPU-bound virtual
+  threads do not run in parallel. The scheduler's budget of about 1000
+  back edges (loop iterations) between yield points rotates contexts
+  fairly. Set the carrier count with `VmExecutor::SetCarrierThreadCount`
+  (embedding hosts, default 1) or `nvm --carriers=N` (tool, at most 4 by
+  default).
+- **Concurrency: multi-carrier scheduling order is unspecified**: a
+  single carrier (the library default) is the deterministic tier — the
+  same program produces the same interleaving on every run; with
+  multiple carriers, wake affinity reorders dequeuing by each context's
+  last carrier, so the interleaving is not guaranteed and program
+  correctness rests only on the `join`, channel, and mutex
+  happens-before edges. See [Concurrency](concurrency.md).
+- **Concurrency: a debugger pause is all-stop**: a paused debugger
+  holds the GIL and every virtual thread freezes with it; timer
+  expirations that fall due during the pause are migrated only after
+  the resume (time-frozen semantics), and the frames and locals of
+  parked contexts remain inspectable while stopped. `ndb` pins a single
+  carrier to keep stepping and breakpoints deterministic; multi-context
+  inspection is covered in [ndb](../cli-tools/ndb.md).
+- **Concurrency: no `await` keyword**: functions are not async-colored
+  (see the model section in [Concurrency](concurrency.md));
+  `Future.get()` is an honest blocking wait, and `thread.join` waits on
+  a valueless `Thread`.
+- **Concurrency: `Future` comes only from `spawn`**: there is no manual
+  completion source (you cannot construct an unfinished `Future` in the
+  current context and fill it yourself), and no `select`-style
+  multi-way wait — for "whichever is ready first", spawn one waiter per
+  source and converge through a channel.
+- **Concurrency: a spawned thread's failure surfaces only through
+  `join`**: uncaught exceptions propagate to neither the host nor main —
+  the failed context is contained, and joiners receive a rethrow of the
+  original exception object; with no joiner, the failure is silent.
+- **Concurrency: `Mutex` is non-reentrant, `Semaphore` waits by
+  yielding**: the mutex cannot be reentered — locking it again while
+  holding it parks until the deadlock report; the standard-library
+  `Semaphore`'s `acquire` takes turns via `thread.yield` while the
+  permit count is zero (the kernel has no condition-variable primitive
+  yet), so a tight permit supply raises the yield count without
+  producing wrong behavior.
+- **Concurrency: no parking inside nested evaluation windows**: inside
+  `toString` evaluation and the embedding host's `call()` window,
+  `yield`/`sleep`/`join` on an unfinished target/`Future.get` on an
+  unfinished target/`lock` on a contended mutex/`recv` on an empty
+  channel/`send` on a full bounded channel/`spawn` are all rejected with
+  a "cannot suspend" runtime error. Blocking native calls are exempt:
+  they do not park the virtual thread, they release the GIL for their
+  duration, so other carriers keep running.
+- **Concurrency: concurrent blocking is capped by the carrier pool**:
+  a native call declared blocking under version 5 of the native
+  application binary interface (ABI) releases the GIL for its duration,
+  so other carriers keep running other virtual threads;
+  blocking native calls in flight at once are bounded by the carrier
+  pool size, degrading to queued waiting at worst. A third-party native
+  that does not declare its blocking section holds the GIL for the whole
+  call and every carrier stalls — adding the blocking declaration
+  restores the concurrency. Output-redirection callbacks run while
+  holding the GIL as well; keep them short.

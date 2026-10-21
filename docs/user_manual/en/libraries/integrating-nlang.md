@@ -33,7 +33,7 @@ Based on the install layout in [Installation and Layout](../getting-started/inst
 | `bin\ndisasm.exe` | the bytecode disassembler | deep diagnostics |
 | `bin\nide.exe` and the Qt runtime | the integrated development environment (IDE) and its dependencies | GUI development only |
 | `bin\nlang_{io,math,fs}.dll` | native implementations of the standard library | programs using the matching namespace |
-| `stdlib\` | the standard library | any of io/math/fs |
+| `stdlib\` | the standard library | any of io/math/fs/thread/concurrent |
 | `docs\site\` | the manual site | optional |
 
 For run-only deployments `ncc` can be left out; the Qt runtime is needed only by `nide`.

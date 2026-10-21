@@ -15,8 +15,8 @@ struct DebugEvent
 {
     enum Kind
     {
-        Hello, Bp, Stopped, Frame, Local, Done, Output, Exited, Error,
-        Err, Unknown
+        Hello, Bp, Stopped, Context, Frame, Local, Done, Output, Exited,
+        Error, Err, Unknown
     };
     Kind kind = Unknown;
     QStringList fields;

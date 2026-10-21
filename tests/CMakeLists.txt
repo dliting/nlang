@@ -663,10 +663,59 @@ target_compile_definitions(test_primops
 
 add_test(NAME primops_tests COMMAND test_primops)
 
+# 并发 K1 单元测试（帧栈机/调度/挂起/根集）：真实 .n 源码编译 + 真实
+# 执行，harness 形态同 test_primops Layer 3，随切片增长。
+add_executable(test_threads
+    test_vm/test_threads.cpp
+)
+target_include_directories(test_threads
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_threads
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_threads)
+target_compile_definitions(test_threads
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME threads_tests COMMAND test_threads)
+
+# K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
+# behavior tests — same harness shape as test_threads.
+add_executable(test_stdlib_concurrency
+    test_vm/test_stdlib_concurrency.cpp
+)
+target_include_directories(test_stdlib_concurrency
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_stdlib_concurrency
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_stdlib_concurrency)
+target_compile_definitions(test_stdlib_concurrency
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stdlib_concurrency_tests COMMAND test_stdlib_concurrency)
+
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
-# MachineFrontEnd.cpp and SourceCache.cpp are compiled into the test
+# DebugSessionInspect.cpp, MachineFrontEnd.cpp and SourceCache.cpp are
+# compiled into the test
 # (the tool's main.cpp is not) so the sessions can be driven with string
 # streams.
 add_executable(test_debugger
@@ -679,8 +728,10 @@ add_executable(test_debugger
     test_vm/test_debugger_session.cpp
     test_vm/test_debugger_controller.cpp
     test_vm/test_debugger_machine.cpp
+    test_vm/test_debugger_multicontext.cpp
     test_vm/test_backtrace.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSessionInspect.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/MachineFrontEnd.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/SourceCache.cpp
 )
@@ -1371,6 +1422,13 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
     set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
+    # K2 slice 6: --carriers=N is parity-neutral for a spawn-free program
+    # and refuses out-of-range values with an explicit diagnostic.
+    add_test(NAME nvm_carriers_flag
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_carriers.py
+            $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
+    set_tests_properties(nvm_carriers_flag PROPERTIES TIMEOUT 60)
     # nlang script runner: the three behavior faces of the tool (script
     # mode end to end incl. the D3 empty-script mapping, -c inline
     # statements incl. the non-ASCII wide-argv path, and the CLI

@@ -18,10 +18,13 @@
 
 namespace nlang {
 
-// Called once per function a module registers during init.
+// Called once per function a module registers during init. The
+// blocking flag carries the ABI v5 channel the module chose: a
+// blocking native may take unbounded time, so the VM stages its
+// arguments/result and releases the global lock around the call.
 using RegisterNativeCallback =
     std::function<void(const std::string& ns, const std::string& name,
-                       NativeFn fn)>;
+                       NativeFn fn, bool blocking)>;
 
 class NativeLibraryLoader {
 public:

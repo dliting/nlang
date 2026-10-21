@@ -208,6 +208,13 @@ private:
 	//matched by their single-segment .ncu name only.
 	bool IsProjectModule(const std::string& dottedPath) const;
 
+	//RegisterUnit's validation half: the two module-path gates, in
+	//rejection order (dotted stem shape, duplicate package). True =
+	//rejected, error already in outErrors.
+	bool RejectsModulePath(const std::string& stem,
+		const std::string& sourceFile, const std::string& modulePath,
+		std::vector<std::string>& outErrors) const;
+
 	//BuildGate's per-spec arm: resolves one ImportSpec into gate
 	//entries (builtin / project / wildcard union / external candidate)
 	//or an outErrors entry. See BuildGate for the priority contract.

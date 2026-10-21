@@ -65,14 +65,24 @@ void TestLoadAndCall(const std::string& fixtureDir) {
     loader.AddSearchDir(fixtureDir);
 
     std::map<std::string, NativeFn> fns;
+    std::map<std::string, bool> blocking;
     loader.EnsureLoaded("sample",
-        [&](const std::string& ns, const std::string& name, NativeFn fn) {
+        [&](const std::string& ns, const std::string& name, NativeFn fn,
+            bool isBlocking) {
             fns[ns + "." + name] = fn;
+            blocking[ns + "." + name] = isBlocking;
         });
 
-    CHECK(fns.size() == 3, "sample module registers 3 functions");
+    CHECK(fns.size() == 4, "sample module registers 4 functions");
     CHECK(fns.count("sample.add") && fns.count("sample.doubleFloat")
-          && fns.count("sample.greet"), "sample function names");
+          && fns.count("sample.greet")
+          && fns.count("sample.blockPing"), "sample function names");
+    //ABI v5: the blocking registrar routes through the same callback
+    //with the flag set; the plain registrar leaves it false.
+    CHECK(blocking["sample.blockPing"], "blockPing registered blocking");
+    CHECK(!blocking["sample.add"] && !blocking["sample.doubleFloat"]
+          && !blocking["sample.greet"],
+          "other sample functions registered non-blocking");
 
     MiniHost host;
 
@@ -103,6 +113,14 @@ void TestLoadAndCall(const std::string& fixtureDir) {
     const char* text = host.table.getString(&host.table, resultHandle);
     std::string copied = text ? text : "";
     CHECK(copied == "hello bob", "sample.greet builds greeting");
+
+    // blockPing("bob") -> "blocking:bob" (same call ABI either channel)
+    PutInt(args, 0, nameHandle);
+    fns["sample.blockPing"](&host.table, ret, args, 1);
+    resultHandle = GetRetInt(ret);
+    text = host.table.getString(&host.table, resultHandle);
+    copied = text ? text : "";
+    CHECK(copied == "blocking:bob", "sample.blockPing callable");
 }
 
 void TestIdempotent(const std::string& fixtureDir) {
@@ -110,15 +128,15 @@ void TestIdempotent(const std::string& fixtureDir) {
     loader.AddSearchDir(fixtureDir);
     int firstCount = 0;
     loader.EnsureLoaded("sample",
-        [&](const std::string&, const std::string&, NativeFn) {
+        [&](const std::string&, const std::string&, NativeFn, bool) {
             ++firstCount;
         });
     int secondCount = 0;
     loader.EnsureLoaded("sample",
-        [&](const std::string&, const std::string&, NativeFn) {
+        [&](const std::string&, const std::string&, NativeFn, bool) {
             ++secondCount;
         });
-    CHECK(firstCount == 3, "first init registers 3");
+    CHECK(firstCount == 4, "first init registers 4");
     CHECK(secondCount == 0, "second EnsureLoaded does not re-init");
 }
 
@@ -130,7 +148,7 @@ void TestNotFound() {
     std::string message;
     try {
         loader.EnsureLoaded("ghost",
-            [](const std::string&, const std::string&, NativeFn) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {});
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -148,7 +166,7 @@ void TestBadAbi(const std::string& fixtureDir) {
     std::string message;
     try {
         loader.EnsureLoaded("badabi",
-            [](const std::string&, const std::string&, NativeFn) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {});
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -165,7 +183,7 @@ void TestNoEntry(const std::string& fixtureDir) {
     std::string message;
     try {
         loader.EnsureLoaded("noentry",
-            [](const std::string&, const std::string&, NativeFn) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {});
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();

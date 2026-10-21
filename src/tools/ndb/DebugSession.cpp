@@ -52,6 +52,7 @@ DebugSession::~DebugSession() = default;
 // --- IDebugFrontEnd ---
 
 void DebugSession::OnStopped(const StopInfo& stop) {
+    m_contextId = stop.contextId;
     m_selectedFrame = 0;
     switch (stop.reason) {
     case StopInfo::Reason::Breakpoint:
@@ -137,6 +138,10 @@ bool DebugSession::RunCommand(const std::string& cmd) {
             m_out << "Usage: i b | i locals\n";
     } else if (head == "d" || head == "delete") {
         DoDelete(arg);
+    } else if (head == "threads") {
+        DoThreads();
+    } else if (head == "t" || head == "thread") {
+        DoContextFocus(arg);
     } else if (head == "bt" || head == "backtrace") {
         DoBacktrace();
     } else if (head == "frame") {
@@ -162,7 +167,7 @@ bool DebugSession::RunCommand(const std::string& cmd) {
 // --- stop reporting ---
 
 void DebugSession::ReportStop(const std::string& prefix) {
-    DebugFrameInfo fi = m_pController->View().FrameInfo(0);
+    DebugFrameInfo fi = m_pController->View().FrameInfo(m_contextId, 0);
     m_out << prefix << " "
           << DebugSessionController::LocationLabel(fi.funcName,
                  DebugSessionController::ShownFile(fi.sourceFile),
@@ -198,7 +203,7 @@ bool DebugSession::ParseBreakTarget(const std::string& arg,
         byLine = true;
         exactFile = true;
         fileSpec = m_pController->View()
-                       .FrameInfo(m_selectedFrame).sourceFile;
+                       .FrameInfo(m_contextId, m_selectedFrame).sourceFile;
         if (fileSpec.empty()) {
             m_out << "Current frame has no source file; "
                      "use b <file.n:LINE>.\n";
@@ -274,98 +279,8 @@ void DebugSession::DoDelete(const std::string& arg) {
     m_out.flush();
 }
 
-void DebugSession::DoBacktrace() {
-    const IVmDebugView& view = m_pController->View();
-    size_t count = view.FrameCount();
-    //Basename disambiguation: the same basename from two different
-    //paths prints the full path for those frames.
-    std::vector<std::string> files;
-    files.reserve(count);
-    for (size_t d = 0; d < count; ++d)
-        files.push_back(view.FrameInfo(d).sourceFile);
-    for (size_t d = 0; d < count; ++d) {
-        DebugFrameInfo fi = view.FrameInfo(d);
-        std::string shown = fi.sourceFile.empty()
-            ? "?" : DebugSessionController::Basename(fi.sourceFile);
-        for (size_t o = 0; o < count; ++o) {
-            if (o == d || fi.sourceFile.empty()) continue;
-            if (DebugSessionController::Basename(files[o]) == shown
-                && DebugSessionController::NormalizePath(files[o])
-                    != DebugSessionController::NormalizePath(
-                        fi.sourceFile)) {
-                shown = fi.sourceFile;
-                break;
-            }
-        }
-        //Two spaces after the number, matching DoFrame's "#N  " form.
-        m_out << "#" << d << "  "
-              << DebugSessionController::LocationLabel(fi.funcName,
-                     shown, fi.line)
-              << "\n";
-    }
-    m_out.flush();
-}
-
-void DebugSession::DoFrame(const std::string& arg) {
-    const IVmDebugView& view = m_pController->View();
-    if (arg.empty()) {
-        m_out << "Frame " << m_selectedFrame << " selected.\n";
-        return;
-    }
-    if (!IsAllDigits(arg)) {
-        m_out << "Usage: frame <n>\n";
-        return;
-    }
-    size_t n = static_cast<size_t>(std::atoi(arg.c_str()));
-    if (n >= view.FrameCount()) {
-        m_out << "No such frame.\n";
-        return;
-    }
-    m_selectedFrame = n;
-    DebugFrameInfo fi = view.FrameInfo(n);
-    m_out << "#" << n << "  "
-          << DebugSessionController::LocationLabel(fi.funcName,
-                 DebugSessionController::ShownFile(fi.sourceFile),
-                 fi.line)
-          << "\n";
-    m_out.flush();
-}
-
-void DebugSession::DoInfoLocals() {
-    bool any = false;
-    for (const auto& l
-            : m_pController->View().FrameLocals(m_selectedFrame)) {
-        if (DebugSessionController::IsHiddenLocalName(l.name)) continue;
-        m_out << DebugSessionController::DisplayName(l.name) << " = "
-              << l.display << "\n";
-        any = true;
-    }
-    if (!any) m_out << "No visible locals.\n";
-    m_out.flush();
-}
-
-void DebugSession::DoPrint(const std::string& arg) {
-    if (arg.empty()) {
-        m_out << "Usage: p <name>\n";
-        return;
-    }
-    //p searches ALL names (hidden included — it is the escape hatch
-    //when the filtered display hides something relevant); `this`
-    //aliases the __this slot.
-    std::string alias = (arg == "this") ? "__this" : "";
-    for (const auto& l
-            : m_pController->View().FrameLocals(m_selectedFrame)) {
-        if (l.name == arg || (!alias.empty() && l.name == alias)) {
-            m_out << DebugSessionController::DisplayName(l.name) << " = "
-                  << l.display << "\n";
-            m_out.flush();
-            return;
-        }
-    }
-    m_out << "No local '" << arg << "' in frame "
-          << m_selectedFrame << ".\n";
-    m_out.flush();
-}
+//The inspection command family (threads/t/bt/frame/i locals/p) lives
+//in DebugSessionInspect.cpp.
 
 void DebugSession::DoHelp() {
     m_out <<
@@ -374,6 +289,8 @@ void DebugSession::DoHelp() {
         "d <id>                             delete breakpoint\n"
         "c                                  continue\n"
         "s / n / f                          step into / over / out\n"
+        "threads                            list contexts (state/location)\n"
+        "t <id>                             switch context (view + step target)\n"
         "bt                                 backtrace\n"
         "frame <n>                          select frame\n"
         "info locals                        locals of selected frame\n"
@@ -391,7 +308,8 @@ void DebugSession::DoList(const std::string& arg) {
         m_out << "Usage: l [line]\n";
         return;
     }
-    DebugFrameInfo fi = m_pController->View().FrameInfo(m_selectedFrame);
+    DebugFrameInfo fi = m_pController->View()
+                             .FrameInfo(m_contextId, m_selectedFrame);
     if (fi.sourceFile.empty()) {
         m_out << "No source file for this frame.\n";
         return;
@@ -419,7 +337,8 @@ void DebugSession::DoList(const std::string& arg) {
 }
 
 void DebugSession::DoDisassemble() {
-    DebugFrameInfo fi = m_pController->View().FrameInfo(m_selectedFrame);
+    DebugFrameInfo fi = m_pController->View()
+                             .FrameInfo(m_contextId, m_selectedFrame);
     if (fi.funcIdx >= m_module.functions.size())
         return;
     const auto& func = m_module.functions[fi.funcIdx];

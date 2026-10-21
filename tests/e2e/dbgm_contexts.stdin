@@ -1,0 +1,7 @@
+b dbgm_contexts.n 6
+run
+c
+contexts
+context 0
+bt
+c
