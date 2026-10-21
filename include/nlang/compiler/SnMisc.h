@@ -175,9 +175,12 @@ public:
 	//declarations keep the initializer-less form. The initializer is a
 	//compile-time default applied at every struct allocation; it carries
 	//no layout semantics. Children() includes it so tree walks see the
-	//subtree (same shape as SnClassField).
+	//subtree (same shape as SnClassField). access carries the spelled-out
+	//modifier (0.9.12 D7); the bare arm passes FA_Default and
+	//OnAddedToParent promotes it to public like every other struct member.
 	SnStructField(SnFieldExpr *pType, std::string *pName,
-		const ISourceLocation &loc, SnExpression *pInitializer = nullptr);
+		FieldAccessType access, const ISourceLocation &loc,
+		SnExpression *pInitializer = nullptr);
 
 	~SnStructField() override;
 

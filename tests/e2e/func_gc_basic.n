@@ -1,7 +1,7 @@
 //Phase 13 Step 1 (review round-1 F6): handles must survive GC cycles —
 //live in a local and a List while the loop churns the heap past the GC
 //threshold (safepoints fire at loop back edges).
-class P { int v; }
+class P { public int v; }
 int dbl(int x) { return x * 2; }
 
 int main() {

@@ -1,0 +1,10 @@
+//A private class field is invisible outside the class: member access fails
+//to resolve it (0.9.12 D7).
+class Box {
+    private int secret;
+}
+
+int main() {
+    Box b = Box();
+    return b.secret;
+}

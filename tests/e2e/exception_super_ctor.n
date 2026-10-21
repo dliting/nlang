@@ -2,7 +2,7 @@
 //parent ctor (previously a Phase 9d workaround assigned fields after
 //construction with a default ctor).
 class MyException : Exception {
-    int code;
+    public int code;
     public MyException(string msg) {
         super(msg);
         this.code = 1;

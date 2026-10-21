@@ -1,0 +1,8 @@
+//A struct is a public data record: private fields are rejected (0.9.12 D7).
+struct S {
+    private int x;
+}
+
+int main() {
+    return 0;
+}

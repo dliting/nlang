@@ -3,7 +3,7 @@
 int dbl(int x) { return x * 2; }
 
 class C {
-    int k;
+    public int k;
     public int add(int x) { return x + k; }
 }
 

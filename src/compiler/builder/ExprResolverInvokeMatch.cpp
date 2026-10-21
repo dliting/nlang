@@ -31,6 +31,17 @@ bool MatchesReceiverForm(const SnFunction &func, InvokeReceiverForm form)
 	return true;
 }
 
+//0.9.12 D-new-6: a non-static member named after its class is that
+//class's ctor (T1.5c makes every other same-name shape illegal). It
+//stays out of the bare-invoke pool — a bare binding hides the ctor
+//fallback (TryResolveCtorInvoke); other forms/statics keep their paths.
+bool IsConstructorMember(const SnFunction &func, const SnField &parent)
+{
+	return parent.Kind() == NK_ClassDecl
+		&& !func.ContainFlags(NF_Static)
+		&& func.Name() == static_cast<const SnClassDecl &>(parent).Name();
+}
+
 //0.9.10 D2.4: the member expr whose inner identifier is idExpr (the
 //receiver.name value shape), or null for every other position.
 SnMemberExpr *AsMemberInner(SnIdentifierExpr &idExpr)
@@ -215,6 +226,8 @@ void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
 
 		auto pFunc = static_cast<SnFunction *>(pField);
 		if (!MatchesReceiverForm(*pFunc, form))
+			continue;
+		if (form == InvokeReceiverForm::Bare && IsConstructorMember(*pFunc, parent))
 			continue;
 		if (!pFunc->AllowAccess(*m_pAccessor))
 			continue;

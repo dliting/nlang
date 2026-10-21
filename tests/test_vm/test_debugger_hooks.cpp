@@ -100,7 +100,7 @@ void test_view_frames_and_locals()
 {
     TEST(view_frames_and_locals);
     BuildOutcome b = buildSource("view_locals",
-        "class Point { int x; int y; }\n"       //1
+        "class Point { public int x; public int y; }\n"  //1
         "int inner(Point p) {\n"                //2
         "    int s = p.x + p.y;\n"              //3
         "    return s;\n"                       //4

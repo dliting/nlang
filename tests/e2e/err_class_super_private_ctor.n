@@ -1,0 +1,14 @@
+//A private parent constructor is not reachable through super(): the
+//subclass is not the declaring class.
+class Base {
+    private Base() { }
+}
+
+class Sub : Base {
+    public Sub() { super(); }
+}
+
+int main() {
+    Sub s = Sub();
+    return 0;
+}

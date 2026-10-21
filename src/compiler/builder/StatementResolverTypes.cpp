@@ -33,6 +33,14 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 	assert(m_pVisitor);
 	for (auto &field : sn.Fields())
 	{
+		//0.9.12 D7 (D-new-2): a struct is a public data record — every
+		//member is public. The bare default was already promoted to
+		//FA_Public in OnAddedToParent, so anything left non-public was
+		//spelled out and is a declaration error.
+		if (field.AccessType() != FA_Public)
+			m_Env.Log(CLL_Error, field.Location(),
+				"The struct member \"%s\" must be public.",
+				field.Name().c_str());
 		//0.9.0 semantic restriction: struct field names may not reuse
 		//visible type names.
 		RejectTypeNameVariable(field.Name(), sn, sn, field.Location());

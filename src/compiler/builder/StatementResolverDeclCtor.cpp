@@ -94,7 +94,10 @@ void StatementResolveAccessor::CheckCtorDeclarationContract(SnFunction &sn)
 //covers struct members, so CheckCtorDeclarationContract emits the single
 //flag diagnostic when the member resolves. The no-return shape is
 //structural here: the struct member productions have no return-type slot.
-//Imported stubs are producer-validated and skip the name check.
+//0.9.12 D7 (D-new-2): struct members are public-only — the bare default
+//was already promoted to FA_Public in OnAddedToParent, so a spelled-out
+//private/protected is rejected. Imported stubs are producer-validated and
+//skip both checks.
 void StatementResolveAccessor::CheckStructCtorContract(
 	SnStructDecl &owner, SnFunction &sn)
 {
@@ -104,6 +107,11 @@ void StatementResolveAccessor::CheckStructCtorContract(
 		m_Env.Log(CLL_Error, sn.Location(),
 			"struct \"%s\" may only declare fields and constructors",
 			owner.Name().c_str());
+	}
+	if (sn.AccessType() != FA_Public) {
+		m_Env.Log(CLL_Error, sn.Location(),
+			"The struct member \"%s\" must be public.",
+			sn.Name().c_str());
 	}
 }
 

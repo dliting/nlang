@@ -1,0 +1,17 @@
+//A protected parent constructor is callable from a subclass constructor
+//through super(): the subclass sits on the declaring class's SuperClass
+//chain.
+class Base {
+    protected Base() { }
+    protected int prot;
+}
+
+class Sub : Base {
+    public Sub() { super(); }
+    public int read() { return prot; }
+}
+
+int main() {
+    Sub s = Sub();
+    return 0;
+}

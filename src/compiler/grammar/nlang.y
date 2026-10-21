@@ -1289,7 +1289,7 @@ StructMember:	StructField {
 				} ;
 
 StructField:	Type TT_Identifier ';' {
-					$$ = new SnStructField($1, $2, @1);
+					$$ = new SnStructField($1, $2, FA_Default, @1);
 				} |
 
 				//0.9.11 D4: a struct field initializer is a compile-time
@@ -1302,7 +1302,23 @@ StructField:	Type TT_Identifier ';' {
 				//declarator), so the states never merge and the '=' shift is
 				//unconflicted.
 				Type TT_Identifier '=' Expression ';' {
-					$$ = new SnStructField($1, $2, @1, $4);
+					$$ = new SnStructField($1, $2, FA_Default, @1, $4);
+				} |
+
+				//0.9.12 D7 (D-new-2): struct members are public-only, but the
+				//modifier spellings must reach the declaration contract (the
+				//precise "must be public" error) instead of a bare syntax
+				//error. The AccessTypeNonEmpty split mirrors StructCtor: the
+				//epsilon AccessType layer cannot prefix these arms because its
+				//empty reduction would conflict with the Type->TT_Identifier
+				//shift at the member position. After the keyword the state
+				//keeps the field arms and the StructCtor arms open until the
+				//name/'(' lookahead decides, so no new conflict is introduced.
+				AccessTypeNonEmpty Type TT_Identifier ';' {
+					$$ = new SnStructField($2, $3, $1, @1);
+				} |
+				AccessTypeNonEmpty Type TT_Identifier '=' Expression ';' {
+					$$ = new SnStructField($2, $3, $1, @1, $5);
 				} ;
 
 //0.9.11 D2: struct constructor spelling -- no return type, the same

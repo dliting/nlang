@@ -2,10 +2,10 @@
 //drop the reference, then churn the heap and verify a fresh handle
 //still works (indirect observation: the collector ran without
 //corrupting live state).
-class Big { int a; int b; }
+class Big { public int a; public int b; }
 
 class M {
-    int v;
+    public int v;
     public int get(int x) { return x + v; }
 }
 

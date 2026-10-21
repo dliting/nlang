@@ -3,7 +3,7 @@
 //user constructor exists).
 class Cfg {
 	public int x = 3;
-	Cfg(int y) { this.x = this.x + y; }
+	public Cfg(int y) { this.x = this.x + y; }
 }
 
 int main() {

@@ -1,0 +1,11 @@
+//A non-public constructor is not callable from outside the class: the
+//call site may only bind constructors its accessor can access.
+class Widget {
+    private Widget() { }
+    public int id() { return 7; }
+}
+
+int main() {
+    Widget w = Widget();
+    return w.id();
+}

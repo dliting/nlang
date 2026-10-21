@@ -1,0 +1,13 @@
+//Enum value members are public: qualified access works from any scope
+//and comparison over the enum's values is well-formed (0.9.12 D7).
+enum Status {
+    Ok,
+    Fail;
+}
+
+int main() {
+    Status s = Status.Ok;
+    if (s == Status.Fail) return 1;
+    if (Status.Ok == Status.Fail) return 2;
+    return 0;
+}

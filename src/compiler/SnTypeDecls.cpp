@@ -93,8 +93,9 @@ std::string SnEnumDecl::ToString() const
 //--- SnStructField ---
 
 SnStructField::SnStructField(SnFieldExpr *pType, std::string *pName,
-	const ISourceLocation &loc, SnExpression *pInitializer) :
-	Super_(s_Kind, FA_Public, s_DefaultFlags, pName, loc),
+	FieldAccessType access, const ISourceLocation &loc,
+	SnExpression *pInitializer) :
+	Super_(s_Kind, access, s_DefaultFlags, pName, loc),
 	m_pType(pType), m_pInitializer(pInitializer),
 	m_upChildren(new ImmutableNodeList())
 {

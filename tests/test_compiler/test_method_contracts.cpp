@@ -751,8 +751,8 @@ private slots:
     //NK_Function with no return type. The declaration contract and the
     //binding land in T2.6/T2.9 — at this stage the member is inert.
     //The bare spelling carries FA_Default into the node and
-    //SnField::OnAddedToParent resolves it to the struct's private member
-    //default — the same reading a bare class constructor gets.
+    //SnField::OnAddedToParent resolves it to the struct's public member
+    //default (0.9.12 D7) — a bare class constructor keeps private.
     void TestStructCtorParsesDefaultAccess() {
         auto out = compileOne(
             "struct Point {\n"
@@ -771,7 +771,7 @@ private slots:
         QVERIFY(pCtor);
         QVERIFY(pCtor->ReturnType() == nullptr);
         QVERIFY(pCtor->Params().size() == 1);
-        QCOMPARE(int(pCtor->AccessType()), int(FA_Private));
+        QCOMPARE(int(pCtor->AccessType()), int(FA_Public));
     }
 
     //sc2: the access/modifier spellings parse (public, private, static,
@@ -800,7 +800,7 @@ private slots:
         QVERIFY(pA && pB && pC && pD);
         QCOMPARE(int(pA->AccessType()), int(FA_Public));
         QCOMPARE(int(pB->AccessType()), int(FA_Private));
-        QCOMPARE(int(pC->AccessType()), int(FA_Private));
+        QCOMPARE(int(pC->AccessType()), int(FA_Public));
         QVERIFY(pC->IsStatic());
         QCOMPARE(int(pD->AccessType()), int(FA_Public));
         QVERIFY(pD->IsStatic());
@@ -983,7 +983,7 @@ private slots:
         auto out = compileOne(
             "class Cfg {\n"
             "    public int x = 3;\n"
-            "    Cfg(int y) { this.x = this.x + y; }\n"
+            "    public Cfg(int y) { this.x = this.x + y; }\n"
             "}\n"
             "int main() { Cfg c = Cfg(4); return c.x; }\n");
         QVERIFY(out.ok);
@@ -1010,7 +1010,7 @@ private slots:
             "}\n"
             "class Derived : Base {\n"
             "    public int b = 2;\n"
-            "    Derived() { super(); }\n"
+            "    public Derived() { super(); }\n"
             "}\n"
             "int main() { Derived d = Derived(); return d.b; }\n");
         QVERIFY(out.ok);

@@ -1,0 +1,12 @@
+//A private constructor stays callable inside the class: the static
+//factory method creates instances through it.
+class Widget {
+    private Widget() { }
+    public static Widget make() { Widget w = Widget(); return w; }
+    public int id() { return 7; }
+}
+
+int main() {
+    Widget w = Widget.make();
+    return w.id();
+}

@@ -63,21 +63,19 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 			&& !pFuncFilter(*pField);
 		if (!rejectedByFilter)
 			return pField;
-		//Shotgun: with ERF_SearchInParentOnly the fall-through below would
-		//return the filter-rejected candidate as a hit; a rejected
-		//candidate must read as "not found". Currently unreachable — the
-		//sole filter call site (Access(SnIdentifierExpr)) never runs with
-		//SPO, and a namespace receiver resolves its context to
-		//SnType::Instance() rather than the NS node (SnNamespace::
-		//EvalDataType), so SPO contexts never land on a bare-pool scope
-		//with the filter set. Re-verify when call-site configs change.
-		//Without SPO the fall-through correctly keeps walking ancestors: a
-		//same-name function higher up may still be visible.
-		if (flags & ERF_SearchInParentOnly)
-			return nullptr;
+		//A filter-rejected candidate reads as "not found": without SPO the
+		//fall-through below keeps walking ancestors (a same-name function
+		//higher up may still be visible); with SPO the single miss return
+		//below reports the rejection. (The filter and SPO flag sets never
+		//co-occur today — the sole filter call site Access(SnIdentifierExpr)
+		//never runs with SPO — re-verify when call-site configs change.)
 	}
+	//A found-but-inaccessible field is a miss too: under SPO (member
+	//access, using-directive lookup) the search stops here and the caller
+	//diagnoses "cannot resolve"; without SPO an ancestor scope with a
+	//visible same-named member may still answer.
 	if (flags & ERF_SearchInParentOnly)
-		return pField;
+		return nullptr;
 	auto pParent = parent.Parent();
 	if (!pParent)
 		return nullptr;

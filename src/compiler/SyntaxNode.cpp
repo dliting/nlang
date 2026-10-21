@@ -211,7 +211,29 @@ bool SnField::AllowProtectedAccess(const SnField &accessor) const
 {
 	if (AllowPrivateAccess(accessor))
 		return true;
-	return false; //TODO
+	//Protected members are reachable from the declaring class and from any
+	//subclass along its SuperClass chain (JVM/.NET semantics). The accessor
+	//is either a member (its owner is its parent) or a type declaration
+	//used directly as the accessor.
+	auto pOwner = accessor.Kind() == NK_ClassDecl || accessor.Kind() == NK_StructDecl ||
+		accessor.Kind() == NK_EnumDecl || accessor.Kind() == NK_InterfaceDecl ||
+		accessor.Kind() == NK_Namespace
+		? static_cast<const SyntaxNode *>(&accessor)
+		: accessor.Parent();
+	if (!pOwner)
+		return false;
+	auto pDeclaring = Parent();
+	if (!pDeclaring || pDeclaring->Kind() != NK_ClassDecl)
+		return false;
+	//Only classes have a superclass chain; struct, enum, interface and
+	//namespace owners reach protected class members nowhere beyond the
+	//private rule above.
+	for (auto pClass = pOwner->Kind() == NK_ClassDecl ?
+			static_cast<const SnClassDecl *>(pOwner) : nullptr;
+		pClass; pClass = pClass->SuperClass())
+		if (pClass == pDeclaring)
+			return true;
+	return false;
 }
 
 bool SnField::AllowPrivateAccess(const SnField &accessor) const
@@ -226,9 +248,12 @@ void SnField::OnAddedToParent(Node& parent)
 		return;
 	//Interface members, like namespace members, default to public: an
 	//interface member is a contract signature with no private calling
-	//context to hide it from. All other parents (class/struct/enum
-	//bodies, paragraphs) keep the private default.
-	if (parent.Kind() == NK_Namespace || parent.Kind() == NK_InterfaceDecl)
+	//context to hide it from. Struct members and enum methods also
+	//default to public: a struct is a public data record and an enum
+	//method is part of the enum's value surface. Class members and
+	//paragraph-level members keep the private default.
+	if (parent.Kind() == NK_Namespace || parent.Kind() == NK_InterfaceDecl ||
+		parent.Kind() == NK_StructDecl || parent.Kind() == NK_EnumDecl)
 		AccessType(FA_Public);
 	else
 		AccessType(FA_Private);

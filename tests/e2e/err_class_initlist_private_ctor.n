@@ -1,0 +1,11 @@
+//A class initializer needs an accessible no-arg constructor: a private
+//one is rejected like a private call.
+class Box {
+    public int v;
+    private Box() { v = 0; }
+}
+
+int main() {
+    Box b = Box { v: 1 };
+    return b.v;
+}

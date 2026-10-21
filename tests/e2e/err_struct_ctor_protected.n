@@ -1,0 +1,9 @@
+//A struct constructor must be public: protected is rejected (0.9.12 D7).
+struct S {
+    int x;
+    protected S() { x = 1; }
+}
+
+int main() {
+    return 0;
+}

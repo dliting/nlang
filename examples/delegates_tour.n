@@ -11,16 +11,16 @@ void partsOut(int v, out int doubled) { doubled = v + 1; }
 
 class Counter {
     int n;
-    int foo(int x) { n = n + 1; return n + x; }   // non-virtual method
-    virtual int tw(int x) { return x * 2; }       // virtual method
+    public int foo(int x) { n = n + 1; return n + x; }   // non-virtual method
+    public virtual int tw(int x) { return x * 2; }       // virtual method
 }
 
 class Big : Counter {
-    int tw(int x) { return x * 100; }             // override
+    public int tw(int x) { return x * 100; }             // override
 }
 
 class Button {                  // the classic callback shape: a func field
-    func<int, int> onClick;
+    public func<int, int> onClick;
 }
 
 void apply(BinOp f) {           // func-typed parameter

@@ -1,0 +1,17 @@
+//Enum methods default to public (like interface members): a bare-default
+//method is callable from outside the enum. Explicit public stays valid.
+enum Color {
+    Red,
+    Green;
+
+    int rank() { return 7; }
+    public int level() { return 2; }
+}
+
+int main() {
+    Color c = Color.Red;
+    if (c.rank() != 7) return 1;
+    if (Color.Green.rank() != 7) return 2;
+    if (c.level() != 2) return 3;
+    return 0;
+}

@@ -2,7 +2,7 @@
 //one for `this`; the write-back must reverse that shift so the caller's
 //variable still receives the value.
 class Box {
-    int v;
+    public int v;
     public void fill(out int r) { r = v + 5; }
 }
 

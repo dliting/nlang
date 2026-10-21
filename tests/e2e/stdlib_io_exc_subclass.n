@@ -3,7 +3,7 @@
 // ancestor-injection site, own fields append after it, and catch matches
 // the subclass type.
 class MyIoErr : IOException {
-    int code;
+    public int code;
 }
 
 int main() {

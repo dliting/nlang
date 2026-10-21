@@ -55,16 +55,30 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 		return nullptr;  //table-path ctor (codegen reads CtorSlotFor)
 	}
 
+	//0.9.12 D-new-5: the parent ctors a super(...) call may bind to are
+	//gated by the subclass constructor's access authority (the caller
+	//validated as a user-class ctor before reaching here): a private
+	//parent ctor is invisible to subclasses, a protected one is visible.
 	std::vector<SnFunction*> candidates;
+	bool bAnyInaccessible = false;
 	for (auto& field : pParent->Members()) {
 		if (field.Kind() == NK_Function
 			&& field.Name() == pParent->Name()
 			&& !field.ContainFlags(NF_Static)) {
-			candidates.push_back(static_cast<SnFunction*>(&field));
+			auto *pCtor = static_cast<SnFunction*>(&field);
+			if (!pCtor->AllowAccess(*m_pCurrType)) {
+				bAnyInaccessible = true;
+				continue;
+			}
+			candidates.push_back(pCtor);
 		}
 	}
 	if (candidates.empty()) {
-		if (!actuals.empty()) {
+		if (bAnyInaccessible) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"constructor of class \"%s\" is not accessible",
+				pParent->Name().c_str());
+		} else if (!actuals.empty()) {
 			m_Env.Log(CLL_Error, sn.Location(),
 				"parent class \"%s\" has no constructor; super(...) "
 				"cannot take arguments",

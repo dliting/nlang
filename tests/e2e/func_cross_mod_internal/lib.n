@@ -3,7 +3,7 @@
 //RemapBytecode's functionMap arm (MakeFunc / MakeBoundFunc) and the
 //stringMap arm (MakeVFunc) across module merge.
 class Counter {
-    int n;
+    public int n;
     public int foo(int x) { n = n + 1; return n + x; }
     public virtual int tw(int x) { return x * 2; }
 }

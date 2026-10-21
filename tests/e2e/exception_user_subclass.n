@@ -5,7 +5,7 @@
 //forwards to the parent via super(...), the same shape super()-chaining
 //tests already use.
 class MyException : Exception {
-    int code;
+    public int code;
     public MyException(string msg) { super(msg); }
 }
 

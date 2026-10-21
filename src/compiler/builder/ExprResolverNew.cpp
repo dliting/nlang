@@ -87,14 +87,31 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 //IsRegisteredCtor uses, keeping the resolver's selection in step with
 //codegen — a call that would only match such a ctor now reports a clear
 //no-match error instead of binding a ctor that never runs.
-static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl)
+//0.9.12 D-new-5: candidates are gated by the caller's access authority
+//over each ctor (the same AllowAccess rule fields and methods use).
+//rbInaccessible records that at least one implementation-bearing ctor
+//was filtered out for access alone, so the caller can tell "no
+//constructor" from "no *accessible* constructor" and name the right
+//diagnostic.
+static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
+	const SnField &accessor, bool &rbInaccessible)
 {
 	std::vector<SnFunction*> candidates;
+	auto admit = [&candidates, &accessor, &rbInaccessible](SnFunction &ctor)
+	{
+		if (!ctor.HasImplementation())
+			return;
+		if (!ctor.AllowAccess(accessor))
+		{
+			rbInaccessible = true;
+			return;
+		}
+		candidates.push_back(&ctor);
+	};
 	if (pTypeDecl->Kind() == NK_StructDecl)
 	{
 		for (auto &ctor : static_cast<SnStructDecl*>(pTypeDecl)->Ctors())
-			if (ctor.HasImplementation())
-				candidates.push_back(&ctor);
+			admit(ctor);
 		return candidates;
 	}
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
@@ -106,9 +123,7 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl)
 			&& member.Name() == pClassDecl->Name()
 			&& !member.ContainFlags(NF_Static))
 		{
-			auto *pCtor = static_cast<SnFunction*>(&member);
-			if (pCtor->HasImplementation())
-				candidates.push_back(pCtor);
+			admit(static_cast<SnFunction&>(member));
 		}
 	}
 	return candidates;
@@ -146,7 +161,19 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 	if (bRejected)
 		return nullptr;
 
-	auto candidates = CollectCtorCandidates(pTypeDecl);
+	bool bAnyInaccessible = false;
+	auto candidates = CollectCtorCandidates(pTypeDecl, *m_pAccessor,
+		bAnyInaccessible);
+	if (candidates.empty() && bAnyInaccessible)
+	{
+		//0.9.12 D-new-5: every candidate exists but none is reachable
+		//from the caller — an accessibility failure, not a missing or
+		//mismatched constructor.
+		m_Env.Log(CLL_Error, pLoc,
+			"constructor of %s \"%s\" is not accessible",
+			kindWord, pTypeDecl->Name().c_str());
+		return nullptr;
+	}
 	if (!candidates.empty())
 	{
 		bool bAmbiguous = false;
@@ -340,8 +367,15 @@ SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 {
 	if (IsBuiltinClassName(name))
 		return GetBuiltinClassDecl(name, pLoc);
-	auto *pField = FindFieldInAncestor(name, *m_pContext, *m_pAccessor,
-		Flags());
+	//0.9.12 D-new-6: a ctor-call position names a *type*, so the scope
+	//walk must skip value hits instead of stopping at the first one —
+	//inside the class the name is shadowed by its own constructor
+	//member, and FindFieldInAncestor would return that member, fail
+	//the kind check and answer null (the class could never be built
+	//from its own methods). FindTypeNameInAncestor keeps walking past
+	//the ctor member to the type binding.
+	auto *pField = FindTypeNameInAncestor(name, *m_pContext, *m_pAccessor,
+		false);
 	if (pField && (pField->Kind() == NK_ClassDecl
 		|| pField->Kind() == NK_StructDecl))
 	{

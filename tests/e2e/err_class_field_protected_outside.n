@@ -1,0 +1,10 @@
+//A protected class field is invisible outside the class and its subclasses:
+//member access fails to resolve it (0.9.12 D7).
+class Base {
+    protected int prot;
+}
+
+int main() {
+    Base b = Base();
+    return b.prot;
+}

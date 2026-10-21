@@ -1,7 +1,7 @@
 //e2e dbg_bt_locals: backtrace across frames + locals with values.
 class Point {
-    int x;
-    int y;
+    public int x;
+    public int y;
 }
 int scale(Point p, int k) {
     int sx = p.x * k;

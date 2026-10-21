@@ -8,7 +8,7 @@ class Base {
 
 class Derived : Base {
 	public int b = 2;
-	Derived() {
+	public Derived() {
 		super();
 		this.b = this.b + this.a;
 	}
