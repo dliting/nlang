@@ -6,6 +6,16 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.14] - 2026-10-22
+
+### Added
+
+- **Static method function references** — a static method now binds as
+  a function value through the type name: `func<int, int> h =
+  Util.twice; h(21);`. Inherited statics, interface statics, native
+  statics, and the bare form inside the owning class all work;
+  references through an object receiver stay rejected.
+
 ## [0.9.13] - 2026-10-21
 
 ### Added

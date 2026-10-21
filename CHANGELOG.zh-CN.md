@@ -6,6 +6,11 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.14] - 2026-10-22
+
+### 新增
+- **静态方法函数引用**——静态方法现可经类型名绑定为函数值：`func<int, int> h = Util.twice; h(21);`。继承的静态方法、接口静态方法、native静态方法以及所属类内的裸名形态均可用；经对象接收者的引用仍被拒绝。
+
 ## [0.9.13] - 2026-10-21
 
 ### 新增
