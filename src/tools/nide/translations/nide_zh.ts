@@ -60,7 +60,22 @@
         <translation>抛异常时中断</translation>
     </message>
     <message>
-        <location filename="../ui/MainWindow.ui" line="306"/>
+        <location filename="../ui/MainWindow.ui" line="300"/>
+        <source>上下文</source>
+        <translation>上下文</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="305"/>
+        <source>状态</source>
+        <translation>状态</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="310"/>
+        <source>位置</source>
+        <translation>位置</translation>
+    </message>
+    <message>
+        <location filename="../ui/MainWindow.ui" line="330"/>
         <source>#</source>
         <translation>#</translation>
     </message>
@@ -68,11 +83,6 @@
         <location filename="../ui/MainWindow.ui" line="311"/>
         <source>函数</source>
         <translation>函数</translation>
-    </message>
-    <message>
-        <location filename="../ui/MainWindow.ui" line="316"/>
-        <source>位置</source>
-        <translation>位置</translation>
     </message>
     <message>
         <location filename="../ui/MainWindow.ui" line="329"/>
@@ -825,8 +835,13 @@
     </message>
     <message>
         <location filename="../MainWindowDebug.cpp" line="230"/>
-        <source>Paused: %1 (%2:%3)</source>
-        <translation>已暂停：%1 (%2:%3)</translation>
+        <source>Paused: %1 (%2:%3) in context %4</source>
+        <translation>已暂停：%1 (%2:%3)，上下文 %4</translation>
+    </message>
+    <message>
+        <location filename="../MainWindowDebug.cpp" line="284"/>
+        <source>Context %1: %2 (%3:%4)</source>
+        <translation>上下文 %1：%2 (%3:%4)</translation>
     </message>
     <message>
         <location filename="../MainWindowDebug.cpp" line="282"/>

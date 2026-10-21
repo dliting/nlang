@@ -91,6 +91,36 @@ const char* const kDebugSource =
     "    return 42;\n"
     "}\n";
 
+//K5 multi-context debug fixture (deterministic under ndb's pinned single
+//carrier): main spawns the receiver and parks in the empty-channel recv
+//(line 18) after ~5 statements, while the worker needs its whole 50-trip
+//loop to reach the line-9 breakpoint -- so the stop always lands on the
+//worker (context 1) with main parked-chan-recv at line 18. Stepping the
+//SELECTED parked main lands on line 19 (the statement after recv).
+const char* const kDebugConcurrencySource =
+    "import thread;\n"                       //1
+    "class Receiver {\n"                     //2
+    "    public Channel<int> ch;\n"          //3
+    "    public void run() {\n"              //4
+    "        int k = 0;\n"                   //5
+    "        while (k < 50) {\n"             //6
+    "            k = k + 1;\n"               //7
+    "        }\n"                            //8
+    "        int ready = 1;\n"               //9  <- breakpoint
+    "        ch.send(99);\n"                 //10 wakes main
+    "        int after = 2;\n"               //11
+    "    }\n"                                //12
+    "}\n"                                    //13
+    "public int main() {\n"                  //14
+    "    Receiver r = Receiver();\n"         //15
+    "    r.ch = {};\n"                       //16
+    "    Thread t = thread.spawn(r.run);\n"  //17
+    "    int v = r.ch.recv();\n"             //18 <- parks (empty)
+    "    int done = v + 1;\n"                //19 <- selected step lands
+    "    thread.join(t);\n"                  //20
+    "    return 42;\n"                       //21
+    "}\n";                                   //22
+
 //A program that never returns: the stop/teardown tests need a session
 //that stays alive until killed.
 const char* const kSpinSource =
@@ -3307,6 +3337,154 @@ private slots:
         QCOMPARE(stoppedEditor->stoppedLine(), 0);
     }
 
+    //K5: a stop on a spawned context lists every context of the run in
+    //the new left pane, with the selection marker on the stopped one and
+    //the stack/variables still addressing the stopped context.
+    void testDebugPageShowsContextsOnStop() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_ctx.n");
+        writeFile(path, kDebugConcurrencySource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 9);
+        act(window, "actToggleBreakpoint")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+
+        //Deterministic stop: the worker hit the breakpoint (context 1),
+        //main is parked in the empty-channel recv (context 0).
+        QTreeWidget* contexts =
+            window.findChild<QTreeWidget*>("tvwDebugContexts");
+        QVERIFY(contexts != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(contexts->topLevelItemCount() == 2, 30000);
+        QCOMPARE(contexts->topLevelItem(0)->text(0), QString("0"));
+        QVERIFY2(contexts->topLevelItem(0)->text(1).contains("parked"),
+                 "main must list as parked in the empty-channel recv");
+        QCOMPARE(contexts->topLevelItem(1)->text(0), QString("1"));
+        QVERIFY(contexts->currentItem() != nullptr);
+        QCOMPARE(contexts->currentItem()->text(0), QString("1"));
+        //The stack and variables address the STOPPED context: the
+        //worker's run() frame and its loop counter.
+        QTreeWidget* stack = window.findChild<QTreeWidget*>("tvwDebugStack");
+        QTRY_VERIFY_WITH_TIMEOUT(
+            stack->topLevelItemCount() >= 1
+                && stack->topLevelItem(0)->text(1) == QString("run"),
+            10000);
+        QTreeWidget* vars = window.findChild<QTreeWidget*>("tvwDebugVars");
+        const auto hasLocal = [&vars](const char* name, const char* value) {
+            for (int i = 0; i < vars->topLevelItemCount(); ++i) {
+                const QTreeWidgetItem* item = vars->topLevelItem(i);
+                if (item->text(0) == QLatin1String(name)
+                    && item->text(2) == QLatin1String(value))
+                    return true;
+            }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(hasLocal("k", "50"), 10000);
+
+        //Continue: the program exits and the session teardown clears
+        //all three debug trees.
+        act(window, "actStartDebug")->trigger();  // F5 = Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(contexts->topLevelItemCount() == 0, 10000);
+        QCOMPARE(stack->topLevelItemCount(), 0);
+        QCOMPARE(vars->topLevelItemCount(), 0);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
+    //K5: clicking a context row switches the stack/variables/editor to
+    //that context AND arms it as the step target -- F10 on the selected
+    //PARKED context releases the others and stops it at its next
+    //statement after the recv wakes (selection-armed stepping, end to
+    //end through nide).
+    void testContextRowClickSwitchesViewAndSteps() {
+        clearBreakpointStore();  //before the ctor, which loads the store
+        MainWindow window;
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath("dbg_ctx.n");
+        writeFile(path, kDebugConcurrencySource);
+        inExec([&path] { acceptFileDialog(path); });
+        act(window, "actOpenFile")->trigger();
+        CodeEditor* code = currentCode(window);
+        QVERIFY(code != nullptr);
+        moveCursorToLine(code, 9);
+        act(window, "actToggleBreakpoint")->trigger();
+        act(window, "actStartDebug")->trigger();  // synchronous build
+
+        QTreeWidget* contexts =
+            window.findChild<QTreeWidget*>("tvwDebugContexts");
+        QVERIFY(contexts != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(contexts->topLevelItemCount() == 2, 30000);
+        QTreeWidget* stack = window.findChild<QTreeWidget*>("tvwDebugStack");
+        QTreeWidget* vars = window.findChild<QTreeWidget*>("tvwDebugVars");
+
+        //Click the parked main row. Invoked at slot level: this suite
+        //never shows the window, so a geometric click has no laid-out
+        //target to hit (the slot call still drives the full real chain
+        //of DebugClient -> ndb child -> events -> trees).
+        QMetaObject::invokeMethod(&window, "on_tvwDebugContexts_itemClicked",
+            Q_ARG(QTreeWidgetItem*, contexts->topLevelItem(0)),
+            Q_ARG(int, 0));
+        //Stack and variables re-address to context 0: main's frame and
+        //the parked recv's declared-unassigned local (int 0).
+        QTRY_VERIFY_WITH_TIMEOUT(
+            stack->topLevelItemCount() >= 1
+                && stack->topLevelItem(0)->text(1) == QString("dbg_ctx.main"),
+            10000);
+        const auto hasLocal = [&vars](const char* name, const char* value) {
+            for (int i = 0; i < vars->topLevelItemCount(); ++i) {
+                const QTreeWidgetItem* item = vars->topLevelItem(i);
+                if (item->text(0) == QLatin1String(name)
+                    && item->text(2) == QLatin1String(value))
+                    return true;
+            }
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(hasLocal("v", "0"), 10000);
+        //The editor jumped to main's parked statement (line 18).
+        QCOMPARE(currentCode(window)->textCursor().blockNumber(), 17);
+        //The status names the inspected context.
+        QVERIFY(window.findChild<QLabel*>("lblDebugStatus")->text()
+                    .contains(QLatin1String("Context 0")));
+
+        //Re-clicking the selected row is an idempotent refresh: main's
+        //one frame reloads exactly once (no ghost rows from a missed
+        //clear, no duplicate frames from a data echo).
+        QMetaObject::invokeMethod(&window, "on_tvwDebugContexts_itemClicked",
+            Q_ARG(QTreeWidgetItem*, contexts->topLevelItem(0)),
+            Q_ARG(int, 0));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            stack->topLevelItemCount() == 1
+                && stack->topLevelItem(0)->text(1) == QString("dbg_ctx.main"),
+            10000);
+
+        //F10 steps the selected parked context: the worker runs on and
+        //finishes, main wakes from recv and stops at line 19 -- the
+        //statement after the parked call -- and the marker follows the
+        //new stop back to context 0.
+        act(window, "actStepOver")->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            currentCode(window)->stoppedLine() == 19, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            contexts->currentItem() != nullptr
+                && contexts->currentItem()->text(0) == QString("0"),
+            10000);
+
+        //Continue to the exit: join returns at once (worker finished).
+        act(window, "actStartDebug")->trigger();  // F5 = Continue
+        QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
+        QVERIFY(status != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text() == MainWindow::tr("Exited (code 42)"), 30000);
+        QTRY_VERIFY(window.findChildren<DebugClient*>().isEmpty());
+    }
+
     void testStopButtonEndsInfiniteLoop() {
         clearBreakpointStore();  //before the ctor, which loads the store
         MainWindow window;
@@ -3537,7 +3715,7 @@ private slots:
             Q_ARG(QString, QStringLiteral("breakpoint")), Q_ARG(int, 1),
             Q_ARG(QString, QStringLiteral("dbg_dead.main")),
             Q_ARG(QString, path), Q_ARG(int, 6), Q_ARG(int, 1),
-            Q_ARG(int, 1)));
+            Q_ARG(int, 1), Q_ARG(int, 0)));
         QVERIFY(QMetaObject::invokeMethod(&window, "onDebugBreakpointBound",
             Q_ARG(int, 1), Q_ARG(QString, path), Q_ARG(int, 6),
             Q_ARG(bool, true)));

@@ -20,6 +20,10 @@
     "reason": "single-class VmExecutor declaration; C++ has no partial class, splitting would fragment the class"
   },
   {
+    "path": "src/tools/nide/MainWindow.h",
+    "reason": "single-class MainWindow declaration (Qt slot surface plus per-concern state); C++ has no partial class, splitting would fragment the class"
+  },
+  {
     "path": "src/compiler/CastInfo.cpp",
     "function": "TypeCastInfo::CalcCastKind",
     "reason": "cast-decision table over source/target kind pairs"
