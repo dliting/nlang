@@ -174,9 +174,20 @@
   fairly. Set the carrier count with `VmExecutor::SetCarrierThreadCount`
   (embedding hosts, default 1) or `nvm --carriers=N` (tool, at most 4 by
   default).
-- **Concurrency: pausing the debugger freezes every context**: a paused
-  debugger holds the GIL and every virtual thread freezes with it; `ndb`
-  pins a single carrier to keep stepping and breakpoints deterministic.
+- **Concurrency: multi-carrier scheduling order is unspecified**: a
+  single carrier (the library default) is the deterministic tier — the
+  same program produces the same interleaving on every run; with
+  multiple carriers, wake affinity reorders dequeuing by each context's
+  last carrier, so the interleaving is not guaranteed and program
+  correctness rests only on the `join`, channel, and mutex
+  happens-before edges. See [Concurrency](concurrency.md).
+- **Concurrency: a debugger pause is all-stop**: a paused debugger
+  holds the GIL and every virtual thread freezes with it; timer
+  expirations that fall due during the pause are migrated only after
+  the resume (time-frozen semantics), and the frames and locals of
+  parked contexts remain inspectable while stopped. `ndb` pins a single
+  carrier to keep stepping and breakpoints deterministic; multi-context
+  inspection is covered in [ndb](../cli-tools/ndb.md).
 - **Concurrency: no `await` keyword**: functions are not async-colored
   (see the model section in [Concurrency](concurrency.md));
   `Future.get()` is an honest blocking wait, and `thread.join` waits on
@@ -186,10 +197,6 @@
   current context and fill it yourself), and no `select`-style
   multi-way wait — for "whichever is ready first", spawn one waiter per
   source and converge through a channel.
-- **Concurrency: the debugger sees the main context only**: debug hooks
-  fire for main alone, and the call-stack and locals views reflect
-  main's frames; spawned threads execute straight past breakpoints and
-  statement steps.
 - **Concurrency: a spawned thread's failure surfaces only through
   `join`**: uncaught exceptions propagate to neither the host nor main —
   the failed context is contained, and joiners receive a rethrow of the

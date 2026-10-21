@@ -2,7 +2,7 @@
 
 NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that share a carrier pool and run one at a time under a global interpreter lock, not operating-system threads of their own. `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` and `Semaphore` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `Channel<T>`, `Future<T>`, and the other handle types are built-in classes that need no import.
 
-Scheduling is fully deterministic: carriers rotate contexts from a first-in-first-out (FIFO) queue, and a context yields only after exhausting a fixed back-edge quota (and only when another runnable context exists); `sleep` wakes in deadline order. The same program with the same inputs produces the same interleaving — tests assert order and final values, never durations.
+Scheduling determinism comes in tiers: under a single carrier (the library default) it is fully deterministic — a strict first-in-first-out (FIFO) rotation where a context yields only after exhausting a fixed back-edge quota (and only when another runnable context exists), so the same program with the same inputs produces the same interleaving; with multiple carriers, dequeuing applies wake affinity and the interleaving is unspecified (see [the GIL and multiple carriers](#the-gil-and-multiple-carriers)). `sleep` wakes in deadline order. Single-carrier tests may assert interleaving and final values; multi-carrier tests assert results after synchronization — never durations.
 
 ## The concurrency model: blocking style, no async coloring
 
@@ -38,15 +38,22 @@ and the GIL is reacquired before the native returns. A third-party
 native that does not declare its blocking section holds the GIL for the
 whole call and every carrier stalls.
 
-Determinism: the same program with the same input produces the same
-interleaving (FIFO queue plus a fixed back-edge budget), and changing
-the carrier count does not change the observable behavior of a program
-that never blocks natively — tests assert order and final values, never
-timing. `sleep` is a scheduling hint with a lower bound: once every
-carrier is parked, a sleeper wakes within the operating system's timer
-granularity (about 15.6 ms on Windows). A paused debugger holds the GIL
-and freezes every virtual thread (see
-[Known limitations](known-limitations.md)).
+Determinism in tiers: under a single carrier, the same program with the
+same input produces the same interleaving (FIFO queue plus a fixed
+back-edge budget). With multiple carriers, dequeuing applies **wake
+affinity** — a carrier scans a constant window at the head of the queue
+and prefers the context it last ran itself (a never-dispatched context
+counts as matching any carrier); if the window holds no match, the head
+dispatches. Affinity reorders which entry dispatches, for execution
+locality only, so the scheduling order is unspecified and changing the
+carrier count changes the interleaving; program correctness never rests
+on the interleaving — only on the `join`, channel, and mutex
+happens-before edges. Multi-carrier tests assert results after
+synchronization, never interleaving or durations. `sleep` is a
+scheduling hint with a lower bound: once every carrier is parked, a
+sleeper wakes within the operating system's timer granularity (about
+15.6 ms on Windows). A paused debugger holds the GIL and freezes every
+virtual thread (see [Known limitations](known-limitations.md)).
 
 ## The thread package
 

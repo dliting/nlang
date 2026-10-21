@@ -136,7 +136,8 @@ ndb <program.ncu|.npkg>   调试已编译的程序（像 gdb `start` 一样在
 当前帧的文件中解析；函数名按包限定，如 `utils.addBoth`），`i b` 列出断点，`d <id>` 删除，`c` 继续，
 `s`/`n`/`f` 单步进入/跳过/跳出，`bt` 回溯，`frame <n>` 选择帧，
 `info locals` 列出局部变量，`p <name>` 打印一个局部变量，
-`l [line]` 源码窗口，`x` 当前帧的反汇编，`catch on|off` 抛异常时
+`l [line]` 源码窗口，`x` 当前帧的反汇编，`threads` 列出全部上下文，
+`t <id>` 切换调试焦点，`catch on|off` 抛异常时
 中断（默认 off），`q` 退出——stdin EOF 等同 `q`。程序结束时 ndb
 打印 `Program exited with code N.` 并以同一退出码退出。
 

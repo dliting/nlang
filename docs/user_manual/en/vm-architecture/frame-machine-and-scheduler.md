@@ -27,7 +27,17 @@ Nested evaluation windows (`toString` evaluation, the embedding host's `call()`)
 
 The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, a channel receive, or a full-channel send; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
 
-- **Run queue**: first-in-first-out. The carrier loop repeatedly takes the head context and runs it until it returns, parks, or is preempted.
+- **Run queue**: first-in-first-out, with **wake affinity** on dequeue —
+  a carrier scans a constant window at the head of the queue (8 entries)
+  and prefers the context it last ran itself (a never-dispatched context
+  counts as matching any carrier); if the window holds no match, the
+  head dispatches. Under a single carrier every entry matches, so the
+  head is always taken and the queue degenerates to strict FIFO.
+  Carriers are numbered (the primary carrier is 0, auxiliary carriers
+  are 1..N); the scheduler keeps a lock-held registry of which context
+  each carrier currently holds, serving debug enumeration and the
+  affinity stamp. The carrier loop repeatedly takes a context and runs
+  it until it returns, parks, or is preempted.
 - **Timer list**: `thread.sleep` parkings are ordered by wake-up time; a dedicated timer thread (started on the first sleep) moves due sleepers back to the run queue, so a deadline is honored even when every carrier is parked or blocked in a native call.
 - **Context lifecycle**: `thread.spawn` mints the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
 - **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If the queue drains while main is still unfinished, the virtual machine reports a deadlock instead of spinning.
@@ -36,6 +46,6 @@ The scheduler keeps one record per context: identifier, state (runnable; parked 
 
 Parked frame stacks are part of the root set: parameters and the result slot are scanned through the declaration table, and every other frame slot — the evaluation staging area included — is scanned through the per-function handle bitmap. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
 
-## Debugger boundary
+## Debugger integration
 
-Debug hooks (statement callbacks, breakpoints, throw triggers) fire **for the main context only**: execution of spawned contexts passes the hooks silently. The debug view (call stack, local-variable inspection) likewise reflects only the context stopped in the debug session. This is a known K1 boundary — multi-context debugging belongs to a later stage (see the [known limitations](../language-spec/known-limitations.md)).
+Debug hooks (statement callbacks, breakpoints, throw triggers) fire **for every context**: a breakpoint hit, a step, or a thrown exception in any context stops the run, and the stop is all-stop — the debugger holds the GIL, every virtual thread freezes, and timer expirations that fall due during the pause are migrated only after the resume (time-frozen semantics). Statement stepping targets the **debug focus** context (`ndb` lists contexts with `threads` and switches focus with `t <id>`); stepping does not follow `thread.spawn` — a spawned context enters view through its own breakpoint hits. While stopped, any context can be inspected, parked ones included: frames and locals are enumerable and readable. Session details and the machine protocol are covered in the [debugger design](debugging.md).

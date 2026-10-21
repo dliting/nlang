@@ -6,6 +6,38 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.4] - 2026-10-21
+
+### Added
+
+- **Multi-context debugging** — debug hooks (statement callbacks,
+  breakpoints, throw triggers) now fire for every context, not main
+  alone: a hit in any context is an all-stop pause (the debugger holds
+  the GIL, every virtual thread freezes, and timer expirations that
+  fall due during the pause are migrated only after the resume).
+  `ndb` gained `threads` (list all contexts with state and location)
+  and `t <id>` (switch the debug focus that stepping targets);
+  `bt`/`frame`/`info locals` inspect the focused context, parked
+  frames included. The `--machine` protocol carries a `contextId` tail
+  field on stopped/frame events and new `contexts`/`context` commands
+  (protocol version 2).
+- **Wake affinity** — dequeuing now prefers locality: a carrier scans
+  a constant window at the head of the run queue and takes the
+  earliest context it last ran itself (a never-dispatched context
+  matches any carrier); if the window holds no match, the head
+  dispatches. Every dequeue consumes exactly one entry, so there is no
+  starvation; under a single carrier every entry matches and the queue
+  stays strictly FIFO.
+
+### Changed
+
+- **Multi-carrier scheduling order is unspecified**: the single-carrier
+  mode (the library default) is the deterministic tier — the same
+  program produces the same interleaving on every run; with multiple
+  carriers the interleaving depends on wake affinity and is not
+  guaranteed. Program correctness rests only on the `join`, channel,
+  and mutex happens-before edges.
+
 ## [0.10.3] - 2026-10-21
 
 ### Added

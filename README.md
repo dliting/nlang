@@ -144,7 +144,8 @@ package-qualified, e.g. `utils.addBoth`), `i b` list breakpoints,
 `d <id>` delete, `c` continue, `s`/`n`/`f` step into/over/out, `bt`
 backtrace, `frame <n>` select a frame, `info locals`, `p <name>` print
 one local, `l [line]` source window, `x` disassembly of the selected
-frame, `catch on|off` break on throw (default off), `q` quit — stdin EOF
+frame, `threads` list all contexts, `t <id>` switch the debug focus,
+`catch on|off` break on throw (default off), `q` quit — stdin EOF
 behaves like `q`. When the program finishes, ndb prints
 `Program exited with code N.` and exits with that same code.
 
