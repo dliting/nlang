@@ -97,8 +97,8 @@ bool ExprResolveAccessor::ResolveInitListTarget(SnInitListExpr &sn,
         //0.7.3 B token path: an
         //array-typed LHS carries the interned token; the init-list's
         //per-entry element gate consumes the ELEMENT (the node itself
-        //keeps the element contract — codegen's RegisterArrayType reads
-        //it directly).
+        //keeps the interned token — Access stores it at the mint point,
+        //0.9.13 D-new-1).
         if (pTargetField
             && pTargetField->Kind() == NK_ArrayTypeToken)
             pTargetField = static_cast<SnArrayTypeToken*>(
@@ -393,8 +393,9 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     //0.9.11 T7 (D6): arrays use the bracket form.
     if (RejectBraceArrayInitTarget(sn, bIsArray)) return;
 
-    sn.EvalDataType(pTargetField);
-    sn.TargetIsArray(bIsArray);
+    //0.9.13 D-new-1: array targets mint the interned array token.
+    sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
+        : pTargetField);
     sn.AddFlags(NF_Resolved);
 
     if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)

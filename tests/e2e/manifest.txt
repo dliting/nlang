@@ -1467,7 +1467,6 @@ err_multi_dim_decl compile_error Multi-dimensional arrays are not supported
 err_partial_init_overflow compile_error more than the declared size
 decl_sized_sibling 6
 err_func_anchor_ctor compile_error func types cannot be constructed
-err_init_list_diag_spelling compile_error init_list[2 entries]
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
 shadow_type_second_decl compile_error cannot be used as a variable name
@@ -1704,3 +1703,5 @@ err_implements_imported_interface_mismatch compile_error claims the virtual disp
 err_cross_mod_static_vs_virtual compile_error with a different signature "static f(Int32): Int32"
 err_cross_mod_private_virtual_claim compile_error does not implement the method "f(Int32): Int32" required by its inheritance contract
 cross_mod_private_virtual_ok 101
+infer_array_return 3
+list_intarr_boxing 3

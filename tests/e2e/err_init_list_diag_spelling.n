@@ -1,5 +1,0 @@
-//compile_error: array-return bare list is rejected; the diagnostic names the
-//init list with matched brackets (init_list[N entries] for the bracket form).
-int[] mk() { return [1, 2]; }
-
-int main() { return 0; }

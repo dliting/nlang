@@ -936,13 +936,6 @@ public:
 	SnField *InferredTarget() const { return m_pInferredTarget; }
 	void InferredTarget(SnField *pT) { m_pInferredTarget = pT; }
 
-	//Set by resolver when the target (explicit or inferred) is an array
-	//type. NLang represents `int[]` as a variable with element-type field
-	//and IsArrayType()==true; there is no standalone "array of T" type
-	//object. This flag preserves array-ness through to codegen.
-	bool TargetIsArray() const { return m_bTargetIsArray; }
-	void TargetIsArray(bool b) { m_bTargetIsArray = b; }
-
 	//Resolver write-back for the array-form element-type gate: after a
 	//FixupExprType wrap replaces an entry's child expression, the
 	//typed-slot mirror must point at the new SnCastExpr (Children() is
@@ -971,7 +964,6 @@ private:
 	std::vector<InitEntry>       m_entries;              //empty allowed
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
-	bool                         m_bTargetIsArray = false;     //resolver-set
 	SnFunction                  *m_pCtorFunction = nullptr;    //resolver-set, class form
 };
 

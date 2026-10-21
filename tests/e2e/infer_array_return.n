@@ -1,0 +1,6 @@
+public int[] make() { return [1, 2, 3]; }
+
+public int main() {
+    int[] a = make();
+    return a[2];
+}

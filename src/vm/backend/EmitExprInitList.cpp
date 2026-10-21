@@ -21,7 +21,7 @@ namespace nlang {
 
     //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
     //Dispatches on resolved EvalDataType:
-    //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
+    //  - Array (IsArrayValued(), interned token in EvalDataType): OP_AllocArray + per-element OP_StoreElement
     //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
     //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
 void VmBackend::Access(SnInitListExpr& expr) {
@@ -37,7 +37,8 @@ void VmBackend::Access(SnInitListExpr& expr) {
     }
 
     //---- Array form: target is T[] ----
-    if (initList.TargetIsArray()) {
+    //0.9.13 D-new-1: array-valued init lists carry the interned token.
+    if (initList.IsArrayValued()) {
         EmitInitListArray(initList, pTarget, emitter, resultOffset);
         return;
     }
@@ -74,14 +75,17 @@ void VmBackend::Access(SnInitListExpr& expr) {
     return;
 }
 
-//Arm: array form (TargetIsArray). For `int[] arr = [..]`, the resolver set
-//TargetIsArray=true and stored the ELEMENT type field in EvalDataType — the
-//init-list is deliberately not tokenized (0.7.3 B): RegisterArrayType below
-//consumes it as the element directly, and a token here would
-//register "array of array".
-void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
+//Arm: array form (IsArrayValued). For `int[] arr = [..]`, the resolver
+//stored the interned array token in EvalDataType (0.9.13 D-new-1):
+//RegisterArrayType below consumes the ELEMENT, peeled here — passing the
+//token itself would register "array of array".
+void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pArrayToken,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset) {
+    //Peel the element once: both the type registration and the per-entry
+    //struct deep-copy gate below consume the element, never the token.
+    SnField* pElemField =
+        static_cast<SnArrayTypeToken*>(pArrayToken)->ElemTypeOf();
     uint16_t arrayTypeIdx = RegisterArrayType(pElemField);
     int32_t n = static_cast<int32_t>(initList.Entries().size());
 
