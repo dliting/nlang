@@ -212,6 +212,12 @@ public:
     int SchedulerHeldContextOfCarrier(int carrierId) const {
         return m_spScheduler->HeldContextOfCarrier(carrierId);
     }
+    //GIL removal batch 1 (§7.2) white-box observability: is a native
+    //name in the registry (host table or pre-warmed module)? Pins the
+    //run-init prewarm invariant without forcing a call.
+    bool IsNativeRegistered(const std::string& name) const {
+        return m_natives.count(name) != 0;
+    }
 
     //K2 slice 2 (plan ruling P1): carrier-thread count for the next run —
     //1 means the Execute thread alone (the library default: an embedding
@@ -1088,6 +1094,11 @@ private:
     //Name → host function table for native calls. The flag carries the
     //K2 slice 4 blocking declaration (registration channel); non-blocking
     //natives run with the GIL held as before.
+    //GIL removal batch 1 (§7.2) invariant: while frames execute this
+    //table is read-only. Writes belong to registration time — host
+    //RegisterNative* before the run, and the run-init prewarm in
+    //InitializeForRun (which tolerates unavailable modules so the
+    //first call keeps its lazy diagnostic).
     struct NativeEntry {
         NativeFn fn = nullptr;
         bool blocking = false;

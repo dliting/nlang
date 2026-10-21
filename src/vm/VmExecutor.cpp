@@ -129,6 +129,23 @@ void VmExecutor::InitializeForRun(const CompiledModule& module) {
     ResetPerRunState(module);
     InitStringStore(module);
     InitStructHeap();
+    //GIL removal batch 1 (§7.2): pre-warm the native registry so the
+    //module table stays read-only while frames execute — every native
+    //the merged module declares is resolved here, at run init. A native
+    //whose module is unavailable must keep its exact lazy failure at
+    //the first call: the loader does not cache failures, so the attempt
+    //the call re-makes throws the identical diagnostic. CallNative's
+    //lazy path stays as that cold fallback.
+    for (const CompiledFunction& fn : module.functions) {
+        if (!fn.isNative)
+            continue;
+        try {
+            EnsureNativeAvailable(fn.name);
+        } catch (const std::exception&) {
+            //Tolerated by design (see above): the first call re-attempts
+            //and reports.
+        }
+    }
 }
 
 int VmExecutor::Execute(const CompiledModule& module) {
