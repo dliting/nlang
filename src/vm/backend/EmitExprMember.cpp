@@ -92,10 +92,12 @@ static bool IsValueFuncRefShape(SnField& field, SnMemberExpr& member) {
 
 //v2.2: module-qualified free-function reference (`lib.seven`): the
 //function is owned by a namespace — or by nothing at all for a detached
-//imported stub. These carry no receiver, unlike the bound-method form.
+//imported stub. 0.9.14 D-new-3: a static method carries no receiver
+//either and takes the same bare OP_MakeFunc form.
 static bool IsReceiverlessFuncRefTarget(SnField& field) {
     auto* owner = field.Parent();
-    return owner == nullptr || owner->Kind() == NK_Namespace;
+    return owner == nullptr || owner->Kind() == NK_Namespace
+        || field.ContainFlags(NF_Static);
 }
 
 //Compile-time constant read phase: an enum member constant (Color.Red)

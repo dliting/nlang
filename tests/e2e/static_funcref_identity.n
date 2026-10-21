@@ -1,0 +1,16 @@
+//0.9.14: two references to the same static method are equal (handle
+//content equality) and render the bare table key ("func <name>").
+class B {
+    public static int f(int x) { return x * 2; }
+}
+
+int main() {
+    func<int, int> h = B.f;
+    func<int, int> g = B.f;
+    int r = 0;
+    if (h == g)
+        r += 20;
+    if (h.toString() == "func f")
+        r += 20;
+    return r;
+}

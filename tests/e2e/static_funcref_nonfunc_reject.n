@@ -1,0 +1,11 @@
+//0.9.14 D-new-6: a static method reference in a non-func position gets
+//the module-form wording, exactly once (the end-of-build sweep stays
+//silent after an error).
+class B {
+    public static int f(int x) { return x * 2; }
+}
+
+int main() {
+    int x = B.f;
+    return x;
+}

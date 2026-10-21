@@ -128,26 +128,6 @@ SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 	return nullptr;
 }
 
-//0.9.10 D2.4: type-name receiver, method in a value position — never a
-//legal form: an instance method is the wrong namespace, and the static
-//value form is unsupported this version (plan Task 8 Step 3, recorded
-//in known-limitations). The static-namespace search picks the message
-//(it owns the name for a type-name receiver). Always rejects.
-bool ExprResolveAccessor::RejectTypeNameMethodValue(SnIdentifierExpr &idExpr)
-{
-	if (FindMethodInNamespace(m_pContext, idExpr.Name(), true))
-		m_Env.Log(CLL_Error, idExpr.Location(),
-			"cannot reference the static method \"%s\": static methods "
-			"must be called directly.",
-			idExpr.Name().c_str());
-	else
-		m_Env.Log(CLL_Error, idExpr.Location(),
-			"the instance method \"%s\" must be called through a receiver "
-			"object.",
-			idExpr.Name().c_str());
-	return false;
-}
-
 //0.9.10 D2.4: the member VALUE channel (receiver.name with no invoke)
 //gets the same namespace split as calls. Called from
 //Access(SnIdentifierExpr) once the plain search bound the inner name —
@@ -165,7 +145,26 @@ bool ExprResolveAccessor::ApplyReceiverNamespaceFilter(
 	if (OuterIsNamespaceQualifier(pOuter))
 		return true;
 	if (ReceiverNamesType(pOuter))
-		return RejectTypeNameMethodValue(idExpr);
+	{
+		//0.9.14 D-new-1: the type-name receiver sees the static namespace,
+		//symmetric with the value receiver below — a static method binds as
+		//a receiverless function value. An own instance method gives way to
+		//the inherited static (AllowAccess gates the rebind;
+		//FindMethodInNamespace does not).
+		if (rpField->ContainFlags(NF_Static))
+			return true;
+		auto *pStatic = FindMethodInNamespace(m_pContext, idExpr.Name(), true);
+		if (pStatic && pStatic->AllowAccess(*m_pAccessor))
+		{
+			rpField = pStatic;
+			return true;
+		}
+		m_Env.Log(CLL_Error, idExpr.Location(),
+			"the instance method \"%s\" must be called through a receiver "
+			"object.",
+			idExpr.Name().c_str());
+		return false;
+	}
 	if (!rpField->ContainFlags(NF_Static))
 		return true;
 	//Value receiver: the instance namespace is the only one it sees — a

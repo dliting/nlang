@@ -1,0 +1,13 @@
+//0.9.14 D-new-1: an own instance method shadowing an inherited static —
+//the type-name receiver sees the static namespace and rebinds.
+class Base {
+    public static int twice(int x) { return x * 2; }
+}
+class Derived : Base {
+    public int twice(int x) { return x + 1; }
+}
+
+int main() {
+    func<int, int> h = Derived.twice;
+    return h(21);
+}

@@ -1,0 +1,13 @@
+//0.9.14 D-new-1: an inherited static method is referenceable through
+//the derived type name.
+class Base {
+    public static int twice(int x) { return x * 2; }
+}
+class Derived : Base {
+    public int tag;
+}
+
+int main() {
+    func<int, int> h = Derived.twice;
+    return h(21);
+}

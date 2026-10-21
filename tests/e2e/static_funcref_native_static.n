@@ -1,0 +1,11 @@
+//0.9.14 D-new-4: a native static method is referenceable — the free
+//delegate ABI reads its arguments from the caller's cells, and the VM
+//keys class-member natives by bare name.
+class B {
+    public static native int natConst();
+}
+
+int main() {
+    func<int> h = B.natConst;
+    return h();
+}

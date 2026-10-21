@@ -383,10 +383,6 @@ private:
 	bool ApplyReceiverNamespaceFilter(SnIdentifierExpr &idExpr,
 		SnField *&rpField);
 
-	//0.9.10 D2.4: type-name receiver + method value position — the
-	//always-reject arm of ApplyReceiverNamespaceFilter. False = rejected.
-	bool RejectTypeNameMethodValue(SnIdentifierExpr &idExpr);
-
 	//0.9.10 D3.4: an interface constant is referenced only through the
 	//qualified `I.NAME` member form. True = the bare binding was
 	//rejected with the qualification hint.

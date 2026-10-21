@@ -192,14 +192,16 @@ static bool HasNativeMethodOverride(SnFunction &method)
 	return false;
 }
 
-//Module-qualified free-function reference (`lib.seven` in a value
-//position): the owner test is the shared IsModuleOwnedFunction
-//(ExprResolver.h). These bind through the same member channel as method
-//references but carry no receiver and always take the static OP_MakeFunc
-//form.
+//Receiverless function reference: a module-qualified free function
+//(`lib.seven` in a value position, owner test IsModuleOwnedFunction) or
+//a static method (`B.f` through the type name, bare `f` inside the
+//owning class — 0.9.14 D-new-3). These bind through the same member
+//channel as method references but carry no receiver and always take the
+//static OP_MakeFunc form.
 static bool IsReceiverlessFuncRefTarget(SnFunction *pFunc)
 {
-	return IsModuleOwnedFunction(*pFunc);
+	return IsModuleOwnedFunction(*pFunc)
+		|| pFunc->ContainFlags(NF_Static);
 }
 
 //Form gates of BindMemberFuncRefToExpected: the expected type must be a

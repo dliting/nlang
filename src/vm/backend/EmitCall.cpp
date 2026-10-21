@@ -229,26 +229,31 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
     //Unresolved invoke — fall back to legacy positional emit.
     //Phase 13 Step 2: out arguments in this path are delegate calls
     //binding to a func signature (the resolver already checked the
-    //out markers). The callee fills the slot and the executor's
-    //outMask write-back refreshes it — emit nothing here, just
-    //record the spill so the post-call write-back reaches the
-    //caller's local (mirrors the binding-path OutSpill fill).
+    //out markers). 0.9.14 D-new-9: the out argument's inner
+    //identifier is emitted into the slot like any other argument —
+    //the documented inout contract seeds the callee with the
+    //caller's current value, matching the direct-call binding path
+    //(EmitBinding stages the caller expression). The spill below
+    //still records the write-back target for the post-call refresh.
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
-        if (param.Kind() == NK_OutArgExpr && pOutSpills) {
+        uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
+        if (param.Kind() == NK_OutArgExpr) {
             auto& outArg = static_cast<SnOutArgExpr&>(param);
             if (!outArg.Inner()
                 || outArg.Inner()->Kind() != NK_IdentifierExpr)
                 throw std::runtime_error(
                     "NLang backend: out argument is not a local variable");
-            auto target = ResolveBareIdentifier(
-                static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
-            if (target.kind != BareIdTarget::Local)
-                throw std::runtime_error(
-                    "NLang backend: out argument is not a local variable");
-            pOutSpills->push_back({paramIdx, target.localOffset});
+            EmitExpression(*outArg.Inner(), emitter, paramOffset);
+            if (pOutSpills) {
+                auto target = ResolveBareIdentifier(
+                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
+                if (target.kind != BareIdTarget::Local)
+                    throw std::runtime_error(
+                        "NLang backend: out argument is not a local variable");
+                pOutSpills->push_back({paramIdx, target.localOffset});
+            }
         } else {
-            uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
             EmitExpression(param, emitter, paramOffset);
             applyBox(paramIdx);
         }

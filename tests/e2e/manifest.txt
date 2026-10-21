@@ -1129,7 +1129,7 @@ func_bound_interface 42
 func_bound_field_store 11
 func_bound_null_receiver 1
 func_bound_null_virtual 1
-func_out_basic 7
+func_out_basic 10
 func_out_bound 45
 func_out_second_position 18
 func_gc_stress 14
@@ -1565,7 +1565,7 @@ static_enum_tostring_reject compile_error must be called through a receiver obje
 static_native_func_ref 6
 static_funcref_value_shadow 6
 static_funcref_via_object_reject compile_error the static method "f" must be called through the type name
-static_funcref_typename_reject compile_error cannot reference the static method
+static_funcref_typename 10
 static_funcref_typename_instance_reject compile_error must be called through a receiver object
 
 # --- 0.9.10: interface static const constants (D3) ---
@@ -1716,3 +1716,18 @@ empty_array_arg 0
 nested_brace 3
 err_generic_anchor_brace compile_error syntax error
 err_bracket_receiver compile_error requires an explicit type
+
+# --- 0.9.14: static method function references (D-new-1..D-new-8) ---
+static_funcref_iface 42
+static_funcref_native_static 77
+static_funcref_hof_arg 42
+static_funcref_inherited 42
+static_funcref_out_param 23
+static_funcref_identity 40
+static_funcref_void 42
+static_funcref_typename_shadow 42
+static_funcref_this_static_reject compile_error the static method "f" must be called through the type name
+static_funcref_nonfunc_reject compile_error function reference "f" requires an expected function type.
+static_funcref_default_reject compile_error functions with default parameters cannot be referenced: "f".
+static_funcref_sig_reject compile_error function "f" does not match the signature of
+static_funcref_private_reject compile_error Cannot resolve the field: f

@@ -1,0 +1,15 @@
+//0.9.14 D-new-5: `this.f` is a value receiver — a static method stays
+//rejected with the type-name hint.
+class B {
+    public static int f(int x) { return x * 2; }
+
+    int go() {
+        func<int, int> h = this.f;
+        return h(1);
+    }
+}
+
+int main() {
+    B b = B();
+    return b.go();
+}
