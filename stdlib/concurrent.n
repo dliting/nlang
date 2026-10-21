@@ -1,0 +1,69 @@
+// Standard library source for the "concurrent" package — pure NLang
+// concurrency utilities built on the kernel primitives (thread, Mutex,
+// Channel). No native backing: everything here is ordinary NLang code.
+
+// Counts outstanding units of work; wait() blocks the calling virtual
+// thread until the counter reaches zero. Contract (Go WaitGroup shape):
+// add() must happen before wait(), and every added unit calls done()
+// exactly once — a done() without a matching add() releases waiters
+// early, an add() without done()s parks them at the deadlock guard.
+class WaitGroup {
+    private int m_pending;
+    private Channel<int> m_done;
+
+    public int WaitGroup() {
+        this.m_pending = 0;
+        this.m_done = Channel(0);
+        return 0;
+    }
+
+    public void add(int n) {
+        m_pending = m_pending + n;
+    }
+
+    public void done() {
+        m_pending = m_pending - 1;
+        m_done.send(1);
+    }
+
+    public void wait() {
+        while (m_pending > 0) {
+            m_done.recv();
+        }
+    }
+}
+
+// Counting semaphore. acquire() spins with cooperative yields while the
+// count is zero (the kernel has no condition variables yet, so a parked
+// waiter cannot be woken by release()); release() returns one permit.
+class Semaphore {
+    private int m_count;
+    private Mutex m_mtx;
+
+    public int Semaphore(int initial) {
+        this.m_count = initial;
+        this.m_mtx = Mutex();
+        return 0;
+    }
+
+    public void acquire() {
+        bool granted = false;
+        while (!granted) {
+            m_mtx.lock();
+            if (m_count > 0) {
+                m_count = m_count - 1;
+                granted = true;
+            }
+            m_mtx.unlock();
+            if (!granted) {
+                thread.yield();
+            }
+        }
+    }
+
+    public void release() {
+        m_mtx.lock();
+        m_count = m_count + 1;
+        m_mtx.unlock();
+    }
+}

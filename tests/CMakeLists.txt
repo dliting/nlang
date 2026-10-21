@@ -607,6 +607,30 @@ target_compile_definitions(test_threads
 
 add_test(NAME threads_tests COMMAND test_threads)
 
+# K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
+# behavior tests — same harness shape as test_threads.
+add_executable(test_stdlib_concurrency
+    test_vm/test_stdlib_concurrency.cpp
+)
+target_include_directories(test_stdlib_concurrency
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_stdlib_concurrency
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_stdlib_concurrency)
+target_compile_definitions(test_stdlib_concurrency
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stdlib_concurrency_tests COMMAND test_stdlib_concurrency)
+
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
