@@ -20,6 +20,7 @@
 #include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -2721,12 +2722,14 @@ static int runWithCarriers(const std::string& tag, const std::string& source,
     return rc;
 }
 
-//K2 INV-3：FIFO 队列＋GIL＋「取队与执行同一持有窗口」⇒ 上下文的执行
-//窗口序只由出队序决定，与载体数无关。同一程序在 1 载体与 4 载体下输出
-//必须逐字节一致；4 载体重复运行若干次以覆盖窗口竞争的唤醒顺序差异。
-static void test_carrier_count_deterministic_parity()
+//K4 D8（原 INV-3 降级为单载体确定性档）：单载体（含库嵌入默认 1 载
+//体）的窗口序确定——同一程序重复运行输出逐字节一致；多载体下调度顺
+//序未指定（唤醒亲和按 lastRunner 重排），程序正确性只依赖 join/
+//channel/mutex 的 happens-before。对拍：单载体重复运行逐字节一致；
+//多载体重复运行须完成且输出为同一多重集（顺序无关）。
+static void test_single_carrier_deterministic_multi_unspecified()
 {
-    TEST(carrier_count_deterministic_parity);
+    TEST(single_carrier_deterministic_multi_unspecified);
     const char* src =
         "import thread;\n"
         "import io;\n"
@@ -2763,13 +2766,29 @@ static void test_carrier_count_deterministic_parity()
               && out1.find("bb") == std::string::npos,
           "quota 1 truly interleaves under a single carrier (got: "
           + out1 + ")");
+    //单载体确定性档：重复运行逐字节一致。
+    for (int round = 0; round < 3; ++round) {
+        std::string outRepeat;
+        CHECK(runWithCarriers("carrier_parity_1", src, 1, outRepeat) == 0,
+              "single-carrier repeat run completes");
+        CHECK(outRepeat == out1,
+              "single-carrier window order is deterministic across runs "
+              "(got: " + outRepeat + ", want: " + out1 + ")");
+    }
+    //多载体：完成＋同一多重集；顺序未指定（不再逐字节对拍）。
+    std::string sorted1 = out1;
+    std::sort(sorted1.begin(), sorted1.end());
     for (int round = 0; round < 5; ++round) {
         std::string out4;
         const int rc4 = runWithCarriers("carrier_parity_4", src, 4, out4);
         CHECK(rc4 == 0, "four carriers complete the program");
-        CHECK(out4 == out1,
-              "INV-3: output is byte-identical across carrier counts (got: "
-              + out4 + ", want: " + out1 + ")");
+        std::string sorted4 = out4;
+        std::sort(sorted4.begin(), sorted4.end());
+        CHECK(sorted4 == sorted1,
+              "multi-carrier output is a permutation of the single-"
+              "carrier output — order is unspecified, the join "
+              "happens-before still guarantees every iteration ran (got: "
+              + out4 + ", single: " + out1 + ")");
     }
     PASS();
 }
@@ -3014,6 +3033,114 @@ static void test_timer_wake_under_multi_carrier()
     CHECK(pb < p2,
           "the busy worker finished inside the sleep window (got: " + out
           + ")");
+    PASS();
+}
+
+// --- K4 Task 4（lastRunner 唤醒亲和，队首常数窗 D7）---
+
+//偏好出队（调度器白盒）：队首常数窗内，载体优先取 lastCarrier==自己
+//的最早项——越过非偏好队首（纯 FIFO 会返回队首）。戳经真实分派盖
+//（DispatchedToCarrier 是唯一落账点），同一线程换装不同载体编号纯为
+//白盒模拟「另一载体先前跑过它」。
+static void test_affinity_prefers_last_runner()
+{
+    TEST(affinity_prefers_last_runner);
+    VmScheduler sched;
+    sched.ConfigureCarriers(2);
+    sched.InstallSelfCarrier(0);
+    std::unique_lock<std::mutex> gil(sched.Gil());
+    CHECK(sched.RegisterContext() == 0, "main registers as id 0");
+    CHECK(sched.RegisterContext() == 1, "worker 1 registers");
+    CHECK(sched.RegisterContext() == 2, "worker 2 registers");
+    //载体 0 连续分派全部三个上下文（队首恒为无偏好 255 → 窗内最早
+    //命中即队首，纯 FIFO 不变），全部盖上载体 0 的戳。
+    CHECK(sched.PopNextRunnable(gil) == 0, "carrier 0 dispatches 0");
+    CHECK(sched.PopNextRunnable(gil) == 1, "carrier 0 dispatches 1");
+    CHECK(sched.PopNextRunnable(gil) == 2, "carrier 0 dispatches 2");
+    sched.Requeue(0);
+    sched.Requeue(1);   //queue [0(c0), 1(c0)]
+    //载体 1 分派队首 0（窗内无自己的戳，回退队首）——0 改盖载体 1 戳。
+    sched.InstallSelfCarrier(1);
+    CHECK(sched.PopNextRunnable(gil) == 0,
+          "carrier 1 falls back to the head (no own stamp in window)");
+    sched.Requeue(0);   //queue [1(c0), 0(c1)]
+    //偏好分派：载体 1 的窗扫描命中位置 1 的 0(c1)——越过队首 1(c0)。
+    //纯 FIFO（与未实现亲和的现状）返回 1；亲和实现必须返回 0。
+    CHECK(sched.PopNextRunnable(gil) == 0,
+          "carrier 1 takes its own previously-run context, jumping the "
+          "head stamped for another carrier");
+    PASS();
+}
+
+//K 窗有界（D7）：偏好扫描只覆盖队首 AFFINITY_SCAN_WINDOW 项——自己
+//的戳落在窗口之外（位置 8，前缀 8 项全是他载体戳）时必须回退队首；
+//无界扫描实现会越过前缀取到它。命中计数同时钉观察面。
+static void test_affinity_window_fallback()
+{
+    TEST(affinity_window_fallback);
+    VmScheduler sched;
+    sched.ConfigureCarriers(2);
+    sched.InstallSelfCarrier(0);
+    std::unique_lock<std::mutex> gil(sched.Gil());
+    for (int id = 0; id < 10; ++id)
+        CHECK(sched.RegisterContext() == id, "context registers in id order");
+    //载体 0 逐个分派全部 10 个上下文（全为无偏好 255 → 恒取队首），
+    //全部盖上载体 0 的戳。
+    for (int id = 0; id < 10; ++id)
+        CHECK(sched.PopNextRunnable(gil) == id,
+              "carrier 0 drains the queue in FIFO order");
+    //重建队列 [1..8](c0 戳)，随后载体 1 分派队首 1（回退）——被盖 c1
+    //戳的是 1。再回队 9(c0) 与 1(c1)：[2..8, 9, 1(c1)]，自己的戳落在
+    //位置 8（第 9 项，窗口外）。
+    for (int id = 1; id <= 8; ++id)
+        sched.Requeue(id);              //queue [1..8] all c0
+    sched.InstallSelfCarrier(1);
+    CHECK(sched.PopNextRunnable(gil) == 1,
+          "carrier 1 falls back to the head (window holds no own stamp)");
+    sched.Requeue(9);                   //queue [2..8, 9] all c0
+    sched.Requeue(1);                   //queue [2..8, 9, 1(c1)]
+    CHECK(sched.AffinityMisses() >= 2,
+          "fallback dispatches are observable in the miss counter");
+    //窗口覆盖位置 0..7（8 项）：[2..8, 9] 全是 c0 戳，1(c1) 在位置 8
+    //——窗口之外，必须回退队首 2；无界扫描会越过前缀取到 1。
+    CHECK(sched.PopNextRunnable(gil) == 2,
+          "an own-stamped entry beyond the 8-entry window is NOT taken; "
+          "the head dispatches instead");
+    CHECK(sched.AffinityHits() == 0,
+          "carrier 1 never exercised affinity before the window slid");
+    //窗口随消费滑动：队首 2 被取走后 1(c1) 进入窗内（位置 7），下次
+    //出队必须命中越队取它——位次 ≥ 窗口的项在前项被消费后即可及。
+    CHECK(sched.PopNextRunnable(gil) == 1,
+          "the own-stamped entry enters the window once the head is "
+          "consumed — affinity takes it");
+    CHECK(sched.AffinityHits() == 1,
+          "the sliding-window hit is observable in the hit counter");
+    PASS();
+}
+
+//单载体恒等纯 FIFO（D7 退化论证＋D8 确定性档）：无偏好项（255）视作
+//匹配任意扫描者——单载体下一切项都命中，最早命中恒为队首。钉板：
+//从未分派的上下文排在队首、已盖戳项在其后时，单载体必须取队首（仅
+//精确匹配的实现会越过它取到后面的已戳项）。
+static void test_affinity_single_carrier_fifo_identity()
+{
+    TEST(affinity_single_carrier_fifo_identity);
+    VmScheduler sched;
+    sched.ConfigureCarriers(1);
+    sched.InstallSelfCarrier(0);
+    std::unique_lock<std::mutex> gil(sched.Gil());
+    CHECK(sched.RegisterContext() == 0, "context 0 registers");
+    CHECK(sched.RegisterContext() == 1, "context 1 registers");
+    CHECK(sched.PopNextRunnable(gil) == 0, "context 0 dispatches (stamp c0)");
+    CHECK(sched.PopNextRunnable(gil) == 1, "context 1 dispatches (stamp c0)");
+    CHECK(sched.RegisterContext() == 2,
+          "context 2 registers after the queue drained (255, no stamp)");
+    sched.Requeue(0);   //queue [2(255), 0(c0)]
+    CHECK(sched.PopNextRunnable(gil) == 2,
+          "the never-dispatched head dispatches — single carrier stays "
+          "pure FIFO (exact-match-only affinity would jump it to 0)");
+    CHECK(sched.PopNextRunnable(gil) == 0,
+          "the stamped entry follows in FIFO order");
     PASS();
 }
 
@@ -3325,12 +3452,15 @@ int main()
     try {
         test_concurrent_global_init();
         test_executor_reuse_two_runs();
-        test_carrier_count_deterministic_parity();
+        test_single_carrier_deterministic_multi_unspecified();
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
         test_debug_focus_exclusive_dispatch();
         test_debug_focus_held_wait();
         test_held_context_mirror_reset_after_run();
+        test_affinity_prefers_last_runner();
+        test_affinity_window_fallback();
+        test_affinity_single_carrier_fifo_identity();
         test_timer_wake_under_multi_carrier();
         test_aux_carrier_error_confluence();
         runGuarded(test_blocking_native_releases_gil);

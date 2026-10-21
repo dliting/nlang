@@ -39,6 +39,11 @@ namespace nlang {
 //回边配额（决策 5）：每 N 次回边安全点允许一次调度决策。
 constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
 
+//K4 唤醒亲和（D7）：出队偏好扫描只看队首常数窗——窗口内找得到自己
+//跑过的上下文就取它，否则回退队首；O(1) 摊还（每载体每次出队至多
+//多扫 8 项），每次出队恰消费一项故无饥饿。
+constexpr size_t AFFINITY_SCAN_WINDOW = 8;
+
 //挂起/抢占信号（决策 2 F1，零新操作码）。刻意不继承 std::exception：
 //它不是错误，任何按 std::exception 捕获的位点不得拦截；RunFrames 的
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
@@ -130,8 +135,10 @@ struct ExecutionContext {
     //ArmResumeRethrow 直取；join 失败重抛不走此字段，仍按 parkHandle
     //取目标 failExcHeapIdx）。
     int32_t resumeExcHeapIdx = 0;
-    //K4：最近一次分派本上下文的载体编号（255 = 从未分派）。唤醒亲和
-    //（lastRunner 偏好）在分派时盖戳、出队时消费；Task 1 只落字段。
+    //K4：最近一次分派本上下文的载体编号（255 = 从未分派）。分派时盖
+    //戳；出队偏好扫描把它当「匹配自己」消费，255（无偏好）匹配任意
+    //扫描者——单载体下一切项都命中，最早命中恒为队首，严格退化为纯
+    //FIFO。
     uint8_t lastCarrier = 255;
 };
 
@@ -304,6 +311,11 @@ public:
     //线程在 RegisterContext（主载体专属路径）时记录。
     int AuxDispatchCount() const { return m_auxDispatchCount; }
 
+    //K4：亲和观察计数（白盒）。命中＝出队取到的项恰盖本载体戳（亲和
+    //真实生效）；未命中＝取到无偏好项（255）或窗口耗尽回退队首。
+    size_t AffinityHits() const { return m_affinityHits; }
+    size_t AffinityMisses() const { return m_affinityMisses; }
+
     //K4：登记载体数并给集中登记表定容（主载体路径 RunPrimaryCarrier
     //在池启动前调用——单线程时点，无并发定容竞争；每 run 重申）。
     //镜像表按载体编号下标存「该载体当前持有的上下文」（-1 = 空闲），
@@ -399,6 +411,10 @@ private:
     //（false = 关停，调用方须退出出队循环）。
     int TryStealFocusedRunnable();
     bool WaitForHeldFocus(std::unique_lock<std::mutex>& gil);
+    //K4：亲和出队（须持 GIL、队列非空）——常规分派臂的取项策略。
+    //队首 AFFINITY_SCAN_WINDOW 窗内取最早的「lastCarrier==自己 或
+    //255（从未分派，无偏好）」项，未命中回退队首。
+    int PopAffinity();
 
     //把 wakeAt 已到的 ParkedTimer 上下文迁回 Runnable 入队尾；状态已变
     //的陈旧条目直接丢弃（K1 无取消路径，防御后续切片）。
@@ -438,6 +454,8 @@ private:
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
+    size_t m_affinityHits = 0;                 //亲和出队命中（白盒观测）
+    size_t m_affinityMisses = 0;               //亲和出队回退（白盒观测）
     //K4：调试焦点（D2；-1 = 无）与载体→当前上下文集中登记表（按载体
     //编号下标；-1 = 空闲）。全部读写都在 GIL 内。
     int m_debugFocusContext = -1;

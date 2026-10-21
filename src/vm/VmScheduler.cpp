@@ -91,6 +91,35 @@ bool VmScheduler::WaitForHeldFocus(std::unique_lock<std::mutex>& gil) {
     return !m_stopRequested;
 }
 
+//K4：亲和出队（须持 GIL、队列非空）。队首 AFFINITY_SCAN_WINDOW 窗内
+//取最早的「lastCarrier==自己 或 255（从未分派，无偏好→匹配任意扫描
+//者）」项；未命中回退队首。255 记作全匹配让单载体严格退化为纯 FIFO：
+//唯一载体的戳非 0 即 255，一切项都命中，最早命中恒为队首。每次出队
+//恰消费一项，位次 ≥ 窗口的项只有在前项被消费后才可及——无饥饿。
+int VmScheduler::PopAffinity() {
+    const uint8_t self =
+        static_cast<uint8_t>(t_carrier->carrierId);
+    const size_t window = m_runQueue.size() < AFFINITY_SCAN_WINDOW
+        ? m_runQueue.size() : AFFINITY_SCAN_WINDOW;
+    auto it = m_runQueue.begin();
+    for (size_t i = 0; i < window; ++i, ++it) {
+        const ExecutionContext* ctx = Find(*it);
+        if (ctx->lastCarrier == 255 || ctx->lastCarrier == self) {
+            const int id = *it;
+            m_runQueue.erase(it);
+            if (ctx->lastCarrier == self)
+                ++m_affinityHits;
+            else
+                ++m_affinityMisses;
+            return id;
+        }
+    }
+    ++m_affinityMisses;
+    const int id = m_runQueue.front();
+    m_runQueue.pop_front();
+    return id;
+}
+
 int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     for (;;) {
         //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
@@ -111,8 +140,7 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
             }
         }
         if (!m_runQueue.empty()) {
-            const int id = m_runQueue.front();
-            m_runQueue.pop_front();
+            const int id = PopAffinity();
             DispatchedToCarrier(id);
             return id;
         }
@@ -131,9 +159,12 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
     }
 }
 
-//K4：分派落账（须持 GIL）。辅助载体计数沿旧位（出队即记）。
+//K4：分派落账（须持 GIL）。辅助载体计数沿旧位（出队即记）；唤醒亲
+//和的 lastCarrier 戳在此盖（焦点窃取与常规出队共用本位点）。
 void VmScheduler::DispatchedToCarrier(int id) {
     t_carrier->currentContextId = id;
+    if (ExecutionContext* ctx = FindMutable(id))
+        ctx->lastCarrier = static_cast<uint8_t>(t_carrier->carrierId);
     if (t_carrier->carrierId >= 0
         && static_cast<size_t>(t_carrier->carrierId)
                < m_heldByCarrier.size())
