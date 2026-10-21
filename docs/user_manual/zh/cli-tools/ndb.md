@@ -19,6 +19,8 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 | `s` | step | 单步进入 |
 | `n` | next | 单步越过 |
 | `f` | finish | 步出当前函数 |
+| `threads` | — | 列出全部上下文（状态/位置） |
+| `t <id>` | thread | 切换检查上下文 |
 | `bt` | backtrace | 调用栈 |
 | `frame <n>` | — | 选择帧 |
 | `info locals` | info | 所选帧的局部变量（合成名过滤；接收者以`this`显示） |
@@ -57,6 +59,30 @@ Program exited with code 0.
 （函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的[包](../language-spec/packages.md)。）
 
 程序跑完时ndb打印`Program exited with code N.`并以同一个退出码退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
+
+## 多上下文调试
+
+`thread.spawn`派生的并发上下文同样受调试器管辖：任何上下文命中断点或throw都会全停（所有载体冻结）。`threads`每个上下文一行：焦点标记（`*`）、编号、调度状态（被执行窗口持有时带`@载体`后缀——正在执行与排队等待分派由此区分）、最内层帧位置；已结束的上下文没有帧，只显示编号与状态。`t <id>`把检查焦点切到指定上下文，`bt`/`frame`/`info locals`/`p`/`l`/`x`随之作用于该上下文，停泊中的帧（如等待通道接收）照常可查；每次停机焦点自动回到停机上下文。步进命令始终以停机上下文为目标——`t`只重定向检查，不改变步进对象。
+
+```console
+$ ndb dbg_threads.ncu
+Stopped: dbg_threads.main (dbg_threads.n:11)
+(ndb) b 6
+Breakpoint 1 at run (dbg_threads.n:6)
+(ndb) c
+Breakpoint 1, run (dbg_threads.n:6)
+(ndb) threads
+  0  parked-chan-recv  dbg_threads.main (dbg_threads.n:14)
+* 1  runnable@0  run (dbg_threads.n:6)
+(ndb) t 0
+* 0  parked-chan-recv  dbg_threads.main (dbg_threads.n:14)
+(ndb) bt
+#0  dbg_threads.main (dbg_threads.n:14)
+(ndb) c
+Program exited with code 9.
+```
+
+（断点设在派生上下文执行的`run`里；命中时main停在空通道的`recv`上——`threads`把它列为`parked-chan-recv`，`run`为`runnable@0`（正被0号载体持有）。`t 0`把检查焦点切到main后，`bt`读出它的停泊帧。）
 
 ## 嵌入前端协议
 

@@ -37,8 +37,9 @@ struct DebugFrameInfo {
 //stateName is the scheduler state ("runnable", "parked-chan-recv",
 //"finished", ...); heldByCarrier is the carrier whose execution window
 //currently holds the context (-1 = none: parked, queued or finished);
-//frameCount is its live frame count (0 once finished); funcName/line
-//locate the innermost frame for display.
+//frameCount is its live frame count (0 once finished); funcName/line/
+//sourceFile locate the innermost frame for display (empty name+file
+//when the context is frameless).
 struct DebugContextInfo {
     int id = 0;
     std::string stateName;
@@ -46,6 +47,7 @@ struct DebugContextInfo {
     size_t frameCount = 0;
     std::string funcName;
     uint16_t line = 0;
+    std::string sourceFile;
 };
 
 //Read-only view over the frozen VM state. Only valid inside an

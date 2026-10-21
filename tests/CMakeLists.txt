@@ -634,7 +634,8 @@ add_test(NAME stdlib_concurrency_tests COMMAND test_stdlib_concurrency)
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,
-# MachineFrontEnd.cpp and SourceCache.cpp are compiled into the test
+# DebugSessionInspect.cpp, MachineFrontEnd.cpp and SourceCache.cpp are
+# compiled into the test
 # (the tool's main.cpp is not) so the sessions can be driven with string
 # streams.
 add_executable(test_debugger
@@ -650,6 +651,7 @@ add_executable(test_debugger
     test_vm/test_debugger_multicontext.cpp
     test_vm/test_backtrace.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSessionInspect.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/MachineFrontEnd.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/SourceCache.cpp
 )

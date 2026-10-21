@@ -27,6 +27,8 @@ reads commands from stdin one per line; stdin end of file (EOF) behaves like `q`
 | `s` | step | Step into |
 | `n` | next | Step over |
 | `f` | finish | Step out of the current function |
+| `threads` | — | List all contexts (state/location) |
+| `t <id>` | thread | Switch the inspection context |
 | `bt` | backtrace | Call stack |
 | `frame <n>` | — | Select a frame |
 | `info locals` | info | Locals of the selected frame (synthesized names filtered; the receiver shows as `this`) |
@@ -71,6 +73,45 @@ language specification.)
 When the program finishes, ndb prints `Program exited with code N.` and
 exits with that same code; `q` or stdin EOF kills the program and exits
 ndb itself with 0.
+
+## Multi-context debugging
+
+Contexts spawned by `thread.spawn` are equally under the debugger's
+control: a breakpoint hit or a throw in any context stops everything
+(every carrier freezes). `threads` prints one row per context: the
+focus marker (`*`), the id, the scheduling state (suffixed `@<carrier>`
+while an execution window holds it — this is where running-now differs
+from queued runnable), and the innermost frame location; a finished
+context has no frames and shows only the id and state. `t <id>` moves
+the inspection focus to that context — `bt`/`frame`/`info locals`/`p`/
+`l`/`x` then address it, and parked frames (a channel receive waiting
+for a sender, say) inspect like any other; each stop resets the focus
+back to the stopped context. Stepping always targets the stopped
+context — `t` redirects inspection only, never the step target.
+
+```console
+$ ndb dbg_threads.ncu
+Stopped: dbg_threads.main (dbg_threads.n:11)
+(ndb) b 6
+Breakpoint 1 at run (dbg_threads.n:6)
+(ndb) c
+Breakpoint 1, run (dbg_threads.n:6)
+(ndb) threads
+  0  parked-chan-recv  dbg_threads.main (dbg_threads.n:14)
+* 1  runnable@0  run (dbg_threads.n:6)
+(ndb) t 0
+* 0  parked-chan-recv  dbg_threads.main (dbg_threads.n:14)
+(ndb) bt
+#0  dbg_threads.main (dbg_threads.n:14)
+(ndb) c
+Program exited with code 9.
+```
+
+(The breakpoint sits in `run`, which a spawned context executes; when
+it hits, main is parked in a `recv` on an empty channel — `threads`
+lists it as `parked-chan-recv` while `run` is `runnable@0` (held by
+carrier 0). After `t 0` moves the focus to main, `bt` reads its parked
+frame.)
 
 ## Protocol for embedding front ends
 

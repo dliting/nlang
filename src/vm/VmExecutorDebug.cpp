@@ -127,8 +127,10 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
     info.frameCount = frames->size();
     if (!frames->empty()) {
         const CallFrame& innermost = frames->back();
-        if (innermost.func)
+        if (innermost.func) {
             info.funcName = innermost.func->name;
+            info.sourceFile = innermost.func->sourceFile;
+        }
         info.line = innermost.currentLine;
     }
     return info;

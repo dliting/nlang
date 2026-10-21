@@ -1,0 +1,17 @@
+//e2e dbgm_contexts: machine protocol contexts + focus (K4).
+import thread;
+class Peer {
+    public Channel<int> ch;
+    public void run() {
+        int k = 7;
+        ch.send(9);
+    }
+}
+int main() {
+    Peer p = Peer();
+    p.ch = {};
+    Thread t = thread.spawn(p.run);
+    int x = p.ch.recv();
+    thread.join(t);
+    return x;
+}

@@ -59,6 +59,12 @@ private:
     void DoBreak(const std::string& arg);
     void DoInfoBreakpoints();
     void DoDelete(const std::string& arg);
+    void DoThreads();
+    void DoContextFocus(const std::string& arg);
+    //One `threads` row: focus marker, id, state (+@carrier when an
+    //execution window holds it), top-frame location (frameless
+    //contexts stop after the state).
+    void PrintContextRow(const DebugContextInfo& ci);
     void DoBacktrace();
     void DoFrame(const std::string& arg);
     void DoInfoLocals();
@@ -74,8 +80,10 @@ private:
     std::istream& m_in;
     std::ostream& m_out;
     DebugSessionController* m_pController = nullptr;  //set via SetController
-    int m_contextId = 0;        //context of the current stop (frame/locals
-                                //queries address it)
+    int m_contextId = 0;        //inspection focus: `threads`/`t <id>`
+                                //switch it; every stop resets it to the
+                                //stopped context (frame/locals queries
+                                //address it)
     size_t m_selectedFrame = 0;   //`frame <n>` selection (display concern)
     SourceCache m_sourceCache;   //`l` source resolution + caching
 };
