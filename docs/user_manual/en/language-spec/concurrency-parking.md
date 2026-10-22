@@ -16,7 +16,7 @@ Your program ends when `main` returns — spawned tasks do not keep it alive; wa
 
 When `main` is parked and no runnable context remains (for example, an empty-channel `recv` whose sender will never come, or a mutex relocked by its own holder), the virtual machine reports the deadlock as a runtime error — the message contains `deadlock` — instead of hanging the process; tools and embedding hosts can catch that error like any other.
 
-The message names the condition, not the culprit: it does not list which context waits on what. To find the wait that has no wake path, run the program under ndb and use `threads` — each row shows a context's state (`parked-chan-recv`, `parked-join`, `parked-mutex`, …), so the parked rows tell you who is waiting for whom. The fix is almost always on the wake side: a `send` or `close` for every `recv`, an `unlock` for every `lock`, a `done` for every outstanding `add`.
+The message names the condition, not the culprit: it does not list which context waits on what. To find the wait that has no wake path, stop the program under ndb before the last wait forms — a breakpoint or a step near the spawn or wait site — and run `threads`: each row shows a context's state (`parked-chan-recv`, `parked-join`, `parked-mutex`, …), so the parked rows tell you who is waiting for whom. (The deadlock error itself ends the debug session, so inspect at a stop, not after the report.) The fix is almost always on the wake side: a `send` or `close` for every `recv`, an `unlock` for every `lock`, a `done` for every outstanding `add`.
 
 ## Restrictions inside nested evaluation windows
 
