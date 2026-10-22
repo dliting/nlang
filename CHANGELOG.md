@@ -6,6 +6,31 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.8] - 2026-10-22
+
+### Added
+
+- **Anchored generic instantiation literals** — `List<int>{60}`,
+  `Dict<string, int>{"a": 1}`, and the nested `List<List<int>>{{1, 2}}`
+  parse in any expression position (method receivers, call arguments,
+  subscripts). The anchored head is limited to the built-in generic
+  names (`List`, `Dict`, `Channel`, `Future`).
+- **Bare brace values in keyed entries** —
+  `Dict<string, List<int>> d = {"a": {1, 2}};` and struct field entries
+  `{items: {1, 2}}`; array-typed fields keep the bracket form.
+- **Brace-form `foreach` sources** — `foreach (int x in {1, 2, 3})`
+  iterates a `List<int>` inferred from the loop variable's type.
+- **Target-less bracket literals infer the element type** —
+  `[1, 2].length()`, `[1, 2][1]`. Empty literals and mixed-type entries
+  still require a typed target.
+
+### Fixed
+
+- **Nested `Channel`/`Future` generics** — types headed by `Channel` or
+  `Future` with nested generic arguments (e.g. `Channel<Channel<int>>`)
+  now parse; the lexer's generic-name check follows the compiler's
+  built-in generic name predicate instead of a hardcoded two-name list.
+
 ## [0.10.7] - 2026-10-22
 
 ### Added

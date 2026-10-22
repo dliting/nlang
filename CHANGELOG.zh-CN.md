@@ -6,6 +6,29 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.8] - 2026-10-22
+
+### 新增
+
+- **泛型实例化锚定字面量**——`List<int>{60}`、
+  `Dict<string, int>{"a": 1}`以及嵌套形式`List<List<int>>{{1, 2}}`
+  现在可用于任意表达式位置（方法接收者、调用实参、下标）。
+  锚定头限内建泛型名（`List`、`Dict`、`Channel`、`Future`）。
+- **键值条目的值位置接受裸花括号**——
+  `Dict<string, List<int>> d = {"a": {1, 2}};`与struct字段条目
+  `{items: {1, 2}}`；数组类型字段保持方括号形式。
+- **`foreach`的花括号源**——`foreach (int x in {1, 2, 3})`
+  按循环变量类型推断`List<int>`并迭代。
+- **无目标方括号字面量推断元素类型**——`[1, 2].length()`、
+  `[1, 2][1]`。空字面量与异类条目仍需带类型目标。
+
+### 修复
+
+- **`Channel`/`Future`嵌套泛型**——以`Channel`或`Future`为外层名的
+  嵌套泛型类型（如`Channel<Channel<int>>`）现在可正常解析；
+  词法器的泛型名判定改为调用编译器的内建泛型名权威判定函数，
+  不再维护硬编码的两名字名单。
+
 ## [0.10.7] - 2026-10-22
 
 ### 新增

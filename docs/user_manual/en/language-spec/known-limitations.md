@@ -1,8 +1,9 @@
 # Known Limitations
 
 
-- **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
-  built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
+- **User-defined generics**: `class Foo<T> { ... }` is not supported.
+  Only built-in generic classes (`List<T>`, `Dict<K,V>`, `Channel<T>`,
+  `Future<T>`, `func<...>`) are recognized.
 - **`as` from string to a numeric type is forbidden**: `"5" as int` is a
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
@@ -44,21 +45,21 @@
   `List<List<T>>`-style containers instead.
 - **Bare `{...}` as a method-call receiver**: a bare brace literal needs
   a typed target; as a receiver (`{}.length()`) there is none, so it
-  stays rejected — bind a typed local first. Named arguments do infer
-  (`count(items = {1, 2})`). See
+  stays rejected — bind a typed local first. A bare bracket literal
+  infers its element type from the entries (`[1, 2].length()`). Named
+  arguments do infer (`count(items = {1, 2})`). See
   [Collection Initializers](collection-initializers.md).
 - **Empty array literal**: the empty literal is `{}` for `List<T>` and
   `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array
   target takes no brace form (`int[] a = {};` is rejected — array
   initializers use the bracket form), so an empty array is `int[] a = [];`.
+  At a target-less position the empty bracket literal has no element
+  type to infer (`[].length()` is rejected).
 - **Partial initialization is the bracket form at the declaration**:
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
   sized declaration (`int b[100] = {7, 8};`) is rejected with the named
   diagnostic `array initializers use '[...]'; the brace form '{...}' is
   reserved for collection, struct, and class initializers`.
-- **Generic instantiation has no anchored head**: `List<int>{60}` does
-  not parse — give the literal a typed declaration (see
-  [Collection Initializers](collection-initializers.md)).
 - **Generic-element fixed arrays are declaration-only**:
   `List<int> a[2];` declares the array; there is no expression-position
   creation twin.

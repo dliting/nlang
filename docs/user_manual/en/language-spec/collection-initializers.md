@@ -7,7 +7,10 @@ aggregate (struct/class) initialization. Three syntactic forms:
 **Bare bracket form `[...]`** — allowed where the target type lets the
 compiler infer the collection (declaration initializers, assignments,
 return values, `foreach` sources, positional and named function
-arguments, container elements). Works for arrays (`T[]`) and `List<T>`:
+arguments, container elements). At target-less positions (method
+receivers, subscript bases) the element type is inferred from the
+entries (empty literals and mixed-type entries still need a typed
+target). Works for arrays (`T[]`) and `List<T>`:
 
 ```nlang
 int[] arr = [1, 2, 3];
@@ -19,8 +22,8 @@ List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 **Bare brace form `{...}`** — the typed target decides the reading:
 keyed entries initialize dicts and struct/class aggregates, positional
 entries initialize lists. It works in the same inference positions as
-`[...]`, except as a `foreach` source — there the target is always the
-loop variable's array type, and the brace form is rejected:
+`[...]`; as a `foreach` source it infers `List<T>` from the loop
+variable's type:
 
 ```nlang
 Dict<string, int> d = {"a":1, "b":2};
@@ -30,9 +33,9 @@ count(items = {1, 2});
 List<int> mk() { return {1, 2}; }
 ```
 
-**Anchored form `Type{...}`** — a named class or struct head anchors
-the literal, so it works in any expression position (function args,
-return values, standalone expressions):
+**Anchored form `Type{...}`** — a named class, struct, or built-in
+generic head anchors the literal, so it works in any expression
+position (function args, return values, standalone expressions):
 
 ```nlang
 Point p = Point{x:1, y:2};
@@ -40,8 +43,10 @@ return Point{x:0, y:0};
 foo(Point{x:1, y:2}, Point{x:3, y:4});
 ```
 
-Generic instantiation heads do not anchor — `List<int>{60}` does not
-parse; give the literal a typed target instead (`List<int> l = {60};`).
+Generic instantiation heads anchor too — `List<int>{60}` and
+`Dict<string, int>{"a": 1}` parse in any expression position; the
+anchored form is limited to the built-in generic names (`List`, `Dict`,
+`Channel`, `Future`).
 
 **Entry forms inside `{...}`:**
 
@@ -83,9 +88,10 @@ construction followed by per-field `OP_StoreField` assignments.
 **Recursive nesting:** init lists may contain other init lists. Inner
 levels may use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)
 or bare braces in value position (`List<List<int>> m = {{1,2},{3,4}};`).
-Keyed entries still require an expression value — `{items: {1,2}}`
-inside a struct/class literal is a syntax error; write
-`{items: [1,2]}`. Nested generic element types
+Keyed entries accept bare brace values too (`{"a": {1, 2}}` for a
+`Dict<string, List<int>>` target, `{items: {1, 2}}` for a `List<int>`
+field); array-typed fields keep the bracket form (`{items: [1, 2]}`).
+Nested generic element types
 (`List<List<int>>`, `Dict<K, List<V>>`) are supported (see
 Nested generics under `List<T>` in
 [Built-in Generic Classes](builtin-generic-classes.md)).
@@ -95,7 +101,9 @@ Nested generics under `List<T>` in
 array target takes no brace form (`int[] a = {};` is rejected — array
 initializers use the bracket form); an empty array is `int[] a = [];`
 (see [Array](array.md)). The empty bracket literal also works as a
-`foreach` source and as a function argument.
+`foreach` source and as a function argument. At a target-less position
+the empty bracket literal has no element type to infer (`[].length()`
+is rejected); give it a typed target.
 
 **Function arguments:** a positional argument infers its target from
 the parameter type — positional entries work for struct and `List<T>`
