@@ -1,0 +1,66 @@
+//Concurrency example 6 of 8 — WaitGroup: wait for a batch of tasks.
+//add(4) arms the counter, each task's done() decrements it, and wait()
+//returns only when it reaches zero — a barrier for fan-out work.
+//Unlike join, the waiter needs no Thread handles.
+import concurrent;
+import thread;
+import io;
+
+class Total {
+    public int sum;
+}
+
+class Job {
+    public WaitGroup wg;
+    public Mutex gate;
+    public Total board;
+    public int slice;
+    public void work() {
+        gate.lock();
+        board.sum = board.sum + slice;
+        gate.unlock();
+        wg.done();
+    }
+}
+
+int main() {
+    Total t = Total();
+    Mutex gate = Mutex();
+    WaitGroup wg = WaitGroup();
+    wg.add(4);
+    Job a = Job();
+    a.wg = wg;
+    a.gate = gate;
+    a.board = t;
+    a.slice = 10;
+    Job b = Job();
+    b.wg = wg;
+    b.gate = gate;
+    b.board = t;
+    b.slice = 20;
+    Job c = Job();
+    c.wg = wg;
+    c.gate = gate;
+    c.board = t;
+    c.slice = 30;
+    Job d = Job();
+    d.wg = wg;
+    d.gate = gate;
+    d.board = t;
+    d.slice = 40;
+    Thread ta = thread.spawn(a.work);
+    Thread tb = thread.spawn(b.work);
+    Thread tc = thread.spawn(c.work);
+    Thread td = thread.spawn(d.work);
+    wg.wait();
+    thread.join(ta);
+    thread.join(tb);
+    thread.join(tc);
+    thread.join(td);
+    int total = t.sum;
+    io.print("fan-out complete, total ${total}");
+    if (total == 100) {
+        return 18;
+    }
+    return 1;
+}

@@ -1,0 +1,48 @@
+//Concurrency example 5 of 8 — Semaphore limits concurrency.
+//Semaphore(2) admits at most two tasks into the section at once; the
+//probe counts the overlapping peak under a mutex. Compare with the
+//Mutex example: a mutex admits one task, a semaphore admits N.
+import concurrent;
+import thread;
+import io;
+
+class Section {
+    public Semaphore slots;
+    public Mutex gate;
+    public int inside;
+    public int peak;
+    public void work() {
+        slots.acquire();
+        gate.lock();
+        inside = inside + 1;
+        if (inside > peak) {
+            peak = inside;
+        }
+        gate.unlock();
+        thread.yield();
+        gate.lock();
+        inside = inside - 1;
+        gate.unlock();
+        slots.release();
+    }
+}
+
+int main() {
+    Section s = Section();
+    s.slots = Semaphore(2);
+    s.gate = Mutex();
+    Thread a = thread.spawn(s.work);
+    Thread b = thread.spawn(s.work);
+    Thread c = thread.spawn(s.work);
+    Thread d = thread.spawn(s.work);
+    thread.join(a);
+    thread.join(b);
+    thread.join(c);
+    thread.join(d);
+    int peakObserved = s.peak;
+    io.print("peak inside the section: ${peakObserved} (limit 2)");
+    if (peakObserved == 2) {
+        return 17;
+    }
+    return 1;
+}

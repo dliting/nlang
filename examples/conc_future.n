@@ -1,0 +1,19 @@
+//Concurrency example 2 of 8 — Future: a task's return value.
+//Spawning a function that returns int yields Future<int>; get() blocks
+//until the value is ready. The caller keeps running until it needs the
+//result — no callbacks, no async coloring.
+import thread;
+import io;
+
+int heavyCompute() {
+    io.print("task: computing 6*7");
+    return 6 * 7;
+}
+
+int main() {
+    Future<int> f = thread.spawn(heavyCompute);
+    io.print("main: free to run until the value is needed");
+    int answer = f.get();
+    io.print("main: future delivered ${answer}");
+    return 14;
+}

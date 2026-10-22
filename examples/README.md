@@ -35,5 +35,13 @@
 | stdlib_math.n | 标准库 math 包 | 0 |
 | stdlib_io.n | io 控制台与文件内容（需 stdin） | 0 |
 | stdlib_fs.n | fs 路径/目录/元数据 | 0 |
+| conc_spawn_join.n | 并发①：spawn 启动任务/join 等待 | 13 |
+| conc_future.n | 并发②：Future 取任务返回值 | 14 |
+| conc_channel_pipeline.n | 并发③：通道生产者-消费者/close 结束 | 15 |
+| conc_mutex_counter.n | 并发④：Mutex 保护共享计数器 | 16 |
+| conc_semaphore.n | 并发⑤：Semaphore 限制并发数 | 17 |
+| conc_waitgroup.n | 并发⑥：WaitGroup 等一批任务 | 18 |
+| conc_channel_close.n | 并发⑦：close 广播退出信号 | 19 |
+| conc_carriers_demo.n | 并发⑧：载体数不改变结果（试 `nvm --carriers=1` 与 `--carriers=8`） | 20 |
 | hello_project/ | 多文件项目（nide 打开 .nproj） | 0 |
 | libdemo/ | 平面搜索路径库（先编库单元，消费方 import 后运行期装载） | 0 |
