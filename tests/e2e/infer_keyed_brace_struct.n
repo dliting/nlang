@@ -1,0 +1,10 @@
+// 0.10.8 D4: a struct field entry value may be a bare brace literal —
+// the field type (List<int>) is the nested target.
+struct Bag {
+    List<int> items;
+}
+
+int main() {
+    Bag b = {items: {1, 2}};
+    return b.items.length();
+}

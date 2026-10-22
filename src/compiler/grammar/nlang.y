@@ -2099,6 +2099,25 @@ InitEntry:	TT_String ':' Expression {
 						pE->keyKind = nlang::InitEntry::KeyKind::None;
 						pE->pValue = $1;
 						$$ = pE;
+					} |
+					//0.10.8 D4: keyed entry with a bare brace value. The
+					//slot type (Dict value / struct-class field) supplies
+					//the nested target (PropagateNestedInitListTargets);
+					//array-typed fields keep the bracket form via the
+					//existing array-form gate.
+					TT_String ':' BracedInitExpr {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::String;
+						pE->keyStr = *$1;
+						pE->pValue = $3;
+						$$ = pE;
+					} |
+					TT_Identifier ':' BracedInitExpr {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::Identifier;
+						pE->keyStr = *$1;
+						pE->pValue = $3;
+						$$ = pE;
 					} ;
 
 ConcreteParamList:	ConcreteParamList ',' ConcreteParam {

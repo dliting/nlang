@@ -1784,3 +1784,8 @@ iface_field_no_init compile_error must be a constant expression
 
 # --- 0.10.7 D5: protocol methods public regardless of access ---
 proto_default_access 3
+
+# --- 0.10.8 D4: keyed entry values accept bare brace literals ---
+infer_keyed_brace_dict 3
+infer_keyed_brace_struct 2
+infer_keyed_brace_array_field_reject compile_error array initializers use
