@@ -1,5 +1,18 @@
 # Channel
 
+## When to use
+
+Reach for a `Channel` when tasks hand values to each other: a
+producer/consumer pipeline, a work queue, or `close()` as one broadcast
+that stops a whole group of waiters. A bounded channel is backpressure
+for free — when the producer outruns the consumer, `send` parks until a
+slot frees, so the pipeline throttles itself without extra machinery.
+This is the other half of the rule of thumb stated on the
+[Mutex](concurrency-mutex.md) page: data you hand over → `Channel`;
+state you share → `Mutex`.
+
+## Construction and buffering
+
 `Channel<T>` is a message channel. The element type argument is not optional (a bare `Channel` is a compile error — the element type drives value boxing and receiver-side unboxing). Two construction forms:
 
 ```nlang

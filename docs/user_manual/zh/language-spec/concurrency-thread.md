@@ -6,11 +6,13 @@
 |---|---|---|
 | `thread.spawn(f)` | `func<void>`零参委托 → `Thread`；`func<T>`零参委托 → `Future<T>` | 派生新虚拟线程，立即返回其句柄对象；返回类型决定句柄形态 |
 | `thread.join(t)` | `Thread` | 挂起等待目标完成；目标失败时向本上下文重抛原异常对象 |
-| `thread.yield()` | — | 主动让出，回到运行队列尾 |
+| `thread.yield()` | — | 长计算循环里的主动交接：给其他任务运行的机会。阻塞调用（`sleep`、`recv`、`get`、`lock`）会自动交接——只有紧凑计算循环才需要`yield` |
 | `thread.id()` | → `int` | 当前上下文的标识符；main恒为0，派生上下文非0 |
-| `thread.sleep(ms)` | `int`毫秒 | 挂起到截止时间；`sleep(0)`等价于让出；负时长是编译期之后的运行期错误 |
+| `thread.sleep(ms)` | `int`毫秒 | 挂起到截止时间——轮询控速、延时重试的常用手段；`sleep(0)`等价于让出；负时长是编译期之后的运行期错误 |
 
 ## thread.spawn
+
+上手就三步：写一个零参函数或方法，`thread.spawn`它拿到句柄，再用`thread.join`（有返回值时用`Future`的`get()`）等结果。安装包自带的`examples/conc_spawn_join.n`和`examples/conc_future.n`就是这个套路。
 
 参数必须是零参委托——自由函数引用、绑定方法引用或持有委托的变量皆可。委托无返回值（`func<void>`）时得到`Thread`句柄；有返回值（`func<T>`）时得到`Future<T>`句柄，返回值经`get()`取回（见[Future](concurrency-future.md)）：
 

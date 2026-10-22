@@ -1,5 +1,17 @@
 # The concurrent Package
 
+## When to use
+
+`Semaphore(n)` caps how many tasks run a section at once — resource
+pools, connection limits: acquire a permit before entering, release it
+on the way out, and keeping the pair matched keeps the count honest.
+`WaitGroup` waits for a fan-out batch: `add` the unit count before
+spawning the tasks, each task calls `done` once as it finishes, and
+`wait` returns when the batch is complete — without holding any
+`Thread` handles.
+
+## The tools
+
 On top of the kernel primitives, the `concurrent` standard-library package provides two common synchronization tools (available after `import concurrent;`):
 
 | Class | Shape | Semantics |

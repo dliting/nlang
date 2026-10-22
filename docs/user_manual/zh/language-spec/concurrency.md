@@ -17,6 +17,20 @@ NLang属于**虚拟线程**一族（同Go、Java虚拟线程）：写并发代�
 
 因此NLang没有也不需要`await`关键字：函数不做异步着色，没有状态机变换；`f.get()`就是诚实的阻塞式等待——停泊当前虚拟线程，完成值就绪后原地续行。要到多个载体上真并行（受全局解释器锁约束，原生阻塞窗口除外），用`SetCarrierThreadCount(n)`显式选入（见[GIL与多载体](concurrency-gil-carriers.md)）。
 
+## 选型导引
+
+从你要做的事出发，而不是从工具清单出发。安装包自带的`examples/conc_*.n`把下表每一行都走了一遍：
+
+| 你想… | 用 |
+|---|---|
+| 启动一个后台任务 | `thread.spawn(f)` |
+| 取回任务的返回值 | 派生带返回值的函数 → `Future<T>` → `get()` |
+| 在任务之间传值 | `Channel<T>`（send/recv/close） |
+| 保护共享可变状态 | `Mutex`（lock/unlock/tryLock） |
+| 限制同时进入某段代码的任务数 | `Semaphore(n)` |
+| 等一批任务全部完成 | `WaitGroup`（add/done/wait）或逐个`join` |
+| 一次性叫醒一组等待者 | `Channel.close()`广播 |
+
 ## 去哪里查
 
 - [GIL与多载体](concurrency-gil-carriers.md)——载体、全局解释器锁、阻塞式原生调用窗口、唤醒亲和，以及各确定性分档的保证

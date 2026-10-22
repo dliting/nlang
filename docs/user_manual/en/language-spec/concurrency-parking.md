@@ -8,13 +8,15 @@ Parking (`sleep`, `join`, contending `lock`, empty-channel `recv`, preemption) p
 - `finally` still runs — exactly once — after a `try` body that parked;
 - Parking inside an entered `catch` handler still leaves `throw;` (rethrow) working after resumption.
 
-An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed, its frames are dropped, and the failure surfaces only through `join`, as the original exception object.
+An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed and its frames are dropped. The failure surfaces only on the waiting side — `join` and `Future.get` rethrow the task's original exception object — so put the `try`/`catch` where you wait, not where you spawn.
 
 ## Main-exit policy and the deadlock report
 
-When `main` returns, the program ends: contexts still parked or queued are dropped silently (there is no implicit wait-for-all — one sleeping worker should not hang the whole program; see the [known limitations](known-limitations.md)).
+Your program ends when `main` returns — spawned tasks do not keep it alive; wait for what you need (`join`, `get`, `wait`) before returning. Contexts still parked or queued are dropped silently: there is no implicit wait-for-all, because one sleeping worker should not hang the whole program (see the [known limitations](known-limitations.md)).
 
 When `main` is parked and no runnable context remains (for example, an empty-channel `recv` whose sender will never come, or a mutex relocked by its own holder), the virtual machine reports the deadlock as a runtime error — the message contains `deadlock` — instead of hanging the process; tools and embedding hosts can catch that error like any other.
+
+The message names the condition, not the culprit: it does not list which context waits on what. To find the wait that has no wake path, run the program under ndb and use `threads` — each row shows a context's state (`parked-chan-recv`, `parked-join`, `parked-mutex`, …), so the parked rows tell you who is waiting for whom. The fix is almost always on the wake side: a `send` or `close` for every `recv`, an `unlock` for every `lock`, a `done` for every outstanding `add`.
 
 ## Restrictions inside nested evaluation windows
 

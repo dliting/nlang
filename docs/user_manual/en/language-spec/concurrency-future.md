@@ -1,5 +1,17 @@
 # Future
 
+## When to use
+
+Reach for a `Future` when a task produces a value you need in order to
+keep computing: spawn the work, carry on with everything that does not
+depend on it, and call `get()` at the point the value is actually
+required — the wait lands exactly where the dependency is. Several
+contexts can wait on the same `Future`; all wake with the same value.
+If you only need to know that a task finished, `thread.join` is the
+lighter handle.
+
+## The handle
+
 Spawning a delegate with a return value (`func<T>`) yields a `Future<T>` — the retrieval handle for the return value:
 
 | Member | Semantics |

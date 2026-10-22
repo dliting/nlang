@@ -1,5 +1,19 @@
 # Mutex
 
+## When to use
+
+Use a `Mutex` for shared mutable state — a counter, a cache, a flag —
+that several tasks read and write: the lock makes each read-modify-write
+sequence atomic, so no update is lost. `tryLock()` fits the
+attempt-without-waiting shape: take the lock when it is free, otherwise
+take another route (skip this round, fall back) instead of parking in
+the queue.
+
+One rule of thumb splits the two synchronization styles: state you
+share → `Mutex`; data you hand over → [Channel](concurrency-channel.md).
+
+## The lock
+
 `Mutex` is a non-reentrant mutual-exclusion lock: locking it again while holding it parks forever (see [the deadlock report](concurrency-parking.md#main-exit-policy-and-the-deadlock-report)).
 
 | Member | Semantics |

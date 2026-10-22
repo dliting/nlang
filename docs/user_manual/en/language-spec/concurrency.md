@@ -17,6 +17,21 @@ NLang belongs to the **virtual-thread** family (like Go, and like Java's virtual
 
 This is why NLang has no `await` keyword and does not need one: functions are not async-colored and nothing compiles into a state machine; `f.get()` is an honest blocking wait — the current virtual thread parks, and once the value is ready it continues in place. To run on several carriers with real parallelism (bounded by the global interpreter lock, native blocking windows excepted), opt in with `SetCarrierThreadCount(n)` (see [the GIL and multiple carriers](concurrency-gil-carriers.md)).
 
+## Choosing the right tool
+
+Start from the task you have, not from the tool list. The shipped
+`examples/conc_*.n` walk through each row:
+
+| You want to… | Use |
+|---|---|
+| start a background task | `thread.spawn(f)` |
+| get a task's return value | spawn a returning function → `Future<T>` → `get()` |
+| hand values between tasks | `Channel<T>` (send/recv/close) |
+| guard shared mutable state | `Mutex` (lock/unlock/tryLock) |
+| cap how many tasks run a section at once | `Semaphore(n)` |
+| wait for a batch of tasks | `WaitGroup` (add/done/wait) or `join` each |
+| stop a group of waiters at once | `Channel.close()` broadcast |
+
 ## Where to look
 
 - [The GIL and multiple carriers](concurrency-gil-carriers.md) — carriers, the global interpreter lock, blocking native windows, wake affinity, and what each determinism tier guarantees
