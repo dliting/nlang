@@ -1,0 +1,5 @@
+// 0.10.8 D2: an empty target-less bracket literal has no element type
+// to infer — the named diagnostic asks for an explicit type.
+int main() {
+    return [].length();
+}

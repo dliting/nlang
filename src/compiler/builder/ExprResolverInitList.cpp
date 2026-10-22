@@ -68,54 +68,6 @@ bool IsInitListTargetShape(SnField *pType)
     return !pClass->IsBuiltinClass();
 }
 
-//Target determination of the collection initializer (Phase 8e-6):
-//- Explicit form `new Type{...}`: ExplicitType() carries the type
-//  expression. Resolve it like a normal type, its resolved Field is the
-//  target.
-//- Bare form `[...]`: ExplicitType() is null. The parent AssignStmt
-//  resolver must have populated InferredTarget() from the LHS variable's
-//  type.
-//False = no target could be derived (diagnostic logged).
-bool ExprResolveAccessor::ResolveInitListTarget(SnInitListExpr &sn,
-    SnField* &pTargetField, bool &bIsArray)
-{
-    pTargetField = nullptr;
-    bIsArray = false;
-    if (auto *pExplicit = sn.ExplicitType())
-    {
-        //Resolve the explicit type expression (NameExpr/GenericTypeExpr).
-        pExplicit->Accept(*m_pVisitor);
-        if (!pExplicit->IsResolved())
-            return false;
-        pTargetField = pExplicit->Field();
-        bIsArray = pExplicit->IsArrayType();
-    }
-    else if (auto *pInferred = sn.InferredTarget())
-    {
-        //Bare form: parent populated the LHS variable. bIsArray keeps the
-        //declaration-side signal (IsArrayType()); the type slot carries
-        //the interned token for array variables, peeled to the element
-        //below.
-        bIsArray = pInferred->IsArrayType();
-        pTargetField = pInferred->EvalDataType();
-        //0.7.3 B token path: an
-        //array-typed LHS carries the interned token; the init-list's
-        //per-entry element gate consumes the ELEMENT (the node itself
-        //keeps the interned token — Access stores it at the mint point,
-        //0.9.13 D-new-1).
-        if (pTargetField
-            && pTargetField->Kind() == NK_ArrayTypeToken)
-            pTargetField = static_cast<SnArrayTypeToken*>(
-                pTargetField)->ElemTypeOf();
-    }
-    if (pTargetField)
-        return true;
-    m_Env.Log(CLL_Error, sn.Location(),
-        "Collection initializer requires an explicit type or an LHS "
-        "context to infer the target type.");
-    return false;
-}
-
 //0.9.0: target-shape gate of Access(SnInitListExpr&) — only collection
 //targets lower; anything else is a clean reject before the resolver
 //flags the node. Array targets skip the element-shape test (the target
@@ -450,7 +402,9 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 
     for (auto &entry : sn.Entries())
     {
-        if (entry.pValue)
+        //0.10.8 D2: the target-less bracket inference already resolved
+        //the entries; re-accepting a resolved node trips its assert.
+        if (entry.pValue && !entry.pValue->IsResolved())
             entry.pValue->Accept(*m_pVisitor);
     }
 

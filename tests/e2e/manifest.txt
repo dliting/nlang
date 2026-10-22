@@ -1715,7 +1715,6 @@ empty_array_foreach 0
 empty_array_arg 0
 nested_brace 3
 err_generic_anchor_brace compile_error syntax error
-err_bracket_receiver compile_error requires an explicit type
 
 # --- 0.9.14: static method function references (D-new-1..D-new-8) ---
 static_funcref_iface 42
@@ -1791,3 +1790,11 @@ infer_keyed_brace_array_field_reject compile_error array initializers use
 
 # --- 0.10.8 D3: brace-form foreach sources infer List<T> ---
 infer_foreach_brace_sum 6
+
+# --- 0.10.8 D2: target-less bracket literals infer the element type ---
+infer_bracket_receiver_length 2
+infer_bracket_receiver_subscript 2
+infer_bracket_empty_reject compile_error cannot infer the element type
+infer_bracket_mixed_reject compile_error differing types
+infer_brace_receiver_reject compile_error syntax error
+infer_bracket_nested_reject compile_error jagged arrays

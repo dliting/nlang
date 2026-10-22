@@ -88,6 +88,7 @@ add_library(nlang_compiler
     builder/ExprResolverNew.cpp
     builder/ExprResolverNewCtor.cpp
     builder/ExprResolverInitList.cpp
+    builder/ExprResolverInitListTarget.cpp
     builder/ExprResolverInitListCtor.cpp
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
