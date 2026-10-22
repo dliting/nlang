@@ -1,0 +1,5 @@
+// 0.10.6 D4: zero-flag AND no-initializer — same contract diagnostic.
+interface I {
+    public int X;
+}
+int main() { return 0; }

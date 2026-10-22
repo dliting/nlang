@@ -1,0 +1,6 @@
+// 0.10.6 D4: a zero-flag interface field reaches the declaration
+// contract instead of a bare syntax error.
+interface I {
+    public int X = 1;
+}
+int main() { return 0; }

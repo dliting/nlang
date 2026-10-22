@@ -1776,3 +1776,8 @@ decl_cont_for_init_reject compile_error not supported in a for initializer
 decl_brace_sized_reject compile_error the brace form
 decl_brace_sized_cont_reject compile_error the brace form
 decl_sized_init_scalar_reject compile_error sized declaration initializer
+
+# --- 0.10.6 D4: interface field shape arms -> contract diagnostics ---
+iface_field_no_flags compile_error must be static const
+iface_field_no_flags_noinit compile_error must be static const
+iface_field_no_init compile_error must be a constant expression

@@ -1545,6 +1545,24 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 					auto* field = new SnClassField($3, $4, $1, @1, $6);
 					field->AddFlags($2);
 					$$ = field;
+				} |
+				//0.10.6 D4: the field shapes with missing parts parse
+				//and hit the declaration contract (StatementResolver-
+				//Types.cpp): zero-flag forms report "must be static
+				//const", the no-initializer form reports the missing
+				//constant expression. Isomorphic to ClassMember's
+				//field arms — the ';'/`=`/`(` lookahead split is
+				//proven conflict-free in the class body.
+				AccessType Type TT_Identifier '=' Expression ';' {
+					$$ = new SnClassField($2, $3, $1, @1, $5);
+				} |
+				AccessType Type TT_Identifier ';' {
+					$$ = new SnClassField($2, $3, $1, @1);
+				} |
+				AccessType NodeFlagsNonEmpty Type TT_Identifier ';' {
+					auto* field = new SnClassField($3, $4, $1, @1);
+					field->AddFlags($2);
+					$$ = field;
 				} ;
 
 ClassMemberList:	ClassMemberList ClassMember {
