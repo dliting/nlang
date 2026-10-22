@@ -366,6 +366,21 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
     if (RejectNonEmptyChannelInit(sn, pTargetField))
         return true;
 
+    //0.10.9 p23 (D5): the Dict key-type gate moved up from after the
+    //entry loop — its diagnostic is more fundamental than the entry
+    //key-form gate below (quoting an identifier key cannot rescue a
+    //non-string K). The !bIsArray guard: an array target's
+    //pTargetField is the element type, which may itself be a Dict
+    //instantiation (Dict<int,int>[] arr = [d]).
+    if (!bIsArray && RejectNonStringDictInitKeys(sn, pTargetField))
+        return true;
+
+    //0.10.9 p23: the entry key form must match the container target
+    //kind (same !bIsArray rationale: the element's own initializer
+    //carries its own form rule).
+    if (!bIsArray && RejectInitListEntryKeyForm(sn, pTargetField))
+        return true;
+
     //0.9.13 D-new-1: array targets mint the interned array token.
     sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
         : pTargetField);
@@ -378,11 +393,13 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
 }
 
 //Phase 8e-6: Collection initializer resolver — target determination,
-//class-form checks, entry resolution, func-ref binding and the
-//entry-type gates, in that order. Entry values are resolved via
-//direct Accept (children inherit no expected type for now — they
-//resolve via their normal paths); keys (for {...} form) are not
-//expressions and need no resolution.
+//the form gates (class-form checks, the Dict key-type gate and the
+//entry key-form gate, all in PrepareInitListShape), entry resolution,
+//func-ref binding and the entry-type casts, in that order. Entry
+//values are resolved via direct Accept (children inherit no
+//expected type for now — they resolve via their normal paths);
+//keys (for {...} form) are not expressions and need no
+//resolution.
 void ExprResolveAccessor::Access(SnInitListExpr &sn)
 {
     assert(!sn.IsResolved());
@@ -407,9 +424,6 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
         if (entry.pValue && !entry.pValue->IsResolved())
             entry.pValue->Accept(*m_pVisitor);
     }
-
-    if (!bIsArray && RejectNonStringDictInitKeys(sn, pTargetField))
-        return;
 
     if (pElemType)
         BindInitListFuncRefs(sn, pElemType);

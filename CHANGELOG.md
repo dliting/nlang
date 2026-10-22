@@ -6,6 +6,20 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.9] - 2026-10-23
+
+### Fixed
+
+- **Entry key form must match the initializer target** — entry forms
+  that were silently accepted are now compile errors: a keyed entry in
+  a `List<T>` initializer (`List<int> l = {x: 1};` stored `1` and
+  dropped the key), a keyless entry in a `Dict<K,V>` initializer
+  (`Dict<string, int> d = {1, 2};` silently stored nothing), a
+  string-literal key in a struct initializer (`S s = {"a": 1};` filled
+  fields positionally), and an identifier key in a `Dict` initializer
+  (`{a: 1}` was silently taken as the string `"a"` — dict keys must be
+  string literals).
+
 ## [0.10.8] - 2026-10-22
 
 ### Added

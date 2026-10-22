@@ -1,0 +1,6 @@
+// 0.10.9 p23: a keyless entry against a Dict target is a compile error —
+// the entry was silently dropped at codegen (count stayed 0).
+int main() {
+    Dict<string, int> d = {1, 2};
+    return d.count();
+}

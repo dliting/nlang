@@ -1,0 +1,10 @@
+// 0.10.9 p23: struct initializer keys are field names — a string
+// literal key was silently ignored and the entry treated as positional.
+struct S {
+    int a;
+}
+
+int main() {
+    S s = {"a": 1};
+    return s.a;
+}

@@ -1,0 +1,6 @@
+// 0.10.9 p23: one keyed entry among positional ones is rejected — the
+// gate reports the first offending entry.
+int main() {
+    List<int> l = {1, x: 2};
+    return l.length();
+}

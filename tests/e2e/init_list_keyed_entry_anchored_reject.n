@@ -1,0 +1,6 @@
+// 0.10.9 p23: the anchored generic literal form takes the same entry
+// key-form gate as the bare form.
+int main() {
+    List<int> l = List<int>{x: 1};
+    return l.length();
+}

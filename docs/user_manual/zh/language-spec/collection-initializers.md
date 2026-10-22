@@ -38,7 +38,9 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 - `标识符 : 表达式` —— struct/class字段（例如`x:1, y:2`）
 - `表达式`（无键）—— 列表元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持默认值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
 
-**字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
+**条目形式必须与目标种类匹配**：不匹配的条目是编译错误——`List<T>`初始化器里的键值条目（`List<int> l = {x: 1};`报`a List initializer takes positional entries; the keyed form is only valid for Dict, struct, and class initializers`）、`Dict<K,V>`初始化器里的无键条目（`Dict<string, int> d = {1, 2};`报`a Dict initializer requires a key in every entry; positional entries are only valid for List, struct, and array initializers`）、struct初始化器里的字符串字面量键（`S s = {"a": 1};`报`struct initializer "S{...}" keys are field names; string keys are only valid for Dict initializers`）。
+
+**字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。键写作标识符同样被拒绝——`Dict<string, int> d = {a: 1};`报`the Dict collection initializer requires string literal keys; write "a" as the key`。
 
 **类型消歧**：编译器用带类型目标（声明的变量、形参类型、返回类型）或锚定类型名来选择种类：
 

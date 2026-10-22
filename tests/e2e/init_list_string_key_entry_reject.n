@@ -1,0 +1,6 @@
+// 0.10.9 p23: a string-keyed entry against a List target is a compile
+// error — the string key form belongs to Dict initializers only.
+int main() {
+    List<int> l = {"a": 1};
+    return l.length();
+}

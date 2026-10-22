@@ -90,6 +90,7 @@ add_library(nlang_compiler
     builder/ExprResolverInitList.cpp
     builder/ExprResolverInitListTarget.cpp
     builder/ExprResolverInitListCtor.cpp
+    builder/ExprResolverInitListForm.cpp
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
     builder/ExprResolverInvokeMatch.cpp

@@ -60,6 +60,17 @@ anchored form is limited to the built-in generic names (`List`, `Dict`,
   field:value entries; the positional form is only valid for
   struct/array targets`.
 
+**Entry form must match the target kind**: a mismatched entry is a
+compile error — a keyed entry in a `List<T>` initializer
+(`List<int> l = {x: 1};` reports `a List initializer takes positional
+entries; the keyed form is only valid for Dict, struct, and class
+initializers`), a keyless entry in a `Dict<K,V>` initializer
+(`Dict<string, int> d = {1, 2};` reports `a Dict initializer requires a
+key in every entry; positional entries are only valid for List, struct,
+and array initializers`), and a string-literal key in a struct
+initializer (`S s = {"a": 1};` reports `struct initializer "S{...}" keys
+are field names; string keys are only valid for Dict initializers`).
+
 **Dict keys must be string literals**: the collection initializer emits
 each key as a string constant and boxes it by K's tag — this is only
 correct for `K = string`. A `Dict<K,V>` with a non-string key and a
@@ -67,7 +78,9 @@ non-empty initializer is a compile error (`Dict<int, int> d = {"1": 2}`
 reports `the Dict collection initializer requires string keys; use set()
 with an explicit 'Int32' key`); the empty initializer
 `Dict<int, int> d = {}` is legal — fill entries afterwards with
-`set()`.
+`set()`. An identifier key is rejected too —
+`Dict<string, int> d = {a: 1};` reports `the Dict collection initializer
+requires string literal keys; write "a" as the key`.
 
 **Type disambiguation:** the compiler uses the typed target (the
 declared variable, the parameter type, the return type) or the

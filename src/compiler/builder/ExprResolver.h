@@ -1043,8 +1043,14 @@ private:
 	//insertion path). True = rejected.
 	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
 		SnField *pTargetField);
+	//0.10.9 p23: the entry key form must match the container target kind
+	//(List positional, Dict string-keyed, struct positional-or-field
+	//name). True = rejected; the first offending entry logged its
+	//diagnostic.
+	bool RejectInitListEntryKeyForm(SnInitListExpr &sn,
+		SnField *pTargetField);
 	//Target-shape phase of Access(SnInitListExpr&) (split out for size):
-	//the three form gates, then stamping the resolved type token and the
+	//the form gates, then stamping the resolved type token and the
 	//class-form ctor contract. True = rejected.
 	bool PrepareInitListShape(SnInitListExpr &sn,
 		SnField *pTargetField, bool bIsArray);

@@ -1,0 +1,8 @@
+// 0.10.9 p23 positive: an array of Dict values keeps the bracket form —
+// the entry key-form gate applies to the container target itself, not
+// to an array whose element type is a Dict instantiation.
+int main() {
+    Dict<string, int> d = {"a": 1};
+    Dict<string, int>[] arr = [d];
+    return arr[0].count();
+}

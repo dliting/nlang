@@ -1,0 +1,11 @@
+// 0.10.9 p23 positive: struct initializers keep mixing positional and
+// identifier-keyed entries (positional fill declaration order).
+struct S {
+    int a;
+    int b;
+}
+
+int main() {
+    S s = {1, b: 2};
+    return s.a + s.b;
+}

@@ -241,6 +241,8 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
 
 //List-form per-entry: stage {this, value} in an evalArea claim, box a
 //primitive value in place, then OP_CallMethod "add" via callParamBase.
+//The entry key is meaningless here — the resolver guarantees List
+//entries are positional (RejectInitListEntryKeyForm, 0.10.9 p23).
 void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
                                      BoxingTagResult tBox,
                                      uint16_t addNameIdx, uint16_t resultOffset,
@@ -306,11 +308,10 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
                                      uint16_t resultOffset,
                                      BytecodeEmitter& emitter) {
     if (!entry.pValue) return;
-    //Key: dict requires String key form. Identifier keys are
-    //accepted for struct init only — for dict they would be
-    //a resolver error. Value-only entries are also invalid.
-    if (entry.keyKind != InitEntry::KeyKind::String
-        && entry.keyKind != InitEntry::KeyKind::Identifier) {
+    //Key: the resolver guarantees every Dict entry carries a string
+    //literal key (RejectInitListEntryKeyForm, 0.10.9 p23) — keyless
+    //and identifier-keyed entries are rejected before codegen.
+    if (entry.keyKind != InitEntry::KeyKind::String) {
         return;
     }
     //Phase 9c follow-up: route through EvalAreaClaim so the key
