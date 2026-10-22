@@ -50,10 +50,9 @@ throw;                                   // re-throw current exception (only ins
 ```nlang
 class MyException : Exception {
     int code;
-    public int MyException(string msg) {
+    public MyException(string msg) {
         super(msg);          // forward to Exception(message) ctor
         this.code = 42;
-        return 0;
     }
 }
 ```

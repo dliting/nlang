@@ -1,0 +1,12 @@
+//Omitted arguments exercise the serialized defaults; explicit arguments
+//pin the imported parameter types (bool/char, not int). Expected exit:
+//4 + 0 + 3 + 1 = 8.
+import lib;
+
+int main() {
+	int a = lib.pick();
+	int b = lib.pick(false);
+	int c = lib.width();
+	int d = lib.width('A');
+	return a + b + c + d;
+}

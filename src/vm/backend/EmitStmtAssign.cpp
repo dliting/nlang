@@ -278,7 +278,7 @@ void VmBackend::EmitAssignStructField(SnAssignStmt& assign,
     if (fieldOffInt < 0) return;
     uint16_t fieldOff = static_cast<uint16_t>(fieldOffInt);
     SnField* fieldType = nullptr;
-    for (auto& sf : structDecl->Members()) {
+    for (auto& sf : structDecl->Fields()) {
         if (sf.Name() == fieldName) {
             fieldType = sf.EvalDataType();
             break;

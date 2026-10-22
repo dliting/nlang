@@ -1,0 +1,9 @@
+//0.9.11 O2: consumer module constructing the imported class through
+//the qualified call form (class parity with the struct path).
+//Expected exit 42 (21 * 2).
+import lib;
+
+int main() {
+	lib.Calc c = lib.Calc(21);
+	return lib.twice(c);
+}

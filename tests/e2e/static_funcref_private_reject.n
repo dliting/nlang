@@ -1,0 +1,10 @@
+//0.9.14: a private static method is not visible through the type name
+//from outside the class — the member search never binds it.
+class B {
+    private static int f(int x) { return x * 2; }
+}
+
+int main() {
+    func<int, int> h = B.f;
+    return h(1);
+}

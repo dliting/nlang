@@ -11,108 +11,38 @@
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cassert>
 #include <map>
 #include <unordered_set>
 
 namespace nlang {
 
-//Heap field addressing (0.7.5 Task 6 Step A2): every struct/class data
-//field occupies a uniform 2-cell slot (kHeapFieldStrideBytes = 8) so
-//64-bit scalars fit without per-field width logic. Struct field i sits
-//at cell 2i; class data starts after the classIdx cell (field i at
-//cell 1+2i). Compile-time offsets here must match runtime
-//AllocStructOnHeap/AllocClassOnHeap in VmExecutor.
-int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fieldName) {
-    uint16_t off = 0;
-    for (auto& sf : structDecl.Members()) {
-        if (sf.Name() == fieldName)
-            return off;
-        off += kHeapFieldStrideBytes;
-    }
-    return -1;
-}
+//Compile-time field-offset solving (FindFieldOffset/FindClassFieldOffset/
+//ClassAncestorFieldOffset) lives in backend/FieldOffsets.cpp (0.9.12
+//source-size split, zero behavior change).
 
-//Returns class field offset in bytes (including +4 for classIdx slot), or -1.
-//Object layout: [classIdx, root_ancestor_fields..., parent_fields..., own_fields...]
-//Cell[0] = classIdx (1 cell, used for runtime virtual dispatch via OP_CallMethod).
-//Data fields occupy cells 1, 3, 5, ... (2 cells each).
-int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
-    //Phase 9d: built-in Exception classes expose message/backtrace fields
-    //that aren't materialized as SnClassDecl members (the synthetic class
-    //decl has empty Members()). Runtime layout (VmBackend::RegisterBuiltinClasses):
-    //  cell[1] = message   → offset kHeapCellBytes (4)
-    //  cell[3] = backtrace → offset kHeapCellBytes + kHeapFieldStrideBytes (12)
-    //Walk SuperClass chain so user subclasses of Exception also resolve.
-    if (classDecl.IsBuiltinClass()
-        && IsBuiltinExceptionName(classDecl.Name())) {
-        if (fieldName == "message")  return kHeapCellBytes;
-        if (fieldName == "backtrace") return kHeapCellBytes + kHeapFieldStrideBytes;
-        return -1;
-    }
-    //Collect ancestor chain from root to direct parent
-    std::vector<SnClassDecl*> ancestors;
-    auto* pSuper = classDecl.SuperClass();
-    while (pSuper) {
-        ancestors.push_back(pSuper);
-        pSuper = pSuper->SuperClass();
-    }
-    //Search from root ancestor to direct parent (reversed order)
-    uint16_t off = kHeapCellBytes; //skip the classIdx cell
-    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
-        int found = ClassAncestorFieldOffset(**it, fieldName, off);
-        if (found >= 0)
-            return found;
-    }
-    //Search in this class (after all parent fields)
-    for (auto& member : classDecl.Members()) {
-        if (member.Kind() == NK_ClassField && member.Name() == fieldName)
-            return off;
-        if (member.Kind() == NK_ClassField)
-            off += kHeapFieldStrideBytes;
-    }
-    return -1;
-}
-
-//FindClassFieldOffset arm: one ancestor in the root→parent walk. Returns
-//the field offset when the field lives in this ancestor, else -1; `off`
-//always advances past the ancestor's data fields.
-int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
-                                        const std::string& fieldName,
-                                        uint16_t& off) {
-    //Phase 9d: a built-in Exception ancestor contributes 2 runtime
-    //fields (message, backtrace) that aren't in the synthetic
-    //Members() list — RegisterClasses injects them into the compiled
-    //field list, so account for them here.
-    if (ancestor.IsBuiltinClass()
-        && IsBuiltinExceptionName(ancestor.Name())) {
-        if (fieldName == "message")  return off;
-        if (fieldName == "backtrace") return off + kHeapFieldStrideBytes;
-        off += 2 * kHeapFieldStrideBytes;
-        return -1;
-    }
-    for (auto& member : ancestor.Members()) {
-        if (member.Kind() == NK_ClassField && member.Name() == fieldName)
-            return off;
-        if (member.Kind() == NK_ClassField)
-            off += kHeapFieldStrideBytes;
-    }
-    return -1;
-}
-
-//Bare identifier that resolved to a class member (implicit this.field,
-//e.g. `v = 1;` inside a method): returns the SnClassDecl that owns the
-//field node. For inherited fields the field node belongs to the ancestor
-//decl, and FindClassFieldOffset walking from that owner yields the same
-//flattened offset as from any subclass. Returns null when pField is not
-//a class data member (locals, formals, enum members).
-SnClassDecl* VmBackend::OwningClassOfMemberField(SnField* pField)
+//Bare identifier that resolved to a type member (implicit this.field,
+//e.g. `v = 1;` inside a method or a 0.9.11 D2 struct constructor):
+//returns the owning type decl (SnClassDecl or SnStructDecl). For
+//inherited fields the field node belongs to the ancestor decl, and
+//FindClassFieldOffset walking from that owner yields the same flattened
+//offset as from any subclass. Returns null when pField is not a class
+//or struct data member (locals, formals, enum members).
+SnField* VmBackend::OwningTypeOfMemberField(SnField* pField)
 {
-    if (!pField || pField->Kind() != NK_ClassField)
+    if (!pField)
         return nullptr;
     auto* pParent = pField->Parent();
-    if (pParent && pParent->Kind() == NK_ClassDecl)
+    if (!pParent)
+        return nullptr;
+    if (pField->Kind() == NK_ClassField
+        && pParent->Kind() == NK_ClassDecl)
         return static_cast<SnClassDecl*>(pParent);
+    //0.9.11 D2: struct constructors get the same bare-field binding.
+    if (pField->Kind() == NK_StructField
+        && pParent->Kind() == NK_StructDecl)
+        return static_cast<SnStructDecl*>(pParent);
     return nullptr;
 }
 
@@ -129,6 +59,12 @@ void VmBackend::Access(SnMemberExpr& expr) {
     if (EmitMemberHeaderDispatch(member, field, emitter, resultOffset))
         return;
     if (EmitMemberBuiltinDispatch(member, emitter, resultOffset))
+        return;
+    //0.9.10: type-name-qualified static call — the resolver bound the
+    //inner invoke to an NF_Static callee; no receiver value exists
+    //(evaluating the outer identifier would hit the no-codegen-binding
+    //throw), no null check, args stage from slot 0.
+    if (EmitMemberStaticCall(member, emitter, resultOffset))
         return;
     auto* outerType = member.Outer()->EvalDataType();
     if (EmitMemberTypedReceiverDispatch(member, outerType, emitter,
@@ -156,15 +92,39 @@ static bool IsValueFuncRefShape(SnField& field, SnMemberExpr& member) {
 
 //v2.2: module-qualified free-function reference (`lib.seven`): the
 //function is owned by a namespace — or by nothing at all for a detached
-//imported stub. These carry no receiver, unlike the bound-method form.
-static bool IsModuleFuncRefTarget(SnField& field) {
+//imported stub. 0.9.14 D-new-3: a static method carries no receiver
+//either and takes the same bare OP_MakeFunc form.
+static bool IsReceiverlessFuncRefTarget(SnField& field) {
     auto* owner = field.Parent();
-    return owner == nullptr || owner->Kind() == NK_Namespace;
+    return owner == nullptr || owner->Kind() == NK_Namespace
+        || field.ContainFlags(NF_Static);
 }
 
-//Access head phase: namespace-qualified stdlib call, enum member constant,
-//Phase 13 bound method reference, Phase 12 enum method call. Returns true
-//when one of these families emitted the expression.
+//Compile-time constant read phase: an enum member constant (Color.Red)
+//and an interface constant (I.NAME) both emit an inline literal. The
+//receiver names a type, so no receiver value is emitted.
+bool VmBackend::EmitMemberConstantRead(SnField* field,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset) {
+    if (field && field->Kind() == NK_EnumMember) {
+        auto* pEnumMember = static_cast<SnEnumMember*>(field);
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(pEnumMember->Value());
+    } else if (field && field->Kind() == NK_ClassField
+               && IsInterfaceConstantField(*field)) {
+        EmitInterfaceConstantRead(*static_cast<SnClassField*>(field),
+                                  emitter);
+    } else {
+        return false;
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
+}
+
+//Access head phase: namespace-qualified stdlib call, compile-time
+//constants, Phase 13 bound method reference, Phase 12 enum method call.
+//Returns true when one of these families emitted the expression.
 bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
                                          BytecodeEmitter& emitter,
                                          uint16_t resultOffset) {
@@ -185,22 +145,15 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
             return true;
         }
     }
-    if (field && field->Kind() == NK_EnumMember) {
-        //Enum member constant (e.g. Color.Red).
-        auto* pEnumMember = static_cast<SnEnumMember*>(field);
-        emitter.Emit(OpCode::OP_ConstInt32);
-        emitter.EmitInt32(pEnumMember->Value());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
+    if (EmitMemberConstantRead(field, emitter, resultOffset))
         return true;
-    }
     //Function references in value position: the module form first
     //(lib.seven, v2.2 — receiver-less static OP_MakeFunc), then the
     //bound-method form (c.foo, Phase 13 Step 2). The full shape notes
     //travel with the emission helpers.
     if (field && IsValueFuncRefShape(*field, member)) {
-        if (IsModuleFuncRefTarget(*field))
-            EmitModuleFuncHandleRef(*field, emitter, resultOffset);
+        if (IsReceiverlessFuncRefTarget(*field))
+            EmitReceiverlessFuncHandleRef(*field, emitter, resultOffset);
         else
             EmitMemberFuncHandleRef(member, field, emitter, resultOffset);
         return true;
@@ -208,6 +161,85 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
     if (EmitMemberEnumMethodCall(member, emitter, resultOffset))
         return true;
     return false;
+}
+
+//The folded payload in the channel matching its literal kind. Integer
+//kinds stay integral (a floating bridge would drop bits above 2^53);
+//the float-category kinds widen through double.
+static int64_t FoldedSignedValue(const DefaultValueDesc& dv) {
+    switch (dv.tag) {
+        case RTK_Bool:
+        case RTK_Char:
+        case RTK_Int32:  return static_cast<int32_t>(dv.intValue);
+        case RTK_Long:   return dv.longValue;
+        case RTK_ULong:  return static_cast<int64_t>(dv.longValue);
+        case RTK_Float:  return static_cast<int64_t>(dv.floatValue);
+        case RTK_Double: return static_cast<int64_t>(dv.doubleValue);
+        default:
+            throw std::runtime_error(
+                "NLang backend: interface constant folded tag "
+                + std::to_string(static_cast<int>(dv.tag))
+                + " has no integer value");
+    }
+}
+
+static double FoldedFloatingValue(const DefaultValueDesc& dv) {
+    switch (dv.tag) {
+        case RTK_Int32:  return static_cast<int32_t>(dv.intValue);
+        case RTK_Long:   return static_cast<double>(dv.longValue);
+        case RTK_ULong:
+            return static_cast<double>(
+                static_cast<uint64_t>(dv.longValue));
+        case RTK_Float:  return dv.floatValue;
+        case RTK_Double: return dv.doubleValue;
+        default:
+            throw std::runtime_error(
+                "NLang backend: interface constant folded tag "
+                + std::to_string(static_cast<int>(dv.tag))
+                + " has no floating value");
+    }
+}
+
+//0.9.10 D3.5: interface constant use site. The declaration contract
+//guarantees the initializer folds and the declared type is scalar or
+//string, so emission is a plain inline literal (the caller's constant
+//phase assigns it to the result slot).
+void VmBackend::EmitInterfaceConstantRead(SnClassField& field,
+                                          BytecodeEmitter& emitter) {
+    DefaultValueDesc dv = ExtractDefaultValue(
+        field.Initializer(), RuntimeTypeKind(field.EvalDataType()));
+    if (dv.tag == RTK_Void) {
+        //Declaration contract violation — an internal invariant break.
+        throw std::runtime_error(
+            "NLang backend: interface constant without a folded value: "
+            + field.Name());
+    }
+    SnField* pDeclared = field.EvalDataType();
+    const NodeKind declaredKind = pDeclared ? pDeclared->Kind() : NK_Int32;
+    if (dv.tag == RTK_Null) {
+        //No payload in any declared type; zero the whole uniform cell
+        //so an 8-byte slot reads 0 too.
+        emitter.Emit(OpCode::OP_ConstZero);
+    } else if (declaredKind == NK_String) {
+        emitter.Emit(OpCode::OP_ConstString);
+        emitter.EmitUint16(static_cast<uint16_t>(dv.stringIdx));
+    } else if (declaredKind == NK_Float) {
+        emitter.Emit(OpCode::OP_ConstFloat);
+        emitter.EmitFloat(static_cast<float>(FoldedFloatingValue(dv)));
+    } else if (declaredKind == NK_Double) {
+        emitter.Emit(OpCode::OP_ConstDouble);
+        emitter.EmitDouble(FoldedFloatingValue(dv));
+    } else {
+        const int primIdx = ScalarPrimIndexOf(declaredKind);
+        const int64_t value = FoldedSignedValue(dv);
+        if (primIdx >= 0 && kScalarPrims[primIdx].slotWidth == 8) {
+            emitter.Emit(OpCode::OP_ConstInt64);
+            emitter.EmitInt64(value);
+        } else {
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(static_cast<int32_t>(value));
+        }
+    }
 }
 
 //Builtin phase: non-class receiver toString() dispatch, then the array

@@ -53,56 +53,61 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
 //  - SnBinaryExpr(OP_Neg, SnLiteralExpr NK_Int32)     → RTK_Int32 (negative)
 //  - 0.7.5: long/ulong/double literals (and their negations) fold the
 //    same way through the 8-byte channels
+//  - 0.9.10: bool/char literals fold through RTK_Bool/RTK_Char with the
+//    carrier bits in intValue, so the consumer stub rebuilds the literal
+//    with its declared type (RTK_Int32 would make it int-typed)
 //Anything else (identifier ref, function call, cast, member access, etc.)
 //returns RTK_Void — caller-side (Step 5 declaration check) rejects this
 //for IsImported functions. In-module callers don't consult this vector
 //at all, so a RTK_Void entry is harmless for them.
-//Direct-literal arm of ExtractDefaultValue. Fills dv from a null / int /
-//float / string literal; an unknown literal type leaves dv at its
-//RTK_Void default (not foldable).
+//Direct-literal arm of ExtractDefaultValue. Fills dv from a null / scalar
+//literal; an unknown literal type leaves dv at its RTK_Void default
+//(not foldable).
 void VmBackend::ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv) {
     //Null literal: stamped with NF_NullLiteral by KT_Null rule.
     if (lit->ContainFlags(NF_NullLiteral)) {
         dv.tag = RTK_Null;
         return;
     }
-    //Type-driven literal dispatch. SnLiteralExpr's Variant Type()
-    //points at the RnDataType — match pointer identity against the
-    //global singletons (RnInt32/RnFloat/RnString).
-    auto* litType = lit->Value().Type();
-    if (litType == RnInt32::Instance()) {
-        dv.tag = RTK_Int32;
-        dv.intValue = static_cast<uint32_t>(
-            lit->Value().Data().m_Int);
+    //Kind-keyed literal dispatch: the Variant stores each carrier's bit
+    //pattern, so 4-byte bool/char read m_Int exactly like int32 (char
+    //rides the uint32 carrier; the 4 raw bytes are the code point).
+    const NodeKind kind = lit->Value().Type()->Kind();
+    VariantData& data = lit->Value().Data();
+    switch (kind) {
+    //4-byte integer-family carriers; the registry supplies the tag
+    //(RTK_Int32 / RTK_Bool / RTK_Char).
+    case NK_Int32:
+    case NK_Bool:
+    case NK_Char:
+        dv.tag = RtkOfKind(kind);
+        dv.intValue = static_cast<uint32_t>(data.m_Int);
         return;
-    }
-    if (litType == RnFloat::Instance()) {
+    case NK_Float:
         dv.tag = RTK_Float;
-        dv.floatValue = lit->Value().Data().m_Float;
+        dv.floatValue = data.m_Float;
         return;
-    }
-    if (litType == RnDouble::Instance()) {
+    case NK_Double:
         dv.tag = RTK_Double;
-        dv.doubleValue = lit->Value().Data().m_Double;
+        dv.doubleValue = data.m_Double;
         return;
-    }
     //0.7.5: 8-byte scalar literals — kind-exact Variant member reads.
-    if (litType == RnLong::Instance()) {
+    case NK_Long:
         dv.tag = RTK_Long;
-        dv.longValue = lit->Value().Data().m_Long;
+        dv.longValue = data.m_Long;
         return;
-    }
-    if (litType == RnULong::Instance()) {
+    case NK_ULong:
         dv.tag = RTK_ULong;
-        dv.longValue = static_cast<int64_t>(
-            lit->Value().Data().m_ULong);
+        dv.longValue = static_cast<int64_t>(data.m_ULong);
         return;
-    }
-    if (litType == RnString::Instance()) {
+    case NK_String: {
         dv.tag = RTK_String;
         //Intern into producer's pool. Consumer remaps during load.
-        auto* sPtr = lit->Value().Data().m_String;
+        auto* sPtr = data.m_String;
         dv.stringIdx = AddStringConstant(sPtr ? *sPtr : std::string());
+        return;
+    }
+    default:
         return;
     }
 }
@@ -127,6 +132,16 @@ void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
             dv.longValue = -lit->Value().Data().m_Long;
             return;
         }
+        //A negated ulong is never negative in range except the one
+        //writable form: 2^63 lexes unsigned and negates to INT64_MIN.
+        //This mirrors TryGetConstantLiteral's single special case.
+        if (lit->Value().Type() == RnULong::Instance()) {
+            if (lit->Value().Data().m_ULong == (uint64_t(1) << 63)) {
+                dv.tag = RTK_Long;
+                dv.longValue = INT64_MIN;
+            }
+            return;
+        }
         if (lit->Value().Type() == RnFloat::Instance()) {
             dv.tag = RTK_Float;
             dv.floatValue = -lit->Value().Data().m_Float;
@@ -140,25 +155,79 @@ void VmBackend::ExtractNegatedLiteralDefault(SnBinaryExpr* bin,
     }
 }
 
-DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr) {
+//0.9.11 T4: re-stamp a folded literal into the declared slot's carrier.
+//The fold arms tag by the literal's own type, but the raw-slot consumers
+//(VmExecutor::MaterializeDefaultValue — struct field defaults and the
+//embedding entry's missing-arg fill) write the cell once and the slot is
+//read back by its declared kind: a double-folded value sitting in a float
+//cell reads back as 0, an int32-folded value in a long cell loses the
+//sign extension. The declaration-side checks (field initializers,
+//function defaults) already admitted only constants that convert to the
+//declared type, so every conversion here preserves the value. AST-side
+//consumers (cross-module stub rebuild, interface-constant emission)
+//convert to the declared type themselves and stay correct either way.
+static void CoerceDefaultToDeclared(DefaultValueDesc& dv, uint8_t kind) {
+    if (dv.tag == RTK_Void || dv.tag == kind
+        || dv.tag == RTK_Null || dv.tag == RTK_String)
+        return;
+    //Normalize the folded payload through the widest integer / floating
+    //channel, then re-stamp into the declared carrier. bool/char and the
+    //narrow integer kinds share the 4-byte int32 carrier, so they fold
+    //to RTK_Int32 (the tag ExtractLiteralDefault gives int literals).
+    const bool srcFloat = (dv.tag == RTK_Float || dv.tag == RTK_Double);
+    double dval = 0.0;
+    int64_t ival = 0;
+    switch (dv.tag) {
+    case RTK_Int32: case RTK_Bool: case RTK_Char:
+        ival = static_cast<int32_t>(dv.intValue); break;
+    case RTK_Long: case RTK_ULong:
+        ival = dv.longValue; break;
+    case RTK_Float: dval = dv.floatValue; break;
+    case RTK_Double: dval = dv.doubleValue; break;
+    default: return;  //reference-family tags: nothing to re-stamp
+    }
+    switch (kind) {
+    case RTK_Float:
+        dv.floatValue = srcFloat ? static_cast<float>(dval)
+                                 : static_cast<float>(ival);
+        dv.tag = RTK_Float;
+        break;
+    case RTK_Double:
+        dv.doubleValue = srcFloat ? dval : static_cast<double>(ival);
+        dv.tag = RTK_Double;
+        break;
+    case RTK_Long: case RTK_ULong:
+        dv.longValue = srcFloat ? static_cast<int64_t>(dval) : ival;
+        dv.tag = kind;
+        break;
+    case RTK_Int32: case RTK_Byte: case RTK_UByte: case RTK_Short:
+    case RTK_UShort: case RTK_UInt32: case RTK_Bool: case RTK_Char:
+        dv.intValue = static_cast<uint32_t>(
+            srcFloat ? static_cast<int32_t>(dval)
+                     : static_cast<int32_t>(ival));
+        dv.tag = RTK_Int32;
+        break;
+    default:
+        break;  //array/reference declared kinds: keep the folded tag
+    }
+}
+
+DefaultValueDesc VmBackend::ExtractDefaultValue(SnExpression* pExpr,
+                                                uint8_t declaredKind) {
     DefaultValueDesc dv;  // tag defaults to RTK_Void
     if (!pExpr) return dv;  // no default expression
 
     //Direct literal.
     if (pExpr->Kind() == NK_LiteralExpr) {
         ExtractLiteralDefault(static_cast<SnLiteralExpr*>(pExpr), dv);
-        return dv;
-    }
-
     //Unary negation of numeric literal: `-5` / `-3.14` parse as OP_Neg
     //over a literal. Fold both int and float so negative floats work
     //cross-module too (not just negative ints).
-    if (pExpr->Kind() == NK_BinaryExpr) {
+    } else if (pExpr->Kind() == NK_BinaryExpr) {
         ExtractNegatedLiteralDefault(static_cast<SnBinaryExpr*>(pExpr), dv);
-        return dv;
     }
-
-    return dv;  //non-literal, non-foldable
+    CoerceDefaultToDeclared(dv, declaredKind);
+    return dv;
 }
 
 //--- v2.3 ExprDesc encoder (complex cross-module defaults) ----------------
@@ -186,9 +255,10 @@ void AppendF64(std::vector<uint8_t>& out, double v) {
 }
 }  //namespace
 
-//Literal arm of the ExprDesc encoder. Mirrors the fold arms of
-//ExtractLiteralDefault (same kind set); bool/char/byte literals stay
-//outside the subset and return false.
+//Literal arm of the ExprDesc encoder. Narrower than the folded-default
+//surface by design: bool/char/byte literals are either folded by
+//ExtractDefaultValue or outside the cross-module subset, so they return
+//false here.
 bool VmBackend::EncodeLiteralDesc(SnLiteralExpr& lit,
                                   std::vector<uint8_t>& out) {
     if (lit.ContainFlags(NF_NullLiteral)) {

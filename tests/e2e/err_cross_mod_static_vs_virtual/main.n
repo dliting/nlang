@@ -1,0 +1,5 @@
+import lib;
+class D : lib.B {
+    public static int f(int x) { return 0; }
+}
+int main() { return 0; }

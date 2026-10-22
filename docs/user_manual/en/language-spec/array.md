@@ -8,16 +8,17 @@ Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 ```nlang
 int[] a = int[3];         // expression position: fixed length, elements zero-initialized
 int[] b = [1, 2, 3];      // bare bracket literal
-int[] c = {1, 2};         // bare brace literal
-int[] e = int[0];         // empty array
+int[] e = [];             // empty array literal (int[0] is equivalent)
 
 int d[3];                 // declaration position, fixed length: zero-filled
 int f[100] = [7, 8];      // declaration position, partial init: rest zero-filled
 ```
 
 - **Expression position**: `int[3]` creates a fixed-length heap array with
-  zero-initialized elements; `[1, 2, 3]` and `{1, 2}` are collection
-  literals — inference and disambiguation rules are in
+  zero-initialized elements; `[1, 2, 3]` is the collection literal form
+  (the brace form `{...}` is reserved for collection, struct, and class
+  initializers — `int[] c = {1, 2};` is rejected). Inference and
+  disambiguation rules are in
   [Collection Initializers](collection-initializers.md).
 - **Declaration position**: `int d[3];` declares a fixed-length array
   directly, zero-filled; with an initializer, elements not listed are

@@ -3,7 +3,7 @@
 //a bare cb(1) inside a method body resolves through implicit this
 //(the func-typed-field resolution branch).
 class Reg {
-    func<int, int> cb;
+    public func<int, int> cb;
 
     int handler(int x) { return x + 10; }
 

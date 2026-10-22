@@ -234,9 +234,12 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
     write(reinterpret_cast<const uint8_t*>(&nameLen), 4);
     write(reinterpret_cast<const uint8_t*>(cc.name.data()), nameLen);
 
-    for (uint16_t i = 0; i < cc.fieldCount; ++i)
+    //0.9.12 T1: the field surface comes from the layout view; the
+    //stream key (cc.name) and subclass checks stay on the record.
+    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
+    for (size_t i = 0; i < fields.size(); ++i)
     {
-        uint16_t ftk = cc.fieldTypeKinds[i];
+        uint16_t ftk = fields[i].kind;
         int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
         if (primRow >= 0)
         {
@@ -259,15 +262,15 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         }
         else if (ftk == RTK_Struct)
         {
-            if (cc.fieldStructIndices[i] == 0xFFFF)
+            if (fields[i].structIdx == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
             int32_t innerHeapIdx = slot[i * 2 + 1];
-            SerializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
+            SerializeStructFields(innerHeapIdx, fields[i].structIdx,
                 std::forward<Writer>(write), st, depth + 1);
         }
         else if (ftk == RTK_Class)
         {
-            if (cc.fieldClassIndices[i] == 0xFFFF)
+            if (fields[i].classIdx == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested class type");
             int32_t childHeapIdx = slot[i * 2 + 1];
             SerializeClassFields(childHeapIdx,
@@ -357,11 +360,13 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
     st.deserializeObjIds[st.nextObjId++] = heapIdx;
 
-    const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
+    //0.9.12 T1: the field surface comes from the layout view (mirrors
+    //the record today; the record binding is no longer needed here).
+    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
     size_t heapIdxSz = static_cast<size_t>(heapIdx);
-    for (uint16_t i = 0; i < cc.fieldCount; ++i)
+    for (size_t i = 0; i < fields.size(); ++i)
     {
-        uint16_t ftk = cc.fieldTypeKinds[i];
+        uint16_t ftk = fields[i].kind;
         int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
         if (primRow >= 0)
         {
@@ -395,19 +400,19 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         }
         else if (ftk == RTK_Struct)
         {
-            if (cc.fieldStructIndices[i] == 0xFFFF)
+            if (fields[i].structIdx == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested struct type");
-            int32_t innerHeapIdx = AllocStructOnHeap(cc.fieldStructIndices[i]);
+            int32_t innerHeapIdx = AllocStructOnHeap(fields[i].structIdx);
             m_structHeap[heapIdxSz][i * 2 + 1] = innerHeapIdx;
-            DeserializeStructFields(innerHeapIdx, cc.fieldStructIndices[i],
+            DeserializeStructFields(innerHeapIdx, fields[i].structIdx,
                 std::forward<Reader>(read), st, depth + 1);
         }
         else if (ftk == RTK_Class)
         {
-            if (cc.fieldClassIndices[i] == 0xFFFF)
+            if (fields[i].classIdx == 0xFFFF)
                 throw std::runtime_error("NLang VM: unresolved nested class type");
             int32_t childHeapIdx = 0;
-            DeserializeClassFields(cc.fieldClassIndices[i], childHeapIdx,
+            DeserializeClassFields(fields[i].classIdx, childHeapIdx,
                 std::forward<Reader>(read), st, depth + 1);
             m_structHeap[heapIdxSz][i * 2 + 1] = childHeapIdx;
         }

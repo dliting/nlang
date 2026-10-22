@@ -18,11 +18,10 @@ class WaitGroup {
     private Mutex m_gate;
     private Channel<int> m_done;
 
-    public int WaitGroup() {
+    public WaitGroup() {
         this.m_pending = 0;
         this.m_gate = Mutex();
         this.m_done = Channel(0);
-        return 0;
     }
 
     public void add(int n) {
@@ -58,10 +57,9 @@ class Semaphore {
     private int m_count;
     private Mutex m_mtx;
 
-    public int Semaphore(int initial) {
+    public Semaphore(int initial) {
         this.m_count = initial;
         this.m_mtx = Mutex();
-        return 0;
     }
 
     public void acquire() {

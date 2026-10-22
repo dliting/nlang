@@ -1,0 +1,10 @@
+//0.9.14 D-new-7: a static method with default parameters stays rejected,
+//with the receiverless wording.
+class B {
+    public static int f(int x = 3) { return x; }
+}
+
+int main() {
+    func<int, int> h = B.f;
+    return h(1);
+}

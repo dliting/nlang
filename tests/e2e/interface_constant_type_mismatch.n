@@ -1,0 +1,8 @@
+//0.9.10 D3.3: the folded value must be assignment-compatible with the
+//declared type; a double literal for an int constant is an incompatible
+//type (constants do not convert their literal).
+interface ILimits {
+	static const int MAX = 0.5;
+}
+
+int main() { return 0; }

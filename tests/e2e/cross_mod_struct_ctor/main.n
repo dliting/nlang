@@ -1,0 +1,9 @@
+//0.9.11 O2: consumer module constructing the imported struct through
+//the qualified call form. The constructor runs (x=3, y=4) and the
+//untouched field default materializes (tag=5). Expected exit 12.
+import lib;
+
+int main() {
+	lib.Vec v = lib.Vec(3, 4);
+	return lib.sum(v);
+}

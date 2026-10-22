@@ -1,0 +1,11 @@
+//0.9.10: shift compound forms in the for-update slot (the FiniFor
+//productions share the statement resolver gates and emission).
+int main() {
+	int acc = 0;
+	for (int i = 1; i <= 8; i <<= 1) {
+		acc = acc + 1;
+	}
+	//i walks 1, 2, 4, 8 — four iterations.
+	if (acc != 4) { return 1; }
+	return 0;
+}

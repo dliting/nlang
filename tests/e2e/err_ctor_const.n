@@ -1,0 +1,4 @@
+class C { public const C() { } }
+int main() {
+	return 0;
+}

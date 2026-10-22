@@ -42,4 +42,10 @@ bool PrimKindIsNumeric(NodeKind kind)
     return i >= 0 && PrimCategoryIsNumeric(kScalarPrims[i].category);
 }
 
+bool PrimKindIsInteger(NodeKind kind)
+{
+    int i = ScalarPrimIndexOf(kind);
+    return i >= 0 && PrimCategoryIsInteger(kScalarPrims[i].category);
+}
+
 } // namespace nlang

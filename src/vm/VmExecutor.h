@@ -7,6 +7,7 @@
 #include "IHostIo.h"
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
+#include "VmClassLayout.h"
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "VmScheduler.h"
@@ -362,19 +363,22 @@ private:
                       uint8_t* frameCells, uint32_t argc);
     void FillOneDefault(const CompiledFunction& callee,
                         const DefaultValueDesc& d, uint8_t* cell);
+    //0.9.11 T4: the single folded-constant write site (definition in
+    //VmDefaultMaterializer.cpp) — an 8-byte cell (frame slot or heap
+    //field slot) takes the descriptor's value. False = no materializable
+    //value (RTK_Void sentinel; RTK_Expr/RTK_Unfoldable are function-
+    //default-only) and the caller decides.
+    bool MaterializeDefaultValue(const DefaultValueDesc& d, uint8_t* cell);
 
-    //private（ResolveHostField 的描述符视图）：CompiledStruct/
-    //CompiledClass 是无继承关系的两个类型，字段成员仅名字相同
-    //（fieldCount/fieldNames/fieldTypeKinds，且后者同为
-    //vector<uint16_t>，CompiledModule.h:148-161/:384-400）——视图持各
-    //表指针，单一代码路径服务两表。
-    struct HostFieldDesc {
-        const std::vector<std::string>* fieldNames;
-        const std::vector<uint16_t>* fieldTypeKinds;
-        uint16_t fieldCount;
-    };
-    HostFieldDesc ResolveHostField(int32_t heapIdx, uint16_t fieldIndex,
-                                   size_t& baseOut) const;
+    //private: resolves a host-side field access on an instance slot.
+    //Returns the resolved field's declared RTK kind and sets baseOut to
+    //the cell holding the field's low half (structs: fieldIndex*2;
+    //classes: 1 + fieldIndex*2). Structs read the CompiledStruct record;
+    //classes read the VmClassLayout view (0.9.12 T1: the view mirrors
+    //the record today, T2 joins the superClassIdx chain). Throws on a
+    //non-instance slot or an out-of-range fieldIndex.
+    uint16_t ResolveHostField(int32_t heapIdx, uint16_t fieldIndex,
+                              size_t& baseOut) const;
 
     //Opcode case-body helpers (2026-09-26 maintainability split):
     //the dispatch switch in VmExecutorOps.cpp routes every opcode
@@ -1082,6 +1086,10 @@ private:
     //garbage or malicious length prefix (e.g. 2 GiB) cannot trigger OOM.
     static const size_t MAX_STRING_LENGTH = 16 * 1024 * 1024;  // 16 MiB
     const CompiledModule* m_currModule = nullptr;
+    //Runtime instance-field layout view (0.9.12 T1): rebuilt whenever
+    //InitializeForRun binds a new module; consumers read class fields
+    //through it instead of the CompiledClass parallel arrays.
+    VmClassLayout m_classLayout;
     //String objectization: runtime strings are GC-managed immutable objects.
     //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
     //uninitialized, reads as "" — same fallback shape the old pool-index-0

@@ -1,0 +1,6 @@
+// err_implements_imported_interface_missing — implementing an imported
+// interface requires every instance signature the stub carries; a class
+// that declares none of them is rejected across the .ncu boundary.
+interface I {
+    int f(int x);
+}

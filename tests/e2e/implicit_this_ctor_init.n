@@ -1,9 +1,8 @@
 //Constructor initializing its own field without the this. prefix.
 class Base {
     public int v;
-    public int Base(int x) {
+    public Base(int x) {
         v = x;
-        return 0;
     }
 }
 int main() {

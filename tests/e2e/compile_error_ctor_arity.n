@@ -7,7 +7,7 @@
 //extras were silently dropped, named args hit codegen's unhandled-kind
 //internal error. All shapes in one file: the resolver reports every
 //error before the build fails.
-class WithParams { int a; public int WithParams(int a) { this.a = a; } }
+class WithParams { int a; public WithParams(int a) { this.a = a; } }
 class NoCtor { int a; }
 
 int main() {

@@ -1,0 +1,8 @@
+//0.9.10 D3.7: a constant and a method of the same name would make the
+//reference ambiguous — both the value form and the call form exist.
+interface IClash {
+	static const int f = 1;
+	static int f() { return 2; }
+}
+
+int main() { return 0; }

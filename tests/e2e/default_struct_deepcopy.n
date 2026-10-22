@@ -4,7 +4,7 @@
 class P {
     public int x;
     public int y;
-    public int P() { return 0; }
+    public P() { }
 }
 int foo(P p = P{x:3, y:4}) { return p.x * 10 + p.y; }
 int main() {

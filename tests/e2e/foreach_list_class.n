@@ -1,4 +1,4 @@
-class Point { public int x; public int y; public int Point(int ax, int ay) { this.x = ax; this.y = ay; return 0; } }
+class Point { public int x; public int y; public Point(int ax, int ay) { this.x = ax; this.y = ay; } }
 int main() {
     List<Point> lst = {};
     lst.add(Point(10, 0));

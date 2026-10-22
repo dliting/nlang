@@ -1,0 +1,12 @@
+//0.9.10 D2.4: an object receiver selects the instance namespace only.
+//B's same-name static must not shadow the inherited instance method.
+class A {
+	public int f(int x) { return x; }
+}
+class B : A {
+	public static int f(int x) { return x + 1; }
+}
+int main() {
+	B b = B();
+	return b.f(2) * 10 + B.f(3);
+}

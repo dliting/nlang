@@ -1,0 +1,4 @@
+class Base {
+    public Base() { }
+    public virtual int f() { return 1; }
+}

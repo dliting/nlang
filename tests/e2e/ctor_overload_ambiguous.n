@@ -1,0 +1,11 @@
+//0.9.11 T6 (D10): a trailing default does not break a tie — W(1) binds
+//both constructors at distance 0, which is a real ambiguity.
+class W {
+    public int tag;
+    public W(int a) { this.tag = 1; }
+    public W(int a, int b = 5) { this.tag = 2; }
+}
+int main() {
+    W w = W(1);
+    return 0;
+}

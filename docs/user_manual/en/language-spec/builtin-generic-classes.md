@@ -95,9 +95,8 @@ type-argument nesting depth (`<` right after the built-in generic names
 `List`/`Dict` opens a level, each `>` closes one) and splits `>>` into
 two `'>'` tokens while the depth is positive (C#-style scanner split),
 so `List<List<int>>` and `Dict<string, List<int>>` parse. Outside
-generic context `>>` remains a single token (not split) — right-shift has
-no grammar production, so `x >> 2` is a compile error (the shift operator
-itself is not implemented).
+generic context `>>` remains a single token (not split) — it is the
+right-shift operator (see [Operators](operators.md) "Shift").
 
 **Cross-module**: container generic signatures cross `.ncu` import
 boundaries — imported functions carry

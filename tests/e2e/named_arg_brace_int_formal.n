@@ -1,0 +1,7 @@
+public int twice(int n) {
+    return n * 2;
+}
+
+public int main() {
+    return twice(n = {1, 2});
+}

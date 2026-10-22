@@ -2,9 +2,9 @@
 class A {
     public int x;
     public int y;
-    public int A(int a, int b) { this.x = a; this.y = b; return 0; }
+    public A(int a, int b) { this.x = a; this.y = b;}
 }
-class B : A { public int B() { super(40, 2); return 0; } }
+class B : A { public B() { super(40, 2); } }
 int main() {
     B b = B();
     return b.x + b.y;

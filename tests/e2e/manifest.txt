@@ -170,12 +170,26 @@ struct_nested 7
 struct_nested_assign 10
 struct_nested_param 5
 struct_nested_mixed 42
+struct_ctor_basic 0
+struct_ctor_defaults 0
+struct_ctor_this_bare_field 0
+err_struct_ctor_super compile_error 'super' is only valid inside a class constructor
+err_struct_method compile_error struct "S" may only declare fields and constructors
 
 # --- class ---
 class_basic 42
 class_method 30
 class_param 30
 class_constructor 7
+class_ctor_no_rettype 7
+class_ctor_no_args 7
+err_ctor_typed_rettype compile_error constructor "C" must not declare a return type
+err_ctor_void_rettype compile_error constructor "C" must not declare 'void'; remove the return type
+err_ctor_static compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_virtual compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_const compile_error constructor "C" cannot be declared static, virtual, or const
+err_ctor_return_value compile_error constructor "C" cannot return a value
+err_member_no_rettype compile_error function "B" must declare a return type
 class_null 1
 class_nested 10
 class_return 7
@@ -261,7 +275,8 @@ interface_null 1
 interface_default_public 10
 interface_private_member compile_error The interface member "secret" must be public.
 interface_const_member compile_error The interface member "rate" cannot be const
-interface_static_member compile_error The interface member "tick" cannot be static
+interface_static_member compile_error The interface member "tick" is static but has no body
+interface_instance_body_member compile_error The interface instance method "hello" cannot have a body
 interface_native_member compile_error The interface member "run" cannot be native
 interface_virtual_member compile_error The interface member "val" cannot be virtual
 
@@ -648,6 +663,8 @@ cross_mod_default_expr 52
 cross_mod_default_ident 10
 # 0.9.9: shift expressions in cross-module defaults ride the ExprDesc subset
 cross_mod_default_shift 0
+# 0.9.10 D3: bool/char literals fold into RTK_Bool/RTK_Char defaults
+cross_mod_default_bool_char 8
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected
 cross_mod_default_cast compile_error outside the cross-module subset
 # Cross-module named arguments: imported stubs carry real formal names
@@ -722,8 +739,8 @@ ctor_default_formal_ref 10
 ctor_default_nested 11
 ctor_struct_arg_copy 10
 super_default 12
-ctor_default_missing_required compile_error expects between 1 and 2 argument(s)
-ctor_default_over_range compile_error expects between 1 and 2 argument(s)
+ctor_default_missing_required compile_error no constructor of class "Vec" matches the argument list
+ctor_default_over_range compile_error no constructor of class "Vec" matches the argument list
 ctor_default_zero_args 0
 # --- P3 review fixes: MaxArgs default descent + this-reference rejection ---
 ctor_default_bigcall 7
@@ -741,6 +758,14 @@ implicit_this_inherited 42
 implicit_this_compound 43
 implicit_this_local_shadow 70
 implicit_this_default 5
+
+# --- Member access defaults and visibility (0.9.12 D7) ---
+class_prot_in_subclass 0
+class_ctor_private_factory 7
+class_super_prot_ctor 0
+err_class_ctor_private compile_error constructor of class "Widget" is not accessible
+err_class_super_private_ctor compile_error constructor of class "Base" is not accessible
+err_class_initlist_private_ctor compile_error constructor of class "Box" is not accessible
 
 # --- `>>` split for nested generics (C#-style lexer generic-depth) ---
 nested_generic_list 5
@@ -778,6 +803,27 @@ shift_reject_count_long compile_error count implicitly convertible to
 shift_reject_count_uint compile_error count implicitly convertible to
 # generic close `>>` still lexes apart from the shift operator
 shift_generic_regression 0
+
+# --- 0.9.10: <<= and >>= compound shift assignment ---
+# int/uint/long carriers, arithmetic vs logical >>, array/List/member/
+# this-field shapes, constant count rescue
+compound_shift_semantics 0
+# the LHS's declared row IS the carrier (byte narrows back, no promotion)
+compound_shift_byte 0
+# shift compound in the for-update slot (FiniFor productions)
+compound_shift_fini_for 0
+# Dict-subscript compound shift: boxed key + boxed value slot round-trip
+compound_shift_dict 0
+# run-time count check rides the binary form's executors: negative
+# count, and count 8 out of the byte carrier's 8-bit range
+compound_shift_count_throws 1
+compound_shift_byte_width_throws 1
+# compile-time rejections (shared gate family with the binary form)
+compound_shift_reject_float compile_error requires integer operands
+compound_shift_reject_enum compile_error requires integer operands
+compound_shift_reject_count_long compile_error count implicitly convertible to
+compound_shift_reject_string compile_error not supported on string
+compound_shift_reject_byte_range compile_error out of range for
 
 # --- Phase 9e: out parameters ---
 out_basic 5
@@ -886,6 +932,11 @@ delegate_result_arg_reject compile_error has type "Int32[]"
 cross_mod_stdlib_array_arg compile_error
 cross_mod_array_return 0
 cross_mod_array_member 0
+cross_mod_static_class 12
+cross_mod_interface_static 42
+cross_mod_static_disambiguation 32
+cross_mod_static_inherited 7
+cross_mod_staticness_overload 42
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0
@@ -1001,6 +1052,7 @@ enum_method_args 0
 enum_method_chain 0
 enum_method_switch_this 0
 enum_method_string_return 0
+enum_method_default_public 0
 enum_method_void 0 101
 enum_semicolon_tail 0
 enum_method_abstract compile_error
@@ -1078,7 +1130,7 @@ func_bound_interface 42
 func_bound_field_store 11
 func_bound_null_receiver_throws 1
 func_bound_null_virtual_throws 1
-func_out_basic 7
+func_out_basic 10
 func_out_bound 45
 func_out_second_position 18
 func_gc_stress 14
@@ -1417,7 +1469,6 @@ err_multi_dim_decl compile_error Multi-dimensional arrays are not supported
 err_partial_init_overflow compile_error more than the declared size
 decl_sized_sibling 6
 err_func_anchor_ctor compile_error func types cannot be constructed
-err_init_list_diag_spelling compile_error init_list[2 entries]
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
 shadow_type_second_decl compile_error cannot be used as a variable name
@@ -1432,7 +1483,6 @@ err_type_var_catch compile_error cannot be used as a variable name
 err_type_var_foreach compile_error cannot be used as a variable name
 err_type_var_for compile_error cannot be used as a variable name
 err_type_var_builtin_class compile_error cannot be used as a variable name
-err_top_bare_fwd_decl compile_error syntax error
 script_basic 42
 script_return 42
 script_defs_and_calls 42
@@ -1446,7 +1496,7 @@ script_bare_fn_ret 42
 script_pub_fn 42
 script_native_fn 7
 script_func_decl 3
-err_script_dup_main compile_error (line 1, char 1): Error: The field "Int32 main()" is conflicted
+err_script_dup_main compile_error (line 2, char 1): Error: top-level statements cannot be combined with an explicit main() function; move the statements into main() or remove main()
 err_script_bare_return compile_error Missing return value
 err_top_undefined compile_error The function "nope" does not exist
 err_top_const_reassign compile_error cannot assign to const local
@@ -1487,9 +1537,216 @@ ovsig_xm_stub_skip 30
 vovld_mixed_virtual_second compile_error claims the virtual dispatch slot
 vovld_two_virtuals compile_error claims the virtual dispatch slot
 vovld_virtual_first compile_error claims the virtual dispatch slot
-vovld_static_virtual_mix compile_error dispatch is name-based
+vovld_static_virtual_mix 44
 vovld_ok_conversion_ranking 2
 vovld_ok_nonvirtual_parent_virtual_child 10
+class_static_calls 57
+interface_static_calls 50
+static_this_expr compile_error this is not available in a static method
+static_implicit_this compile_error this is not available in a static method
+type_name_instance_call compile_error must be called through a receiver object
+
+# --- 0.9.10: static/instance namespace separation (D2.4/D2.5) ---
+interface_static_contract 58
+ovsig_ok_static_overload 23
+static_instance_collision compile_error is conflicted with a exist field definition
+static_instance_collision_iface compile_error is conflicted with a exist field definition
+static_ctor_name 73
+static_ctor_name_reversed 73
+instance_call_skips_static 24
+type_name_static_inherited 27
+static_via_object_reject compile_error must be called through the type name
+static_protocol_name 71
+static_protocol_name_reject compile_error must be called through a receiver object
+static_ctor_initlist_order 74
+static_ctor_initlist_reject compile_error requires a no-arg constructor
+static_super_arity 7
+static_super_arity_reject compile_error no constructor of class "A" matches the argument list
+static_enum_tostring_reject compile_error must be called through a receiver object
+static_native_func_ref 6
+static_funcref_value_shadow 6
+static_funcref_via_object_reject compile_error the static method "f" must be called through the type name
+static_funcref_typename 10
+static_funcref_typename_instance_reject compile_error must be called through a receiver object
+
+# --- 0.9.10: interface static const constants (D3) ---
+interface_constants 206
+interface_constants_types 231
+interface_constants_bool_char 15
+cross_mod_interface_constant 43
+cross_mod_interface_constant_bool_char 3
+interface_constants_implements 9
+interface_constant_missing_static compile_error must be static const
+interface_constant_missing_const compile_error must be static const
+interface_constant_extra_flag compile_error cannot be virtual
+interface_constant_private compile_error must be public
+interface_constant_unfoldable compile_error must be a constant expression
+interface_constant_object compile_error must have a compile-time scalar or string type
+interface_constant_type_mismatch compile_error has incompatible type "Double"; expected "Int32"
+interface_constant_type_mismatch_string compile_error has incompatible type "String"; expected "Int32"
+interface_constant_out_of_range compile_error constant 300 out of range for 'byte'
+interface_constant_protected compile_error must be public
+interface_constant_native compile_error cannot be native
+interface_constant_array compile_error must have a compile-time scalar or string type
+interface_constant_unfoldable_identifier compile_error must be a constant expression
+interface_constant_unfoldable_call compile_error must be a constant expression
+interface_constant_name_clash compile_error ambiguous with the method of the same name
+interface_constant_assign compile_error is a constant and cannot be assigned
+interface_constant_bare_name compile_error is an interface constant
+class_field_init_nonconst compile_error the initializer of field "x" must be a constant expression
+class_field_init_array compile_error cannot have an initializer: only scalar and string fields support compile-time defaults
+class_field_init_base_field_error compile_error the initializer of field "x" must be a constant expression
+class_field_init_super_mid_error compile_error field initializers require super() to be the first statement of the constructor
+class_field_init_native_ctor_error compile_error class field initializers cannot be applied to native or bodyless constructors
+class_field_init_bodyless_ctor_error compile_error class field initializers cannot be applied to native or bodyless constructors
+class_field_init_basic 75
+class_field_init_brace_form 6
+class_field_init_super_first 7
+class_field_init_with_args 7
+err_struct_field_init_nonconst compile_error the initializer of field "x" must be a constant expression
+err_struct_field_init_array compile_error cannot have an initializer: only scalar and string fields support compile-time defaults
+struct_field_init_basic 31
+struct_field_init_deepcopy 0
+struct_field_init_array 7
+struct_field_init_nested 7
+cross_mod_struct_ctor 12
+cross_mod_class_ctor 42
+ctor_overload_class 0
+ctor_overload_struct 0
+ctor_overload_defaults 0
+ctor_overload_ambiguous compile_error ambiguous constructor call to class "W"
+ctor_overload_ambiguous_struct compile_error ambiguous constructor call to struct "W"
+ctor_overload_no_match compile_error no constructor of class "U" matches the argument list
+ctor_overload_no_match_struct compile_error no constructor of struct "U" matches the argument list
+ctor_overload_super 0
+err_super_ambiguous compile_error ambiguous constructor call to class "P"
+ctor_overload_initlist 0
+cross_mod_ctor_overload 42
+cross_mod_ctor_overload_struct 42
+# --- 0.9.11: a body-less, non-native constructor has no implementation
+# to run, so it is not a call candidate — the resolver matches the same
+# predicate the backend's IsRegisteredCtor uses. A call that would only
+# match such a constructor reports a clear error instead of allocating
+# and silently dropping the arguments; a zero-argument call still
+# allocates (the abstract shape). ---
+ctor_bodyless_arg_no_match compile_error no constructor of class "Cfg" matches the argument list
+ctor_bodyless_only_args compile_error class "Cfg" has no constructor; Cfg() cannot take arguments
+ctor_bodyless_arg_no_match_struct compile_error no constructor of struct "Vec" matches the argument list
+ctor_bodyless_zero_arg_alloc 0
+# --- 0.9.12 (NCU v2.7): the class stub rebuilds the full member surface
+# from the wire (own fields, methods, constructors), so a consumer-side
+# public field read and instance method call on an imported object
+# resolve and execute across the .ncu boundary. ---
+imported_class_field_read 21
+imported_class_method_call 42
+# --- 0.9.12 D4: a module-qualified type reference in expression
+# position (`lib.Mix.f(3)`) binds the imported class stub through the
+# same record the bare spelling (`Mix.f(3)`) uses, so both static-call
+# forms resolve and run across the .ncu boundary. 999 also pins the
+# full 32-bit exit-code comparison (bash would truncate it to 231). ---
+imported_qualified_static 999
+imported_bare_static 999
+# --- 0.9.11: a default expression that re-enters the same function's own
+# default emission is caught by the shared DefaultEmitGuard instead of
+# recursing forever at compile time; both the free-function and the
+# receiver-bound method path trigger it (the constructor path is
+# unreachable under the default-expression grammar, so the method path
+# stands in as its receiver-bound analog). ---
+err_default_recursive_fn compile_error recursive default parameter in call to 'f'
+err_default_recursive_method compile_error recursive default parameter in call to 'm'
+# --- 0.9.11 T7 (D6): array initializers use the bracket form; the
+# brace form is reserved for collection, struct, and class initializers ---
+err_array_brace_init compile_error array initializers use '[...]'
+err_array_brace_assign compile_error array initializers use '[...]'
+err_array_brace_arg compile_error array initializers use '[...]'
+err_array_brace_empty compile_error array initializers use '[...]'
+
+# --- 0.9.12 D7: member access defaults and visibility rules ---
+struct_default_public 0
+struct_field_public_explicit 0
+err_struct_field_private compile_error The struct member "x" must be public.
+err_struct_ctor_protected compile_error The struct member "S" must be public.
+enum_value_public 0
+err_class_field_protected_outside compile_error Cannot resolve the field: prot.
+err_class_field_private_outside compile_error Cannot resolve the field: secret.
+# --- 0.9.12 D3/D4/D7: imported class and interface instance members
+# across the .ncu boundary — field read/write, inherited fields,
+# protected access from subclasses, private-member and private-ctor
+# rejection, struct constructors, virtual dispatch, implements with
+# interface defaults, method overloads, and GC-traced inherited
+# string fields. ---
+imported_field_write 7
+err_imported_field_private compile_error Cannot resolve the field: secret.
+err_imported_method_private compile_error The function "hidden" does not exist or is not accessible.
+imported_protected_in_subclass 6
+err_imported_protected_outside compile_error Cannot resolve the field: prot.
+err_imported_ctor_private compile_error constructor of class "Lock" is not accessible
+imported_struct_ctor 3
+imported_inherited_field 30
+imported_virtual_override 99
+imported_virtual_returned 99
+imported_nonvirtual_call 2
+implements_imported_interface 11
+imported_method_defaults 15
+imported_method_overloads 3
+gc_imported_inherited_strings 0
+# --- 0.9.12 D5/D-new-10: override and implements contracts enforced
+# across the .ncu boundary (imported stubs join the contract walk on
+# equal footing, access-agnostic — runtime dispatch is name-only). The
+# ok cases pin the two producer-side dispatch paths (inherited caller,
+# base-typed formal) and the private-virtual template-method pattern;
+# the override is written without the `virtual` keyword throughout
+# (implicit propagation by name + parameter count). ---
+cross_mod_override_ok 24
+err_cross_mod_override_mismatch compile_error claims the virtual dispatch slot of "B.f(Int32): Int32"
+err_implements_imported_interface_missing compile_error required by interface "I"
+err_implements_imported_interface_mismatch compile_error claims the virtual dispatch slot of "I.f(Int32): Int32"
+err_cross_mod_static_vs_virtual compile_error with a different signature "static f(Int32): Int32"
+err_cross_mod_private_virtual_claim compile_error does not implement the method "f(Int32): Int32" required by its inheritance contract
+cross_mod_private_virtual_ok 101
+infer_array_return 3
+list_intarr_boxing 3
+infer_foreach_bracket_source 10
+foreach_jagged_supply compile_error jagged arrays
+foreach_brace_source compile_error the brace form
+named_arg_brace 3
+named_arg_brace_int_formal compile_error is not compatible with the declaration
+empty_array_decl 0
+empty_array_foreach 0
+empty_array_arg 0
+nested_brace 3
+err_generic_anchor_brace compile_error syntax error
+err_bracket_receiver compile_error requires an explicit type
+
+# --- 0.9.14: static method function references (D-new-1..D-new-8) ---
+static_funcref_iface 42
+static_funcref_native_static 77
+static_funcref_hof_arg 42
+static_funcref_inherited 42
+static_funcref_out_param 23
+static_funcref_identity 40
+static_funcref_void 42
+static_funcref_typename_shadow 42
+static_funcref_this_static_reject compile_error the static method "f" must be called through the type name
+static_funcref_nonfunc_reject compile_error function reference "f" requires an expected function type.
+static_funcref_default_reject compile_error functions with default parameters cannot be referenced: "f".
+static_funcref_sig_reject compile_error function "f" does not match the signature of
+static_funcref_private_reject compile_error Cannot resolve the field: f
+static_funcref_bare_in_class 42
+cross_mod_static_funcref 42
+static_funcref_hof_arg_reject compile_error function reference "Util.twice" requires an expected function type.
+
+# --- 0.9.15: top-level zero-arg construction (P4) ---
+top_level_zero_arg_ctor 42
+top_level_zero_arg_def 7
+top_level_zero_arg_continuation 42
+body_zero_arg_ctor 42
+err_top_level_prim_ctor compile_error "Int32" is not a class or struct type.
+err_top_level_zero_arg_with_main compile_error top-level statements cannot be combined with an explicit main() function
+top_level_const_zero_arg_ctor 42
+top_level_workaround 5
+err_top_level_rel_arg compile_error syntax error
+err_top_level_member_arg compile_error syntax error
 
 # --- 0.10.0: concurrency acceptance (K1 threads) ---
 threads_producer_consumer 0 consumed=50 sum=3100

@@ -307,6 +307,66 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 	return true;
 }
 
+//0.9.12 D4: module-qualified TYPE reference — `lib.Mix` (module path +
+//type name, any nesting depth) in expression position. The registry
+//binds the unit's type declaration (project, inline library or external
+//.ncu stub alike), so the generic type-receiver path then resolves the
+//member or static call in the type scope — the qualified spelling shares
+//the stub record and the diagnostics of the bare `Mix` form. True =
+//consumed (resolved or diagnosed); false = declined — the chain is not a
+//module path or the leftmost name belongs to something else, and the
+//generic path keeps it.
+bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
+{
+	std::vector<std::string> segs = OuterIdentifierChain(snMember);
+	if (segs.empty()
+		|| !snMember.Inner()
+		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
+		return false;
+	segs.push_back(
+		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
+
+	//m12 priority: the leftmost local/field/type wins (as for calls).
+	if (ProbeNonFunctionField(segs.front())
+		|| IsBuiltinClassName(segs.front()))
+		return false;
+
+	std::string typeName = segs.back();
+	std::string modulePath;
+	for (size_t i = 0; i + 1 < segs.size(); ++i)
+	{
+		if (!modulePath.empty())
+			modulePath += ".";
+		modulePath += segs[i];
+	}
+
+	auto &reg = m_Env.Registry();
+	if (!reg.IsKnownModule(modulePath)
+		&& !m_Env.IsLibraryPackage(segs.front()))
+		return false;
+
+	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
+		return true;
+
+	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	if (pType == nullptr)
+	{
+		m_Env.Log(CLL_Error, snMember.Location(),
+			"Type '%s' is not a member of package '%s'.",
+			typeName.c_str(), modulePath.c_str());
+		FinishConsumedMember(snMember);
+		return true;
+	}
+
+	//Bind tip + member exactly like FinishResolvedMember does — the
+	//member becomes a type expression and SwitchContextToReceiver lands
+	//the inner search in the type's scope (the bare-form route).
+	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pType);
+	ResolveFieldExprAs(snMember, pType);
+	FinishConsumedMember(snMember);
+	return true;
+}
+
 //Non-function probe for the m12 priority test: true when the name
 //resolves as a local / field / type in the current context. A FUNCTION
 //with the same name counts as a miss — function names must not shadow a
@@ -332,7 +392,7 @@ bool ExprResolveAccessor::ProbeNonFunctionField(const std::string &name)
 //a module path, note the conflict (silent when none does).
 void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 {
-	if (name.empty() || !m_Env.Registry().HasKnownModuleStartingWith(name))
+	if (name.empty() || !m_Env.Registry().IsKnownModule(name))
 		return;
 	m_Env.Log(CLL_Error, "(note: a module path '%s' exists; module access "
 		"requires an import and qualification)", name.c_str());

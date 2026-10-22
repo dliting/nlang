@@ -1,0 +1,10 @@
+//0.9.14 D-new-1: a static method referenced through the type name binds
+//as a receiverless function value.
+class B {
+    public static int f(int x) { return x * 2; }
+}
+
+int main() {
+    func<int, int> h = B.f;
+    return h(5);
+}

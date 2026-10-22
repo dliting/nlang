@@ -179,7 +179,11 @@ private:
 	//function statements.
 	void ResolveDataTypes();
 
-	void CheckDuplicateFields();
+	//Run the duplicate-field pass; true when it reported a synthesized
+	//script entry (NF_ScriptEntry) clashing with a user-written top-level
+	//main() in the same unit (D8), so ResolveAll can abort before statement
+	//resolution cascades further errors.
+	bool CheckDuplicateFields();
 
 	void ResolveDataValues();
 

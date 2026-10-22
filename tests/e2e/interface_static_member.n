@@ -1,6 +1,6 @@
-//An interface member must be a public abstract signature: a static
-//member breaks the instance-signature contract (and used to poison the
-//implementing class with slot-claim diagnostics it could not satisfy).
+//A static interface member is its own in-place implementation (0.9.10):
+//the bodyless static signature has no code behind it and no instance
+//slot to claim, so the declaration alone breaks the contract.
 interface ICounter {
     static int tick();
 }

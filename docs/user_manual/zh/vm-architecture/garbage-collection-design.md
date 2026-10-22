@@ -14,7 +14,7 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 **2. 按槽位句柄位图给出精确根类别**
 
-对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。槽位因此携带语义信息。参数走声明路线（`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位）。帧带`[paramCount, localsSize)`内的其余槽位——返回槽、临时池、调用实参暂存区、求值暂存区与命名的局部变量——由随函数记录一起序列化的**句柄位图**（NCU格式2.4）分类：每槽2位，共四种类别。
+对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。槽位因此携带语义信息。参数走声明路线（`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位）。帧带`[paramCount, localsSize)`内的其余槽位——返回槽、临时池、调用实参暂存区、求值暂存区与命名的局部变量——由随函数记录一起序列化的**句柄位图**（NCU格式2.8）分类：每槽2位，共四种类别。
 
 - `None`：标量；槽位永不持有引用，不测试。
 - `StrHandle`：字符串仓句柄；只测字符串域。
@@ -63,7 +63,7 @@ MarkPhase():
     if returnTypeKind is a reference kind:
       RTK_String: MarkString(value)      //conservative over-mark, as defense
       otherwise:  mark and push if valid
-    //band: two-bit root class per slot (NCU 2.4 handle bitmap)
+    //band: two-bit root class per slot (NCU 2.8 handle bitmap)
     for each band slot i, slot number paramCount + i:
       class = (func.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3
       None:      skip

@@ -1,0 +1,9 @@
+//0.9.10 D5: consumer calls only the static face of the imported Mix —
+//the type-name namespace must select the statics and the constructor
+//scan must skip the same-name static. Expected exit code 32
+//(3 * 10 + "ab".length()).
+import lib;
+
+int main() {
+	return Mix.f(3) + Mix.Mix("ab");
+}

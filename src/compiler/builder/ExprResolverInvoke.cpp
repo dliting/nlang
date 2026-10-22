@@ -50,6 +50,10 @@ bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
 {
 	if (!pCallee)
 		return false;
+	//0.9.10: a static callee has no receiver expectation — the bare form
+	//emits OP_CallFunc slotBase 0 against a frame with no __this slot.
+	if (pCallee->ContainFlags(NF_Static))
+		return false;
 	auto *pInvokeParent = snInvoke.Parent();
 	bool bIsMethodCallShape = pInvokeParent
 		&& pInvokeParent->Kind() == NK_MemberExpr
@@ -70,16 +74,77 @@ bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
 	return false;
 }
 
+//0.9.10: an instance method cannot be reached through the type name —
+//`Util.inst()` has no receiver value (before this gate the shape slipped
+//through the resolver and crashed the backend's receiver emission).
+//A bare enum name is the same shape (`Color.rank()`); the enum VALUE
+//receiver (`Color.Blue.rank()`) has a MemberExpr outer and is unaffected.
+//True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
+	SnFunction *pCallee)
+{
+	if (!pCallee || pCallee->ContainFlags(NF_Static))
+		return false;
+	auto *pInvokeParent = snInvoke.Parent();
+	if (!(pInvokeParent && pInvokeParent->Kind() == NK_MemberExpr
+		&& static_cast<SnMemberExpr*>(pInvokeParent)->Inner() == &snInvoke))
+		return false;
+	auto *pOuter = static_cast<SnMemberExpr*>(pInvokeParent)->Outer();
+	if (!(pOuter && pOuter->Kind() == NK_IdentifierExpr))
+		return false;
+	auto *pOuterField = static_cast<SnIdentifierExpr*>(pOuter)->Field();
+	if (!(pOuterField && (pOuterField->Kind() == NK_ClassDecl
+		|| pOuterField->Kind() == NK_InterfaceDecl
+		|| pOuterField->Kind() == NK_EnumDecl)))
+		return false;
+	m_Env.Log(CLL_Error, snInvoke.Location(),
+		"the instance method \"%s\" must be called through a receiver "
+		"object.",
+		pCallee->Name().c_str());
+	return true;
+}
+
+//0.9.10 D2.4: the namespace-filtered search found no callee, but the
+//other namespace holds a same-name member on the receiver's chain — the
+//call form is wrong, not the name. Keeps the pre-existing type-name
+//wording and mirrors it for a static reached through an object.
+bool ExprResolveAccessor::RejectCrossNamespaceCall(SnInvokeExpr &snInvoke)
+{
+	const InvokeReceiverForm form = ClassifyInvokeReceiver(snInvoke);
+	if (form == InvokeReceiverForm::Bare)
+		return false;
+	const bool bTypeName = form == InvokeReceiverForm::TypeName;
+	if (!FindMethodInNamespace(m_pContext, snInvoke.CalleeName(), !bTypeName))
+		return false;
+	if (bTypeName)
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"the instance method \"%s\" must be called through a receiver "
+			"object.",
+			snInvoke.CalleeName().c_str());
+	else
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"the static method \"%s\" must be called through the type name.",
+			snInvoke.CalleeName().c_str());
+	return true;
+}
+
 //0.9.0: the bare brace arguments of this call — untyped init lists whose
 //target type can only be the chosen overload's formal. Empty for every
-//other argument shape.
+//other argument shape. 0.9.13 B2: a named argument `name = {...}` keeps
+//its SnNamedArgExpr wrapper in the deferred list (the skip-list matches
+//Params() entries by identity); the gate tests the inner expression.
 static std::vector<SnExpression*> CollectDeferredBraceArgs(
 	SnInvokeExpr &invoke)
 {
 	std::vector<SnExpression*> deferredArgs;
 	for (auto &param : invoke.Params())
-		if (UntypedInitListOf(param))
+	{
+		SnExpression *pTest = &param;
+		if (param.Kind() == NK_NamedArgExpr)
+			pTest = static_cast<SnNamedArgExpr&>(param).Inner();
+		if (UntypedInitListOf(*pTest))
 			deferredArgs.push_back(&param);
+	}
 	return deferredArgs;
 }
 
@@ -146,6 +211,11 @@ bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
 		return false;
 	}
+	if (RejectTypeNameInstanceCall(snInvoke, pCallee))
+	{
+		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		return false;
+	}
 	return true;
 }
 
@@ -177,6 +247,12 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 
 	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredBraceArgs))
 		return;
+
+	if (res == FFR_FuncNameNotFound && RejectCrossNamespaceCall(snInvoke))
+	{
+		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		return;
+	}
 
 	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
 	{
@@ -294,7 +370,7 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	//0.9.0: deferred bare brace arguments bind now — the chosen formal's
 	//declared type is the init list's target. A false return (diagnostic
 	//logged) leaves the invoke unresolved, mirroring the func-ref path.
-	if (!ResolveDeferredBraceArgs(bindings))
+	if (!ResolveDeferredBraceArgs(invoke, bindings))
 		return false;
 
 	if (match == FFR_ApproximateMatch)
@@ -311,8 +387,9 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 //formal's declared type is the init list's target (the same declaration
 //field shape the assignment site passes as InferredTarget). False when
 //any of them failed to resolve; its diagnostic is already logged.
+//0.9.13 B2: named arguments resolve through their SnNamedArgExpr wrapper.
 bool ExprResolveAccessor::ResolveDeferredBraceArgs(
-	std::vector<FormalBinding> &bindings)
+	SnInvokeExpr &invoke, std::vector<FormalBinding> &bindings)
 {
 	for (auto &b : bindings)
 	{
@@ -322,8 +399,26 @@ bool ExprResolveAccessor::ResolveDeferredBraceArgs(
 		if (!pInitList)
 			continue;
 		pInitList->InferredTarget(b.pFormal);
-		b.pCallerExpr->Accept(*m_pVisitor);
-		if (!b.pCallerExpr->IsResolved())
+		//0.9.13 B2: named arguments (`name = {...}`) bind through their
+		//SnNamedArgExpr wrapper — the wrapper (not the inner) is accepted
+		//so its Access() propagates the inner's resolution to the invoke's
+		//child list. Mirror TryFixupNamedArgBinding: locate the wrapper
+		//that holds this inner; a positional brace arg has none.
+		SnExpression *pArg = b.pCallerExpr;
+		auto &children = invoke.Children();
+		for (auto it = children.begin(); it != children.end(); ++it)
+		{
+			if ((*it).Kind() != NK_NamedArgExpr)
+				continue;
+			auto &named = static_cast<SnNamedArgExpr&>(*it);
+			if (named.Inner() == b.pCallerExpr)
+			{
+				pArg = static_cast<SnExpression*>(&named);
+				break;
+			}
+		}
+		pArg->Accept(*m_pVisitor);
+		if (!pArg->IsResolved())
 			return false;
 	}
 	return true;

@@ -1,0 +1,22 @@
+//0.9.11 D4: struct field initializers are compile-time defaults applied
+//at every allocation, independent of constructors. A bare declaration
+//reads the defaults; explicit init-list entries store over them, and a
+//partial entry list leaves the remaining fields at their defaults.
+struct Point {
+    int x = 3;
+    int y = 4;
+    string tag = "pt";
+}
+
+int main() {
+    Point p;
+    int r = 0;
+    if (p.x == 3 && p.y == 4) r = r + 1;
+    if (p.tag == "pt") r = r + 2;
+    Point q = Point{9, 8, "q"};
+    if (q.x == 9 && q.y == 8) r = r + 4;
+    if (q.tag == "q") r = r + 8;
+    Point s = Point{7};
+    if (s.x == 7 && s.y == 4 && s.tag == "pt") r = r + 16;
+    return r;
+}

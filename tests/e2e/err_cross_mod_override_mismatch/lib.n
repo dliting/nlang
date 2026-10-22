@@ -1,0 +1,7 @@
+// err_cross_mod_override_mismatch — a same-name different-signature
+// method over an imported base virtual claims the dispatch slot the
+// runtime walk would use (name-only), so the contract check fires across
+// the .ncu boundary exactly as in the own-unit ovsig_* family.
+class B {
+    public virtual int f(int x) { return x; }
+}

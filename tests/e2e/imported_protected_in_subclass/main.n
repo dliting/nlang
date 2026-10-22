@@ -1,0 +1,12 @@
+import lib;
+class SubA : Box {
+    public SubA() { super(); }
+    public int read() { return prot; }
+}
+class SubB : lib.Box {
+    public SubB() { super(); }
+    public int read() { return prot; }
+}
+int main() {
+    return SubA().read() + SubB().read();
+}

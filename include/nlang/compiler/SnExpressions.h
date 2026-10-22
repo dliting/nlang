@@ -29,6 +29,7 @@ namespace nlang
 //The abstract expression syntax node.
 class BuildEnvironment;
 class SnClassDecl;
+class SnStructDecl;
 class SnIdentifierExpr;
 class SnMemberExpr;
 
@@ -394,13 +395,26 @@ public:
 	//(Foo(args) without new; also the module-qualified shapes.Point(args)
 	//form). Null for ordinary calls. Codegen routes to the shared
 	//new-object emission; the frame walkers mirror the NewExpr arm.
+	//0.9.11 D2: CtorFunction() records the constructor the resolver
+	//selected (first declaration-order overload until T6); codegen and
+	//the frame walkers must use it instead of re-scanning the owner for
+	//the first same-name member.
 	SnClassDecl *CtorClass() const { return m_pCtorClass; }
 	void CtorClass(SnClassDecl *pCtorClass) { m_pCtorClass = pCtorClass; }
+	//0.9.11 D2: the struct twin of CtorClass() — set for `S(args)` and
+	//`m.S(args)` constructor invokes on a user struct. Exactly one of
+	//CtorClass()/CtorStruct() is non-null on a constructor invoke.
+	SnStructDecl *CtorStruct() const { return m_pCtorStruct; }
+	void CtorStruct(SnStructDecl *pCtorStruct) { m_pCtorStruct = pCtorStruct; }
+	SnFunction *CtorFunction() const { return m_pCtorFunction; }
+	void CtorFunction(SnFunction *pCtorFunction) { m_pCtorFunction = pCtorFunction; }
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
 	std::vector<FormalBinding> m_Bindings;
 	SnClassDecl *m_pCtorClass = nullptr;
+	SnStructDecl *m_pCtorStruct = nullptr;
+	SnFunction *m_pCtorFunction = nullptr;
 };
 
 /*
@@ -785,8 +799,17 @@ public:
 	//`new List<int>`). Consumers must skip it by identity:
 	//`if (&param == ClassName()) continue;`
 	SnExpressionList &Args() const { return *m_pArgs; }
+	//0.9.11 D2: exactly one of ClassDecl()/StructDecl() is bound on a
+	//resolved new-expression (the direct-init `T name(args);` spelling
+	//decomposes into one of these). CtorFunction() records the selected
+	//constructor (first declaration-order overload until T6); codegen
+	//and the frame walkers must use it, never a re-scan of the owner.
 	SnClassDecl *ClassDecl() const { return m_pClassDecl; }
 	void ClassDecl(SnClassDecl *pClass) { m_pClassDecl = pClass; }
+	SnStructDecl *StructDecl() const { return m_pStructDecl; }
+	void StructDecl(SnStructDecl *pStruct) { m_pStructDecl = pStruct; }
+	SnFunction *CtorFunction() const { return m_pCtorFunction; }
+	void CtorFunction(SnFunction *pCtorFunction) { m_pCtorFunction = pCtorFunction; }
 
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
@@ -797,6 +820,8 @@ private:
 	SnFieldExpr *m_pClassName;
 	SnExpressionList *m_pArgs;
 	SnClassDecl *m_pClassDecl;
+	SnStructDecl *m_pStructDecl = nullptr;
+	SnFunction *m_pCtorFunction = nullptr;
 };
 
 //The "this" expression — refers to the current object in a method.
@@ -911,13 +936,6 @@ public:
 	SnField *InferredTarget() const { return m_pInferredTarget; }
 	void InferredTarget(SnField *pT) { m_pInferredTarget = pT; }
 
-	//Set by resolver when the target (explicit or inferred) is an array
-	//type. NLang represents `int[]` as a variable with element-type field
-	//and IsArrayType()==true; there is no standalone "array of T" type
-	//object. This flag preserves array-ness through to codegen.
-	bool TargetIsArray() const { return m_bTargetIsArray; }
-	void TargetIsArray(bool b) { m_bTargetIsArray = b; }
-
 	//Resolver write-back for the array-form element-type gate: after a
 	//FixupExprType wrap replaces an entry's child expression, the
 	//typed-slot mirror must point at the new SnCastExpr (Children() is
@@ -926,6 +944,16 @@ public:
 	{
 		m_entries[nIdx].pValue = pValue;
 	}
+
+	//0.9.11 T6 (D10): the zero-formal constructor the resolver selected
+	//for a class-shaped init list (CheckClassInitListForm); codegen and
+	//the frame walkers call through it instead of scanning for the first
+	//same-name member. Null = no selection (array/List/Dict/struct forms
+	//and the table path). Non-owning: the ctor member belongs to the
+	//class declaration.
+	SnFunction *CtorFunction() const { return m_pCtorFunction; }
+	void CtorFunction(SnFunction *pCtorFunction)
+	{ m_pCtorFunction = pCtorFunction; }
 
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
@@ -936,7 +964,7 @@ private:
 	std::vector<InitEntry>       m_entries;              //empty allowed
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
-	bool                         m_bTargetIsArray = false;     //resolver-set
+	SnFunction                  *m_pCtorFunction = nullptr;    //resolver-set, class form
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.
@@ -974,7 +1002,7 @@ private:
 //Phase 9e: out argument expression `out ident` at call sites.
 //Wraps the inner identifier; ExprResolver validates the inner refers to a
 //local/formal slot and requires the matched formal to be an out parameter.
-//TryBindInvoke unwraps the node into FormalBinding (pCallerExpr = Inner())
+//TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
 //with bIsOut set, so codegen emits the inner read into the staging slot
 //and records a writeback pair for OP_CallFuncOut/OP_CallMethodDirectOut.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr

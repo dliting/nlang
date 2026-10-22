@@ -1,0 +1,16 @@
+//0.9.11 D4: every array element allocation applies the struct's field
+//defaults; explicit stores afterwards are unaffected.
+struct Cell {
+    int v = 7;
+    string n = "c";
+}
+
+int main() {
+    Cell[] arr = Cell[3];
+    int r = 0;
+    if (arr[0].v == 7 && arr[1].v == 7 && arr[2].v == 7) r = r + 1;
+    if (arr[1].n == "c") r = r + 2;
+    arr[1].v = 9;
+    if (arr[0].v == 7 && arr[1].v == 9) r = r + 4;
+    return r;
+}

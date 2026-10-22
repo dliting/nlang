@@ -1,0 +1,10 @@
+//0.9.11 D9: the brace init-list form routes through the synthesized
+//zero-arg constructor, so the field default is applied there too.
+class Cfg {
+	public int x = 6;
+}
+
+int main() {
+	Cfg d = Cfg{};
+	return d.x;
+}

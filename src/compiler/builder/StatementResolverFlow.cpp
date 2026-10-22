@@ -248,6 +248,26 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 			"element type");
 }
 
+//0.9.13 D-new-2: a bare `[...]` iterable has no target until the loop-var
+//type is known — supply the interned array token of the element field so
+//the init list resolves against it (the same shape the assignment site
+//passes). A jagged loop var (T[]) would mint a token-of-token target:
+//keep the existing jagged diagnostic instead.
+static void SupplyForeachInitListTarget(BuildEnvironment &env,
+	SnForeachStmt &sn, SnField *pVarField)
+{
+	auto *pInitList = UntypedInitListOf(*sn.Iterable());
+	if (!pInitList || !pVarField)
+		return;
+	if (ArrayTypeDepth(sn.VarType()) >= 1)
+	{
+		env.Log(CLL_Error, sn.VarType()->Location(),
+			"jagged arrays (T[][]) are not supported");
+		return;
+	}
+	pInitList->InferredTarget(env.InternArrayTypeToken(pVarField));
+}
+
 //Phase 8e-5: foreach statement resolver.
 //Resolves iterable + var type, registers the loop var in the enclosing
 //Paragraph scope (function-scoped, same as for-loop). Element type and
@@ -260,11 +280,7 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	//Find enclosing Paragraph for loop-var registration (mirror for-loop).
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 
-	//1. Resolve iterable (EvalDataType gets populated for codegen to use).
-	sn.Iterable()->Accept(*m_pVisitor);
-	CheckForeachSource(sn);
-
-	//2. Resolve declared var type. Route through ExprResolver, not
+	//1. Resolve declared var type. Route through ExprResolver, not
 	//the StatementResolver visitor — its Access(SnArrayTypeExpr&) is
 	//empty, so an array-typed loop var (foreach (int[] row in ...))
 	//would never resolve and body references die with "Cannot
@@ -280,6 +296,12 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	SnField *pVarField = nullptr;
 	if (sn.VarType()->IsResolved())
 		pVarField = sn.VarType()->Field();
+
+	//2. Resolve iterable (EvalDataType gets populated for codegen to use).
+	//0.9.13 D-new-2: supplied its target from the loop-var type first.
+	SupplyForeachInitListTarget(m_Env, sn, pVarField);
+	sn.Iterable()->Accept(*m_pVisitor);
+	CheckForeachSource(sn);
 
 	MatchForeachElemType(sn, pVarField);
 

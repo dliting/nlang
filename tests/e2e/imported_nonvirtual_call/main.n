@@ -1,0 +1,8 @@
+import lib;
+class MySub : lib.Base {
+    public int g() { return 77; }
+}
+int main() {
+    lib.Base b = MySub();
+    return b.g();
+}

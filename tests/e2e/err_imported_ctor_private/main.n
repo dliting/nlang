@@ -1,0 +1,5 @@
+import lib;
+int main() {
+    lib.Lock l = lib.Lock();
+    return l.v;
+}

@@ -5,6 +5,7 @@
 ---*/
 #include "VmBackend.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/NodeConsts.h>
 #include <iterator>
 #include <utility>
 
@@ -67,7 +68,9 @@ struct BuiltinClassDecl {
 };
 
 //Object — root of the class hierarchy: no fields, no ctor; the three
-//virtual intrinsics every class inherits. Method order here is the
+//protocol intrinsics every class inherits (name-dispatched at runtime
+//through the no-AST-callee codegen path — they are not AST-declared
+//virtuals, so the methodVirtual wire byte stays 0). Method order here is the
 //cc.methodIndices order. (toString's intrinsic *numeric ID* is
 //non-contiguous — 61, not 44 — because List/Dict intrinsics were
 //allocated before that phase; only the ID, not the order.)
@@ -83,12 +86,14 @@ const BuiltinField s_HandleFields[] = {
     {"__handle", RTK_Int32, BFCLASS_None},
 };
 
-//Flattened message/backtrace pair carried by Exception and every
-//subclass. Layout (slot numbering from 1; slot[0] is the classIdx
-//header): slot[1] = message (string-object handle), slot[2] = backtrace
-//(heap idx to List<string>). Subclasses flatten the inherited fields
-//into their own arrays — AllocClassOnHeap sizes the heap slot by
-//fieldCount, so flattened fields are required for subclass instances.
+//Message/backtrace pair — OWN fields of the Exception row only.
+//Layout (slot numbering from 1; slot[0] is the classIdx header):
+//slot[1] = message (string-object handle), slot[2] = backtrace
+//(heap idx to List<string>). 0.9.12 (v2.7): subclasses no longer
+//flatten the pair into their own records — AllocClassOnHeap sizes
+//the heap slot by the runtime layout view (VmClassLayout), which
+//joins the superClassIdx chain base-first, so subclass instances
+//still get both slots through the Exception base row.
 const BuiltinField s_ExceptionFields[] = {
     {"message",   RTK_String, BFCLASS_None},
     {"backtrace", RTK_Class,  BFCLASS_List},
@@ -222,23 +227,25 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"Exception",                 BSR_ImplicitObject, s_ExceptionFields,
         std::size(s_ExceptionFields), true, INTR_Exception_Ctor, 2,
         nullptr, 0, BIDX_Exception},
-    {"NullPointerException",      BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_NullPointerException_Ctor, 2,
+    //0.9.12 (v2.7): subclass rows carry no own fields — message/backtrace
+    //come from the Exception base through the superClassIdx chain view.
+    {"NullPointerException",      BSR_ExceptionBase, nullptr, 0,
+        true, INTR_NullPointerException_Ctor, 2,
         nullptr, 0, BIDX_NullPtrExc},
-    {"DivByZeroException",        BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_DivByZeroException_Ctor, 2,
+    {"DivByZeroException",        BSR_ExceptionBase, nullptr, 0,
+        true, INTR_DivByZeroException_Ctor, 2,
         nullptr, 0, BIDX_DivZeroExc},
-    {"IndexOutOfBoundsException", BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_IndexOutOfBoundsException_Ctor,
+    {"IndexOutOfBoundsException", BSR_ExceptionBase, nullptr, 0,
+        true, INTR_IndexOutOfBoundsException_Ctor,
         2, nullptr, 0, BIDX_OobExc},
-    {"AssertionException",        BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_AssertionException_Ctor, 2,
+    {"AssertionException",        BSR_ExceptionBase, nullptr, 0,
+        true, INTR_AssertionException_Ctor, 2,
         nullptr, 0, BIDX_AssertExc},
-    {"IOException",               BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_IOException_Ctor, 2,
+    {"IOException",               BSR_ExceptionBase, nullptr, 0,
+        true, INTR_IOException_Ctor, 2,
         nullptr, 0, BIDX_IoExc},
-    {"InvalidCastException",      BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_InvalidCastException_Ctor, 2,
+    {"InvalidCastException",      BSR_ExceptionBase, nullptr, 0,
+        true, INTR_InvalidCastException_Ctor, 2,
         nullptr, 0, BIDX_InvalidCastExc},
     //K1 concurrency builtins — appended at the END (existing indices are
     //stable; a reorder changes the serialized .ncu).
@@ -258,8 +265,12 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     //K3 (v0.10.3): closed-channel recv/send raise this catchable
     //exception. Appended at the END like the concurrency block —
     //existing class indices stay stable for the serialized .ncu.
-    {"ChannelClosedException", BSR_ExceptionBase, s_ExceptionFields,
-        std::size(s_ExceptionFields), true, INTR_ChannelClosedException_Ctor,
+    //0.9.12 (v2.7) merge note: like the other subclass rows, no own
+    //fields — message/backtrace come from the Exception base through
+    //the superClassIdx chain view (RaiseNlangException writes the
+    //base cells 1/3; a flattened own pair would double the layout).
+    {"ChannelClosedException", BSR_ExceptionBase, nullptr, 0,
+        true, INTR_ChannelClosedException_Ctor,
         2, nullptr, 0, BIDX_ChannelClosedExc},
 };
 
@@ -275,7 +286,7 @@ void AppendBuiltinField(CompiledClass& cc, const BuiltinField& f,
 }
 
 //One BuiltinMethod row → a CompiledFunction stub appended to the module;
-//returns its function index for cc.methodIndices / cc.constructorIdx.
+//returns its function index for cc.methodIndices / cc.constructorIndices.
 //Ctor stubs reuse this with a synthesized row (class name + RTK_Void).
 uint16_t PushBuiltinMethodFunc(CompiledModule& module,
                                const BuiltinMethod& m) {
@@ -290,6 +301,43 @@ uint16_t PushBuiltinMethodFunc(CompiledModule& module,
     return funcIdx;
 }
 
+//One BuiltinClassDecl row → its CompiledClass record (fields, ctor stub,
+//method stubs). 0.9.11 (v2.6): plural ctor record — a builtin declares at
+//most one ctor, so the vector holds zero or one index (no ctor: Object).
+//0.9.12 (v2.7): the access/virtuality byte arrays stay parallel to the
+//index arrays for wire symmetry. Built-in members are intrinsics, not
+//source declarations: they are public and never AST-virtual (their
+//runtime name dispatch comes from the no-AST-callee codegen path, not the
+//NF_Virtual flag), and a consumer never rebuilds a built-in stub — the
+//local registration wins — so these bytes travel but are never read.
+CompiledClass BuildBuiltinClass(CompiledModule& module,
+                                const BuiltinClassDecl& decl,
+                                int16_t exceptionClassIdx,
+                                int16_t listClassIdx) {
+    CompiledClass cc;
+    cc.name = decl.name;
+    cc.superClassIdx = (decl.superRef == BSR_ExceptionBase)
+        ? exceptionClassIdx : -1;
+    for (size_t i = 0; i < decl.fieldCount; ++i)
+        AppendBuiltinField(cc, decl.fields[i], listClassIdx);
+    cc.fieldCount = static_cast<uint16_t>(decl.fieldCount);
+    if (decl.hasCtor) {
+        cc.constructorIndices.push_back(PushBuiltinMethodFunc(
+            module,
+            BuiltinMethod{decl.name, decl.ctorIntrinsicId,
+                          decl.ctorParamCount, RTK_Void}));
+        cc.constructorAccess.push_back(
+            static_cast<uint8_t>(FA_Public));
+    }
+    for (size_t i = 0; i < decl.methodCount; ++i) {
+        cc.methodIndices.push_back(PushBuiltinMethodFunc(
+            module, decl.methods[i]));
+        cc.methodAccess.push_back(static_cast<uint8_t>(FA_Public));
+        cc.methodVirtual.push_back(0);
+    }
+    return cc;
+}
+
 } //namespace
 
 void VmBackend::RegisterBuiltinClasses() {
@@ -298,23 +346,8 @@ void VmBackend::RegisterBuiltinClasses() {
     //OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
     for (const BuiltinClassDecl& decl : s_BuiltinClassDecls) {
         auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
-        CompiledClass cc;
-        cc.name = decl.name;
-        cc.superClassIdx = (decl.superRef == BSR_ExceptionBase)
-            ? m_exceptionClassIdx : -1;
-        for (size_t i = 0; i < decl.fieldCount; ++i)
-            AppendBuiltinField(cc, decl.fields[i], m_listClassIdx);
-        cc.fieldCount = static_cast<uint16_t>(decl.fieldCount);
-        cc.constructorIdx = 0xFFFF;  //no ctor (Object) unless pushed below
-        if (decl.hasCtor) {
-            cc.constructorIdx = PushBuiltinMethodFunc(m_compiledModule,
-                BuiltinMethod{decl.name, decl.ctorIntrinsicId,
-                              decl.ctorParamCount, RTK_Void});
-        }
-        for (size_t i = 0; i < decl.methodCount; ++i)
-            cc.methodIndices.push_back(PushBuiltinMethodFunc(
-                m_compiledModule, decl.methods[i]));
-        m_compiledModule.classes.push_back(std::move(cc));
+        m_compiledModule.classes.push_back(BuildBuiltinClass(
+            m_compiledModule, decl, m_exceptionClassIdx, m_listClassIdx));
         switch (decl.idxMember) {
             case BIDX_Object:     m_objectClassIdx     = static_cast<int16_t>(classIdx); break;
             case BIDX_List:       m_listClassIdx       = static_cast<int16_t>(classIdx); break;

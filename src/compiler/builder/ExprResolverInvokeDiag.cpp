@@ -74,14 +74,15 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 		}
 		if (IsUnboundMemberFuncRef(*pValue))
 		{
-			//Wording follows the form: a module-qualified free function
-			//(the shared IsModuleOwnedFunction test) is a function
-			//reference; only a receiver-bound member is a method one.
+			//Wording follows the form: a receiverless target (module-
+			//qualified free function or static method — the shared
+			//IsReceiverlessFuncRefTarget test) is a function reference;
+			//only a receiver-bound member is a method one.
 			auto *pRef = static_cast<SnIdentifierExpr*>(
 				static_cast<SnMemberExpr*>(pValue)->Inner())->Field();
-			const bool bModuleForm = pRef && IsModuleOwnedFunction(*pRef);
+			const bool bReceiverless = pRef && IsReceiverlessFuncRefTarget(*pRef);
 			m_Env.Log(CLL_Error, pValue->Location(),
-				bModuleForm
+				bReceiverless
 					? "function reference \"%s\" requires an expected "
 					  "function type."
 					: "bound method reference \"%s\" requires an expected "
@@ -174,9 +175,14 @@ SnFunction *ExprResolveAccessor::SelectRoutableCandidate(
 	SnInvokeExpr &invoke, const std::vector<SnFunction*> &candidates,
 	std::vector<FormalBinding> &outBindings)
 {
+	//0.9.11 T6: the binding core takes the resolved actual-pointer list;
+	//built once for the whole candidate sweep.
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
 	for (auto *pCandidate : candidates)
 	{
-		if (TryBindInvoke(invoke, *pCandidate, outBindings))
+		if (TryBindArgs(actuals, *pCandidate, outBindings))
 			return pCandidate;
 	}
 	return nullptr;

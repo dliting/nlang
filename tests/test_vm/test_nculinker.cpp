@@ -54,8 +54,7 @@ static CompiledStruct MakeStruct(const std::string& name) {
 static CompiledClass MakeClass(const std::string& name) {
     CompiledClass c;
     c.name = name;
-    c.constructorIdx = 0xFFFF;
-    return c;
+    return c;  //empty constructorIndices = no ctor (v2.6)
 }
 
 static CompiledFunction MakeFunc(const std::string& name, uint32_t paramCount) {
@@ -96,6 +95,9 @@ static void test_link_two_units() {
     point.fieldTypeKinds = {RTK_Int32};
     point.fieldStructIndices = {0xFFFF};
     point.fieldClassIndices = {0xFFFF};
+    //v2.6 dense invariant: one fieldDefaults entry per field
+    //(default-constructed tag = RTK_Void = no default).
+    point.fieldDefaults = {DefaultValueDesc{}};
     lib.structs.push_back(MakeStruct("lib.Point0"));  //own 0
     lib.structs.push_back(point);                     //own 1
     CompiledClass rec;
@@ -220,7 +222,7 @@ static void test_link_builtin_stub_dedup() {
     a.superClassIdx = 0;                          //app-local Object
     app.functions.push_back(MakeFunc("A", 0));   //app function 1 (ctor)
     a.methodIndices = {1};
-    a.constructorIdx = 1;
+    a.constructorIndices = {1};
     app.classes.push_back(std::move(a));         //app class 1
     app.functions.push_back(MakeFunc("app.main", 0));  //app function 2
 
@@ -244,7 +246,8 @@ static void test_link_builtin_stub_dedup() {
     CHECK(merged.classes[0].methodIndices.size() == 1
         && merged.classes[0].methodIndices[0] == 0, "Object methodIndices");
     CHECK(merged.classes[1].methodIndices[0] == 1, "app.A method index");
-    CHECK(merged.classes[1].constructorIdx == 1, "app.A ctor index");
+    CHECK(merged.classes[1].constructorIndices.size() == 1
+        && merged.classes[1].constructorIndices[0] == 1, "app.A ctor index");
     int stubCount = 0;
     for (const auto& f : merged.functions)
         if (f.name == "toString")
@@ -659,8 +662,8 @@ static void test_link_owner_keyed_methods() {
     TEST(link_owner_keyed_methods);
     //Two classes in ONE unit each own add(int) — the same bare key and
     //arity the namespace-level scan must refuse. Owner-class keys
-    //disambiguate; the ctor import (bare class name) resolves through
-    //constructorIdx.
+    //disambiguate; the ctor import resolves through its v2.6 ownerOrdinal
+    //record into the owner's constructorIndices.
     CompiledModule lib = MakeUnit("lib");
     lib.functions.push_back(MakeFunc("add", 1));   //own 0 (lib.A.add)
     lib.functions.push_back(MakeFunc("A", 0));     //own 1 (lib.A ctor)
@@ -669,11 +672,11 @@ static void test_link_owner_keyed_methods() {
     lib.functions.push_back(MakeFunc("lib.f", 0)); //own 4
     CompiledClass a = MakeClass("lib.A");
     a.methodIndices = {0};
-    a.constructorIdx = 1;
+    a.constructorIndices = {1};
     lib.classes.push_back(a);
     CompiledClass b = MakeClass("lib.B");
     b.methodIndices = {2};
-    b.constructorIdx = 3;
+    b.constructorIndices = {3};
     lib.classes.push_back(b);
 
     CompiledModule app = MakeUnit("app");
@@ -688,11 +691,13 @@ static void test_link_owner_keyed_methods() {
     }
     app.functions.push_back(std::move(mainf));     //own 0
     app.functions.push_back(MakeFunc("add", 1));   //slot 1
-    app.functionImports.push_back({"lib", "add", 1, "lib.A"});
+    app.functionImports.push_back({"lib", "add", 1, "lib.A", false, 1});
     app.functions.push_back(MakeFunc("add", 1));   //slot 2
-    app.functionImports.push_back({"lib", "add", 1, "lib.B"});
+    app.functionImports.push_back({"lib", "add", 1, "lib.B", false, 1});
     app.functions.push_back(MakeFunc("B", 0));     //slot 3 (ctor)
-    app.functionImports.push_back({"lib", "B", 0, "lib.B"});
+    //v2.6 ctor record: ownerKind 1 = class, ownerOrdinal 0 = lib.B's
+    //constructorIndices[0] (function 3).
+    app.functionImports.push_back({"lib", "B", 0, "lib.B", false, 1, 0});
 
     std::vector<CompiledModule> units;
     units.push_back(std::move(app));
@@ -709,13 +714,15 @@ static void test_link_owner_keyed_methods() {
           "lib.B.add slot 2 -> merged 3");
     r0.ReadUint16();
     CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 4,
-          "lib.B ctor slot 3 -> merged 4 (constructorIdx path)");
+          "lib.B ctor slot 3 -> merged 4 (ownerOrdinal path)");
     CHECK(merged.classes.size() == 2, "both classes merged");
     CHECK(merged.classes[0].methodIndices.size() == 1
        && merged.classes[0].methodIndices[0] == 1, "lib.A method remap");
-    CHECK(merged.classes[0].constructorIdx == 2, "lib.A ctor remap");
+    CHECK(merged.classes[0].constructorIndices.size() == 1
+       && merged.classes[0].constructorIndices[0] == 2, "lib.A ctor remap");
     CHECK(merged.classes[1].methodIndices[0] == 3, "lib.B method remap");
-    CHECK(merged.classes[1].constructorIdx == 4, "lib.B ctor remap");
+    CHECK(merged.classes[1].constructorIndices.size() == 1
+       && merged.classes[1].constructorIndices[0] == 4, "lib.B ctor remap");
 
     //An owner class missing from the owning unit is reported with the
     //owner key named.
@@ -725,7 +732,8 @@ static void test_link_owner_keyed_methods() {
         CompiledModule app2 = MakeUnit("app2");
         app2.functions.push_back(MakeFunc("app2.main", 0));
         app2.functions.push_back(MakeFunc("add", 1));
-        app2.functionImports.push_back({"lib", "add", 1, "lib.Ghost"});
+        app2.functionImports.push_back({"lib", "add", 1, "lib.Ghost",
+                                        false, 1});
         std::vector<CompiledModule> u2;
         u2.push_back(std::move(app2));
         u2.push_back(std::move(libg));
@@ -744,12 +752,13 @@ static void test_link_owner_keyed_methods() {
         libs.functions.push_back(MakeFunc("A", 0));     //lib.A ctor
         CompiledClass a = MakeClass("lib.A");
         a.methodIndices = {0};
-        a.constructorIdx = 1;
+        a.constructorIndices = {1};
         libs.classes.push_back(a);
         CompiledModule app3 = MakeUnit("app3");
         app3.functions.push_back(MakeFunc("app3.main", 0));
         app3.functions.push_back(MakeFunc("add", 2));
-        app3.functionImports.push_back({"lib", "add", 2, "lib.A"});
+        app3.functionImports.push_back({"lib", "add", 2, "lib.A",
+                                        false, 1});
         std::vector<CompiledModule> u3;
         u3.push_back(std::move(app3));
         u3.push_back(std::move(libs));
@@ -760,6 +769,228 @@ static void test_link_owner_keyed_methods() {
               && Contains(msg, "provides no member"),
               "diagnosis names the class and the signature miss");
     }
+
+    PASS();
+}
+
+// --- v2.6 struct ctor metadata: slot resolve, default remap, corrupt rejects ---
+
+static void test_link_struct_ctor_metadata() {
+    TEST(link_struct_ctor_metadata);
+
+    //Happy path: a struct ctor import (ownerKind 2, ownerOrdinal 0) resolves
+    //through the owner's constructorIndices, and the struct's fieldDefaults
+    //ride the merge with their producer-pool string indices remapped.
+    {
+        CompiledModule lib = MakeUnit("lib");
+        lib.stringConstants = {"ctor-str", "default-tag"};
+        lib.functions.push_back(MakeFunc("Vec", 1));  //own 0 (lib.Vec ctor)
+        CompiledStruct vec;
+        vec.name = "lib.Vec";
+        vec.fieldCount = 1;
+        vec.fieldNames = {"tag"};
+        vec.fieldTypeKinds = {RTK_String};
+        vec.fieldStructIndices = {0xFFFF};
+        vec.fieldClassIndices = {0xFFFF};
+        DefaultValueDesc dv;                    //RTK_String "default-tag"
+        dv.tag = RTK_String;
+        dv.stringIdx = 1;                       //lib-local pool index
+        vec.fieldDefaults = {dv};
+        vec.constructorIndices = {0};
+        lib.structs.push_back(vec);
+
+        CompiledModule app = MakeUnit("app");
+        app.stringConstants = {"app-str"};
+        CompiledFunction mainf = MakeFunc("app.main", 0);
+        {
+            BytecodeEmitter em;
+            em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+            em.Emit(OpCode::OP_Return);
+            mainf.bytecode = em.TakeBytes();
+        }
+        app.functions.push_back(std::move(mainf));  //own 0
+        app.functions.push_back(MakeFunc("Vec", 1));  //slot 1 (ctor)
+        //ownerKind 2 = struct, ownerOrdinal 0 = lib.Vec's ctor #0.
+        app.functionImports.push_back({"lib", "Vec", 1, "lib.Vec",
+                                       false, 2, 0});
+        CompiledStruct stSlot;
+        stSlot.name = "lib.Vec";
+        app.structs.push_back(std::move(stSlot));   //slot 0 (placeholder)
+        app.structImports.push_back({"lib", "lib.Vec", 0});
+
+        std::vector<CompiledModule> units;
+        units.push_back(std::move(app));
+        units.push_back(std::move(lib));
+        CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+        //merged functions: app.main=0, lib.Vec ctor=1.
+        BytecodeReader r0(merged.functions[0].bytecode.data(),
+                          merged.functions[0].bytecode.size());
+        CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 1,
+              "struct ctor slot resolves through ownerOrdinal");
+        CHECK(merged.structs.size() == 1
+           && merged.structs[0].constructorIndices.size() == 1
+           && merged.structs[0].constructorIndices[0] == 1,
+              "struct ctor index remapped into the merged table");
+        //merged strings: app-str=0, ctor-str=1, default-tag=2.
+        CHECK(merged.structs[0].fieldDefaults.size() == 1
+           && merged.structs[0].fieldDefaults[0].tag == RTK_String
+           && merged.structs[0].fieldDefaults[0].stringIdx == 2
+           && merged.stringConstants.size() == 3
+           && merged.stringConstants[2] == "default-tag",
+              "field default string index remapped to the merged pool");
+    }
+
+    //Corrupt: a struct ctor index naming the import tail or past the own
+    //function table cannot name a constructor.
+    {
+        CompiledModule lib = MakeUnit("lib");
+        lib.functions.push_back(MakeFunc("Vec", 1));  //own 0 only
+        CompiledStruct vec = MakeStruct("lib.Vec");
+        vec.constructorIndices = {5};
+        lib.structs.push_back(vec);
+        CompiledModule app = MakeUnit("app");
+        app.functions.push_back(MakeFunc("app.main", 0));
+        std::vector<CompiledModule> units;
+        units.push_back(std::move(app));
+        units.push_back(std::move(lib));
+        std::string msg;
+        CHECK(LinkThrows(std::move(units), "app.main", &msg),
+              "struct ctor index outside the own table throws");
+        CHECK(Contains(msg, "constructor index 5")
+           && Contains(msg, "corrupt image"),
+              "diagnostic names the index and the corrupt-image cause");
+    }
+
+    //Corrupt: the fieldDefaults block is dense by contract — a short one
+    //means the record was truncated or hand-mangled.
+    {
+        CompiledModule lib = MakeUnit("lib");
+        lib.functions.push_back(MakeFunc("lib.g", 0));
+        CompiledStruct vec = MakeStruct("lib.Vec");
+        vec.fieldCount = 2;
+        vec.fieldDefaults = {DefaultValueDesc{}};  //size 1 != fieldCount 2
+        lib.structs.push_back(vec);
+        CompiledModule app = MakeUnit("app");
+        app.functions.push_back(MakeFunc("app.main", 0));
+        std::vector<CompiledModule> units;
+        units.push_back(std::move(app));
+        units.push_back(std::move(lib));
+        std::string msg;
+        CHECK(LinkThrows(std::move(units), "app.main", &msg),
+              "short fieldDefaults block throws");
+        CHECK(Contains(msg, "fieldDefaults size 1 != fieldCount 2")
+           && Contains(msg, "corrupt image"),
+              "diagnostic names both counts and the corrupt-image cause");
+    }
+
+    //Malicious import record: ownerOrdinal beyond the owner's ctor list is
+    //a signature miss on the found struct (not a missing unit) — the
+    //diagnostic uses the struct wording.
+    {
+        CompiledModule lib = MakeUnit("lib");
+        lib.functions.push_back(MakeFunc("Vec", 1));  //own 0 (the only ctor)
+        CompiledStruct vec = MakeStruct("lib.Vec");
+        vec.constructorIndices = {0};
+        lib.structs.push_back(vec);
+        CompiledModule app = MakeUnit("app");
+        app.functions.push_back(MakeFunc("app.main", 0));
+        app.functions.push_back(MakeFunc("Vec", 1));  //slot 1
+        app.functionImports.push_back({"lib", "Vec", 1, "lib.Vec",
+                                       false, 2, 1});  //ownerOrdinal 1: none
+        std::vector<CompiledModule> units;
+        units.push_back(std::move(app));
+        units.push_back(std::move(lib));
+        std::string msg;
+        CHECK(LinkThrows(std::move(units), "app.main", &msg),
+              "ownerOrdinal past the owner's ctor list throws");
+        CHECK(Contains(msg, "struct 'lib.Vec'")
+           && Contains(msg, "provides no member with that signature"),
+              "diagnostic names the struct and the signature miss");
+    }
+
+    PASS();
+}
+
+// --- v2.7 interface instance signatures: cross-unit descriptor + default remap ---
+
+static void test_link_interface_signature_remap() {
+    TEST(link_interface_signature_remap);
+
+    //lib: one class + one struct (the descriptor targets) and one
+    //interface whose instance signature references both by UNIT-LOCAL
+    //indices, with a pooled string default.
+    CompiledModule lib = MakeUnit("lib");
+    lib.stringConstants = {"greet-tag"};             //lib-local pool index 0
+    lib.classes.push_back(MakeClass("lib.Widget"));  //own 0
+    lib.structs.push_back(MakeStruct("lib.Point"));  //own 0
+    CompiledInterface iface;
+    iface.name = "lib.Greeter";
+    CompiledInterfaceMethod sig;
+    sig.name = "greet";
+    sig.paramCount = 2;
+    ParamTypeDesc clsParam;
+    clsParam.type.kind = RTK_Class;
+    clsParam.type.typeIdx = 0;                       //lib-local class 0
+    ParamTypeDesc structParam;
+    structParam.type.kind = RTK_Struct;
+    structParam.type.typeIdx = 0;                    //lib-local struct 0
+    structParam.flags = PTDF_Out;
+    sig.paramTypeDescs = {clsParam, structParam};
+    sig.returnType.kind = RTK_Class;
+    sig.returnType.typeIdx = 0;                      //lib-local class 0
+    DefaultValueDesc dv;                             //RTK_String "greet-tag"
+    dv.tag = RTK_String;
+    dv.stringIdx = 0;                                //lib-local pool index
+    sig.defaultValues = {dv, DefaultValueDesc{}};    //2nd slot: no default
+    iface.instanceMethods.push_back(std::move(sig));
+    lib.interfaces.push_back(std::move(iface));
+
+    //app: its own class + string shift every lib index by one on merge,
+    //so the class-channel remap is non-identity and genuinely pinned.
+    CompiledModule app = MakeUnit("app");
+    app.stringConstants = {"app-str"};
+    app.classes.push_back(MakeClass("app.Host"));    //own 0 -> merged 0
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));       //own 0
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //merged classes: app.Host=0, lib.Widget=1; merged strings:
+    //app-str=0, greet-tag=1. The signature's unit-local indices must
+    //have been remapped through the lib unit's maps.
+    CHECK(merged.interfaces.size() == 1
+       && merged.interfaces[0].name == "lib.Greeter"
+       && merged.interfaces[0].instanceMethods.size() == 1,
+          "interface signature reaches the merged table");
+    const CompiledInterfaceMethod& m =
+        merged.interfaces[0].instanceMethods[0];
+    CHECK(m.paramTypeDescs.size() == 2
+       && m.paramTypeDescs[0].type.kind == RTK_Class
+       && m.paramTypeDescs[0].type.typeIdx == 1,
+          "class-typed formal remapped to the merged class table");
+    CHECK(m.paramTypeDescs[1].type.kind == RTK_Struct
+       && m.paramTypeDescs[1].type.typeIdx == 0
+       && m.paramTypeDescs[1].flags == PTDF_Out,
+          "struct-typed formal remapped and its out flag preserved");
+    CHECK(m.returnType.kind == RTK_Class && m.returnType.typeIdx == 1,
+          "class-typed return remapped to the merged class table");
+    CHECK(m.defaultValues.size() == 2
+       && m.defaultValues[0].tag == RTK_String
+       && m.defaultValues[0].stringIdx == 1
+       && merged.stringConstants.size() == 2
+       && merged.stringConstants[1] == "greet-tag",
+          "default string index remapped to the merged pool");
+    CHECK(m.defaultValues[1].tag == RTK_Void,
+          "the no-default slot stays RTK_Void through the remap");
 
     PASS();
 }
@@ -825,6 +1056,16 @@ int main() {
         g_fail++;
     }
     try { test_link_owner_keyed_methods(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_struct_ctor_metadata(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_interface_signature_remap(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

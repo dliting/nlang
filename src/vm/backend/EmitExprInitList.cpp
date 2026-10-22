@@ -21,7 +21,7 @@ namespace nlang {
 
     //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
     //Dispatches on resolved EvalDataType:
-    //  - Array (target->IsArrayType()): OP_AllocArray + per-element OP_StoreElement
+    //  - Array (IsArrayValued(), interned token in EvalDataType): OP_AllocArray + per-element OP_StoreElement
     //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
     //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
 void VmBackend::Access(SnInitListExpr& expr) {
@@ -37,7 +37,8 @@ void VmBackend::Access(SnInitListExpr& expr) {
     }
 
     //---- Array form: target is T[] ----
-    if (initList.TargetIsArray()) {
+    //0.9.13 D-new-1: array-valued init lists carry the interned token.
+    if (initList.IsArrayValued()) {
         EmitInitListArray(initList, pTarget, emitter, resultOffset);
         return;
     }
@@ -62,14 +63,17 @@ void VmBackend::Access(SnInitListExpr& expr) {
     return;
 }
 
-//Arm: array form (TargetIsArray). For `int[] arr = [..]`, the resolver set
-//TargetIsArray=true and stored the ELEMENT type field in EvalDataType — the
-//init-list is deliberately not tokenized (0.7.3 B): RegisterArrayType below
-//consumes it as the element directly, and a token here would
-//register "array of array".
-void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
+//Arm: array form (IsArrayValued). For `int[] arr = [..]`, the resolver
+//stored the interned array token in EvalDataType (0.9.13 D-new-1):
+//RegisterArrayType below consumes the ELEMENT, peeled here — passing the
+//token itself would register "array of array".
+void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pArrayToken,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset) {
+    //Peel the element once: both the type registration and the per-entry
+    //struct deep-copy gate below consume the element, never the token.
+    SnField* pElemField =
+        static_cast<SnArrayTypeToken*>(pArrayToken)->ElemTypeOf();
     uint16_t arrayTypeIdx = RegisterArrayType(pElemField);
     int32_t n = static_cast<int32_t>(initList.Entries().size());
 
@@ -133,13 +137,18 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
 }
 
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,
-//then the no-arg ctor call when the class declares one. classDecl feeds
-//CtorSlotFor — a cross-unit placeholder carries no table ctor.
+//then the no-arg ctor call when one is available. 0.9.11 T6 (D10):
+//pCtorFn is the zero-formal ctor the resolver selected for the init
+//list (CheckClassInitListForm) — registered → its function slot; null
+//(List/Dict arms, or a class whose ctor comes only from the table) →
+//classDecl feeds CtorSlotFor, a cross-unit placeholder carries no table
+//ctor; a selected-but-unregistered ctor allocates without a call.
 //pExtraConstSlot: a Channel ctor stub is (this, capacity) and the frame
 //push copies stub-paramCount cells from the caller's callParamBase, so
 //the no-arg init-list form stages an explicit constant (0 = unbounded)
 //into the given slot — an unstaged slot would copy garbage.
 void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
+                                          SnFunction* pCtorFn,
                                           uint16_t classIdx,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset,
@@ -147,7 +156,11 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
-    uint16_t ctorIdx = CtorSlotFor(classDecl, classIdx);
+    uint16_t ctorIdx = 0xFFFF;
+    if (SnFunction* pRegistered = RegisteredCtor(pCtorFn))
+        ctorIdx = static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
+    else if (!pCtorFn)
+        ctorIdx = CtorSlotFor(classDecl, classIdx);
     if (ctorIdx != 0xFFFF) {
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(resultOffset);
@@ -212,7 +225,9 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: List class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+    //The List ctor is the builtin table entry — no AST selection.
+    EmitNewObjectAndNoArgCtor(classDecl, nullptr,
+                              static_cast<uint16_t>(classIdx),
                               emitter, resultOffset);
     //Boxing plan for primitive T. An array-typed T is the
     //interned token — BoxingTagFor's default (not primitive)
@@ -267,7 +282,9 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: Dict class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+    //The Dict ctor is the builtin table entry — no AST selection.
+    EmitNewObjectAndNoArgCtor(classDecl, nullptr,
+                              static_cast<uint16_t>(classIdx),
                               emitter, resultOffset);
     const auto& typeArgs = classDecl.GenericTypeArgs();
     //Array-typed K/V slots are interned tokens — raw handles,
@@ -344,7 +361,11 @@ void VmBackend::EmitInitListChannelForm(SnInitListExpr& initList,
         throw std::runtime_error(
             "NLang backend: Channel class not registered in module");
     }
-    EmitNewObjectAndNoArgCtor(classDecl, static_cast<uint16_t>(classIdx),
+    //Built-in target: the resolver's IsBuiltinClass early-return keeps
+    //CtorFunction() null, so the table path (CtorSlotFor) is the ctor
+    //source — pass a null selected-ctor to take it (0.9.11 T6 merge).
+    EmitNewObjectAndNoArgCtor(classDecl, /*pCtorFn=*/nullptr,
+                              static_cast<uint16_t>(classIdx),
                               emitter, resultOffset,
                               //K3 task 4: the ctor stub is (this, capacity)
                               //— stage the unbounded default explicitly.
@@ -361,7 +382,9 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
     //a cross-unit class becomes an import placeholder slot.
     const uint16_t classIdx = static_cast<uint16_t>(
         ClassSlotFor(classDecl));
-    EmitNewObjectAndNoArgCtor(classDecl, classIdx,
+    //0.9.11 T6: the resolver picked the zero-formal ctor for the init
+    //list (CheckClassInitListForm); null keeps the table path.
+    EmitNewObjectAndNoArgCtor(classDecl, initList.CtorFunction(), classIdx,
                               emitter, resultOffset);
     //Per-field store. Entry values stage in an evalArea claim,
     //never a temp — same clobber family as the array form
@@ -430,7 +453,7 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
         int off = -1;
         if (entry.keyKind == InitEntry::KeyKind::Identifier) {
             off = FindFieldOffset(structDecl, entry.keyStr);
-        } else if (ordinal < structDecl.Members().size()) {
+        } else if (ordinal < structDecl.Fields().size()) {
             //Declaration-order positional entry: field ordinal i sits at
             //byte offset i * kHeapFieldStrideBytes under the uniform
             //2-cell heap field stride (Step A2).

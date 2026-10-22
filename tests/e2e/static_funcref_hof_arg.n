@@ -1,0 +1,11 @@
+//0.9.14 D-new-1: a static method reference passes as a higher-order
+//function argument through the call-argument binding channel.
+class Calc {
+    public static int twice(int x) { return x * 2; }
+}
+
+int apply(func<int, int> f, int x) { return f(x) + 20; }
+
+int main() {
+    return apply(Calc.twice, 11);
+}

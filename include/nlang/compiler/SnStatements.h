@@ -672,7 +672,10 @@ private:
 /*
 Phase 9d-2: super(args); statement — forwards constructor arguments to the
 direct parent class constructor. Legal anywhere inside a user constructor
-(the resolver enforces this). Args are positional only.
+(the resolver enforces this). Args are positional only. 0.9.11 T6 (D10):
+CtorFunction() records the parent ctor the resolver selected by overload
+matching (null = builtin parent or no selection); codegen and the frame
+walkers use it instead of scanning for the first parent ctor.
 */
 class NLANG_COMPILER_API SnSuperCallStmt : public SnStatement
 {
@@ -686,11 +689,17 @@ public:
 
 	const PtrList<SnExpression>& Args() const { return m_args; }
 
+	//Non-owning: the ctor member belongs to the parent class declaration.
+	SnFunction *CtorFunction() const { return m_pCtorFunction; }
+	void CtorFunction(SnFunction *pCtorFunction)
+	{ m_pCtorFunction = pCtorFunction; }
+
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	PtrList<SnExpression> m_args;
+	SnFunction *m_pCtorFunction = nullptr;
 };
 
 } //namespace nlang

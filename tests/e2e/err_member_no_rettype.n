@@ -1,0 +1,4 @@
+class A { public B() { } }
+int main() {
+	return 0;
+}

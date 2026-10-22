@@ -3,9 +3,8 @@ import io;
 class Money {
     public int cents;
 
-    public int Money(int cents) {
+    public Money(int cents) {
         this.cents = cents;
-        return 0;
     }
 
     public string toString() {

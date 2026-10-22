@@ -101,7 +101,7 @@ void test_view_frames_and_locals()
 {
     TEST(view_frames_and_locals);
     BuildOutcome b = buildSource("view_locals",
-        "class Point { int x; int y; }\n"       //1
+        "class Point { public int x; public int y; }\n"  //1
         "int inner(Point p) {\n"                //2
         "    int s = p.x + p.y;\n"              //3
         "    return s;\n"                       //4
@@ -144,6 +144,62 @@ void test_view_frames_and_locals()
     }
     CHECK(sawP, "class local renders one-level fields (got lines mismatch)");
     CHECK(sawS, "int local renders value");
+    PASS();
+}
+
+//0.9.12 (v2.7, spec D6): an imported derived object must display the
+//FULL inherited chain. The wire carries own-only field records, so the
+//base fields only appear if the debugger renders through the layout
+//view (base-first chain walk) instead of the record. End to end: real
+//producer .ncu, real consumer build, load-time link, real execution,
+//debugger view at a checkpoint.
+void test_view_imported_derived_inherited_fields()
+{
+    TEST(view_imported_derived_inherited_fields);
+    BuildOutcome lib = buildSource("dbgimport_lib",
+        "class Base {\n"                              //1
+        "    public int a;\n"                         //2
+        "    public string tag;\n"                    //3
+        "    public Base() { a = 1; tag = \"t\"; }\n" //4
+        "}\n"                                         //5
+        "class Derived : Base {\n"                    //6
+        "    public int b;\n"                         //7
+        "    public Derived() { super(); b = 2; }\n"  //8
+        "}\n");                                       //9
+    CHECK(lib.ok, "lib build should succeed: " + lib.diagnostics);
+    BuildOutcome b = buildConsumer("dbgimport_main",
+        "import dbgimport_lib;\n"                     //1
+        "int inspect(dbgimport_lib.Derived d) {\n"    //2
+        "    return 0;\n"                             //3
+        "}\n"                                         //4
+        "int main() {\n"                              //5
+        "    dbgimport_lib.Derived d = dbgimport_lib.Derived();\n" //6
+        "    return inspect(d);\n"                    //7
+        "}\n");                                       //8
+    CHECK(b.ok, "consumer build should succeed: " + b.diagnostics);
+    CompiledModule mod = loadLinked("dbgimport_main");
+    VmExecutor exec;
+    InspectHooks hooks;
+    hooks.target = "dbgimport_main.inspect";
+    hooks.stopLine = 3;  //return 0; — the param is bound at frame entry
+    exec.SetDebugHooks(&hooks);
+    CHECK(exec.Execute(mod) == 0, "program result");
+    CHECK(hooks.captured, "should stop inside inspect");
+    std::vector<std::string> visible;
+    for (const auto& l : hooks.localLines) {
+        size_t eq = l.find('=');
+        REQUIRE(eq != std::string::npos);
+        std::string name = l.substr(0, eq);
+        if (name.size() >= 2 && name[0] == '_' && name[1] == '_') continue;
+        if (!name.empty() && name[0] == '$') continue;
+        visible.push_back(l);
+    }
+    CHECK(visible.size() == 1, "exactly one visible local (param d)");
+    std::string joined;
+    for (const auto& l : visible) { if (!joined.empty()) joined += " | "; joined += l; }
+    CHECK(joined == "d=Derived{a=1, tag=\"t\", b=2}",
+        "imported derived object shows base-first inherited fields then "
+        "the own field, got: " + joined);
     PASS();
 }
 
@@ -496,6 +552,7 @@ void run_debugger_hooks_tests()
     test_hooks_line_sequence();
     test_hooks_call_depths();
     test_view_frames_and_locals();
+    test_view_imported_derived_inherited_fields();
     test_view_locals_decl_scope();
     test_view_scalar_family_display();
     test_hooks_on_throw();

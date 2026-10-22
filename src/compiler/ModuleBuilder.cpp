@@ -90,7 +90,13 @@ bool ModuleBuilder::ResolveAll()
 	MergeTransUnits();
 	ResolveUsingLists();
 	ResolveDataTypes();
-	CheckDuplicateFields();
+	//D8: a top-level statement paragraph plus an explicit main() in the same
+	//unit is a hard error -- abort before ResolveDataValues/ResolveStatements
+	//so the single dedicated diagnostic is not cascaded by statement
+	//resolution (which would re-report the synthesized main's body as
+	//unresolved symbols).
+	if (CheckDuplicateFields())
+		return false;
 	ResolveDataValues();
 	ResolveStatements();
 	return !m_upEnv->HasError();
@@ -239,8 +245,10 @@ void ModuleBuilder::SynthesizeScriptEntries()
 
 //Build the synthesized entry around one paragraph (takes ownership of
 //pScript as the function body). Flags mirror the handwritten bare
-//"int main()" combination exactly -- the synthesized function must be
-//indistinguishable from a user-written one.
+//"int main()" combination exactly, except NF_ScriptEntry marks it as the
+//synthesized script entry so the duplicate-main diagnostic can tell it
+//apart from a user-written main (D8); the flag is compile-only and is
+//never serialized.
 SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
 {
 	//Location: the paragraph's own location carries a null TranslationUnit
@@ -258,7 +266,7 @@ SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
 	assert(pEntryLoc);
 	SnNameExpr* pRet = new SnNameExpr(
 		new SnIdentifierExpr(NK_Int32, *pEntryLoc), *pEntryLoc);
-	SnFunction* pMain = new SnFunction(FA_Default, NF_NONE, pRet,
+	SnFunction* pMain = new SnFunction(FA_Default, NF_ScriptEntry, pRet,
 		new std::string("main"), new PtrList<SnFormalParam>(),
 		*pEntryLoc);
 	pMain->Body(pScript);
@@ -370,10 +378,11 @@ void ModuleBuilder::ResolveDataTypes()
 	resolver.ResolveDataTypes(root, root);
 }
 
-void ModuleBuilder::CheckDuplicateFields()
+bool ModuleBuilder::CheckDuplicateFields()
 {
 	DuplicateFieldChecker checker(*m_upEnv);
 	checker.Check(TreeRoot());
+	return checker.HasScriptEntryConflict();
 }
 
 void ModuleBuilder::ResolveDataValues()

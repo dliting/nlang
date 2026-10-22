@@ -1,0 +1,7 @@
+public int count_of(List<int> a) {
+    return a.length();
+}
+
+public int main() {
+    return count_of(a = {1, 2, 3});
+}

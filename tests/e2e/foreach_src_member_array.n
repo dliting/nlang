@@ -5,12 +5,11 @@
 class Box {
 	public int[] a;
 	public List<int> xs;
-	public int Box() {
+	public Box() {
 		a = [1, 2, 3, 4, 5];
 		xs = {};
 		xs.add(6);
 		xs.add(7);
-		return 0;
 	}
 }
 

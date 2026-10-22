@@ -139,10 +139,51 @@ private:
 		const ISourceLocation *pLoc);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
+	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the
+	//integer-operand gate plus the shared count gate (AdmitShiftCount)
+	//with the LHS's declared row as the carrier. Definition in
+	//StatementResolverCompound.cpp.
+	void FinishCompoundShift(SnCompoundAssignStmt &sn, SnField &targetType);
 	//Shared tail of Access(SnReturnStmt&): the return-position func-ref
 	//binding and the cast fixup against the declared return type. False
 	//when the binding failed (diagnostic logged).
 	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
+	//0.9.11 D1: constructor declaration-shape predicates. IsCtorNameShape
+	//= a member function of a class or struct whose name equals the type
+	//name, regardless of flags — the declaration contract must also
+	//adjudicate the static/virtual/const spellings the no-return
+	//productions admit. IsConstructorFunction = the same shape restricted
+	//to instance members (ctor-slot semantics; a same-name static lives
+	//in the static namespace, 0.9.10 D2.4). Definitions in
+	//StatementResolverDeclCtor.cpp.
+	static bool IsCtorNameShape(SnFunction &sn);
+	static bool IsConstructorFunction(SnFunction &sn);
+	//0.9.11 D1: the constructor declaration contract (no return type, no
+	//static/virtual/const flags) plus the missing-return-type diagnostic
+	//for plain class members. Logs all diagnostics; never mutates the AST.
+	//Definition in StatementResolverDeclCtor.cpp.
+	void CheckCtorDeclarationContract(SnFunction &sn);
+	//0.9.11 D2: the struct member contract — a struct declares fields and
+	//constructors only, and a struct constructor must not carry static/
+	//virtual/const. Logs all diagnostics; never mutates the AST. Definition
+	//in StatementResolverDeclCtor.cpp.
+	void CheckStructCtorContract(SnStructDecl &owner, SnFunction &sn);
+	//0.9.11 D9: inject one `this.<field> = <cloned literal>;` per field
+	//initializer into one constructor, at the fixed anchor after a leading
+	//super() call (or at body start). A member (not a free helper) because
+	//Node::InsertChild is protected and reached through the SyntaxNode
+	//friendship. Definition in ClassFieldInitializerInjection.cpp.
+	void InjectIntoCtor(SnFunction &ctor,
+		const std::vector<SnClassField *> &initFields);
+	//0.9.11 D9: collect the class's user constructors (instance members
+	//named after the class); false = a generated constructor marks an
+	//already-injected class. Needs the private IsConstructorFunction.
+	bool CollectUserCtors(SnClassDecl &sn,
+		std::vector<SnFunction *> &ctors);
+	//0.9.11 D9: phase-1 check for one constructor (native/bodyless
+	//rejection, super-first rule with initializers present); emits the
+	//diagnostic and returns false on rejection.
+	bool ValidateCtorForFieldInit(SnFunction &ctor);
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
 	//arm when the RHS is a bare invoke (TryBindChannelCtorInvoke).
@@ -163,9 +204,12 @@ private:
 		SwitchLabelKey& key);
 	static bool ExtractLiteralLabel(SnLiteralExpr& lit, SwitchLabelKey& key);
 	void ResolveSuperCallArgs(SnSuperCallStmt &sn);
-	bool FindParentCtorShape(SnClassDecl *pParent,
-		size_t &requiredArity, size_t &totalArity);
-	void CheckSuperCtorArity(SnSuperCallStmt &sn, SnClassDecl *pParent);
+	//0.9.11 T6 (D10): the parent ctor a super(...) call binds to — the
+	//overload match over the parent's same-name non-static members, with
+	//the builtin-parent intrinsic arity path kept. Null = builtin parent
+	//or a logged rejection; a bare super() on a parent without ctors is
+	//the legal no-op shape and also answers null.
+	SnFunction *SelectSuperCtor(SnSuperCallStmt &sn, SnClassDecl *pParent);
 
 public:
 
@@ -173,6 +217,15 @@ public:
 	//extends/implements before any function body is visited, so an upcast in
 	//an earlier-merged consumer TU still sees the inheritance chain.
 	void ResolveClassBaseNow(SnClassDecl &sn) { ResolveClassBases(sn); }
+
+	//0.9.11 D9 pre-pass entry: apply one class's field initializers —
+	//validate every constructor (native/bodyless rejection, super-position
+	//rule), then inject fresh `this.<field> = <clone>;` statements or
+	//synthesize the public zero-arg constructor. Runs before the document-
+	//order traversal so a constructor call site written before the class
+	//declaration still sees the synthesized member. Definition in
+	//ClassFieldInitializerInjection.cpp.
+	void InjectClassFieldInitializers(SnClassDecl &sn);
 
 	void Access(SnNamespace &sn);
 	void Access(SnFunction &sn);
@@ -273,6 +326,14 @@ public:
 	//document-order traversal visits any function body (forward-reference
 	//fix for upcasts across the user/library TU merge order).
 	static void PreResolveClassBases(Node& node,
+		StatementResolveAccessor& accessor);
+
+	//Pre-pass (0.9.11 D9): inject class field-initializer assignments and
+	//synthesize zero-arg constructors before the document-order traversal,
+	//so a constructor call site written before the class declaration still
+	//sees the synthesized member (same forward-reference discipline as
+	//PreResolveClassBases; idempotent on already-injected classes).
+	static void PreInjectClassFieldInitializers(Node& node,
 		StatementResolveAccessor& accessor);
 
 	void Resolve(SnNamespace &root);

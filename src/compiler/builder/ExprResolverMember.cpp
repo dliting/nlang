@@ -270,6 +270,10 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	//path untouched).
 	if (TryResolveQualifiedTypeValue(snMember))
 		return true;
+	//0.9.12 D4: the module-qualified type reference (`lib.Mix`) — binds
+	//the type declaration so the generic path continues in the type scope.
+	if (TryResolveModuleTypeRef(snMember))
+		return true;
 	pOuterExpr->Accept(*m_pVisitor);
 	if (!pOuterExpr->IsResolved())
 	{

@@ -1,0 +1,8 @@
+//The byte carrier keeps its 8-bit width through the compound form (no
+//promotion to int), so count 8 — legal on an int carrier — is out of
+//range for the byte row and throws at run time.
+int main() {
+	byte b = 1;
+	b <<= 8;
+	return 0;
+}

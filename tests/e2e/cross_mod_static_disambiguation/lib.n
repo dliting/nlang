@@ -1,0 +1,11 @@
+//0.9.10 D5: static/instance disambiguation across the wire. The static
+//f(int) and the instance f() occupy the same serialized arity (the
+//instance form's this slot makes both one-slot rows), and a same-name
+//static Mix must never be mistaken for the constructor on the consumer
+//side. Only the static face is called by main.
+class Mix {
+	public static int f(int x) { return x * 10; }
+	public int f() { return 999; }
+	public static int Mix(string s) { return s.length(); }
+	public Mix() { }
+}

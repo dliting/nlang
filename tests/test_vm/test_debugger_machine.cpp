@@ -435,10 +435,10 @@ void test_machine_method_locals_show_this()
         "    int x;\n"                         //2
         "    int y;\n"                         //3
         "\n"                                   //4
-        "    public int Point(int a, int b) {\n"//5
+        "    public Point(int a, int b) {\n"   //5
         "        this.x = a;\n"                //6
         "        this.y = b;\n"                //7
-        "        return 0;\n"                  //8
+        "\n"                                   //8
         "    }\n"                              //9
         "\n"                                   //10
         "    public int manhattan() {\n"       //11

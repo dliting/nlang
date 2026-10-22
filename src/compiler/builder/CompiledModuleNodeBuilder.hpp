@@ -1,4 +1,5 @@
 #pragma once
+#include "CompiledModuleStubMembers.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
 #include "SyntaxTree.h"
@@ -90,21 +91,30 @@ public:
 
 		//Build a set of CompiledFunction indices that are actually class
 		//methods or constructors (referenced by some CompiledClass's
-		//methodIndices / constructorIdx). These must NOT be promoted to
-		//free-function stubs — they belong to their owning class and are
-		//already represented (via class merge) on the consumer side.
-		//Without this filter, List.add / Dict.set / etc. would be promoted
-		//to root as free functions, and the user's own free `add` would
-		//then be wrongly deduped against the imported List.add (R10-1
-		//collision).
+		//methodIndices / constructorIndices, or by some CompiledStruct's
+		//constructorIndices — 0.9.11 v2.6). These must NOT be promoted to
+		//free-function stubs — they belong to their owning type and are
+		//already represented (via class/struct stub members) on the
+		//consumer side. Without this filter, List.add / Dict.set / a struct
+		//ctor would be promoted to root as free functions, and the user's
+		//own free `add` would then be wrongly deduped against the imported
+		//List.add (R10-1 collision).
 		std::unordered_set<uint32_t> methodOrCtorIndices;
 		for (size_t ci = 0; ci < ownClasses; ++ci)
 		{
 			for (uint16_t mi : cm.classes[ci].methodIndices)
 				methodOrCtorIndices.insert(mi);
-			if (cm.classes[ci].constructorIdx != 0xFFFF)
-				methodOrCtorIndices.insert(cm.classes[ci].constructorIdx);
+			for (uint16_t ctorIdx : cm.classes[ci].constructorIndices)
+				methodOrCtorIndices.insert(ctorIdx);
 		}
+		for (size_t si = 0; si < ownStructs; ++si)
+			for (uint16_t ctorIdx : cm.structs[si].constructorIndices)
+				methodOrCtorIndices.insert(ctorIdx);
+		//0.9.10 D5: interface statics are likewise owned by their
+		//interface stub, never promoted to free functions.
+		for (const auto &iface : cm.interfaces)
+			for (uint16_t si : iface.staticMethodIndices)
+				methodOrCtorIndices.insert(si);
 
 		//Functions first so that subsequent class/struct stub members can
 		//reference them by name if needed (resolver does name-based lookup
@@ -114,7 +124,10 @@ public:
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
-			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm, loc);
+			//Free functions have no declared member access on the wire —
+			//the stub mints public (top-level declarations are public).
+			SnFunction *stub =
+				CreateFunctionStub(cm.functions[i], cm, loc, FA_Public);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -135,17 +148,39 @@ public:
 		{
 			if (nameExistsInRoot(LeafNameOfKey(cm.structs[si].name)))
 				continue;  //R10-1
-			SnStructDecl *stub = CreateStructStub(cm.structs[si], loc);
+			SnStructDecl *stub = CreateStructStub(cm.structs[si], cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}
 
-		//Classes.
+		//Classes. 0.9.12 (v2.7): each stub rebuilds its full member
+		//surface — own fields, methods (static/instance, access, virtual
+		//flag) and constructors (CreateClassStub); the super links run
+		//after the loop so a subclass stub can point at its peer stub
+		//regardless of declaration order.
+		std::vector<std::pair<SnClassDecl*, const CompiledClass*>> classStubs;
+		std::unordered_map<std::string, SnClassDecl*> peerStubs;
 		for (size_t ci = 0; ci < ownClasses; ++ci)
 		{
 			if (nameExistsInRoot(LeafNameOfKey(cm.classes[ci].name)))
 				continue;  //R10-1
-			SnClassDecl *stub = CreateClassStub(cm.classes[ci], loc);
+			SnClassDecl *stub = CreateClassStub(cm.classes[ci], cm, loc);
+			m_Tree.Root()->Members().push_back(stub);
+			m_importedTypes.push_back(stub);
+			classStubs.emplace_back(stub, &cm.classes[ci]);
+			peerStubs.emplace(LeafNameOfKey(cm.classes[ci].name), stub);
+		}
+		for (auto &link : classStubs)
+			LinkSuperclassStub(*link.first, *link.second, cm, peerStubs,
+				TheRoot());
+
+		//0.9.10 D5 + 0.9.12 (v2.7): interfaces — statics, constants and
+		//bodyless instance-method stubs.
+		for (const auto &iface : cm.interfaces)
+		{
+			if (nameExistsInRoot(LeafNameOfKey(iface.name)))
+				continue;  //R10-1
+			SnInterfaceDecl *stub = CreateInterfaceStub(iface, cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}
@@ -186,225 +221,6 @@ public:
 	}
 
 private:
-	//v1.12: synthesize a SYNTACTIC type expression from a serialized type
-	//descriptor — the same shape the parser would build for hand-written
-	//source, so the consumer's normal ResolveDataTypes pass binds and
-	//interns it through the standard channels (named types resolve against
-	//the root, where this builder placed the imported struct/class stubs;
-	//the List/Dict/func base names go through the built-in generic
-	//instantiation path; builtin scalar kinds arrive pre-bound via the
-	//NodeKind ctor). NonSerialized (interface types, defensive misses)
-	//degrades to the int32 placeholder.
-	SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		//0.7.5: scalar kinds (legacy RTK_Int32/RTK_Float and the
-		//RTK_Byte..RTK_Char family) resolve through the registry — the
-		//old switch handled only RTK_Float, silently degrading every
-		//other scalar to the int32 placeholder (an imported `long`
-		//formal/return truncated its 8-byte values at consumer call
-		//sites before this arm existed).
-		if (int pi = ScalarPrimIndexOfRtk(td.kind); pi >= 0)
-			return new SnIdentifierExpr(kScalarPrims[pi].kind, loc);
-		switch (td.kind)
-		{
-			case RTK_String:
-				return new SnIdentifierExpr(NK_String, loc);
-			case RTK_Struct:
-				if (td.typeIdx < cm.structs.size())
-					return NamedTypeExprFromKey(
-						cm.structs[td.typeIdx].name, loc);
-				break;  //out-of-range index — int32 placeholder below
-			case RTK_Class:
-				if (td.typeIdx < cm.classes.size())
-					return NamedTypeExprFromKey(
-						cm.classes[td.typeIdx].name, loc);
-				break;
-			case RTK_Array:
-				if (!td.elems.empty())
-					return new SnArrayTypeExpr(
-						SynthTypeExprFromDesc(td.elems[0], cm, loc), loc);
-				break;
-			case RTK_List:
-				if (!td.elems.empty())
-				{
-					auto *pArgs = new std::vector<SnFieldExpr*>();
-					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
-					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(
-							new std::string(kBuiltinListTypeName), loc),
-						pArgs, loc);
-				}
-				break;
-			case RTK_Dict:
-				if (td.elems.size() >= 2)
-				{
-					auto *pArgs = new std::vector<SnFieldExpr*>();
-					pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
-					pArgs->push_back(SynthTypeExprFromDesc(td.elems[1], cm, loc));
-					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(
-							new std::string(kBuiltinDictTypeName), loc),
-						pArgs, loc);
-				}
-				break;
-			case RTK_Func:
-				//v2.2: wire order is params..., return — the func<R, P...>
-				//spelling takes the return first. The generic-expression
-				//shape routes through the resolver's synthetic-decl cache
-				//(GetGenericClassDecl), so the rebuilt type is pointer-
-				//identical to the consumer's own func<...> syntax — the
-				//identity FuncRefMatchesDecl's argument check relies on.
-				if (!td.elems.empty())
-				{
-					auto *pArgs = new std::vector<SnFieldExpr*>();
-					//Void serializes as the RTK_Void leaf; rebuild the
-					//same NK_Void node the parser mints for func<void,...>.
-					pArgs->push_back(td.elems.back().kind == RTK_Void
-						? static_cast<SnFieldExpr*>(
-							new SnIdentifierExpr(NK_Void, loc))
-						: SynthTypeExprFromDesc(td.elems.back(), cm, loc));
-					for (size_t i = 0; i + 1 < td.elems.size(); ++i)
-						pArgs->push_back(
-							SynthTypeExprFromDesc(td.elems[i], cm, loc));
-					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(
-							new std::string(kBuiltinFuncTypeName), loc),
-						pArgs, loc);
-				}
-				break;
-			default:
-				break;
-		}
-		return new SnIdentifierExpr(NK_Int32, loc);
-	}
-
-	//Build a SnFunction stub for an imported CompiledFunction.
-	//The stub has no Body() — VmBackend.RegisterFunctions and
-	//GenerateAllBytecode already skip bodyless functions, and the
-	//NF_Imported flag adds an explicit IsImported() gate for safety.
-	SnFunction *CreateFunctionStub(const CompiledFunction &cf,
-		const CompiledModule &cm, const ISourceLocation &loc)
-	{
-		//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
-		//v1.12: the serialized descriptor supplies the true type; the
-		//NonSerialized sentinel (func/interface returns) degrades to the
-		//int32 placeholder.
-		SnFieldExpr *pRetType = nullptr;
-		if (cf.returnTypeKind != RTK_Void)
-			pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
-
-		//Synthesize paramCount SnFormalParam nodes. v1.12: each formal's true
-		//type and out flag come from the serialized descriptors (free
-		//functions carry exactly paramCount of them — methods never reach
-		//stub construction, the methodOrCtorIndices filter owns those).
-		//Option B: if cf.defaultValues[i] carries a constant-foldable default,
-		//attach the reconstructed SnLiteralExpr to the stub formal so the
-		//resolver can apply it at consumer call sites.
-		//Use raw PtrList<SnFormalParam>* — SnFunction takes UniquePtrList by
-		//value, whose inner_collection* constructor assumes ownership and
-		//deletes the source list.
-		auto *pParams = new PtrList<SnFormalParam>();
-		//Formal names from the producer's frame-layout locals table
-		//(ModuleSaver serializes every AllocLocal name with its isParam
-		//flag; for free functions those entries are exactly the params,
-		//in declaration order). Named-argument binding (BindNamedActual)
-		//matches actuals to formals by name, so the former "p0"/"p1"
-		//placeholders made every cross-module named call unbindable.
-		//Missing/misaligned entries fall back to the placeholders —
-		//stub construction never rejects a module over naming.
-		std::vector<std::string> formalNames;
-		for (const auto &ld : cf.locals)
-			if (ld.isParam)
-				formalNames.push_back(ld.name);
-		//Effective per-formal names (locals entries with the placeholder
-		//fallback), shared by the param nodes and the v2.3 ExprDesc
-		//formal-reference rebuild — a rebuilt `b = a * 2` must name the
-		//formals exactly as the stub's own params do.
-		std::vector<std::string> stubFormalNames(cf.paramCount);
-		for (uint16_t i = 0; i < cf.paramCount; ++i)
-			stubFormalNames[i] =
-				(i < formalNames.size() && !formalNames[i].empty())
-					? formalNames[i]
-					: "p" + std::to_string(i);
-		for (uint16_t i = 0; i < cf.paramCount; ++i)
-		{
-			auto paramName = new std::string(stubFormalNames[i]);
-			NodeBits paramFlags = NF_NONE;
-			SnFieldExpr *pParamType;
-			if (i < cf.paramTypeDescs.size())
-			{
-				const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
-				if (ptd.flags & PTDF_Out)
-					paramFlags |= NF_Out;
-				pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
-			}
-			else
-			{
-				pParamType = new SnIdentifierExpr(NK_Int32, loc);
-			}
-			SnExpression *pDefault = nullptr;
-			if (i < cf.defaultValues.size())
-				pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,
-					cf.name, i, stubFormalNames, loc);
-			auto *pParam = new SnFormalParam(paramFlags, pParamType, paramName,
-				pDefault, loc);
-			pParams->push_back(pParam);
-		}
-
-		//Mint the function name as a heap string (SnFunction takes ownership).
-		//Leaf name: see LeafNameOfKey (phase 5 key vs. stub-name split).
-		auto pName = new std::string(LeafNameOfKey(cf.name));
-
-		auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType, pName,
-			pParams, loc);
-		//R6-2: explicitly add NF_Imported. SnFunction's constructor does
-		//not auto-set this flag (unlike SnIdentifierExpr). Without it,
-		//RegisterStructs/Classes/.../PopulateClassMethods' IsImported()
-		//gates would not skip these stubs.
-		pFunc->AddFlags(NF_Imported);
-
-		return pFunc;
-	}
-
-	//Build a SnStructDecl stub for an imported CompiledStruct.
-	//Members are placeholders — VmBackend.RegisterStructs skips imported
-	//stubs entirely (R3 + IsImported gating). Only the name matters for
-	//name-based lookup from user code (e.g. `importedStruct` field types).
-	SnStructDecl *CreateStructStub(const CompiledStruct &cs,
-		const ISourceLocation &loc)
-	{
-		//Members intentionally empty — type/field info stays in the
-		//loaded CompiledModule, which rides along to the load-time linker
-		//as a peer image. The AST stub only needs to exist as a
-		//name-resolution target.
-		//SnStructDecl takes UniquePtrList<SnStructField> by value; pass a
-		//raw PtrList* whose ownership is transferred via the implicit
-		//inner_collection* constructor.
-		auto *pMembers = new PtrList<SnStructField>();
-		auto pName = new std::string(LeafNameOfKey(cs.name));
-		auto *pDecl = new SnStructDecl(pName, pMembers, loc);
-		pDecl->AddFlags(NF_Imported);   //R6-2
-		return pDecl;
-	}
-
-	//Build a SnClassDecl stub for an imported CompiledClass.
-	//Super-class and field/method members are placeholders; VmBackend
-	//skips imported class registration (RegisterClasses/PopulateClassMethods).
-	SnClassDecl *CreateClassStub(const CompiledClass &cc,
-		const ISourceLocation &loc)
-	{
-		//Super-class name not reconstructed — imported class metadata
-		//(superClassIdx etc.) stays in the loaded CompiledModule and is
-		//resolved by the load-time linker from the peer images. AST stub
-		//exists only for name resolution.
-		auto pName = new std::string(LeafNameOfKey(cc.name));
-		auto *pMembers = new PtrList<SnField>();
-		auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
-		pDecl->AddFlags(NF_Imported);   //R6-2
-		return pDecl;
-	}
-
 	//Layer 6 policy: imported module must not define main().
 	//Phase 5: the entry judgment uses the qualified key — a root main.n
 	//in the imported module is keyed "<module>.main", so the bare "main"

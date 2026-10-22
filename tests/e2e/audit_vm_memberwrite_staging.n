@@ -16,7 +16,7 @@ struct Point {
 }
 
 class Box {
-    int v;
+    public int v;
 }
 
 int main() {

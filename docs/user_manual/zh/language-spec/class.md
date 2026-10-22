@@ -8,9 +8,8 @@ class Node {
     public int value;
     public Node next;
 
-    public int Node(int v) {
+    public Node(int v) {
         this.value = v;
-        return 0;
     }
 
     public int getValue() {
@@ -38,6 +37,13 @@ class在整个语言中遵循**引用语义**：
 
 字段带访问修饰符`public` / `private` / `protected`。类成员的默认访问修饰符是`private`；接口成员相反，默认`public`（见[接口](interface.md)）。
 
+- `public`——在类可见的一切位置可达。
+- `private`——只在声明类自己的方法内可达。
+- `protected`——在声明类内与其子类的类体内可达（裸名或经基类类型名皆可）；其余位置不可达。
+- 构造函数遵循同一规则：非`public`构造函数不能在类外调用（`constructor of class "C" is not accessible`）。
+
+同样的可见性规则跨模块成立——见下文「跨模块的类」。
+
 ### 创建实例
 
 ```nlang
@@ -60,6 +66,50 @@ Node c;                   // 只声明：c是null
 构造函数可选，与类同名。只调用本类自己的构造函数；祖先构造函数不会被自动调用。子类构造函数可用`super(args);`转发到直接父类的构造函数（见下文「super()——构造函数链」）。没有显式`super()`时，从祖先继承的字段零初始化。
 
 **隐式`this.field`（裸成员访问）**：在方法或构造函数内，解析到外层类字段（含继承字段）的裸标识符是隐式`this.field`访问。读、赋值、复合赋值（`v += 1`）与默认参数表达式（`int add(int x, int y = v)`）都适用。同名局部变量或参数会遮蔽字段，与Java/C#语义一致。
+
+### 字段初始化器
+
+class字段可带编译期常量默认值：
+
+```nlang
+class Cfg {
+    public int x = 5;
+    public string s = "hi";
+    public float f = -1.5;
+}
+```
+
+- 初始化器必须是**常量表达式**：null、bool、char、int系、float系、字符串字面量，以及一元负号——不得引用其他字段或`this`（初始化时两者都不存在）。
+- 默认值在构造器体执行前**注入到每个构造器**，base-first（对齐C#/Java）：调用`super(...)`的构造器在`super(...)`之后注入；无`super(...)`的在体首注入。类未声明任何构造器时，合成一个**public零参构造器**承载默认值，因此`Cfg()`与花括号形态`Cfg{}`都会应用默认值。
+- 带字段默认值时，`super(...)`必须是构造器的**首条语句**——否则注入点未定义，该构造器是编译错误。
+- `native`或无体构造器不能带字段默认值（编译错误）。
+
+### 静态方法
+
+```nlang
+class Util {
+    public static int twice(int x) { return x * 2; }
+    public static int quad(int x) { return twice(twice(x)); }  // 类内裸调用
+    public int inst() { return 1; }
+}
+class Base {
+    public static int bid() { return 7; }
+}
+class Sub : Base {
+    public int pad;
+}
+int main() {
+    return Util.twice(21) + Util.quad(2) + Sub.bid();  // 42 + 8 + 7
+}
+```
+
+`static`方法属于类本身，不属于任何实例：
+
+- **经类型名调用**：类外写`Util.twice(21)`（方法须为`public`才可达）。经对象调用静态方法会被拒绝（`must be called through the type name`），经类型名调用实例方法同样被拒（`must be called through a receiver object`）——两种调用形态严格区分。
+- **类内裸调用**：静态方法按裸名互调（`quad`调用`twice`），实例方法内裸调静态方法同理。
+- **没有`this`**：静态方法没有接收者——`this`与裸字段名的隐式`this.field`绑定都是编译错误（`this is not available in a static method`）。
+- **继承**：子类继承父类的静态方法，`Sub.bid()`沿链上溯解析。
+- **独立名字空间**：静态与实例成员可同名并存（参数表不同）；签名完全相同则编译错误。静态成员从不参与虚分派（见下文）。
 
 ### 虚方法与覆写
 
@@ -87,21 +137,39 @@ class Dog : Animal {
 ```nlang
 class Base {
     public int v;
-    public int Base(int x) { this.v = x; return 0; }
+    public Base(int x) { this.v = x; }
 }
 class Kid : Base {
-    public int Kid(int x) {
+    public Kid(int x) {
         super(x * 2);        // 调用 Base(int)
-        return 0;
     }
 }
 ```
 
 - `super(args);`在同一个`this`对象上调用**直接父类的构造函数**。只在有父类的类（`Object`无父类）的构造函数内有效。
-- 可出现在ctor的**任意语句位置**（不限第一条）。
+- 可出现在ctor的**任意语句位置**（不限第一条）——除非该类带字段默认值，此时`super(...)`必须是首条语句（见下文「字段初始化器」）。
 - 实参个数必须与父类构造函数的形参个数匹配。对内建Exception家族的父类，构造函数恰好接收一个`message`实参。
 - 具名实参（`super(x = 1)`）不支持（编译错误）。
 - 对无构造函数的父类，`super()`无参是合法无操作；此时传参是编译错误。
+
+### 跨模块的类
+
+导入模块的类是完整类型：`import lib;`之后，`lib.B`的`public`实例字段可读写、`public`实例方法可调（含继承成员、默认参数与重载），虚调用与同单元内一样动态分派。
+
+```nlang
+import lib;   // lib 声明：class B { public virtual int f(int x) { ... } }
+class D : lib.B {
+    public int f(int x) { return x + 10; }   // 覆写 lib.B.f
+}
+int main() {
+    D d = D();
+    return d.f(3);
+}
+```
+
+- **继承与契约**：`class D : lib.B`继承导入基类，`class C implements lib.I`实现导入接口。覆写与`implements`契约跨模块边界强制，与同单元完全一致：与继承的虚方法同名但签名不同的方法、漏实现的接口成员、与继承的虚方法冲突的静态方法，都是编译错误。
+- **可见性到哪都是同一套规则**：导入类只有`public`成员对导入方可达；`private`不可达，`protected`在子类体内可达。非`public`构造函数不能跨边界调用。
+- **外部struct与枚举**：导入`struct`的字段跨模块不可访问（可构造、可把值传给生产方函数），`enum`不作为模块成员导出——见[已知限制](known-limitations.md)。
 
 ### Null检查
 

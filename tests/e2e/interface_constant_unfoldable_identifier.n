@@ -1,0 +1,13 @@
+//0.9.10 D3.3: an identifier initializer resolves but is outside the
+//fold surface (only literals and unary minus fold), so the declaration
+//takes the constant-expression diagnostic. Bare enum members are the
+//one identifier form that resolves without a receiver.
+enum Mode {
+	One = 1
+}
+
+interface ILimits {
+	public static const int MAX = One;
+}
+
+int main() { return 0; }

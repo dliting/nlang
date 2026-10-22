@@ -1,6 +1,6 @@
 class P {
-	int x;
-	int y;
+	public int x;
+	public int y;
 	string toString() { return "P(" + this.x + "," + this.y + ")"; }
 }
 int main() {

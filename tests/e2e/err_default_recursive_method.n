@@ -1,0 +1,12 @@
+//A method default that calls the same method on the receiver re-enters
+//that method's own default emission. This is the receiver-bound analog of
+//a constructor default (whose own path is unreachable); the shared
+//DefaultEmitGuard catches the re-entry and reports it.
+class C {
+	public int m(int a = this.m()) { return a; }
+}
+
+int main() {
+	C c = C();
+	return c.m();
+}

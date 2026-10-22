@@ -1,0 +1,13 @@
+//Type channel pin: ENABLED/DISABLED bind to bool, MARK to char (its
+//UTF-8 encoding is 3 bytes; an int-typed stub would render "20013" at
+//length 5). Expected exit = 3.
+import lib;
+
+int main() {
+	bool on = Flags.ENABLED;
+	bool off = Flags.DISABLED;
+	string mark = "" + Flags.MARK;
+	if (!on) { return 1; }
+	if (off) { return 2; }
+	return mark.length();
+}

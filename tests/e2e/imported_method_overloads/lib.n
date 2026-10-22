@@ -1,0 +1,5 @@
+class Calc {
+    public Calc() { }
+    public int show(int x) { return 1; }
+    public int show(string s) { return 2; }
+}

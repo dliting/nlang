@@ -4,7 +4,7 @@ using P = Point;
 class Point {
     public int x;
     public int y;
-    public int Point(int a) { x = a; y = a * 2; return 0; }
+    public Point(int a) { x = a; y = a * 2;}
 }
 
 int main() {

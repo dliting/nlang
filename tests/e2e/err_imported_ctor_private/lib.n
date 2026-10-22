@@ -1,0 +1,4 @@
+class Lock {
+    public int v;
+    private Lock() { v = 5; }
+}

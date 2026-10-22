@@ -364,6 +364,22 @@ public:
 	}
 
 	/*
+	Index an already-attached child into the name map without touching the
+	parent's child list. A declaration that stores one merged child list
+	but exposes several kind-filtered views (SnEnumDecl, SnStructDecl)
+	builds every node into exactly one view — the owner attaches each
+	child once, because Node::AddChild requires an unattached node — and
+	the sibling views call this to populate find()/NameDict() over the
+	same children.
+	Precondition: pField is a child of the parent and passes FILTER_T.
+	*/
+	void index_field(FieldType *pField)
+	{
+		assert(pField && FILTER_T()(pField));
+		m_NameMap.emplace(pField->Name(), pField);
+	}
+
+	/*
 	Add a field and take the ownership of it.
 	Precondition: pField != nullptr.
 	The field will be added before the location pointed by iPos.

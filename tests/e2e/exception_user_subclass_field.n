@@ -3,7 +3,7 @@
 //field lands at slot[3]. Verifies no aliasing between inherited and own
 //fields (an earlier bug had them sharing slot[1], passing by coincidence).
 class MyException : Exception {
-    int code;
+    public int code;
 }
 
 int main() {

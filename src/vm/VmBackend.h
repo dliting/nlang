@@ -24,8 +24,10 @@ class SnFunction;
 class SnEnumDecl;
 class SnInvokeExpr;
 class SnClassDecl;
+class SnInterfaceDecl;
 class SnSubscriptAssignStmt;
 class SnStructDecl;
+class SnClassField;
 class SnFieldExpr;
 class SnLiteralExpr;
 class SnBinaryExpr;
@@ -53,9 +55,11 @@ namespace langservice { class SymbolIndex; struct SymbolInfo; }
 class ModuleRegistry;
 
 //Phase 9d: the built-in Exception family — synthetic declarations carry
-//no AST fields but a fixed two-field (message/backtrace) runtime layout.
-//Shared by field-offset lookup (EmitExprMember.cpp) and the registration
-//side layout injection (RegisterClass.cpp).
+//no AST fields; the Exception row owns the two-field (message/backtrace)
+//runtime layout and every subclass sees the pair through the chain view
+//(0.9.12 v2.7 own-only records). Used by the field-offset lookup
+//(backend/FieldOffsets.cpp), which may only advance the offset on the
+//Exception row itself.
 inline bool IsBuiltinExceptionName(const std::string& name) {
     return name == "Exception" || name == "NullPointerException"
         || name == "DivByZeroException"
@@ -96,11 +100,14 @@ public:
     uint32_t StructSlotFor(SnStructDecl& decl);
     uint32_t EnumSlotFor(SnEnumDecl& decl);
 
-    //Ctor slot for a class that already has its class slot: own/builtin
-    //records carry constructorIdx (PopulateClassMethods and the builtin
-    //writers); a cross-unit placeholder carries no metadata, so the ctor
-    //declaration is discovered in the AST (the Name()==class-name rule)
-    //and slotted through FunctionSlotFor. 0xFFFF = no ctor.
+    //Ctor slot for a class that already has its class slot. 0.9.11 T6
+    //invariant: reached only when the resolver recorded no selected ctor
+    //for the call — the builtin/generic intrinsic single-ctor shapes and
+    //types without any ctor. Own/builtin records carry
+    //constructorIndices (the builtin writers; [0] = the intrinsic ctor);
+    //the cross-unit AST scan is a defensive dead branch for user types
+    //since T6 (their calls always carry an AST selection slotted
+    //through FunctionSlotFor). 0xFFFF = no ctor.
     uint16_t CtorSlotFor(SnClassDecl& decl, uint16_t classSlot);
 
     //Phase 6 per-unit build: one image per unit in unitIdxs (module
@@ -226,7 +233,11 @@ private:
     static int ClassAncestorFieldOffset(SnClassDecl& ancestor,
                                         const std::string& fieldName,
                                         uint16_t& off);
-    static SnClassDecl* OwningClassOfMemberField(SnField* pField);
+    //0.9.11 D2: generalized to struct fields — returns the owning type
+    //decl (SnClassDecl or SnStructDecl) for a member field of either,
+    //null otherwise; the caller dispatches the offset helper by the
+    //field's kind.
+    static SnField* OwningTypeOfMemberField(SnField* pField);
 
     //--- Member-expression emission helpers (definitions in
     //EmitExprMember*.cpp, split by responsibility: reads and
@@ -247,9 +258,22 @@ private:
     bool EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset);
+    //Compile-time constant reads: enum member and (0.9.10 D3) interface
+    //constant. Both fan out to an inline literal with no receiver.
+    bool EmitMemberConstantRead(SnField* field, BytecodeEmitter& emitter,
+                                uint16_t resultOffset);
+    //0.9.10 D3: interface constant literal — the initializer is folded
+    //at the use site into a Const* op writing pResult (the caller
+    //assigns it to the result slot, like the enum-member arm).
+    void EmitInterfaceConstantRead(SnClassField& field,
+                                   BytecodeEmitter& emitter);
     bool EmitMemberBuiltinDispatch(SnMemberExpr& member,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
+    //0.9.10: type-name-qualified static call (Util.twice(21), I.stat()).
+    bool EmitMemberStaticCall(SnMemberExpr& member,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset);
     bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                          SnField* outerType,
                                          BytecodeEmitter& emitter,
@@ -278,9 +302,9 @@ private:
     void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
-    //Module-qualified free-function reference in value position
-    //(lib.seven) — the receiver-less static func handle.
-    void EmitModuleFuncHandleRef(SnField& func, BytecodeEmitter& emitter,
+    //Receiverless function reference in value position (lib.seven or a
+    //static method) — the bare static func handle.
+    void EmitReceiverlessFuncHandleRef(SnField& func, BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //User-defined enum method call.
     bool EmitMemberEnumMethodCall(SnMemberExpr& member,
@@ -878,12 +902,46 @@ private:
         ~DefaultEmitGuard();
     };
 
-    //The AST constructor declaration of a class (same Name() rule and
-    //body/native filter as CtorSlotFor's placeholder scan). Null for
-    //builtin/generic/imported classes — their ctors are intrinsic or
-    //external, so no default parameters exist to apply. Static: the
-    //frame-size walkers consume it too.
-    static SnFunction* FindCtorFunction(SnClassDecl* pClassDecl);
+    //The registration predicate every ctor scan shares (0.9.11 v2.6):
+    //a ctor participates in the unit table when it has a body, carries
+    //the native flag, or is an imported stub — stub members are
+    //registered by construction (the import record IS the registration;
+    //no bytecode is emitted for them). The predicate's single definition
+    //is the AST-level SnFunction::HasImplementation; this delegates to it
+    //so the resolver's ctor-candidate filter (ExprResolverNew.cpp) and the
+    //backend share one source. Every consumer (CtorSlotFor's placeholder
+    //scan, FunctionSlotFor's ordinal scan, RegisteredCtor, and the frame
+    //walkers through them) must use this one predicate: divergent filters
+    //split the walker claim (1) from the codegen claim (1+formals) and
+    //trip the observedPeakCursor tripwire far from the cause.
+    static bool IsRegisteredCtor(const SnFunction& ctor);
+
+    //v2.6 import-record owner metadata for a cross-unit callee
+    //(Slots.cpp): the owning class/struct's qualified key + table kind,
+    //and the callee's ordinal in the owner's member table — the
+    //declaration-order registered-ctor list for a constructor, the
+    //method list (ctor entries skipped) for methods and statics
+    //(0.9.12 D-new-8). The defaults are the namespace-level shape
+    //(kind 0, ordinal 0xFFFF = no ordinal).
+    struct OwnerMemberMeta {
+        std::string ownerClassKey;
+        uint8_t ownerKind = 0;
+        uint16_t ownerOrdinal = 0xFFFF;
+    };
+    OwnerMemberMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
+
+    //0.9.11 D2/T6: the AST-selected constructor (SnNewExpr/SnInvokeExpr/
+    //SnSuperCallStmt CtorFunction()) when it is registered
+    //(IsRegisteredCtor) — else null. The resolver's overload selection
+    //replaced every first-scan path: a body-less non-native ctor
+    //allocates without running (the class path's CtorSlotFor 0xFFFF
+    //shape). Static: the frame-size walkers consume it too.
+    static SnFunction* RegisteredCtor(SnFunction* pCtorFn);
+
+    //0.9.11 T6 (D10): the super-call tail of Access(SnSuperCallStmt&) —
+    //the resolver-selected parent ctor drives the invocation
+    //(EmitStmtTry.cpp).
+    void EmitSuperCtorCall(SnSuperCallStmt& sc, SnClassDecl* pParent);
 
     //Build the defaults-aware FormalBinding array shared by the ctor
     //invocation and super() forwarding: the caller arguments bind the
@@ -910,11 +968,22 @@ private:
         const std::vector<SnExpression*>& callerArgs, uint16_t claimBase,
         BytecodeEmitter& emitter, uint16_t thisSlot);
 
+    //0.9.11 D2: which allocator the ctor-call tail emits. A class
+    //allocates through OP_New(typeIdx); a struct through
+    //OP_AllocStruct(typeIdx, fieldCount). Everything else in the ctor
+    //lowering (claim layout {this, formals...}, this staging,
+    //callParamBase copy, OP_CallMethodDirect) is shared.
+    struct CtorAlloc {
+        bool isStruct = false;
+        uint16_t typeIdx = 0;     //class slot or struct slot
+        uint16_t fieldCount = 0;  //struct only (OP_AllocStruct operand)
+    };
+
     //Ctor-call tail after the bindings: allocate the object into
-    //allocSlot (OP_New), stage it as claim[0] (= this), bulk-copy the
-    //claim to callParamBase, and invoke the ctor.
+    //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
+    //(= this), bulk-copy the claim to callParamBase, and invoke the ctor.
     void EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
-        uint16_t slotCount, uint16_t classIdx, uint16_t ctorIdx,
+        uint16_t slotCount, const CtorAlloc& alloc, uint16_t ctorIdx,
         BytecodeEmitter& emitter);
 
     //One iteration of the resolved-binding loop: emit + optional boxing
@@ -946,8 +1015,6 @@ private:
     //resolution pass; the Phase 8e-1 implicit-Object parent fixup.
     void RegisterClassDecl(SnClassDecl& sn,
         std::unordered_map<std::string, SnClassDecl*>& declMap);
-    void CollectInheritedClassFields(SnClassDecl& sn, CompiledClass& cc);
-    void AppendBuiltinExceptionFields(CompiledClass& cc);
     void CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc);
     void ResolveClassMetadata(std::unordered_map<std::string, SnClassDecl*>& declMap);
     //classIdx (not a CompiledClass&) because slot resolution can append
@@ -974,6 +1041,20 @@ private:
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
     void PopulateClassMethods(SnNamespace& root);
+    //PopulateClassMethods worker: one class's method/ctor tables from its
+    //AST members in declaration order (keys on m_funcIndexMap).
+    void AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc);
+    //0.9.11 D2: struct counterpart — fills CompiledStruct.constructorIndices
+    //in declaration order (structs declare constructors only).
+    void PopulateStructMethods(SnNamespace& root);
+    //0.9.10 D5: per-unit interface statics table (name = qualified key,
+    //static method indices into the function table). Defined in
+    //backend/RegisterInterfaces.cpp.
+    void RegisterInterfaces(SnNamespace& root);
+    //RegisterInterfaces worker: one interface's instance-method signature
+    //records from its AST members (uses the leaf-slot resolvers and the
+    //default-value encoders, hence a member).
+    void AppendInterfaceSignatures(SnInterfaceDecl& sn, CompiledInterface& ci);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it
@@ -1030,7 +1111,12 @@ private:
     //Option B Step 3: extract a constant-foldable default expression into
     //a DefaultValueDesc for serialization. Returns tag=RTK_Void when the
     //expression isn't foldable (caller-side check rejects for IsImported).
-    DefaultValueDesc ExtractDefaultValue(SnExpression* pExpr);
+    //0.9.11 T4: declaredKind (the formal's or field's RuntimeTypeKind)
+    //re-stamps the folded literal into the declared slot's carrier — the
+    //raw-slot consumers (default-arg fill, struct field materialization)
+    //write the cell once and the slot is read back by its declared kind.
+    DefaultValueDesc ExtractDefaultValue(SnExpression* pExpr,
+                                         uint8_t declaredKind);
     //ExtractDefaultValue arms: direct literal, and OP_Neg over a literal.
     void ExtractLiteralDefault(SnLiteralExpr* lit, DefaultValueDesc& dv);
     void ExtractNegatedLiteralDefault(SnBinaryExpr* bin, DefaultValueDesc& dv);
@@ -1190,19 +1276,36 @@ private:
     //ctor invocation ({this, args} claim → OP_New → OP_CallMethodDirect)
     //or the plain alloc when the class has no ctor. pSkipArg drops the
     //class-name child the NewExpr arg view carries (null for invokes —
-    //Params() has no such child).
-    void EmitNewObject(SnClassDecl* pClassDecl, SnExpressionList& ctorArgs,
-                       SnExpression* pSkipArg, uint16_t resultOffset);
+    //Params() has no such child). pCtorFn is the AST-selected ctor
+    //(0.9.11 T6): registered → its function slot; null (builtin/generic,
+    //no AST ctor) → the CtorSlotFor table path; selected but unregistered
+    //→ plain alloc (the mirror of EmitStructCtor's third branch).
+    void EmitNewObject(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
+                       SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                       uint16_t resultOffset);
+    //0.9.11 D2/D3: struct construction lowering for the explicit call
+    //forms (the direct-init `S name(args);` spelling decomposes into a
+    //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).
+    //pCtorFn is the AST-selected constructor; null or unregistered
+    //(body-less, non-native) mirrors the class no-ctor path: plain
+    //OP_AllocStruct, arguments unevaluated, no call (D3 keeps bare
+    //declarations, init lists, and copies constructor-free — only these
+    //call forms reach here).
+    void EmitStructCtor(SnStructDecl& structDecl, SnFunction* pCtorFn,
+                        SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                        uint16_t resultOffset);
     //Ctor call lowering: one FormalBinding per formal (caller args first,
     //then the defaults of the omitted trailing formals) emitted through
     //the shared EmitBinding — the same mixed-form loop as EmitCallArgs.
-    //pClassDecl feeds FindCtorFunction for the defaults; thisSlot is
-    //UINT16_MAX (the object under construction does not exist yet, so a
-    //ctor default must not reference `this`).
-    void EmitCtorInvocation(SnClassDecl* pClassDecl,
+    //pCtorFn is the registered AST ctor (null for the builtin/generic
+    //table path — the legacy positional shape, nothing to default);
+    //alloc selects the allocator opcode; thisSlot is UINT16_MAX (the
+    //object under construction does not exist yet, so a ctor default must
+    //not reference `this`).
+    void EmitCtorInvocation(SnFunction* pCtorFn,
                             SnExpressionList& ctorArgs, SnExpression* pSkipArg,
-                            BytecodeEmitter& emitter, uint16_t classIdx,
-                            uint16_t ctorIdx, uint16_t resultOffset);
+                            BytecodeEmitter& emitter, uint16_t ctorIdx,
+                            const CtorAlloc& alloc, uint16_t resultOffset);
 
     //New-array emission, shared by the SnNewArrayExpr arm and the 0.9.0
     //type-subscript twin (`int[n]` / `Foo[n]`, subscript.NewArrayElem()):
@@ -1214,14 +1317,17 @@ private:
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the
     //OP_New + optional no-arg-ctor sequence shared by the class-shaped
-    //arms; classDecl feeds CtorSlotFor (placeholders have no table
-    //ctor). The per-entry helpers stage values in evalArea claims.
+    //arms; pCtorFn is the zero-formal ctor the resolver selected for the
+    //init list (0.9.11 T6; null on the List/Dict arms and on the table
+    //path, where classDecl feeds CtorSlotFor — placeholders have no
+    //table ctor). The per-entry helpers stage values in evalArea claims.
     void EmitInitListArray(SnInitListExpr& initList, SnField* pElemField,
                            BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
                                 SnField* pElemField, BytecodeEmitter& emitter,
                                 uint16_t resultOffset, uint16_t valueSlot);
-    void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl, uint16_t classIdx,
+    void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
+                                   SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
                                    const int32_t* pExtraConstSlot = nullptr);
@@ -1280,9 +1386,12 @@ private:
     struct BareIdTarget {
         enum Kind { Local, ThisField, NotFound };
         Kind kind = NotFound;
-        uint16_t localOffset = 0;     //Local
-        SnClassDecl* owner = nullptr; //ThisField: owning class decl
-        int fieldOff = -1;            //ThisField: flattened field offset
+        uint16_t localOffset = 0;   //Local
+        //ThisField: owning type decl (SnClassDecl or SnStructDecl —
+        //0.9.11 D2). Consumers read fieldOff only; the owner exists to
+        //keep the binding auditable.
+        SnField* owner = nullptr;
+        int fieldOff = -1;          //ThisField: flattened field offset
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
 

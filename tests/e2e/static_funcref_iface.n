@@ -1,0 +1,13 @@
+//0.9.14 D-new-1: an interface static method is referenceable through the
+//interface name; its table key is enclosure-qualified, so the rendered
+//name carries the package prefix.
+interface I {
+    static int twice(int x) { return x * 2; }
+}
+
+int main() {
+    func<int, int> h = I.twice;
+    if (h.toString() != "func static_funcref_iface.I.twice")
+        return 1;
+    return h(21);
+}

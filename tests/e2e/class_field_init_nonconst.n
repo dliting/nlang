@@ -1,0 +1,9 @@
+//0.9.11 D4: a field initializer must fold to a literal. A reference to
+//another field is outside the fold surface, so the declaration takes
+//the constant-expression diagnostic.
+class Cfg {
+	public int base = 1;
+	public int x = base;
+}
+
+int main() { return 0; }

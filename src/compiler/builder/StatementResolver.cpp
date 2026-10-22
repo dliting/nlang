@@ -123,6 +123,23 @@ void StatementResolver::PreResolveClassBases(Node& node,
 		PreResolveClassBases(child, accessor);
 }
 
+//Pre-pass for Resolve: inject every class's field-initializer assignments
+//and synthesize its zero-arg constructor (when the class has none) before
+//the document-order traversal visits any function body. A constructor call
+//site written before the class declaration would otherwise resolve against
+//a class whose synthesized constructor does not exist yet. Same forward-
+//reference discipline as PreResolveClassBases; the class's own constructor
+//bodies are still resolved by the in-order function loop, which sees the
+//injected statements as ordinary assignments.
+void StatementResolver::PreInjectClassFieldInitializers(Node& node,
+	StatementResolveAccessor& accessor)
+{
+	if (node.Kind() == NK_ClassDecl)
+		accessor.InjectClassFieldInitializers(static_cast<SnClassDecl&>(node));
+	for (auto& child : node.Children())
+		PreInjectClassFieldInitializers(child, accessor);
+}
+
 void StatementResolver::Resolve(SnNamespace &root)
 {
 	SyntaxNodeVisitor<StatementResolveAccessor>
@@ -130,6 +147,7 @@ void StatementResolver::Resolve(SnNamespace &root)
 	m_Accessor.Visitor(&visitor);
 	PreAssignEnumMemberValues(root, m_Accessor);
 	PreResolveClassBases(root, m_Accessor);
+	PreInjectClassFieldInitializers(root, m_Accessor);
 	root.Accept(visitor);
 }
 

@@ -89,7 +89,7 @@
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/vm/ModuleLoaderRecordsClasses.cpp",
     "function": "ReadClassRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },

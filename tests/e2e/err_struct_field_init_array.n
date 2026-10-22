@@ -1,0 +1,7 @@
+//0.9.11 D4: array fields have no compile-time default storage; the
+//declared-type gate rejects the initializer before foldability.
+struct S {
+    int[] a = [1, 2];
+}
+
+int main() { return 0; }

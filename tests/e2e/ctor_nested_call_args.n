@@ -7,7 +7,7 @@ int helper(int x, int y) { return x * 10 + y; }
 class P {
     public int a;
     public int b;
-    public int P(int x, int y) { this.a = x; this.b = y; return 0; }
+    public P(int x, int y) { this.a = x; this.b = y;}
 }
 int main() {
     P p = P(helper(1, 2), helper(3, 4));

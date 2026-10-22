@@ -26,6 +26,7 @@ struct UnitPushes
 	std::vector<uint32_t> classes;
 	std::vector<uint32_t> structs;
 	std::vector<uint32_t> functions;
+	std::vector<uint32_t> interfaces;
 };
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
@@ -121,7 +122,23 @@ static void MergeClasses(const CompiledModule& u, CompiledModule& merged,
 static void MergeStructs(const CompiledModule& u, CompiledModule& merged,
                          NcuOperandMaps& m, UnitPushes& p) {
     const size_t ownCount = u.structs.size() - u.structImports.size();
+    //v2.6 record checks (corrupt-image guards, mirroring the loader's
+    //count caps): the defaults block is dense by contract, and a struct
+    //constructor is always an own function of the defining unit — an
+    //index into the import tail or past the table cannot name one.
+    const size_t funcOwnCount = u.functions.size() - u.functionImports.size();
     for (uint32_t i = 0; i < ownCount; ++i) {
+        const CompiledStruct& st = u.structs[i];
+        if (st.fieldDefaults.size() != st.fieldCount)
+            throw std::runtime_error("nlink: struct '" + st.name
+                + "': fieldDefaults size " + std::to_string(st.fieldDefaults.size())
+                + " != fieldCount " + std::to_string(st.fieldCount)
+                + " (corrupt image)");
+        for (auto ci : st.constructorIndices)
+            if (ci >= funcOwnCount)
+                throw std::runtime_error("nlink: struct '" + st.name
+                    + "': constructor index " + std::to_string(ci)
+                    + " outside the unit's own function table (corrupt image)");
         int existing = merged.FindStruct(u.structs[i].name);
         if (existing >= 0) {
             m.structs[i] = static_cast<uint32_t>(existing);
@@ -179,6 +196,23 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
+//0.9.10 v2.4: interface statics, deduped by qualified key like classes.
+//No import slots exist for this table (statics never cross as types), so
+//every entry is an own entry; the first provider owns the metadata remap.
+static void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
+                            UnitPushes& p) {
+    for (uint32_t i = 0; i < u.interfaces.size(); ++i) {
+        bool existing = false;
+        for (const auto& ci : merged.interfaces)
+            if (ci.name == u.interfaces[i].name) { existing = true; break; }
+        if (existing)
+            continue;
+        merged.interfaces.push_back(u.interfaces[i]);
+        p.interfaces.push_back(
+            static_cast<uint32_t>(merged.interfaces.size() - 1));
+    }
+}
+
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
                             std::vector<NcuOperandMaps>& maps,
@@ -192,6 +226,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeEnums(units[ui], merged, maps[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
+        MergeInterfaces(units[ui], merged, pushes[ui]);
     }
 }
 
@@ -235,12 +270,30 @@ static void RemapClassMetadata(CompiledModule& merged,
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.classes, i));
         for (auto& i : cc.methodIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
-        if (cc.constructorIdx != 0xFFFF)
-            cc.constructorIdx = static_cast<uint16_t>(
-                Lookup(m.functions, cc.constructorIdx));
+        //v2.6: plural ctor record — every declaration-order index
+        //remaps (the cross-unit ownerOrdinal addresses this list).
+        for (auto& i : cc.constructorIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cc.fieldTypeDescs)
             RemapTypeDesc(td, m.structs, m.classes);
     }
+}
+
+//默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
+//DefaultValueDesc 契约）；v2.3 表达式默认值（RTK_Expr）的
+//ED_Literal_String 臂同走字符串映射。字节流畸形则拒绝链接而非静默
+//携带坏默认值。函数形参默认值、0.9.10 接口常量与 0.9.11 struct 字段
+//默认值共用。
+static void RemapDefaultValueStrings(DefaultValueDesc& dv,
+                                     const NcuOperandMaps& m,
+                                     const std::string& context) {
+    if (dv.tag == RTK_String)
+        dv.stringIdx = Lookup(m.strings, dv.stringIdx);
+    if (!dv.exprBytes.empty()
+        && !ExprDescRemapStrings(dv.exprBytes,
+            [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
+        throw std::runtime_error("nlink: " + context
+            + ": malformed default expression (corrupt image)");
 }
 
 static void RemapStructMetadata(CompiledModule& merged,
@@ -252,8 +305,16 @@ static void RemapStructMetadata(CompiledModule& merged,
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.structs, i));
         for (auto& i : cs.fieldClassIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.classes, i));
+        //v2.6: ctor indices are function-table indices (the ordinal
+        //position in the list is the cross-unit ownerOrdinal).
+        for (auto& i : cs.constructorIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cs.fieldTypeDescs)
             RemapTypeDesc(td, m.structs, m.classes);
+        //v2.6: field defaults carry producer-pool string indices.
+        const std::string context = "struct '" + cs.name + "'";
+        for (auto& dv : cs.fieldDefaults)
+            RemapDefaultValueStrings(dv, m, context);
     }
 }
 
@@ -274,20 +335,9 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
     for (auto& ptd : f.paramTypeDescs)
         RemapTypeDesc(ptd.type, m.structs, m.classes);
     RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes);
-    //defaultValues.stringIdx 是生产者侧字符串下标（CompiledModule.h 的
-    //DefaultValueDesc 契约），跨单元合并必须换算。v2.3 起表达式默认值
-    //（RTK_Expr）的 ED_Literal_String 臂同样持有生产者侧下标，走同一张
-    //映射表；字节流畸形则拒绝链接而非静默携带坏默认值。
+    const std::string context = "function '" + f.name + "'";
     for (auto& dv : f.defaultValues)
-    {
-        if (dv.tag == RTK_String)
-            dv.stringIdx = Lookup(m.strings, dv.stringIdx);
-        if (!dv.exprBytes.empty()
-            && !ExprDescRemapStrings(dv.exprBytes,
-                [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
-            throw std::runtime_error("nlink: function '" + f.name
-                + "': malformed default expression (corrupt image)");
-    }
+        RemapDefaultValueStrings(dv, m, context);
 }
 
 static void FinalizeUnits(const std::vector<CompiledModule>& units,
@@ -300,6 +350,39 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
+        //0.9.10 v2.4: interface static indices are function-table
+        //indices — remap them like the class method block. D3 constants
+        //carry unit-local type descriptors and pooled string defaults,
+        //so they remap through the same maps as function records.
+        //0.9.12 (v2.7): instance-method signatures ride the same
+        //channels (formal/return descriptors and pooled default
+        //strings); the signatures carry no function or type indices
+        //beyond the descriptors, so nothing else remaps here.
+        for (uint32_t idx : pushes[ui].interfaces)
+        {
+            auto& iface = merged.interfaces[idx];
+            const std::string context = "interface '" + iface.name + "'";
+            for (auto& i : iface.staticMethodIndices)
+                i = static_cast<uint16_t>(
+                    Lookup(maps[ui].functions, i));
+            for (auto& constant : iface.constants)
+            {
+                RemapTypeDesc(constant.type, maps[ui].structs,
+                    maps[ui].classes);
+                RemapDefaultValueStrings(constant.value, maps[ui],
+                    context);
+            }
+            for (auto& sig : iface.instanceMethods)
+            {
+                for (auto& ptd : sig.paramTypeDescs)
+                    RemapTypeDesc(ptd.type, maps[ui].structs,
+                        maps[ui].classes);
+                RemapTypeDesc(sig.returnType, maps[ui].structs,
+                    maps[ui].classes);
+                for (auto& dv : sig.defaultValues)
+                    RemapDefaultValueStrings(dv, maps[ui], context);
+            }
+        }
     }
 }
 

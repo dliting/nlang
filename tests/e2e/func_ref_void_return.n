@@ -1,6 +1,6 @@
 //Phase 13 Step 1: void-returning delegate called in statement position.
 //The observable side effect runs through the object reference.
-class Holder { int v; }
+class Holder { public int v; }
 
 void setter(Holder h) { h.v = 41; }
 

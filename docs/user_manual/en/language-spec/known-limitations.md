@@ -42,24 +42,21 @@
   variables, and as generic type arguments. The VM has no
   multi-dimensional array layout; declare flat arrays or use
   `List<List<T>>`-style containers instead.
-- **Bare `{...}` at non-inference positions**: a bare brace literal
-  needs a typed target — as a method-call receiver (`{}.length()`) or a
-  named argument it does not infer; bind a typed local first. See
+- **Bare `{...}` as a method-call receiver**: a bare brace literal needs
+  a typed target; as a receiver (`{}.length()`) there is none, so it
+  stays rejected — bind a typed local first. Named arguments do infer
+  (`count(items = {1, 2})`). See
   [Collection Initializers](collection-initializers.md).
-- **Bare `[]` empty init**: the empty literal is `{}` (`List<T> l = {};`,
-  `Dict<K,V> d = {};`, `int[] a = {};`); a sized empty array is
-  `int[0]`. The lexer tokenizes `[]` as a single token used by the
-  array-type suffix rule, so bare `[]` is not the empty form.
-- **Bare init list as a named argument**: positional arguments infer
-  their target from the parameter type; named arguments do not — use a
-  typed local or the anchored `Type{...}` form.
+- **Empty array literal**: the empty literal is `{}` for `List<T>` and
+  `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array
+  target takes no brace form (`int[] a = {};` is rejected — array
+  initializers use the bracket form), so an empty array is `int[] a = [];`.
 - **Sized-array declaration: size arm on the first declarator only**:
   `int a, b[3];` is a syntax error — declare `b` separately.
 - **Direct-init paren arm on the first declarator only**:
   `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
-  this page stands for a class-with-constructor example; the struct
-  `Point` is covered in [Struct](struct.md) — structs have no
-  constructors).
+  this page stands for a type-with-constructor example; see
+  [Class](class.md) and [Struct](struct.md)).
 - **Mixed declarators take the array type**: in `int a[3], b;` the
   sibling `b` is a null `int[]` (array-typed), not an int.
 - **Partial initialization is the bracket form at the declaration**:
@@ -68,20 +65,9 @@
 - **Generic instantiation has no anchored head**: `List<int>{60}` does
   not parse — give the literal a typed declaration (see
   [Collection Initializers](collection-initializers.md)).
-- **Nested bare braces in a brace literal do not parse**: use bracket
-  nesting (`[[1,2],[3,4]]`).
-- **Bare list in an array-return position is rejected**: `return [1, 2];`
-  from an `int[]` function is a type error (container returns infer).
-- **Bare collection literals are not foreach sources**: `foreach (int x in
-  [1, 2, 3])` fails type inference ("Collection initializer requires an
-  explicit type or an LHS context to infer the target type."); the brace
-  form is a syntax error. Bind the literal to a typed local first.
 - **Generic-element fixed arrays are declaration-only**:
   `List<int> a[2];` declares the array; there is no expression-position
   creation twin.
-- **Bare same-class-name call inside a class body is not a constructor
-  call**: it reports a method-needs-receiver style error; construct via
-  `Vec(2, 3)` in expression position.
 - **`using` alias declarations belong to the file prologue**: a `using`
   placed after another top-level declaration is a syntax error.
 - **`List<struct>` value semantics**: adding the same struct variable
@@ -103,19 +89,21 @@
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
-- **Cross-module base classes stay outside override-signature checking**:
-  class stubs of imported modules carry no members (with `.ncu`-only
-  imports), so subclass override-signature checking is idle in that
-  direction; when the imported module's source is present, the check
-  applies normally.
-- **Members of imported classes are unreachable through `.ncu`
-  imports**: the class stub carries no members — field reads (`w.w`)
-  and method calls (plain non-virtual ones included, `w.doubled()`)
-  fail with not-found/resolution errors, and construction is not wired
-  up either (it reports a backend internal error). The class name is
-  still usable as a type: declaring a variable of it and receiving
-  instances returned by the producing module's own functions both
-  work; imports with the source present are unaffected.
+- **Instance fields of imported structs are inaccessible across the
+  module boundary**: the struct stub carries no fields — reading or
+  writing `s.x` on an imported struct is a compile error. Construction
+  (`lib.Vec(3, 4);`) and passing the value to the producing module's
+  own functions work, and the struct's field defaults still apply at
+  allocation.
+- **Enums cannot be imported across modules**: an `enum` is not
+  exported as a module member — a qualified reference (`lib.Color.Red`)
+  reports `Type 'Color' is not a member of package 'lib'.`
+- **Cross-module overloads with the same parameter count**: imported
+  free functions, interface static methods, and enum methods are
+  matched by name and parameter count; two same-name overloads with
+  the same parameter count but different parameter types fail at link
+  time with an explicit ambiguity error instead of silently
+  mislinking.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and
@@ -141,19 +129,13 @@
   legal spelling for a top-level const function (function bodies are
   unaffected).
 - **Type-line hijack of the first direct-init argument at top level**:
-  when the first argument of `Vec p(base.x);` / `Vec p(a<b);`
-  starts with a qualified name or a generic form, the parser reads it
-  as a type and reports a clear syntax error. Workaround: assignment
-  initialization, `Vec p = Vec(base.x);` (function bodies are
-  unaffected).
-- **Top-level empty-parameter asymmetry**: `Foo f();` at top level
-  fails with a clear syntax error, because the empty-parameter form
-  must belong to a function definition: the parser has to choose
-  between an empty-param function head and a zero-argument direct
-  initialization. Workaround: construct with `Foo f = Foo();`,
-  forward-declare with `func Foo f();`. Inside a function body,
-  `Foo f();` is a zero-argument direct initialization and keeps
-  working.
+  when the first argument of `Vec p(base.x);` / `Vec p(a<b);` starts with
+  an identifier followed by `.` or `<`, the parser reads the identifier
+  as a type head (a qualified or generic type) and reports a clear syntax
+  error. Only the first argument is affected — call expressions
+  (`Vec p(f());`), subscripts (`Vec p(g[0]);`) and every later argument
+  parse fine, and function bodies are unaffected. Workaround: assignment
+  initialization, `Vec p = Vec(base.x);`.
 - **The `implements qualified-name.interface` form is not accepted by
   the grammar** (e.g. `implements lib.IF`): `import` first, then use
   the unqualified name.

@@ -18,6 +18,7 @@ func<int, int, out int>    // int f(int, out int)
 不带括号的函数名或方法名是引用——一等值，可存入局部变量、参数、字段、数组与容器，四处传递，稍后调用：
 
 - **自由函数引用**（`bar`）——指向该函数的静态绑定句柄。
+- **静态方法引用**（`Util.twice`）——指向静态方法的无接收者句柄；在所属类内也可用裸名。
 - **绑定方法引用**（`c.foo`）——捕获接收者：对象随句柄一起走，其**状态跨调用保持**。
 - **虚 / 接口方法引用**（`c.tw`、`ifaceVar.run`）——句柄持有方法名，在每次调用时于接收者的**运行期类**上解析覆写链（晚期绑定）。
 
@@ -26,6 +27,7 @@ using BinOp = func<int, int>;
 
 class Counter {
     int n;
+    static int twice(int x) { return x * 2; }
     int foo(int x) { n = n + 1; return n + x; }
     virtual int tw(int x) { return x * 2; }
 }
@@ -38,6 +40,7 @@ void apply(BinOp f) { io.print(f(10)); }
 int main() {
     Counter c = Counter();
     apply(bar);       // 11    自由函数
+    apply(Counter.twice); // 20    静态：无接收者
     apply(c.foo);     // 11    绑定：n 变为 1，1 + 10
     Counter b = Big();
     apply(b.tw);      // 1000  虚分派：运行期类 Big 获胜
@@ -68,8 +71,10 @@ int main() {
 
 - 引用签名与期望`func`类型不精确匹配的函数/方法。
 - 引用带**默认参数**的函数或方法——默认值只在直接调用路径上填充。
+- **静态方法引用**——静态方法经类型名（`Util.twice`）绑定为函数值，含继承的静态方法、接口静态方法、native静态方法，以及所属类内的裸名形态；经对象接收者（`b.twice`）仍被拒（"the static method must be called through the type name"）。
+- **经类型名的实例方法**——被拒（"the instance method must be called through a receiver object"）。
 - **枚举方法**——接收者是int值，不是堆对象。
-- **native方法**的任何可达形式：声明为`native`、虚基类下的覆写、或接口成员的实现（native调用没有供接收者使用的被调方栈帧）。
+- **native实例方法**的任何可达形式：声明为`native`、虚基类下的覆写、或接口成员的实现（native调用没有供接收者使用的被调方栈帧）。native静态方法可经类型名引用。
 - **`func`类型带`out`参数的虚/接口引用**——运行期分派可能与编译的out掩码不一致。
 - **返回位置的`out`**（`func<out int, ...>`）——报出明确的编译错误"out is only allowed on func<...> parameters."并拒绝。
 - **`func<...>(...)`**——不支持以名称构造；请绑定引用。

@@ -5,14 +5,14 @@
 //(site 4) are each the ONLY root of their record — a broken trace arm
 //leaves a dangling heap index that misbehaves on the post-churn calls.
 class Counter {
-    int n;
+    public int n;
     public void bump() { n = n + 1; }
     public int twice(int x) { return x * 2 + n; }
 }
 
-class Holder { func<int, int> cb; }
+class Holder { public func<int, int> cb; }
 
-class P { int v; }
+class P { public int v; }
 
 int main() {
     Counter c = Counter();

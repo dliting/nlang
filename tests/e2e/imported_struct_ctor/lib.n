@@ -1,0 +1,6 @@
+struct Pt {
+    int x;
+    int y;
+    public Pt() { x = 1; y = 2; }
+}
+int usePt(Pt p) { return p.x + p.y; }

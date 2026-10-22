@@ -1,0 +1,9 @@
+//0.9.10 D5: an inherited static travels with the base class export.
+//The consumer reaches it through the derived type name, so the class
+//stub's superclass link must survive the wire.
+class Base {
+	public static int seven() { return 7; }
+}
+class Sub : Base {
+	public int mark() { return 1; }
+}

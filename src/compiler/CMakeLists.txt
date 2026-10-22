@@ -50,6 +50,7 @@ add_library(nlang_compiler
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
     ModuleBuilderObjectProtocol.cpp
+    ModuleBuilderStaticNamespace.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp
     CastInfo.cpp
@@ -80,11 +81,14 @@ add_library(nlang_compiler
     builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
+    builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
+    builder/ExprResolverNewCtor.cpp
     builder/ExprResolverInitList.cpp
+    builder/ExprResolverInitListCtor.cpp
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
     builder/ExprResolverInvokeMatch.cpp
@@ -99,10 +103,12 @@ add_library(nlang_compiler
     builder/StatementResolverDeclArray.cpp
     builder/StatementResolverTypes.cpp
     builder/StatementResolverAssign.cpp
+    builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp
+    builder/ClassFieldInitializerInjection.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
 )

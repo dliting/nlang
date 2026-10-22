@@ -1,0 +1,9 @@
+//0.9.14 D-new-8: producer module exporting a class static method and an
+//interface static method, both referenced as function values by the
+//consumer below.
+class C {
+    public static int add2(int x) { return x + 2; }
+}
+interface I {
+    static int twice(int x) { return x * 2; }
+}

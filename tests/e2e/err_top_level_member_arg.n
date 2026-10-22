@@ -1,0 +1,4 @@
+class Base { public int x; public Base(int v){ x = v; } }
+Base base = Base(5);
+Base p(base.x);
+return p.x;

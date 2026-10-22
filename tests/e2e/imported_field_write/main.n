@@ -1,0 +1,6 @@
+import lib;
+int main() {
+    lib.Box b = lib.Box();
+    b.val = 7;
+    return b.val;
+}

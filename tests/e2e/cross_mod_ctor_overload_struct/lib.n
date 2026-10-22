@@ -1,0 +1,13 @@
+//0.9.11 T6 (D10): producer exports a struct with a same-arity
+//overload pair — the struct path shares the class ownerOrdinal record.
+struct Vec {
+	int x;
+	public Vec(int v) { x = v; }
+	public Vec(string s) { x = 100; }
+}
+int scaled(Vec v) {
+	return v.x * 2;
+}
+int raw(Vec v) {
+	return v.x;
+}

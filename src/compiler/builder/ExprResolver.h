@@ -38,6 +38,30 @@ enum ExprResolveFlag : uint8
 
 typedef uint8 ExprResolveFlagSet;
 
+//0.9.10 D2.4: call-form namespaces. A member call through a type name
+//only reaches static members; a member call through a value only reaches
+//instance members; a bare call is namespace-level.
+enum class InvokeReceiverForm
+{
+	Bare,
+	TypeName,
+	Value
+};
+InvokeReceiverForm ClassifyInvokeReceiver(const SnInvokeExpr &invoke);
+
+//0.9.10 D2.4: a receiver expression that names a type (class / interface /
+//enum) — that form selects the static namespace. Shared by the invoke and
+//member-value channels (definition in ExprResolverInvokeMatch.cpp).
+bool ReceiverNamesType(SnExpression *pOuter);
+
+//0.9.10 D2.4: first same-name member of ONE namespace (static vs instance)
+//along the receiver's chain — the rebind and cross-namespace diagnostic
+//search for the receiver-namespace split (definition in
+//ExprResolverInvokeMatch.cpp). No access check: the rebind caller gates
+//the result with AllowAccess, the diagnostic callers only pick a message.
+SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
+	const std::string &name, bool bStatic);
+
 //Array redesign B: pure SHAPE test — identifier, or member access whose
 //inner name is an identifier (the lvalue shapes whose Field() binding IS
 //the variable/field itself). Array-ness is the IsArrayValued() property
@@ -120,6 +144,16 @@ inline bool IsModuleOwnedFunction(const SnField &func)
 {
 	auto *pOwner = func.Parent();
 	return pOwner == nullptr || pOwner->Kind() == NK_Namespace;
+}
+//0.9.14 D-new-3: the receiverless arm of the member func-reference
+//channel — a module-owned free function (`lib.seven`) or a static method
+//(`B.f` through the type name, bare `f` inside the owning class). Both
+//carry no receiver and always take the static OP_MakeFunc form; wording
+//and gate checks branch on this predicate (the VM side keeps its own
+//static copy in EmitExprMember.cpp: subsystem boundary).
+inline bool IsReceiverlessFuncRefTarget(const SnField &func)
+{
+	return IsModuleOwnedFunction(func) || func.ContainFlags(NF_Static);
 }
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
@@ -228,13 +262,13 @@ public:
 	//Phase 9c: resolve a named argument `name = expr` at a call site.
 	//Resolves the inner expression and propagates its EvalDataType so
 	//the parent SnInvokeExpr sees the value's type for overload matching.
-	//The name itself is consumed by TryBindInvoke when matching formals.
+	//The name itself is consumed by TryBindArgs when matching formals.
 	void Access(SnNamedArgExpr &);
 
 	//Phase 9e: resolve an out argument `out ident` at a call site.
 	//Validates the identifier binds to a caller-frame slot (local var or
 	//formal param — both register as NK_FormalParam-kind fields), then
-	//propagates the inner's EvalDataType. Consumed by TryBindInvoke, which
+	//propagates the inner's EvalDataType. Consumed by TryBindArgs, which
 	//requires the matched formal to carry NF_Out.
 	void Access(SnOutArgExpr &);
 
@@ -342,6 +376,33 @@ private:
 	//module path sharing the name (silent when none does).
 	void MaybeLogModuleHint(const std::string &name);
 
+	//0.9.10: nearest enclosing function of the current resolution context —
+	//the static-method gates (this / implicit this) inspect its NF_Static
+	//flag. Null at namespace/module scope.
+	SnFunction *EnclosingFunction() const;
+
+	//0.9.10: a bare name that binds to a class field is the implicit
+	//this.field form — rejected inside a static method. True = rejected
+	//with its diagnostic.
+	bool RejectImplicitThisInStatic(SnIdentifierExpr &idExpr, SnField *pField);
+
+	//0.9.10 D2.4: the member VALUE channel (receiver.name with no invoke)
+	//shares the invoke path's receiver-namespace split. The plain identifier
+	//search is namespace-blind — it walks the receiver's whole chain, so an
+	//own static shadows an inherited instance method and a static-only name
+	//binds as a receiver-bearing handle (silent garbage at runtime). Called
+	//from Access(SnIdentifierExpr) with the receiver context active; rebinds
+	//rpField in place when the receiver form's own namespace holds the
+	//same-name member. False = rejected with its diagnostic.
+	bool ApplyReceiverNamespaceFilter(SnIdentifierExpr &idExpr,
+		SnField *&rpField);
+
+	//0.9.10 D3.4: an interface constant is referenced only through the
+	//qualified `I.NAME` member form. True = the bare binding was
+	//rejected with the qualification hint.
+	bool RejectBareInterfaceConstant(SnIdentifierExpr &idExpr,
+		SnField &field);
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField);
 
 	/*
@@ -419,6 +480,11 @@ private:
 		SyntaxNode *pSavedContext);
 	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//0.9.10 D2.4: type-name receiver in the Object protocol arm with no
+	//same-name static — the call is an instance call with no receiver.
+	//Logs the diagnostic, restores the context, returns true.
+	bool RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
+		const std::string &name, SyntaxNode *pSavedContext);
 	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, SyntaxNode *pSavedContext);
@@ -530,18 +596,26 @@ private:
 	*/
 	void SearchFuncScope(SnFunctionParentField &parent, bool bBarePool,
 		const std::string &sFuncName, uint32_t curModule,
-		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+		InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+		bool &rbImportedMatch);
 	void SearchSuperclassChain(SnClassDecl &classDecl,
 		const std::string &sFuncName, uint32_t curModule,
-		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
+		InvokeReceiverForm form, std::vector<SnFunction*> &candidates,
+		bool &rbImportedMatch);
 	void SearchEnumScope(SnEnumDecl &enumDecl,
-		const std::string &sFuncName,
+		const std::string &sFuncName, InvokeReceiverForm form,
 		std::vector<SnFunction*> &candidates, bool &rbImportedMatch);
 	bool CollectInvokeCandidates(SnInvokeExpr &invoke, bool bSearchInAncestor,
 		std::vector<SnFunction*> &candidates, bool &rbImportedMatch,
 		bool &rbVisibilityHintLogged);
 	bool TryBindDelegateCall(SnInvokeExpr &snInvoke);
 	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
+	bool RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
+		SnFunction *pCallee);
+	//0.9.10 D2.4: the namespace-filtered search found no callee, but the
+	//opposite namespace holds a same-name member on the receiver's chain —
+	//report the call-form mismatch instead of the generic not-found text.
+	bool RejectCrossNamespaceCall(SnInvokeExpr &snInvoke);
 	void LogAmbiguousCall(SnInvokeExpr &invoke);
 	bool MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 		bool bNameMatchedImported);
@@ -571,7 +645,7 @@ private:
 		std::vector<SnFunction*> *pOutCandidates = nullptr);
 
 	/*
-	Module import visibility (M3b): the TryBindInvoke / type-distance core
+	Module import visibility (M3b): the TryBindArgs / type-distance core
 	of FindFuncByInvoke — the single matching implementation shared by the
 	bare path (candidates collected along the scope chain there) and the
 	module-qualified call path (candidates from the module table). Silent
@@ -584,6 +658,19 @@ private:
 	FindFuncResult MatchInvokeAgainst(SnInvokeExpr &invoke,
 		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
 		std::vector<FormalBinding> &outBindings, bool &rbAmbiguous);
+
+	/*
+	0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst —
+	overload matching over the candidate ctors of one class/struct with
+	the same TryBindArgs / ComputeBindingDistance core (closest binding
+	wins, a tie at the smallest viable distance is ambiguous). Fully
+	silent: the caller owns the class/struct-flavored diagnostics, so no
+	out-bindings are handed back (codegen rebuilds them from the selected
+	ctor's Params()). Returns the selected ctor, or null on no viable
+	bind; rbAmbiguous separates the tie from a plain no-match.
+	*/
+	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous);
 
 	/*
 	Module import visibility (M3b): the SUCCESS tail of Access(SnInvokeExpr),
@@ -702,16 +789,17 @@ private:
 	bool ValidateInvokeSyntax(const SnInvokeExpr &invoke);
 
 	/*
-	Phase 9c: try to bind an invoke's actual arguments to a candidate
-	callee's formal parameters. Handles positional args, named args, and
-	default param expressions. Returns true if every formal is bound
-	(either by caller or by default); false if any required formal is left
-	unbound or a caller-side error occurs (positional after named, etc.).
-	Does NOT log — caller reports a generic "not compatible" error when
-	no candidate matches.
+	Phase 9c: try to bind an actual-argument list to a candidate callee's
+	formal parameters. Handles positional args, named args, and default
+	param expressions. Returns true if every formal is bound (either by
+	caller or by default); false if any required formal is left unbound or
+	a caller-side error occurs (positional after named, etc.). Does NOT
+	log — caller reports a generic "not compatible" error when no
+	candidate matches. 0.9.11 T6: the list parameter (not an invoke node)
+	lets constructor matching reuse this core from every call shape.
 	*/
-	bool TryBindInvoke(const SnInvokeExpr &invoke, const SnFunction &callee,
-		std::vector<FormalBinding> &outBindings);
+	bool TryBindArgs(const std::vector<SnExpression*> &actuals,
+		const SnFunction &callee, std::vector<FormalBinding> &outBindings);
 
 	/*
 	Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
@@ -735,8 +823,11 @@ private:
 	overload is chosen — each formal's declared type becomes the init
 	list's target. False when an argument failed (its diagnostic is
 	logged); the invoke stays unresolved, mirroring the func-ref path.
+	0.9.13 B2: named arguments resolve through their SnNamedArgExpr
+	wrapper, located via the invoke's child list.
 	*/
-	bool ResolveDeferredBraceArgs(std::vector<FormalBinding> &bindings);
+	bool ResolveDeferredBraceArgs(SnInvokeExpr &invoke,
+		std::vector<FormalBinding> &bindings);
 
 	/*
 	Calculate the type "distance" from source type to target type.
@@ -835,6 +926,14 @@ private:
 	//count must convert to that row implicitly (see
 	//ExprResolverBinary.cpp for the full rationale).
 	bool ResolveShiftBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	//0.9.10: the count-admission core of the shift family, shared by the
+	//binary form (WrapShiftOperands) and the compound form
+	//(StatementResolverAssign, through the ExprResolver forwarder below).
+	//`iCount` positions the count expression in its parent's child list
+	//(replaced in place by the carrier wrap, like FixupExprType). See
+	//ExprResolverBinary.cpp for the full rationale.
+	bool AdmitShiftCount(NodeIterator &iCount, SnField *pCarrier,
+		const ISourceLocation *pLoc, const char *opName);
 	bool WrapShiftOperands(SnBinaryExpr &sn, SnField* T_result,
 		const char* opName);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
@@ -842,17 +941,34 @@ private:
 
 	/*
 	2026-09-27 decomposition of the allocation resolution family
-	(ExprResolverNew.cpp) — the ctor-arity check of Access(SnNewExpr&)
-	and the allocation binding of Access(SnNewArrayExpr&).
+	(ExprResolverNew.cpp) — the ctor-binding of Access(SnNewExpr&) and
+	the allocation binding of Access(SnNewArrayExpr&).
 	*/
-	size_t CountPositionalCtorArgs(SnNewExpr &sn);
-	size_t CountPositionalCtorArgs(SnInvokeExpr &sn);
 	void TryResolveBuiltinClassName(SnFieldExpr &fieldExpr);
-	bool FindCtorParamRange(SnClassDecl *pClassDecl,
+	//Shared per-argument reject of the two ctor call forms (named / out
+	//arguments — ctor calls stage arguments positionally). True =
+	//rejected (diagnostic logged). Defined in ExprResolverNewCtor.cpp.
+	bool RejectNonPositionalCtorArg(SnExpression &arg);
+	//0.9.11 T6 (D10): the intrinsic arity table of the builtin/generic
+	//classes (FileStream 2, the Exception family 1, List/Dict/generic 0,
+	//Object 0) — their ctors live only in the CompiledClass, so a call
+	//against them is arity-checked, never overload-matched. User classes
+	//and structs answer false: their ctors are AST candidates.
+	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
-	void CheckNewExprCtorArity(SnNewExpr &sn, SnClassDecl *pClassDecl);
-	void CheckCtorArgCount(const ISourceLocation *pLoc,
-		SnClassDecl *pClassDecl, size_t argCount);
+	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
+	//the same-name candidate set (class Members() / struct Ctors()),
+	//runs MatchCtorAgainst, and reports the catalog diagnostics on
+	//ambiguity / no-match; the intrinsic-arity shapes keep the legacy
+	//arity texts. Null = a diagnostic was logged (or the type has no
+	//ctor and no arguments — the legal bare-allocation shape).
+	SnFunction *SelectCtorForArgs(SnField *pTypeDecl,
+		const std::vector<SnExpression*> &actuals,
+		const ISourceLocation *pLoc);
+	//Binds the resolved type declaration to the new-expression: classes keep
+	//the Phase 13 func-type rejection, structs join directly (0.9.11 D2).
+	//False = the diagnostic was logged and the caller must abort.
+	bool BindNewExprType(SnNewExpr &sn, SnField &typeField);
 
 	/*
 	0.9.0 (Phase A): constructor calls without `new`. TryResolveCtorInvoke
@@ -865,14 +981,14 @@ private:
 	after its function lookup failed with no name-matched candidate.
 	Both return true when the invoke is consumed (resolved as a ctor call,
 	or rejected with a named diagnostic); false falls through to the
-	caller's generic failure. ProbeCtorClass resolves a bare name to a
-	class the way Access(SnNewExpr&) resolves its class name, but as a
+	caller's generic failure. ProbeCtorType resolves a bare name to a class
+	or struct the way Access(SnNewExpr&) resolves its type name, but as a
 	silent probe — a miss must not add a second diagnostic.
 	*/
 	bool TryResolveCtorInvoke(SnInvokeExpr &snInvoke);
 	bool TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
-	SnClassDecl *ProbeCtorClass(const std::string &name,
+	SnField *ProbeCtorType(const std::string &name,
 		const ISourceLocation *pLoc);
 	//K3 task 4: `Channel<int> c = Channel(n);` — the assign resolver
 	//publishes the declared LHS type here before resolving the RHS, and
@@ -900,12 +1016,21 @@ private:
 	//node left unresolved).
 	bool RejectNonCollectionInitTarget(SnInitListExpr &sn,
 		SnField *pTargetField, bool bIsArray);
+	//0.9.11 T7 (D6): array initializers use the bracket form; the brace
+	//form is reserved for collection, struct, and class initializers.
+	//True = rejected.
+	bool RejectBraceArrayInitTarget(SnInitListExpr &sn, bool bIsArray);
 	//0.9.0: nested bare brace entries inherit the slot type they store
 	//into — the element type for array/List/Dict targets, or the
 	//addressed field's declared type for struct/class targets.
 	void PropagateNestedInitListTargets(SnInitListExpr &sn,
 		SnField *pTargetField, SnField *pElemType, bool bIsArray);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
+	//0.9.11 T6 (D10): select the zero-formal ctor for an init list —
+	//the ctor-selection step of CheckClassInitListForm, split out for
+	//size.
+	void CheckClassCtorForInitList(SnInitListExpr &sn,
+		SnClassDecl *pClassDecl);
 	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
 	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
 	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
@@ -918,6 +1043,11 @@ private:
 	//insertion path). True = rejected.
 	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
 		SnField *pTargetField);
+	//Target-shape phase of Access(SnInitListExpr&) (split out for size):
+	//the three form gates, then stamping the resolved type token and the
+	//class-form ctor contract. True = rejected.
+	bool PrepareInitListShape(SnInitListExpr &sn,
+		SnField *pTargetField, bool bIsArray);
 
 	/*
 	2026-09-27 decomposition of the value resolution family
@@ -938,13 +1068,13 @@ private:
 	//reach the resolver as bare identifiers. The subscript-base resolve
 	//with the alias splice, the chain-following TU alias lookup (null =
 	//the name addresses no alias), the splice itself, and the silent
-	//class probe behind an alias for the ctor-invoke twin. All defined
-	//in ExprResolverAlias.cpp.
+	//class-or-struct probe behind an alias for the ctor-invoke twin. All
+	//defined in ExprResolverAlias.cpp.
 	bool ResolveArrayBase(SnSubscriptExpr &sn);
 	SnFieldExpr *FindAliasTarget(const ISourceLocation *pLoc,
 		const std::string &name);
 	void TrySpliceAliasType(SnIdentifierExpr &idExpr);
-	SnClassDecl *ProbeAliasClass(const std::string &name,
+	SnField *ProbeAliasType(const std::string &name,
 		const ISourceLocation *pLoc);
 
 	/*
@@ -957,6 +1087,11 @@ private:
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
 		std::vector<uint8> &outFlags);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
+		uint32_t curModule);
+	//The value-position bare lookup of Access(SnIdentifierExpr&): the
+	//ancestor walk with the bare-pool owner filter, then the optional
+	//usings fallback. Null = not found (the caller reports it).
+	SnField *FindBareValueField(SnIdentifierExpr &idExpr,
 		uint32_t curModule);
 
 	//Phase 4b: the namespace named by a qualified type is not imported
@@ -1053,6 +1188,13 @@ private:
 	//decline — the package-value path and the generic path keep them.
 	bool TryResolveModuleFuncValue(SnMemberExpr &snMember);
 
+	//0.9.12 D4: module-qualified TYPE reference (`lib.Mix` in expression
+	//position): binds the unit's type declaration through the registry so
+	//the generic type-receiver path resolves the member or static call in
+	//the type scope — the qualified spelling shares the stub record and
+	//the diagnostics of the bare `Mix` form.
+	bool TryResolveModuleTypeRef(SnMemberExpr &snMember);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;
@@ -1112,6 +1254,26 @@ public:
 	bool FixupExprType(NodeIterator &iSrcExpr, TypeCastInfo &castInfo)
 	{
 		return m_Accessor.FixupExprType(iSrcExpr, castInfo);
+	}
+
+	//0.9.10: statement-side entry of the shared shift count gate (the
+	//compound `<<=`/`>>=` branch in StatementResolverAssign). Same
+	//contract as the accessor member of the same name.
+	bool AdmitShiftCount(NodeIterator &iCount, SnField *pCarrier,
+		const ISourceLocation *pLoc, const char *opName)
+	{
+		return m_Accessor.AdmitShiftCount(iCount, pCarrier, pLoc, opName);
+	}
+
+	//0.9.11 T6 (D10): statement-side entry of the ctor overload match —
+	//the super(...) selection in StatementResolverSuper. Same contract as
+	//the accessor member of the same name; the match reads only the
+	//resolved actuals and the candidate signatures, so no Resolve()
+	//context is required.
+	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
+	{
+		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

@@ -1,0 +1,12 @@
+//Interface static methods: qualified calls and bare in-interface calls
+//that bypass the non-existent `this` frame. 42 + 8 = 50.
+interface I {
+    static int twice(int x) { return x * 2; }
+    static int quad(int x) { return twice(twice(x)); }
+    int sign(int x);
+    static void log(int x) { }
+}
+int main() {
+    I.log(1);
+    return I.twice(21) + I.quad(2);
+}

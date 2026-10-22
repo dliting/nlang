@@ -1,0 +1,7 @@
+//0.9.10 D3.3: array constants need shared runtime storage; the
+//declared-type gate rejects the array shape before foldability.
+interface ILimits {
+	public static const int[] MAX = 1;
+}
+
+int main() { return 0; }

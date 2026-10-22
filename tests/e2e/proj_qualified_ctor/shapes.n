@@ -1,5 +1,5 @@
 class Point {
     public int x;
     public int y;
-    public int Point(int a, int b) { this.x = a; this.y = b; return 0; }
+    public Point(int a, int b) { this.x = a; this.y = b;}
 }

@@ -3,7 +3,7 @@
 class Box {
 	public int[] a;
 	public int calls;
-	public int Box() { a = [1, 2, 3]; calls = 0; return 0; }
+	public Box() { a = [1, 2, 3]; calls = 0;}
 	public int[] get() { calls += 1; return a; }
 }
 int main() {

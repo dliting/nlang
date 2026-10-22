@@ -1,0 +1,51 @@
+//Compound shift assignment (<<=, >>=): the carrier is the LHS's declared
+//row (compound family semantics — implicit narrowing store-back), the
+//count follows the binary form's admission rules (constant rescue,
+//implicit-only variable counts), signed >> stays arithmetic and unsigned
+//>> logical. Every difference must fold to zero.
+class Box {
+	public int bits;
+	public int shiftIn(int n) { this.bits <<= n; return this.bits; }
+	public int bump() { bits <<= 1; return this.bits; }
+}
+
+int main() {
+	int acc = 0;
+	//int carrier: 3 <<= 2 -> 12.
+	int i = 3;
+	i <<= 2;
+	acc = acc + i - 12;
+	//arithmetic right shift keeps the sign: -8 >>= 1 -> -4.
+	int j = -8;
+	j >>= 1;
+	acc = acc + j + 4;
+	//unsigned right shift is logical: 2147483648 >>= 4 -> 134217728
+	//(the constant count is rescued into the uint carrier).
+	uint u = 2147483648 as uint;
+	u >>= 4;
+	if (u != 134217728) { acc = acc + 1; }
+	//long keeps its 64-bit width: 1 <<= 40 -> 2^40.
+	long big = 1;
+	big <<= 40;
+	if (big != 1099511627776) { acc = acc + 1; }
+	//a long variable count rides the same-row carrier implicitly.
+	long cnt = 3;
+	long wide = 5;
+	wide <<= cnt;
+	if (wide != 40) { acc = acc + 1; }
+	//array element form: a[1] <<= 3 stores back into the element.
+	int[] a = [1, 2, 3];
+	a[1] <<= 3;
+	acc = acc + a[1] - 16;
+	//container form: li[0] >>= 1 lowers through get()/set().
+	List<int> li = {};
+	li.add(8);
+	li[0] >>= 1;
+	acc = acc + li[0] - 4;
+	//member and implicit this-field forms share the same emission tail.
+	Box box = Box();
+	box.bits = 1;
+	if (box.shiftIn(4) != 16) { acc = acc + 1; }
+	if (box.bump() != 32) { acc = acc + 1; }
+	return acc;
+}

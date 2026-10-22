@@ -1,4 +1,4 @@
 class Point {
     public int x;
-    public int Point(int a, int b) { this.x = a; return 0; }
+    public Point(int a, int b) { this.x = a;}
 }

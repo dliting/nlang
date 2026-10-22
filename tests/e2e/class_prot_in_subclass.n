@@ -1,0 +1,21 @@
+//Protected members are reachable inside a subclass: the declaring class
+//and every subclass along the SuperClass chain may read and write them;
+//the subclass accesses the inherited field by bare name.
+class Base {
+    protected int prot;
+    public void setProt(int v) { prot = v; }
+}
+
+class Sub : Base {
+    public int read() { return prot; }
+    public void bump() { prot = prot + 1; }
+}
+
+int main() {
+    Sub s = Sub();
+    s.setProt(5);
+    if (s.read() != 5) return 1;
+    s.bump();
+    if (s.read() != 6) return 2;
+    return 0;
+}

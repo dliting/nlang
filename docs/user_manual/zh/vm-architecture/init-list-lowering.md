@@ -2,13 +2,13 @@
 
 集合初始化器让开发者用一条字面量表达式直接给数组或容器填初值，例如`[1,2,3]`或`Type{...}`。这些字面量没有专门的运行期形态：编译器把它们降级为普通的分配与存储指令。本页说明降级路径、目标类型的推断方式，以及容器分支的装箱处理。
 
-集合初始化器（`[1,2,3]`、`Type{...}`）经`VmBackend::EmitExpression`中单一的`NK_InitListExpr`处理器降级。该处理器按解析出的`EvalDataType`加上resolver设置的`TargetIsArray`标志分派。
+集合初始化器（`[1,2,3]`、`Type{...}`）经`VmBackend::EmitExpression`中单一的`NK_InitListExpr`处理器降级。该处理器按解析出的`EvalDataType`与节点的`IsArrayValued()`谓词分派——数组形态初始化器的类型槽携带驻留数组令牌，数组性即类型本身。
 
 ### resolver数据流
 
-`StatementResolver::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）。若右值是不带`ExplicitType`的裸`SnInitListExpr`且没有`InferredTarget`，就把左值变量经`InferredTarget(pLeftField)`记录到该初始化列表上。随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`，把`EvalDataType`设为解析出的目标字段，并把数组性拷贝进`TargetIsArray`（这一步必不可少：数组变量上的`EvalDataType`返回的是元素类型，否则数组性会丢失）。
+`StatementResolver::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）。若右值是不带`ExplicitType`的裸`SnInitListExpr`且没有`InferredTarget`，就把左值变量经`InferredTarget(pLeftField)`记录到该初始化列表上。随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`，把`EvalDataType`设为解析出的目标类型——数组目标为驻留数组令牌（`InternArrayTypeToken(元素)`），节点因此天然为数组值（`IsArrayValued()`），消费者经`ElemTypeOf()`剥出元素。
 
-resolver不向子初始化列表传播期望类型（`[[1,2],[3]]`的递归类型推断不支持）。子列表必须使用显式的`Type{...}`形式自带类型。
+resolver按槽位把元素目标传播进子初始化列表（`PropagateNestedInitListTargets`），嵌套裸字面量可推断类型——`[[1,2],[3]]`与`{{1,2},{3}}`都可用。
 
 ### 代码生成分派表
 

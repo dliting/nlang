@@ -87,6 +87,21 @@ Error: a local declaration cannot be the unbraced body of a control-flow stateme
 invoke "foo(y)" is not compatible with the declaration.`。详见 →
 [语句](statements.md)「无大括号的裸语句体」与[out参数](out-parameters.md)。
 
+### 顶层直接初始化的成员或关系首实参
+
+```nlang
+class Vec { public int x; public Vec(int v){ x = v; } }
+Vec base = Vec(5);
+Vec p(base.x);
+return 0;
+```
+
+```text
+Error: syntax error
+```
+
+顶层直接初始化声明的首实参以标识符开头且该标识符后跟`.`或`<`时，会被当作类型线而报错。调用表达式、下标以及首实参之后的每个实参都可正常解析；函数体内不受影响。变通：改用赋值初始化——`Vec p = Vec(base.x);`。详见 → [已知限制](known-limitations.md)。
+
 ### 赋值目标
 
 ```nlang
@@ -336,7 +351,7 @@ Error: the Dict collection initializer requires string keys; use set() with an e
 集合初始化器把字典键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`用空初始化器构造后`set()`逐条填入。详见 →
 [集合初始化器](collection-initializers.md)。
 
-### struct没有构造函数
+### 未声明构造器的struct不能带实参
 
 ```nlang
 struct Point { int x; int y; }
@@ -347,10 +362,10 @@ int main() {
 ```
 
 ```text
-Error: The function "Point" does not exist or is not accessible.
+Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
-struct没有构造函数——`Point(2, 3)`被当作按名调用函数，解析落空。struct的创建形式是花括号条目：具名`Point{x: 2, y: 3}`或位置`Point{2, 3}`（见[结构体](struct.md)与[集合初始化器](collection-initializers.md)）。
+未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
 
 ### 泛型花括号锚定
 

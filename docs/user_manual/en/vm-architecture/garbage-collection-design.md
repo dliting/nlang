@@ -41,7 +41,7 @@ information instead. Parameters stay on the declared route
 `[paramCount, localsSize)` — the return slot, the temp pool, the
 call-argument staging area, the evaluation scratch area, and the named
 local variables — is classified by a per-function **handle bitmap**
-serialized with the function record (NCU format 2.4): two bits per slot,
+serialized with the function record (NCU format 2.8): two bits per slot,
 one of four classes.
 
 - `None`: a scalar; the slot never holds a reference and is not tested.
@@ -126,7 +126,7 @@ MarkPhase():
     if returnTypeKind is a reference kind:
       RTK_String: MarkString(value)      //conservative over-mark, as defense
       otherwise:  mark and push if valid
-    //band: two-bit root class per slot (NCU 2.4 handle bitmap)
+    //band: two-bit root class per slot (NCU 2.8 handle bitmap)
     for each band slot i, slot number paramCount + i:
       class = (func.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3
       None:      skip

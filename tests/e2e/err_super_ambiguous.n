@@ -1,0 +1,14 @@
+//0.9.11 T6 (D10): super(1) against the parent's overloaded pair is
+//ambiguous — both parent ctors bind at distance 0.
+class P {
+    public int tag;
+    public P(int a) { this.tag = 1; }
+    public P(int a, int b = 5) { this.tag = 2; }
+}
+class C : P {
+    public C() { super(1); }
+}
+int main() {
+    C c = C();
+    return 0;
+}

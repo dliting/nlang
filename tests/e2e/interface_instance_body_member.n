@@ -1,0 +1,8 @@
+//An interface instance method stays an abstract signature (0.9.10): a
+//bodied instance member would silently own a dispatch slot without an
+//implementing class; shared implementation belongs in a static method.
+interface IGreet {
+    public int hello() { return 1; }
+}
+
+int main() { return 0; }

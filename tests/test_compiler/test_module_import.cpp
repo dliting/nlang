@@ -176,6 +176,7 @@ const SnField* findMember(
 //Directory layout (<tmp>/nlang_import_gate):
 //  libsrc/lib.n           external lib source (int add(int,int))
 //  libsrc/lib2.n          twin lib exporting the same name (opt-in)
+//  libsrc/rlib.n          rich lib: class/struct/interface surface (opt-in)
 //  out/lib.ncu           external lib artifact (stage 1)
 //  proj/main.n            main project (content injected)
 //  proj/utils/helper.n    cross-directory module
@@ -208,6 +209,7 @@ struct GateProjectOptions
     const char* szExtraBody = nullptr;    //explicit extra.n body
     bool withUtils2MyClass = false;  //also register utils2/MyClass.n
     bool withCoreHelper = false;     //also register core/helper.n (same stem, other dir)
+    bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -273,6 +275,25 @@ GateResult buildGateProject(const GateProjectOptions& opts)
             writeFile(proj / "core" / "helper.n",
                 "int help() { return 5; }\n"
                 "struct Cfg { int c; }\n")) &&
+        (!opts.withRichLib ||
+            writeFile(libSrc / "rlib.n",
+                "class Widget {\n"
+                "    private int secret;\n"
+                "    public int size;\n"
+                "    public Widget(int s) { secret = 7; size = s; }\n"
+                "    private Widget() { secret = 0; size = 0; }\n"
+                "    public int getSize() { return size; }\n"
+                "    public static int count() { return 1; }\n"
+                "    public virtual int speak() { return 2; }\n"
+                "}\n"
+                "struct Point {\n"
+                "    int x;\n"
+                "    int y;\n"
+                "    public Point(int a, int b) { x = a; y = b; }\n"
+                "}\n"
+                "interface Greeter {\n"
+                "    public string greet(string name);\n"
+                "}\n")) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -283,8 +304,10 @@ GateResult buildGateProject(const GateProjectOptions& opts)
 
     //Stage 1: compile the external .ncu(s) into out/ (skip the ones an
     //earlier call of this process already produced).
-    const char* libNames[] = {"lib", "lib2"};
-    const int libCount = opts.withTwinLib ? 2 : 1;
+    const char* libNames[] = {"lib", "lib2", "rlib"};
+    int libCount = opts.withTwinLib ? 2 : 1;
+    if (opts.withRichLib)
+        libNames[libCount++] = "rlib";
     for (int i = 0; i < libCount; ++i)
     {
         const fs::path ncu =
@@ -292,6 +315,11 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         if (fs::exists(ncu))
             continue;
         BuildParams libParams;
+        //Drop the working-directory entry BuildParams seeds by default:
+        //the gate resolves every name through absolute paths only, so a
+        //stray same-named .n in the process CWD can never shadow the
+        //external artifact under test.
+        libParams.m_ImportDirs.clear();
         libParams.m_SourceFiles.push_back(
             (libSrc / (std::string(libNames[i]) + ".n")).string());
         libParams.m_sOutputModule = libNames[i];
@@ -333,6 +361,9 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     if (opts.withCoreHelper)
         res.params->m_SourceFiles.push_back(
             (proj / "core" / "helper.n").string());
+    //Same hermeticity rule as stage 1 (see above): out/ is the only
+    //library dir, never the process CWD.
+    res.params->m_ImportDirs.clear();
     res.params->m_ImportDirs.push_back(out.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
@@ -1047,11 +1078,11 @@ private slots:
     //Spec section 6.2: a leftmost identifier resolving as a class keeps
     //the normal (class) path - the module fallback must not fire, even
     //with a module literally named after the class (utils2/MyClass.n,
-    //same method name m) inside the build. As-built limit: NLang has no
-    //static dispatch in the VM (see e2e void_multi_flag.n), so codegen
-    //rejects the class-name receiver AFTER resolution; the discriminating
-    //assertion is that no resolution diagnostic is logged (a fallback
-    //capture would either log one or bind the other module's m()).
+    //same method name m) inside the build. 0.9.10: type-name-qualified
+    //static calls compile and run, so the discriminating assertion is
+    //that the class path owns the chain end to end - the build succeeds
+    //and no module-table diagnostic is logged (a fallback capture would
+    //either log one or bind the other module's m()).
     void classStaticWinsOverModule()
     {
         GateProjectOptions opts;
@@ -1064,9 +1095,8 @@ private slots:
         auto res = buildGateProject(opts);
         QVERIFY2(res.builder != nullptr,
             "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "static-flagged calls stay rejected (no static dispatch in "
-            "the VM)");
+        QVERIFY2(res.ok,
+            "a type-name-qualified static call must compile (0.9.10)");
         QVERIFY2(res.errors.empty(),
             "the class path must own the chain at resolve time: no "
             "module-table diagnostic may appear");
@@ -1093,6 +1123,27 @@ private slots:
             "(note: a module path 'utils.helper' exists; module access "
             "requires an import and qualification)"),
             "the class/module conflict note must be appended");
+    }
+
+    //0.9.12 D4: the note may only claim a path that IS a module path.
+    //A failing name that is merely a strict prefix of one (bare "utils"
+    //while the build knows "utils.helper") must stay silent — the prefix
+    //match logged "a module path 'utils' exists", naming a path that
+    //exists nowhere. The exact-match positive half is pinned by
+    //classModuleConflictHint above (the chain "utils.helper" equals the
+    //module path, so the note still fires there).
+    void moduleHintOnlyForExactModulePath()
+    {
+        auto res = buildGateProject({
+            "int main() { return utils.gone(); }\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "the unresolvable chain must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Cannot resolve the field: utils."),
+            "the chain must die on the unresolvable head");
+        QVERIFY2(!containsError(res.errors, "(note: a module path"),
+            "a strict prefix of a module path must not fire the note");
     }
 
     //--- Executed qualified paths (review I2) --------------------------
@@ -1618,6 +1669,166 @@ private slots:
             if (iField->second->Kind() == NK_Function)
                 QVERIFY(reg.QualifiedName(*iField->second)
                             .rfind("help", 0) != 0);
+    }
+
+    //T2.11 (NCU v2.7): the external type stubs rebuilt from a v2.7 image
+    //carry the full member surface the wire describes -- class fields
+    //(private included, with access), the static/instance method split,
+    //the virtual flag, constructor access, no ghost instance methods for
+    //constructors, struct constructors with wire-only fields, and the
+    //interface instance signature. This pins the CompiledModuleStubMembers
+    //rebuild shape against the rlib.n surface (the consumer only imports
+    //the lib; member USE resolution is T3's contract).
+    void importedTypeStubSurfaceRebuilt()
+    {
+        GateProjectOptions opts;
+        opts.withRichLib = true;
+        opts.szMainBody =
+            "import rlib;\n"
+            "int main() { return 0; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "project importing the rich lib must build");
+        const SnNamespace& rootView = res.builder->TreeRootView();
+
+        //--- class Widget: fields, methods, constructors ----------------
+        const SnField* pWidget =
+            findMember(rootView.Members(), NK_ClassDecl, "Widget");
+        QVERIFY2(pWidget != nullptr, "Widget stub must reach the merged root");
+        QVERIFY2(pWidget->ContainFlags(NF_Imported),
+            "Widget must be the imported stub, not a source-parsed class");
+        const auto& widget = static_cast<const SnClassDecl&>(*pWidget);
+
+        //Own fields land on the stub with their declared access -- the
+        //private one included (the consumer enforces visibility in T3).
+        const SnField* pSecret =
+            findMember(widget.Members(), NK_ClassField, "secret");
+        QVERIFY2(pSecret != nullptr, "private field must reach the stub");
+        QVERIFY(pSecret->AccessType() == FA_Private);
+        const SnField* pSize =
+            findMember(widget.Members(), NK_ClassField, "size");
+        QVERIFY2(pSize != nullptr, "public field must reach the stub");
+        QVERIFY(pSize->AccessType() == FA_Public);
+
+        const SnField* pGetSize =
+            findMember(widget.Members(), NK_Function, "getSize");
+        QVERIFY2(pGetSize != nullptr, "instance method must reach the stub");
+        QVERIFY(pGetSize->AccessType() == FA_Public);
+        QVERIFY(!pGetSize->IsStatic());
+        QVERIFY(!pGetSize->ContainFlags(NF_Virtual));
+
+        const SnField* pCount =
+            findMember(widget.Members(), NK_Function, "count");
+        QVERIFY2(pCount != nullptr, "static method must reach the stub");
+        QVERIFY(pCount->IsStatic());
+
+        const SnField* pSpeak =
+            findMember(widget.Members(), NK_Function, "speak");
+        QVERIFY2(pSpeak != nullptr, "virtual method must reach the stub");
+        QVERIFY(pSpeak->ContainFlags(NF_Virtual));
+        QVERIFY(!pSpeak->IsStatic());
+
+        //Both constructor overloads land exactly once each with their
+        //declared access and arity (the method loop skips constructor
+        //indices, so no ghost instance method named "Widget" exists).
+        size_t ctorPublicOneArg = 0, ctorPrivateNoArg = 0;
+        for (const auto& member : widget.Members())
+        {
+            if (member.Kind() != NK_Function || member.Name() != "Widget")
+                continue;
+            const auto& ctor = static_cast<const SnFunction&>(member);
+            QVERIFY(ctor.Body() == nullptr);
+            QVERIFY(!ctor.IsStatic());
+            if (member.AccessType() == FA_Public
+                && ctor.Params().size() == 1)
+                ++ctorPublicOneArg;
+            else if (member.AccessType() == FA_Private
+                && ctor.Params().size() == 0)
+                ++ctorPrivateNoArg;
+        }
+        QCOMPARE(ctorPublicOneArg, size_t(1));
+        QCOMPARE(ctorPrivateNoArg, size_t(1));
+
+        //--- struct Point: constructor stub, wire-only fields -----------
+        const SnField* pPoint =
+            findMember(rootView.Members(), NK_StructDecl, "Point");
+        QVERIFY2(pPoint != nullptr, "Point stub must reach the merged root");
+        QVERIFY(pPoint->ContainFlags(NF_Imported));
+        const auto& point = static_cast<const SnStructDecl&>(*pPoint);
+        const SnField* pPointCtor =
+            findMember(point.Members(), NK_Function, "Point");
+        QVERIFY2(pPointCtor != nullptr, "struct constructor must reach the stub");
+        QVERIFY(pPointCtor->AccessType() == FA_Public);
+        QVERIFY(static_cast<const SnFunction&>(*pPointCtor).Params().size() == 2);
+        //Struct fields stay wire-only (external struct field access is
+        //out of scope; the stub carries constructors only).
+        QVERIFY(findMember(point.Members(), NK_StructField, "x") == nullptr);
+
+        //--- interface Greeter: instance signature ----------------------
+        const SnField* pGreeter =
+            findMember(rootView.Members(), NK_InterfaceDecl, "Greeter");
+        QVERIFY2(pGreeter != nullptr, "Greeter stub must reach the merged root");
+        QVERIFY(pGreeter->ContainFlags(NF_Imported));
+        const auto& greeter = static_cast<const SnInterfaceDecl&>(*pGreeter);
+        const SnField* pGreet =
+            findMember(greeter.Members(), NK_Function, "greet");
+        QVERIFY2(pGreet != nullptr, "interface signature must reach the stub");
+        QVERIFY(pGreet->AccessType() == FA_Public);
+        QVERIFY(!pGreet->IsStatic());
+        //Interface signatures are not virtual methods of a class stub.
+        QVERIFY(!pGreet->ContainFlags(NF_Virtual));
+        const auto& greet = static_cast<const SnFunction&>(*pGreet);
+        QVERIFY(greet.Body() == nullptr);
+        QVERIFY(greet.Params().size() == 1);
+        QVERIFY(greet.HasReturn());
+    }
+
+    //T5.2 (0.9.12 D-new-10 contract substrate): repeated qualified
+    //references to one imported type must bind to the SAME stub node.
+    //The contract checker's signature identity (TypeExprsIdentical)
+    //compares resolved type-declaration pointers, so a per-occurrence
+    //stub copy would silently break cross-module override and
+    //implements checks (every consumer signature would differ from the
+    //stub signature it is matched against).
+    void importedTypeBindsToOneStubNode()
+    {
+        GateProjectOptions opts;
+        opts.withRichLib = true;
+        opts.szMainBody =
+            "import rlib;\n"
+            "int takeA(rlib.Widget w) { return 0; }\n"
+            "int takeB(rlib.Widget w, rlib.Widget v) { return 0; }\n"
+            "int main() { return 0; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.ok, "project importing the rich lib must build");
+        const SnNamespace& rootView = res.builder->TreeRootView();
+
+        const SnField* pWidget =
+            findMember(rootView.Members(), NK_ClassDecl, "Widget");
+        QVERIFY2(pWidget != nullptr, "Widget stub must reach the merged root");
+        QVERIFY(pWidget->ContainFlags(NF_Imported));
+
+        const SnField* pTakeA =
+            findMember(rootView.Members(), NK_Function, "takeA");
+        const SnField* pTakeB =
+            findMember(rootView.Members(), NK_Function, "takeB");
+        QVERIFY2(pTakeA && pTakeB, "consumer functions must reach the root");
+        const auto& a = static_cast<const SnFunction&>(*pTakeA);
+        const auto& b = static_cast<const SnFunction&>(*pTakeB);
+
+        //Index-collect via range-for (the ChildFieldList pairing idiom
+        //used by the contract checker itself).
+        std::vector<const SnFormalParam*> pa, pb;
+        for (const auto& p : a.Params()) pa.push_back(&p);
+        for (const auto& p : b.Params()) pb.push_back(&p);
+        QCOMPARE(pa.size(), size_t(1));
+        QCOMPARE(pb.size(), size_t(2));
+
+        //All three rlib.Widget formal types resolve to the one stub.
+        const SnField* pW = pa[0]->Type()->Field();
+        QVERIFY2(pW != nullptr, "the rlib.Widget formal type must resolve");
+        QVERIFY(pW == pWidget);
+        QVERIFY(pb[0]->Type()->Field() == pW);
+        QVERIFY(pb[1]->Type()->Field() == pW);
     }
 };
 

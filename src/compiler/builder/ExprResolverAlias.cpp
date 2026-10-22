@@ -84,11 +84,12 @@ void ExprResolveAccessor::TrySpliceAliasType(SnIdentifierExpr &idExpr)
 	idExpr.Parent()->ReplaceChildNode(&idExpr, pClone);
 }
 
-//0.9.0: the class a ctor-invoke twin reaches through the TU alias table
-//(`using P = Point;` then `P(args)`). Silent probe: null when the name
-//addresses no alias, or the chain does not end at a class — the caller
-//keeps its own generic failure text as the single diagnostic.
-SnClassDecl *ExprResolveAccessor::ProbeAliasClass(const std::string &name,
+//0.9.0: the class or struct a ctor-invoke twin reaches through the TU
+//alias table (`using P = Point;` then `P(args)`). Silent probe: null when
+//the name addresses no alias, or the chain does not end at a constructible
+//type — the caller keeps its own generic failure text as the single
+//diagnostic. 0.9.11 D2: structs join classes behind the alias table.
+SnField *ExprResolveAccessor::ProbeAliasType(const std::string &name,
 	const ISourceLocation *pLoc)
 {
 	auto *pTarget = FindAliasTarget(pLoc, name);
@@ -104,8 +105,9 @@ SnClassDecl *ExprResolveAccessor::ProbeAliasClass(const std::string &name,
 		return nullptr;  //a pre-resolved non-class built-in type
 	auto *pField = FindFieldInAncestor(rootName, *m_pContext,
 		*m_pAccessor, Flags());
-	return (pField && pField->Kind() == NK_ClassDecl)
-		? static_cast<SnClassDecl *>(pField) : nullptr;
+	return (pField && (pField->Kind() == NK_ClassDecl
+		|| pField->Kind() == NK_StructDecl))
+		? pField : nullptr;
 }
 
 } //namespace nlang

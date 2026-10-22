@@ -1,0 +1,15 @@
+//0.9.10 D2.4: a zero-arg same-name static must not make super() look
+//valid against a one-argument parent constructor. Before the fix the
+//resolver accepted the call, codegen selected the real ctor and ncc
+//crashed.
+class A {
+	public static int A() { return 5; }
+	public A(int x) { }
+}
+class B : A {
+	public B() { super();}
+}
+int main() {
+	B b = B();
+	return 0;
+}

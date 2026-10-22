@@ -1,0 +1,7 @@
+//0.9.10 D2.4: within one class declaration the pair (name, parameter
+//list) stays unique across the merged static+instance space.
+class BadClass {
+	public int f(int x) { return x; }
+	public static int f(int x) { return x + 1; }
+}
+int main() { return 0; }

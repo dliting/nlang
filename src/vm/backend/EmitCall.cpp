@@ -52,6 +52,11 @@ void VmBackend::EmitCompoundOp(int opInt,
     case SnBinaryExpr::OP_Mul: opc = OpCode::OP_Mul; break;
     case SnBinaryExpr::OP_Div: opc = OpCode::OP_Div; break;
     case SnBinaryExpr::OP_Mod: opc = OpCode::OP_Mod; break;
+    //0.9.10: shift compound assignment rides the binary form's executors
+    //(kind-immediate family) — the run-time count range check keys on the
+    //carrier row's width, so a byte carrier keeps its 8-bit bound.
+    case SnBinaryExpr::OP_Shl: opc = OpCode::OP_Shl; break;
+    case SnBinaryExpr::OP_Shr: opc = OpCode::OP_Shr; break;
     default: return;  //not an arithmetic op
     }
     //0.7.5: kind-immediate family — compound assigns carry the LHS
@@ -224,26 +229,31 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
     //Unresolved invoke — fall back to legacy positional emit.
     //Phase 13 Step 2: out arguments in this path are delegate calls
     //binding to a func signature (the resolver already checked the
-    //out markers). The callee fills the slot and the executor's
-    //outMask write-back refreshes it — emit nothing here, just
-    //record the spill so the post-call write-back reaches the
-    //caller's local (mirrors the binding-path OutSpill fill).
+    //out markers). 0.9.14 D-new-9: the out argument's inner
+    //identifier is emitted into the slot like any other argument —
+    //the documented inout contract seeds the callee with the
+    //caller's current value, matching the direct-call binding path
+    //(EmitBinding stages the caller expression). The spill below
+    //still records the write-back target for the post-call refresh.
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
-        if (param.Kind() == NK_OutArgExpr && pOutSpills) {
+        uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
+        if (param.Kind() == NK_OutArgExpr) {
             auto& outArg = static_cast<SnOutArgExpr&>(param);
             if (!outArg.Inner()
                 || outArg.Inner()->Kind() != NK_IdentifierExpr)
                 throw std::runtime_error(
                     "NLang backend: out argument is not a local variable");
-            auto target = ResolveBareIdentifier(
-                static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
-            if (target.kind != BareIdTarget::Local)
-                throw std::runtime_error(
-                    "NLang backend: out argument is not a local variable");
-            pOutSpills->push_back({paramIdx, target.localOffset});
+            EmitExpression(*outArg.Inner(), emitter, paramOffset);
+            if (pOutSpills) {
+                auto target = ResolveBareIdentifier(
+                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
+                if (target.kind != BareIdTarget::Local)
+                    throw std::runtime_error(
+                        "NLang backend: out argument is not a local variable");
+                pOutSpills->push_back({paramIdx, target.localOffset});
+            }
         } else {
-            uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
             EmitExpression(param, emitter, paramOffset);
             applyBox(paramIdx);
         }
@@ -282,100 +292,6 @@ VmBackend::DefaultEmitGuard::DefaultEmitGuard(VmBackend& backend,
 VmBackend::DefaultEmitGuard::~DefaultEmitGuard() {
     if (armed)
         pBackend->m_defaultEmitting.erase(pFn);
-}
-
-//The AST constructor declaration of a class — the same Name() rule and
-//body/native filter CtorSlotFor's placeholder scan applies, so the
-//returned function is the one whose slot the invocation targets.
-SnFunction* VmBackend::FindCtorFunction(SnClassDecl* pClassDecl) {
-    if (!pClassDecl || pClassDecl->IsBuiltinClass()
-        || pClassDecl->IsImported())
-        return nullptr;
-    for (auto& member : pClassDecl->Members()) {
-        if (member.Kind() != NK_Function
-            || member.Name() != pClassDecl->Name())
-            continue;
-        auto& ctor = static_cast<SnFunction&>(member);
-        if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
-            continue;
-        return &ctor;
-    }
-    return nullptr;
-}
-
-//Defaults-aware FormalBinding array for the ctor-invocation lowering
-//(see VmBackend.h). pCtorFn null (builtin/generic/imported) leaves the
-//bindings empty — the caller's argument count is the whole formal count.
-size_t VmBackend::BuildCtorBindings(SnFunction* pCtorFn,
-        const std::vector<SnExpression*>& callerArgs,
-        std::vector<FormalBinding>& bindings) {
-    if (!pCtorFn)
-        return callerArgs.size();
-    auto& params = pCtorFn->Params();
-    //Index the formal list once — ChildFieldList iterates, no random
-    //access, and ctor formals are capped at kMaxFuncParams anyway.
-    std::vector<SnFormalParam*> formals;
-    formals.reserve(params.size());
-    for (auto& param : params)
-        formals.push_back(&param);
-    bindings.reserve(formals.size());
-    size_t idx = 0;
-    for (auto* pArg : callerArgs) {
-        bindings.push_back({FormalBinding::B_Positional, pArg,
-                            formals[idx], false});
-        ++idx;
-    }
-    for (; idx < formals.size(); ++idx)
-        bindings.push_back({FormalBinding::B_Default, nullptr,
-                            formals[idx], false});
-    return formals.size();
-}
-
-//True when any binding stages a default expression (see VmBackend.h).
-bool VmBackend::BindingsEmitDefaults(
-        const std::vector<FormalBinding>& bindings) {
-    for (const auto& b : bindings)
-        if (b.kind == FormalBinding::B_Default) return true;
-    return false;
-}
-
-//One ctor-call binding set into claim[1..N] (see VmBackend.h).
-void VmBackend::EmitCtorCallBindings(
-        const std::vector<FormalBinding>& bindings,
-        const std::vector<SnExpression*>& callerArgs,
-        uint16_t claimBase, BytecodeEmitter& emitter, uint16_t thisSlot) {
-    if (bindings.empty()) {
-        for (size_t i = 0; i < callerArgs.size(); ++i) {
-            uint16_t paramOffset = claimBase
-                + static_cast<uint16_t>(i + 1) * kFrameSlotBytes;
-            EmitExpression(*callerArgs[i], emitter, paramOffset);
-        }
-        return;
-    }
-    for (size_t i = 0; i < bindings.size(); ++i) {
-        EmitBinding(bindings.data(), i, static_cast<uint16_t>(i + 1), 1,
-                    emitter, thisSlot, claimBase);
-    }
-}
-
-//Ctor-call tail after the bindings (see VmBackend.h).
-void VmBackend::EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
-        uint16_t slotCount, uint16_t classIdx, uint16_t ctorIdx,
-        BytecodeEmitter& emitter) {
-    emitter.Emit(OpCode::OP_New);
-    emitter.EmitUint16(allocSlot);
-    emitter.EmitUint16(classIdx);
-    //this (new object heap index) → claim[0].
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(allocSlot);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(claimBase);
-    //Bulk-copy evalArea claim → callParamBase just before the call.
-    CopyClaimToCallParams(claimBase, slotCount, emitter);
-    emitter.Emit(OpCode::OP_CallMethodDirect);
-    emitter.EmitUint16(ctorIdx);
-    emitter.EmitUint16(m_currFunc->callParamBase);
-    emitter.Emit(OpCode::OP_ParaEnd);
 }
 
 //Resolved-binding arm of EmitCallArgs (Phase 9c): sanity ceiling, the

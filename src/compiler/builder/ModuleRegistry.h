@@ -144,12 +144,11 @@ public:
 	//inline library TU) — a known non-external module. The unified
 	//"compiled in" surface after libraries are inlined.
 	bool IsCompiledInModule(const std::string& dottedPath) const;
-	//Project TU paths + external .ncu names (union).
+	//Project TU paths + external .ncu names (union). Exact path equality —
+	//the only form the class/module conflict hint (spec §6.2) may claim:
+	//naming a strict prefix as "a module path" would name a path that
+	//exists nowhere.
 	bool IsKnownModule(const std::string& dottedPath) const;
-	//True when some known module path equals dottedPrefix or starts with
-	//"dottedPrefix." — segment-aligned, so "utils" matches "utils.helper"
-	//but not "utils2.x". Fires the class/module conflict hint (spec §6.2).
-	bool HasKnownModuleStartingWith(const std::string& dottedPrefix) const;
 	//Stub table of an external module (filled right after its .ncu
 	//loads; consumed by ModuleFunctions).
 	void SetExternalStubs(uint32_t moduleIndex,
@@ -163,8 +162,9 @@ public:
 		const std::string& calleeName) const;
 
 	//Find a type declaration (class/struct/enum/interface) named
-	//typeName inside the compiled-in unit path. Returns null for an
-	//external .ncu or when the unit/type is not present.
+	//typeName inside the registered unit path — project, inline library
+	//or external .ncu stub alike. Returns null when the unit or the
+	//type is not present.
 	SnField* FindModuleType(const std::string& path,
 		const std::string& typeName) const;
 

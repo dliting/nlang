@@ -20,6 +20,8 @@ add_library(nlang_vm
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
     VmExecutorAlloc.cpp
+    VmClassLayout.cpp
+    VmDefaultMaterializer.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
@@ -39,9 +41,11 @@ add_library(nlang_vm
     backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
+    backend/RegisterInterfaces.cpp
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
+    backend/EmitCtorCall.cpp
     backend/WalkersExpr.cpp
     backend/WalkersStmt.cpp
     backend/WalkersMaxArgs.cpp
@@ -51,6 +55,7 @@ add_library(nlang_vm
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
     backend/EmitExprMember.cpp
+    backend/FieldOffsets.cpp
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberString.cpp
     backend/EmitStmtDecl.cpp
@@ -67,7 +72,10 @@ add_library(nlang_vm
     DisassemblerWalk.cpp
     ModuleLoader.cpp
     ModuleLoaderRecords.cpp
+    ModuleLoaderRecordsInterfaces.cpp
+    ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsInterfaces.cpp
     NcuPackage.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp

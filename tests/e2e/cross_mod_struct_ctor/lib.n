@@ -1,0 +1,15 @@
+//0.9.11 O2: producer module exporting a struct with a constructor and
+//two field defaults. The constructor body and the field defaults ride
+//the NCU v2.6 struct record; the consumer constructs through the
+//import stub without compiling any ghost constructor bytecode. The
+//untouched tag default must materialize from the merged record.
+struct Vec {
+	int x;
+	int y = 7;
+	int tag = 5;
+	public Vec(int a, int b) { x = a; y = b; }
+}
+
+int sum(Vec v) {
+	return v.x + v.y + v.tag;
+}

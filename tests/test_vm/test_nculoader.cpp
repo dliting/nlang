@@ -96,6 +96,24 @@ bool Contains(const std::string& hay, const std::string& needle) {
     return hay.find(needle) != std::string::npos;
 }
 
+// Patch a written image's minor version field in place (magic is 8 bytes,
+// then major/minor u16 per the .ncu header layout).
+void PatchMinorVersion(const fs::path& file, uint16_t minor) {
+    std::string image;
+    {
+        std::ifstream in(file, std::ios::binary);
+        std::ostringstream buf;
+        buf << in.rdbuf();
+        image = buf.str();
+    }
+    image[10] = static_cast<char>(minor & 0xFF);
+    image[11] = static_cast<char>(minor >> 8);
+    {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        out.write(image.data(), static_cast<std::streamsize>(image.size()));
+    }
+}
+
 // --- shape 1: sibling unit discovered from a search dir (.ncu file) ---
 
 void TestSiblingDiscoveredFromDir() {
@@ -400,6 +418,47 @@ void TestVersionMismatchReported() {
     CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
 }
 
+// --- shape 9b: the exact minor-version floor. The literals 7/9 pin the
+// --- v2.8 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
+// --- bump must consciously re-affirm this test instead of silently
+// --- sliding the floor out from under the format contract.
+
+void TestMinorBelowFloorRejected() {
+    const auto dir = scenarioDir("version_below");
+    CompiledModule main = MakeUnit("main");
+    AddFunc(main, "main.main", 0);
+    AddFuncImport(main, "old", "old.f", 0);
+    WriteUnit(dir, main, "main.main");
+    CompiledModule old = MakeUnit("old");
+    AddFunc(old, "old.f", 0);
+    WriteUnit(dir, old);
+    PatchMinorVersion(dir / "old.ncu", 7);   //one below the v2.8 floor
+
+    const FailResult fr = MustFail((dir / "main.ncu").string(),
+                                   { dir.string() });
+    CHECK(fr.failed, "below-floor minor version fails the load");
+    CHECK(Contains(fr.msg, "outdated"), "outdated diagnostic present");
+    CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
+}
+
+void TestMinorAboveFloorRejected() {
+    const auto dir = scenarioDir("version_above");
+    CompiledModule main = MakeUnit("main");
+    AddFunc(main, "main.main", 0);
+    AddFuncImport(main, "old", "old.f", 0);
+    WriteUnit(dir, main, "main.main");
+    CompiledModule old = MakeUnit("old");
+    AddFunc(old, "old.f", 0);
+    WriteUnit(dir, old);
+    PatchMinorVersion(dir / "old.ncu", 9);   //one above the v2.8 floor
+
+    const FailResult fr = MustFail((dir / "main.ncu").string(),
+                                   { dir.string() });
+    CHECK(fr.failed, "above-floor minor version fails the load");
+    CHECK(Contains(fr.msg, "newer ncc"), "newer-ncc diagnostic present");
+    CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
+}
+
 // --- shape 10: a unit file found for module X whose header names Y is
 // --- rejected loudly (a mislabeled artifact would silently bind imports
 // --- to the wrong identity).
@@ -566,6 +625,8 @@ int main() {
     TestSearchOrderNcuBeforePackage();
     TestChecksumMismatchReported();
     TestVersionMismatchReported();
+    TestMinorBelowFloorRejected();
+    TestMinorAboveFloorRejected();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();
     TestUnreadablePackageNamed();

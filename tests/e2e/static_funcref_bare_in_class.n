@@ -1,0 +1,20 @@
+//0.9.14 D-new-2: inside the owning class a static method is referenceable
+//by bare name — from an instance method and from a static method alike.
+class B {
+    public static int twice(int x) { return x * 2; }
+
+    public int run(int x) {
+        func<int, int> h = twice;
+        return h(x);
+    }
+
+    public static int go(int x) {
+        func<int, int> h = twice;
+        return h(x);
+    }
+}
+
+int main() {
+    B b = B();
+    return b.run(11) + B.go(10);
+}

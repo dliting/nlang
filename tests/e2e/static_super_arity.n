@@ -1,0 +1,14 @@
+//0.9.10 D2.4: super(...) arity comes from the real constructor, never
+//from a same-name static declared earlier.
+class A {
+	public int v;
+	public static int A() { return 5; }
+	public A(int x) { this.v = x + 1;}
+}
+class B : A {
+	public B() { super(6);}
+}
+int main() {
+	B b = B();
+	return b.v;
+}

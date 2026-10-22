@@ -1,0 +1,9 @@
+//Sealed .ncu import: the class stub carries the instance-method
+//signatures (0.9.12 NCU v2.7), so the consumer-side call binds and
+//runs the producer's method body.
+import lib;
+
+int main() {
+	lib.Calc c = lib.Calc(21);
+	return c.doubled();
+}

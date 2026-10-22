@@ -2,7 +2,7 @@
 // compile error (the 0.9.x allow-and-rebind behavior was retired).
 class Point {
     public int x;
-    public int Point(int a) { this.x = a; return 0; }
+    public Point(int a) { this.x = a;}
 }
 
 int main() {

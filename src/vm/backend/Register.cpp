@@ -36,28 +36,32 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 
 } // namespace
 
-//True when the node sits directly inside a class/interface/enum body —
-//i.e. it is a type member (method/field), not a namespace member.
-//Shared by QualifiedName (members keep bare keys) and the entry-point
-//scan (methods are never the entry).
+//True when the node sits directly inside a class/struct/interface/enum
+//body — i.e. it is a type member (method/field/constructor), not a
+//namespace member. Shared by QualifiedName (members keep bare keys) and
+//the entry-point scan (methods are never the entry). 0.9.11 D2: struct
+//constructors join — their table key stays bare like every other type
+//member, and a struct-typed `main` is never the entry point.
 static bool IsTypeMember(const SyntaxNode& node) {
     const SyntaxNode* pParent = node.Parent();
     return pParent && (pParent->Kind() == NK_ClassDecl
+        || pParent->Kind() == NK_StructDecl
         || pParent->Kind() == NK_InterfaceDecl
         || pParent->Kind() == NK_EnumDecl);
 }
 
 static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field);
 
-//Enclosure-qualified key of an ENUM method: "<unit>.<Type>.<method>"
-//("lib.Color.rank"; an enum nested in a class walks out as
-//"lib.Outer.Inner.rank"). Phase 6 §2 D-ruling (2026-10-02): enum
-//methods never dispatch by name — direct calls use function-table
-//indices — so a bare "rank" cannot disambiguate two same-named methods
-//of different enums in one unit. The qualified key lets cross-unit
-//enum-method imports resolve through the ordinary namespace branch,
-//by construction rather than bare-name luck.
-static std::string EnumMethodKey(const ModuleRegistry& reg, const SnField& method) {
+//Enclosure-qualified key of an enum or interface-static method:
+//"<unit>.<Type>.<method>" ("lib.Color.rank", "lib.I.twice"; a nested
+//type walks out as "lib.Outer.Inner.rank"). Phase 6 §2 D-ruling
+//(2026-10-02): enum methods never dispatch by name — direct calls use
+//function-table indices — so a bare "rank" cannot disambiguate two
+//same-named methods of different enums in one unit. 0.9.10 D5: interface
+//statics take the same shape — a bare key would collide with namespace-
+//level functions of the same name, and the cross-unit import resolves
+//through the ordinary namespace branch by construction.
+static std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method) {
     std::vector<const SnField*> enclosure;   //owning enum first, then outer types
     const SyntaxNode* p = method.Parent();
     while (p && (p->Kind() == NK_EnumDecl || p->Kind() == NK_ClassDecl
@@ -82,13 +86,14 @@ static std::string EnumMethodKey(const ModuleRegistry& reg, const SnField& metho
 //time registry (path-derived), NOT from an AST namespace walk — a walk can
 //only name a unit that literally wrote `namespace <path>`, and project
 //members hang off the root, so every project key would stay bare.
-//A CLASS/INTERFACE METHOD always keeps a bare name, even when its
-//owning type is package-nested: methods dispatch by name through their
-//receiver (VmExecutor::FindMethodByName compares the bare name), so a
-//package prefix would make every lookup fail. An ENUM METHOD is the one
-//exception — it takes its enclosure-qualified key instead (EnumMethodKey
-//above): enum methods never dispatch by name, so nothing loses by the
-//prefix, and same-named methods of different enums stay distinct keys.
+//A CLASS/INSTANCE METHOD always keeps a bare name, even when its owning
+//type is package-nested: methods dispatch by name through their receiver
+//(VmExecutor::FindMethodByName compares the bare name), so a package
+//prefix would make every lookup fail. The exceptions take their
+//enclosure-qualified key instead (EnclosureMethodKey above): enum methods
+//and interface statics never dispatch by name through a receiver, so
+//nothing loses by the prefix, while same-named members of different types
+//(and namespace-level functions) stay distinct keys.
 //A synthetic generic instantiation keeps its ERASED builtin key ("List"
 //for List<int>): the backing CompiledClass is registered once under the
 //base name, and the instantiation node is ownerless, so the registry
@@ -103,7 +108,13 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
     }
     if (IsTypeMember(field)) {
         if (field.Parent()->Kind() == NK_EnumDecl)
-            return EnumMethodKey(reg, field);
+            return EnclosureMethodKey(reg, field);
+        //0.9.10 D5: an interface static takes the qualified key; the
+        //abstract instance members keep bare names (they register no
+        //function record at all).
+        if (field.Parent()->Kind() == NK_InterfaceDecl
+            && field.ContainFlags(NF_Static))
+            return EnclosureMethodKey(reg, field);
         return field.Name();
     }
     return reg.QualifiedName(field);
@@ -197,7 +208,7 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
     std::vector<SnField*> fieldTypes;
-    for (auto& field : sn.Members()) {
+    for (auto& field : sn.Fields()) {
         cs.fieldNames.push_back(field.Name());
         auto* fieldType = field.EvalDataType();
         //0.7.3 B: array fields bind EvalDataType to their interned
@@ -209,6 +220,17 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
         cs.fieldStructIndices.push_back(0xFFFF);
         cs.fieldClassIndices.push_back(0xFFFF);
         fieldTypes.push_back(fieldType);
+        //0.9.11 D4: the field initializer folds through the same
+        //ExtractDefaultValue channel as function defaults (nullptr →
+        //RTK_Void sentinel; string literals intern into the producer's
+        //pool and the import merge remaps them). The declaration-side
+        //check (FieldInitializerChecks.hpp) admits only the constant-
+        //foldable subset, so no RTK_Expr/RTK_Unfoldable tag can appear
+        //here; the vector stays dense (one entry per field). ftk is the
+        //declared carrier the materializer reads the slot back by.
+        cs.fieldDefaults.push_back(
+            ExtractDefaultValue(field.Initializer(),
+                                static_cast<uint8_t>(ftk)));
     }
     m_compiledModule.structs.push_back(std::move(cs));
     m_structFieldTypes.push_back(std::move(fieldTypes));

@@ -10,9 +10,8 @@ class Node {
     public int value;
     public Node next;
 
-    public int Node(int v) {
+    public Node(int v) {
         this.value = v;
-        return 0;
     }
 
     public int getValue() {
@@ -44,6 +43,18 @@ The full value-vs-reference summary is on [Type Semantics](type-semantics.md).
 Fields carry access modifiers `public` / `private` / `protected`. Class
 members default to `private`; interface members are the opposite and
 default to `public` (see [Interface](interface.md)).
+
+- `public` — reachable wherever the class itself is visible.
+- `private` — reachable only inside the declaring class's own methods.
+- `protected` — reachable inside the declaring class and inside the
+  bodies of its subclasses (by bare name or through the base type
+  name); everywhere else it is inaccessible.
+- Constructors obey the same rule: a non-`public` constructor cannot
+  be called from outside the class
+  (`constructor of class "C" is not accessible`).
+
+The same visibility rules hold across module boundaries — see
+[Classes across modules](#classes-across-modules).
 
 ### Creating instances
 
@@ -95,6 +106,74 @@ inherited fields) is an implicit `this.field` access. Works for reads,
 assignments, compound assignments (`v += 1`), and default-parameter
 expressions (`int add(int x, int y = v)`). A local variable or parameter with
 the same name shadows the field, matching Java/C# semantics.
+
+### Field initializers
+
+A class field may carry a compile-time constant default:
+
+```nlang
+class Cfg {
+    public int x = 5;
+    public string s = "hi";
+    public float f = -1.5;
+}
+```
+
+- The initializer must be a **constant expression**: null, bool, char,
+  int-family, float-family, and string literals, plus unary negation — it
+  may not reference another field or `this` (neither exists yet at
+  initialization).
+- The default is **injected into every constructor** before its body runs,
+  base-first (matching C#/Java): a constructor that calls `super(...)` gets
+  the injection right after the `super(...)`; one with no `super(...)` gets
+  it at the top of the body. When the class declares no constructor at all, a
+  **synthesized public zero-arg constructor** carries the defaults, so `Cfg()`
+  and the brace form `Cfg{}` both apply them.
+- With a field default present, `super(...)` must be the constructor's
+  **first statement** — otherwise the injection point is undefined and the
+  constructor is a compile error.
+- A `native` or bodyless constructor cannot carry field defaults (compile
+  error).
+
+### Static methods
+
+```nlang
+class Util {
+    public static int twice(int x) { return x * 2; }
+    public static int quad(int x) { return twice(twice(x)); }  // bare call inside the class
+    public int inst() { return 1; }
+}
+class Base {
+    public static int bid() { return 7; }
+}
+class Sub : Base {
+    public int pad;
+}
+int main() {
+    return Util.twice(21) + Util.quad(2) + Sub.bid();  // 42 + 8 + 7
+}
+```
+
+A `static` method belongs to the class, not to any instance:
+
+- **Call it through the type name**: `Util.twice(21)` from outside the
+  class (the method must be `public` to be reachable). Calling a static
+  through an object is rejected (`must be called through the type
+  name`), and calling an instance method through the type name is
+  rejected too (`must be called through a receiver object`) — the two
+  call shapes are kept apart.
+- **Bare calls inside the class**: a static method calls sibling statics
+  by bare name (`quad` calls `twice`), and a non-static method calls a
+  static the same way.
+- **No `this`**: a static method has no receiver — `this` and the
+  implicit `this.field` binding of a bare field name are compile errors
+  (`this is not available in a static method`).
+- **Inheritance**: a subclass inherits the parent's statics;
+  `Sub.bid()` resolves up the chain.
+- **Separate namespace**: a static and an instance member may share a
+  name with different parameter lists; an exact same-signature collision
+  is a compile error. Statics never participate in virtual dispatch
+  (below).
 
 ### Virtual methods and overrides
 
@@ -148,12 +227,11 @@ mechanism (see [Interface](interface.md)). Quick tour:
 ```nlang
 class Base {
     public int v;
-    public int Base(int x) { this.v = x; return 0; }
+    public Base(int x) { this.v = x; }
 }
 class Kid : Base {
-    public int Kid(int x) {
+    public Kid(int x) {
         super(x * 2);        // calls Base(int)
-        return 0;
     }
 }
 ```
@@ -162,12 +240,51 @@ class Kid : Base {
   `this` object. Valid only inside a constructor of a class that has a parent
   (`Object` has none).
 - May appear at **any statement position** in the ctor (not restricted to the
-  first statement).
+  first statement) — except when the class carries a field default, which
+  requires `super(...)` to be the first statement (see [Field
+  initializers](#field-initializers) below).
 - Argument count must match the parent ctor's parameter count. For parents in
   the built-in Exception family the ctor takes exactly one `message` argument.
 - Named arguments (`super(x = 1)`) are not supported (compile error).
 - `super()` with no arguments against a parent with no constructor is a legal
   no-op; passing arguments in that case is a compile error.
+
+### Classes across modules
+
+An imported module's classes are full types: after `import lib;` the
+`public` instance fields of `lib.B` are readable and writable, its
+`public` instance methods callable (inherited members, default
+arguments, and overloads included), and virtual calls dispatch
+dynamically exactly as within one unit.
+
+```nlang
+import lib;   // lib declares: class B { public virtual int f(int x) { ... } }
+class D : lib.B {
+    public int f(int x) { return x + 10; }   // overrides lib.B.f
+}
+int main() {
+    D d = D();
+    return d.f(3);
+}
+```
+
+- **Inheritance and contracts**: `class D : lib.B` extends an imported
+  base class, `class C implements lib.I` implements an imported
+  interface. The override and `implements` contracts are enforced
+  across the module boundary exactly as within a unit: a same-name
+  method whose signature differs from the inherited virtual method, a
+  missing interface member, or a static method colliding with an
+  inherited virtual method is a compile error.
+- **Visibility is the same rule everywhere**: only `public` members of
+  an imported class are reachable from the importing module; `private`
+  members are not, and `protected` members are reachable inside a
+  subclass body. A non-`public` constructor cannot be called across
+  the boundary.
+- **External structs and enums**: an imported `struct`'s fields are
+  not accessible across the module boundary (construction and passing
+  the value to the producer's functions work), and an `enum` is not
+  exported as a module member — see [Known
+  Limitations](known-limitations.md).
 
 ### Null check
 

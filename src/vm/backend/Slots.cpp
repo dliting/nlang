@@ -33,28 +33,94 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
                 + KeyOf(callee));
         return static_cast<uint32_t>(it->second);
     }
-    //Cross-unit methods/constructors carry the owning class's qualified
-    //key in the slot record: bare table keys cannot disambiguate two
-    //same-named same-arity methods of one unit (phase6 design section 2).
-    //Enum methods DO reach here — KeyOf gives them the enclosure-
-    //qualified EnumMethodKey and they resolve through the namespace
-    //branch; interface members never do (no function record of their
-    //own). Arity follows the TABLE convention (formals + this for class
-    //and enum methods, mirroring AllocParamsAndDefaults): the import
-    //record must match the owning unit's registration or nlink's
-    //name+paramCount resolution reports a signature miss.
-    std::string ownerClassKey;
+    //Cross-unit methods/constructors carry the owner metadata computed
+    //below in the slot record. Arity follows the TABLE convention
+    //(formals + this for class, struct, and enum instance methods,
+    //mirroring AllocParamsAndDefaults): the import record must match the
+    //owning unit's registration or nlink's owner-keyed resolution
+    //reports a signature miss. Statics take no this slot (their producer
+    //frame has none); class/struct statics still carry the owner key and
+    //member ordinal — 0.9.12 D-new-8: same-name same-arity static
+    //overloads need the ordinal to single out a record, staticness alone
+    //no longer disambiguates.
     const SyntaxNode* pParent = callee.Parent();
-    const bool isMethod = pParent
+    const bool isStatic = callee.ContainFlags(NF_Static);
+    const bool needsThis = pParent
         && (pParent->Kind() == NK_ClassDecl
-            || pParent->Kind() == NK_EnumDecl);
-    if (pParent && pParent->Kind() == NK_ClassDecl)
-        ownerClassKey = KeyOf(static_cast<const SnClassDecl&>(*pParent));
+            || pParent->Kind() == NK_StructDecl
+            || pParent->Kind() == NK_EnumDecl)
+        && !isStatic;
+    auto meta = CrossUnitOwnerMeta(callee);
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(
-            callee.Params().size() + (isMethod ? 1 : 0)),
-        ownerClassKey);
+            callee.Params().size() + (needsThis ? 1 : 0)),
+        meta.ownerClassKey, isStatic, meta.ownerKind, meta.ownerOrdinal);
+}
+
+//v2.6 owner metadata for the cross-unit import record (phase6 design
+//section 2: bare table keys cannot disambiguate two same-named
+//same-arity members of one unit). A class/struct member — instance
+//method, static method, or constructor — carries the owner's qualified
+//key, the table kind (1 = class, 2 = struct — a bare key cannot tell a
+//struct ctor from a same-named class method), and its ordinal in the
+//owner's member table; enum methods and 0.9.10 D5 interface statics
+//keep the namespace branch (kind 0): KeyOf gives them the
+//enclosure-qualified key and the linker resolves them against the
+//per-unit tables' function records. 0.9.11 D2: struct constructors
+//join the class rule (owner key = the struct's qualified key, arity
+//carries this). Overloaded members share name+paramCount (Vec(int) vs
+//Vec(float), f(int) vs f(string)), so every member carries its ordinal
+//— 0.9.12 D-new-8 generalized the ctor-only ordinal to all members.
+//The producer registers every body-or-native member into methodIndices
+//in declaration order (constructors additionally into the parallel
+//constructorIndices), so the scan below replays that fill order and
+//counts within the list the callee belongs to: constructors index the
+//ctor list, methods and statics index the method list with ctor
+//entries skipped. IsRegisteredCtor (= SnFunction::HasImplementation)
+//is the producer's registration filter and the stub rebuild replays it
+//in order, so the ordinal computed here addresses the right record on
+//the wire in both .nproj and .ncu modes.
+VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
+        const SnFunction& callee) const {
+    OwnerMemberMeta meta;
+    const SyntaxNode* pParent = callee.Parent();
+    if (!pParent
+        || (pParent->Kind() != NK_ClassDecl
+            && pParent->Kind() != NK_StructDecl))
+        return meta;
+    auto& owner = static_cast<const SnField&>(*pParent);
+    meta.ownerClassKey = KeyOf(owner);
+    meta.ownerKind = (pParent->Kind() == NK_ClassDecl) ? 1 : 2;
+    auto& members = (pParent->Kind() == NK_ClassDecl)
+        ? static_cast<const SnClassDecl&>(*pParent).Members()
+        : static_cast<const SnStructDecl&>(*pParent).Members();
+    //The ctor/method split replays the producer's classification
+    //(0.9.10 D2.4: a same-name static is a method, not the
+    //constructor); the ordinal counts within the callee's own list.
+    const bool calleeIsCtor = callee.Name() == owner.Name()
+        && !callee.ContainFlags(NF_Static);
+    uint16_t ordinal = 0;
+    for (auto& member : members) {
+        if (member.Kind() != NK_Function)
+            continue;
+        auto& fn = static_cast<const SnFunction&>(member);
+        //Unregistered members have no table record at all (the
+        //producer's filter skips bodyless non-native decls; stub
+        //members pass by construction).
+        if (!IsRegisteredCtor(fn))
+            continue;
+        const bool memberIsCtor = fn.Name() == owner.Name()
+            && !fn.ContainFlags(NF_Static);
+        if (memberIsCtor != calleeIsCtor)
+            continue;
+        if (&fn == &callee) {
+            meta.ownerOrdinal = ordinal;
+            break;
+        }
+        ++ordinal;
+    }
+    return meta;
 }
 
 uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {
@@ -115,31 +181,41 @@ TypeLeafSlots VmBackend::LeafSlotResolvers() {
 }
 
 uint16_t VmBackend::CtorSlotFor(SnClassDecl& decl, uint16_t classSlot) {
+    //0.9.11 T6 (D10) invariant: callers reach this only when the
+    //resolver recorded no selected ctor (every user-type call site
+    //routes through the AST-selected ctor via FunctionSlotFor) — i.e.
+    //builtin/generic types with their single intrinsic ctor, and
+    //ctor-less types answering 0xFFFF.
     //Own/builtin record (invariant: own entries occupy 0..n-1): the
-    //table carries the ctor index — PopulateClassMethods writes user
-    //ctors, the builtin writers push intrinsic ctors.
+    //table carries the ctor indices — PopulateClassMethods writes user
+    //ctors in declaration order, the builtin writers push the intrinsic
+    //ctor. [0] = that intrinsic ctor.
     const uint32_t ownCount = static_cast<uint32_t>(
         m_compiledModule.classes.size()
         - m_compiledModule.classImports.size());
-    if (classSlot < ownCount)
-        return m_compiledModule.classes[classSlot].constructorIdx;
+    if (classSlot < ownCount) {
+        const auto& ctors =
+            m_compiledModule.classes[classSlot].constructorIndices;
+        return ctors.empty() ? 0xFFFF : ctors[0];
+    }
     //Cross-unit placeholder: no metadata by design — discover the ctor
     //declaration in the AST (PopulateClassMethods' Name() rule) and
-    //slot it through FunctionSlotFor; registration parity requires a
-    //body or native flag. A .ncu STUB class carries no members at all,
-    //so the scan below would silently return 0xFFFF and drop the ctor
-    //call + arguments; refuse loudly instead. B1b wires stub ctor
-    //slots with the import record's arity (NcuLinkerSlots ctor arm).
-    if (decl.IsImported())
-        throw std::runtime_error(
-            "NLang backend: constructing imported class '" + KeyOf(decl)
-            + "' from a .ncu stub is not wired in per-unit mode yet");
+    //slot it through FunctionSlotFor, which carries the v2.6 ownerKind
+    //+ ownerOrdinal record. Post-T6 a user-type call always gets a
+    //resolver selection (stub classes rebuild their ctor members in
+    //constructorIndices order, source-peer classes carry the full AST),
+    //so the scan only answers ctor-less placeholders; the shared
+    //IsRegisteredCtor filter keeps the answer in step with what
+    //codegen could register.
     for (auto& member : decl.Members()) {
         if (member.Kind() != NK_Function
             || member.Name() != decl.Name())
             continue;
         auto& ctor = static_cast<SnFunction&>(member);
-        if (!ctor.Body() && !ctor.ContainFlags(NF_Native))
+        //0.9.10 D2.4: a same-name static is not the constructor.
+        if (ctor.ContainFlags(NF_Static))
+            continue;
+        if (!IsRegisteredCtor(ctor))
             continue;
         return static_cast<uint16_t>(FunctionSlotFor(ctor));
     }

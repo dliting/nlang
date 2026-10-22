@@ -6,11 +6,36 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.6] - 2026-10-22
+
+### Added
+
+- **Merged language-feature line** — the dev language-feature series
+  (0.9.10–0.9.15) joins the concurrency line in one binary: interface
+  static methods and static constants, type-name-qualified static
+  calls, compound shift assignment (`<<=` / `>>=`), constructor
+  declarations without a return type, struct constructors, field
+  initializers, constructor overload resolution, cross-module
+  constructors and instance members, inferred and empty array
+  literals, named-argument initializers, static-method function
+  references, and top-level zero-argument construction.
+
+### Changed
+
+- **NCU format v2.8** — the merged module format carries both
+  lines' record extensions (the v2.7 class/struct records plus the
+  eval-area handle bitmap); `.ncu` files written by either line must
+  be recompiled.
+- **Class field visibility enforced** — reading a private-by-default
+  class field through an instance is now rejected at compile time
+  (the merged access-control rule); fields accessed from outside the
+  class must be declared `public`.
+
 ## [0.10.5] - 2026-10-22
 
 ### Added
 
-- **Multi-context debug page in nide** — the 调试 page now leads with
+- **Multi-context debug page in nide** — the 调试 (Debug) page now leads with
   a context tree (context / state / location) listing every concurrent
   context next to main, refreshed at each stop. Clicking a row selects
   that context as both the inspection target and the step target
@@ -214,6 +239,179 @@ All notable changes to NLang are documented here. The format follows
   parked contexts' frozen frames.
 - **nvm and ndb no longer drop trailing output** — stdout is flushed
   before process exit.
+
+## [0.9.15] - 2026-10-22
+
+### Added
+
+- **Top-level zero-argument construction** — `Foo f();` now runs the
+  zero-argument constructor at top level, the same reading the form has
+  always had inside a function body; `Foo f() { ... }` stays a
+  zero-parameter definition, and the bodyless declaration keeps its
+  `func Foo f();` spelling.
+
+## [0.9.14] - 2026-10-22
+
+### Added
+
+- **Static method function references** — a static method now binds as
+  a function value through the type name: `func<int, int> h =
+  Util.twice; h(21);`. Inherited statics, interface statics, native
+  statics, and the bare form inside the owning class all work;
+  references through an object receiver stay rejected.
+
+## [0.9.13] - 2026-10-21
+
+### Added
+
+- **Inferred array literals** — `foreach (int x in [1, 2, 3])` and
+  `return [1, 2, 3];` from an `int[]` function now infer their element
+  type from the loop variable and the function's return type.
+- **Empty array literal** — `int[] a = [];` parses as a zero-length
+  array and works in `foreach` sources and function arguments.
+- **Named-argument initializers** — `count(items = {1, 2, 3})` infers
+  the initializer's target from the named parameter's type.
+- **Nested brace entries** — `List<List<int>> m = {{1, 2}, {3}};`:
+  bare braces nest in value position inside a brace literal.
+- **Clearer foreach brace-source diagnostic** — `foreach (int x in
+  {1, 2})` reports the array-initializer form diagnostic instead of a
+  syntax error.
+
+## [0.9.12] - 2026-10-21
+
+### Added
+
+- **Cross-module instance members** — an imported `.ncu` class is a
+  full citizen: its public instance fields are readable and writable,
+  its public instance methods callable (inherited members, default
+  parameters, overloads, and virtual dispatch included), consumers may
+  extend it with `class D : lib.B`, override its virtual methods, and
+  `implements` imported interfaces. The override and `implements`
+  contracts are enforced across the module boundary exactly as within
+  a unit: a signature mismatch, a missing interface member, or a
+  static colliding with an inherited virtual method is a compile error.
+- **Member access defaults and visibility modernized** — `struct`
+  members and enum methods are `public` by default; a `struct` member
+  may only carry the `public` modifier (anything else reports
+  `The struct member "%s" must be public.`). The `protected` subclass
+  rule now works: a subclass body reaches its base class's protected
+  members, by bare name or through the base type name. Constructors
+  gained an access gate — a non-public constructor cannot be called
+  from outside its class, in-unit or across modules.
+- **Interface instance signatures cross module boundaries** — an
+  imported interface's instance method signatures (parameter types,
+  `out` flags, return types, default values) ride the module record,
+  so calls through an imported interface-typed variable work,
+  including omitted default arguments.
+
+### Changed
+
+- **NCU format v2.7** — a class record now serializes only its own
+  declared fields (the full instance layout is derived along the
+  superclass chain at load time, as JVM class files and .NET metadata
+  do it) and carries per-method access and virtual flags plus
+  per-constructor access; `publicStaticMethodIndices` is dropped. A
+  struct record carries constructor access. Existing `.ncu` images
+  must be recompiled.
+
+### Fixed
+
+- **Qualified static calls on imported types** — `lib.Type.f()` always
+  worked; the limitation note claiming otherwise was wrong, and the
+  misleading "a module path exists" hint (which fired on prefixes) now
+  matches the full dotted name exactly.
+- **Field access checks no longer leak** — a private or protected
+  field rejected by the access check used to slip through on the
+  member-access path; reading `c.secret` from outside the class now
+  reports `Cannot resolve the field: secret.` like any other
+  inaccessible name.
+
+## [0.9.11] - 2026-10-20
+
+### Added
+
+- **Constructor declarations without a return type** — a class constructor
+  is written `public C(int a) { ... }` with no return type; the legacy
+  typed form (`int C()`) and an explicit `void` are rejected, and a
+  `return <expr>;` inside a constructor is a compile error. A same-name
+  static method with a return type stays legal.
+- **Struct constructors** — a `struct` may declare constructors with the
+  same syntax as a class (optional access modifier, default parameters,
+  overloads, implicit `this` bare-field access). They run only on an
+  explicit construction (`S(2, 3)`, direct-init `S s(2, 3);`, `new S(...)`);
+  a bare declaration `S s;`, an init list `S{...}`, array elements, nested
+  struct fields, and a deep copy do not run a constructor.
+- **Field initializers** — a class or struct field may carry a compile-time
+  constant default (`int x = 5;`, `string tag = "pt";`, unary negation
+  allowed; no field or `this` reference). A class field default is injected
+  into every constructor before its body runs (a synthesized public
+  zero-arg constructor appears when the class declares none), and `super()`
+  must be the constructor's first statement when a field default is present.
+  A struct field default is applied at every heap allocation, independent
+  of any constructor, and materializes through the `.ncu` import record.
+- **Constructor overload resolution** — a class or struct may declare
+  several constructors; a construction call selects one by the same
+  type-distance rule as method overloading, and a genuine tie reports
+  `ambiguous constructor call to <type> "<name>": multiple constructors
+  match the argument list`.
+- **Cross-module constructors** — an imported `.ncu` module's class and
+  struct constructors are callable through the qualified call form
+  (`lib.Calc c = lib.Calc(21);`); the constructor index and a struct's
+  field defaults ride the NCU v2.6 records. The imported class is usable
+  via construction plus its imported functions; instance field access across
+  the module boundary remains out of scope.
+- **Dedicated diagnostic for script-mode statements plus an explicit
+  `main()`** — top-level statements combined with a handwritten `main()` in
+  the same file report `top-level statements cannot be combined with an
+  explicit main() function; move the statements into main() or remove main()`
+  as a single error, without the cascade the generic redefinition message
+  used to produce.
+
+### Changed
+
+- **Array initializers use the bracket form** — `int[] a = {1, 2, 3};` is
+  rejected with `array initializers use '[...]'; the brace form '{...}' is
+  reserved for collection, struct, and class initializers`; the brace form
+  is reserved for collection, struct, and class initializers.
+
+### Fixed
+
+- **Struct field defaults materialize from an imported `.ncu`** — a struct
+  whose fields carry defaults now applies them through the v2.6 struct
+  record across a module boundary, and a consumer constructing the struct
+  no longer compiles a ghost constructor.
+
+## [0.9.10] - 2026-10-19
+
+### Added
+
+- **Interface static methods** — an interface may declare `public static`
+  methods with bodies, called through the interface name
+  (`I.twice(21)`) or by bare name inside the interface. Statics stay
+  outside the `implements` contract and live in their own namespace: a
+  static and an instance method may share a name with different
+  parameter lists, while an exact same-signature collision is a compile
+  error. They cross module boundaries like the rest of the static
+  surface.
+- **Type-name-qualified static calls for classes** — `Util.twice(21)`
+  works for class statics, including statics inherited from a parent
+  class, with bare calls inside the class. The two call shapes are kept
+  apart: calling a static through an object and calling an instance
+  method through the type name are both compile errors.
+- **Interface static constants** — `static const Type Name = expr;` on
+  an interface folds at compile time and is read through the interface
+  name; the value serializes into imported modules like a default
+  parameter value.
+- **Compound shift assignment `<<=` / `>>=`** — the left value's
+  declared type is the carrier (no promotion, implicit store-back, the
+  `+=` family rules) and the count follows the binary shift's admission
+  rules with the same runtime range check.
+
+### Fixed
+
+- **Calling an instance method through a type name no longer crashes
+  silently** — the shape is now a compile error (`must be called
+  through a receiver object`), matching the static-via-object rejection.
 
 ## [0.9.9] - 2026-10-18
 

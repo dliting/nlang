@@ -3,7 +3,7 @@
 //formal remains.
 class W {
     public int a;
-    public int W(int a = 5) { this.a = a; return 0; }
+    public W(int a = 5) { this.a = a;}
 }
 
 int main() {

@@ -1,0 +1,13 @@
+//0.9.11: the struct twin of the body-less-constructor candidate filter.
+//A body-less, non-native struct constructor is not an overload candidate,
+//so a call that would only match it reports the no-match error instead of
+//allocating the struct and silently dropping the argument.
+struct Vec {
+    int tag;
+    public Vec() { tag = 0; }
+    Vec(int a);
+}
+int main() {
+    Vec v = Vec(5);
+    return 0;
+}

@@ -1,7 +1,7 @@
 //Phase 13 Step 2: bound handles as Dict VALUES — subscript store binds
 //against V, retrieval and invocation.
 class C {
-    int k;
+    public int k;
     public int add(int x) { return x + k; }
 }
 

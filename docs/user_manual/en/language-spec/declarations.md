@@ -83,13 +83,20 @@ int x = 5;
 float y = 3.14;
 string s = "hello";
 Color c = Color.Red;       // enum
-Point pt;                   // struct (zero-initialized)
+Point pt;                   // struct (field defaults, or zero)
 Node n = Node(7);        // class (heap-allocated)
 Node n2;                    // class (null)
 ```
 
-Struct variables are zero-initialized (all fields = 0). Class variables
-default to null.
+Struct variables take their field defaults — zero when no initializer, the
+declared default when one is. Class variables default to null.
+
+`T name();` is a **zero-argument construction**: it runs the type's
+zero-argument constructor, at top level and inside function bodies alike
+(`Foo f();` is the same as `Foo f = Foo();`). A primitive type in this
+form is a compile error (`"Int32" is not a class or struct type.`). The
+bodyless function-declaration spelling keeps the `func` marker
+(`func Foo f();`).
 
 ### Default Values
 
@@ -104,7 +111,7 @@ compiler warning is issued):
 | `char` | code point 0 |
 | `string` | null handle that reads as the empty string |
 | enum | underlying value 0 |
-| struct | all fields zero-initialized |
+| struct | every field's default (zero when no initializer) |
 | class, interface, `Object` | null |
 | arrays, `List`, `Dict` | null |
 | `func` | null |

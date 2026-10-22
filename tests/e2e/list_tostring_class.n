@@ -5,7 +5,7 @@
 // simple program: List at heap 1, Foo at heap 2.
 class Foo {
     public int n;
-    public int Foo(int v) { this.n = v; return 0; }
+    public Foo(int v) { this.n = v;}
 }
 int main() {
     List<Foo> lst = {};

@@ -1,0 +1,10 @@
+//Pin the run-time count check of the compound form: a negative variable
+//count (invisible to the resolver) reaches the same OP_Shr executor
+//check as the binary form and throws the named error. Throw -> exit 1.
+int main() {
+	int n = -1;
+	int r = 8;
+	r >>= n;
+	if (r > 0) { return 7; }
+	return 0;
+}

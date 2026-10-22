@@ -97,7 +97,7 @@ bool ExprResolveAccessor::TryRebindShadowedTypeName(SnNameExpr &nameExpr,
 	return true;
 }
 
-//Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindInvoke
+//Phase 9c: SnNamedArgExpr resolver. The name is consumed by TryBindArgs
 //when matching formals; here we only need to resolve the inner expression
 //and propagate its EvalDataType / resolved flag so the parent invoke can
 //type-check the binding.
@@ -265,186 +265,34 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	return false;
 }
 
-//0.7.5 char bridge: s[i] resolves as a BYTE read (ubyte result) —
-//byte semantics stay consistent with length/substring/indexOf; the
-//code-point surfaces are string foreach and charAt. 0.7.3 B D3
-//rejected the shape outright; the byte read replaces that reject.
-//The index must be an integer kind (a char index would silently
-//misread as a byte offset — code-point access is foreach/charAt);
-//write access stays rejected in StatementResolverAssign (strings
-//are immutable). True = consumed (resolved or diagnosed).
-bool ExprResolveAccessor::ResolveStringSubscript(SnSubscriptExpr &sn,
-	SnField *pBaseType)
+//Subscript-expression resolution (Access(SnSubscriptExpr&) plus the
+//string/container/sized-creation helpers) lives in
+//ExprResolverSubscript.cpp (0.9.11 T2 split, 500-line source guard).
+
+//0.9.10: nearest enclosing function of the current resolution context —
+//the static-method gates inspect its NF_Static flag.
+SnFunction *ExprResolveAccessor::EnclosingFunction() const
 {
-	if (!pBaseType || pBaseType->Kind() != NK_String)
-		return false;
-	auto* pIdxType = sn.Index()->IsResolved()
-		? sn.Index()->EvalDataType() : nullptr;
-	if (pIdxType)
-	{
-		int pi = ScalarPrimIndexOf(pIdxType->Kind());
-		const bool isInteger = pi >= 0
-			&& (kScalarPrims[pi].category == PC_SInt
-				|| kScalarPrims[pi].category == PC_UInt);
-		if (!isInteger)
-		{
-			m_Env.Log(CLL_Error, sn.Index()->Location(),
-				"the string index must be an integer.");
-			return true;
-		}
-	}
-	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_UByte));
-	sn.AddFlags(NF_Resolved);
-	return true;
-}
-
-//List<T>/Dict<K,V> subscript (li[i] / d[k]): sugar over get().
-//The base resolves to a synthetic generic-instantiation class; the
-//element type is T (List) or V (Dict). Without this peel the
-//subscript keeps the container type and every consumer (assignment,
-//member chains, nested subscripts) mis-types it.
-//
-//0.7.3 B: an array-valued base carries the interned token in
-//EvalDataType (NK_ArrayTypeToken, never a ClassDecl), so the Kind()
-//check alone distinguishes `List<int>[] a` from `List<int> li` —
-//the masquerade-era IsPlainLvalueShape guard here was removed with
-//the side channel. Array bases keep the plain element-type
-//propagation in the caller, peeling the token.
-//True = consumed (resolved as the container's element type).
-bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
-	SnField *pBaseType)
-{
-	if (!pBaseType || pBaseType->Kind() != NK_ClassDecl)
-		return false;
-	auto* pClass = static_cast<SnClassDecl*>(pBaseType);
-	if (!pClass->IsGenericInstantiation())
-		return false;
-	const auto& baseName = pClass->BaseName();
-	const auto& typeArgs = pClass->GenericTypeArgs();
-	SnField* elem = nullptr;
-	if (baseName == kBuiltinListTypeName && !typeArgs.empty())
-		elem = typeArgs[0];
-	else if (baseName == kBuiltinDictTypeName && typeArgs.size() > 1)
-	{
-		elem = typeArgs[1];
-		//0.7.5: the read sugar `d[k]` lowers to get(k), whose boxing
-		//plan stages the key with K's tag — wrap the key against K like
-		//the store sugar (ApplyContainerStoreCasts) and the method form
-		//so the slot holds K's width before the box read. List indexes
-		//stay unchecked (a plain int position, runtime-bounds-checked).
-		if (sn.Index() && sn.Index()->IsResolved()
-			&& sn.Index()->EvalDataType())
-		{
-			auto keyCast = GetCastInfo(
-				sn.Index()->EvalDataType(), typeArgs[0]);
-			auto iKey = sn.Children().find(sn.Index());
-			if (iKey != sn.Children().end()
-				&& FixupExprType(iKey, keyCast))
-				sn.Index(static_cast<SnExpression*>(&*iKey));
-		}
-	}
-	if (!elem)
-		return false;
-	sn.EvalDataType(elem);
-	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
-	return true;
-}
-
-//0.9.0: consume the subscript as a sized array creation (`int[n]` /
-//`Foo[n]`, the new-free twin of `new T[n]`) when the base resolved as a
-//TYPE (primitive keyword, or a class/struct/enum/interface declaration —
-//directly, or through an alias spliced in by ResolveArrayBase). A local
-//shadowing the type name binds the VALUE first (FindField order),
-//keeping the plain subscript reading. True = consumed. The index child
-//doubles as the size expression; the element type is stored first, then
-//BindArrayTypeToken mints the array token over it — the same tail as
-//Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
-//then `Ints[2]`) is rejected as a creation head.
-bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
-{
-	auto &arrayExpr = *sn.Array();
-	if (!arrayExpr.IsResolved())
-		return false;
-	//Only a TYPE EXPRESSION can head a creation: the bare identifier and
-	//the splice products of an alias base (name / array / generic — the
-	//complete CloneTypeNode product set; the generic form binds the minted
-	//instantiation through Access(SnGenericTypeExpr&)). A value expression whose Field() happens
-	//to be type-ish (`ks.get(0)[1]` binds the element token) must keep
-	//the plain subscript reading.
-	switch (arrayExpr.Kind())
-	{
-	case NK_IdentifierExpr:
-	case NK_NameExpr:
-	case NK_ArrayTypeExpr:
-	case NK_GenericTypeExpr:
-		break;
-	default:
-		return false;
-	}
-	auto *pBaseFieldExpr = static_cast<SnFieldExpr *>(&arrayExpr);
-	auto *pElemField = pBaseFieldExpr->Field();
-	if (!pElemField || !pElemField->IsTypeField())
-		return false;
-	if (pBaseFieldExpr->IsArrayType())
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"Multi-dimensional arrays are not supported.");
-		return true;
-	}
-	//Resolve the size expression.
-	sn.Index()->Accept(*m_pVisitor);
-	if (!sn.Index()->IsResolved())
-		return true;  //consumed: the size diagnostic already fired
-	sn.NewArrayElem(pElemField);
-	sn.EvalDataType(pElemField);
-	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
-	return true;
-}
-
-void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
-{
-	assert(!sn.IsResolved());
-
-	//Resolve array expression (the 0.9.0 alias splice included).
-	if (!ResolveArrayBase(sn))
-		return;
-
-	//0.9.0: `Type[size]` creation twin — see TrySizedArrayCreation.
-	if (TrySizedArrayCreation(sn))
-		return;
-
-	//Resolve index expression.
-	auto& indexExpr = *sn.Index();
-	indexExpr.Accept(*m_pVisitor);
-	if (!indexExpr.IsResolved())
-		return;
-
-	//Look up arr.length-style access is handled by MemberExpr.
-	//For now, the result type of subscript is the element type.
-	auto* arrayType = sn.Array()->EvalDataType();
-	if (ResolveStringSubscript(sn, arrayType))
-		return;
-	if (TryResolveContainerSubscript(sn, arrayType))
-		return;
-	if (arrayType)
-	{
-		//0.7.3 B token path: an
-		//array-valued base carries the interned array token — the
-		//subscript's own type is its ELEMENT.
-		if (arrayType->Kind() == NK_ArrayTypeToken)
-			arrayType = static_cast<SnArrayTypeToken*>(
-				arrayType)->ElemTypeOf();
-		sn.EvalDataType(arrayType);
-	}
-	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
+	for (auto *pContext = m_pContext; pContext;
+		pContext = pContext->Parent())
+		if (pContext->Kind() == NK_Function)
+			return static_cast<SnFunction*>(pContext);
+	return nullptr;
 }
 
 void ExprResolveAccessor::Access(SnThisExpr &sn)
 {
 	assert(!sn.IsResolved());
+
+	//0.9.10: a static method has no receiver — `this` (and the bare-field
+	//implicit form gated in Access(SnIdentifierExpr)) is meaningless there.
+	auto *pEnclosing = EnclosingFunction();
+	if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"this is not available in a static method.");
+		return;
+	}
 
 	auto pContext = m_pContext;
 	while (pContext)
@@ -456,6 +304,14 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 			{
 				auto pClassDecl = static_cast<SnClassDecl*>(pParent);
 				sn.EvalDataType(pClassDecl);
+				sn.AddFlags(NF_Resolved);
+				return;
+			}
+			//0.9.11 D2: struct constructors. `this` is the struct value
+			//being constructed — the decl types like a class decl does.
+			if (pParent && pParent->Kind() == NK_StructDecl)
+			{
+				sn.EvalDataType(static_cast<SnStructDecl*>(pParent));
 				sn.AddFlags(NF_Resolved);
 				return;
 			}
@@ -472,7 +328,7 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 		pContext = pContext->Parent();
 	}
 	m_Env.Log(CLL_Error, sn.Location(),
-		"'this' can only be used inside a class or enum method.");
+		"'this' can only be used inside a class, struct, or enum method.");
 }
 
 } //namespace nlang

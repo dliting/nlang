@@ -193,9 +193,8 @@ void TestClassCtorMethodCrossUnit() {
         { "alib.n",
           "class Calc {\n"
           "  public int base;\n"
-          "  public int Calc(int b) {\n"
+          "  public Calc(int b) {\n"
           "    base = b;\n"
-          "    return 0;\n"
           "  }\n"
           "  public int twice() {\n"
           "    return base * 2;\n"
@@ -221,9 +220,8 @@ void TestSuperCtorCrossUnit() {
         { "alib.n",
           "class Base {\n"
           "  public int v;\n"
-          "  public int Base(int x) {\n"
+          "  public Base(int x) {\n"
           "    v = x;\n"
-          "    return 0;\n"
           "  }\n"
           "  public int get() {\n"
           "    return v + 1;\n"
@@ -232,9 +230,8 @@ void TestSuperCtorCrossUnit() {
         { "main.n",
           "import alib;\n"
           "class D : alib.Base {\n"
-          "  public int D(int x) {\n"
+          "  public D(int x) {\n"
           "    super(x);\n"
-          "    return 0;\n"
           "  }\n"
           "}\n"
           "int main() {\n"
@@ -428,17 +425,15 @@ void TestForeignTypedFieldsCrossUnit() {
           "class Point {\n"
           "  public int px;\n"
           "  public int py;\n"
-          "  public int Point(int x, int y) {\n"
+          "  public Point(int x, int y) {\n"
           "    px = x;\n"
           "    py = y;\n"
-          "    return 0;\n"
           "  }\n"
           "}\n"
           "class Base {\n"
           "  public int bonus;\n"
-          "  public int Base() {\n"
+          "  public Base() {\n"
           "    bonus = 5;\n"
-          "    return 0;\n"
           "  }\n"
           "  public int extra() {\n"
           "    return bonus;\n"
@@ -452,10 +447,9 @@ void TestForeignTypedFieldsCrossUnit() {
           "}\n"
           "class Holder : alib.Base {\n"
           "  public alib.Point p;\n"
-          "  public int Holder() {\n"
+          "  public Holder() {\n"
           "    super();\n"
           "    p = alib.Point(30, 4);\n"
-          "    return 0;\n"
           "  }\n"
           "}\n"
           "int main() {\n"
@@ -575,9 +569,8 @@ void TestForeignMethodsNotGhostCompiled() {
         { "alib.n",
           "class Calc {\n"
           "  public int base;\n"
-          "  public int Calc(int b) {\n"
+          "  public Calc(int b) {\n"
           "    base = b;\n"
-          "    return 0;\n"
           "  }\n"
           "  public int twice() {\n"
           "    return base * 2;\n"
@@ -744,6 +737,258 @@ void TestProjectPackageArtifactIdentity() {
     CHECK(exec.Execute(linked) == 42, "package entry runs (21*2)");
 }
 
+// --- shape 13: cross-unit struct constructor (source peer) ---
+//
+// 0.9.11 v2.6: a struct constructor reached across a unit boundary is a
+//real import record (owner key + ordinal addressing, not a name scan).
+//The consumer allocates through the merged record and calls the
+//producer's ctor body; the imported reader then sees the constructed
+//value (3 + 4 = 7).
+void TestStructCtorCrossUnit() {
+    const auto dir = scenarioDir("sctor_xunit");
+    writeFiles(dir, {
+        { "alib.n",
+          "struct Vec {\n"
+          "  int x;\n"
+          "  int y;\n"
+          "  public Vec(int a, int b) {\n"
+          "    x = a;\n"
+          "    y = b;\n"
+          "  }\n"
+          "}\n"
+          "int sum(Vec v) {\n"
+          "  return v.x + v.y;\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Vec v = alib.Vec(3, 4);\n"
+          "  return alib.sum(v);\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(dir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "cross-unit struct ctor builds and links");
+    CHECK(r.rc == 7, "imported struct ctor ran (3+4)");
+}
+
+// Stage 1 of the external .ncu ctor scenarios: compile one library
+// source into <name>.ncu through the production BuildArtifacts path.
+// Returns the artifact path (empty = the build failed).
+fs::path buildExternalLibNcu(const fs::path& libDir, const char* name,
+                             const std::string& source) {
+    const std::string srcName = std::string(name) + ".n";
+    writeFiles(libDir, { { srcName, source } });
+    BuildParams params;
+    params.m_SourceFiles.push_back((libDir / srcName).string());
+    params.m_sProjectDir = libDir.string();
+    params.m_sOutputModule = name;
+    params.m_sOutputDir = libDir.string();
+    params.m_sTempDir = libDir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    params.m_ImportDirs = { STDLIB_DIR };
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    if (!builder.BuildArtifacts())
+        return {};
+    return libDir / (std::string(name) + ".ncu");
+}
+
+// --- shape 14: external .ncu struct constructor + field default ---
+//
+// The real .ncu byte round trip: the consumer sees only the v2.6 stub
+// (ctor member rebuilt from constructorIndices). The ctor body runs from
+// the producer image; y's constant default materializes from the merged
+// record at the consumer's allocation — 1 + 7 = 8. Field access stays
+// inside the library (external struct field access is out of scope).
+void TestStructCtorExternalNcu() {
+    const auto libDir = scenarioDir("sctor_lib");
+    const fs::path libArtifact = buildExternalLibNcu(libDir, "slib",
+        "struct Vec {\n"
+        "  int x;\n"
+        "  int y = 7;\n"
+        "  public Vec() {\n"
+        "    x = 1;\n"
+        "  }\n"
+        "}\n"
+        "int sum(Vec v) {\n"
+        "  return v.x + v.y;\n"
+        "}\n");
+    CHECK(fs::exists(libArtifact), "struct-ctor library image written");
+    if (!fs::exists(libArtifact)) return;
+
+    const auto appDir = scenarioDir("sctor_app");
+    fs::copy_file(libArtifact, appDir / "slib.ncu");
+    writeFiles(appDir, {
+        { "main.n",
+          "import slib;\n"
+          "int main() {\n"
+          "  slib.Vec v = slib.Vec();\n"
+          "  return slib.sum(v);\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(appDir, cap, { "main.n" });
+    CHECK(r.ok, "external struct ctor consumer builds and links");
+    CHECK(r.rc == 8, "imported struct ctor + field default ran (1+7)");
+}
+
+// --- shape 15: external .ncu class constructor parity ---
+//
+// The class side of the same imported-ctor infrastructure: the stub
+// class answers its rebuilt ctor member to the CtorSlotFor scan, the
+// import record carries ownerKind=1 + ownerOrdinal, and the producer's
+// ctor body runs on the consumer-allocated object (21 * 2 = 42).
+void TestClassCtorExternalNcuParity() {
+    const auto libDir = scenarioDir("cctor_lib");
+    const fs::path libArtifact = buildExternalLibNcu(libDir, "clib",
+        "class Calc {\n"
+        "  public int base;\n"
+        "  public Calc(int b) {\n"
+        "    base = b;\n"
+        "  }\n"
+        "}\n"
+        "int twice(Calc c) {\n"
+        "  return c.base * 2;\n"
+        "}\n");
+    CHECK(fs::exists(libArtifact), "class-ctor library image written");
+    if (!fs::exists(libArtifact)) return;
+
+    const auto appDir = scenarioDir("cctor_app");
+    fs::copy_file(libArtifact, appDir / "clib.ncu");
+    writeFiles(appDir, {
+        { "main.n",
+          "import clib;\n"
+          "int main() {\n"
+          "  clib.Calc c = clib.Calc(21);\n"
+          "  return clib.twice(c);\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(appDir, cap, { "main.n" });
+    CHECK(r.ok, "external class ctor consumer builds and links");
+    CHECK(r.rc == 42, "imported class ctor ran through the link (21*2)");
+}
+
+// --- shape 16: struct ctor import shape, no ghost body in consumer ---
+//
+// The per-unit invariant for struct ctors (the class twin is shape 10):
+// the consumer image carries no foreign ctor bytecode, and the import
+// record is the v2.6 owner-keyed ctor record — ownerKind=2 (struct) +
+// ownerOrdinal=0, the linker's authoritative ctor selector.
+void TestStructCtorNoGhostCompilation() {
+    const auto dir = scenarioDir("sctor_noghost");
+    writeFiles(dir, {
+        { "alib.n",
+          "struct Vec {\n"
+          "  int x;\n"
+          "  int y;\n"
+          "  public Vec(int a, int b) {\n"
+          "    x = a;\n"
+          "    y = b;\n"
+          "  }\n"
+          "}\n"
+          "int sum(Vec v) {\n"
+          "  return v.x + v.y;\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Vec v = alib.Vec(3, 4);\n"
+          "  return alib.sum(v);\n"
+          "}\n" } });
+    const PerUnitBuild b = perUnitBuild(dir, { "main.n", "alib.n" });
+    CHECK(b.ok, "no-ghost struct-ctor scenario builds");
+    if (!b.ok) return;
+    bool ghostCtor = false;
+    for (const auto& fn : b.images.units[0].functions)
+        if (fn.name == "Vec" && !fn.bytecode.empty())
+            ghostCtor = true;
+    CHECK(!ghostCtor, "consumer image holds no foreign struct-ctor body");
+    bool ctorImport = false;
+    for (const auto& imp : b.images.units[0].functionImports) {
+        if (imp.modulePath == "alib" && imp.name == "Vec"
+            && imp.paramCount == 3 && imp.ownerClassKey == "alib.Vec"
+            && imp.ownerKind == 2 && imp.ownerOrdinal == 0)
+            ctorImport = true;   //3 = 2 formals + this, table convention
+    }
+    CHECK(ctorImport, "struct ctor import carries ownerKind + ordinal");
+}
+
+// --- shape 17: cross-module static method overloads (0.9.12 D-new-8) ---
+//
+// Two static overloads of one name and arity share every field of the
+// old name-matching linkage identity (name+paramCount+staticness), so
+// the linker saw two matching records and refused the link as
+// ambiguous. The member ordinal — the callee's position in the owner's
+// method table, ctor entries excluded — is the authoritative selector:
+// each overload links to its own record (1 + 2 = 3).
+void TestClassStaticOverloadCrossUnit() {
+    const auto dir = scenarioDir("static_ovl");
+    writeFiles(dir, {
+        { "alib.n",
+          "class Mix {\n"
+          "  public static int f(int x) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(string s) {\n"
+          "    return 2;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  return alib.Mix.f(1) + alib.Mix.f(\"x\");\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(dir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "static-overload consumer builds and links");
+    CHECK(r.rc == 3, "both static overloads link to their own records (1+2)");
+}
+
+// --- shape 18: member-ordinal record shape (0.9.12 D-new-8) ---
+//
+// The ordinal counts REGISTERED non-ctor members in declaration order,
+// mirroring the producer's methodIndices push and the stub rebuild
+// filter: a body-less same-name ctor has no table record at all (the
+// registration filter is Body||Native) and contributes nothing, while
+// a same-name static method is a method entry, not a ctor. The method
+// table here is [Mix(int) static, f(int), f(string)] — the two f
+// import records must carry ordinals 1 and 2.
+void TestMemberOrdinalRecordShape() {
+    const auto dir = scenarioDir("ord_shape");
+    writeFiles(dir, {
+        { "alib.n",
+          "class Mix {\n"
+          "  Mix();\n"
+          "  public static int Mix(int z) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(int x) {\n"
+          "    return 1;\n"
+          "  }\n"
+          "  public static int f(string s) {\n"
+          "    return 2;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  return alib.Mix.f(1) + alib.Mix.f(\"x\");\n"
+          "}\n" } });
+    const PerUnitBuild b = perUnitBuild(dir, { "main.n", "alib.n" });
+    CHECK(b.ok, "ordinal-shape scenario builds");
+    if (!b.ok) return;
+    int seen1 = 0, seen2 = 0;
+    for (const auto& imp : b.images.units[0].functionImports) {
+        if (imp.modulePath == "alib" && imp.name == "f"
+            && imp.paramCount == 1 && imp.isStatic
+            && imp.ownerClassKey == "alib.Mix" && imp.ownerKind == 1) {
+            if (imp.ownerOrdinal == 1) ++seen1;
+            if (imp.ownerOrdinal == 2) ++seen2;
+        }
+    }
+    CHECK(seen1 == 1 && seen2 == 1,
+        "the two f overloads carry distinct member ordinals (1, 2)");
+}
+
 } // namespace
 
 int main() {
@@ -763,6 +1008,12 @@ int main() {
     TestForeignMethodsNotGhostCompiled();
     TestCrossUnitEnumToString();
     TestProjectPackageArtifactIdentity();
+    TestStructCtorCrossUnit();
+    TestStructCtorExternalNcu();
+    TestClassCtorExternalNcuParity();
+    TestStructCtorNoGhostCompilation();
+    TestClassStaticOverloadCrossUnit();
+    TestMemberOrdinalRecordShape();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -101,8 +101,8 @@ bool ExprResolveAccessor::ResolveInitListTarget(SnInitListExpr &sn,
         //0.7.3 B token path: an
         //array-typed LHS carries the interned token; the init-list's
         //per-entry element gate consumes the ELEMENT (the node itself
-        //keeps the element contract — codegen's RegisterArrayType reads
-        //it directly).
+        //keeps the interned token — Access stores it at the mint point,
+        //0.9.13 D-new-1).
         if (pTargetField
             && pTargetField->Kind() == NK_ArrayTypeToken)
             pTargetField = static_cast<SnArrayTypeToken*>(
@@ -131,53 +131,24 @@ bool ExprResolveAccessor::RejectNonCollectionInitTarget(SnInitListExpr &sn,
     return true;
 }
 
-//Class init lists lower to `new C()` + per-field stores; the implicit
-//ctor call must not require arguments (spec: class init requires a
-//no-arg constructor, explicit or implicit). Without this check the
-//codegen emits the ctor call anyway and the VM copies garbage/reads
-//past the frame for the missing params. Class initializers are also
-//identifier-keyed only: the codegen per-field store dispatches on the
-//key name, and declaration order is meaningless with inherited fields
-//(layout is root-ancestor-first). Value-only entries used to be
-//silently skipped, leaving every field at its ctor default — reject
-//them instead (struct targets keep the ordinal form).
-void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
-    SnClassDecl *pClassDecl)
+//0.9.11 T7 (D6): array initializers use the bracket form; the brace
+//form is reserved for collection, struct, and class initializers.
+//True = rejected.
+bool ExprResolveAccessor::RejectBraceArrayInitTarget(SnInitListExpr &sn,
+    bool bIsArray)
 {
-    if (pClassDecl->IsBuiltinClass())
-        return;
-    for (auto& entry : sn.Entries())
+    if (bIsArray && !sn.IsArrayForm())
     {
-        if (entry.keyKind != InitEntry::KeyKind::Identifier)
-        {
-            m_Env.Log(CLL_Error,
-                entry.pValue ? entry.pValue->Location() : sn.Location(),
-                "class initializer \"%s{...}\" requires "
-                "field:value entries; the positional form is "
-                "only valid for struct/array targets",
-                pClassDecl->Name().c_str());
-            break;
-        }
+        m_Env.Log(CLL_Error, sn.Location(),
+            "array initializers use '[...]'; the brace form '{...}' is "
+            "reserved for collection, struct, and class initializers");
+        return true;
     }
-    for (auto& field : pClassDecl->Members())
-    {
-        if (field.Kind() == NK_Function
-            && field.Name() == pClassDecl->Name())
-        {
-            size_t arity = static_cast<SnFunction&>(field).Params().size();
-            if (arity > 0)
-            {
-                m_Env.Log(CLL_Error, sn.Location(),
-                    "class initializer \"%s{...}\" requires a "
-                    "no-arg constructor; \"%s\" takes %zu "
-                    "argument(s)",
-                    pClassDecl->Name().c_str(),
-                    pClassDecl->Name().c_str(), arity);
-            }
-            break;
-        }
-    }
+    return false;
 }
+
+//CheckClassInitListForm / CheckClassCtorForInitList live in
+//ExprResolverInitListCtor.cpp (source-size split).
 
 //Phase 13: the element type init-list entries bind against — the array
 //element type, or the value slot of a generic container
@@ -291,7 +262,7 @@ SnField *ExprResolveAccessor::InitListEntryFieldType(SnField &targetDecl,
     {
         size_t idx = 0;
         for (auto &sf :
-            static_cast<SnStructDecl &>(targetDecl).Members())
+            static_cast<SnStructDecl &>(targetDecl).Fields())
         {
             if (entry.keyKind == InitEntry::KeyKind::Identifier)
             {
@@ -425,6 +396,35 @@ void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
     }
 }
 
+//Target-shape phase of Access(SnInitListExpr&) (split out for size):
+//the three form gates, then stamping the resolved type token and the
+//class-form ctor contract. True = rejected (the firing gate logged
+//its diagnostic).
+bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
+    SnField *pTargetField, bool bIsArray)
+{
+    //0.9.0: the target must be a shape the lowering can write.
+    if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+        return true;
+
+    //0.9.11 T7 (D6): arrays use the bracket form.
+    if (RejectBraceArrayInitTarget(sn, bIsArray)) return true;
+
+    //K1 Slice 9: channel construction is the empty initializer only.
+    if (RejectNonEmptyChannelInit(sn, pTargetField))
+        return true;
+
+    //0.9.13 D-new-1: array targets mint the interned array token.
+    sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
+        : pTargetField);
+    sn.AddFlags(NF_Resolved);
+
+    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
+        CheckClassInitListForm(sn,
+            static_cast<SnClassDecl*>(pTargetField));
+    return false;
+}
+
 //Phase 8e-6: Collection initializer resolver — target determination,
 //class-form checks, entry resolution, func-ref binding and the
 //entry-type gates, in that order. Entry values are resolved via
@@ -440,21 +440,8 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
     if (!ResolveInitListTarget(sn, pTargetField, bIsArray))
         return;
 
-    //0.9.0: the target must be a shape the lowering can write.
-    if (RejectNonCollectionInitTarget(sn, pTargetField, bIsArray))
+    if (PrepareInitListShape(sn, pTargetField, bIsArray))
         return;
-
-    //K1 Slice 9: channel construction is the empty initializer only.
-    if (RejectNonEmptyChannelInit(sn, pTargetField))
-        return;
-
-    sn.EvalDataType(pTargetField);
-    sn.TargetIsArray(bIsArray);
-    sn.AddFlags(NF_Resolved);
-
-    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
-        CheckClassInitListForm(sn,
-            static_cast<SnClassDecl*>(pTargetField));
 
     //0.9.0: nested bare brace entries infer their target from the slot
     //they store into, before the entry walk resolves them.

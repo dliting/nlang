@@ -1,6 +1,5 @@
 #pragma once
-#include "Intrinsics.h"
-#include "TypeDesc.h"
+#include "CompiledModuleRecords.h"
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdint>
 #include <cstring>
@@ -88,42 +87,49 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //module carries only literal defaults; expression defaults (formal
 //references, producing-module calls, arithmetic over them) cannot cross
 //module borders. Refuse v2.2 and older outright.
-//K1 (v0.10.0, concurrency): no format change. The thread.* module-level
-//intrinsic stubs (thread.spawn/join/yield/id/sleep) are minted per-unit
-//at registration time exactly like the other builtin stubs — they
-//serialize as ordinary function records (ModuleSaver writes the
-//intrinsicId) and dedup at link by (name, paramCount, intrinsicId).
-//NCU_FORMAT_MINOR stays 3.
-//K2 (v0.10.1, GIL and multiple carriers): every function record gains
-//a trailing eval-area handle mask (uint32 byte count + packed bytes; see
-//EvalSlotClass). It gives the GC a per-slot root class for the whole
-//frame band, replacing the conservative both-domain value test. Older
-//modules are refused by the minor floor as usual — no compatibility shim.
-//K3 (v0.10.3, futures and bounded channels): no format change. Future
-//and ChannelClosedException are builtin class rows appended at the end
-//(indices stay stable), Future.get/isDone and the Channel capacity ctor
-//ride the existing intrinsic-stub serialization, and the concurrent
-//package is ordinary NLang source. The thread package materialized as
-//stdlib/thread.n native declarations: its five records register like
-//any native and the backend stamps them onto the intrinsic channel, so
-//they serialize exactly like the K1 stubs did — wire shape unchanged.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 4;
-
-//Runtime type kind constants for serialization (compile-time NK_* values
-//exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
-//RTK_Byte..RTK_Char = 10..19) live in PrimitiveTypes.h — single source.
-static constexpr uint8_t RTK_String = 2;
-static constexpr uint8_t RTK_Struct = 3;
-static constexpr uint8_t RTK_Class  = 4;
-static constexpr uint8_t RTK_Array  = 5;
-static constexpr uint8_t RTK_Boxed  = 6;  //boxed primitive (slot[0]=tag, slots[1..2]=value; 8-byte family uses both cells)
-static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
-//Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
-//TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
-static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
-static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
-static constexpr uint8_t RTK_Expr   = 0xFB;  //v2.3: default is the ExprDesc tree in exprBytes
-static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
+//v2.4 (static members): every function record gains a static flag so
+//name-based dispatch can skip static members (they live in a separate
+//namespace from instance dispatch). Class records gain the exported
+//public-static method indices, a per-unit interface table carries the
+//interface statics, and function import records gain the static flag
+//the linker matches on. A v2.3 module has no flag byte and misparses
+//every record after the native flag; refuse v2.3 and older.
+//v2.5 (interface constants): every interface record gains a constants
+//block after its static method indices — per constant, a u16 name, a
+//length-prefixed TypeDesc, and a DefaultValueDesc folded value. A v2.4
+//module has no such block and misparses the bytes after the method
+//indices as the constant count; refuse v2.4 and older.
+//v2.6 (type-init modernization): every struct record gains a field-
+//defaults block after its type descriptors — a u16 count (== fieldCount)
+//plus one DefaultValueDesc per field (RTK_Void = no default). The same
+//version line also carries the constructor-index and import ownerKind/
+//ownerOrdinal segments; a v2.5 module has no defaults block and misparses
+//the bytes after the type descriptors as the next record; refuse v2.5
+//and older.
+//v2.7 (imported instance members): class field lists become OWN-ONLY —
+//the runtime derives the full instance layout by walking the superclass
+//chain base-first, so a v2.6 image (whose list already carries inherited
+//fields) would double-count them and misroute every field offset; this
+//is a semantic floor even where the bytes would parse. The class record
+//drops the public-static method index block (statics now ride the method
+//table, flagged by a per-method access byte) and appends the parallel
+//methodAccess/methodVirtual byte arrays after the method indices plus a
+//constructorAccess byte array after the constructor indices; the struct
+//record appends its constructorAccess array; the interface record gains
+//an instance-method signature section after its constants block (name,
+//paramCount, per-formal ParamTypeDesc, return TypeDesc, DefaultValueDesc
+//list) so consumer units can resolve and contract-check imported
+//instance members. Refuse v2.6 and older outright.
+//v2.8 (concurrency merge, from the master line): every function record
+//gains a trailing eval-area handle mask (uint32 byte count + packed
+//2-bit classes; see EvalSlotClass). It gives the GC a per-slot root
+//class for the whole frame band, replacing the conservative both-domain
+//value test. The master line's other concurrency releases changed no
+//wire shape (K1 thread stubs and K3 futures/bounded channels ride the
+//existing intrinsic-stub serialization). A v2.7 module has no trailing
+//mask and misparses the next record's leading bytes; refuse v2.7 and
+//older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 8;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -176,163 +182,6 @@ inline int ArrayElemCells(uint8_t elemRtk)
     return (pi >= 0 && kScalarPrims[pi].slotWidth > 4) ? 2 : 1;
 }
 
-struct LocalDescriptor {
-    uint16_t offset = 0;
-    uint16_t size = 0;
-    uint8_t  isParam = 0;
-    uint8_t  typeKind = 0;
-    //Debugger scope visibility (v1.14): bytecode offset where the local
-    //joins its function's flat frame. 0 = live from entry (params and
-    //the implicit this receiver). The debug views hide a local while the
-    //paused statement PC (frame.currentPc) is below this value; the GC
-    //root scan deliberately ignores it — slots are zero-initialized at
-    //every call, so tracing the whole table from entry is safe.
-    uint16_t declPc = 0;
-    std::string name;
-};
-
-struct CompiledStruct {
-    std::string name;
-    uint16_t fieldCount = 0;
-    std::vector<std::string> fieldNames;
-    std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
-    std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
-    std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
-    //v1.12: per-field recursive type descriptors (empty entries = not
-    //expressible). Survive the import merge (indices remapped). Wire
-    //fidelity only — stubs keep their members empty, so nothing reads
-    //these back for reconstruction; they exist so a consumer re-saving
-    //the module emits correct descriptors.
-    std::vector<TypeDesc> fieldTypeDescs;
-};
-
-struct CompiledArrayType {
-    uint8_t  elemKind = 0;       // RTK_Int32/RTK_Float/RTK_String/RTK_Struct/RTK_Class
-    uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
-};
-
-//Option B: per-formal default-value descriptor for cross-module import.
-//Tag determines which payload field is meaningful:
-//  RTK_Null   — null literal for any reference type (class/string/array). No payload.
-//  RTK_Int32  — intValue holds the int32 default.
-//  RTK_Float  — floatValue holds the float default.
-//  RTK_String — stringIdx is an index into the PRODUCER module's stringConstants.
-//               The consumer loader remaps this into its own stringConstants.
-//  RTK_Long   — longValue holds the long default (0.7.5).
-//  RTK_ULong  — longValue holds the ulong default's bit pattern (0.7.5).
-//  RTK_Double — doubleValue holds the double default (0.7.5; payloads
-//               exist ahead of double literals landing in Task 7).
-//  RTK_Void   — sentinel: this formal has no default. Used to keep the vector
-//               dense (always == paramCount entries; entries without defaults
-//               carry RTK_Void so positional alignment is preserved).
-//
-//Constant-foldable negative int literals (`-5`) are folded at write time into
-//a single RTK_Int32 with negative intValue — no separate tag needed.
-//
-//v2.3: defaults outside the constant-foldable subset ride RTK_Expr — the
-//wire carries a serialized ExprDesc tree in exprBytes (u16 length prefix;
-//grammar and reader in ExprDesc.h). The consumer rebuilds an unresolved
-//AST from it and lets
-//the normal declaration-side resolution pass bind it (formal references,
-//module-qualified calls). RTK_Unfoldable remains the reject stamp for
-//expressions outside the ExprDesc subset (casts, bool literals, …).
-struct DefaultValueDesc {
-    uint8_t  tag = RTK_Void;
-    uint32_t intValue = 0;     // RTK_Int32
-    float    floatValue = 0.0f;// RTK_Float
-    uint32_t stringIdx = 0;    // RTK_String (producer-side index)
-    //0.7.5: 8-byte scalar channels (RTK_Long/RTK_ULong/RTK_Double).
-    int64_t  longValue = 0;
-    double   doubleValue = 0.0;
-    //v2.3: non-empty only when tag == RTK_Expr. ED_Literal_String arms
-    //hold PRODUCER-side stringConstants indices — the import merge
-    //remaps them (NcuLinker::FinalizeFunction, like stringIdx above).
-    std::vector<uint8_t> exprBytes;
-
-    bool hasDefault() const { return tag != RTK_Void; }
-};
-
-//Phase 9d: try/catch descriptor. One entry per catch clause. At throw time,
-//VmExecutor linearly scans func.tryBlocks for the first entry where
-//startPc <= opPc < endPc and (exceptionClassIdx == 0xFFFF or the thrown
-//class is instance-of-target); on match, control jumps to handlerPc with
-//the exception heap idx bound to locals[catchLocalOff].
-//  exceptionClassIdx: 0xFFFF = unused/invalid (defensive default)
-//                      any other value = CompiledClass index of catch type
-//                      (Exception base class catches all subclasses via
-//                      IsInstanceOrSubclass walk).
-struct TryBlock {
-    uint16_t startPc = 0;
-    uint16_t endPc = 0;
-    uint16_t handlerPc = 0;
-    uint16_t exceptionClassIdx = 0xFFFF;
-    uint16_t catchLocalOff = 0;
-};
-
-struct CompiledFunction {
-    std::string name;
-    std::vector<uint8_t> bytecode;
-    std::vector<LocalDescriptor> locals;
-    uint16_t localsSize = 0;
-    uint16_t paramCount = 0;
-    uint16_t returnTypeKind = 0;
-    uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
-    //Phase 9f: native function declaration (`native int f(...);`). No
-    //bytecode — OP_CallFunc dispatches by name through the host's
-    //native table (VmExecutor::RegisterNative). Body-less by contract.
-    bool isNative = false;
-    //Option B: per-formal default values. Size == paramCount for free
-    //functions and constructors; for methods, size == paramCount-1 (the
-    //'this' slot has no default). Formals without defaults carry tag=RTK_Void.
-    std::vector<DefaultValueDesc> defaultValues;
-    //Phase 9d: try/catch table. Empty for functions without try blocks.
-    std::vector<TryBlock> tryBlocks;
-    //v1.9 (debugger): source file path this function was compiled from,
-    //as recorded by the TU (empty for intrinsics/unknown). Survives the
-    //import merge so breakpoints can address imported functions.
-    std::string sourceFile;
-    //v1.12: true formal types (one per AST formal — methods exclude the
-    //implicit this slot, mirroring defaultValues' sizing) and the return
-    //type. Empty / NonSerialized entries are "not expressible in the
-    //descriptor grammar"; stub reconstruction degrades to the int32
-    //placeholder for those, while embed call marshalling defers to the
-    //frame-layout locals table (CallMarshalling.h DeclaredParamKind).
-    //Intrinsics/builtins carry none (their records are minted without
-    //the AST capture pass and never become stubs).
-    std::vector<ParamTypeDesc> paramTypeDescs;
-    TypeDesc returnTypeDesc;
-    //K2 slice 5: per-slot root classes for the frame band (see
-    //EvalSlotClass). Built by the backend at function finalize: the
-    //fixed scratch region (temps + call staging) is Dual, named slots
-    //and the return slot take their declared kinds, evalArea slots
-    //start None and widen by OR-merged claim classes. Serialized as
-    //the function record's trailing field. Empty when the band is
-    //empty (native/builtin bandless records); a length that disagrees
-    //with localsSize/paramCount makes the GC fall back to the
-    //conservative band scan.
-    std::vector<uint8_t> evalAreaHandleMask;
-};
-
-struct CompiledModule;
-
-struct CompiledClass {
-    std::string name;
-    uint16_t fieldCount = 0;
-    int16_t superClassIdx = -1;
-    std::vector<std::string> fieldNames;
-    std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
-    std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
-    std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
-    std::vector<uint8_t>  fieldAccess;           // FA_* per field
-    //v1.12: per-field recursive type descriptors (empty entries = not
-    //expressible). Survive the import merge (indices remapped). Wire
-    //fidelity only — like the struct sibling, no stub-side reader. Built-in
-    //classes carry none (no AST capture; no consumer).
-    std::vector<TypeDesc> fieldTypeDescs;
-    std::vector<uint16_t> methodIndices;         // method function indices (by declaration order)
-    uint16_t constructorIdx = 0xFFFF;           // constructor function index
-};
-
 struct CompiledModule {
     //v2.0: the module's dotted path (the compile unit's package identity).
     std::string modulePath;
@@ -341,6 +190,8 @@ struct CompiledModule {
     std::vector<std::string> stringConstants;
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
+    //0.9.10 (v2.4): interface statics, keyed like enumKeys (qualified).
+    std::vector<CompiledInterface> interfaces;
     std::vector<CompiledArrayType> arrayTypes;
     //Phase 8e-9b: per-enum value name tables. Outer index = enumDefIdx (in
     //declaration order across the module), inner index = enum int value.
@@ -371,6 +222,23 @@ struct CompiledModule {
         //runtime dispatch is by name — the owner key lives in the slot
         //record only (phase6 design section 2).
         std::string ownerClassKey;
+        //0.9.10 (v2.4): part of the linkage identity — a static and an
+        //instance member of the same name and arity are distinct slots.
+        bool isStatic = false;
+        //0.9.11 (v2.6): which table kind ownerClassKey addresses —
+        //0 = namespace-level (ownerClassKey empty), 1 = class member,
+        //2 = struct member. The linker dispatches its owner lookup on
+        //this (a bare key alone cannot tell a struct constructor from a
+        //same-named class method). Unused (0) on the type import lists.
+        uint8_t ownerKind = 0;
+        //0.9.11 (v2.6), generalized 0.9.12 D-new-8: the member's ordinal
+        //in the owner's table — constructors: index into
+        //constructorIndices; methods and statics: position in
+        //methodIndices with constructor entries skipped. Overloaded
+        //members share name+paramCount, so the ordinal single-selects.
+        //0xFFFF = no ordinal (namespace-level records, malformed or
+        //legacy method matches).
+        uint16_t ownerOrdinal = 0xFFFF;
     };
     std::vector<SymbolImport> functionImports;   //slots after own functions
     std::vector<SymbolImport> classImports;      //slots after own classes

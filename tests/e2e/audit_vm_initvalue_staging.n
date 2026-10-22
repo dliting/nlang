@@ -10,7 +10,7 @@ struct Point { int x; int y; }
 Point make(int v) { Point p; p.x = v; p.y = v; return p; }
 int use(Point p) { return p.x; }
 struct Box { int v; }
-class CBox { int v; }
+class CBox { public int v; }
 
 int main() {
     int r = 0;

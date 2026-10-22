@@ -212,14 +212,15 @@ void VmExecutor::MarkBoxedPayload(int32_t idx) {
 void VmExecutor::MarkClassFields(int32_t idx,
                                  std::vector<int32_t>& worklist) {
     int32_t classIdx = m_structHeap[idx][0];
-    auto& cc = m_currModule->classes[classIdx];
-    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
+    //0.9.12 T1: declared field kinds come from the layout view.
+    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
+    for (size_t i = 0; i < fields.size(); ++i) {
         int32_t refIdx = m_structHeap[idx][i * 2 + 1];
         //String fields carry a string-store handle, not a heap
         //index — route before the heap-index guard (a valid handle
         //may lie beyond the struct heap's size). No runtime slot-
         //kind double condition: the string store has no slotKinds.
-        if (cc.fieldTypeKinds[i] == RTK_String) {
+        if (fields[i].kind == RTK_String) {
             MarkString(refIdx);
             continue;
         }
@@ -239,12 +240,12 @@ void VmExecutor::MarkClassFields(int32_t idx,
         //push those too; the worklist's boxed arm marks a wrapped
         //string payload. Without this arm the sweep frees the
         //box while the field still points at it.
-        if ((cc.fieldTypeKinds[i] == RTK_Class
+        if ((fields[i].kind == RTK_Class
                 && (m_slotKinds[refIdx] == RTK_Class
                     || m_slotKinds[refIdx] == RTK_Boxed))
-            || (cc.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
-            || (cc.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
-            || (cc.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
+            || (fields[i].kind == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
+            || (fields[i].kind == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
+            || (fields[i].kind == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
             if (!m_markBits[refIdx])
                 PushMarked(refIdx, worklist);
         }
@@ -380,14 +381,15 @@ void VmExecutor::SweepPhase() {
 
 void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {
     int32_t classIdx = m_structHeap[heapIdx][0];
-    auto& cc = m_currModule->classes[classIdx];
-    for (uint16_t i = 0; i < cc.fieldCount; ++i) {
-        if (cc.fieldTypeKinds[i] == RTK_Struct
-            && cc.fieldStructIndices[i] != 0xFFFF) {
+    //0.9.12 T1: declared field kinds come from the layout view (the GC
+    //trusts the cell-0 classIdx, same as MarkClassFields).
+    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
+    for (size_t i = 0; i < fields.size(); ++i) {
+        if (fields[i].kind == RTK_Struct && fields[i].structIdx != 0xFFFF) {
             int32_t structSlotIdx = m_structHeap[heapIdx][i * 2 + 1];
             if (structSlotIdx > 0 && static_cast<size_t>(structSlotIdx) < m_slotKinds.size()
                 && m_slotKinds[structSlotIdx] == RTK_Struct) {
-                FreeNestedStructs(structSlotIdx, cc.fieldStructIndices[i]);
+                FreeNestedStructs(structSlotIdx, fields[i].structIdx);
                 m_structHeap[structSlotIdx].clear();
                 m_slotKinds[structSlotIdx] = 0;
                 m_freeList.push_back(structSlotIdx);

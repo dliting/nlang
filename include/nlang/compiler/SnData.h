@@ -143,6 +143,21 @@ public:
 		return m_pReturnType != nullptr;
 	}
 
+	//Does this function have an implementation a call can run? True when
+	//it carries a body (source), the native flag (a host-table binding),
+	//or the imported flag (a foreign unit's registration). A body-less,
+	//non-native, non-imported declaration — the abstract shape a class or
+	//struct member takes from a trailing ';' — has nothing to run. This is
+	//the single definition of the constructor-registration predicate: the
+	//backend's VmBackend::IsRegisteredCtor delegates here and the
+	//resolver's constructor-candidate filter (ExprResolverNew.cpp) calls
+	//it, so the two layers never diverge — a divergent filter splits the
+	//frame-walker claim from the codegen claim (see VmBackend.h).
+	bool HasImplementation() const
+	{
+		return IsImported() || Body() || ContainFlags(NF_Native);
+	}
+
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Function *MetaFunc() const;
 #endif

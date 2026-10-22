@@ -1,0 +1,12 @@
+//0.9.14: a void static method with an out parameter rides the free
+//delegate ABI (OP_CallDelegateOut write-back).
+class B {
+    public static void bump(out int r) { r = r + 20; }
+}
+
+int main() {
+    func<void, out int> h = B.bump;
+    int v = 22;
+    h(out v);
+    return v;
+}

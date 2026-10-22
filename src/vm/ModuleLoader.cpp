@@ -102,6 +102,9 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     ReadFunctionRecords(fs, mod);
     ReadStructRecords(fs, mod);
     ReadClassRecords(fs, mod);
+    //0.9.10 v2.4: interface statics, written between the class and
+    //array-type sections.
+    ReadInterfaceRecords(fs, mod);
 
     //v1.12: descriptors reference struct/class indices of THIS module —
     //the function records were parsed before the tables, so bounds are
@@ -123,6 +126,21 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
             for (const auto& td : cc.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
                     mod.classes.size());
+        //0.9.10 D3: interface constant declared types carry descriptors
+        //like any other exported type. 0.9.12 (v2.7): so do the
+        //instance-method signatures (formals and return).
+        for (const auto& iface : mod.interfaces) {
+            for (const auto& constant : iface.constants)
+                ValidateTypeDescIndices(constant.type, mod.structs.size(),
+                    mod.classes.size());
+            for (const auto& sig : iface.instanceMethods) {
+                for (const auto& ptd : sig.paramTypeDescs)
+                    ValidateTypeDescIndices(ptd.type, mod.structs.size(),
+                        mod.classes.size());
+                ValidateTypeDescIndices(sig.returnType, mod.structs.size(),
+                    mod.classes.size());
+            }
+        }
     }
 
     //Array type descriptors
@@ -181,7 +199,10 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
     //function section additionally carries u16 ownerClassKeyLen + bytes
-    //(empty = namespace-level function; see SymbolImport).
+    //(empty = namespace-level function; see SymbolImport), the
+    //0.9.10 v2.4 static flag byte (linkage identity, see SymbolImport),
+    //and the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table
+    //kind and constructor ordinal, see SymbolImport).
     auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports,
                              bool withOwnerKey)
     {
@@ -220,6 +241,25 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                         "Invalid module: bad import owner key length");
                 imp.ownerClassKey.resize(ownerLen);
                 fs.read(imp.ownerClassKey.data(), ownerLen);
+                //0.9.10 v2.4: static flag (linkage identity).
+                uint8_t staticFlag = 0;
+                fs.read(reinterpret_cast<char*>(&staticFlag),
+                        sizeof(staticFlag));
+                imp.isStatic = (staticFlag != 0);
+                //0.9.11 v2.6: owner table kind + constructor ordinal.
+                //ownerKind must name one of the three owner kinds; a
+                //ownerOrdinal is only bounds-checked against the target
+                //table by the linker (the producer's table is gone).
+                fs.read(reinterpret_cast<char*>(&imp.ownerKind),
+                        sizeof(imp.ownerKind));
+                fs.read(reinterpret_cast<char*>(&imp.ownerOrdinal),
+                        sizeof(imp.ownerOrdinal));
+                if (!fs.good())
+                    throw std::runtime_error(
+                        "Invalid module: truncated import owner fields");
+                if (imp.ownerKind > 2)
+                    throw std::runtime_error(
+                        "Invalid module: bad import owner kind");
             }
         }
     };

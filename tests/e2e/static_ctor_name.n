@@ -1,0 +1,12 @@
+//0.9.10 D2.4: a static method may share the class name. It lives in the
+//static namespace and must never become the constructor — declaration
+//order is irrelevant, and the static is reached as A.A(...).
+class A {
+	public int x;
+	public A(int v, int w) { this.x = v + w;}
+	public static int A(string s) { return s.length(); }
+}
+int main() {
+	A a = A(3, 4);
+	return a.x * 10 + A.A("abc");
+}

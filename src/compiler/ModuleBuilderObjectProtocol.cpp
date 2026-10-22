@@ -48,18 +48,13 @@ const ProtocolEntry* FindProtocolEntry(const std::string &name)
 	return nullptr;
 }
 
-bool MatchesProtocolEntry(const SnFunction &f, const ProtocolEntry &e,
-	SnField *pObjectClass, SnField *pInt, SnField *pString)
+//Parameter-list half of the protocol identity. 0.9.10 D2.4: the
+//(name, parameter list) pair is the dispatch-slot identity, shared by
+//the duplicate-declaration and static-collision rules.
+bool ParamListMatchesProtocol(const SnFunction &f, const ProtocolEntry &e,
+	SnField *pObjectClass)
 {
-	//A static method cannot claim the protocol's dispatch slot either.
-	if (f.ContainFlags(NF_Static))
-		return false;
 	if (f.Params().size() != e.paramCount)
-		return false;
-	SnField *pRetExpected =
-		(e.returnKind == NK_String) ? pString : pInt;
-	auto *pRet = f.ReturnType() ? f.ReturnType()->Field() : nullptr;
-	if (pRet != pRetExpected)
 		return false;
 	if (e.paramCount == 1)
 	{
@@ -72,6 +67,20 @@ bool MatchesProtocolEntry(const SnFunction &f, const ProtocolEntry &e,
 		}
 	}
 	return true;
+}
+
+bool MatchesProtocolEntry(const SnFunction &f, const ProtocolEntry &e,
+	SnField *pObjectClass, SnField *pInt, SnField *pString)
+{
+	//A static method cannot claim the protocol's dispatch slot either.
+	if (f.ContainFlags(NF_Static))
+		return false;
+	if (!ParamListMatchesProtocol(f, e, pObjectClass))
+		return false;
+	SnField *pRetExpected =
+		(e.returnKind == NK_String) ? pString : pInt;
+	auto *pRet = f.ReturnType() ? f.ReturnType()->Field() : nullptr;
+	return pRet == pRetExpected;
 }
 
 } //namespace
@@ -94,18 +103,28 @@ bool CheckObjectProtocol(SnClassDecl &cls, const std::string &name,
 	auto *pString = SnBuiltinDataType::InstanceOf(NK_String);
 	bool protocolRejected = false;
 	for (auto *pOwn : funcs)
-		if (!MatchesProtocolEntry(*pOwn, *pProtocol,
-				pObjectClass, pInt, pString))
+	{
+		//0.9.10 D2.4: a static with a different parameter list lives in
+		//the static namespace and never competes with the inherited
+		//Object method. A same-parameter-list static still claims the
+		//dispatch slot — the 0.9.7 collision rule.
+		if (pOwn->ContainFlags(NF_Static))
 		{
-			env.Log(CLL_Error, pOwn->Location(),
-				"The method \"%s\" claims the virtual dispatch "
-				"slot of \"Object.%s\" with a different "
-				"signature \"%s\". Align the signature to "
-				"override, or rename the method.",
-				pOwn->Name().c_str(), pProtocol->rendered,
-				FormatSignature(name, *pOwn).c_str());
-			protocolRejected = true;
+			if (!ParamListMatchesProtocol(*pOwn, *pProtocol, pObjectClass))
+				continue;
 		}
+		else if (MatchesProtocolEntry(*pOwn, *pProtocol,
+				pObjectClass, pInt, pString))
+			continue;
+		env.Log(CLL_Error, pOwn->Location(),
+			"The method \"%s\" claims the virtual dispatch "
+			"slot of \"Object.%s\" with a different "
+			"signature \"%s\". Align the signature to "
+			"override, or rename the method.",
+			pOwn->Name().c_str(), pProtocol->rendered,
+			FormatSignature(name, *pOwn).c_str());
+		protocolRejected = true;
+	}
 	return protocolRejected;
 }
 

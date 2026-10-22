@@ -1,0 +1,9 @@
+//0.9.11 T6 (D10): the struct twin of the no-match diagnostic.
+struct U {
+    int tag;
+    public U(int a) { tag = a; }
+}
+int main() {
+    U u = U("s");
+    return 0;
+}

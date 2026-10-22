@@ -113,6 +113,26 @@ function invoke "foo(y)" is not compatible with the declaration.`. See
 → [Statements](statements.md) "Unbraced body" and
 [Out Parameters](out-parameters.md).
 
+### Top-level direct-init with a member or relational first argument
+
+```nlang
+class Vec { public int x; public Vec(int v){ x = v; } }
+Vec base = Vec(5);
+Vec p(base.x);
+return 0;
+```
+
+```text
+Error: syntax error
+```
+
+At top level, a direct-init declaration whose **first** argument starts
+with an identifier followed by `.` or `<` is read as a type line and
+rejected. Call expressions, subscripts, and every argument after the
+first parse fine; function bodies are unaffected. Workaround: assignment
+initialization — `Vec p = Vec(base.x);`. See →
+[Known Limitations](known-limitations.md).
+
 ### Assignment targets
 
 ```nlang
@@ -417,7 +437,7 @@ non-string-keyed `Dict<K,V>` with the empty initializer, then fill
 entries with `set()`. See →
 [Collection Initializers](collection-initializers.md).
 
-### Structs have no constructors
+### A struct without a constructor cannot take arguments
 
 ```nlang
 struct Point { int x; int y; }
@@ -428,14 +448,15 @@ int main() {
 ```
 
 ```text
-Error: The function "Point" does not exist or is not accessible.
+Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
-Structs have no constructors — `Point(2, 3)` parses as a call to a
-function named `Point`, which fails to resolve. Create structs with
-braced entries instead: named `Point{x: 2, y: 3}` or positional
-`Point{2, 3}` (see [Struct](struct.md) and [Collection
-Initializers](collection-initializers.md)).
+A struct that declares no constructor can only be created with a bare
+declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
+`Point{2, 3}`) — it cannot be called with arguments. Declare a constructor
+to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
+run it (see [Struct](struct.md) "Creating and initializing" and
+[Collection Initializers](collection-initializers.md)).
 
 ### Generic braced anchors
 

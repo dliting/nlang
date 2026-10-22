@@ -1,0 +1,12 @@
+//0.9.11 D9: a user constructor with parameters also receives the
+//injected defaults before its body runs (no zero-arg synthesis when a
+//user constructor exists).
+class Cfg {
+	public int x = 3;
+	public Cfg(int y) { this.x = this.x + y; }
+}
+
+int main() {
+	Cfg c = Cfg(4);
+	return c.x;
+}

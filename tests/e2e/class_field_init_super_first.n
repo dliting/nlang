@@ -1,0 +1,21 @@
+//0.9.11 D9 (base-first): the base's synthesized constructor applies its
+//default during super(), and the derived injection lands right after
+//super() — the body below reads both defaults (a = 1, b = 2) and sums
+//them into b.
+class Base {
+	public int a = 1;
+}
+
+class Derived : Base {
+	public int b = 2;
+	public Derived() {
+		super();
+		this.b = this.b + this.a;
+	}
+}
+
+int main() {
+	Derived d = Derived();
+	if (d.a == 1 && d.b == 3) return 7;
+	return 1;
+}

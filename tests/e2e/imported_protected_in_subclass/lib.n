@@ -1,0 +1,4 @@
+class Box {
+    protected int prot;
+    public Box() { prot = 3; }
+}

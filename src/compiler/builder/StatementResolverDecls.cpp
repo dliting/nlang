@@ -38,9 +38,11 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 
 //P3 review: walk an expression subtree looking for a `this` reference —
 //an explicit SnThisExpr, or a bare identifier that resolved to a class
-//field (the implicit this.field binding; NK_ClassField distinguishes it
-//from formals/locals, and bare names cannot reach another class's
-//fields). Same traversal contract as ReferencesFormal above.
+//or struct field (the implicit this.field binding; NK_ClassField/
+//NK_StructField distinguishes it from formals/locals, and bare names
+//cannot reach another type's fields). Same traversal contract as
+//ReferencesFormal above. 0.9.11 D2: struct constructor defaults join
+//the rejection surface.
 static bool ReferencesThis(SnExpression& expr)
 {
 	if (expr.Kind() == NK_ThisExpr)
@@ -48,7 +50,8 @@ static bool ReferencesThis(SnExpression& expr)
 	if (expr.Kind() == NK_IdentifierExpr) {
 		auto& id = static_cast<SnIdentifierExpr&>(expr);
 		auto* pField = id.Field();
-		if (pField && pField->Kind() == NK_ClassField)
+		if (pField && (pField->Kind() == NK_ClassField
+			|| pField->Kind() == NK_StructField))
 			return true;
 	}
 	for (auto& child : expr.Children()) {
@@ -59,16 +62,6 @@ static bool ReferencesThis(SnExpression& expr)
 			return true;
 	}
 	return false;
-}
-
-//P3 review: true when sn is a constructor — a member function of a class
-//whose name equals the class name (the same declaration-shape rule
-//FindCtorParamRange applies to class members).
-static bool IsConstructorFunction(SnFunction& sn)
-{
-	auto* pParent = sn.Parent();
-	return pParent && pParent->Kind() == NK_ClassDecl
-		&& sn.Name() == static_cast<SnClassDecl*>(pParent)->Name();
 }
 
 void StatementResolveAccessor::Access(SnFunction &sn)
@@ -88,6 +81,8 @@ void StatementResolveAccessor::Access(SnFunction &sn)
 			sn.Params().size(),
 			kMaxFuncParams);
 	}
+
+	CheckCtorDeclarationContract(sn);
 
 	//Formals are collected into a vector because ParamList exposes
 	//begin/end iterators but no operator[]; the checks below index by

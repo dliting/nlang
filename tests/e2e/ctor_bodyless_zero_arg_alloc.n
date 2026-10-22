@@ -1,0 +1,13 @@
+//0.9.11: a body-less, non-native constructor is still a legal
+//declaration (the abstract shape). A zero-argument call to it allocates
+//the object without running any constructor body — the same shape as a
+//type with no constructor at all — so it stays legal after the candidate
+//filter. The field keeps its zero-initialized value.
+class Cfg {
+    public int x;
+    Cfg();
+}
+int main() {
+    Cfg c = Cfg();
+    return c.x;
+}

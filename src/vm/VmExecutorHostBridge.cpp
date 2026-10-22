@@ -111,52 +111,17 @@ void VmExecutor::FillDefaults(const CompiledFunction& callee,
 //One formal's default staged into its frame cell.
 void VmExecutor::FillOneDefault(const CompiledFunction& callee,
                                 const DefaultValueDesc& d, uint8_t* cell) {
-    switch (d.tag) {
-    case RTK_Int32: {
-        //Producer fact (src/vm/backend/Types.cpp:62-107
-        //ExtractLiteralDefault): defaults only ever carry
-        //RTK_Int32/Long/ULong/Float/Double/Null/String. A 4-byte
-        //formal's default lands as RTK_Int32 regardless of declared
-        //width (byte/short/uint literals are RnInt32); bool/char/
-        //non-foldable defaults stay RTK_Void/Unfoldable and are
-        //rejected below — same limitation as the cross-module stub
-        //path. Value in the low 4 bytes; negative via uint32 cast.
-        const int32_t v = static_cast<int32_t>(d.intValue);
-        std::memcpy(cell, &v, sizeof(v));
-        break;
-    }
-    case RTK_Long:
-    case RTK_ULong:
-        std::memcpy(cell, &d.longValue, sizeof(d.longValue));
-        break;
-    case RTK_Float:
-        std::memcpy(cell, &d.floatValue, sizeof(d.floatValue));
-        break;
-    case RTK_Double:
-        std::memcpy(cell, &d.doubleValue, sizeof(d.doubleValue));
-        break;
-    case RTK_Null: {
-        const int32_t nullHandle = 0;
-        std::memcpy(cell, &nullHandle, sizeof(nullHandle));
-        break;
-    }
-    case RTK_String: {
-        //Post-link the index is remapped into this module's table;
-        //mint a runtime string so the value behaves like any other.
-        if (d.stringIdx >= m_currModule->stringConstants.size())
-            throw std::runtime_error(
-                "NLang VM: default string index out of range");
-        const int32_t handle =
-            MintNewString(m_currModule->stringConstants[d.stringIdx]);
-        std::memcpy(cell, &handle, sizeof(handle));
-        break;
-    }
-    case RTK_Void:
-    default:
-        throw std::runtime_error(
-            "NLang VM: missing argument without a constant default on "
-            + callee.name + " (embedding entry cannot rebuild it)");
-    }
+    //0.9.11 T4: the folded-value write moved into the shared
+    //MaterializeDefaultValue (VmDefaultMaterializer.cpp), the same site
+    //struct field defaults use at allocation. The embedding entry has no
+    //declaration to rebuild an expression default from, so every non-
+    //materializable tag (RTK_Void sentinel, RTK_Expr/RTK_Unfoldable)
+    //keeps the rejection below.
+    if (MaterializeDefaultValue(d, cell))
+        return;
+    throw std::runtime_error(
+        "NLang VM: missing argument without a constant default on "
+        + callee.name + " (embedding entry cannot rebuild it)");
 }
 
 //--- 宿主值桥 -------------------------------------------------------------
@@ -341,15 +306,14 @@ bool VmExecutor::HostBoxedRead(int32_t boxHeapIdx, uint8_t& tagOut,
     return true;
 }
 
-//Descriptor + base cell for a host field access. The heap slot's
-//runtime kind decides the descriptor table: RTK_Class reads the class
-//idx from slot[0]; RTK_Struct reads m_slotStructIdx (structs[] is a
+//Declared kind + base cell for a host field access. The heap slot's
+//runtime kind decides the table: RTK_Class reads the class idx from
+//slot[0] and the field surface from the VmClassLayout view (0.9.12 T1);
+//RTK_Struct reads m_slotStructIdx and the record (structs[] is a
 //separate table). CompiledStruct and CompiledClass are UNRELATED types
-//(no inheritance, CompiledModule.h:148/:384) whose field members merely
-//share names, so the descriptor returns as a small nested view struct
-//(HostFieldDesc below) — one code path serves both tables. Both use
-//the uniform 2-cells-per-field stride.
-VmExecutor::HostFieldDesc VmExecutor::ResolveHostField(
+//(no inheritance, CompiledModule.h:148/:384). Both use the uniform
+//2-cells-per-field stride.
+uint16_t VmExecutor::ResolveHostField(
         int32_t heapIdx, uint16_t fieldIndex, size_t& baseOut) const {
     if (heapIdx < 0
             || static_cast<size_t>(heapIdx) >= m_structHeap.size())
@@ -357,45 +321,40 @@ VmExecutor::HostFieldDesc VmExecutor::ResolveHostField(
             "NLang VM: host field access on bad heap idx");
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    HostFieldDesc desc = {};
-    size_t base = 0;
     if (kind == RTK_Struct) {
         const uint16_t idx =
             m_slotStructIdx[static_cast<size_t>(heapIdx)];
         if (idx >= m_currModule->structs.size())
             throw std::runtime_error("NLang VM: struct idx out of range");
         const CompiledStruct& st = m_currModule->structs[idx];
-        desc.fieldNames = &st.fieldNames;
-        desc.fieldTypeKinds = &st.fieldTypeKinds;
-        desc.fieldCount = st.fieldCount;
-        base = static_cast<size_t>(fieldIndex) * 2;   //uniform stride
-    } else if (kind == RTK_Class) {
+        if (fieldIndex >= st.fieldCount)
+            throw std::runtime_error("NLang VM: field index out of range");
+        baseOut = static_cast<size_t>(fieldIndex) * 2;   //uniform stride
+        if (baseOut + 1 >= slot.size())
+            throw std::runtime_error("NLang VM: instance slot too small");
+        return st.fieldTypeKinds[fieldIndex];
+    }
+    if (kind == RTK_Class) {
         const uint16_t idx = static_cast<uint16_t>(slot[0]);
         if (idx >= m_currModule->classes.size())
             throw std::runtime_error("NLang VM: class idx out of range");
-        const CompiledClass& cl = m_currModule->classes[idx];
-        desc.fieldNames = &cl.fieldNames;
-        desc.fieldTypeKinds = &cl.fieldTypeKinds;
-        desc.fieldCount = cl.fieldCount;
-        base = 1 + static_cast<size_t>(fieldIndex) * 2;  //[0]=class id
-    } else {
-        throw std::runtime_error(
-            "NLang VM: host field access on non-instance slot");
+        const auto& fields = m_classLayout.Fields(idx);
+        if (fieldIndex >= fields.size())
+            throw std::runtime_error("NLang VM: field index out of range");
+        baseOut = 1 + static_cast<size_t>(fieldIndex) * 2;  //[0]=class id
+        if (baseOut + 1 >= slot.size())
+            throw std::runtime_error("NLang VM: instance slot too small");
+        return fields[fieldIndex].kind;
     }
-    if (fieldIndex >= desc.fieldCount)
-        throw std::runtime_error("NLang VM: field index out of range");
-    if (base + 1 >= slot.size())
-        throw std::runtime_error("NLang VM: instance slot too small");
-    baseOut = base;
-    return desc;
+    throw std::runtime_error(
+        "NLang VM: host field access on non-instance slot");
 }
 
 uint8_t VmExecutor::HostFieldCellGet(int32_t heapIdx, uint16_t fieldIndex,
                                      uint8_t outCell[8]) const {
     size_t base = 0;
-    const HostFieldDesc desc = ResolveHostField(heapIdx, fieldIndex, base);
     const uint8_t declaredKind =
-        static_cast<uint8_t>((*desc.fieldTypeKinds)[fieldIndex]);
+        static_cast<uint8_t>(ResolveHostField(heapIdx, fieldIndex, base));
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     std::memset(outCell, 0, kFrameSlotBytes);
     std::memcpy(outCell, &slot[base], sizeof(int32_t));
@@ -409,9 +368,8 @@ uint8_t VmExecutor::HostFieldCellGet(int32_t heapIdx, uint16_t fieldIndex,
 void VmExecutor::HostFieldCellSet(int32_t heapIdx, uint16_t fieldIndex,
                                   const uint8_t cell[8]) {
     size_t base = 0;
-    const HostFieldDesc desc = ResolveHostField(heapIdx, fieldIndex, base);
     const uint8_t declaredKind =
-        static_cast<uint8_t>((*desc.fieldTypeKinds)[fieldIndex]);
+        static_cast<uint8_t>(ResolveHostField(heapIdx, fieldIndex, base));
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     std::memcpy(&slot[base], cell, sizeof(int32_t));
     if (declaredKind == RTK_Long || declaredKind == RTK_ULong
@@ -429,11 +387,27 @@ bool VmExecutor::HostFieldNameToIndex(int32_t heapIdx,
     //instance fails either way; the adapter translates the
     //runtime_error to BadValue).
     size_t base = 0;   //validates heapIdx/instance-ness as a side effect
-    const HostFieldDesc desc = ResolveHostField(heapIdx, 0, base);
-    for (uint16_t i = 0; i < desc.fieldCount; ++i) {
-        if ((*desc.fieldNames)[i] == fieldName) {
-            indexOut = i;
-            return true;
+    ResolveHostField(heapIdx, 0, base);
+    //The runtime kind was validated by the call above; re-reading the
+    //tables is safe (bounds already checked).
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Class) {
+        const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+        const auto& fields = m_classLayout.Fields(
+            static_cast<uint16_t>(slot[0]));
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (*fields[i].name == fieldName) {
+                indexOut = static_cast<uint16_t>(i);
+                return true;
+            }
+        }
+    } else {
+        const uint16_t idx = m_slotStructIdx[static_cast<size_t>(heapIdx)];
+        const CompiledStruct& st = m_currModule->structs[idx];
+        for (uint16_t i = 0; i < st.fieldCount; ++i) {
+            if (st.fieldNames[i] == fieldName) {
+                indexOut = i;
+                return true;
+            }
         }
     }
     return false;

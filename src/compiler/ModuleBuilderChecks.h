@@ -2,8 +2,9 @@
 ModuleBuilderChecks.h - internal seam of the ModuleBuilder check
 translation units: declarations shared between ModuleBuilderChecks.cpp
 and the split check TUs (ModuleBuilderMethodContracts.cpp,
-ModuleBuilderObjectProtocol.cpp). Split from ModuleBuilderChecks.cpp
-(2026-10-17 maintainability refactor, zero behavior change).
+ModuleBuilderObjectProtocol.cpp, ModuleBuilderStaticNamespace.cpp).
+Split from ModuleBuilderChecks.cpp (2026-10-17 maintainability
+refactor, zero behavior change).
 ---*/
 #pragma once
 #include <string>
@@ -23,10 +24,16 @@ class BuildEnvironment;
 void CollectClasses(SnNamespace &root,
 	std::vector<SnClassDecl*> &classes);
 
-//Render a method signature for diagnostics; shared by the contracts
-//TU and the Object-protocol TU. Definition in
-//ModuleBuilderMethodContracts.cpp.
+//Render a method signature for diagnostics; shared by the contracts,
+//Object-protocol and static-namespace TUs. Definition in
+//ModuleBuilderChecks.cpp.
 std::string FormatSignature(const std::string &name, const SnFunction &f);
+
+//Per-name static-family rules of the method-contract family (definition
+//in ModuleBuilderStaticNamespace.cpp): true when an own static claims an
+//inherited virtual or Object-protocol dispatch slot (0.9.10 D2.4).
+bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
+	const std::vector<SnFunction*> &funcs, BuildEnvironment &env);
 
 //Object-protocol check of the method-contract family (definition in
 //ModuleBuilderObjectProtocol.cpp): true when any own same-name method

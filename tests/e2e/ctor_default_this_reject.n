@@ -6,9 +6,8 @@
 class Vec {
     public int a;
     public int b;
-    public int Vec(int x, int y = this.a) {
-        this.a = x; this.b = y; return 0;
-    }
+    public Vec(int x, int y = this.a) {
+        this.a = x; this.b = y;    }
 }
 
 int main() {

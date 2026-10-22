@@ -1,0 +1,9 @@
+// cross_mod_private_virtual_ok — the positive side of access-agnostic
+// contracts (0.9.12 D-new-10): a matching-signature override of an
+// imported base PRIVATE virtual compiles and dispatches dynamically
+// through the producer's own caller (template-method pattern): g() calls
+// this.f(1), which reaches D.f and returns 101.
+class B {
+    private virtual int f(int x) { return x; }
+    public int g() { return this.f(1); }
+}

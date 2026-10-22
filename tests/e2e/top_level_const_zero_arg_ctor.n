@@ -1,0 +1,3 @@
+class Foo { public int x; public Foo(){ x = 42; } }
+const Foo f();
+return f.x;

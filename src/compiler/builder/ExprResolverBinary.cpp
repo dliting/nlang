@@ -32,17 +32,6 @@ static bool IsCompareOp(SnBinaryExpr::Operator op)
 		|| op == SnBinaryExpr::OP_NotEqual;
 }
 
-//Registry test: an integer row (signed or unsigned category). bool and
-//char rows are their own categories, floats are excluded — this is the
-//shift family's operand gate (0.9.9).
-static bool IsIntegerPrimKind(NodeKind k)
-{
-	int i = ScalarPrimIndexOf(k);
-	return i >= 0
-		&& (kScalarPrims[i].category == PC_SInt
-			|| kScalarPrims[i].category == PC_UInt);
-}
-
 //Mixed string/non-string has no semantics ("a" < 5), in either operand
 //order. Null literals are exempt: KT_Null is Int32-typed, and
 //`s == null` / `c == null` are the established null checks — the null
@@ -355,9 +344,9 @@ bool ExprResolveAccessor::ResolveShiftBinary(SnBinaryExpr &sn,
 	NodeKind lk = L ? L->Kind() : NK_Int32;
 	NodeKind rk = R ? R->Kind() : NK_Int32;
 	const char* opName = op == SnBinaryExpr::OP_Shl ? "<<" : ">>";
-	if (!IsIntegerPrimKind(lk) || !IsIntegerPrimKind(rk))
+	if (!PrimKindIsInteger(lk) || !PrimKindIsInteger(rk))
 	{
-		auto* bad = IsIntegerPrimKind(lk) ? R : L;
+		auto* bad = PrimKindIsInteger(lk) ? R : L;
 		m_Env.Log(CLL_Error, sn.Location(),
 			"operator '%s' requires integer operands, got \"%s\".",
 			opName, bad ? bad->ToString().c_str() : "?");
@@ -377,10 +366,8 @@ bool ExprResolveAccessor::ResolveShiftBinary(SnBinaryExpr &sn,
 //Wrap both shift operands in place to the carrier row (the Phase 8e-8
 //pattern) so codegen sees uniform operand types matching the binary's
 //EvalDataType. The left row is the carrier or widens to it, so it always
-//passes FixupExprType's implicit gate; a count that cannot reach the
-//carrier implicitly (a wider or differently-signed row would silently
-//truncate the count) gets a shift-specific diagnostic. False = rejected
-//(diagnostic logged).
+//passes FixupExprType's implicit gate; the count goes through the shared
+//count gate below. False = rejected (diagnostic logged).
 bool ExprResolveAccessor::WrapShiftOperands(SnBinaryExpr &sn,
 	SnField* T_result, const char* opName)
 {
@@ -391,31 +378,42 @@ bool ExprResolveAccessor::WrapShiftOperands(SnBinaryExpr &sn,
 	if (!sn.Right())
 		return true;
 	++it;
-	auto& rightExpr = static_cast<SnExpression&>(*it);
-	auto* R = rightExpr.EvalDataType();
-	TypeCastInfo rightCI(R, T_result);
-	//FixupExprType's own gate order, with a shift-specific diagnostic:
-	//a constant count that fits the carrier is rescued by
-	//ConstantFitGate (u >> 1 keeps working); a constant that does not
-	//fit keeps ConstantFitGate's precise message; a non-constant count
-	//whose row cannot reach the carrier implicitly (wider or
-	//differently signed — it would silently truncate the count) is
-	//rejected with the shift message.
-	if (rightCI.Kind() != TCK_Same && rightCI.Kind() != TCK_Auto)
+	return AdmitShiftCount(it, T_result, sn.Location(), opName);
+}
+
+//0.9.10: the count-admission core of the shift family, shared by the
+//binary form (WrapShiftOperands) and the compound form (the shift branch
+//of StatementResolverAssign, reached through the ExprResolver forwarder).
+//FixupExprType's own gate order, with a shift-specific diagnostic: a
+//constant count that fits the carrier is rescued by ConstantFitGate
+//(u >> 1 keeps working); a constant that does not fit keeps
+//ConstantFitGate's precise message; a non-constant count whose row
+//cannot reach the carrier implicitly (a wider or differently-signed row
+//would silently truncate the count) is rejected with the shift message.
+//`iCount` positions the count expression in its parent's child list and
+//is replaced by the carrier wrap in place (the Phase 8e-8 pattern).
+//False = rejected (diagnostic logged).
+bool ExprResolveAccessor::AdmitShiftCount(NodeIterator &iCount,
+	SnField *pCarrier, const ISourceLocation *pLoc, const char *opName)
+{
+	auto& countExpr = static_cast<SnExpression&>(*iCount);
+	auto* R = countExpr.EvalDataType();
+	TypeCastInfo countCI(R, pCarrier);
+	if (countCI.Kind() != TCK_Same && countCI.Kind() != TCK_Auto)
 	{
-		auto fit = ConstantFitGate(rightExpr, rightCI);
+		auto fit = ConstantFitGate(countExpr, countCI);
 		if (fit != ConstantFitGateResult::CFG_Promoted)
 		{
 			if (fit == ConstantFitGateResult::CFG_NotApplicable)
-				m_Env.Log(CLL_Error, sn.Location(),
+				m_Env.Log(CLL_Error, pLoc,
 					"operator '%s' requires a count implicitly convertible "
 					"to \"%s\", got \"%s\".",
-					opName, T_result->ToString().c_str(),
+					opName, pCarrier->ToString().c_str(),
 					R ? R->ToString().c_str() : "?");
 			return false;
 		}
 	}
-	FixupExprType(it, rightCI);
+	FixupExprType(iCount, countCI);
 	return true;
 }
 

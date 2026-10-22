@@ -26,6 +26,8 @@ arrays and containers, passed around, and invoked later:
 
 - **Free function reference** (`bar`) — a static-bound handle to the
   function.
+- **Static method reference** (`Util.twice`) — a receiverless handle
+  to a static method; inside the owning class the bare name works too.
 - **Bound method reference** (`c.foo`) — captures the receiver: the
   object travels with the handle and its **state persists across
   calls**.
@@ -38,6 +40,7 @@ using BinOp = func<int, int>;
 
 class Counter {
     int n;
+    static int twice(int x) { return x * 2; }
     int foo(int x) { n = n + 1; return n + x; }
     virtual int tw(int x) { return x * 2; }
 }
@@ -50,6 +53,7 @@ void apply(BinOp f) { io.print(f(10)); }
 int main() {
     Counter c = Counter();
     apply(bar);       // 11    free function
+    apply(Counter.twice); // 20    static: no receiver
     apply(c.foo);     // 11    bound: n becomes 1, 1 + 10
     Counter b = Big();
     apply(b.tw);      // 1000  virtual: runtime class Big wins
@@ -100,10 +104,19 @@ delegate invocations are rejected.
   the expected `func` type.
 - Referencing functions or methods with **default parameters** —
   defaults are filled only on the direct-call path.
+- **Static method references** — a static method binds as a function
+  value through the type name (`Util.twice`), including inherited
+  statics, interface statics, native statics, and the bare form inside
+  the owning class. Through an object receiver (`b.twice`) it stays
+  rejected ("the static method must be called through the type name").
+- **Instance methods through the type name** — rejected ("the instance
+  method must be called through a receiver object").
 - **Enum methods** — the receiver is an int value, not a heap object.
-- **Native methods** in any reachable form: declared `native`, an
-  override under a virtual base, or an implementation of an interface
-  member (native calls have no callee frame for the receiver).
+- **Native instance methods** in any reachable form: declared
+  `native`, an override under a virtual base, or an implementation of
+  an interface member (native calls have no callee frame for the
+  receiver). Native static methods are referenceable through the type
+  name.
 - **Virtual/interface references whose `func` type has `out` parameters**
   — runtime dispatch could disagree with the compiled out mask.
 - **`out` in the return position** (`func<out int, ...>`) — rejected

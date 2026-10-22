@@ -1,0 +1,4 @@
+public int main() {
+    List<int[]> l = [[1, 2], [3]];
+    return l[1][0];
+}

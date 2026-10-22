@@ -1,0 +1,16 @@
+//0.9.14 D-new-7: a static method with an out parameter is referenceable
+//— the out mask is compiled from the func type and the static target is
+//statically known.
+class Calc {
+    public static int mix(int a, int b, out int sum) {
+        sum = a + b;
+        return a * b;
+    }
+}
+
+int main() {
+    func<int, int, int, out int> f = Calc.mix;
+    int r = 0;
+    int p = f(7, 2, out r);
+    return p + r;
+}

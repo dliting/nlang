@@ -1,0 +1,8 @@
+//Sealed .ncu import: the qualified static call `lib.Mix.f(3)` resolves
+//the module-qualified type reference to the imported class stub, then
+//the static method through the type scope (0.9.12).
+import lib;
+
+int main() {
+	return lib.Mix.f(3);
+}

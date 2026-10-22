@@ -1,0 +1,7 @@
+//0.9.10 D3: folded bool/char interface constants cross modules through
+//the default-value RTK channel; the stub rebuilds the declared type too.
+interface Flags {
+	public static const bool ENABLED = true;
+	public static const bool DISABLED = false;
+	public static const char MARK = '中';
+}

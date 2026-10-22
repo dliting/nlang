@@ -1,0 +1,10 @@
+//0.9.11 T6 (D10): no candidate accepts the argument list — a string
+//literal has no implicit conversion to int, so nothing matches.
+class U {
+    public int tag;
+    public U(int a) { this.tag = a; }
+}
+int main() {
+    U u = U("s");
+    return 0;
+}

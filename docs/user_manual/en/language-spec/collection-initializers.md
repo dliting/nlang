@@ -6,8 +6,8 @@ aggregate (struct/class) initialization. Three syntactic forms:
 
 **Bare bracket form `[...]`** — allowed where the target type lets the
 compiler infer the collection (declaration initializers, assignments,
-positional function arguments, container elements). Works for arrays
-(`T[]`) and `List<T>`:
+return values, `foreach` sources, positional and named function
+arguments, container elements). Works for arrays (`T[]`) and `List<T>`:
 
 ```nlang
 int[] arr = [1, 2, 3];
@@ -18,14 +18,15 @@ List<Point> pts = [Point{x:1, y:2}, Point{x:3, y:4}];
 
 **Bare brace form `{...}`** — the typed target decides the reading:
 keyed entries initialize dicts and struct/class aggregates, positional
-entries initialize lists and arrays. It works in the same inference
-positions as `[...]`:
+entries initialize lists. It works in the same inference positions as
+`[...]`, except as a `foreach` source — there the target is always the
+loop variable's array type, and the brace form is rejected:
 
 ```nlang
 Dict<string, int> d = {"a":1, "b":2};
 List<int> lst = {1, 2, 3};
-int[] a = {1, 2};
 take({7, 0});
+count(items = {1, 2});
 List<int> mk() { return {1, 2}; }
 ```
 
@@ -46,10 +47,10 @@ parse; give the literal a typed target instead (`List<int> l = {60};`).
 
 - `string literal : Expression` — dict entry (string key)
 - `identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
-- `Expression` (no key) — list/array element, or a positional struct
+- `Expression` (no key) — list element, or a positional struct
   entry: structs fill fields in declaration order, so `Point{3, 7}` is
   `Point{x:3, y:7}`, and you may give only the first few fields (the
-  rest keep their zero values). Class targets do not accept positional
+  rest keep their default values). Class targets do not accept positional
   entries — `P{3, 7}` reports `class initializer "P{...}" requires
   field:value entries; the positional form is only valid for
   struct/array targets`.
@@ -69,7 +70,7 @@ anchored type name to pick the kind:
 
 | Target type          | Form    | Entry kind              |
 |----------------------|---------|-------------------------|
-| `T[]` (array)        | `[...]` or `{...}` | value-only |
+| `T[]` (array)        | `[...]`            | value-only |
 | `List<T>`            | `[...]` or `{...}` | value-only |
 | `Dict<K,V>`          | `{...}` | `key : value` (string key) |
 | struct               | `{...}` or `StructName{...}` | `field : value` (identifier key) or positional values (field declaration order) |
@@ -79,26 +80,30 @@ anchored type name to pick the kind:
 (explicit or implicit). Codegen lowers `C{f1:v1, ...}` as a no-arg
 construction followed by per-field `OP_StoreField` assignments.
 
-**Recursive nesting:** init lists may contain other init lists. The
-inner levels use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)
-— bare braces nested inside a brace literal do not parse
-(`{{1,2},{3,4}}` is a syntax error). Nested generic element types
+**Recursive nesting:** init lists may contain other init lists. Inner
+levels may use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)
+or bare braces in value position (`List<List<int>> m = {{1,2},{3,4}};`).
+Keyed entries still require an expression value — `{items: {1,2}}`
+inside a struct/class literal is a syntax error; write
+`{items: [1,2]}`. Nested generic element types
 (`List<List<int>>`, `Dict<K, List<V>>`) are supported (see
 Nested generics under `List<T>` in
 [Built-in Generic Classes](builtin-generic-classes.md)).
 
-**Empty collections:** the empty literal is `{}` for every container
-target — `List<int> l = {};`, `Dict<K,V> d = {};`, `int[] a = {};`.
-Bare `[]` is not the empty form (the lexer matches `[]` as a single
-token, used by the array-type suffix grammar); for a sized empty array
-write `int[0]` (see [Array](array.md)).
+**Empty collections:** the empty literal is `{}` for `List<T>` and
+`Dict<K,V>` targets — `List<int> l = {};`, `Dict<K,V> d = {};`. An
+array target takes no brace form (`int[] a = {};` is rejected — array
+initializers use the bracket form); an empty array is `int[] a = [];`
+(see [Array](array.md)). The empty bracket literal also works as a
+`foreach` source and as a function argument.
 
 **Function arguments:** a positional argument infers its target from
-the parameter type — positional entries work for struct, array, and
-`List<T>` parameters (`take({7, 0})` for a struct `Point` parameter);
-a class parameter takes `field:value` entries (see the table above). A
-named argument does not infer — bind a typed local first, or use the
-anchored form.
+the parameter type — positional entries work for struct and `List<T>`
+parameters (`take({7, 0})` for a struct `Point` parameter); an array
+parameter takes the bracket form (`take([7, 0])`); a class parameter
+takes `field:value` entries (see the table above). A named argument
+infers the same way (`count_of(items = {1, 2, 3})` for a `List<int>`
+parameter).
 
 **Mutation during init is UB.** Entries are evaluated left-to-right and
 assigned in order; reading the partially-constructed collection from within

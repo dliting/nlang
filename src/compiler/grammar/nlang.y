@@ -255,7 +255,7 @@ static bool CollectQualifiedSegments(
 	nlang::PtrList<nlang::SnFunction> *	v_pEnumMethodList;
 	nlang::SnStructDecl *				v_pStructDecl;
 	nlang::SnStructField *				v_pStructField;
-	nlang::PtrList<nlang::SnStructField> *	v_pStructFieldList;
+	nlang::PtrList<nlang::SnField> *	v_pStructMemberList;
 	nlang::SnClassDecl *				v_pClassDecl;
 	nlang::PtrList<nlang::SnField> *	v_pClassMemberList;
 	nlang::SnInterfaceDecl *			v_pInterfaceDecl;
@@ -335,7 +335,9 @@ static bool CollectQualifiedSegments(
 %type <v_pFunction>		EnumMethod
 %type <v_pStructDecl>		StructDecl
 %type <v_pStructField>		StructField
-%type <v_pStructFieldList>	StructFieldList
+%type <v_pField>			StructMember
+%type <v_pFunction>		StructCtor
+%type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
 %type <v_pInterfaceDecl>	InterfaceDecl
 %type <v_pNameExprList>		ImplementsOpt NameList
@@ -424,6 +426,8 @@ static bool CollectQualifiedSegments(
 %token OT_DEC
 %token OT_LSH
 %token OT_RSH
+%token OT_LSHS
+%token OT_RSHS
 %token OT_LE
 %token OT_GE
 %token OT_NE
@@ -598,11 +602,12 @@ TopItem:	NamespaceMember {
 						$$ = $1;
 					} ;
 
-//v3H: the bare form must carry a body. A bodyless bare "T name();" would
-//be indistinguishable from a zero-argument construction at the shared paren
-//state, and the double-epsilon there must favor the function header (else
-//zero-parameter definitions die), so the declaration-only form moves behind
-//the explicit KT_Func marker (func Foo f();).
+//v3H (updated 0.9.15): the bare form without a body is a declaration and
+//moves behind the explicit KT_Func marker (func Foo f();). The bare
+//"T name();" is no longer ambiguous: the explicit empty-parens arms make
+//')' a shift, and the token after ')' decides — '{' reads a zero-parameter
+//definition, ';' or ',' reads a zero-argument construction (the same
+//reading the in-body form has always had).
 TopBareFunc:	TopBareHeader Paragraph {
 						$1->Body($2);
 						$$ = $1;
@@ -615,8 +620,11 @@ TopBareFunc:	TopBareHeader Paragraph {
 TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
 					} |
+					HeadType TT_Identifier '(' ')' {
+						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, new PtrList<SnFormalParam>(), @1);
+					} |
 					KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction(FA_Default, NF_NONE, nullptr, $2, $4, @1);
+						$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $4, @1);
 					} ;
 
 //Modifier-led top-level function. The modifier slot never derives empty:
@@ -635,19 +643,19 @@ TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' 
 						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					} |
 					AccessTypeNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+						$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					} |
 					AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					} |
 					AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
-						$$ = new SnFunction($1, $2, nullptr, $4, $6, @3);
+						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					} ;
 
 //v0.9.1: epsilon-only access slot for the (empty,F) header arm. Keeps flag
@@ -871,6 +879,14 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, $3, nullptr});
 					} |
+					//0.9.15: zero-argument direct-init `T name();` — the
+					//explicit empty-parens arms make ')' a shift instead of
+					//the double-epsilon reduce that forced the function
+					//header reading; the token after ')' decides.
+					TT_Identifier '(' ')' {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, nullptr, new PtrList<SnExpression>(), nullptr});
+					} |
 					//0.9.0: C-style sized array declaration `T name[n];`
 					//(and the partial-init form `T name[n] = [e1, e2];`).
 					//The size rides the pArraySize payload slot; the resolver
@@ -929,6 +945,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				IdentifierExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} |
+				//0.9.10: shift compound assignment (<<=, >>=). The operator
+				//rides the same SnCompoundAssignStmt node; resolver gates and
+				//emission join the arithmetic family in later stages.
+				IdentifierExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				IdentifierExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
 				MemberExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -944,6 +969,12 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				MemberExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
 				} |
+				MemberExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				MemberExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
 				SubscriptExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -958,6 +989,12 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				} |
 				SubscriptExpr OT_MODS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
+				} |
+				SubscriptExpr OT_LSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				SubscriptExpr OT_RSHS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} ;
 
 /*
@@ -1102,6 +1139,13 @@ FiniFor:	{
 				} |
 				IdentifierExpr OT_MODS Expression {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Mod, $1, $3, @1);
+				} |
+				//0.9.10: shift compound forms in the for-update slot.
+				IdentifierExpr OT_LSHS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shl, $1, $3, @1);
+				} |
+				IdentifierExpr OT_RSHS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} ;
 
 /*
@@ -1109,6 +1153,10 @@ Foreach loop statement (Phase 8e-5).
 Iterates Array / List<T> / Dict<K,V> (keys).
 */
 ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
+					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+				} |
+				//0.9.13 B1: bare brace source for foreach.
+				KT_Foreach '(' Type TT_Identifier KT_In BracedInitExpr ')' Statement {
 					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
 				} ;
 
@@ -1225,7 +1273,7 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 				$$ = func;
 			} |
 				AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-				auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+				auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 				if ($7 == nullptr)
 					func->AddFlags(NF_Abstract);
 				else
@@ -1236,21 +1284,104 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 /*
 Struct type declaration.
 */
-StructDecl:	KT_Struct TT_Identifier '{' StructFieldList '}' {
+StructDecl:	KT_Struct TT_Identifier '{' StructMemberList '}' {
 					$$ = new SnStructDecl($2, $4, @1);
 				} ;
 
-StructFieldList:	StructFieldList StructField {
+StructMemberList:	StructMemberList StructMember {
 					$1->push_back($2);
 					$$ = $1;
 				} |
-					StructField {
-					$$ = new PtrList<SnStructField>();
+					StructMember {
+					$$ = new PtrList<SnField>();
 					$$->push_back($1);
 				} ;
 
+StructMember:	StructField {
+					$$ = $1;
+				} |
+					StructCtor {
+					$$ = $1;
+				} ;
+
 StructField:	Type TT_Identifier ';' {
-					$$ = new SnStructField($1, $2, @1);
+					$$ = new SnStructField($1, $2, FA_Default, @1);
+				} |
+
+				//0.9.11 D4: a struct field initializer is a compile-time
+				//default applied at every allocation. The grammar admits the
+				//shape; the constant-surface check (FieldInitializerChecks.hpp)
+				//runs in the Access(SnStructDecl&) field loop. LALR: the state
+				//reached after `Type TT_Identifier` inside a struct body has a
+				//core of StructField items only, distinct from the local-
+				//declaration state (whose Declarator items attach '=' to the
+				//declarator), so the states never merge and the '=' shift is
+				//unconflicted.
+				Type TT_Identifier '=' Expression ';' {
+					$$ = new SnStructField($1, $2, FA_Default, @1, $4);
+				} |
+
+				//0.9.12 D7 (D-new-2): struct members are public-only, but the
+				//modifier spellings must reach the declaration contract (the
+				//precise "must be public" error) instead of a bare syntax
+				//error. The AccessTypeNonEmpty split mirrors StructCtor: the
+				//epsilon AccessType layer cannot prefix these arms because its
+				//empty reduction would conflict with the Type->TT_Identifier
+				//shift at the member position. After the keyword the state
+				//keeps the field arms and the StructCtor arms open until the
+				//name/'(' lookahead decides, so no new conflict is introduced.
+				AccessTypeNonEmpty Type TT_Identifier ';' {
+					$$ = new SnStructField($2, $3, $1, @1);
+				} |
+				AccessTypeNonEmpty Type TT_Identifier '=' Expression ';' {
+					$$ = new SnStructField($2, $3, $1, @1, $5);
+				} ;
+
+//0.9.11 D2: struct constructor spelling -- no return type, the same
+//member shape as the class constructor arms; whether the member name
+//matches the struct (constructor) or not is decided by the declaration
+//contract. LALR: at the member position '(' after the leading identifier
+//separates the constructor from the field's `Type name ';'` (after a
+//reduced Type the parser needs a name token, not '('). The classic
+//AccessType layer cannot prefix these arms the way it prefixes
+//ClassMember (whose every arm shares the AccessType prefix): its epsilon
+//would have to reduce on the TT_Identifier lookahead that the field's
+//Type->TT_Identifier shift claims, and bison's shift default would hide
+//default-access constructors. The access slot is therefore split the way
+//TopModHeader splits it: AccessTypeNonEmpty never derives empty, the bare
+//arms carry FA_Default in the action, and NodeFlagsNonEmpty (never
+//empty) covers one-or-more modifiers.
+StructCtor:	TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction(FA_Default, NF_NONE, nullptr, $1, $3, @1);
+					if ($5 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($5);
+					$$ = func;
+				} |
+					NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction(FA_Default, $1, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
+					$$ = func;
+				} |
+					AccessTypeNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
+					$$ = func;
+				} |
+					AccessTypeNonEmpty NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
 				} ;
 
 
@@ -1269,18 +1400,19 @@ ClassInheritOpt:	':' TypeName { $$ = $2; } |
 					{ $$ = nullptr; } ;
 
 //A type spelled at a position that has a unique leading token (':' after a
-//class name, `as`): the dotted chain may be reduced freely, so NameExpr and
-//QualifiedType both derive here without fighting over '.'. Measured: +2
-//shift/reduce, both on '.', both benign — no production expects a '.' AFTER
-//a type name, so bison's shift default is the only correct reading. A
-//statement head cannot use this shape (see the HeadType comment above).
+//class name, `as`, `implements`): the dotted chain may be reduced freely,
+//so NameExpr and QualifiedType both derive here without fighting over '.'.
+//Measured: +2 shift/reduce, both on '.', both benign — no production
+//expects a '.' AFTER a type name, so bison's shift default is the only
+//correct reading. A statement head cannot use this shape (see the
+//HeadType comment above).
 TypeName:	NameExpr { $$ = $1; } |
 			QualifiedType { $$ = $1; } ;
 
 /*
 Optional "implements I1, I2" clause on a class. Empty when omitted.
-The list carries SnFieldExpr* (name expressions) resolved to interface
-decls during semantic analysis.
+The list carries SnFieldExpr* type names (dotted chains allowed for
+imported interfaces) resolved to interface decls during semantic analysis.
 */
 ImplementsOpt:	KT_Implements NameList {
 					$$ = $2;
@@ -1290,22 +1422,22 @@ ImplementsOpt:	KT_Implements NameList {
 				} ;
 
 /*
-Comma-separated list of NameExpr values (for the implements clause).
-Returns a PtrList<SnFieldExpr> owning the name expressions.
+Comma-separated list of TypeName values (for the implements clause).
+Returns a PtrList<SnFieldExpr> owning the type-name expressions.
 */
-NameList:	NameExpr {
+NameList:	TypeName {
 					$$ = new PtrList<SnFieldExpr>();
 					$$->push_back($1);
 				} |
-				NameList ',' NameExpr {
+				NameList ',' TypeName {
 					$1->push_back($3);
 					$$ = $1;
 				} ;
 
 /*
-Interface type declaration. Members are method signatures only (no
-fields, no bodies). An interface establishes a contract that
-implementing classes must satisfy.
+Interface type declaration. Members are method signatures; only a
+static member may carry a body (resolver-enforced). An interface
+establishes a contract that implementing classes must satisfy.
 */
 InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
 					$$ = new SnInterfaceDecl($2, $4, @1);
@@ -1323,25 +1455,51 @@ InterfaceMemberList:	InterfaceMemberList InterfaceMember {
 					$$->push_back($1);
 				} ;
 
-InterfaceMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' ';' {
+//Interface members share ClassMember's FunctionBodyOrSemi shape: the
+//bodyless form still sets NF_Abstract, and a parsed body is kept for
+//the resolver to admit (static) or reject (instance) per the 0.9.10
+//declaration contract.
+InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
-					func->AddFlags(NF_Abstract);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
 					$$ = func;
 				} |
-				AccessType Type TT_Identifier '(' FormalParamList ')' ';' {
+				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
-					func->AddFlags(NF_Abstract);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
 					$$ = func;
 				}
-				| AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
-					func->AddFlags(NF_Abstract);
+				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
 					$$ = func;
 				}
-				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' ';' {
-					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
-					func->AddFlags(NF_Abstract);
+				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
 					$$ = func;
+				} |
+				//0.9.10 D3: interface member variables exist only as
+				//`static const` constants folded at compile time. The
+				//declaration contract (StatementResolverTypes.cpp)
+				//enforces the flag set, foldability, type compatibility
+				//and the method-name clash.
+				AccessType NodeFlagsNonEmpty Type TT_Identifier '=' Expression ';' {
+					auto* field = new SnClassField($3, $4, $1, @1, $6);
+					field->AddFlags($2);
+					$$ = field;
 				} ;
 
 ClassMemberList:	ClassMemberList ClassMember {
@@ -1379,7 +1537,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 
 				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @2);
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1387,7 +1545,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, $2, nullptr, $4, $6, @3);
+					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					if ($8 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1395,7 +1553,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				}
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
-					auto* func = new SnFunction($1, NF_NONE, nullptr, $3, $5, @2);
+					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
@@ -1403,8 +1561,47 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 					$$ = func;
 				} |
 
+				//0.9.11 D1: constructor spelling -- no return type. Whether a
+				//no-return member is a constructor is decided semantically
+				//(member name == class name); a non-matching name is rejected
+				//by the declaration contract. LALR: '(' after the identifier
+				//separates this shape from the typed productions (after a
+				//reduced Type the parser needs a name token, not '(').
+				AccessType NodeFlag TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @2);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
+				} |
+				AccessType NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
+					if ($7 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($7);
+					$$ = func;
+				} |
+				AccessType TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					auto* func = new SnFunction($1, NF_NONE, nullptr, $2, $4, @2);
+					if ($6 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($6);
+					$$ = func;
+				} |
+
 				AccessType Type TT_Identifier ';' {
 					$$ = new SnClassField($2, $3, $1, @1);
+				} |
+				
+				//0.9.11 D4: a class field initializer is a compile-time
+				//default. The grammar admits the shape; the constant-surface
+				//check (FieldInitializerChecks.hpp) runs at Access(SnClassField&)
+				//and the injection that applies the default runs later.
+				AccessType Type TT_Identifier '=' Expression ';' {
+					$$ = new SnClassField($2, $3, $1, @1, $5);
 				} ;
 
 FunctionBodyOrSemi:	Paragraph { $$ = $1; } |
@@ -1635,6 +1832,8 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
 				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				//0.9.13 B5: the lexer collapses `[]` into one OT_Brackets token.
+				OT_Brackets	{ auto* pEmpty = new std::vector<nlang::InitEntry>(); $$ = new SnInitListExpr(nullptr, *pEmpty, true, @1); delete pEmpty; } |
 				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. The identifier
 				//reads as a type name at resolve time.
 				//No LALR conflict: a legal
@@ -1817,6 +2016,13 @@ InitEntry:	TT_String ':' Expression {
 						pE->keyKind = nlang::InitEntry::KeyKind::None;
 						pE->pValue = $1;
 						$$ = pE;
+					} |
+					//0.9.13 B6: nested bare brace entry.
+					BracedInitExpr {
+						auto* pE = new nlang::InitEntry();
+						pE->keyKind = nlang::InitEntry::KeyKind::None;
+						pE->pValue = $1;
+						$$ = pE;
 					} ;
 
 ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
@@ -1846,7 +2052,10 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 //expression) or a named argument `name = expr`. The `=` here is at the
 //call-site parameter level — NLang has no assignment-as-expression, so
 //inside `foo(...)` the form `Identifier '=' Expression` is unambiguous.
-ConcreteParam:	TT_Identifier '=' Expression {
+ConcreteParam:	TT_Identifier '=' BracedInitExpr {
+						$$ = new SnNamedArgExpr($1, $3, @1);
+					} |
+					TT_Identifier '=' Expression {
 						$$ = new SnNamedArgExpr($1, $3, @1);
 					} |
 					/* Phase 9e: out argument. Restricted to a plain identifier

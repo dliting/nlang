@@ -11,13 +11,15 @@ ModuleLoader.cpp — keep the two in lockstep via NCU_FORMAT_* in
 CompiledModule.h.
 ---*/
 #include "nlang/vm/CompiledModule.h"
+#include "ModuleSaverRecords.h"
 
 namespace nlang {
 
 //v1.12: one length-prefixed type descriptor (u16 len + wire bytes).
 //len==0 means "no descriptor" — the reader keeps the NonSerialized
-//default. Shared by the param / return / per-field sites below.
-static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
+//default. Shared by the param / return / per-field sites below and (via
+//ModuleSaverRecords.h) by the interface record TU.
+void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 {
     std::vector<uint8_t> bytes;
     AppendTypeDescBytes(bytes, td);
@@ -28,6 +30,31 @@ static void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
     fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
     if (len > 0)
         fs.write(reinterpret_cast<const char*>(bytes.data()), len);
+}
+
+//Option B v1.3 fixed default-value record: tag + both 4-byte channels +
+//the 8-byte channels (v1.13) + the always-present u16 expr length with
+//its v2.3 payload. Shared by the formal-default block and the 0.9.10
+//interface-constant block so the two records cannot drift (the second
+//site lives in the interface record TU, see ModuleSaverRecords.h).
+void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
+{
+    fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
+    fs.write(reinterpret_cast<const char*>(&dv.intValue),
+             sizeof(dv.intValue));
+    fs.write(reinterpret_cast<const char*>(&dv.floatValue),
+             sizeof(dv.floatValue));
+    fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
+             sizeof(dv.stringIdx));
+    fs.write(reinterpret_cast<const char*>(&dv.longValue),
+             sizeof(dv.longValue));
+    fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
+             sizeof(dv.doubleValue));
+    uint16_t exprLen = static_cast<uint16_t>(dv.exprBytes.size());
+    fs.write(reinterpret_cast<const char*>(&exprLen), sizeof(exprLen));
+    if (exprLen > 0)
+        fs.write(reinterpret_cast<const char*>(dv.exprBytes.data()),
+                 exprLen);
 }
 
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
@@ -108,6 +135,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t nativeFlag = func.isNative ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&nativeFlag),
                  sizeof(nativeFlag));
+        //0.9.10 v2.4: static-member flag — name-based instance dispatch
+        //skips these records; the frame layout differs too (no __this).
+        uint8_t staticFlag = func.isStatic ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&staticFlag),
+                 sizeof(staticFlag));
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.
@@ -118,32 +150,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
             func.defaultValues.size());
         fs.write(reinterpret_cast<const char*>(&defaultCount),
                  sizeof(defaultCount));
-        for (const auto& dv : func.defaultValues) {
-            fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
-            fs.write(reinterpret_cast<const char*>(&dv.intValue),
-                     sizeof(dv.intValue));
-            fs.write(reinterpret_cast<const char*>(&dv.floatValue),
-                     sizeof(dv.floatValue));
-            fs.write(reinterpret_cast<const char*>(&dv.stringIdx),
-                     sizeof(dv.stringIdx));
-            //0.7.5 v1.13: 8-byte scalar channels (RTK_Long/RTK_ULong/
-            //RTK_Double payloads). Unconditional — the v1.13 floor
-            //readers expect the extended record.
-            fs.write(reinterpret_cast<const char*>(&dv.longValue),
-                     sizeof(dv.longValue));
-            fs.write(reinterpret_cast<const char*>(&dv.doubleValue),
-                     sizeof(dv.doubleValue));
-            //v2.3: ExprDesc payload for RTK_Expr defaults, u16-length-
-            //prefixed and always emitted (empty = no expression) so the
-            //record stays fixed-shape. The depth cap bounds an encoded
-            //tree far under 64 KiB, so the prefix cannot truncate.
-            uint16_t exprLen = static_cast<uint16_t>(dv.exprBytes.size());
-            fs.write(reinterpret_cast<const char*>(&exprLen),
-                     sizeof(exprLen));
-            if (exprLen > 0)
-                fs.write(reinterpret_cast<const char*>(dv.exprBytes.data()),
-                         exprLen);
-        }
+        //The record layout lives in WriteDefaultValueDesc (shared with
+        //the interface-constant block below).
+        for (const auto& dv : func.defaultValues)
+            WriteDefaultValueDesc(fs, dv);
 
         uint32_t bcSize = static_cast<uint32_t>(func.bytecode.size());
         fs.write(reinterpret_cast<const char*>(&bcSize), sizeof(bcSize));
@@ -275,6 +285,30 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 (i < st.fieldTypeDescs.size()) ? st.fieldTypeDescs[i]
                                                : TypeDesc{});
         }
+
+        //v2.6: ctor indices in declaration order; the cross-module
+        //ownerOrdinal indexes this list (overloads share the bare name).
+        uint16_t ctorCount = static_cast<uint16_t>(
+            st.constructorIndices.size());
+        fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
+        for (auto idx : st.constructorIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+
+        //v2.6: dense per-field defaults (RTK_Void = none). The count is
+        //fieldCount by construction (stub structs emit RTK_Void blocks).
+        uint16_t defCount = st.fieldCount;
+        fs.write(reinterpret_cast<const char*>(&defCount), sizeof(defCount));
+        for (size_t i = 0; i < st.fieldCount; ++i) {
+            WriteDefaultValueDesc(fs,
+                (i < st.fieldDefaults.size()) ? st.fieldDefaults[i]
+                                              : DefaultValueDesc{});
+        }
+
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount) — the consumer
+        //stub rebuilds each struct ctor with its visibility.
+        for (auto a : st.constructorAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
     }
 
     // Class descriptors
@@ -337,10 +371,39 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                      sizeof(cc.methodIndices[i]));
         }
 
-        //Constructor index
-        fs.write(reinterpret_cast<const char*>(&cc.constructorIdx),
-                 sizeof(cc.constructorIdx));
+        //0.9.12 (v2.7): declared access and virtuality per method,
+        //parallel to methodIndices (counts ride on methodCount — the
+        //producer keeps the vectors parallel by construction, same
+        //invariant as fieldAccess above). The consumer stub rebuilds
+        //each member with its visibility, and the cross-module
+        //override contract reads the virtuality.
+        for (auto a : cc.methodAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
+        for (auto v : cc.methodVirtual)
+            fs.write(reinterpret_cast<const char*>(&v), sizeof(v));
+
+        //v2.6: ctor indices in declaration order; the cross-module
+        //ownerOrdinal indexes this list (replaces v2.5's single index).
+        uint16_t ctorCount = static_cast<uint16_t>(
+            cc.constructorIndices.size());
+        fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
+        for (auto idx : cc.constructorIndices)
+            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount). Replaces the
+        //v2.4 publicStaticMethodIndices block, removed in place: every
+        //member function — static included — now travels in
+        //methodIndices, and staticness rides the function record's
+        //isStatic flag.
+        for (auto a : cc.constructorAccess)
+            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
     }
+
+    //0.9.10 v2.4 + 0.9.12 v2.7: interface statics / constants /
+    //instance-method signature tables (the wire layout lives with the
+    //writer in ModuleSaverRecordsInterfaces.cpp).
+    WriteInterfaceRecords(fs, mod);
 
     //Array type descriptors
     uint32_t arrayTypeCount = static_cast<uint32_t>(mod.arrayTypes.size());
@@ -382,7 +445,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
     //function section additionally carries u16 ownerClassKeyLen + bytes
-    //(empty = namespace-level function; see SymbolImport).
+    //(empty = namespace-level function; see SymbolImport), the
+    //0.9.10 v2.4 static flag byte (linkage identity: a static and an
+    //instance member of the same name and arity are distinct slots), and
+    //the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table kind
+    //and constructor ordinal — overloads share the bare name).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
     {
@@ -408,6 +475,17 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 fs.write(reinterpret_cast<const char*>(&ownerLen),
                          sizeof(ownerLen));
                 fs.write(imp.ownerClassKey.c_str(), ownerLen);
+                uint8_t staticFlag = imp.isStatic ? 1 : 0;
+                fs.write(reinterpret_cast<const char*>(&staticFlag),
+                         sizeof(staticFlag));
+                //v2.6: which table kind ownerClassKey addresses (0 =
+                //namespace-level, 1 = class member, 2 = struct member)
+                //plus the constructor ordinal within the owner's
+                //constructorIndices (0xFFFF = not a constructor slot).
+                fs.write(reinterpret_cast<const char*>(&imp.ownerKind),
+                         sizeof(imp.ownerKind));
+                fs.write(reinterpret_cast<const char*>(&imp.ownerOrdinal),
+                         sizeof(imp.ownerOrdinal));
             }
         }
     };

@@ -1,0 +1,4 @@
+class Base {
+    public Base() { }
+    public int g() { return 2; }
+}

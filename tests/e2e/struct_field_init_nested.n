@@ -1,0 +1,20 @@
+//0.9.11 D4: nested struct fields materialize through the same allocation
+//path, so the inner struct's defaults apply inside every outer instance.
+struct Inner {
+    int a = 1;
+}
+
+struct Outer {
+    Inner val;
+    int b = 2;
+}
+
+int main() {
+    Outer o;
+    int r = 0;
+    if (o.b == 2) r = r + 1;
+    if (o.val.a == 1) r = r + 2;
+    Outer[] arr = Outer[2];
+    if (arr[1].val.a == 1 && arr[1].b == 2) r = r + 4;
+    return r;
+}

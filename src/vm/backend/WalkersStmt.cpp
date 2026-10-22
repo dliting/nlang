@@ -250,9 +250,11 @@ uint16_t VmBackend::SuperCallStmtPeakDepth(SnStatement& stmt,
     //the parent ctor's full formal count. peakDepth without the
     //claimSize under-sizes evalArea and super-arg staging writes past
     //the frame (heap-buffer-overflow, deterministic in codegen).
-    SnFunction* pParentCtor = nullptr;
-    if (m_pCurrClass && m_pCurrClass->SuperClass())
-        pParentCtor = FindCtorFunction(m_pCurrClass->SuperClass());
+    //0.9.11 T6: the resolver-selected parent ctor (registered filter,
+    //walker/codegen symmetry); null (builtin table path, no selection,
+    //or an unregistered selection whose call codegen skips) falls back
+    //to the caller-arg count — over-reserving, never under.
+    SnFunction* pParentCtor = RegisteredCtor(sc.CtorFunction());
     const size_t totalFormals = pParentCtor
         ? pParentCtor->Params().size() : sc.Args().size();
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);

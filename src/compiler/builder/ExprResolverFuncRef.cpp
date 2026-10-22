@@ -71,9 +71,12 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 	}
 	//Methods are not free-function references (receiver-bound references
 	//arrive in Step 2); enum methods additionally carry an int receiver,
-	//which cannot live in a heap-index slot.
+	//which cannot live in a heap-index slot. 0.9.14 D-new-2: a static
+	//method inside its owning class is a receiverless target — the bare
+	//form binds exactly like a free function.
 	auto *pOwner = pFunc->Parent();
-	if (pOwner && (pOwner->Kind() == NK_ClassDecl
+	if (!pFunc->ContainFlags(NF_Static)
+		&& pOwner && (pOwner->Kind() == NK_ClassDecl
 		|| pOwner->Kind() == NK_InterfaceDecl
 		|| pOwner->Kind() == NK_EnumDecl))
 	{
@@ -178,23 +181,18 @@ static bool HasNativeMethodOverride(SnFunction &method)
 			continue;
 		for (auto &member : pClass->Members())
 		{
+			//0.9.10 D2.4: only an instance member with the same parameter
+			//list can occupy the dispatch slot — a same-name static or
+			//differently-shaped overload must not veto the binding.
 			if (member.Kind() == NK_Function
 				&& member.Name() == method.Name()
-				&& member.ContainFlags(NF_Native))
+				&& !member.ContainFlags(NF_Static)
+				&& member.ContainFlags(NF_Native)
+				&& static_cast<SnFunction&>(member).ConflictedWith(method))
 				return true;
 		}
 	}
 	return false;
-}
-
-//Module-qualified free-function reference (`lib.seven` in a value
-//position): the owner test is the shared IsModuleOwnedFunction
-//(ExprResolver.h). These bind through the same member channel as method
-//references but carry no receiver and always take the static OP_MakeFunc
-//form.
-static bool IsModuleFuncRefTarget(SnFunction *pFunc)
-{
-	return IsModuleOwnedFunction(*pFunc);
 }
 
 //Form gates of BindMemberFuncRefToExpected: the expected type must be a
@@ -208,7 +206,7 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	if (!IsFuncTypeDecl(pExpected))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			IsModuleFuncRefTarget(pMethod)
+			IsReceiverlessFuncRefTarget(*pMethod)
 				? "function reference \"%s\" requires an expected function "
 				  "type."
 				: "bound method reference \"%s\" requires an expected "
@@ -231,15 +229,15 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 //for by-name bindings, any native override in the dispatch domain) have
 //no callee frame for the receiver, by-name dispatch cannot bake an out
 //mask, and default parameters are filled only on the direct-call path.
-//Module-form targets skip the receiver-frame and out-mask arms — a
-//namespace-level native free function is referenceable exactly like a
-//bare-name one (no receiver slot exists to misplace). True = rejected
-//with the named diagnostic.
+//Receiverless targets skip the receiver-frame and out-mask arms — a
+//native free function or native static method is referenceable exactly
+//like a bare-name one (no receiver slot exists to misplace). True =
+//rejected with the named diagnostic.
 static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
 	SnField *pExpected, bool bDispatchesByName)
 {
-	if (!IsModuleFuncRefTarget(pMethod))
+	if (!IsReceiverlessFuncRefTarget(*pMethod))
 	{
 		if (pMethod->ContainFlags(NF_Native)
 			|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
@@ -274,7 +272,7 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 		if (param.Value())
 		{
 			env.Log(CLL_Error, snMember.Location(),
-				IsModuleFuncRefTarget(pMethod)
+				IsReceiverlessFuncRefTarget(*pMethod)
 					? "functions with default parameters cannot be "
 					  "referenced: \"%s\"."
 					: "methods with default parameters cannot be "
@@ -297,9 +295,9 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	//virtual methods and interface declarations dispatch by name at
 	//runtime (StatementResolver's implicit virtual propagation means an
 	//override of a parent virtual method carries NF_Virtual too).
-	//Module-form targets have no receiver and always take the static
+	//Receiverless targets have no receiver and always take the static
 	//handle — dispatch never resolves by name.
-	bool bDispatchesByName = !IsModuleFuncRefTarget(pMethod)
+	bool bDispatchesByName = !IsReceiverlessFuncRefTarget(*pMethod)
 		&& (pMethod->ContainFlags(NF_Virtual)
 			|| (pOwner && pOwner->Kind() == NK_InterfaceDecl));
 	if (RejectMemberFuncRefForm(env, snMember, inner, pExpected, pMethod))
@@ -311,7 +309,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
 	{
 		env.Log(CLL_Error, snMember.Location(),
-			IsModuleFuncRefTarget(pMethod)
+			IsReceiverlessFuncRefTarget(*pMethod)
 				? "function \"%s\" does not match the signature of \"%s\"."
 				: "method \"%s\" does not match the signature of \"%s\".",
 			inner.Name().c_str(), pFuncDecl->Name().c_str());

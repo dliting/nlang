@@ -25,8 +25,11 @@ static FunctionSlotHit ResolveNamespacedFunction(
     FunctionSlotHit r;
     const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
     for (uint32_t k = 0; k < tgtOwn; ++k) {
+        //0.9.10 v2.4: staticness is part of the linkage identity — an
+        //interface static and a same-shape free function are distinct.
         if (tgt.functions[k].name == imp.name
-            && tgt.functions[k].paramCount == imp.paramCount) {
+            && tgt.functions[k].paramCount == imp.paramCount
+            && tgt.functions[k].isStatic == imp.isStatic) {
             if (r.hit < 0) r.hit = static_cast<int>(k);
             ++r.hits;
         }
@@ -34,43 +37,127 @@ static FunctionSlotHit ResolveNamespacedFunction(
     return r;
 }
 
-//属主键分支（方法/构造器）：先按限定键在目标单元自有类区找属主类，
-//再类内消歧——名＝裸类名走 constructorIdx，否则 methodIndices 按裸名
-//（形参数为校验；类内无重载）。表键保持裸名，属主键只活在槽记录里。
-static FunctionSlotHit ResolveOwnerKeyedFunction(
-    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
-    FunctionSlotHit r;
-    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+//属主类别措辞（诊断共用）：ownerKind 1=class、2=struct，其余按类型
+//泛称（属主键记录只可能是前两者）。
+static const char* OwnerKindWord(const CompiledModule::SymbolImport& imp) {
+    return imp.ownerKind == 2 ? "struct" : "class";
+}
+
+//按属主限定键在目标单元自有表区定位属主类型（ownerKind 分派 class/
+//struct——裸键本身无法区分 struct 构造器与同名 class 方法）。命中返回
+//true 并填 tc/ts（恰其一非空）。
+static bool FindOwnerType(const CompiledModule& tgt,
+    const CompiledModule::SymbolImport& imp,
+    const CompiledClass*& tc, const CompiledStruct*& ts) {
+    if (imp.ownerKind == 2) {
+        const size_t tgtStOwn = tgt.structs.size() - tgt.structImports.size();
+        for (size_t k = 0; k < tgtStOwn; ++k) {
+            if (tgt.structs[k].name == imp.ownerClassKey) {
+                ts = &tgt.structs[k];
+                return true;
+            }
+        }
+        return false;
+    }
     const size_t tgtClsOwn = tgt.classes.size() - tgt.classImports.size();
-    int clsIdx = -1;
     for (size_t k = 0; k < tgtClsOwn; ++k) {
         if (tgt.classes[k].name == imp.ownerClassKey) {
-            clsIdx = static_cast<int>(k);
-            break;
+            tc = &tgt.classes[k];
+            return true;
         }
     }
-    if (clsIdx < 0)
-        return r;
-    r.ownerClassFound = true;
-    const CompiledClass& tc = tgt.classes[clsIdx];
-    const size_t dot = imp.ownerClassKey.rfind('.');
-    const std::string bareClassName = imp.ownerClassKey.substr(
-        dot == std::string::npos ? 0 : dot + 1);
-    if (imp.name == bareClassName) {
-        //构造器：类自身的构造下标（形参数为校验）。
-        const uint16_t ci = tc.constructorIdx;
-        if (ci != 0xFFFF && ci < tgtOwn
-            && tgt.functions[ci].paramCount == imp.paramCount) {
-            r.hit = static_cast<int>(ci);
-            r.hits = 1;
+    return false;
+}
+
+//methodIndices 条目是否构造器条目（0.9.12 D-new-8：方法表按声明序含
+//构造器条目，成员序号计数时跳过它们）。
+static bool IsCtorMethodEntry(const CompiledClass& tc, uint16_t mi) {
+    for (uint16_t ci : tc.constructorIndices)
+        if (ci == mi)
+            return true;
+    return false;
+}
+
+//方法记录解析（属主键分支）。0.9.12 D-new-8：ownerOrdinal 是权威选择器
+//——回放生产侧 methodIndices 填充（全部已注册成员按声明序），跳过构造器
+//条目取第 ownerOrdinal 个，再复核名＋形参数＋静态性，防序号与签名漂移
+//后错连；0xFFFF＝畸形/遗留记录，退回名＋形参数＋静态性匹配（多重命中
+//报歧义，不猜）。
+static FunctionSlotHit ResolveMethodRecord(const CompiledModule& tgt,
+    const CompiledClass& tc, const CompiledModule::SymbolImport& imp) {
+    FunctionSlotHit r;
+    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    if (imp.ownerOrdinal != 0xFFFF) {
+        uint16_t ordinal = 0;
+        for (uint16_t mi : tc.methodIndices) {
+            if (mi >= tgtOwn || IsCtorMethodEntry(tc, mi))
+                continue;
+            if (ordinal != imp.ownerOrdinal) {
+                ++ordinal;
+                continue;
+            }
+            if (tgt.functions[mi].name == imp.name
+                && tgt.functions[mi].paramCount == imp.paramCount
+                && tgt.functions[mi].isStatic == imp.isStatic) {
+                r.hit = static_cast<int>(mi);
+                r.hits = 1;
+            }
+            break;
         }
         return r;
     }
     for (uint16_t mi : tc.methodIndices) {
+        //0.9.10 v2.4: 静态性参与消歧（同名静态/实例方法对跨线缆后仍
+        //是两个槽）。
         if (mi < tgtOwn && tgt.functions[mi].name == imp.name
-            && tgt.functions[mi].paramCount == imp.paramCount) {
+            && tgt.functions[mi].paramCount == imp.paramCount
+            && tgt.functions[mi].isStatic == imp.isStatic) {
             if (r.hit < 0) r.hit = static_cast<int>(mi);
             ++r.hits;
+        }
+    }
+    return r;
+}
+
+//属主键分支（方法/构造器）：先按限定键定位属主类型（FindOwnerType），
+//再类型内消歧。0.9.12 D-new-8：ownerOrdinal 对两类记录都是权威选择器
+//——构造器定址属主的 constructorIndices，方法/静态方法走
+//ResolveMethodRecord（同名同参重载无法靠名＋形参数单选）。表键保持裸名，
+//属主键只活在槽记录里。
+static FunctionSlotHit ResolveOwnerKeyedFunction(
+    const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
+    FunctionSlotHit r;
+    const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    const CompiledClass* tc = nullptr;
+    const CompiledStruct* ts = nullptr;
+    if (!FindOwnerType(tgt, imp, tc, ts))
+        return r;
+    r.ownerClassFound = true;
+    //构造器/方法判别：生产侧以"裸名＝属主类型名且非静态"识别构造器
+    //（同名静态是方法，0.9.10 D2.4），槽记录照同一规则判别——imp.name
+    //是裸表键，属主限定键的末段即类型裸名。
+    const std::string ownerBare = imp.ownerClassKey.substr(
+        imp.ownerClassKey.find_last_of('.') + 1);
+    if (imp.isStatic || imp.name != ownerBare) {
+        //方法记录：struct 无方法，直接落空（诊断走"无该签名成员"措辞）。
+        if (!tc)
+            return r;
+        //属主类型已定位＝本函数的结论，记录解析器无从知道（其默认值为
+        //false）；漏传会把签名未命中误报成闭包缺单元。
+        FunctionSlotHit m = ResolveMethodRecord(tgt, *tc, imp);
+        m.ownerClassFound = true;
+        return m;
+    }
+    const std::vector<uint16_t>& ctors = tc
+        ? tc->constructorIndices : ts->constructorIndices;
+    //越界＝目标类型没有该序号的构造器（签名未命中，非闭包缺单元）；
+    //形参数再校验一次，防序号与签名漂移后错连。
+    if (imp.ownerOrdinal != 0xFFFF && imp.ownerOrdinal < ctors.size()) {
+        const uint16_t ci = ctors[imp.ownerOrdinal];
+        if (ci != 0xFFFF && ci < tgtOwn
+            && tgt.functions[ci].paramCount == imp.paramCount) {
+            r.hit = static_cast<int>(ci);
+            r.hits = 1;
         }
     }
     return r;
@@ -80,11 +167,14 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
 //与来源模块。
 static std::string DescribeFunctionImport(
     const CompiledModule::SymbolImport& imp) {
+    //0.9.10 v2.4: staticness participates in slot identity — name it.
     return "function '" + imp.name
         + "' (paramCount " + std::to_string(imp.paramCount) + ")"
+        + (imp.isStatic ? " static" : "")
         + (imp.ownerClassKey.empty()
                ? std::string()
-               : " of class '" + imp.ownerClassKey + "'")
+               : std::string(" of ") + OwnerKindWord(imp)
+                     + " '" + imp.ownerClassKey + "'")
         + " from module '" + imp.modulePath + "'";
 }
 
@@ -96,7 +186,7 @@ static std::string FunctionMissLine(const CompiledModule& u,
                                     bool ownerClassFound) {
     if (!imp.ownerClassKey.empty() && ownerClassFound)
         return "unit '" + u.modulePath + "': import of " + what
-            + " fails: class '" + imp.ownerClassKey
+            + " fails: " + OwnerKindWord(imp) + " '" + imp.ownerClassKey
             + "' provides no member with that signature";
     return "unit '" + u.modulePath + "': imported " + what
         + " is not provided by any unit in the closure";
@@ -136,7 +226,8 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
                     + std::to_string(r.hits) + " matching records in "
                     + (imp.ownerClassKey.empty()
                            ? std::string("the owning unit")
-                           : "class '" + imp.ownerClassKey + "'"));
+                           : std::string(OwnerKindWord(imp))
+                                 + " '" + imp.ownerClassKey + "'"));
             else
                 maps[ui].functions[slot] =
                     maps[owner->second]

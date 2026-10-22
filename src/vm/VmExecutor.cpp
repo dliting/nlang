@@ -126,6 +126,7 @@ void VmExecutor::InitializeForRun(const CompiledModule& module) {
     //future REPL), an early throw below must not expose stale frames
     //or backtrace from a previous run.
     m_currModule = &module;
+    m_classLayout.Build(module.classes);
     ResetPerRunState(module);
     InitStringStore(module);
     InitStructHeap();

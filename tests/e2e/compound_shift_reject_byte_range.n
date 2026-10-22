@@ -1,0 +1,7 @@
+//An out-of-carrier-range constant count keeps ConstantFitGate's precise
+//message (200 does not fit byte) instead of the generic cast reject.
+int main() {
+	byte b = 1;
+	b <<= 200;
+	return 0;
+}

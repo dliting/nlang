@@ -1,11 +1,16 @@
 /*---
-    ModuleLoaderRecords.cpp — .ncu 复合记录表解析（functions / structs /
-    classes 三段），从 ModuleLoader.cpp 逐字搬移（源尺寸守卫拆分，零行为
-    变化）。段间顺序、字段序、错误措辞与原实现完全一致；ReadTypeDesc 是
-    三段共用的流级适配器（u16 长度前缀 + TypeDesc.cpp 的字节层解析）。
+    ModuleLoaderRecords.cpp — .ncu 复合记录表解析（functions / structs
+    两段），从 ModuleLoader.cpp 逐字搬移（源尺寸守卫拆分，零行为
+    变化）。段间顺序、字段序、错误措辞与原实现完全一致；classes 段见
+    ModuleLoaderRecordsClasses.cpp（2026-10-22 并发线合并后拆分，一表
+    一 TU）。ReadTypeDesc / ReadDefaultValueDesc 是各段共用的流级
+    适配器（u16 长度前缀 + TypeDesc.cpp 的字节层解析），0.9.12 (v2.7)
+    起经头文件跨 TU 共享给接口段 ModuleLoaderRecordsInterfaces.cpp。
+    0.9.12 (v2.7)：结构记录尾部读构造器访问。
 ---*/
 #include "ModuleLoaderRecords.h"
 #include <nlang/vm/ExprDesc.h>
+#include <nlang/runtime/NodeConsts.h>
 #include <stdexcept>
 #include <vector>
 
@@ -14,7 +19,7 @@ namespace nlang {
 //v1.12: read one length-prefixed type descriptor (u16 len + wire bytes).
 //len==0 means "no descriptor" — the caller keeps the NonSerialized
 //default. Throws on a bad length or a malformed wire form.
-static TypeDesc ReadTypeDesc(std::istream& fs)
+TypeDesc ReadTypeDesc(std::istream& fs)
 {
     uint16_t len = 0;
     fs.read(reinterpret_cast<char*>(&len), sizeof(len));
@@ -28,6 +33,37 @@ static TypeDesc ReadTypeDesc(std::istream& fs)
         throw std::runtime_error(
             "Invalid module: truncated type descriptor");
     return ParseTypeDescBytes(bytes.data(), bytes.size());
+}
+
+//Option B v1.3 fixed default-value record (see the saver's
+//WriteDefaultValueDesc for the layout). Shared by the formal-default
+//block, the struct field-default block and (via the header) the
+//interface blocks in ModuleLoaderRecordsInterfaces.cpp.
+DefaultValueDesc ReadDefaultValueDesc(std::istream& fs)
+{
+    DefaultValueDesc dv;
+    fs.read(reinterpret_cast<char*>(&dv.tag), sizeof(dv.tag));
+    fs.read(reinterpret_cast<char*>(&dv.intValue), sizeof(dv.intValue));
+    fs.read(reinterpret_cast<char*>(&dv.floatValue),
+            sizeof(dv.floatValue));
+    fs.read(reinterpret_cast<char*>(&dv.stringIdx),
+            sizeof(dv.stringIdx));
+    fs.read(reinterpret_cast<char*>(&dv.longValue),
+            sizeof(dv.longValue));
+    fs.read(reinterpret_cast<char*>(&dv.doubleValue),
+            sizeof(dv.doubleValue));
+    uint16_t exprLen = 0;
+    fs.read(reinterpret_cast<char*>(&exprLen), sizeof(exprLen));
+    if (!fs.good() || exprLen > kMaxExprDescBytes)
+        throw std::runtime_error(
+            "Invalid module: bad default expression length");
+    dv.exprBytes.resize(exprLen);
+    if (exprLen > 0)
+        fs.read(reinterpret_cast<char*>(dv.exprBytes.data()), exprLen);
+    if (!fs.good())
+        throw std::runtime_error(
+            "Invalid module: truncated default expression");
+    return dv;
 }
 
 void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
@@ -59,6 +95,10 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         uint8_t nativeFlag = 0;
         fs.read(reinterpret_cast<char*>(&nativeFlag), sizeof(nativeFlag));
         func.isNative = (nativeFlag != 0);
+        //0.9.10 v2.4: static-member flag (see ModuleSaver).
+        uint8_t staticFlag = 0;
+        fs.read(reinterpret_cast<char*>(&staticFlag), sizeof(staticFlag));
+        func.isStatic = (staticFlag != 0);
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;
@@ -66,37 +106,10 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         if (!fs.good() || defaultCount > 256)
             throw std::runtime_error("Invalid module: bad default count");
         func.defaultValues.resize(defaultCount);
-        for (uint16_t j = 0; j < defaultCount; ++j) {
-            auto& dv = func.defaultValues[j];
-            fs.read(reinterpret_cast<char*>(&dv.tag), sizeof(dv.tag));
-            fs.read(reinterpret_cast<char*>(&dv.intValue), sizeof(dv.intValue));
-            fs.read(reinterpret_cast<char*>(&dv.floatValue),
-                    sizeof(dv.floatValue));
-            fs.read(reinterpret_cast<char*>(&dv.stringIdx),
-                    sizeof(dv.stringIdx));
-            //0.7.5 v1.13: 8-byte scalar channels (matches the saver's
-            //extended record; the loader floor is already 13).
-            fs.read(reinterpret_cast<char*>(&dv.longValue),
-                    sizeof(dv.longValue));
-            fs.read(reinterpret_cast<char*>(&dv.doubleValue),
-                    sizeof(dv.doubleValue));
-            //v2.3: ExprDesc payload (see DefaultValueDesc::exprBytes).
-            //Unconditional u16 length; the content is byte-validated
-            //later by the linker remap and the consumer rebuild — here a
-            //bad length or truncated stream is rejected outright.
-            uint16_t exprLen = 0;
-            fs.read(reinterpret_cast<char*>(&exprLen), sizeof(exprLen));
-            if (!fs.good() || exprLen > kMaxExprDescBytes)
-                throw std::runtime_error(
-                    "Invalid module: bad default expression length");
-            dv.exprBytes.resize(exprLen);
-            if (exprLen > 0)
-                fs.read(reinterpret_cast<char*>(dv.exprBytes.data()),
-                        exprLen);
-            if (!fs.good())
-                throw std::runtime_error(
-                    "Invalid module: truncated default expression");
-        }
+        //The record layout lives in ReadDefaultValueDesc (shared with
+        //the interface-constant block below).
+        for (uint16_t j = 0; j < defaultCount; ++j)
+            func.defaultValues[j] = ReadDefaultValueDesc(fs);
 
         uint32_t bcSize;
         fs.read(reinterpret_cast<char*>(&bcSize), sizeof(bcSize));
@@ -275,86 +288,52 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
             for (uint16_t j = 0; j < st.fieldCount; ++j)
                 st.fieldTypeDescs[j] = ReadTypeDesc(fs);
         }
-    }
-}
 
-void ReadClassRecords(std::istream& fs, CompiledModule& mod)
-{
-    uint32_t classCount;
-    fs.read(reinterpret_cast<char*>(&classCount), sizeof(classCount));
-    if (!fs.good() || classCount > (1u << 24))
-        throw std::runtime_error("Invalid module: bad class count");
-    mod.classes.resize(classCount);
+        //v2.6: constructor function indices in declaration order (see
+        //ModuleSaver). The v2.6 floor guarantees the block; the count cap
+        //is the usual corrupt-image guard.
+        uint16_t ctorCount = 0;
+        fs.read(reinterpret_cast<char*>(&ctorCount), sizeof(ctorCount));
+        if (!fs.good() || ctorCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad struct constructor count");
+        st.constructorIndices.resize(ctorCount);
+        for (uint16_t j = 0; j < ctorCount; ++j)
+            fs.read(reinterpret_cast<char*>(&st.constructorIndices[j]),
+                    sizeof(uint16_t));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated struct constructor indices");
+        //0.9.12 (v2.7): same function-table bound as the class ctor
+        //indices — the consumer stub rebuilds a ctor per entry.
+        for (auto idx : st.constructorIndices)
+            if (idx >= mod.functions.size())
+                throw std::runtime_error(
+                    "Invalid module: struct constructor index out of range");
 
-    for (uint32_t i = 0; i < classCount; ++i) {
-        auto& cc = mod.classes[i];
+        //v2.6: per-field compile-time defaults, dense (RTK_Void = no
+        //default). The count must equal fieldCount — a mismatch means the
+        //record was written by a different layout and every byte after
+        //this block would misparse, so refuse here.
+        uint16_t defCount = 0;
+        fs.read(reinterpret_cast<char*>(&defCount), sizeof(defCount));
+        if (!fs.good() || defCount != st.fieldCount)
+            throw std::runtime_error(
+                "Invalid module: bad struct field default count");
+        st.fieldDefaults.resize(defCount);
+        for (uint16_t j = 0; j < defCount; ++j)
+            st.fieldDefaults[j] = ReadDefaultValueDesc(fs);
 
-        uint32_t ccNameLen;
-        fs.read(reinterpret_cast<char*>(&ccNameLen), sizeof(ccNameLen));
-        if (!fs.good() || ccNameLen > (1u << 24))
-            throw std::runtime_error("Invalid module: bad class name length");
-        cc.name.resize(ccNameLen);
-        fs.read(cc.name.data(), ccNameLen);
-
-        fs.read(reinterpret_cast<char*>(&cc.fieldCount),
-                sizeof(cc.fieldCount));
-        fs.read(reinterpret_cast<char*>(&cc.superClassIdx),
-                sizeof(cc.superClassIdx));
-
-        cc.fieldNames.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            uint32_t fnLen;
-            fs.read(reinterpret_cast<char*>(&fnLen), sizeof(fnLen));
-            if (!fs.good() || fnLen > (1u << 24))
-                throw std::runtime_error("Invalid module: bad class field name length");
-            cc.fieldNames[j].resize(fnLen);
-            fs.read(cc.fieldNames[j].data(), fnLen);
+        //0.9.12 (v2.7): declared access per ctor, parallel to
+        //constructorIndices (count rides on ctorCount) — the consumer
+        //stub rebuilds each struct ctor with its visibility.
+        st.constructorAccess.resize(ctorCount);
+        for (auto& a : st.constructorAccess) {
+            fs.read(reinterpret_cast<char*>(&a), sizeof(a));
+            if (!fs.good() || a > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad struct constructor access");
         }
-
-        cc.fieldTypeKinds.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldTypeKinds[j]),
-                    sizeof(cc.fieldTypeKinds[j]));
-        }
-
-        cc.fieldStructIndices.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldStructIndices[j]),
-                    sizeof(cc.fieldStructIndices[j]));
-        }
-
-        cc.fieldClassIndices.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldClassIndices[j]),
-                    sizeof(cc.fieldClassIndices[j]));
-        }
-
-        //v1.12: per-field type descriptors (the gate is gone — the
-        //v1.13 floor subsumes 12; see the function-record site).
-        {
-            cc.fieldTypeDescs.resize(cc.fieldCount);
-            for (uint16_t j = 0; j < cc.fieldCount; ++j)
-                cc.fieldTypeDescs[j] = ReadTypeDesc(fs);
-        }
-
-        cc.fieldAccess.resize(cc.fieldCount);
-        for (uint16_t j = 0; j < cc.fieldCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.fieldAccess[j]),
-                    sizeof(cc.fieldAccess[j]));
-        }
-
-        //Method indices
-        uint16_t methodCount;
-        fs.read(reinterpret_cast<char*>(&methodCount), sizeof(methodCount));
-        cc.methodIndices.resize(methodCount);
-        for (uint16_t j = 0; j < methodCount; ++j) {
-            fs.read(reinterpret_cast<char*>(&cc.methodIndices[j]),
-                    sizeof(cc.methodIndices[j]));
-        }
-
-        //Constructor index
-        fs.read(reinterpret_cast<char*>(&cc.constructorIdx),
-                sizeof(cc.constructorIdx));
     }
 }
 

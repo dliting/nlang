@@ -2,7 +2,7 @@
 
 
 ```nlang
-x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;
+x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
 ```
 
 Read-modify-write shorthand for `x = x op y`. Supported left-values: local
@@ -14,7 +14,11 @@ and the base/index of a subscript left-value are not re-evaluated —
 same object (the expansion `make().x = make().x + 5` would call `make()`
 twice and store into a different object); `arr[f()] += 1` calls `f()` once.
 
-For string elements only `+=` (concat) is legal; the other four operators
+The shift pair `<<=` / `>>=` fixes the carrier to the left value's
+declared type (no promotion to int) and admits counts exactly like the
+binary shift — see [Operators](operators.md) "Shift".
+
+For string elements only `+=` (concat) is legal; the other six operators
 are rejected with `operator not supported on string`. A string base is not
 supported (`string does not support subscript access`, see [Common
 Errors](common-errors.md) "Assignment targets"). `d[k] += v` throws when

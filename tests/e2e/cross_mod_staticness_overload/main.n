@@ -1,0 +1,19 @@
+//0.9.10 v2.4 canary: consumer module. Imports lib and invokes the
+//INSTANCE overload of Mix.f() through the imported free function
+//callF (the 0.9.11 O2 idiom — the external-stub path does not support
+//calling an imported class's instance method directly). Expected exit
+//code 42.
+//
+//Why 42 (kept <= 255 on purpose): the process exit code is the full
+//32-bit return value of main(), but bash/POSIX `$?` truncates it to
+//its low 8 bits (999 mod 256 == 231 is the shape this test guards
+//against). Pinning the expected value below 256 keeps the assertion
+//unambiguous under any shell — see memory nlang-exit-code-limit.
+//A staticness linkage bug would resolve the import to the decoy static
+//f(int x) and yield a different value, so 42 vs (x*1001) is decisive.
+import lib;
+
+int main() {
+	lib.Mix m = lib.Mix();
+	return lib.callF(m);
+}

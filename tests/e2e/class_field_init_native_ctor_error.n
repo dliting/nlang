@@ -1,0 +1,8 @@
+//0.9.11 D9: a native constructor has no body to inject into, so a class
+//with field initializers may not declare one.
+class Cfg {
+	public int x = 5;
+	public native Cfg();
+}
+
+int main() { return 0; }

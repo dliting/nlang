@@ -1,0 +1,9 @@
+//Compile-time rejection: an instance method cannot be called through
+//the type name — it needs a receiver object. (Before 0.9.10 this shape
+//slipped through the resolver and crashed the backend.)
+class Util {
+    public int inst() { return 1; }
+}
+int main() {
+    return Util.inst();
+}

@@ -1,7 +1,8 @@
 /*---
-    StatementResolverAssign.cpp — 赋值类语句解析：return/赋值/复合赋值/下标赋值的类型检查与收敛。
+    StatementResolverAssign.cpp — 赋值类语句解析：return/赋值/下标赋值的类型检查与收敛。
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）；
-    赋值目标守卫族已抽至 StatementResolverStoreGates.cpp（0.9.0）。
+    赋值目标守卫族已抽至 StatementResolverStoreGates.cpp（0.9.0）；
+    复合赋值已抽至 StatementResolverCompound.cpp（0.9.10，按语句族分文件）。
 ---*/
 #include "StatementResolver.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
@@ -32,8 +33,15 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 
 	if (!pReturnType)
 	{
-		m_Env.Log(CLL_Error, pResultExpr->Location(),
-			"No value should be returned here.");
+		//0.9.11 D1: constructors carry no return type; a value return
+		//gets the constructor-specific wording.
+		if (IsConstructorFunction(*pOuterFunc))
+			m_Env.Log(CLL_Error, pResultExpr->Location(),
+				"constructor \"%s\" cannot return a value",
+				pOuterFunc->Name().c_str());
+		else
+			m_Env.Log(CLL_Error, pResultExpr->Location(),
+				"No value should be returned here.");
 		return;
 	}
 
@@ -139,44 +147,6 @@ void StatementResolveAccessor::FinishAssignTypeCheck(SnAssignStmt &sn)
 	//targets = Auto toString coercion. Local-decl initializers
 	//decompose into SnAssignStmt, so declarations flow through the
 	//same choke point.
-	auto castInfo = GetCastInfo(pSourceType, pTargetType);
-	auto iExpr = sn.Children().find(sn.m_pRight);
-	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
-		sn.m_pRight = &static_cast<SnCastExpr &>(*iExpr);
-	sn.AddFlags(NF_Resolved);
-}
-
-void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
-{
-	if (sn.IsResolved())
-		return;
-	assert(m_pVisitor);
-	sn.Left()->Accept(*m_pVisitor);
-	//Phase 9a: reject compound assignment to a const local.
-	RejectConstStoreTarget(*sn.Left(), sn.Location());
-	RejectMethodCallStoreTarget(*sn.Left(), sn.Location());
-	if (RejectCompoundSubscriptTarget(*sn.Left(), sn.Location()))
-		return;
-	sn.Right()->Accept(*m_pVisitor);
-
-	//Type check: RHS must be compatible with LHS type.
-	//Apply cast fixup on RHS (same pattern as SnAssignStmt).
-	SnField* pTargetType = nullptr;
-	if (!TryGetAssignTargetType(*sn.Left(), pTargetType))
-		return;
-	SnField* pSourceType = nullptr;
-	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
-		return;
-	//Phase 9a P3: operator-type legality check (mirrors
-	//ExprResolveAccessor::Access(SnBinaryExpr&) logic).
-	//String only supports += (concat); -=, *=, /=, %= are invalid.
-	NodeKind lhsKind = pTargetType->Kind();
-	if (lhsKind == NK_String && sn.Op() != SnBinaryExpr::OP_Add)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"operator not supported on string.");
-		return;
-	}
 	auto castInfo = GetCastInfo(pSourceType, pTargetType);
 	auto iExpr = sn.Children().find(sn.m_pRight);
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))

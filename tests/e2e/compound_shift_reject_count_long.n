@@ -1,0 +1,9 @@
+//A long variable count cannot implicitly narrow to an int carrier (it
+//would silently truncate the count) — the shift-specific message, same
+//as the binary form.
+int main() {
+	long n = 4;
+	int r = 1;
+	r <<= n;
+	return r;
+}

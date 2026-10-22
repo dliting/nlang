@@ -107,7 +107,7 @@ void VmBackend::WalkArrayTypeNode(SnField& n) {
     //through StructSlotFor/ClassSlotFor at this unit's use sites.
     if (n.IsImported() || !IsOwnUnit(n)) return;
     if (n.Kind() == NK_StructDecl) {
-        for (auto& member : static_cast<SnStructDecl&>(n).Members())
+        for (auto& member : static_cast<SnStructDecl&>(n).Fields())
             WalkArrayTypeField(member);
     } else if (n.Kind() == NK_ClassDecl) {
         for (auto& member : static_cast<SnClassDecl&>(n).Members())

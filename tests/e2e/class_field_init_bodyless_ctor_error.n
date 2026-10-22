@@ -1,0 +1,8 @@
+//0.9.11 D9: a bodyless (abstract-shape) constructor has no statement
+//list to inject into — same rejection as the native form.
+class Cfg {
+	public int x = 5;
+	Cfg();
+}
+
+int main() { return 0; }

@@ -1,0 +1,19 @@
+//Struct members default to public: a bare field is readable/writable and a
+//bare constructor is callable from outside the struct (0.9.12 D7).
+struct Point {
+    int x;
+    int y;
+    Point() { x = 1; y = 2; }
+}
+
+int shift(Point p, int d) {
+    return p.x + p.y + d;
+}
+
+int main() {
+    Point q = Point();
+    if (q.x != 1 || q.y != 2) return 1;
+    q.x = 5;
+    if (shift(q, 0) != 7) return 2;
+    return 0;
+}

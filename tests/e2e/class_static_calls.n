@@ -1,0 +1,16 @@
+//Class static methods: type-name-qualified calls, bare in-class calls,
+//and superclass-chain visibility. 42 + 8 + 7 = 57.
+class Util {
+    public static int twice(int x) { return x * 2; }
+    public static int quad(int x) { return twice(twice(x)); }
+    public int inst() { return 1; }
+}
+class Base {
+    public static int bid() { return 7; }
+}
+class Sub : Base {
+    public int pad;
+}
+int main() {
+    return Util.twice(21) + Util.quad(2) + Sub.bid();
+}

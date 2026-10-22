@@ -2,7 +2,7 @@
 class Holder {
     public string tag;
     public int n;
-    public int Holder(string t) { tag = t; n = 0; return 0; }
+    public Holder(string t) { tag = t; n = 0;}
 }
 struct Pt {
     int x;

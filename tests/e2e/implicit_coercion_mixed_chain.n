@@ -1,5 +1,5 @@
 class P {
-	int x;
+	public int x;
 	string toString() { return "P(" + this.x + ")"; }
 }
 enum Color { Red, Green, Blue }

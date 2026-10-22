@@ -9,8 +9,10 @@ the container branches handle boxing.
 
 Collection initializers (`[1,2,3]`, `Type{...}`) lower through a
 single `NK_InitListExpr` handler in `VmBackend::EmitExpression`. The
-handler dispatches on the resolved `EvalDataType` plus the
-`TargetIsArray` flag set by the resolver.
+handler dispatches on the resolved `EvalDataType` and the node's
+`IsArrayValued()` predicate — an array-form initializer carries the
+interned array token in its type slot, so array-ness is part of the
+type itself.
 
 ### Resolver data flow
 
@@ -20,15 +22,14 @@ without an `InferredTarget`, the LHS variable is recorded on the init
 list via `InferredTarget(pLeftField)`. The resolver then visits the
 RHS; `ExprResolveAccessor::Access(SnInitListExpr&)` reads either the
 explicit `ExplicitType()` or the `InferredTarget()`, sets
-`EvalDataType` to the resolved target field, and copies array-ness
-into `TargetIsArray` (needed because `EvalDataType` on an array
-variable returns the element type — the array-ness would otherwise be
-lost).
+`EvalDataType` to the resolved target type — for array targets
+the interned array token (`InternArrayTypeToken(element)`), so the node
+is array-valued by construction and consumers peel the element with
+`ElemTypeOf()`.
 
-The resolver does not propagate expected types to child init lists
-(recursive type inference for `[[1,2],[3]]` is not supported).
-Children must use the explicit `Type{...}` form to carry their
-own type.
+The resolver propagates the element target into child init lists per
+slot (`PropagateNestedInitListTargets`), so nested bare literals infer
+their type — `[[1,2],[3]]` and `{{1,2},{3}}` both work.
 
 ### Codegen dispatch table
 

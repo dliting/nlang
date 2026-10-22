@@ -75,6 +75,13 @@ nav:
           - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 并发:
           - 并发: language-spec/concurrency.md
+          - GIL与多载体: language-spec/concurrency-gil-carriers.md
+          - thread包: language-spec/concurrency-thread.md
+          - Future: language-spec/concurrency-future.md
+          - Mutex: language-spec/concurrency-mutex.md
+          - Channel: language-spec/concurrency-channel.md
+          - 标准库同步工具: language-spec/concurrency-concurrent.md
+          - 停泊与调度限制: language-spec/concurrency-parking.md
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md

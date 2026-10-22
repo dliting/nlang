@@ -1,11 +1,13 @@
 //Phase 13 Step 2: delegate call with out write-back — the func
 //signature carries the out marker and the callee writes the caller's
-//slot through OP_CallDelegateOut.
-void grab(out int r) { r = 7; }
+//slot through OP_CallDelegateOut. 0.9.14 D-new-9: the callee also
+//sees the caller's current value as the parameter's initial value
+//(the documented inout contract, same as a direct call).
+void grab(out int r) { r = r + 7; }
 
 int main() {
     func<void, out int> f = grab;
-    int box = 0;
+    int box = 3;
     f(out box);
-    return box;
+    return box;  // 3 + 7 = 10
 }

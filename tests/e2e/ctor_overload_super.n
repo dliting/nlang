@@ -1,0 +1,20 @@
+//0.9.11 T6 (D10): super(...) selects among the parent's overloaded
+//constructors with the same distance rule as other call sites.
+class P {
+    public int tag;
+    public P() { this.tag = 1; }
+    public P(int r) { this.tag = 10 + r; }
+}
+class C1 : P {
+    public C1() { super(); }
+}
+class C2 : P {
+    public C2(int x) { super(x); }
+}
+int main() {
+    C1 a = C1();
+    if (a.tag != 1) return 1;
+    C2 b = C2(3);
+    if (b.tag != 13) return 2;
+    return 0;
+}

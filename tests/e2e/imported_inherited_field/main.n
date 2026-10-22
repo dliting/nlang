@@ -1,0 +1,5 @@
+import lib;
+int main() {
+    lib.Derived d = lib.Derived();
+    return d.bf + d.df;
+}

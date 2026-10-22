@@ -1,0 +1,11 @@
+//0.9.10 D3 delta: bool/char literals are foldable defaults and cross
+//the module boundary as RTK_Bool/RTK_Char descriptors.
+int pick(bool flag = true) {
+	if (flag) { return 4; }
+	return 0;
+}
+
+int width(char c = '中') {
+	string s = "" + c;
+	return s.length();
+}

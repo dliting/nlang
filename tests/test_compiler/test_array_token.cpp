@@ -25,6 +25,8 @@ otherwise the build segfaults unrecoverably.
 #include <memory>
 #include <string>
 #include <vector>
+#include <nlang/compiler/SnExpressions.h>
+#include <functional>
 
 using namespace nlang;
 
@@ -261,6 +263,72 @@ static void test_param_binding_matrix()
     PASS();
 }
 
+//0.9.13 D-new-1: the array-form init list node carries the interned
+//array token in its type slot (the representation invariant every
+//consumer peels from), never the bare element field.
+static void test_init_list_token_alignment()
+{
+    TEST(init_list_token_alignment);
+    auto out = compileOne(
+        "int[] make() { return [1,2,3]; }\n"
+        "int main() {\n"
+        "    int[] a = [1,2,3];\n"
+        "    int[] b = make();\n"
+        "    return b[2];\n"
+        "}\n");
+    CHECK(out.ok, "array-return + array-decl init lists compile");
+    std::vector<SnInitListExpr*> initLists;
+    std::function<void(const Node&)> walk =
+        [&](const Node &node)
+        {
+            if (node.Kind() == NK_InitListExpr)
+                initLists.push_back(const_cast<SnInitListExpr*>(
+                    static_cast<const SnInitListExpr*>(&node)));
+            const auto &children = node.Children();
+            for (auto it = children.cbegin(); it != children.cend(); ++it)
+                walk(*it);
+        };
+    walk(out.builder->TreeRootView());
+    CHECK(initLists.size() >= 2, "both init lists are in the tree");
+    for (auto *pList : initLists)
+    {
+        auto *pType = pList->EvalDataType();
+        CHECK(pType != nullptr, "init list carries a resolved target type");
+        CHECK(pType->Kind() == NK_ArrayTypeToken,
+            "type slot is the interned array token");
+        CHECK(pList->IsArrayValued(), "node is array-valued");
+    }
+    PASS();
+}
+
+//0.9.13 D-new-3: the array-return vehicle that surfaced this spelling in a
+//diagnostic now compiles, so the matched-bracket rendering (0.9.12) is
+//pinned directly on ToString — the single source of the spelling.
+static void test_init_list_tostring_spelling()
+{
+    TEST(init_list_tostring_spelling);
+    auto out = compileOne(
+        "int[] make() { return [1,2]; }\n"
+        "int main() { int[] a = make(); return a[1]; }\n");
+    CHECK(out.ok, "array-return init list compiles");
+    SnInitListExpr *pList = nullptr;
+    std::function<void(const Node&)> walk =
+        [&](const Node &node)
+        {
+            if (!pList && node.Kind() == NK_InitListExpr)
+                pList = const_cast<SnInitListExpr*>(
+                    static_cast<const SnInitListExpr*>(&node));
+            const auto &children = node.Children();
+            for (auto it = children.cbegin(); it != children.cend(); ++it)
+                walk(*it);
+        };
+    walk(out.builder->TreeRootView());
+    CHECK(pList != nullptr, "the init list is in the tree");
+    CHECK(pList->ToString() == "init_list[2 entries]",
+        "bracket form renders matched brackets");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -273,6 +341,8 @@ int main()
     test_intern_identity();
     test_cast_matrix();
     test_param_binding_matrix();
+    test_init_list_token_alignment();
+    test_init_list_tostring_spelling();
     std::cerr << "\narray_token: " << g_pass << " passed, "
         << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

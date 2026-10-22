@@ -1,0 +1,7 @@
+//Producer exports a class with a public static method. The consumer
+//reaches it through the module-qualified type name (0.9.12): the
+//`lib.Mix` chain must bind the producer's class stub, exactly like the
+//bare `Mix` spelling, and the static call runs the producer's body.
+class Mix {
+	public static int f(int x) { return x * 333; }
+}

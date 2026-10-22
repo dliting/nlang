@@ -1,0 +1,12 @@
+// cross_mod_override_ok — a consumer override of an imported virtual is
+// dispatched by the PRODUCER's own code: through an inherited caller
+// (run() calls this.f(3)) and through a base-typed formal parameter
+// (useB calls b.f(1)). The override is written WITHOUT the `virtual`
+// keyword — PropagateVirtualOverrides marks it by name + parameter count
+// exactly as in the own-unit case — so both cross-module dispatch paths
+// reach D.f: 13 + 11 = 24.
+class B {
+    public virtual int f(int x) { return x; }
+    public int run() { return this.f(3); }
+}
+int useB(B b) { return b.f(1); }

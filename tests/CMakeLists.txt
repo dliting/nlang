@@ -439,6 +439,86 @@ target_compile_definitions(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
+# 0.9.11 D2 struct constructor unit tests (console suite): in-process
+# compile+run pinning that the ctor runs on explicit construction calls
+# only, never on bare declarations (test_stdlib's runSource shape).
+add_executable(test_struct_ctor
+    test_vm/test_struct_ctor.cpp
+)
+
+target_include_directories(test_struct_ctor
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_struct_ctor
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_struct_ctor)
+target_compile_definitions(test_struct_ctor
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME struct_ctor_tests COMMAND test_struct_ctor)
+
+# 0.9.11 D4 struct field initializer unit tests (console suite):
+# in-process compile+run pinning that field defaults apply at every
+# allocation (bare decl, array elements, nested fields), brace/ctor
+# stores override them, deep copy never re-applies them, and minted
+# string defaults survive GC pressure (test_struct_ctor's runSource
+# shape + test_strings' SetGcStressThresholds hook).
+add_executable(test_struct_field_init
+    test_vm/test_struct_field_init.cpp
+)
+
+target_include_directories(test_struct_field_init
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_struct_field_init
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_struct_field_init)
+target_compile_definitions(test_struct_field_init
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME struct_field_init_tests COMMAND test_struct_field_init)
+
+# 0.9.12 T1 VmClassLayout unit tests (console suite): hand-built
+# CompiledClass records (no codegen, no linking) pinning that the
+# runtime instance-field layout view mirrors the records field-for-field
+# while the producer still ships flattened arrays (T2 switches Build to
+# the base-first chain join).
+add_executable(test_class_layout
+    test_vm/test_class_layout.cpp
+)
+
+target_include_directories(test_class_layout
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_class_layout
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+
+add_test(NAME class_layout_tests COMMAND test_class_layout)
+
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
 # key split (List<int> vs List<int[]> mint distinct classes) and the

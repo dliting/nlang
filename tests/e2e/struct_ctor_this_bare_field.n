@@ -1,0 +1,14 @@
+struct Counter {
+    int n;
+    string tag;
+    public Counter(int start, string label) {
+        n = start + 1;
+        this.tag = label;
+    }
+}
+int main() {
+    Counter c(41, "x");
+    if (c.n != 42) return 1;
+    if (c.tag != "x") return 2;
+    return 0;
+}

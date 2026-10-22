@@ -1,0 +1,10 @@
+//0.9.10 D3.5: a folded constant is not a location; assignment to it is
+//rejected in the resolver.
+interface ILimits {
+	public static const int MAX = 1;
+}
+
+int main() {
+	ILimits.MAX = 5;
+	return 0;
+}

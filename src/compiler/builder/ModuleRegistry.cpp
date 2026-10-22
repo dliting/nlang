@@ -237,19 +237,6 @@ bool ModuleRegistry::IsKnownModule(const std::string& dottedPath) const
 	return false;
 }
 
-bool ModuleRegistry::HasKnownModuleStartingWith(
-	const std::string& dottedPrefix) const
-{
-	const std::string prefix = dottedPrefix + '.';
-	for (const ModuleEntry& entry : m_modules)
-	{
-		if (entry.path == dottedPrefix
-			|| entry.path.rfind(prefix, 0) == 0)
-			return true;
-	}
-	return false;
-}
-
 void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 	std::vector<SnFunction*> stubs)
 {

@@ -1,7 +1,7 @@
 # 结构体
 
 
-`struct`是值类型聚合，由字段组成。它只持有数据——没有方法体、没有`this`。需要行为请用`class`。
+`struct`是值类型聚合，由字段组成。它持有数据加上可选构造器——没有一般方法体。需要行为请用`class`。
 
 ```nlang
 struct Point {
@@ -10,11 +10,13 @@ struct Point {
 }
 ```
 
+struct成员始终公开可及：字段与构造器默认`public`，可显式写出的修饰符也只有`public`本身——struct成员写出`private`或`protected`是编译错误（`The struct member "%s" must be public.`）。struct是无隐藏状态的纯数据记录，不适用可见性规则。
+
 ### 值语义
 
 struct是具**深拷贝**语义的**值类型**，贯穿整个语言：
 
-- **声明**（`Point p;`）会把每个字段零初始化。
+- **声明**（`Point p;`）会给每个字段赋予默认值——未声明初始化器时为0，声明了则为所声明的默认值（见下文「字段初始化器」）。
 - **赋值 / 拷贝**（`Point q = p;`）按值复制整个结构体，包括嵌套struct字段，因此源与拷贝相互独立。
 - **参数传递 / 返回**：深拷贝进被调方的局部栈帧，再深拷贝回调用方的结果槽位。被调方操作的是自己那份副本。
 - **作为class字段**：class持有一份独立的深拷贝。`obj.s = s1`会把`s1`深拷贝进该class的字段槽位。
@@ -39,19 +41,36 @@ int main() {
 
 ### 创建与初始化
 
-struct**没有构造函数**——不能声明构造器，写`Point p = Point(2, 3);`会报`The function "Point" does not exist or is not accessible.`。初始化有三条路：
+struct可用与class相同的语法声明构造器（可选`public`修饰符、默认参数、重载、以及隐式`this`裸字段访问——见[类](class.md)「构造函数」）。构造器**仅在显式构造时**运行：
 
 ```nlang
-Point a;                       // 零初始化：所有字段为0
-Point b = Point{x: 1, y: 2};   // 具名条目：按字段名填值
-Point c = Point{3, 7};         // 位置条目：按声明顺序填值
+Point p(2, 3);                  // 直接初始化声明
+Point q = Point(1, 4);          // 构造调用，赋值
+Point r;                        // 裸声明：不运行构造器
+Point s = Point{5};             // 初始化列表：不运行构造器
 ```
 
-- **具名条目**`Point{x: 1, y: 2}`：按字段名赋值，未列出的字段保持零值。
-- **位置条目**`Point{3, 7}`：按字段声明顺序赋值；可以只给前几个——`Point{5}`只填`x`，其余字段零初始化。
+- **构造调用**`Point(1, 4)`与**直接初始化**`Point p(2, 3);`会运行构造器。`new Point(...)`同样会（值被放到堆上，与class类型的`new`一致——见[类](class.md)）。
+- **裸声明**`Point r;`与**初始化列表**`Point{...}`**不**运行构造器——每个字段取默认值（未声明初始化器时为0，声明了则为所声明的默认值）。数组元素、嵌套struct字段、深拷贝行为相同。
+- **具名条目**`Point{x: 1, y: 2}`：按字段名赋值，未列出的字段保持默认值。
+- **位置条目**`Point{3, 7}`：按字段声明顺序赋值；可以只给前几个——`Point{5}`只填`x`，其余字段保持默认值。
 - struct数组`Point[3]`为每个元素急切物化全新实例，见上文值语义与[数组](array.md)。
 
-字段通过成员表达式`p.x`读写；struct没有方法体，因此没有可绑定的`this`。完整初始化列表规则（目标形状与消歧）见[集合初始化器](collection-initializers.md)。
+字段通过成员表达式`p.x`读写；构造器内可用`this`指名一个字段。完整初始化列表规则（目标形状与消歧）见[集合初始化器](collection-initializers.md)。
+
+### 字段初始化器
+
+struct字段可带编译期常量默认值，与class字段相同（见[类](class.md)「字段初始化器」）：
+
+```nlang
+struct Point {
+    int x = 3;
+    int y = 4;
+    string tag = "pt";
+}
+```
+
+与class不同，struct默认值**不注入到构造器**——它在每次分配时应用。裸声明、数组元素、嵌套字段、部分初始化列表都会物化默认值（初始化列表条目会覆盖它们）。深拷贝复制存储值，不重新应用默认值。默认值随`.ncu`的struct记录保存，因此`import`之后依然可见——见[模块序列化](../vm-architecture/module-serialization.md)。
 
 ### struct可以包含
 
@@ -59,8 +78,9 @@ Point c = Point{3, 7};         // 位置条目：按声明顺序填值
 - enum字段（按int32存储）
 - struct字段（深拷贝，由外层struct持有）
 - class字段（引用，浅拷贝）
+- 构造器（与class相同的语法）
 
-struct不能包含方法。需要行为请用class。
+struct不能包含一般方法。需要行为请用class。
 
 ### 输出
 

@@ -257,7 +257,14 @@ static bool SatisfyUnboundFormals(std::vector<FormalBinding> &outBindings)
 	return true;
 }
 
-bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
+//0.9.11 T6: the binding core takes the actual-argument list directly (not
+//an SnInvokeExpr) — constructor matching reaches it from SnNewExpr,
+//SnInvokeExpr and SnSuperCallStmt alike. The vector shape is the common
+//denominator of the three argument views (SnInvokeExpr::Params() is an
+//SnExpressionList, SnNewExpr::Args() carries the class-name child,
+//SnSuperCallStmt::Args() is a PtrList); every call site builds the
+//resolved actual pointers once per call.
+bool ExprResolveAccessor::TryBindArgs(const std::vector<SnExpression*> &actuals,
 	const SnFunction &callee, std::vector<FormalBinding> &outBindings)
 {
 	auto &formals = const_cast<SnFunction&>(callee).Params();
@@ -274,16 +281,15 @@ bool ExprResolveAccessor::TryBindInvoke(const SnInvokeExpr &invoke,
 
 	bool bSeenNamed = false;
 	size_t iNextFormal = 0;
-	auto &actuals = const_cast<SnInvokeExpr&>(invoke).Params();
 
 	//Pass 1+2: walk actuals left-to-right; route each to positional or named.
-	for (auto &actual : actuals)
+	for (auto *pActual : actuals)
 	{
 		SnExpression *pExpr;
 		std::string sName;
 		bool bIsNamed = false;
 		bool bIsOut = false;
-		if (!UnwrapInvokeActual(actual, pExpr, sName, bIsNamed, bIsOut,
+		if (!UnwrapInvokeActual(*pActual, pExpr, sName, bIsNamed, bIsOut,
 				bSeenNamed))
 			return false;
 		if (!bIsNamed)

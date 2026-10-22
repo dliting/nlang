@@ -171,12 +171,21 @@ public:
 	static const NodeKind	s_Kind			= NK_StructField;
 	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
 public:
+	//pInitializer is non-null for a field initializer (0.9.11 D4); plain
+	//declarations keep the initializer-less form. The initializer is a
+	//compile-time default applied at every struct allocation; it carries
+	//no layout semantics. Children() includes it so tree walks see the
+	//subtree (same shape as SnClassField). access carries the spelled-out
+	//modifier (0.9.12 D7); the bare arm passes FA_Default and
+	//OnAddedToParent promotes it to public like every other struct member.
 	SnStructField(SnFieldExpr *pType, std::string *pName,
-		const ISourceLocation &loc);
+		FieldAccessType access, const ISourceLocation &loc,
+		SnExpression *pInitializer = nullptr);
 
 	~SnStructField() override;
 
 	SnFieldExpr *Type() const { return m_pType; }
+	SnExpression *Initializer() const { return m_pInitializer; }
 
 	SnField *EvalDataType() const override;
 	bool IsArrayType() const override;
@@ -187,20 +196,32 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
+	SnExpression *m_pInitializer;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 
-	//A struct type declaration (e.g. struct Point { int x; int y; }).
-//Inherits SnCompoundField to hold SnStructField children and support FindField.
+//A struct type declaration (e.g. struct Point { int x; int y; }).
+//Inherits SnCompoundField to hold field/constructor children and support FindField.
 class NLANG_COMPILER_API SnStructDecl : public SnCompoundField
 {
 	typedef SnCompoundField Super_;
 public:
 	static const NodeKind	s_Kind			= NK_StructDecl;
 	static const NodeBits	s_DefaultFlags	= NF_Type | NF_Field | NF_Plain;
-	typedef ChildFieldList<SnStructField> MemberList;
+	/*
+	0.9.11 D2: fields and constructors share one child node list (the same
+	shape as SnEnumDecl). The merged MemberList owns the child-list
+	insertion and the full name dictionary — DuplicateFieldChecker checks
+	field and constructor names in one pool through NameDict() — while the
+	kind-filtered FieldList/CtorList views attach nothing and only index
+	names, so iteration and find() see exactly fields or exactly
+	constructors.
+	*/
+	typedef ChildFieldList<SnField> MemberList;
+	typedef ChildFieldList<SnStructField, KindFieldFilter<NK_StructField>> FieldList;
+	typedef ChildFieldList<SnFunction, KindFieldFilter<NK_Function>> CtorList;
 public:
-	SnStructDecl(std::string *pName, UniquePtrList<SnStructField> upMembers,
+	SnStructDecl(std::string *pName, UniquePtrList<SnField> upMembers,
 		const ISourceLocation &loc);
 
 	~SnStructDecl() override;
@@ -208,15 +229,26 @@ public:
 	MemberList &Members() { return *m_upMembers; }
 	const MemberList &Members() const { return *m_upMembers; }
 
-	size_t FieldCount() const { return m_upMembers->size(); }
+	FieldList &Fields() { return *m_upFields; }
+	const FieldList &Fields() const { return *m_upFields; }
+
+	CtorList &Ctors() { return *m_upCtors; }
+	const CtorList &Ctors() const { return *m_upCtors; }
+
+	size_t FieldCount() const { return m_upFields->size(); }
 
 	//Struct type IS the type — returns itself.
 	SnField *EvalDataType() const override;
+	//Fields first, then constructors: a field/constructor name clash is a
+	//duplicate-member error, but lookup must stay deterministic while the
+	//error is being reported (same order discipline as SnEnumDecl).
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 private:
 	std::unique_ptr<MemberList> m_upMembers;
+	std::unique_ptr<FieldList> m_upFields;
+	std::unique_ptr<CtorList> m_upCtors;
 };
 
 //A class field declaration (e.g. "int x" in class Point { int x; int y; }).
@@ -228,12 +260,17 @@ public:
 	static const NodeKind	s_Kind			= NK_ClassField;
 	static const NodeBits	s_DefaultFlags	= NF_Field | NF_Data;
 public:
+	//pInitializer is non-null for an interface constant (0.9.10 D3);
+	//plain class fields keep the declaration-only form. The initializer
+	//carries no layout or storage semantics: it is folded at the use
+	//site. Children() includes it so tree walks see the subtree.
 	SnClassField(SnFieldExpr *pType, std::string *pName, FieldAccessType access,
-		const ISourceLocation &loc);
+		const ISourceLocation &loc, SnExpression *pInitializer = nullptr);
 
 	~SnClassField() override;
 
 	SnFieldExpr *Type() const { return m_pType; }
+	SnExpression *Initializer() const { return m_pInitializer; }
 	//Access control lives in the Node base's m_AccessType bitfield —
 	//read it via AccessType(). SnClassField once redeclared a private
 	//m_access that no constructor initialized, so serialized fieldAccess
@@ -248,6 +285,7 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
+	SnExpression *m_pInitializer;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 
@@ -360,6 +398,19 @@ public:
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 };
+
+//0.9.10 D3: an interface `static const` member. Only the declaration
+//contract, the resolver and the backend consult this shape; interface
+//fields carry no storage or layout.
+inline bool IsInterfaceConstantField(const SnField &field)
+{
+	if (field.Kind() != NK_ClassField
+		|| !field.ContainFlags(NF_Static)
+		|| !field.ContainFlags(NF_Const))
+		return false;
+	auto *pParent = field.Parent();
+	return pParent && pParent->Kind() == NK_InterfaceDecl;
+}
 
 //The "using" directive in nlang.
 //Phase 13 adds the type alias form: "using Name = Type;". The namespace
