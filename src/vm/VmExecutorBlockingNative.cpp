@@ -143,6 +143,18 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     t_currentNativeRootOwner = savedRootOwner;
     RemoveNativeRoots(rootOwner);
     --t_blockingNativeDepth;
+    //K6 D9: run-generation mismatch — this carrier's run was torn down
+    //while the native ran (a detached zombie). Own root entries are
+    //already gone (they pointed at this thread's live stack); exit
+    //without touching the new run: the context registry was cleared by
+    //Reset and ctx is stale. Reaching this check implies a carrier slot
+    //was installed (ctx lookup goes through CurrentContextId, which
+    //lives in the slot).
+    if (m_spScheduler->CarrierRunGeneration()
+            != m_spScheduler->RunGeneration()) {
+        //K6 Task 5: resume the evaluation window here.
+        throw ShutdownSignal();
+    }
     //Run over: frames stay parked; m_callStack is empty (INV-2).
     if (m_spScheduler->StopRequested()) {
         //K6 Task 5: resume the evaluation window here.

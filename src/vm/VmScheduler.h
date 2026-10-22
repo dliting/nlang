@@ -264,6 +264,17 @@ public:
         return m_gilWaiters.load(std::memory_order_acquire);
     }
 
+    //K6 D9: run generation — bumped by Reset(). A carrier snapshots it
+    //at install (pool launch, once per run); a mismatch after a blocking
+    //native reacquires the GIL means the run was torn down underneath
+    //(a zombie past the join grace) and the thread must exit without
+    //touching the new run's state. Reads are GIL-serialized (Reset
+    //holds the GIL; the comparison runs right after Acquire).
+    uint64_t RunGeneration() const { return m_runGeneration; }
+    uint64_t CarrierRunGeneration() {
+        return carrierSlot().runGeneration;
+    }
+
     //K2 slice 2: 每载体状态。载体循环入口（主/辅助同一点）安装本线程
     //的槽；InstallSelfCarrier 幂等重置——同一 OS 线程跑过多个执行器
     //或多次 run 时不携带旧值。槽按线程隔离，多个载体并发在飞时各自
@@ -274,6 +285,9 @@ public:
         int carrierId = -1;         //K4：本载体编号（主=0、辅助=1..N）
         int nestDepth = 0;          //本载体上的嵌套求值深度
         int schedTripBudget = 0;    //本载体当前窗口的回边预算
+        uint64_t runGeneration = 0; //K6 D9: run generation at install
+                                     //(zombie guard — compare after a
+                                     //blocking native)
     };
     void InstallSelfCarrier(int carrierId) {
         t_carrier = &t_selfCarrier;
@@ -281,6 +295,7 @@ public:
         t_carrier->carrierId = carrierId;
         t_carrier->nestDepth = 0;
         t_carrier->schedTripBudget = 0;
+        t_carrier->runGeneration = m_runGeneration;
     }
     //载体槽访问（嵌套深度/预算）。未安装线程（理论上只有宿主在轮转
     //外直调工具函数）落到线程局部空槽——恒零值，行为等同 K1。
@@ -512,6 +527,7 @@ public:
 
 private:
     std::mutex m_gil;
+    uint64_t m_runGeneration = 0;   //K6 D9: see RunGeneration()
 };
 
 } // namespace nlang

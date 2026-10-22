@@ -29,6 +29,11 @@ void VmScheduler::Reset() {
     m_blockedNativeCount = 0;
     m_nextId = 0;
     m_auxDispatchCount = 0;
+    //K6 D9: a fresh run generation invalidates zombie carriers still
+    //parked inside a blocking native from a previous run — they compare
+    //after reacquiring the GIL and exit silently instead of truncating
+    //the new run's native roots or dereferencing a destroyed context.
+    ++m_runGeneration;
     //K4：跨 run 残留的调试焦点会饿死新一轮运行的全部其他上下文——
     //每 run 复位；登记表按既定载体数重新置空（定容由
     //ConfigureCarriers 每 run 重申）。

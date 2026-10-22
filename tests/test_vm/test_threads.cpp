@@ -3318,6 +3318,64 @@ static int runBlockingNative(const std::string& tag,
     return rc;
 }
 
+// --- K6 Task 4（D9：游离载体运行世代守卫）---
+//run 1 的 worker 载体在 3s 阻塞原生里时 run 1 收尾：join 宽限 2s 不
+//足 → 线程脱离成僵尸，其帧仍在已被 Reset 清掉的旧上下文里。run 2
+//复用同一执行器（镜像 test_executor_reuse_two_runs 的复用形态），睡
+//1.5s 后做分配搅动＋输出——僵尸在 t≈3s 于 run 2 中途醒来，世代比对
+//不匹配 → 静默退出（不碰 run 2 的原生根、不解引用已销毁上下文）。
+//守卫缺失（旧代码）：resize(watermark) 以 run-1 的陈旧水位截断 run 2
+//的原生根向量 + 悬垂 ctx 解引用——ASan 下必炸，普通构建下可能静默
+//腐蚀；本测试因此是防回归钉＋ASan 腿的普通构建半边（普通构建下旧
+//代码也可能恰好通过——真正的红由 ASan 构建承担）。
+//时序余量账：宽限 2s < 原生 3s（必脱离）；run 2 主睡 1.5s + 搅动
+//≥1s ⇒ run 2 在 t≈3s 僵尸醒来时仍在跑（余量 ≥1s，见计划 Review
+//Focus 4）。
+static void test_zombie_carrier_generation_guard()
+{
+    TEST(zombie_carrier_generation_guard);
+    //Run 1: worker parks in a 3s blocking native; main returns at once.
+    CompiledModule modA = buildLinkedModule("zomb_guard_a",
+        "import thread;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { nbWait(3000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    return 7;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.RegisterNativeBlocking("zomb_guard_a.nbWait", &NbWait);
+    CaptureIo ioA;
+    exec.SetHostIo(&ioA);
+    CHECK(exec.Execute(modA) == 7, "run 1 completes (worker stranded)");
+
+    //Run 2 on the same executor: sleep past the zombie's wake, churn,
+    //output, exit 9. The zombie wakes mid-run-2 (needs a GIL-free
+    //moment — the sleep parks main, so the GIL is away).
+    CompiledModule modB = buildLinkedModule("zomb_guard_b",
+        "import thread;\n"
+        "import io;\n"
+        "int main() {\n"
+        "    thread.sleep(1500);\n"
+        "    int i = 0;\n"
+        "    while (i < 30000) {\n"
+        "        string garbage = \"z\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    io.write(\"run2-done\");\n"
+        "    return 9;\n"
+        "}\n");
+    CaptureIo ioB;
+    exec.SetHostIo(&ioB);
+    const int rc = exec.Execute(modB);
+    CHECK(rc == 9, "run 2 completes with its exit code (zombie exited "
+                   "silently; got rc=" + std::to_string(rc) + ")");
+    CHECK(ioB.m_out.find("run2-done") != std::string::npos,
+          "run 2 output intact (got: " + ioB.m_out + ")");
+    PASS();
+}
+
 //协议判别器 1（GIL 释放）：main 阻塞 150ms，worker 在窗口内抢到 GIL 并
 //输出。main 从 spawn 到阻塞调用之间无回边（不会被配额抢占），故 worker
 //的输出先于 main-after 只能来自「阻塞期间 GIL 离手」；不释放则顺序反转
@@ -3583,6 +3641,7 @@ int main()
         runGuarded(test_blocking_native_releases_gil);
         runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
         runGuarded(test_native_root_owner_removal);
+        runGuarded(test_zombie_carrier_generation_guard);
         runGuarded(test_shutdown_signal_passthrough);
         runGuarded(test_gc_bitmap_matches_conservative_band);
         runGuarded(test_gc_bitmap_survives_ncu_roundtrip);
