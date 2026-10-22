@@ -340,26 +340,32 @@ public:
     size_t AffinityHits() const { return m_affinityHits; }
     size_t AffinityMisses() const { return m_affinityMisses; }
 
-    //K4：登记载体数并给集中登记表定容（主载体路径 RunPrimaryCarrier
-    //在池启动前调用——单线程时点，无并发定容竞争；每 run 重申）。
-    //镜像表按载体编号下标存「该载体当前持有的上下文」（-1 = 空闲），
-    //是调试器 threads 列表 held 标注与亲和观测的数据源；帧可达性不
-    //依赖它（检查面两路完备：执行窗口上下文→单份 m_callStack，其余
-    //→注册表停泊帧）。
+    //K4: register the carrier count and size the central registry (the
+    //primary-carrier path RunPrimaryCarrier calls this before the pool
+    //launches — a single-threaded moment, so no concurrent resizing;
+    //reaffirmed every run). The mirror table is indexed by carrier id
+    //and holds "the context this carrier currently holds" (-1 = idle);
+    //it feeds the debugger's threads listing (held markers) and the
+    //affinity counters. Frame reachability does NOT depend on it (the
+    //inspection surface is complete on two paths: an execution-window
+    //context reads the single m_callStack, everything else reads the
+    //registry's parked frames).
     void ConfigureCarriers(uint32_t count) {
         m_carrierCount = count;
         m_heldByCarrier.assign(count, -1);
     }
-    //K4：载体当前持有的上下文（白盒观测；越界载体号返回 -1）。
+    //K4: the context a carrier currently holds (white-box observation;
+    //an out-of-range carrier id returns -1).
     int HeldContextOfCarrier(int carrierId) const {
         if (carrierId < 0
             || static_cast<size_t>(carrierId) >= m_heldByCarrier.size())
             return -1;
         return m_heldByCarrier[static_cast<size_t>(carrierId)];
     }
-    //K4：反查——哪个载体的执行窗口正持有该上下文（-1 = 无：停泊/
-    //排队/已终结）。须持 GIL（读集中登记表）。载体数是载体池上限
-    //量级，线性扫足够。
+    //K4: reverse lookup — which carrier's execution window holds this
+    //context (-1 = none: parked/queued/finished). Must hold the GIL
+    //(reads the central registry). The carrier count is on the pool's
+    //maximum scale, so a linear scan suffices.
     int HoldingCarrierOf(int contextId) const {
         for (size_t i = 0; i < m_heldByCarrier.size(); ++i)
             if (m_heldByCarrier[i] == contextId)
