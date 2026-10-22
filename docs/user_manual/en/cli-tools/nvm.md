@@ -7,7 +7,7 @@ program repeatedly, and as the execution step in scripts and pipelines
 where the exit code decides the outcome.
 
 ```text
-nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N] [--carriers=N]
 ```
 
 Runs a compiled program; the process exit code is `main`'s return value
@@ -38,6 +38,29 @@ directory / current directory → the standard-library directory (where
 first. See
 ["Libraries and search paths"](../language-spec/stdlib-search-paths.md)
 for the full rules.
+
+## Concurrency and carriers
+
+`--carriers=N` sets how many operating-system threads execute the
+program's virtual threads (1..64; out-of-range values are rejected).
+Omitted, nvm uses the smaller of 4 and the machine's hardware
+concurrency. `--carriers=1` is the deterministic tier: a strict
+first-in-first-out rotation, so the same program with the same inputs
+produces the same interleaving every run — tests may assert on it.
+With more than one carrier the interleaving is unspecified: program
+correctness must rest on the synchronization primitives (`join`,
+`Channel`, `Mutex`, `Future.get`), never on timing. The carrier count
+changes interleaving, not results:
+
+```text
+nvm --carriers=1 program.ncu    # reproducible interleaving
+nvm --carriers=8 program.ncu    # same results, different interleaving
+```
+
+See [the global interpreter lock (GIL) and multiple
+carriers](../language-spec/concurrency-gil-carriers.md) for what
+multiple carriers actually parallelize; the shipped `examples/conc_*.n`
+demonstrate the flag.
 
 `--verbose` (short form `-v`) prints the resolved search path before
 the program runs —

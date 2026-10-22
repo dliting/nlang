@@ -10,7 +10,7 @@
 |---|---|---|
 | nlang | 直接运行脚本（免`main()`样板） | [nlang](nlang.md) |
 | ncc | 编译（可立即执行） | [ncc](ncc.md) |
-| nvm | 运行一个编译好的模块 | [nvm](nvm.md) |
+| nvm | 运行编译产物（单/多载体） | [nvm](nvm.md) |
 | ndb | 调试编译后的模块 | [ndb](ndb.md) |
 | ndisasm | 字节码反汇编 | [ndisasm](ndisasm.md) |
 | nide | 图形集成开发环境（IDE，integrated development environment）（构建、运行与调试） | [三种运行方式](../getting-started/running.md)、[在nide中调试](../getting-started/debugging.md) |

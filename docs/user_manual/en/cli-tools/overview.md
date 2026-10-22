@@ -15,7 +15,7 @@ command-line tools. If PATH is not set up, prefix commands with
 |---|---|---|
 | nlang | Run scripts directly (no `main()` boilerplate) | [nlang](nlang.md) |
 | ncc | Compile (with optional immediate execution) | [ncc](ncc.md) |
-| nvm | Run a compiled module | [nvm](nvm.md) |
+| nvm | Run a compiled module (single- or multi-carrier) | [nvm](nvm.md) |
 | ndb | Debug a compiled module | [ndb](ndb.md) |
 | ndisasm | Bytecode disassembly | [ndisasm](ndisasm.md) |
 | nide | The graphical integrated development environment (IDE) (build, run, and debug) | [Three Ways to Run](../getting-started/running.md), [Debugging in nide](../getting-started/debugging.md) |
