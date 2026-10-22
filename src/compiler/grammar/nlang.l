@@ -336,12 +336,19 @@ LineComment	\/\/[^\n]*
             /* single-char angle brackets with generic-depth tracking */
 "<"         {
                 /* '<' opens a type-argument list only when it directly
-                 * follows a built-in generic name (List/Dict via the
-                 * identifier rule below; func via its keyword rule).
-                 * Any other '<' is a comparison and leaves the depth
-                 * alone. */
+                 * follows a built-in generic name (List/Dict/Channel/
+                 * Future via the identifier rule below; func via its
+                 * keyword rule). The opener reaches the parser as the
+                 * dedicated OT_TypeLt token (0.10.8 D1: the anchored
+                 * generic literal `List<int>{...}` needs the type-
+                 * bracket reading distinct from the comparison '<' in
+                 * one LALR state). Any other '<' is a comparison and
+                 * leaves the depth alone. */
                 if (scanner.TakePendingGenericOpen())
+                {
                     scanner.IncGenericDepth();
+                    return OT_TypeLt;
+                }
                 return '<';
             }
 ">"         {
@@ -353,18 +360,22 @@ LineComment	\/\/[^\n]*
 
 {Name}      {
                 SET_TEXT(yytext);
-                /* Flag List/Dict so a following '<' opens a
-                 * type-argument list (see the '<' rule). Every identifier
-                 * rewrites this flag, so it can only reach a '<' across
+                /* Flag built-in generic names so a following '<' opens
+                 * a type-argument list (see the '<' rule). The name set
+                 * comes from IsBuiltinGenericTypeName — the single
+                 * source of truth shared with the type system (0.10.8:
+                 * the old hardcoded List/Dict strcmp pair drifted when
+                 * Channel/Future joined the built-in generics, breaking
+                 * `Channel<Channel<int>>`). Every identifier rewrites
+                 * this flag, so it can only reach a '<' across
                  * blanks/comments — a comparison `List < 3` against a
-                 * variable shadowing the type name is misread (documented
-                 * limitation). */
+                 * variable shadowing the type name is misread
+                 * (documented limitation). */
                 /*Flex action code runs in the global namespace, so the
-                 *built-in name constants are qualified with nlang::
-                 *(they live in the runtime namespace). */
+                 *predicate is qualified with nlang:: (it lives in the
+                 *runtime namespace). */
                 scanner.PendingGenericOpen(
-                    strcmp(yytext, nlang::kBuiltinListTypeName) == 0
-                    || strcmp(yytext, nlang::kBuiltinDictTypeName) == 0);
+                    nlang::IsBuiltinGenericTypeName(yytext));
                 return TT_Identifier;
             }
 

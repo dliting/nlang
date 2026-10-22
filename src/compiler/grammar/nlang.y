@@ -443,6 +443,7 @@ static bool CollectQualifiedSegments(
 %token OT_DIVS
 %token OT_BORS
 %token OT_Brackets
+%token OT_TypeLt
 
 %nonassoc P_Then
 %nonassoc KT_Else
@@ -1689,7 +1690,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
 //Accepted-conflict ledger (re-measured 2026-10-22, bison 3.8.2, on the
-//0.10.7 grammar): 27 shift/reduce, 4 reduce/reduce, every one resolved
+//0.10.8 grammar): 25 shift/reduce, 3 reduce/reduce, every one resolved
 //by bison's default to the intended reading. Deterministic parsers
 //cannot use %expect alongside r/r conflicts, so no %expect pins these
 //numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to stay
@@ -1697,17 +1698,17 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //lines of a `bison -v` .output) on every grammar edit — compare against
 //this ledger and never bump it silently. State numbers are those of the
 //current .output; they shift with every grammar change, so the whole
-//list is re-derived at each re-measure.
-//- states 114/131 (1 each): the '<' shapes — an explicit generic type
-//  head (`List<int> l;`) and the void-return func spellings. Reduce-
-//  first keeps the declaration reading.
-//- state 276 (2): catch/finally after a nested `try` statement — the
+//list is re-derived at each re-measure. The 0.10.8 D1 OT_TypeLt token
+//retired the old plain-'<' family (states 114/131) and the '<' half of
+//state 422's r/r pair: the generic opener is no longer shared with the
+//comparison, so those states resolve without conflicts.
+//- state 278 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 297/298 (1 each, added with TypeName): ':' / `as` followed by
+//- states 299/300 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- state 593 (16): ClassMember's NodeFlag-singular vs
+//- state 603 (16): ClassMember's NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
@@ -1716,28 +1717,31 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  const statement — the AccessTypeEmpty epsilon loses the shift, so
 //  `const int x = 5;` lives and `const int f(){}` is rejected (a true
 //  LALR ambiguity; zero corpus hits, recorded as a known limitation).
-//- states 292/362/378 (1 each, added with 0.9.15): after `T name(`,
+//- states 294/364/380 (1 each, added with 0.9.15): after `T name(`,
 //  ')' shifts to the explicit empty-parens arm instead of reducing the
 //  empty FormalParamList/ConcreteParamList epsilon — `T name();` is a
 //  zero-argument construction and `f()` an empty parameter list, the
-//  intended readings. 292 merges the top-level header and first-
-//  declarator items, 362 is the body-context first declarator, 378 the
+//  intended readings. 294 merges the top-level header and first-
+//  declarator items, 364 is the body-context first declarator, 380 the
 //  top-level header alone.
-//- state 524 (1, added with 0.10.7 D1): the same empty-parens shape on
+//- state 531 (1, added with 0.10.7 D1): the same empty-parens shape on
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.
-//- state 292 (2 r/r, v0.9.1): the empty-paren double epsilon —
+//- state 294 (2 r/r, v0.9.1): the empty-paren double epsilon —
 //  FormalParamList's and ConcreteParamList's empty productions both
 //  reduce on ')' and ','. Bison prefers the rule declared earlier in
 //  this file, so the function header wins and `int main(){}` parses;
 //  a bodyless bare `T name();` is therefore always a construction,
 //  never a declaration — forward declarations carry the explicit
 //  `func` marker for that reason.
-//- state 422 (2 r/r, v0.9.1): NameExpr vs Expression on '.'/'<' after
-//  a top-level direct-init first argument — NameExpr wins, so
+//- state 425 (1 r/r, v0.9.1): NameExpr vs Expression on '.' after a
+//  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
-//  `T name = T(a.b);`. Function bodies are unaffected.
+//  `T name = T(a.b);`. OT_TypeLt shifts here (both the Type generic
+//  arms and the 0.10.8 anchored-literal arm are IdentifierExpr-led, so
+//  the generic reading never competes with this reduce); Function
+//  bodies are unaffected.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -1745,40 +1749,40 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 //suffix from subscript expression (arr[i]).
 //The array suffix produces a dedicated SnArrayTypeExpr node, keeping
 //SnNameExpr focused on plain name expressions.
-//Phase 8e-3: NameExpr '<' TypeList '>' produces SnGenericTypeExpr for
+//Phase 8e-3: IdentifierExpr OT_TypeLt TypeList '>' produces SnGenericTypeExpr for
 //built-in generic types like List<T>. No LALR(1) conflict because Type
 //is only reached in declaration contexts where Expression is not a valid
 //reduction (Type is never an Expression in NLang grammar).
 Type:	NameExpr		{ $$ = $1; } |
 				QualifiedType	{ $$ = $1; } |
-				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
+				IdentifierExpr OT_TypeLt TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1); } |
 				//Phase 13: void in the first type-arg slot (func's return
 				//slot). KT_Void never derives Type, so the void spellings
 				//need their own sister productions; the void node must be a
 				//real type argument so `func<void,int>` and `func<int>`
 				//produce different GenericInstKeys.
-				NameExpr '<' KT_Void '>'	{
+				IdentifierExpr OT_TypeLt KT_Void '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
-						$$ = new SnGenericTypeExpr($1,
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
 							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 					} |
-				NameExpr '<' KT_Void ',' TypeList '>'	{
+				IdentifierExpr OT_TypeLt KT_Void ',' TypeList '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
-						$$ = new SnGenericTypeExpr($1, $5, @1);
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
 					} |
 				//0.8.3: func is a keyword; its generic spellings mirror
 				//the NameExpr ones above but start from KT_Func and mint
 				//the base-name node from kBuiltinFuncTypeName.
-				KT_Func '<' TypeList '>'	{
+				KT_Func OT_TypeLt TypeList '>'	{
 						$$ = MakeFuncType($3, @1);
 					} |
-				KT_Func '<' KT_Void '>'	{
+				KT_Func OT_TypeLt KT_Void '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$$ = MakeFuncType(
 							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 					} |
-				KT_Func '<' KT_Void ',' TypeList '>'	{
+				KT_Func OT_TypeLt KT_Void ',' TypeList '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
 						$$ = MakeFuncType($5, @1);
@@ -1819,15 +1823,15 @@ QualifiedType:	NameExpr '.' TT_Identifier {
 HeadType:	IdentifierExpr {
 				$$ = new SnNameExpr($1, @1);
 			} |
-			IdentifierExpr '<' TypeList '>' {
+			IdentifierExpr OT_TypeLt TypeList '>' {
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
 			} |
-			IdentifierExpr '<' KT_Void '>' {
+			IdentifierExpr OT_TypeLt KT_Void '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
 					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 			} |
-			IdentifierExpr '<' KT_Void ',' TypeList '>' {
+			IdentifierExpr OT_TypeLt KT_Void ',' TypeList '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$5->insert($5->begin(), pVoid);
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
@@ -1856,15 +1860,15 @@ HeadType:	IdentifierExpr {
 			//0.8.3: func is a keyword; its generic spellings mirror
 			//the IdentifierExpr ones above but start from KT_Func and
 			//mint the base-name node from kBuiltinFuncTypeName.
-			KT_Func '<' TypeList '>' {
+			KT_Func OT_TypeLt TypeList '>' {
 				$$ = MakeFuncType($3, @1);
 			} |
-			KT_Func '<' KT_Void '>' {
+			KT_Func OT_TypeLt KT_Void '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$$ = MakeFuncType(
 					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 			} |
-			KT_Func '<' KT_Void ',' TypeList '>' {
+			KT_Func OT_TypeLt KT_Void ',' TypeList '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$5->insert($5->begin(), pVoid);
 				$$ = MakeFuncType($5, @1);
@@ -1920,6 +1924,23 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 					$$ = new SnInitListExpr(pName, *$3, false, @1);
 					delete $3;
 				} |
+				//0.10.8 D1: anchored generic instantiation literal
+				//`List<int>{60}`. The head is an IdentifierExpr and the
+				//Type generic arms are IdentifierExpr-led too, so every
+				//generic reading shifts OT_TypeLt and the decision
+				//between the anchored literal and a plain type defers
+				//to after '>' ('{' shifts here, a name reduces the
+				//type). A NameExpr-led arm would add an r/r on '.' at
+				//the IdentifierExpr point and steal the Expression
+				//reduction that member access needs. OT_TypeLt marks
+				//the generic reading so the comparison '<' stays
+				//unambiguous.
+				IdentifierExpr OT_TypeLt TypeList '>' '{' InitEntries '}' {
+					$$ = new SnInitListExpr(
+						new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1),
+						*$6, false, @1);
+					delete $6;
+				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
 				Expression '*' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Mul, $1, $3, @1); } |
@@ -1946,7 +1967,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//a reference) - the diagnostic experience inherited from the
 				//removed `new func<...>()` spelling. KT_Func is a keyword, so
 				//this arm cannot collide with the generic-name parses.
-				KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
+				KT_Func OT_TypeLt TypeList '>' '(' ConcreteParamList ')' {
 					$$ = new SnNewExpr(MakeFuncType($3, @1), $6, @1);
 				} ;
 

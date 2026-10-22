@@ -1408,7 +1408,7 @@ store_call_result_compound compile_error cannot assign to the result of a method
 # 0.8.3: the function type is written with the func keyword.
 func_keyword_basic 42
 func_keyword_ident_reject compile_error
-func_old_spelling_reject compile_error is not a built-in generic type
+func_old_spelling_reject compile_error syntax error
 
 # 0.8.4: compound assignment on bare-subscript lvalues and the
 # for update clause.
@@ -1470,7 +1470,7 @@ err_partial_init_overflow compile_error more than the declared size
 decl_sized_sibling 9
 err_func_anchor_ctor compile_error func types cannot be constructed
 err_bare_generic_ctor compile_error cannot be constructed by bare name
-err_sized_generic_expr compile_error Cannot resolve the field: List.
+err_sized_generic_expr compile_error syntax error
 shadow_type_second_decl compile_error cannot be used as a variable name
 shadow_type_init_form compile_error cannot be used as a variable name
 shadow_type_init_two_decls compile_error cannot be used as a variable name
@@ -1714,7 +1714,6 @@ empty_array_decl 0
 empty_array_foreach 0
 empty_array_arg 0
 nested_brace 3
-err_generic_anchor_brace compile_error syntax error
 
 # --- 0.9.14: static method function references (D-new-1..D-new-8) ---
 static_funcref_iface 42
@@ -1743,7 +1742,7 @@ err_top_level_prim_ctor compile_error "Int32" is not a class or struct type.
 err_top_level_zero_arg_with_main compile_error top-level statements cannot be combined with an explicit main() function
 top_level_const_zero_arg_ctor 42
 top_level_workaround 5
-err_top_level_rel_arg compile_error syntax error
+err_top_level_rel_arg compile_error no constructor
 err_top_level_member_arg compile_error syntax error
 
 # --- 0.10.0: concurrency acceptance (K1 threads) ---
@@ -1798,3 +1797,10 @@ infer_bracket_empty_reject compile_error cannot infer the element type
 infer_bracket_mixed_reject compile_error differing types
 infer_brace_receiver_reject compile_error syntax error
 infer_bracket_nested_reject compile_error jagged arrays
+
+# --- 0.10.8 D1: anchored generic instantiation literals ---
+infer_anchor_list_receiver 1
+infer_anchor_dict_receiver 1
+infer_anchor_arg 1
+infer_nested_anchor 2
+nested_generic_channel 0
