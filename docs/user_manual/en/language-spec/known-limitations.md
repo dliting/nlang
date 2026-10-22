@@ -51,17 +51,11 @@
   `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array
   target takes no brace form (`int[] a = {};` is rejected — array
   initializers use the bracket form), so an empty array is `int[] a = [];`.
-- **Sized-array declaration: size arm on the first declarator only**:
-  `int a, b[3];` is a syntax error — declare `b` separately.
-- **Direct-init paren arm on the first declarator only**:
-  `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
-  this page stands for a type-with-constructor example; see
-  [Class](class.md) and [Struct](struct.md)).
-- **Mixed declarators take the array type**: in `int a[3], b;` the
-  sibling `b` is a null `int[]` (array-typed), not an int.
 - **Partial initialization is the bracket form at the declaration**:
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
-  sized declaration (`int b[100] = {7, 8};`) is a syntax error.
+  sized declaration (`int b[100] = {7, 8};`) is rejected with the named
+  diagnostic `array initializers use '[...]'; the brace form '{...}' is
+  reserved for collection, struct, and class initializers`.
 - **Generic instantiation has no anchored head**: `List<int>{60}` does
   not parse — give the literal a typed declaration (see
   [Collection Initializers](collection-initializers.md)).

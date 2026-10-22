@@ -98,6 +98,23 @@ form is a compile error (`"Int32" is not a class or struct type.`). The
 bodyless function-declaration spelling keeps the `func` marker
 (`func Foo f();`).
 
+A declaration may list several declarators separated by commas, and
+every declarator may use any of the first declarator's forms — plain,
+`= value`, `= {…}` initializer, `(args)` direct-init, `()` zero-argument
+construction, `[n]` sized, `[n] = [...]` sized with entries:
+
+```nlang
+int a, b = 5;               // a is 0, b is 5
+int xs[3], ys[2];           // two arrays of different lengths
+Vec v(2), w();              // both constructed (w via the zero-argument constructor)
+List<int> l, m = {1, 2};    // m gets the brace initializer
+int p[3], q;                // p is an int array, q is a plain int
+```
+
+Each declarator's type is the head type plus its own brackets: in
+`int a[3], b;` the `b` is a plain `int`, not an array. A head type that
+is itself an array (`int[] a, b;`) makes every declarator an array.
+
 ### Default Values
 
 A declaration without an initializer gets the type's default value (no

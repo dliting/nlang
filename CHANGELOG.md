@@ -6,6 +6,35 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.6] - 2026-10-22
+
+### Added
+
+- **Declarator continuation forms** — after a comma, every declarator
+  may use the full first-declarator form: sized `int a, b[3];`, sized
+  with entries `int a[3], b[2] = [4, 5];`, direct-init
+  `Vec a(2), b(3);`, zero-argument construction `Vec a(2), b();`, and
+  brace initializer `List<int> a, b = {1};`.
+- **Per-declarator typing** — each declarator's type is the head type
+  plus its own brackets: in `int a[3], b;` the sibling `b` is a plain
+  int (it previously inherited the array type from the sized
+  declarator).
+- **Interface field diagnostics** — an interface member written as a
+  field with missing parts (`public int X = 1;`, `public int X;`,
+  `static const int X;`) now reports the declaration contract
+  ("must be static const", "must be a constant expression") instead of
+  a bare syntax error.
+
+### Changed
+
+- **Protocol methods are public** — methods matching the Object
+  protocol signatures (`equals`, `getHashCode`, `toString`) are
+  callable externally regardless of the access modifier; the rule is
+  now documented (behavior unchanged).
+- **Brace form at sized declarations** — `int a[3] = {1, 2, 3};`
+  parses and reports the array-initializer form diagnostic pointing at
+  `[...]` instead of a syntax error.
+
 ## [0.10.5] - 2026-10-22
 
 ### Added
