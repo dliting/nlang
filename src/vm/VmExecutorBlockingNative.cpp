@@ -6,11 +6,18 @@
 ---*/
 #include "VmExecutor.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <exception>
 #include <iterator>
 
 namespace nlang {
+
+namespace {
+//K6 D11: per-blocking-arm identities (monotonic; 0 stays invalid).
+std::atomic<uint64_t> g_nextNativeRootOwner{1};
+}
 
 //--- Native call bridge (K2 slice 4, §2.5) -----------------------------------
 //The blocking protocol for natives that may wait on the outside world.
@@ -18,6 +25,14 @@ namespace nlang {
 //K2 slice 4 thread-locals (declared in VmExecutor.h).
 thread_local int VmExecutor::t_blockingNativeDepth = 0;
 thread_local VmExecutor::GilHolder* VmExecutor::t_gilOwner = nullptr;
+thread_local uint64_t VmExecutor::t_currentNativeRootOwner = 0;
+
+void VmExecutor::RemoveNativeRoots(uint64_t owner) {
+    m_nativeCallRoots.erase(
+        std::remove_if(m_nativeCallRoots.begin(), m_nativeCallRoots.end(),
+            [owner](const NativeCallRoot& r) { return r.owner == owner; }),
+        m_nativeCallRoots.end());
+}
 
 //Compiler-side sanity ceiling for call parameter counts (SnData.h
 //kMaxFuncParams — the VM must not include compiler AST headers, so the
@@ -59,7 +74,7 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
 //GIL release keeps INV-2 true mid-window), releases the GIL through the
 //thread's current holder (window guard or a re-entrant callback's ensure
 //guard — nesting works either way), runs the native, reacquires, and
-//truncates the native roots to the watermark UNDER the lock: while the
+//removes its own root entries by owner identity UNDER the lock: while the
 //GIL is away the roots must stay armed, since a GC another carrier runs
 //before we get the lock has to see the staged cells (the native may
 //already have written its result into them — retracting before
@@ -92,12 +107,18 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
         std::memcpy(stagedArgs, locals + callParamBase,
                     static_cast<size_t>(paramCount) * kFrameSlotBytes);
     uint8_t stagedRet[kFrameSlotBytes] = {0};
-    const size_t watermark = m_nativeCallRoots.size();
-    m_nativeCallRoots.push_back({stagedRet, 1u, 0});
+    //K6 D11: entries carry the owning arm's id — the old size-watermark
+    //truncation could erase a LIVE arm's staged roots on interleaving.
+    const uint64_t rootOwner = g_nextNativeRootOwner.fetch_add(
+        1, std::memory_order_relaxed);
+    m_nativeCallRoots.push_back({stagedRet, 1u, 0, rootOwner});
     if (paramCount)
-        m_nativeCallRoots.push_back({stagedArgs, paramCount, 0});
+        m_nativeCallRoots.push_back({stagedArgs, paramCount, 0, rootOwner});
     const size_t stolenDepth = m_callStack.size();
     ParkFramesForBlockingNative(ctx);
+    //Callback-minted handles attribute to this arm (nested arms restore).
+    const uint64_t savedRootOwner = t_currentNativeRootOwner;
+    t_currentNativeRootOwner = rootOwner;
     owner->Release();
     std::exception_ptr nativeExc;
     bool handled = true;
@@ -106,18 +127,28 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
     } catch (...) {
         nativeExc = std::current_exception();
     }
-    owner->Acquire();
-    m_nativeCallRoots.resize(watermark);
-    --t_blockingNativeDepth;
-    if (m_spScheduler->StopRequested()) {
-        //Run over: frames stay parked; m_callStack is empty (INV-2).
-        throw ShutdownSignal();
-    }
-    RestoreStolenFrames(ctx, stolenDepth);
+    FinishBlockingNative(*owner, rootOwner, savedRootOwner, ctx,
+                         stolenDepth);
     if (nativeExc)
         std::rethrow_exception(nativeExc);
     std::memcpy(pResult, stagedRet, kFrameSlotBytes);
     return handled;
+}
+
+//K6: reacquire tail (see the header declaration comment for the split).
+void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
+    uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth)
+{
+    owner.Acquire();
+    t_currentNativeRootOwner = savedRootOwner;
+    RemoveNativeRoots(rootOwner);
+    --t_blockingNativeDepth;
+    //Run over: frames stay parked; m_callStack is empty (INV-2).
+    if (m_spScheduler->StopRequested()) {
+        //K6 Task 5: resume the evaluation window here.
+        throw ShutdownSignal();
+    }
+    RestoreStolenFrames(ctx, stolenDepth);
 }
 
 //K2 slice 4: mint rooting — see NativeCallRoot. Only roots inside a
@@ -127,7 +158,8 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
 void VmExecutor::RootMintedNativeHandle(int32_t handle)
 {
     if (t_blockingNativeDepth > 0 && handle != 0)
-        m_nativeCallRoots.push_back({nullptr, 0, handle});
+        m_nativeCallRoots.push_back(
+            {nullptr, 0, handle, t_currentNativeRootOwner});
 }
 
 } // namespace nlang

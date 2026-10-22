@@ -3384,6 +3384,32 @@ static void test_blocking_native_staged_roots_survive_gc_storm()
     PASS();
 }
 
+// --- K6 Task 3（D11：原生根按属主移除）---
+//并发阻塞臂交错时，位置截断（旧 resize-to-watermark）会误杀别人的在
+//飞根：A 于水位 5 压入两项、B 于水位 7 压入两项、A 先退出——旧代码
+//resize(5) 杀掉 B 的两项。属主化后 A 只删自己的。本测试白盒驱动
+//m_nativeCallRoots 的交错形状（产品级交错由探针 2 的 ASan 腿覆盖）。
+//RemoveNativeRoots 是私有成员：经 VmExecutor.h 的 K6 测试旋钮
+//（TestPushNativeRoot 族）压入/移除/断言。
+static void test_native_root_owner_removal()
+{
+    TEST(native_root_owner_removal);
+    VmExecutor exec;
+    uint8_t a1[8] = {}, a2[8] = {}, b1[8] = {}, b2[8] = {};
+    //Interleaved pushes: A, A, B, B — a positional watermark for A's
+    //exit sits between B's entries (the shape that kills them).
+    exec.TestPushNativeRoot(&a1[0], 1, 0, 101);
+    exec.TestPushNativeRoot(&a2[0], 1, 0, 101);
+    exec.TestPushNativeRoot(&b1[0], 1, 0, 202);
+    exec.TestPushNativeRoot(&b2[0], 1, 0, 202);
+    exec.TestRemoveNativeRoots(101);   // A exits first
+    CHECK(exec.TestNativeRootCount() == 2,
+          "only A's entries removed; B's survive");
+    exec.TestRemoveNativeRoots(202);
+    CHECK(exec.TestNativeRootCount() == 0, "B's removal empties the set");
+    PASS();
+}
+
 //协议判别器 3（停机穿透）：worker 在阻塞原生内时 main 返回（停机请求）
 //——原生返回后必须经 ShutdownSignal 丢弃该上下文：无输出、无结果消费、
 //帧留 ctx、INV-2 成立。缺停机检查 ⇒ worker 复活并输出 after-native——
@@ -3556,6 +3582,7 @@ int main()
         test_aux_carrier_error_confluence();
         runGuarded(test_blocking_native_releases_gil);
         runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
+        runGuarded(test_native_root_owner_removal);
         runGuarded(test_shutdown_signal_passthrough);
         runGuarded(test_gc_bitmap_matches_conservative_band);
         runGuarded(test_gc_bitmap_survives_ncu_roundtrip);

@@ -179,6 +179,16 @@ public:
         m_strGcThreshold = records;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
+    //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
+    //native-root ownership set through the same push/remove paths the
+    //blocking arm uses. Production code never calls these.
+    void TestPushNativeRoot(const uint8_t* cells, uint32_t cellCount,
+                            int32_t value, uint64_t owner) {
+        m_nativeCallRoots.push_back(
+            NativeCallRoot{cells, cellCount, value, owner});
+    }
+    void TestRemoveNativeRoots(uint64_t owner) { RemoveNativeRoots(owner); }
+    size_t TestNativeRootCount() const { return m_nativeCallRoots.size(); }
     //K2 slice 5 white-box knob: force the conservative both-domain band
     //scan even when a valid handle mask is present — the A/B baseline
     //for proving the precise scan keeps the same object graph alive.
@@ -1008,6 +1018,16 @@ private:
     //Root a handle minted by a NativeHost callback — no-op outside a
     //blocking section (see t_blockingNativeDepth). Called under the GIL.
     void RootMintedNativeHandle(int32_t handle);
+    //K6 D11: erase exactly one arm's root entries (staged cells + its
+    //callbacks' minted values) — replaces the old watermark truncation.
+    void RemoveNativeRoots(uint64_t owner);
+    //K6: the reacquire tail of RunBlockingNative (split for the source-
+    //size guard): root teardown by owner identity, the run-generation
+    //zombie guard (K6 D9), stop passthrough, and frame restore. Throws
+    //ShutdownSignal when the run ended under the native (frames stay
+    //parked; the caller's staged cells die with its stack).
+    void FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
+        uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
     void InitNativeHost(VmNativeHost& host);
@@ -1130,12 +1150,16 @@ private:
     //entry, so only address rooting sees the final values); value
     //entries cover handles minted by NativeHost callbacks mid-call
     //(newString et al.) before the native copies them into ret. All
-    //mutations happen under the GIL; CallNative truncates to its
-    //watermark on every exit path after reacquiring.
+    //mutations happen under the GIL; each blocking arm removes
+    //exactly its own entries on every exit path after reacquiring
+    //(K6 D11: concurrent arms interleave pushes, so position-based
+    //truncation could erase a LIVE arm's roots).
     struct NativeCallRoot {
         const uint8_t* cells = nullptr;  //address form base (null = value)
         uint32_t cellCount = 0;          //address form: 8-byte cell count
         int32_t value = 0;               //value form: minted handle
+        uint64_t owner = 0;              //K6 D11: the blocking arm that
+                                         //pushed this (0 = never valid)
     };
     std::vector<NativeCallRoot> m_nativeCallRoots;
     //Depth of blocking-native sections entered on this thread. Minting
@@ -1143,6 +1167,10 @@ private:
     //non-blocking native holds the GIL across the whole call, so no GC
     //can intervene between mint and the native writing the handle).
     static thread_local int t_blockingNativeDepth;
+    //K6 D11: the innermost blocking arm on this thread — callback-minted
+    //value roots attribute to it (nested arms save/restore around their
+    //invoke). 0 outside any blocking section.
+    static thread_local uint64_t t_currentNativeRootOwner;
     //Lazy on-demand loader for native modules (standard-library DLLs and
     //third-party modules use it). Created on first native-module need.
     std::unique_ptr<NativeLibraryLoader> m_upNativeLoader;
