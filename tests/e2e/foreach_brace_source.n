@@ -1,6 +1,0 @@
-public int main() {
-    int sum = 0;
-    foreach (int x in {1, 2})
-        sum = sum + x;
-    return sum;
-}

@@ -1,0 +1,8 @@
+// 0.10.8 D3: a brace-form foreach source infers List<T> from the
+// loop-var type.
+int main() {
+    int sum = 0;
+    foreach (int x in {1, 2, 3})
+        sum = sum + x;
+    return sum;
+}

@@ -248,7 +248,7 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 			"element type");
 }
 
-//0.9.13 D-new-2: a bare `[...]` iterable has no target until the loop-var
+//0.9.13 D-new-2: a bare `[...]`/`{...}` iterable has no target until the loop-var
 //type is known — supply the interned array token of the element field so
 //the init list resolves against it (the same shape the assignment site
 //passes). A jagged loop var (T[]) would mint a token-of-token target:
@@ -263,6 +263,17 @@ static void SupplyForeachInitListTarget(BuildEnvironment &env,
 	{
 		env.Log(CLL_Error, sn.VarType()->Location(),
 			"jagged arrays (T[][]) are not supported");
+		return;
+	}
+	//0.10.8 D3: the brace form iterates a List<T> minted from the
+	//loop-var type (an array target would hit the array-form gate);
+	//the bracket form keeps the interned array token.
+	if (!pInitList->IsArrayForm())
+	{
+		auto *pListDecl = GetGenericClassDecl(kBuiltinListTypeName,
+			{pVarField}, {}, pInitList->Location());
+		if (pListDecl)
+			pInitList->InferredTarget(pListDecl);
 		return;
 	}
 	pInitList->InferredTarget(env.InternArrayTypeToken(pVarField));
