@@ -6,6 +6,31 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.12] - 2026-10-22
+
+### Changed
+
+- **Stop-the-world GC rendezvous at safepoints** — garbage collection
+  now runs a stop-the-world handshake at safepoints (function entry,
+  loop back-edges, spawn): every executing window reaches a safepoint
+  and the last one collects. With the global interpreter lock in
+  place this is observationally identical to before — single-carrier
+  output stays byte-for-byte.
+- **GC thresholds back off to the high-water size** — after a sweep,
+  both the heap and string-store thresholds rise to the store's
+  high-water size, so small-live churn workloads no longer collect at
+  every safepoint once past the first threshold crossing.
+  `nvm --gc-stress` keeps its every-safepoint forcing behavior.
+
+### Fixed
+
+- A carrier parked in a blocking native call while its run was torn
+  down (for example a detached context outliving the join grace)
+  could corrupt the next run's GC roots and scheduler state; it now
+  exits silently through a run-generation check.
+- Concurrent blocking-native calls no longer risk truncating each
+  other's GC roots (root entries are now removed by owner identity).
+
 ## [0.10.11] - 2026-10-22
 
 ### Added
