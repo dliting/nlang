@@ -1,4 +1,4 @@
-// 0.10.6 D2: per-declarator typing — the unsized sibling keeps the head
+// 0.10.7 D2: per-declarator typing — the unsized sibling keeps the head
 // type (a plain int), not the sized declarator's array type.
 int main() {
     int a[3], b;

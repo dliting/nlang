@@ -345,13 +345,13 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedArrayField)
 {
-	//0.10.6 D2: a size payload types only its own declarator; the
+	//0.10.7 D2: a size payload types only its own declarator; the
 	//interned array token is that declarator's field (the statement
 	//type stays the head type for every declarator).
 	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
 		? pSizedArrayField : pTypeField;
 	auto *pLocal = new SnLocalVar(decl.name, pDeclField, loc);
-	//0.9.0/0.10.6: bare [...] inference and member receivers key on
+	//0.9.0/0.10.7: bare [...] inference and member receivers key on
 	//the array flag — a head-array statement flags every
 	//declarator, a size payload flags only its own.
 	if (bIsArray || (pSizedArrayField && decl.pArraySize))
@@ -374,7 +374,7 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	//gave b = 0). std::list insertion keeps this iterator valid.
 	auto iInsert = paragraph.Children().find(&sn);
 	++iInsert;
-	//0.10.6 D2: the interned array token types every sized
+	//0.10.7 D2: the interned array token types every sized
 	//declarator (CreateDeclaratorLocal); the statement type stays
 	//the head type for every declarator.
 	SnField *pSizedArrayField = pSizedElemField
@@ -426,7 +426,7 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"jagged arrays (T[][]) are not supported");
 
-	//0.9.0/0.10.6: the sized-declarator typing (jagged reject, element
+	//0.9.0/0.10.7: the sized-declarator typing (jagged reject, element
 	//capture) lives in StatementResolverDeclArray.cpp.
 	auto *pSizedElemField = BindSizedArrayDeclType(sn);
 

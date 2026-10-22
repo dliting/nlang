@@ -106,17 +106,17 @@ private:
 	std::vector<SnStatement *> BuildSizedArrayDeclAssigns(
 		SnLocalDeclStmt &sn, SnLocalDeclStmt::LocalDecl &decl,
 		SnField *pSizedElemField);
-	//0.9.0/0.10.6: sized-declarator typing for `T name[n]` — rejects
+	//0.9.0/0.10.7: sized-declarator typing for `T name[n]` — rejects
 	//the jagged `int[] a[3]` spelling and returns the captured element
 	//field for the creation synthesis (null = no sized declarator, or
-	//the declaration was rejected). 0.10.6 D2: the statement type is
+	//the declaration was rejected). 0.10.7 D2: the statement type is
 	//never re-bound; per-declarator array-ness rides
 	//LocalDecl::bArrayType instead.
 	SnField *BindSizedArrayDeclType(SnLocalDeclStmt &sn);
 	void RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 		SnField *pSizedElemField);
-	//0.10.6 D2: create and register one declarator's local — a size
+	//0.10.7 D2: create and register one declarator's local — a size
 	//payload types only its own declarator (the interned array token
 	//is that declarator's field); a head-array statement types every
 	//declarator. The array flag feeds bare [...] inference and member

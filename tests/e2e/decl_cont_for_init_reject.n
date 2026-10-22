@@ -1,4 +1,4 @@
-// 0.10.6: a sized continuation declarator in for-init position reaches
+// 0.10.7: a sized continuation declarator in for-init position reaches
 // the named for-init reject (the size payload would be silently
 // dropped there — the for-init path synthesizes nothing).
 int main() {

@@ -24,7 +24,7 @@ static bool ValidateSizedArrayInit(BuildEnvironment &env,
 	pInitList = nullptr;
 	if (!decl.pInitExpr)
 		return true;
-	//0.10.6 D3: the brace form reaches the resolver through the new
+	//0.10.7 D3: the brace form reaches the resolver through the new
 	//grammar arms — name the form violation with the brace-reservation
 	//diagnostic (same text as the init-list target check in
 	//ExprResolverInitList.cpp), pointing at the bracket form; every
@@ -141,7 +141,7 @@ void StatementResolveAccessor::SynthesizeSizedArrayDeclarator(
 
 SnField *StatementResolveAccessor::BindSizedArrayDeclType(SnLocalDeclStmt &sn)
 {
-	//0.10.6 D2: each declarator carries its own brackets — a size
+	//0.10.7 D2: each declarator carries its own brackets — a size
 	//payload types just that declarator as an array, siblings keep the
 	//head type (`int a[3], b;` declares b as a plain int). The head
 	//type expression is never re-bound; the per-declarator array field

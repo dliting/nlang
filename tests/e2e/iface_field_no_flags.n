@@ -1,4 +1,4 @@
-// 0.10.6 D4: a zero-flag interface field reaches the declaration
+// 0.10.7 D4: a zero-flag interface field reaches the declaration
 // contract instead of a bare syntax error.
 interface I {
     public int X = 1;

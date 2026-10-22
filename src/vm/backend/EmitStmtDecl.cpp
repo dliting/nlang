@@ -27,7 +27,7 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
         //IsArrayType shape branch and element walk are gone.
         SnField* evalType = decl.Type()->Field();
         for (auto& local : decl.Decls()) {
-            //0.10.6 D2: per-declarator slot kind — a size payload makes
+            //0.10.7 D2: per-declarator slot kind — a size payload makes
             //only its own slot an array handle; siblings keep the head
             //type's kind (the statement type is never re-bound).
             uint8_t typeKind = local.bArrayType

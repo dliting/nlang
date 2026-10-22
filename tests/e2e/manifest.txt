@@ -1757,12 +1757,12 @@ channel_bounded_semantics 0 Ev12
 concurrent_waitgroup 0 sum=40
 concurrent_semaphore 0 peak=2
 
-# --- 0.10.6 D1: declarator continuation payload arms ---
+# --- 0.10.7 D1: declarator continuation payload arms ---
 decl_cont_ctor_args 5
 decl_cont_ctor_empty 3
 decl_cont_brace_init 2
 
-# --- 0.10.6 D1+D2: sized continuation arms, per-declarator typing ---
+# --- 0.10.7 D1+D2: sized continuation arms, per-declarator typing ---
 decl_cont_size 12
 decl_cont_size_pair 8
 decl_cont_size_init 6
@@ -1772,15 +1772,15 @@ decl_cont_const_sized 5
 decl_cont_jagged_reject compile_error Multi-dimensional arrays
 decl_cont_for_init_reject compile_error not supported in a for initializer
 
-# --- 0.10.6 D3: brace form at sized declarations -> named reject ---
+# --- 0.10.7 D3: brace form at sized declarations -> named reject ---
 decl_brace_sized_reject compile_error the brace form
 decl_brace_sized_cont_reject compile_error the brace form
 decl_sized_init_scalar_reject compile_error sized declaration initializer
 
-# --- 0.10.6 D4: interface field shape arms -> contract diagnostics ---
+# --- 0.10.7 D4: interface field shape arms -> contract diagnostics ---
 iface_field_no_flags compile_error must be static const
 iface_field_no_flags_noinit compile_error must be static const
 iface_field_no_init compile_error must be a constant expression
 
-# --- 0.10.6 D5: protocol methods public regardless of access ---
+# --- 0.10.7 D5: protocol methods public regardless of access ---
 proto_default_access 3

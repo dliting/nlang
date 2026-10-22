@@ -860,28 +860,28 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, $5});
 						$$ = $1;
 					} |
-					//0.10.6 D1: brace-init continuation `T a, b = {…};` —
+					//0.10.7 D1: brace-init continuation `T a, b = {…};` —
 					//the declared type becomes the init list's target
 					//(resolver-side inference, same as the first arm).
 					LocalDeclList ',' TT_Identifier '=' BracedInitExpr {
 						$1->push_back({*$3, $5});
 						$$ = $1;
 					} |
-					//0.10.6 D1: direct-init continuation `T a, b(args);` —
+					//0.10.7 D1: direct-init continuation `T a, b(args);` —
 					//the ctor-arg payload rides the same slot as the first
 					//arm; the resolver dispatches per declarator.
 					LocalDeclList ',' TT_Identifier '(' ConcreteParamList ')' {
 						$1->push_back({*$3, nullptr, $5, nullptr});
 						$$ = $1;
 					} |
-					//0.10.6 D1: zero-argument direct-init continuation
+					//0.10.7 D1: zero-argument direct-init continuation
 					//`T a, b();` — explicit empty parens (0.9.15 reading).
 					LocalDeclList ',' TT_Identifier '(' ')' {
 						$1->push_back({*$3, nullptr, new PtrList<SnExpression>(), nullptr});
 						$$ = $1;
 					} |
-					//0.10.6 D1: sized continuation `T a, b[n];` (and the
-					//partial-init form). 0.10.6 D2: the size types only
+					//0.10.7 D1: sized continuation `T a, b[n];` (and the
+					//partial-init form). 0.10.7 D2: the size types only
 					//its own declarator — siblings keep the head type.
 					LocalDeclList ',' TT_Identifier '[' Expression ']' {
 						$1->push_back({*$3, nullptr, nullptr, $5});
@@ -891,7 +891,7 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, $8, nullptr, $5});
 						$$ = $1;
 					} |
-					//0.10.6 D3: brace form on a sized continuation
+					//0.10.7 D3: brace form on a sized continuation
 					//declarator — parses so the resolver can name the
 					//form violation.
 					LocalDeclList ',' TT_Identifier '[' Expression ']' '=' BracedInitExpr {
@@ -929,7 +929,7 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					//(and the partial-init form `T name[n] = [e1, e2];`).
 					//The size rides the pArraySize payload slot; the resolver
 					//synthesizes `name = new T[n]` plus one subscript assign
-					//per initializer entry. 0.10.6 D2: a size payload types
+					//per initializer entry. 0.10.7 D2: a size payload types
 					//only its own declarator; siblings keep the head type.
 					TT_Identifier '[' Expression ']' {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
@@ -939,7 +939,7 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $6, nullptr, $3});
 					} |
-					//0.10.6 D3: the brace form parses so the resolver can
+					//0.10.7 D3: the brace form parses so the resolver can
 					//name the form violation (array initializers keep the
 					//bracket form — 0.9.11 D6 single-shape design).
 					TT_Identifier '[' Expression ']' '=' BracedInitExpr {
@@ -1546,7 +1546,7 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 					field->AddFlags($2);
 					$$ = field;
 				} |
-				//0.10.6 D4: the field shapes with missing parts parse
+				//0.10.7 D4: the field shapes with missing parts parse
 				//and hit the declaration contract (StatementResolver-
 				//Types.cpp): zero-flag forms report "must be static
 				//const", the no-initializer form reports the missing
@@ -1689,7 +1689,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
 //Accepted-conflict ledger (re-measured 2026-10-22, bison 3.8.2, on the
-//0.10.6 grammar): 27 shift/reduce, 4 reduce/reduce, every one resolved
+//0.10.7 grammar): 27 shift/reduce, 4 reduce/reduce, every one resolved
 //by bison's default to the intended reading. Deterministic parsers
 //cannot use %expect alongside r/r conflicts, so no %expect pins these
 //numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to stay
@@ -1723,7 +1723,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  intended readings. 292 merges the top-level header and first-
 //  declarator items, 362 is the body-context first declarator, 378 the
 //  top-level header alone.
-//- state 524 (1, added with 0.10.6 D1): the same empty-parens shape on
+//- state 524 (1, added with 0.10.7 D1): the same empty-parens shape on
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.

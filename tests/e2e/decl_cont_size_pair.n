@@ -1,4 +1,4 @@
-// 0.10.6 D1+D2: two sized declarators with different lengths coexist in
+// 0.10.7 D1+D2: two sized declarators with different lengths coexist in
 // one statement (unrepresentable under the old statement-level typing).
 // The allocation pressure between the writes and the reads keeps the GC
 // exercising the per-declarator slot kinds.

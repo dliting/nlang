@@ -1,4 +1,4 @@
-// 0.10.6 D4: zero-flag AND no-initializer — same contract diagnostic.
+// 0.10.7 D4: zero-flag AND no-initializer — same contract diagnostic.
 interface I {
     public int X;
 }

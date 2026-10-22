@@ -1,4 +1,4 @@
-// 0.10.6 D1+D2: sized continuation — the size brackets type only their
+// 0.10.7 D1+D2: sized continuation — the size brackets type only their
 // own declarator; the head-typed sibling stays a plain scalar.
 int main() {
     int a, b[3];

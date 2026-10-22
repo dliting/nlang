@@ -1,4 +1,4 @@
-// 0.10.6 D1: zero-argument construction continuation — `b()` runs the
+// 0.10.7 D1: zero-argument construction continuation — `b()` runs the
 // zero-argument constructor (0.9.15 semantics), same as the first arm.
 class Vec {
     public int n;

@@ -1,4 +1,4 @@
-// 0.10.6 D1: direct-init continuation — every declarator constructs with
+// 0.10.7 D1: direct-init continuation — every declarator constructs with
 // its own argument list (equivalent to two single-declarator statements).
 class Vec {
     public int n;

@@ -1,4 +1,4 @@
-// 0.10.6 D1: brace-init continuation — the declared type is the init
+// 0.10.7 D1: brace-init continuation — the declared type is the init
 // list's target (same rule as the first-declarator brace arm).
 int main() {
     List<int> a, b = {1, 2};

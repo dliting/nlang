@@ -211,7 +211,7 @@ public:
 		//pInitExpr; the resolver detaches it into a synthesized
 		//SnNewArrayExpr (an owning child, never deleted by hand).
 		SnExpression *pArraySize = nullptr;
-		//0.10.6 D2: set by the resolver when this declarator's slot is
+		//0.10.7 D2: set by the resolver when this declarator's slot is
 		//an array handle (size payload present). Codegen keys the slot
 		//kind on it: the statement type stays the head type for every
 		//declarator, and the pArraySize payload is consumed during

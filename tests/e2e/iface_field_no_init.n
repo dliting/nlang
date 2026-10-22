@@ -1,4 +1,4 @@
-// 0.10.6 D4: flags present but no initializer — the foldability check
+// 0.10.7 D4: flags present but no initializer — the foldability check
 // names the missing constant expression.
 interface I {
     static const int X;
