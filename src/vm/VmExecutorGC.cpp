@@ -5,6 +5,7 @@
     帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）。
 ---*/
 #include "VmExecutor.h"
+#include <cstdio>
 #include <cstring>
 #include <exception>
 
@@ -18,11 +19,30 @@ void VmExecutor::CheckGCSafepoint() {
     if (m_gcPending && (m_structHeap.size() > m_gcThreshold
             || m_stringObjs.size() > m_strGcThreshold)) {
         m_gcPending = false;
-        CollectGarbage();
+        //K6 D4: stop-the-world rendezvous. While the GIL serializes
+        //execution the requester is necessarily the last arriver (every
+        //other carrier is parked, idle, or GIL-waiting) and the
+        //protocol degenerates to inline collection. A second live
+        //window means window-accounting drift — refuse to continue
+        //(the INV-2 terminate precedent); batch 3 turns the else-arm
+        //into the real park-and-wait path.
+        GcWorldStop& stop = m_spScheduler->GcStop();
+        const uint64_t epoch = stop.RequestWorldStop();
+        if (stop.Arrive(epoch)) {
+            CollectGarbage();
+            stop.Complete(epoch);
+        } else {
+            std::fprintf(stderr,
+                "NLang VM: GC rendezvous found an unexpected live "
+                "evaluation window — window accounting is inconsistent, "
+                "terminating\n");
+            std::terminate();
+        }
     }
 }
 
 void VmExecutor::CollectGarbage() {
+    ++m_gcCollections;   //K6 D7: per-run collection count
     MarkPhase();
     SweepPhase();
     //String sweep runs after the heap sweep, with marking completed for
@@ -433,6 +453,15 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
             m_freeList.push_back(elemRef);
         }
     }
+}
+
+//K6 D7: live heap slots (kinds != free) — the heap-side counterpart of
+//LiveStringObjectCount for bounded-memory assertions.
+size_t VmExecutor::LiveHeapSlotCount() const {
+    size_t live = 0;
+    for (uint8_t kind : m_slotKinds)
+        if (kind != 0) ++live;
+    return live;
 }
 
 } // namespace nlang

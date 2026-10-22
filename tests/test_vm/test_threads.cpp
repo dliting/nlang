@@ -3376,6 +3376,162 @@ static void test_zombie_carrier_generation_guard()
     PASS();
 }
 
+// --- K6 Task 5（D2：阻塞原生窗口的求值窗计数归零）---
+//停泊族两形态的计数语义：调度器停泊（join/sleep/recv/mutex/channel）
+//经 ParkSignal 穿出 RunFrames——守卫析构自然归零，无须挂点；**阻塞
+//原生停泊**的 C++ 窗框架留在栈上（RunFrames 不退出），必须由
+//SuspendEvalWindow 显式离册。观察点放在原生体内：睡眠后采样（此时
+//main 已停泊、worker 早已停泊于定时器睡眠——一切瞬时窗都已收敛），
+//采样 0 ⇔ 挂点在位；缺 Suspend 则载体线程深度仍 1 → 采样恒 1。
+//确定性判别，不用宿主线程轮询：main 进原生前的执行窗仅微秒级，
+//轮询命中「先 ≥1 后 0」序列的概率≈0（实测已证伪轮询方案）。
+static VmExecutor* s_winParkExec = nullptr;
+static std::atomic<int> s_windowDuringNative{-1};
+static void NbSampleWindow(NativeHost*, uint8_t*, const uint8_t* args, int)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        native::ArgInt(args, 0)));
+    s_windowDuringNative.store(s_winParkExec->GcWindowThreadCount());
+}
+static void test_window_count_zero_while_native_blocked()
+{
+    TEST(window_count_zero_while_native_blocked);
+    CompiledModule mod = buildLinkedModule("win_parked",
+        "import thread;\n"
+        "native void nbSample(int ms);\n"
+        "void w() { thread.sleep(100000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    nbSample(300);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    s_winParkExec = &exec;
+    s_windowDuringNative.store(-1);
+    exec.RegisterNativeBlocking("win_parked.nbSample", &NbSampleWindow);
+    CHECK(exec.Execute(mod) == 0, "blocking-native program completes");
+    CHECK(s_windowDuringNative.load() == 0,
+        "the blocking-native park suspends the evaluation window (got "
+        + std::to_string(s_windowDuringNative.load()) + ")");
+    s_winParkExec = nullptr;
+    PASS();
+}
+
+// --- K6 Task 5（D7：收集计数器——压力下收集确实发生）---
+static void test_gc_collection_count_under_stress()
+{
+    TEST(gc_collection_count_under_stress);
+    CompiledModule mod = buildLinkedModule("gc_count",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) {\n"
+        "        string garbage = \"g\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "stress program completes");
+    CHECK(exec.GcCollectionCount() > 100,
+        "collections actually ran under stress (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K6 Task 5（D2：stop 路径后记账完好）---
+//run 1 的 worker 在 3s 阻塞原生里时 run 1 收尾（宽限 2s 不够 → 脱离
+//成僵尸）；run 2 复用同一执行器：main 睡 1.5s 后进 400ms 采样原生。
+//僵尸在 t≈3s 于 run 2 中途醒来：D9 不匹配 → Resume（补偿 Park 的
+//Suspend）→ ShutdownSignal 穿出 → RunFrames 守卫析构再减——全程平
+//衡。run 2 的采样点（t≈4s，僵尸已退出）读 0 ⇔ 无幽灵残留：若 throw
+//位点缺 Resume，僵尸线程深度 0−1=−1 → 计数 −1；若挂点整体缺失则采
+//样读到运行窗残留 1——两个方向的失衡都被同一个采样值钉住。
+static void test_window_accounting_intact_after_stop_path()
+{
+    TEST(window_accounting_intact_after_stop_path);
+    CompiledModule modA = buildLinkedModule("win_stop_a",
+        "import thread;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { nbWait(3000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.RegisterNativeBlocking("win_stop_a.nbWait", &NbWait);
+    CHECK(exec.Execute(modA) == 0,
+        "run 1 completes (worker stranded mid-native)");
+    CompiledModule modB = buildLinkedModule("win_stop_b",
+        "import thread;\n"
+        "native void nbSample(int ms);\n"
+        "void w() { thread.sleep(100000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    thread.sleep(1500);\n"
+        "    nbSample(400);\n"
+        "    return 0;\n"
+        "}\n");
+    s_winParkExec = &exec;
+    s_windowDuringNative.store(-1);
+    exec.RegisterNativeBlocking("win_stop_b.nbSample", &NbSampleWindow);
+    CHECK(exec.Execute(modB) == 0, "run 2 completes");
+    CHECK(s_windowDuringNative.load() == 0,
+        "run 2's window count is clean after run 1's zombie exited via "
+        "the stop path (got "
+        + std::to_string(s_windowDuringNative.load()) + ")");
+    s_winParkExec = nullptr;
+    PASS();
+}
+
+// --- K6 Task 5（D2：宿主嵌套窗计一次）---
+//数组→字符串强转经 FormatArray→toString 覆写开**嵌套 RunFrames**（同
+//线程深度 2）——嵌套窗体内非阻塞原生直读计数必须仍为 1（按线程计一
+//次），run 结束后归 0。嵌套窗形态仿 test_scheduler_quota_skips_nested_
+//windows 的强转嵌套窗；探针走 RegisterNative 非阻塞路径（CallNative
+//原地直呼，无窗口转换）。NativeFn 签名与返回值写法以
+//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsMint 形态为
+//准（返回 void，经 native::ReturnInt 写结果格）。
+static VmExecutor* s_windowProbeExec = nullptr;
+static void WindowProbe(NativeHost*, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    native::ReturnInt(ret, s_windowProbeExec->GcWindowThreadCount());
+}
+static void test_nested_window_counted_once()
+{
+    TEST(nested_window_counted_once);
+    CompiledModule mod = buildLinkedModule("win_nested",
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        int n = winprobe();\n"
+        "        if (n != 1) return \"bad\";\n"
+        "        return \"ok\";\n"
+        "    }\n"
+        "}\n"
+        "native int winprobe();\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    if (t != \"[ok]\") return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    s_windowProbeExec = &exec;
+    exec.RegisterNative("win_nested.winprobe", &WindowProbe);
+    CHECK(exec.GcWindowThreadCount() == 0, "no window before the run");
+    CHECK(exec.Execute(mod) == 0,
+        "nested toString window reports membership 1 (depth 2, one "
+        "thread)");
+    s_windowProbeExec = nullptr;
+    CHECK(exec.GcWindowThreadCount() == 0,
+        "window count returns to zero after the run");
+    PASS();
+}
+
 //协议判别器 1（GIL 释放）：main 阻塞 150ms，worker 在窗口内抢到 GIL 并
 //输出。main 从 spawn 到阻塞调用之间无回边（不会被配额抢占），故 worker
 //的输出先于 main-after 只能来自「阻塞期间 GIL 离手」；不释放则顺序反转
@@ -3642,6 +3798,10 @@ int main()
         runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
         runGuarded(test_native_root_owner_removal);
         runGuarded(test_zombie_carrier_generation_guard);
+        runGuarded(test_window_count_zero_while_native_blocked);
+        runGuarded(test_gc_collection_count_under_stress);
+        runGuarded(test_window_accounting_intact_after_stop_path);
+        runGuarded(test_nested_window_counted_once);
         runGuarded(test_shutdown_signal_passthrough);
         runGuarded(test_gc_bitmap_matches_conservative_band);
         runGuarded(test_gc_bitmap_survives_ncu_roundtrip);

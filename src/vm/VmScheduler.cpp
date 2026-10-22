@@ -34,6 +34,9 @@ void VmScheduler::Reset() {
     //after reacquiring the GIL and exit silently instead of truncating
     //the new run's native roots or dereferencing a destroyed context.
     ++m_runGeneration;
+    //K6: rendezvous state resets with the run (no in-flight handshake
+    //and no waiters exist between runs).
+    m_gcStop.Reset();
     //K4：跨 run 残留的调试焦点会饿死新一轮运行的全部其他上下文——
     //每 run 复位；登记表按既定载体数重新置空（定容由
     //ConfigureCarriers 每 run 重申）。

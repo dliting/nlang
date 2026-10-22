@@ -179,6 +179,15 @@ public:
         m_strGcThreshold = records;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
+    //K6 D7 white-box observability: collection count (per run; resets
+    //with ResetPerRunState) and live heap slots (kinds != free).
+    size_t GcCollectionCount() const { return m_gcCollections; }
+    size_t LiveHeapSlotCount() const;
+    //K6 D2: threads currently inside a GIL-held bytecode evaluation
+    //window of this executor (the rendezvous denominator).
+    int GcWindowThreadCount() const {
+        return m_spScheduler->GcStop().WindowThreadCount();
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
@@ -333,6 +342,10 @@ private:
     //toString/host windows: the depth at their entry). Definitions in
     //VmExecutorOps.cpp.
     void RunFrames(size_t baseDepth);
+    //K6 D2: RunFrames is a thin wrapper holding the evaluation-window
+    //guard; the frame-machine body lives in RunFramesInner (the body is
+    //at the source-size guard's function line ceiling).
+    void RunFramesInner(size_t baseDepth);
     //K1 Slice 6: at RunFrames entry, throw the armed join-target failure
     //(a resumed joiner over a FAILED target) inside the handler-search
     //try — no-op unless the carrier armed m_resumeThrowExcIdx.
@@ -1275,6 +1288,7 @@ private:
     std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
     bool   m_gcPending = false;
+    size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 
     //String-store GC plumbing (collection activates in Task 2).

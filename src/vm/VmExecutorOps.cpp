@@ -29,6 +29,17 @@ void VmExecutor::ConsumeResumeThrow() {
 
 void VmExecutor::RunFrames(size_t baseDepth)
 {
+    //K6 D2: this thread executes NLang bytecode for the whole window
+    //(carrier window, host CallByName window, nested re-entrant
+    //callback window — nesting raises the thread-local depth but
+    //counts this thread once). Wrapper form: the 50-line body below
+    //has zero headroom under the source-size guard.
+    GcWorldStop::ExecWindowGuard evalWindow(m_spScheduler->GcStop());
+    RunFramesInner(baseDepth);
+}
+
+void VmExecutor::RunFramesInner(size_t baseDepth)
+{
     for (;;) {
         std::exception_ptr inflight;
         int32_t inflightExc = 0;

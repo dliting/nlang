@@ -19,6 +19,7 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     //and counters reset.
     m_spScheduler->Reset();
     m_quotaFires = 0;
+    m_gcCollections = 0;   //K6 D7: per-run collection count
     m_preemptSkips = 0;
     m_resumeThrowExcIdx = 0;
     m_unwindFrames.clear();

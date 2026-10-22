@@ -49,6 +49,11 @@ void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
     m_callStack.clear();
     m_spScheduler->MarkBlockedNative(ctx->id);
     ++t_blockingNativeDepth;
+    //K6 D2: the blocking section suspends this thread's evaluation-
+    //window membership (GIL away, frames parked — no bytecode runs; a
+    //re-entrant callback inside the native re-enters RunFrames and
+    //re-counts itself through a nested guard).
+    m_spScheduler->GcStop().SuspendEvalWindow();
 }
 
 //Restore exactly the stolen frames (a re-entrant host callback may
@@ -65,6 +70,10 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
     ctx->frames.erase(ctx->frames.end()
         - static_cast<std::ptrdiff_t>(stolenDepth), ctx->frames.end());
     m_spScheduler->MarkRunnableHeld(ctx->id);
+    //K6 D2: bytecode execution resumes — rejoin the evaluation window
+    //the park suspended (balanced even under nested blocking arms: each
+    //park/restore pair runs on this thread in LIFO order).
+    m_spScheduler->GcStop().ResumeEvalWindow();
 }
 
 //K2 slice 4 (§2.5) — the blocking-native arm. Stages args and the result
@@ -152,12 +161,16 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     //lives in the slot).
     if (m_spScheduler->CarrierRunGeneration()
             != m_spScheduler->RunGeneration()) {
-        //K6 Task 5: resume the evaluation window here.
+        //K6 D2: resume balances the park's suspend (the unwind drops
+        //the RunFrames guard); then exit without touching the new run.
+        m_spScheduler->GcStop().ResumeEvalWindow();
         throw ShutdownSignal();
     }
     //Run over: frames stay parked; m_callStack is empty (INV-2).
     if (m_spScheduler->StopRequested()) {
-        //K6 Task 5: resume the evaluation window here.
+        //K6 D2: resume balances the park's suspend (the unwind drops
+        //the RunFrames guard); frames stay parked for the shutdown.
+        m_spScheduler->GcStop().ResumeEvalWindow();
         throw ShutdownSignal();
     }
     RestoreStolenFrames(ctx, stolenDepth);

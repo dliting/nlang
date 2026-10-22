@@ -25,6 +25,7 @@
 ---*/
 #pragma once
 #include "CallFrame.h"
+#include "GcWorldStop.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -274,6 +275,11 @@ public:
     uint64_t CarrierRunGeneration() {
         return carrierSlot().runGeneration;
     }
+
+    //K6: stop-the-world rendezvous handle — the safepoint protocol
+    //object lives with the scheduler so every run (and every carrier)
+    //shares one instance.
+    GcWorldStop& GcStop() { return m_gcStop; }
 
     //K2 slice 2: 每载体状态。载体循环入口（主/辅助同一点）安装本线程
     //的槽；InstallSelfCarrier 幂等重置——同一 OS 线程跑过多个执行器
@@ -528,6 +534,8 @@ public:
 private:
     std::mutex m_gil;
     uint64_t m_runGeneration = 0;   //K6 D9: see RunGeneration()
+    GcWorldStop m_gcStop;   //K6: leaf-locked rendezvous protocol; resets
+                            //with the run (Reset), one per scheduler
 };
 
 } // namespace nlang
