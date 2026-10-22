@@ -860,6 +860,26 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, $5});
 						$$ = $1;
 					} |
+					//0.10.6 D1: brace-init continuation `T a, b = {…};` —
+					//the declared type becomes the init list's target
+					//(resolver-side inference, same as the first arm).
+					LocalDeclList ',' TT_Identifier '=' BracedInitExpr {
+						$1->push_back({*$3, $5});
+						$$ = $1;
+					} |
+					//0.10.6 D1: direct-init continuation `T a, b(args);` —
+					//the ctor-arg payload rides the same slot as the first
+					//arm; the resolver dispatches per declarator.
+					LocalDeclList ',' TT_Identifier '(' ConcreteParamList ')' {
+						$1->push_back({*$3, nullptr, $5, nullptr});
+						$$ = $1;
+					} |
+					//0.10.6 D1: zero-argument direct-init continuation
+					//`T a, b();` — explicit empty parens (0.9.15 reading).
+					LocalDeclList ',' TT_Identifier '(' ')' {
+						$1->push_back({*$3, nullptr, new PtrList<SnExpression>(), nullptr});
+						$$ = $1;
+					} |
 					TT_Identifier '=' Expression {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
@@ -1625,24 +1645,26 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-14, bison 3.8.2, on the
-//v0.9.1 script-mode grammar): 23 shift/reduce, 4 reduce/reduce, every
-//one resolved by bison's default to the intended reading. Deterministic
-//parsers cannot use %expect alongside r/r conflicts, so no %expect pins
-//these numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr
-//to stay silent, and the counts are guarded by re-measuring (the
-//conflicts: lines of a `bison -v` .output) on every grammar edit —
-//compare against this ledger and never bump it silently.
-//- states 113/130 (1 each): the '<' shapes — an explicit generic type
+//Accepted-conflict ledger (re-measured 2026-10-22, bison 3.8.2, on the
+//0.10.6 grammar): 27 shift/reduce, 4 reduce/reduce, every one resolved
+//by bison's default to the intended reading. Deterministic parsers
+//cannot use %expect alongside r/r conflicts, so no %expect pins these
+//numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to stay
+//silent, and the counts are guarded by re-measuring (the conflicts:
+//lines of a `bison -v` .output) on every grammar edit — compare against
+//this ledger and never bump it silently. State numbers are those of the
+//current .output; they shift with every grammar change, so the whole
+//list is re-derived at each re-measure.
+//- states 114/131 (1 each): the '<' shapes — an explicit generic type
 //  head (`List<int> l;`) and the void-return func spellings. Reduce-
 //  first keeps the declaration reading.
-//- state 266 (2): catch/finally after a nested `try` statement — the
+//- state 276 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 287/288 (1 each, added with TypeName): ':' / `as` followed by
+//- states 297/298 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- state 541 (16): ClassMember's NodeFlag-singular vs
+//- state 591 (16): ClassMember's NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
@@ -1651,14 +1673,25 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  const statement — the AccessTypeEmpty epsilon loses the shift, so
 //  `const int x = 5;` lives and `const int f(){}` is rejected (a true
 //  LALR ambiguity; zero corpus hits, recorded as a known limitation).
-//- state 282 (2 r/r, v0.9.1): the empty-paren double epsilon —
+//- states 292/362/378 (1 each, added with 0.9.15): after `T name(`,
+//  ')' shifts to the explicit empty-parens arm instead of reducing the
+//  empty FormalParamList/ConcreteParamList epsilon — `T name();` is a
+//  zero-argument construction and `f()` an empty parameter list, the
+//  intended readings. 292 merges the top-level header and first-
+//  declarator items, 362 is the body-context first declarator, 378 the
+//  top-level header alone.
+//- state 523 (1, added with 0.10.6 D1): the same empty-parens shape on
+//  a continuation declarator — after `T a, b(`, ')' shifts to the
+//  explicit empty-parens continuation arm; `T a, b();` is a zero-
+//  argument construction, same reading as the first arm.
+//- state 292 (2 r/r, v0.9.1): the empty-paren double epsilon —
 //  FormalParamList's and ConcreteParamList's empty productions both
 //  reduce on ')' and ','. Bison prefers the rule declared earlier in
 //  this file, so the function header wins and `int main(){}` parses;
 //  a bodyless bare `T name();` is therefore always a construction,
 //  never a declaration — forward declarations carry the explicit
 //  `func` marker for that reason.
-//- state 398 (2 r/r, v0.9.1): NameExpr vs Expression on '.'/'<' after
+//- state 422 (2 r/r, v0.9.1): NameExpr vs Expression on '.'/'<' after
 //  a top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
