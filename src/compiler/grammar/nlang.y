@@ -880,6 +880,17 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, nullptr, new PtrList<SnExpression>(), nullptr});
 						$$ = $1;
 					} |
+					//0.10.6 D1: sized continuation `T a, b[n];` (and the
+					//partial-init form). 0.10.6 D2: the size types only
+					//its own declarator — siblings keep the head type.
+					LocalDeclList ',' TT_Identifier '[' Expression ']' {
+						$1->push_back({*$3, nullptr, nullptr, $5});
+						$$ = $1;
+					} |
+					LocalDeclList ',' TT_Identifier '[' Expression ']' '=' Expression {
+						$1->push_back({*$3, $8, nullptr, $5});
+						$$ = $1;
+					} |
 					TT_Identifier '=' Expression {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
@@ -911,8 +922,8 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					//(and the partial-init form `T name[n] = [e1, e2];`).
 					//The size rides the pArraySize payload slot; the resolver
 					//synthesizes `name = new T[n]` plus one subscript assign
-					//per initializer entry. First declarator only: the plain
-					//continuation arms after a comma carry no size.
+					//per initializer entry. 0.10.6 D2: a size payload types
+					//only its own declarator; siblings keep the head type.
 					TT_Identifier '[' Expression ']' {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, nullptr, $3});

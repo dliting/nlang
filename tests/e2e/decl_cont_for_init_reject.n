@@ -1,0 +1,10 @@
+// 0.10.6: a sized continuation declarator in for-init position reaches
+// the named for-init reject (the size payload would be silently
+// dropped there — the for-init path synthesizes nothing).
+int main() {
+    int sum = 0;
+    for (int i = 0, a[3]; i < 2; i = i + 1) {
+        sum = sum + i;
+    }
+    return sum;
+}

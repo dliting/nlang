@@ -1,0 +1,7 @@
+// 0.10.6: const reuses the continuation size arms; every sized
+// declarator counts as initialized (0.9.0 rule) and turns const after
+// its synthesized creation assign.
+int main() {
+    const int a[3], b[2];
+    return a.length() + b.length();
+}

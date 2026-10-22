@@ -85,7 +85,16 @@ void VmBackend::WalkArrayTypeStmt(SnStatement& s) {
         for (auto& child : static_cast<SnParagraph&>(s).Statements())
             WalkArrayTypeStmt(child);
     } else if (s.Kind() == NK_LocalDeclStmt) {
-        RegisterArrayTypeExpr(static_cast<SnLocalDeclStmt&>(s).Type());
+        auto& decl = static_cast<SnLocalDeclStmt&>(s);
+        RegisterArrayTypeExpr(decl.Type());
+        //0.10.6 D2: sized declarators register their element type from
+        //the head field — the statement type stays the head type, so
+        //the interned-token check above misses them.
+        auto* pHeadField = decl.Type()->Field();
+        if (pHeadField)
+            for (auto& d : decl.Decls())
+                if (d.bArrayType)
+                    RegisterArrayType(pHeadField);
     } else if (s.Kind() == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(s);
         if (ifStmt.ThenStmt()) WalkArrayTypeStmt(*ifStmt.ThenStmt());

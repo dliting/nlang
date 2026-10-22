@@ -1,0 +1,8 @@
+// 0.10.6 D2 regression: a head-array statement still types every
+// declarator as an array — the unsized sibling stays a null handle.
+int main() {
+    int[] x = [1, 2];
+    int[] a = x, b;
+    if (b != null) { return 9; }
+    return a[1];
+}

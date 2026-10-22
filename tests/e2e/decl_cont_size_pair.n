@@ -1,0 +1,14 @@
+// 0.10.6 D1+D2: two sized declarators with different lengths coexist in
+// one statement (unrepresentable under the old statement-level typing).
+// The allocation pressure between the writes and the reads keeps the GC
+// exercising the per-declarator slot kinds.
+int main() {
+    int a[3], b[2];
+    a[0] = 1;
+    b[0] = 2;
+    string s = "";
+    for (int i = 0; i < 50; i = i + 1) {
+        s = s + "x";
+    }
+    return a[0] + b[0] + a.length() + b.length();
+}

@@ -1,0 +1,6 @@
+// 0.10.6: head array type plus a sized continuation declarator is
+// jagged — named reject, same message as the first-declarator form.
+int main() {
+    int[] a, b[3];
+    return 0;
+}

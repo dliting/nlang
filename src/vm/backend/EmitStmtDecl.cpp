@@ -26,8 +26,12 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
         //RuntimeTypeKind files every local, arrays included. The separate
         //IsArrayType shape branch and element walk are gone.
         SnField* evalType = decl.Type()->Field();
-        uint8_t typeKind = RuntimeTypeKind(evalType);
         for (auto& local : decl.Decls()) {
+            //0.10.6 D2: per-declarator slot kind — a size payload makes
+            //only its own slot an array handle; siblings keep the head
+            //type's kind (the statement type is never re-bound).
+            uint8_t typeKind = local.bArrayType
+                ? RTK_Array : RuntimeTypeKind(evalType);
             uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind, false);
             //For struct types, emit OP_AllocStruct to allocate on heap.
             //Per-unit: a cross-unit struct slots as an import placeholder

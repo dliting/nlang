@@ -1467,7 +1467,7 @@ decl_partial_init 19
 decl_generic_array 32
 err_multi_dim_decl compile_error Multi-dimensional arrays are not supported
 err_partial_init_overflow compile_error more than the declared size
-decl_sized_sibling 6
+decl_sized_sibling 9
 err_func_anchor_ctor compile_error func types cannot be constructed
 err_bare_generic_ctor compile_error cannot be constructed by bare name
 err_sized_generic_expr compile_error Cannot resolve the field: List.
@@ -1761,3 +1761,13 @@ concurrent_semaphore 0 peak=2
 decl_cont_ctor_args 5
 decl_cont_ctor_empty 3
 decl_cont_brace_init 2
+
+# --- 0.10.6 D1+D2: sized continuation arms, per-declarator typing ---
+decl_cont_size 12
+decl_cont_size_pair 8
+decl_cont_size_init 6
+decl_sized_sibling_init 5
+decl_array_head_sibling 2
+decl_cont_const_sized 5
+decl_cont_jagged_reject compile_error Multi-dimensional arrays
+decl_cont_for_init_reject compile_error not supported in a for initializer

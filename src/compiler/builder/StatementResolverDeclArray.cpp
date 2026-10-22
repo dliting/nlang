@@ -129,10 +129,12 @@ void StatementResolveAccessor::SynthesizeSizedArrayDeclarator(
 
 SnField *StatementResolveAccessor::BindSizedArrayDeclType(SnLocalDeclStmt &sn)
 {
-	//Grammar: at most one declarator carries a size and it is the
-	//first; NLang types all declarators of a statement uniformly, so
-	//unsized siblings share the array type (`int a[3], b;` declares b
-	//as a null int[], the same model as `int[] a = ..., b;`).
+	//0.10.6 D2: each declarator carries its own brackets — a size
+	//payload types just that declarator as an array, siblings keep the
+	//head type (`int a[3], b;` declares b as a plain int). The head
+	//type expression is never re-bound; the per-declarator array field
+	//is interned at registration and flagged on the payload for
+	//codegen (LocalDecl::bArrayType).
 	for (auto &decl : sn.Decls())
 	{
 		if (!decl.pArraySize)
@@ -149,15 +151,7 @@ SnField *StatementResolveAccessor::BindSizedArrayDeclType(SnLocalDeclStmt &sn)
 		}
 		if (!sn.Type()->Field())
 			return nullptr;  //resolved without a field: nothing to bind
-		auto *pElemField = sn.Type()->Field();
-		//Re-bind the declaration type expression to the interned array
-		//token so every reader keyed on decl.Type()->Field() — the
-		//SnLocalVar typing, the VM slot kind + GC root scan, the
-		//image's array-type registration — sees the array type instead
-		//of the bare element.
-		m_ExprResolver.ResolveFieldExprAs(*sn.Type(),
-			m_Env.InternArrayTypeToken(pElemField));
-		return pElemField;
+		return sn.Type()->Field();
 	}
 	return nullptr;
 }
