@@ -117,6 +117,11 @@ bool ExprResolveAccessor::TryResolveUserClassEqualsOrGetHashCode(
 //path fails. Treat them as builtin virtuals here, parallel to stream methods.
 //Args must be resolved in the CALLER's scope, not the empty Object scope —
 //hence the early return before the inner Accept below.
+//0.10.6 D5 (documented rule): protocol dispatch is name-keyed and
+//ignores the access modifier — a user equals/getHashCode/toString is
+//callable from outside its class whatever its declared visibility (the
+//modifier is accepted on protocol declarations but has no enclosing
+//effect there; ordinary members keep the normal accessibility check).
 bool ExprResolveAccessor::TryResolveObjectProtocolMethod(
 	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
 	SyntaxNode *pSavedContext)

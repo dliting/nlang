@@ -76,6 +76,14 @@ them exactly):
 This makes strings usable as `Dict` keys without a wrapper class. See
 [String](string.md).
 
+**Protocol methods are public regardless of the access modifier**: a
+method whose name and signature match an Object protocol member
+(`equals(Object): int`, `getHashCode(): int`, `toString(): string`) is
+callable from outside its class even when declared with default access
+or `private` — protocol dispatch is name-keyed and ignores visibility.
+The modifier is accepted on protocol declarations but has no enclosing
+effect there; on ordinary members it works as usual.
+
 **`==` is unaffected by `equals`**: `Object.equals` is an opt-in method. The
 `==` operator on class references compares heap indices directly. The reason
 `equals` exists as a separate method is to allow user classes to override with

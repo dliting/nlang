@@ -1781,3 +1781,6 @@ decl_sized_init_scalar_reject compile_error sized declaration initializer
 iface_field_no_flags compile_error must be static const
 iface_field_no_flags_noinit compile_error must be static const
 iface_field_no_init compile_error must be a constant expression
+
+# --- 0.10.6 D5: protocol methods public regardless of access ---
+proto_default_access 3
