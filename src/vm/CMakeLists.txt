@@ -1,6 +1,7 @@
 add_library(nlang_vm
     OpCodeTable.cpp
     VmScheduler.cpp
+    GcWorldStop.cpp
     VmSchedulerTimer.cpp
     VmExecutor.cpp
     VmCarrierPool.cpp

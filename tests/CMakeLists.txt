@@ -687,6 +687,23 @@ target_compile_definitions(test_threads
 
 add_test(NAME threads_tests COMMAND test_threads)
 
+# K6 Task 1: GC stop-the-world rendezvous protocol white-box tests
+# (real threads; no compiler/stdlib involvement).
+add_executable(test_gcworldstop
+    test_vm/test_gcworldstop.cpp
+)
+target_include_directories(test_gcworldstop
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_gcworldstop
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME gcworldstop_tests COMMAND test_gcworldstop)
+
 # K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
 # behavior tests — same harness shape as test_threads.
 add_executable(test_stdlib_concurrency
