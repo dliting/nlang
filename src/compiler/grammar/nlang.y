@@ -1707,7 +1707,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- state 591 (16): ClassMember's NodeFlag-singular vs
+//- state 593 (16): ClassMember's NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
@@ -1723,7 +1723,7 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  intended readings. 292 merges the top-level header and first-
 //  declarator items, 362 is the body-context first declarator, 378 the
 //  top-level header alone.
-//- state 523 (1, added with 0.10.6 D1): the same empty-parens shape on
+//- state 524 (1, added with 0.10.6 D1): the same empty-parens shape on
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.
