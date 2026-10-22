@@ -24,8 +24,20 @@ static bool ValidateSizedArrayInit(BuildEnvironment &env,
 	pInitList = nullptr;
 	if (!decl.pInitExpr)
 		return true;
-	if (decl.pInitExpr->Kind() != NK_InitListExpr
-		|| !static_cast<SnInitListExpr *>(decl.pInitExpr)->IsArrayForm())
+	//0.10.6 D3: the brace form reaches the resolver through the new
+	//grammar arms — name the form violation with the brace-reservation
+	//diagnostic (same text as the init-list target check in
+	//ExprResolverInitList.cpp), pointing at the bracket form; every
+	//other non-bracket initializer keeps the sized-literal message.
+	if (decl.pInitExpr->Kind() == NK_InitListExpr
+		&& !static_cast<SnInitListExpr *>(decl.pInitExpr)->IsArrayForm())
+	{
+		env.Log(CLL_Error, decl.pInitExpr->Location(),
+			"array initializers use '[...]'; the brace form '{...}' is "
+			"reserved for collection, struct, and class initializers");
+		return false;
+	}
+	if (decl.pInitExpr->Kind() != NK_InitListExpr)
 	{
 		env.Log(CLL_Error, decl.pInitExpr->Location(),
 			"sized declaration initializer must be a [...] literal");

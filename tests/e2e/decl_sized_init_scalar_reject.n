@@ -1,0 +1,6 @@
+// 0.10.6 D3 regression: a non-brace non-bracket sized initializer keeps
+// the sized-literal diagnostic.
+int main() {
+    int a[3] = 5;
+    return 0;
+}

@@ -891,6 +891,13 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, $8, nullptr, $5});
 						$$ = $1;
 					} |
+					//0.10.6 D3: brace form on a sized continuation
+					//declarator — parses so the resolver can name the
+					//form violation.
+					LocalDeclList ',' TT_Identifier '[' Expression ']' '=' BracedInitExpr {
+						$1->push_back({*$3, $8, nullptr, $5});
+						$$ = $1;
+					} |
 					TT_Identifier '=' Expression {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
@@ -929,6 +936,13 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$->push_back({*$1, nullptr, nullptr, $3});
 					} |
 					TT_Identifier '[' Expression ']' '=' Expression {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $6, nullptr, $3});
+					} |
+					//0.10.6 D3: the brace form parses so the resolver can
+					//name the form violation (array initializers keep the
+					//bracket form — 0.9.11 D6 single-shape design).
+					TT_Identifier '[' Expression ']' '=' BracedInitExpr {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $6, nullptr, $3});
 					} |

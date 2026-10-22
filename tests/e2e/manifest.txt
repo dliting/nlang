@@ -1771,3 +1771,8 @@ decl_array_head_sibling 2
 decl_cont_const_sized 5
 decl_cont_jagged_reject compile_error Multi-dimensional arrays
 decl_cont_for_init_reject compile_error not supported in a for initializer
+
+# --- 0.10.6 D3: brace form at sized declarations -> named reject ---
+decl_brace_sized_reject compile_error the brace form
+decl_brace_sized_cont_reject compile_error the brace form
+decl_sized_init_scalar_reject compile_error sized declaration initializer

@@ -1,0 +1,6 @@
+// 0.10.6 D3: brace form on a sized CONTINUATION declarator — same
+// named diagnostic.
+int main() {
+    int a, b[3] = {1, 2, 3};
+    return 0;
+}
