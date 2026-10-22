@@ -206,6 +206,16 @@ public:
     int SchedulerGilWaitersPeak() const {
         return m_spScheduler->GilWaitersPeak();
     }
+    //K5 batch 1 white-box observability: the GIL wait-time dimension —
+    //cumulative nanoseconds waited and acquisitions that began while
+    //another waiter was already queued. Per run (cleared by the
+    //scheduler's Reset).
+    uint64_t SchedulerGilWaitNanosTotal() const {
+        return m_spScheduler->GilWaitNanosTotal();
+    }
+    uint64_t SchedulerGilContendedAcquires() const {
+        return m_spScheduler->GilContendedAcquires();
+    }
     //K4: carrier -> context currently held in its execution window (the
     //scheduler's GIL-guarded mirror; -1 = idle). White-box only — the
     //threads listing and tests consume it.
@@ -728,9 +738,10 @@ private:
                 t_gilOwner = nullptr;
         }
         void Acquire() override {
-            m_rExec.m_spScheduler->BeginGilWait();
+            const auto waitStartedAt =
+                m_rExec.m_spScheduler->BeginGilWait();
             m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait();
+            m_rExec.m_spScheduler->EndGilWait(waitStartedAt);
             t_gilOwner = this;
         }
     private:
@@ -764,9 +775,10 @@ private:
                 t_gilOwner = nullptr;
         }
         void Acquire() override {
-            m_rExec.m_spScheduler->BeginGilWait();
+            const auto waitStartedAt =
+                m_rExec.m_spScheduler->BeginGilWait();
             m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait();
+            m_rExec.m_spScheduler->EndGilWait(waitStartedAt);
             t_gilOwner = this;
         }
     private:

@@ -1,6 +1,7 @@
 add_library(nlang_vm
     OpCodeTable.cpp
     VmScheduler.cpp
+    VmSchedulerTimer.cpp
     VmExecutor.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp

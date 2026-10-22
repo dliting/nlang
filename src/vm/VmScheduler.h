@@ -290,9 +290,18 @@ public:
         carrierSlot().schedTripBudget = limit;
     }
 
-    //GIL 等待计数（GilWindowGuard 进入/离开竞争临界区时维护）；峰值
-    //为白盒观测（多载体真实竞争的证据）。
-    void BeginGilWait() {
+    //GIL wait accounting (maintained by the acquire brackets in the two
+    //VmExecutor guards and the timer thread's loop-top lock); the peak is
+    //the white-box contention evidence. K5 batch 1 adds the time
+    //dimension: cumulative wait nanoseconds and the contended-acquire
+    //count (another waiter already queued when this one began — convoy
+    //formation; a lone waiter contending only with the holder does not
+    //count). Lock reacquisitions inside condition-variable waits stay
+    //excluded (same ruling as ServiceDueTimers above).
+    std::chrono::steady_clock::time_point BeginGilWait() {
+        const auto startedAt = std::chrono::steady_clock::now();
+        if (m_gilWaiters.load(std::memory_order_acquire) > 0)
+            m_gilContendedAcquires.fetch_add(1, std::memory_order_relaxed);
         int cur = m_gilWaitersPeak.load(std::memory_order_relaxed);
         const int now = m_gilWaiters.fetch_add(1, std::memory_order_acq_rel)
                         + 1;
@@ -300,12 +309,27 @@ public:
                && !m_gilWaitersPeak.compare_exchange_weak(
                       cur, now, std::memory_order_acq_rel))
             {}
+        return startedAt;
     }
-    void EndGilWait() {
+    void EndGilWait(std::chrono::steady_clock::time_point startedAt) {
+        const auto endedAt = std::chrono::steady_clock::now();
         m_gilWaiters.fetch_sub(1, std::memory_order_acq_rel);
+        m_gilWaitNanosTotal.fetch_add(
+            static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    endedAt - startedAt).count()),
+            std::memory_order_relaxed);
     }
     int GilWaitersPeak() const {
         return m_gilWaitersPeak.load(std::memory_order_acquire);
+    }
+    //K5 batch 1 white-box observability: cumulative GIL wait time and
+    //contended-acquire count (per run; cleared by Reset).
+    uint64_t GilWaitNanosTotal() const {
+        return m_gilWaitNanosTotal.load(std::memory_order_acquire);
+    }
+    uint64_t GilContendedAcquires() const {
+        return m_gilContendedAcquires.load(std::memory_order_acquire);
     }
     //辅助载体上的分派次数（白盒观测：多载体并非空转的证据）。主载体
     //线程在 RegisterContext（主载体专属路径）时记录。
@@ -452,6 +476,8 @@ private:
     std::atomic<int> m_activeCarrierCount{0};  //在飞载体（spawn 门）
     std::atomic<int> m_gilWaiters{0};          //GIL 竞争者（让渡规则）
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
+    std::atomic<uint64_t> m_gilWaitNanosTotal{0};  //等待累计纳秒（白盒）
+    std::atomic<uint64_t> m_gilContendedAcquires{0};  //竞争获取（白盒）
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
     size_t m_affinityHits = 0;                 //亲和出队命中（白盒观测）

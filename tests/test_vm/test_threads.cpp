@@ -2864,6 +2864,96 @@ static void test_aux_carriers_actually_execute()
     PASS();
 }
 
+// --- K5 Task 6（GIL 批 1：等待时间计数器）---
+
+//计数器族的白盒钉板（直构调度器，镜像 test_debug_focus_exclusive_dispatch
+//的形状）：竞争分类（进入等待时已有他者排队才算竞争获取）、纳秒累计、
+//Reset 每 run 清零。Begin/End 只动等待者计数不动互斥本体，与 Reset 的
+//lock_guard 无死锁交互；1ms sleep 保证时长断言跨时钟精度确定成立。
+static void test_gil_wait_counters_whitebox()
+{
+    TEST(gil_wait_counters_whitebox);
+    VmScheduler sched;
+    const auto t1 = sched.BeginGilWait();
+    CHECK(sched.GilContendedAcquires() == 0,
+          "a lone waiter is not a contended acquire");
+    const auto t2 = sched.BeginGilWait();
+    CHECK(sched.GilContendedAcquires() == 1,
+          "acquiring while another waiter is queued counts as contended");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    sched.EndGilWait(t2);
+    sched.EndGilWait(t1);
+    CHECK(sched.GilWaitNanosTotal() > 0,
+          "wait time accumulated in nanoseconds");
+    sched.Reset();
+    CHECK(sched.GilContendedAcquires() == 0,
+          "Reset clears the contended-acquire counter");
+    CHECK(sched.GilWaitNanosTotal() == 0,
+          "Reset clears the wait-nanoseconds accumulator");
+    PASS();
+}
+
+//端到端：多载体真实竞争下两个新计数器都非零（与既有 GilWaitersPeak>0
+//同源——peak>0 即某刻 ≥2 并发等待者，后到者必计入竞争获取）。
+static void test_gil_wait_time_counters()
+{
+    TEST(gil_wait_time_counters);
+    CompiledModule mod = buildLinkedModule("gil_wait_time",
+        "import thread;\n"
+        "import io;\n"
+        "void w() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        int j = 0;\n"
+        "        while (j < 400) { j = j + 1; }\n"
+        "        io.write(\"x\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread a = thread.spawn(w);\n"
+        "    Thread b = thread.spawn(w);\n"
+        "    Thread c = thread.spawn(w);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    exec.SetCarrierThreadCount(4);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "four-carrier three-worker program completes");
+    CHECK(exec.SchedulerGilContendedAcquires() > 0,
+          "contended GIL acquisitions were counted under multi-carrier "
+          "contention");
+    CHECK(exec.SchedulerGilWaitNanosTotal() > 0,
+          "GIL wait time accumulated under multi-carrier contention");
+    PASS();
+}
+
+//单载体无竞争路径不误增：默认 1 载体、单上下文纯计算（无 spawn、无
+//sleep——定时器线程懒启动不发生），主载体是唯一 GIL 获取者，竞争计数
+//恒 0。不钉纳秒累计——无竞争的 lock() 也耗数十纳秒，非零不确定。
+static void test_gil_wait_counters_no_contention()
+{
+    TEST(gil_wait_counters_no_contention);
+    CompiledModule mod = buildLinkedModule("gil_wait_calm",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200) { i = i + 1; }\n"
+        "    return 42;\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 42,
+          "single-carrier single-context program completes");
+    CHECK(exec.SchedulerGilContendedAcquires() == 0,
+          "no contended acquires on the single-carrier uncontended path");
+    PASS();
+}
+
 // --- K4 Task 1（载体身份＋当前上下文集中登记＋调试焦点分派）---
 
 //焦点独占分派（调度器白盒，D2）：焦点 Runnable 时它是唯一可分派上下文
@@ -3455,6 +3545,9 @@ int main()
         test_single_carrier_deterministic_multi_unspecified();
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
+        test_gil_wait_counters_whitebox();
+        test_gil_wait_time_counters();
+        test_gil_wait_counters_no_contention();
         test_debug_focus_exclusive_dispatch();
         test_debug_focus_held_wait();
         test_held_context_mirror_reset_after_run();

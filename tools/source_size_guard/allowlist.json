@@ -137,5 +137,9 @@
     "path": "src/vm/DisassemblerWalk.cpp",
     "function": "InstructionStride",
     "reason": "table-driven opcode stride switch (one case label per opcode, data table in switch form)"
+  },
+  {
+    "path": "src/vm/VmScheduler.h",
+    "reason": "single-class VmScheduler declaration; C++ has no partial class, splitting would fragment the class"
   }
 ]
