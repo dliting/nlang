@@ -6,7 +6,7 @@ The `thread` package is an ordinary standard-library package: its authoritative 
 |---|---|---|
 | `thread.spawn(f)` | zero-argument `func<void>` delegate → `Thread`; zero-argument `func<T>` delegate → `Future<T>` | Spawns a new virtual thread and returns its handle object immediately; the delegate's return type decides the handle shape |
 | `thread.join(t)` | `Thread` | Suspends until the target finishes; if the target failed, rethrows the original exception object into this context |
-| `thread.yield()` | — | Voluntary handoff inside long compute loops: give other tasks a chance to run. Blocking calls (`sleep`, `recv`, `get`, `lock`) hand off automatically — you only need `yield` in tight compute loops |
+| `thread.yield()` | — | Voluntary handoff inside long compute loops: give other tasks a chance to run. Blocking calls (`sleep`, `recv`, `get`, `lock`) hand off automatically; a tight loop without `yield` is still preempted once it exhausts the scheduler's back-edge quota — `yield` only hands off sooner |
 | `thread.id()` | → `int` | The current context's identifier; main is always 0, spawned contexts are non-zero |
 | `thread.sleep(ms)` | `int` milliseconds | Suspends until the deadline — the usual way to pace a polling loop or delay a retry; `sleep(0)` is equivalent to a yield; a negative duration is a runtime error (after compilation) |
 
