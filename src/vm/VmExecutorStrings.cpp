@@ -198,14 +198,11 @@ void VmExecutor::MarkString(int32_t handle) {
 //never die; dead slots get the form sentinel and join the free list.
 void VmExecutor::SweepStrings() {
     m_strFreeList.clear();
-    size_t liveCount = 0;
     for (size_t i = 1; i < m_stringObjs.size(); ++i) {
         StrObj& so = m_stringObjs[i];
         if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
-        if (so.immortal || m_strMarkBits[i]) {
-            ++liveCount;   //survivor — counted for the D2.2 backoff below
+        if (so.immortal || m_strMarkBits[i])
             continue;
-        }
         //Weak-intern purification: drop the dying object's table entry so
         //a later mint of the same content allocates fresh instead of
         //resurrecting a dead (or slot-reused) handle.
@@ -221,17 +218,20 @@ void VmExecutor::SweepStrings() {
     //after every collection, not only before every mark.
     m_strMarkBits.assign(m_stringObjs.size(), false);
 
-    //D2.2: the store vector never shrinks (dead slots recycle in place),
-    //so the size trigger is level-triggered — past the first crossing
-    //every safepoint collects, and marking a growing live cons chain per
-    //GC costs O(chain) each time (measured O(n^2) total: 5e4 chain =
-    //6.6s, 1e5 = 26.7s). Back the threshold off to 2x the surviving
-    //population so triggers advance geometrically with live data —
-    //amortized O(1) appends, memory bounded at 2x live. The clamp from
-    //SetGcStressThresholds is a backoff START, not a cap: max() only
-    //raises it, and bounded-population assertions still hold because
-    //boundedness comes from the sweep itself, not the trigger rate.
-    m_strGcThreshold = std::max(m_strGcThreshold, 2 * liveCount);
+    //K6 D3: the store vector never shrinks (dead slots recycle in
+    //place), so the size trigger is level-triggered — past the first
+    //crossing every safepoint collects. Back the threshold off to the
+    //high-water size so the predicate flips back false; post-backoff
+    //the cadence is free-list exhaustion (amortized O(1) appends,
+    //memory bounded by the sweep itself). The 2*live form this
+    //replaces never caught the high-water mark in small-live churn
+    //workloads (live ~= const => threshold stuck at the clamp =>
+    //every-safepoint collection). Stress mode suppresses the backoff
+    //(every-safepoint forcing). Bounded-population assertions still
+    //hold: boundedness comes from the sweep, not the trigger rate.
+    if (!m_gcStressActive)
+        m_strGcThreshold = std::max(m_strGcThreshold,
+                                    m_stringObjs.size());
 }
 
 size_t VmExecutor::LiveStringObjectCount() const {

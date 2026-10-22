@@ -3532,6 +3532,160 @@ static void test_nested_window_counted_once()
     PASS();
 }
 
+// --- K6 Task 6（D3：堆侧阈值回退）---
+//高搅动小活集：越过 1024 首收集后自由表覆盖分配，size 停在阈值+1，
+//回退 max(threshold, size) 令触发谓词翻回假——收集节奏＝自由表耗尽
+//（≈每 ~1000 次分配一次）。旧行为（无回退）：size 恒 > 阈值 ⇒ 每个
+//安全点都收集（数千次）。
+static void test_backoff_heap_after_cliff()
+{
+    TEST(backoff_heap_after_cliff);
+    CompiledModule mod = buildLinkedModule("bo_heap",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        p.v = i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(mod) == 0, "churn program completes");
+    const size_t collections = exec.GcCollectionCount();
+    CHECK(collections <= 20,
+        "post-cliff collection cadence is free-list exhaustion, not "
+        "every-safepoint (got " + std::to_string(collections) + ")");
+    CHECK(collections >= 1, "the cliff itself did collect at least once");
+    //D7 consumer: bounded liveness — the store recycles slots in place
+    //(size never shrinks), so the kind!=free population is bounded by
+    //the backed-off threshold (~1025) plus the unswept inter-collection
+    //tail; 5000 dead P objects never mean 5000 occupied slots (the
+    //no-GC shape). NOT <100: the tail since the last back-edge sweep
+    //is itself dead-but-unswept (~900 slots here) and counts nonzero.
+    const size_t liveSlots = exec.LiveHeapSlotCount();
+    CHECK(liveSlots < 1200,
+        "heap slot population stays bounded under churn (got "
+        + std::to_string(liveSlots) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：字符串侧对称回退）---
+//旧回退 max(threshold, 2*live) 在小活集搅动下同样每安全点收集
+//（live≈2 ⇒ 阈值永不抬升、size 恒越界）。max(threshold, size) 同治。
+static void test_backoff_string_symmetric()
+{
+    TEST(backoff_string_symmetric);
+    CompiledModule mod = buildLinkedModule("bo_str",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        string garbage = \"g\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(mod) == 0, "string churn program completes");
+    const size_t collections = exec.GcCollectionCount();
+    CHECK(collections <= 20,
+        "string store backs off symmetrically (got "
+        + std::to_string(collections) + ")");
+    CHECK(collections >= 1, "crossed the string threshold at least once");
+    PASS();
+}
+
+// --- K6 Task 6（D3：压力模式抑制回退）---
+static void test_stress_suppresses_backoff()
+{
+    TEST(stress_suppresses_backoff);
+    CompiledModule mod = buildLinkedModule("bo_stress",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        p.v = i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "stress churn program completes");
+    CHECK(exec.GcCollectionCount() > 500,
+        "stress keeps every-safepoint collection (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：阈值跨 run 持久）---
+//执行器复用（嵌入宿主形态）：run 1 搋动后阈值已抬到高水位；run 2
+//微量分配不得再收集。m_gcCollections 每 run 清零（Task 5），断言的是
+//run 2 自己的计数。
+static void test_thresholds_persist_across_runs()
+{
+    TEST(thresholds_persist_across_runs);
+    CompiledModule churn = buildLinkedModule("bo_persist1",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(churn) == 0, "run 1 churn completes");
+    CompiledModule tiny = buildLinkedModule("bo_persist2",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    P a = P();\n"
+        "    P b = P();\n"
+        "    int i = 0;\n"
+        "    while (i < 100) { i = i + 1; }\n"
+        "    return a.v + b.v;\n"
+        "}\n");
+    CHECK(exec.Execute(tiny) == 0, "run 2 tiny completes");
+    //The loop's back-edges are safepoints that would collect at every
+    //iteration if the threshold had reset to the default (size stays at
+    //run 1's high-water mark, above 1024); persistence keeps the
+    //predicate false — zero collections. The two fresh allocations
+    //reuse free-list slots, so size never crosses the backed-off mark.
+    CHECK(exec.GcCollectionCount() == 0,
+        "backed-off threshold survives into the reused run (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：复位旋钮恢复默认行为）---
+static void test_reset_gc_thresholds_restores_defaults()
+{
+    TEST(reset_gc_thresholds_restores_defaults);
+    VmExecutor exec;
+    exec.SetGcStressThresholds(4);
+    exec.ResetGcThresholds();
+    //A default-threshold tiny program must not collect: proves the
+    //stress clamp AND the flag are gone (a stale stress flag would
+    //also re-enable backoff suppression in later tests).
+    CompiledModule mod = buildLinkedModule("bo_reset",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    P a = P();\n"
+        "    return a.v;\n"
+        "}\n");
+    CHECK(exec.Execute(mod) == 0, "tiny program completes");
+    CHECK(exec.GcCollectionCount() == 0,
+        "defaults restored — no collection, no stress residue");
+    PASS();
+}
+
 //协议判别器 1（GIL 释放）：main 阻塞 150ms，worker 在窗口内抢到 GIL 并
 //输出。main 从 spawn 到阻塞调用之间无回边（不会被配额抢占），故 worker
 //的输出先于 main-after 只能来自「阻塞期间 GIL 离手」；不释放则顺序反转
@@ -3802,6 +3956,11 @@ int main()
         runGuarded(test_gc_collection_count_under_stress);
         runGuarded(test_window_accounting_intact_after_stop_path);
         runGuarded(test_nested_window_counted_once);
+        runGuarded(test_backoff_heap_after_cliff);
+        runGuarded(test_backoff_string_symmetric);
+        runGuarded(test_stress_suppresses_backoff);
+        runGuarded(test_thresholds_persist_across_runs);
+        runGuarded(test_reset_gc_thresholds_restores_defaults);
         runGuarded(test_shutdown_signal_passthrough);
         runGuarded(test_gc_bitmap_matches_conservative_band);
         runGuarded(test_gc_bitmap_survives_ncu_roundtrip);

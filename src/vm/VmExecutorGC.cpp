@@ -5,6 +5,7 @@
     帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）。
 ---*/
 #include "VmExecutor.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -357,35 +358,7 @@ void VmExecutor::SweepPhase() {
         if (m_slotKinds[i] == 0) continue;
         if (!m_markBits[i]) {
             if (m_slotKinds[i] == RTK_Class) {
-                //Phase 8e-3: recycle List<T> handle when a List instance is freed.
-                int32_t classIdx = m_structHeap[i][0];
-                if (static_cast<int16_t>(classIdx) == m_listClassIdx) {
-                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-                    if (handle > 0)
-                        m_listFreeList.push_back(handle);
-                }
-                //Phase 8e-4: recycle Dict<K,V> handle when a Dict instance is freed.
-                if (static_cast<int16_t>(classIdx) == m_dictClassIdx) {
-                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-                    if (handle > 0)
-                        m_dictFreeList.push_back(handle);
-                }
-                //K1 Slice 8: recycle Mutex handle when an instance is freed.
-                //A dropped-while-held mutex leaves its waiters parked
-                //forever — the carrier's exit guard reports that shape.
-                if (static_cast<int16_t>(classIdx) == m_mutexClassIdx) {
-                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-                    if (handle > 0)
-                        m_mutexFreeList.push_back(handle);
-                }
-                //K1 Slice 9: recycle Channel handle when an instance is
-                //freed (same parked-waiter hazard and exit-guard report
-                //as a dropped mutex).
-                if (static_cast<int16_t>(classIdx) == m_channelClassIdx) {
-                    int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-                    if (handle > 0)
-                        m_channelFreeList.push_back(handle);
-                }
+                RecycleClassContainerHandles(i);
                 FreeOwnedStructs(static_cast<int32_t>(i));
             }
             if (m_slotKinds[i] == RTK_Struct)
@@ -396,6 +369,47 @@ void VmExecutor::SweepPhase() {
             m_slotKinds[i] = 0;
             m_freeList.push_back(static_cast<int32_t>(i));
         }
+    }
+    //K6 D3: the store never shrinks (free slots recycle in place), so
+    //the trigger quantity is the high-water size — back the threshold
+    //off to it or a small-live churn workload collects at every
+    //safepoint forever (the 2*live form never catches the high-water
+    //mark). Post-backoff the cadence is free-list exhaustion.
+    //Stress mode suppresses this (every-safepoint forcing).
+    if (!m_gcStressActive)
+        m_gcThreshold = std::max(m_gcThreshold, m_structHeap.size());
+}
+
+//Dead class instance's container-handle recycling (the sweep's RTK_Class
+//arm): List/Dict (Phase 8e-3/8e-4) and Mutex/Channel (K1 Slices 8/9).
+//Dropped-while-held Mutex/Channel instances leave their waiters parked
+//forever — the carrier's exit guard reports that shape.
+void VmExecutor::RecycleClassContainerHandles(size_t i) {
+    int32_t classIdx = m_structHeap[i][0];
+    //Phase 8e-3: recycle List<T> handle when a List instance is freed.
+    if (static_cast<int16_t>(classIdx) == m_listClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_listFreeList.push_back(handle);
+    }
+    //Phase 8e-4: recycle Dict<K,V> handle when a Dict instance is freed.
+    if (static_cast<int16_t>(classIdx) == m_dictClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_dictFreeList.push_back(handle);
+    }
+    //K1 Slice 8: recycle Mutex handle when an instance is freed.
+    if (static_cast<int16_t>(classIdx) == m_mutexClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_mutexFreeList.push_back(handle);
+    }
+    //K1 Slice 9: recycle Channel handle when an instance is freed
+    //(same parked-waiter hazard and exit-guard report as a Mutex).
+    if (static_cast<int16_t>(classIdx) == m_channelClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_channelFreeList.push_back(handle);
     }
 }
 
