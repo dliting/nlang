@@ -34,7 +34,7 @@ no toolchain, no build:
    (copy them to a writable folder first — project builds write their `.npkg`
    next to the project file, and the installed folder is read-only; standalone
    `.n` files build into a per-user temp area). `examples/README.md` indexes
-   every example.
+   every example. The concurrency tour starts at `examples/conc_spawn_join.n`.
 
    Prefer a terminal one-liner? Run
    `bin\nlang -c "import io; io.print(\"hello\");"` —

@@ -6,6 +6,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.11] - 2026-10-22
+
+### 新增
+
+- **八个并发示例**——`examples/conc_*.n`覆盖spawn与join、`Future`、
+  通道流水线、`Mutex`、`Semaphore`、`WaitGroup`、close广播退出与
+  载体数演示；八个全部纳入示例测试门禁。
+
+### 变更
+
+- **并发章改为用户视角**——每页以何时使用导引开篇，章首新增任务到
+  工具的选型表。
+- **`nvm --carriers`补齐文档**——nvm工具页说明该参数的取值范围、
+  缺省值与单载体确定性档。
+
 ## [0.10.6] - 2026-10-22
 
 ### 新增

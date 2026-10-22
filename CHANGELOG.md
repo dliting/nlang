@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.11] - 2026-10-22
+
+### Added
+
+- **Eight concurrency examples** — `examples/conc_*.n` cover spawn
+  and join, `Future`, channel pipelines, `Mutex`, `Semaphore`,
+  `WaitGroup`, close-as-broadcast, and a carrier-count demo; all
+  eight run in the example test gate.
+
+### Changed
+
+- **Concurrency chapter from the user's side** — each page now leads
+  with when-to-use guidance, and the chapter opens with a
+  task-to-tool chooser table.
+- **`nvm --carriers` documented** — the nvm page covers the flag's
+  range, its default, and the deterministic single-carrier tier.
+
 ## [0.10.6] - 2026-10-22
 
 ### Added
