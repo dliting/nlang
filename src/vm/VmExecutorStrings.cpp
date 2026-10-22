@@ -198,11 +198,14 @@ void VmExecutor::MarkString(int32_t handle) {
 //never die; dead slots get the form sentinel and join the free list.
 void VmExecutor::SweepStrings() {
     m_strFreeList.clear();
+    size_t liveCount = 0;
     for (size_t i = 1; i < m_stringObjs.size(); ++i) {
         StrObj& so = m_stringObjs[i];
         if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
-        if (so.immortal || m_strMarkBits[i])
+        if (so.immortal || m_strMarkBits[i]) {
+            ++liveCount;   //immortals are store residents (conservative)
             continue;
+        }
         //Weak-intern purification: drop the dying object's table entry so
         //a later mint of the same content allocates fresh instead of
         //resurrecting a dead (or slot-reused) handle.
@@ -218,20 +221,15 @@ void VmExecutor::SweepStrings() {
     //after every collection, not only before every mark.
     m_strMarkBits.assign(m_stringObjs.size(), false);
 
-    //K6 D3: the store vector never shrinks (dead slots recycle in
-    //place), so the size trigger is level-triggered — past the first
-    //crossing every safepoint collects. Back the threshold off to the
-    //high-water size so the predicate flips back false; post-backoff
-    //the cadence is free-list exhaustion (amortized O(1) appends,
-    //memory bounded by the sweep itself). The 2*live form this
-    //replaces never caught the high-water mark in small-live churn
-    //workloads (live ~= const => threshold stuck at the clamp =>
-    //every-safepoint collection). Stress mode suppresses the backoff
-    //(every-safepoint forcing). Bounded-population assertions still
-    //hold: boundedness comes from the sweep, not the trigger rate.
-    if (!m_gcStressActive)
-        m_strGcThreshold = std::max(m_strGcThreshold,
-                                    m_stringObjs.size());
+    //K6 D3: symmetric with SweepPhase's heap backoff — floor the trigger
+    //at the high-water size (the bare 2*live form stuck below it in
+    //small-live churn) and at twice the live population (the bare size
+    //form collects on every growth allocation once the free list
+    //empties — quadratic for monotonically growing chains). The backoff
+    //runs unconditionally — stress clamps only the initial thresholds
+    //(pre-K6 stress semantics; the deep-chain e2e pins the timing).
+    m_strGcThreshold = std::max(m_strGcThreshold,
+        std::max(m_stringObjs.size(), 2 * liveCount));
 }
 
 size_t VmExecutor::LiveStringObjectCount() const {

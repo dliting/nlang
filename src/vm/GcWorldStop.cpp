@@ -11,4 +11,6 @@ namespace nlang {
 //time per thread), and the count the protocol needs is per-scheduler
 //anyway — noted here so the assumption is visible, not accidental.
 thread_local int GcWorldStop::t_evalDepth = 0;
+//Parked-window depth saves (LIFO — see SuspendEvalWindow's contract).
+thread_local std::vector<int> GcWorldStop::t_suspendedDepths;
 } // namespace nlang

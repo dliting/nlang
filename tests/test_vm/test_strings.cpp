@@ -77,12 +77,13 @@ static bool loadSource(const std::string& tag, const std::string& source,
     return true;
 }
 
-//The dropped accumulator must not survive: with the trace faces complete,
-//the 10k-iteration history reclaims down to a small residue. Post-backoff
-//(D2.2) the trigger rides at 2x peak-live, so reclamation is only
-//observable once allocations cross that backed-off threshold — the churn
-//loop is sized to force the crossing (the half-space bound: memory stays
-//at 2x peak-live until then, which the spec accepts).
+//The dropped accumulator must not survive as a leak: with the trace
+//faces complete, the 10k-iteration history reclaims once the churn
+//crosses the backed-off threshold. Post-backoff (K6 D3) the trigger
+//rides at max(high-water size, 2x live), so reclamation leaves an
+//unswept churn tail (deterministic single-carrier arithmetic: ~6.8k
+//here) — the bound pins "the 10k chain was reclaimed": the retained
+//shape measures ~20k, the reclaimed one well below 8k.
 void test_bounded_concat_live_count()
 {
     TEST(bounded_concat_live_count);
@@ -107,8 +108,9 @@ void test_bounded_concat_live_count()
     VmExecutor exec;
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "program self-checks must pass");
-    CHECK(exec.LiveStringObjectCount() < 1000,
-        "live string objects should be far below the iteration count");
+    CHECK(exec.LiveStringObjectCount() < 8000,
+        "live string objects should be far below the iteration count (got "
+        + std::to_string(exec.LiveStringObjectCount()) + ")");
     PASS();
 }
 
@@ -145,6 +147,10 @@ void test_constants_immortal_under_stress()
 //(in-place flatten), and is reclaimed whole after the root drops (the
 //mark phase traces cons children — untraced, the stress sweeps would
 //gut the chain mid-build and the first read would come back wrong).
+//K6 D3 note: with the trigger backed off to max(high-water size, 2x
+//live), the post-drop sweep leaves an unswept churn tail (~145 slots,
+//deterministic) — the bound pins "the 4000-cell chain was reclaimed",
+//not the old spotless-store shape.
 void test_cons_chain_flatten_and_reclaim()
 {
     TEST(cons_chain_flatten_and_reclaim);
@@ -171,7 +177,7 @@ void test_cons_chain_flatten_and_reclaim()
     VmExecutor exec;
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "chain must flatten and read correctly");
-    CHECK(exec.LiveStringObjectCount() < 100,
+    CHECK(exec.LiveStringObjectCount() < 1000,
         "dropped chain must be reclaimed whole (cons children traced)");
     PASS();
 }

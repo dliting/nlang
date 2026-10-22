@@ -30,6 +30,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 namespace nlang {
 
@@ -113,17 +114,28 @@ public:
         m_arrived = 0;
     }
 
-    //The blocking-native park/restore pair, inside one window: the
-    //thread stops executing bytecode (GIL away, frames parked), so it
-    //leaves the window count; a re-entrant callback re-enters RunFrames
-    //and re-counts itself through a nested guard.
+    //The blocking-native park/restore pair. Park suspends the thread's
+    //entire evaluation stack — outer host-window guards included (a
+    //CallByName window nests its own guard around RunFrames') — so it
+    //saves the current depth and leaves the window count; the thread
+    //runs native code only (a re-entrant callback re-counts itself from
+    //zero through its own guards). Restore reinstates the saved depth:
+    //saves and restores are strictly nested (LIFO), and at restore the
+    //depth is always zero (callback guards unwound with their windows),
+    //so the stack top is the matching save.
     void SuspendEvalWindow() {
-        if (--t_evalDepth == 0)
+        if (t_evalDepth > 0) {
+            t_suspendedDepths.push_back(t_evalDepth);
+            t_evalDepth = 0;
             m_windowThreads.fetch_sub(1, std::memory_order_acq_rel);
+        }
     }
     void ResumeEvalWindow() {
-        if (++t_evalDepth == 1)
+        if (!t_suspendedDepths.empty()) {
+            t_evalDepth = t_suspendedDepths.back();
+            t_suspendedDepths.pop_back();
             m_windowThreads.fetch_add(1, std::memory_order_acq_rel);
+        }
     }
 
     int WindowThreadCount() const {
@@ -139,6 +151,7 @@ private:
     size_t m_arrived = 0;               //arrivals this epoch
     std::atomic<int> m_windowThreads{0};//threads with depth > 0
     static thread_local int t_evalDepth;
+    static thread_local std::vector<int> t_suspendedDepths; //park save stack
 };
 
 } // namespace nlang

@@ -72,6 +72,9 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
     //depth captured at entry. The catch-all preserves the by-name bridge
     //contract: any escaping error carries the backtrace snapshot.
     const size_t baseDepth = m_callStack.size();
+    //K6 D2: window from the root-frame push (its function-entry GC
+    //safepoint must count this thread); RunFrames' guard nests.
+    GcWorldStop::ExecWindowGuard hostWindow(m_spScheduler->GcStop());
     uint8_t* staged = PushRootFrame(callee, resultCell);
     if (argc)
         std::memcpy(staged, argCells,

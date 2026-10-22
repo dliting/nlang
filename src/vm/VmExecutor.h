@@ -173,22 +173,22 @@ public:
 
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
-    //string-object population for bounded-memory assertions.
-    //K6 D3: stress mode also suppresses the post-sweep threshold
-    //backoff — every safepoint past the clamped threshold collects,
-    //which is the acceptance matrix's forcing shape.
+    //string-object population for bounded-memory assertions. The
+    //post-sweep backoff still applies (pre-K6 stress semantics): the
+    //tiny clamp keeps the store small, so the cadence stays high —
+    //hundreds of collections per churn run — without forcing every
+    //safepoint of a growing live set (quadratic; the deep-chain e2e
+    //pins the timing).
     void SetGcStressThresholds(size_t records) {
         m_gcThreshold = records;
         m_strGcThreshold = records;
-        m_gcStressActive = true;
     }
-    //K6 D3: restore default thresholds and clear stress mode. The test
-    //binaries run every test function in one process — stress state
-    //must be clearable or it leaks into later tests.
+    //K6 D3: restore default thresholds. The test binaries run every
+    //test function in one process — the stress clamp must be clearable
+    //or it leaks into later tests.
     void ResetGcThresholds() {
         m_gcThreshold = GC_THRESHOLD_DEFAULT;
         m_strGcThreshold = kStrGcThresholdDefault;
-        m_gcStressActive = false;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
     //K6 D7 white-box observability: collection count (per run; resets
@@ -1302,7 +1302,6 @@ private:
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
     bool   m_gcPending = false;
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
-    bool   m_gcStressActive = false;  //K6 D3: suppress threshold backoff
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 
     //String-store GC plumbing (collection activates in Task 2).

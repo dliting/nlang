@@ -354,6 +354,7 @@ void VmExecutor::MarkArrayElements(int32_t idx,
 
 void VmExecutor::SweepPhase() {
     m_freeList.clear();
+    size_t liveSlots = 0;
     for (size_t i = 1; i < m_structHeap.size(); ++i) {
         if (m_slotKinds[i] == 0) continue;
         if (!m_markBits[i]) {
@@ -368,16 +369,22 @@ void VmExecutor::SweepPhase() {
             m_structHeap[i].clear();
             m_slotKinds[i] = 0;
             m_freeList.push_back(static_cast<int32_t>(i));
+        } else {
+            ++liveSlots;
         }
     }
-    //K6 D3: the store never shrinks (free slots recycle in place), so
-    //the trigger quantity is the high-water size — back the threshold
-    //off to it or a small-live churn workload collects at every
-    //safepoint forever (the 2*live form never catches the high-water
-    //mark). Post-backoff the cadence is free-list exhaustion.
-    //Stress mode suppresses this (every-safepoint forcing).
-    if (!m_gcStressActive)
-        m_gcThreshold = std::max(m_gcThreshold, m_structHeap.size());
+    //K6 D3: the store never shrinks (free slots recycle in place), so the
+    //trigger must stay above the high-water size after every sweep —
+    //otherwise a small-live churn workload collects at every safepoint
+    //forever. The size floor alone would collect on every growth
+    //allocation once the free list empties (quadratic over a growing
+    //live set); twice the live population adds geometric spacing there
+    //(linear total cost). The larger of the two: drop-churn keeps the
+    //predicate false until the free list empties, growth spends its
+    //cadence geometrically. Stress clamps only the initial thresholds —
+    //the backoff runs unconditionally (pre-K6 stress semantics).
+    m_gcThreshold = std::max(m_gcThreshold,
+        std::max(m_structHeap.size(), 2 * liveSlots));
 }
 
 //Dead class instance's container-handle recycling (the sweep's RTK_Class

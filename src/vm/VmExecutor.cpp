@@ -342,6 +342,9 @@ void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
         std::vector<uint8_t> staged(entryFunc.localsSize, 0);
         CallNative(entryFunc, 0, staged.data(), resultCell);
     } else {
+        //K6 D2: window from the root-frame push (its function-entry GC
+        //safepoint must count this thread); RunFrames' guard nests.
+        GcWorldStop::ExecWindowGuard rootWindow(m_spScheduler->GcStop());
         PushRootFrame(entryFunc, resultCell);
         RunFrames(0);
     }

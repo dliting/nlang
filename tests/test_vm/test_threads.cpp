@@ -3598,10 +3598,14 @@ static void test_backoff_string_symmetric()
     PASS();
 }
 
-// --- K6 Task 6（D3：压力模式抑制回退）---
-static void test_stress_suppresses_backoff()
+// --- K6 Task 6（D3：压力模式高节奏）---
+//压力＝钉小初始阈值；回退照常运行（pre-K6 语义，deep_chain e2e 钉住
+//计时）。size 臂主导下每收集周期 size 仅 +1、节奏＝自由表耗尽＝size，
+//算术步进 ⇒ 5000 次分配约 √(2N)≈100 次收集——远高于常规模式同型程序
+//（≤20 次），又非每安全点强制。
+static void test_stress_keeps_high_cadence()
 {
-    TEST(stress_suppresses_backoff);
+    TEST(stress_keeps_high_cadence);
     CompiledModule mod = buildLinkedModule("bo_stress",
         "class P { public int v; }\n"
         "int main() {\n"
@@ -3617,8 +3621,8 @@ static void test_stress_suppresses_backoff()
     exec.ResetGcThresholds();
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "stress churn program completes");
-    CHECK(exec.GcCollectionCount() > 500,
-        "stress keeps every-safepoint collection (got "
+    CHECK(exec.GcCollectionCount() > 50,
+        "stress keeps a high collection cadence (got "
         + std::to_string(exec.GcCollectionCount()) + ")");
     PASS();
 }
@@ -3672,8 +3676,8 @@ static void test_reset_gc_thresholds_restores_defaults()
     exec.SetGcStressThresholds(4);
     exec.ResetGcThresholds();
     //A default-threshold tiny program must not collect: proves the
-    //stress clamp AND the flag are gone (a stale stress flag would
-    //also re-enable backoff suppression in later tests).
+    //stress clamp is gone (a stale clamp would collect on the second
+    //allocation).
     CompiledModule mod = buildLinkedModule("bo_reset",
         "class P { public int v; }\n"
         "int main() {\n"
@@ -3958,7 +3962,7 @@ int main()
         runGuarded(test_nested_window_counted_once);
         runGuarded(test_backoff_heap_after_cliff);
         runGuarded(test_backoff_string_symmetric);
-        runGuarded(test_stress_suppresses_backoff);
+        runGuarded(test_stress_keeps_high_cadence);
         runGuarded(test_thresholds_persist_across_runs);
         runGuarded(test_reset_gc_thresholds_restores_defaults);
         runGuarded(test_shutdown_signal_passthrough);

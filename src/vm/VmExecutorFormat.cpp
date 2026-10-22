@@ -289,6 +289,9 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         //an unhandled throw unwinds only this window before propagating
         //to the caller's frame — exactly the recursive engine's shape).
         const size_t baseDepth = m_callStack.size();
+        //K6 D2: window from the root-frame push (its function-entry GC
+        //safepoint must count this thread); RunFrames' guard nests.
+        GcWorldStop::ExecWindowGuard toStringWindow(m_spScheduler->GcStop());
         uint8_t* staged = PushRootFrame(callee, resultBuf);
         uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)

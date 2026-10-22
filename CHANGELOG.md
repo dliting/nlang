@@ -16,11 +16,14 @@ All notable changes to NLang are documented here. The format follows
   and the last one collects. With the global interpreter lock in
   place this is observationally identical to before — single-carrier
   output stays byte-for-byte.
-- **GC thresholds back off to the high-water size** — after a sweep,
-  both the heap and string-store thresholds rise to the store's
-  high-water size, so small-live churn workloads no longer collect at
-  every safepoint once past the first threshold crossing.
-  `nvm --gc-stress` keeps its every-safepoint forcing behavior.
+- **GC thresholds back off after every sweep** — the heap and
+  string-store thresholds rise to the larger of the store's high-water
+  size and twice the live population: small-live churn workloads no
+  longer collect at every safepoint once past the first threshold
+  crossing, and growing workloads keep their collection cadence
+  geometric (linear total cost). The heap side had no backoff at all
+  before; the string side backed off to twice the live count, which
+  could stick below the store size.
 
 ### Fixed
 
