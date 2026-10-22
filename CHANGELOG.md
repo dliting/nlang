@@ -6,6 +6,35 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.5] - 2026-10-22
+
+### Added
+
+- **Multi-context debug page in nide** — the 调试 page now leads with
+  a context tree (context / state / location) listing every concurrent
+  context next to main, refreshed at each stop. Clicking a row selects
+  that context as both the inspection target and the step target
+  (mainstream-IDE semantics): the call stack and locals switch to it
+  (parked contexts included), and the subsequent F10/F11/Shift+F11
+  step that context — a parked selection lets the others advance and
+  stops at its next statement once woken. Every new stop redirects the
+  selection back to the stopped context.
+- **Selection-armed stepping in ndb** — `t <id>` now sets the step
+  target too: the subsequent `s`/`n`/`f` act on the selected context;
+  without a selection, stepping keeps targeting the stopped context
+  (the previous behavior).
+- **Read-only module table at run time** — the native registry is
+  pre-warmed at run initialization, so every native the merged module
+  declares is resolved before frames execute and the module table is
+  read-only while frames run. A declared native whose library is
+  unavailable keeps its exact lazy diagnostic at the first call.
+- **GIL wait-time instrumentation** — two white-box counters join the
+  scheduler's observability set: cumulative GIL wait time and the
+  number of contended acquires (another waiter already queued when the
+  acquire began). Both carrier guards and the timer thread's lock are
+  instrumented; counters reset per run. Groundwork for the upcoming
+  GIL-removal batches.
+
 ## [0.10.4] - 2026-10-21
 
 ### Added

@@ -307,7 +307,9 @@ termination, so an infinite loop or a stuck native call never blocks the
 IDE. Breakpoints toggle with F9 or a gutter click (a gutter dot starts
 hollow and turns filled once the live session confirms the line is in
 the compiled module), persist across sessions and follow file renames.
-While paused, the 调试 page in the output area shows the call stack
+While paused, the 调试 page in the output area shows the context list
+(contexts spawned by `thread.spawn` next to main; click a row to switch
+both inspection and the step target), the call stack
 (click a frame to jump there and refresh locals), the frame's locals,
 and a 抛异常时中断 switch that breaks at every throw site.
 

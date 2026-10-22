@@ -28,7 +28,7 @@ reads commands from stdin one per line; stdin end of file (EOF) behaves like `q`
 | `n` | next | Step over |
 | `f` | finish | Step out of the current function |
 | `threads` | — | List all contexts (state/location) |
-| `t <id>` | thread | Switch the inspection context |
+| `t <id>` | thread | Switch the inspection and step-target context |
 | `bt` | backtrace | Call stack |
 | `frame <n>` | — | Select a frame |
 | `info locals` | info | Locals of the selected frame (synthesized names filtered; the receiver shows as `this`) |
@@ -86,8 +86,13 @@ context has no frames and shows only the id and state. `t <id>` moves
 the inspection focus to that context — `bt`/`frame`/`info locals`/`p`/
 `l`/`x` then address it, and parked frames (a channel receive waiting
 for a sender, say) inspect like any other; each stop resets the focus
-back to the stopped context. Stepping always targets the stopped
-context — `t` redirects inspection only, never the step target.
+back to the stopped context. `t` also sets the step target (as
+mainstream integrated development environments do): the subsequent
+`s`/`n`/`f` act on the selected context — stepping with a parked
+context selected lets the other contexts advance, and the selected one
+stops at its next statement once woken; selecting a parked context
+that never wakes still trips the deadlock detector. Without a `t`
+selection, stepping keeps targeting the stopped context.
 
 ```console
 $ ndb dbg_threads.ncu
