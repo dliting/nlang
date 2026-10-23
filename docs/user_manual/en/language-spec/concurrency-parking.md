@@ -8,7 +8,7 @@ Parking (`sleep`, `join`, contending `lock`, empty-channel `recv`, preemption) p
 - `finally` still runs — exactly once — after a `try` body that parked;
 - Parking inside an entered `catch` handler still leaves `throw;` (rethrow) working after resumption.
 
-An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed, its frames are dropped, and the failure surfaces only through `join`, as the original exception object.
+An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed, its frames are dropped, and the failure surfaces only through `join` (or `get()` on the spawned context's `Future`), as the original exception object.
 
 ## Main-exit policy and the deadlock report
 

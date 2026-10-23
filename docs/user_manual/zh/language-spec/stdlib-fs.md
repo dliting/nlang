@@ -5,7 +5,7 @@
 | 函数 | 签名 | 说明 |
 |----------|-----------|-------|
 | exists / isFile / isDirectory | (string) → bool | 从不抛错 |
-| size | (string) → int | 字节大小；仅普通文件 |
+| size | (string) → int | 字节大小；仅普通文件；超过2 GiB → IOException |
 | listFiles | (string) → List\<string\> | 仅名字，非递归，仅普通文件，按字典序排序 |
 | makeDirs | (string) → void | mkdir -p（幂等） |
 | remove | (string) → void | 文件或空目录 |

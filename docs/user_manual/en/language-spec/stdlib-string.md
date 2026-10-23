@@ -24,6 +24,12 @@ over the byte core — see [String](string.md) "The char bridge".
 | charAt | (int byteIndex) → char | the code point **starting at** that byte offset; out of range → IndexOutOfBoundsException, continuation byte → Exception |
 | charCount | () → int | code-point count (contrast `length()`, bytes); invalid sequence → Exception |
 
-String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range
-throws the runtime error `string index out of range`) — byte access goes
-through the subscript, code-point access through `charAt`.
+Beyond the 18 table methods, a string receiver also answers `length()`
+(byte count — see [String](string.md)), `equals(other)` (content equality,
+the same relation as `==`; yields int `1`/`0`), `getHashCode()` (content
+hash as int — equal strings hash equal) and `toString()` (identity —
+returns the string itself).
+
+String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range →
+IndexOutOfBoundsException) — byte access goes through the subscript,
+code-point access through `charAt`.

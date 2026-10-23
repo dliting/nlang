@@ -6,7 +6,7 @@ operation principle: io = all content (console + disk text), fs = names/director
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | exists / isFile / isDirectory | (string) → bool | never raise |
-| size | (string) → int | byte size; regular files only |
+| size | (string) → int | byte size; regular files only; over 2 GiB → IOException |
 | listFiles | (string) → List\<string\> | names only, non-recursive, regular files only, lexicographically sorted |
 | makeDirs | (string) → void | mkdir -p (idempotent) |
 | remove | (string) → void | file or empty directory |

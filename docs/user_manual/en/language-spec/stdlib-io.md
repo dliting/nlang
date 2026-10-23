@@ -26,7 +26,8 @@ diagnostics that stay separable from normal output. Inside a debug session
 the two streams merge into the session's single output view.
 
 The three functions accept string, arrays, and every scalar primitive
-directly; function values format as `func <name>`. Class objects are
+directly; function values format as `func <name>`; `null` is rejected
+(`io.print(null)` is a compile error). Class objects are
 **not** in the argument surface — call `.toString()` before printing
 (`io.print(obj.toString())`); enum variables need `.toString()` too,
 with one exception: an enum member constant prints directly —

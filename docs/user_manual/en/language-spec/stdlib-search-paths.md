@@ -1,7 +1,8 @@
 # Libraries and search paths
 
 NLang libraries are carried by **`.n` source files**: the standard
-`math.n`/`io.n`/`fs.n` ship with the toolchain, and a third-party library is
+`math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n` ship with the toolchain,
+and a third-party library is
 just a directory of `.n` files (optionally alongside native dynamic
 libraries). A function implemented outside NLang is declared with the
 `native` keyword (`native void print(string s);`) — such a declaration carries

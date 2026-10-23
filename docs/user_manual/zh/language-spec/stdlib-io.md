@@ -18,7 +18,7 @@
 
 `write`、`print`与`eprint`共用同一实参策略（上表的强制转换三函数）：`write("Name: ")`发出不带换行的提示，键入的回复落在同一控制台行上；`eprint`镜像`print`但写到stderr，让诊断输出与正常输出保持可分离。调试会话内两个流合并进会话的单一输出视图。
 
-三函数直接接受string、数组与全部标量基本类型；函数值格式化为`func <name>`。class对象不在实参面上——打印前先显式`.toString()`（`io.print(obj.toString())`）；enum变量同样要先`.toString()`，枚举成员常量例外——`io.print(Color.Red)`直接打印成员名；struct实参直接拒绝（struct没有`toString`）。完整规则见[标准库总览](standard-library.md)。
+三函数直接接受string、数组与全部标量基本类型；函数值格式化为`func <name>`；`null`被拒绝（`io.print(null)`是编译错误）。class对象不在实参面上——打印前先显式`.toString()`（`io.print(obj.toString())`）；enum变量同样要先`.toString()`，枚举成员常量例外——`io.print(Color.Red)`直接打印成员名；struct实参直接拒绝（struct没有`toString`）。完整规则见[标准库总览](standard-library.md)。
 
 **交互控制台的输入提示符**：当程序即将阻塞在输入读取上，且stdin与stdout都是控制台时，运行时先输出`"> "`提示符再等待——与Python、sqlite3等REPL的做法一致，`nvm`直接运行与ncc进程内运行都适用。只要任一端是管道或重定向（脚本化输入、`nvm x > out.txt`），两个流都保持逐字节不变；nide调试页终端的行模式提示符是同一记号，由nide本地绘制。
 

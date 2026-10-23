@@ -6,6 +6,9 @@ parameters and return values are `double`; integer and
 `math.sin(1.5f)` both compile).
 `sin`/`cos`/`tan` take radians; `asin`/`acos`/`atan` return radians.
 `log` is the natural logarithm.
+Domain errors of the transcendental family (`sqrt` of a negative, `log`
+of a non-positive, `asin`/`acos` outside [-1, 1]) return NaN following C
+semantics — they do not throw.
 `floor`/`ceil`/`round` return **long** (`round` is half-away-from-zero).
 
 | Function | Signature | Notes |
