@@ -20,6 +20,7 @@ on every merged TU member (top-level and container members).
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
+#include "builder/CompiledModuleStubMembers.hpp"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
@@ -1971,6 +1972,105 @@ private slots:
         //Free-stub filter: the enum's methods stay owned by the enum.
         QVERIFY2(findMember(TheAST().Root()->Members(), NK_Function, "rank")
             == nullptr, "enum method must not be promoted to a free stub");
+    }
+
+    //0.10.14 (Review Focus #3): the producer-index clamp keeps a table
+    //beyond the 16-bit index space on the 0xFFFF fallback — never a
+    //wrap into a wrong record.
+    void producerIdxClampKeepsFallback()
+    {
+        QCOMPARE(ProducerIdxClamp(0), uint16_t(0));
+        QCOMPARE(ProducerIdxClamp(7), uint16_t(7));
+        QCOMPARE(ProducerIdxClamp(0xFFFF), uint16_t(0xFFFF));
+        QCOMPARE(ProducerIdxClamp(0x10000), uint16_t(0xFFFF));
+    }
+
+    //0.10.14 (spec §7): two overload calls mint TWO namespace-level
+    //slot records with distinct ownerOrdinals — the FunctionSymbolSlot
+    //dedup key already carries the ordinal, so the pair must not
+    //collapse into one record.
+    void overloadCallsMintDistinctOrdinalRecords()
+    {
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path()
+            / "nlang_overload_ordinal_records";
+        const fs::path src = root / "src";
+        const fs::path out = root / "out";
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(src, ec);
+        fs::create_directories(out, ec);
+        auto writeFile = [](const fs::path& file, const char* body)
+        {
+            std::ofstream s(file, std::ios::binary);
+            s << body;
+            return s.good();
+        };
+        //Sealed layout (mirrors the e2e directory-form runner): the
+        //producer SOURCE lives in src/, its .ncu artifact in out/. The
+        //consumer's only import dir is out/, which carries no .n source,
+        //so the producer resolves through the external-stub path (the
+        //cross-module package model the spec pins) — never through
+        //library-source inlining, where the consumer cannot know the
+        //producer's compiled table index and the 0xFFFF fallback keeps
+        //today's ambiguity (spec section 6).
+        QVERIFY(writeFile(src / "ovlib.n",
+            "int ov(int v) { return v + 1; }\n"
+            "int ov(double v) { return 100; }\n"));
+        QVERIFY(writeFile(src / "main.n",
+            "import ovlib;\n"
+            "int main() { return ovlib.ov(1) + ovlib.ov(2.5); }\n"));
+        //Stage 1: the producer .ncu (module name "ovlib" is unique in
+        //this process, so the global ModuleManager never refuses it).
+        {
+            BuildParams lp;
+            lp.m_ImportDirs.clear();
+            lp.m_SourceFiles.push_back((src / "ovlib.n").string());
+            lp.m_sOutputModule = "ovlib";
+            lp.m_sOutputDir = out.string();
+            lp.m_sTempDir = out.string();
+            lp.m_sStdLibDir = STDLIB_DIR;
+            MemLogger ll;
+            ModuleBuilder lb(lp, ll);
+            bool libOk = false;
+            try { libOk = lb.BuildArtifacts(); }
+            catch (const std::exception&) { libOk = false; }
+            QVERIFY2(libOk, joinErrors(ll.errorsText()).c_str());
+        }
+        //Stage 2: the consumer — unit images in hand, no artifact write.
+        //out/ is the sole import dir (only ovlib.ncu, no ovlib.n).
+        BuildParams mp;
+        mp.m_ImportDirs.clear();
+        mp.m_ImportDirs.push_back(out.string());
+        mp.m_SourceFiles.push_back((src / "main.n").string());
+        mp.m_sProjectDir = src.string();
+        mp.m_sOutputModule = "ovtest";
+        mp.m_sOutputDir = out.string();
+        mp.m_sTempDir = out.string();
+        mp.m_sStdLibDir = STDLIB_DIR;
+        MemLogger ml;
+        ModuleBuilder mb(mp, ml);
+        ModuleBuilder::UnitImages images;
+        try { images = mb.BuildUnitImages(); }
+        catch (const std::exception& e) { QFAIL(e.what()); }
+        QVERIFY2(!images.units.empty(),
+            joinErrors(ml.errorsText()).c_str());
+        //Collect the ovlib.ov namespace records across every unit
+        //image (only main mints them; name is the qualified key).
+        int found = 0;
+        uint16_t ordinals[2] = {0xFFFF, 0xFFFF};
+        for (const auto& u : images.units)
+            for (const auto& imp : u.functionImports)
+                if (imp.name == "ovlib.ov" && imp.paramCount == 1)
+                {
+                    QVERIFY2(found < 2, "exactly two records expected");
+                    ordinals[found++] = imp.ownerOrdinal;
+                }
+        QCOMPARE(found, 2);
+        QVERIFY2(ordinals[0] != 0xFFFF && ordinals[1] != 0xFFFF,
+            "both records carry a real producer table index");
+        QVERIFY2(ordinals[0] != ordinals[1],
+            "the two overload records carry distinct ordinals");
     }
 };
 

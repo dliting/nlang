@@ -134,8 +134,10 @@ public:
 				continue;  //class method/ctor — owned by its class, not free
 			//Free functions have no declared member access on the wire —
 			//the stub mints public (top-level declarations are public).
-			SnFunction *stub =
-				CreateFunctionStub(cm.functions[i], cm, loc, FA_Public);
+			//0.10.14: the table index rides the stub — the namespace
+			//branch of the cross-unit slot record carries it.
+			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
+				loc, FA_Public, ProducerIdxClamp(i));
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but

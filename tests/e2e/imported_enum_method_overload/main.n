@@ -1,0 +1,5 @@
+import lib;
+
+int main() {
+    return lib.Level.High.step(2) + lib.Level.Low.step(1.5);
+}

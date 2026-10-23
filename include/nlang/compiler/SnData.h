@@ -180,6 +180,16 @@ public:
 	//OP_CallMethod for primitive-typed arguments — the runtime side
 	//operates on Object/heap-idx storage (erasure model).
 	bool m_bErasedGeneric = false;
+	//0.10.14: the callee's index in the PRODUCER's own function table,
+	//minted onto every function stub (all mint sites pass it). The
+	//namespace branch of the cross-unit slot record (free functions,
+	//interface statics, enum methods) carries it as
+	//SymbolImport::ownerOrdinal so nlink single-selects the record
+	//instead of scanning by name+arity — the same authority+recheck
+	//model as class/struct member ordinals. 0xFFFF = not minted from a
+	//producer table index (own declarations, or a producer table
+	//beyond the 16-bit index space).
+	uint16_t m_iProducerFuncIdx = 0xFFFF;
 private:
 	void Init();
 	SnFieldExpr *m_pReturnType;

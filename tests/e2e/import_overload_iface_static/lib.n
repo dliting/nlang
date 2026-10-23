@@ -1,0 +1,5 @@
+interface Calc {
+    static int run(int v) { return v + 1; }
+
+    static int run(double v) { return 200; }
+}

@@ -1,0 +1,7 @@
+int score(int v) {
+    return v + 1;
+}
+
+int score(double v) {
+    return 100;
+}

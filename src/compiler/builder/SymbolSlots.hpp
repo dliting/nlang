@@ -22,6 +22,17 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 namespace nlang
 {
 
+//16-bit function-table index space (0.10.14): a producer with more than
+//0xFFFF own functions clamps to the 0xFFFF fallback — the same 16-bit
+//constraint as the member ordinals, so an oversized producer degrades to
+//the legacy name+arity scan instead of wrapping into a wrong record.
+//Shared by every function-stub mint site (CompiledModuleStubMembers.hpp,
+//CompiledModuleNodeBuilder.hpp).
+inline uint16_t ProducerIdxClamp(size_t idx)
+{
+	return idx > 0xFFFF ? 0xFFFF : static_cast<uint16_t>(idx);
+}
+
 //目标的模块路径（OwnerOfContext → ModulePathOf）。仅跨单元引用需要。
 //Context（祖先链）而非扁平属主：类/enum 成员自身无标记，扁平查找会把
 //方法的属主单元降级成 NO_OWNER→空路径，链接器随即报「module '' is

@@ -51,6 +51,14 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
             || pParent->Kind() == NK_EnumDecl)
         && !isStatic;
     auto meta = CrossUnitOwnerMeta(callee);
+    //0.10.14: the namespace branch (free functions, interface statics,
+    //enum methods — CrossUnitOwnerMeta leaves ownerKind 0 + an empty
+    //owner key) carries the stub's producer function-table index as
+    //the record's ordinal, so nlink single-selects the callee's record
+    //instead of scanning by name+arity. Class/struct members keep the
+    //replayed member ordinal computed above.
+    if (meta.ownerClassKey.empty())
+        meta.ownerOrdinal = callee.m_iProducerFuncIdx;
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(

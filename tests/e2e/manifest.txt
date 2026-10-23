@@ -1852,3 +1852,7 @@ imported_enum_tostring 5
 imported_enum_method 0
 err_imported_enum_method_private compile_error The function "hidden" does not exist or is not accessible.
 err_imported_enum_member_missing compile_error Cannot resolve the field
+# 0.10.14: namespace-level slot records carry the producer function-table index, so same-name same-arity overloads link to their own record instead of reporting ambiguity.
+import_overload_free 102
+import_overload_iface_static 202
+imported_enum_method_overload 103

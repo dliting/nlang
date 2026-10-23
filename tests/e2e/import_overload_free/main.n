@@ -1,0 +1,8 @@
+import lib;
+
+int main() {
+    //Same name, same arity, different parameter types: the compiler
+    //picks the callee by type, the linker must connect each call to
+    //its own record (no ambiguity).
+    return lib.score(1) + lib.score(2.5);
+}
