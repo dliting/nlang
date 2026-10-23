@@ -50,8 +50,11 @@ anchored form is limited to the built-in generic names (`List`, `Dict`,
 
 **Entry forms inside `{...}`:**
 
-- `string literal : Expression` — dict entry (string key)
-- `identifier : Expression` — struct/class field (e.g. `x:1, y:2`)
+- `Expression : Expression` — keyed entry. In a `Dict<K,V>` target the
+  key is a full expression checked against K (see Dict keys below). In
+  a struct/class target the key must be a bare identifier naming a
+  field (e.g. `x:1, y:2`) — there the identifier is a field name, not a
+  variable
 - `Expression` (no key) — list element, or a positional struct
   entry: structs fill fields in declaration order, so `Point{3, 7}` is
   `Point{x:3, y:7}`, and you may give only the first few fields (the
@@ -61,26 +64,32 @@ anchored form is limited to the built-in generic names (`List`, `Dict`,
   struct/array targets`.
 
 **Entry form must match the target kind**: a mismatched entry is a
-compile error — a keyed entry in a `List<T>` initializer
+compile error — a keyed entry in a `List<T>` or array initializer
 (`List<int> l = {x: 1};` reports `a List initializer takes positional
 entries; the keyed form is only valid for Dict, struct, and class
-initializers`), a keyless entry in a `Dict<K,V>` initializer
+initializers`, and `int[] arr = [1: 2];` reports `an array initializer
+takes positional entries; the keyed form is only valid for Dict, struct,
+and class initializers`), a keyless entry in a `Dict<K,V>` initializer
 (`Dict<string, int> d = {1, 2};` reports `a Dict initializer requires a
 key in every entry; positional entries are only valid for List, struct,
-and array initializers`), and a string-literal key in a struct
+and array initializers`), and an expression key in a struct or class
 initializer (`S s = {"a": 1};` reports `struct initializer "S{...}" keys
-are field names; string keys are only valid for Dict initializers`).
+are field names; an expression key is only valid for Dict initializers`,
+and `C c = {f(): 1};` reports `class initializer "C{...}" requires
+field:value entries; the positional form is only valid for struct/array
+targets`).
 
-**Dict keys must be string literals**: the collection initializer emits
-each key as a string constant and boxes it by K's tag — this is only
-correct for `K = string`. A `Dict<K,V>` with a non-string key and a
-non-empty initializer is a compile error (`Dict<int, int> d = {"1": 2}`
-reports `the Dict collection initializer requires string keys; use set()
-with an explicit 'Int32' key`); the empty initializer
-`Dict<int, int> d = {}` is legal — fill entries afterwards with
-`set()`. An identifier key is rejected too —
-`Dict<string, int> d = {a: 1};` reports `the Dict collection initializer
-requires string literal keys; write "a" as the key`.
+**Dict keys are expressions**: every entry of a `Dict<K,V>` initializer
+carries a key expression, checked against the declared key type K by the
+same conversion rule as values — literals, variables, calls, member
+accesses and compound expressions all work
+(`Dict<int, string> d = {1: "one", n: "ten"};` and
+`Dict<string, int> d = {k: 7, c.name: 8, a + "y": 3};`). A key whose
+type the conversion matrix does not admit is a compile error
+(`Dict<int, int> d = {"a": 1};` reports `Incompatible type "a".`). Keys
+evaluate before their values and entries left-to-right; a duplicate key
+overwrites the earlier entry — the same `set()` semantics as at
+runtime.
 
 **Type disambiguation:** the compiler uses the typed target (the
 declared variable, the parameter type, the return type) or the
@@ -90,7 +99,7 @@ anchored type name to pick the kind:
 |----------------------|---------|-------------------------|
 | `T[]` (array)        | `[...]`            | value-only |
 | `List<T>`            | `[...]` or `{...}` | value-only |
-| `Dict<K,V>`          | `{...}` | `key : value` (string key) |
+| `Dict<K,V>`          | `{...}` | `key : value` (key expression checked against K) |
 | struct               | `{...}` or `StructName{...}` | `field : value` (identifier key) or positional values (field declaration order) |
 | class                | `{...}` or `ClassName{...}` | `field : value` (identifier key) |
 

@@ -418,7 +418,7 @@ redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
 `toDouble()` method family. See → [Type Casts](type-casts.md).
 
-### Dict initializer keys
+### Dict initializer key type mismatch
 
 ```nlang
 int main() {
@@ -428,13 +428,13 @@ int main() {
 ```
 
 ```text
-Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+Error: Incompatible type "1".
 ```
 
-The collection initializer emits dict keys as string constants and boxes
-them by K's tag — this is only correct for `K = string`. Construct a
-non-string-keyed `Dict<K,V>` with the empty initializer, then fill
-entries with `set()`. See →
+Dict initializer keys are expressions checked against the declared key
+type K by the same conversion rule as values — a string key in a
+`Dict<int, int>` fails that check. Write a key of the declared key type
+(`{1: 2}`), or declare `K` as `string`. See →
 [Collection Initializers](collection-initializers.md).
 
 ### A struct without a constructor cannot take arguments

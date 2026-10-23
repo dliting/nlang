@@ -335,7 +335,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 `as`只用于转换矩阵不放行的对——对已经隐式合法的加宽写`as`是冗余（`ubyte→int`直接`int i = b;`）；string→数值的`as`被禁止——用`s.toInt()`/`toLong()`/`toDouble()`方法族。详见 →
 [类型强制转换](type-casts.md)。
 
-### 字典初始化器键
+### 字典初始化器键类型不符
 
 ```nlang
 int main() {
@@ -345,10 +345,10 @@ int main() {
 ```
 
 ```text
-Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+Error: Incompatible type "1".
 ```
 
-集合初始化器把字典键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`用空初始化器构造后`set()`逐条填入。详见 →
+字典初始化器的键是表达式，按与值相同的转换规则对照声明的键类型K检查——`Dict<int, int>`里的string键过不了该检查。写声明的键类型的键（`{1: 2}`），或把K声明为`string`。详见 →
 [集合初始化器](collection-initializers.md)。
 
 ### 未声明构造器的struct不能带实参

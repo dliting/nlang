@@ -6,6 +6,28 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.10] - 2026-10-23
+
+### Added
+
+- **Expression dictionary keys** — every entry of a `Dict<K,V>`
+  initializer carries a key expression, checked against the declared
+  key type K by the same conversion rule as values: variables
+  (`{k: 7}`), calls (`{makeKey(1) + makeKey(2): 5}`), member accesses
+  (`{c.name: 8}`), compound expressions (`{a + "y": 3}`), and
+  non-string key types (`Dict<int, string> d = {1: "one", n: "ten"};`).
+  Keys evaluate before their values and entries left-to-right; a
+  duplicate key overwrites the earlier entry, the same `set()`
+  semantics as at runtime. The previous "string literal keys only"
+  restriction is removed.
+
+### Fixed
+
+- **Bracket-form keyed entries report named diagnostics** —
+  `int[] arr = [1: 2];` and `List<int> l = [1: 2];` now report a
+  positional-entries diagnostic naming the target kind instead of a
+  bare syntax error.
+
 ## [0.10.9] - 2026-10-23
 
 ### Fixed
