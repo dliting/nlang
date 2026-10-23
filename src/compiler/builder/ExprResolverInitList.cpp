@@ -205,7 +205,7 @@ void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
             }
         }
         //Value slot: the element/value type for array/List/Dict, or the
-//addressed field's declared type for struct/class.
+        //addressed field's declared type for struct/class.
         auto *pValue = entries[nIdx].pValue;
         if (!pValue || !pValue->IsResolved()
             || !pValue->EvalDataType())
