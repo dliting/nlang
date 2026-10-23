@@ -36,16 +36,17 @@ arrays and containers, passed around, and invoked later:
   **runtime class at each call** (late binding).
 
 ```nlang
+import io;
 using BinOp = func<int, int>;
 
 class Counter {
     int n;
-    static int twice(int x) { return x * 2; }
-    int foo(int x) { n = n + 1; return n + x; }
-    virtual int tw(int x) { return x * 2; }
+    public static int twice(int x) { return x * 2; }
+    public int foo(int x) { n = n + 1; return n + x; }
+    public virtual int tw(int x) { return x * 2; }
 }
 class Big : Counter {
-    int tw(int x) { return x * 100; }
+    public int tw(int x) { return x * 100; }
 }
 int bar(int x) { return x + 1; }
 void apply(BinOp f) { io.print(f(10)); }

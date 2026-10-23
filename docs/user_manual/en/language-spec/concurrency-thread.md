@@ -52,12 +52,12 @@ int main() {
     Thread t = thread.spawn(worker);
     try {
         thread.join(t);
-        return 4;
+        return 1;              // join rethrows a failed context: unreachable
     } catch (Exception e) {
         if (e.message == "wboom") {
-            return 0;
+            return 30;         // the very instance thrown in the worker
         }
-        return 2;
+        return 1;
     }
 }
 ```

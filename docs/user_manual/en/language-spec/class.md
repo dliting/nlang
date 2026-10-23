@@ -258,13 +258,19 @@ arguments, and overloads included), and virtual calls dispatch
 dynamically exactly as within one unit.
 
 ```nlang
-import lib;   // lib declares: class B { public virtual int f(int x) { ... } }
+import lib;
 class D : lib.B {
     public int f(int x) { return x + 10; }   // overrides lib.B.f
 }
 int main() {
     D d = D();
     return d.f(3);
+}
+```
+
+```nlang lib.n
+class B {
+    public virtual int f(int x) { return x; }
 }
 ```
 

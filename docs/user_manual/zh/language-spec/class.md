@@ -157,13 +157,19 @@ class Kid : Base {
 导入模块的类是完整类型：`import lib;`之后，`lib.B`的`public`实例字段可读写、`public`实例方法可调（含继承成员、默认参数与重载），虚调用与同单元内一样动态分派。
 
 ```nlang
-import lib;   // lib 声明：class B { public virtual int f(int x) { ... } }
+import lib;
 class D : lib.B {
     public int f(int x) { return x + 10; }   // 覆写 lib.B.f
 }
 int main() {
     D d = D();
     return d.f(3);
+}
+```
+
+```nlang lib.n
+class B {
+    public virtual int f(int x) { return x; }
 }
 ```
 

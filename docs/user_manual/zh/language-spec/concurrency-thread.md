@@ -52,12 +52,12 @@ int main() {
     Thread t = thread.spawn(worker);
     try {
         thread.join(t);
-        return 4;
+        return 1;              // join 会重抛失败的上下文：此路不可达
     } catch (Exception e) {
         if (e.message == "wboom") {
-            return 0;
+            return 30;         // 正是 worker 里抛出的那个实例
         }
-        return 2;
+        return 1;
     }
 }
 ```

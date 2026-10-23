@@ -67,20 +67,22 @@ Add 'import io;' at the top of this file.`. See →
 
 ### Default expressions on imported functions
 
-```nlang
-// lib.n
-int helper() { return 1; }
-int g(int a = helper() as int) { return a; }
+```nlang lib.n
+int addCast(float a, int b = a as int) {
+    return b;
+}
+```
 
-// main.n
+```nlang main.n
 import lib;
+
 int main() {
-    return lib.g();
+    return lib.addCast(1.5f);
 }
 ```
 
 ```text
-Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
 ```
 
 A default expression crosses the `.ncu` boundary only inside the
@@ -90,7 +92,9 @@ functions, unary negation, and `+` `-` `*` `/` `%` arithmetic over
 those — still evaluated at each call site. Casts, member access, and
 calls nested as arguments sit outside the subset; importing the
 function rejects them on the consumer side with the error above.
-See → [Default Parameters](default-parameters.md).
+Compiling the sources together in one project build does not hit this
+restriction — the default expression is used directly. See →
+[Default Parameters](default-parameters.md).
 
 ### Declarations and control flow
 
@@ -458,26 +462,6 @@ to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
 run it (see [Struct](struct.md) "Creating and initializing" and
 [Collection Initializers](collection-initializers.md)).
 
-### Generic braced anchors
-
-```nlang
-int main() {
-    List<int> nums = List<int>{60};
-    return 0;
-}
-```
-
-```text
-Error: syntax error
-Error: Invalid statement.
-```
-
-An anchored head on a generic type (`List<int>{...}`) does not parse.
-Give the literal a typed declaration instead: `List<int> nums = [60];`.
-See → [Known limitations](known-limitations.md), "Generic instantiation
-has no anchored head", and [Collection
-Initializers](collection-initializers.md).
-
 ### Type aliases
 
 ```nlang
@@ -502,8 +486,10 @@ int main() {
 }
 ```
 
-```text
+```console
+$ ncc build src_not_utf8.n -o app.ncu
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
+Compilation failed.
 ```
 
 `.n` sources and `.nproj` project files pass strict Unicode Transformation Format (UTF-8) validation
@@ -512,6 +498,9 @@ ncc, so building there is subject to the same validation): invalid bytes are
 rejected with an explicit error (the
 line of the first invalid byte included) and a UTF-16 save gets a
 dedicated hint (`Source file ... is UTF-16, not UTF-8.`) — legacy
-encoding bytes never reach string constants. A
+encoding bytes never reach string constants. The block above shows the
+file's logical content; the diagnostic comes from the bytes actually
+stored on disk, so the same source compiles fine once re-saved as
+UTF-8. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
 [Primitives](primitives.md) "Representation: from source to console".

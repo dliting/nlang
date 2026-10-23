@@ -23,16 +23,17 @@ func<int, int, out int>    // int f(int, out int)
 - **虚 / 接口方法引用**（`c.tw`、`ifaceVar.run`）——句柄持有方法名，在每次调用时于接收者的**运行期类**上解析覆写链（晚期绑定）。
 
 ```nlang
+import io;
 using BinOp = func<int, int>;
 
 class Counter {
     int n;
-    static int twice(int x) { return x * 2; }
-    int foo(int x) { n = n + 1; return n + x; }
-    virtual int tw(int x) { return x * 2; }
+    public static int twice(int x) { return x * 2; }
+    public int foo(int x) { n = n + 1; return n + x; }
+    public virtual int tw(int x) { return x * 2; }
 }
 class Big : Counter {
-    int tw(int x) { return x * 100; }
+    public int tw(int x) { return x * 100; }
 }
 int bar(int x) { return x + 1; }
 void apply(BinOp f) { io.print(f(10)); }

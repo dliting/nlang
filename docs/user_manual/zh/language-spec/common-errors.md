@@ -51,23 +51,25 @@ file.`。详见 → [声明](declarations.md)「import声明」。
 
 ### 被导入函数的默认表达式
 
-```nlang
-// lib.n
-int helper() { return 1; }
-int g(int a = helper() as int) { return a; }
+```nlang lib.n
+int addCast(float a, int b = a as int) {
+    return b;
+}
+```
 
-// main.n
+```nlang main.n
 import lib;
+
 int main() {
-    return lib.g();
+    return lib.addCast(1.5f);
 }
 ```
 
 ```text
-Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
 ```
 
-默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。默认参数语义见 → [默认参数](default-parameters.md)。
+默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。同一工程内源码一起编译不受此限制——默认表达式直接使用。默认参数语义见 → [默认参数](default-parameters.md)。
 
 ### 声明与控制流
 
@@ -367,22 +369,6 @@ Error: struct "Point" has no constructor; Point() cannot take arguments
 
 未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
 
-### 泛型花括号锚定
-
-```nlang
-int main() {
-    List<int> nums = List<int>{60};
-    return 0;
-}
-```
-
-```text
-Error: syntax error
-Error: Invalid statement.
-```
-
-泛型类型的锚定头（`List<int>{...}`）无法解析。给字面量一个带类型声明即可：`List<int> nums = [60];`。详见 → [已知限制](known-limitations.md)「泛型实例化没有锚定头」条与[集合初始化器](collection-initializers.md)。
-
 ### 类型别名
 
 ```nlang
@@ -405,9 +391,11 @@ int main() {
 }
 ```
 
-```text
+```console
+$ ncc build src_not_utf8.n -o app.ncu
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
+Compilation failed.
 ```
 
-`.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见 →
+`.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见 →
 [基本类型](primitives.md)「表示链：从源码到控制台」。
