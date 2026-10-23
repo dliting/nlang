@@ -98,16 +98,29 @@ int twice(int x) { return x * 2; }
 int answer() { return 42; }
 ```
 
-工程文件把三个源文件列进`Sources`后构建运行（产物是`.npkg`程序包）：
+工程文件`modules.nproj`把三个源文件列进`Sources`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="modules">
+  <Sources>
+    <File path="main.n"/>
+    <File path="helper.n"/>
+    <File path="utils/helper.n"/>
+  </Sources>
+</Project>
+```
+
+构建运行（产物是`.npkg`程序包）：
 
     ncc build -p modules.nproj -o modules.npkg
     nvm modules.npkg                # 输出42、42，退出码42
 
-标准库包（`io`/`math`/`fs`）同样要先`import`才能调用——本页每个用到`io.print`的片段顶部的`import io;`就是它；漏写会得到编译错误「Package 'io' is not imported」。
+工程文件的完整参考见[ncc](../cli-tools/ncc.md)页。标准库包（`io`/`math`/`fs`/`thread`/`concurrent`）同样要先`import`才能调用——本页每个用到`io.print`的片段顶部的`import io;`就是它；漏写会得到编译错误「Package 'io' is not imported」。
 
 `import`还支持递归通配：`import utils.*;`一次性导入`utils/`及其全部嵌套子目录（调用仍写全限定`utils.helper.f()`）。重复导入、通配与精确混合都是幂等的，效果取并集。
 
-完整的可见性矩阵（谁需要import、允许什么调用形式）与全部六类报错文案，见语言规格的Import Declaration一节。
+完整的可见性矩阵（谁需要import、允许什么调用形式）与import相关报错文案，见语言规格的Import Declaration一节。
 
 详见 → [语言规格/声明](../language-spec/declarations.md)、[标准库](../language-spec/standard-library.md)。
 

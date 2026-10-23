@@ -71,7 +71,7 @@ int main() {
 }
 ```
 
-输出`finally always runs`、`boom`，退出码5。内建异常类有`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`，都继承自`Exception`；用户类也可继承`Exception`（`class MyException : Exception`）。
+输出`finally always runs`、`boom`，退出码5。内建异常类有`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`InvalidCastException`、`IOException`、`ChannelClosedException`，都继承自`Exception`；用户类也可继承`Exception`（`class MyException : Exception`）。哪个操作抛哪个类，见[异常](../language-spec/exception.md)与[异常映射](../language-spec/stdlib-exceptions.md)两页。
 
 详见 → [语言规格/语句](../language-spec/statements.md)。
 

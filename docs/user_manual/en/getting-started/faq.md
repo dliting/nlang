@@ -79,13 +79,14 @@ under the installation's `docs\site\`), with the navigation tree on
 the left. The search box is in the window's top-left corner (next to
 the site title) and supports full-text search.
 
-### `v + 1` with no spaces gives a `syntax error`?
+### `v--1` gives a `syntax error`?
 
-The lexer eats the digits immediately after a binary `+` as a signed
-literal — `v+1` is read as the identifier `v` followed by the literal
-`+1`, and two expressions in a row are not a valid statement, so you
-get `syntax error` (`Invalid statement.`). Work around it by putting
-spaces around the operator (`v + 1`).
+The lexer reads `--` and `++` as single tokens (reserved for
+increment/decrement operators the grammar does not use yet), so `v--1`
+is read as `v`, `--`, `1` and fails as a statement (`syntax error`,
+`Invalid statement.`). Put a space between the two operators
+(`v - -1`) or parenthesize the unary operand (`v - (-1)`). Plain `v+1`
+and `v+-1` are fine — `+-` is not a token.
 
 See also: [Language Specification / Expressions](../language-spec/expressions.md).
 
@@ -145,14 +146,18 @@ without the check throws a `null reference error` at run time. The full
 table is in [Language Specification /
 Declarations](../language-spec/declarations.md), "Default values".
 
-### Why does `Point(2, 3)` report a missing function?
+### Why does `Point(2, 3)` report "has no constructor"?
 
-Structs have no constructors — `Point(2, 3)` parses as a call to a
-function named `Point` and fails to resolve (`The function "Point" does
-not exist or is not accessible.`). Create structs with braced entries:
-`Point{x: 2, y: 3}`, or positional `Point{2, 3}` in declaration order.
-See the "Structs have no constructors" entry in [Language Specification
-/ Common Error Messages](../language-spec/common-errors.md).
+A struct with no declared constructor cannot be called with arguments —
+`Point(2, 3)` fails with `struct "Point" has no constructor; Point()
+cannot take arguments`. Create such a struct with a bare declaration
+(`Point p;`) or braced entries: `Point{x: 2, y: 3}`, or positional
+`Point{2, 3}` in declaration order. Declare a constructor
+(`public Point(int a, int b) { x = a; y = b; }`) and `Point(2, 3)` runs
+it. See the "A struct without a constructor cannot take arguments"
+entry in [Language Specification / Common Error
+Messages](../language-spec/common-errors.md) and
+[Struct](../language-spec/struct.md) "Creating and initializing".
 
 ### Array or `List` — which one?
 

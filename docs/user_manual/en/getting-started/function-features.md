@@ -117,13 +117,28 @@ int twice(int x) { return x * 2; }
 int answer() { return 42; }
 ```
 
-After the project file lists the three sources under `Sources`, build
-and run (the artifact is a `.npkg` program archive):
+The project file `modules.nproj` lists the three sources under
+`Sources`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="modules">
+  <Sources>
+    <File path="main.n"/>
+    <File path="helper.n"/>
+    <File path="utils/helper.n"/>
+  </Sources>
+</Project>
+```
+
+Build and run (the artifact is a `.npkg` program archive):
 
     ncc build -p modules.nproj -o modules.npkg
     nvm modules.npkg                # output 42, 42; exit code 42
 
-The standard library packages (`io`/`math`/`fs`) also require an `import`
+The full project-file reference is on the [ncc](../cli-tools/ncc.md)
+page. The standard library packages (`io`/`math`/`fs`/`thread`/
+`concurrent`) also require an `import`
 before use — that is the `import io;` at the top of every snippet on
 this page that calls `io.print`; omitting it produces the compile error
 `Package 'io' is not imported`.
@@ -135,7 +150,7 @@ and any mix of wildcard and exact imports — are idempotent with union
 semantics.
 
 For the complete visibility matrix (who needs an import, which call
-forms are allowed) and all six error messages, see the Import
+forms are allowed) and the import diagnostics, see the Import
 Declaration section of the Language Specification.
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md),

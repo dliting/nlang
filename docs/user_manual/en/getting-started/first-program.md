@@ -14,9 +14,9 @@ code; `io.print` writes one line of text to standard output.
 
 ### Path A: in nide
 
-1. Start nide and choose File → New → File..., type the code above, and
-   save it as `hello.n`. (Alternatively File → Open → Project... and
-   pick `examples/hello_project/hello_project.nproj`.)
+1. Start nide and choose File → New → New File..., type the code above,
+   and save it as `hello.n`. (Alternatively File → Open → Open Project...
+   and pick `examples/hello_project/hello_project.nproj`.)
 2. Choose Build → Build Project; compiler diagnostics appear on the
    Compile Output page of the output window.
 3. Choose Run → Start (Ctrl+F5); the program output appears on the

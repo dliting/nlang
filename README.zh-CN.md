@@ -30,7 +30,7 @@ NLang IDE：左侧解决方案树（项目与独立 `.n` 文件）、中部编�
 4. **跑点什么** —— 在 IDE 中打开自带的 `examples/` 并按运行
    （先复制到可写目录——项目构建会把 `.npkg` 写在项目文件旁，而安装
    目录只读；独立 `.n` 文件的产物落在每用户临时区）。
-   `examples/README.md` 索引了全部示例。
+   `examples/README.zh-CN.md` 索引了全部示例。
 
    想在终端一行跑通？运行
    `bin\nlang -c "import io; io.print(\"hello\");"`，
@@ -230,7 +230,7 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 
 初次接触 NLang？`docs/user_manual/zh/getting-started/` 章节按主题逐页讲解
 语言、命令行与 IDE（也可从 nide 帮助菜单到达）；
-`examples/README.md` 索引了全部可运行示例。
+`examples/README.zh-CN.md` 索引了全部可运行示例。
 
 ## 嵌入
 

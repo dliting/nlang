@@ -11,11 +11,11 @@ Layout of the installation root:
 
 | Directory/file | Contents |
 |---|---|
-| `bin\` | ncc.exe, nvm.exe, ndisasm.exe, ndb.exe, nide.exe, the Qt runtime, and the standard library's native DLLs (`nlang_io.dll`, ...) |
+| `bin\` | nlang.exe, ncc.exe, nvm.exe, ndisasm.exe, ndb.exe, nide.exe, embed_host.exe (the C++ embedding example host), the Qt runtime, and the standard library's native DLLs (`nlang_io.dll`, ...) |
 | `stdlib\` | the standard library: the declaration sources `io.n`/`math.n`/`fs.n`/`thread.n`/`concurrent.n` and the compiled `stdlib.npkg` library package (resolved from here by run-time dependency-closure loading) |
 | `examples\` | all example programs, including the multi-file project `hello_project` |
 | `docs\site\` | this help site — exactly what nide's embedded help window loads |
-| `LICENSE`, `README.md` | license and project description |
+| `LICENSE`, `README.md`, `README.zh-CN.md`, `CHANGELOG.md`, `CHANGELOG.zh-CN.md` | license, project description, and release log, each in English and Chinese |
 
 Two things to note:
 

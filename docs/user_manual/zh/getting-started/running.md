@@ -2,7 +2,7 @@
 
 ### 1. 在nide中（推荐）
 
-1. 启动nide（安装包内位于`bin\`下），菜单文件 → 打开 → 项目...，选`examples/hello_project/hello_project.nproj`。
+1. 启动nide（安装包内位于`bin\`下），菜单文件 → 打开 → 打开项目...，选`examples/hello_project/hello_project.nproj`。
 2. 左侧「解决方案」树双击main.n打开编辑器。
 3. 菜单构建 → 构建项目，然后运行 → 开始运行（Ctrl+F5）；程序直接在输出窗口「终端」页的嵌入系统终端里运行。F5启动的是调试会话，见[在nide中调试](debugging.md)。
 
@@ -57,5 +57,5 @@
 
 ### 3. 逐例浏览
 
-`examples/README.md`列出全部示例与其演示主题、预期退出码。
+`examples/README.zh-CN.md`列出全部示例与其演示主题、预期退出码。
 

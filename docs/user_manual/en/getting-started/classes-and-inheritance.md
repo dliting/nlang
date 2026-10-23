@@ -42,7 +42,7 @@ concatenation directly. The line between reference and value semantics
 is drawn in [Language Specification /
 Type Semantics](../language-spec/type-semantics.md).
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Class](../language-spec/class.md).
 
 ### Interface
 
@@ -73,11 +73,13 @@ int main() {
 }
 ```
 
-Output `16`; exit code 16. An interface declares method signatures only
-(no fields, no bodies). A class conforms with `class X implements IShape`;
+Output `16`; exit code 16. An interface declares instance method
+signatures — no instance fields, no instance bodies — and may also carry
+`public static` methods with bodies and `static const` constants on the
+interface type itself. A class conforms with `class X implements IShape`;
 a variable of the interface type holds any conforming object, and calls
-dispatch virtually to the runtime class. Interface members default to
-`public` (the opposite of class members); any other modifier
-(`private`, `static`, ...) is rejected.
+dispatch virtually to the runtime class. Interface instance members
+default to `public` (the opposite of class members); any other modifier
+(`private`, `virtual`, ...) is rejected.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Interface](../language-spec/interface.md).

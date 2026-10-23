@@ -1,39 +1,45 @@
-# NLang 示例索引
+# NLang Example Index
 
-每个示例聚焦一个主题，可独立编译运行。三种运行方式见
-`docs/user_manual/zh/getting-started/running.md`（nide 帮助菜单 → NLang 入门）。
+Each example focuses on one topic and compiles and runs on its own. The
+three ways to run are described in
+`docs/user_manual/en/getting-started/running.md` (nide Help menu → NLang
+Getting Started).
 
-命令行方式（在仓库根目录；安装包用户在安装根目录运行，ncc/nvm 位于 `bin\` 下）：
+Command line (run from the repository root; installer users run from the
+installation root, ncc/nvm live under `bin\`):
 
     ncc build examples/<name>.n -o <name>.ncu
     nvm <name>.ncu
 
-安装包内无 PATH 时使用 `bin\ncc build ...`、`bin\nvm <name>.ncu`。
+Without PATH set up inside the installation, use `bin\ncc build ...` and
+`bin\nvm <name>.ncu`.
 
-`stdlib_io` 需要一行 stdin：`nvm stdlib_io.ncu < examples/stdlib_io.stdin`。
-成功运行的退出码列在「退出码」列（Windows 限 0-255）。
+`stdlib_io` needs one line of stdin: `nvm stdlib_io.ncu < examples/stdlib_io.stdin`.
+The exit code of a successful run is in the "Exit code" column (Windows
+keeps it within 0-255).
 
-| 示例 | 演示 | 退出码 |
+| Example | Demonstrates | Exit code |
 |---|---|---|
-| hello.n | 最小程序 | 42 |
-| add.n | 函数与返回值 | 42 |
-| class_basic.n | class 字段/构造器/方法/toString | 3 |
-| inheritance_super.n | extends/super()/覆盖/虚分派 | 4 |
-| exceptions.n | throw/try/catch/finally/内建异常/用户子类 | 5 |
+| hello.n | smallest program | 42 |
+| add.n | functions and return values | 42 |
+| class_basic.n | class fields/constructor/methods/toString | 3 |
+| inheritance_super.n | extends/super()/override/virtual dispatch | 4 |
+| exceptions.n | throw/try/catch/finally/built-in exceptions/user subclass | 5 |
 | list_tour.n | `List<T>`/add/contains/indexOf/foreach | 6 |
 | dict_tour.n | `Dict<K,V>`/containsKey/keys()/foreach | 7 |
-| array_initlist.n | 定长数组/`[...]`初始化器/length | 8 |
-| interpolation_tour.n | `"${}"`插值/toString 隐式转换 | 9 |
-| cast_operator.n | as 拆箱与引用下转（数值转换走隐式赋值） | 10 |
-| const_assert.n | const 局部/assert/增量赋值 | 11 |
-| out_params.n | out 参数多返回值 | 12 |
-| switch_tour.n | switch/enum 分支 | 0 |
-| enum_methods.n | enum 方法与 this | 0 |
-| delegates_tour.n | 函数/方法代理 | 7 |
-| aliases_tour.n | 类型别名 | 0 |
-| stdlib_string.n | string 方法 | 0 |
-| stdlib_math.n | 标准库 math 包 | 0 |
-| stdlib_io.n | io 控制台与文件内容（需 stdin） | 0 |
-| stdlib_fs.n | fs 路径/目录/元数据 | 0 |
-| hello_project/ | 多文件项目（nide 打开 .nproj） | 0 |
-| libdemo/ | 平面搜索路径库（先编库单元，消费方 import 后运行期装载） | 0 |
+| array_initlist.n | fixed-length arrays/`[...]` initializers/length | 8 |
+| interpolation_tour.n | `"${}"` interpolation/implicit toString conversion | 9 |
+| cast_operator.n | `as` unboxing and reference downcast (numeric conversions go through implicit assignment) | 10 |
+| const_assert.n | const locals/assert/compound assignment | 11 |
+| out_params.n | `out` parameters for multiple return values | 12 |
+| switch_tour.n | switch/enum branches | 0 |
+| enum_methods.n | enum methods and `this` | 0 |
+| delegates_tour.n | function/method delegates | 7 |
+| aliases_tour.n | type aliases | 0 |
+| stdlib_string.n | string methods | 0 |
+| stdlib_math.n | standard library `math` package | 0 |
+| stdlib_io.n | io console and file content (needs stdin) | 0 |
+| stdlib_fs.n | fs paths/directories/metadata | 0 |
+| hello_project/ | multi-file project (open the .nproj in nide) | 0 |
+| libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
+| embed_host/ | minimal C++ embedding host (built by CMake; run `embed_host <artifact.ncu|.npkg>`) | 0 |
