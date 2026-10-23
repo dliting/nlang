@@ -439,6 +439,34 @@ target_compile_definitions(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
+# NativeHost ABI v6 array-access tests: real VmExecutor + bare-name
+# in-process natives exercising getArrayView/newArray end to end
+# (test_native_abi covers the mock-table face, this the real-VM face).
+add_executable(test_native_array_abi
+    test_vm/test_native_array_abi.cpp
+)
+
+target_include_directories(test_native_array_abi
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_native_array_abi
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_native_array_abi)
+target_compile_definitions(test_native_array_abi
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME native_array_abi_tests COMMAND test_native_array_abi)
+
 # 0.9.11 D2 struct constructor unit tests (console suite): in-process
 # compile+run pinning that the ctor runs on explicit construction calls
 # only, never on bare declarations (test_stdlib's runSource shape).

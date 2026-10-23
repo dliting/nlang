@@ -37,7 +37,14 @@ extern "C" {
 // (file and stream I/O). The VM stages their arguments and result off
 // the frame, parks the context and releases its global lock around the
 // call; NativeFn itself is unchanged (the staging is transparent).
-#define NLANG_HOST_ABI_VERSION 5u
+// Version 6: the array-payload side — getArrayView (a pinned view of a
+// heap array record's cells: dims/strides/elemKind + the raw payload
+// pointer, valid for the duration of the call; the GC is non-moving and
+// the argument record is rooted for the call) and newArray (mint a
+// scalar-element array). The exception selector gained the
+// NullPointer/OutOfBounds/DivideByZero families so native code raises
+// the same catchable classes the language runtime does.
+#define NLANG_HOST_ABI_VERSION 6u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -61,8 +68,47 @@ typedef void (*NativeFn)(NativeHost* host, uint8_t* ret,
 // Exception class selector for NativeHost.raiseException.
 enum NativeExceptionKind {
     NEXC_Base = 0,        // base Exception (math argument/range errors, ...)
-    NEXC_IOException = 1  // IOException (io/fs failures)
+    NEXC_IOException = 1, // IOException (io/fs failures)
+    //v6: same catchable families the language runtime raises, so native
+    //kernels are catchable exactly like built-in operations.
+    NEXC_NullPointer = 2, // NullPointerException (null array handle, ...)
+    NEXC_OutOfBounds = 3, // IndexOutOfBoundsException (negative length, ...)
+    NEXC_DivideByZero = 4 // DivByZeroException (integer kernel division)
 };
+
+// Scalar element kinds a native may mint arrays of or inspect through a
+// NativeArrayView. Values MIRROR the runtime RTK_* scalar codes in
+// PrimitiveTypes.h (single source; keep in tie by this comment — same
+// discipline as kMaxNativeStagedParams mirroring the compiler constant).
+// The identity mapping lets the host map NEK -> RTK with no table.
+enum NativeElemKind {
+    NEK_Int32   = 0,   // RTK_Int32
+    NEK_Float32 = 1,   // RTK_Float
+    NEK_Int64   = 15,  // RTK_Long
+    NEK_Float64 = 17   // RTK_Double
+};
+
+// A pinned view of one heap array record's payload, handed to a native
+// through getArrayView. The record's cells back every pointer:
+//   dims    - points INTO the record (the length cell for rank 1).
+//   strides - points at host-owned storage (unit stride for contiguous
+//             rank-1; read-only, thread-safe).
+//   data    - the payload base (element 0). The GC is non-moving and the
+//             argument record is rooted for the duration of the native
+//             call, so the pointer is stable for the call — and only for
+//             the call. Never cache it past return.
+// elemCellBytes is the per-element stride in bytes (4, or 8 for the
+// 8-byte scalar family); elemCount the total element count.
+typedef struct NativeArrayView {
+    int32_t rank;
+    const int32_t* dims;
+    const int32_t* strides;
+    int64_t elemCount;
+    uint8_t elemKind;      // NativeElemKind value
+    uint8_t elemCellBytes;
+    uint8_t reserved[2];
+    void* data;
+} NativeArrayView;
 
 struct NativeHost {
     uint32_t abiVersion;
@@ -109,6 +155,22 @@ struct NativeHost {
     // PRNG access (state owned by the VM).
     uint32_t (*nextRandom)(NativeHost* self);
     void (*seedRandom)(NativeHost* self, int32_t seed);
+
+    // v6 array side. getArrayView fills *out with a pinned view of the
+    // array record behind the heap handle. A null handle raises
+    // NullPointerException, a non-array record raises the base Exception;
+    // on return the view is fully populated (returns 1 — errors raise,
+    // there is no non-raising outcome). The view is valid only for the
+    // duration of this native call.
+    int (*getArrayView)(NativeHost* self, int32_t handle,
+                        NativeArrayView* out);
+
+    // Mint a new array of a scalar element kind with `length` elements,
+    // zero-initialized; returns its heap handle. A negative length raises
+    // the OutOfBounds family (language-side `T[-n]` alignment), a length
+    // beyond the allocation guard raises the same family. The handle is
+    // rooted until the native writes it into its return cell.
+    int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
 };
 
 // Module entry point. The host loads the shared library, resolves
@@ -193,6 +255,30 @@ inline int64_t ArgLong(const uint8_t* args, int slot) {
     int64_t value = 0;
     std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
     return value;
+}
+
+// v6: array argument as a pinned payload view. Raises (never returns)
+// when the handle is null or not an array record — the same behavior the
+// language gives null/non-array receivers.
+inline NativeArrayView ArgArray(NativeHost* host, const uint8_t* args,
+                                int slot) {
+    NativeArrayView view;
+    view.rank = 0;
+    view.dims = nullptr;
+    view.strides = nullptr;
+    view.elemCount = 0;
+    view.elemKind = 0;
+    view.elemCellBytes = 0;
+    view.reserved[0] = 0;
+    view.reserved[1] = 0;
+    view.data = nullptr;
+    host->getArrayView(host, ArgInt(args, slot), &view);
+    return view;
+}
+
+// v6: mint a zero-initialized array; returns its heap handle.
+inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
+    return host->newArray(host, elemKind, length);
 }
 
 inline std::string ArgString(NativeHost* host, const uint8_t* args,

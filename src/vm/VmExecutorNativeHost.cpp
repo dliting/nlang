@@ -92,6 +92,8 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.raiseException = &VmExecutor::NativeRaiseException;
     host.c.nextRandom = &VmExecutor::NativeNextRandom;
     host.c.seedRandom = &VmExecutor::NativeSeedRandom;
+    host.c.getArrayView = &VmExecutor::NativeGetArrayView;
+    host.c.newArray = &VmExecutor::NativeNewArray;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
@@ -236,35 +238,6 @@ int VmExecutor::NativeHasInput(NativeHost* self) {
     //HasMore false on its first read (which raises); until then the
     //default host probe answers true — documented in io.n's comment.
     return e->EnsureInputView().HasInput() ? 1 : 0;
-}
-
-void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
-                                      const char* message) {
-    VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
-    int16_t classIdx = (exceptionKind == NEXC_IOException)
-        ? e->m_ioExcClassIdx : e->m_exceptionClassIdx;
-    //Build-then-root-then-throw: between this throw and the blocking
-    //arm's catch the GIL is away (the unwinding guard above releases
-    //it), and a GC on another carrier must not sweep the in-flight
-    //exception object while the native unwinds toward it.
-    const int32_t heapIdx = e->BuildNlangException(
-        classIdx, message ? message : "");
-    e->RootMintedNativeHandle(heapIdx);
-    e->FireOnThrow();
-    throw NLangThrow(heapIdx, message ? message : "");
-}
-
-uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
-    VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
-    return e->m_rng();
-}
-
-void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
-    VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
-    e->m_rng.seed(static_cast<uint32_t>(seed));
 }
 
 //--- Native call bridge (K2 slice 4, §2.5) -----------------------------------

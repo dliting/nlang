@@ -1018,6 +1018,18 @@ private:
         const char* message);
     static uint32_t NativeNextRandom(NativeHost* self);
     static void NativeSeedRandom(NativeHost* self, int32_t seed);
+    //v6 array side (contract in NativeHost.h): pinned payload view and
+    //zero-initialized minting for scalar-element arrays.
+    static int NativeGetArrayView(NativeHost* self, int32_t handle,
+        NativeArrayView* out);
+    static int32_t NativeNewArray(NativeHost* self, uint8_t elemKind,
+        int32_t length);
+    //Locate the scalar array-type record for elemRtk in the linked
+    //module's arrayTypes (elemTypeIdx == 0xFFFF). Lookup-only: m_currModule
+    //is const and the stdlib TU inlining registers every declared array
+    //type at compile time — a miss is an invariant violation, not an
+    //appendable state.
+    uint16_t FindScalarArrayTypeIdx(uint8_t elemRtk) const;
 
     //Allocate a handle from the ByteStream side table. Returns 1-based handle.
     int32_t AllocByteStreamHandle();
