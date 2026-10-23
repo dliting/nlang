@@ -359,6 +359,12 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
     }
     uint16_t maxChild = 0;
     for (auto& entry : init.Entries()) {
+        //0.10.10: the Dict key stages into the claim's key slot, so its
+        //nested depth rides the same claimSize — count it like the value.
+        if (entry.pKey) {
+            uint16_t cd = ExprPeakDepth(*entry.pKey, visited);
+            if (cd > maxChild) maxChild = cd;
+        }
         if (entry.pValue) {
             uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
             if (cd > maxChild) maxChild = cd;

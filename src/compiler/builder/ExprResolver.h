@@ -203,6 +203,14 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 //argument admission (ExprResolverBinding.cpp). Definition in
 //ExprResolverInitList.cpp.
 bool IsInitListTargetShape(SnField *pType);
+//0.10.10: the slot types init-list entries bind against — the array
+//element type / the List value slot / the Dict key+value slots. Both
+//null = the target types its entries per field (struct/class).
+struct InitListSlotTypes
+{
+	SnField *pKeyType = nullptr;
+	SnField *pValueType = nullptr;
+};
 bool IsBarePoolScope(const SyntaxNode &scope);
 //0.9.x shadow guard: the binding kinds a TYPE-position name (SnNameExpr)
 //may take — type declarations (IsTypeField: the NF_Type|NF_Field family)
@@ -1005,8 +1013,8 @@ private:
 	2026-09-29 split of the collection-initializer resolution family
 	(ExprResolverInitList.cpp, out of ExprResolverNew.cpp at the
 	source-size guard) — the phases of Access(SnInitListExpr&): target
-	determination, the class-form checks, the 0.7.5 Dict key-form gate
-	and the element/field cast wraps.
+	determination, the class-form checks, the entry-form gates and the
+	slot cast wraps.
 	*/
 	bool ResolveInitListTarget(SnInitListExpr &sn,
 		SnField* &pTargetField, bool &bIsArray);
@@ -1031,24 +1039,29 @@ private:
 	//size.
 	void CheckClassCtorForInitList(SnInitListExpr &sn,
 		SnClassDecl *pClassDecl);
-	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
-	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
-	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
-	void ApplyInitListFieldCasts(SnInitListExpr &sn, SnField *pTargetField);
+	//0.10.10: the slot types the entries bind against (array element /
+	//List value / Dict key+value; a null pair = per-field struct/class).
+	InitListSlotTypes ResolveInitListSlotTypes(SnField *pTargetField,
+		bool bIsArray);
+	void BindInitListFuncRefs(SnInitListExpr &sn,
+		const InitListSlotTypes &slots);
+	//0.10.10: the merged entry-slot cast pass — value slots against the
+	//slot type or the addressed field (struct/class), Dict key slots
+	//against K.
+	void ApplyInitListSlotCasts(SnInitListExpr &sn, SnField *pTargetField,
+		const InitListSlotTypes &slots);
 	SnField *InitListEntryFieldType(SnField &targetDecl,
 		const SnInitListExpr &sn, size_t entryIdx);
-	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
-		SnField *pTargetField);
 	//K1 Slice 9: channel initializers must be empty (send() is the only
 	//insertion path). True = rejected.
 	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
 		SnField *pTargetField);
-	//0.10.9 p23: the entry key form must match the container target kind
-	//(List positional, Dict string-keyed, struct positional-or-field
-	//name). True = rejected; the first offending entry logged its
-	//diagnostic.
+	//0.10.10: the entry key form must match the target shape (array and
+	//List positional, Dict keyed, struct positional-or-field-name; the
+	//class form is covered by CheckClassInitListForm). True = rejected;
+	//the first offending entry logged its diagnostic.
 	bool RejectInitListEntryKeyForm(SnInitListExpr &sn,
-		SnField *pTargetField);
+		SnField *pTargetField, bool bIsArray);
 	//Target-shape phase of Access(SnInitListExpr&) (split out for size):
 	//the form gates, then stamping the resolved type token and the
 	//class-form ctor contract. True = rejected.

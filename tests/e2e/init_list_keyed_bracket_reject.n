@@ -1,0 +1,6 @@
+// 0.10.10: a List bracket-form keyed entry reports the positional
+// diagnostic (was a bare syntax error).
+int main() {
+    List<int> l = [1: 2];
+    return l.length();
+}

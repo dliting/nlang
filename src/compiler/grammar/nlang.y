@@ -310,7 +310,7 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
 %type <v_pExpression>			ConcreteParam BracedInitExpr
-%type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
+%type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
@@ -1689,8 +1689,9 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-22, bison 3.8.2, on the
-//0.10.8 grammar): 25 shift/reduce, 3 reduce/reduce, every one resolved
+//Accepted-conflict ledger (re-measured 2026-10-23, bison 3.8.2, on the
+//0.10.10 grammar): 25 shift/reduce, 3 reduce/reduce — the 0.10.10
+//unified entry list changed no counts, only state numbers; every one resolved
 //by bison's default to the intended reading. Deterministic parsers
 //cannot use %expect alongside r/r conflicts, so no %expect pins these
 //numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to stay
@@ -1702,13 +1703,13 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //retired the old plain-'<' family (states 114/131) and the '<' half of
 //state 422's r/r pair: the generic opener is no longer shared with the
 //comparison, so those states resolve without conflicts.
-//- state 278 (2): catch/finally after a nested `try` statement — the
+//- state 273 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 299/300 (1 each, added with TypeName): ':' / `as` followed by
+//- states 295/296 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- state 603 (16): ClassMember's NodeFlag-singular vs
+//- state 592 (16): ClassMember's NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
@@ -1717,25 +1718,25 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  const statement — the AccessTypeEmpty epsilon loses the shift, so
 //  `const int x = 5;` lives and `const int f(){}` is rejected (a true
 //  LALR ambiguity; zero corpus hits, recorded as a known limitation).
-//- states 294/364/380 (1 each, added with 0.9.15): after `T name(`,
+//- states 290/357/373 (1 each, added with 0.9.15): after `T name(`,
 //  ')' shifts to the explicit empty-parens arm instead of reducing the
 //  empty FormalParamList/ConcreteParamList epsilon — `T name();` is a
 //  zero-argument construction and `f()` an empty parameter list, the
-//  intended readings. 294 merges the top-level header and first-
-//  declarator items, 364 is the body-context first declarator, 380 the
+//  intended readings. 290 merges the top-level header and first-
+//  declarator items, 357 is the body-context first declarator, 373 the
 //  top-level header alone.
-//- state 531 (1, added with 0.10.7 D1): the same empty-parens shape on
+//- state 520 (1, added with 0.10.7 D1): the same empty-parens shape on
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.
-//- state 294 (2 r/r, v0.9.1): the empty-paren double epsilon —
+//- state 290 (2 r/r, v0.9.1): the empty-paren double epsilon —
 //  FormalParamList's and ConcreteParamList's empty productions both
 //  reduce on ')' and ','. Bison prefers the rule declared earlier in
 //  this file, so the function header wins and `int main(){}` parses;
 //  a bodyless bare `T name();` is therefore always a construction,
 //  never a declaration — forward declarations carry the explicit
 //  `func` marker for that reason.
-//- state 425 (1 r/r, v0.9.1): NameExpr vs Expression on '.' after a
+//- state 419 (1 r/r, v0.9.1): NameExpr vs Expression on '.' after a
 //  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. OT_TypeLt shifts here (both the Type generic
@@ -1911,7 +1912,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//form is allowed bare; dict/struct `{...}` requires an anchored
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
-				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				'[' InitEntries ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
 				//0.9.13 B5: the lexer collapses `[]` into one OT_Brackets token.
 				OT_Brackets	{ auto* pEmpty = new std::vector<nlang::InitEntry>(); $$ = new SnInitListExpr(nullptr, *pEmpty, true, @1); delete pEmpty; } |
 				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. The identifier
@@ -2026,51 +2027,11 @@ BracedInitExpr:	'{' InitEntries '}' {
 					delete $2;
 				} ;
 
-//Phase 8e-6: collection initializer element lists.
-//InitListElements is the comma-separated value list for the array form `[...]`.
-//InitEntries is the comma-separated key:value list for the brace form `{...}`.
-//Each InitEntry's key form (STRING vs IDENTIFIER) decides dict vs struct at
-//resolver time. Both lists may be empty (matches `[]` and `{}`).
-InitListElements:	{
-						$$ = new std::vector<nlang::InitEntry>();
-					} |
-					InitListElementList {
-						$$ = $1;
-					} ;
-
-InitListElementList:	Expression {
-						auto* pVec = new std::vector<nlang::InitEntry>();
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $1;
-						pVec->push_back(std::move(e));
-						$$ = pVec;
-					} |
-					//0.9.0: nested bare brace element (`[{"d": 3}]`) — the
-					//outer slot's element type is the nested list's target.
-					BracedInitExpr {
-						auto* pVec = new std::vector<nlang::InitEntry>();
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $1;
-						pVec->push_back(std::move(e));
-						$$ = pVec;
-					} |
-					InitListElementList ',' Expression {
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $3;
-						$1->push_back(std::move(e));
-						$$ = $1;
-					} |
-					InitListElementList ',' BracedInitExpr {
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $3;
-						$1->push_back(std::move(e));
-						$$ = $1;
-					} ;
-
+//0.10.10: one comma-separated entry list shared by both forms (`[...]`
+//and `{...}`). Each entry carries an optional key expression and a value
+//expression; the target shape (array/List/Dict/struct/class) decides how
+//the key is read — absent, a value slot, or a field name. The list may be
+//empty (matches `[]` and `{}`).
 InitEntries:	{
 						$$ = new std::vector<nlang::InitEntry>();
 					} |
@@ -2090,35 +2051,14 @@ InitEntryList:	InitEntry {
 						$$ = $1;
 					} ;
 
-InitEntry:	TT_String ':' Expression {
+InitEntry:	//Keyed entry. The key is any expression; the target shape
+					//decides how it is read (Dict value slot / struct-class
+					//field name). No ternary operator exists, so `Expression
+					//':'` is unambiguous.
+					Expression ':' Expression {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::String;
-						pE->keyStr = *$1;
+						pE->pKey = $1;
 						pE->pValue = $3;
-						$$ = pE;
-					} |
-					TT_Identifier ':' Expression {
-						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::Identifier;
-						pE->keyStr = *$1;
-						pE->pValue = $3;
-						$$ = pE;
-					} |
-					//Value-only entry for the value-position brace/bracket forms.
-					//Resolver dispatches on target type: List → values, struct
-					//→ fields in declaration order, dict → error (dict requires
-					//string keys).
-					Expression {
-						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::None;
-						pE->pValue = $1;
-						$$ = pE;
-					} |
-					//0.9.13 B6: nested bare brace entry.
-					BracedInitExpr {
-						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::None;
-						pE->pValue = $1;
 						$$ = pE;
 					} |
 					//0.10.8 D4: keyed entry with a bare brace value. The
@@ -2126,18 +2066,24 @@ InitEntry:	TT_String ':' Expression {
 					//the nested target (PropagateNestedInitListTargets);
 					//array-typed fields keep the bracket form via the
 					//existing array-form gate.
-					TT_String ':' BracedInitExpr {
+					Expression ':' BracedInitExpr {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::String;
-						pE->keyStr = *$1;
+						pE->pKey = $1;
 						pE->pValue = $3;
 						$$ = pE;
 					} |
-					TT_Identifier ':' BracedInitExpr {
+					//Value-only entry (List/array elements, positional
+					//struct fields). The resolver rejects a value-only
+					//entry on Dict and class targets.
+					Expression {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::Identifier;
-						pE->keyStr = *$1;
-						pE->pValue = $3;
+						pE->pValue = $1;
+						$$ = pE;
+					} |
+					//0.9.13 B6: nested bare brace entry.
+					BracedInitExpr {
+						auto* pE = new nlang::InitEntry();
+						pE->pValue = $1;
 						$$ = pE;
 					} ;
 

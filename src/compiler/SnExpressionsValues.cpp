@@ -295,9 +295,15 @@ SnInitListExpr::SnInitListExpr(SnFieldExpr *pExplicitType,
 {
 	if (m_pExplicitType)
 		AddChild(m_pExplicitType);
+	//0.10.10: every entry registers key-then-value so Children() order
+	//matches entry order; consumers must not assume value-only children.
 	for (auto &e : m_entries)
+	{
+		if (e.pKey)
+			AddChild(e.pKey);
 		if (e.pValue)
 			AddChild(e.pValue);
+	}
 }
 
 SnInitListExpr::~SnInitListExpr()

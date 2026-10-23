@@ -239,10 +239,28 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         EmitInitListEntryAdd(entry, tBox, addNameIdx, resultOffset, emitter);
 }
 
+//0.10.10: stage one entry slot (a Dict key or a List/Dict value) and box
+//it in place when its declared kind is primitive — the shared shape of
+//the "add"/"set" argument slots. The pResult refresh mirrors the
+//assignment path: the box must read the staged slot, not a stale
+//accumulator left behind by the expression emission.
+void VmBackend::EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
+                                       const BoxingTagResult& box,
+                                       BytecodeEmitter& emitter) {
+    EmitExpression(expr, emitter, off);
+    if (box.isPrimitive) {
+        EmitPResultRefresh(emitter, off);
+        emitter.Emit(OpCode::OP_Box);
+        emitter.EmitByte(box.tag);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(off);
+    }
+}
+
 //List-form per-entry: stage {this, value} in an evalArea claim, box a
 //primitive value in place, then OP_CallMethod "add" via callParamBase.
 //The entry key is meaningless here — the resolver guarantees List
-//entries are positional (RejectInitListEntryKeyForm, 0.10.9 p23).
+//entries are positional (RejectInitListEntryKeyForm).
 void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
                                      BoxingTagResult tBox,
                                      uint16_t addNameIdx, uint16_t resultOffset,
@@ -259,14 +277,7 @@ void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
     EvalAreaClaim claim(*this, 2);  // this, value
     uint16_t claimBase = claim.base();
     uint16_t valOff = claimBase + 1 * kFrameSlotBytes;
-    EmitExpression(*entry.pValue, emitter, valOff);
-    if (tBox.isPrimitive) {
-        EmitPResultRefresh(emitter, valOff);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(tBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(valOff);
-    }
+    EmitInitListStageBoxed(*entry.pValue, valOff, tBox, emitter);
     EmitInitListMethodCallTail(claimBase, 2, addNameIdx, resultOffset,
                                emitter);
 }
@@ -302,18 +313,15 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
 
 //Dict-form per-entry: stage {this, key, value} in an evalArea claim,
 //box primitive key/value, then OP_CallMethod "set" via callParamBase.
+//0.10.10: the key is an expression like the value — the resolver
+//guarantees every Dict entry carries one (RejectInitListEntryKeyForm);
+//the key-slot cast already adjudicated it against K.
 void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
                                      BoxingTagResult kBox,
                                      BoxingTagResult vBox, uint16_t setNameIdx,
                                      uint16_t resultOffset,
                                      BytecodeEmitter& emitter) {
-    if (!entry.pValue) return;
-    //Key: the resolver guarantees every Dict entry carries a string
-    //literal key (RejectInitListEntryKeyForm, 0.10.9 p23) — keyless
-    //and identifier-keyed entries are rejected before codegen.
-    if (entry.keyKind != InitEntry::KeyKind::String) {
-        return;
-    }
+    if (!entry.pValue || !entry.pKey) return;
     //Phase 9c follow-up: route through EvalAreaClaim so the key
     //and value live in evalArea, immune to nested-call bulk-copies
     //to callParamBase. Pre-fix, a value like `helper(5,3)` would
@@ -322,26 +330,10 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
     uint16_t claimBase = claim.base();
     uint16_t keyOff = claimBase + 1 * kFrameSlotBytes;
     uint16_t valOff = claimBase + 2 * kFrameSlotBytes;
-    uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
-    emitter.Emit(OpCode::OP_ConstString);
-    emitter.EmitUint16(keyPoolIdx);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(keyOff);
-    if (kBox.isPrimitive) {
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(kBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(keyOff);
-    }
+    //Key
+    EmitInitListStageBoxed(*entry.pKey, keyOff, kBox, emitter);
     //Value
-    EmitExpression(*entry.pValue, emitter, valOff);
-    if (vBox.isPrimitive) {
-        EmitPResultRefresh(emitter, valOff);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(vBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(valOff);
-    }
+    EmitInitListStageBoxed(*entry.pValue, valOff, vBox, emitter);
     EmitInitListMethodCallTail(claimBase, 3, setNameIdx, resultOffset,
                                emitter);
 }
@@ -395,10 +387,11 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
     EvalAreaClaim valueClaim(*this, 1);
     uint16_t valueSlot = valueClaim.base();
     for (auto& entry : initList.Entries()) {
-        if (entry.keyKind != InitEntry::KeyKind::Identifier)
+        if (!KeyIsIdentifier(entry))
             continue;
         if (!entry.pValue) continue;
-        int off = FindClassFieldOffset(classDecl, entry.keyStr);
+        int off = FindClassFieldOffset(classDecl,
+            static_cast<SnIdentifierExpr*>(entry.pKey)->Name());
         if (off < 0) continue;
         EmitExpression(*entry.pValue, emitter, valueSlot);
         emitter.Emit(OpCode::OP_StoreField);
@@ -452,8 +445,9 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
     for (auto& entry : initList.Entries()) {
         if (!entry.pValue) continue;
         int off = -1;
-        if (entry.keyKind == InitEntry::KeyKind::Identifier) {
-            off = FindFieldOffset(structDecl, entry.keyStr);
+        if (KeyIsIdentifier(entry)) {
+            off = FindFieldOffset(structDecl,
+                static_cast<SnIdentifierExpr*>(entry.pKey)->Name());
         } else if (ordinal < structDecl.Fields().size()) {
             //Declaration-order positional entry: field ordinal i sits at
             //byte offset i * kHeapFieldStrideBytes under the uniform

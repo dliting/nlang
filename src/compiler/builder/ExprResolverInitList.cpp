@@ -102,79 +102,120 @@ bool ExprResolveAccessor::RejectBraceArrayInitTarget(SnInitListExpr &sn,
 //CheckClassInitListForm / CheckClassCtorForInitList live in
 //ExprResolverInitListCtor.cpp (source-size split).
 
-//Phase 13: the element type init-list entries bind against — the array
-//element type, or the value slot of a generic container
-//(`List<func<int,int>> l = [bar];`). 0.7.5: restricted to the built-in
-//List/Dict instantiations and returned as T for List / V for Dict
-//(entries are key:value; keys are literal strings, values are V — the
-//old elemArgs[0] made Dict values bind against K). Null = the target
-//carries no element type (a user class/struct target is per-field);
-//the func-ref binding is skipped.
-SnField *ExprResolveAccessor::ResolveInitListElemType(SnField *pTargetField,
-    bool bIsArray)
+//0.10.10: the slot types init-list entries bind against — the array
+//element type / the List value slot / the Dict key+value slots
+//(`List<func<int,int>> l = [bar];`, `Dict<string,int> d = {k: 1};`).
+//A null pair = the target carries no per-slot type (a user class/struct
+//target is per-field); the func-ref binding and the slot casts then
+//address the declared field instead.
+InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
+    SnField *pTargetField, bool bIsArray)
 {
+    InitListSlotTypes slots;
     if (bIsArray)
-        return pTargetField;
+    {
+        slots.pValueType = pTargetField;
+        return slots;
+    }
     if (pTargetField->Kind() == NK_ClassDecl)
     {
         auto *pGen = static_cast<SnClassDecl*>(pTargetField);
         const auto& baseName = pGen->BaseName();
-        if (!pGen->IsGenericInstantiation()
-            || (baseName != kBuiltinListTypeName
-                && baseName != kBuiltinDictTypeName))
-            return nullptr;
-        const size_t elemIdx = (baseName == kBuiltinListTypeName) ? 0 : 1;
-        auto elemArgs = GetGenericTypeArgs(pGen);
-        if (elemArgs.size() > elemIdx)
-            return elemArgs[elemIdx];
+        if (pGen->IsGenericInstantiation()
+            && (baseName == kBuiltinListTypeName
+                || baseName == kBuiltinDictTypeName))
+        {
+            auto typeArgs = GetGenericTypeArgs(pGen);
+            if (baseName == kBuiltinDictTypeName && !typeArgs.empty())
+                slots.pKeyType = typeArgs[0];
+            const size_t valIdx =
+                (baseName == kBuiltinListTypeName) ? 0 : 1;
+            if (typeArgs.size() > valIdx)
+                slots.pValueType = typeArgs[valIdx];
+        }
     }
-    return nullptr;
+    return slots;
 }
 
-//Phase 13: bind each entry's pending function reference to the element
-//type (both the bare and the receiver-bound member form).
+//Phase 13: bind each entry's pending function reference to its slot
+//type (both the bare and the receiver-bound member form). 0.10.10: the
+//key slot is covered symmetrically; its branch stays unreachable until
+//`Func<...>` is a legal generic type argument.
+static void BindEntrySlotFuncRef(BuildEnvironment &env,
+    SnExpression *pExpr, SnField *pSlotType)
+{
+    if (!pExpr || !pSlotType)
+        return;
+    if (IsUnboundFuncRef(*pExpr))
+    {
+        BindFuncRefToExpected(env,
+            *static_cast<SnIdentifierExpr*>(pExpr), pSlotType);
+    }
+    else if (IsUnboundMemberFuncRef(*pExpr))
+    {
+        BindMemberFuncRefToExpected(env,
+            *static_cast<SnMemberExpr*>(pExpr), pSlotType);
+    }
+}
+
 void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
-    SnField *pElemType)
+    const InitListSlotTypes &slots)
 {
     for (auto &entry : sn.Entries())
     {
-        if (!entry.pValue)
-            continue;
-        if (IsUnboundFuncRef(*entry.pValue))
-        {
-            BindFuncRefToExpected(m_Env,
-                *static_cast<SnIdentifierExpr*>(entry.pValue),
-                pElemType);
-        }
-        else if (IsUnboundMemberFuncRef(*entry.pValue))
-        {
-            BindMemberFuncRefToExpected(m_Env,
-                *static_cast<SnMemberExpr*>(entry.pValue),
-                pElemType);
-        }
+        BindEntrySlotFuncRef(m_Env, entry.pKey, slots.pKeyType);
+        BindEntrySlotFuncRef(m_Env, entry.pValue, slots.pValueType);
     }
 }
 
-//Array-form element-type gate: every entry is an element store, so
-//it takes the same conversion checks as `arr[i] = v` — the cast
-//table adjudicates (0.7.3 B): a mismatched entry is rejected by
-//FixupExprType (named array diagnostic for cross-element array
-//values), and the wrap makes the codegen's OP_StoreElement emit the
-//box/coercion. 0.7.5: container forms (List/Dict) run the same gate —
-//their per-method boxing plans stage each entry at the element kind's
-//tag width, and without the wrap an int entry into List<float> boxed
-//raw int bits and read back as denormals.
-void ExprResolveAccessor::ApplyInitListElemCasts(SnInitListExpr &sn,
-    SnField *pElemType)
+//0.7.3 B / 0.7.5 / 0.10.10: every entry slot must cross at its
+//declared width. The array/container lowerings read the staged value
+//at the element kind's tag width (the wrap makes the codegen's store
+//emit the box/coercion — without it an int entry into List<float>
+//boxed raw int bits and read back as denormals), struct/class field
+//stores copy the full 2-cell slot (a 4-byte entry into an 8-byte
+//field carried the staging claim's stale upper bytes: 0.7.5
+//`new P{id:1}` after any method call read 4294967297), and the Dict
+//key slot stages at K's tag width exactly like the value slot at V's.
+//Each slot runs the same conversion checks as the corresponding
+//assignment (`arr[i] = v`, `p.field = v`, `d[k] = v`): the cast table
+//adjudicates via FixupExprType (constant-fit and lossy warnings
+//follow) and the wrap is written back through SetEntryValue /
+//SetEntryKey. Slots this walk cannot resolve (synthetic built-in
+//fields) keep the unwrap status quo.
+void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
+    SnField *pTargetField, const InitListSlotTypes &slots)
 {
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
+        //Key slot: only Dict carries a key type; the null check leaves
+        //every other shape to the value path alone.
+        if (slots.pKeyType)
+        {
+            auto *pKey = entries[nIdx].pKey;
+            if (pKey && pKey->IsResolved() && pKey->EvalDataType())
+            {
+                TypeCastInfo keyCast(pKey->EvalDataType(), slots.pKeyType);
+                auto iKey = sn.Children().find(pKey);
+                if (iKey != sn.Children().end()
+                    && FixupExprType(iKey, keyCast))
+                    sn.SetEntryKey(nIdx,
+                        &static_cast<SnCastExpr &>(*iKey));
+            }
+        }
+        //Value slot: the element/value type for array/List/Dict, or the
+//addressed field's declared type for struct/class.
         auto *pValue = entries[nIdx].pValue;
         if (!pValue || !pValue->IsResolved()
             || !pValue->EvalDataType())
             continue;
-        TypeCastInfo castInfo(pValue->EvalDataType(), pElemType);
+        SnField *pSlotType = slots.pValueType;
+        if (!pSlotType)
+            pSlotType = InitListEntryFieldType(*pTargetField, sn, nIdx);
+        if (!pSlotType)
+            continue;
+        TypeCastInfo castInfo(pValue->EvalDataType(), pSlotType);
         auto iExpr = sn.Children().find(pValue);
         if (iExpr == sn.Children().end())
             continue;
@@ -216,9 +257,10 @@ SnField *ExprResolveAccessor::InitListEntryFieldType(SnField &targetDecl,
         for (auto &sf :
             static_cast<SnStructDecl &>(targetDecl).Fields())
         {
-            if (entry.keyKind == InitEntry::KeyKind::Identifier)
+            if (KeyIsIdentifier(entry))
             {
-                if (sf.Name() == entry.keyStr)
+                if (sf.Name() ==
+                    static_cast<SnIdentifierExpr *>(entry.pKey)->Name())
                     return sf.EvalDataType();
             }
             else if (idx == entryIdx)
@@ -229,8 +271,10 @@ SnField *ExprResolveAccessor::InitListEntryFieldType(SnField &targetDecl,
     }
     if (targetDecl.Kind() == NK_ClassDecl)
     {
-        if (entry.keyKind != InitEntry::KeyKind::Identifier)
+        if (!KeyIsIdentifier(entry))
             return nullptr;
+        const std::string keyName =
+            static_cast<SnIdentifierExpr *>(entry.pKey)->Name();
         auto *pClass = static_cast<SnClassDecl *>(&targetDecl);
         std::vector<SnClassDecl *> ancestors;
         auto *pSuper = pClass->SuperClass();
@@ -240,70 +284,11 @@ SnField *ExprResolveAccessor::InitListEntryFieldType(SnField &targetDecl,
             pSuper = pSuper->SuperClass();
         }
         for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it)
-            if (auto *pType = ClassFieldByName(**it, entry.keyStr))
+            if (auto *pType = ClassFieldByName(**it, keyName))
                 return pType;
-        return ClassFieldByName(*pClass, entry.keyStr);
+        return ClassFieldByName(*pClass, keyName);
     }
     return nullptr;
-}
-
-//Struct/class init form: entries address declared fields, and the
-//lowering's OP_StoreField copies the full 2-cell field slot — a
-//4-byte entry into an 8-byte field (long/ulong; double from Task 7)
-//carried the staging claim's stale upper bytes (0.7.5: `new P{id:1}`
-//after any method call read 4294967297). Wrap each resolvable entry
-//against its field's declared type exactly like `p.field = v` does
-//(the member-assign gate); constant-fit and lossy warnings follow.
-//Entries this walk cannot resolve (synthetic built-in fields) keep
-//the unwrap status quo.
-void ExprResolveAccessor::ApplyInitListFieldCasts(SnInitListExpr &sn,
-    SnField *pTargetField)
-{
-    const auto &entries = sn.Entries();
-    for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
-    {
-        auto *pValue = entries[nIdx].pValue;
-        if (!pValue || !pValue->IsResolved()
-            || !pValue->EvalDataType())
-            continue;
-        SnField *pFieldType =
-            InitListEntryFieldType(*pTargetField, sn, nIdx);
-        if (!pFieldType)
-            continue;
-        TypeCastInfo castInfo(pValue->EvalDataType(), pFieldType);
-        auto iExpr = sn.Children().find(pValue);
-        if (iExpr == sn.Children().end())
-            continue;
-        if (FixupExprType(iExpr, castInfo))
-            sn.SetEntryValue(nIdx,
-                &static_cast<SnCastExpr &>(*iExpr));
-    }
-}
-
-//2026-09-29 decomposition of Access(SnInitListExpr&): the 0.7.5 Dict
-//key-form gate. Dict initializer keys are string literals by grammar;
-//the lowering emits every key as a string constant and boxes it with
-//K's tag — a non-string K stored the string HANDLE bits as the key
-//(silently unreachable entries). Explicit set() covers other key
-//types; an empty initializer stays legal. True = rejected.
-bool ExprResolveAccessor::RejectNonStringDictInitKeys(SnInitListExpr &sn,
-    SnField *pTargetField)
-{
-    if (pTargetField->Kind() != NK_ClassDecl)
-        return false;
-    auto *pGen = static_cast<SnClassDecl *>(pTargetField);
-    if (!pGen->IsGenericInstantiation()
-        || pGen->BaseName() != kBuiltinDictTypeName)
-        return false;
-    auto typeArgs = GetGenericTypeArgs(pGen);
-    if (typeArgs.empty() || !typeArgs[0]
-        || typeArgs[0]->Kind() == NK_String || sn.Entries().empty())
-        return false;
-    m_Env.Log(CLL_Error, sn.Location(),
-        "the Dict collection initializer requires string keys; use "
-        "set() with an explicit '%s' key",
-        typeArgs[0]->ToString().c_str());
-    return true;
 }
 
 //K1 Slice 9: gate of Access(SnInitListExpr&) — a channel initializer
@@ -366,19 +351,12 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
     if (RejectNonEmptyChannelInit(sn, pTargetField))
         return true;
 
-    //0.10.9 p23 (D5): the Dict key-type gate moved up from after the
-    //entry loop — its diagnostic is more fundamental than the entry
-    //key-form gate below (quoting an identifier key cannot rescue a
-    //non-string K). The !bIsArray guard: an array target's
-    //pTargetField is the element type, which may itself be a Dict
-    //instantiation (Dict<int,int>[] arr = [d]).
-    if (!bIsArray && RejectNonStringDictInitKeys(sn, pTargetField))
-        return true;
-
-    //0.10.9 p23: the entry key form must match the container target
-    //kind (same !bIsArray rationale: the element's own initializer
-    //carries its own form rule).
-    if (!bIsArray && RejectInitListEntryKeyForm(sn, pTargetField))
+    //0.10.10: the entry key form must match the target shape (array and
+    //List positional, Dict keyed, struct field-name-or-positional). The
+    //Dict key TYPE is no longer a gate — any expression key is legal and
+    //the key-slot cast below adjudicates it against K; the class form is
+    //covered by CheckClassInitListForm after the stamping.
+    if (RejectInitListEntryKeyForm(sn, pTargetField, bIsArray))
         return true;
 
     //0.9.13 D-new-1: array targets mint the interned array token.
@@ -393,13 +371,12 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
 }
 
 //Phase 8e-6: Collection initializer resolver — target determination,
-//the form gates (class-form checks, the Dict key-type gate and the
-//entry key-form gate, all in PrepareInitListShape), entry resolution,
-//func-ref binding and the entry-type casts, in that order. Entry
-//values are resolved via direct Accept (children inherit no
-//expected type for now — they resolve via their normal paths);
-//keys (for {...} form) are not expressions and need no
-//resolution.
+//the form gates (class-form checks and the entry key-form gate, both
+//in PrepareInitListShape), entry resolution, func-ref binding and the
+//entry-slot casts, in that order. Entry values and (0.10.10) Dict keys
+//are expressions resolved via direct Accept (children inherit no
+//expected type for now — they resolve via their normal paths; the slot
+//casts then adjudicate each slot against its declared type).
 void ExprResolveAccessor::Access(SnInitListExpr &sn)
 {
     assert(!sn.IsResolved());
@@ -414,27 +391,33 @@ void ExprResolveAccessor::Access(SnInitListExpr &sn)
 
     //0.9.0: nested bare brace entries infer their target from the slot
     //they store into, before the entry walk resolves them.
-    SnField *pElemType = ResolveInitListElemType(pTargetField, bIsArray);
-    PropagateNestedInitListTargets(sn, pTargetField, pElemType, bIsArray);
+    InitListSlotTypes slots =
+        ResolveInitListSlotTypes(pTargetField, bIsArray);
+    PropagateNestedInitListTargets(sn, pTargetField, slots.pValueType,
+        bIsArray);
 
     for (auto &entry : sn.Entries())
     {
+        //0.10.10: a Dict key is an expression resolved like a value.
+        //struct/class identifier keys are field NAMES (the entry-form
+        //gate leaves nothing else) and array/List entries carry no key
+        //at all — resolving those identifiers as variables would
+        //misreport "Cannot resolve the field".
+        if (slots.pKeyType && entry.pKey && !entry.pKey->IsResolved())
+            entry.pKey->Accept(*m_pVisitor);
         //0.10.8 D2: the target-less bracket inference already resolved
         //the entries; re-accepting a resolved node trips its assert.
         if (entry.pValue && !entry.pValue->IsResolved())
             entry.pValue->Accept(*m_pVisitor);
     }
 
-    if (pElemType)
-        BindInitListFuncRefs(sn, pElemType);
+    BindInitListFuncRefs(sn, slots);
     //0.7.5: every entry must cross at its slot's declared width — the
     //array/container lowerings read the staged entry at the element
     //kind's width (element casts), and struct/class field stores copy
-    //the full 2-cell slot (per-field casts).
-    if (pElemType)
-        ApplyInitListElemCasts(sn, pElemType);
-    else if (!bIsArray)
-        ApplyInitListFieldCasts(sn, pTargetField);
+    //the full 2-cell slot (per-field casts). 0.10.10: Dict keys cross
+    //K exactly like values cross V.
+    ApplyInitListSlotCasts(sn, pTargetField, slots);
 }
 
 } //namespace nlang

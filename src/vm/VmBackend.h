@@ -1341,6 +1341,12 @@ private:
     void EmitInitListEntrySet(const InitEntry& entry, BoxingTagResult kBox,
                               BoxingTagResult vBox, uint16_t setNameIdx,
                               uint16_t resultOffset, BytecodeEmitter& emitter);
+    //0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
+    //box it in place when its declared kind is primitive — the shared
+    //shape of the "add"/"set" argument slots.
+    void EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
+                                const BoxingTagResult& box,
+                                BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);
     //K1 Slice 9: `Channel<T> c = {};` — construct only (no entries).

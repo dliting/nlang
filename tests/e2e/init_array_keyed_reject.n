@@ -1,0 +1,6 @@
+// 0.10.10: the bracket form takes positional entries — a keyed entry
+// reports the named array diagnostic (was a bare syntax error).
+int main() {
+    int[] arr = [1: 2];
+    return arr.length();
+}

@@ -201,20 +201,30 @@ private:
 
 typedef MutableChildNodeList<SnExpression> SnExpressionList;
 
-//Phase 8e-6: one entry in an init list `{...}`.
-//KeyKind==String → dict entry (key is a string literal value).
-//KeyKind==Identifier → struct/class field (key is a field name).
-//Array-form init lists `[...]` do not carry entries of this struct;
-//they use the plain element list directly via the Entries() vector.
+//0.10.10: one entry in a collection initializer — an optional key
+//expression and a value expression. The target shape decides how the
+//key is read: a value slot (Dict), a field name (bare identifier on
+//struct/class), or absent (array/List). Key form is derived from the
+//node kind, never from a parser token category.
 //Per-entry source location can be retrieved from pValue->Location()
 //when needed for diagnostics.
 struct InitEntry
 {
-	enum class KeyKind { None, String, Identifier };
-	KeyKind          keyKind = KeyKind::None;
-	std::string      keyStr;
+	SnExpression    *pKey   = nullptr;
 	SnExpression    *pValue = nullptr;
 };
+//0.10.10: the key form of an initializer entry, derived from the key
+//node kind — never from a parser token category. Absent = positional,
+//identifier = a struct/class field name, any other expression = a Dict
+//key. Shared by the resolver's entry-form gate and the codegen arms.
+inline bool KeyIsAbsent(const InitEntry &entry)
+{
+	return entry.pKey == nullptr;
+}
+inline bool KeyIsIdentifier(const InitEntry &entry)
+{
+	return entry.pKey && entry.pKey->Kind() == NK_IdentifierExpr;
+}
 
 //The syntax node of a literal constant expression.
 class NLANG_COMPILER_API SnLiteralExpr: public SnExpression
@@ -918,7 +928,8 @@ public:
 	//pExplicitType is nullptr for the bare form. For `new Type{...}`,
 	//pExplicitType carries the Type expression (NameExpr/GenericTypeExpr).
 	//isArrayForm distinguishes `[...]` (true) from `{...}` (false).
-	//For array form, entries' keyKind is None (only values are used).
+	//Both forms share the unified entry list; array/List entries carry
+	//no key expression, Dict entries always do.
 	SnInitListExpr(SnFieldExpr *pExplicitType,
 		std::vector<InitEntry> entries, bool isArrayForm,
 		const ISourceLocation &loc);
@@ -943,6 +954,13 @@ public:
 	void SetEntryValue(size_t nIdx, SnExpression *pValue)
 	{
 		m_entries[nIdx].pValue = pValue;
+	}
+
+	//Resolver write-back for the Dict key-slot cast (mirrors
+	//SetEntryValue for the value slot).
+	void SetEntryKey(size_t nIdx, SnExpression *pKey)
+	{
+		m_entries[nIdx].pKey = pKey;
 	}
 
 	//0.9.11 T6 (D10): the zero-formal constructor the resolver selected

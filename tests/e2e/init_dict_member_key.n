@@ -1,0 +1,11 @@
+// 0.10.10: a member access expression is a Dict key.
+class Cfg {
+    public string name;
+}
+
+int main() {
+    Cfg c = Cfg();
+    c.name = "host";
+    Dict<string, int> d = {c.name: 8};
+    return d["host"];
+}

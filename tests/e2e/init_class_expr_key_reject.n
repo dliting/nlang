@@ -1,0 +1,12 @@
+// 0.10.10: class initializer keys are field names — a call
+// expression key is rejected.
+int f() { return 1; }
+
+class C {
+    public int a;
+}
+
+int main() {
+    C c = {f(): 1};
+    return c.a;
+}

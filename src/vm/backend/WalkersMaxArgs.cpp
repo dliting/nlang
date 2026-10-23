@@ -396,7 +396,11 @@ void VmBackend::MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs) {
         //aliases evalArea[0] (the init-list's own handle slot).
         else if (bn == kBuiltinChannelTypeName && 2 > maxArgs) maxArgs = 2;
     }
-    for (auto& entry : init.Entries())
+    //0.10.10: keys are expressions too — a Dict key can carry
+    //implicit calls of its own (helper(1): v).
+    for (auto& entry : init.Entries()) {
+        if (entry.pKey) MaxArgsWalkExpr(*entry.pKey, maxArgs);
         if (entry.pValue) MaxArgsWalkExpr(*entry.pValue, maxArgs);
+    }
 }
 } //namespace nlang

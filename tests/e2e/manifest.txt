@@ -103,7 +103,6 @@ init_list_long_after_call 0
 init_list_constant_fit_reject compile_error out of range
 init_struct_long_field 0
 init_class_long_field 0
-dict_init_nonstring_key_reject compile_error string keys
 dict_subscript_read_key 0
 dict_subscript_read_key_type_reject compile_error Incompatible type
 int_family_switch 0 hit
@@ -1811,7 +1810,22 @@ init_list_keyed_entry_mixed_reject compile_error positional entries
 init_list_keyed_entry_foreach_reject compile_error positional entries
 init_dict_positional_entry_reject compile_error requires a key
 init_dict_positional_entry_mixed_reject compile_error requires a key
-init_dict_ident_key_reject compile_error string literal keys
 init_struct_string_key_reject compile_error field names
 init_struct_mixed_entries 3
 init_dict_element_array 1
+
+# --- 0.10.10 D1: unified initializer slot model (expression Dict keys) ---
+init_dict_var_key 7
+init_dict_call_key 5
+init_dict_concat_key 3
+init_dict_member_key 8
+init_dict_int_key 6
+init_dict_long_key_convert 42
+init_dict_class_key 9
+init_dict_key_order 0
+init_dict_dup_key 2
+init_dict_key_type_reject compile_error Incompatible type
+init_struct_expr_key_reject compile_error field names
+init_class_expr_key_reject compile_error field:value entries
+init_array_keyed_reject compile_error positional entries
+init_list_keyed_bracket_reject compile_error positional entries

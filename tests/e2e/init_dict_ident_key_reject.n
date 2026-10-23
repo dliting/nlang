@@ -1,7 +1,0 @@
-// 0.10.9 p23: Dict initializer keys are string literals — a bare
-// identifier key (a field-name form for struct/class) is rejected with
-// the quoted-key suggestion instead of being silently taken as a string.
-int main() {
-    Dict<string, int> d = {a: 1};
-    return d.count();
-}
