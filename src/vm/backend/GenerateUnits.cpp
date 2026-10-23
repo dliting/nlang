@@ -138,6 +138,11 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         //placeholder function records, and the table's indices must stay
         //in the own region.
         RegisterInterfaces(root);
+        //0.10.14 (v2.9): enum method index tables ride the function
+        //records RegisterFunctions already minted — same ordering
+        //constraint as RegisterInterfaces above (before bytecode
+        //generation appends placeholder records).
+        RegisterEnumMethods(root);
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit
         //set with two executable mains, so at most one unit owns an

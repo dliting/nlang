@@ -1047,6 +1047,10 @@ private:
     //0.9.11 D2: struct counterpart — fills CompiledStruct.constructorIndices
     //in declaration order (structs declare constructors only).
     void PopulateStructMethods(SnNamespace& root);
+    //0.10.14 (v2.9): per-enum member-method index/access tables
+    //(parallel to enumNames/enumKeys; keyed on m_funcIndexMap). Defined
+    //in backend/RegisterEnums.cpp beside RegisterEnums.
+    void RegisterEnumMethods(SnNamespace& root);
     //0.9.10 D5: per-unit interface statics table (name = qualified key,
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.

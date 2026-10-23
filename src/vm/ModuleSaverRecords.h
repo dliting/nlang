@@ -17,6 +17,11 @@ namespace nlang {
 //ModuleSaverRecordsInterfaces.cpp; the wire layout is documented there.
 void WriteInterfaceRecords(std::ostream& fs, const CompiledModule& mod);
 
+//v1.6 (names) + v2.0 (keys) + 0.10.14 v2.9 (member-method tables):
+//serialize the enum record table. Defined in
+//ModuleSaverRecordsEnums.cpp; the wire layout is documented there.
+void WriteEnumRecords(std::ostream& fs, const CompiledModule& mod);
+
 //Stream-level adapters shared by the saver TUs (defined in
 //ModuleSaver.cpp): one length-prefixed type descriptor and one fixed
 //default-value record.

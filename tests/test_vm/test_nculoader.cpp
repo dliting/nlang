@@ -5,6 +5,7 @@
 // No codegen and no linking here: nlink has its own suite
 // (test_nculinker.cpp); these tests pin where the units come from.
 #include "NcuLoader.h"
+#include "ModuleLoader.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/NcuPackage.h"
 
@@ -418,8 +419,8 @@ void TestVersionMismatchReported() {
     CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
 }
 
-// --- shape 9b: the exact minor-version floor. The literals 7/9 pin the
-// --- v2.8 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
+// --- shape 9b: the exact minor-version floor. The literals 8/10 pin the
+// --- v2.9 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
 // --- bump must consciously re-affirm this test instead of silently
 // --- sliding the floor out from under the format contract.
 
@@ -432,7 +433,7 @@ void TestMinorBelowFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 7);   //one below the v2.8 floor
+    PatchMinorVersion(dir / "old.ncu", 8);   //one below the v2.9 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -450,13 +451,45 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 9);   //one above the v2.8 floor
+    PatchMinorVersion(dir / "old.ncu", 10);  //one above the v2.9 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
     CHECK(fr.failed, "above-floor minor version fails the load");
     CHECK(Contains(fr.msg, "newer ncc"), "newer-ncc diagnostic present");
     CHECK(Contains(fr.msg, "old.ncu"), "offending file named");
+}
+
+// --- v2.9 (0.10.14): the per-enum member-method tables survive the
+// --- saver/loader round-trip — indices, access bytes, and the empty
+// --- table of a method-less enum (Review Focus #4). Also pins the
+// --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
+
+void TestEnumMethodTablesRoundTrip() {
+    CHECK(NCU_FORMAT_MINOR == 9, "format minor is 9 (v2.9)");
+    CompiledModule cm = MakeUnit("enumtbl");
+    cm.enumNames.push_back({"Red", "Green"});
+    cm.enumKeys.push_back("enumtbl.Color");
+    cm.enumMethodIndices.push_back({3, 7});
+    cm.enumMethodAccess.push_back({0, 1});   //FA_Public, FA_Private
+    cm.enumNames.push_back({});              //method-less enum
+    cm.enumKeys.push_back("enumtbl.Empty");
+    cm.enumMethodIndices.push_back({});
+    cm.enumMethodAccess.push_back({});
+    const auto dir = scenarioDir("enum_method_tables");
+    WriteUnit(dir, cm);
+
+    std::string entryKey;
+    CompiledModule loaded = ModuleLoader::Load(
+        (dir / "enumtbl.ncu").string(), &entryKey);
+    CHECK(loaded.enumMethodIndices.size() == 2, "two enum method rows");
+    CHECK(loaded.enumMethodIndices[0].size() == 2, "two methods on Color");
+    CHECK(loaded.enumMethodIndices[0][0] == 3, "method index 0");
+    CHECK(loaded.enumMethodIndices[0][1] == 7, "method index 1");
+    CHECK(loaded.enumMethodAccess[0][0] == 0, "public access byte");
+    CHECK(loaded.enumMethodAccess[0][1] == 1, "private access byte");
+    CHECK(loaded.enumMethodIndices[1].empty(), "Empty enum: no indices");
+    CHECK(loaded.enumMethodAccess[1].empty(), "Empty enum: no access");
 }
 
 // --- shape 10: a unit file found for module X whose header names Y is
@@ -627,6 +660,7 @@ int main() {
     TestVersionMismatchReported();
     TestMinorBelowFloorRejected();
     TestMinorAboveFloorRejected();
+    TestEnumMethodTablesRoundTrip();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();
     TestUnreadablePackageNamed();

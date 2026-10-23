@@ -27,6 +27,7 @@ struct UnitPushes
 	std::vector<uint32_t> structs;
 	std::vector<uint32_t> functions;
 	std::vector<uint32_t> interfaces;
+	std::vector<uint32_t> enums;
 };
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
@@ -70,6 +71,10 @@ static void ValidateClosure(const std::vector<CompiledModule>& units) {
         if (u.enumKeys.size() != u.enumNames.size())
             throw std::runtime_error("nlink: unit '" + u.modulePath
                 + "': enumKeys and enumNames diverge (corrupt image)");
+        if (u.enumMethodIndices.size() != u.enumNames.size()
+            || u.enumMethodAccess.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enum method tables and enumNames diverge (corrupt image)");
         auto checkTable = [&](const char* kind, size_t imports,
                               size_t table) {
             if (imports > table)
@@ -153,7 +158,7 @@ static void MergeStructs(const CompiledModule& u, CompiledModule& merged,
 //enumNames 不携带类型身份，去重一律按 enumKeys 的限定键；占位槽
 //（空 names＋目标键）不拷贝，由槽解析直接定址。
 static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
-                       NcuOperandMaps& m) {
+                       NcuOperandMaps& m, UnitPushes& p) {
     const size_t ownCount = u.enumKeys.size() - u.enumImports.size();
     for (uint32_t i = 0; i < ownCount; ++i) {
         int existing = merged.FindEnum(u.enumKeys[i]);
@@ -164,6 +169,11 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
         m.enums[i] = static_cast<uint32_t>(merged.enumKeys.size());
         merged.enumNames.push_back(u.enumNames[i]);
         merged.enumKeys.push_back(u.enumKeys[i]);
+        //v2.9: the method tables ride the same push (the provider unit
+        //owns their function-index remap, recorded through p.enums).
+        merged.enumMethodIndices.push_back(u.enumMethodIndices[i]);
+        merged.enumMethodAccess.push_back(u.enumMethodAccess[i]);
+        p.enums.push_back(m.enums[i]);
     }
 }
 
@@ -223,7 +233,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeStrings(units[ui], merged, maps[ui], internedStrings);
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
         MergeStructs(units[ui], merged, maps[ui], pushes[ui]);
-        MergeEnums(units[ui], merged, maps[ui]);
+        MergeEnums(units[ui], merged, maps[ui], pushes[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
         MergeInterfaces(units[ui], merged, pushes[ui]);
@@ -318,6 +328,18 @@ static void RemapStructMetadata(CompiledModule& merged,
     }
 }
 
+//v2.9 (0.10.14): enum method indices are producer function-table
+//indices — remap them in the same pass shape as the class/struct
+//metadata blocks. The access bytes carry no indices.
+static void RemapEnumMethodIndices(CompiledModule& merged,
+                                   const NcuOperandMaps& m,
+                                   const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed)
+        for (auto& i : merged.enumMethodIndices[idx])
+            if (i != 0xFFFF)
+                i = static_cast<uint16_t>(Lookup(m.functions, i));
+}
+
 //合并记录已整体拷贝（含单元局部编码的 bytecode/描述符/默认值），这里
 //以本单元映射原地重映射。
 static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
@@ -348,6 +370,7 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         MergeArrayTypes(units[ui], merged, maps[ui]);
         RemapClassMetadata(merged, maps[ui], pushes[ui].classes);
         RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
+        RemapEnumMethodIndices(merged, maps[ui], pushes[ui].enums);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
         //0.9.10 v2.4: interface static indices are function-table

@@ -1,5 +1,7 @@
 /*---
-    Register.cpp — 类型与函数注册族：structs/arrays/enums/functions（类族在 RegisterClass.cpp）。
+    Register.cpp — 类型与函数注册族：structs/functions（类族在
+    RegisterClass.cpp、接口在 RegisterInterfaces.cpp、数组在
+    RegisterArrayTypes.cpp、枚举在 RegisterEnums.cpp）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
@@ -303,51 +305,8 @@ void VmBackend::ResolveStructClassRefs() {
 //数组类型发现与注册族（RegisterArrayType/WalkArrayType*）位于
 //RegisterArrayTypes.cpp（2026-10-02 尺寸守卫触发的拆分）。
 
-//Phase 8e-9b: collect every enum declaration's value-name table into
-//m_compiledModule.enumNames, and remember each SnEnumDecl*'s defIdx for
-//later codegen (SnCastExpr src-type lookup). Enum declarations may live
-//at namespace top level or nested inside class/struct scopes (handled by
-//CanBeFuncParentEx, same pattern as RegisterStructs/RegisterClasses).
-void VmBackend::RegisterEnums(SnNamespace& root) {
-    m_enumIndexMap.clear();
-    m_compiledModule.enumNames.clear();
-    m_compiledModule.enumKeys.clear();
-    //Placeholder slots are appended AFTER registration (codegen), so
-    //clearing the import table here can never wipe a live placeholder —
-    //it only keeps a premature one from leaving an orphan import entry.
-    m_compiledModule.enumImports.clear();
-    auto registerEnum = [&](SnEnumDecl& sn) {
-        auto defIdx = m_compiledModule.enumNames.size();
-        std::vector<std::string> names;
-        for (auto& member : sn.Members()) {
-            if (member.Kind() == NK_EnumMember) {
-                auto& em = static_cast<SnEnumMember&>(member);
-                //Enum values are sequential starting at 0; if user provides
-                //explicit values that skip numbers, the corresponding slots
-                //are filled with empty strings (OP_Enum_to_str will throw
-                //"enum value out of range" at runtime if hit). Negative
-                //values are rejected at resolve time; the guard keeps a
-                //slipped-through negative from wrapping to SIZE_MAX and
-                //hanging the table fill (defense, not a semantic path).
-                if (em.Value() < 0)
-                    continue;
-                while (names.size() <= static_cast<size_t>(em.Value()))
-                    names.push_back(std::string());
-                names[static_cast<size_t>(em.Value())] = em.Name();
-            }
-        }
-        m_compiledModule.enumNames.push_back(std::move(names));
-        //v2.0: parallel qualified key (nlink name-addresses enum slots).
-        m_compiledModule.enumKeys.push_back(KeyOf(sn));
-        m_enumIndexMap[&sn] = defIdx;
-    };
-    ForEachDeclNode(root, [&](SnField& node) {
-        //Per-unit: foreign units' enums belong to their own images.
-        if (node.Kind() == NK_EnumDecl && !node.IsImported()
-            && IsOwnUnit(node))
-            registerEnum(static_cast<SnEnumDecl&>(node));
-    });
-}
+//枚举登记族（RegisterEnums/RegisterEnumMethods）位于
+//RegisterEnums.cpp（0.10.14 v2.9 尺寸守卫触发的拆分，一表一 TU）。
 
 //v1.9 (debugger): the source-file spelling lives in SourceFilePathOf
 //(anonymous namespace, top of file) — shared with the entry-point scan.

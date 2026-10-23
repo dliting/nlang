@@ -60,12 +60,16 @@ void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                          const std::string& entryKey) {
     if (!fs.good()) return false;
-    //enumNames/enumKeys stay parallel by construction (RegisterEnums,
+    //The four enum tables (names/keys + v2.9 method indices/access)
+    //stay parallel by construction (RegisterEnums + RegisterEnumMethods,
     //Import's merge push, EnumSymbolSlot, ModuleLoader). The writer is
     //the single chokepoint to refuse a diverging module: the reader
-    //consumes exactly enumCount keys, so a mismatch would desync every
-    //later section into a misleading "bad import count" failure.
-    if (mod.enumKeys.size() != mod.enumNames.size())
+    //consumes exactly enumCount keys and enumCount method rows, so a
+    //mismatch would desync every later section into a misleading
+    //"bad import count" failure.
+    if (mod.enumKeys.size() != mod.enumNames.size()
+        || mod.enumMethodIndices.size() != mod.enumNames.size()
+        || mod.enumMethodAccess.size() != mod.enumNames.size())
         return false;
 
     // Magic
@@ -416,30 +420,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                  sizeof(at.elemTypeIdx));
     }
 
-    //Phase 8e-9b: enum name tables (per-enum vector of value names).
-    //Format: uint32 enumCount, then per enum: uint32 valueCount, then
-    //per value: uint32 nameLen + name bytes.
-    uint32_t enumCount = static_cast<uint32_t>(mod.enumNames.size());
-    fs.write(reinterpret_cast<const char*>(&enumCount), sizeof(enumCount));
-    for (auto& names : mod.enumNames) {
-        uint32_t valueCount = static_cast<uint32_t>(names.size());
-        fs.write(reinterpret_cast<const char*>(&valueCount), sizeof(valueCount));
-        for (auto& n : names) {
-            uint32_t len = static_cast<uint32_t>(n.size());
-            fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
-            fs.write(n.c_str(), len);
-        }
-    }
-
-    //v2.0 phase 6: enum qualified keys, parallel to enumNames (enumCount
-    //entries, no separate count — the two vectors are kept in lockstep by
-    //their construction sites: RegisterEnums, Import's placeholder push,
-    //and EnumSymbolSlot's placeholder push).
-    for (auto& key : mod.enumKeys) {
-        uint16_t len = static_cast<uint16_t>(key.size());
-        fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
-        fs.write(key.c_str(), len);
-    }
+    //Phase 8e-9b + v2.0 + v2.9: the enum record table (names, qualified
+    //keys, member-method tables) — writer in
+    //ModuleSaverRecordsEnums.cpp (one table per TU).
+    WriteEnumRecords(fs, mod);
 
     //v2.0 phase 6: cross-unit import slots, one section per table, in
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:

@@ -41,6 +41,7 @@ add_library(nlang_vm
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/RegisterInterfaces.cpp
+    backend/RegisterEnums.cpp
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
@@ -75,6 +76,7 @@ add_library(nlang_vm
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
     ModuleSaverRecordsInterfaces.cpp
+    ModuleSaverRecordsEnums.cpp
     NcuPackage.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp

@@ -129,7 +129,13 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //existing intrinsic-stub serialization). A v2.7 module has no trailing
 //mask and misparses the next record's leading bytes; refuse v2.7 and
 //older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 8;
+//v2.9 (0.10.14): per-enum member-method tables (enumMethodIndices /
+//enumMethodAccess), parallel to enumNames/enumKeys — the fourth
+//instance of "a type record carries its own member-function indices"
+//(classes methodIndices, structs constructorIndices, interfaces
+//staticMethodIndices). Minor bump: every .ncu recompiles with the
+//current ncc (the loader's hard floor, unchanged).
+inline constexpr uint16_t NCU_FORMAT_MINOR = 9;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -202,6 +208,15 @@ struct CompiledModule {
     //names). nlink name-addresses enum import slots and dedups enums
     //by key — enumNames alone carries no type identity.
     std::vector<std::string> enumKeys;
+    //v2.9 (0.10.14): per-enum member-method tables, parallel to
+    //enumNames/enumKeys (every construction site keeps the four vectors
+    //in lockstep, including placeholder slots, which carry empty
+    //vectors). enumMethodIndices[i] = the enum's method functions'
+    //indices into the producer's own function table, declaration order;
+    //enumMethodAccess[i] = the per-method declared access byte (FA_*),
+    //mirroring the class methodAccess gate on the consumer side.
+    std::vector<std::vector<uint16_t>> enumMethodIndices;
+    std::vector<std::vector<uint8_t>> enumMethodAccess;
 
     //v2.0 phase 6: cross-unit reference slots. Each unit's tables hold its
     //OWN declarations first (indices 0..n-1); slots n..n+m are PLACEHOLDER

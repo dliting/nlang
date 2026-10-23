@@ -111,8 +111,12 @@ static void test_link_two_units() {
     lib.classes.push_back(rec);                       //own 1
     lib.enumNames.push_back({"A0"});                  //own 0
     lib.enumKeys.push_back("lib.ColorA");
+    lib.enumMethodIndices.push_back({});
+    lib.enumMethodAccess.push_back({});
     lib.enumNames.push_back({"Red", "Green"});        //own 1
     lib.enumKeys.push_back("lib.Color");
+    lib.enumMethodIndices.push_back({});
+    lib.enumMethodAccess.push_back({});
     lib.functions.push_back(MakeFunc("lib.g", 0));    //own 0
     CompiledFunction lf = MakeFunc("lib.f", 1);       //own 1
     {
@@ -153,6 +157,8 @@ static void test_link_two_units() {
     app.structImports.push_back({"lib", "lib.Point", 0});
     app.enumNames.push_back({});                     //slot 0: empty names
     app.enumKeys.push_back("lib.Color");
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
     app.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::vector<CompiledModule> units;
@@ -201,6 +207,48 @@ static void test_link_two_units() {
           "lib's own string remapped into merged numbering");
     CHECK(merged.entryPoint == 0, "entryKey resolves to app.main");
 
+    PASS();
+}
+
+//0.10.14 (v2.9): merging remaps enumMethodIndices through the unit's
+//function map — the merged enum must point at the merged function
+//record, not the producer-local index.
+static void test_enum_method_index_remap_on_merge() {
+    TEST(enum_method_index_remap_on_merge);
+    CompiledModule lib = MakeUnit("lib");
+    lib.enumNames.push_back({"Red", "Green"});
+    lib.enumKeys.push_back("lib.Color");
+    lib.enumMethodIndices.push_back({0});    //lib's own function 0
+    lib.enumMethodAccess.push_back({0});
+    lib.functions.push_back(MakeFunc("lib.Color.rank", 1));  //own 0
+
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    //The import record rides WITH its placeholder tail entry (the
+    //table invariant test_link_two_units mirrors).
+    app.functions.push_back(MakeFunc("lib.Color.rank", 1));  //slot 1
+    app.functionImports.push_back({"lib", "lib.Color.rank", 1});
+    app.enumNames.push_back({});             //placeholder enum slot
+    app.enumKeys.push_back("lib.Color");
+    app.enumImports.push_back({"lib", "lib.Color", 0});
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    int en = merged.FindEnum("lib.Color");
+    CHECK(en >= 0, "merged enum present");
+    CHECK(merged.enumMethodIndices[en].size() == 1, "method table merged");
+    //Producer-local 0 must land on the merged record. app.main owns
+    //merged index 0, so a missed remap reads the wrong name — the
+    //assertion discriminates, it cannot pass on a stale index.
+    uint16_t remapped = merged.enumMethodIndices[en][0];
+    CHECK(remapped < merged.functions.size()
+        && merged.functions[remapped].name == "lib.Color.rank",
+        "method index remapped to the merged record");
     PASS();
 }
 
@@ -278,6 +326,8 @@ static void test_link_unresolved_all_at_once() {
     app.structImports.push_back({"nope", "nope.S", 0});
     app.enumNames.push_back({});
     app.enumKeys.push_back("nope.E");
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
     app.enumImports.push_back({"nope", "nope.E", 0});
 
     std::vector<CompiledModule> units;
@@ -1006,6 +1056,11 @@ int main() {
     std::cerr << "=== NLang nlink Unit Tests ===\n\n";
 
     try { test_link_two_units(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_enum_method_index_remap_on_merge(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
