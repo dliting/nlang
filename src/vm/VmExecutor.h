@@ -228,6 +228,10 @@ public:
     }
     int SchedulerQuotaFires() const { return m_quotaFires; }
     int SchedulerPreemptSkips() const { return m_preemptSkips; }
+    //K7 white-box probe: the current thread's evaluation slot must be
+    //empty around a completed run — pins the frame-privatization routing
+    //(carrier slot / fallback slot) without exposing the stack itself.
+    bool EvalStackProbeEmpty() { return EvalStack().empty(); }
     //K2 slice 2 white-box observability: contexts dispatched on
     //auxiliary carriers, and the peak number of carriers contending
     //for the GIL — together they prove a configured pool genuinely
@@ -279,7 +283,7 @@ public:
 
     //IVmDebugView — definitions in VmExecutorDebug.cpp. Frame queries
     //address one context by id: the context in this carrier's execution
-    //window reads m_callStack, every other context reads its parked
+    //window reads the current thread's evaluation stack, every other context reads its parked
     //frames in the scheduler registry (K4: unified inspection face).
     size_t ContextCount() const override;
     DebugContextInfo ContextInfo(int contextId) const override;
@@ -288,7 +292,7 @@ public:
     std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const override;
     //Frame source resolution behind the view face (see
-    //VmExecutorDebug.cpp): execution-window context → m_callStack,
+    //VmExecutorDebug.cpp): execution-window context → its carrier's stack,
     //otherwise the registry's parked stack.
     const std::vector<CallFrame>* FramesOfContext(int contextId) const;
 
@@ -348,7 +352,7 @@ private:
     void CacheBuiltinClassIndexes(const CompiledModule& module);
 
     //Frame machine (concurrency K1): NLang calls push frames onto
-    //m_callStack and one iterative dispatch loop runs them — NLang
+    //the evaluation stack and one iterative dispatch loop runs them — NLang
     //recursion no longer consumes C++ stack. RunFrames(baseDepth) runs
     //until the stack shrinks back to baseDepth (root window: 0; nested
     //toString/host windows: the depth at their entry). Definitions in
@@ -360,7 +364,7 @@ private:
     void RunFramesInner(size_t baseDepth);
     //K1 Slice 6: at RunFrames entry, throw the armed join-target failure
     //(a resumed joiner over a FAILED target) inside the handler-search
-    //try — no-op unless the carrier armed m_resumeThrowExcIdx.
+    //try — no-op unless the carrier armed ResumeThrowExcIdxRef().
     void ConsumeResumeThrow();
     void DispatchFrames(size_t baseDepth);   //inner loop; throws on error
     //Bind a catch handler for the in-flight exception in this frame
@@ -387,7 +391,7 @@ private:
     void RecordUnwindAndPopFrame();
     //The frame's result cell: the external C++ cell (root/toString/host
     //windows) or a slot in another frame — resolved fresh, never cached
-    //across a push (m_callStack growth moves CallFrame objects; the
+    //across a push (stack growth moves CallFrame objects; the
     //per-frame localsBuf buffer itself is move-stable).
     uint8_t* FrameResultCell(const CallFrame& frame);
 
@@ -469,7 +473,7 @@ private:
     int64_t ReadScalarAsInt64(int row, const uint8_t* p) const;
     void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
     //Call family contract (frame machine): return true when a new frame
-    //was pushed — the dispatcher must re-fetch m_callStack.back() before
+    //was pushed — the dispatcher must re-fetch EvalStack().back() before
     //the next instruction. False = handled inline (native/intrinsic/
     //diagnostic throw).
     bool OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
@@ -621,7 +625,7 @@ private:
     //frame zero-init rejects never-written cells.
     void MarkFrameBand(const CallFrame& frame, std::vector<int32_t>& worklist);
     //K1 Slice 6: scheduler root arm — parked/queued contexts' frames
-    //(not in m_callStack under the steal model) plus each context's
+    //(not on any evaluation stack under the steal model) plus each context's
     //Thread object and a Failed context's exception object (join rethrows
     //it by heap idx). Same three frame arms as the running stack.
     void MarkSchedulerRoots(std::vector<int32_t>& worklist);
@@ -646,7 +650,7 @@ private:
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
     void FreeOwnedArrayStructElements(int32_t heapIdx);
 
-    //Build a backtrace string from m_unwindFrames. Called when an exception
+    //Build a backtrace string from UnwindFrames(). Called when an exception
     //propagates out of main(); format is "  at <func> (<module>.n:<line>)".
     std::string FormatBacktrace() const;
 
@@ -706,7 +710,7 @@ private:
     void RethrowAuxiliaryError();
 
     //K1 Slice 6: one context's turn on the carrier — resume (frames
-    //return to m_callStack; a failed-join joiner rethrows before
+    //return to the carrier's evaluation stack; a failed-join joiner rethrows before
     //dispatch) or start main's fresh root window; on return, record the
     //result and wake joiners. K2: every context, main included, writes
     //its result into ctx->resultCell (registry cell — stable across
@@ -715,7 +719,7 @@ private:
     void RunContextWindow(int ctx, ExecutionContext* info,
                           const CompiledFunction& mainFunc);
 
-    //K1 Slice 6: arm m_resumeThrowExcIdx when this context was woken
+    //K1 Slice 6: arm ResumeThrowExcIdxRef() when this context was woken
     //over a FAILED join target (rethrowOnResume). Refuses loudly on a
     //missing/exceptionless target — never silently no-op.
     void ArmResumeRethrow(ExecutionContext* info);
@@ -725,6 +729,11 @@ private:
     //reaches the host only through join; dead frames' unwind records
     //drop). Main: rethrow to the host. Returns true for main.
     bool FailContextContained(int ctx, int32_t excHeapIdx);
+
+    //K2 slice 2: CarrierLoop's catch-all — a non-NLang error is fatal
+    //for the whole run: mark the context failed, drop its frames, and
+    //rethrow (the backtrace comes from the unwind records instead).
+    [[noreturn]] void FailContextFatal(int ctx);
 
     //K2 slice 1: one carrier-loop iteration's GIL holding window. The
     //destructor releases the lock and checks INV-2 on every exit path
@@ -760,7 +769,7 @@ private:
         GilWindowGuard(const GilWindowGuard&) = delete;
         GilWindowGuard& operator=(const GilWindowGuard&) = delete;
         ~GilWindowGuard() {
-            if (!m_rExec.m_callStack.empty()) {
+            if (!m_rExec.EvalStack().empty()) {
                 std::terminate();   //INV-2 broken: refuse to continue
             }
             if (m_lock.owns_lock()) {
@@ -1034,7 +1043,7 @@ private:
     bool RunBlockingNative(const CompiledFunction& callee,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         const BlockingInvoke& invoke);
-    //Steal m_callStack into the context (BlockedNative) / restore
+    //Steal the evaluation stack into the context (BlockedNative) / restore
     //exactly the stolen tail (Runnable-held). Split out of
     //RunBlockingNative for the source-size guard; park also raises
     //t_blockingNativeDepth (the restore lowers it in the caller,
@@ -1207,7 +1216,8 @@ private:
     //K2 slice 1: confluence slot for an auxiliary-carrier error (slice 2
     //writes it; the primary carrier rethrows it exactly once in
     //JoinAndCollect). Backtrace snapshotted at the capture site because
-    //m_unwindFrames is executor-global mutable state.
+    //the unwind records live on the capturing thread's slot (K7) —
+    //the primary carrier cannot read them after the fact.
     std::exception_ptr m_auxError;
     std::string m_auxBacktrace;
 
@@ -1311,14 +1321,24 @@ private:
     std::unordered_map<std::string, int32_t> m_shortStrTable;  //weak: content -> live handle
     static constexpr uint8_t kStrFormDead = 0xFF;   //free-slot sentinel
 
-    //Call frame stack — the frame machine's substrate and the GC root
-    //set. One CallFrame per active NLang function invocation. The frame
-    //type itself lives in CallFrame.h (the scheduler's parked contexts
-    //own frame stacks by value; K1 Slice 4 extraction, zero changes).
-    std::vector<CallFrame> m_callStack;
+    //K7 frame privatization: the evaluation stack moved to the carrier
+    //slot (running frames belong to the thread executing them). These
+    //accessors route to the current thread's slot — the carrier's own
+    //storage, or the fallback slot for host threads re-entering through
+    //the bridge. The steal protocol is unchanged: parking moves frames
+    //into ctx->frames, resume moves them back. Deliberately const (the
+    //slot is thread state reached through the scheduler pointer, not
+    //executor-object state; const debug views read it) and returning a
+    //mutable ref for the same reason.
+    std::vector<CallFrame>& EvalStack() const { return m_spScheduler->CarrierEvalStackRef(); }
+    //Unwind records + resume-rethrow arming are per-thread companion
+    //state for the same reason they were executor-global before: only
+    //one evaluation window runs at a time per thread.
+    std::vector<UnwindFrame>& UnwindFrames() const { return m_spScheduler->CarrierUnwindFramesRef(); }
+    int32_t& ResumeThrowExcIdxRef() const { return m_spScheduler->CarrierResumeThrowExcIdxRef(); }
 
     //K1 decision 5: the single-carrier scheduler. The running context's
-    //frames ARE m_callStack (a park steals them into the context — see
+    //frames ARE the slot's evalStack (a park steals them into the context — see
     //VmScheduler.h's file header).
     std::unique_ptr<VmScheduler> m_spScheduler =
         std::make_unique<VmScheduler>();
@@ -1349,8 +1369,8 @@ private:
     //original exception INTO the restored frame stack, so the joiner's own
     //try/catch — and the uncaught path — see it exactly as if the join
     //call had thrown). 0 = none; consumed at entry. Armed by the carrier
-    //only (top-level resume, nestDepth 0).
-    int32_t m_resumeThrowExcIdx = 0;
+    //only (top-level resume, nestDepth 0). K7: lives on the carrier slot
+    //as ResumeThrowExcIdxRef().
     //K1 Slice 6: cached "Thread" class index (spawn mints instances).
     int16_t m_threadClassIdx = -1;
     //K3: cached "Future" class index (typed spawn mints instances).
@@ -1377,7 +1397,7 @@ private:
     std::mt19937 m_rng;
 
     //Phase 9d: allocate a built-in Exception instance of the given class,
-    //set message + populate backtrace from the current m_callStack snapshot,
+    //set message + populate backtrace from the current evaluation-stack snapshot,
     //and throw NLangThrow carrying its heap idx. The throw site is expected
     //to be a converted `throw std::runtime_error(...)` site; the caller
     //supplies the human-readable message (used for what() / debugging).
@@ -1407,16 +1427,12 @@ private:
     //lookup to decide whether a catch clause can handle the thrown exception.
     bool IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx);
 
-    //Frames captured during exception unwinding. Populated by
+    //Frames captured during exception unwinding (records live on the
+    //carrier slot via UnwindFrames(); the UnwindFrame struct itself
+    //moved to CallFrame.h at namespace scope in K7). Populated by
     //RecordUnwindAndPopFrame as RunFrames unwinds frames innermost-first;
     //cleared when a catch handler takes the exception, so only the
     //uncaught path yields observable text (FormatBacktrace renders it).
-    struct UnwindFrame {
-        std::string funcName;
-        std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit
-        uint16_t currentLine;
-    };
-    std::vector<UnwindFrame> m_unwindFrames;
 
     //ByteStream side table: handle (1-based) → state.
     struct ByteStreamState {

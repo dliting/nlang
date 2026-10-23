@@ -344,7 +344,7 @@ void VmExecutor::OpRethrow() {
     //Phase 9d: `throw;` — re-raise the currently-caught exception.
     //Pops nothing; the matching OP_PopHandler at catch-block exit
     //(normal path) handles that.
-    auto& s = m_callStack.back().handlerExcStack;
+    auto& s = EvalStack().back().handlerExcStack;
     if (s.empty())
         throw std::runtime_error(
             "NLang VM: rethrow outside catch handler");
@@ -359,7 +359,7 @@ void VmExecutor::OpPopHandler() {
     //Phase 9d: emitted at the end of every catch body. Pops the
     //exception bound on catch entry so a later throw; in a different
     //scope doesn't accidentally use this frame's exception.
-    auto& s = m_callStack.back().handlerExcStack;
+    auto& s = EvalStack().back().handlerExcStack;
     if (s.empty())
         throw std::runtime_error(
             "NLang VM: PopHandler underflow");

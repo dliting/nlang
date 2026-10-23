@@ -62,9 +62,9 @@ std::string DebugCharDisplay(uint32_t cp) {
 } // namespace
 
 uint16_t VmExecutor::CurrentFuncIdx() const {
-    if (m_callStack.empty() || !m_currModule) return 0;
+    if (EvalStack().empty() || !m_currModule) return 0;
     return static_cast<uint16_t>(
-        m_callStack.back().func - m_currModule->functions.data());
+        EvalStack().back().func - m_currModule->functions.data());
 }
 
 void VmExecutor::FireOnThrow() {
@@ -73,12 +73,12 @@ void VmExecutor::FireOnThrow() {
     if (!DebugHooksActive()) return;
     DebugStopInfo stop;
     stop.contextId = m_spScheduler->CurrentContextId();
-    if (!m_callStack.empty()) {
-        stop.pc = m_callStack.back().currentPc;
-        stop.line = m_callStack.back().currentLine;
+    if (!EvalStack().empty()) {
+        stop.pc = EvalStack().back().currentPc;
+        stop.line = EvalStack().back().currentLine;
     }
     stop.funcIdx = CurrentFuncIdx();
-    stop.depth = m_callStack.size();
+    stop.depth = EvalStack().size();
     m_pDebugHooks->OnThrow(stop, *this);
     SyncDebugFocus();
 }
@@ -121,7 +121,7 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
     info.stateName = ContextStateName(ctx->state);
     info.heldByCarrier = m_spScheduler->HoldingCarrierOf(contextId);
     //Frames of the context in this carrier's execution window live in
-    //m_callStack; every other context keeps its whole stack parked in
+    //the current thread's evaluation stack; every other context keeps its whole stack parked in
     //the registry (FramesOfContext below applies the same split).
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     info.frameCount = frames->size();
@@ -137,7 +137,7 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
 }
 
 //K4: the frames of one context for inspection. The context in this
-//carrier's execution window owns m_callStack (its registry copy is
+//carrier's execution window owns EvalStack() (its registry copy is
 //empty — the stack was stolen into the window); every other context
 //parks its whole stack in the scheduler registry. Frozen-window only:
 //the GIL is held by this carrier while a checkpoint runs, so no other
@@ -145,7 +145,7 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
 const std::vector<CallFrame>* VmExecutor::FramesOfContext(
     int contextId) const {
     if (contextId == m_spScheduler->CurrentContextId())
-        return &m_callStack;
+        return &EvalStack();
     const ExecutionContext* ctx = m_spScheduler->Find(contextId);
     return ctx ? &ctx->frames : nullptr;
 }

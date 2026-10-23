@@ -65,7 +65,7 @@ void VmExecutor::MarkPhase() {
     m_strMarkBits.assign(m_stringObjs.size(), false);
     //Identify root references from all call frames and push to worklist.
     std::vector<int32_t> worklist;
-    for (auto& frame : m_callStack) {
+    for (auto& frame : EvalStack()) {
         MarkFrameLocals(frame, worklist);
         MarkFrameResult(frame, worklist);
         MarkFrameBand(frame, worklist);
@@ -109,7 +109,7 @@ void VmExecutor::MarkPhase() {
     }
 }
 
-//K1 Slice 6 root arm: parked/queued contexts are not in m_callStack
+//K1 Slice 6 root arm: parked/queued contexts are not in EvalStack()
 //(the steal model) — their whole frame stacks are roots here, plus each
 //context's Thread object (join reads __handle) and a Failed context's
 //exception object (join rethrows it by heap idx; it must survive until

@@ -288,7 +288,7 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         //the depth captured at entry (GC keeps seeing the nested frames;
         //an unhandled throw unwinds only this window before propagating
         //to the caller's frame — exactly the recursive engine's shape).
-        const size_t baseDepth = m_callStack.size();
+        const size_t baseDepth = EvalStack().size();
         //K6 D2: window from the root-frame push (its function-entry GC
         //safepoint must count this thread); RunFrames' guard nests.
         GcWorldStop::ExecWindowGuard toStringWindow(m_spScheduler->GcStop());

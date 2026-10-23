@@ -71,7 +71,7 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
     //Nested window: push onto the shared frame stack and run until the
     //depth captured at entry. The catch-all preserves the by-name bridge
     //contract: any escaping error carries the backtrace snapshot.
-    const size_t baseDepth = m_callStack.size();
+    const size_t baseDepth = EvalStack().size();
     //K6 D2: window from the root-frame push (its function-entry GC
     //safepoint must count this thread); RunFrames' guard nests.
     GcWorldStop::ExecWindowGuard hostWindow(m_spScheduler->GcStop());

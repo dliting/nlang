@@ -44,9 +44,9 @@ constexpr uint32_t kMaxNativeStagedParams = 64;
 void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
 {
     ctx->frames.insert(ctx->frames.end(),
-        std::make_move_iterator(m_callStack.begin()),
-        std::make_move_iterator(m_callStack.end()));
-    m_callStack.clear();
+        std::make_move_iterator(EvalStack().begin()),
+        std::make_move_iterator(EvalStack().end()));
+    EvalStack().clear();
     m_spScheduler->MarkBlockedNative(ctx->id);
     ++t_blockingNativeDepth;
     //K6 D2: the blocking section suspends this thread's evaluation-
@@ -63,7 +63,7 @@ void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
 void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
                                      size_t stolenDepth)
 {
-    m_callStack.assign(
+    EvalStack().assign(
         std::make_move_iterator(ctx->frames.end()
             - static_cast<std::ptrdiff_t>(stolenDepth)),
         std::make_move_iterator(ctx->frames.end()));
@@ -79,7 +79,7 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
 //K2 slice 4 (§2.5) — the blocking-native arm. Stages args and the result
 //cell onto the carrier's C++ stack (the native sees only staging — no
 //concurrent read channel into frame storage remains), steals the frame
-//stack into the context (BlockedNative; m_callStack empty for the whole
+//stack into the context (BlockedNative; EvalStack() empty for the whole
 //GIL release keeps INV-2 true mid-window), releases the GIL through the
 //thread's current holder (window guard or a re-entrant callback's ensure
 //guard — nesting works either way), runs the native, reacquires, and
@@ -123,7 +123,7 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
     m_nativeCallRoots.push_back({stagedRet, 1u, 0, rootOwner});
     if (paramCount)
         m_nativeCallRoots.push_back({stagedArgs, paramCount, 0, rootOwner});
-    const size_t stolenDepth = m_callStack.size();
+    const size_t stolenDepth = EvalStack().size();
     ParkFramesForBlockingNative(ctx);
     //Callback-minted handles attribute to this arm (nested arms restore).
     const uint64_t savedRootOwner = t_currentNativeRootOwner;
@@ -166,7 +166,7 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
         m_spScheduler->GcStop().ResumeEvalWindow();
         throw ShutdownSignal();
     }
-    //Run over: frames stay parked; m_callStack is empty (INV-2).
+    //Run over: frames stay parked; EvalStack() is empty (INV-2).
     if (m_spScheduler->StopRequested()) {
         //K6 D2: resume balances the park's suspend (the unwind drops
         //the RunFrames guard); frames stay parked for the shutdown.

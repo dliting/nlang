@@ -69,7 +69,7 @@ void VmExecutor::OpJump(BytecodeReader& reader) {
         //exhausted quota forever (zero-progress ping-pong; the fresh
         //worker root restarts at pc 0 outright). On the non-park path
         //the value is inert — normal flow seeks via the reader.
-        m_callStack.back().pc = target;
+        EvalStack().back().pc = target;
         CheckSchedulerQuota();
     }
     reader.Seek(target);
@@ -100,9 +100,9 @@ void VmExecutor::OpCase(BytecodeReader& reader) {
 
 void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
     uint16_t line = reader.ReadUint16();
-    if (!m_callStack.empty()) {
-        m_callStack.back().currentLine = line;
-        m_callStack.back().currentPc = opPc;
+    if (!EvalStack().empty()) {
+        EvalStack().back().currentLine = line;
+        EvalStack().back().currentPc = opPc;
     }
     //Debugger checkpoint: the callback runs with the program
     //frozen at this statement; returning resumes in place.
@@ -116,7 +116,7 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
         stop.pc = opPc;
         stop.line = line;
         stop.funcIdx = CurrentFuncIdx();
-        stop.depth = m_callStack.size();
+        stop.depth = EvalStack().size();
         m_pDebugHooks->OnStatement(stop, *this);
         SyncDebugFocus();
     }

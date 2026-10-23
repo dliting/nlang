@@ -21,8 +21,8 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_quotaFires = 0;
     m_gcCollections = 0;   //K6 D7: per-run collection count
     m_preemptSkips = 0;
-    m_resumeThrowExcIdx = 0;
-    m_unwindFrames.clear();
+    ResumeThrowExcIdxRef() = 0;
+    UnwindFrames().clear();
     m_lastBacktrace.clear();
     //K2 slice 1: confluence slot resets per run (an executor reuse must
     //not rethrow a stale auxiliary error).
@@ -119,7 +119,7 @@ void VmExecutor::InitStructHeap() {
     m_slotStructIdx.push_back(0);
     m_freeList.clear();
     m_gcPending = false;
-    m_callStack.clear();
+    EvalStack().clear();
 }
 
 void VmExecutor::InitializeForRun(const CompiledModule& module) {
@@ -201,7 +201,7 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
 //belong to the callers — RunPrimaryCarrier/RunAuxiliaryCarrier).
 //Contexts (main + spawned) come off the scheduler's FIFO run queue.
 //Frame ownership follows the steal model (VmScheduler.h): a context's
-//frames ARE m_callStack while it runs, and move into ctx->frames on
+//frames ARE the carrier's evaluation stack while it runs, and move into ctx->frames on
 //every park — so dispatching a context is either a fresh main root
 //(frames empty, primary carrier only) or moving its frames back and
 //re-entering RunFrames at the parked pc. main's return ends the run
@@ -212,6 +212,19 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
 //window) on every exit path. The empty-queue wait happens inside
 //PopNextRunnable (the lock is released while waiting — see
 //VmScheduler.cpp).
+//K2 slice 2: the catch-all arm of CarrierLoop, extracted for the
+//source-size guard. Non-NLang errors (VM-internal, or the deadlock
+//guard) are fatal for the whole run regardless of context — propagate.
+//The frames die with the run (the backtrace comes from UnwindFrames(),
+//not the frame stack): clearing them lets the window exit uphold
+//INV-2/5.
+[[noreturn]] void VmExecutor::FailContextFatal(int ctx)
+{
+    m_spScheduler->MarkFailed(ctx, 0);
+    EvalStack().clear();
+    throw;
+}
+
 void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
     try {
         for (;;) {
@@ -229,7 +242,7 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
                 //context (the steal model). Preempted requeues; the other
                 //reasons already recorded their state+target at the park
                 //site (ParkForJoin et al.) and wait for their wake event.
-                info->frames = std::move(m_callStack);
+                info->frames = std::move(EvalStack());
                 if (park.reason == ParkSignal::Reason::Preempted)
                     m_spScheduler->Requeue(ctx);
                 continue;
@@ -244,15 +257,12 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
                 //blocked context is dropped per the K1 exit policy.
                 break;
             } catch (...) {
-                //Non-NLang errors (VM-internal, or the deadlock guard)
-                //are fatal for the whole run regardless of context —
-                //propagate. The frames die with the run (the backtrace
-                //comes from m_unwindFrames, not the frame stack): clear
-                //them so the GIL release upholds INV-2.
-                m_spScheduler->MarkFailed(ctx, 0);
-                m_callStack.clear();
-                throw;
+                FailContextFatal(ctx);
             }
+            //INV-5 (K7): the carrier's evaluation stack must be empty at
+            //dispatch end (the catch arms guarantee it by construction).
+            if (!EvalStack().empty())
+                std::terminate();
             if (ctx == VmScheduler::kMainThreadId)
                 break;   //main returned: the run is over
         }
@@ -264,7 +274,7 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 
 //K1 Slice 6: one context's turn on the carrier. Resume (a spawned
 //context's first dispatch included) moves its frames back onto
-//m_callStack — RunFrames re-enters at each frame's parked pc, after
+//evaluation stack — RunFrames re-enters at each frame's parked pc, after
 //the failed-join rethrow arm; a fresh main root goes through the root
 //window. On return, record the result and wake joiners. K2 slice 1:
 //every context, main included, writes its result into ctx->resultCell
@@ -274,7 +284,7 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
     const CompiledFunction& mainFunc) {
     if (!info->frames.empty()) {
-        m_callStack = std::move(info->frames);
+        EvalStack() = std::move(info->frames);
         info->frames.clear();
         ArmResumeRethrow(info);
         RunFrames(0);
@@ -292,7 +302,7 @@ void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
 }
 
 //K1 Slice 6: a joiner woken over a FAILED target rethrows the target's
-//exception into its own frame stack before dispatch — m_resumeThrowExcIdx
+//exception into its own frame stack before dispatch — ResumeThrowExcIdxRef()
 //consumed at RunFrames entry, inside the handler-search try (the join
 //call site's opPc matches, exactly as if join had thrown).
 void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
@@ -303,7 +313,7 @@ void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
     //it on the parked context — throw it directly. The failed-join arm
     //below instead rethrows the TARGET's stored exception.
     if (info->resumeExcHeapIdx > 0) {
-        m_resumeThrowExcIdx = info->resumeExcHeapIdx;
+        ResumeThrowExcIdxRef() = info->resumeExcHeapIdx;
         info->resumeExcHeapIdx = 0;
         return;
     }
@@ -314,7 +324,7 @@ void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
     if (!target || target->failExcHeapIdx <= 0)
         throw std::runtime_error(
             "NLang VM: join target failed without an exception object");
-    m_resumeThrowExcIdx = target->failExcHeapIdx;
+    ResumeThrowExcIdxRef() = target->failExcHeapIdx;
 }
 
 //K1 Slice 6: containment for an uncaught NLang exception escaping a
@@ -325,7 +335,7 @@ bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
     m_spScheduler->MarkFailed(ctx, excHeapIdx);
     if (ctx == VmScheduler::kMainThreadId)
         return true;
-    m_unwindFrames.clear();   //dead context's records
+    UnwindFrames().clear();   //dead context's records
     m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
     return false;
 }
@@ -353,10 +363,10 @@ void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
 std::string VmExecutor::FormatBacktrace() const {
     std::string out;
     std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-    //m_unwindFrames is innermost-first (innermost's destructor ran first).
+    //UnwindFrames() is innermost-first (innermost's destructor ran first).
     //v0.8.5: each frame names ITS compiled translation unit, not the
     //current module (single-file builds only looked right by accident).
-    for (const auto& f : m_unwindFrames)
+    for (const auto& f : UnwindFrames())
         out += "  at "
             + FormatBacktraceFrame(f.funcName, f.sourceFile, f.currentLine,
                                    moduleName)
@@ -417,9 +427,9 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
         int32_t handle = static_cast<int32_t>(m_listStore.size());
         //__handle is the first field of List (slot[1]).
         m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
-        //Populate the backtrace: walk m_callStack innermost-first.
+        //Populate the backtrace: walk the evaluation stack innermost-first.
         std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-        for (auto it = m_callStack.rbegin(); it != m_callStack.rend(); ++it) {
+        for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
             //v0.8.5: real per-frame source file (same helper/format as
             //FormatBacktrace — the two surfaces must not drift). The
             //mint/box/store tail is the existing code, unchanged.

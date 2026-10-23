@@ -29,12 +29,12 @@ bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
     //(yield) suspends mid-frame and resume re-enters at frame.pc, so
     //re-executing this call would loop forever.
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
     //Resume point = the instruction AFTER this call's immediates.
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }
@@ -61,7 +61,7 @@ bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
                                callParamBase, locals, pResult, 0);
 }
@@ -77,7 +77,7 @@ bool VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
                                callParamBase, locals, pResult, outMask);
 }
@@ -144,7 +144,7 @@ bool VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t*
         throw std::runtime_error(
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, outMask, 0);
     return true;
 }
@@ -159,7 +159,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
     //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
@@ -169,7 +169,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }
@@ -197,7 +197,7 @@ bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
         throw std::runtime_error(
             "NLang VM: native function does not support out parameters: "
             + callee.name);
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     //Slot 0 is `this` on BOTH sides here (the caller's staging area
     //carries the receiver too), so user param i sits at frame slot i
     //and at callParamBase+i — the writeback is unshifted (contrast the
@@ -241,7 +241,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
     //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
@@ -251,7 +251,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }

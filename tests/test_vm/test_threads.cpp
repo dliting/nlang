@@ -215,7 +215,7 @@ void test_frame_deep_recursion_succeeds()
 
 //递归边界逐位对齐（等价预言）：递归引擎以 m_recurseDepth 计数，全部
 //ExecuteFunction 调用（含 main 根）共用 RECURSE_LIMIT=1000 — 前 1000 个
-//帧成功、第 1001 个帧抛。帧机以 m_callStack.size() 计数，边界必须重合：
+//帧成功、第 1001 个帧抛。帧机以当前求值栈的帧数计数，边界必须重合：
 //main 根 + 999 次 sum 调用（n∈[0,998]）= 1000 帧成功；sum(999) 需要
 //第 1001 帧，抛 "recursion limit exceeded"。
 void test_frame_recursion_boundary_exact()
@@ -2641,6 +2641,22 @@ void test_channel_bounded_pending_survives_gc()
     PASS();
 }
 
+void test_eval_stack_routes_to_fallback_slot()
+{
+    TEST(eval_stack_routes_to_fallback_slot);
+    //The test thread is not a carrier: EvalStack() must route to this
+    //thread's fallback slot and stay empty around a completed run.
+    CompiledModule mod = buildLinkedModule("eval_slot_route",
+        "int main() {\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.EvalStackProbeEmpty(), "fallback slot empty before run");
+    CHECK(exec.Execute(mod) == 0, "run completes");
+    CHECK(exec.EvalStackProbeEmpty(), "fallback slot empty after run");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -4051,6 +4067,7 @@ int main()
         runGuarded(test_channel_capacity_non_int_rejected);
         runGuarded(test_channel_bare_ctor_no_args_rejected);
         runGuarded(test_channel_bounded_pending_survives_gc);
+        runGuarded(test_eval_stack_routes_to_fallback_slot);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

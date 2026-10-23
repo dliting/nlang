@@ -20,10 +20,10 @@ namespace nlang {
 //site's opPc (exactly as if join had thrown). No-op unless the carrier
 //armed the flag (ArmResumeRethrow); consumed at most once per resume.
 void VmExecutor::ConsumeResumeThrow() {
-    if (m_resumeThrowExcIdx == 0)
+    if (ResumeThrowExcIdxRef() == 0)
         return;
-    const int32_t excIdx = m_resumeThrowExcIdx;
-    m_resumeThrowExcIdx = 0;
+    const int32_t excIdx = ResumeThrowExcIdxRef();
+    ResumeThrowExcIdxRef() = 0;
     ThrowJoinTargetFailure(excIdx);
 }
 
@@ -58,7 +58,7 @@ void VmExecutor::RunFramesInner(size_t baseDepth)
             //frames stay untouched — no unwind records, no handler
             //search — and the carrier loop routes by the signal's
             //reason. Must precede the catch-all below, which would
-            //otherwise corrupt m_unwindFrames (the O2 audit's one
+            //otherwise corrupt UnwindFrames() (the O2 audit's one
             //mandatory ordering).
             throw;
         } catch (ShutdownSignal&) {
@@ -69,15 +69,15 @@ void VmExecutor::RunFramesInner(size_t baseDepth)
             //record one unwind entry per frame of this window, innermost
             //first, so the uncaught-path backtrace covers these frames
             //too, then propagate unchanged.
-            while (m_callStack.size() > baseDepth)
+            while (EvalStack().size() > baseDepth)
                 RecordUnwindAndPopFrame();
             throw;
         }
         //NLang throw in flight: search handlers frame by frame without
         //dispatching instructions. Innermost frame first — the same order
         //the recursive unwind visited frames in.
-        while (m_callStack.size() > baseDepth) {
-            if (TryEnterCatchHandler(m_callStack.back(), inflightExc)) {
+        while (EvalStack().size() > baseDepth) {
+            if (TryEnterCatchHandler(EvalStack().back(), inflightExc)) {
                 inflight = nullptr;
                 break;
             }
@@ -93,12 +93,12 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 {
     for (;;) {
         //Window drained: every frame above baseDepth has returned.
-        if (m_callStack.size() <= baseDepth)
+        if (EvalStack().size() <= baseDepth)
             return;
         //Copy out everything the inner loop reads and let the
         //CallFrame reference die at the end of the block — NO
         //reference may survive across instructions. A false-returning
-        //op can still move m_callStack: a nested evaluation window
+        //op can still move EvalStack(): a nested evaluation window
         //(user toString via collection formatting, or a native host
         //callback's CallByName) pushes frames, and a vector growth
         //frees the old element array; only the per-frame localsBuf
@@ -110,7 +110,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         const CompiledFunction* func;
         uint16_t resumePc;
         {
-            CallFrame& entryFrame = m_callStack.back();
+            CallFrame& entryFrame = EvalStack().back();
             locals = entryFrame.localsBuf.data();
             pResult = FrameResultCell(entryFrame);
             func = entryFrame.func;
@@ -135,7 +135,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             //local so consumers never touch a stale frame reference.
             const uint16_t opPc =
                 static_cast<uint16_t>(reader.CurrentOffset());
-            m_callStack.back().opPc = opPc;
+            EvalStack().back().opPc = opPc;
             OpCode op = reader.ReadOp();
 
             switch (op) {

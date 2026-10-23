@@ -18,10 +18,11 @@
     错误串行化）、定时器专用懒线程（到期迁移集中在该线程，载体对运行
     队列纯谓词等待，无截止时间簿记）。
 
-    帧的存放约定（「停泊即窃取」）：运行中上下文的帧就是 VmExecutor::
-    m_callStack；挂起时整栈 move 进 ExecutionContext::frames，恢复时
-    move 回——执行器全部机制（GC 根集、异常走查、调试视图）只面向单一
-    m_callStack 工作，不为多上下文分叉。
+    帧的存放约定（「停泊即窃取」）：运行中上下文的帧在其载体线程的
+    求值栈上（CarrierState::evalStack，K7 私有化；宿主线程经回落槽
+    同形态）；挂起时整栈 move 进 ExecutionContext::frames，恢复时
+    move 回——每线程一个求值栈，GC 根集、异常走查、调试视图面向
+    「当前线程栈＋注册表停泊帧」。
 ---*/
 #pragma once
 #include "CallFrame.h"
@@ -144,7 +145,7 @@ struct ExecutionContext {
 };
 
 //调度器本体（VmExecutor 经 unique_ptr 持有）。注册（main/spawned）、
-//FIFO 出队、停泊/唤醒迁移与观测。帧的搬运（m_callStack ⇄ ctx->frames）
+//FIFO 出队、停泊/唤醒迁移与观测。帧的搬运（载体求值栈 ⇄ ctx->frames）
 //由执行器完成——调度器只管状态与队列。
 class VmScheduler {
 public:
@@ -294,6 +295,15 @@ public:
         uint64_t runGeneration = 0; //K6 D9: run generation at install
                                      //(zombie guard — compare after a
                                      //blocking native)
+        //K7 frame privatization: the evaluation stack lives on the slot —
+        //running frames belong to the thread executing them. Host threads
+        //re-entering through the bridge use the fallback slot's stack.
+        //Companion state (unwind records, resume-rethrow arming) is
+        //per-thread for the same reason it was executor-global before:
+        //only one window runs at a time per thread.
+        std::vector<CallFrame> evalStack;
+        std::vector<UnwindFrame> unwindFrames;
+        int32_t resumeThrowExcIdx = 0;  //0 = none; see VmExecutor.h
     };
     void InstallSelfCarrier(int carrierId) {
         t_carrier = &t_selfCarrier;
@@ -302,11 +312,22 @@ public:
         t_carrier->nestDepth = 0;
         t_carrier->schedTripBudget = 0;
         t_carrier->runGeneration = m_runGeneration;
+        t_carrier->evalStack.clear();
+        t_carrier->unwindFrames.clear();
+        t_carrier->resumeThrowExcIdx = 0;
     }
-    //载体槽访问（嵌套深度/预算）。未安装线程（理论上只有宿主在轮转
-    //外直调工具函数）落到线程局部空槽——恒零值，行为等同 K1。
+    //载体槽访问（嵌套深度/预算/求值栈/伴随态）。未安装线程（理论上
+    //只有宿主在轮转外直调工具函数）落到线程局部空槽——恒零值，行为
+    //等同 K1。
     int& CarrierNestDepthRef() { return carrierSlot().nestDepth; }
     int& CarrierTripBudgetRef() { return carrierSlot().schedTripBudget; }
+    //Non-const only, deliberately: a const overload would need its own
+    //fallback-slot instance (thread_local statics in const/non-const
+    //carrierSlot() are distinct objects) and route reads to a different
+    //slot than writes.
+    std::vector<CallFrame>& CarrierEvalStackRef() { return carrierSlot().evalStack; }
+    std::vector<UnwindFrame>& CarrierUnwindFramesRef() { return carrierSlot().unwindFrames; }
+    int32_t& CarrierResumeThrowExcIdxRef() { return carrierSlot().resumeThrowExcIdx; }
     void ResetCarrierTripBudget(int limit) {
         carrierSlot().schedTripBudget = limit;
     }
@@ -369,8 +390,8 @@ public:
     //it feeds the debugger's threads listing (held markers) and the
     //affinity counters. Frame reachability does NOT depend on it (the
     //inspection surface is complete on two paths: an execution-window
-    //context reads the single m_callStack, everything else reads the
-    //registry's parked frames).
+    //context is held by its carrier (frames on its evaluation stack),
+    //everything else reads the registry's parked frames).
     void ConfigureCarriers(uint32_t count) {
         m_carrierCount = count;
         m_heldByCarrier.assign(count, -1);

@@ -396,7 +396,7 @@ void VmScheduler::MarkBlockedNative(int id) {
 }
 
 //K2 slice 4（§2.5）：阻塞原生复原——载体已重取 GIL、帧已搬回
-//m_callStack；状态回 Runnable 但不入队（载体持有，同运行中上下文）。
+//载体求值栈；状态回 Runnable 但不入队（载体持有，同运行中上下文）。
 void VmScheduler::MarkRunnableHeld(int id) {
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
