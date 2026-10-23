@@ -285,11 +285,12 @@ class B {
   members are not, and `protected` members are reachable inside a
   subclass body. A non-`public` constructor cannot be called across
   the boundary.
-- **External structs and enums**: an imported `struct`'s fields are
-  not accessible across the module boundary (construction and passing
-  the value to the producer's functions work), and an `enum` is not
-  exported as a module member — see [Known
-  Limitations](known-limitations.md).
+- **External structs and enums**: an imported `struct`'s `public`
+  fields are readable and writable across the module boundary (and
+  the anchored brace form `lib.Vec v = {x: 1, y: 2};` fills fields by
+  name), and an `enum` is a full module member — its type, values,
+  member methods, and `toString` all work through the package name
+  (`lib.Color.Red`, `lib.Color.rank()`).
 
 ### Null check
 

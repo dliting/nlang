@@ -67,3 +67,30 @@ enum Color {
 ### 输出
 
 `Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每个枚举一张名字表；VM用`OP_Enum_to_str`按值查成员名。超出名字表的值在`toString()`处抛宿主级运行期错误——不是可捕获的nlang异常；在表内但没有成员承载的值（显式成员值跳过的编号）转成空串。完整`toString`协议见[类型强制转换](type-casts.md)。
+
+### 跨模块枚举
+
+`enum`是完整的模块成员：导入包后，其类型、枚举值、成员方法与`toString`都能经包名使用（见[包](packages.md)）。
+
+```nlang lib.n
+enum Color {
+    Red, Green, Blue;
+
+    public int rank() { return this * 10; }
+}
+```
+
+```nlang
+import lib;
+
+lib.Color c = lib.Color.Green;          // 限定类型＋限定成员值
+int r = c.rank();                       // 经变量接收者调方法
+int r2 = lib.Color.Blue.rank();         // 经成员常量调方法
+string s = lib.Color.Red.toString();    // 内建toString → "Red"
+```
+
+- **限定类型引用**：`lib.Color`在任意类型位置（局部变量、字段、形参、返回类型）命名导入的枚举类型。
+- **枚举值是编译期常量**：`lib.Color.Red`折叠为其底座int32，与非限定的`Color.Red`完全一致。
+- **成员方法两种接收者形态都可用**——变量（`c.rank()`）或成员常量（`lib.Color.Blue.rank()`）——分派方式与定义模块内相同（静态分派）。
+- **`toString`可用**：`lib.Color.Green.toString()`返回`"Green"`。
+- **可见性到哪都是同一套规则**：`private`成员方法跨模块边界不可达。

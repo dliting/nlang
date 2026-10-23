@@ -112,3 +112,37 @@ by value. A value beyond the table throws a host-level runtime error at
 that no member carries (a number skipped by explicit member values)
 converts to the empty string. See [Type Casts](type-casts.md) for the full
 `toString` protocol.
+
+### Enums across modules
+
+An `enum` is a full module member: importing the package makes its type,
+values, member methods, and `toString` reachable through the package name
+(see [Packages](packages.md)).
+
+```nlang lib.n
+enum Color {
+    Red, Green, Blue;
+
+    public int rank() { return this * 10; }
+}
+```
+
+```nlang
+import lib;
+
+lib.Color c = lib.Color.Green;          // qualified type + qualified value
+int r = c.rank();                       // method through a variable receiver
+int r2 = lib.Color.Blue.rank();         // method through a member constant
+string s = lib.Color.Red.toString();    // built-in toString -> "Red"
+```
+
+- **Qualified type reference**: `lib.Color` names the imported enum type in
+  any type position (locals, fields, parameters, return types).
+- **Values are compile-time constants**: `lib.Color.Red` folds to its
+  underlying int32, exactly like the unqualified `Color.Red`.
+- **Member methods work through either receiver form** — a variable
+  (`c.rank()`) or a member constant (`lib.Color.Blue.rank()`) — with the
+  same static dispatch as inside the defining module.
+- **`toString` works**: `lib.Color.Green.toString()` returns `"Green"`.
+- **Visibility is the same rule as everywhere**: a `private` member method
+  is not reachable across the module boundary.

@@ -71,6 +71,16 @@ Error: imported function 'lib.addCast' has a default for parameter 1 outside the
 
 默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。同一工程内源码一起编译不受此限制——默认表达式直接使用。默认参数语义见 → [默认参数](default-parameters.md)。
 
+### 被导入函数与其记录不符
+
+```console
+$ nvm main.ncu
+Runtime error: nlink failed:
+  unit 'main': imported function 'score' (paramCount 1) from module 'lib' does not match its record in the owning unit (stale artifact — recompile the importing module)
+```
+
+跨模块调用记录被调函数在生产方单元函数表中的位置。若生产方重新编译后该位置发生移动（增删重载、函数重排），而导入方的`.ncu`仍是旧产物，记录的位置就不再指向同一个函数。链接器不猜测，直接报此错，而不是把调用悄悄连到错误的记录。请对照当前的生产方产物重新编译导入方。详见 → [包](packages.md)。
+
 ### 声明与控制流
 
 ```nlang

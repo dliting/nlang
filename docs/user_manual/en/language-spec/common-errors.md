@@ -96,6 +96,23 @@ Compiling the sources together in one project build does not hit this
 restriction — the default expression is used directly. See →
 [Default Parameters](default-parameters.md).
 
+### Imported function does not match its record
+
+```console
+$ nvm main.ncu
+Runtime error: nlink failed:
+  unit 'main': imported function 'score' (paramCount 1) from module 'lib' does not match its record in the owning unit (stale artifact — recompile the importing module)
+```
+
+A cross-module call records the callee's position in the producing unit's
+function table. If the producer is recompiled and that position shifts (an
+overload added or removed, a function reordered) while the importing
+module's `.ncu` is left stale, the recorded position no longer names the
+same function. The linker refuses to guess and reports this rather than
+silently binding the call to the wrong record. Recompile the importing
+module against the current producer artifact. See →
+[Packages](packages.md).
+
 ### Declarations and control flow
 
 ```nlang

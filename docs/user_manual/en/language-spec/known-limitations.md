@@ -84,21 +84,6 @@
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
-- **Instance fields of imported structs are inaccessible across the
-  module boundary**: the struct stub carries no fields — reading or
-  writing `s.x` on an imported struct is a compile error. Construction
-  (`lib.Vec(3, 4);`) and passing the value to the producing module's
-  own functions work, and the struct's field defaults still apply at
-  allocation.
-- **Enums cannot be imported across modules**: an `enum` is not
-  exported as a module member — a qualified reference (`lib.Color.Red`)
-  reports `Type 'Color' is not a member of package 'lib'.`
-- **Cross-module overloads with the same parameter count**: imported
-  free functions, interface static methods, and enum methods are
-  matched by name and parameter count; two same-name overloads with
-  the same parameter count but different parameter types fail at link
-  time with an explicit ambiguity error instead of silently
-  mislinking.
 - **Parameter count ceiling**: functions with more than 64 parameters
   (a sanity ceiling) trigger a compile-time error. The
   frame layout is otherwise dynamic — the call-argument staging area and

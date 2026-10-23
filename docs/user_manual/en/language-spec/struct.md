@@ -127,6 +127,38 @@ Serialization](../vm-architecture/module-serialization.md).
 
 Structs cannot contain general methods. Use classes for behavior.
 
+### Structs across modules
+
+An imported `struct` is a full module member: its `public` fields are
+readable and writable across the module boundary, and the anchored brace
+form fills fields by name (see [Classes across
+modules](class.md#classes-across-modules) for the shared import model).
+
+```nlang lib.n
+struct Vec {
+    int x;
+    int y;
+}
+```
+
+```nlang
+import lib;
+
+lib.Vec v = {x: 1, y: 2};   // brace init by field name
+v.x = 10;                   // write an imported field
+int sum = v.x + v.y;        // read an imported field
+```
+
+- **Field access follows the same visibility rule as everywhere**: only
+  `public` fields are reachable across the boundary; a `private` field is
+  not (struct fields are `public` unless spelled otherwise).
+- **Named init and construction**: `lib.Vec v = {x: 1, y: 2};` fills fields
+  by name against the stub's rebuilt field list; if the struct declares a
+  constructor, `lib.Vec(3, 4)` calls it across the boundary.
+- **Field defaults still apply at allocation**: the producer's field
+  defaults ride the `.ncu` record, so an imported struct declared without
+  an initializer materializes them just as within the defining module.
+
 ### Output
 
 A struct has no `toString` and is **permanently excluded** from string

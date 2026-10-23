@@ -82,6 +82,29 @@ struct Point {
 
 struct不能包含一般方法。需要行为请用class。
 
+### 跨模块的struct
+
+导入的`struct`是完整的模块成员：其`public`字段跨模块可读写，锚定花括号形式按字段名填充（共享的导入模型见[跨模块的类](class.md#跨模块的类)）。
+
+```nlang lib.n
+struct Vec {
+    int x;
+    int y;
+}
+```
+
+```nlang
+import lib;
+
+lib.Vec v = {x: 1, y: 2};   // 按字段名花括号初始化
+v.x = 10;                   // 写导入字段
+int sum = v.x + v.y;        // 读导入字段
+```
+
+- **字段访问遵循到哪都相同的可见性规则**：只有`public`字段跨边界可达，`private`字段不可达（struct字段除非显式写出，否则为`public`）。
+- **按名初始化与构造**：`lib.Vec v = {x: 1, y: 2};`按桩侧重建的字段列表按名填充；若struct声明了构造函数，`lib.Vec(3, 4)`跨边界调用它。
+- **字段默认值在分配时照常应用**：生产方的字段默认值随`.ncu`记录携带，因此不带初始化器声明的导入struct会像在本模块内一样物化这些默认值。
+
 ### 输出
 
 struct没有`toString`，且**永久排除**于字符串强制转换——`"x" + structInstance`是编译错误（struct在NLang中是纯数据类型）。见[类型强制转换](type-casts.md)「Object.toString()协议」。

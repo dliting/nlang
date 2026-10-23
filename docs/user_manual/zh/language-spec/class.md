@@ -175,7 +175,7 @@ class B {
 
 - **继承与契约**：`class D : lib.B`继承导入基类，`class C implements lib.I`实现导入接口。覆写与`implements`契约跨模块边界强制，与同单元完全一致：与继承的虚方法同名但签名不同的方法、漏实现的接口成员、与继承的虚方法冲突的静态方法，都是编译错误。
 - **可见性到哪都是同一套规则**：导入类只有`public`成员对导入方可达；`private`不可达，`protected`在子类体内可达。非`public`构造函数不能跨边界调用。
-- **外部struct与枚举**：导入`struct`的字段跨模块不可访问（可构造、可把值传给生产方函数），`enum`不作为模块成员导出——见[已知限制](known-limitations.md)。
+- **外部struct与枚举**：导入`struct`的`public`字段跨模块可读写（锚定花括号形式`lib.Vec v = {x: 1, y: 2};`按字段名填充），`enum`是完整的模块成员——其类型、枚举值、成员方法与`toString`都能经包名使用（`lib.Color.Red`、`lib.Color.rank()`）。
 
 ### Null检查
 

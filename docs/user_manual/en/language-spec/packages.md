@@ -33,7 +33,7 @@ source paths.
 ## Compiled artifacts and qualified table keys
 
 Every package compiles into its own **unit image** (`.ncu`, format
-v2.8), and each struct/class/function table key in the image is
+v2.9), and each struct/class/function table key in the image is
 **package-qualified**: `main.main`, `utils.helper.help`, `alib.Point`.
 Ownerless built-ins keep their bare keys (`Object`, `List`). References
 into other packages are recorded as **import slots** (target module
@@ -56,6 +56,13 @@ Where a value render names a type for the reader — an object's default
 qualified key, the name as source wrote it. The qualified key remains
 the spelling of linkage (linking, streams, disassembly); a value
 render shows the type, not its linkage identity.
+
+Overloads resolve by parameter type across the boundary as well: when a
+package declares two functions of the same name and parameter count with
+different parameter types, the call site's type-based selection travels to
+the linker, which connects each call to the selected overload's own record.
+An imported overload set therefore links exactly, with no name-and-arity
+ambiguity. See [Overload Resolution](overload-resolution.md#cross-module-overloads).
 
 ## Streams and literals
 

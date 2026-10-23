@@ -6,6 +6,48 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.14] - 2026-10-24
+
+### Added
+
+- **Imported structs carry their fields across the boundary** — an
+  imported `struct`'s `public` fields are now readable and writable in
+  the importing module, and the anchored brace form `lib.Vec v =
+  {x: 1, y: 2};` fills fields by name. Construction and field defaults
+  already worked across the boundary; field access was the gap.
+  `private` fields stay unreachable.
+
+- **Enums are full module members** — an imported `enum`'s type, values,
+  member methods, and `toString` are all reachable through the package
+  name (`lib.Color`, `lib.Color.Red`, `lib.Color.Blue.rank()`,
+  `lib.Color.Red.toString()`). A member method dispatches through either
+  a variable receiver or a member constant, with the same static
+  dispatch as inside the defining module; a `private` member method is
+  not reachable across the boundary.
+
+- **Cross-module overloads resolve by parameter type** — an imported
+  free function, interface static method, or enum method that declares
+  two same-name overloads with the same parameter count but different
+  parameter types no longer reports a link-time ambiguity. The call
+  site's type-based selection travels to the linker, which binds each
+  call to the selected overload's own record in the producing unit.
+
+- **A stale importing artifact is reported, not mis-linked** — when a
+  producer is recompiled and an imported function's table position
+  shifts while the importing module's `.ncu` is left stale, the linker
+  reports `imported function '...' does not match its record in the
+  owning unit` instead of silently binding the call to the wrong record.
+  The remedy is to recompile the importing module.
+
+### Changed
+
+- **Module image format 2.9** — enum records now serialize their
+  member-method indices and access bytes, the fourth instance of a type
+  record carrying its own member-function indices (alongside class
+  method indices, struct constructor indices, and interface static
+  method indices). The `.ncu` format minor version rises 2.8 → 2.9;
+  every `.ncu` must be recompiled with this version of the toolchain.
+
 ## [0.10.13] - 2026-10-23
 
 ### Fixed
