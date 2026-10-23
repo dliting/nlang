@@ -9,7 +9,7 @@
 #   Linux:   libnlang_<ns>.so
 #   macOS:   libnlang_<ns>.dylib
 
-set(NLANG_NATIVE_MODULES math io fs)
+set(NLANG_NATIVE_MODULES math io fs tensor)
 
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
@@ -42,6 +42,6 @@ endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.
-install(TARGETS nlang_math nlang_io nlang_fs
+install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION bin)

@@ -1856,3 +1856,4 @@ err_imported_enum_member_missing compile_error Cannot resolve the field
 import_overload_free 102
 import_overload_iface_static 202
 imported_enum_method_overload 103
+stdlib_tensor_zeros 0

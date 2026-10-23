@@ -1,0 +1,18 @@
+// tensor stage-1 smoke: zerosD mints a zero-filled double array whose
+// length and element sum are observable from the language side.
+import io;
+import tensor;
+
+int main() {
+    double[] a = tensor.zerosD(5);
+    int count = 0;
+    double total = 0.0;
+    foreach (double v in a) {
+        count = count + 1;
+        total = total + v;
+    }
+    io.print(a.length());
+    io.print(count);
+    if (total == 0.0) io.print("zeros");
+    return 0;
+}

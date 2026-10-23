@@ -1,0 +1,18 @@
+// Standard library source for the "tensor" package — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into every
+// build. The native functions are implemented in the host (nlang_tensor.dll);
+// any plain NLang function would compile from this file. Edit freely.
+//
+// Stage 1 covers 1-D numeric kernels over int/long/float/double arrays.
+// Creation kernels carry an element-type suffix (I/L/F/D) — the element
+// intent is not derivable from integer-only arguments, so each kind needs
+// its own name. Elementwise and reduction families use same-name
+// overloads instead: overload resolution picks the declared signature at
+// compile time and the native dispatches on the runtime element kind.
+//
+// Error model: null arrays raise NullPointerException, negative lengths
+// raise IndexOutOfBoundsException (language-side alignment), length
+// mismatches and empty reductions raise the base Exception.
+
+// Double array of n zeros.
+native double[] zerosD(int n);
