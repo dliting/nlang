@@ -60,6 +60,10 @@ def test_expected_exit_single_guard_pattern_and_no_main():
     #a negative return cannot name a process exit code — refuse it
     with pytest.raises(ValueError):
         expected_exit("int main() { return -1; }")
+    #a return whose value is not a literal promises no exit code
+    assert expected_exit("int f() { return 1; }\nint main() { return f(); }") is None
+    assert expected_exit(
+        "int main() { if (x) { return 5; } return compute(); }") is None
 
 
 def test_grouping_labeled_helpers_join_previous_program():
@@ -74,21 +78,21 @@ def test_grouping_labeled_helpers_join_previous_program():
         "int answer() { return 42; }\n"
         "```\n")
     blocks, _ = parse_blocks(doc)
-    programs, skipped, problems = group_programs(blocks)
+    programs, fragments, problems = group_programs(blocks)
     assert problems == []
-    assert skipped == []
+    assert fragments == []
     assert len(programs) == 1
     assert set(programs[0].files) == {
         "modules/main.n", "modules/helper.n", "modules/utils/helper.n"}
     assert programs[0].entry == "modules/main.n"
 
 
-def test_grouping_bare_helpers_without_program_are_skipped():
+def test_grouping_bare_helpers_without_program_are_fragments():
     doc = "```nlang\nint twice(int x) { return x * 2; }\n```\n"
     blocks, _ = parse_blocks(doc)
-    programs, skipped, problems = group_programs(blocks)
+    programs, fragments, problems = group_programs(blocks)
     assert programs == []
-    assert len(skipped) == 1
+    assert fragments == [blocks[0]]
     assert problems == []
 
 
@@ -108,17 +112,17 @@ def test_grouping_refuses_escaping_labels(tmp_path):
         doc = (_labeled_block_doc("modules/main.n",
                                   "int main() { return 0; }\n")
                + _labeled_block_doc(label))
-        programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+        programs, fragments, problems = group_programs(parse_blocks(doc)[0])
         assert len(programs) == 1
-        assert skipped == []
+        assert fragments == []
         assert len(problems) == 1, label
         assert "line 4" in problems[0]
         assert fragment in problems[0]
     #The guard covers entries too, not just helpers.
     doc = _labeled_block_doc(absolute, "int main() { return 0; }\n")
-    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    programs, fragments, problems = group_programs(parse_blocks(doc)[0])
     assert programs == []
-    assert skipped == []
+    assert fragments == []
     assert len(problems) == 1
     assert "line 1" in problems[0]
 
@@ -127,23 +131,54 @@ def test_grouping_refuses_duplicate_labels():
     doc = (_labeled_block_doc("modules/main.n", "int main() { return 0; }\n")
            + _labeled_block_doc("modules/helper.n")
            + _labeled_block_doc("modules/helper.n"))
-    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    programs, fragments, problems = group_programs(parse_blocks(doc)[0])
     assert len(programs) == 1
     assert set(programs[0].files) == {
         "modules/main.n", "modules/helper.n"}
-    assert skipped == []
+    assert fragments == []
     assert len(problems) == 1
     assert "line 7" in problems[0]
     assert "modules/helper.n" in problems[0]
     #Duplicating the entry's own label is the same refusal.
     doc = (_labeled_block_doc("modules/main.n", "int main() { return 0; }\n")
            + _labeled_block_doc("modules/main.n"))
-    programs, skipped, problems = group_programs(parse_blocks(doc)[0])
+    programs, fragments, problems = group_programs(parse_blocks(doc)[0])
     assert len(programs) == 1
     assert set(programs[0].files) == {"modules/main.n"}
-    assert skipped == []
+    assert fragments == []
     assert len(problems) == 1
     assert "line 4" in problems[0]
+
+
+def test_error_quote_attaches_to_preceding_nlang_run():
+    doc = ("```nlang lib.n\nint g() { return 1; }\n```\n"
+           "```nlang main.n\nimport lib;\nint main() { return g(); }\n```\n"
+           "\n```text\nError: boom here\n```\n"
+           "```nlang\nint main() { return 0; }\n```\n")
+    blocks, problems = parse_blocks(doc)
+    assert problems == []
+    assert blocks[0].error_quote == ["Error: boom here"]
+    assert blocks[1].error_quote == ["Error: boom here"]
+    assert blocks[2].error_quote is None
+
+
+def test_error_quote_not_attached_across_other_fence():
+    doc = ("```nlang\nint main() { return 0; }\n```\n"
+           "```bash\nls\n```\n"
+           "```nlang\nint main() { return 1; }\n```\n"
+           "```text\nError: only the last block\n```\n")
+    blocks, _ = parse_blocks(doc)
+    assert blocks[0].error_quote is None
+    assert blocks[1].error_quote == ["Error: only the last block"]
+
+
+def test_bare_mainless_blocks_are_fragments_not_problems():
+    doc = "```nlang\nint twice(int x) { return x * 2; }\n```\n"
+    blocks, _ = parse_blocks(doc)
+    programs, fragments, problems = group_programs(blocks)
+    assert programs == []
+    assert problems == []
+    assert len(fragments) == 1
 
 
 GOOD_DOC = "```nlang\nimport io;\nint main() { return 7; }\n```\n"
@@ -157,17 +192,19 @@ NEGATIVE_DOC = "```nlang\nint main() { return -1; }\n```\n"
 def test_audit_green_doc_passes(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(GOOD_DOC, encoding="utf-8")
-    problems, programs, skipped = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, programs, fragments, errors = audit_doc(
+        doc, NCC, NVM, tmp_path / "work")
     assert problems == []
     assert len(programs) == 1
-    assert skipped == []
+    assert fragments == []
+    assert errors == []
 
 
 @needs_tools
 def test_audit_failed_expectation_names_the_block(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(WRONG_DOC, encoding="utf-8")
-    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert len(problems) == 1
     assert "exited 1" in problems[0] and "expected 7" in problems[0]
 
@@ -176,7 +213,7 @@ def test_audit_failed_expectation_names_the_block(tmp_path):
 def test_audit_compile_error_is_reported(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(COMPILE_ERROR_DOC, encoding="utf-8")
-    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert len(problems) == 1
     assert "compile" in problems[0]
 
@@ -187,14 +224,14 @@ def test_audit_negative_return_is_a_located_problem(tmp_path):
     #a problem naming the block, not as an uncaught exception.
     doc = tmp_path / "page.md"
     doc.write_text(NEGATIVE_DOC, encoding="utf-8")
-    problems, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
     assert len(problems) == 1
     assert "line 1" in problems[0]
     assert "negative" in problems[0]
 
 
 @needs_tools
-def test_audit_multifile_project_and_skips(tmp_path):
+def test_audit_multifile_project_and_fragments(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text(
         "`main.n`:\n```nlang modules/main.n\n"
@@ -202,9 +239,121 @@ def test_audit_multifile_project_and_skips(tmp_path):
         " { return 42; } return 1; }\n```\n"
         "`utils/helper.n`:\n```nlang modules/utils/helper.n\n"
         "int answer() { return 42; }\n```\n", encoding="utf-8")
-    problems, programs, _ = audit_doc(doc, NCC, NVM, tmp_path / "work")
+    problems, programs, fragments, _ = audit_doc(
+        doc, NCC, NVM, tmp_path / "work")
     assert problems == []
     assert len(programs) == 1
+    assert fragments == []
+
+
+ERROR_DOC = ("```nlang\nimport nosuch;\nint main() { return 0; }\n```\n"
+             "\n```text\nError: Module 'nosuch' not found. Check the project "
+             "Sources list or -I import path.\n```\n")
+ERROR_MISMATCH_DOC = ("```nlang\nimport nosuch;\nint main() { return 0; }\n```\n"
+                      "\n```text\nError: a diagnostic that never fires\n```\n")
+ERROR_COMPILES_DOC = ("```nlang\nint main() { return 0; }\n```\n"
+                      "\n```text\nError: stale quote\n```\n")
+NATIVE_DOC = ("```nlang\nnative int natAdd(int a, int b);\n"
+              "int main() { return natAdd(20, 22); }\n```\n")
+COMPUTED_DOC = ("```nlang\nint f() { return 5; }\nint main() { return f(); }\n```\n")
+COMPUTED_CRASH_DOC = ("```nlang\nint main() {\n    int[] a = [1, 2, 3];\n"
+                      "    return a[10];\n}\n```\n")
+
+
+@needs_tools
+def test_audit_error_example_passes(tmp_path):
+    doc = tmp_path / "page.md"
+    doc.write_text(ERROR_DOC, encoding="utf-8")
+    problems, programs, fragments, errors = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+    assert programs == [] and fragments == []
+    assert len(errors) == 1
+
+
+@needs_tools
+def test_audit_error_example_quote_mismatch_is_located(tmp_path):
+    doc = tmp_path / "page.md"
+    doc.write_text(ERROR_MISMATCH_DOC, encoding="utf-8")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert len(problems) == 1
+    assert "line 1" in problems[0]
+    assert "not in compiler output" in problems[0]
+    assert "a diagnostic that never fires" in problems[0]
+
+
+@needs_tools
+def test_audit_error_example_that_compiles_is_reported(tmp_path):
+    doc = tmp_path / "page.md"
+    doc.write_text(ERROR_COMPILES_DOC, encoding="utf-8")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert len(problems) == 1
+    assert "compiled successfully" in problems[0]
+
+
+ERROR_MULTI_DOC = (
+    "```nlang lib.n\nint addCast(float a, int b = a as int) {\n"
+    "    return b;\n}\n```\n"
+    "\n```nlang main.n\nimport lib;\n\nint main() {\n"
+    "    return lib.addCast(1.5f);\n}\n```\n"
+    "\n```text\nError: imported function 'lib.addCast' has a default for "
+    "parameter 1 outside the cross-module subset\n```\n")
+
+
+@needs_tools
+def test_audit_error_example_multi_file_uses_sealed_ncu_path(tmp_path):
+    #The cross-module default-expression subset restriction only fires
+    #across sealed .ncu boundaries; a .nproj build inlines the sources
+    #and would compile this example cleanly, so the audit must use the
+    #sealed sequential recipe (the F-001 shape from the manual).
+    doc = tmp_path / "page.md"
+    doc.write_text(ERROR_MULTI_DOC, encoding="utf-8")
+    problems, _, _, errors = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+    assert len(errors) == 1
+
+
+@needs_tools
+def test_audit_native_block_is_compile_only(tmp_path):
+    #plain nvm has no host registration: running would exit 1, so the
+    #audit must stop at a successful compile.
+    doc = tmp_path / "page.md"
+    doc.write_text(NATIVE_DOC, encoding="utf-8")
+    problems, programs, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+    assert len(programs) == 1
+
+
+@needs_tools
+def test_audit_computed_return_clean_run_passes(tmp_path):
+    doc = tmp_path / "page.md"
+    doc.write_text(COMPUTED_DOC, encoding="utf-8")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+
+
+@needs_tools
+def test_audit_computed_return_crash_is_reported(tmp_path):
+    doc = tmp_path / "page.md"
+    doc.write_text(COMPUTED_CRASH_DOC, encoding="utf-8")
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert len(problems) == 1
+    assert "Runtime error" in problems[0]
+
+
+@needs_tools
+def test_audit_runs_programs_in_scratch_cwd(tmp_path, monkeypatch):
+    #a snippet that writes a relative path must not litter the invoking
+    #directory: nvm runs with the scratch dir as its working directory.
+    doc = tmp_path / "page.md"
+    doc.write_text("```nlang\nimport io;\nint main() {\n"
+                   "    io.writeFile(\"marker.txt\", \"x\");\n    return 0;\n}\n```\n",
+                   encoding="utf-8")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    problems, _, _, _ = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+    assert not (cwd / "marker.txt").exists()
 
 
 def test_cli_missing_doc_fails_cleanly(tmp_path, capsys):
@@ -240,7 +389,7 @@ def test_stage_audits_every_page_in_the_guide_dir(tmp_path, monkeypatch):
         #block at all; a broken fence comes back as problems instead.
         if page.name == "c.md":
             raise ValueError("no ```nlang blocks found")
-        return [], [object()], []
+        return [], [object()], [], []
 
     (tmp_path / "mkdocs.yml").write_text("site_name: t\n", encoding="utf-8")
     opts = types.SimpleNamespace(
@@ -269,8 +418,8 @@ def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
 
     def fake_audit_doc(page, ncc, nvm, wd):
         if page.name == "b.md":
-            return ["exit code 1, expected 0"], [], []
-        return [], [object()], []
+            return ["exit code 1, expected 0"], [], [], []
+        return [], [object()], [], []
 
     opts = types.SimpleNamespace(
         config=str(tmp_path / "mkdocs.yml"), doc=None, workdir=None,

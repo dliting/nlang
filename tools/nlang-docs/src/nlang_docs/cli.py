@@ -203,7 +203,7 @@ def _snippet_stage(opts):
     with tempfile.TemporaryDirectory(prefix="nlang_snippets_") as tmp:
         for page in pages:
             try:
-                p, prog, skip = audit_doc(page, ncc, nvm, Path(tmp))
+                p, prog, skip, _err = audit_doc(page, ncc, nvm, Path(tmp))
             except ValueError:
                 #audit_doc raises ValueError only for a page with no
                 #```nlang block at all (a broken fence is a problem
@@ -248,7 +248,7 @@ def _snippet_audit(page, ncc, nvm, workdir):
 
 
 def _snippet_audit_run(page, ncc, nvm, workdir):
-    problems, programs, skipped = audit_doc(page, ncc, nvm, workdir)
+    problems, programs, skipped, _errors = audit_doc(page, ncc, nvm, workdir)
     for problem in problems:
         print("snippets: " + problem, file=sys.stderr)
     if problems:
