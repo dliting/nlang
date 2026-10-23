@@ -1840,3 +1840,15 @@ imported_struct_field_array 23
 imported_struct_field_nested 5
 imported_struct_init_named 12
 err_imported_struct_field_missing compile_error Cannot resolve the field
+# --- 0.10.14: the enum stub rebuilds value members (sparse explicit-value
+# gaps included), member methods with their declared access, and the
+# toString channel; qualified switch labels constant-fold against the stub.
+# A private method stays inaccessible and a missing member keeps the
+# standard unresolved-field error. ---
+imported_enum_type 1
+imported_enum_value 11
+imported_enum_switch 10
+imported_enum_tostring 5
+imported_enum_method 0
+err_imported_enum_method_private compile_error The function "hidden" does not exist or is not accessible.
+err_imported_enum_member_missing compile_error Cannot resolve the field

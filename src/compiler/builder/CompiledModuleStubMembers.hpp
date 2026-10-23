@@ -341,6 +341,48 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	return pDecl;
 }
 
+//0.10.14: build a SnEnumDecl stub for an imported enum. Value members
+//rebuild from the sparse name table (empty slots = explicit-value gaps,
+//skipped; member value = table index). Member methods rebuild from the
+//v2.9 method tables as instance-method stubs (CreateMethodStub — an
+//enum method's receiver is the enum value) with their declared access.
+//The stub joins ImportedTypes() so FindModuleType binds "<pkg>.<Enum>".
+inline SnEnumDecl *CreateEnumStub(const std::string &qualifiedKey,
+	const std::vector<std::string> &valueNames,
+	const std::vector<uint16_t> &methodIndices,
+	const std::vector<uint8_t> &methodAccess,
+	const CompiledModule &cm, const ISourceLocation &loc)
+{
+	auto *pValues = new PtrList<SnEnumMember>();
+	for (size_t vi = 0; vi < valueNames.size(); ++vi)
+	{
+		if (valueNames[vi].empty())
+			continue;   //explicit-value gap (sparse fill)
+		auto *pMember = new SnEnumMember(
+			new std::string(valueNames[vi]), nullptr, loc);
+		pMember->SetValue(static_cast<int32_t>(vi));
+		pValues->push_back(pMember);
+	}
+	auto *pMethods = new PtrList<SnFunction>();
+	for (size_t mi = 0; mi < methodIndices.size(); ++mi)
+	{
+		const uint16_t idx = methodIndices[mi];
+		//Out-of-range is a corrupt image (the loader validated the
+		//counts); the bound check keeps stub minting defensive.
+		if (idx >= cm.functions.size())
+			continue;
+		const FieldAccessType access = mi < methodAccess.size()
+			? static_cast<FieldAccessType>(methodAccess[mi])
+			: FA_Public;
+		pMethods->push_back(
+			CreateMethodStub(cm.functions[idx], cm, loc, access));
+	}
+	auto pName = new std::string(LeafNameOfKey(qualifiedKey));
+	auto *pDecl = new SnEnumDecl(pName, pValues, pMethods, loc);
+	pDecl->AddFlags(NF_Imported);   //R6-2
+	return pDecl;
+}
+
 //0.9.10 D5: point a class stub's SuperClass at its peer stub from the
 //same module so inherited members resolve through the normal chain
 //walk. A super from another imported module or a builtin (Exception

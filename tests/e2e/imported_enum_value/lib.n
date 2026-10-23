@@ -1,0 +1,1 @@
+enum Code { A = 5, B, C = 10 }

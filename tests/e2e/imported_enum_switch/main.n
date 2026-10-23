@@ -1,0 +1,11 @@
+import lib;
+
+int main() {
+    int r = 0;
+    switch (lib.State.Running) {
+        case lib.State.Idle: r = r + 1;
+        case lib.State.Running: r = r + 10;
+        case lib.State.Done: r = r + 100;
+    }
+    return r;
+}

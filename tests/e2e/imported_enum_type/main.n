@@ -1,0 +1,6 @@
+import lib;
+
+int main() {
+    lib.Color c = lib.Color.Red;
+    return lib.pick(c);
+}

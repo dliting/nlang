@@ -19,11 +19,11 @@ namespace nlang {
 //mechanics). All four helpers discriminate by IsOwnUnit first and THROW
 //when an own declaration misses its table: a silent placeholder would
 //target the unit's own module path and could "link" to itself, hiding
-//the registration-order bug. Imported ENUM stubs never enter
-//m_enumIndexMap — safe, because only the parser creates SnEnumDecl
-//(a .ncu import builds no enum AST node), so every pEnumDecl reaching
-//EnumSlotFor is a registered source enum and the own-miss throw
-//cannot fire.
+//the registration-order bug. Imported ENUM stubs (0.10.14) never enter
+//m_enumIndexMap: the minted stub is NF_Imported and reaches
+//EnumSlotFor's placeholder-slot branch (the own-miss throw only fires
+//for own declarations), so the cross-unit EnumSymbolSlot channel —
+//dead until the enum stub landed — is the live path.
 uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     if (IsOwnUnit(callee)) {
         auto it = m_funcIndexMap.find(&callee);

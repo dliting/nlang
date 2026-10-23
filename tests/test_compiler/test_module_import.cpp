@@ -1910,6 +1910,68 @@ private slots:
         QVERIFY(fields[1]->Type()->Field() != nullptr);
         QVERIFY(fields[1]->Type()->Field()->Kind() == NK_Float);
     }
+
+    //0.10.14: the enum stub rebuilds value members (sparse gaps
+    //skipped, member value = table index) and member methods with their
+    //declared access — and the enum's methods are NOT promoted to free
+    //stubs (the double-mint the enum import corrects).
+    void importedEnumStubRebuildsMembersAndMethods()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_stub_enum";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "lib.n", std::ios::binary)
+            << "enum Color {\n"
+               "    Red, Green = 5, Blue;\n"
+               "    public int rank() { return this; }\n"
+               "    private int hidden() { return 0; }\n"
+               "}\n";
+        const auto outcome = compile("stub_enum",
+            {(dir / "lib.n").string()}, dir.string());
+        QVERIFY2(outcome.ok, "producer lib must build clean");
+        QCOMPARE(outcome.units.size(), size_t(1));
+
+        //Global tree, same reason as importedStructStubRebuildsFields.
+        BuildParams params;
+        MemLogger logger;
+        BuildEnvironment env(params, logger);
+        TheAST().Clear();
+        TheAST().BuildFromRuntime(env);
+        CompiledModuleNodeBuilder stubBuilder(TheAST(), "lib");
+        stubBuilder.BuildFromCompiledModule(outcome.units[0]);
+
+        const SnField* pColor =
+            findMember(TheAST().Root()->Members(), NK_EnumDecl, "Color");
+        QVERIFY2(pColor != nullptr, "Color stub must reach the consumer root");
+        QVERIFY(pColor->ContainFlags(NF_Imported));
+        const auto& color = static_cast<const SnEnumDecl&>(*pColor);
+
+        std::vector<const SnEnumMember*> values;
+        for (const auto& member : color.Members())
+            values.push_back(&member);
+        QCOMPARE(values.size(), size_t(3));
+        QCOMPARE(values[0]->Name(), std::string("Red"));
+        QCOMPARE(values[0]->Value(), 0);
+        QCOMPARE(values[1]->Name(), std::string("Green"));
+        QCOMPARE(values[1]->Value(), 5);   //sparse gap: value = table index
+        QCOMPARE(values[2]->Name(), std::string("Blue"));
+        QCOMPARE(values[2]->Value(), 6);
+
+        std::vector<const SnFunction*> methods;
+        for (const auto& method : color.Methods())
+            methods.push_back(&method);
+        QCOMPARE(methods.size(), size_t(2));
+        QCOMPARE(methods[0]->Name(), std::string("rank"));
+        QCOMPARE(static_cast<int>(methods[0]->AccessType()),
+            static_cast<int>(FA_Public));
+        QCOMPARE(methods[1]->Name(), std::string("hidden"));
+        QCOMPARE(static_cast<int>(methods[1]->AccessType()),
+            static_cast<int>(FA_Private));
+
+        //Free-stub filter: the enum's methods stay owned by the enum.
+        QVERIFY2(findMember(TheAST().Root()->Members(), NK_Function, "rank")
+            == nullptr, "enum method must not be promoted to a free stub");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

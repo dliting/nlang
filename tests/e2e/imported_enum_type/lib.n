@@ -1,0 +1,6 @@
+enum Color { Red, Green, Blue }
+
+int pick(Color c) {
+    if (c == Color.Green) return 2;
+    return 1;
+}

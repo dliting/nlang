@@ -1,0 +1,6 @@
+import lib;
+
+int main() {
+    string s = lib.Color.Green.toString();
+    return s.length();
+}

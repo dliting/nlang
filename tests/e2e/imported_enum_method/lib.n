@@ -1,0 +1,7 @@
+enum Color {
+    Red, Green, Blue;
+
+    public int rank() {
+        return this * 10;
+    }
+}
