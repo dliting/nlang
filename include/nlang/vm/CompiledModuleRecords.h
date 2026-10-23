@@ -101,10 +101,10 @@ struct CompiledStruct {
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
     std::vector<uint16_t> fieldClassIndices;     // class index for class-typed fields, 0xFFFF for non-class
     //v1.12: per-field recursive type descriptors (empty entries = not
-    //expressible). Survive the import merge (indices remapped). Wire
-    //fidelity only — stubs keep their members empty, so nothing reads
-    //these back for reconstruction; they exist so a consumer re-saving
-    //the module emits correct descriptors.
+    //expressible). Survive the import merge (indices remapped). 0.10.14:
+    //the consumer struct stub reads these back to rebuild field members
+    //(CreateStructStub, mirroring the class stub); they also let a
+    //consumer re-saving the module emit correct descriptors.
     std::vector<TypeDesc> fieldTypeDescs;
     //0.9.11 (v2.6): constructor function indices in declaration order —
     //struct constructors are registered bare-name members, so the

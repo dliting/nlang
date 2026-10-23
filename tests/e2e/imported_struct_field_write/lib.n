@@ -1,0 +1,6 @@
+//0.10.14: producer exports a struct whose fields the consumer writes.
+struct Vec {
+	int x;
+	int y;
+	public Vec(int a, int b) { x = a; y = b; }
+}

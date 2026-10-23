@@ -14,10 +14,12 @@ on every merged TU member (top-level and container members).
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
+#include <nlang/compiler/SyntaxTree.h>
 //Internal header: the registry is an opaque type in the public API, so
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
+#include "builder/CompiledModuleNodeBuilder.hpp"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
@@ -90,6 +92,7 @@ struct CompileOutcome
     std::vector<std::string> errors;
     std::vector<std::string> modulePaths;   //ModulePathOf, TU order
     std::vector<std::string> directories;   //DirectoryOf, TU order
+    std::vector<CompiledModule> units;      //BuildUnitImages unit images (stub-rebuild checks)
 };
 
 //Compile the given sources with an optional project root.
@@ -119,6 +122,9 @@ CompileOutcome compile(const std::string& tag,
     try { images = builder.BuildUnitImages(); }
     catch (const std::exception&) { }
     outcome.ok = !images.units.empty();
+    //Move after the ok computation — reading the moved-from vector
+    //would pin ok to false.
+    outcome.units = std::move(images.units);
     outcome.errors = logger.errorsText();
     const ModuleRegistry& reg = builder.Registry();
     for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
@@ -1675,8 +1681,8 @@ private slots:
     //carry the full member surface the wire describes -- class fields
     //(private included, with access), the static/instance method split,
     //the virtual flag, constructor access, no ghost instance methods for
-    //constructors, struct constructors with wire-only fields, and the
-    //interface instance signature. This pins the CompiledModuleStubMembers
+    //constructors, struct constructors AND struct fields (0.10.14), and
+    //the interface instance signature. This pins the CompiledModuleStubMembers
     //rebuild shape against the rlib.n surface (the consumer only imports
     //the lib; member USE resolution is T3's contract).
     void importedTypeStubSurfaceRebuilt()
@@ -1748,7 +1754,7 @@ private slots:
         QCOMPARE(ctorPublicOneArg, size_t(1));
         QCOMPARE(ctorPrivateNoArg, size_t(1));
 
-        //--- struct Point: constructor stub, wire-only fields -----------
+        //--- struct Point: constructor stub + rebuilt fields ------------
         const SnField* pPoint =
             findMember(rootView.Members(), NK_StructDecl, "Point");
         QVERIFY2(pPoint != nullptr, "Point stub must reach the merged root");
@@ -1759,9 +1765,16 @@ private slots:
         QVERIFY2(pPointCtor != nullptr, "struct constructor must reach the stub");
         QVERIFY(pPointCtor->AccessType() == FA_Public);
         QVERIFY(static_cast<const SnFunction&>(*pPointCtor).Params().size() == 2);
-        //Struct fields stay wire-only (external struct field access is
-        //out of scope; the stub carries constructors only).
-        QVERIFY(findMember(point.Members(), NK_StructField, "x") == nullptr);
+        //0.10.14: struct fields rebuild from the wire too — both fields
+        //land on the stub, public (the declaration contract keeps struct
+        //members public).
+        const SnField* pPointX =
+            findMember(point.Members(), NK_StructField, "x");
+        QVERIFY2(pPointX != nullptr, "struct field x must reach the stub");
+        QVERIFY(pPointX->AccessType() == FA_Public);
+        const SnField* pPointY =
+            findMember(point.Members(), NK_StructField, "y");
+        QVERIFY2(pPointY != nullptr, "struct field y must reach the stub");
 
         //--- interface Greeter: instance signature ----------------------
         const SnField* pGreeter =
@@ -1829,6 +1842,73 @@ private slots:
         QVERIFY(pW == pWidget);
         QVERIFY(pb[0]->Type()->Field() == pW);
         QVERIFY(pb[1]->Type()->Field() == pW);
+    }
+
+    //0.10.14: the struct stub rebuilds its own fields from the wire —
+    //names, types, and declaration order (stub order = wire order =
+    //producer declaration order, which is what FindFieldOffset counts).
+    void importedStructStubRebuildsFields()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_stub_struct_fields";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "lib.n", std::ios::binary)
+            << "struct Vec {\n"
+               "    int x;\n"
+               "    float y;\n"
+               "    public Vec(int a, float b) { x = a; y = b; }\n"
+               "}\n";
+        const auto outcome = compile("stub_struct_fields",
+            {(dir / "lib.n").string()}, dir.string());
+        QVERIFY2(outcome.ok, "producer lib must build clean");
+        QCOMPARE(outcome.units.size(), size_t(1));
+
+        //Mint the consumer stubs over a fresh runtime tree (the same
+        //path ModuleBuilderImports takes for an imported .ncu). The
+        //global tree is required, not a local one: the scalar
+        //pre-binding inside SynthTypeExprFromDesc resolves through
+        //TheAST().FindNode (SnBuiltinDataType::InstanceOf), and
+        //compile()'s ModuleBuilder destructor clears the global tree
+        //— a local tree would mint unbound scalar field types.
+        BuildParams params;
+        MemLogger logger;
+        BuildEnvironment env(params, logger);
+        TheAST().Clear();
+        TheAST().BuildFromRuntime(env);
+        CompiledModuleNodeBuilder stubBuilder(TheAST(), "lib");
+        stubBuilder.BuildFromCompiledModule(outcome.units[0]);
+
+        const SnField* pVec =
+            findMember(TheAST().Root()->Members(), NK_StructDecl, "Vec");
+        QVERIFY2(pVec != nullptr, "Vec stub must reach the consumer root");
+        QVERIFY(pVec->ContainFlags(NF_Imported));
+        const auto& vec = static_cast<const SnStructDecl&>(*pVec);
+
+        //Type() lives on SnStructField, not the SnField base.
+        std::vector<const SnStructField*> fields;
+        for (const auto& member : vec.Members())
+            if (member.Kind() == NK_StructField)
+                fields.push_back(static_cast<const SnStructField*>(&member));
+        QCOMPARE(fields.size(), size_t(2));
+        QCOMPARE(fields[0]->Name(), std::string("x"));
+        QCOMPARE(fields[1]->Name(), std::string("y"));
+        //The minted type expression is syntactic (SynthTypeExprFromDesc
+        //mirrors the parser's shape; the consumer's ResolveDataTypes
+        //pass binds named types later — e2e imported_struct_field_*
+        //pin the end-to-end typed behavior). Scalars arrive pre-bound:
+        //the builtin-kind SnIdentifierExpr ctor keeps the node kind at
+        //NK_IdentifierExpr (the parser's shape for every type
+        //reference) and points Field() at the builtin type node,
+        //exactly like a parsed `int x;` once resolution has run.
+        QVERIFY2(fields[0]->Type() != nullptr, "field x must carry a type");
+        QVERIFY(fields[0]->Type()->Kind() == NK_IdentifierExpr);
+        QVERIFY2(fields[0]->Type()->Field() != nullptr,
+            "scalar stub type must be pre-bound to its builtin type");
+        QVERIFY(fields[0]->Type()->Field()->Kind() == NK_Int32);
+        QVERIFY(fields[1]->Type() != nullptr);
+        QVERIFY(fields[1]->Type()->Kind() == NK_IdentifierExpr);
+        QVERIFY(fields[1]->Type()->Field() != nullptr);
+        QVERIFY(fields[1]->Type()->Field()->Kind() == NK_Float);
     }
 };
 

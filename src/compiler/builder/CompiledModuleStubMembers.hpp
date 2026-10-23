@@ -119,14 +119,16 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	return pFunc;
 }
 
-//Build a SnStructDecl stub for an imported CompiledStruct.
-//Fields stay wire-only — VmBackend.RegisterStructs skips imported
-//stubs entirely (R3 + IsImported gating) and external struct FIELD
-//access is out of scope. 0.9.11 v2.6: the CONSTRUCTORS are rebuilt
-//(from constructorIndices, declaration order) — a cross-module
-//`pkg.Vec(3,4)` needs member declarations to bind against; the call
-//itself emits an imported function slot, never local bytecode.
-//0.9.12 (v2.7): each constructor stub carries its declared access
+//0.10.14: build a SnStructDecl stub for an imported struct. Own fields
+//AND constructors rebuild from the wire (the field data has been
+//serialized since v1.12); external field access resolves through the
+//stub members exactly like the class stub's. Struct members are always
+//public (the declaration contract rejects a non-public modifier — e2e
+//err_struct_field_private), so no wire access byte is needed.
+//Constructors rebuild from constructorIndices (declaration order) — a
+//cross-module `pkg.Vec(3,4)` needs member declarations to bind
+//against; the call itself emits an imported function slot, never local
+//bytecode. Each constructor stub carries its declared access
 //(constructorAccess) — a private struct ctor stays private at the
 //consumer.
 inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
@@ -138,6 +140,26 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	//PtrList* whose ownership is transferred via the implicit
 	//inner_collection* constructor.
 	auto *pMembers = new PtrList<SnField>();
+
+	//Field members in wire order = producer declaration order — the
+	//order FindFieldOffset counts, so stub offsets match the runtime
+	//layout. Type synthesis mirrors CreateClassStub's field loop
+	//(descriptor first, NonSerialized sentinel falls back to the
+	//parallel kind table).
+	for (uint16_t fi = 0; fi < cs.fieldCount
+		&& fi < cs.fieldNames.size(); ++fi)
+	{
+		TypeDesc td;
+		if (fi < cs.fieldTypeDescs.size())
+			td = cs.fieldTypeDescs[fi];
+		if (td.kind == RTK_NonSerialized && fi < cs.fieldTypeKinds.size())
+			td.kind = cs.fieldTypeKinds[fi];
+		auto *pField = new SnStructField(
+			SynthTypeExprFromDesc(td, cm, loc),
+			new std::string(cs.fieldNames[fi]), FA_Public, loc);
+		pMembers->push_back(pField);
+	}
+
 	for (size_t ci = 0; ci < cs.constructorIndices.size(); ++ci)
 	{
 		//Out-of-range is a corrupt image — the loader validated the

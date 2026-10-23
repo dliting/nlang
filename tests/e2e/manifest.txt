@@ -1830,3 +1830,13 @@ init_class_expr_key_reject compile_error field:value entries
 init_array_keyed_reject compile_error positional entries
 init_list_keyed_bracket_reject compile_error positional entries
 init_dict_undeclared_key_reject compile_error Cannot resolve the field
+# --- 0.10.14: the struct stub rebuilds its field members from the wire,
+# so cross-module field read/write, array and nested struct fields, and
+# named brace init resolve against the stub; a missing field still reports
+# the standard unresolved-field error. ---
+imported_struct_field_read 7
+imported_struct_field_write 10
+imported_struct_field_array 23
+imported_struct_field_nested 5
+imported_struct_init_named 12
+err_imported_struct_field_missing compile_error Cannot resolve the field

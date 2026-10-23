@@ -1,0 +1,7 @@
+//Sealed .ncu import: read both imported struct fields. Expected 3+4=7.
+import lib;
+
+int main() {
+	lib.Vec v = lib.Vec(3, 4);
+	return v.x + v.y;
+}

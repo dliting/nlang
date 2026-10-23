@@ -1,0 +1,7 @@
+//0.10.14: producer exports a struct with an array-typed field. The v1.12
+//type descriptor carries the array element type through the wire, so the
+//stub field synthesizes as int[] and the consumer subscript-assigns.
+struct Grid {
+	int[] cells;
+	public Grid() { cells = [1, 2, 3]; }
+}

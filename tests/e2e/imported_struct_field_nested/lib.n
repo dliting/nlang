@@ -1,0 +1,11 @@
+//0.10.14: producer exports a struct whose field is another struct of
+//the same module. The nested struct type resolves through the wire type
+//table, so the consumer reaches the inner field through the outer stub.
+struct Inner {
+	int v;
+	public Inner(int a) { v = a; }
+}
+struct Outer {
+	Inner inner;
+	public Outer() { inner = Inner(5); }
+}

@@ -1,0 +1,7 @@
+//0.10.14: producer exports a plain struct (no constructor). The consumer
+//brace-initializes it by field name — the init-list field lookup walks
+//the stub's rebuilt field members.
+struct Vec {
+	int x;
+	int y;
+}
