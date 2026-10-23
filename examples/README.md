@@ -40,6 +40,6 @@ keeps it within 0-255).
 | stdlib_math.n | standard library `math` package | 0 |
 | stdlib_io.n | io console and file content (needs stdin) | 0 |
 | stdlib_fs.n | fs paths/directories/metadata | 0 |
-| hello_project/ | multi-file project (open the .nproj in nide) | 0 |
+| hello_project/ | multi-file project (open the `.nproj` in nide) | 0 |
 | libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
 | embed_host/ | minimal C++ embedding host (built by CMake; run `embed_host <artifact.ncu|.npkg>`) | 0 |
