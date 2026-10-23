@@ -13,6 +13,8 @@ NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都�
 | `IndexOutOfBoundsException`  | `Exception` | 数组/列表索引越界 |
 | `AssertionException`          | `Exception` | `assert(false)` |
 | `InvalidCastException`        | `Exception` | `as`强转失败（实际类型不在目标类型的超类链上） |
+| `IOException`                 | `Exception` | 失败的`io`/`fs`操作（输入结束、stdin不可用、文件读写失败） |
+| `ChannelClosedException`      | `Exception` | 对已关闭通道的操作 |
 
 ### `try` / `catch`
 
@@ -60,7 +62,7 @@ class MyException : Exception {
 异常实例暴露两个可读可写字段：
 
 - `message`（string）—— 异常消息。由构造函数（`Exception("msg")`）或VM错误点设置。用户代码可写。
-- `backtrace`（List&lt;string&gt;）—— VM抛出的异常的抛出时刻调用栈快照（`funcName.n:line`条目，最内层在前）。用户构造的异常初始backtrace为空。
+- `backtrace`（List&lt;string&gt;）—— VM抛出的异常的抛出时刻调用栈快照（每帧一条`限定函数名 (文件:行号)`条目，最内层在前）。用户构造的异常初始backtrace为空。
 
 ```nlang
 try {

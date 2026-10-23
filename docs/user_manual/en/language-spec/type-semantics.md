@@ -77,7 +77,7 @@ are on [Primitives](primitives.md) and [Type Casts](type-casts.md).
 
 **Implicit with a lossy warning** — when the target's range cannot hold
 the source's, the compiler emits `implicit conversion from 'X' to 'Y'
-loses precision` (`ncc --no-warn` suppresses all warnings):
+loses precision` (`ncc --no-warn` suppresses this warning family):
 
 - `int/uint/long/ulong → float`
 - `long/ulong → double`

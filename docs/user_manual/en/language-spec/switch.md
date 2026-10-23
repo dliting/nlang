@@ -9,18 +9,20 @@ switch (value) {
 }
 ```
 
-The discriminant must be `int`, `float`, `string`, or an enum-typed value
-(enums compare as their int values). Class, struct, array, and `null`
-discriminants are rejected at compile time — see
-[Statements](statements.md) "Condition typing" for the shared `int` rule and
-[Type Semantics](type-semantics.md) for what each type can be.
+The discriminant must be an integer type, a floating-point type, `char`,
+`string`, or an enum-typed value (enums compare as their int values).
+Class, struct, array, `bool`, and `null` discriminants are rejected at
+compile time — see [Type Semantics](type-semantics.md) for what each type
+can be.
 
 **Typed equality.** Comparison uses the equality operator of the discriminant's
 family: ints and enums compare exactly; floats compare under IEEE semantics
 (`-0.0 == 0.0` is true, NaN never equals anything, including itself);
 strings compare by content, not by identity. Case labels must belong to the
 same family as the discriminant — no cross-family conversion (`case "1"` on an
-int discriminant is a compile error). `null` is not a valid case label. Labels
+int discriminant is a compile error) — and constant labels must fit the
+discriminant's own range (`case 300` on a `byte` discriminant is a compile
+error). `null` is not a valid case label. Labels
 may be computed expressions (e.g. `case f(x):`) — they are evaluated in clause
 order at run time.
 

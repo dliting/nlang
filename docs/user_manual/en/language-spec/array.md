@@ -22,10 +22,11 @@ int f[100] = [7, 8];      // declaration position, partial init: rest zero-fille
   [Collection Initializers](collection-initializers.md).
 - **Declaration position**: `int d[3];` declares a fixed-length array
   directly, zero-filled; with an initializer, elements not listed are
-  zero-filled (`int f[100] = [7, 8];` fills only the first two). A size is
-  allowed only on the **first declarator** — `int a, b[3];` is a syntax
-  error; type inheritance for mixed declarators is covered in
-  [Known Limitations](known-limitations.md).
+  zero-filled (`int f[100] = [7, 8];` fills only the first two). Every
+  declarator of a comma-separated list may carry its own `[n]` size
+  (`int a, b[3];` is legal); how each declarator's type combines the head
+  type with its own brackets is covered in
+  [Declarations](declarations.md).
 - Declaring without an initializer (`int[] g;`) yields a null reference —
   see the default value table in [Declarations](declarations.md).
 - The element type can be a struct (`Point[3]` materializes an independent

@@ -46,7 +46,7 @@ NLang中每种类型都对四个操作定义了语义：**赋值**（`a = b`）�
 - 浮点加宽：`float→double`。
 - `char→string`（编码为该码点的Unicode转换格式（UTF-8，Unicode Transformation Format）串）；`enum→int`（底座）。
 
-**隐式但有损警告**——目标类型装不下源值域时，编译器发出`implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn`可整体抑制）：
+**隐式但有损警告**——目标类型装不下源值域时，编译器发出`implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn`抑制这一族警告）：
 
 - `int/uint/long/ulong → float`
 - `long/ulong → double`

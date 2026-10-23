@@ -10,8 +10,9 @@ Object is synthesized by the compiler — there is no source-level
 `Object` is the only class without a parent. The built-in classes sit under
 it as well: `List`, `Dict`, `ByteStream`, `FileStream`, `Exception` and all
 of its built-in subclasses (`NullPointerException`, `DivByZeroException`,
-`IndexOutOfBoundsException`, `AssertionException`, `IOException`) share the
-one hierarchy with user classes, so any class instance can be assigned to
+`IndexOutOfBoundsException`, `AssertionException`, `IOException`,
+`InvalidCastException`, `ChannelClosedException`) share the one hierarchy
+with user classes, so any class instance can be assigned to
 an `Object` variable. Types outside the class hierarchy: primitives,
 `string` and enums enter `Object` through boxing (an enum by its integer
 value, see the next section); arrays, structs and interfaces are not

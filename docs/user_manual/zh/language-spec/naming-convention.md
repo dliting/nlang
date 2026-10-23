@@ -9,7 +9,7 @@ NLang方法采用**camelCase**、类型采用**PascalCase**——Java风格大�
 | 方法——动作/命令（有副作用或多参数） | camelCase，裸动词 | `add(x)`、`clear()`、`readInt()`、`run()` |
 | 方法——纯访问器（无副作用、无参数、有返回值） | camelCase加`get`/`set`前缀 | `getHashCode()` |
 | 方法——谓词（返回`bool`） | camelCase，裸单词 | `contains(x)`、`startsWith(s)`、`fs.exists(p)` |
-| 自由函数 | camelCase | `print(s)`、`assert(c)` |
+| 自由函数 | camelCase | `io.print(s)`、`computeTotal()` |
 | 变量/参数/局部变量 | camelCase | `firstName`、`itemCount` |
 | 入口函数`main` | 小写（唯一例外） | `int main()` |
 | 枚举值 | PascalCase | `Color.Red`、`Day.Monday` |

@@ -14,7 +14,7 @@ specific statement has its own page.
 | `switch` / `case` / `default`              | [Switch](switch.md) |
 | `try` / `catch` / `throw` / `finally`      | [Exceptions](exception.md) |
 | `assert`                                   | [Assert](assert.md) |
-| compound assignment (`+=` `-=` `*=` `/=` `%=`) | [Compound Assignment](compound-assignment.md) |
+| compound assignment (`+=` `-=` `*=` `/=` `%=` `<<=` `>>=`) | [Compound Assignment](compound-assignment.md) |
 | `const` local variable                     | [Const Local](const-local.md) |
 
 ### Condition typing

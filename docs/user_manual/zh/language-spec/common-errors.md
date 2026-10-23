@@ -305,7 +305,7 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`整体抑制，显式`as`不警告）。详见 →
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见 →
 [类型语义](type-semantics.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
 
 ### `as`转换

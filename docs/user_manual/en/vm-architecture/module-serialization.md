@@ -41,7 +41,7 @@ uniformly, and no opcode distinction is needed. The entry is no longer
 serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
-minimum format version only rises with the toolchain (currently 2.7;
+minimum format version only rises with the toolchain (currently 2.8;
 from 2.2 the type descriptors carry `func` signatures, from 2.3
 default-value expressions serialize with the image — imported stubs
 bind the formal names the function records always carried, from 2.4
@@ -54,7 +54,10 @@ their own declared fields only plus per-method access and virtuality
 bytes and per-constructor access (the exported public-static method
 index block is removed — staticness rides the function record's static
 flag), struct records gain per-constructor access, and interface
-records gain an instance-method signature block): the loader refuses
+records gain an instance-method signature block, and from 2.8 function
+records gain a trailing eval-area handle mask (the garbage
+collector's per-slot root classification over the frame band)):
+the loader refuses
 any image below the current version, so older modules must be
 recompiled.
 

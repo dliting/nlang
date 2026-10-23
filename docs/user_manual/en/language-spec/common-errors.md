@@ -386,7 +386,7 @@ char never converts implicitly to a numeric type (take the code point
 with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
-suppresses all warnings; an explicit `as` never warns). See →
+suppresses this warning family; an explicit `as` never warns). See →
 [Type Semantics](type-semantics.md) "Numeric conversion matrix" and
 [Operators](operators.md) "Arithmetic".
 

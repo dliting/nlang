@@ -9,7 +9,10 @@ enum Color { Red, Green, Blue }
 enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```
 
-Members can be explicit or auto-incremented (starting from 0).
+Members can be explicit or auto-incremented (starting from 0); explicit
+member values must be non-negative (`enum Neg { A = -1 }` reports
+`enum member "A" has negative value -1; enum member values must be
+non-negative`).
 
 ### Creating enum values
 
@@ -23,8 +26,9 @@ Color e;                   // no initializer: underlying value 0
 - Declare with the **qualified member name** `Color.Green`.
 - int-to-enum is allowed implicitly too (`Color d = 1;`); the explicit
   form is `1 as Color`. Whether the underlying value lands on a member
-  is **not checked at compile time** — an out-of-range value only raises
-  a run-time error when `toString()` looks up the name (see Output
+  is **not checked at compile time** — `toString()` surfaces it at run
+  time: a value beyond the name table throws, and a value skipped by
+  explicit member numbering converts to the empty string (see Output
   below).
 - enum-to-int yields the underlying value implicitly (see
   [Type Semantics](type-semantics.md)).
@@ -103,5 +107,8 @@ syntax. Every method must have a body (abstract methods are rejected).
 
 `Color.Red.toString()` returns `"Red"` (not `"0"`). The compiler embeds a
 per-enum name table; the VM uses `OP_Enum_to_str` to look up the member name
-by value. Out-of-range enum values throw at runtime. See
-[Type Casts](type-casts.md) for the full `toString` protocol.
+by value. A value beyond the table throws a host-level runtime error at
+`toString()` — not a catchable nlang exception; a value inside the table
+that no member carries (a number skipped by explicit member values)
+converts to the empty string. See [Type Casts](type-casts.md) for the full
+`toString` protocol.

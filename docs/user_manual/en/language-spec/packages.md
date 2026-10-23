@@ -33,7 +33,7 @@ source paths.
 ## Compiled artifacts and qualified table keys
 
 Every package compiles into its own **unit image** (`.ncu`, format
-v2.0), and each struct/class/function table key in the image is
+v2.8), and each struct/class/function table key in the image is
 **package-qualified**: `main.main`, `utils.helper.help`, `alib.Point`.
 Ownerless built-ins keep their bare keys (`Object`, `List`). References
 into other packages are recorded as **import slots** (target module
@@ -45,8 +45,8 @@ tool spelling wherever a symbol is named:
 
 - breakpoints take the qualified name: `b main.main`,
   `b mathutil.triple`;
-- backtraces and stop lines print it: `#0 main.main (main.n:6)`,
-  `Stopped: utils.helper.inner`;
+- backtraces and stop lines print it: `#0  main.main (main.n:6)`,
+  `Stopped: utils.helper.inner (helper.n:6)`;
 - `ndisasm -func main.main` filters by the same spelling;
 - a value of function type renders with its key: `func alib.twice`.
 
@@ -72,11 +72,12 @@ directly.
 
 ## Native declarations
 
-A `native` declaration's host dynamic-link library (DLL) is named from the package's **first
-segment** (`nlang_<segment>.dll`), so `native` inside a multi-segment
-package (`gfx.color.deep`) cannot name a host library and is a
-compile-time diagnostic. Native declarations in single-segment packages
-name the host library by the rule above.
+A `native` declaration's host dynamic-link library (DLL) is named
+from the package's **first segment** (`nlang_<segment>.dll`), so
+`native` inside a multi-segment package (`gfx.color.deep`) cannot
+name a host library and is a compile-time diagnostic. Native
+declarations in single-segment packages name the host library by
+the rule above.
 
 ## Generics on qualified types
 

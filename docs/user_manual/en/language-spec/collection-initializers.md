@@ -46,7 +46,8 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 Generic instantiation heads anchor too — `List<int>{60}` and
 `Dict<string, int>{"a": 1}` parse in any expression position; the
 anchored form is limited to the built-in generic names (`List`, `Dict`,
-`Channel`, `Future`).
+and `Channel` — a `Channel` initializer must be empty, and `Future`
+accepts no collection initializer in any form).
 
 **Entry forms inside `{...}`:**
 
@@ -134,6 +135,12 @@ parameter takes the bracket form (`take([7, 0])`); a class parameter
 takes `field:value` entries (see the table above). A named argument
 infers the same way (`count_of(items = {1, 2, 3})` for a `List<int>`
 parameter).
+
+This inference covers free-function calls only. A method-call argument
+carries no inference target — `m.add({1, 2})` on a `List<List<int>>`
+reports `Collection initializer requires an explicit type or an LHS
+context to infer the target type.`; pass an anchored literal
+(`m.add(List<int>{1, 2})`) or a variable instead.
 
 **Mutation during init is UB.** Entries are evaluated left-to-right and
 assigned in order; reading the partially-constructed collection from within

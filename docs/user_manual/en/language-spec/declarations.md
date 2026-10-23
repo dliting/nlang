@@ -115,6 +115,11 @@ Each declarator's type is the head type plus its own brackets: in
 `int a[3], b;` the `b` is a plain `int`, not an array. A head type that
 is itself an array (`int[] a, b;`) makes every declarator an array.
 
+A name introduced by any declaration — variable, parameter, field, or
+loop variable — must not reuse a visible type name: with `class Counter`
+in scope, `int Counter = 5;` reports
+`"Counter" names a type; it cannot be used as a variable name.`
+
 ### Default Values
 
 A declaration without an initializer gets the type's default value (no
@@ -187,8 +192,8 @@ int apply(BinOp f) { ... }   // parameters and returns
   (`List<int>`), or a **function type** (`func<int, int>`). A bare
   **class/struct/enum type name** (`using X = Counter;`) is not a valid
   target — it fails as a parser syntax error. **Member paths**
-  (`using X = ns.Inner;`) are also not supported — the grammar's type
-  form is identifier-only, so they fail as a parser syntax error.
+  (`using X = ns.Inner;`) are also not supported — the declaration
+  itself parses, but every use site fails to resolve.
 - Aliases are type-position only; a value expression can never resolve
   to an alias.
 - Diagnostics anchored at a use site sometimes point at the `using` line

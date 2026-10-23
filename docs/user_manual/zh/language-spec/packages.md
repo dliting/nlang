@@ -19,10 +19,10 @@ import gfx.color.deep;
 
 ## 编译产物与限定表键
 
-每个包编译为一幅独立的**单元映像**（`.ncu`，格式v2.0），映像里每个struct/class/函数表键都**带包名限定**：`main.main`、`utils.helper.help`、`alib.Point`。无属主的内建保持裸键（`Object`、`List`）。对其他包的引用以**导入槽**记录（目标模块路径 + 限定名），执行时由加载器沿搜索路径装齐整个引用闭包、按限定名链接成唯一的运行期模块——跨包符号在产物里没有实体，只有名字。凡指名符号之处，限定键就是调试器与工具的统一拼写：
+每个包编译为一幅独立的**单元映像**（`.ncu`，格式v2.8），映像里每个struct/class/函数表键都**带包名限定**：`main.main`、`utils.helper.help`、`alib.Point`。无属主的内建保持裸键（`Object`、`List`）。对其他包的引用以**导入槽**记录（目标模块路径 + 限定名），执行时由加载器沿搜索路径装齐整个引用闭包、按限定名链接成唯一的运行期模块——跨包符号在产物里没有实体，只有名字。凡指名符号之处，限定键就是调试器与工具的统一拼写：
 
 - 断点写限定名：`b main.main`、`b mathutil.triple`；
-- 回溯与停止行打印限定名：`#0 main.main (main.n:6)`、`Stopped: utils.helper.inner`；
+- 回溯与停止行打印限定名：`#0  main.main (main.n:6)`、`Stopped: utils.helper.inner (helper.n:6)`；
 - `ndisasm -func main.main`按同一拼写过滤；
 - 函数类型的值格式化为其键：`func alib.twice`。
 

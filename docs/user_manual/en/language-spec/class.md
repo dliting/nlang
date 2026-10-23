@@ -67,20 +67,19 @@ Node c;                   // declaration only: c is null
 - A **constructor call** `Node(42)` is an expression: it allocates the
   object on the heap, runs the constructor with the arguments, and
   returns the reference. Writing `P()` for a class without a constructor
-  is legal too — it just allocates and zero-initializes the fields. A
-  bare call of the class's own name inside the class body is not a
-  constructor call (see [Known Limitations](known-limitations.md)).
+  is legal too — it just allocates and zero-initializes the fields.
+  Inside the class body the class's own name still denotes a
+  constructor call — `Node(7)` in a method of `Node` creates a new
+  object.
 - The **anchored brace form** `P{value: 42}` fills fields with
   `field:value` entries: the class must have a parameterless
   constructor (explicit or implicit) — this page's `Node`, whose
   constructor takes `Node(int v)`, does not qualify; fields are
   assigned by name after construction. See [Collection
   Initializers](collection-initializers.md).
-- The declaration-site form `Node b(42);` is allowed only on the first
-  declarator (`Node a, b(42);` is a syntax error — the paren arm is not
-  in first position); the rules for sized
-  array declarations like `Node arr[3];` are in
-  [Known Limitations](known-limitations.md).
+- The declaration-site forms work on **every** declarator of a
+  comma-separated list: `Node a(1), b(42);` and `Node arr[3];` are both
+  legal — see the declarator forms in [Declarations](declarations.md).
 - A declaration without an initializer (`Node c;`) yields null — see the
   default value table in [Declarations](declarations.md) and Null check
   below.

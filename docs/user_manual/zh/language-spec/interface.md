@@ -29,7 +29,7 @@ IShape b = Square();   // 构造调用结果直接赋给接口变量
 IShape n = null;       // 接口引用可为null
 ```
 
-接口值没有独立实例——总是指向实现类对象。上转型赋值（来自实例变量或构造调用）不需要任何强转写法。`n == null`直接判空；对null接口引用访问成员（`n.Area()`）在运行期抛`null reference error`并附回溯。
+接口值没有独立实例——总是指向实现类对象。上转型赋值（来自实例变量或构造调用）不需要任何强转写法。`n == null`直接判空；对null接口引用访问成员（`n.Area()`）在运行期抛`NullPointerException`，可被`try/catch`捕获——见[异常](exception.md)。
 
 ### 接口支持
 

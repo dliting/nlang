@@ -27,18 +27,21 @@ but share the same mark-sweep cycle:
 1. **Trigger**: garbage collection (GC) runs at safepoints when a collection request is
    pending and either the heap size exceeds its threshold or the string
    object store size exceeds its own threshold (the string object
-   store's threshold backs off to 2x the surviving population after each
-   sweep). Safepoints are function entry and loop back-edges.
-2. **Mark phase**: Precise scan via the local-variable descriptor (called
-   `LocalDescriptor` in the source) — local slots (and
-   the pending return slot) declared with a reference kind —
-   class, struct, array, or function record — are scanned; string locals
-   and string return slots mark string objects by handle instead;
-   primitives never are. Frame staging slots the declaration table cannot
-   see (nested-call arguments, the evaluation scratch area) are classified
-   by a per-function handle bitmap serialized with the function record:
-   each slot is a scalar (not tested), a string handle, a heap index, or
-   unknown (both domains value-tested). The collector tests only the
+   store's threshold backs off to at least 2x the surviving population
+   after each sweep — it only ever rises). Safepoints are function
+   entry, loop back-edges, and thread spawn (`thread.spawn`).
+2. **Mark phase**: Precise scan of the frame's reference slots.
+   Parameter slots are scanned via the local-variable descriptor (called
+   `LocalDescriptor` in the source) — a parameter declared with a
+   reference kind — class, struct, array, or function record — is
+   scanned; a string parameter marks a string object by handle instead;
+   primitives never are. The pending return slot is scanned by the
+   function's declared return kind the same way. Every other slot of the
+   frame — the user locals, the temp pool, nested-call argument staging,
+   and the evaluation scratch area — is classified by a per-function
+   handle bitmap serialized with the function record: each slot is a
+   scalar (not tested), a string handle, a heap index, or unknown (both
+   domains value-tested). The collector tests only the
    classified domain, and the bitmap needs no byte-level knowledge of
    frame layout; an unknown slot whose value falls in either valid range
    is marked as that kind — the collector never moves objects, so a false
@@ -66,12 +69,12 @@ but share the same mark-sweep cycle:
 comments in `VmExecutor.h`):
 - Safepoint-triggered, not allocation-point-triggered (avoids tracing
   temp slots in the mark phase)
-- Precise scan of declared slots via the local-variable descriptor, plus
-  a per-slot handle bitmap over the staging-slot band the declaration
-  table cannot see (a slot classified as scalar, string handle, or heap
-  index is tested only in its domain; the unknown class keeps the
-  conservative two-domain value test, so GC needs no byte-level knowledge
-  of frame layout and staging values are never missed)
+- Precise scan of parameter slots via the local-variable descriptor, plus
+  a per-slot handle bitmap over every remaining frame slot, user locals
+  included (a slot classified as scalar, string handle, or heap index is
+  tested only in its domain; the unknown class keeps the conservative
+  two-domain value test, so GC needs no byte-level knowledge of frame
+  layout and staging values are never missed)
 - A struct-type index table parallel to the heap slots identifies
   struct types (structs have no type header; smaller change than adding
   one)
@@ -83,7 +86,7 @@ comments in `VmExecutor.h`):
 
 Struct lifetimes are owner-tied (value semantics):
 - Local struct variables: live until the function returns (or the variable is
-  reassigned, at which point the old struct's owned nested structs are freed
-  by deep-copy logic)
+  reassigned — the old record then becomes unreachable and the next
+  collection frees it, its owned nested structs freed recursively)
 - Class-owned struct fields: freed when the owning class object is swept by GC
 - Struct-owned nested structs: freed recursively with their parent

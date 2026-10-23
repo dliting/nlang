@@ -32,8 +32,9 @@ conversion are supported:
   (a surrogate or a value above U+10FFFF throws the runtime error
   `value is not a valid Unicode scalar value`).
 - **Unboxing**: `o as int` / `o as long` / `o as string` — unwrap a boxed
-  primitive; all 12 scalars can be unboxed. Throws if `o` is null or the
-  boxed type tag doesn't match.
+  primitive; all 12 scalars can be unboxed. A null receiver or a boxed
+  type tag mismatch throws a host-level runtime error — not a catchable
+  nlang exception (contrast the class downcast below).
 - **Class downcast**: `o as SubClass` — verify the runtime class of `o` is
   `SubClass` or a subclass thereof. A mismatch raises
   `InvalidCastException` — catchable with `catch`, its `message` reading
@@ -132,8 +133,9 @@ object semantics). See [Struct](struct.md).
 
 **Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`).
 The compiler embeds one name table per enum; the VM looks the member name
-up by value with `OP_Enum_to_str`. Out-of-range enum values throw at run
-time. See [Enum](enum.md).
+up by value with `OP_Enum_to_str`. A value beyond the table throws at run
+time; a value skipped by explicit member numbering converts to the empty
+string. See [Enum](enum.md).
 
 **String identity**: `"hello".toString()` returns `"hello"` — the
 compiler folds this to a no-op (no instruction emitted).

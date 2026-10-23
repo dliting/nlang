@@ -13,7 +13,7 @@ NLang的控制流语句。本页覆盖它们共享的规则；每个具体语句
 | `switch` / `case` / `default`                     | [Switch](switch.md) |
 | `try` / `catch` / `throw` / `finally`             | [异常](exception.md) |
 | `assert`                                          | [Assert](assert.md) |
-| 复合赋值（`+=` `-=` `*=` `/=` `%=`）                | [复合赋值](compound-assignment.md) |
+| 复合赋值（`+=` `-=` `*=` `/=` `%=` `<<=` `>>=`）    | [复合赋值](compound-assignment.md) |
 | `const`局部变量                                   | [Const局部](const-local.md) |
 
 ### 条件类型

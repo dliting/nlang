@@ -30,7 +30,7 @@ return Point{x:0, y:0};
 foo(Point{x:1, y:2}, Point{x:3, y:4});
 ```
 
-泛型实例化头同样可锚定（`List<int>{60}`、`Dict<string, int>{"a": 1}`），适用于任意表达式位置；锚定形式限内建泛型名（`List`、`Dict`、`Channel`、`Future`）。
+泛型实例化头同样可锚定（`List<int>{60}`、`Dict<string, int>{"a": 1}`），适用于任意表达式位置；锚定形式限内建泛型名（`List`、`Dict`与`Channel`——`Channel`初始化器必须为空，`Future`不接受任何形式的集合初始化器）。
 
 **`{...}`内的条目形式：**
 
@@ -58,5 +58,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 **空集合**：空字面量对`List<T>`与`Dict<K,V>`目标写作`{}`——`List<int> l = {};`、`Dict<K,V> d = {};`。数组目标无花括号形式（`int[] a = {};`被拒绝——数组初始化用方括号形式）；空数组写作`int[] a = [];`（见[数组](array.md)）。空方括号字面量同样可作`foreach`源与函数实参。无目标位置的方括号空字面量无法推断元素类型（`[].length()`被拒绝），仍须带类型目标。
 
 **函数实参**：位置实参从形参类型推断目标——位置条目适用于struct与`List<T>`形参（struct `Point`形参可写`take({7, 0})`）；数组形参用方括号形式（`take([7, 0])`）；class形参须用`字段:值`条目（见上表）。命名实参同样推断（`List<int>`形参可写`count_of(items = {1, 2, 3})`）。
+
+该推断仅覆盖自由函数调用。方法调用的实参不携带推断目标——对`List<List<int>>`写`m.add({1, 2})`报`Collection initializer requires an explicit type or an LHS context to infer the target type.`；应改传锚定字面量（`m.add(List<int>{1, 2})`）或变量。
 
 **初始化期间变更是未定义行为。**条目从左到右求值并按序赋值；在条目表达式内读部分构造的集合（例如`[1, foo(arr)]`中`foo`读`arr`）是未定义行为。抛异常的条目会留下部分构造的集合。

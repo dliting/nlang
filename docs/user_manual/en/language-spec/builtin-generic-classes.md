@@ -79,9 +79,10 @@ by reference identity. The same applies to `Dict<K,V>` with `V` (or `K`)
 written as `Object`.
 
 **Null List reference**: a `List<T>` field or variable that has not been
-assigned `List<T>()` holds null. Calling any method on null throws
-`null reference in CallMethod` — the same null pointer exception (NPE)
-semantics as other class refs.
+assigned `List<T>()` holds null. Calling any method on null throws a
+catchable `NullPointerException` with message `NLang VM: null reference
+error` — the same null pointer exception (NPE) semantics as other class
+refs.
 
 **Collection initializer**: the `[1, 2, 3]` literal syntax is supported
 (bare bracket form for arrays and `List<T>`). See
@@ -164,7 +165,8 @@ additional roots.
 
 **Null Dict reference**: a `Dict<K,V>` field or variable that has not
 been assigned `Dict<K,V>()` holds null. Calling any method on null
-throws `NLang VM: Dict <method> on null instance`.
+throws a catchable `NullPointerException` with message
+`NLang VM: null reference error`.
 
 **Linear-scan lookup (current limitation)**: every `set`/`get`/
 `containsKey`/`remove` does an O(n) scan of the entries vector. This is
@@ -217,8 +219,9 @@ List<Point> pts = ...;
 pts[0].x = 9;           // member write through a subscript receiver
 int s = pts[0].x + pts[0].y;
 
-List<int>[] arr = List<int>[2];   // arrays of generic instantiations
+List<int> arr[2];       // array of generic instantiations (declaration form)
 arr[0] = {};
+arr[0].add(1);
 arr[0][1];              // container subscript through an array element
 ```
 
