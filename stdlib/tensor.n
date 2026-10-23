@@ -12,7 +12,45 @@
 //
 // Error model: null arrays raise NullPointerException, negative lengths
 // raise IndexOutOfBoundsException (language-side alignment), length
-// mismatches and empty reductions raise the base Exception.
+// mismatches, zero arange steps and empty reductions raise the base
+// Exception.
 
+//--- creation -----------------------------------------------------------------
+
+// int array of n zeros.
+native int[] zerosI(int n);
+// long array of n zeros.
+native long[] zerosL(int n);
+// float array of n zeros.
+native float[] zerosF(int n);
 // Double array of n zeros.
 native double[] zerosD(int n);
+
+// int array of n ones.
+native int[] onesI(int n);
+// long array of n ones.
+native long[] onesL(int n);
+// float array of n ones.
+native float[] onesF(int n);
+// Double array of n ones.
+native double[] onesD(int n);
+
+// int array of n copies of value.
+native int[] fullI(int n, int value);
+// long array of n copies of value.
+native long[] fullL(int n, long value);
+// float array of n copies of value.
+native float[] fullF(int n, float value);
+// Double array of n copies of value.
+native double[] fullD(int n, double value);
+
+// Half-open arithmetic progression: start, start+step, ... strictly
+// before stop. A zero step, or one that cannot advance toward stop,
+// raises the base Exception.
+native int[] arangeI(int start, int stop, int step);
+// long arange; int arguments widen implicitly.
+native long[] arangeL(long start, long stop, long step);
+// float arange.
+native float[] arangeF(float start, float stop, float step);
+// Double arange.
+native double[] arangeD(double start, double stop, double step);

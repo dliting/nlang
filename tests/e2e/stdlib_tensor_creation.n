@@ -1,0 +1,55 @@
+// tensor creation kernels: ones/full/arange across all four element
+// types. zerosD is covered by stdlib_tensor_zeros.
+import io;
+import tensor;
+
+int main() {
+    // onesD(3): every element 1.0
+    double[] ones = tensor.onesD(3);
+    if (ones.length() != 3) return 1;
+    if (ones[0] != 1.0 || ones[1] != 1.0 || ones[2] != 1.0) return 2;
+
+    // fullI(4, 7): sum 28
+    int[] full = tensor.fullI(4, 7);
+    int sum = 0;
+    foreach (int v in full) sum = sum + v;
+    if (sum != 28) return 3;
+
+    // arangeD(0, 1, 0.25): length 4, first 0.0, last 0.75
+    double[] d = tensor.arangeD(0.0, 1.0, 0.25);
+    if (d.length() != 4) return 4;
+    if (d[0] != 0.0 || d[3] != 0.75) return 5;
+
+    // arangeI(10, 0, -3): 10,7,4,1
+    int[] r = tensor.arangeI(10, 0, -3);
+    if (r.length() != 4) return 6;
+    if (r[0] != 10 || r[3] != 1) return 7;
+
+    // arangeL via implicit int->long widening
+    long[] lr = tensor.arangeL(0, 8, 2);
+    if (lr.length() != 4) return 8;
+    if (lr[3] != 6) return 9;
+
+    // arangeF with float literals
+    float[] fr = tensor.arangeF(0.0f, 1.0f, 0.5f);
+    if (fr.length() != 2) return 10;
+    if (fr[1] != 0.5f) return 11;
+
+    // zerosI/onesI/onesL/onesF/fullL/fullF/fullD presence + shape
+    if (tensor.zerosI(2)[1] != 0) return 12;
+    if (tensor.onesI(2)[1] != 1) return 13;
+    if (tensor.onesL(2)[1] != 1) return 14;
+    if (tensor.onesF(2)[1] != 1.0f) return 15;
+    if (tensor.fullL(3, 5)[2] != 5) return 16;
+    if (tensor.fullF(3, 2.5f)[2] != 2.5f) return 17;
+    if (tensor.fullD(3, 2.5)[2] != 2.5) return 18;
+
+    // arangeD zero step raises the base Exception family
+    try {
+        double[] bad = tensor.arangeD(0.0, 1.0, 0.0);
+        if (bad.length() != -1) return 19;   // unreachable
+    } catch (Exception e) {
+        // expected
+    }
+    return 0;
+}
