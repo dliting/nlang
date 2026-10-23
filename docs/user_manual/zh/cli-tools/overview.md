@@ -25,5 +25,4 @@
 
 五个命令行工具以Unicode转换格式（UTF-8，Unicode Transformation Format）为进程编码（工具内嵌清单声明，Windows 10 1903+生效）：命令行参数与文件路径接受完整Unicode，诊断输出为UTF-8字节，启动时顺带把所在控制台切换到UTF-8代码页，默认控制台可直接显示非美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）文本。重定向到文件或管道时不改动输出字节。
 
-输入侧同样是UTF-8：`.n`源文件与`.nproj`项目文件在词法前先做校验——无效字节被明确拒绝（`not valid UTF-8 (first
-invalid byte at line N)`），UTF-16保存的文件得到专门提示，文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。
+输入侧同样是UTF-8：`.n`源文件与`.nproj`项目文件在词法前先做校验——无效字节被明确拒绝（`not valid UTF-8 (first invalid byte at line N)`），UTF-16保存的文件得到专门提示，文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。

@@ -29,6 +29,7 @@ Based on the install layout in [Installation and Layout](../getting-started/inst
 |---|---|---|
 | `bin\nvm.exe` | the VM runner | running programs |
 | `bin\ncc.exe` | the compiler | compiling from source |
+| `bin\nlang.exe` | the script runner (compile and run a `.n` in one step) | ad-hoc script runs |
 | `bin\ndb.exe` | the debugger | debug integration |
 | `bin\ndisasm.exe` | the bytecode disassembler | deep diagnostics |
 | `bin\nide.exe` and the Qt runtime | the integrated development environment (IDE) and its dependencies | GUI development only |
@@ -51,7 +52,7 @@ The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the prog
 ## 5. Subprocess details
 
 - Exit codes: the program's `main` return value passes through as a 32-bit process exit code, so the host can judge results directly; conventions in [Exit Code Convention](../language-spec/exit-code-convention.md).
-- Standard input: write lines to `nvm`'s stdin to drive `io.readline` interactions; program output is Unicode Transformation Format (UTF-8) bytes on stdout, `io.eprint` goes to stderr.
+- Standard input: write lines to `nvm`'s stdin to drive `io.readLine` interactions; program output is Unicode Transformation Format (UTF-8) bytes on stdout, `io.eprint` goes to stderr.
 - Compile and run can be one `ncc <file>` invocation, or split into `ncc build` plus `nvm`.
 
 ## 6. Debug integration

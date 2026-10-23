@@ -55,7 +55,7 @@ itp.setOutputHandler(
 int rc = itp.runSource("import io; io.print(6*7);");   // rc == 0
 ```
 
-To `import io`, add the standard-library directory to the import path first: library declarations and packages resolve only through the directories you pass to `addImportDir` (in-process embedding reads no `NLANG_PATH` and searches neither the host executable's directory nor the current directory). Native modules (`nlang_io.dll`, ...) follow the import directories too, but the executable's own directory always sits first in the native search list — a stale DLL left there silently shadows the copy in your import directory. The typical deployment places the whole stdlib directory (`.n` declarations, `stdlib.npkg`, and native dynamic-link library (DLL) files) under your application data directory and points `addImportDir` at it once at startup.
+To `import io`, add the standard-library directory to the import path first: library declarations and packages resolve through the directories you pass to `addImportDir` — plus, for `runFile`, the script's own directory, which joins the search automatically (in-process embedding reads no `NLANG_PATH` and searches neither the host executable's directory nor the current directory). Native modules (`nlang_io.dll`, ...) follow the import directories too, but the executable's own directory always sits first in the native search list — a stale DLL left there silently shadows the copy in your import directory. The typical deployment places the whole stdlib directory (`.n` declarations, `stdlib.npkg`, and native dynamic-link library (DLL) files) under your application data directory and points `addImportDir` at it once at startup.
 
 After execution you can still `call` functions the script declared (keys are `<module>.<function>`): the module name for string sources is fixed as `script`, and `runFile` uses the file-name stem — which must be a valid identifier, so hyphenated names like `my-script.n` are rejected.
 
@@ -75,7 +75,7 @@ opts.importDirs.push_back("path/to/stdlib");
 int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 ```
 
-`runScript`/`runScriptFile` build an interpreter, run, and destroy it, keeping no state; use the full `Interpreter` flow when you need host functions or post-run `call`. Keep top-level `return` values within 0-255 (Windows truncates process exit codes to 8 bits).
+`runScript`/`runScriptFile` build an interpreter, run, and destroy it, keeping no state; use the full `Interpreter` flow when you need host functions or post-run `call`. Keep top-level `return` values within 0-255: the process exit code travels as the full 32-bit value, but POSIX shells observe only the low 8 bits (see the [exit code convention](../language-spec/exit-code-convention.md)).
 
 ## 4. Lifecycle
 

@@ -24,7 +24,7 @@ use it too. Artifacts come in two forms: single-source builds produce a
 |---|---|---|
 | `-o <path>` | 1-4 | Output path — a `.ncu` for single-source forms, a `.npkg` for project forms; giving it twice is an error |
 | `-p <nproj>` | project forms | Cannot be combined with a source positional; giving it twice is an error |
-| `--no-warn` | 1-4 | Suppresses compile warnings (e.g. the implicit int→float precision-loss warning) |
+| `--no-warn` | 1-4 | Suppresses the implicit-conversion precision-loss warnings (the `loses precision` family); other warnings — e.g. `Empty statement will be ignored.` — are still reported |
 | `--no-debug-info` | 1-4 | Produces a module without per-statement debug anchors: a smaller artifact, but no backtrace line numbers and no breakpoints/stepping (see [Debugging in nide](../getting-started/debugging.md)) |
 | `-I <dir>` (or `-I<dir>` glued) | 1-5 | Library search path, may be given repeatedly: at compile time it locates imported `.n` files and external `.ncu`/`.npkg`; at run time it locates closure members and native dynamic libraries |
 | `--verbose` / `-v` | 1-5 | Prints the resolved import search path — one directory per line, annotated with the layer it came from — then proceeds normally (the listing shape is the same as nvm's) |
@@ -64,7 +64,7 @@ load-and-link path and behave identically.
   member per unit in the project (the member name is the module path),
   plus an entry record. The same format serves pure library
   distribution (`stdlib.npkg` is a library package whose members are
-  `io`/`math`/`fs`).
+  `io`/`math`/`fs`/`thread`/`concurrent`).
 
 A missing dependency is reported in one shot, listing every directory
 searched:

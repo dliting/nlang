@@ -3,10 +3,10 @@
 nvm运行一个已编译的产物——`.ncu`单元映像或`.npkg`程序包，不经过编译步骤。场景：部署或自动化环境中只执行不编译；反复运行同一程序省去重复编译；脚本与流水线中以退出码判定结果。
 
 ```text
-nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N] [--carriers=N]
 ```
 
-运行一个编译好的程序，进程退出码 = `main`返回值（约定详见[退出码约定](../language-spec/exit-code-convention.md)）。产物文件打不开时报`Runtime error: nloader failed:`（诊断正文逐行列出问题，如`'<路径>': Failed to open module file: <路径>`）。`--gc-stress=N`是测试旋钮：把两套垃圾回收（GC，garbage collection）阈值钳到极小值，任何漏追踪的引用会在几次分配内变悬垂——用于验证内存管理变更，日常使用不需要。该标志写在程序路径之前或之后均可。
+运行一个编译好的程序，进程退出码 = `main`返回值（约定详见[退出码约定](../language-spec/exit-code-convention.md)）。产物文件打不开时报`Runtime error: nloader failed:`（诊断正文逐行列出问题，如`'<路径>': Failed to open module file: <路径>`）。`--gc-stress=N`是测试旋钮：把两套垃圾回收（GC，garbage collection）阈值钳到极小值，任何漏追踪的引用会在几次分配内变悬垂——用于验证内存管理变更，日常使用不需要。该标志写在程序路径之前或之后均可。`--carriers=N`设定调度器载体线程数（1..64）：`nvm`默认至多4个（不超过机器并行度），`--carriers=1`钉为单载体以获得确定性交错（见[GIL与多载体](../language-spec/concurrency-gil-carriers.md)）；范围外的值在程序启动前被拒绝。
 
 产物自身不含库代码：加载器先沿搜索路径发现全部依赖（标准库包、外部`.ncu`/`.npkg`），再链接成唯一的运行期模块执行。缺包时报`Runtime error: nloader failed:`，正文形如`module '...' not found (searched: <目录>, ...)`，一次列出已搜索的全部目录——先检查`-I`与`NLANG_PATH`（机制详见[ncc](ncc.md)的「产物与加载期链接」）。
 

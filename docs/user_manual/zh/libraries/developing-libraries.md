@@ -119,7 +119,7 @@ NLANG_DEFINE_NATIVE_INIT
 |---|---|
 | DLL名 | `nlang_<命名空间>.dll`，如`nlang_num.dll` |
 | 导出 | 仅`nlang_native_init`一个入口，由`NLANG_DEFINE_NATIVE_INIT`宏生成 |
-| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发 |
+| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放全局锁 |
 | ABI版本 | 初始化函数返回`NLANG_HOST_ABI_VERSION`，与VM不匹配即拒载 |
 | 头文件 | 随源码仓库提供（`include/nlang/vm/NativeHost.h`），无需链接VM库 |
 | 参数助手 | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString`等 |
@@ -140,7 +140,7 @@ NLANG_DEFINE_NATIVE_INIT
 宿主ABI版本不匹配时装载被拒绝（数字为双方各自报告的版本，随错配对象不同而不同）：
 
 ```text
-Runtime error: native module '<DLL路径>\nlang_mylib.dll' reports incompatible ABI version 999999; host expects 3
+Runtime error: native module '<DLL路径>\nlang_mylib.dll' reports incompatible ABI version 999999; host expects 5
 Backtrace:
   at use_mylib.main (use_mylib.n:13)
 ```
