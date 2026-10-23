@@ -31,7 +31,6 @@ namespace {
 void ZerosD(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     const int32_t n = ArgInt(args, 0);
     const int32_t handle = NewArray(host, NEK_Float64, n);
-    (void)host->getArrayView;   // no payload work: zero-fill is implicit
     ReturnInt(ret, handle);
 }
 
