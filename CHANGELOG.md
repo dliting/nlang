@@ -6,6 +6,37 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.13] - 2026-10-23
+
+### Fixed
+
+- **The manual and README pair audited against real behavior** — every
+  factual claim across the full manual (190 pages) and both READMEs was
+  checked against the actual compiler, VM, debugger and IDE. The audit
+  corrected stale or wrong statements, among them: undocumented
+  compile-time restrictions now stated (bool comparison operands, named
+  arguments in constructor calls, `out` parameter targets), diagnostics
+  quoted under wrong names, a fabricated bytecode-opcode reference table
+  replaced with the real instruction set, stale format-version records
+  (module images record format 2.8), missing CLI flags
+  (`nvm --carriers`), and stdlib pages completed with missing functions,
+  limits and error behaviors.
+
+- **Every manual code example now compiles and runs** — the docs
+  pipeline builds and executes each code example in the manual for
+  real, including error examples whose expected diagnostics are checked
+  verbatim and examples whose exit codes come from the actual run;
+  examples that had drifted behind language evolution were repaired.
+
+- **Debugging documentation reflects the multi-context debugger** — the
+  nide context tree (one row per debug context: id, scheduler state
+  with a carrier suffix, location; clicking a row switches the
+  inspection and stepping focus) is now documented in both READMEs and
+  the debugging pages; the ndb `t <id>` command is described with its
+  current semantics (focus switch plus step-target selection,
+  per-context frame numbers), replacing the outdated single-focus
+  description.
+
 ## [0.10.10] - 2026-10-23
 
 ### Added
