@@ -70,9 +70,18 @@ The Debug page of the output window concentrates the session state:
   exception pauses the session (ndb's `catch on|off`) — at throw time
   the stack is not yet unwound, so the call stack and locals are still
   intact;
-- the call stack tree (# / function / location): clicking a frame
-  selects it, the editor jumps to the matching line, and the locals
-  refresh;
+- the context tree (id / state / location): one row per debug context —
+  the main program and every spawned thread; the state shows the
+  scheduler state (e.g. `runnable`, `parked-join`, `finished`) with a
+  ` @<carrier>` suffix while the context runs, and the location reads
+  `function (file:line)` (empty when frameless); clicking a row makes
+  that context the focus of inspection and stepping — the call stack,
+  the locals, and the next step commands all address it (a parked
+  context steps once it wakes); each stop resets the focus to the
+  context that just stopped;
+- the call stack tree of the focused context (# / function /
+  location): clicking a frame selects it, the editor jumps to the
+  matching line, and the locals refresh;
 - the locals tree (name / type / value): shows every local of the
   selected frame whose declaration has been reached — a local
   joins the display once the paused statement is at or past its

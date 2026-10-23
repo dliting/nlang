@@ -186,7 +186,7 @@ import sources share one syntax:
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` | `utils/helper.n` → `import utils.helper;` |
 | External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` → `import lib;` |
-| Standard library package | `io` / `math` / `fs` (shipped with the toolchain) | `import io;` |
+| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` (shipped with the toolchain) | `import io;` |
 
 | Reference | Import needed? | Call form |
 |---|---|---|
@@ -194,7 +194,7 @@ import sources share one syntax:
 | Same directory, other files | no (implicit) | bare or qualified |
 | Cross-directory, same project | **yes** | qualified only (`utils.helper.f()`) |
 | External module | **yes** | qualified only (`lib.f()`) |
-| Standard library `io`/`math`/`fs` | **yes** | qualified (`io.print`) |
+| Standard library package | **yes** | qualified (`io.print`) |
 
 This matrix covers root-level functions. Members of a namespace shared
 across directories are the one v1 exception — unreachable from another
@@ -211,7 +211,7 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
 
-Compiled units use a versioned binary format, currently v2.1 (import
+Compiled units use a versioned binary format, currently v2.8 (import
 slots and per-unit module paths — the load-time linking model). The
 loader enforces a compatibility floor: after a floor bump, older
 `.ncu` files are rejected as outdated and must be recompiled with the
@@ -287,14 +287,16 @@ The UI language defaults to the system locale and can be pinned to
 Chinese or English in Tools → Options (applied on restart); untranslated
 strings fall back to their authored text.
 
-Files created through 文件 → 新建文件 join the selected project in the
-solution tree (or the solution's sole project); files rename in place
-via F2 or the tree/tab context menus (an open dirty editor is saved to
-the old path first), the splitter layout persists across sessions, and
-文件 → 最近打开 remembers recent solutions, projects, and files.
+Files created through File → New File... join the selected project in
+the solution tree (or the solution's sole project); files rename in
+place via F2 or the tree/tab context menus (an open dirty editor is
+saved to the old path first), the splitter layout persists across
+sessions, and File → Recent remembers recent solutions, projects, and
+files.
 
-Standalone `.n` files opened through 文件 → 打开 (no project needed)
-appear in a “独立文件” tree group and can be built and run directly:
+Standalone `.n` files opened through File → Open (no project needed)
+appear in a “Standalone Files” tree group and can be built and run
+directly:
 the module lands under `%TEMP%\nlang-nide\`, and Run auto-rebuilds it
 when the source changed. The Help menu shows the bundled documentation
 site (`docs/site`) in an embedded viewer inside the IDE.
@@ -307,19 +309,23 @@ termination, so an infinite loop or a stuck native call never blocks the
 IDE. Breakpoints toggle with F9 or a gutter click (a gutter dot starts
 hollow and turns filled once the live session confirms the line is in
 the compiled module), persist across sessions and follow file renames.
-While paused, the 调试 page in the output area shows the call stack
-(click a frame to jump there and refresh locals), the frame's locals,
-and a 抛异常时中断 switch that breaks at every throw site.
+While paused, the Debug page in the output area shows the context
+tree (one row per debug context — the main program and every spawned
+thread — with its id, state, and current location; clicking a row
+focuses that context: the call stack, the locals, and the next step
+commands all address it), the focused context's call stack (click a
+frame to jump there and refresh locals), the frame's locals, and a
+Break on exceptions switch that breaks at every throw site.
 
-| 动作 | 快捷键 |
+| Action | Shortcut |
 |------|--------|
-| 启动调试 / 继续 | F5 |
-| 运行（不调试） | Ctrl+F5 |
-| 停止调试 | Shift+F5 |
-| 切换断点 | F9 |
-| 单步跳过 | F10 |
-| 单步进入 | F11 |
-| 单步跳出 | Shift+F11 |
+| Start Debugging (continue) | F5 |
+| Run → Start (without debugging) | Ctrl+F5 |
+| Stop Debugging | Shift+F5 |
+| Toggle breakpoint | F9 |
+| Step Over | F10 |
+| Step Into | F11 |
+| Step Out | Shift+F11 |
 
 `ctest -C Release -R nide_deploy_check` verifies the self-containment: it copies
 the layout to a scratch directory, pins Qt's search paths to it via

@@ -28,7 +28,7 @@ reads commands from stdin one per line; stdin end of file (EOF) behaves like `q`
 | `n` | next | Step over |
 | `f` | finish | Step out of the current function |
 | `threads` | — | List all contexts (state/location) |
-| `t <id>` | thread | Switch the inspection context |
+| `t <id>` | thread | Switch the focused context (inspection and stepping) |
 | `bt` | backtrace | Call stack |
 | `frame <n>` | — | Select a frame |
 | `info locals` | info | Locals of the selected frame (synthesized names filtered; the receiver shows as `this`) |
@@ -84,11 +84,12 @@ focus marker (`*`), the id, the scheduling state (suffixed `@<carrier>`
 while an execution window holds it — this is where running-now differs
 from queued runnable), and the innermost frame location; a finished
 context has no frames and shows only the id and state. `t <id>` moves
-the inspection focus to that context — `bt`/`frame`/`info locals`/`p`/
-`l`/`x` then address it, and parked frames (a channel receive waiting
-for a sender, say) inspect like any other; each stop resets the focus
-back to the stopped context. Stepping always targets the stopped
-context — `t` redirects inspection only, never the step target.
+the focus to that context — `bt`/`frame`/`info locals`/`p`/`l`/`x`
+then address it, and parked frames (a channel receive waiting for a
+sender, say) inspect like any other; the selected context also becomes
+the step target of the next `s`/`n`/`f` (a parked one steps once it
+wakes). Frame selection resets on a switch — frame numbers are
+per-context. Each stop resets the focus back to the stopped context.
 
 ```console
 $ ndb dbg_threads.ncu
