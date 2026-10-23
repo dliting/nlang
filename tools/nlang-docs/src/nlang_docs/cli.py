@@ -3,7 +3,7 @@
 build = mkdocs build --strict + offline search inlining + site audit
 chained (a broken link fails the build; skipped with
 --defer-site-audit), plus -- when --ncc/--nvm are given -- the
-runnable-snippet audit of the guide. --defer-site-audit exists for the
+runnable-snippet audit of the manual tree. --defer-site-audit exists for the
 bilingual pair build: the zh and en trees cross-link each other, so
 their links only resolve once both are built -- the cmake recipe builds
 both deferred, then audits each tree with `check`. serve = plain mkdocs
@@ -177,33 +177,37 @@ def _config_docs_dir(config_path):
 
 
 def _snippet_stage(opts):
-    """The build chain's 4th stage: the guide directory's snippets.
+    """The build chain's 4th stage: the manual tree's snippets.
 
     Only runs when both binaries are known (--ncc/--nvm or env); the
     cmake recipe always passes them, so a bare manual build says so
-    instead of silently skipping the audit. Pages are looked up under
-    the config tree's <docs_dir>/getting-started/, filename order;
-    pages without any ```nlang block count as prose, not as audited.
+    instead of silently skipping the audit. Pages are every .md under
+    the config tree's docs_dir, recursive, path order; pages without
+    any ```nlang block count as prose, not as audited. Problems are
+    prefixed with the page path relative to docs_dir: chapter
+    directories repeat basenames (overview.md, debugging.md), so a
+    bare filename would not say which page failed.
     """
-    guide = _config_docs_dir(opts.config) / "getting-started"
-    pages = sorted(guide.glob("*.md")) if guide.is_dir() else []
+    docs_dir = _config_docs_dir(opts.config)
+    pages = sorted(docs_dir.rglob("*.md")) if docs_dir.is_dir() else []
     if not pages:
-        print("snippets: skipped (%s not found)" % guide,
+        print("snippets: skipped (%s not found)" % docs_dir,
               file=sys.stderr)
         return 0, None
     ncc = opts.ncc or os.environ.get("NLANG_NCC")
     nvm = opts.nvm or os.environ.get("NLANG_NVM")
     if not (ncc and nvm):
         print("snippets: skipped (give --ncc/--nvm or set NLANG_NCC/"
-              "NLANG_NVM to audit the guide's snippets)", file=sys.stderr)
+              "NLANG_NVM to audit the manual's snippets)", file=sys.stderr)
         return 0, None
     ncc, nvm = os.path.abspath(ncc), os.path.abspath(nvm)
-    problems, programs, skipped = [], 0, 0
+    problems = []
+    programs = fragments = errors = 0
     audited = prose = 0
     with tempfile.TemporaryDirectory(prefix="nlang_snippets_") as tmp:
         for page in pages:
             try:
-                p, prog, skip, _err = audit_doc(page, ncc, nvm, Path(tmp))
+                p, prog, frags, errs = audit_doc(page, ncc, nvm, Path(tmp))
             except ValueError:
                 #audit_doc raises ValueError only for a page with no
                 #```nlang block at all (a broken fence is a problem
@@ -211,20 +215,23 @@ def _snippet_stage(opts):
                 #that silently checked nothing.
                 prose += 1
                 continue
-            problems += ["%s: %s" % (page.name, x) for x in p]
+            rel = page.relative_to(docs_dir).as_posix()
+            problems += ["%s: %s" % (rel, x) for x in p]
             programs += len(prog)
-            skipped += len(skip)
+            fragments += len(frags)
+            errors += len(errs)
             audited += 1
     for problem in problems:
         print("snippets: " + problem, file=sys.stderr)
     if problems:
-        print("snippets: %d problem(s) under %s" % (len(problems), guide),
+        print("snippets: %d problem(s) under %s" % (len(problems), docs_dir),
               file=sys.stderr)
         return 1, None
     #First field is the whole page universe: a code page losing its
     #fences moves from audited to prose, which the line makes visible.
-    line = "snippets: %d pages, %d programs OK (%d skipped, %d prose)" \
-        % (audited + prose, programs, skipped, prose)
+    line = ("snippets: %d pages, %d programs + %d error examples OK "
+            "(%d fragments, %d prose)") \
+        % (audited + prose, programs, errors, fragments, prose)
     print(line)
     return 0, line
 
@@ -234,7 +241,7 @@ def _snippet_audit(page, ncc, nvm, workdir):
     nvm = nvm or os.environ.get("NLANG_NVM")
     if not (ncc and nvm):
         print("snippets: skipped (give --ncc/--nvm or set NLANG_NCC/"
-              "NLANG_NVM to audit the guide's snippets)", file=sys.stderr)
+              "NLANG_NVM to audit the manual's snippets)", file=sys.stderr)
         return 0
     #CreateProcess rejects a relative path holding forward slashes; make
     #both binaries absolute against the invoking CWD.
@@ -248,15 +255,16 @@ def _snippet_audit(page, ncc, nvm, workdir):
 
 
 def _snippet_audit_run(page, ncc, nvm, workdir):
-    problems, programs, skipped, _errors = audit_doc(page, ncc, nvm, workdir)
+    problems, programs, fragments, errors = audit_doc(
+        page, ncc, nvm, workdir)
     for problem in problems:
         print("snippets: " + problem, file=sys.stderr)
     if problems:
         print("snippets: %d problem(s) in %s"
               % (len(problems), page), file=sys.stderr)
         return 1
-    print("snippets: %d programs OK (%d skipped)"
-          % (len(programs), len(skipped)))
+    print("snippets: %d programs + %d error examples OK (%d fragments)"
+          % (len(programs), len(errors), len(fragments)))
     return 0
 
 

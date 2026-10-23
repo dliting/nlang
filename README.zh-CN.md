@@ -208,7 +208,7 @@ import 来源共用一种语法：
 限定调用前需要显式 `import`（`thread` 承载虚拟线程的派生与停泊原语；
 `concurrent` 在内核并发原语之上补足 `WaitGroup` 与 `Semaphore`）。字符串自带内建方法：
 
-```n
+```nlang
 import io;
 import math;
 import fs;

@@ -371,24 +371,30 @@ def test_audit_empty_doc_fails_not_vacuous(tmp_path):
         audit_doc(doc, "ignored", "ignored", tmp_path / "work")
 
 
-def test_stage_audits_every_page_in_the_guide_dir(tmp_path, monkeypatch):
-    #Two one-program pages plus one prose page in a getting-started/
-    #tree: the stage must audit the code pages, count the prose page
-    #separately, and sum the accounting (3 pages, 2 programs, 1 prose).
+def test_stage_audits_every_page_in_the_docs_tree(tmp_path, monkeypatch):
+    #Full-tree audit: pages sit in nested chapter directories, so the
+    #stage must recurse past getting-started/ into language-spec/ and
+    #the docs root. One plain program page, one page whose audit also
+    #yields a fragment and an error example, plus one prose page: the
+    #summary line must account for every fence kind.
     from nlang_docs import cli
-    guide = tmp_path / "docs" / "getting-started"
-    guide.mkdir(parents=True)
-    for name in ("a.md", "b.md"):
-        (guide / name).write_text(
-            "```nlang\nint main() { return 0; }\n```\n", encoding="utf-8")
-    (guide / "c.md").write_text("prose only, no fenced code\n",
-                                encoding="utf-8")
+    docs = tmp_path / "docs"
+    (docs / "getting-started").mkdir(parents=True)
+    (docs / "language-spec").mkdir(parents=True)
+    (docs / "getting-started" / "a.md").write_text(
+        "```nlang\nint main() { return 0; }\n```\n", encoding="utf-8")
+    (docs / "language-spec" / "b.md").write_text(
+        "```nlang\nint main() { return 0; }\n```\n", encoding="utf-8")
+    (docs / "c.md").write_text("prose only, no fenced code\n",
+                               encoding="utf-8")
 
     def fake_audit_doc(page, ncc, nvm, wd):
         #audit_doc raises ValueError only for a page with no ```nlang
         #block at all; a broken fence comes back as problems instead.
         if page.name == "c.md":
             raise ValueError("no ```nlang blocks found")
+        if page.name == "b.md":
+            return [], [object()], [object()], [object()]
         return [], [object()], [], []
 
     (tmp_path / "mkdocs.yml").write_text("site_name: t\n", encoding="utf-8")
@@ -400,14 +406,16 @@ def test_stage_audits_every_page_in_the_guide_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("NLANG_NVM", "x")
     rc, line = cli._snippet_stage(opts)
     assert rc == 0
-    assert line == "snippets: 3 pages, 2 programs OK (0 skipped, 1 prose)"
+    assert line == ("snippets: 3 pages, 2 programs + 1 error examples OK "
+                    "(1 fragments, 1 prose)")
 
 
 def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
                                                 capsys):
     #One clean page plus one refusing page: the stage fails the build
-    #(rc=1, no summary line) and prefixes each problem with its page
-    #name, so multi-page reports stay attributable.
+    #(rc=1, no summary line) and prefixes each problem with its path
+    #relative to docs_dir, so multi-page reports stay attributable even
+    #when chapter directories repeat basenames.
     from nlang_docs import cli
     guide = tmp_path / "docs" / "getting-started"
     guide.mkdir(parents=True)
@@ -430,7 +438,8 @@ def test_stage_fails_when_any_page_has_problems(tmp_path, monkeypatch,
     rc, line = cli._snippet_stage(opts)
     assert rc == 1
     assert line is None
-    assert "b.md: exit code 1, expected 0" in capsys.readouterr().err
+    assert ("getting-started/b.md: exit code 1, expected 0"
+            in capsys.readouterr().err)
 
 
 def test_real_zh_config_resolves_a_nonempty_guide(monkeypatch, capsys):

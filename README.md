@@ -229,7 +229,7 @@ library package; their qualified calls still need an explicit `import`
 concurrency primitives). Strings carry built-in
 methods:
 
-```n
+```nlang
 import io;
 import math;
 import fs;

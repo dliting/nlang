@@ -282,10 +282,10 @@ if(NLANG_BUILD_DOCS)
         COMMAND ${NLANG_DOCS_RUN} build
                 --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
-                #The 4th build stage audits the guide's snippets by
-                #compiling+running them with the tree's own tools, so a
-                #language change that breaks a documented snippet fails
-                #the docs build.
+                #The 4th build stage audits the manual tree's snippets
+                #by compiling+running them with the tree's own tools,
+                #so a language change that breaks a documented snippet
+                #fails the docs build.
                 --ncc $<TARGET_FILE:ncc>
                 --nvm $<TARGET_FILE:nvm>
                 #The trees cross-link each other, so their pages only
@@ -319,7 +319,7 @@ if(NLANG_BUILD_DOCS)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "nlang-docs: building + auditing bilingual docs site"
         VERBATIM)
-    # The snippet audit compiles guide programs with $<TARGET_FILE:ncc>,
+    # The snippet audit compiles manual programs with $<TARGET_FILE:ncc>,
     # which resolves `import io` through the build-tree stdlib package.
     # Without this edge a parallel build can schedule the audit while the
     # (always-run) stdlib pack is still refreshing after an ncc rebuild,
