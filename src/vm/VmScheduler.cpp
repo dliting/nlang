@@ -18,9 +18,9 @@ thread_local VmScheduler::CarrierState* VmScheduler::t_carrier = nullptr;
 //GIL 内清空：定时器线程常驻跨 run，其谓词在锁内读 m_timers——无锁的
 //clear 会与它数据竞争（K1 单载体时代无此读者）。调用时机在池启动之
 //前，锁无竞争。定时器线程本身不重置：谓词见空表即回落静默等待，下
-//一轮首个 sleep 登记再唤醒它。
+//一轮首个 sleep 登记再唤醒它。K7：自守卫（标记获取——见标记不变量）。
 void VmScheduler::Reset() {
-    std::lock_guard<std::mutex> g(m_gil);
+    GilEnsureGuard g(*this);
     m_contexts.clear();
     m_runQueue.clear();
     m_timers.clear();
@@ -49,6 +49,7 @@ void VmScheduler::Reset() {
 }
 
 int VmScheduler::RegisterContext() {
+    GilEnsureGuard g(*this);
     //RegisterContext is the primary carrier's exclusive step (it runs
     //before the pool launches) — the calling thread is therefore the
     //primary carrier thread; record it for the aux-dispatch counter.
@@ -198,7 +199,7 @@ void VmScheduler::ReleaseHeldIfCurrent(int id) {
 
 //K4：门放开＝焦点无效/不存在/非 Runnable/已在队列。闭门仅一种形态：
 //焦点 Runnable 且被别的载体持有（对持有着本身不构成——它不在出队）。
-bool VmScheduler::FocusGateOpen() const {
+bool VmScheduler::FocusGateOpen() {
     if (m_debugFocusContext < 0)
         return true;
     const ExecutionContext* focus = Find(m_debugFocusContext);
@@ -214,12 +215,14 @@ void VmScheduler::NotifyGateWaiters() {
 }
 
 void VmScheduler::Requeue(int id) {
+    GilEnsureGuard g(*this);
     m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
     ReleaseHeldIfCurrent(id);
 }
 
 void VmScheduler::MarkFinished(int id, int64_t result) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -238,6 +241,7 @@ void VmScheduler::MarkFinished(int id, int64_t result) {
 }
 
 void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -256,6 +260,7 @@ void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
 //join 停泊（Slice 6）：状态与目标登记；调用方（载体）随后把帧整栈搬
 //入 ctx->frames。不入运行队列——只有目标终结才唤醒。
 void VmScheduler::ParkForJoin(int id, int targetId) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -270,6 +275,7 @@ void VmScheduler::ParkForJoin(int id, int targetId) {
 //failed 目标同时置 rethrowOnResume——joiner 恢复执行前重抛目标的
 //原异常对象（保留 raise 时的回溯）。多 joiner 皆唤醒（计划决策 6）。
 void VmScheduler::WakeJoiners(int targetId, bool failed) {
+    GilEnsureGuard g(*this);
     for (auto& ctx : m_contexts) {
         if (ctx.state != ContextState::ParkedJoin
             || ctx.parkHandle != targetId)
@@ -290,6 +296,7 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
 //是 int64_t 统一槽，任何返回种类都按原始 8 字节搬运。join 停泊者
 //（joinResultDst 为 null）跳过。
 void VmScheduler::DeliverJoinResults(int targetId, int64_t resultCell) {
+    GilEnsureGuard g(*this);
     for (auto& ctx : m_contexts) {
         if (ctx.state != ContextState::ParkedJoin
             || ctx.parkHandle != targetId
@@ -306,7 +313,7 @@ void VmScheduler::DeliverJoinResults(int targetId, int64_t resultCell) {
 //VmSchedulerTimer.cpp（K5 task 6 拆分）。
 VmScheduler::~VmScheduler() {
     {
-        std::lock_guard<std::mutex> g(m_gil);
+        GilEnsureGuard g(*this);
         m_timerShutdown = true;
     }
     m_timerCv.notify_all();
@@ -317,6 +324,7 @@ VmScheduler::~VmScheduler() {
 //互斥停泊（Slice 8）：仅状态迁移——等待者集合在执行器的 MutexSlot 侧
 //表（FIFO），唤醒由 unlock 的所有权移交显式触发（WakeForMutex）。
 void VmScheduler::ParkForMutex(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -329,6 +337,7 @@ void VmScheduler::ParkForMutex(int id) {
 //互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
 //Runnable 入队尾。
 void VmScheduler::WakeForMutex(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -341,6 +350,7 @@ void VmScheduler::WakeForMutex(int id) {
 //写回指针）在执行器的 ChannelSlot 侧表，唤醒由 send 的直接交付或
 //close 的全员唤醒显式触发（WakeForChanRecv）。
 void VmScheduler::ParkForChanRecv(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -353,6 +363,7 @@ void VmScheduler::ParkForChanRecv(int id) {
 //通道唤醒（Slice 9）：回 Runnable 入队尾。值已由执行器在调用本方法
 //之前写入停泊帧的结果槽（停泊的调用不会重执行——pc 推进不变量）。
 void VmScheduler::WakeForChanRecv(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -364,6 +375,7 @@ void VmScheduler::WakeForChanRecv(int id) {
 //K3 task 4：有界通道发送停泊——仅状态迁移，待发值/属主队列在执行器的
 //ChannelSlot 侧表。
 void VmScheduler::ParkForChanSend(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -376,6 +388,7 @@ void VmScheduler::ParkForChanSend(int id) {
 //K3 task 4：发送者唤醒——回 Runnable 入队尾。recv 已把队首待发值挪入
 //缓冲（或 close 已预置异常重抛），停泊的调用不会重执行。
 void VmScheduler::WakeForChanSend(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -388,6 +401,7 @@ void VmScheduler::WakeForChanSend(int id) {
 //原生的一方），currentContextId 保持——与 Parked* 家族不同，唤醒不
 //经队列事件，而是载体在原生返回后原地续跑。计数供死锁检测排除。
 void VmScheduler::MarkBlockedNative(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -398,6 +412,7 @@ void VmScheduler::MarkBlockedNative(int id) {
 //K2 slice 4（§2.5）：阻塞原生复原——载体已重取 GIL、帧已搬回
 //载体求值栈；状态回 Runnable 但不入队（载体持有，同运行中上下文）。
 void VmScheduler::MarkRunnableHeld(int id) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -405,13 +420,15 @@ void VmScheduler::MarkRunnableHeld(int id) {
     --m_blockedNativeCount;
 }
 
-const ExecutionContext* VmScheduler::Find(int id) const {
+const ExecutionContext* VmScheduler::Find(int id) {
+    GilEnsureGuard g(*this);
     if (id < 0 || static_cast<size_t>(id) >= m_contexts.size())
         return nullptr;
     return &m_contexts[static_cast<size_t>(id)];
 }
 
 ExecutionContext* VmScheduler::FindMutable(int id) {
+    GilEnsureGuard g(*this);
     return const_cast<ExecutionContext*>(Find(id));
 }
 

@@ -18,6 +18,13 @@ namespace nlang {
 void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
+    //K7: intrinsic dispatch single point — every intrinsic family
+    //(strings, collections, streams, thread/sync side tables) touches
+    //growing shared stores. The guard spans the whole intrinsic,
+    //including parking arms (yield / channel recv): the suspension
+    //unwind destroys this guard first, so once the dispatch window is
+    //gone it releases the GIL before the carrier parks.
+    GilEnsureGuard g(*this);
     //ByteStream intrinsics (0-18): family delegation to
     //IntrinsicsByteStream.cpp (same shape as the string family below).
     if (ExecuteIntrinsicByteStream(intrinsicId, callParamBase, locals, pResult))

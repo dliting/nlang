@@ -412,6 +412,8 @@ void VmExecutor::OpPrimCast(BytecodeReader& r, uint8_t* pResult)
 //way the retired OP_Int32_to_str/OP_Float_to_str did.
 void VmExecutor::OpPrimToStr(BytecodeReader& r, uint8_t* pResult)
 {
+    //K7: MintNewString allocates on the growing string store.
+    GilEnsureGuard g(*this);
     int i = ScalarPrimIndexOfRtk(r.ReadByte());
     if (i < 0)
         RaiseNlangException(m_exceptionClassIdx,

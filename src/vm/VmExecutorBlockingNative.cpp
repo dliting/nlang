@@ -22,9 +22,10 @@ std::atomic<uint64_t> g_nextNativeRootOwner{1};
 //--- Native call bridge (K2 slice 4, §2.5) -----------------------------------
 //The blocking protocol for natives that may wait on the outside world.
 
-//K2 slice 4 thread-locals (declared in VmExecutor.h).
+//K2 slice 4 thread-locals (declared in VmExecutor.h). K7: the GIL owner
+//marker moved to VmScheduler.h (namespace scope, inline) — t_gilOwner
+//references below resolve to it.
 thread_local int VmExecutor::t_blockingNativeDepth = 0;
-thread_local VmExecutor::GilHolder* VmExecutor::t_gilOwner = nullptr;
 thread_local uint64_t VmExecutor::t_currentNativeRootOwner = 0;
 
 void VmExecutor::RemoveNativeRoots(uint64_t owner) {

@@ -145,12 +145,18 @@ void VmExecutor::RaiseHostException(const std::string& msg) {
 //when a reference Value is created and pops when its last shared copy
 //dies; MarkPhase reads the registry during collection.
 void VmExecutor::PushHostRoot(uint8_t kind, int32_t value) {
+    //K7: m_hostRoots is a growing store read by collection. The
+    //embed adapter calls this outside any run, so the guard really
+    //acquires here.
+    GilEnsureGuard g(*this);
     m_hostRoots.push_back(HostRoot{kind, value});
 }
 
 //Reverse scan erases the most recently pushed matching pair — LIFO keeps
 //nested push/pop of equal values balanced (Value copy + destroy order).
 void VmExecutor::PopHostRoot(uint8_t kind, int32_t value) {
+    //K7: same growing-store access as PushHostRoot.
+    GilEnsureGuard g(*this);
     for (auto it = m_hostRoots.rbegin(); it != m_hostRoots.rend(); ++it) {
         if (it->kind == kind && it->value == value) {
             m_hostRoots.erase(std::next(it).base());

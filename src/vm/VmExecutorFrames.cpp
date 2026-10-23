@@ -145,6 +145,10 @@ void VmExecutor::RecordUnwindAndPopFrame()
 
 bool VmExecutor::TryEnterCatchHandler(CallFrame& frame, int32_t excHeapIdx)
 {
+    //K7: IsInstanceOrSubclass reads the exception object's heap slot.
+    //This runs during NLangThrow unwinding, after the throwing arm's
+    //guard has been destroyed, so it brings its own.
+    GilEnsureGuard g(*this);
     //Scan func.tryBlocks in declaration order; the first match (range +
     //type) handles it. frame.opPc = offset of the throwing instruction.
     const CompiledFunction& func = *frame.func;

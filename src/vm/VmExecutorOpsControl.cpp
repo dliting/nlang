@@ -14,6 +14,10 @@ void VmExecutor::OpAssertFail(BytecodeReader& reader) {
     //constant cache like OP_ConstString does.
     uint16_t msgIdx = reader.ReadUint16();
     std::string msg = "assertion failed";
+    //K7: StrVal returns a reference into the string store — the
+    //reads below must stay guarded (store growth on another carrier
+    //would invalidate the reference).
+    GilEnsureGuard g(*this);
     if (msgIdx < m_constStrCache.size()) {
         const std::string& s = StrVal(m_constStrCache[msgIdx]);
         if (!s.empty())

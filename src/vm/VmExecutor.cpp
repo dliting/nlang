@@ -391,6 +391,11 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //nearest catch handler (or top-level if none).
 [[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
                                                    const std::string& msg) {
+    //K7: exception construction allocates on the heap, string and
+    //list stores, and FireOnThrow touches scheduler focus — pure-
+    //opcode error paths (divide by zero, bad cast, ...) route here,
+    //so the guard lives at this single point.
+    GilEnsureGuard g(*this);
     const int32_t heapIdx = BuildNlangException(classIdx, msg);
     //Debugger checkpoint at the throw site, before unwinding starts
     //(the full NLang stack is still alive).
@@ -405,6 +410,8 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //must not sweep the in-flight exception.
 int32_t VmExecutor::BuildNlangException(int16_t classIdx,
                                          const std::string& msg) {
+    //K7: growing-store allocation, self-guarded (native raise arrives GIL-free).
+    GilEnsureGuard g(*this);
     if (classIdx < 0)
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));

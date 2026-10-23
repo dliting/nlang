@@ -46,6 +46,26 @@ constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
 //多扫 8 项），每次出队恰消费一项故无饥饿。
 constexpr size_t AFFINITY_SCAN_WINDOW = 8;
 
+//K7: GIL 持有者接口与线程局部属主标记——守卫家族随锁的拥有者（调度
+//器）定居，调度器公共面据此自守卫（嵌套零开销：本线程已持有则标记
+//已设，内层守卫不动锁）。
+//
+//标记不变量：进程内对 m_gil 的一切获取都经某个会设置 t_gilOwner 的
+//持有者（窗口守卫、ensure 守卫、定时器循环顶、调度器自守卫方法）。
+//绕开持有者裸取锁会使该线程下一次嵌套 ensure 守卫在非递归互斥量上
+//二次加锁＝自死锁。任何路径都不得无持有者锁定 m_gil。
+class GilHolder {
+public:
+    virtual ~GilHolder() = default;
+    virtual void Release() = 0;   //unlock + clear owner
+    virtual void Acquire() = 0;   //counted lock + set owner
+};
+
+//本线程当前的 GIL 持有者（null = 未持有）。属主身份是线程态不是锁
+//态：条件变量等待期间锁暂离而属主标记保持（其间只跑 VM 内部代码，
+//无人观察间隙）；阻塞原生臂经它交接锁。
+inline thread_local GilHolder* t_gilOwner = nullptr;
+
 //挂起/抢占信号（决策 2 F1，零新操作码）。刻意不继承 std::exception：
 //它不是错误，任何按 std::exception 捕获的位点不得拦截；RunFrames 的
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
@@ -151,13 +171,59 @@ class VmScheduler {
 public:
     static constexpr int kMainThreadId = 0;
 
+    //K7: 可重入 GIL ensure 守卫——本线程未持有则获取（嵌套使用＝空操
+    //作，见 t_gilOwner 的标记不变量）。调度器公共变更面经它自守卫
+    //（拥有者强制锁纪律，调用点无须记忆）；定时器线程循环顶的获取
+    //也走它——条件变量等待经 Lock() 释放/重取锁（同执行器
+    // GilWindowGuard 的先例，访问器由此成为承重件）。
+    class GilEnsureGuard : public GilHolder {
+    public:
+        explicit GilEnsureGuard(VmScheduler& sched) : m_rSched(sched) {
+            if (t_gilOwner != nullptr)
+                return;   //already held on this thread — nested no-op
+            Acquire();
+        }
+        GilEnsureGuard(const GilEnsureGuard&) = delete;
+        GilEnsureGuard& operator=(const GilEnsureGuard&) = delete;
+        ~GilEnsureGuard() {
+            if (m_lock.owns_lock())
+                Release();
+        }
+        //条件变量等待在 cv 内部释放并重取锁——把 unique_lock 交出去
+        //给 wait 调用；等待期间属主标记保持（见 t_gilOwner 契约）。
+        std::unique_lock<std::mutex>& Lock() { return m_lock; }
+        void Release() override {
+            m_lock.unlock();
+            if (t_gilOwner == this)
+                t_gilOwner = nullptr;
+        }
+        void Acquire() override {
+            const auto waitStartedAt = m_rSched.BeginGilWait();
+            m_lock.lock();
+            m_rSched.EndGilWait(waitStartedAt);
+            t_gilOwner = this;
+        }
+    private:
+        //Declaration order matters: m_lock's initializer reads m_rSched.
+        VmScheduler& m_rSched;
+        std::unique_lock<std::mutex> m_lock{
+            m_rSched.m_gil, std::defer_lock};
+    };
+
+    //K7 自守卫纪律：公共变更面（注册/复位/停泊/唤醒/终结/簿记/焦点
+    ///定时器服务）一律经 GilEnsureGuard 自守卫——嵌套调用零开销，未持
+    //锁调用真实获取；私有助手假设调用方已持锁。例外保留调用方契约的
+    //是：PopNextRunnable（经 gil 形参持有——Task 4 翻转契约）与白盒
+    //观测方法（ContextCount/HeldContextOfCarrier/HoldingCarrierOf/
+    //DebugFocusContext 等——持锁或静息期调用）。
+    //
     //每轮执行前复位（VmExecutor::ResetPerRunState 调用，决策 5 显式
     //枚举清空）：上下文注册表、运行队列、定时器表与关停标志全部清空
     //——嵌入宿主复用同一执行器的前提。在飞载体计数不清零：由载体循
     //环自身的 RAII 归零，此处重置反而会掩盖池未汇合的泄漏。
     void Reset();
 
-    //注册新上下文并入队尾；id 单调分配（main 恒为 0）。须持 GIL。
+    //注册新上下文并入队尾；id 单调分配（main 恒为 0）。自守卫。
     int RegisterContext();
 
     //FIFO 弹出下一个待运行上下文并记为本载体当前上下文（须持 GIL；
@@ -176,8 +242,12 @@ public:
     int PopNextRunnable(std::unique_lock<std::mutex>& gil);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
-    //队列成员全部是「另外的」上下文）。
-    bool HasOtherRunnable() const { return !m_runQueue.empty(); }
+    //队列成员全部是「另外的」上下文）。自守卫读取——回边配额分支在
+    //不持锁下调用；自锁读取者故非 const。
+    bool HasOtherRunnable() {
+        GilEnsureGuard g(*this);
+        return !m_runQueue.empty();
+    }
 
     //抢占后重新入队尾（载体不再持有该上下文）。
     void Requeue(int id);
@@ -231,7 +301,7 @@ public:
     //currentContextId 不清零）；MarkRunnableHeld 在重取 GIL、复原帧后调
     //用（状态回 Runnable 但不入队——载体持有语义，同运行中上下文）。
     //计数是死锁检测的排除项：阻塞原生完成即唤醒源，全部载体等待＋队
-    //列/定时器皆空时若仍有阻塞节在飞，不得判死锁。须持 GIL。
+    //列/定时器皆空时若仍有阻塞节在飞，不得判死锁。自守卫。
     void MarkBlockedNative(int id);
     void MarkRunnableHeld(int id);
     //stop 标志读取（须持 GIL——阻塞臂在重取 GIL 后检查）。main 终结或
@@ -241,9 +311,11 @@ public:
     void MarkFinished(int id, int64_t result);
     void MarkFailed(int id, int32_t failExcHeapIdx);
 
-    //观测（白盒测试注入断言）。
+    //观测（白盒测试注入断言）。ContextCount 等读取者保持调用方契约
+    //（持锁或静息期）；Find/FindMutable 是热路径查表，自守卫（自锁读
+    //取者故非 const——经 unique_ptr 访问不受执行器侧 const 传染）。
     size_t ContextCount() const { return m_contexts.size(); }
-    const ExecutionContext* Find(int id) const;
+    const ExecutionContext* Find(int id);
     //本载体正在执行的上下文（-1 = 空闲）。多载体并发在飞，「当前」
     //是每载体概念：读安装在本线程上的载体槽；未安装（宿主线程在载
     //体循环之外）返回 -1。
@@ -291,7 +363,10 @@ public:
         int currentContextId = -1;  //本载体正在执行的上下文
         int carrierId = -1;         //K4：本载体编号（主=0、辅助=1..N）
         int nestDepth = 0;          //本载体上的嵌套求值深度
-        int schedTripBudget = 0;    //本载体当前窗口的回边预算
+        //本载体当前窗口的回边预算。仅属主载体线程读写（分派时重装、
+        //回边递减——K7 核证：他线程永不触及他人槽），故无须 GIL——
+        //该前提被破坏时须先改为原子或加锁。
+        int schedTripBudget = 0;
         uint64_t runGeneration = 0; //K6 D9: run generation at install
                                      //(zombie guard — compare after a
                                      //blocking native)
@@ -393,6 +468,7 @@ public:
     //context is held by its carrier (frames on its evaluation stack),
     //everything else reads the registry's parked frames).
     void ConfigureCarriers(uint32_t count) {
+        GilEnsureGuard g(*this);
         m_carrierCount = count;
         m_heldByCarrier.assign(count, -1);
     }
@@ -415,11 +491,12 @@ public:
         return -1;
     }
     //K4（D2）：调试焦点上下文（-1 = 无）。Step* 设焦点、Continue 清焦
-    //点；PopNextRunnable 据此独占分派。须持 GIL 调用（冻结窗口内——
-    //与全部调度器状态同一把锁）。切换/清除可能放开门（新焦点已在队
+    //点；PopNextRunnable 据此独占分派。自守卫（检查点每语句同步——
+    //Task 4 后调试臂在锁外调用）。切换/清除可能放开门（新焦点已在队
     //列/非 Runnable，或无焦点）——唤醒 held-wait 等待者立即重评；同值
     //重复同步是无操作（每个检查点后都会同步，勿产生虚假唤醒）。
     void SetDebugFocusContext(int id) {
+        GilEnsureGuard g(*this);
         if (m_debugFocusContext == id)
             return;
         m_debugFocusContext = id;
@@ -428,21 +505,23 @@ public:
     int DebugFocusContext() const { return m_debugFocusContext; }
 
     //请求关停：置位并唤醒全部等待载体（它们在下次出队时看到 -1 退
-    //出）。自取 GIL——供未持锁的路径（RunPrimaryCarrier 的异常兜底）
-    //调用；已持锁的路径（MarkFinished/MarkFailed 内部）直接置位。
+    //出）。自守卫——供未持锁的路径（RunPrimaryCarrier 的异常兜底、
+    //其他线程）调用；已持锁的路径（MarkFinished/MarkFailed 内部）
+    //嵌套零开销。
     void RequestStop() {
-        std::lock_guard<std::mutex> g(m_gil);
+        GilEnsureGuard g(*this);
         m_stopRequested = true;
         m_runQueueCv.notify_all();
     }
 
-    //K2 slice 3：配额点的到期服务（须持 GIL——载体的回边安全点调用）。
-    //死线已到而定时器线程尚未获得锁时（计算密集上下文连续跳过让渡会
-    //把线程饿死——条件变量内部的锁重取不计入 GIL 等待计数），持有锁
-    //的载体顺手完成到期迁移并唤醒空闲载体：定时器活性不依赖线程调度
-    //时序。到期序（非登记序）入队——服务方迟到时多个死线可能同时已
-    //过，唤醒顺序必须跟随到期时刻。
+    //K2 slice 3：配额点的到期服务（回边安全点调用——Task 4 后该分支
+    //在锁外运行，自守卫）。死线已到而定时器线程尚未获得锁时（计算密
+    //集上下文连续跳过让渡会把线程饿死——条件变量内部的锁重取不计入
+    //GIL 等待计数），持有锁的载体顺手完成到期迁移并唤醒空闲载体：定
+    //时器活性不依赖线程调度时序。到期序（非登记序）入队——服务方迟
+    //到时多个死线可能同时已过，唤醒顺序必须跟随到期时刻。
     void ServiceDueTimers() {
+        GilEnsureGuard g(*this);
         if (m_timers.empty())
             return;
         if (NearestTimerDeadline() > std::chrono::steady_clock::now())
@@ -470,10 +549,10 @@ private:
     //K4：窗口结束（停泊/终结/重新入队）时清集中登记——仅当清的是本
     //载体当前持有的上下文（须持 GIL）。
     void ReleaseHeldIfCurrent(int id);
-    //K4：焦点门是否放开（须持 GIL）。放开＝焦点无效/不存在/非
+    //K4：焦点门是否放开（调用方持锁）。放开＝焦点无效/不存在/非
     //Runnable/已在队列（可被独占分派）——闭门仅一种形态：焦点
-    // Runnable 且被别的载体持有。
-    bool FocusGateOpen() const;
+    // Runnable 且被别的载体持有。非 const：经自守卫的 Find 读注册表。
+    bool FocusGateOpen();
     //K4：焦点状态迁出 Runnable（停泊/终结）时唤醒门等待者（须持
     //GIL）。无焦点时不可能存在门等待者（held-wait 只在焦点 Runnable
     //且被持时进入）——跳过广播，阻塞热路径不因调试机制空转。

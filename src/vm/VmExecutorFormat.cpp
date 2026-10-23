@@ -58,6 +58,8 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
 }
 
 void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
+    //K7: heap slot reads plus MintNewString at the tail.
+    GilEnsureGuard g(*this);
     //Accumulator-shaped like OP_Array_to_str: the handle comes in
     //via pResult, the interned string index goes back out through
     //pResult. Direct conversion paths bypass the member-dispatch
@@ -79,6 +81,8 @@ void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
 }
 
 void VmExecutor::OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op) {
+    //K7: reads heap size, slot kinds and the two heap records.
+    GilEnsureGuard g(*this);
     bool bNeg = (op == OpCode::OP_Ne_func);
     uint16_t lhs = reader.ReadUint16();
     uint16_t rhs = reader.ReadUint16();

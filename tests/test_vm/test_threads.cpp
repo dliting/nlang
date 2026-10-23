@@ -2883,7 +2883,7 @@ static void test_aux_carriers_actually_execute()
 //计数器族的白盒钉板（直构调度器，镜像 test_debug_focus_exclusive_dispatch
 //的形状）：竞争分类（进入等待时已有他者排队才算竞争获取）、纳秒累计、
 //Reset 每 run 清零。Begin/End 只动等待者计数不动互斥本体，与 Reset 的
-//lock_guard 无死锁交互；1ms sleep 保证时长断言跨时钟精度确定成立。
+//自守卫获取无死锁交互；1ms sleep 保证时长断言跨时钟精度确定成立。
 static void test_gil_wait_counters_whitebox()
 {
     TEST(gil_wait_counters_whitebox);
@@ -2980,17 +2980,20 @@ static void test_debug_focus_exclusive_dispatch()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: white-box lock-taking goes through the marker guard — a raw
+    //unique_lock would leave t_gilOwner unset and the self-guarded
+    //public surface below would self-deadlock.
+    VmScheduler::GilEnsureGuard gilGuard(sched);
     CHECK(sched.RegisterContext() == 0, "main registers as id 0");
     CHECK(sched.RegisterContext() == 1, "first worker registers as id 1");
     CHECK(sched.RegisterContext() == 2, "second worker registers as id 2");
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0,
           "no focus set: the FIFO head dispatches");
     CHECK(sched.HeldContextOfCarrier(0) == 0,
           "the held mirror records the dispatched context");
     //焦点钉在队尾：独占分派必须取焦点而非队首（纯 FIFO 会返回 1）
     sched.SetDebugFocusContext(2);
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 2,
           "queued focus dispatches exclusively, jumping the queue");
     CHECK(sched.HeldContextOfCarrier(0) == 2,
           "the mirror follows the focus dispatch");
@@ -2998,23 +3001,24 @@ static void test_debug_focus_exclusive_dispatch()
     sched.ParkForMutex(2);
     CHECK(sched.HeldContextOfCarrier(0) == -1,
           "parking releases the held mirror slot");
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1,
           "parked focus opens the gate: the head dispatches");
     sched.Requeue(1);
     sched.WakeForMutex(2);   //queue [1, 2] — focus at the tail again
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 2,
           "requeued focus resumes exclusivity over the head");
     //焦点终结：门开，常规分派照常（此后队列空，用关停收尾）
     sched.MarkFinished(2, 0);
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1,
           "a finished focus leaves the gate open");
-    //RequestStop 自取 GIL（供未持锁路径调用）——持有者须先放锁再调。
+    //RequestStop 自守卫获取 GIL（供未持锁路径调用）——持有者须先放锁
+    //再调，验证真实获取路径。
     {
-        gil.unlock();
+        gilGuard.Release();
         sched.RequestStop();
-        gil.lock();
+        gilGuard.Acquire();
     }
-    CHECK(sched.PopNextRunnable(gil) == -1,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == -1,
           "stop ends the dequeue loop");
     PASS();
 }
@@ -3029,19 +3033,22 @@ static void test_debug_focus_held_wait()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: white-box lock-taking goes through the marker guard — a raw
+    //unique_lock would leave t_gilOwner unset and the self-guarded
+    //public surface below would self-deadlock.
+    VmScheduler::GilEnsureGuard gilGuard(sched);
     sched.RegisterContext();                //0 main
     const int focusId = sched.RegisterContext();   //1: focus-to-be
     sched.RegisterContext();                //2: head contender
-    CHECK(sched.PopNextRunnable(gil) == 0, "main dispatches first");
-    CHECK(sched.PopNextRunnable(gil) == focusId,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0, "main dispatches first");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == focusId,
           "the focus context is dispatched (now held, not queued)");
     sched.SetDebugFocusContext(focusId);    //Runnable + held: gate closed
     std::thread stopper([&sched] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         sched.RequestStop();
     });
-    const int got = sched.PopNextRunnable(gil);
+    const int got = sched.PopNextRunnable(gilGuard.Lock());
     stopper.join();
     CHECK(got == -1,
           "focus held by a window: the dequeue waits for its release "
@@ -3152,25 +3159,28 @@ static void test_affinity_prefers_last_runner()
     VmScheduler sched;
     sched.ConfigureCarriers(2);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: white-box lock-taking goes through the marker guard — a raw
+    //unique_lock would leave t_gilOwner unset and the self-guarded
+    //public surface below would self-deadlock.
+    VmScheduler::GilEnsureGuard gilGuard(sched);
     CHECK(sched.RegisterContext() == 0, "main registers as id 0");
     CHECK(sched.RegisterContext() == 1, "worker 1 registers");
     CHECK(sched.RegisterContext() == 2, "worker 2 registers");
     //载体 0 连续分派全部三个上下文（队首恒为无偏好 255 → 窗内最早
     //命中即队首，纯 FIFO 不变），全部盖上载体 0 的戳。
-    CHECK(sched.PopNextRunnable(gil) == 0, "carrier 0 dispatches 0");
-    CHECK(sched.PopNextRunnable(gil) == 1, "carrier 0 dispatches 1");
-    CHECK(sched.PopNextRunnable(gil) == 2, "carrier 0 dispatches 2");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0, "carrier 0 dispatches 0");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1, "carrier 0 dispatches 1");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 2, "carrier 0 dispatches 2");
     sched.Requeue(0);
     sched.Requeue(1);   //queue [0(c0), 1(c0)]
     //载体 1 分派队首 0（窗内无自己的戳，回退队首）——0 改盖载体 1 戳。
     sched.InstallSelfCarrier(1);
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0,
           "carrier 1 falls back to the head (no own stamp in window)");
     sched.Requeue(0);   //queue [1(c0), 0(c1)]
     //偏好分派：载体 1 的窗扫描命中位置 1 的 0(c1)——越过队首 1(c0)。
     //纯 FIFO（与未实现亲和的现状）返回 1；亲和实现必须返回 0。
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0,
           "carrier 1 takes its own previously-run context, jumping the "
           "head stamped for another carrier");
     PASS();
@@ -3185,13 +3195,16 @@ static void test_affinity_window_fallback()
     VmScheduler sched;
     sched.ConfigureCarriers(2);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: white-box lock-taking goes through the marker guard — a raw
+    //unique_lock would leave t_gilOwner unset and the self-guarded
+    //public surface below would self-deadlock.
+    VmScheduler::GilEnsureGuard gilGuard(sched);
     for (int id = 0; id < 10; ++id)
         CHECK(sched.RegisterContext() == id, "context registers in id order");
     //载体 0 逐个分派全部 10 个上下文（全为无偏好 255 → 恒取队首），
     //全部盖上载体 0 的戳。
     for (int id = 0; id < 10; ++id)
-        CHECK(sched.PopNextRunnable(gil) == id,
+        CHECK(sched.PopNextRunnable(gilGuard.Lock()) == id,
               "carrier 0 drains the queue in FIFO order");
     //重建队列 [1..8](c0 戳)，随后载体 1 分派队首 1（回退）——被盖 c1
     //戳的是 1。再回队 9(c0) 与 1(c1)：[2..8, 9, 1(c1)]，自己的戳落在
@@ -3199,7 +3212,7 @@ static void test_affinity_window_fallback()
     for (int id = 1; id <= 8; ++id)
         sched.Requeue(id);              //queue [1..8] all c0
     sched.InstallSelfCarrier(1);
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1,
           "carrier 1 falls back to the head (window holds no own stamp)");
     sched.Requeue(9);                   //queue [2..8, 9] all c0
     sched.Requeue(1);                   //queue [2..8, 9, 1(c1)]
@@ -3207,14 +3220,14 @@ static void test_affinity_window_fallback()
           "fallback dispatches are observable in the miss counter");
     //窗口覆盖位置 0..7（8 项）：[2..8, 9] 全是 c0 戳，1(c1) 在位置 8
     //——窗口之外，必须回退队首 2；无界扫描会越过前缀取到 1。
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 2,
           "an own-stamped entry beyond the 8-entry window is NOT taken; "
           "the head dispatches instead");
     CHECK(sched.AffinityHits() == 0,
           "carrier 1 never exercised affinity before the window slid");
     //窗口随消费滑动：队首 2 被取走后 1(c1) 进入窗内（位置 7），下次
     //出队必须命中越队取它——位次 ≥ 窗口的项在前项被消费后即可及。
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1,
           "the own-stamped entry enters the window once the head is "
           "consumed — affinity takes it");
     CHECK(sched.AffinityHits() == 1,
@@ -3232,18 +3245,21 @@ static void test_affinity_single_carrier_fifo_identity()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: white-box lock-taking goes through the marker guard — a raw
+    //unique_lock would leave t_gilOwner unset and the self-guarded
+    //public surface below would self-deadlock.
+    VmScheduler::GilEnsureGuard gilGuard(sched);
     CHECK(sched.RegisterContext() == 0, "context 0 registers");
     CHECK(sched.RegisterContext() == 1, "context 1 registers");
-    CHECK(sched.PopNextRunnable(gil) == 0, "context 0 dispatches (stamp c0)");
-    CHECK(sched.PopNextRunnable(gil) == 1, "context 1 dispatches (stamp c0)");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0, "context 0 dispatches (stamp c0)");
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 1, "context 1 dispatches (stamp c0)");
     CHECK(sched.RegisterContext() == 2,
           "context 2 registers after the queue drained (255, no stamp)");
     sched.Requeue(0);   //queue [2(255), 0(c0)]
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 2,
           "the never-dispatched head dispatches — single carrier stays "
           "pure FIFO (exact-match-only affinity would jump it to 0)");
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable(gilGuard.Lock()) == 0,
           "the stamped entry follows in FIFO order");
     PASS();
 }

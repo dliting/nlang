@@ -85,6 +85,11 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
 //compares content. Two StrVal calls, no minting between them — the
 //returned references stay valid (no store growth).
 bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
+    //K7: the interned-flag read and the flatten below touch the
+    //growing string store; the comparison itself also runs inside
+    //this guard (StrVal returns references, which stay valid only
+    //while the store cannot grow).
+    GilEnsureGuard g(*this);
     if (IsInternedString(hA) && IsInternedString(hB))
         return hA == hB;
     return StrVal(hA) == StrVal(hB);
@@ -139,6 +144,11 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
 //growth invalidates it — same discipline as the old ReadStrArg by-value
 //rule).
 const std::string& VmExecutor::StrVal(int32_t handle) {
+    //K7: the in-place cons flatten rewrites the string store. This
+    //guard covers the flatten only — the returned reference is the
+    //caller's responsibility (valid while the caller's own guard
+    //holds; the minting rule below already pins the same discipline).
+    GilEnsureGuard g(*this);
     if (!IsLiveStringHandle(handle))
         return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];

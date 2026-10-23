@@ -116,6 +116,9 @@ public:
     //minting/allocation/typed-access primitives the embedding adapter
     //needs. Thin public wrappers over existing internal machinery —
     //no new semantics.
+    //K7: single-embedding-thread constraint — these wrappers do not
+    //self-guard the stores they touch; a second embedding thread
+    //would need each of them guarded first.
     int32_t MintHostString(const std::string& content);
     int32_t BoxHostScalar(uint8_t typeTag, int64_t bits);
     int32_t AllocHostList();
@@ -745,22 +748,12 @@ private:
     //during unwinding would be UB anyway). K2 slice 2: the constructor
     //maintains the GIL-waiter count around the lock acquisition — the
     //yield rule reads it to keep lock contenders from starving.
-    //K2 slice 4 (§2.5): the GIL holder this thread currently owns the
-    //lock through — normally the carrier's window guard; transiently a
-    //re-entrant host callback's GilEnsureGuard while a blocking native
-    //has the window's lock away. The blocking-native arm hands the lock
-    //off through the current holder, so blocking works at any re-entry
-    //depth. The owner designation is thread state, not lock state:
-    //during PopNextRunnable's internal cv wait the lock is momentarily
-    //away while the designation persists (only VM-internal code runs
-    //there — nothing can observe the gap).
-    class GilHolder {
-    public:
-        virtual ~GilHolder() = default;
-        virtual void Release() = 0;   //unlock + clear owner
-        virtual void Acquire() = 0;   //counted lock + set owner
-    };
-
+    //K7: GilHolder and the t_gilOwner marker moved to VmScheduler.h
+    //(they live with the lock's owner so the scheduler's public surface
+    //can self-guard through the same mechanism); the owner-designation
+    //contract ("thread state, not lock state") moved with them. The
+    //blocking-native arm still hands the lock off through the current
+    //holder, so blocking works at any re-entry depth.
     class GilWindowGuard : public GilHolder {
     public:
         explicit GilWindowGuard(VmExecutor& exec) : m_rExec(exec) {
@@ -804,39 +797,20 @@ private:
     //this thread already holds it (carrier window or an outer ensure
     //guard). NativeHost callbacks and the by-name bridge enter the VM
     //through here — including from inside a blocking native, where the
-    //carrier's window lock is away.
-    class GilEnsureGuard : public GilHolder {
+    //carrier's window lock is away. K7: the mechanism lives in
+    //VmScheduler::GilEnsureGuard now; this entry point keeps the
+    //VmExecutor& shape so the re-entrant callback sites are unchanged.
+    //Nesting works across both guard families through the shared
+    //namespace-scope t_gilOwner.
+    class GilEnsureGuard {
     public:
-        explicit GilEnsureGuard(VmExecutor& exec) : m_rExec(exec) {
-            if (t_gilOwner != nullptr)
-                return;   //already held on this thread — nested no-op
-            Acquire();
-        }
+        explicit GilEnsureGuard(VmExecutor& exec)
+            : m_guard(*exec.m_spScheduler) {}
         GilEnsureGuard(const GilEnsureGuard&) = delete;
         GilEnsureGuard& operator=(const GilEnsureGuard&) = delete;
-        ~GilEnsureGuard() {
-            if (m_lock.owns_lock())
-                Release();
-        }
-        void Release() override {
-            m_lock.unlock();
-            if (t_gilOwner == this)
-                t_gilOwner = nullptr;
-        }
-        void Acquire() override {
-            const auto waitStartedAt =
-                m_rExec.m_spScheduler->BeginGilWait();
-            m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait(waitStartedAt);
-            t_gilOwner = this;
-        }
     private:
-        //Declaration order matters: m_lock's initializer reads m_rExec.
-        VmExecutor& m_rExec;
-        std::unique_lock<std::mutex> m_lock{
-            m_rExec.m_spScheduler->Gil(), std::defer_lock};
+        VmScheduler::GilEnsureGuard m_guard;
     };
-    static thread_local GilHolder* t_gilOwner;
 
     //K4: checkpoints fire for every context (K1 decision 7 lifted) —
     //the hooks see spawned contexts' statements and throws too.
@@ -1351,8 +1325,9 @@ private:
     //feed the white-box tests. Nested evaluation windows skip the quota
     //entirely (a park there is impossible — see RequestPark).
     int m_schedTripLimit = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
-    int m_quotaFires = 0;
-    int m_preemptSkips = 0;
+    //K7: incremented on the back-edge fast path outside the GIL.
+    std::atomic<int> m_quotaFires{0};
+    std::atomic<int> m_preemptSkips{0};
     //K2 slice 2: the auxiliary carrier pool. One record per launched
     //thread; exited is shared_ptr so a detached thread (grace deadline
     //hit mid-host-callback) still owns its flag safely.

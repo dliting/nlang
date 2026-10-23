@@ -17,6 +17,7 @@ namespace nlang {
 //recompute the nearest deadline.
 void VmScheduler::ParkForTimer(int id,
                                std::chrono::steady_clock::time_point wakeAt) {
+    GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
@@ -88,22 +89,22 @@ std::chrono::steady_clock::time_point VmScheduler::NearestTimerDeadline() const 
 //context's state cannot change; the stale branch is defensive only).
 void VmScheduler::TimerThreadMain() {
     for (;;) {
-        //K5 batch 1: time this acquisition like the carrier guards do —
-        //the timer thread is a real GIL contender the guard-only
-        //counters never saw. The cv waits below reacquire the lock
-        //internally; those reacquisitions stay uncounted (same ruling
-        //as ServiceDueTimers in the header).
-        const auto gilWaitStartedAt = BeginGilWait();
-        std::unique_lock<std::mutex> gil(m_gil, std::defer_lock);
-        gil.lock();
-        EndGilWait(gilWaitStartedAt);
-        m_timerCv.wait(gil, [this] {
+        //K7: loop-top acquisition through the marker guard (sets
+        //t_gilOwner — see the marker invariant in VmScheduler.h; a raw
+        //acquisition here would self-deadlock the next self-guarded
+        // call). K5 batch 1 still applies: the acquisition is timed
+        //through the guard's Acquire, and the cv waits below reacquire
+        //the lock internally; those reacquisitions stay uncounted
+        //(same ruling as ServiceDueTimers in the header).
+        GilEnsureGuard gilGuard(*this);
+        m_timerCv.wait(gilGuard.Lock(), [this] {
             return m_timerShutdown || !m_timers.empty();
         });
         if (m_timerShutdown)
             return;
         const auto nearest = NearestTimerDeadline();
-        const bool deadlineReached = !m_timerCv.wait_until(gil, nearest,
+        const bool deadlineReached = !m_timerCv.wait_until(
+            gilGuard.Lock(), nearest,
             [this, &nearest] {
                 return m_timerShutdown || m_timers.empty()
                     || NearestTimerDeadline() != nearest;
@@ -113,7 +114,7 @@ void VmScheduler::TimerThreadMain() {
         if (!deadlineReached)
             continue;   //table changed: recompute the nearest deadline
         ExpireDueTimers();
-        gil.unlock();
+        gilGuard.Release();   //notify outside the lock, then re-loop
         m_runQueueCv.notify_all();   //expired contexts enqueued: wake carriers
     }
 }

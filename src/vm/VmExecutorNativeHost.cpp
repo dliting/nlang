@@ -302,6 +302,10 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
     //a declined call merely wastes the (state-neutral) dance.
     if (m_pHostFunctions) {
         const CompiledFunction* cal = &callee;
+        //K7: the blocking protocol hands the GIL over through the
+        //thread's current holder — the guard supplies that holder
+        //once the dispatch window is gone.
+        GilEnsureGuard g(*this);
         if (RunBlockingNative(callee, callParamBase, locals, pResult,
                 [this, cal](const uint8_t* args, uint32_t argc,
                             uint8_t* ret) {
@@ -316,6 +320,11 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
             "NLang VM: native function not registered: " + callee.name);
     VmNativeHost host;
     InitNativeHost(host);
+    //K7: native dispatch single point — the blocking arm stages roots
+    //and parks frames in executor storage, the direct arm reads and
+    //writes the stores inside the native. EnsureNativeAvailable (DLL
+    //load) above stays outside the guard.
+    GilEnsureGuard g(*this);
     if (it->second.blocking) {
         NativeFn fn = it->second.fn;
         RunBlockingNative(callee, callParamBase, locals, pResult,
