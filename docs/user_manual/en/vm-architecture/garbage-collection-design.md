@@ -20,8 +20,8 @@ active heap references (e.g., `a.b.c = Foo()` where tempSlot=a, tempSlot2=a.b).
 Tracking these temporaries would require per-instruction offset maps in
 CompiledFunction, adding complexity.
 
-Safepoints (function entry + loop back-edges) put collection at
-well-bounded positions: at function entry the frame is freshly set up, and
+Safepoints (function entry, loop back-edges, and — since the scheduler
+arrived — thread spawn) put collection at well-bounded positions: at function entry the frame is freshly set up, and
 at loop back-edges the condition is about to be re-evaluated. Historically
 this choice also leaned on the argument that back-edges never find active
 references in the temp slots; with the handle bitmap (decision 2) covering
@@ -41,7 +41,7 @@ information instead. Parameters stay on the declared route
 `[paramCount, localsSize)` — the return slot, the temp pool, the
 call-argument staging area, the evaluation scratch area, and the named
 local variables — is classified by a per-function **handle bitmap**
-serialized with the function record (NCU format 2.4): two bits per slot,
+serialized with the function record (NCU format 2.8): two bits per slot,
 one of four classes.
 
 - `None`: a scalar; the slot never holds a reference and is not tested.
@@ -87,8 +87,9 @@ classIdx). MarkStruct needs the structIdx to look up field layout for
 reference tracing. Options:
 - Add a type header to struct objects: requires +1 offset shift in all
   LoadField/StoreField for structs, touching many instruction handlers
-- Parallel array: only AllocStructOnHeap/DeepCopyStruct set it, no changes
-  to existing instruction logic
+- Parallel array: set at allocation time only — AllocStructOnHeap and
+  DeepCopyStruct stamp the struct index, array allocation stamps the array
+  type index into the same array — no changes to existing instruction logic
 
 The parallel array is the smaller, safer change.
 
@@ -126,7 +127,7 @@ MarkPhase():
     if returnTypeKind is a reference kind:
       RTK_String: MarkString(value)      //conservative over-mark, as defense
       otherwise:  mark and push if valid
-    //band: two-bit root class per slot (NCU 2.4 handle bitmap)
+    //band: two-bit root class per slot (NCU 2.8 handle bitmap)
     for each band slot i, slot number paramCount + i:
       class = (func.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3
       None:      skip
@@ -135,9 +136,12 @@ MarkPhase():
       Dual:      value-test both domains
     //fallback for a bitmap whose length disagrees with the frame layout:
     //value-test both domains over the whole band
-  for each scheduler context:      //parked/queued contexts (steal model)
+  for each scheduler context:      //parked/queued/finished contexts (steal model)
     for each parked CallFrame: run the same three arms (params, result, band)
-    if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
+    if threadObjHeapIdx, failExcHeapIdx or resumeExcHeapIdx valid:
+      mark, push to worklist
+    if frames empty (finished): classify resultCell by the snapshotted
+      resultKind — this keeps a Future<T> value alive between spawn and get()
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
     handles minted by re-entrant callbacks: value-test both domains
@@ -145,9 +149,11 @@ MarkPhase():
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
     pop entry from worklist
+    if func: trace the captured receiver of a bound method value (slot[1])
     if class: for each field, push unmarked reference children;
       string-typed fields (RTK_String) mark their string handle instead;
-      MarkChannelElements (buffered channel values are children)
+      container arms MarkListElements / MarkDictEntries / MarkChannelElements
+      (buffered List/Dict/channel values are children)
     if struct: for each field, push unmarked reference children;
       string-typed fields mark their string handle instead
     if array: push unmarked element records whose elemKind is a reference kind;
@@ -159,8 +165,12 @@ SweepPhase():
   clear free list
   for each heap slot:
     if not free and not marked:
-      if class: FreeOwnedStructs (free value-owned struct fields)
+      if class: recycle a List/Dict/Mutex/Channel instance's side-table
+        handle to its free list; FreeOwnedStructs (free value-owned
+        struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
+      if array: FreeOwnedArrayStructElements (free value-owned struct
+        elements)
       clear slot, mark as free, add to free list
 
 SweepStrings():
@@ -206,9 +216,13 @@ roots:
   running frame (parameter descriptors, result cell, band bitmap) — a park
   can freeze a frame mid-instruction, and its staging values and handler
   state must all survive;
-- the context's `Thread` object (`join` identifies its target by handle)
-  and a failed context's retained exception object (`join` rethrows that
-  very object) are roots in their own right;
+- the context's `Thread` object (`join` identifies its target by handle),
+  a failed context's retained exception object (`join` rethrows that very
+  object), and an exception staged for the next resume (a parked receiver
+  or sender woken by a channel close) are roots in their own right;
+- a finished context's result cell is classified by the snapshotted return
+  kind — this is what keeps a `Future<T>`'s reference value alive between
+  the spawn and the `get()`;
 - values buffered inside a channel are traced through the worklist's class
   arm (`Channel<T>` is a builtin class with a handle field; buffered
   elements are marked with the object).
@@ -276,7 +290,8 @@ meanwhile: there is no separate stop-the-world handshake to coordinate.
 
 ### Free List Integration
 
-Allocation functions (AllocClassOnHeap, AllocStructOnHeap, DeepCopyStruct)
+Allocation functions (AllocClassOnHeap, AllocStructOnHeap,
+AllocArrayOnHeap, DeepCopyStruct, and function-value record allocation)
 check the free list first. If a free slot is available, it's reused
 (resize to correct size, set m_slotKinds/m_slotStructIdx). Otherwise,
 emplace_back a new slot.
@@ -284,8 +299,9 @@ emplace_back a new slot.
 ### GC Trigger Flow
 
 ```text
-OP_New / OP_AllocStruct → set m_gcPending = true
+OP_New / OP_AllocStruct / OP_AllocArray / OP_CopyStruct → m_gcPending = true
 String allocation (mint / concatenation node) → set m_gcPending = true
+Function-value record creation → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()

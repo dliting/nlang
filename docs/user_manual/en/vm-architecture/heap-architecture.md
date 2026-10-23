@@ -18,18 +18,21 @@ field access via `OP_LoadField`/`OP_StoreField`.
 
 **Struct**: `[field0, field1, ..., fieldN-1]`
 - No type header (identified by `m_slotStructIdx` parallel array)
-- Field offset in bytecode = field_index * 4
+- Every data field occupies a uniform 2-cell (8-byte) slot so 64-bit
+  scalars fit without per-field width logic; field i sits at cell 2i,
+  i.e. field offset in bytecode = field_index * 8 bytes
 
 **Class**: `[classIdx, field0, field1, ..., fieldN-1]`
 - slot[0] = classIdx for runtime type identification (virtual dispatch)
-- Field offset in bytecode = (field_index + 1) * 4 (accounts for classIdx)
+- Field offset in bytecode = 4 + field_index * 8 bytes (the classIdx
+  cell occupies the first 4 bytes)
 - Inherited fields come before own fields (root ancestor first)
 
 ### Parallel Arrays
 
 | Array           | Purpose                                    |
 |-----------------|--------------------------------------------|
-| m_slotKinds     | RTK_Class/RTK_Struct/RTK_Boxed/0=free per heap slot  |
+| m_slotKinds     | RTK_Class/RTK_Struct/RTK_Boxed/RTK_Func/RTK_Array/0=free per heap slot  |
 | m_slotStructIdx | CompiledStruct index per struct slot       |
 | m_markBits      | GC mark bit per heap slot                  |
 
@@ -73,11 +76,12 @@ function.
 ### Boxed Primitives
 
 A primitive value (int/float/string) assigned to an Object-typed target is
-boxed into a 2-slot heap entry:
+boxed into a 3-cell heap record:
 
 ```text
-slot[0] = type tag (RTK_Int32 / RTK_Float / RTK_String)
-slot[1] = value bits (int32 / float bits / string object handle)
+slot[0]     = type tag (RTK_Int32 / RTK_Float / RTK_String)
+slots[1..2] = value bits (8-byte cell pair: int32 / float bits /
+              string object handle; 4-byte kinds value-extend in the low cell)
 ```
 
 `m_slotKinds[idx] = RTK_Boxed` (6). GC MarkPhase dispatches on the boxed
@@ -121,32 +125,34 @@ SnClassDecl instances keyed by the full instantiation signature:
 
 ```cpp
 struct GenericInstKey {
-    std::string baseName;            // "List" / "Dict" / "func"
+    std::string baseName;            // "List" / "Dict" / "func" / "Channel"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
     std::vector<uint8> outFlags;     // out-marked params (func)
-    std::vector<uint8> arrayFlags;   // array-typed type args
 };
+// Array-ness needs no flag vector: an array-typed argument IS the
+// interned SnArrayTypeToken in typeArgs, so pointer identity keeps
+// List<int> and List<int[]> as distinct keys.
 ```
 
-Each cache miss mints a new SnClassDecl named e.g. `"List<int>"` whose
-methods carry **substituted signatures** (T → int / Point / ...) for
-static type checking. A polymorphic-signature registry drives
-substitution:
+Each cache miss mints a new SnClassDecl named e.g. `"List<int>"`; its
+member calls resolve to **substituted signatures** (T → int / Point /
+...) for static type checking, driven by the type-argument side table.
+A polymorphic-signature registry drives substitution:
 
 | Method     | Param slots    | Return slot |
 |------------|----------------|-------------|
-| Add        | [T]            | void        |
-| Get        | [int]          | T           |
-| Set        | [int, T]       | void        |
-| Length     | []             | int         |
-| RemoveAt   | [int]          | void        |
-| IndexOf    | [T]            | int         |
-| Contains   | [T]            | int         |
-| Clear      | []             | void        |
+| `add`      | [T]            | void        |
+| `get`      | [int]          | T           |
+| `set`      | [int, T]       | void        |
+| `length`   | []             | int         |
+| `removeAt` | [int]          | void        |
+| `indexOf`  | [T]            | int         |
+| `contains` | [T]            | int         |
+| `clear`    | []             | void        |
 
 A `m_bIsGenericInst = true` flag on the SnClassDecl marks synthetic
 instances so codegen knows to emit `OP_Box` for primitive-T method
-parameters and `OP_Unbox` for primitive-T Get() returns — **except when
+parameters and `OP_Unbox` for primitive-T `get()` returns — **except when
 the type argument is an array type** (`List<int[]>`): an array-typed
 argument is carried as the interned array-type token in the
 instantiation's type-arg slot, whose runtime kind is `RTK_Array` (not a
@@ -207,21 +213,23 @@ recycled only after *this* List dies, so in practice no other List
 instance can hold a live reference into the slot — its contents are
 unreachable).
 
-**Codegen: NewExpr with constructor aliasing fix.** When `T(args)`
-appears as a method-call argument, the naive emission (evaluate
-constructor args into callParamBase, then OP_New into resultOffset)
-clobbers the same callParamBase slot. The fix: after evaluating
-constructor args, allocate the OP_New result into the slot *after* the
-last param (`callParamBase + paramIdx * VALUE_SIZE`), then copy to
-resultOffset:
+**Codegen: constructor invocation through the evaluation area.** A
+constructor call (`new T(args)`, and the `T(args)` twin without `new`)
+must not stage its arguments into `callParamBase` — allocating the new
+object into `resultOffset` could clobber a staged argument. The
+emission claims `{this, formals...}` in the evaluation area instead:
+constructor bindings are evaluated into `claim[1..N]`, the object is
+allocated straight into `resultOffset` (no conflict — the bindings live
+in the evaluation area, not in `callParamBase`), the object is staged
+as `claim[0]`, the whole claim is bulk-copied to `callParamBase`, and
+`OP_CallMethodDirect` invokes the ctor:
 
 ```text
-// args evaluated into callParamBase[1..N]
-allocSlot = callParamBase + N * VALUE_SIZE
-OP_New allocSlot, classIdx
-OP_CallMethodDirect ctorIdx, callParamBase   // ctor reads this=allocSlot
-OP_VarLocal allocSlot
-OP_Assign resultOffset                        // copy to caller's expected slot
+// ctor args evaluated into claim[1..N] (evaluation area)
+OP_New resultOffset, classIdx              // OP_AllocStruct for a struct
+claim[0] = resultOffset                    // the new object staged as `this`
+bulk-copy claim -> callParamBase
+OP_CallMethodDirect ctorIdx, callParamBase // ctor reads this=callParamBase[0]
 ```
 
 ### Built-in Generic `Dict<K,V>`
@@ -268,8 +276,9 @@ helper used by Set/Get/ContainsKey/Remove:
 3. Branch on kind:
    - `RTK_Class` / `RTK_Struct`: identity (compare heap idxs).
    - `RTK_Boxed`: branch on inner type tag (`m_structHeap[k][0]`):
-     - `RTK_Int32` / `RTK_Float`: compare value bits at
-       `m_structHeap[k][kBoxedValueSlot]` (IEEE 754 — `NaN != NaN`).
+     - scalar tags: compare value bits at
+       `m_structHeap[k][kBoxedValueSlot]` — 8-byte rows (long/ulong)
+       compare the high cell too (IEEE 754 — `NaN != NaN`).
      - `RTK_String`: compare the string-object content behind the
        handles (value eq).
 
@@ -292,6 +301,7 @@ uint8_t returnTag    = 0;
   → slot 1; `get` → returnsBoxed.
 - Dict dispatch: `set` → K at slot 1 + V at slot 2; `get` → K at slot
   1 + returnsBoxed (V); `containsKey`/`remove` → K at slot 1.
+- Channel dispatch: `send` → T at slot 1; `recv` → returnsBoxed (T).
 
 A shared helper `BoxingTagFor(SnField*)` returns a
 `BoxingTagResult {tag, isPrimitive}` so that `RTK_Int32 == 0` no
@@ -311,4 +321,5 @@ locals, methodName)` mirrors `ReadListHandle`: reads `thisHeapIdx`
 from the param base, throws "Dict `<method>` on null instance" if
 `thisHeapIdx <= 0`, throws "...on stale reference" if it exceeds the
 heap size, and throws "...on uninitialized instance" if the handle
-slot is 0. All 6 post-ctor intrinsics route through this helper.
+slot is 0. All 8 post-ctor Dict intrinsics (`set`/`get`/`containsKey`/
+`remove`/`clear`/`count`/`keys`/`toString`) route through this helper.

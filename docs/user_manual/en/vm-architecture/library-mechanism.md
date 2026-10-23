@@ -95,9 +95,12 @@ Consequences of one shared model:
   virtual dispatch and enum methods included). A type position writes
   the reference as `package.Type`; the resolver looks the declaration up in
   the compiled-in unit (`ModuleRegistry::FindModuleType`) and binds it,
-  and an unimported package is diagnosed rather than silently bound. An
-  external `.ncu` exposes no source-level types, so `package.Type` resolves
-  only for inlined library sources.
+  and an unimported package is diagnosed rather than silently bound.
+  External `.ncu` entries contribute stub declarations rebuilt from the
+  module's serialized records — struct, class, and interface stubs
+  (class stubs carry the full member surface since format 2.7) — so
+  `package.Type` binds there too; enum types get no stubs, and a
+  qualified reference to one is rejected.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
   packages are signature-indexed at build-environment construction,

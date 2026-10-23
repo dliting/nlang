@@ -13,7 +13,7 @@ Compiled unit images are saved as `.ncu` files with this layout:
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 7
+uint16 minorVer = 8
 string modulePath        v2.0: this unit's dotted module path (package identity)
 string moduleName
 string entryKey          v2.0: the entry function's qualified name; empty = no entry
@@ -21,6 +21,7 @@ string[] stringConstants
 function[] functions
 struct[] structs
 class[] classes
+interface[] interfaces
 arrayType[] arrayTypes
 enumNames[] / enumKeys[] two parallel enum tables
 importSlots × 4          v2.0: the function/class/struct/enum import-slot tables
@@ -100,6 +101,7 @@ determinism), and the embedded `.ncu` unit images. Each member carries
 an FNV-1a 64 checksum (against accidental corruption — not a security
 mechanism). A library package is the same container without an entry
 record — the standard library's `stdlib.npkg` is a library package
-whose members are `io`/`math`/`fs`. The loader requires each member
+whose members are `concurrent`/`fs`/`io`/`math`/`thread`. The loader
+requires each member
 image's header module path to match its member-table entry: a
 mislabeled artifact is refused, not silently accepted.

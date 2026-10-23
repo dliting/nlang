@@ -4,7 +4,7 @@ The virtual machine's interpreter is a **frame-stack machine**: NLang function c
 
 ## The frame machine
 
-Each NLang function call pushes a call frame; `OP_Return` pops it and writes back the result. The dispatch loop keeps interpreting the top frame's instructions, so NLang call depth no longer consumes C++ stack. The nesting-depth limit (1000 frames) keeps its semantics and becomes a frame count. Two bounded exceptions remain C++-recursive: the nested evaluation window for `toString` (depth limit 64) and the embedding host's `call()` entry point (which cannot nest further).
+Each NLang function call pushes a call frame; `OP_Return` pops it and writes back the result. The dispatch loop keeps interpreting the top frame's instructions, so NLang call depth no longer consumes C++ stack. The nesting-depth limit (1000 frames) keeps its semantics and becomes a frame count. The only paths that re-enter the interpreter loop as C++ calls are the nested evaluation windows — a `toString` override run and a host-callback window — and their root frames count against the same 1000-frame limit. The embedding host's `run()`/`call()` entry points refuse re-entry outright.
 
 A call frame (see the [stack frame layout](stack-frame-layout.md)) carries:
 
@@ -21,11 +21,11 @@ Implementations of the intrinsics follow a "complete or park" rule: an intrinsic
 
 Preemption reuses the same mechanism: when the back-edge counter reaches its quota (the constant `DEFAULT_SCHEDULER_TRIP_BACKEDGES`) and another runnable context exists, a preemption signal is thrown and the carrier requeues the current context at the tail of the run queue. **A single-context program is therefore bit-for-bit unchanged** — the quota never fires when there is no one else to run.
 
-Nested evaluation windows (`toString` evaluation, the embedding host's `call()`) may not suspend: a suspension request there is converted into a catchable runtime error, ahead of every existing fallback handler. This keeps the window's calling convention (call returns a value) intact.
+Nested evaluation windows (`toString` evaluation, host callbacks, the embedding host's `call()`) may not suspend: the window belongs to an in-flight outer instruction, and a park could not resume it instruction-granularly. A suspension request there fails loudly — a runtime error that unwinds the window and ends the run — checked before any scheduler state is mutated, per the complete-or-park rule. This keeps the window's calling convention (call returns a value) intact.
 
 ## The scheduler
 
-The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, a channel receive, or a full-channel send; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
+The scheduler keeps one record per context: identifier, state (runnable; parked on a timer, a join, a mutex, a channel receive, or a full-channel send; blocked in a native call; finished; failed), the parked frame stack, heap references for the `Thread` object and the failure exception, the wake-up time, and the completion result value.
 
 - **Run queue**: first-in-first-out, with **wake affinity** on dequeue —
   a carrier scans a constant window at the head of the queue (8 entries)
@@ -40,11 +40,11 @@ The scheduler keeps one record per context: identifier, state (runnable; parked 
   it until it returns, parks, or is preempted.
 - **Timer list**: `thread.sleep` parkings are ordered by wake-up time; a dedicated timer thread (started on the first sleep) moves due sleepers back to the run queue, so a deadline is honored even when every carrier is parked or blocked in a native call.
 - **Context lifecycle**: `thread.spawn` mints the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
-- **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If the queue drains while main is still unfinished, the virtual machine reports a deadlock instead of spinning.
+- **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If no wake source remains while main is still unfinished — the run queue and the timer list are both empty and no carrier is blocked in a native call — the virtual machine reports a deadlock instead of spinning.
 
 ## Where the garbage collector plugs in
 
-Parked frame stacks are part of the root set: parameters and the result slot are scanned through the declaration table, and every other frame slot — the evaluation staging area included — is scanned through the per-function handle bitmap. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
+Parked frame stacks are part of the root set: parameters are scanned through the declaration table, each frame's result cell through the function's declared return kind, and every other frame slot — the evaluation staging area included — through the per-function handle bitmap. Mechanism and motivation are covered in the [garbage collector design](garbage-collection-design.md).
 
 ## Debugger integration
 

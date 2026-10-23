@@ -1,17 +1,18 @@
 # Foreach Statement Lowering
 
-`foreach` lets developers iterate arrays and containers without managing
-indices by hand. At the VM level it has no dedicated opcode: the compiler
-lowers `foreach (Type var in iterable) { body }` to **index-based
-expansion** — no new opcode is introduced. The 12-step lowering mirrors
-the `for` loop pattern (the `NK_ForStmt` path in EmitStmtFlow.cpp) with a
-body-prelude that loads element `i` into the user variable slot.
+`foreach` lets developers iterate arrays, containers, and strings
+without managing indices by hand. At the VM level it has no dedicated
+opcode (the string arm excepted, see below): the compiler lowers
+`foreach (Type var in iterable) { body }` to **index-based expansion**
+for Array/List/Dict — the same shape as the `for` loop with a
+body-prelude that loads element `i` into the user variable slot — and
+to a dedicated code-point expansion for strings.
 
 ### Hidden locals (uniquified for nesting)
 
-Each `foreach` allocates four hidden locals before the `LoopContext`
-push, named with a per-function counter to avoid `AllocLocal`'s dedup-
-by-name collision in nested loops:
+Each index-based `foreach` allocates four hidden locals before the
+`LoopContext` push, named with a per-function counter to avoid
+`AllocLocal`'s dedup-by-name collision in nested loops:
 
 | Local | typeKind | Purpose |
 |-------|----------|---------|
@@ -21,16 +22,24 @@ by-name collision in nested loops:
 | `__foreach_n_<N>` | `RTK_Int32` | cached length |
 
 `<N>` comes from `FuncContext::foreachCounter`, which is reset to 0 at
-function entry.
+function entry. The string arm allocates a different trio instead:
+`__foreach_iter_<N>` (`RTK_String`), `__foreach_off_<N>` (`RTK_Int32`,
+byte offset) and `__foreach_cond_<N>` (`RTK_Int32`, continue flag),
+with the loop variable typed `RTK_Char`.
 
-### Codegen 3-way branch
+### Codegen 4-way branch
 
-The kind of iterable is detected at codegen time (not resolver time),
+The kind of iterable is classified at codegen time (not resolver time),
 preserving the user-visible abstract syntax tree (AST):
 
-- **Array** (`T[N]`): iterable is `SnIdentifierExpr` whose `Field` has
-  `IsArrayType()`. Length via `OP_ArrayLength`; element via
-  `OP_LoadElement` (with `OP_CopyStruct` for struct-element types).
+- **Array** (`T[N]`): detected by two arms — the declaration-side arm
+  (identifier or member lvalue whose `Field` has `IsArrayType()`) and
+  the value-form arm (any expression whose `EvalDataType()` carries the
+  interned array type token: `get()` and subscript reads out of
+  `List<T[]>`/`Dict<K[],V>`, array-returning calls, new-array
+  expressions). Length via `OP_ArrayLength`; element via
+  `OP_LoadElement` (with `OP_CopyStruct` for struct-element types,
+  value semantics on read).
 - **List<T>**: iterable's `EvalDataType()` is `SnClassDecl` with
   `BaseName()=="List"` and `IsGenericInstantiation()`. Length via
   `OP_CallMethod "length"`; element via `OP_CallMethod "get"` followed
@@ -41,6 +50,13 @@ preserving the user-visible abstract syntax tree (AST):
   `BaseName()=="Dict"`. **Inline `keys()` call** materializes a fresh
   `List<K>` into `iterSlot` first, then the rest mirrors the
   List path with element type K.
+- **string**: iterates Unicode code points. The loop head *is* the step
+  — one `OP_StrForeachStep` decodes the code point at the byte offset
+  into the loop variable, advances the offset by the encoded length,
+  and writes the continue flag; `OP_JumpIfNot` on that flag ends the
+  loop. `continue` jumps back to the head (the step is the increment),
+  `break` to the loop end. There is no null check: a null source reads
+  as the empty string and the first step clears the flag.
 
 The `typeKind` of each hidden local is what garbage collection (GC) uses at safepoints to
 identify reference roots, so `iterSlot` must be `RTK_Array` for the
@@ -53,9 +69,9 @@ root.
 
 ### `Dict.keys()` intrinsic
 
-`INTR_Dict_Keys = 60` (CompiledModule.h). Registered as a method on the
-Dict class with `paramCount=1, returnTypeKind=RTK_Class`. The VmExecutor
-handler:
+`INTR_Dict_Keys = 60` (include/nlang/vm/Intrinsics.h). Registered as a
+method named `keys` on the Dict class with `paramCount=1,
+returnTypeKind=RTK_Class`. The VmExecutor handler:
 
 1. Reads the dict handle via `ReadDictHandle` (uniform null/stale/uninit
    validation).
@@ -76,5 +92,7 @@ List holds additional references to the same objects, which is safe
 
 `m_loopStack` already supports `break`/`continue` for `for`/`while`/`do`
 and `switch`. `foreach` pushes a `LoopContext{isSwitch=false}` and uses
-the same break/continue patch logic. `continue` jumps to the post-body
-"i = i + 1" site; `break` jumps to the loop end.
+the same break/continue patch logic. In the index-based expansion
+`continue` jumps to the post-body "i = i + 1" site; in the string
+expansion it jumps to the head (the step advances the offset). `break`
+jumps to the loop end in both.

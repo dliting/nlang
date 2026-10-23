@@ -10,11 +10,11 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
 
-安全点（函数入口 + 循环回边）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入句柄位图（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
+安全点（函数入口、循环回边，以及调度器引入后的线程派生）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入句柄位图（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
 
 **2. 按槽位句柄位图给出精确根类别**
 
-对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。槽位因此携带语义信息。参数走声明路线（`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位）。帧带`[paramCount, localsSize)`内的其余槽位——返回槽、临时池、调用实参暂存区、求值暂存区与命名的局部变量——由随函数记录一起序列化的**句柄位图**（NCU格式2.4）分类：每槽2位，共四种类别。
+对整帧做保守字节扫描（把每个对齐值当候选堆索引检查）曾是被否决的方案：它把GC与物理栈帧布局（槽位宽度、对齐、tempSlot偏移）耦合在一起，布局一旦变化，GC会悄无声息地失效。槽位因此携带语义信息。参数走声明路线（`LocalDescriptor.typeKind`识别引用槽位，`LocalDescriptor.offset`定位）。帧带`[paramCount, localsSize)`内的其余槽位——返回槽、临时池、调用实参暂存区、求值暂存区与命名的局部变量——由随函数记录一起序列化的**句柄位图**（NCU格式2.8）分类：每槽2位，共四种类别。
 
 - `None`：标量；槽位永不持有引用，不测试。
 - `StrHandle`：字符串仓句柄；只测字符串域。
@@ -31,7 +31,7 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 struct对象没有类型头（不同于class对象的slot[0] = classIdx）。MarkStruct需要structIdx才能查询字段布局、追踪引用。可选方案：
 - 给struct对象加类型头：所有针对struct的LoadField/StoreField偏移都要+1，牵动大量指令处理器
-- 并行数组：只有AllocStructOnHeap/DeepCopyStruct需要设置它，既有指令逻辑零改动
+- 并行数组：只在分配时设置——AllocStructOnHeap与DeepCopyStruct写入struct索引，数组分配向同一并行数组写入数组类型索引——既有指令逻辑零改动
 
 并行数组是更小、更安全的改动。
 
@@ -63,7 +63,7 @@ MarkPhase():
     if returnTypeKind is a reference kind:
       RTK_String: MarkString(value)      //conservative over-mark, as defense
       otherwise:  mark and push if valid
-    //band: two-bit root class per slot (NCU 2.4 handle bitmap)
+    //band: two-bit root class per slot (NCU 2.8 handle bitmap)
     for each band slot i, slot number paramCount + i:
       class = (func.evalAreaHandleMask[i >> 2] >> ((i & 3) * 2)) & 3
       None:      skip
@@ -72,9 +72,12 @@ MarkPhase():
       Dual:      value-test both domains
     //fallback for a bitmap whose length disagrees with the frame layout:
     //value-test both domains over the whole band
-  for each scheduler context:      //parked/queued contexts (steal model)
+  for each scheduler context:      //parked/queued/finished contexts (steal model)
     for each parked CallFrame: run the same three arms (params, result, band)
-    if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
+    if threadObjHeapIdx, failExcHeapIdx or resumeExcHeapIdx valid:
+      mark, push to worklist
+    if frames empty (finished): classify resultCell by the snapshotted
+      resultKind — this keeps a Future<T> value alive between spawn and get()
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
     handles minted by re-entrant callbacks: value-test both domains
@@ -82,9 +85,11 @@ MarkPhase():
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
     pop entry from worklist
+    if func: trace the captured receiver of a bound method value (slot[1])
     if class: for each field, push unmarked reference children;
       string-typed fields (RTK_String) mark their string handle instead;
-      MarkChannelElements (buffered channel values are children)
+      container arms MarkListElements / MarkDictEntries / MarkChannelElements
+      (buffered List/Dict/channel values are children)
     if struct: for each field, push unmarked reference children;
       string-typed fields mark their string handle instead
     if array: push unmarked element records whose elemKind is a reference kind;
@@ -96,8 +101,12 @@ SweepPhase():
   clear free list
   for each heap slot:
     if not free and not marked:
-      if class: FreeOwnedStructs (free value-owned struct fields)
+      if class: recycle a List/Dict/Mutex/Channel instance's side-table
+        handle to its free list; FreeOwnedStructs (free value-owned
+        struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
+      if array: FreeOwnedArrayStructElements (free value-owned struct
+        elements)
       clear slot, mark as free, add to free list
 
 SweepStrings():
@@ -119,7 +128,8 @@ SweepStrings():
 帧栈机下，正在执行的上下文的帧就是调用栈本身；**停泊**（睡眠、等待join、`Future.get`取值、竞争互斥体、空通道接收、满通道发送、被抢占）的上下文的整条帧栈保存在调度器里，不在调用栈上。收集时二者都是根：
 
 - 每个停泊上下文的每个帧跑与运行帧相同的三个扫描臂（参数描述符、返回值槽、帧带位图）——停泊可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
-- 上下文的`Thread`对象（`join`按其句柄识别目标）与失败上下文保留的异常对象（`join`要按原对象重抛）单独作为根；
+- 上下文的`Thread`对象（`join`按其句柄识别目标）、失败上下文保留的异常对象（`join`要按原对象重抛）、以及为下次恢复预置的异常（因通道关闭而被唤醒的停泊接收方/发送方）单独作为根；
+- 已完成上下文的返回值单元按快照的返回种类分类——`Future<T>`的引用值正是在这里从派生到`get()`取值之间保持存活；
 - 通道缓冲里的值经工作列表的class分支追踪（`Channel<T>`是带句柄字段的内建class，缓冲元素随对象标记）。
 
 `thread.spawn`在铸好根帧与`Thread`对象后即经过一次安全点检查，派生上下文的帧从诞生起就被根集覆盖。上下文与并发语义的总览见[并发](../language-spec/concurrency.md)与[帧机与调度器](frame-machine-and-scheduler.md)。
@@ -143,13 +153,14 @@ SweepStrings():
 
 ### 空闲表集成
 
-各分配函数（AllocClassOnHeap、AllocStructOnHeap、DeepCopyStruct）先查空闲表：有空闲槽位就复用（resize到正确大小，设置m_slotKinds/m_slotStructIdx）；否则emplace_back一个新槽位。
+各分配函数（AllocClassOnHeap、AllocStructOnHeap、AllocArrayOnHeap、DeepCopyStruct、函数值记录创建）先查空闲表：有空闲槽位就复用（resize到正确大小，设置m_slotKinds/m_slotStructIdx）；否则emplace_back一个新槽位。
 
 ### GC触发流程
 
 ```text
-OP_New / OP_AllocStruct → set m_gcPending = true
+OP_New / OP_AllocStruct / OP_AllocArray / OP_CopyStruct → m_gcPending = true
 String allocation (mint / concatenation node) → set m_gcPending = true
+Function-value record creation → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()

@@ -6,7 +6,9 @@
 
 ### resolver数据流
 
-`StatementResolver::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）。若右值是不带`ExplicitType`的裸`SnInitListExpr`且没有`InferredTarget`，就把左值变量经`InferredTarget(pLeftField)`记录到该初始化列表上。随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`，把`EvalDataType`设为解析出的目标类型——数组目标为驻留数组令牌（`InternArrayTypeToken(元素)`），节点因此天然为数组值（`IsArrayValued()`），消费者经`ElemTypeOf()`剥出元素。
+`StatementResolveAccessor::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）：不带`ExplicitType`的裸初始化列表把左值字段经`InferredTarget(pLeftField)`记录到节点上——成员存储（`b.m = {...}`）同样如此。所有能提供目标的位置都以同样方式传播：裸花括号返回值取函数声明的返回类型，下标存储的右值取元素/容器值槽位类型，调用实参取形参类型，foreach的可迭代对象取循环变量类型（花括号形态迭代由其铸造的`List<T>`，方括号形态取驻留数组令牌）。
+
+随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`——两者皆无时，方括号形态字面量从条目推断元素类型（所有条目必须共享同一类型）——并把`EvalDataType`设为解析出的目标类型：数组目标为驻留数组令牌（`InternArrayTypeToken(元素)`），节点因此天然为数组值（`IsArrayValued()`），消费者经`ElemTypeOf()`剥出元素。
 
 resolver按槽位把元素目标传播进子初始化列表（`PropagateNestedInitListTargets`），嵌套裸字面量可推断类型——`[[1,2],[3]]`与`{{1,2},{3}}`都可用。
 
@@ -15,8 +17,9 @@ resolver按槽位把元素目标传播进子初始化列表（`PropagateNestedIn
 | 目标kind                    | 分配                   | 逐条目存储                           |
 |-----------------------------|------------------------|--------------------------------------|
 | `T[]`数组                  | `OP_AllocArray` size=N | `OP_ConstInt32 i; OP_StoreElement`  |
-| `List<T>`                   | `OP_New "List"` + ctor | `OP_Box`（T为基本类型时）；`OP_CallMethod "Add"` |
-| `Dict<K,V>`                 | `OP_New "Dict"` + ctor | `OP_ConstString key`；`OP_Box`（V为基本类型时）；`OP_CallMethod "Set"` |
+| `List<T>`                   | `OP_New "List"` + ctor | `OP_Box`（T为基本类型时）；`OP_CallMethod "add"` |
+| `Dict<K,V>`                 | `OP_New "Dict"` + ctor | 键与值均为表达式；`OP_Box`（K/V为基本类型时）；`OP_CallMethod "set"` |
+| `Channel<T>`                | `OP_New "Channel"` + ctor（无界容量以常量暂存） | —（resolver拒绝条目；值经`send`进入） |
 | 用户class                  | `OP_New` + 无参ctor   | `OP_StoreField <offset>`            |
 | struct                      | `OP_AllocStruct`       | `OP_StoreField <offset>`            |
 
@@ -26,7 +29,7 @@ resolver按槽位把元素目标传播进子初始化列表（`PropagateNestedIn
 
 ### 条目值的暂存
 
-处理器把集合写入`resultOffset`（由调用方提供，例如struct赋值代码生成里的`tempSlot2`）。每个条目的值都求值到求值暂存区的暂存槽位：一次`EvalAreaClaim`贯穿整个条目循环，条目求值后立即被消费；嵌套初始化列表（会递归进入本处理器）在其上认领新槽位，因此不会覆写父级的值槽位。
+处理器把集合写入`resultOffset`（由调用方提供，例如struct赋值代码生成里的`tempSlot2`）。每个条目的值都求值到求值暂存区的暂存槽位：数组、class与struct分支以一次`EvalAreaClaim`贯穿整个条目循环；List与Dict分支按条目认领`{this, 值}`与`{this, 键, 值}`槽位。条目求值后立即被消费；嵌套初始化列表（会递归进入本处理器）在其上认领新槽位，因此不会覆写父级的值槽位。
 
 ### 复用既有指令
 
