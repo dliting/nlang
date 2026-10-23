@@ -20,11 +20,11 @@ void VmExecutor::CallByName(const std::string& qualifiedName,
     if (!m_currModule)
         throw std::runtime_error(
             "NLang VM: CallByName before InitializeForRun");
-    //K2 slice 4: the by-name entry may run on a host thread outside any
-    //carrier window — hold the GIL across the whole call (it allocates,
-    //collects, dispatches natives). Inside a window the guard nests as
-    //a no-op and the caller's holding is preserved.
-    GilEnsureGuard gil(*this);
+    //K7: pure name resolution — this body only reads the (read-only)
+    //function table; the rendezvous membership and the global lock both
+    //live one level down, in CallFunctionByIdx, so every entry shape
+    //(host-outermost, blocking-native callback re-entry, nested bridge
+    //call) is classified at the one point that runs code.
     //Scan all functions carrying the key (overloads share it); the
     //arity test is argc <= paramCount <= argc + defaults-available.
     //The adapter already disambiguated; here take the first whose
@@ -56,41 +56,52 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
         throw std::runtime_error(
             "NLang VM: intrinsic function not callable by name: "
             + callee.name);
+    //K7: both arms participate in the rendezvous through one bridge
+    //scope — the native arm arrives at scope exit (the GIL held across
+    //it blocks any concurrent collection), the bytecode arm additionally
+    //polls at its own backedges. The bridge comes BEFORE the lock:
+    //BeginExecuting's Rule A wait must be GIL-free, and the destruction
+    //order (lock releases, then the bridge dtor's arrival may collect)
+    //keeps the wait sequence lock-free too.
+    BridgeExecutingScope bridge(*this);
+    GilEnsureGuard gil(*this);
     if (callee.isNative) {
-        //Stage into our own buffer — CallNative reads the caller-frame
-        //ABI (args at base 0 of the given buffer).
-        std::vector<uint8_t> staged(
-            static_cast<size_t>(callee.paramCount) * kFrameSlotBytes, 0);
-        if (argc)
-            std::memcpy(staged.data(), argCells,
-                        static_cast<size_t>(argc) * kFrameSlotBytes);
-        FillDefaults(callee, staged.data(), argc);
-        CallNative(callee, 0, staged.data(), resultCell);
+        RunBridgeNativeCall(callee, argCells, argc, resultCell);
         return;
     }
     //Nested window: push onto the shared frame stack and run until the
     //depth captured at entry. The catch-all preserves the by-name bridge
     //contract: any escaping error carries the backtrace snapshot.
     const size_t baseDepth = EvalStack().size();
-    //K6 D2: window from the root-frame push (its function-entry GC
-    //safepoint must count this thread); RunFrames' guard nests.
-    GcWorldStop::ExecWindowGuard hostWindow(m_spScheduler->GcStop());
     uint8_t* staged = PushRootFrame(callee, resultCell);
     if (argc)
         std::memcpy(staged, argCells,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
     FillDefaults(callee, staged, argc);
     try {
-        //Nested evaluation window: suspension is impossible here (see
-        //CallToStringOverride's guard — same reasoning: the window
-        //belongs to a host-initiated call mid-instruction).
-        //K2 slice 2: the depth lives on the running carrier's slot.
+        //Suspension is impossible in this host-initiated nested window
+        //(CallToStringOverride's guard, same reasoning).
         NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
         RunFrames(baseDepth);
     } catch (...) {
+        //Under the body guard (D8's backtrace write site).
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
+}
+
+//CallFunctionByIdx's native arm: stage the caller-frame ABI copy (args
+//at base 0 of our own buffer), fill defaults, invoke.
+void VmExecutor::RunBridgeNativeCall(const CompiledFunction& callee,
+                                     const uint8_t* argCells, uint32_t argc,
+                                     uint8_t* resultCell) {
+    std::vector<uint8_t> staged(
+        static_cast<size_t>(callee.paramCount) * kFrameSlotBytes, 0);
+    if (argc)
+        std::memcpy(staged.data(), argCells,
+                    static_cast<size_t>(argc) * kFrameSlotBytes);
+    FillDefaults(callee, staged.data(), argc);
+    CallNative(callee, 0, staged.data(), resultCell);
 }
 
 //Formals beyond argc fill from the declaration's Option-B default

@@ -98,7 +98,7 @@ int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
     }
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
-    m_gcPending = true;
+    NoteGcPressure();
     return heapIdx;
 }
 

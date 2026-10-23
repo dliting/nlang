@@ -1,24 +1,16 @@
 /*---
-    GcWorldStop.cpp — GC stop-the-world rendezvous (K6 protocol +
-    K7 thread registry)
+    GcWorldStop.cpp — GC stop-the-world rendezvous (K7 thread registry)
 ---*/
 #include "GcWorldStop.h"
 #include <cstdio>
 
 namespace nlang {
-//Per-thread evaluation-window depth. Static (not per-instance): nested
-//windows of DIFFERENT executors on one thread would double-count into
-//either instance's total; the codebase never stacks two executors'
-//RunFrames on one thread (the embedding host drives one executor at a
-//time per thread), and the count the protocol needs is per-scheduler
-//anyway — noted here so the assumption is visible, not accidental.
-thread_local int GcWorldStop::t_evalDepth = 0;
-//Parked-window depth saves (LIFO — see SuspendEvalWindow's contract).
-thread_local std::vector<int> GcWorldStop::t_suspendedDepths;
-//Registry self-entry (same one-executor-per-thread assumption as
-//t_evalDepth; see SelfEntry's contract in the header).
+//Registry self-identification (one-executor-per-thread assumption, the
+//K6 thread-local precedent: the codebase never stacks two executors'
+//RunFrames on one thread).
 thread_local GcWorldStop* GcWorldStop::t_selfStop = nullptr;
 thread_local GcWorldStop::ThreadEntry* GcWorldStop::t_selfEntry = nullptr;
+thread_local uint64_t GcWorldStop::t_selfGeneration = 0;
 
 //--- K7: thread registry + executing-bit rendezvous ---
 
@@ -52,6 +44,7 @@ GcThreadToken GcWorldStop::RegisterThread(std::vector<CallFrame>* evalStack)
     entry.generation = token.generation;
     t_selfStop = this;
     t_selfEntry = &entry;
+    t_selfGeneration = token.generation;
     return token;
 }
 
@@ -89,12 +82,15 @@ bool GcWorldStop::ExecutingSelf() const
         && self->executing.load(std::memory_order_relaxed);
 }
 
-void GcWorldStop::BeginExecuting()
+bool GcWorldStop::BeginExecuting()
 {
     std::unique_lock<std::mutex> lk(m_mutex);
     ThreadEntry* self = SelfEntry();
-    if (self == nullptr || !self->live.load(std::memory_order_relaxed))
+    if (self == nullptr)
         Tripwire("BeginExecuting");
+    if (!EntryIsCurrent(*self))
+        return false;   //zombie (Reset retire / index reuse) — in no
+                        //denominator; nothing to wait out either
     //Rule A: park until no stop is in flight, THEN flip on — the
     //collector scans the published stacks of non-executing threads, so
     //an executing flip during a stop would race the scan. The wait
@@ -103,14 +99,17 @@ void GcWorldStop::BeginExecuting()
         [this] { return !m_stopActive.load(std::memory_order_relaxed); });
     ++m_executingCount;
     self->executing.store(true, std::memory_order_relaxed);
+    return true;
 }
 
 bool GcWorldStop::EndExecuting()
 {
     std::lock_guard<std::mutex> g(m_mutex);
     ThreadEntry* self = SelfEntry();
-    if (self == nullptr || !self->live.load(std::memory_order_relaxed))
+    if (self == nullptr)
         Tripwire("EndExecuting");
+    if (!EntryIsCurrent(*self))
+        return false;   //zombie — no arrival, nothing to wait for
     if (!self->executing.load(std::memory_order_relaxed))
         Tripwire("EndExecuting (not executing)");
     self->executing.store(false, std::memory_order_relaxed);
@@ -127,9 +126,10 @@ bool GcWorldStop::InitiateAndArrive()
 {
     std::lock_guard<std::mutex> g(m_mutex);
     ThreadEntry* self = SelfEntry();
-    if (self == nullptr || !self->live.load(std::memory_order_relaxed)
-        || !self->executing.load(std::memory_order_relaxed))
+    if (self == nullptr || !EntryIsCurrent(*self))
         Tripwire("InitiateAndArrive");
+    if (!self->executing.load(std::memory_order_relaxed))
+        Tripwire("InitiateAndArrive (not executing)");
     if (!m_stopActive.load(std::memory_order_relaxed)) {
         //Sole initiator: advance the epoch and snapshot the executing
         //count (self included); the self-arrival below lands in the

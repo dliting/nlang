@@ -303,7 +303,7 @@ int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
     m_structHeap[static_cast<size_t>(heapIdx)][2] = form;
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Func;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
-    m_gcPending = true;
+    NoteGcPressure();
     return heapIdx;
 }
 

@@ -29,12 +29,12 @@ void VmExecutor::ConsumeResumeThrow() {
 
 void VmExecutor::RunFrames(size_t baseDepth)
 {
-    //K6 D2: this thread executes NLang bytecode for the whole window
-    //(carrier window, host CallByName window, nested re-entrant
-    //callback window — nesting raises the thread-local depth but
-    //counts this thread once). Wrapper form: the 50-line body below
-    //has zero headroom under the source-size guard.
-    GcWorldStop::ExecWindowGuard evalWindow(m_spScheduler->GcStop());
+    //K7: no window guard — every entry shape (carrier dispatch, host
+    //bridge, nested toString/callback window) runs inside an enclosing
+    //ExecutingScope or BridgeExecutingScope, which owns this thread's
+    //rendezvous membership; the nested windows stay suppressed by the
+    //poll-root gate. Wrapper form retained: the 50-line body below has
+    //zero headroom under the source-size guard.
     RunFramesInner(baseDepth);
 }
 

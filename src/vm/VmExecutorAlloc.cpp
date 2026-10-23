@@ -161,7 +161,7 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     }
     //Task 2 gap fix: a pure deep-copy loop allocates records without ever
     //raising the pending flag — GC would never trigger on this path.
-    m_gcPending = true;
+    NoteGcPressure();
     return newHeapIdx;
 }
 

@@ -9,6 +9,20 @@ namespace nlang {
 
 VmExecutor::~VmExecutor() = default;
 
+//The four container side tables (List/Dict/Mutex/Channel) share one
+//reset shape: clear store + free list, cache the builtin class index
+//(absent class → -1 sentinel).
+template <typename Store>
+static void ResetContainerSideTable(Store& store,
+                                    std::vector<int32_t>& freeList,
+                                    const CompiledModule& module,
+                                    const char* className, int16_t* cachedIdx) {
+    store.clear();
+    freeList.clear();
+    int idx = module.FindClass(className);
+    *cachedIdx = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
+}
+
 //2026-09-26 maintainability split: Execute's per-run phases. Bodies are
 //verbatim extracts; Execute keeps the original operation order.
 void VmExecutor::ResetPerRunState(const CompiledModule& module) {
@@ -20,6 +34,12 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_spScheduler->Reset();
     m_quotaFires = 0;
     m_gcCollections = 0;   //K6 D7: per-run collection count
+    //K7: rendezvous bookkeeping resets with the run — the pressure flag
+    //re-arms at the next allocation, and the parks counter is per-run
+    //telemetry (GcWorldStop's own state went with the scheduler Reset
+    //above).
+    m_gcPressure.store(false, std::memory_order_release);
+    m_gcRendezvousParks.store(0, std::memory_order_relaxed);
     m_preemptSkips = 0;
     ResumeThrowExcIdxRef() = 0;
     UnwindFrames().clear();
@@ -34,31 +54,14 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_fileStreamFreeList.clear();
     //Phase 11 Q9: fresh entropy per run; math.srand replaces it on demand.
     m_rng.seed(std::random_device{}());
-    //Phase 8e-3: reset List<T> side table and cache the class index.
-    m_listStore.clear();
-    m_listFreeList.clear();
-    int listIdx = module.FindClass(kBuiltinListTypeName);
-    m_listClassIdx = (listIdx >= 0) ? static_cast<int16_t>(listIdx) : -1;
-
-    //Phase 8e-4: reset Dict<K,V> side table and cache the class index.
-    m_dictStore.clear();
-    m_dictFreeList.clear();
-    int dictIdx = module.FindClass(kBuiltinDictTypeName);
-    m_dictClassIdx = (dictIdx >= 0) ? static_cast<int16_t>(dictIdx) : -1;
-
-    //K1 Slice 8: reset the Mutex side table and cache the class index.
-    m_mutexStore.clear();
-    m_mutexFreeList.clear();
-    int mutexIdx = module.FindClass("Mutex");
-    m_mutexClassIdx = (mutexIdx >= 0) ? static_cast<int16_t>(mutexIdx) : -1;
-
-    //K1 Slice 9: reset the Channel side table and cache the class index.
-    m_channelStore.clear();
-    m_channelFreeList.clear();
-    int channelIdx = module.FindClass(kBuiltinChannelTypeName);
-    m_channelClassIdx = (channelIdx >= 0)
-        ? static_cast<int16_t>(channelIdx) : -1;
-
+    ResetContainerSideTable(m_listStore, m_listFreeList, module,
+                            kBuiltinListTypeName, &m_listClassIdx);
+    ResetContainerSideTable(m_dictStore, m_dictFreeList, module,
+                            kBuiltinDictTypeName, &m_dictClassIdx);
+    ResetContainerSideTable(m_mutexStore, m_mutexFreeList, module,
+                            "Mutex", &m_mutexClassIdx);
+    ResetContainerSideTable(m_channelStore, m_channelFreeList, module,
+                            kBuiltinChannelTypeName, &m_channelClassIdx);
     CacheBuiltinClassIndexes(module);
 }
 
@@ -118,7 +121,7 @@ void VmExecutor::InitStructHeap() {
     m_slotStructIdx.clear();
     m_slotStructIdx.push_back(0);
     m_freeList.clear();
-    m_gcPending = false;
+    m_gcPressure.store(false, std::memory_order_release);
     EvalStack().clear();
 }
 
@@ -206,20 +209,24 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
 //(frames empty, primary carrier only) or moving its frames back and
 //re-entering RunFrames at the parked pc. main's return ends the run
 //(unfinished contexts are dropped silently — the K1 exit policy;
-//MarkFinished on main also requests the pool stop). K2: one loop
-//iteration = one GIL holding window (INV-1); the window guard releases
-//the lock and checks INV-2 (no frames survive outside a holding
-//window) on every exit path. The empty-queue wait happens inside
-//PopNextRunnable (the lock is released while waiting — see
-//VmScheduler.cpp).
+//MarkFinished on main also requests the pool stop). K7: the dispatch
+//window no longer holds the global lock — the lock moves to store
+//operations (INV-1') and the carrier instead declares itself EXECUTING
+//for the whole dispatch (the registry rendezvous denominator); the
+//bytecode between store operations runs GIL-free. PopNextRunnable
+//takes and releases the lock internally; the empty-queue wait happens
+//inside it (see VmScheduler.cpp).
 //K2 slice 2: the catch-all arm of CarrierLoop, extracted for the
 //source-size guard. Non-NLang errors (VM-internal, or the deadlock
 //guard) are fatal for the whole run regardless of context — propagate.
 //The frames die with the run (the backtrace comes from UnwindFrames(),
-//not the frame stack): clearing them lets the window exit uphold
-//INV-2/5.
+//not the frame stack): clearing them lets the dispatch end uphold
+//INV-5.
 [[noreturn]] void VmExecutor::FailContextFatal(int ctx)
 {
+    //K7: the clear mutates the published evaluation stack (a registry
+    //scan arm may read it) — take the global lock for the transition.
+    GilEnsureGuard gil(*this);
     m_spScheduler->MarkFailed(ctx, 0);
     EvalStack().clear();
     throw;
@@ -228,45 +235,49 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
 void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
     try {
         for (;;) {
-            GilWindowGuard gil(*this);
-            const int ctx = m_spScheduler->PopNextRunnable(gil.Lock());
+            const int ctx = m_spScheduler->PopNextRunnable();
             if (ctx < 0)
                 break;   //stop requested: the run is over
             //K2 slice 2: each dispatch re-arms this carrier's quota.
             m_spScheduler->ResetCarrierTripBudget(m_schedTripLimit);
             ExecutionContext* info = m_spScheduler->FindMutable(ctx);
             try {
+                //K7: rendezvous denominator for the whole dispatch;
+                //unwinding destroys the scope BEFORE the catch arms run,
+                //so throws complete their arrival with frames on-stack.
+                ExecutingScope executing(*this);
                 RunContextWindow(ctx, info, mainFunc);
-            } catch (ParkSignal& park) {
+            } catch (ParkSignal&) {
                 //Not an error: steal the whole frame stack into the
-                //context (the steal model). Preempted requeues; the other
-                //reasons already recorded their state+target at the park
-                //site (ParkForJoin et al.) and wait for their wake event.
-                info->frames = std::move(EvalStack());
-                if (park.reason == ParkSignal::Reason::Preempted)
-                    m_spScheduler->Requeue(ctx);
+                //context (the steal model) in one critical section that
+                //also decides the queue entry — still-Runnable (quota
+                //preempt, or woken mid-unwind) re-enqueues after the
+                //frames landed; parked flavors set the framesParked
+                //handshake for their waker.
+                m_spScheduler->ParkContextFrames(ctx, std::move(EvalStack()));
                 continue;
             } catch (NLangThrow& ex) {
                 if (FailContextContained(ctx, ex.heapIdx))
                     throw;   //main: outer catch snapshots the backtrace
                 continue;
             } catch (ShutdownSignal&) {
-                //K2 slice 4: stop while this context sat in a blocking
-                //native (main returned on another carrier). Frames stay
-                //parked — end the loop like the -1 dequeue above; the
-                //blocked context is dropped per the K1 exit policy.
+                //Stop mid-blocking-native (K2) or a zombie-carrier
+                //ejection (K7): frames stay parked / die with the slot;
+                //the context is dropped per the K1 exit policy.
                 break;
             } catch (...) {
                 FailContextFatal(ctx);
             }
             //INV-5 (K7): the carrier's evaluation stack must be empty at
-            //dispatch end (the catch arms guarantee it by construction).
+            //dispatch end.
             if (!EvalStack().empty())
                 std::terminate();
             if (ctx == VmScheduler::kMainThreadId)
                 break;   //main returned: the run is over
         }
     } catch (const std::exception&) {
+        //K7: shared executor state — write under the global lock (D8).
+        GilEnsureGuard gil(*this);
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
@@ -283,17 +294,28 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 //registry slot (deque stability), so the pointer survives every steal.
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
     const CompiledFunction& mainFunc) {
-    if (!info->frames.empty()) {
-        EvalStack() = std::move(info->frames);
-        info->frames.clear();
-        ArmResumeRethrow(info);
+    bool resumed;
+    {
+        //K7: the resume decision, the steal-back, the handshake-flag
+        //clear, and the rethrow arming write scheduler state the
+        //collector's scheduler-root scan reads — one lock scope covers
+        //the transition; RunFrames itself executes GIL-free and stays
+        //outside it.
+        GilEnsureGuard gil(*this);
+        resumed = !info->frames.empty();
+        if (resumed) {
+            EvalStack() = std::move(info->frames);
+            info->frames.clear();
+            info->framesParked = false;
+            ArmResumeRethrow(info);
+        }
+    }
+    if (resumed)
         RunFrames(0);
-        m_spScheduler->MarkFinished(ctx, info->resultCell);
-    } else {
+    else
         RunRootWindow(mainFunc,
                       reinterpret_cast<uint8_t*>(&info->resultCell));
-        m_spScheduler->MarkFinished(ctx, info->resultCell);
-    }
+    m_spScheduler->MarkFinished(ctx, info->resultCell);
     //K3: fill get()-waiters' destinations BEFORE waking them — a parked
     //call is not re-executed on resume (the pc-advance invariant), so the
     //value must already be in place when the waiter's frame re-enters.
@@ -352,9 +374,10 @@ void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
         std::vector<uint8_t> staged(entryFunc.localsSize, 0);
         CallNative(entryFunc, 0, staged.data(), resultCell);
     } else {
-        //K6 D2: window from the root-frame push (its function-entry GC
-        //safepoint must count this thread); RunFrames' guard nests.
-        GcWorldStop::ExecWindowGuard rootWindow(m_spScheduler->GcStop());
+        //K7: no window guard here — the dispatch's ExecutingScope (the
+        //carrier loop) already declared this thread executing, so the
+        //root frame's function-entry safepoint counts it via the normal
+        //poll.
         PushRootFrame(entryFunc, resultCell);
         RunFrames(0);
     }

@@ -8,6 +8,7 @@
 #include "VmScheduler.h"
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <thread>
 
 namespace nlang {
@@ -33,7 +34,8 @@ void VmScheduler::Reset() {
     //parked inside a blocking native from a previous run — they compare
     //after reacquiring the GIL and exit silently instead of truncating
     //the new run's native roots or dereferencing a destroyed context.
-    ++m_runGeneration;
+    //K7: atomic (the safepoint poll reads it GIL-free on backedges).
+    m_runGeneration.fetch_add(1, std::memory_order_relaxed);
     //K6: rendezvous state resets with the run (no in-flight handshake
     //and no waiters exist between runs).
     m_gcStop.Reset();
@@ -132,7 +134,13 @@ int VmScheduler::PopAffinity() {
     return id;
 }
 
-int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
+//K7 契约翻转：内部自守卫（守卫持有的 unique_lock 供 cv 谓词等待——
+//等待期间锁被释放、属主标记保持，见 GilEnsureGuard::Lock()）；一切
+//return 位点由守卫析构解锁——**调用方拿到返回值时不持锁**（分派后
+//载体无锁进入执行段）。死锁检测的抛出路径同样经守卫析构释放。
+int VmScheduler::PopNextRunnable() {
+    GilEnsureGuard gilGuard(*this);
+    std::unique_lock<std::mutex>& gil = gilGuard.Lock();
     for (;;) {
         //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
         //可分派者。排队中→本次出队取焦点（越过队首非焦点项）；被别的
@@ -169,6 +177,33 @@ int VmScheduler::PopNextRunnable(std::unique_lock<std::mutex>& gil) {
         });
         --m_idleCarrierCount;
     }
+}
+
+//K7 site 1: 停泊过渡（见头文件声明注释）。分派期间 ctx->frames 恒空
+//（帧在出队时已被取走），append 语义覆盖阻塞原生嵌套回调形态（其
+//停泊帧叠在既有停泊帧之下）——该路径不经本方法（调用点持锁，内联
+//偷取保容量），此处只服务载体停泊臂。
+void VmScheduler::ParkContextFrames(int id,
+                                    std::vector<CallFrame> frames) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->frames.insert(ctx->frames.end(),
+        std::make_move_iterator(frames.begin()),
+        std::make_move_iterator(frames.end()));
+    //K7 握手（见 ExecutionContext::framesParked）：状态迁移发生在
+    //park 位点（ParkForJoin 等，GIL 下），ParkSignal 展开期间唤醒可
+    //已发生——此处 Runnable 涵盖配额抢占与「展开途中被唤醒」两形，
+    //在帧已落位的本临界区内入队；停泊中则置握手标记，交由唤醒路径
+    //入队。唤醒路径永不入队未完成停泊者，出队者恒见帧已就位。
+    if (ctx->state == ContextState::Runnable) {
+        m_runQueue.push_back(id);
+        m_runQueueCv.notify_all();
+    } else {
+        ctx->framesParked = true;
+    }
+    ReleaseHeldIfCurrent(id);
 }
 
 //K4：分派落账（须持 GIL）。辅助载体计数沿旧位（出队即记）；唤醒亲
@@ -281,13 +316,16 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
             || ctx.parkHandle != targetId)
             continue;
         ctx.state = ContextState::Runnable;
+        //K7 握手：只入队已完成停泊者；停泊展开途中被唤醒者由停泊载体
+        //在搬帧临界区内补推（见 ExecutionContext::framesParked）。
+        if (ctx.framesParked)
+            m_runQueue.push_back(ctx.id);
         if (failed) {
             ctx.rethrowOnResume = true;
             //K3：失败路径不走取值投递，目的地随帧 unwind 作废——
             //立即清空，避免悬垂指针残留注册表。
             ctx.joinResultDst = nullptr;
         }
-        m_runQueue.push_back(ctx.id);
     }
     m_runQueueCv.notify_all();
 }
@@ -335,14 +373,16 @@ void VmScheduler::ParkForMutex(int id) {
 }
 
 //互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
-//Runnable 入队尾。
+//Runnable；已完成停泊者入队尾（K7 握手，见
+//ExecutionContext::framesParked）。
 void VmScheduler::WakeForMutex(int id) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
     ctx->state = ContextState::Runnable;
-    m_runQueue.push_back(id);
+    if (ctx->framesParked)
+        m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
 }
 
@@ -360,15 +400,17 @@ void VmScheduler::ParkForChanRecv(int id) {
     NotifyGateWaiters();
 }
 
-//通道唤醒（Slice 9）：回 Runnable 入队尾。值已由执行器在调用本方法
-//之前写入停泊帧的结果槽（停泊的调用不会重执行——pc 推进不变量）。
+//通道唤醒（Slice 9）：回 Runnable；已完成停泊者入队尾（K7 握手，见
+//ExecutionContext::framesParked）。值已由执行器在调用本方法之前写入
+//停泊帧的结果槽（停泊的调用不会重执行——pc 推进不变量）。
 void VmScheduler::WakeForChanRecv(int id) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
     ctx->state = ContextState::Runnable;
-    m_runQueue.push_back(id);
+    if (ctx->framesParked)
+        m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
 }
 
@@ -385,15 +427,17 @@ void VmScheduler::ParkForChanSend(int id) {
     NotifyGateWaiters();
 }
 
-//K3 task 4：发送者唤醒——回 Runnable 入队尾。recv 已把队首待发值挪入
-//缓冲（或 close 已预置异常重抛），停泊的调用不会重执行。
+//K3 task 4：发送者唤醒——回 Runnable；已完成停泊者入队尾（K7 握手，
+//见 ExecutionContext::framesParked）。recv 已把队首待发值挪入缓冲
+//（或 close 已预置异常重抛），停泊的调用不会重执行。
 void VmScheduler::WakeForChanSend(int id) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
     ctx->state = ContextState::Runnable;
-    m_runQueue.push_back(id);
+    if (ctx->framesParked)
+        m_runQueue.push_back(id);
     m_runQueueCv.notify_all();
 }
 

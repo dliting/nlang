@@ -392,7 +392,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             dst.push_back(kv.first);
 
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
-        m_gcPending = true;
+        NoteGcPressure();
         return;
     }
 

@@ -28,6 +28,12 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
     //launched, single-threaded — no lock competition).
     m_spScheduler->ConfigureCarriers(m_carrierThreadCount);
     m_spScheduler->InstallSelfCarrier(0);
+    //K7: publish this thread's evaluation stack to the GC registry. The
+    //token stays function-local (it never outlives the run); unregister
+    //AFTER the join so a detached zombie's late wake lands on retired
+    //entries harmlessly (generation tolerance), never on live ones.
+    const GcThreadToken gcToken = m_spScheduler->GcStop().RegisterThread(
+        &m_spScheduler->CarrierEvalStackRef());
     CarrierActiveGuard carrierActive(
         m_spScheduler->ActiveCarrierCountRef());
     m_spScheduler->RegisterContext();   //main: id 0, Runnable, queued
@@ -42,10 +48,12 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
     } catch (...) {
         m_spScheduler->RequestStop();
         JoinAndCollect();
+        m_spScheduler->GcStop().UnregisterThread(gcToken);
         throw;   //the primary carrier's own error reaches the host first
     }
     m_spScheduler->RequestStop();   //idempotent; the normal path set it
     JoinAndCollect();
+    m_spScheduler->GcStop().UnregisterThread(gcToken);
     RethrowAuxiliaryError();
 }
 
@@ -58,6 +66,10 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
 void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc,
                                      int carrierId) {
     m_spScheduler->InstallSelfCarrier(carrierId);
+    //K7: same registry publication as the primary carrier (see
+    //RunPrimaryCarrier) — token local to the thread's whole lifetime.
+    const GcThreadToken gcToken = m_spScheduler->GcStop().RegisterThread(
+        &m_spScheduler->CarrierEvalStackRef());
     CarrierActiveGuard carrierActive(
         m_spScheduler->ActiveCarrierCountRef());
     try {
@@ -66,6 +78,7 @@ void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc,
         RecordAuxiliaryError();
         m_spScheduler->RequestStop();
     }
+    m_spScheduler->GcStop().UnregisterThread(gcToken);
 }
 
 //K2 slice 2: record this auxiliary carrier's fatal error in the
@@ -74,7 +87,10 @@ void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc,
 //from within a catch block (std::current_exception).
 void VmExecutor::RecordAuxiliaryError() {
     try {
-        GilWindowGuard gil(*this);
+        //K7: GilEnsureGuard (K2's GilWindowGuard is gone — the dispatch
+        //window no longer owns the lock); this thread holds nothing at
+        //this point, so the guard really acquires.
+        GilEnsureGuard gil(*this);
         if (!m_auxError) {
             m_auxError = std::current_exception();
             m_auxBacktrace = FormatBacktrace();
@@ -138,6 +154,12 @@ void VmExecutor::JoinAndCollect() {
 //host-visible exception (with the auxiliary's backtrace attached, so
 //the failure is attributable).
 void VmExecutor::RethrowAuxiliaryError() {
+    //K7: the confluence slot and the backtrace member are shared
+    //executor state (RecordAuxiliaryError writes under the same lock,
+    //including a detached zombie that wakes after its join deadline) —
+    //read and translate under the global lock; the rethrow unwinds out
+    //of the guard, which releases.
+    GilEnsureGuard gil(*this);
     if (!m_auxError)
         return;
     m_lastBacktrace = m_auxBacktrace;

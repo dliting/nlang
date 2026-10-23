@@ -1,8 +1,9 @@
 /*---
-    VmExecutorGC.cpp — 垃圾回收（标记/清扫/释放）
+    VmExecutorGC.cpp — 垃圾回收（安全点会合＋标记阶段）
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）；
     容器元素追踪臂在 VmExecutorGCContainers.cpp（2026-10-20 拆出）；
-    帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）。
+    帧根扫描三件套在 VmExecutorGCRoots.cpp（2026-10-20 K2 slice 5 拆出）；
+    清扫与释放族在 VmExecutorGCSweep.cpp（2026-10-24 K7 拆出）。
 ---*/
 #include "VmExecutor.h"
 #include <algorithm>
@@ -14,32 +15,79 @@ namespace nlang {
 
 //GC implementation.
 
+//K7 sites 2/8: the real multiparty rendezvous. Poll gate: only windows
+//at or below the innermost participation root poll (a window that flipped
+//this thread's executing bit ON: carrier dispatch = depth 0, host
+//outermost bridge entry, blocking-native callback re-entry). A raw
+//"depth > 0" gate would silence host-outermost runs forever — they
+//execute at depth >= 1 — and strand every stop that snapshots them
+//executing. The generation guard ejects zombie carriers mid-bytecode
+//(K6 excluded that shape by holding the GIL across every window).
+//GIL-holding callers (spawn tail inside an intrinsic's store guard,
+//guarded function entries) hand the lock off for the WHOLE sequence:
+//Rule A parks on the rendezvous cv and the last arriver's collection
+//needs the global lock — waiting under it deadlocks.
 void VmExecutor::CheckGCSafepoint() {
-    //String objectization: pure-string workloads allocate zero heap
-    //records, so the string store has its own threshold arm.
-    if (m_gcPending && (m_structHeap.size() > m_gcThreshold
-            || m_stringObjs.size() > m_strGcThreshold)) {
-        m_gcPending = false;
-        //K6 D4: stop-the-world rendezvous. While the GIL serializes
-        //execution the requester is necessarily the last arriver (every
-        //other carrier is parked, idle, or GIL-waiting) and the
-        //protocol degenerates to inline collection. A second live
-        //window means window-accounting drift — refuse to continue
-        //(the INV-2 terminate precedent); batch 3 turns the else-arm
-        //into the real park-and-wait path.
-        GcWorldStop& stop = m_spScheduler->GcStop();
-        const uint64_t epoch = stop.RequestWorldStop();
-        if (stop.Arrive(epoch)) {
-            CollectGarbage();
-            stop.Complete(epoch);
+    if (m_spScheduler->CarrierRunGenerationStale())
+        throw ShutdownSignal();   //zombie carrier from a torn-down run
+    if (NestDepth() > GcPollRootDepth())
+        return;   //suppressed above the innermost participation root —
+                  //the window below polls on its own backedges
+    GilHandoffScope handoff(*this);   //no-op unless the caller holds the GIL
+    GcWorldStop& stop = m_spScheduler->GcStop();
+    if (stop.StopInFlight()) {                  //somebody else initiated
+        const bool last = stop.EndExecuting();  //Rule B: arrive
+        if (!last) {
+            ++m_gcRendezvousParks;
+            stop.WaitForCompletion();
         } else {
-            std::fprintf(stderr,
-                "NLang VM: GC rendezvous found an unexpected live "
-                "evaluation window — window accounting is inconsistent, "
-                "terminating\n");
-            std::terminate();
+            CollectAndComplete();   //the guard inside really acquires
         }
+        stop.BeginExecuting();      //Rule A — never under the global lock
+        return;
     }
+    if (!GcPressureExceeded())
+        return;
+    if (stop.InitiateAndArrive()) {
+        //I'm (already) the last arriver. InitiateAndArrive flipped this
+        //thread's executing bit off for the stop — bytecode continues
+        //after the collection, so re-enter the denominator (the stop is
+        //complete; BeginExecuting cannot block, and no global lock is
+        //held here — the handoff above released it, CollectAndComplete's
+        //internal guard released its own).
+        CollectAndComplete();
+        stop.BeginExecuting();
+    } else {
+        ++m_gcRendezvousParks;
+        stop.WaitForCompletion();
+        stop.BeginExecuting();
+    }
+}
+
+//K7 site 2: the last arriver's epilogue. The marker is clear here (the
+//handoff released it, or this thread never held it) so the guard really
+//acquires the global lock; clearing the pressure flag AFTER the
+//collection but BEFORE Complete means every joiner wakes to a cleared
+//flag — no collection storm.
+void VmExecutor::CollectAndComplete() {
+    GilEnsureGuard gil(*this);
+    CollectGarbage();
+    m_gcPressure.store(false, std::memory_order_release);
+    m_spScheduler->GcStop().Complete();
+}
+
+//K7 site 2: the allocation sites' trigger store (every caller holds the
+//GIL — the store-size reads are safe there; the backedge poll only
+//loads the flag).
+void VmExecutor::NoteGcPressure() {
+    m_gcPressure.store(
+        m_structHeap.size() > m_gcThreshold
+            || m_stringObjs.size() > m_strGcThreshold,
+        std::memory_order_release);
+}
+
+bool VmExecutor::GcPressureExceeded() const {
+    return m_gcPressure.load(std::memory_order_acquire);
 }
 
 void VmExecutor::CollectGarbage() {
@@ -64,30 +112,26 @@ void VmExecutor::MarkPhase() {
     m_markBits.assign(m_structHeap.size(), false);
     m_strMarkBits.assign(m_stringObjs.size(), false);
     //Identify root references from all call frames and push to worklist.
+    //K7 site 10: the registry arm covers every registered thread's
+    //published evaluation stack — all quiescent by the rendezvous
+    //guarantee (arrived threads block in WaitForCompletion; others can
+    //only touch their stack again through BeginExecuting's Rule A gate).
+    //The scan holds the leaf lock throughout — see ScanRegisteredStacks.
     std::vector<int32_t> worklist;
-    for (auto& frame : EvalStack()) {
-        MarkFrameLocals(frame, worklist);
-        MarkFrameResult(frame, worklist);
-        MarkFrameBand(frame, worklist);
-    }
+    m_spScheduler->GcStop().ScanRegisteredStacks(
+        [&worklist, this](std::vector<CallFrame>& stack) {
+            for (CallFrame& frame : stack) {
+                MarkFrameLocals(frame, worklist);
+                MarkFrameResult(frame, worklist);
+                MarkFrameBand(frame, worklist);
+            }
+        });
     MarkSchedulerRoots(worklist);
     //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
     //return slot) and callback-minted handles — roots for as long as
     //their carrier's GIL is away.
     MarkNativeCallRoots(worklist);
-    //Extension point ③: host-registered roots (host-held reference
-    //Values). Same string/heap split as the frame scans — RTK_String
-    //values are string-store handles routed to MarkString (its own
-    //validation), everything else is a heap idx under the mark guard.
-    for (const HostRoot& root : m_hostRoots) {
-        if (root.kind == RTK_String) {
-            MarkString(root.value);
-        } else if (root.value > 0
-                && static_cast<size_t>(root.value) < m_slotKinds.size()
-                && !m_markBits[root.value]) {
-            PushMarked(root.value, worklist);
-        }
-    }
+    MarkHostRoots(worklist);
     //Iteratively trace references until worklist is empty.
     while (!worklist.empty()) {
         int32_t idx = worklist.back();
@@ -105,6 +149,22 @@ void VmExecutor::MarkPhase() {
             MarkStructFields(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Array) {
             MarkArrayElements(idx, worklist);
+        }
+    }
+}
+
+//Extension point ③: host-registered roots (host-held reference Values).
+//Same string/heap split as the frame scans — RTK_String values are
+//string-store handles routed to MarkString (its own validation),
+//everything else is a heap idx under the mark guard.
+void VmExecutor::MarkHostRoots(std::vector<int32_t>& worklist) {
+    for (const HostRoot& root : m_hostRoots) {
+        if (root.kind == RTK_String) {
+            MarkString(root.value);
+        } else if (root.value > 0
+                && static_cast<size_t>(root.value) < m_slotKinds.size()
+                && !m_markBits[root.value]) {
+            PushMarked(root.value, worklist);
         }
     }
 }
@@ -133,12 +193,18 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
                 && !m_markBits[val])
                 PushMarked(val, worklist);
         }
-        //K3: once the root frame has finished, frames is empty and the
-        //context's return value lives only in resultCell — classify it
-        //by the snapshotted return kind (MarkFrameResult's same split:
-        //string handle vs heap index) so a Future<T> of a reference T
-        //keeps the value alive between the spawn and the get().
-        if (ctx->frames.empty()) {
+        //K3: once the context has finished, its return value lives only
+        //in resultCell — classify it by the snapshotted return kind
+        //(MarkFrameResult's same split: string handle vs heap index) so
+        //a Future<T> of a reference T keeps the value alive between the
+        //spawn and the get(). K7 site 10: the discriminator is the
+        //context STATE, not frames.empty() — with the steal model kept
+        //intact, held and queued contexts have empty registry frames
+        //too, and reading their resultCell here would race the owning
+        //carrier's GIL-free OP_Return write (torn read → misclassified
+        //kind → premature sweep of a live reference).
+        if (ctx->state == ContextState::Finished
+                || ctx->state == ContextState::Failed) {
             uint8_t retKind = ctx->resultKind;
             int32_t val;
             std::memcpy(&val, &ctx->resultCell, sizeof(val));
@@ -350,139 +416,6 @@ void VmExecutor::MarkArrayElements(int32_t idx,
             PushMarked(elemRef, worklist);
         }
     }
-}
-
-void VmExecutor::SweepPhase() {
-    m_freeList.clear();
-    size_t liveSlots = 0;
-    for (size_t i = 1; i < m_structHeap.size(); ++i) {
-        if (m_slotKinds[i] == 0) continue;
-        if (!m_markBits[i]) {
-            if (m_slotKinds[i] == RTK_Class) {
-                RecycleClassContainerHandles(i);
-                FreeOwnedStructs(static_cast<int32_t>(i));
-            }
-            if (m_slotKinds[i] == RTK_Struct)
-                FreeNestedStructs(static_cast<int32_t>(i), m_slotStructIdx[i]);
-            if (m_slotKinds[i] == RTK_Array)
-                FreeOwnedArrayStructElements(static_cast<int32_t>(i));
-            m_structHeap[i].clear();
-            m_slotKinds[i] = 0;
-            m_freeList.push_back(static_cast<int32_t>(i));
-        } else {
-            ++liveSlots;
-        }
-    }
-    //K6 D3: the store never shrinks (free slots recycle in place), so the
-    //trigger must stay above the high-water size after every sweep —
-    //otherwise a small-live churn workload collects at every safepoint
-    //forever. The size floor alone would collect on every growth
-    //allocation once the free list empties (quadratic over a growing
-    //live set); twice the live population adds geometric spacing there
-    //(linear total cost). The larger of the two: drop-churn keeps the
-    //predicate false until the free list empties, growth spends its
-    //cadence geometrically. Stress clamps only the initial thresholds —
-    //the backoff runs unconditionally (pre-K6 stress semantics).
-    m_gcThreshold = std::max(m_gcThreshold,
-        std::max(m_structHeap.size(), 2 * liveSlots));
-}
-
-//Dead class instance's container-handle recycling (the sweep's RTK_Class
-//arm): List/Dict (Phase 8e-3/8e-4) and Mutex/Channel (K1 Slices 8/9).
-//Dropped-while-held Mutex/Channel instances leave their waiters parked
-//forever — the carrier's exit guard reports that shape.
-void VmExecutor::RecycleClassContainerHandles(size_t i) {
-    int32_t classIdx = m_structHeap[i][0];
-    //Phase 8e-3: recycle List<T> handle when a List instance is freed.
-    if (static_cast<int16_t>(classIdx) == m_listClassIdx) {
-        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-        if (handle > 0)
-            m_listFreeList.push_back(handle);
-    }
-    //Phase 8e-4: recycle Dict<K,V> handle when a Dict instance is freed.
-    if (static_cast<int16_t>(classIdx) == m_dictClassIdx) {
-        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-        if (handle > 0)
-            m_dictFreeList.push_back(handle);
-    }
-    //K1 Slice 8: recycle Mutex handle when an instance is freed.
-    if (static_cast<int16_t>(classIdx) == m_mutexClassIdx) {
-        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-        if (handle > 0)
-            m_mutexFreeList.push_back(handle);
-    }
-    //K1 Slice 9: recycle Channel handle when an instance is freed
-    //(same parked-waiter hazard and exit-guard report as a Mutex).
-    if (static_cast<int16_t>(classIdx) == m_channelClassIdx) {
-        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
-        if (handle > 0)
-            m_channelFreeList.push_back(handle);
-    }
-}
-
-void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {
-    int32_t classIdx = m_structHeap[heapIdx][0];
-    //0.9.12 T1: declared field kinds come from the layout view (the GC
-    //trusts the cell-0 classIdx, same as MarkClassFields).
-    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
-    for (size_t i = 0; i < fields.size(); ++i) {
-        if (fields[i].kind == RTK_Struct && fields[i].structIdx != 0xFFFF) {
-            int32_t structSlotIdx = m_structHeap[heapIdx][i * 2 + 1];
-            if (structSlotIdx > 0 && static_cast<size_t>(structSlotIdx) < m_slotKinds.size()
-                && m_slotKinds[structSlotIdx] == RTK_Struct) {
-                FreeNestedStructs(structSlotIdx, fields[i].structIdx);
-                m_structHeap[structSlotIdx].clear();
-                m_slotKinds[structSlotIdx] = 0;
-                m_freeList.push_back(structSlotIdx);
-            }
-        }
-    }
-}
-
-void VmExecutor::FreeNestedStructs(int32_t heapIdx, uint16_t structIdx) {
-    auto& cs = m_currModule->structs[structIdx];
-    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
-        if (cs.fieldTypeKinds[i] == RTK_Struct
-            && cs.fieldStructIndices[i] != 0xFFFF) {
-            int32_t nestedIdx = m_structHeap[heapIdx][i * 2];
-            if (nestedIdx > 0 && static_cast<size_t>(nestedIdx) < m_slotKinds.size()
-                && m_slotKinds[nestedIdx] == RTK_Struct) {
-                FreeNestedStructs(nestedIdx, cs.fieldStructIndices[i]);
-                m_structHeap[nestedIdx].clear();
-                m_slotKinds[nestedIdx] = 0;
-                m_freeList.push_back(nestedIdx);
-            }
-        }
-    }
-}
-
-void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
-    uint16_t arrayTypeIdx = m_slotStructIdx[heapIdx];
-    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
-        return;
-    auto& at = m_currModule->arrayTypes[arrayTypeIdx];
-    if (at.elemKind != RTK_Struct)
-        return;
-    int32_t length = m_structHeap[heapIdx][2];
-    for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[heapIdx][3 + i];
-        if (elemRef > 0 && static_cast<size_t>(elemRef) < m_slotKinds.size()
-            && m_slotKinds[elemRef] == RTK_Struct) {
-            FreeNestedStructs(elemRef, at.elemTypeIdx);
-            m_structHeap[elemRef].clear();
-            m_slotKinds[elemRef] = 0;
-            m_freeList.push_back(elemRef);
-        }
-    }
-}
-
-//K6 D7: live heap slots (kinds != free) — the heap-side counterpart of
-//LiveStringObjectCount for bounded-memory assertions.
-size_t VmExecutor::LiveHeapSlotCount() const {
-    size_t live = 0;
-    for (uint8_t kind : m_slotKinds)
-        if (kind != 0) ++live;
-    return live;
 }
 
 } // namespace nlang

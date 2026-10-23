@@ -134,6 +134,12 @@ struct ExecutionContext {
     int id = 0;
     ContextState state = ContextState::Runnable;
     std::vector<CallFrame> frames;
+    //K7：停泊完成握手——park 位点已迁移状态（ParkedJoin 等）但
+    //ParkSignal 仍在展开、帧尚未从载体求值栈搬入 frames 的窗口内为
+    //false。唤醒路径只入队已完成停泊者；未完成者的入队由停泊载体在
+    //搬帧的同一临界区内补做（帧先落位、队列项后出现——出队者恒见帧
+    //已就位，消除「无帧弹出＝全新入口重跑」竞争）。恢复取回帧时清零。
+    bool framesParked = false;
     int32_t threadObjHeapIdx = 0;   //Slice 6：句柄对象（K1 Thread / K3
                                     //Future，GC 根 + join 入口）
     int32_t failExcHeapIdx = 0;     //Slice 6：失败重抛的异常对象
@@ -210,12 +216,11 @@ public:
             m_rSched.m_gil, std::defer_lock};
     };
 
-    //K7 自守卫纪律：公共变更面（注册/复位/停泊/唤醒/终结/簿记/焦点
-    ///定时器服务）一律经 GilEnsureGuard 自守卫——嵌套调用零开销，未持
-    //锁调用真实获取；私有助手假设调用方已持锁。例外保留调用方契约的
-    //是：PopNextRunnable（经 gil 形参持有——Task 4 翻转契约）与白盒
-    //观测方法（ContextCount/HeldContextOfCarrier/HoldingCarrierOf/
-    //DebugFocusContext 等——持锁或静息期调用）。
+    //K7 自守卫纪律：公共变更面（注册/复位/出队/停泊/唤醒/终结/簿记/
+    //焦点/定时器服务）一律经 GilEnsureGuard 自守卫——嵌套调用零开销，
+    //未持锁调用真实获取；私有助手假设调用方已持锁。例外保留调用方契
+    //约的是白盒观测方法（ContextCount/HeldContextOfCarrier/
+    //HoldingCarrierOf/DebugFocusContext 等——持锁或静息期调用）。
     //
     //每轮执行前复位（VmExecutor::ResetPerRunState 调用，决策 5 显式
     //枚举清空）：上下文注册表、运行队列、定时器表与关停标志全部清空
@@ -226,8 +231,10 @@ public:
     //注册新上下文并入队尾；id 单调分配（main 恒为 0）。自守卫。
     int RegisterContext();
 
-    //FIFO 弹出下一个待运行上下文并记为本载体当前上下文（须持 GIL；
-    //gil 即该锁——等待期间锁被释放，醒来重取，重取后调用方继续持有）。
+    //FIFO 弹出下一个待运行上下文并记为本载体当前上下文。K7：契约翻
+    //转——内部自守卫（焦点门谓词等待与空队列 cv 等待经守卫的 Lock()
+    //释放/重取锁，属主标记保持），**返回时不持锁**——出队后载体无锁
+    //进入执行段，会合参与（BeginExecuting）无须任何锁迁移舞步。
     //K4 调试焦点门（D2）：焦点上下文 Runnable 时它是唯一可分派者——
     //排队中则本次出队即取焦点（越过队首非焦点项）；被某载体的执行窗
     //口持有时无物可分派，在条件变量上等焦点释放（停泊/终结/重新入队
@@ -239,7 +246,16 @@ public:
     //未完成即无法返回，与其静默挂死不如拒绝）；定时器表非空则必有未来
     //唤醒，不构成死锁。焦点被持等待臂不做死锁检测：焦点 Runnable 即
     //存在工作，持有者的窗口必然结束并通知。
-    int PopNextRunnable(std::unique_lock<std::mutex>& gil);
+    int PopNextRunnable();
+
+    //K7 site 1: 停泊过渡——把调用线程整条求值栈搬入上下文的停泊帧
+    //（载体停泊臂，GIL-free 调用点——这是唯一的锁外帧迁移）。搬移经
+    //拥有者方法在全局锁下串行：并发收集者恰好扫「注册表条目」与
+    //ctx->frames」两个面，任一时刻每帧恰在唯一可见面。自守卫。
+    //K7：同一临界区内决定队列项——状态仍 Runnable（配额抢占，或停泊
+    //展开途中已被唤醒）则搬帧后入队；停泊中则置 framesParked 交由唤
+    //醒路径入队（握手见 ExecutionContext::framesParked）。
+    void ParkContextFrames(int id, std::vector<CallFrame> frames);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
     //队列成员全部是「另外的」上下文）。自守卫读取——回边配额分支在
@@ -249,7 +265,9 @@ public:
         return !m_runQueue.empty();
     }
 
-    //抢占后重新入队尾（载体不再持有该上下文）。
+    //抢占后重新入队尾（载体不再持有该上下文）。K7 起抢占重入并入
+    //ParkContextFrames 的同一临界区——生产路径不再调用，保留给白盒
+    //测试直驱。
     void Requeue(int id);
 
     //join 停泊（Slice 6）：state → ParkedJoin，parkHandle 记目标；帧的
@@ -286,8 +304,10 @@ public:
     void WakeForChanSend(int id);
 
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
-    //并入队尾；failed=true 时置 rethrowOnResume（joiner 恢复时重抛目标
-    //的 failExcHeapIdx）。多 joiner 皆唤醒（计划决策 6）。
+    //；已完成停泊者入队尾（停泊展开途中被唤醒者由停泊载体补推，握手
+    //见 ExecutionContext::framesParked）；failed=true 时置
+    //rethrowOnResume（joiner 恢复时重抛目标的 failExcHeapIdx）。多
+    //joiner 皆唤醒（计划决策 6）。
     void WakeJoiners(int targetId, bool failed);
 
     //K3：把 Finished 目标的取值投递给全部 get() 停泊者（joinResultDst
@@ -342,11 +362,31 @@ public:
     //at install (pool launch, once per run); a mismatch after a blocking
     //native reacquires the GIL means the run was torn down underneath
     //(a zombie past the join grace) and the thread must exit without
-    //touching the new run's state. Reads are GIL-serialized (Reset
-    //holds the GIL; the comparison runs right after Acquire).
-    uint64_t RunGeneration() const { return m_runGeneration; }
+    //touching the new run's state. K7: the member is atomic — the
+    //safepoint poll now reads it GIL-free (backedges) to eject zombie
+    //carriers mid-bytecode; relaxed ordering suffices (the GIL carries
+    //the semantics, the load only needs tear-freedom).
+    uint64_t RunGeneration() const {
+        return m_runGeneration.load(std::memory_order_relaxed);
+    }
     uint64_t CarrierRunGeneration() {
         return carrierSlot().runGeneration;
+    }
+    //K7: zombie discriminator for INSTALLED carrier slots — true when
+    //Reset advanced the generation past this thread's install snapshot.
+    //Poll sites (backedge/function-entry safepoints) call this GIL-free
+    //and throw ShutdownSignal on staleness: K6 excluded mid-bytecode
+    //zombies by holding the GIL across every window, so a run could not
+    //tear down under a blocking-native callback mid-execution; the
+    //GIL-free dispatch window reopens that shape, and without this
+    //guard a zombie callback would run forever outside every rendezvous
+    //denominator. Host threads (no installed slot) never read stale —
+    //their calls are bounded by the embedder's own synchronization
+    //(embedding contract, unchanged from K6).
+    bool CarrierRunGenerationStale() const {
+        return t_carrier != nullptr && t_carrier->carrierId >= 0
+            && t_carrier->runGeneration
+                != m_runGeneration.load(std::memory_order_relaxed);
     }
 
     //K6: stop-the-world rendezvous handle — the safepoint protocol
@@ -379,6 +419,13 @@ public:
         std::vector<CallFrame> evalStack;
         std::vector<UnwindFrame> unwindFrames;
         int32_t resumeThrowExcIdx = 0;  //0 = none; see VmExecutor.h
+        //K7 site 4: the participation-root depth for the GC poll gate
+        //(CheckGCSafepoint polls at nestDepth <= this value). 0 for
+        //carriers (poll at the dispatch root); a bridge RAII that flips
+        //this thread's executing bit on records depth+1 here for its
+        //duration, so host-outermost runs and blocking-native callbacks
+        //keep polling inside their windows.
+        int gcPollRootDepth = 0;
     };
     void InstallSelfCarrier(int carrierId) {
         t_carrier = &t_selfCarrier;
@@ -386,10 +433,12 @@ public:
         t_carrier->carrierId = carrierId;
         t_carrier->nestDepth = 0;
         t_carrier->schedTripBudget = 0;
-        t_carrier->runGeneration = m_runGeneration;
+        t_carrier->runGeneration =
+            m_runGeneration.load(std::memory_order_relaxed);
         t_carrier->evalStack.clear();
         t_carrier->unwindFrames.clear();
         t_carrier->resumeThrowExcIdx = 0;
+        t_carrier->gcPollRootDepth = 0;
     }
     //载体槽访问（嵌套深度/预算/求值栈/伴随态）。未安装线程（理论上
     //只有宿主在轮转外直调工具函数）落到线程局部空槽——恒零值，行为
@@ -403,6 +452,7 @@ public:
     std::vector<CallFrame>& CarrierEvalStackRef() { return carrierSlot().evalStack; }
     std::vector<UnwindFrame>& CarrierUnwindFramesRef() { return carrierSlot().unwindFrames; }
     int32_t& CarrierResumeThrowExcIdxRef() { return carrierSlot().resumeThrowExcIdx; }
+    int& CarrierGcPollRootDepthRef() { return carrierSlot().gcPollRootDepth; }
     void ResetCarrierTripBudget(int limit) {
         carrierSlot().schedTripBudget = limit;
     }
@@ -633,7 +683,7 @@ public:
 
 private:
     std::mutex m_gil;
-    uint64_t m_runGeneration = 0;   //K6 D9: see RunGeneration()
+    std::atomic<uint64_t> m_runGeneration{0};  //K6 D9 / K7: see RunGeneration()
     GcWorldStop m_gcStop;   //K6: leaf-locked rendezvous protocol; resets
                             //with the run (Reset), one per scheduler
 };

@@ -198,10 +198,17 @@ public:
     //with ResetPerRunState) and live heap slots (kinds != free).
     size_t GcCollectionCount() const { return m_gcCollections; }
     size_t LiveHeapSlotCount() const;
-    //K6 D2: threads currently inside a GIL-held bytecode evaluation
-    //window of this executor (the rendezvous denominator).
-    int GcWindowThreadCount() const {
-        return m_spScheduler->GcStop().WindowThreadCount();
+    //K7: this thread's own executing bit — registry-membership observability
+    //(the white-box shape the K6 window count served: parked-in-native reads
+    //false, a nested evaluation window reads true, quiescent reads false).
+    bool GcExecutingSelf() const {
+        return m_spScheduler->GcStop().ExecutingSelf();
+    }
+    //K7: per-run count of rendezvous parks — arrivals that blocked in
+    //WaitForCompletion instead of collecting inline (single-carrier
+    //degenerate runs read 0; real multiparty runs read > 0).
+    int GcRendezvousParks() const {
+        return m_gcRendezvousParks.load(std::memory_order_relaxed);
     }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
@@ -400,9 +407,14 @@ private:
 
     //Host-bridge internals (definitions in VmExecutorHostBridge.cpp):
     //FillDefaults stages the Option-B defaults for a by-name call's
-    //missing formals (what a compiler call site would have staged).
+    //missing formals (what a compiler call site would have staged);
+    //RunBridgeNativeCall stages the caller-frame ABI copy and invokes
+    //CallNative for CallFunctionByIdx's native arm.
     void FillDefaults(const CompiledFunction& callee,
                       uint8_t* frameCells, uint32_t argc);
+    void RunBridgeNativeCall(const CompiledFunction& callee,
+                             const uint8_t* argCells, uint32_t argc,
+                             uint8_t* resultCell);
     void FillOneDefault(const CompiledFunction& callee,
                         const DefaultValueDesc& d, uint8_t* cell);
     //0.9.11 T4: the single folded-constant write site (definition in
@@ -635,6 +647,9 @@ private:
     //K2 slice 4: blocking-native local roots (staged cells and minted
     //handles) — same dual-domain value test as the frame band.
     void MarkNativeCallRoots(std::vector<int32_t>& worklist);
+    //Extension point ③: host-registered roots (host-held reference
+    //Values) — same dual-domain value test as the frame band.
+    void MarkHostRoots(std::vector<int32_t>& worklist);
     //Shared value test behind the frame band and the native roots: a
     //true reference is valid in exactly its own domain (string-store
     //handle vs heap idx); a cross-domain hit can only over-mark.
@@ -659,6 +674,21 @@ private:
 
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
+    //K7 site 2 helpers. CollectAndComplete: the last arriver's epilogue —
+    //collect under the global lock (the guard really acquires it once the
+    //handoff/park released the marker), clear the pressure flag, then
+    //Complete (clearing before the completion notify means joiners wake to
+    //a cleared flag — no collection storm). NoteGcPressure: the allocation
+    //sites' trigger store (GIL held; synthesizes both threshold domains).
+    //GcPressureExceeded: the backedge poll's acquire load. NestDepth /
+    //GcPollRootDepth: this thread's slot reads for the poll gate.
+    void CollectAndComplete();
+    void NoteGcPressure();
+    bool GcPressureExceeded() const;
+    int NestDepth() { return m_spScheduler->CarrierNestDepthRef(); }
+    int GcPollRootDepth() {
+        return m_spScheduler->CarrierGcPollRootDepthRef();
+    }
 
     //K1 decision 5: back-edge quota side-check (called beside the GC
     //safepoint in OpJump). Budget exhaustion with another runnable
@@ -738,59 +768,113 @@ private:
     //rethrow (the backtrace comes from the unwind records instead).
     [[noreturn]] void FailContextFatal(int ctx);
 
-    //K2 slice 1: one carrier-loop iteration's GIL holding window. The
-    //destructor releases the lock and checks INV-2 on every exit path
-    //(fallthrough, continue, break, stack-unwinding throw): no frame may
-    //survive outside a holding window. Runtime check (not assert) so
-    //Release gates exercise it too — a frame leaking across a released
-    //GIL is silent corruption once slice 2 adds carriers, so a broken
-    //invariant terminates rather than throws (throwing from a destructor
-    //during unwinding would be UB anyway). K2 slice 2: the constructor
-    //maintains the GIL-waiter count around the lock acquisition — the
-    //yield rule reads it to keep lock contenders from starving.
-    //K7: GilHolder and the t_gilOwner marker moved to VmScheduler.h
-    //(they live with the lock's owner so the scheduler's public surface
-    //can self-guard through the same mechanism); the owner-designation
-    //contract ("thread state, not lock state") moved with them. The
-    //blocking-native arm still hands the lock off through the current
-    //holder, so blocking works at any re-entry depth.
-    class GilWindowGuard : public GilHolder {
+    //K7 site 1: per-dispatch participation scope — the carrier enters
+    //the GC rendezvous denominator before executing bytecode and arrives
+    //when the dispatch ends. Placement inside CarrierLoop's try block
+    //is load-bearing (C++ unwinding rule): try-block automatic objects
+    //destruct BEFORE catch bodies, so every throw out of the try — all
+    //four catch arms — completes this thread's arrival (possibly
+    //collecting inline as the last arriver) while the frames are still
+    //on THIS thread's evaluation stack, exactly where the registry's
+    //scan arm finds them. A zombie whose entry a Reset retired reads
+    //false from both flips and skips (GcWorldStop zombie tolerance).
+    class ExecutingScope {
     public:
-        explicit GilWindowGuard(VmExecutor& exec) : m_rExec(exec) {
-            Acquire();
+        explicit ExecutingScope(VmExecutor& exec) : m_rExec(exec) {
+            m_rExec.m_spScheduler->GcStop().BeginExecuting();
         }
-        GilWindowGuard(const GilWindowGuard&) = delete;
-        GilWindowGuard& operator=(const GilWindowGuard&) = delete;
-        ~GilWindowGuard() {
-            if (!m_rExec.EvalStack().empty()) {
-                std::terminate();   //INV-2 broken: refuse to continue
-            }
-            if (m_lock.owns_lock()) {
-                m_lock.unlock();
-                if (t_gilOwner == this)
-                    t_gilOwner = nullptr;
-            }
-        }
-        //PopNextRunnable needs the lock itself (its cv wait releases
-        //and reacquires it).
-        std::unique_lock<std::mutex>& Lock() { return m_lock; }
-        void Release() override {
-            m_lock.unlock();
-            if (t_gilOwner == this)
-                t_gilOwner = nullptr;
-        }
-        void Acquire() override {
-            const auto waitStartedAt =
-                m_rExec.m_spScheduler->BeginGilWait();
-            m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait(waitStartedAt);
-            t_gilOwner = this;
+        ExecutingScope(const ExecutingScope&) = delete;
+        ExecutingScope& operator=(const ExecutingScope&) = delete;
+        ~ExecutingScope() {
+            if (m_rExec.m_spScheduler->GcStop().EndExecuting())
+                m_rExec.CollectAndComplete();   //last arriver collects
         }
     private:
-        //Declaration order matters: m_lock's initializer reads m_rExec.
         VmExecutor& m_rExec;
-        std::unique_lock<std::mutex> m_lock{
-            m_rExec.m_spScheduler->Gil(), std::defer_lock};
+    };
+
+    //K7 site 2: release the global lock across a whole rendezvous
+    //sequence (CheckGCSafepoint's GIL-holding callers — the spawn tail
+    //inside an intrinsic's store guard, guarded function entries). Rule
+    //A parks on the rendezvous condition variable and the last arriver's
+    //inline collection needs the global lock, so waiting under it
+    //deadlocks; the bracket must span EndExecuting -> wait -> collect ->
+    //BeginExecuting as a whole. The GilHolder* is saved BEFORE Release
+    //clears t_gilOwner (RunBlockingNative's precedent). GIL-free callers
+    //construct a no-op.
+    class GilHandoffScope {
+    public:
+        explicit GilHandoffScope(VmExecutor&) {
+            if (t_gilOwner != nullptr) {
+                m_pHolder = t_gilOwner;
+                m_pHolder->Release();
+            }
+        }
+        GilHandoffScope(const GilHandoffScope&) = delete;
+        GilHandoffScope& operator=(const GilHandoffScope&) = delete;
+        ~GilHandoffScope() {
+            if (m_pHolder)
+                m_pHolder->Acquire();
+        }
+    private:
+        GilHolder* m_pHolder = nullptr;
+    };
+
+    //K7 site 4: host-bridge participation RAII — self-classifying
+    //through ExecutingSelf at every bridge entry (the embedder's
+    //outermost call, a blocking-native callback's re-entry, nested
+    //bridge calls):
+    //  unregistered           -> RegisterThread + BeginExecuting (a
+    //                            participation root; unregisters at exit)
+    //  registered + executing -> no-op (already counted; a Rule A wait
+    //                            here would self-deadlock the rendezvous)
+    //  registered + not exec. -> BeginExecuting (callback re-entry: the
+    //                            blocking arm parked this thread; the
+    //                            callback's frames must be scanned
+    //                            through this thread's own entry)
+    // The flipping branches record a participation-root depth so
+    // CheckGCSafepoint keeps polling inside the window — bridge windows
+    // run at nestDepth >= 1 (NestEvalGuard increments unconditionally),
+    // so a raw "depth > 0" gate would never poll a host-outermost run
+    // and every stop snapshotting it executing would hang. Construct
+    // BEFORE any global-lock acquisition at the entry (Rule A contract).
+    class BridgeExecutingScope {
+    public:
+        explicit BridgeExecutingScope(VmExecutor& exec) : m_rExec(exec) {
+            GcWorldStop& stop = m_rExec.m_spScheduler->GcStop();
+            if (stop.ExecutingSelf())
+                return;   //nested bridge call — already participating
+            m_flipped = true;
+            if (!stop.IsRegistered()) {
+                m_token = stop.RegisterThread(
+                    &m_rExec.m_spScheduler->CarrierEvalStackRef());
+                m_registered = true;
+            }
+            stop.BeginExecuting();
+            int& rootDepth =
+                m_rExec.m_spScheduler->CarrierGcPollRootDepthRef();
+            m_savedRootDepth = rootDepth;
+            rootDepth = m_rExec.m_spScheduler->CarrierNestDepthRef() + 1;
+        }
+        BridgeExecutingScope(const BridgeExecutingScope&) = delete;
+        BridgeExecutingScope& operator=(const BridgeExecutingScope&) = delete;
+        ~BridgeExecutingScope() {
+            if (!m_flipped)
+                return;
+            GcWorldStop& stop = m_rExec.m_spScheduler->GcStop();
+            m_rExec.m_spScheduler->CarrierGcPollRootDepthRef()
+                = m_savedRootDepth;
+            if (stop.EndExecuting())
+                m_rExec.CollectAndComplete();
+            if (m_registered)
+                stop.UnregisterThread(m_token);
+        }
+    private:
+        VmExecutor& m_rExec;
+        GcThreadToken m_token;
+        bool m_flipped = false;
+        bool m_registered = false;
+        int m_savedRootDepth = 0;
     };
 
     //K2 slice 4 (§2.5 re-entrant callback GIL): acquire the GIL unless
@@ -1262,7 +1346,7 @@ private:
     bool IsInternedString(int32_t handle) const;             //live + in the short-string table
     bool StringsEqual(int32_t hA, int32_t hB);               //single source for OP_Eq_str / OP_Ne_str
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
-    int32_t AllocStringObj();                                //raw slot, sets m_gcPending
+    int32_t AllocStringObj();                                //raw slot, sets m_gcPressure
     bool IsLiveStringHandle(int32_t handle) const;
     //Requires an Execute()-initialized store (m_emptyStrHandle); all
     //callers are mid-execution today.
@@ -1284,7 +1368,13 @@ private:
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
     std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
-    bool   m_gcPending = false;
+    //K7: atomic trigger flag — allocation sites store the synthesized
+    //threshold condition under the GIL (release); the GIL-free backedge
+    //poll only loads (acquire) and must never read the store sizes
+    //unlocked. Cleared in CollectAndComplete (GIL held, after the
+    //collection, before Complete).
+    std::atomic<bool> m_gcPressure{false};
+    std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 

@@ -20,6 +20,7 @@ add_library(nlang_vm
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
+    VmExecutorGCSweep.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
     VmDefaultMaterializer.cpp

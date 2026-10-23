@@ -16,7 +16,8 @@ traces cons children so a dropped chain is reclaimed whole.
 namespace nlang {
 
 //Raw slot from the free list or the back of the store. Every mint funnels
-//through here — the single place m_gcPending gets set for strings.
+//through here — the single place the GC pressure flag gets set for
+//strings (K7: NoteGcPressure, the release-store into the atomic).
 int32_t VmExecutor::AllocStringObj() {
     int32_t handle;
     if (!m_strFreeList.empty()) {
@@ -28,7 +29,7 @@ int32_t VmExecutor::AllocStringObj() {
         m_stringObjs.emplace_back();
         m_strMarkBits.push_back(false);
     }
-    m_gcPending = true;
+    NoteGcPressure();
     return handle;
 }
 

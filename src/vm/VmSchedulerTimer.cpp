@@ -65,7 +65,12 @@ void VmScheduler::ExpireDueTimers() {
     for (const TimerEntry& t : due) {
         ExecutionContext* ctx = FindMutable(t.contextId);
         ctx->state = ContextState::Runnable;
-        m_runQueue.push_back(ctx->id);
+        //K7 handshake: enqueue only fully-parked contexts; one woken
+        //mid-unwind is enqueued by its parking carrier in the same
+        //critical section that stores the frames (see
+        //ExecutionContext::framesParked).
+        if (ctx->framesParked)
+            m_runQueue.push_back(ctx->id);
     }
     m_timers = std::move(remaining);
 }
@@ -92,10 +97,14 @@ void VmScheduler::TimerThreadMain() {
         //K7: loop-top acquisition through the marker guard (sets
         //t_gilOwner — see the marker invariant in VmScheduler.h; a raw
         //acquisition here would self-deadlock the next self-guarded
-        // call). K5 batch 1 still applies: the acquisition is timed
-        //through the guard's Acquire, and the cv waits below reacquire
-        //the lock internally; those reacquisitions stay uncounted
-        //(same ruling as ServiceDueTimers in the header).
+        // call). The timer thread never registers with GcWorldStop and
+        //never runs bytecode — it is outside the rendezvous denominator
+        //by construction; holding the global lock here only serializes
+        //it with the last arriver's collection. K5 batch 1 still
+        //applies: the acquisition is timed through the guard's Acquire,
+        //and the cv waits below reacquire the lock internally; those
+        //reacquisitions stay uncounted (same ruling as ServiceDueTimers
+        //in the header).
         GilEnsureGuard gilGuard(*this);
         m_timerCv.wait(gilGuard.Lock(), [this] {
             return m_timerShutdown || !m_timers.empty();

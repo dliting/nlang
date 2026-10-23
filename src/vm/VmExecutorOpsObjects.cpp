@@ -17,7 +17,7 @@ void VmExecutor::OpAllocStruct(BytecodeReader& reader, uint8_t* locals) {
     uint16_t fieldCount = reader.ReadUint16();
     int32_t heapIdx = AllocStructOnHeap(structIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpLoadField(BytecodeReader& reader, uint8_t* locals) {
@@ -67,7 +67,7 @@ void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t classIdx = reader.ReadUint16();
     int32_t heapIdx = AllocClassOnHeap(classIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpNullCheck(BytecodeReader& reader, uint8_t* locals) {
@@ -103,7 +103,7 @@ void VmExecutor::OpAllocArray(BytecodeReader& reader, uint8_t* locals) {
                             "NLang VM: negative array size");
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, size);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {

@@ -42,6 +42,10 @@ constexpr uint32_t kMaxNativeStagedParams = 64;
 
 //Steal the carrier's frame stack into the context and mark it
 //BlockedNative (invisible to PopNextRunnable, still GC-scanned).
+//K7: the caller holds the GIL by protocol (CallNative's ensure guard;
+//park before owner->Release, restore after owner.Acquire), so the
+//inline steal into the registry stays serialized against the
+//collector — ParkContextFrames's own guard is NOT taken here.
 void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
 {
     ctx->frames.insert(ctx->frames.end(),
@@ -50,17 +54,21 @@ void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
     EvalStack().clear();
     m_spScheduler->MarkBlockedNative(ctx->id);
     ++t_blockingNativeDepth;
-    //K6 D2: the blocking section suspends this thread's evaluation-
-    //window membership (GIL away, frames parked — no bytecode runs; a
-    //re-entrant callback inside the native re-enters RunFrames and
-    //re-counts itself through a nested guard).
-    m_spScheduler->GcStop().SuspendEvalWindow();
+    //K7: leave the rendezvous denominator for the whole blocking
+    //section. A stop in flight makes this park the thread's Rule B
+    //arrival; if it is the LAST one, collect inline (the GIL held
+    //here makes the collector's guard a nested no-op). A re-entrant
+    //callback inside the native re-enters executing through the
+    //bridge scope and re-parks through this same path (LIFO balance).
+    if (m_spScheduler->GcStop().EndExecuting())
+        CollectAndComplete();
 }
 
 //Restore exactly the stolen frames (a re-entrant host callback may
 //have parked more under this one) and mark the context Runnable-held
 //(no requeue: the carrier resumes in place; FIFO governs queue
-//members only).
+//members only). K7: runs under the reacquired GIL (FinishBlocking-
+//Native's owner.Acquire) — the registry mutation is serialized.
 void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
                                      size_t stolenDepth)
 {
@@ -71,19 +79,16 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
     ctx->frames.erase(ctx->frames.end()
         - static_cast<std::ptrdiff_t>(stolenDepth), ctx->frames.end());
     m_spScheduler->MarkRunnableHeld(ctx->id);
-    //K6 D2: bytecode execution resumes — rejoin the evaluation window
-    //the park suspended (balanced even under nested blocking arms: each
-    //park/restore pair runs on this thread in LIFO order).
-    m_spScheduler->GcStop().ResumeEvalWindow();
 }
 
 //K2 slice 4 (§2.5) — the blocking-native arm. Stages args and the result
 //cell onto the carrier's C++ stack (the native sees only staging — no
 //concurrent read channel into frame storage remains), steals the frame
-//stack into the context (BlockedNative; EvalStack() empty for the whole
-//GIL release keeps INV-2 true mid-window), releases the GIL through the
-//thread's current holder (window guard or a re-entrant callback's ensure
-//guard — nesting works either way), runs the native, reacquires, and
+//stack into the context (BlockedNative; the empty stack is what the
+//registry scan sees while this thread sits non-executing in the native),
+//releases the GIL through the thread's current holder (a store-op
+//guard or a re-entrant callback's ensure guard — nesting works either
+//way), runs the native, reacquires, and
 //removes its own root entries by owner identity UNDER the lock: while the
 //GIL is away the roots must stay armed, since a GC another carrier runs
 //before we get the lock has to see the staged cells (the native may
@@ -146,9 +151,15 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
 }
 
 //K6: reacquire tail (see the header declaration comment for the split).
+//K7 order: rejoin the executing set BEFORE taking the global lock —
+//Rule A parks on the rendezvous cv until an in-flight stop completes,
+//and the last arriver's collection needs the global lock, so waiting
+//under it would deadlock. A zombie carrier's BeginExecuting returns
+//false harmlessly (entry retired by the inter-run Reset).
 void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth)
 {
+    m_spScheduler->GcStop().BeginExecuting();
     owner.Acquire();
     t_currentNativeRootOwner = savedRootOwner;
     RemoveNativeRoots(rootOwner);
@@ -157,23 +168,15 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     //while the native ran (a detached zombie). Own root entries are
     //already gone (they pointed at this thread's live stack); exit
     //without touching the new run: the context registry was cleared by
-    //Reset and ctx is stale. Reaching this check implies a carrier slot
-    //was installed (ctx lookup goes through CurrentContextId, which
-    //lives in the slot).
+    //Reset and ctx is stale. The throw unwinds to the dispatch's (or
+    //bridge's) scope destructor, which completes the executing flip-off.
     if (m_spScheduler->CarrierRunGeneration()
-            != m_spScheduler->RunGeneration()) {
-        //K6 D2: resume balances the park's suspend (the unwind drops
-        //the RunFrames guard); then exit without touching the new run.
-        m_spScheduler->GcStop().ResumeEvalWindow();
+            != m_spScheduler->RunGeneration())
         throw ShutdownSignal();
-    }
-    //Run over: frames stay parked; EvalStack() is empty (INV-2).
-    if (m_spScheduler->StopRequested()) {
-        //K6 D2: resume balances the park's suspend (the unwind drops
-        //the RunFrames guard); frames stay parked for the shutdown.
-        m_spScheduler->GcStop().ResumeEvalWindow();
+    //Run over: frames stay parked in the registry for the shutdown;
+    //the same scope destructor above flips this thread off.
+    if (m_spScheduler->StopRequested())
         throw ShutdownSignal();
-    }
     RestoreStolenFrames(ctx, stolenDepth);
 }
 
