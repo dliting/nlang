@@ -1829,3 +1829,4 @@ init_struct_expr_key_reject compile_error field names
 init_class_expr_key_reject compile_error field:value entries
 init_array_keyed_reject compile_error positional entries
 init_list_keyed_bracket_reject compile_error positional entries
+init_dict_undeclared_key_reject compile_error Cannot resolve the field
