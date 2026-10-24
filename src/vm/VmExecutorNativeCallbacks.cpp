@@ -73,10 +73,6 @@ namespace {
 //Rank-1 arrays are contiguous: stride is one element everywhere. Host-
 //owned read-only storage beats a per-call scratch member.
 constexpr int32_t kUnitStrides[1] = {1};
-//Allocation guard for natively minted arrays: large enough for every
-//legitimate kernel operand, small enough that 3 + n*cells cannot
-//overflow int32 (cells <= 2).
-constexpr int32_t kMaxNativeArrayLength = 100 * 1000 * 1000;
 } // namespace
 
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
@@ -122,10 +118,8 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
         e->RaiseNlangExceptionBase(
             "newArray: element kind is not a mintable scalar");
     }
-    if (length < 0 || length > kMaxNativeArrayLength) {
-        e->RaiseNlangException(e->m_oobExcClassIdx,
-            "newArray: length out of range");
-    }
+    //Length bounds (negative and cap) raise in AllocArrayOnHeap — the
+    //choke point shared with the language's sized creation.
     const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind);
     const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx, length);
     //Root across the blocking section: the native holds this handle while

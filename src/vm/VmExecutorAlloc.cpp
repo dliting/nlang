@@ -91,6 +91,14 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
 int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
+    //The single length gate for every minter (language OP_AllocArray,
+    //native newArray): negative lengths and the kMaxArrayElems cap
+    //raise the catchable OutOfBounds family — without the cap a 2-cell
+    //kind at 1.1G elements overflows int32 in header + n*cells and
+    //dies in an uncatchable vector blow-up.
+    if (size < 0 || size > kMaxArrayElems)
+        RaiseNlangException(m_oobExcClassIdx,
+            "NLang VM: array length out of range");
     const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     //0.7.5: 8-byte scalar elements occupy two cells each (registry-
     //driven stride — see ArrayElemCells).

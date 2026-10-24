@@ -51,6 +51,8 @@ int x = a[a.length() - 1];
 
 索引越界时读或写都抛`IndexOutOfBoundsException`（运行期错误，可被`try/catch`捕获；未捕获时程序以退出码1终止——内建异常表见[异常](exception.md)）。
 
+尺寸创建同样有界：长度为负、或超过1亿个元素时，在创建点抛`IndexOutOfBoundsException`。该上限覆盖所有创建路径——`T[n]`与tensor包的native铸造一视同仁（最宽元素下1亿个元素为800MB）。
+
 ### 数组值可去向
 
 数组值在标量上下文中的去向规则见[已知限制](known-limitations.md)「标量上下文中的数组值」。迭代数组元素用`foreach`（见[foreach](foreach.md)）。用字面量初始化见[集合初始化器](collection-initializers.md)。

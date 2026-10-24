@@ -18,7 +18,7 @@
 
 **arange**遵循半开规则:元素为`start`、`start+step`……严格小于`stop`——`arangeD(0.0, 1.0, 0.25)`得到`0.0, 0.25, 0.5, 0.75`。步长为零、或无法向`stop`推进时,抛基类Exception。
 
-**错误语义**与语言内建一致:null数组抛`NullPointerException`,创建长度为负抛`IndexOutOfBoundsException`,整型`div`除零抛`DivByZeroException`(float/double除法遵循IEEE,得Inf/NaN),长度不匹配抛基类Exception,空数组规则见上表。它们都是可捕获的`Exception`家族值。
+**错误语义**与语言内建一致:null数组抛`NullPointerException`,创建长度为负或超过1亿元素上限抛`IndexOutOfBoundsException`,整型`div`除零抛`DivByZeroException`(float/double除法遵循IEEE,得Inf/NaN),长度不匹配抛基类Exception,空数组规则见上表。它们都是可捕获的`Exception`家族值。
 
 ```nlang
 import io;

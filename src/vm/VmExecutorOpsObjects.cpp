@@ -91,9 +91,8 @@ void VmExecutor::OpAllocArray(BytecodeReader& reader, uint8_t* locals) {
     uint16_t sizeSlot = reader.ReadUint16();
     int32_t size;
     std::memcpy(&size, locals + sizeSlot, sizeof(size));
-    if (size < 0)
-        RaiseNlangException(m_oobExcClassIdx,
-                            "NLang VM: negative array size");
+    //Length validation (negative and cap) lives in AllocArrayOnHeap —
+    //the single choke point shared with native minting.
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, size);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     m_gcPending = true;

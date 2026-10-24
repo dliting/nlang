@@ -31,7 +31,7 @@ yields `0.0, 0.25, 0.5, 0.75`. A zero step, or one that cannot advance
 toward `stop`, raises the base Exception.
 
 **Error semantics** mirror the language built-ins: a null array raises
-`NullPointerException`, a negative creation length raises
+`NullPointerException`, a negative creation length or one past the 100M-element cap raises
 `IndexOutOfBoundsException`, integer `div` by zero raises
 `DivByZeroException` (float/double division follows IEEE — Inf/NaN),
 length mismatches raise the base Exception, and the empty-array rules

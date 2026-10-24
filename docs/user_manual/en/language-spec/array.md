@@ -82,6 +82,11 @@ writes (a runtime error, catchable by `try/catch`; if uncaught the program
 terminates with exit code 1 — see [Exceptions](exception.md) for the built-in
 exception table).
 
+A sized creation is bounded the same way: a negative length, or one past
+100 million elements, throws `IndexOutOfBoundsException` at the creation
+site. The cap covers every creation path — `T[n]` and the tensor package's
+native minting alike (100M elements is 800MB at the widest element).
+
 ### Where an array value may go
 
 Rules for where an array value may go in scalar contexts: see

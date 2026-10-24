@@ -1866,3 +1866,4 @@ stdlib_tensor_reductions 0
 stdlib_tensor_empty_max 1
 stdlib_tensor_gc_race 0
 int_min_div_wrap 0
+array_alloc_bound 0

@@ -165,6 +165,11 @@ static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
 //naturally aligned; SIMD loads in native kernels rely on it. Element i
 //lives at kArrayHeaderCells + i*ArrayElemCells(elemKind).
 static constexpr uint32_t kArrayHeaderCells = 4;
+//Element-count cap for one array, language creation and native minting
+//alike: the single allocation choke point raises the OutOfBounds family
+//beyond it. 100M elements is 800MB at the widest element — every
+//legitimate operand fits, and 4 + n*cells can never overflow int32.
+static constexpr int32_t kMaxArrayElems = 100 * 1000 * 1000;
 
 //--- Eval-area slot classes (K2 slice 5) ----------------------------------
 //Precise GC root class for one frame-band slot (the band is
