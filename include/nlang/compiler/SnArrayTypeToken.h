@@ -59,11 +59,21 @@ public:
 	std::string ToString() const override;
 private:
 	//Private: single-entry construction through the interning table.
-	SnArrayTypeToken(SnField *pElemType, const ISourceLocation &loc);
+	SnArrayTypeToken(SnField *pElemType, const ISourceLocation &loc,
+		uint8_t rank = 1);
+
+	//1 for T[], 2 for T[,]: the token is the type identity, so the rank
+	//rides the same interned instance.
+	uint8_t Rank() const
+	{
+		return m_Rank;
+	}
+
 
 	ImmutableNodeList *ChildrenPtr() const override;
 
 	SnField *m_pElemType;
+	uint8_t m_Rank;
 };
 
 } //namespace nlang

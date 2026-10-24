@@ -201,6 +201,12 @@ Float       {DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?[fF]?|{DecDigit}+[eE
 Name		{Alpha}({Alpha}|{DecDigit})*
 LineComment	\/\/[^\n]*
 
+/*Stage-2 rectangular arrays: the rules section folds a bracketed comma
+  run into ONE token (OT_BracketsND) carrying the comma count, mirroring
+  the OT_Brackets fold — the type suffix never reaches the grammar as
+  separate characters, which keeps the statement-head positions free of
+  reduce/reduce conflicts with subscript expressions.*/
+
 %%
 	#define scanner (*yyextra)
 	bool bConcatToken = false;
@@ -357,6 +363,7 @@ LineComment	\/\/[^\n]*
             }
 
 \[\]        { return OT_Brackets; }
+\[,+\]      { yylval->v_Int = static_cast<nlang::int32>(yyleng) - 2; return OT_BracketsND; }
 
 {Name}      {
                 SET_TEXT(yytext);

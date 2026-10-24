@@ -63,10 +63,12 @@ void BuildEnvironment::LoadLibrarySource(const std::string& path,
 	m_upLibraryIndex->LoadFileOnce(path, packageRoot);
 }
 
-SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)
+SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType,
+	uint8_t rank)
 {
 	assert(pElemType);
-	auto iFound = m_InternedArrayTokens.find(pElemType);
+	auto key = std::make_pair(pElemType, rank);
+	auto iFound = m_InternedArrayTokens.find(key);
 	if (iFound != m_InternedArrayTokens.end())
 		return iFound->second.get();
 	//First use mints the token, later lookups share it — the pointer
@@ -74,9 +76,9 @@ SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType)
 	//token constructor is private and friendship does not extend into
 	//make_unique's instantiation.
 	std::unique_ptr<SnArrayTypeToken> upToken(
-		new SnArrayTypeToken(pElemType, ScriptLocation()));
+		new SnArrayTypeToken(pElemType, ScriptLocation(), rank));
 	auto *pToken = upToken.get();
-	m_InternedArrayTokens.emplace(pElemType, std::move(upToken));
+	m_InternedArrayTokens.emplace(key, std::move(upToken));
 	return pToken;
 }
 

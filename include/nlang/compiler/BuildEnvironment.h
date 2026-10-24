@@ -169,7 +169,8 @@ public:
 	//uses share, so token pointer equality is type equality
 	//(hash-consing). Lifetime = this environment (one translation
 	//unit); tokens are never freed early.
-	SnArrayTypeToken* InternArrayTypeToken(SnField *pElemType);
+	SnArrayTypeToken* InternArrayTypeToken(SnField *pElemType,
+		uint8_t rank = 1);
 
 	void Log(CompileLogLevel, const char* szFormat, ...);
 
@@ -200,7 +201,8 @@ private:
 	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
 	//0.7.3 B: interned array tokens, keyed by element field. Owns the
 	//tokens for this environment's lifetime.
-	std::map<SnField*, std::unique_ptr<SnArrayTypeToken>> m_InternedArrayTokens;
+	//Key = (element type, rank): T[] and T[,] are distinct identities.
+	std::map<std::pair<SnField*, uint8_t>, std::unique_ptr<SnArrayTypeToken>> m_InternedArrayTokens;
 };
 
 }

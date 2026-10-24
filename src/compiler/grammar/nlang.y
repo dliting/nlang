@@ -443,6 +443,7 @@ static bool CollectQualifiedSegments(
 %token OT_DIVS
 %token OT_BORS
 %token OT_Brackets
+%token <v_Int>	OT_BracketsND
 %token OT_TypeLt
 
 %nonassoc P_Then
@@ -1788,7 +1789,8 @@ Type:	NameExpr		{ $$ = $1; } |
 						$5->insert($5->begin(), pVoid);
 						$$ = MakeFuncType($5, @1);
 					} |
-				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
+				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } |
+				Type OT_BracketsND	{ $$ = new SnArrayTypeExpr($1, @2, static_cast<uint8_t>($2) + 1); } ;
 
 //Qualified type reference for UNAMBIGUOUS type positions (params, fields,
 //catch, foreach, return types, type arguments, new): "ns.Type" /
@@ -1876,6 +1878,9 @@ HeadType:	IdentifierExpr {
 			} |
 			HeadType OT_Brackets {
 				$$ = new SnArrayTypeExpr($1, @2);
+			} |
+			HeadType OT_BracketsND {
+				$$ = new SnArrayTypeExpr($1, @2, static_cast<uint8_t>($2) + 1);
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an

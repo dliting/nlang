@@ -359,10 +359,11 @@ std::string SnNameExpr::ToString() const
 //--- SnArrayTypeExpr ---
 
 SnArrayTypeExpr::SnArrayTypeExpr(SnFieldExpr *pElemType,
-	const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pElementType(pElemType)
+	const ISourceLocation &loc, uint8_t rank) :
+	Super_(s_Kind, loc), m_pElementType(pElemType), m_Rank(rank)
 {
 	assert(pElemType);
+	assert(m_Rank >= 1);
 	AddChild(pElemType);
 }
 
@@ -372,9 +373,7 @@ void SnArrayTypeExpr::Accept(ISyntaxNodeVisitor &v)
 }
 
 std::string SnArrayTypeExpr::ToString() const
-{
-	return m_pElementType->ToString() + "[]";
-}
+{ return m_pElementType->ToString() + (m_Rank == 1 ? "[]" : "[" + std::string(m_Rank - 1, ',') + "]"); }
 
 bool SnArrayTypeExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 {

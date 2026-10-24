@@ -544,11 +544,19 @@ public:
 	static const NodeKind	s_Kind			= NK_ArrayTypeExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
 public:
-	SnArrayTypeExpr(SnFieldExpr *pElemType, const ISourceLocation &loc);
+	SnArrayTypeExpr(SnFieldExpr *pElemType, const ISourceLocation &loc,
+		uint8_t rank = 1);
 
 	SnFieldExpr *ElementType() const
 	{
 		return m_pElementType;
+	}
+
+	//Comma count + 1: T[] is rank 1, T[,] is rank 2. The jagged gate
+	//walks NESTED nodes and never reads this.
+	uint8_t Rank() const
+	{
+		return m_Rank;
 	}
 
 	bool IsArrayType() const override
@@ -563,6 +571,7 @@ public:
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pElementType;
+	uint8_t m_Rank;
 };
 
 //Phase 8e-3: Generic type expression (e.g. "List<int>", "Dict<K,V>").

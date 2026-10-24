@@ -155,7 +155,7 @@ public:
 			auto *pElemClone = CloneTypeNode(*arrExpr.ElementType(), useSite);
 			if (!pElemClone)
 				return nullptr;
-			auto *pClone = new SnArrayTypeExpr(pElemClone, loc);
+			auto *pClone = new SnArrayTypeExpr(pElemClone, loc, arrExpr.Rank());
 			pClone->Flags(arrExpr.Flags());
 			return pClone;
 		}

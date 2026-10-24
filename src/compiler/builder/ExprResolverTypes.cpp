@@ -49,7 +49,7 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 	//field/param/return types arrive through ResolveDataTypes, and
 	//local/for/foreach type expressions through ExprResolver::Resolve.
 	ResolveFieldExprAs(arrTypeExpr,
-		m_Env.InternArrayTypeToken(pElemType->Field()));
+		m_Env.InternArrayTypeToken(pElemType->Field(), arrTypeExpr.Rank()));
 }
 
 //Phase 8e-3: resolve a built-in generic type expression like `List<int>`.
