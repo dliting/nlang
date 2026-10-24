@@ -32,12 +32,43 @@ All notable changes to NLang are documented here. The format follows
 
 ### Fixed
 
-- **Same-name same-arity type overloads of inlined library functions
-  link unambiguously** — the consumer build now records the producer
-  function-table index for same-build cross-unit callees (library
-  sources inlined by `import`), by shadow-registering each library
-  translation unit's tables; the linker single-selects the chosen
-  overload instead of reporting `is ambiguous: 4 matching records`.
+- **Same-name same-arity type overloads link unambiguously across units**
+  — the consumer build now records the producer function-table index for
+  same-build cross-unit callees by shadow-registering every translation
+  unit's tables (inlined library sources and sibling user units in a
+  project alike); the linker single-selects the chosen overload instead
+  of reporting `is ambiguous: 4 matching records`. The tensor
+  elementwise shape now works in plain project code too.
+
+- **Integer `MIN / -1` and `MIN % -1` wrap instead of trapping** — x86
+  `idiv` raised STATUS_INTEGER_OVERFLOW and killed the process for
+  `INT32_MIN / -1` and `INT64_MIN / -1` (and the matching modulo); the
+  language rows and `tensor.div` now route a -1 divisor through the
+  unsigned carrier, yielding the two's-complement wrap (Java's shape).
+  `MIN % -1` is 0.
+
+- **Array payloads are 8-byte aligned** — the rank-1 array record
+  header grows to 4 cells so the long/double element family sits at a
+  naturally aligned payload base (was 4-mod-8 misaligned, unaligned-
+  access UB and a penalty native kernels paid); the first brick of the
+  stage-2 unified ND layout.
+
+- **Array creation is uniformly bounded** — a negative length or one
+  past 100 million elements raises the catchable
+  `IndexOutOfBoundsException` at the creation site, from `T[n]` and
+  native minting alike; without the cap a wide element kind at 1.1G
+  elements overflowed int32 inside the allocator and died in an
+  uncatchable vector blow-up.
+
+- **GC arms at the array allocation choke point** — a pure native-mint
+  loop (e.g. `tensor.arangeI` in a tight loop) never raised the
+  collector's pending flag and grew unbounded (11.1 GB peak in the
+  review probe; ~12 MB after).
+
+- **Array return types register eagerly with their signatures** — a
+  native returning `T[]` previously registered its array type lazily
+  at call sites, so a call whose result went unused left the type
+  unregistered and minting failed by invariant.
 
 - **Overload trial scoring no longer leaks hard errors** — rejecting a
   non-matching overload candidate used to emit an "array value only
