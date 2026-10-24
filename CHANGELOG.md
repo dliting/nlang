@@ -6,6 +6,45 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-10-24
+
+### Added
+
+- **`tensor` package — numeric array kernels** — a new standard-library
+  package (`nlang_tensor.dll`) with creation kernels (`zeros`/`ones`/
+  `full`/`arange` over `int`/`long`/`float`/`double`), elementwise
+  binary kernels (`add`/`sub`/`mul`/`div` as same-name overloads), and
+  reductions (`sum`/`max`/`min`/`mean`/`dot`; `mean` always returns
+  `double`, integer `dot` accumulates in 64 bits). Kernels run as
+  native code over pinned payload views: stage-1 measurements show
+  elementwise add at ~49x and dot at ~117x the hand-written loop.
+  Error semantics follow the language families — null arrays raise
+  `NullPointerException`, negative lengths `IndexOutOfBounds`,
+  integer division by zero `DivByZeroException`.
+
+- **NativeHost ABI v6: array access for native modules** — native
+  libraries receive pinned payload views through `getArrayView`
+  (`NativeArrayView`: rank/dims/strides/elemKind + the raw payload
+  pointer, valid for the duration of the call) and mint zero-initialized
+  arrays through `newArray`. The exception selector gained the
+  `NullPointer`/`OutOfBounds`/`DivideByZero` families so kernels raise
+  the same catchable classes the language runtime does.
+
+### Fixed
+
+- **Same-name same-arity type overloads of inlined library functions
+  link unambiguously** — the consumer build now records the producer
+  function-table index for same-build cross-unit callees (library
+  sources inlined by `import`), by shadow-registering each library
+  translation unit's tables; the linker single-selects the chosen
+  overload instead of reporting `is ambiguous: 4 matching records`.
+
+- **Overload trial scoring no longer leaks hard errors** — rejecting a
+  non-matching overload candidate used to emit an "array value only
+  converts" error even when another overload matched; the diagnostic now
+  comes from the final verdict's per-argument notes, which name both the
+  actual and the expected type.
+
 ## [0.10.14] - 2026-10-24
 
 ### Added

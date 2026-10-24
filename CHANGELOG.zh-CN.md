@@ -6,6 +6,20 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.0] - 2026-10-24
+
+### 新增
+
+- **`tensor`包——数值数组内核**——新标准库包(`nlang_tensor.dll`):创建内核(`zeros`/`ones`/`full`/`arange`,覆盖`int`/`long`/`float`/`double`)、逐元素二元内核(`add`/`sub`/`mul`/`div`,同名重载)与归约内核(`sum`/`max`/`min`/`mean`/`dot`;`mean`恒返回`double`,整型`dot`按64位累加)。内核以native代码经钉住载荷视图运行:阶段1实测逐元素加法约为手写循环的49倍,dot约为117倍。错误语义遵循语言家族——null数组抛`NullPointerException`,负长度抛`IndexOutOfBounds`,整型除零抛`DivByZeroException`。
+
+- **NativeHost ABI v6:native模块的数组访问**——native库经`getArrayView`获得钉住载荷视图(`NativeArrayView`:rank/dims/strides/elemKind加裸载荷指针,调用期间有效),经`newArray`铸造零初始化数组。异常选择器新增`NullPointer`/`OutOfBounds`/`DivideByZero`家族,内核抛出与语言运行时相同的可捕获异常类。
+
+### 修复
+
+- **内联库函数的同名同元数类型重载无歧义链接**——消费构建现在为同构建跨单元被调者(`import`内联的库源码)记录生产者函数表索引(对每个库翻译单元做影子注册),链接器单选命中的重载,不再报`is ambiguous: 4 matching records`。
+
+- **重载试算不再泄漏硬错误**——拒绝一个不匹配的重载候选曾会发出"数组值只能转换为相同数组类型"错误,即使另一候选已匹配;该诊断改由最终裁决的逐参数附注给出,同时点名实际类型与期望类型。
+
 ## [0.10.14] - 2026-10-24
 
 ### 新增

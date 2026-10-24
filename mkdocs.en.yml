@@ -85,6 +85,7 @@ nav:
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
+          - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md
           - string methods: language-spec/stdlib-string.md

@@ -6,6 +6,7 @@ aliases_tour 0
 enum_methods 0
 switch_tour 0
 stdlib_math 0
+tensor_tour 0
 stdlib_string 0
 stdlib_io 0
 stdlib_fs 0

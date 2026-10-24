@@ -1,0 +1,53 @@
+# tensor — numeric array kernels
+
+The `tensor` package provides numeric kernels over the four scalar
+element kinds (`int`, `long`, `float`, `double`). Kernels run as native
+code in `nlang_tensor.dll` — the array payloads are read and written
+directly through pinned views, so a kernel call replaces an entire
+interpreter loop (stage-1 measurements: elementwise add ≈ 49× the
+hand-written loop, dot ≈ 117×).
+
+**Creation functions carry an element-type suffix** (`I`/`L`/`F`/`D`)
+because their arguments don't reveal the intended element kind.
+**Elementwise and reduction families use same-name overloads** — the
+compiler picks the declaration by argument type and the native side
+dispatches on the runtime element kind.
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| zerosI zerosL zerosF zerosD | (int n) → T[] | zero-initialized |
+| onesI onesL onesF onesD | (int n) → T[] | every element 1 |
+| fullI fullL fullF fullD | (int n, T value) → T[] | n copies of value |
+| arangeI arangeL arangeF arangeD | (T start, T stop, T step) → T[] | half-open progression; see below |
+| add sub mul div | (T[], T[]) → T[] | elementwise binary; same-name overloads |
+| sum | (T[]) → T | empty array → 0 |
+| max min | (T[]) → T | empty array → Exception |
+| mean | (T[]) → double | always double; empty array → Exception |
+| dot | (T[], T[]) → T | int/long overloads return long (64-bit accumulate) |
+
+**arange** follows the half-open rule: elements are `start`,
+`start+step`, ... strictly before `stop` — `arangeD(0.0, 1.0, 0.25)`
+yields `0.0, 0.25, 0.5, 0.75`. A zero step, or one that cannot advance
+toward `stop`, raises the base Exception.
+
+**Error semantics** mirror the language built-ins: a null array raises
+`NullPointerException`, a negative creation length raises
+`IndexOutOfBoundsException`, integer `div` by zero raises
+`DivByZeroException` (float/double division follows IEEE — Inf/NaN),
+length mismatches raise the base Exception, and the empty-array rules
+are per the table above. All of them are catchable `Exception` family
+values.
+
+```nim
+import io;
+import tensor;
+
+int main() {
+    double[] a = tensor.arangeD(0.0, 1.0, 0.25);   // 0.0 0.25 0.5 0.75
+    double[] b = tensor.fullD(4, 2.0);
+    double[] c = tensor.add(a, b);                 // 2.0 2.25 2.5 2.75
+    io.print(tensor.sum(c));                       // 9.5
+    io.print(tensor.dot(a, a));                    // 0.625
+    return 0;
+}
+```

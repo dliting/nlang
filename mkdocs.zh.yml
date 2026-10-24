@@ -85,6 +85,7 @@ nav:
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
+          - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md
           - string方法: language-spec/stdlib-string.md
