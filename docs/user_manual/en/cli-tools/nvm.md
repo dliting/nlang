@@ -57,7 +57,7 @@ nvm --carriers=1 program.ncu    # reproducible interleaving
 nvm --carriers=8 program.ncu    # same results, different interleaving
 ```
 
-See [the global interpreter lock (GIL) and multiple
+See [the GIL and multiple
 carriers](../language-spec/concurrency-gil-carriers.md) for what
 multiple carriers actually parallelize; the shipped `examples/conc_*.n`
 demonstrate the flag.

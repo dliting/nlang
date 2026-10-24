@@ -224,18 +224,21 @@ covered by the root set from birth. For the concurrency semantics, see
 
 ### Stop-The-World Rendezvous and Blocking-Native Roots
 
-The global interpreter lock (GIL; see
-[Concurrency](../language-spec/concurrency.md)) covers store operations —
-heap, string, and container mutation — while frame-local segments run
-lock-free on their own carriers. Every mutation of the heap — allocation,
-marking, sweeping — still happens while holding the lock, but a carrier
-executing a lock-free segment no longer needs it, so a collection cannot
-simply run "between dispatches": a **stop-the-world rendezvous**
-coordinates it. A carrier at a safepoint that observes the pending
-condition requests a world stop; every carrier with an open evaluation
-window arrives at its next safepoint, the last arriver runs the
-collection inline (holding the lock, uncontended — everyone else waits
-at the rendezvous), and completion wakes the waiters.
+Storage protection is split by domain (see
+[Concurrency](../language-spec/concurrency.md)): heap and string
+allocation draws from per-carrier free lists, and containers,
+synchronization primitives, streams, and string maintenance each hold
+their own domain lock; frame-local and field-access segments run
+lock-free on their own carriers, same-domain operations exclude each
+other across carriers, so a collection cannot simply run "between
+dispatches": a **stop-the-world rendezvous** coordinates it. A carrier
+at a safepoint that observes the pending condition requests a world
+stop; every carrier with an open evaluation window arrives at its next
+safepoint, and the last arriver runs the collection inline — the
+rendezvous pins the constructive fact that every member is parked, so
+mark and sweep touch the stores without taking any domain lock
+(uncontended; everyone else waits at the rendezvous) — and completion
+wakes the waiters.
 
 The root set extends accordingly. Each carrier's evaluation stack is
 published in a window registry for as long as its window is open, and
@@ -246,8 +249,10 @@ frames scan as scheduler roots); a window suspended for a debugger
 freeze keeps its frames on the carrier's stack with the carrier blocked
 — stable as well.
 
-- A non-blocking native call holds the lock for its whole duration, so no
-  collection can interleave with it and its arguments need no extra
+- A non-blocking native call neither parks nor takes a lock: no
+  collection can advance until its carrier reaches a safepoint again,
+  so nothing interleaves with it; its arguments stay on the evaluation
+  stack, which the published table covers as roots, and need no extra
   rooting.
 - A **blocking** native call — declared through the version 5
   registration channel of the native application binary interface

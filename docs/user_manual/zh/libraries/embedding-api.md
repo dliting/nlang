@@ -94,9 +94,9 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 `run()`经调度器载体执行：脚本里的`thread.sleep`按截止时刻唤醒、`thread.spawn`派生的上下文得到调度、`thread.join`停泊等待——与`nvm`命令行运行完全一致。`main`停泊且再无可运行上下文时（例如空通道`recv`无发送者），`run()`抛可捕获的`std::runtime_error`（消息含`deadlock`），不会挂死。
 
-`run()`在全局解释器锁（GIL，global interpreter lock）下执行：任意时刻只有一个虚拟线程在解释字节码。`Interpreter`以单载体驱动调度器（库默认值），上下文只在挂起点之间推进。在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体；此后按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用在无锁状态下运行，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码、以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取GIL，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
+`run()`以单载体默认执行：`Interpreter`用一条载体驱动调度器（库默认值），任意时刻只有一个虚拟线程在解释字节码，上下文只在挂起点之间推进。存储操作按域加锁（见[GIL与多载体](../language-spec/concurrency-gil-carriers.md)）；在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体——纯计算段与对象字段访问跨载体并行，按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用停泊当前上下文并放锁，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码、以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取调度器锁，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
 
-经`registerHostFunction`注册的宿主函数一律走阻塞原生协议：VM暂存其实参，回调执行期间释放GIL，返回后重新获取。暂存的实参格与返回槽在该窗口内扎根，其他载体上的回收不会回收在途句柄；此类调用内发起的NativeHost回调每次重新获取GIL。
+经`registerHostFunction`注册的宿主函数一律走阻塞原生协议：VM暂存其实参，停泊当前上下文并放锁，回调执行期间不占用载体，返回后取锁续行。暂存的实参格与返回槽在该窗口内扎根，其他载体上的回收不会回收在途句柄；此类调用内发起的NativeHost回调每次重新取锁。
 
 `call()`是宿主发起的嵌套求值窗口，没有自己的载体轮转：
 
@@ -154,7 +154,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 
 ## 8. 输入输出重定向
 
-`setOutputHandler(out, err)`把脚本的`io.print`与`io.eprint`分别转发到两个回调（文本按Unicode转换格式（UTF-8，Unicode Transformation Format）字节到达）；两个回调都为空即卸装，回到真实的标准流。回调在执行线程上触发，运行期间持有GIL（应保持短小），不得抛异常。输入侧默认无通道：脚本首次`io.readLine`抛出可捕获的`IOException`；宿主注入输入属于后续开发内容。
+`setOutputHandler(out, err)`把脚本的`io.print`与`io.eprint`分别转发到两个回调（文本按Unicode转换格式（UTF-8，Unicode Transformation Format）字节到达）；两个回调都为空即卸装，回到真实的标准流。回调在执行线程上触发，运行期间不持全局锁——并发输出经控制台互斥量串行，保持短小可减少排队；回调不得抛异常。输入侧默认无通道：脚本首次`io.readLine`抛出可捕获的`IOException`；宿主注入输入属于后续开发内容。
 
 ```cpp
 itp.setOutputHandler(

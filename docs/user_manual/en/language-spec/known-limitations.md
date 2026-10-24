@@ -146,16 +146,23 @@
   implicit wait-for-all; establish completion order explicitly with
   `thread.join`. If the run queue drains while main is still unfinished,
   the VM reports a deadlock error. See [Concurrency](concurrency.md).
-- **Concurrency: bytecode runs serially under the GIL**: the VM holds a
-  global interpreter lock, so exactly one virtual thread executes
-  bytecode at a time. Multi-carrier parallelism comes only from that
-  lock being released during blocking native calls (typically overlapping
-  input/output waits with other virtual threads); CPU-bound virtual
-  threads do not run in parallel. The scheduler's budget of about 1000
-  back edges (loop iterations) between yield points rotates contexts
-  fairly. Set the carrier count with `VmExecutor::SetCarrierThreadCount`
-  (embedding hosts, default 1) or `nvm --carriers=N` (tool, at most 4 by
-  default).
+- **Concurrency: storage is domain-locked, same-domain operations
+  serialize**: heap and string allocation draws from per-carrier free
+  lists and object field reads and writes take no lock, while
+  containers (List/Dict), synchronization primitives, streams, and
+  string maintenance each hold their own domain lock — same-domain
+  operations exclude each other, different domains overlap.
+  Pure-compute segments and object field access run in parallel across
+  carriers, but a dense loop leaning on containers or string
+  maintenance still serializes on its domain lock, and concurrent
+  reads and writes of a shared object's fields (shared through
+  `spawn` arguments or a channel) are a data race — a transitional
+  value may be read; coordinate shared mutable state with a `Mutex`.
+  The scheduler's budget of about 1000 back edges (loop iterations)
+  between yield points rotates contexts fairly. Set the carrier count
+  with `VmExecutor::SetCarrierThreadCount` (embedding hosts, default
+  1) or `nvm --carriers=N` (tool, at most 4 by default). See [the GIL
+  and multiple carriers](concurrency-gil-carriers.md).
 - **Concurrency: multi-carrier scheduling order is unspecified**: a
   single carrier (the library default) is the deterministic tier — the
   same program produces the same interleaving on every run; with
@@ -199,15 +206,19 @@
   unfinished target/`lock` on a contended mutex/`recv` on an empty
   channel/`send` on a full bounded channel/`spawn` are all rejected with
   a "cannot suspend" runtime error. Blocking native calls are exempt:
-  they do not park the virtual thread, they release the GIL for their
-  duration, so other carriers keep running.
+  they park the current context and release its locks for the wait, so
+  other carriers keep running.
 - **Concurrency: concurrent blocking is capped by the carrier pool**:
   a native call declared blocking under version 5 of the native
-  application binary interface (ABI) releases the GIL for its duration,
-  so other carriers keep running other virtual threads;
-  blocking native calls in flight at once are bounded by the carrier
-  pool size, degrading to queued waiting at worst. A third-party native
-  that does not declare its blocking section holds the GIL for the whole
-  call and every carrier stalls — adding the blocking declaration
-  restores the concurrency. Output-redirection callbacks run while
-  holding the GIL as well; keep them short.
+  application binary interface (ABI) parks the calling context and
+  releases its locks for the duration, so other carriers keep running
+  other virtual threads; blocking native calls in flight at once are
+  bounded by the carrier pool size, degrading to queued waiting at
+  worst. A native that does not declare blocking must not wait under
+  the ABI — a third-party native that waits anyway pins only the
+  carrier executing it, and every other carrier runs on; adding the
+  blocking declaration lets that carrier park and release its locks
+  too. Output-redirection callbacks hold no global lock — concurrent
+  output serializes through the console mutex, so keep the callbacks
+  short to reduce queueing. See [the GIL and multiple
+  carriers](concurrency-gil-carriers.md).

@@ -39,11 +39,13 @@ ndb's command loop runs inside the callback.
 Concurrency semantics: hooks install on the executor and cover **every
 context** — a breakpoint, throw or step anchor hit in main or in a
 `thread.spawn`-derived context triggers an **all-stop**: the carrier
-parks its evaluation window (releasing the global interpreter lock,
-GIL) and arms a reference-counted freeze gate that blocks every new
-dispatch, so each in-flight dispatch segment finishes and then the
-carrier halts. Debugger queries acquire the lock per query, keeping
-shared state serialized while no bytecode runs. Inspection is
+parks its evaluation window — releasing the domain lock first when the
+checkpoint landed inside a store segment — and arms a
+reference-counted freeze gate that blocks every new dispatch, so each
+in-flight dispatch segment finishes and then the carrier halts.
+Debugger queries acquire the scheduler lock per query, serializing
+against scheduler-state mutations; the freeze gate holds back every
+dispatch for the rest of the pause, so no bytecode runs. Inspection is
 per-context too: parked contexts (waiting on a channel receive,
 contending a mutex, or an unfinished `Future.get`) inspect in full,
 while a context still held by a carrier keeps its frames on that

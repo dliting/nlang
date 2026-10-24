@@ -21,6 +21,6 @@ nvm --carriers=1 program.ncu    # 交错可复现
 nvm --carriers=8 program.ncu    # 结果相同，交错不同
 ```
 
-多载体到底并行了什么，见[GIL与多载体](../language-spec/concurrency-gil-carriers.md)（全局解释器锁）；安装包自带的`examples/conc_*.n`演示了这个标志。
+多载体到底并行了什么，见[GIL与多载体](../language-spec/concurrency-gil-carriers.md)；安装包自带的`examples/conc_*.n`演示了这个标志。
 
 `--verbose`（短写法`-v`）在程序运行前打印解析后的搜索路径——每行一个目录、按搜索顺序排列，行尾括注其来源层（`(-I)`、`(local directory)`、`(NLANG_PATH)`、`(system)`）——随后照常执行。它是上面「缺包」诊断的可观测性对应物：给失败的调用加上`--verbose`重跑一遍，即可看到将要搜索的全部目录。
