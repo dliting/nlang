@@ -10,6 +10,7 @@
 
 #include "nlang/vm/NativeHost.h"
 
+#include <cstdint>
 #include <string>
 
 namespace nlang {
@@ -21,6 +22,10 @@ struct VmNativeHost {
     VmExecutor* executor = nullptr;
     std::string stringScratch;    // backs getString returned pointers
     std::string lineScratch;      // backs readLine/readToken pointers
+    //Row-major strides for getArrayView views, computed per call into
+    //this fixed scratch (max rank 8); the view's strides pointer lands
+    //here and stays valid for the duration of the native call.
+    int32_t stridesScratch[8] = {};
 };
 
 } // namespace nlang

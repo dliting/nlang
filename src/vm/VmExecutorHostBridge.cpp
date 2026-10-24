@@ -218,8 +218,10 @@ bool VmExecutor::HostKeysEqual(int32_t aHeapIdx, int32_t bHeapIdx) {
 }
 
 uint32_t VmExecutor::HostArrayLength(int32_t heapIdx) const {
+    //Stage-2 header: rank-1 arrays only (host views of ND arrays come
+    //with the task-5 view generalization); elemCount in slot[3].
     return static_cast<uint32_t>(
-        m_structHeap[static_cast<size_t>(heapIdx)][2]);
+        m_structHeap[static_cast<size_t>(heapIdx)][3]);
 }
 
 void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
@@ -232,7 +234,7 @@ void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
     const size_t base =
-        kArrayHeaderCells + static_cast<size_t>(index) * cells;
+        ArrayHeaderCells(1) + static_cast<size_t>(index) * cells;
     std::memset(outCell, 0, kFrameSlotBytes);
     std::memcpy(outCell, &slot[base], sizeof(int32_t));
     if (cells == 2)
@@ -250,7 +252,7 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
     const size_t base =
-        kArrayHeaderCells + static_cast<size_t>(index) * cells;
+        ArrayHeaderCells(1) + static_cast<size_t>(index) * cells;
     std::memcpy(&slot[base], cell, sizeof(int32_t));
     if (cells == 2)
         std::memcpy(&slot[base + 1], cell + sizeof(int32_t),

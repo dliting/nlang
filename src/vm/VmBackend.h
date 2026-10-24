@@ -1127,7 +1127,7 @@ private:
 
     //Register an array type from its element type field.
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
-    uint16_t RegisterArrayType(SnField* pElemType);
+    uint16_t RegisterArrayType(SnField* pElemType, uint8_t rank = 1);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
     //Return-type kind for .ncu serialization; array-ness is read from the

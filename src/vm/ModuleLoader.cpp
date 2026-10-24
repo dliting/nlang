@@ -154,6 +154,9 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 sizeof(mod.arrayTypes[i].elemKind));
         fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemTypeIdx),
                 sizeof(mod.arrayTypes[i].elemTypeIdx));
+        //Stage-2: rank rides the record (v2.10).
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].rank),
+                sizeof(mod.arrayTypes[i].rank));
     }
 
     //Phase 8e-9b: enum name tables.

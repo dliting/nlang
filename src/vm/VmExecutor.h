@@ -440,7 +440,7 @@ private:
     void OpNew(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
-    void OpAllocArray(BytecodeReader& reader, uint8_t* locals);
+    void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
     void OpLoadElement(BytecodeReader& reader, uint8_t* locals);
     void OpStoreElement(BytecodeReader& reader, uint8_t* locals);
     void OpArrayLength(BytecodeReader& reader, uint8_t* locals);
@@ -541,7 +541,10 @@ private:
 
     //Allocate an array on the heap.
     //Returns the heap index.
-    int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size);
+    int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+        const int32_t* dims);
+    //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
+    int32_t ValidateArrayDims(uint8_t rank, const int32_t* dims);
 
     //GC: mark-sweep garbage collection.
     //Design decisions (see docs/user_manual/en/vm-architecture/garbage-collection-design.md

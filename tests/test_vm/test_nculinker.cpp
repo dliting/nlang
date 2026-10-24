@@ -448,7 +448,7 @@ static void test_link_array_types_dedup() {
     CompiledFunction lf = MakeFunc("lib.f", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_AllocArray);
+        em.Emit(OpCode::OP_AllocArrayN);
         em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(0);
         em.Emit(OpCode::OP_Return);
         lf.bytecode = em.TakeBytes();
@@ -465,7 +465,7 @@ static void test_link_array_types_dedup() {
     CompiledFunction mainf = MakeFunc("app.main", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_AllocArray);
+        em.Emit(OpCode::OP_AllocArrayN);
         em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(0);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
@@ -481,12 +481,12 @@ static void test_link_array_types_dedup() {
     CHECK(merged.structs.size() == 1, "struct placeholder not copied");
     BytecodeReader r0(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(r0.ReadOp() == OpCode::OP_AllocArray, "AllocArray opcode");
+    CHECK(r0.ReadOp() == OpCode::OP_AllocArrayN, "AllocArray opcode");
     CHECK(r0.ReadUint16() == 1, "app dst operand untouched");
     CHECK(r0.ReadUint16() == 0, "app array operand -> merged Point[] 0");
     BytecodeReader r1(merged.functions[1].bytecode.data(),
                       merged.functions[1].bytecode.size());
-    CHECK(r1.ReadOp() == OpCode::OP_AllocArray, "AllocArray opcode");
+    CHECK(r1.ReadOp() == OpCode::OP_AllocArrayN, "AllocArray opcode");
     CHECK(r1.ReadUint16() == 2, "lib dst operand untouched");
     CHECK(r1.ReadUint16() == 0, "lib Point[] operand 1 -> merged 0");
 

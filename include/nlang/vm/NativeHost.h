@@ -90,9 +90,10 @@ enum NativeElemKind {
 
 // A pinned view of one heap array record's payload, handed to a native
 // through getArrayView. The record's cells back every pointer:
-//   dims    - points INTO the record (the length cell for rank 1).
-//   strides - points at host-owned storage (unit stride for contiguous
-//             rank-1; read-only, thread-safe).
+//   dims    - points INTO the record (the dims run; for rank 1 the
+//             single dim equals the element count).
+//   strides - points at host-owned storage (row-major, computed per
+//             call; read-only, thread-safe).
 //   data    - the payload base (element 0). The GC is non-moving and the
 //             argument record is rooted for the duration of the native
 //             call, so the pointer is stable for the call — and only for

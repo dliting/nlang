@@ -91,7 +91,7 @@ enum class OpCode : uint8_t {
     OP_NullCheck,       // uint16 obj — throw if locals[obj] is null/invalid (hard crash, like Java NPE)
 
     // === Array operations ===
-    OP_AllocArray,      // uint16 dst, uint16 arrayTypeIdx, uint16 sizeSlot
+    OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase
     OP_LoadElement,     // uint16 dst, uint16 arr, uint16 index
     OP_StoreElement,    // uint16 arr, uint16 index, uint16 src
     OP_ArrayLength,     // uint16 dst, uint16 arr

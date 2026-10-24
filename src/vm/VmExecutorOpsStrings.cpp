@@ -30,8 +30,8 @@ void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
 void VmExecutor::OpArray_to_str(uint8_t* pResult) {
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
     //push result string to pool, write idx to pResult.
-    //Reads heap layout: slot[0]=RTK_Array, slot[1]=arrayTypeIdx,
-    //slot[2]=length, slot[kArrayHeaderCells+i]=elements.
+    //Reads heap layout via FormatArray (stage-2 header: rank/elemCount/
+    //dims at cells 2/3/4+, payload after the padded header).
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     std::string s;

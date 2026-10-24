@@ -127,6 +127,7 @@ struct CompiledStruct {
 struct CompiledArrayType {
     uint8_t  elemKind = 0;       // RTK_Int32/RTK_Float/RTK_String/RTK_Struct/RTK_Class
     uint16_t elemTypeIdx = 0xFFFF; // struct/class index (0xFFFF for primitives)
+    uint8_t  rank = 1;           // stage-2: 1 for T[], 2 for T[,], ...
 };
 
 //Phase 9d: try/catch descriptor. One entry per catch clause. At throw time,

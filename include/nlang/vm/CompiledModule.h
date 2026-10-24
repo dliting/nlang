@@ -135,7 +135,7 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //(classes methodIndices, structs constructorIndices, interfaces
 //staticMethodIndices). Minor bump: every .ncu recompiles with the
 //current ncc (the loader's hard floor, unchanged).
-inline constexpr uint16_t NCU_FORMAT_MINOR = 9;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 10;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -159,12 +159,19 @@ static constexpr uint16_t kFrameSlotBytes = 8;
 //1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
 static constexpr uint16_t kHeapCellBytes = 4;
 static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
-//Array record header: [0]=RTK_Array, [1]=arrayTypeIdx, [2]=length,
-//[3]=alignment pad. The pad makes every payload base sit at cell 4 —
-//a 16-byte offset — so the 8-byte element family (long/double) is
-//naturally aligned; SIMD loads in native kernels rely on it. Element i
-//lives at kArrayHeaderCells + i*ArrayElemCells(elemKind).
-static constexpr uint32_t kArrayHeaderCells = 4;
+//Array record header (stage-2 unified layout):
+//  [0]=RTK_Array, [1]=arrayTypeIdx, [2]=rank, [3]=elemCount,
+//  [4..4+rank-1]=dims (elements per dimension), then padding so the
+//  payload base sits at an EVEN cell index — the 8-byte element family
+//  (long/double) is naturally aligned; SIMD loads in native kernels
+//  rely on it. Element i of a rank-1 array lives at
+//  ArrayHeaderCells(rank) + i*ArrayElemCells(elemKind); for rank >= 2
+//  the payload is row-major over dims.
+inline uint32_t ArrayHeaderCells(uint8_t rank)
+{
+    const uint32_t cells = 4u + rank;
+    return cells + (cells & 1u);
+}
 //Element-count cap for one array, language creation and native minting
 //alike: the single allocation choke point raises the OutOfBounds family
 //beyond it. 100M elements is 800MB at the widest element — every
@@ -304,10 +311,11 @@ struct CompiledModule {
         return -1;
     }
 
-    int FindArray(uint8_t elemKind, uint16_t elemTypeIdx) const {
+    int FindArray(uint8_t elemKind, uint16_t elemTypeIdx, uint8_t rank) const {
         for (int i = 0; i < static_cast<int>(arrayTypes.size()); ++i)
             if (arrayTypes[i].elemKind == elemKind
-                && arrayTypes[i].elemTypeIdx == elemTypeIdx)
+                && arrayTypes[i].elemTypeIdx == elemTypeIdx
+                && arrayTypes[i].rank == rank)
                 return i;
         return -1;
     }

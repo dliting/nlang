@@ -85,15 +85,24 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, &newHeapIdx, sizeof(newHeapIdx));
 }
 
-void VmExecutor::OpAllocArray(BytecodeReader& reader, uint8_t* locals) {
+void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arrayTypeIdx = reader.ReadUint16();
-    uint16_t sizeSlot = reader.ReadUint16();
-    int32_t size;
-    std::memcpy(&size, locals + sizeSlot, sizeof(size));
-    //Length validation (negative and cap) lives in AllocArrayOnHeap —
-    //the single choke point shared with native minting.
-    int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, size);
+    uint16_t rank = reader.ReadUint16();
+    uint16_t dimsBase = reader.ReadUint16();
+    //The dims are rank consecutive int32 slots. Length validation
+    //(per-dim negative/cap and the elemCount product) lives in
+    //AllocArrayOnHeap — the single choke point shared with native
+    //minting.
+    int32_t dims[8];
+    if (rank < 1 || rank > 8)
+        throw std::runtime_error(
+            "NLang VM: OP_AllocArrayN rank out of range");
+    for (uint16_t d = 0; d < rank; ++d)
+        std::memcpy(&dims[d], locals + dimsBase + d * kFrameSlotBytes,
+                    sizeof(int32_t));
+    int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
+        static_cast<uint8_t>(rank), dims);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     m_gcPending = true;
 }
@@ -121,8 +130,15 @@ void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
         throw std::runtime_error(
             "NLang VM: OP_LoadElement expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    int32_t length = slot[2];
-    if (idx < 0 || idx >= length)
+    //Stage-2 header: [2]=rank, [3]=elemCount. The pre-ND element ops
+    //serve rank-1 arrays only (rank >= 2 goes through the N-family in
+    //task 4); the single index is the flat payload index.
+    const int32_t rank = slot[2];
+    const int32_t elemCount = slot[3];
+    if (rank != 1)
+        throw std::runtime_error(
+            "NLang VM: OP_LoadElement expects a rank-1 array");
+    if (idx < 0 || idx >= elemCount)
         RaiseNlangException(m_oobExcClassIdx,
                             "NLang VM: array index out of bounds");
     //0.7.5: element stride is registry-driven (slot[1] holds the array
@@ -135,7 +151,7 @@ void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
     std::memcpy(locals + dst,
-        slot.data() + kArrayHeaderCells
+        slot.data() + ArrayHeaderCells(1)
             + static_cast<size_t>(idx) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
@@ -156,8 +172,13 @@ void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
         throw std::runtime_error(
             "NLang VM: OP_StoreElement expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    int32_t length = slot[2];
-    if (idx < 0 || idx >= length)
+    //Stage-2 header mirror of OP_LoadElement (rank-1 only).
+    const int32_t rank = slot[2];
+    const int32_t elemCount = slot[3];
+    if (rank != 1)
+        throw std::runtime_error(
+            "NLang VM: OP_StoreElement expects a rank-1 array");
+    if (idx < 0 || idx >= elemCount)
         RaiseNlangException(m_oobExcClassIdx,
                             "NLang VM: array index out of bounds");
     //0.7.5: mirror of OP_LoadElement's stride read — 2-cell elements
@@ -168,7 +189,7 @@ void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_StoreElement on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    std::memcpy(slot.data() + kArrayHeaderCells
+    std::memcpy(slot.data() + ArrayHeaderCells(1)
             + static_cast<size_t>(idx) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }
@@ -187,7 +208,8 @@ void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
     if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
         throw std::runtime_error(
             "NLang VM: OP_ArrayLength expects an array slot");
-    int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][2];
+    //Stage-2 header: elemCount moved to slot[3].
+    int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][3];
     std::memcpy(locals + dst, &len, sizeof(len));
 }
 

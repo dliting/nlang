@@ -87,9 +87,10 @@ void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pArrayToken
     emitter.EmitInt32(n);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.Emit(OpCode::OP_AllocArray);
+    emitter.Emit(OpCode::OP_AllocArrayN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(arrayTypeIdx);
+    emitter.EmitUint16(1);  // rank
     emitter.EmitUint16(m_currFunc->tempSlot);
 
     //Stage entry values in an evalArea claim, never a temp: a

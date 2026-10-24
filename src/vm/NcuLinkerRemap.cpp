@@ -85,7 +85,6 @@ size_t TripleU16OperandStride(OpCode op) {
         case OpCode::OP_LoadField:
         case OpCode::OP_StoreField:
         case OpCode::OP_CopyStruct:
-        case OpCode::OP_AllocArray:
         case OpCode::OP_LoadElement:
         case OpCode::OP_StoreElement:
         case OpCode::OP_StrByteAt:
@@ -93,6 +92,13 @@ size_t TripleU16OperandStride(OpCode op) {
         default:
             return 0;
     }
+}
+
+//Stage-2: OP_AllocArrayN carries four uint16 operands (dst, typeIdx,
+//rank, dimsBase) — the remap walker must step the same stride the
+//disassembler does, or every later table operand mispatches.
+size_t AllocArrayNStride(OpCode op) {
+    return op == OpCode::OP_AllocArrayN ? 1 + 2 + 2 + 2 + 2 : 0;
 }
 
 //Stride of the kind-operand family (0.7.5): the opcode carries a uint8
@@ -150,6 +156,8 @@ static size_t NcuInstructionStride(OpCode op) {
     if (size_t stride = DoubleU16OperandStride(op))
         return stride;
     if (size_t stride = TripleU16OperandStride(op))
+        return stride;
+    if (size_t stride = AllocArrayNStride(op))
         return stride;
     if (size_t stride = KindOperandStride(op))
         return stride;
@@ -216,8 +224,9 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             // dst, src, structIdx — third operand
             PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
             break;
-        case OpCode::OP_AllocArray:
-            // dst, arrayTypeIdx, sizeSlot — table operand is the SECOND uint16
+        case OpCode::OP_AllocArrayN:
+            // dst, typeIdx, rank, dimsBase — table operand is the SECOND
+            // uint16 (the rank rides after it, no remap needed)
             PatchOperand(bc, pos + 3, maps.arrayTypes, "array type",
                          onUnmapped);
             break;

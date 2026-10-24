@@ -420,7 +420,7 @@ void TestVersionMismatchReported() {
 }
 
 // --- shape 9b: the exact minor-version floor. The literals 8/10 pin the
-// --- v2.9 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
+// --- v2.10 boundary by value (not NCU_FORMAT_MINOR +/- 1) so a future
 // --- bump must consciously re-affirm this test instead of silently
 // --- sliding the floor out from under the format contract.
 
@@ -433,7 +433,7 @@ void TestMinorBelowFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 8);   //one below the v2.9 floor
+    PatchMinorVersion(dir / "old.ncu", 9);   //one below the v2.10 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -451,7 +451,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 10);  //one above the v2.9 floor
+    PatchMinorVersion(dir / "old.ncu", 11);  //one above the v2.10 floor
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -466,7 +466,7 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 9, "format minor is 9 (v2.9)");
+    CHECK(NCU_FORMAT_MINOR == 10, "format minor is 10 (v2.10)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");

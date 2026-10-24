@@ -418,6 +418,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                  sizeof(at.elemKind));
         fs.write(reinterpret_cast<const char*>(&at.elemTypeIdx),
                  sizeof(at.elemTypeIdx));
+        //Stage-2: rank rides the record (v2.10).
+        fs.write(reinterpret_cast<const char*>(&at.rank),
+                 sizeof(at.rank));
     }
 
     //Phase 8e-9b + v2.0 + v2.9: the enum record table (names, qualified

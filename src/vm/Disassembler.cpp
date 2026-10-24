@@ -392,8 +392,8 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_CheckCast:
             EmitU16(r, out, head, " classIdx=%u");
             return true;
-        case OpCode::OP_AllocArray:
-            EmitU16xN(3, r, out, head, " dst=%u type=%u sizeSlot=%u");
+        case OpCode::OP_AllocArrayN:
+            EmitU16xN(4, r, out, head, " dst=%u type=%u rank=%u dimsBase=%u");
             return true;
         case OpCode::OP_LoadElement:
             EmitU16xN(3, r, out, head, " dst=%u arr=%u idx=%u");

@@ -256,7 +256,7 @@ static void MergeArrayTypes(const CompiledModule& u, CompiledModule& merged,
                 at.elemTypeIdx = static_cast<uint16_t>(
                     Lookup(m.classes, at.elemTypeIdx));
         }
-        int existing = merged.FindArray(at.elemKind, at.elemTypeIdx);
+        int existing = merged.FindArray(at.elemKind, at.elemTypeIdx, at.rank);
         if (existing >= 0) {
             m.arrayTypes[i] = static_cast<uint32_t>(existing);
             continue;

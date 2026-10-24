@@ -69,12 +69,6 @@ void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
 //stale mid-call. Pointer math uses data()+offset throughout — &v[size]
 //would be UB for zero-length records.
 
-namespace {
-//Rank-1 arrays are contiguous: stride is one element everywhere. Host-
-//owned read-only storage beats a per-call scratch member.
-constexpr int32_t kUnitStrides[1] = {1};
-} // namespace
-
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
                                    NativeArrayView* out) {
     VmExecutor* e = Wrap(self)->executor;
@@ -94,16 +88,30 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
     auto& record = e->m_structHeap[static_cast<size_t>(handle)];
     const auto& at = e->m_currModule->arrayTypes[
         static_cast<size_t>(record[1])];
-    out->rank = 1;
-    out->dims = record.data() + 2;   //the length cell
-    out->strides = kUnitStrides;
-    out->elemCount = record[2];
+    //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
+    //the padded header. Row-major strides compute into the per-call
+    //host scratch (valid for the duration of the call, like every
+    //view pointer).
+    const int32_t rank = record[2];
+    const int64_t elemCount = record[3];
+    VmNativeHost* h = reinterpret_cast<VmNativeHost*>(self);
+    int32_t stride = 1;
+    for (int32_t d = rank - 1; d >= 0; --d)
+    {
+        h->stridesScratch[d] = stride;
+        stride *= record[4 + d];
+    }
+    out->rank = rank;
+    out->dims = record.data() + 4;   //the dims run
+    out->strides = h->stridesScratch;
+    out->elemCount = elemCount;
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = 0;
     out->reserved[1] = 0;
-    out->data = record.data() + kArrayHeaderCells;   //payload base
+    out->data = record.data() + ArrayHeaderCells(
+        static_cast<uint8_t>(rank));   //payload base
     return 1;
 }
 
@@ -119,9 +127,10 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
             "newArray: element kind is not a mintable scalar");
     }
     //Length bounds (negative and cap) raise in AllocArrayOnHeap — the
-    //choke point shared with the language's sized creation.
+    //choke point shared with the language's sized creation. Native
+    //minting is rank-1 in stage 1; the single dim is the length.
     const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind);
-    const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx, length);
+    const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx, 1, &length);
     //Root across the blocking section: the native holds this handle while
     //filling the payload, and other carriers may GC before it reaches ret.
     e->RootMintedNativeHandle(handle);
@@ -135,8 +144,11 @@ uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk) const {
     }
     const auto& table = m_currModule->arrayTypes;
     for (size_t i = 0; i < table.size(); ++i) {
+        //rank == 1: native minting is one-dimensional; without the
+        //filter int[] and int[,] would collapse onto one entry.
         if (table[i].elemKind == elemRtk
-            && table[i].elemTypeIdx == 0xFFFF) {
+            && table[i].elemTypeIdx == 0xFFFF
+            && table[i].rank == 1) {
             return static_cast<uint16_t>(i);
         }
     }

@@ -197,9 +197,10 @@ void VmBackend::EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
     EvalAreaClaim sizeClaim(*this, 1);
     uint16_t sizeSlot = sizeClaim.base();
     EmitExpression(sizeExpr, emitter, sizeSlot);
-    emitter.Emit(OpCode::OP_AllocArray);
+    emitter.Emit(OpCode::OP_AllocArrayN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(sizeSlot);
+    emitter.EmitUint16(1);  // rank: the single-size form is rank 1
+    emitter.EmitUint16(sizeSlot);  // dimsBase (one dimension)
 }
 } //namespace nlang

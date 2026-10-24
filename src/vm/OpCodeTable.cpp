@@ -51,7 +51,7 @@ static const char* s_OpCodeNames[] = {
     "call_method_direct",
     "call_intrinsic",
     "null_check",
-    "alloc_array",
+    "alloc_array_n",
     "load_element",
     "store_element",
     "array_length",

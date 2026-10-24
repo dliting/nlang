@@ -405,7 +405,7 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
     }
     case RTK_Array: {
         uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-        int32_t length = slot[2];
+        int32_t length = slot[3];  //stage-2 header: elemCount
         uint8_t elemKind = RTK_Int32;
         if (m_currModule
             && arrayTypeIdx < m_currModule->arrayTypes.size())
@@ -425,7 +425,7 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
 std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    int32_t length = slot[2];
+    int32_t length = slot[3];  //stage-2 header: elemCount
     uint8_t elemKind = RTK_Int32;
     if (m_currModule
         && arrayTypeIdx < m_currModule->arrayTypes.size())
@@ -439,7 +439,7 @@ std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < bound; ++i) {
         if (i > 0) result += ", ";
-        result += FormatDebugField(slot, kArrayHeaderCells + static_cast<size_t>(i) * cells,
+        result += FormatDebugField(slot, ArrayHeaderCells(1) + static_cast<size_t>(i) * cells,
             elemKind);
     }
     if (length > bound) result += ", ...";

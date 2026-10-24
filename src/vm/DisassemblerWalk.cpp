@@ -97,11 +97,12 @@ size_t InstructionStride(OpCode op) {
         case OpCode::OP_LoadField:
         case OpCode::OP_StoreField:
         case OpCode::OP_CopyStruct:
-        case OpCode::OP_AllocArray:
         case OpCode::OP_LoadElement:
         case OpCode::OP_StoreElement:
         case OpCode::OP_StrByteAt:
             return 1 + 2 + 2 + 2;  // three uint16 operands
+        case OpCode::OP_AllocArrayN:
+            return 1 + 2 + 2 + 2 + 2;  // dst, typeIdx, rank, dimsBase
         case OpCode::OP_StrForeachStep:
             return 1 + 2 + 2 + 2 + 2;  // four uint16 operands (0.7.5)
         default:

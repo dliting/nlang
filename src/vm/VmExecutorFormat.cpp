@@ -208,7 +208,9 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
             "NLang VM: toString depth limit exceeded");
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    int32_t length = slot[2];
+    //Stage-2 header: rank-1 arrays only reach this formatter today
+    //(ND nests in task 5); elemCount lives in slot[3].
+    int32_t length = slot[3];
     uint8_t elemKind = RTK_Int32;
     if (arrayTypeIdx < m_currModule->arrayTypes.size())
         elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
@@ -218,7 +220,7 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     for (int32_t i = 0; i < length; ++i) {
         if (i > 0) result += ", ";
         FormatArrayElement(result, slot,
-            kArrayHeaderCells + static_cast<size_t>(i) * cells,
+            ArrayHeaderCells(1) + static_cast<size_t>(i) * cells,
             elemKind, cells, depth);
     }
     result += "]";
