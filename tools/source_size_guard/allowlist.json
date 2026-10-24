@@ -141,5 +141,10 @@
   {
     "path": "src/vm/VmScheduler.h",
     "reason": "single-class VmScheduler declaration; C++ has no partial class, splitting would fragment the class"
+  },
+  {
+    "path": "src/vm/IntrinsicsContainer.cpp",
+    "function": "VmExecutor::ExecuteIntrinsicContainerStructural",
+    "reason": "per-intrinsic switch; each arm is a short handler"
   }
 ]

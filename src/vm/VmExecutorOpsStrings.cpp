@@ -3,9 +3,7 @@
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
     K8: string reads are lock-free (flat content is immutable and its
     storage address is stable); minting and cons flattening take the
-    string-maintenance domain lock internally. OP_Array_to_str is the
-    one exception — it stays under the store lock until the Container
-    domain lands (it renders nested List/Dict structure).
+    string-maintenance domain lock internally.
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -35,11 +33,9 @@ void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpArray_to_str(uint8_t* pResult) {
-    //K8: still under the store lock — the format walk reaches
-    //FormatList/FormatDict (structural container reads); freed with
-    //the Container domain (Task 4 Step 4), which snapshots elements
-    //under the container lock instead.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — the format walkers snapshot container structure
+    //under the Container domain lock internally; everything else here
+    //is benign heap reads plus a self-locking mint.
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
     //push result string to pool, write idx to pResult.
     //Reads heap layout: slot[0]=RTK_Array, slot[1]=elemKind,

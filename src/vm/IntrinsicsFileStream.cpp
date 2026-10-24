@@ -34,6 +34,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
     //FileStream intrinsics (20-37): 20-29 primitives (4-byte), 30-31
     //struct, 32-33 object, 34-37 the 8-byte scalar quartet.
     if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadDouble) {
+        DomainGuard g(m_domainLocks, DomainId::Stream);
         switch (intrinsicId) {
         case INTR_FS_Ctor: {
             //this at callParamBase[0], path string idx at [1], mode string idx at [2].

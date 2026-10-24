@@ -437,8 +437,8 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //must not sweep the in-flight exception.
 int32_t VmExecutor::BuildNlangException(int16_t classIdx,
                                          const std::string& msg) {
-    //K7: growing-store allocation, self-guarded (native raise arrives GIL-free).
-    GilEnsureGuard g(*this);
+    //K8: single Container-domain lock (the backtrace List slot); allocations and mints are forward.
+    DomainGuard g(m_domainLocks, DomainId::Container);
     if (classIdx < 0)
         throw std::runtime_error("NLang VM: exception class not registered");
     int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));

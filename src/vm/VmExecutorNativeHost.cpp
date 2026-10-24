@@ -377,6 +377,7 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
 //--- List<string> construction ---------------------------------------------
 
 int32_t VmExecutor::BuildListString(const char* const* items, int count) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     if (m_listClassIdx < 0)
         throw std::runtime_error("NLang VM: List class not registered");
     int32_t listHeapIdx = AllocClassOnHeap(

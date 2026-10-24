@@ -1,0 +1,65 @@
+//Concurrency example — a shared List across two carriers.
+//Phase one proves the structural side: two spawned tasks append to the
+//same List without any lock; the container's domain lock keeps the
+//side table consistent, so after both joins the length is exactly the
+//sum regardless of interleaving. Phase two serializes the same appends
+//through a Mutex, which makes each add atomic; the multiset of values
+//is then fully determined (each of 1..5 exactly twice) even though the
+//interleaved order is not.
+import thread;
+import io;
+
+class Work {
+    public List<int> plain;
+    public List<int> paired;
+    public Mutex gate;
+
+    public void addFive() {
+        for (int i = 1; i <= 5; i = i + 1) {
+            plain.add(i);
+        }
+    }
+
+    public void addFiveGated() {
+        for (int i = 1; i <= 5; i = i + 1) {
+            gate.lock();
+            paired.add(i);
+            gate.unlock();
+        }
+    }
+}
+
+int main() {
+    Work w = Work();
+    w.plain = {};        //empty List via inferred initializer
+    w.paired = {};
+    w.gate = Mutex();
+    Thread a = thread.spawn(w.addFive);
+    Thread b = thread.spawn(w.addFive);
+    thread.join(a);
+    thread.join(b);
+    int plainLen = w.plain.length();
+    Thread p = thread.spawn(w.addFiveGated);
+    Thread q = thread.spawn(w.addFiveGated);
+    thread.join(p);
+    thread.join(q);
+    int pairedLen = w.paired.length();
+    //Each value 1..5 must appear exactly twice across the paired list.
+    bool shapeOk = true;
+    for (int v = 1; v <= 5; v = v + 1) {
+        int seen = 0;
+        for (int j = 0; j < pairedLen; j = j + 1) {
+            if (w.paired.get(j) == v) {
+                seen = seen + 1;
+            }
+        }
+        if (seen != 2) {
+            shapeOk = false;
+        }
+    }
+    io.print("plain length: ${plainLen}, paired length: ${pairedLen}");
+    if (plainLen == 10 && pairedLen == 10 && shapeOk) {
+        return 21;
+    }
+    return 1;
+}

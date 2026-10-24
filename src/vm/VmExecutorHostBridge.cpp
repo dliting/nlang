@@ -211,6 +211,7 @@ int32_t VmExecutor::AllocHostDict() {
 
 void VmExecutor::HostListPushBack(int32_t listHeapIdx,
                                   int32_t elemHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     auto& slot = m_structHeap[static_cast<size_t>(listHeapIdx)];
     const int32_t handle = slot[kListHandleFieldOffset];
     m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(
@@ -219,6 +220,7 @@ void VmExecutor::HostListPushBack(int32_t listHeapIdx,
 
 void VmExecutor::HostDictUpsert(int32_t dictHeapIdx, int32_t keyHeapIdx,
                                 int32_t valHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     auto& slot = m_structHeap[static_cast<size_t>(dictHeapIdx)];
     const int32_t handle = slot[kListHandleFieldOffset];
     auto& entries =
@@ -279,6 +281,7 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
 }
 
 uint32_t VmExecutor::HostListSize(int32_t heapIdx) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     return static_cast<uint32_t>(
@@ -286,6 +289,7 @@ uint32_t VmExecutor::HostListSize(int32_t heapIdx) const {
 }
 
 int32_t VmExecutor::HostListGet(int32_t heapIdx, uint32_t index) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     const auto& elements =
@@ -297,6 +301,7 @@ int32_t VmExecutor::HostListGet(int32_t heapIdx, uint32_t index) const {
 
 bool VmExecutor::HostDictEntryGet(int32_t heapIdx, uint32_t index,
                                   int32_t& keyOut, int32_t& valOut) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     const auto& entries =
@@ -309,6 +314,7 @@ bool VmExecutor::HostDictEntryGet(int32_t heapIdx, uint32_t index,
 }
 
 uint32_t VmExecutor::HostDictSize(int32_t heapIdx) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     return static_cast<uint32_t>(

@@ -464,8 +464,7 @@ std::string VmExecutor::FormatDebugList(int32_t handle) const {
     if (handle <= 0
         || static_cast<size_t>(handle) > m_listStore.size())
         return "List[0]{}";
-    const auto& elems =
-        m_listStore[static_cast<size_t>(handle) - 1].elements;
+    std::vector<int32_t> elems = SnapshotListElements(handle);
     std::string result = "List[" + std::to_string(elems.size()) + "]{";
     size_t bound = elems.size() < static_cast<size_t>(kMaxElementsShown)
         ? elems.size() : static_cast<size_t>(kMaxElementsShown);
@@ -482,8 +481,8 @@ std::string VmExecutor::FormatDebugDict(int32_t handle) const {
     if (handle <= 0
         || static_cast<size_t>(handle) > m_dictStore.size())
         return "Dict[0]{}";
-    const auto& entries =
-        m_dictStore[static_cast<size_t>(handle) - 1].entries;
+    std::vector<std::pair<int32_t, int32_t>> entries
+        = SnapshotDictEntries(handle);
     std::string result = "Dict[" + std::to_string(entries.size()) + "]{";
     size_t bound = entries.size() < static_cast<size_t>(kMaxElementsShown)
         ? entries.size() : static_cast<size_t>(kMaxElementsShown);

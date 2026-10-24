@@ -33,6 +33,7 @@ add_library(nlang_vm
     InputLineSource.cpp
     TokenView.cpp
     DebugSessionController.cpp
+    IntrinsicsContainer.cpp
     IntrinsicsString.cpp
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp

@@ -29,7 +29,7 @@ enum class DomainId : uint8_t {
 
 class DomainLockSet {
 public:
-    std::mutex& Mutex(DomainId id) { return m_mutexes[Idx(id)]; }
+    std::mutex& Mutex(DomainId id) const { return m_mutexes[Idx(id)]; }
 
     uint64_t Acquisitions(DomainId id) const { return m_acquisitions[Idx(id)].load(std::memory_order_relaxed); }
     uint64_t Contended(DomainId id) const { return m_contended[Idx(id)].load(std::memory_order_relaxed); }
@@ -38,7 +38,7 @@ public:
     //Production default: diagnose and terminate. Tests install a recorder.
     void SetTripwireCallback(std::function<DomainId(DomainId)> cb) { m_tripwire = std::move(cb); }
 
-    void AcquireChecked(DomainId id) {
+    void AcquireChecked(DomainId id) const {
         //Holding any higher-ordered domain while acquiring a lower one is
         //a reverse acquisition — deadlock-shaped, trip the wire.
         const uint32_t held = s_heldMask;
@@ -64,7 +64,7 @@ public:
         s_heldMask |= (1u << Idx(id));
     }
 
-    void Release(DomainId id) {
+    void Release(DomainId id) const {
         s_heldMask &= ~(1u << Idx(id));
         m_mutexes[Idx(id)].unlock();
     }
@@ -75,11 +75,11 @@ private:
     //guard bumps depth before nesting skips AcquireChecked).
     inline static thread_local uint32_t s_heldMask = 0;
 
-    std::mutex m_mutexes[static_cast<size_t>(DomainId::Count)];
-    std::atomic<uint64_t> m_acquisitions[static_cast<size_t>(DomainId::Count)] = {};
-    std::atomic<uint64_t> m_contended[static_cast<size_t>(DomainId::Count)] = {};
-    std::atomic<uint64_t> m_waitUs[static_cast<size_t>(DomainId::Count)] = {};
-    std::function<DomainId(DomainId)> m_tripwire;
+    mutable std::mutex m_mutexes[static_cast<size_t>(DomainId::Count)];
+    mutable std::atomic<uint64_t> m_acquisitions[static_cast<size_t>(DomainId::Count)] = {};
+    mutable std::atomic<uint64_t> m_contended[static_cast<size_t>(DomainId::Count)] = {};
+    mutable std::atomic<uint64_t> m_waitUs[static_cast<size_t>(DomainId::Count)] = {};
+    mutable std::function<DomainId(DomainId)> m_tripwire;
 };
 
 //RAII guard with per-domain reentrancy marker: nesting the same domain on
@@ -87,7 +87,8 @@ private:
 //inside an already-held domain.
 class DomainGuard {
 public:
-    DomainGuard(DomainLockSet& set, DomainId id) : m_set(set), m_id(id) {
+    DomainGuard(const DomainLockSet& set, DomainId id)
+        : m_set(set), m_id(id) {
         uint32_t& depth = ThreadDepth(id);
         if (depth > 0) {
             m_acquired = false;
@@ -109,7 +110,7 @@ private:
         static thread_local uint32_t depths[static_cast<size_t>(DomainId::Count)] = {};
         return depths[static_cast<size_t>(id)];
     }
-    DomainLockSet& m_set;
+    const DomainLockSet& m_set;
     DomainId m_id;
     bool m_acquired;
 };

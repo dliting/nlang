@@ -966,6 +966,12 @@ private:
     //at callParamBase[0] and the arguments start at slot 1 (the string.equals
     //ABI). math/io/fs are not intrinsics: they are library sources whose
     //native members run from nlang_<ns>.dll.
+    bool ExecuteIntrinsicContainer(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //Structural half: caller must hold the Container domain guard
+    //(DomainGuard is per-thread reentrant; composite sites may nest).
+    bool ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     bool ExecuteIntrinsicString(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
@@ -1593,6 +1599,10 @@ private:
     //(strings by content, others by bits), reference values by identity.
     //Returns the matching index or -1.
     int32_t FindListElement(const ListSlot& list, int32_t value);
+    //K8 formatting snapshots: one Container-domain section, copy out.
+    std::vector<int32_t> SnapshotListElements(int32_t handle) const;
+    std::vector<std::pair<int32_t, int32_t>> SnapshotDictEntries(
+        int32_t handle) const;
 
     //Phase 8e-4: Dict<K,V> side table. Entries are (K heap idx, V heap idx)
     //pairs; K and V are uniformly heap idxs (boxed primitives via OP_Box at

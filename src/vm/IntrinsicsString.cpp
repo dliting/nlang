@@ -276,7 +276,9 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             pos = hit + sep.size();
         }
         //List<string> = List class instance + handle (INTR_Dict_Keys
-        //recipe); elements are boxed-string heap slots.
+        //recipe); elements are boxed-string heap slots. K8: the side
+        //table is Container-domain; mints/allocs are forward.
+        DomainGuard containerGuard(m_domainLocks, DomainId::Container);
         if (m_listClassIdx < 0)
             throw std::runtime_error(
                 "NLang VM: List class not registered");

@@ -19,6 +19,14 @@ namespace nlang {
 bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    //K8: this family keeps the whole-body store lock. The mutex/channel
+    //side tables interleave with self-locking scheduler calls (park,
+    //wake, registry) inside one critical section, so a Sync domain
+    //conversion must land together with the scheduler lock restatement
+    //(Step 7) — converting the tables alone would order against GIL
+    //holders reaching this family through user code. Parking arms are
+    //unchanged: the suspension unwind destroys this guard first.
+    GilEnsureGuard g(*this);
     switch (intrinsicId)
     {
     case INTR_Thread_Yield:

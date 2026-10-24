@@ -234,8 +234,9 @@ std::string VmExecutor::FormatList(int32_t handle, int depth) {
             "NLang VM: toString depth limit exceeded");
     if (handle <= 0 || static_cast<size_t>(handle) > m_listStore.size())
         return "[]";
-    const auto& elems =
-        m_listStore[static_cast<size_t>(handle) - 1].elements;
+    //K8: snapshot under Container, format outside it (user overrides
+    //re-enter domains freely).
+    std::vector<int32_t> elems = SnapshotListElements(handle);
     if (elems.empty()) return "[]";
     std::string result = "[";
     for (size_t i = 0; i < elems.size(); ++i) {
@@ -252,8 +253,9 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
             "NLang VM: toString depth limit exceeded");
     if (handle <= 0 || static_cast<size_t>(handle) > m_dictStore.size())
         return "{}";
-    const auto& entries =
-        m_dictStore[static_cast<size_t>(handle) - 1].entries;
+    //K8: snapshot under Container, format outside it (see FormatList).
+    std::vector<std::pair<int32_t, int32_t>> entries
+        = SnapshotDictEntries(handle);
     if (entries.empty()) return "{}";
     std::string result = "{";
     for (size_t i = 0; i < entries.size(); ++i) {
