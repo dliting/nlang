@@ -117,7 +117,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     //index from these archives — same-name type overloads across
     //units single-select through it).
     ShadowRegisterUnits(root);
-    ShadowRegisterUnits(root);
+
     //Whole-tree pre-checks, before any image is built: both concerns
     //span units, so neither is judgeable from inside the per-unit loop
     //(library TUs never reach codegen, and each unit's entry scan only

@@ -48,6 +48,7 @@ structs have no `toString`).
 The detailed reference is one page per topic:
 
 - [math — 25 functions](stdlib-math.md)
+- [tensor — numeric array kernels](stdlib-tensor.md)
 - [io — content IO](stdlib-io.md) (token reads and mixed semantics included)
 - [fs — names, directories, metadata](stdlib-fs.md)
 - [Concurrency — virtual threads, Mutex, Channel, Future, and synchronization tools](concurrency.md)

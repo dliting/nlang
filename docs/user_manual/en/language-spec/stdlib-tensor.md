@@ -15,7 +15,10 @@ families from the array operands). Exact argument matches beat wider
 ones: `arange(0, 10, -3)` yields `int[]`; pass `long` arguments for a
 `long[]`. Zero-filled arrays need no kernel — the language's sized
 creation `T[n]` is already zero-initialized (`double[256]`), and "ones"
-is `full(n, 1)`.
+is `full(n, 1)`. The table below is the package's whole documented
+surface; suffixed declarations in `stdlib/tensor.n` (`fullI`,
+`arangeD`, ...) are internal implementation of the overloads, not part
+of it.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|

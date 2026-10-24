@@ -73,8 +73,21 @@ struct ArithEntry
             std::fmod(*reinterpret_cast<T*>(d),
                       *reinterpret_cast<const T*>(s)));
     }
+    //Negation of INT_MIN is signed-overflow UB by the letter (x86 neg
+    //never faults, but the shl row already set the unsigned-carrier
+    //precedent): route signed integer rows through it — the two's-
+    //complement result is exactly -(unsigned)value.
     static void NegImpl(PrimSlot d)
-    { *reinterpret_cast<T*>(d) = -*reinterpret_cast<T*>(d); }
+    {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            using U = std::make_unsigned_t<T>;
+            *reinterpret_cast<T*>(d) = static_cast<T>(
+                static_cast<U>(0)
+                - static_cast<U>(*reinterpret_cast<T*>(d)));
+        } else {
+            *reinterpret_cast<T*>(d) = -*reinterpret_cast<T*>(d);
+        }
+    }
 
     //0.9.9 shifts, integer rows only (kInt gates; float/bool/char rows
     //compile to nullptr — the resolver rejects them compile-time).

@@ -10,6 +10,7 @@ NLang的标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`六
 详细参考按主题分页：
 
 - [math——25个函数](stdlib-math.md)
+- [tensor——数值数组内核](stdlib-tensor.md)
 - [io——内容IO](stdlib-io.md)（含取词读取与混合语义）
 - [fs——名字、目录、元数据](stdlib-fs.md)
 - [并发——虚拟线程、Mutex、Channel、Future与同步工具](concurrency.md)

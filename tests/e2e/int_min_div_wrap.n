@@ -32,6 +32,11 @@ int main() {
     long[] lrw = tensor.div(al, lm1);
     if (lrw[0] != l) return 4;
 
+    int ni = 0 - i;                // -INT32_MIN wraps to INT32_MIN
+    if (ni != i) return 7;
+    long nl = 0 - l;               // -INT64_MIN wraps to INT64_MIN
+    if (nl != l) return 8;
+
     io.print(iw + 1);              // -2147483647: values are real
     return 0;
 }
