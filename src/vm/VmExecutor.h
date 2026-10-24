@@ -42,6 +42,16 @@ struct NLangThrow : public std::runtime_error {
         : std::runtime_error(msg), heapIdx(h) {}
 };
 
+//K8: deferred-raise carrier for code inside a domain-guarded section.
+//RaiseNlangException builds an exception object (a Container acquisition)
+//and runs FireOnThrow (the scheduler lock) — both reverse acquisitions
+//under any domain. The guarded site throws this instead; the section
+//boundary converts it into the real raise.
+struct DeferredNlangRaise {
+    int16_t classIdx;
+    std::string message;
+};
+
 //v0.8.5: single source for one backtrace frame's text, shared by
 //FormatBacktrace and RaiseNlangException's Exception.backtrace
 //build (both used to fabricate "<module>.n" for every frame).
@@ -989,13 +999,26 @@ private:
     //false when the id is not ours. thread.* functions are called via
     //OP_CallFunc — args start at callParamBase slot 0 (no `this`); the
     //sync-primitive methods ride the receiver-dispatched shape (slot 0
-    //= this).
+    //= this). K8: the family splits at the dispatch — thread.* arms keep
+    //the scheduler domain lock (scheduler state + heap minting), while
+    //the Mutex/Channel arms take the Sync domain over the side tables
+    //(ExecuteIntrinsicSync) and must never hold the scheduler lock
+    //across their park/wake calls.
     bool ExecuteIntrinsicThread(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     //The __handle builtin methods (Mutex/Channel/K3 Future —
     //receiver-dispatched, slot 0 = this); ExecuteIntrinsicThread's
-    //default arm forwards here (50-line function budget).
+    //default arm forwards here (50-line function budget). K8: Future
+    //arms keep the scheduler lock; Mutex/Channel forward again to
+    //ExecuteIntrinsicSync.
     bool ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //K8: the Mutex/Channel family entry. Structural work (slot
+    //resolution, table mutation, waiter registration) runs inside
+    //Sync-domain sections in the arms; park/wake scheduler calls run
+    //between the sections — never under the domain. NLang raises inside
+    //a section defer (DeferredNlangRaise) and convert here.
+    bool ExecuteIntrinsicSync(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     //K1 Slice 6 spawn/join bodies (IntrinsicsThread.cpp), extracted from
     //ExecuteIntrinsicThread for the file/function size guards. spawn
@@ -1008,29 +1031,39 @@ private:
     //K1 Slice 7: park the current context on a steady_clock deadline;
     // negative durations are rejected as a basic error.
     bool IntrinsicSleep(uint16_t callParamBase, uint8_t* locals);
-    //K1 Slice 8: Mutex method intrinsics (IntrinsicsThread.cpp). lock
-    //parks on contention (FIFO waiters, non-reentrant — a self-relock
-    //parks and the carrier's exit guard reports the deadlock); tryLock
-    //never parks; unlock validates ownership and hands off to the front
-    //waiter.
+    //K1 Slice 8 / K8: Mutex method intrinsics (IntrinsicsThread.cpp).
+    //lock parks on contention (FIFO waiters, non-reentrant — a
+    //self-relock parks and the carrier's exit guard reports the
+    //deadlock) via the two-phase park handshake (see
+    //ExecuteIntrinsicSync); tryLock never parks; unlock validates
+    //ownership and hands off to the front waiter.
     struct MutexSlot;   //defined beside the side-table members below
     bool IntrinsicMutexCtor(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexTryLock(uint16_t callParamBase, uint8_t* locals,
                                uint8_t* pResult);
-    //Slice 8 helpers: allocate a side-table slot (handle = index+1, 0
-    //reserved for null) and resolve a receiver instance to its slot.
+    //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
+    //(free-list pop + growth are structure writes; reentrant for
+    //already-inside callers). The handle read is heap-side (lock-free —
+    //D2 field reads; raises before any domain is taken); the slot lookup
+    //runs under the caller's Sync guard and defers the
+    //uninitialized-instance error via a null return.
     int32_t AllocMutexHandle();
-    MutexSlot& ResolveMutexSlot(uint16_t callParamBase, uint8_t* locals);
-    //K1 Slice 9: Channel method intrinsics (IntrinsicsThread.cpp). send
-    //never parks (unbounded buffer — hands the value to the front waiter
-    //or appends); recv parks on an empty, open channel and its result is
-    //written at WAKE time through the saved destination pointer (the
-    //parked call is not re-executed on resume — the pc-advance
-    //invariant); close is idempotent and wakes every waiter (buffered
-    //values drain first; recv on a drained channel yields the zero
-    //value / null reference).
+    int32_t ReadSyncPrimitiveHandle(uint16_t callParamBase, uint8_t* locals,
+                                    const char* callName);
+    MutexSlot* SyncMutexSlotAt(int32_t handle);
+    //K8: the recheck half of the mutex handshake — commit a kPending
+    //entry (RequestPark follows, [[noreturn]]) or consume a kAcquired
+    //stamp (the caller aborts the migration).
+    void ConsumeMutexParkStamp(int32_t handle, int selfId);
+    //K1 Slice 9 / K8: Channel method intrinsics (IntrinsicsChannel.cpp).
+    //send parks when bounded and full, recv parks on an empty open
+    //channel (the result is written at WAKE time through the saved
+    //destination pointer — the parked call is not re-executed on resume,
+    //the pc-advance invariant); both ride the two-phase handshake. close
+    //is idempotent and wakes every waiter (buffered values drain first;
+    //the rest wake with the catchable closed exception).
     struct ChannelWaiter;  //defined beside the side-table members below
     struct ChannelSlot;    //same
     bool IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals);
@@ -1038,17 +1071,45 @@ private:
     bool IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
                               uint8_t* pResult);
     bool IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals);
-    //Same side-table discipline as the Mutex helpers above.
-    int32_t AllocChannelHandle();
-    ChannelSlot& ResolveChannelSlot(uint16_t callParamBase,
-                                    uint8_t* locals);
-    //Wake-time value delivery shared by send and close: write through
-    //the waiter's saved destination, then make the context runnable.
-    void DeliverToWaiter(ChannelWaiter& waiter, int32_t value);
-    //K3 task 4: close's sender arm — every parked sender wakes with the
-    //prebuilt catchable closed exception (armed + rooted on its context,
-    //same discipline as the recv-waiter arm); pending values are dropped.
-    void WakeClosedPendingSenders(ChannelSlot& slot);
+    //Same side-table discipline as the Mutex helpers above; the channel
+    //allocator takes the initial capacity (the minted handle is not yet
+    //visible, but the slot write shares the growth section).
+    int32_t AllocChannelHandle(int32_t capacity);
+    ChannelSlot* SyncChannelSlotAt(int32_t handle);
+    //K8: the recheck verdict of the two-phase handshake — the stamped
+    //outcome a channel aborter self-serves at its call site (kValue:
+    //the deliverer already wrote pResult / moved the value into the
+    //buffer; kClosed: raise the closed exception after the release).
+    enum class AbortOutcome : uint8_t { kValue, kClosed };
+    //K8: the recheck halves. Under Sync: our entry still kPending →
+    //commit (mark kCommitted; RequestPark follows — [[noreturn]]).
+    //Stamped → pop the entry, abort the migration, return the outcome.
+    //A missing entry is a corrupt-table tripwire (each entry has
+    //exactly one consumer by construction).
+    AbortOutcome CommitOrAbortChanRecv(int32_t handle, int selfId);
+    void CommitOrAbortChanSend(int32_t handle, int selfId);
+    //K8: send's handoff to the first live waiter (see
+    //IntrinsicsChannel.cpp); recv's slot-free staging of the head live
+    //pending value into the buffer (returns the committed sender to
+    //wake after the release, -1 when none — a pending sender gets
+    //stamped kValue).
+    bool HandoffToLiveWaiter(ChannelSlot& slot, int32_t value,
+                             int& wakeRecv);
+    int StagePendingSend(ChannelSlot& slot);
+    //K8: close's exception arms — one prebuilt object per audience
+    //(recv waiters / pending senders), armed inside the wake call's
+    //scheduler critical section (rooted on the context via
+    //resumeExcHeapIdx; the GC traces that field). Committed audiences
+    //only — stamped parkers self-serve their stamps.
+    void WakeClosedWaiters(const std::vector<int>& recvs,
+                           const std::vector<int>& senders);
+    //K8: close's Sync-section sweeps — stamp pending parkers / collect
+    //committed audiences (see IntrinsicsChannel.cpp).
+    void CollectClosedRecvOutcomes(ChannelSlot& slot,
+                                   std::vector<int>& valueWoken,
+                                   std::vector<int>& closedRecvs);
+    void CollectClosedSenders(ChannelSlot& slot,
+                              std::vector<int>& closedSenders);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).
@@ -1635,51 +1696,75 @@ private:
     std::vector<int32_t>  m_dictFreeList;    //recycled slots after GC sweep
     int16_t m_dictClassIdx = -1;             //set when "Dict" CompiledClass is located
 
-    //K1 Slice 8: Mutex side table. ownerId -1 = unlocked (context ids
-    //are ≥ 0 — main IS 0, so 0 cannot double as the free sentinel);
-    //waiters hold context ids in FIFO arrival order — unlock hands
-    //ownership to the front waiter (non-reentrant: a self-relock parks).
+    //K1 Slice 8 / K8: Mutex side table. ownerId -1 = unlocked (context
+    //ids are ≥ 0 — main IS 0, so 0 cannot double as the free sentinel).
     //Only context ids live here, never heap idxs, so GC does not trace
     //this store.
+    //K8 two-phase park handshake: a parking lock registers kPending and
+    //its recheck either commits (kCommitted — parked or stealing; an
+    //unlock in the mark→steal stretch delivers through the K7
+    //framesParked handshake) or finds kAcquired — unlock already
+    //transferred ownership inside the registration→migration window
+    //(the aborting parker returns holding the lock). Wakers stamp
+    //kPending entries and deliver to kCommitted entries; exactly one
+    //party consumes each entry: stamped → its aborting parker, committed
+    //→ its delivering waker.
+    struct MutexWaiter {
+        enum class Phase : uint8_t { kPending, kAcquired, kCommitted };
+        int contextId;
+        Phase phase = Phase::kPending;
+    };
     struct MutexSlot {
         int ownerId = -1;
-        std::deque<int> waiters;
+        std::deque<MutexWaiter> waiters;   //FIFO arrival order
     };
     std::vector<MutexSlot> m_mutexStore;     //index = handle-1 (0 reserved for null)
     std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
     int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
 
-    //K1 Slice 9: Channel side table. buffered holds element values as
-    //heap idxs (boxed primitives or class refs) in FIFO order; waiters
-    //are parked recv calls — each carries the destination pointer its
-    //result must be written through at wake time (the parked call is
-    //not re-executed; the pointer targets a frame slot or the frame's
-    //evalArea band, both stable across the park/steal/restore moves —
-    //the localsBuf vector move transfers the heap allocation). Invariant:
-    //waiters exist only while the buffer is empty (recv parks solely on
-    //an empty open channel; send hands off to the front waiter directly
-    //instead of buffering). GC traces buffered through
-    //MarkChannelElements; waiters hold raw pointers, never heap idxs.
+    //K1 Slice 9 / K8: Channel side table. buffered holds element values
+    //as heap idxs (boxed primitives or class refs) in FIFO order; live
+    //(kPending/kCommitted) waiters exist only while the buffer is empty
+    //(recv parks solely on an empty open channel; send hands off to the
+    //front live waiter directly instead of buffering). GC traces
+    //buffered through MarkChannelElements; waiters hold raw pointers,
+    //never heap idxs.
+    //K8 two-phase park handshake (same shape as MutexWaiter): kValue —
+    //a value was written through resultPtr (send handoff or close
+    //draining the buffer); kClosed — close chose the exception outcome
+    //(the aborting parker raises it locally; the delivering waker arms
+    //the committed shape through the wake call's rethrow parameter —
+    //never a flag, which would race a mid-park abort).
     struct ChannelWaiter {
+        enum class Phase : uint8_t {
+            kPending, kValue, kClosed, kCommitted
+        };
         int contextId;
-        uint8_t* resultPtr;
+        uint8_t* resultPtr;   //frame slot / evalArea band — park-stable
+        Phase phase = Phase::kPending;
+    };
+    //Bounded sends park value+owner FIFO; send returns nothing, so
+    //there is no result destination. Phase semantics as above: recv's
+    //slot-free path moves the value into the buffer and stamps kValue
+    //(the aborting sender's recheck returns with the send complete) or
+    //delivers to kCommitted (moved + wake); close stamps kClosed /
+    //collects the committed senders. No trace arm: a pending value
+    //stays anchored by its sender's parked frame until it lands in
+    //buffered (traced) or is dropped.
+    struct PendingSend {
+        enum class Phase : uint8_t {
+            kPending, kValue, kClosed, kCommitted
+        };
+        int32_t value;
+        int senderId;
+        Phase phase = Phase::kPending;
     };
     struct ChannelSlot {
         std::deque<int32_t> buffered;
         std::deque<ChannelWaiter> waiters;
         bool closed = false;
-        //K3 task 4: bounded capacity (0 = unbounded). When the buffer is
-        //full and no recv waits, send parks the value+owner in the two
-        //pending queues (same indices — pendingSends[i] belongs to
-        //pendingSenders[i]); recv frees a slot by moving the head pending
-        //value into the buffer and waking its owner (resume only — the
-        //parked call is not re-executed). close delivers the closed
-        //exception to every pending sender and drops the pending values.
-        //No trace arm for pendingSends: each parked value is anchored by
-        //its sender's parked frame (formals are precisely scanned).
-        int32_t capacity = 0;
-        std::deque<int32_t> pendingSends;
-        std::deque<int> pendingSenders;
+        int32_t capacity = 0;   //K3 task 4: 0 = unbounded
+        std::deque<PendingSend> pending;
     };
     std::vector<ChannelSlot> m_channelStore;   //index = handle-1 (0 reserved for null)
     std::vector<int32_t>     m_channelFreeList;//recycled slots after GC sweep

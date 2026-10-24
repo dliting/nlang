@@ -12,15 +12,9 @@
 
 namespace nlang {
 
-//Thrown by structural arms under the Container domain guard; the
-//entry converts it into a real NLang exception outside the guard.
-//RaiseNlangException runs FireOnThrow, which takes the scheduler
-//lock (the GIL today) — never acquire it while holding Container.
-struct DeferredNlangRaise {
-    int16_t classIdx;
-    std::string message;
-};
-
+//K8: DeferredNlangRaise moved to VmExecutor.h (shared with the Sync
+//family) — same contract: thrown by structural arms inside the domain
+//guard, converted at the section boundary.
 
 bool VmExecutor::ExecuteIntrinsicContainer(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)

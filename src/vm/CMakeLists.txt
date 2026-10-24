@@ -3,6 +3,7 @@ add_library(nlang_vm
     VmScheduler.cpp
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
+    VmSchedulerSync.cpp
     VmExecutor.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
@@ -40,6 +41,7 @@ add_library(nlang_vm
     IntrinsicsThread.cpp
     IntrinsicsFuture.cpp
     IntrinsicsChannel.cpp
+    IntrinsicsMutex.cpp
     backend/VmBackend.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp

@@ -305,15 +305,24 @@ public:
     //或 close 的全员唤醒触发）。
     void ParkForChanRecv(int id);
     //通道唤醒（Slice 9）：回 Runnable 入队尾（值已由执行器在调用本方
-    //法前写入停泊帧的结果槽）。
-    void WakeForChanRecv(int id);
+    //法前写入停泊帧的结果槽）。K8：close 传入预建的关闭异常句柄时在
+    //同一临界区内置 rethrowOnResume（正常恢复路径消费；停泊迁移中途
+    //的中止者在中止位点消费）。
+    void WakeForChanRecv(int id, int32_t rethrowExcHeapIdx = 0);
 
     //K3 task 4：有界通道发送停泊——待发值与属主队列（FIFO）在执行器的
     //ChannelSlot 侧表，调度器只做状态迁移（同 ParkForChanRecv 形态）。
     void ParkForChanSend(int id);
     //K3 task 4：唤醒停泊发送者——recv 已把队首待发值挪入缓冲（仅续跑，
-    //停泊的调用不会重执行），或 close 已在其上预置关闭异常重抛。
-    void WakeForChanSend(int id);
+    //停泊的调用不会重执行），或 close 已预置关闭异常重抛（K8 同
+    //WakeForChanRecv 的句柄参数）。
+    void WakeForChanSend(int id, int32_t rethrowExcHeapIdx = 0);
+
+    //K8：中止一次从未到达窃帧的状态迁移——两阶段停泊握手的复查发现等
+    //待者条目已被消费（结果落在「登记→迁移」窗口内）。上下文从未离开
+    //本载体：恢复 Runnable 与 ParkFor* 清掉的持有镜像。不入队——载体
+    //原地继续该内在函数。
+    void AbortPark(int id);
 
     //目标上下文终结（Finished/Failed）时唤醒其全部 joiner：回 Runnable
     //；已完成停泊者入队尾（停泊展开途中被唤醒者由停泊载体补推，握手

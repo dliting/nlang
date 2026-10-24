@@ -4194,6 +4194,165 @@ static void test_host_outermost_polls()
     PASS();
 }
 
+// --- K8（领域拆分锁）：Sync 域停泊唤醒握手压力测试 ---
+
+//runParallelCarriers：K8 压力形态——真实多载体并行（默认配额，不压
+//trip）。停泊/唤醒握手窗口由操作系统线程真并发打开；丢失唤醒表现为
+//join 永不返回（测试超时红），而非错误结果。
+static int runParallelCarriers(const std::string& tag,
+                               const std::string& source, uint32_t carriers,
+                               std::string& rOut)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(carriers);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc;
+}
+
+//K8 Task 4：close 对在途 recv 的中止竞态。300 轮，每轮：worker 无限排
+//干通道，main 送 1 值后以变化自旋量（0..22）关闭通道——close 必须落在
+//recv 停泊路径的任意相位（检查缓冲后登记前／已登记未停泊／已停泊）。
+//send 先于 close，故不变量每轮恒成立：drained==1（缓冲值不丢）且
+//aborts==300（每次关闭都中止了排干循环）。丢失唤醒＝join 挂死；丢失
+//缓冲值或丢失中止＝返回码非零。旧实现（GIL 全串行）下本测试亦须通过
+//＝回归护栏。
+static void test_k8_close_abort_recv_storm()
+{
+    TEST(k8_close_abort_recv_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_close_abort",
+        "import thread;\n"
+        "class RecvCloser {\n"
+        "    public Channel<int> c;\n"
+        "    public int drained;\n"
+        "    public int aborts;\n"
+        "    public void drain() {\n"
+        "        try {\n"
+        "            while (true) { drained = drained + c.recv(); }\n"
+        "        } catch (ChannelClosedException e) {\n"
+        "            aborts = aborts + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    RecvCloser w = RecvCloser();\n"
+        "    int r = 0;\n"
+        "    while (r < 300) {\n"
+        "        w.c = Channel(0);\n"
+        "        w.drained = 0;\n"
+        "        Thread t = thread.spawn(w.drain);\n"
+        "        w.c.send(1);\n"
+        "        int s = 0;\n"
+        "        while (s < r % 23) { s = s + 1; }\n"
+        "        w.c.close();\n"
+        "        thread.join(t);\n"
+        "        if (w.drained != 1) { return 2; }\n"
+        "        r = r + 1;\n"
+        "    }\n"
+        "    if (w.aborts != 300) { return 1; }\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "300 rounds of close racing an in-flight recv: the buffered value "
+          "survives every round and every close aborts the drain loop (rc="
+          + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 4：互斥体高频换手风暴。4 个 worker 各 2000 次临界区递增共享
+//计数——持锁/等待/换手三态在 4 载体真并行下高频交错，unlock→下一等
+//待者的唤醒传递路径（所有权移交）丢失唤醒＝挂死；终值 8000 校验互斥
+//正确性。旧实现下亦须通过＝回归护栏。
+static void test_k8_mutex_handoff_storm()
+{
+    TEST(k8_mutex_handoff_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_mutex_storm",
+        "import thread;\n"
+        "class Shared {\n"
+        "    public Mutex gate;\n"
+        "    public int count;\n"
+        "    public void bump() {\n"
+        "        int i = 0;\n"
+        "        while (i < 2000) {\n"
+        "            gate.lock();\n"
+        "            count = count + 1;\n"
+        "            gate.unlock();\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Shared s = Shared();\n"
+        "    s.gate = Mutex();\n"
+        "    Thread a = thread.spawn(s.bump);\n"
+        "    Thread b = thread.spawn(s.bump);\n"
+        "    Thread c = thread.spawn(s.bump);\n"
+        "    Thread d = thread.spawn(s.bump);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    thread.join(d);\n"
+        "    if (s.count == 8000) { return 0; }\n"
+        "    return 1;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "8000 handoffs under one mutex across four parallel carriers "
+          "keep the count exact (rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 4：容量 1 通道乒乓。1000 轮请求/应答：两侧轮流停泊（send 满载
+//停泊、recv 空停泊），每轮两次停泊两次唤醒，覆盖停泊矩阵全部四格。
+//丢失任一唤醒＝挂死；末值 1000 校验值传递链完整。旧实现下亦须通过＝
+//回归护栏。
+static void test_k8_bounded_pingpong_storm()
+{
+    TEST(k8_bounded_pingpong_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_pingpong",
+        "import thread;\n"
+        "class Pong {\n"
+        "    public Channel<int> req;\n"
+        "    public Channel<int> ack;\n"
+        "    public void responder() {\n"
+        "        int i = 0;\n"
+        "        while (i < 1000) {\n"
+        "            int v = req.recv();\n"
+        "            ack.send(v + 1);\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Pong p = Pong();\n"
+        "    p.req = Channel(1);\n"
+        "    p.ack = Channel(1);\n"
+        "    Thread t = thread.spawn(p.responder);\n"
+        "    int i = 0;\n"
+        "    int last = 0;\n"
+        "    while (i < 1000) {\n"
+        "        p.req.send(i);\n"
+        "        last = p.ack.recv();\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    if (last == 1000) { return 0; }\n"
+        "    return 1;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "1000 bounded ping-pong rounds alternate park and wake on both "
+          "sides without losing one (rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -4332,6 +4491,9 @@ int main()
         runGuarded(test_channel_bare_ctor_no_args_rejected);
         runGuarded(test_channel_bounded_pending_survives_gc);
         runGuarded(test_eval_stack_routes_to_fallback_slot);
+        runGuarded(test_k8_close_abort_recv_storm);
+        runGuarded(test_k8_mutex_handoff_storm);
+        runGuarded(test_k8_bounded_pingpong_storm);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
