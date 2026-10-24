@@ -186,7 +186,7 @@ import sources share one syntax:
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` | `utils/helper.n` → `import utils.helper;` |
 | External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` → `import lib;` |
-| X |
+| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` (shipped with the toolchain) | `import io;` |
 
 | Reference | Import needed? | Call form |
 |---|---|---|

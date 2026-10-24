@@ -8,9 +8,15 @@ import tensor;
 
 void churn() {
     int rounds = 0;
-    while (rounds < 400) {
-        int[] buf = tensor.arangeI(0, 10000, 1);
-        int s = tensor.sum(buf);
+    while (rounds < 1500) {
+        //Language-side allocation arms the collector's pending flag
+        //(OP_AllocArray); >1024 heap records over the run pushes past
+        //the default GC threshold, so collections genuinely interleave
+        //with the main thread's blocking kernels.
+        int[] buf = int[10000];
+        buf[0] = rounds;
+        int[] probe = tensor.arangeI(0, 100, 1);
+        int s = tensor.sum(probe) + buf[0];
         rounds = rounds + 1;
     }
 }

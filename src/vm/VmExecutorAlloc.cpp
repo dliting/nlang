@@ -96,6 +96,12 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     //driven stride — see ArrayElemCells).
     const int cells = ArrayElemCells(at.elemKind);
     int32_t totalSlots = 3 + size * cells;
+    //Arm the collector here — the single allocation choke point — so
+    //every minter (OP_AllocArray's own set, native newArray) pays the
+    //pending flag. A pure native-mint loop used to grow unbounded:
+    //no interpreted allocation ever raised the flag (review finding;
+    //same gap class as the deep-copy fix at DeepCopyStruct).
+    m_gcPending = true;
     int32_t heapIdx;
     if (!m_freeList.empty()) {
         heapIdx = m_freeList.back();
