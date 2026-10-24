@@ -11,6 +11,8 @@
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
+#include "ShardFreeList.h"
+#include "VmDomainLocks.h"
 #include "VmScheduler.h"
 #include <atomic>
 #include <condition_variable>
@@ -174,6 +176,19 @@ public:
     //Slot runtime kind (m_slotKinds) — boxed/class discrimination for
     //element decode (class instances are 3+ cells, size alone lies).
     uint8_t HostSlotKind(int32_t heapIdx) const;
+    //K8: rethrow target for a host-held script exception. The instance
+    //may have been collected between the escape into host code and a
+    //later rethrow (host memory is not scanned). Probe: the recorded
+    //index still holds the same class and message → same instance;
+    //otherwise mint a fresh instance from the saved fields. The remint
+    //is observationally equivalent (same class, same message; the fresh
+    //backtrace reflects the rethrow site, and any pre-death script
+    //mutation of the original was lost by the collection either way).
+    //The target is rooted for the unwind — NativeRaiseException's
+    //build-root-throw choreography.
+    int32_t ExceptionRethrowTarget(const std::string& exceptionClass,
+                                   const std::string& message,
+                                   int32_t maybeLiveHeapIdx);
 
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
@@ -183,9 +198,14 @@ public:
     //hundreds of collections per churn run — without forcing every
     //safepoint of a growing live set (quadratic; the deep-chain e2e
     //pins the timing).
+    //K8: the clamp also shrinks the allocation growth quantum to one
+    //slot — block batching would pad the store past the clamp and the
+    //sweep's high-water floor would absorb the padding (first collection
+    //starves every later one in a small run).
     void SetGcStressThresholds(size_t records) {
         m_gcThreshold = records;
         m_strGcThreshold = records;
+        m_allocQuantum = 1;
     }
     //K6 D3: restore default thresholds. The test binaries run every
     //test function in one process — the stress clamp must be clearable
@@ -193,6 +213,7 @@ public:
     void ResetGcThresholds() {
         m_gcThreshold = GC_THRESHOLD_DEFAULT;
         m_strGcThreshold = kStrGcThresholdDefault;
+        m_allocQuantum = DEFAULT_SHARD_BLOCK;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
     //K6 D7 white-box observability: collection count (per run; resets
@@ -397,8 +418,14 @@ private:
         uint16_t callParamBase, uint32_t outMask, uint8_t outShift);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
         int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+    //Root/toString/host windows. deferSafepoint: callers that stage raw
+    //caller-owned handle cells into the frame right after the push must
+    //defer the entry safepoint until staging completes — a collection at
+    //the gap would see zeroed param slots and kill the not-yet-staged
+    //handles (they exist nowhere else; host memory is not scanned). Such
+    //callers run CheckGCSafepoint() themselves once staging is done.
     uint8_t* PushRootFrame(const CompiledFunction& func,
-        uint8_t* externalResult);           //root/toString/host windows
+        uint8_t* externalResult, bool deferSafepoint = false);
     void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
     //bookkeeping both exception paths in RunFrames share.
@@ -563,6 +590,14 @@ private:
     //Allocate a struct on the heap with recursive nested struct allocation.
     //Returns the heap index.
     int32_t AllocStructOnHeap(uint16_t structIdx);
+    //K8 sharding: own-shard lock-free pop, Growth-locked block refill.
+    int32_t TakeHeapSlot();
+    int32_t TakeStringSlot();
+    size_t CurrentShard() const;
+    void GrowHeapShardBlockLocked(size_t shard);
+    void GrowStrShardBlockLocked(size_t shard);
+    //Sweep-only routing of a free heap index to its mapped shard.
+    void HeapSweepPush(int32_t idx);
 
     //Allocate a class object on the heap with recursive field allocation.
     //Returns the heap index.
@@ -1223,12 +1258,12 @@ private:
         std::string str;         //Flat: content; Cons: unused
         int32_t left = 0, right = 0;  //Cons: child handles (0 = empty side)
     };
-    std::vector<StrObj> m_stringObjs;
+    ChunkedArray<StrObj> m_stringObjs;
     //Parallel to m_stringObjs — kept in step at exactly three sites:
-    //AllocStringObj's growth arm, MarkPhase's head reset, SweepStrings'
-    //tail reset.
+    //GrowStrShardBlockLocked (the growth arm), MarkPhase's head reset,
+    //SweepStrings' tail reset.
     std::vector<bool> m_strMarkBits;
-    std::vector<int32_t> m_strFreeList;
+    ShardFreeList m_strShards;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
     int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
     //Name → host function table for native calls. The flag carries the
@@ -1373,7 +1408,12 @@ private:
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
-    std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
+    ShardFreeList m_heapShards;   //K8: per-carrier free heap slot shards
+    DomainLockSet m_domainLocks;  //K8: Growth (later: Container/Sync/Stream/StrMaint)
+    //K8: slots appended per growth event. DEFAULT_SHARD_BLOCK in
+    //production (mimalloc-style batch refill); 1 under gc-stress so the
+    //store stays exactly as large as its population.
+    size_t m_allocQuantum = DEFAULT_SHARD_BLOCK;
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
     //K7: atomic trigger flag — allocation sites store the synthesized
     //threshold condition under the GIL (release); the GIL-free backedge

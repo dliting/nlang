@@ -287,17 +287,8 @@ void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_
 //AllocBoxedValue's freelist discipline; 3 slots and RTK_Func kind.
 int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
                                     int32_t form) {
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.Emplace(3, 0);
-        m_slotKinds.Emplace(0);
-        m_slotStructIdx.Emplace(0);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     m_structHeap[static_cast<size_t>(heapIdx)][0] = target;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = thisIdx;
     m_structHeap[static_cast<size_t>(heapIdx)][2] = form;

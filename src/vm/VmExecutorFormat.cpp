@@ -294,10 +294,12 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         //unwinds only this window before propagating to the caller's
         //frame — exactly the recursive engine's shape).
         const size_t baseDepth = EvalStack().size();
-        uint8_t* staged = PushRootFrame(callee, resultBuf);
+        //deferSafepoint: the receiver exists nowhere else during staging.
+        uint8_t* staged = PushRootFrame(callee, resultBuf, /*deferSafepoint=*/true);
         uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
             std::memcpy(staged, paramFrame, paramBytes);
+        CheckGCSafepoint();
         //Nested evaluation window: suspension is impossible here (the
         //window belongs to an in-flight outer instruction; a park could
         //not resume instruction-granularly). NestEvalGuard arms the

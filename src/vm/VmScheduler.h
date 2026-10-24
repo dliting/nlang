@@ -450,6 +450,8 @@ public:
     //只有宿主在轮转外直调工具函数）落到线程局部空槽——恒零值，行为
     //等同 K1。
     int& CarrierNestDepthRef() { return carrierSlot().nestDepth; }
+    //K8: the calling thread's carrier id (-1 = host fallback slot).
+    int CurrentCarrierId() { return carrierSlot().carrierId; }
     int& CarrierTripBudgetRef() { return carrierSlot().schedTripBudget; }
     //Non-const only, deliberately: a const overload would need its own
     //fallback-slot instance (thread_local statics in const/non-const

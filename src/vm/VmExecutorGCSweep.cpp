@@ -11,10 +11,18 @@
 namespace nlang {
 
 void VmExecutor::SweepPhase() {
-    m_freeList.clear();
+    //K8: sweep runs quiescent at the GC rendezvous — the one writer
+    //allowed to touch every shard. ClearAll, then redistribute ALL free
+    //indices (newly dead AND residual frees) by the block mapping. The
+    //old clear-and-skip loop silently dropped residual frees at every
+    //collection (monotone growth leak).
+    m_heapShards.ClearAll();
     size_t liveSlots = 0;
     for (size_t i = 1; i < m_structHeap.size(); ++i) {
-        if (m_slotKinds[i] == 0) continue;
+        if (m_slotKinds[i] == 0) {
+            HeapSweepPush(static_cast<int32_t>(i));   //residual free stays free
+            continue;
+        }
         if (!m_markBits[i]) {
             if (m_slotKinds[i] == RTK_Class) {
                 RecycleClassContainerHandles(i);
@@ -26,7 +34,7 @@ void VmExecutor::SweepPhase() {
                 FreeOwnedArrayStructElements(static_cast<int32_t>(i));
             m_structHeap[i].clear();
             m_slotKinds[i] = 0;
-            m_freeList.push_back(static_cast<int32_t>(i));
+            HeapSweepPush(static_cast<int32_t>(i));
         } else {
             ++liveSlots;
         }
@@ -91,7 +99,7 @@ void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {
                 FreeNestedStructs(structSlotIdx, fields[i].structIdx);
                 m_structHeap[structSlotIdx].clear();
                 m_slotKinds[structSlotIdx] = 0;
-                m_freeList.push_back(structSlotIdx);
+                HeapSweepPush(structSlotIdx);
             }
         }
     }
@@ -108,7 +116,7 @@ void VmExecutor::FreeNestedStructs(int32_t heapIdx, uint16_t structIdx) {
                 FreeNestedStructs(nestedIdx, cs.fieldStructIndices[i]);
                 m_structHeap[nestedIdx].clear();
                 m_slotKinds[nestedIdx] = 0;
-                m_freeList.push_back(nestedIdx);
+                HeapSweepPush(nestedIdx);
             }
         }
     }
@@ -129,7 +137,7 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
             FreeNestedStructs(elemRef, at.elemTypeIdx);
             m_structHeap[elemRef].clear();
             m_slotKinds[elemRef] = 0;
-            m_freeList.push_back(elemRef);
+            HeapSweepPush(elemRef);
         }
     }
 }

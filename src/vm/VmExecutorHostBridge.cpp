@@ -73,11 +73,14 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
     //depth captured at entry. The catch-all preserves the by-name bridge
     //contract: any escaping error carries the backtrace snapshot.
     const size_t baseDepth = EvalStack().size();
-    uint8_t* staged = PushRootFrame(callee, resultCell);
+    //deferSafepoint: argCells are caller-owned handles that exist
+    //nowhere else during the staging gap; the check runs below once rooted.
+    uint8_t* staged = PushRootFrame(callee, resultCell, /*deferSafepoint=*/true);
     if (argc)
         std::memcpy(staged, argCells,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
     FillDefaults(callee, staged, argc);
+    CheckGCSafepoint();
     try {
         //Suspension is impossible in this host-initiated nested window
         //(CallToStringOverride's guard, same reasoning).

@@ -738,6 +738,23 @@ target_link_libraries(test_chunkedarray
 
 add_test(NAME chunkedarray_tests COMMAND test_chunkedarray)
 
+# K8 Task 3: sharded free lists (own-shard lock-free pop, Growth-locked
+# block refill, sweep redistribution) — real threads for uniqueness.
+add_executable(test_shardalloc
+    test_vm/test_shardalloc.cpp
+)
+target_include_directories(test_shardalloc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_shardalloc
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME shardalloc_tests COMMAND test_shardalloc)
+
 # K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
 # behavior tests — same harness shape as test_threads.
 add_executable(test_stdlib_concurrency

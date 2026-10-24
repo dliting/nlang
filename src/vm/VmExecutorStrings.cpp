@@ -15,22 +15,43 @@ traces cons children so a dropped chain is reclaimed whole.
 
 namespace nlang {
 
-//Raw slot from the free list or the back of the store. Every mint funnels
-//through here — the single place the GC pressure flag gets set for
-//strings (K7: NoteGcPressure, the release-store into the atomic).
+//Raw slot from the calling carrier's string shard; growth is the rare
+//slow path (one block appended under the Growth domain lock). Every
+//mint funnels through here — the single place the GC pressure flag gets
+//set for strings (K7: NoteGcPressure, the release-store into the
+//atomic).
 int32_t VmExecutor::AllocStringObj() {
-    int32_t handle;
-    if (!m_strFreeList.empty()) {
-        handle = m_strFreeList.back();
-        m_strFreeList.pop_back();
-        m_stringObjs[static_cast<size_t>(handle)] = StrObj{};
-    } else {
-        handle = static_cast<int32_t>(m_stringObjs.size());
-        m_stringObjs.emplace_back();
-        m_strMarkBits.push_back(false);
-    }
+    const int32_t handle = TakeStringSlot();
+    m_stringObjs[static_cast<size_t>(handle)] = StrObj{};
     NoteGcPressure();
     return handle;
+}
+
+//K8: lock-free pop of the calling thread's own shard; on exhaustion take
+//the Growth domain lock (double-checked) and append one block. Mirrors
+//TakeHeapSlot's choreography.
+int32_t VmExecutor::TakeStringSlot() {
+    const size_t shard = CurrentShard();
+    if (m_strShards.Empty(shard)) {
+        DomainGuard g(m_domainLocks, DomainId::Growth);
+        if (m_strShards.Empty(shard))   //double-check under the lock
+            GrowStrShardBlockLocked(shard);
+    }
+    return m_strShards.Pop(shard);
+}
+
+//Caller must hold the Growth domain lock. Fresh slots stay default-Flat;
+//the sweep recycles any unpopped ones into the shards (same net state:
+//free). m_strMarkBits grows here to keep the parallel-array invariant
+//(all three sync sites: this growth arm, MarkPhase's head, SweepStrings'
+//tail).
+void VmExecutor::GrowStrShardBlockLocked(size_t shard) {
+    const int32_t base = static_cast<int32_t>(m_stringObjs.size());
+    for (size_t k = 0; k < m_allocQuantum; ++k) {
+        m_stringObjs.Emplace();
+        m_strMarkBits.push_back(false);
+    }
+    m_strShards.PushBlockDescending(shard, base, m_allocQuantum);
 }
 
 bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
@@ -208,11 +229,22 @@ void VmExecutor::MarkString(int32_t handle) {
 //(mark completed for both stores first). Immortal objects (constants)
 //never die; dead slots get the form sentinel and join the free list.
 void VmExecutor::SweepStrings() {
-    m_strFreeList.clear();
+    //K8: sweep runs quiescent at the GC rendezvous — the one writer
+    //allowed to touch every shard. ClearAll, then redistribute ALL free
+    //indices (newly dead AND residual frees) by the block mapping. The
+    //old clear-and-skip loop silently dropped residual frees at every
+    //collection (monotone growth leak).
+    m_strShards.ClearAll();
+    auto strSweepPush = [this](int32_t idx) {
+        m_strShards.Push(m_strShards.SweepShardOf(idx), idx);
+    };
     size_t liveCount = 0;
     for (size_t i = 1; i < m_stringObjs.size(); ++i) {
         StrObj& so = m_stringObjs[i];
-        if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
+        if (static_cast<uint8_t>(so.form) == kStrFormDead) {
+            strSweepPush(static_cast<int32_t>(i));   //residual free stays free
+            continue;
+        }
         if (so.immortal || m_strMarkBits[i]) {
             ++liveCount;   //immortals are store residents (conservative)
             continue;
@@ -224,11 +256,11 @@ void VmExecutor::SweepStrings() {
             m_shortStrTable.erase(so.str);
         so = StrObj{};   //release the buffer
         so.form = static_cast<StrObj::Form>(kStrFormDead);
-        m_strFreeList.push_back(static_cast<int32_t>(i));
+        strSweepPush(static_cast<int32_t>(i));
     }
     //Pin the no-stale-bits invariant at both ends: MarkPhase's head assign
-    //already guarantees a clean vector, and AllocStringObj's freelist
-    //branch never sets mark bits — clearing here makes the invariant hold
+    //already guarantees a clean vector, and slot handout (TakeStringSlot)
+    //never sets mark bits — clearing here makes the invariant hold
     //after every collection, not only before every mark.
     m_strMarkBits.assign(m_stringObjs.size(), false);
 
@@ -245,8 +277,8 @@ void VmExecutor::SweepStrings() {
 
 size_t VmExecutor::LiveStringObjectCount() const {
     size_t liveCount = 0;
-    for (const StrObj& so : m_stringObjs)
-        if (static_cast<uint8_t>(so.form) != kStrFormDead) ++liveCount;
+    for (size_t i = 0; i < m_stringObjs.size(); ++i)
+        if (static_cast<uint8_t>(m_stringObjs[i].form) != kStrFormDead) ++liveCount;
     return liveCount;
 }
 

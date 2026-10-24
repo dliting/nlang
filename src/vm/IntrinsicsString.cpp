@@ -69,17 +69,8 @@ static std::string ReadStrArg(VmExecutor& ex,
 //the assign/emplace above.
 int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
 {
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.Emplace(3, 0);
-        m_slotKinds.Emplace(0);
-        m_slotStructIdx.Emplace(0);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
     rec[0] = static_cast<int32_t>(typeTag);
     int pi = ScalarPrimIndexOfRtk(typeTag);

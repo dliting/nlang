@@ -145,6 +145,28 @@ static void TelemetryCounts() {
     go = true;
     for (auto& r : racers) r.join();
     CHECK(set.Acquisitions(DomainId::Growth) >= 2 * kRounds, "racing acquisitions not counted");
+    //Contention accounting: one holder provably owns the mutex for a
+    //fixed window while a second thread bursts acquire attempts through
+    //it. Empty-critical-section racers above can pass each other without
+    //ever overlapping (observed flake); a 1ms hold with 10us-attempt
+    //bursts makes a missed collision require total scheduler starvation.
+    const int kHoldRounds = 50;
+    std::atomic<bool> stop{false};
+    std::thread holder([&]() {
+        for (int r = 0; r < kHoldRounds; ++r) {
+            DomainGuard g(set, DomainId::Growth);
+            std::this_thread::sleep_for(std::chrono::microseconds(1000));
+        }
+        stop.store(true);
+    });
+    std::thread burster([&]() {
+        while (!stop.load()) {
+            DomainGuard g(set, DomainId::Growth);
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+        }
+    });
+    holder.join();
+    burster.join();
     CHECK(set.Contended(DomainId::Growth) > 0, "contended acquisitions never recorded");
     CHECK(set.WaitUs(DomainId::Growth) > 0, "wait time never recorded");
     PASS();

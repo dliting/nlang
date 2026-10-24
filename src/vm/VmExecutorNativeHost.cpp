@@ -258,6 +258,41 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
     throw NLangThrow(heapIdx, message ? message : "");
 }
 
+//K8: host-held exception rethrow resolution — see the header comment.
+//Same family as NativeRaiseException above (exception + unwind
+//rooting); runs under the blocking-native protocol (embed host hooks),
+//so the root lands in the call's root set and leaves with it.
+int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
+                                           const std::string& message,
+                                           int32_t maybeLiveHeapIdx) {
+    GilEnsureGuard g(*this);
+    //Probe the recorded index: kind intact, same class, same message
+    //content — a slot recycled by another instance fails one of the
+    //three and falls through to the remint. cell[0] = classIdx,
+    //cell[1] = message handle (the BuildNlangException layout).
+    if (maybeLiveHeapIdx > 0
+            && static_cast<size_t>(maybeLiveHeapIdx) < m_slotKinds.size()
+            && m_slotKinds[static_cast<size_t>(maybeLiveHeapIdx)] == RTK_Class) {
+        const StructSlot& slot =
+            m_structHeap[static_cast<size_t>(maybeLiveHeapIdx)];
+        const int32_t recordedClass = m_currModule->FindClass(exceptionClass);
+        const bool sameClass = slot.size() > 1 && slot[0] == recordedClass;
+        const bool sameMessage = slot[1] > 0
+            && StrValCopy(slot[1]) == message;
+        if (sameClass && sameMessage) {
+            RootMintedNativeHandle(maybeLiveHeapIdx);
+            return maybeLiveHeapIdx;
+        }
+    }
+    int classIdx = m_currModule->FindClass(exceptionClass);
+    if (classIdx < 0)
+        classIdx = m_exceptionClassIdx;   //defensive: unknown name → base
+    const int32_t heapIdx = BuildNlangException(
+        static_cast<int16_t>(classIdx), message);
+    RootMintedNativeHandle(heapIdx);
+    return heapIdx;
+}
+
 uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);

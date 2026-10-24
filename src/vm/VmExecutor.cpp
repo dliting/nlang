@@ -99,9 +99,12 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
 void VmExecutor::InitStringStore(const CompiledModule& module) {
     m_stringObjs.clear();
     m_strMarkBits.clear();
-    m_strFreeList.clear();
+    //K8: one shard per carrier plus the host fallback slot (embed
+    //threads that allocate without a carrier id). CarrierThreadCount is
+    //final by now — SetCarrierThreadCount precedes Execute.
+    m_strShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_shortStrTable.clear();
-    m_stringObjs.emplace_back();   //sentinel slot 0 (handle 0 = null)
+    m_stringObjs.Emplace();   //sentinel slot 0 (handle 0 = null)
     m_stringObjs[0].form = static_cast<StrObj::Form>(kStrFormDead);
     m_strMarkBits.push_back(false);
     m_constStrCache.clear();
@@ -120,7 +123,8 @@ void VmExecutor::InitStructHeap() {
     m_slotKinds.Emplace(0);    //sentinel
     m_slotStructIdx.clear();
     m_slotStructIdx.Emplace(0);
-    m_freeList.clear();
+    //K8: one shard per carrier plus the host fallback slot.
+    m_heapShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_gcPressure.store(false, std::memory_order_release);
     EvalStack().clear();
 }

@@ -92,7 +92,7 @@ uint8_t* VmExecutor::PushBoundCalleeFrame(const CompiledFunction& callee,
 }
 
 uint8_t* VmExecutor::PushRootFrame(const CompiledFunction& func,
-    uint8_t* externalResult)
+    uint8_t* externalResult, bool deferSafepoint)
 {
     //Window roots count against RECURSE_LIMIT too — the recursive engine's
     //depth counter covered every ExecuteFunction invocation, including
@@ -105,7 +105,8 @@ uint8_t* VmExecutor::PushRootFrame(const CompiledFunction& func,
     fr.localsBuf.assign(func.localsSize, 0);
     fr.externalResult = externalResult;
     fr.func = &func;
-    CheckGCSafepoint();
+    if (!deferSafepoint)
+        CheckGCSafepoint();
     return fr.localsBuf.data();
 }
 
