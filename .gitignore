@@ -59,4 +59,10 @@ Thumbs.db
 docs/superpowers/
 AGENT.md
 AGENTS.md
+AGENTS.reference.md
+.zcodeignore
 .superpowers/
+
+# Transient staging and auxiliary build trees (regenerated)
+_CPack_Packages/
+build-src-entry/
