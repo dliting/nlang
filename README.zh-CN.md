@@ -241,9 +241,9 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 `io.print`/`io.eprint` 重定向到宿主回调。脚本也可以直接从源码运行：
 `runSource`/`runFile` 进程内编译并执行 ad-hoc 脚本（免写 `main()`
 样板），`runScript` 则把整套流程封装成一次性调用。脚本线程的共享存储操作
-在全局解释器锁下运行；`Interpreter`默认使用单载体，在`VmExecutor`层
+按域加锁保护；`Interpreter`默认使用单载体，在`VmExecutor`层
 嵌入的宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用
-会释放锁，纯计算段无需该锁即可重叠）。最小宿主示例随包分发
+停泊并放锁，纯计算段与对象字段访问无锁重叠）。最小宿主示例随包分发
 （`examples/embed_host/`），完整章节见
 `docs/user_manual/zh/libraries/embedding-api.md`。
 

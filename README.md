@@ -263,11 +263,12 @@ objects included), register `native` host functions, and redirect
 `io.print`/`io.eprint` to host callbacks. Scripts can also run straight
 from source: `runSource`/`runFile` compile and execute ad-hoc scripts
 in-process (no `main()` boilerplate), and `runScript` wraps the whole
-flow for one-shot use. Script threads' shared-store operations run
-under a global interpreter lock; an `Interpreter` uses a single carrier
+flow for one-shot use. Script threads' shared-store operations are
+protected by domain locks; an `Interpreter` uses a single carrier
 by default, and a host embedding at the `VmExecutor` layer can opt into
 parallel carriers with `SetCarrierThreadCount` (blocking native calls
-release the lock, and pure-compute segments overlap without it).
+park and release their locks, and pure-compute segments and object
+field access overlap without locks).
 A minimal host ships in `examples/embed_host/`; the full chapter is
 `docs/user_manual/en/libraries/embedding-api.md`.
 

@@ -6,6 +6,48 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.16] - 2026-10-25
+
+### Changed
+
+- **Store locking split by domain** — the single store lock is replaced
+  by five domain locks: containers (List/Dict), synchronization
+  primitives (the mutex/channel side tables), streams, string
+  maintenance (concatenation flattening, constant-cache fills), and
+  allocator growth each hold their own lock, so same-domain operations
+  serialize while different domains overlap. Heap and string
+  allocation draws from per-carrier free lists without a lock, and
+  object field reads and writes take none. In the contention probe,
+  channel ping-pong gains 22–79% over the previous release and
+  allocation-heavy garbage-collection pressure no longer grows
+  per-carrier time with the carrier count.
+- **Concurrent shared-object semantics are defined** — once an object
+  is shared across carriers (through `spawn` arguments or a channel),
+  concurrent reads and writes of its fields are a data race: a
+  transitional value may be read, but memory is never corrupted;
+  coordinate shared mutable state with a `Mutex`. Containers, strings,
+  and streams stay VM-serialized.
+- **The collector runs lock-free at the rendezvous** — the
+  stop-the-world rendezvous pins the fact that every member is parked,
+  so mark and sweep touch the stores without taking any domain lock,
+  and the sweep repartitions heap shards back to the per-carrier free
+  lists.
+- **Native calls follow the ABI lock protocol** — declared-blocking
+  natives park the calling context and release its locks for the wait;
+  non-blocking natives run without locks (under ABI version 5 they must
+  not wait); host-registered callbacks always take the blocking
+  protocol; output-redirection callbacks serialize on a console mutex
+  instead of a global lock.
+
+### Fixed
+
+- **Parked channel receives stay rooted across collections** — a
+  context parked on a channel receive or join whose result cell lives
+  in registry memory could have its accumulator reclaimed in a narrow
+  window; live contexts' result cells are now conservatively rooted at
+  the scan, and frame parking completes inside the scheduler's
+  critical section.
+
 ## [0.10.15] - 2026-10-24
 
 ### Changed
