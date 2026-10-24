@@ -2908,6 +2908,41 @@ static void test_gil_wait_counters_whitebox()
     PASS();
 }
 
+//--- K7 Task 6（存储守卫遥测）---
+
+//GilEnsureGuard 两类获取可区分计数：同线程首次构造真实获取互斥体，
+//嵌套构造命中属主标记（零开销快路径）；析构不重复计数；Reset 每 run
+//清零（与 K5 等待计数器同口径）。
+static void test_store_guard_counters_whitebox()
+{
+    TEST(store_guard_counters_whitebox);
+    VmScheduler sched;
+    CHECK(sched.StoreGuardAcquisitions() == 0
+              && sched.StoreGuardMarkerHits() == 0,
+          "both store-guard counters start at zero");
+    {
+        VmScheduler::GilEnsureGuard outer(sched);
+        CHECK(sched.StoreGuardAcquisitions() == 1,
+              "first guard construction is a real acquisition");
+        {
+            VmScheduler::GilEnsureGuard nested(sched);
+            CHECK(sched.StoreGuardMarkerHits() == 1,
+                  "nested construction hits the owner marker");
+            CHECK(sched.StoreGuardAcquisitions() == 1,
+                  "the nested hit takes no mutex");
+        }
+        CHECK(sched.StoreGuardMarkerHits() == 1,
+              "nested destruction counts nothing");
+    }
+    CHECK(sched.StoreGuardAcquisitions() == 1,
+          "outer destruction releases without recounting");
+    sched.Reset();
+    CHECK(sched.StoreGuardAcquisitions() == 0
+              && sched.StoreGuardMarkerHits() == 0,
+          "Reset clears both store-guard counters");
+    PASS();
+}
+
 //端到端：多载体真实竞争下两个新计数器都非零（与既有 GilWaitersPeak>0
 //同源——peak>0 即某刻 ≥2 并发等待者，后到者必计入竞争获取）。
 static void test_gil_wait_time_counters()
@@ -4182,6 +4217,7 @@ int main()
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
         test_gil_wait_counters_whitebox();
+        test_store_guard_counters_whitebox();
         test_gil_wait_time_counters();
         test_gil_wait_counters_no_contention();
         test_debug_focus_exclusive_dispatch();

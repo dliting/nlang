@@ -163,6 +163,7 @@ void GcWorldStop::Complete()
         if (m_requestEpoch > m_completedEpoch)
             m_completedEpoch = m_requestEpoch;
         m_stopActive.store(false, std::memory_order_release);
+        m_stopCount.fetch_add(1, std::memory_order_relaxed);
     }
     m_cv.notify_all();
 }
@@ -176,6 +177,7 @@ void GcWorldStop::Reset()
     m_arrived = 0;
     m_executingCount = 0;
     m_stopActive.store(false, std::memory_order_release);
+    m_stopCount.store(0, std::memory_order_relaxed);
     //Retire every entry IN PLACE — the deque never shrinks, so a
     //detached zombie carrier's t_selfEntry stays a valid pointer to an
     //inert entry. All slots become reusable; the generation counter

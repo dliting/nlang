@@ -180,13 +180,19 @@ public:
     //K7: 可重入 GIL ensure 守卫——本线程未持有则获取（嵌套使用＝空操
     //作，见 t_gilOwner 的标记不变量）。调度器公共变更面经它自守卫
     //（拥有者强制锁纪律，调用点无须记忆）；定时器线程循环顶的获取
-    //也走它——条件变量等待经 Lock() 释放/重取锁（同执行器
-    // GilWindowGuard 的先例，访问器由此成为承重件）。
+    //也走它——条件变量等待经 Lock() 释放/重取锁（属主是线程标记而
+    //非锁态：等待期间锁暂离、标记保持，访问器由此成为承重件）。
     class GilEnsureGuard : public GilHolder {
     public:
         explicit GilEnsureGuard(VmScheduler& sched) : m_rSched(sched) {
-            if (t_gilOwner != nullptr)
-                return;   //already held on this thread — nested no-op
+            if (t_gilOwner != nullptr) {
+                //already held on this thread — nested no-op (marker hit)
+                m_rSched.m_storeGuardMarkerHits.fetch_add(
+                    1, std::memory_order_relaxed);
+                return;
+            }
+            m_rSched.m_storeGuardAcquires.fetch_add(
+                1, std::memory_order_relaxed);
             Acquire();
         }
         GilEnsureGuard(const GilEnsureGuard&) = delete;
@@ -457,14 +463,16 @@ public:
         carrierSlot().schedTripBudget = limit;
     }
 
-    //GIL wait accounting (maintained by the acquire brackets in the two
-    //VmExecutor guards and the timer thread's loop-top lock); the peak is
-    //the white-box contention evidence. K5 batch 1 adds the time
-    //dimension: cumulative wait nanoseconds and the contended-acquire
-    //count (another waiter already queued when this one began — convoy
-    //formation; a lone waiter contending only with the holder does not
-    //count). Lock reacquisitions inside condition-variable waits stay
-    //excluded (same ruling as ServiceDueTimers above).
+    //GIL wait accounting (maintained by the acquire brackets in the
+    //executor's lock holders — GilEnsureGuard's real acquisitions, the
+    //store guards' acquisitions, freeze-park reacquisitions — and the
+    //timer thread's loop-top lock); the peak is the white-box contention
+    //evidence. K5 batch 1 adds the time dimension: cumulative wait
+    //nanoseconds and the contended-acquire count (another waiter already
+    //queued when this one began — convoy formation; a lone waiter
+    //contending only with the holder does not count). Lock
+    //reacquisitions inside condition-variable waits stay excluded (same
+    //ruling as ServiceDueTimers above).
     std::chrono::steady_clock::time_point BeginGilWait() {
         const auto startedAt = std::chrono::steady_clock::now();
         if (m_gilWaiters.load(std::memory_order_acquire) > 0)
@@ -497,6 +505,17 @@ public:
     }
     uint64_t GilContendedAcquires() const {
         return m_gilContendedAcquires.load(std::memory_order_acquire);
+    }
+    //K7 store-guard telemetry (per run): GilEnsureGuard classifies each
+    //construction — a real mutex acquisition, or a marker hit (the
+    //guard found this thread already owns the global lock and took
+    //nothing; the nested fast path). The ratio shows how much re-entrant
+    //guard nesting avoids the mutex. Cleared by Reset.
+    uint64_t StoreGuardAcquisitions() const {
+        return m_storeGuardAcquires.load(std::memory_order_acquire);
+    }
+    uint64_t StoreGuardMarkerHits() const {
+        return m_storeGuardMarkerHits.load(std::memory_order_acquire);
     }
     //辅助载体上的分派次数（白盒观测：多载体并非空转的证据）。主载体
     //线程在 RegisterContext（主载体专属路径）时记录。
@@ -671,6 +690,9 @@ private:
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::atomic<uint64_t> m_gilWaitNanosTotal{0};  //等待累计纳秒（白盒）
     std::atomic<uint64_t> m_gilContendedAcquires{0};  //竞争获取（白盒）
+    //K7 存储守卫遥测（见 StoreGuardAcquisitions）：真实获取 vs 标记命中。
+    std::atomic<uint64_t> m_storeGuardAcquires{0};
+    std::atomic<uint64_t> m_storeGuardMarkerHits{0};
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
     size_t m_affinityHits = 0;                 //亲和出队命中（白盒观测）

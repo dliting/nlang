@@ -79,6 +79,33 @@ static void test_k7_single_thread_inline_collect()
     PASS();
 }
 
+//1b. Telemetry: CompletedStops counts one per released stop epoch
+//(the inline-collect cycle completes one); Reset zeroes it with the
+//epoch accounting.
+static void test_k7_completed_stops_telemetry()
+{
+    TEST(k7_completed_stops_telemetry);
+    GcWorldStop stop;
+    std::vector<CallFrame> stack;
+    const GcThreadToken token = stop.RegisterThread(&stack);
+    stop.BeginExecuting();
+    CHECK(stop.CompletedStops() == 0, "no stops before initiation");
+    CHECK(stop.InitiateAndArrive(), "sole executer is the last arriver");
+    stop.Complete();
+    stop.WaitForCompletion();
+    CHECK(stop.CompletedStops() == 1,
+          "one completed stop after the inline-collect cycle");
+    stop.BeginExecuting();
+    CHECK(stop.InitiateAndArrive(), "second epoch initiates cleanly");
+    stop.Complete();
+    stop.WaitForCompletion();
+    CHECK(stop.CompletedStops() == 2, "second epoch counted");
+    stop.Reset();
+    CHECK(stop.CompletedStops() == 0, "Reset zeroes the stop counter");
+    (void)token;
+    PASS();
+}
+
 //2. Real two-thread rendezvous: the initiator (T1=main, not last)
 //parks in WaitForCompletion; T2's Rule-B EndExecuting completes the
 //set (true), collects, and Completes. Both re-enter cleanly after.
@@ -611,6 +638,7 @@ int main(int argc, char** argv)
     }
 
     test_k7_single_thread_inline_collect();
+    test_k7_completed_stops_telemetry();
     test_k7_two_thread_rendezvous();
     test_k7_rule_b_last_arriver_election();
     test_k7_rule_a_waits_out_inflight_stop();

@@ -87,9 +87,10 @@ void VmExecutor::RunAuxiliaryCarrier(const CompiledFunction& mainFunc,
 //from within a catch block (std::current_exception).
 void VmExecutor::RecordAuxiliaryError() {
     try {
-        //K7: GilEnsureGuard (K2's GilWindowGuard is gone — the dispatch
-        //window no longer owns the lock); this thread holds nothing at
-        //this point, so the guard really acquires.
+        //K7: the executor no longer holds the lock across a dispatch
+        //window — GilEnsureGuard acquires it for this write. This
+        //thread holds nothing at this point, so the guard really
+        //acquires.
         GilEnsureGuard gil(*this);
         if (!m_auxError) {
             m_auxError = std::current_exception();

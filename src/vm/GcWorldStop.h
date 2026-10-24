@@ -121,6 +121,13 @@ public:
     //zombie's self-entry pointer stays valid (and inert).
     void Reset();
 
+    //Telemetry: completed stop epochs — one count per Complete (each
+    //collection-driven world stop, or a cancellation that released the
+    //epoch's waiters). Zeroed by Reset with the epoch accounting.
+    uint64_t CompletedStops() const {
+        return m_stopCount.load(std::memory_order_acquire);
+    }
+
     //Collector-side snapshot of the scan surface — the published
     //stacks of live registered threads, in registration order.
     std::vector<std::vector<CallFrame>*> RegisteredStacks() const;
@@ -188,6 +195,7 @@ private:
     uint64_t m_nextGeneration = 1;      //monotonic; 0 = never issued
     size_t m_executingCount = 0;        //registry threads with bit set
     std::atomic<bool> m_stopActive{false};  //stop in flight (fast poll)
+    std::atomic<uint64_t> m_stopCount{0};   //completed epochs (telemetry)
     static thread_local GcWorldStop* t_selfStop;
     static thread_local ThreadEntry* t_selfEntry;
     static thread_local uint64_t t_selfGeneration;  //zombie stamp
