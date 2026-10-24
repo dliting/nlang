@@ -317,6 +317,10 @@ private:
                             const std::string& fieldName,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
     //Array length() builtin method.
+    bool EmitMemberArrayRankMethod(SnMemberExpr& member,
+        BytecodeEmitter& emitter, uint16_t resultOffset);
+    bool EmitMemberArrayShapeMethod(SnMemberExpr& member,
+        BytecodeEmitter& emitter, uint16_t resultOffset);
     bool EmitMemberArrayLengthMethod(SnMemberExpr& member,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
@@ -1339,6 +1343,11 @@ private:
     //evalArea claim before OP_AllocArray.
     void EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
                       uint16_t resultOffset);
+    //Stage-2: ND creation — dims evaluated once each, left to right,
+    //staged into consecutive eval-area slots for OP_AllocArrayN.
+    void EmitNewArrayND(SnField* pElemType,
+        const std::vector<SnExpression*>& dims, uint16_t resultOffset,
+        BytecodeEmitter& emitter);
 
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the

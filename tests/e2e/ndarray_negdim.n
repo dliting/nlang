@@ -1,0 +1,11 @@
+// Negative dimensions raise at the creation site.
+import io;
+int main() {
+    try {
+        int[,] a = int[2,-3];
+        io.print(a.length());
+    } catch (IndexOutOfBoundsException e) {
+        io.print("negdim caught");
+    }
+    return 0;
+}

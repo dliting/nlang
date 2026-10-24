@@ -864,19 +864,29 @@ public:
 class NLANG_COMPILER_API SnSubscriptExpr : public SnCompoundFieldExpr
 {
 	typedef SnCompoundFieldExpr Super_;
+	friend class ExprResolveAccessor;
 public:
 	static const NodeKind	s_Kind			= NK_SubscriptExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
 public:
 	SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
 		const ISourceLocation &loc);
+	//Stage-2: comma index lists — a[i, j, k] (and the creation twin
+	//T[2, 3]). Takes ownership of the adopted pointers.
+	SnSubscriptExpr(SnExpression *pArray,
+		UniquePtrList<SnExpression> upIndices, const ISourceLocation &loc);
 
 	SnExpression *Array() const { return m_pArray; }
-	SnExpression *Index() const { return m_pIndex; }
-	//0.7.5: resolver wrap hook — FixupExprType replaces the index child
-	//in the children list; the cached slot must follow it (same splice
-	//discipline ReplaceChildNode routes through ResetChild).
-	void Index(SnExpression *pIndex) { m_pIndex = pIndex; }
+	//All indices in source order: rank-1 subscripts hold exactly one,
+	//rank-N rectangular subscripts hold exactly N (the creation twin
+	//holds the N dimensions).
+	const std::vector<SnExpression *> &Indices() const { return m_pIndices; }
+	//First index, or null (dict/string/container paths are inherently
+	//single-index and read this convenience).
+	SnExpression *Index() const
+	{
+		return m_pIndices.empty() ? nullptr : m_pIndices.front();
+	}
 
 	//0.9.0: set when the base identifier resolves as a TYPE rather than a
 	//value (`int[n]` / `Foo[n]` creation). Non-owning element type field;
@@ -891,7 +901,7 @@ public:
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnExpression *m_pArray;
-	SnExpression *m_pIndex;
+	std::vector<SnExpression *> m_pIndices;
 	SnField *m_pNewArrayElem = nullptr;
 };
 

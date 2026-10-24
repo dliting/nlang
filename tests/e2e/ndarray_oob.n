@@ -1,0 +1,18 @@
+// ND per-dimension bounds: dim 0 and dim 1 violations are catchable.
+import io;
+int main() {
+    int[,] a = int[2,3];
+    try {
+        int v = a[2,0];
+        io.print(v);
+    } catch (IndexOutOfBoundsException e) {
+        io.print("dim0 caught");
+    }
+    try {
+        int w = a[0,3];
+        io.print(w);
+    } catch (IndexOutOfBoundsException e) {
+        io.print("dim1 caught");
+    }
+    return 0;
+}

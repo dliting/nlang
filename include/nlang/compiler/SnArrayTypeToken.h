@@ -52,6 +52,13 @@ public:
 
 	SnField *FindField(const std::string& sName) const override;
 
+	//1 for T[], 2 for T[,]: the token is the type identity, so the rank
+	//rides the same interned instance.
+	uint8_t Rank() const
+	{
+		return m_Rank;
+	}
+
 	//Accept a visitor using the Visitor design pattern.
 	void Accept(ISyntaxNodeVisitor&) override;
 
@@ -61,13 +68,6 @@ private:
 	//Private: single-entry construction through the interning table.
 	SnArrayTypeToken(SnField *pElemType, const ISourceLocation &loc,
 		uint8_t rank = 1);
-
-	//1 for T[], 2 for T[,]: the token is the type identity, so the rank
-	//rides the same interned instance.
-	uint8_t Rank() const
-	{
-		return m_Rank;
-	}
 
 
 	ImmutableNodeList *ChildrenPtr() const override;

@@ -450,6 +450,9 @@ private:
 	bool TryResolveArrayLengthMethod(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
+	bool TryResolveArrayBuiltinInvoke(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
+		SyntaxNode *pSavedContext);
 	SnField *ResolveStreamSpecialTypeArg(SnInvokeExpr &invoke,
 		NodeKind wantKind, const char *pMethodDisp,
 		SyntaxNode *pSavedContext);

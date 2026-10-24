@@ -30,9 +30,6 @@ struct ForeachIterableKind {
     bool isList = false;
     bool isDict = false;
     bool isString = false;
-    //Stage-2 task-2 gate: rank >= 2 array sources park here; the caller
-    //(which owns the diagnostic channel) logs and aborts the emit.
-    bool isGated = false;
     SnField* elemType = nullptr;
 };
 
@@ -67,9 +64,8 @@ static ForeachIterableKind ClassifyForeachIterable(
         SnExpression* pIter) {
     ForeachIterableKind k;
     if (DetectDeclaredArraySource(pIter, k.elemType)) {
-        //Stage-2 task-2 gate: ND foreach emission lands in task 4.
-        if (VmBackend::EmitGateRankOf(*pIter) >= 2)
-            { k.isGated = true; return k; }
+        //Stage-2: array sources of ANY rank lower to the flat walk —
+        //rank-1 flat order is the linear order, unchanged.
         k.isArray = true;
         return k;
     }
@@ -116,13 +112,6 @@ void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
         ForeachIterableKind iter = ClassifyForeachIterable(fe.Iterable());
-        //Stage-2 task-2 gate: ND foreach emission lands in task 4.
-        if (iter.isGated)
-        {
-            m_pEnv->Log(CLL_Error, fe.Location(),
-                "multi-dimensional arrays are not supported yet.");
-            return;
-        }
         //0.7.5 char bridge: string sources take the dedicated
         //code-point expansion (no length/get() calls — OP_StrForeachStep).
         if (iter.isString) {
@@ -270,8 +259,10 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         uint8_t elemKind, const ForeachSlots& slots,
         BytecodeEmitter& emitter) {
     if (isArray) {
-        //OP_LoadElement <dst> <arr> <index>
-        emitter.Emit(OpCode::OP_LoadElement);
+        //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
+        //is contiguous row-major, so the linear index walks rank-1 and
+        //rank-N arrays identically.
+        emitter.Emit(OpCode::OP_LoadElementFlat);
         emitter.EmitUint16(slots.userVarSlot);
         emitter.EmitUint16(slots.iterSlot);
         emitter.EmitUint16(slots.iSlot);

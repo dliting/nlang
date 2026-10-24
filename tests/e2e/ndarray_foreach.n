@@ -1,0 +1,20 @@
+// foreach over ND walks row-major (flat order).
+import io;
+int main() {
+    int[,] a = int[2,3];
+    int n = 0;
+    for (int i = 0; i < 2; i = i + 1)
+        for (int j = 0; j < 3; j = j + 1) {
+            a[i,j] = n;
+            n = n + 1;
+        }
+    int sum = 0;
+    int prev = -1;
+    foreach (int v in a) {
+        if (v <= prev) return 1;
+        prev = v;
+        sum = sum + v;
+    }
+    io.print(sum);
+    return 0;
+}

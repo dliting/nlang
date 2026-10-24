@@ -92,20 +92,19 @@ static bool DiagHas(const BuildOutcome& o, const char* text)
     return o.diagnostics.find(text) != std::string::npos;
 }
 
-//ND creation resolves and reaches the emit gate (not a syntax error).
+//ND creation resolves and emits (the Task-2 temporary gate is
+//gone; runtime behavior is covered by the ndarray e2e suite).
 void test_nd_creation_resolves_to_gate()
 {
-    TEST(nd_creation_resolves_to_gate);
+    TEST(nd_creation_emits);
     const BuildOutcome o = buildSource("nd_create",
         "int main() {\n"
         "    int[,] a = int[2,3];\n"
         "    return 0;\n"
         "}\n");
-    CHECK(!o.ok, "ND creation must not emit before task 4");
+    CHECK(o.ok, "comma creation must compile (gate removed in task 4)");
     CHECK(!DiagHas(o, "syntax error"),
         "comma creation must PARSE (no syntax error)");
-    CHECK(DiagHas(o, "not supported yet"),
-        "the emit gate must fire with the temporary diagnostic");
     PASS();
 }
 
@@ -146,12 +145,11 @@ void test_jagged_still_rejected()
     PASS();
 }
 
-//The seven temporary emit gates fire on every ND value path.
+//Every ND value path emits (the Task-2 gates are gone; init-list
+//stays unsupported until task 5).
 void test_emit_gates_cover_nd_paths()
 {
-    TEST(emit_gates_cover_nd_paths);
-    const char* kGate = "not supported yet";
-
+    TEST(nd_paths_emit_gates_gone);
     //subscript read + compound assign (+= on an element)
     const BuildOutcome read = buildSource("nd_gate_read",
         "int main() {\n"
@@ -159,7 +157,7 @@ void test_emit_gates_cover_nd_paths()
         "    int v = a[0,0];\n"
         "    return v;\n"
         "}\n");
-    CHECK(DiagHas(read, kGate), "subscript read must hit the gate");
+    CHECK(read.ok, "subscript read must emit");
 
     const BuildOutcome comp = buildSource("nd_gate_comp",
         "int main() {\n"
@@ -167,7 +165,7 @@ void test_emit_gates_cover_nd_paths()
         "    a[0,0] += 1;\n"
         "    return 0;\n"
         "}\n");
-    CHECK(DiagHas(comp, kGate), "compound element assign must hit the gate");
+    CHECK(comp.ok, "compound element assign must emit");
 
     //subscript store (statement form) and field store of an element
     const BuildOutcome store = buildSource("nd_gate_store",
@@ -176,7 +174,7 @@ void test_emit_gates_cover_nd_paths()
         "    a[0,0] = 1;\n"
         "    return 0;\n"
         "}\n");
-    CHECK(DiagHas(store, kGate), "subscript store must hit the gate");
+    CHECK(store.ok, "subscript store must emit");
 
     //foreach over an ND source
     const BuildOutcome fe = buildSource("nd_gate_foreach",
@@ -186,7 +184,7 @@ void test_emit_gates_cover_nd_paths()
         "    foreach (int v in a) s = s + v;\n"
         "    return s;\n"
         "}\n");
-    CHECK(DiagHas(fe, kGate), "foreach over ND must hit the gate");
+    CHECK(fe.ok, "foreach over ND must emit");
 
     //init-list target with ND type: parses, but ND init-list resolution
     //and emission land in task 5 — the gate assertion moves there.

@@ -99,7 +99,16 @@ uint16_t VmBackend::AssignStmtPeakDepth(SnStatement& stmt,
     //also count their get() claim inside the SubscriptExpr case).
     uint16_t claim = 0;
     if (assign.Left() && assign.Left()->Kind() == NK_MemberExpr)
-        claim = 3;
+    {
+        //Stage-2: the array member-write claim is receiver + N indices
+        //+ value (rank 1 gives the old uniform 3).
+        size_t n = 1;
+        auto& member = static_cast<SnMemberExpr&>(*assign.Left());
+        if (member.Inner() && member.Inner()->Kind() == NK_SubscriptExpr)
+            n = static_cast<SnSubscriptExpr&>(
+                *member.Inner()).Indices().size();
+        claim = static_cast<uint16_t>(2 + n);
+    }
     //Identifier targets (plain local `x = rhs`) stage the RHS in an
     //EvalAreaClaim(1) before copying to the destination (round-7 —
     //aliasing family). The struct branch (CopyStruct staging) and the
@@ -278,13 +287,13 @@ uint16_t VmBackend::ThrowStmtPeakDepth(SnStatement& stmt,
 uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
-    //0.8.4: a bare subscript LHS (arr[i] += v) parks base/index/old/RHS
-    //in an EvalAreaClaim(4). Base and index are emitted directly into
-    //the claim slots (no read-path claim of their own — the get()/
-    //set() calls ride callParamBase, and the array path is direct
-    //element ops), so walk them separately rather than through
-    //ExprPeakDepth(*Left()), which would add the read path's own
-    //claim(2) on top.
+    //0.8.4: a bare subscript LHS (arr[i] += v) parks N indices/old
+    //value/RHS in an EvalAreaClaim(rank + 3). Base and indices are
+    //emitted directly into the claim slots (no read-path claim of
+    //their own — the get()/set() calls ride callParamBase, and the
+    //array path is direct element ops), so walk them separately rather
+    //than through ExprPeakDepth(*Left()), which would add the read
+    //path's own claim(2) on top.
     if (ca.Left() && ca.Left()->Kind() == NK_SubscriptExpr) {
         auto& sub = static_cast<SnSubscriptExpr&>(*ca.Left());
         uint16_t b = ExprPeakDepth(*sub.Array(), visited);
@@ -295,7 +304,10 @@ uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
             ? ExprPeakDepth(*ca.Right(), visited) : 0;
         uint16_t m = b > i ? b : i;
         if (r > m) m = r;
-        return 4 + m;
+        //Stage-2 ND: the claim is N indices + old value + RHS — the
+        //same rank + 3 shape EmitCompoundAssignSubscript claims.
+        uint16_t claim = 3 + static_cast<uint16_t>(sub.Indices().size());
+        return claim + m;
     }
     //Member targets (`obj.f += v` and implicit `this.f += v`) park
     //receiver/old-value/RHS in an EvalAreaClaim(3); the walker cannot
@@ -314,12 +326,10 @@ uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
 uint16_t VmBackend::SubscriptAssignStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
-    //Both paths run inside an EvalAreaClaim(3) [receiver + index +
-    //value] — container lowers to a set() call, array to a direct
-    //StoreElement; either way the walker must mirror the codegen's
-    //claim. walker-symmetry discipline, 4th instance (after
-    //callparambase-clobber #2 and super() #3).
-    uint16_t claim = 3;
+    //Stage-2: the store claim is receiver + N indices + value (the
+    //container path lowers to a set() call — same count). Walker
+    //symmetry with EmitArrayElementStore's claim(rank + 2).
+    const uint16_t claim = static_cast<uint16_t>(2 + sa.Indices().size());
     uint16_t d = 0;
     for (auto *pIndex : sa.Indices())
         d = std::max(d, ExprPeakDepth(*pIndex, visited));

@@ -136,10 +136,11 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
     emitter.EmitInt32(entryIndex);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    emitter.Emit(OpCode::OP_StoreElement);
+    emitter.Emit(OpCode::OP_StoreElementN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.EmitUint16(valueSlot);
+    emitter.EmitUint16(1);  // rank — initializer targets are rank-1 here
 }
 
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,

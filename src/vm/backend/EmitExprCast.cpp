@@ -455,14 +455,10 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         //(`int[n]` / `Foo[n]`); it emits through the shared new-array
         //path — the base names a type and evaluates to nothing.
         if (sub.NewArrayElem()) {
-            //Stage-2 task-2 gate: ND creation emission lands in task 4.
-            if (sub.Indices().size() > 1)
-            {
-                m_pEnv->Log(CLL_Error, sub.Location(),
-                    "multi-dimensional arrays are not supported yet.");
-                return;
-            }
-            EmitNewArray(sub.NewArrayElem(), *sub.Index(), resultOffset);
+            //Stage-2: ND creation — the index list IS the rank; each dim
+            //stages into a consecutive eval-area slot for OP_AllocArrayN.
+            EmitNewArrayND(sub.NewArrayElem(), sub.Indices(),
+                resultOffset, emitter);
             return;
         }
         //0.7.5 string subscript: byte read on a string base.

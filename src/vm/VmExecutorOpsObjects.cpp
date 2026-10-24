@@ -94,8 +94,8 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     //(per-dim negative/cap and the elemCount product) lives in
     //AllocArrayOnHeap — the single choke point shared with native
     //minting.
-    int32_t dims[8];
-    if (rank < 1 || rank > 8)
+    int32_t dims[kMaxArrayRank];
+    if (rank < 1 || rank > kMaxArrayRank)
         throw std::runtime_error(
             "NLang VM: OP_AllocArrayN rank out of range");
     for (uint16_t d = 0; d < rank; ++d)
@@ -107,90 +107,96 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     m_gcPending = true;
 }
 
-void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
+void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
-    uint16_t index = reader.ReadUint16();
-    int32_t heapIdx, idx;
+    uint16_t idxBase = reader.ReadUint16();
+    uint16_t rank = reader.ReadUint16();
+    int32_t heapIdx;
     std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    std::memcpy(&idx, locals + index, sizeof(idx));
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    //C-period hole 3: element opcodes are only emitted for
-    //array-typed bases; any other slot kind here is a compiler
-    //invariant violation (canonically a dangling handle after
-    //sweep cleared its kind to 0). Uncatchable by design --
-    //same family as "invalid array type index". Order: after
-    //the range check (protects the m_slotKinds index AND keeps
-    //the catchable null-array-access path unchanged), before
-    //the length read (slot[2] on a cleared record would be a
-    //vector OOB read -- kind must gate it first).
+    //Element opcodes are only emitted for array-typed bases; any other
+    //slot kind is a compiler invariant violation (uncatchable).
     if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
         throw std::runtime_error(
-            "NLang VM: OP_LoadElement expects an array slot");
+            "NLang VM: OP_LoadElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    //Stage-2 header: [2]=rank, [3]=elemCount. The pre-ND element ops
-    //serve rank-1 arrays only (rank >= 2 goes through the N-family in
-    //task 4); the single index is the flat payload index.
-    const int32_t rank = slot[2];
-    const int32_t elemCount = slot[3];
-    if (rank != 1)
+    const int32_t recRank = slot[2];
+    if (static_cast<uint16_t>(recRank) != rank)
         throw std::runtime_error(
-            "NLang VM: OP_LoadElement expects a rank-1 array");
-    if (idx < 0 || idx >= elemCount)
-        RaiseNlangException(m_oobExcClassIdx,
-                            "NLang VM: array index out of bounds");
+            "NLang VM: OP_LoadElementN rank mismatch");
+    const int32_t* dims = slot.data() + 4;
+    //Per-dimension bounds check with the row-major flat index; a named
+    //dimension in the message keeps ND debugging humane.
+    int64_t flat = 0;
+    for (uint16_t d = 0; d < rank; ++d) {
+        int32_t idx;
+        std::memcpy(&idx, locals + idxBase + d * kFrameSlotBytes,
+                    sizeof(idx));
+        if (idx < 0 || idx >= dims[d])
+            RaiseNlangException(m_oobExcClassIdx,
+                "NLang VM: array index out of bounds (dim "
+                + std::to_string(d) + ")");
+        flat = flat * dims[d] + idx;
+    }
     //0.7.5: element stride is registry-driven (slot[1] holds the array
     //type idx recorded at alloc). A 2-cell element copies 8 bytes —
     //the destination frame slot is the uniform 8-byte cell.
     uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
     if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
-            "NLang VM: OP_LoadElement on invalid array type");
+            "NLang VM: OP_LoadElementN on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
     std::memcpy(locals + dst,
-        slot.data() + ArrayHeaderCells(1)
-            + static_cast<size_t>(idx) * cells,
+        slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
+            + static_cast<size_t>(flat) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
-void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
+void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arr = reader.ReadUint16();
-    uint16_t index = reader.ReadUint16();
+    uint16_t idxBase = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
-    int32_t heapIdx, idx;
+    uint16_t rank = reader.ReadUint16();
+    int32_t heapIdx;
     std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    std::memcpy(&idx, locals + index, sizeof(idx));
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    //Same kind gate as OP_LoadElement (hole 3), same ordering:
-    //range check first, then kind, then the length read.
+    //Same kind gate as OP_LoadElementN (invariant violation, uncatchable).
     if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
         throw std::runtime_error(
-            "NLang VM: OP_StoreElement expects an array slot");
+            "NLang VM: OP_StoreElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    //Stage-2 header mirror of OP_LoadElement (rank-1 only).
-    const int32_t rank = slot[2];
-    const int32_t elemCount = slot[3];
-    if (rank != 1)
+    const int32_t recRank = slot[2];
+    if (static_cast<uint16_t>(recRank) != rank)
         throw std::runtime_error(
-            "NLang VM: OP_StoreElement expects a rank-1 array");
-    if (idx < 0 || idx >= elemCount)
-        RaiseNlangException(m_oobExcClassIdx,
-                            "NLang VM: array index out of bounds");
-    //0.7.5: mirror of OP_LoadElement's stride read — 2-cell elements
+            "NLang VM: OP_StoreElementN rank mismatch");
+    const int32_t* dims = slot.data() + 4;
+    int64_t flat = 0;
+    for (uint16_t d = 0; d < rank; ++d) {
+        int32_t idx;
+        std::memcpy(&idx, locals + idxBase + d * kFrameSlotBytes,
+                    sizeof(idx));
+        if (idx < 0 || idx >= dims[d])
+            RaiseNlangException(m_oobExcClassIdx,
+                "NLang VM: array index out of bounds (dim "
+                + std::to_string(d) + ")");
+        flat = flat * dims[d] + idx;
+    }
+    //0.7.5: mirror of OP_LoadElementN's stride read — 2-cell elements
     //copy the full 8 bytes from the source frame slot.
     uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
     if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
-            "NLang VM: OP_StoreElement on invalid array type");
+            "NLang VM: OP_StoreElementN on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    std::memcpy(slot.data() + ArrayHeaderCells(1)
-            + static_cast<size_t>(idx) * cells,
+    std::memcpy(slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
+            + static_cast<size_t>(flat) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
@@ -211,6 +217,76 @@ void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
     //Stage-2 header: elemCount moved to slot[3].
     int32_t len = m_structHeap[static_cast<size_t>(heapIdx)][3];
     std::memcpy(locals + dst, &len, sizeof(len));
+}
+
+//Stage-2: flat element read — the payload is contiguous row-major, so a
+//linear index addresses rank-1 and rank-N arrays alike (foreach walks
+//elemCount elements with this). Bounds: flat < elemCount.
+void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t arr = reader.ReadUint16();
+    uint16_t flatSlot = reader.ReadUint16();
+    int32_t heapIdx, flat;
+    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+    std::memcpy(&flat, locals + flatSlot, sizeof(flat));
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null array access");
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+        throw std::runtime_error(
+            "NLang VM: OP_LoadElementFlat expects an array slot");
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    const int32_t elemCount = slot[3];
+    if (flat < 0 || flat >= elemCount)
+        RaiseNlangException(m_oobExcClassIdx,
+                            "NLang VM: array index out of bounds");
+    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: OP_LoadElementFlat on invalid array type");
+    const int cells = ArrayElemCells(
+        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    const int32_t rank = slot[2];
+    std::memcpy(locals + dst,
+        slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
+            + static_cast<size_t>(flat) * cells,
+        static_cast<size_t>(cells) * sizeof(int32_t));
+}
+
+//Stage-2: mint the shape array int[rank] and copy the dims in.
+void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t arr = reader.ReadUint16();
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null array access");
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+        throw std::runtime_error(
+            "NLang VM: OP_ArrayShape expects an array slot");
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    const int32_t rank = slot[2];
+    if (rank < 1 || rank > kMaxArrayRank)
+        throw std::runtime_error(
+            "NLang VM: OP_ArrayShape on corrupt record rank");
+    //Snapshot the dims BEFORE allocating: AllocArrayOnHeap grows
+    //m_structHeap and would invalidate the source-record reference
+    //(choke-point contract at AllocArrayOnHeap).
+    int32_t dimsSnapshot[kMaxArrayRank];
+    for (int32_t d = 0; d < rank; ++d)
+        dimsSnapshot[d] = slot[4 + d];
+    //The shape array is int[rank] — one dim cell per rank; the scalar
+    //int[] table entry comes from the mint filter.
+    const uint16_t shapeTypeIdx = FindScalarArrayTypeIdx(RTK_Int32);
+    int32_t shapeDim = rank;
+    int32_t shapeIdx = AllocArrayOnHeap(shapeTypeIdx, 1, &shapeDim);
+    m_gcPending = true;
+    auto& shape = m_structHeap[static_cast<size_t>(shapeIdx)];
+    const int32_t base = static_cast<int32_t>(ArrayHeaderCells(1));
+    for (int32_t d = 0; d < rank; ++d)
+        shape[base + d] = dimsSnapshot[d];
+    std::memcpy(locals + dst, &shapeIdx, sizeof(shapeIdx));
 }
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
@@ -321,72 +397,6 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
             + LeafNameOfKey(act.name) + "`");
     }
     //Result: same heap idx, unchanged.
-}
-
-//v0.8.5: see the header. Reads the exception object's own message so
-//the top-level report names the actual failure (the old fixed texts
-//"user throw"/"rethrow" hid it).
-std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
-                                        const char* fallback) const {
-    if (heapIdx <= 0
-        || static_cast<size_t>(heapIdx) >= m_structHeap.size()
-        || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
-        return fallback;
-    const StructSlot& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    const int32_t msgHandle = slot.size() > 1 ? slot[1] : 0;
-    std::string msg;
-    if (IsLiveStringHandle(msgHandle))
-        FlattenInto(msg, msgHandle);
-    if (!msg.empty())
-        return msg;
-    //Empty message: name the exception class (leaf spelling — the
-    //user-facing rendering rule shared with toString/checkcast).
-    const int32_t classIdx = slot[0];
-    if (m_currModule != nullptr && classIdx >= 0
-        && static_cast<size_t>(classIdx) < m_currModule->classes.size())
-        return LeafNameOfKey(
-            m_currModule->classes[static_cast<size_t>(classIdx)].name);
-    return fallback;
-}
-
-void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
-    //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
-    //raise NLangThrow carrying the heap idx. Catch block above will
-    //dispatch via func.tryBlocks.
-    uint16_t src = reader.ReadUint16();
-    int32_t heapIdx;
-    std::memcpy(&heapIdx, locals + src, sizeof(heapIdx));
-    //Debugger checkpoint at the throw site, before unwinding
-    //starts (user throws do not pass through
-    //RaiseNlangException — same checkpoint, shared helper).
-    FireOnThrow();
-    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, "user throw"));
-}
-
-void VmExecutor::OpRethrow() {
-    //Phase 9d: `throw;` — re-raise the currently-caught exception.
-    //Pops nothing; the matching OP_PopHandler at catch-block exit
-    //(normal path) handles that.
-    auto& s = m_callStack.back().handlerExcStack;
-    if (s.empty())
-        throw std::runtime_error(
-            "NLang VM: rethrow outside catch handler");
-    int32_t h = s.back();
-    //Debugger checkpoint at the rethrow site (same contract as
-    //OP_Throw / RaiseNlangException).
-    FireOnThrow();
-    throw NLangThrow(h, ThrownMessageOf(h, "rethrow"));
-}
-
-void VmExecutor::OpPopHandler() {
-    //Phase 9d: emitted at the end of every catch body. Pops the
-    //exception bound on catch entry so a later throw; in a different
-    //scope doesn't accidentally use this frame's exception.
-    auto& s = m_callStack.back().handlerExcStack;
-    if (s.empty())
-        throw std::runtime_error(
-            "NLang VM: PopHandler underflow");
-    s.pop_back();
 }
 
 //Phase 9d: walk superClassIdx chain starting from the actual class at

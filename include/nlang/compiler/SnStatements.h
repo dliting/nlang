@@ -334,9 +334,18 @@ public:
 
 	SnSubscriptAssignStmt(SnExpression *pArray, SnExpression *pIndex,
 		SnExpression *pValue, const ISourceLocation &loc);
+	//Stage-2: comma index lists — a[i, j] = v. Takes ownership.
+	SnSubscriptAssignStmt(SnExpression *pArray,
+		UniquePtrList<SnExpression> upIndices, SnExpression *pValue,
+		const ISourceLocation &loc);
 
 	SnExpression *Array() const { return m_pArray; }
-	SnExpression *Index() const { return m_pIndex; }
+	//First index, or null (rank-1/dict paths read this convenience).
+	SnExpression *Index() const
+	{
+		return m_pIndices.empty() ? nullptr : m_pIndices.front();
+	}
+	const std::vector<SnExpression *> &Indices() const { return m_pIndices; }
 	SnExpression *Value() const { return m_pValue; }
 
 	std::string ToString() const override;
@@ -345,7 +354,7 @@ public:
 private:
 	friend class StatementResolveAccessor;
 	SnExpression *m_pArray;
-	SnExpression *m_pIndex;
+	std::vector<SnExpression *> m_pIndices;
 	SnExpression *m_pValue;
 };
 

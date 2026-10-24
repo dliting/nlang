@@ -265,27 +265,8 @@ bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 	if (pInnerExpr->Kind() == NK_InvokeExpr)
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-		if (invoke.CalleeName() != "length")
-			return false;
-		if (invoke.Params().begin() != invoke.Params().end())
-		{
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"array.length() takes no arguments.");
-			m_pContext = pSavedContext;
-			return true;
-		}
-		//Mirror of the string length/getHashCode arm: same flag set and
-		//int verdict (TryResolveStringBuiltinMethod above), plus the m_pField
-		//bind so a chained member (a.length().toString()) survives
-		//IsDataExpr().
-		pInnerExpr->AddFlags(NF_Resolved);
-		auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
-		snMember.EvalDataType(pInt);
-		snMember.m_pField = pInt;
-		snMember.AddFlags(NF_Resolved);
-		BindArrayTypeToken(snMember);
-		m_pContext = pSavedContext;
-		return true;
+		return TryResolveArrayBuiltinInvoke(snMember, pInnerExpr,
+			invoke, pSavedContext);
 	}
 	if (pInnerExpr->Kind() == NK_IdentifierExpr
 		&& static_cast<SnIdentifierExpr*>(pInnerExpr)->Name()
@@ -297,6 +278,47 @@ bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 		return true;
 	}
 	return false;
+}
+
+//The array-builtin invoke arm (length/rank/shape) of
+//TryResolveArrayLengthMethod: a zero-argument call on an
+//array-valued receiver resolves; per-name arity message and verdict
+//(rank: int, shape: int[] minted over the int builtin at rank 1 —
+//the same intern channel as every array type). Parallel blocks
+//preempted each other once already; new array builtins extend the
+//name dispatch here, they do not get a copied block.
+bool ExprResolveAccessor::TryResolveArrayBuiltinInvoke(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SnInvokeExpr &invoke, SyntaxNode *pSavedContext)
+{
+	const bool isRank = invoke.CalleeName() == "rank";
+	const bool isShape = invoke.CalleeName() == "shape";
+	if (invoke.CalleeName() != "length" && !isRank && !isShape)
+		return false;
+	if (invoke.Params().begin() != invoke.Params().end())
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			isRank ? "array.rank() takes no arguments."
+			: isShape ? "array.shape() takes no arguments."
+			: "array.length() takes no arguments.");
+		m_pContext = pSavedContext;
+		return true;
+	}
+	//Mirror of the string length/getHashCode arm: same flag set,
+	//plus the m_pField bind so a chained member
+	//(a.length().toString(), a.shape()[0]) survives IsDataExpr().
+	pInnerExpr->AddFlags(NF_Resolved);
+	auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
+	SnField* pResultType = pInt;
+	if (isShape)
+		pResultType = static_cast<SnField*>(
+			m_Env.InternArrayTypeToken(pInt, 1));
+	snMember.EvalDataType(pResultType);
+	snMember.m_pField = pResultType;
+	snMember.AddFlags(NF_Resolved);
+	BindArrayTypeToken(snMember);
+	m_pContext = pSavedContext;
+	return true;
 }
 
 

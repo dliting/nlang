@@ -220,22 +220,21 @@ uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
     //a type (no emission). Walker symmetry with NewArrayExprPeakDepth.
     if (sub.NewArrayElem())
     {
-        //Stage-2: ND subscripts carry N indices — the deepest one wins.
+        //Stage-2: ND creation stages one eval-area slot per dim, plus
+        //each dim's own nested peak.
         uint16_t deepest = 0;
         for (auto *pIndex : sub.Indices())
             deepest = std::max(deepest,
                 ExprPeakDepth(*pIndex, visited));
-        return 1 + deepest;
+        return static_cast<uint16_t>(sub.Indices().size()) + deepest;
     }
     uint16_t a = ExprPeakDepth(*sub.Array(), visited);
     uint16_t i = 0;
     for (auto *pIndex : sub.Indices())
         i = std::max(i, ExprPeakDepth(*pIndex, visited));
-    //Both shapes claim 2 evalArea slots (receiver + index): container
-    //lowers to a get() call, array reads park receiver/index in the
-    //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot
-    //chain that wrapped and clobbered at nesting depth 5).
-    uint16_t claim = 2;
+    //Stage-2: the read claim is receiver + N indices (container lowers
+    //to a get() call — same count, its index is one expression).
+    const uint16_t claim = static_cast<uint16_t>(1 + sub.Indices().size());
     uint16_t m = (a > i ? a : i);
     return claim + m;
 }

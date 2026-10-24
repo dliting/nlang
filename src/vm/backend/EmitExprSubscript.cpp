@@ -13,24 +13,22 @@ namespace nlang {
 void VmBackend::EmitArraySubscriptRead(SnSubscriptExpr& sub,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
-    //Stage-2 task-2 gate: ND subscript emission lands in task 4.
-    if (EmitGateRankOf(*sub.Array()) >= 2)
-    {
-        m_pEnv->Log(CLL_Error, sub.Location(),
-            "multi-dimensional arrays are not supported yet.");
-        return;
-    }
-    EvalAreaClaim claim(*this, 2);
+    //Stage-2: N indices stage after the receiver in one exclusive
+    //claim (rank-1 subscripts hold exactly one — same shape as before).
+    const size_t rank = sub.Indices().size();
+    EvalAreaClaim claim(*this, rank + 1);
     uint16_t claimBase = claim.base();
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
-    uint16_t indexSlot = claimBase + kFrameSlotBytes;
-    EmitExpression(*sub.Index(), emitter, indexSlot);
-    emitter.Emit(OpCode::OP_LoadElement);
+    for (size_t d = 0; d < rank; ++d)
+        EmitExpression(*sub.Indices()[d], emitter,
+            claimBase + (d + 1) * kFrameSlotBytes);
+    emitter.Emit(OpCode::OP_LoadElementN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
+    emitter.EmitUint16(claimBase + kFrameSlotBytes);  //idxBase
+    emitter.EmitUint16(static_cast<uint16_t>(rank));
 }
 
 

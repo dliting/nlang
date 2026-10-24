@@ -1,5 +1,7 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 
 namespace nlang {
 
@@ -92,9 +94,11 @@ enum class OpCode : uint8_t {
 
     // === Array operations ===
     OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase
-    OP_LoadElement,     // uint16 dst, uint16 arr, uint16 index
-    OP_StoreElement,    // uint16 arr, uint16 index, uint16 src
-    OP_ArrayLength,     // uint16 dst, uint16 arr
+    OP_LoadElementN,    // uint16 dst, uint16 arr, uint16 idxBase, uint16 rank
+    OP_StoreElementN,   // uint16 arr, uint16 idxBase, uint16 src, uint16 rank
+    OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
+    OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
+    OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
 
     // === Phase 8e-1: Object protocol + boxing/cast ===
     OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
@@ -151,6 +155,112 @@ enum class OpCode : uint8_t {
 
     OP_Count
 };
+
+//Single source of truth for the byte extent of each instruction: the
+//disassembler walk (line/pc map, ndb), the ndisasm printer and the
+//.ncu linker remap all step this one table. Parallel per-consumer
+//stride tables drifted more than once (AllocArrayN linker mispatch,
+//ND element opcodes walking stale group strides — both surfaced as
+//"corrupt image" far from the cause), so the extent lives here, next
+//to the operand shapes documented in the enum. Keep in lockstep with
+//the emitters when adding or reshaping opcodes; an unlisted opcode is
+//an authoring bug and fails loudly instead of corrupting downstream.
+//Extent groups for InstructionStride: opcodes sharing one instruction
+//byte extent; the width expressions mirror the operand shapes
+//documented in the enum (1 opcode byte + operands). Plain arrays plus
+//the StrideGroup helper (auto-carried count) — a constexpr aggregate
+//holding std::initializer_list members silently failed to match its
+//inline-braced rows under MSVC (op=5 walked straight to the miss),
+//so the table stores pointers and counts instead.
+static constexpr OpCode kStrideNoOperands[] = {
+    OpCode::OP_Return, OpCode::OP_Stop, OpCode::OP_ConstZero,
+    OpCode::OP_Array_to_str, OpCode::OP_Func_to_str,
+    OpCode::OP_ParaEnd, OpCode::OP_Rethrow, OpCode::OP_PopHandler};
+static constexpr OpCode kStrideByteTag[] = {
+    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox};
+static constexpr OpCode kStrideOneWord[] = {
+    OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
+    OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
+    OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
+    OpCode::OP_DebugInfo, OpCode::OP_NullCheck, OpCode::OP_CheckCast,
+    OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
+    OpCode::OP_MakeVFunc};
+static constexpr OpCode kStrideKindWord[] = {
+    OpCode::OP_Neg};
+static constexpr OpCode kStrideKindByte[] = {
+    OpCode::OP_PrimCast};
+static constexpr OpCode kStrideTwoWords[] = {
+    OpCode::OP_JumpIfNot, OpCode::OP_Concat_str, OpCode::OP_Eq_str,
+    OpCode::OP_Ne_str, OpCode::OP_Less_str, OpCode::OP_LessEqual_str,
+    OpCode::OP_Greater_str, OpCode::OP_GreaterEqual_str,
+    OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
+    OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
+    OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
+    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape};
+static constexpr OpCode kStrideKindTwoWords[] = {
+    OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
+    OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};
+static constexpr OpCode kStrideThreeWords[] = {
+    OpCode::OP_AllocStruct, OpCode::OP_LoadField,
+    OpCode::OP_StoreField, OpCode::OP_CopyStruct,
+    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt};
+static constexpr OpCode kStrideFourWords[] = {
+    OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
+    OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
+static constexpr OpCode kStrideOutMaskWords[] = {
+    OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
+    OpCode::OP_CallDelegateOut};
+static constexpr OpCode kStrideCmpHead[] = {
+    OpCode::OP_Cmp};
+static constexpr OpCode kStrideConst32[] = {
+    OpCode::OP_ConstInt32, OpCode::OP_ConstFloat};
+static constexpr OpCode kStrideConst64[] = {
+    OpCode::OP_ConstInt64, OpCode::OP_ConstDouble};
+
+struct StrideExtentGroup {
+    const OpCode* ops;
+    size_t count;
+    size_t stride;
+};
+
+//Count is carried from the array declaration itself — a group row can
+//never drift from its member list.
+template <size_t N>
+constexpr StrideExtentGroup StrideGroup(const OpCode (&ops)[N],
+                                        size_t stride) {
+    return {ops, N, stride};
+}
+
+//Single source of truth for the byte extent of each instruction: the
+//disassembler walk (line/pc map, ndb), the ndisasm printer and the
+//.ncu linker remap all step this one table. Parallel per-consumer
+//stride tables drifted more than once (AllocArrayN linker mispatch,
+//ND element opcodes walking stale group strides — both surfaced as
+//"corrupt image" far from the cause), so the extent lives here, next
+//to the operand shapes documented in the enum. Keep in lockstep with
+//the emitters when adding or reshaping opcodes; an unlisted opcode is
+//an authoring bug and fails loudly instead of corrupting downstream.
+inline size_t InstructionStride(OpCode op) {
+    static constexpr StrideExtentGroup kStrideGroups[] = {
+        StrideGroup(kStrideNoOperands, 1),
+        StrideGroup(kStrideByteTag, 1 + 1),
+        StrideGroup(kStrideOneWord, 1 + 2),
+        StrideGroup(kStrideKindWord, 1 + 1 + 2),
+        StrideGroup(kStrideKindByte, 1 + 1 + 1),
+        StrideGroup(kStrideTwoWords, 1 + 2 + 2),
+        StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
+        StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
+        StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
+        StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
+        StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
+        StrideGroup(kStrideConst32, 1 + 4),
+        StrideGroup(kStrideConst64, 1 + 8)};
+    for (const StrideExtentGroup& group : kStrideGroups)
+        for (size_t i = 0; i < group.count; ++i)
+            if (group.ops[i] == op)
+                return group.stride;
+    throw std::runtime_error("unknown opcode in disassembler");
+}
 
 const char* OpCodeName(OpCode op);
 

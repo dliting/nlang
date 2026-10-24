@@ -1,6 +1,8 @@
 /*---
-    VmExecutorOpsControl.cpp — 常量装载、赋值、跳转与调试信息操作码
-    从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    VmExecutorOpsControl.cpp — control-flow opcodes: constant loads,
+    assignment, jumps, exception dispatch (Phase 9d ops moved here
+    from VmExecutorOpsObjects.cpp, 2026-10-25) and debug info.
+    Extracted from VmExecutor.cpp (2026-09-26, zero behavior change).
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -181,6 +183,72 @@ void VmExecutor::EnsureSuspensionAllowed() const {
 void VmExecutor::RequestPark(ParkSignal::Reason reason) {
     EnsureSuspensionAllowed();
     throw ParkSignal(reason);
+}
+
+//v0.8.5: see the header. Reads the exception object's own message so
+//the top-level report names the actual failure (the old fixed texts
+//"user throw"/"rethrow" hid it).
+std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
+                                        const char* fallback) const {
+    if (heapIdx <= 0
+        || static_cast<size_t>(heapIdx) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
+        return fallback;
+    const StructSlot& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    const int32_t msgHandle = slot.size() > 1 ? slot[1] : 0;
+    std::string msg;
+    if (IsLiveStringHandle(msgHandle))
+        FlattenInto(msg, msgHandle);
+    if (!msg.empty())
+        return msg;
+    //Empty message: name the exception class (leaf spelling — the
+    //user-facing rendering rule shared with toString/checkcast).
+    const int32_t classIdx = slot[0];
+    if (m_currModule != nullptr && classIdx >= 0
+        && static_cast<size_t>(classIdx) < m_currModule->classes.size())
+        return LeafNameOfKey(
+            m_currModule->classes[static_cast<size_t>(classIdx)].name);
+    return fallback;
+}
+
+void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
+    //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
+    //raise NLangThrow carrying the heap idx. Catch block above will
+    //dispatch via func.tryBlocks.
+    uint16_t src = reader.ReadUint16();
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, locals + src, sizeof(heapIdx));
+    //Debugger checkpoint at the throw site, before unwinding
+    //starts (user throws do not pass through
+    //RaiseNlangException — same checkpoint, shared helper).
+    FireOnThrow();
+    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, "user throw"));
+}
+
+void VmExecutor::OpRethrow() {
+    //Phase 9d: `throw;` — re-raise the currently-caught exception.
+    //Pops nothing; the matching OP_PopHandler at catch-block exit
+    //(normal path) handles that.
+    auto& s = m_callStack.back().handlerExcStack;
+    if (s.empty())
+        throw std::runtime_error(
+            "NLang VM: rethrow outside catch handler");
+    int32_t h = s.back();
+    //Debugger checkpoint at the rethrow site (same contract as
+    //OP_Throw / RaiseNlangException).
+    FireOnThrow();
+    throw NLangThrow(h, ThrownMessageOf(h, "rethrow"));
+}
+
+void VmExecutor::OpPopHandler() {
+    //Phase 9d: emitted at the end of every catch body. Pops the
+    //exception bound on catch entry so a later throw; in a different
+    //scope doesn't accidentally use this frame's exception.
+    auto& s = m_callStack.back().handlerExcStack;
+    if (s.empty())
+        throw std::runtime_error(
+            "NLang VM: PopHandler underflow");
+    s.pop_back();
 }
 
 } // namespace nlang

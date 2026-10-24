@@ -149,17 +149,19 @@ void VmBackend::EmitCompoundAssignSubscript(SnCompoundAssignStmt& ca,
     //no-op for SubscriptExpr), so no token peel is needed here.
     auto* elemType = sub.EvalDataType();
     if (!elemType) return;
-    EvalAreaClaim claim(*this, 4);
+    //Stage-2: N indices + old value + RHS in one exclusive claim.
+    const size_t rank = sub.Indices().size();
+    EvalAreaClaim claim(*this, rank + 3);
     uint16_t claimBase = claim.base();
-    uint16_t indexSlot = claimBase + kFrameSlotBytes;
-    uint16_t oldValSlot = claimBase + 2 * kFrameSlotBytes;
-    uint16_t rhsSlot = claimBase + 3 * kFrameSlotBytes;
+    uint16_t idxBase = claimBase + kFrameSlotBytes;
+    uint16_t oldValSlot = claimBase + (rank + 1) * kFrameSlotBytes;
+    uint16_t rhsSlot = claimBase + (rank + 2) * kFrameSlotBytes;
     if (IsContainerSubscript(*sub.Array())) {
         EmitCompoundSubscriptContainer(ca, sub, elemType, op,
-            claimBase, indexSlot, oldValSlot, rhsSlot, emitter);
+            claimBase, idxBase, oldValSlot, rhsSlot, emitter);
     } else {
         EmitCompoundSubscriptArray(ca, sub, elemType, op,
-            claimBase, indexSlot, oldValSlot, rhsSlot, emitter);
+            claimBase, idxBase, oldValSlot, rhsSlot, emitter);
     }
 }
 
@@ -261,26 +263,22 @@ void VmBackend::EmitSubscriptSetFromClaim(uint16_t claimBase,
 //ops, no call frames, so no bulk copy.
 void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
         SnSubscriptExpr& sub, SnField* elemType, int op,
-        uint16_t claimBase, uint16_t indexSlot, uint16_t oldValSlot,
+        uint16_t claimBase, uint16_t idxBase, uint16_t oldValSlot,
         uint16_t rhsSlot, BytecodeEmitter& emitter) {
-    //Stage-2 task-2 gate: ND compound emission lands in task 4.
-    if (EmitGateRankOf(*sub.Array()) >= 2)
-    {
-        m_pEnv->Log(CLL_Error, sub.Location(),
-            "multi-dimensional arrays are not supported yet.");
-        return;
-    }
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
-    EmitExpression(*sub.Index(), emitter, indexSlot);
+    for (size_t d = 0; d < sub.Indices().size(); ++d)
+        EmitExpression(*sub.Indices()[d], emitter,
+            idxBase + d * kFrameSlotBytes);
     //No copy on read (Phase 9d-3: value copies belong at store
-    //boundaries): claim[2] aliases the element until the computed
-    //result is stored.
-    emitter.Emit(OpCode::OP_LoadElement);
+    //boundaries): the old-value slot aliases the element until the
+    //computed result is stored.
+    emitter.Emit(OpCode::OP_LoadElementN);
     emitter.EmitUint16(oldValSlot);
     emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
+    emitter.EmitUint16(idxBase);
+    emitter.EmitUint16(static_cast<uint16_t>(sub.Indices().size()));
     EmitExpression(*ca.Right(), emitter, rhsSlot);
     EmitCompoundOp(op, emitter, oldValSlot, rhsSlot, elemType);
     //Struct deep-copy of the computed value before the store
@@ -290,10 +288,11 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
         EmitStructDeepCopy(oldValSlot, oldValSlot,
             static_cast<SnStructDecl&>(*elemType), emitter);
     }
-    emitter.Emit(OpCode::OP_StoreElement);
+    emitter.Emit(OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
+    emitter.EmitUint16(idxBase);
     emitter.EmitUint16(oldValSlot);
+    emitter.EmitUint16(static_cast<uint16_t>(sub.Indices().size()));
 }
 
 } //namespace nlang

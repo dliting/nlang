@@ -8,6 +8,7 @@
 // This header is private to src/vm. It only forward-declares VmExecutor to
 // avoid a cycle with VmExecutor.h.
 
+#include "nlang/vm/CompiledModule.h"  //kMaxArrayRank
 #include "nlang/vm/NativeHost.h"
 
 #include <cstdint>
@@ -25,7 +26,7 @@ struct VmNativeHost {
     //Row-major strides for getArrayView views, computed per call into
     //this fixed scratch (max rank 8); the view's strides pointer lands
     //here and stays valid for the duration of the native call.
-    int32_t stridesScratch[8] = {};
+    int32_t stridesScratch[kMaxArrayRank] = {};
 };
 
 } // namespace nlang
