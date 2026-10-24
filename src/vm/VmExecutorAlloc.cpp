@@ -103,9 +103,9 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     const int cells = ArrayElemCells(at.elemKind);
     int32_t totalSlots =
         static_cast<int32_t>(kArrayHeaderCells) + size * cells;
-    //Arm the collector here — the single allocation choke point — so
-    //every minter pays the pending flag. A pure native-mint loop used
-    //to grow unbounded (deep-copy gap class, review finding).
+    //The one array allocation path shared by language creation and
+    //native minting: raise the collector-pending flag here, so a loop
+    //that only allocates through natives still reaches collection.
     m_gcPending = true;
     int32_t heapIdx;
     if (!m_freeList.empty()) {

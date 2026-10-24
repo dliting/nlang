@@ -64,9 +64,10 @@ All notable changes to NLang are documented here. The format follows
 
 - **Array payloads are 8-byte aligned** — the rank-1 array record
   header grows to 4 cells so the long/double element family sits at a
-  naturally aligned payload base (was 4-mod-8 misaligned, unaligned-
-  access UB and a penalty native kernels paid); the first brick of the
-  stage-2 unified ND layout.
+  naturally aligned payload base (the payload sat at a 4-mod-8 offset:
+  undefined behavior and an unaligned-access penalty native kernels
+  paid); the first brick of the stage-2 unified n-dimensional array
+  layout.
 
 - **Array creation is uniformly bounded** — a negative length or one
   past 100 million elements raises the catchable
