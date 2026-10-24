@@ -4353,6 +4353,107 @@ static void test_k8_bounded_pingpong_storm()
     PASS();
 }
 
+//K8 Task 5：宿主根登记表并发搅动下的收集。根登记表（host/native 两张）
+//的变异方持 m_rootRegistryMutex 叶锁（K8 宿主边界归域），但阻塞原生
+//载体不在 GC 会合分母内——其登记/撤销可与收集并发。收集侧标记臂必须
+//同锁迭代（快照后扫描会重开窗口）。本测试用真实线程在 gc-stress 多
+//载体运行期间持续 Push/PopHostRoot：固定形态下恒绿；无锁迭代形态下为
+//概率性崩溃（结构竞争）。
+static void test_k8_gc_host_root_churn_under_collection()
+{
+    TEST(k8_gc_host_root_churn_under_collection);
+    const std::string src =
+        "import thread;\n"
+        "int churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(churn);\n"
+        "    int j = 0;\n"
+        "    while (j < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(j);\n"
+        "        j = j + 1;\n"
+        "    }\n"
+        "    while (!f.isDone()) { thread.yield(); }\n"
+        "    return 5;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("k8_host_root_churn", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(4);
+    exec.SetGcStressThresholds(4);   //collections run constantly
+    std::atomic<bool> churnDone{false};
+    std::thread churner([&exec, &churnDone]() {
+        uint32_t round = 0;
+        while (!churnDone.load(std::memory_order_relaxed)) {
+            const int32_t v = static_cast<int32_t>(round & 1);
+            exec.PushHostRoot(RTK_String, v);
+            exec.PopHostRoot(RTK_String, v);
+            ++round;
+        }
+    });
+    const int rc = exec.Execute(mod);
+    churnDone.store(true, std::memory_order_relaxed);
+    churner.join();
+    CHECK(rc == 5, "churning host roots never corrupt a collection "
+          "(rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 5：收集内异常不得挂死会合。注入一次收集入口抛出：完成守卫
+//必须先推进 Complete 再传播——停泊在纪元上的等待者被释放，随后以运行
+//失败收场（压力旗标仍在，等待者会重新请求收集并正常完成剩余工作）。
+//无守卫形态＝全体等待者永挂（本测试挂死即红）。
+static void test_k8_gc_collect_exception_releases_waiters()
+{
+    TEST(k8_gc_collect_exception_releases_waiters);
+    const std::string src =
+        "import thread;\n"
+        "int alloc() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(alloc);\n"
+        "    int j = 0;\n"
+        "    while (j < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(j);\n"
+        "        j = j + 1;\n"
+        "    }\n"
+        "    while (!f.isDone()) { thread.yield(); }\n"
+        "    return 7;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("k8_gc_collect_throw", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(4);
+    exec.SetGcStressThresholds(4);
+    exec.SetThrowOnceInCollectForTests();
+    bool threw = false;
+    int rc = -1;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception&) {
+        threw = true;   //the injected failure surfaces — waiters were released
+    }
+    CHECK(threw || rc != 7,
+          "injected collection failure surfaces as a failed run "
+          "(threw=" + std::to_string(threw ? 1 : 0)
+          + " rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -4494,6 +4595,8 @@ int main()
         runGuarded(test_k8_close_abort_recv_storm);
         runGuarded(test_k8_mutex_handoff_storm);
         runGuarded(test_k8_bounded_pingpong_storm);
+        runGuarded(test_k8_gc_host_root_churn_under_collection);
+        runGuarded(test_k8_gc_collect_exception_releases_waiters);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

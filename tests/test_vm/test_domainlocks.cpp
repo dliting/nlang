@@ -5,8 +5,10 @@
     reentrant nesting markers, the fixed acquisition-order tripwire,
     cross-domain overlap, and per-domain telemetry counters.
 ---*/
+#include "ShardFreeList.h"
 #include "VmDomainLocks.h"
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -172,6 +174,65 @@ static void TelemetryCounts() {
     PASS();
 }
 
+//K8 Task 5: ShardFreeList — the sweep-redistribution contract. The
+//fixed block->shard mapping is what makes the collector's repartition
+//safe to reason about: every free index lands in exactly one shard by
+//INDEX RANGE (block round-robin), never by the freeing thread, so a
+//quiescent single-threaded sweep rebuilds identical state from any
+//carrier's death pattern.
+static void ShardSweepMapping() {
+    TEST(shard_sweep_mapping);
+    ShardFreeList shards;
+    shards.Configure(4);
+    CHECK(shards.SweepShardOf(0) == 0 && shards.SweepShardOf(1023) == 0,
+          "block 0 maps to shard 0");
+    CHECK(shards.SweepShardOf(1024) == 1 && shards.SweepShardOf(2047) == 1,
+          "block 1 maps to shard 1");
+    CHECK(shards.SweepShardOf(4096) == 0 && shards.SweepShardOf(7168) == 3,
+          "block 4 wraps round-robin to 0, block 7 to 3");
+    PASS();
+}
+
+//The redistribution invariant: after a full ClearAll + re-push of a
+//known free set, each shard pops back exactly that set — a lost or
+//duplicated index (the monotone-growth leak the sweep comment warns
+//about) fails the equality.
+static void ShardSweepRedistributionExact() {
+    TEST(shard_sweep_redistribution_exact);
+    ShardFreeList shards;
+    shards.Configure(3);
+    const int32_t freed[] = {1, 2, 7, 1024, 1500, 2048, 3072, 5120, 6144};
+    shards.ClearAll();
+    for (int32_t idx : freed)
+        shards.Push(shards.SweepShardOf(idx), idx);
+    std::vector<int32_t> popped;
+    for (size_t s = 0; s < shards.ShardCount(); ++s)
+        while (!shards.Empty(s))
+            popped.push_back(shards.Pop(s));
+    std::sort(popped.begin(), popped.end());
+    const int32_t expected[] = {1, 2, 7, 1024, 1500, 2048, 3072, 5120, 6144};
+    CHECK(popped.size() == 9
+          && std::equal(popped.begin(), popped.end(), expected),
+          "redistribution loses or duplicates no free index");
+    PASS();
+}
+
+//Single-carrier determinism: one shard, a fresh growth block pushes
+//descending so pops yield ascending indices — the unsharded store's
+//fresh-allocation order this design must reproduce byte-for-byte.
+static void ShardSingleCarrierAscendingPops() {
+    TEST(shard_single_carrier_ascending_pops);
+    ShardFreeList shards;
+    shards.Configure(1);
+    shards.PushBlockDescending(0, 5, 4);
+    CHECK(shards.SweepShardOf(12345) == 0, "identity mapping at one shard");
+    CHECK(!shards.Empty(0) && shards.Pop(0) == 5, "first pop = block base");
+    CHECK(shards.Pop(0) == 6 && shards.Pop(0) == 7 && shards.Pop(0) == 8,
+          "pops ascend through the block");
+    CHECK(shards.Empty(0), "block exhausted");
+    PASS();
+}
+
 int main() {
     std::cerr << "test_domainlocks:\n";
     MutualExclusion();
@@ -179,6 +240,9 @@ int main() {
     LockOrderTripwire();
     DistinctDomainsOverlap();
     TelemetryCounts();
+    ShardSweepMapping();
+    ShardSweepRedistributionExact();
+    ShardSingleCarrierAscendingPops();
     std::cerr << "  " << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

@@ -156,6 +156,21 @@ void GcWorldStop::WaitForCompletion()
     m_cv.wait(lk, [this, epoch] { return m_completedEpoch >= epoch; });
 }
 
+//K8: the collector's quiescence gate (spec D3 — the constructive fact,
+//pinned by a tripwire). The elected last arriver calls this before a
+//lock-free collection: a stop must be in flight with every snapshot
+//member arrived (no window can re-open mid-collection — Rule A waits
+//out the epoch — and no store allocation can run without a window).
+//Anything else is an accounting bug: collecting without quiescence
+//would race live bytecode, so refuse loudly instead.
+void GcWorldStop::AssertAllArrived()
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    if (!m_stopActive.load(std::memory_order_relaxed)
+        || m_arrived != m_expected)
+        Tripwire("AssertAllArrived (rendezvous not quiesced)");
+}
+
 void GcWorldStop::Complete()
 {
     {

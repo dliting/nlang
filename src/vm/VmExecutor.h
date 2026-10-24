@@ -242,11 +242,18 @@ public:
     int GcRendezvousParks() const {
         return m_gcRendezvousParks.load(std::memory_order_relaxed);
     }
+    //K8 Task 5 white-box knob: make the NEXT collection throw once at
+    //its entry — proves the collector's completion guard releases the
+    //rendezvous waiters instead of stranding them on the epoch.
+    void SetThrowOnceInCollectForTests() {
+        m_gcThrowOnceForTests.store(true, std::memory_order_relaxed);
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
     void TestPushNativeRoot(const uint8_t* cells, uint32_t cellCount,
                             int32_t value, uint64_t owner) {
+        std::lock_guard<std::mutex> g(m_rootRegistryMutex);
         m_nativeCallRoots.push_back(
             NativeCallRoot{cells, cellCount, value, owner});
     }
@@ -726,14 +733,20 @@ private:
 
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
-    //K7 site 2 helpers. CollectAndComplete: the last arriver's epilogue —
-    //collect under the global lock (the guard really acquires it once the
-    //handoff/park released the marker), clear the pressure flag, then
-    //Complete (clearing before the completion notify means joiners wake to
-    //a cleared flag — no collection storm). NoteGcPressure: the allocation
-    //sites' trigger store (GIL held; synthesizes both threshold domains).
+    //K7 site 2 helpers. CollectAndReenter: the elected last arriver's
+    //collection plus this thread's re-entry into the rendezvous
+    //denominator — exception-balanced (the re-entry runs before any
+    //unwind continues; see VmExecutorGC.cpp). CollectAndComplete: the
+    //last arriver's epilogue — lock-free collection behind the
+    //AssertAllArrived quiescence gate, pressure-flag clear, then an
+    //RAII completion (clearing before the completion notify means
+    //joiners wake to a cleared flag — no collection storm; an escaping
+    //exception still completes the epoch before unwinding). NoteGcPressure:
+    //the allocation sites' trigger store (GIL held; synthesizes both
+    //threshold domains).
     //GcPressureExceeded: the backedge poll's acquire load. NestDepth /
     //GcPollRootDepth: this thread's slot reads for the poll gate.
+    void CollectAndReenter(GcWorldStop& stop);
     void CollectAndComplete();
     void NoteGcPressure();
     bool GcPressureExceeded() const;
@@ -1505,6 +1518,7 @@ private:
     //collection, before Complete).
     std::atomic<bool> m_gcPressure{false};
     std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
+    std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 

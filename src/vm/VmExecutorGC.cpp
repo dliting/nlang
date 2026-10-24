@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <mutex>
+#include <stdexcept>
 
 namespace nlang {
 
@@ -25,8 +27,10 @@ namespace nlang {
 //(K6 excluded that shape by holding the GIL across every window).
 //GIL-holding callers (spawn tail inside an intrinsic's store guard,
 //guarded function entries) hand the lock off for the WHOLE sequence:
-//Rule A parks on the rendezvous cv and the last arriver's collection
-//needs the global lock — waiting under it deadlocks.
+//the rendezvous contract parks on the cv holding no global lock, and
+//K8's collection itself takes none — its epilogue touches only leaf
+//arms (the quiescence gate, the root-registry iterations) plus one
+//scheduler-domain guard (the registry scan).
 void VmExecutor::CheckGCSafepoint() {
     if (m_spScheduler->CarrierRunGenerationStale())
         throw ShutdownSignal();   //zombie carrier from a torn-down run
@@ -36,27 +40,23 @@ void VmExecutor::CheckGCSafepoint() {
     GilHandoffScope handoff(*this);   //no-op unless the caller holds the GIL
     GcWorldStop& stop = m_spScheduler->GcStop();
     if (stop.StopInFlight()) {                  //somebody else initiated
-        const bool last = stop.EndExecuting();  //Rule B: arrive
-        if (!last) {
+        if (!stop.EndExecuting()) {             //Rule B: arrive, not last
             ++m_gcRendezvousParks;
             stop.WaitForCompletion();
+            stop.BeginExecuting();   //Rule A — never under the global lock
         } else {
-            CollectAndComplete();   //the guard inside really acquires
+            CollectAndReenter(stop);   //K8: lock-free (quiescence-gated)
         }
-        stop.BeginExecuting();      //Rule A — never under the global lock
         return;
     }
     if (!GcPressureExceeded())
         return;
     if (stop.InitiateAndArrive()) {
         //I'm (already) the last arriver. InitiateAndArrive flipped this
-        //thread's executing bit off for the stop — bytecode continues
-        //after the collection, so re-enter the denominator (the stop is
-        //complete; BeginExecuting cannot block, and no global lock is
-        //held here — the handoff above released it, CollectAndComplete's
-        //internal guard released its own).
-        CollectAndComplete();
-        stop.BeginExecuting();
+        //thread's executing bit off for the stop; bytecode continues
+        //after the collection, so re-enter the denominator inside
+        //CollectAndReenter.
+        CollectAndReenter(stop);
     } else {
         ++m_gcRendezvousParks;
         stop.WaitForCompletion();
@@ -64,16 +64,57 @@ void VmExecutor::CheckGCSafepoint() {
     }
 }
 
-//K7 site 2: the last arriver's epilogue. The marker is clear here (the
-//handoff released it, or this thread never held it) so the guard really
-//acquires the global lock; clearing the pressure flag AFTER the
-//collection but BEFORE Complete means every joiner wakes to a cleared
+//The elected last arriver's collection plus its protocol tail: the
+//caller's executing bit was flipped off by its arrival, so bytecode
+//continuing afterwards must re-enter the denominator (BeginExecuting
+//cannot block here — the stop completed — and no global lock is held:
+//the safepoint's handoff released the GIL, the collection's own arms
+//released theirs). If the collection throws, the re-entry still runs
+//BEFORE the unwind continues: a window teardown that parks would call
+//EndExecuting on an already-off bit (protocol tripwire), and skipping
+//it leaves this thread outside the denominator mid-bytecode. The
+//completion guard inside CollectAndComplete already completed the
+//epoch, so the re-open cannot race a collector.
+void VmExecutor::CollectAndReenter(GcWorldStop& stop) {
+    try {
+        CollectAndComplete();
+    } catch (...) {
+        stop.BeginExecuting();
+        throw;
+    }
+    stop.BeginExecuting();   //Rule A — never under the global lock
+}
+
+//K8 site 2 (Task 5): the last arriver's epilogue — LOCK-FREE
+//collection. The quiescence gate comes first: AssertAllArrived pins
+//the constructive fact that every snapshot member is parked (no
+//window can re-open mid-collection — Rule A waits out the epoch — so
+//no bytecode and no store allocation can run; the mark and sweep
+//arms touch the stores without any domain lock). The scheduler
+//registry scan keeps the scheduler domain (timer-thread state flips
+//— MarkSchedulerRoots), and the two root registries iterate under
+//their leaf mutex (their mutators — blocking-native arms, host
+//threads — sit outside the rendezvous denominator). Completion is
+//RAII (the K7 plan's deferred robustness item): every other snapshot
+//member is parked on this epoch, so an exception escaping the
+//collection (mark worklist bad_alloc, the injected test failure)
+//must still complete it before unwinding — otherwise the waiters
+//strand forever. An interrupted sweep only leaks free slots until
+//the retry (the pressure flag below never cleared), never
+//double-pushes. On the normal path the guard's destructor completes
+//AFTER the pressure-flag clear, so every joiner wakes to a cleared
 //flag — no collection storm.
 void VmExecutor::CollectAndComplete() {
-    GilEnsureGuard gil(*this);
+    m_spScheduler->GcStop().AssertAllArrived();
+    struct CompletionFirstGuard {
+        GcWorldStop& stop;
+        ~CompletionFirstGuard() { stop.Complete(); }
+    };
+    CompletionFirstGuard completeFirst{m_spScheduler->GcStop()};
+    if (m_gcThrowOnceForTests.exchange(false, std::memory_order_relaxed))
+        throw std::runtime_error("injected collection failure");
     CollectGarbage();
     m_gcPressure.store(false, std::memory_order_release);
-    m_spScheduler->GcStop().Complete();
 }
 
 //K7 site 2: the allocation sites' trigger store (every caller holds the
@@ -156,8 +197,14 @@ void VmExecutor::MarkPhase() {
 //Extension point ③: host-registered roots (host-held reference Values).
 //Same string/heap split as the frame scans — RTK_String values are
 //string-store handles routed to MarkString (its own validation),
-//everything else is a heap idx under the mark guard.
+//everything else is a heap idx under the mark guard. K8: the registry
+//iterates under its leaf mutex — host threads and blocking-native
+//carriers mutate it from OUTSIDE the rendezvous denominator (their
+//windows are suspended), so the collection's read needs the same
+//mutex; MarkString/PushMarked take no lock, keeping this a leaf
+//critical section.
 void VmExecutor::MarkHostRoots(std::vector<int32_t>& worklist) {
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
     for (const HostRoot& root : m_hostRoots) {
         if (root.kind == RTK_String) {
             MarkString(root.value);
@@ -175,8 +222,15 @@ void VmExecutor::MarkHostRoots(std::vector<int32_t>& worklist) {
 //exception object (join rethrows it by heap idx; it must survive until
 //every joiner has thrown). Same three frame arms as the running stack;
 //MarkFrameResult is safe on parked frames (externalResult points at
-//the stable result cells).
+//the stable result cells). K8: one scheduler-domain guard over the
+//whole scan — the collection itself is GIL-free, and the timer thread
+//(also outside the rendezvous) flips ctx->state under the scheduler
+//lock; the guard also replaces 2N+2 per-call self-acquires of
+//Find/ContextCount. The mark helpers take no lock, so the guard holds
+//nothing inward (GIL→gcStop-leaf is the one legal order and is not
+//used here — ScanRegisteredStacks runs before this arm, un-nested).
 void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     for (size_t i = 0; i < m_spScheduler->ContextCount(); ++i) {
         const ExecutionContext* ctx = m_spScheduler->Find(
             static_cast<int>(i));
@@ -227,10 +281,13 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
 //by the native itself), so only an address can see the final values;
 //argument cells are immutable past the entry copy (const in the ABI).
 //The value form covers handles minted by re-entrant NativeHost
-//callbacks during the blocking section. Everything mutates under the
-//GIL (arm before release, truncate after reacquire), so a collection —
-//which itself holds the GIL — reads a consistent list.
+//callbacks during the blocking section. K8: registry mutations take
+//the root-registry leaf mutex (K7's GIL serialization died with the
+//lock-free allocation paths), and a blocking-native carrier sits
+//outside the rendezvous denominator — the collection's iteration
+//takes the same mutex. TestRootValue/PushMarked take no lock.
 void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
     for (const NativeCallRoot& root : m_nativeCallRoots) {
         if (root.cells) {
             for (uint32_t i = 0; i < root.cellCount; ++i) {

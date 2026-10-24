@@ -621,6 +621,31 @@ static void test_k7_executing_self_and_tripwires()
     PASS();
 }
 
+//14. K8 Task 5: AssertAllArrived — the collector's quiescence gate.
+//Green path: the elected last arriver calls it with every member
+//arrived (single-member degenerate shape) and it returns normally.
+//The pending-member shape (a registered member that never arrived)
+//is the child-process crash case 3.
+static void test_k8_assert_all_arrived_last_arriver()
+{
+    TEST(k8_assert_all_arrived_last_arriver);
+    GcWorldStop stop;
+    std::vector<CallFrame> stack;
+    stop.RegisterThread(&stack);
+    stop.BeginExecuting();
+    CHECK(stop.InitiateAndArrive(), "sole member is the last arriver");
+    stop.AssertAllArrived();   //must not trip
+    stop.Complete();
+    stop.BeginExecuting();     //re-enter before unregistering (parked exit)
+    stop.EndExecuting();
+    CHECK(true, "AssertAllArrived passed at full quiescence");
+#ifdef _WIN32
+    CHECK(runSelfExpectAbnormalExit(3),
+          "AssertAllArrived with a pending member terminates");
+#endif
+    PASS();
+}
+
 int main(int argc, char** argv)
 {
     //Child process: run one membership-crash case. Reaching the return
@@ -633,6 +658,34 @@ int main(int argc, char** argv)
         switch (std::atoi(argv[1] + 13)) {
         case 1: stop.BeginExecuting(); break;
         case 2: stop.EndExecuting(); break;
+        case 3: {
+            //A second member registered and executing but never
+            //arrives: AssertAllArrived must trip. The preamble retired
+            //this thread's entry — re-register so the denominator is
+            //two (poll count stays small: the Windows timer quantum
+            //makes each 1ms sleep ~15ms).
+            stop.RegisterThread(&stack);
+            stop.BeginExecuting();
+            std::atomic<bool> secondRegistered{false};
+            std::thread pending([&stop, &secondRegistered]() {
+                std::vector<CallFrame> second;
+                stop.RegisterThread(&second);
+                stop.BeginExecuting();
+                secondRegistered.store(true, std::memory_order_release);
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            });
+            waitFor([&stop, &secondRegistered]() {
+                return secondRegistered.load(std::memory_order_acquire)
+                    && stop.RegisteredStacks().size() == 2;
+            }, 200);
+            if (stop.InitiateAndArrive()) {
+                pending.join();
+                return 0;   //unexpected election — fail
+            }
+            stop.AssertAllArrived();   //must terminate
+            pending.join();
+            return 0;   //reached = tripwire failed to fire — fail
+        }
         }
         return 0;
     }
@@ -650,6 +703,7 @@ int main(int argc, char** argv)
     test_k7_dual_initiation_joins();
     test_k7_reset_and_stale_tokens();
     test_k7_executing_self_and_tripwires();
+    test_k8_assert_all_arrived_last_arriver();
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";
     return g_fail > 0 ? 1 : 0;

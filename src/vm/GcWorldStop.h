@@ -86,8 +86,9 @@ public:
     //arrival share one critical section, so a concurrent snapshot can
     //never miss either half. Returns true when this arrival completed
     //the expected set: the CALLER is the last arriver and must collect
-    //(under the global lock) and call Complete(). False = parked
-    //arrival or zombie (no arrival happened — nothing to wait for).
+    //(K8: lock-free — AssertAllArrived pins the quiescence) and call
+    //Complete(). False = parked arrival or zombie (no arrival
+    //happened — nothing to wait for).
     bool EndExecuting();
 
     //Fast safepoint poll (lock-free atomic read).
@@ -113,6 +114,13 @@ public:
     //CollectGarbage; also the cancellation entry — a completer that
     //never arrived releases everyone parked on the epoch).
     void Complete();
+
+    //K8: the collector's quiescence gate — call as the last arriver,
+    //before the lock-free collection. Trips unless a stop is in flight
+    //with every snapshot member arrived (the constructive fact behind
+    //lock-free collection; a violation is an accounting bug, and
+    //collecting without quiescence would race live bytecode).
+    void AssertAllArrived();
 
     //Between runs: zeroes the epoch accounting and retires ALL entries
     //unconditionally (grace-period zombie carriers may still be
