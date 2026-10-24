@@ -29,10 +29,24 @@ thread_local int VmExecutor::t_blockingNativeDepth = 0;
 thread_local uint64_t VmExecutor::t_currentNativeRootOwner = 0;
 
 void VmExecutor::RemoveNativeRoots(uint64_t owner) {
+    //K8: registry mutations share the root-registry mutex — minting
+    //callbacks push from outside any lock (blocking natives run with
+    //the lock handed away).
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
     m_nativeCallRoots.erase(
         std::remove_if(m_nativeCallRoots.begin(), m_nativeCallRoots.end(),
             [owner](const NativeCallRoot& r) { return r.owner == owner; }),
         m_nativeCallRoots.end());
+}
+
+//K8: stage a blocking arm's ret/args cells into the root registry under
+//its mutex (RunBlockingNative size-guard extraction).
+void VmExecutor::StageNativeRoots(const uint8_t* ret, const uint8_t* args,
+                                  uint32_t argCount, uint64_t owner) {
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
+    m_nativeCallRoots.push_back({ret, 1u, 0, owner});
+    if (argCount)
+        m_nativeCallRoots.push_back({args, argCount, 0, owner});
 }
 
 //Compiler-side sanity ceiling for call parameter counts (SnData.h
@@ -105,8 +119,8 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
 {
     const uint32_t paramCount = callee.paramCount;
     if (paramCount > kMaxNativeStagedParams)
-        throw std::runtime_error("NLang VM: native parameter count "
-                                 "exceeds the staging ceiling");
+        throw std::runtime_error(
+            "NLang VM: native parameter count exceeds the staging ceiling");
     ExecutionContext* ctx = m_spScheduler->FindMutable(
         m_spScheduler->CurrentContextId());
     if (!ctx) {
@@ -120,15 +134,13 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
     uint8_t stagedArgs[kMaxNativeStagedParams * kFrameSlotBytes];
     if (paramCount)
         std::memcpy(stagedArgs, locals + callParamBase,
-                    static_cast<size_t>(paramCount) * kFrameSlotBytes);
+            static_cast<size_t>(paramCount) * kFrameSlotBytes);
     uint8_t stagedRet[kFrameSlotBytes] = {0};
     //K6 D11: entries carry the owning arm's id — the old size-watermark
     //truncation could erase a LIVE arm's staged roots on interleaving.
-    const uint64_t rootOwner = g_nextNativeRootOwner.fetch_add(
-        1, std::memory_order_relaxed);
-    m_nativeCallRoots.push_back({stagedRet, 1u, 0, rootOwner});
-    if (paramCount)
-        m_nativeCallRoots.push_back({stagedArgs, paramCount, 0, rootOwner});
+    const uint64_t rootOwner = g_nextNativeRootOwner.fetch_add(1,
+        std::memory_order_relaxed);
+    StageNativeRoots(stagedRet, stagedArgs, paramCount, rootOwner);
     const size_t stolenDepth = EvalStack().size();
     ParkFramesForBlockingNative(ctx);
     //Callback-minted handles attribute to this arm (nested arms restore).
@@ -186,9 +198,11 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
 //thread for the duration of the call).
 void VmExecutor::RootMintedNativeHandle(int32_t handle)
 {
-    if (t_blockingNativeDepth > 0 && handle != 0)
+    if (t_blockingNativeDepth > 0 && handle != 0) {
+        std::lock_guard<std::mutex> g(m_rootRegistryMutex);
         m_nativeCallRoots.push_back(
             {nullptr, 0, handle, t_currentNativeRootOwner});
+    }
 }
 
 } // namespace nlang

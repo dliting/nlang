@@ -1159,6 +1159,10 @@ private:
     //Root a handle minted by a NativeHost callback — no-op outside a
     //blocking section (see t_blockingNativeDepth). Called under the GIL.
     void RootMintedNativeHandle(int32_t handle);
+    //K8: stage a blocking arm's ret/args cells into the root registry
+    //(under the root-registry mutex).
+    void StageNativeRoots(const uint8_t* ret, const uint8_t* args,
+                          uint32_t argCount, uint64_t owner);
     //K6 D11: erase exactly one arm's root entries (staged cells + its
     //callbacks' minted values) — replaces the old watermark truncation.
     void RemoveNativeRoots(uint64_t owner);
@@ -1303,6 +1307,11 @@ private:
                                          //pushed this (0 = never valid)
     };
     std::vector<NativeCallRoot> m_nativeCallRoots;
+    //K8: host-boundary resources are not stores, so they take small
+    //dedicated leaf mutexes instead of domain locks. This one guards
+    //both root registries (native call roots and host roots) — pushes,
+    //staging and removal only; the collector reads at rendezvous.
+    mutable std::mutex m_rootRegistryMutex;
     //Depth of blocking-native sections entered on this thread. Minting
     //callbacks root their handles only while this is non-zero (a
     //non-blocking native holds the GIL across the whole call, so no GC
@@ -1347,6 +1356,13 @@ private:
     //else the portable stdin reader; TokenView owns the shared cursor.
     std::unique_ptr<LineSource> m_upInputSource;
     std::unique_ptr<TokenView> m_upInputView;
+    //K8: the console conversation mutexes (host-boundary, not stores).
+    //Input serializes the lazy view init and the cursor state; output
+    //serializes host callbacks that are not promised thread-safe. They
+    //are separate so a carrier blocked at a prompt does not stall
+    //another carrier's prints.
+    mutable std::mutex m_consoleInMutex;
+    mutable std::mutex m_consoleOutMutex;
 
     //ndb: functions[] index of the innermost frame. Module functions
     //vector is stable after load (no reallocation), so pointer
@@ -1513,6 +1529,9 @@ private:
     //from random_device at each Execute() so runs differ unless the
     //program calls math.srand itself.
     std::mt19937 m_rng;
+    //K8: serializes the shared engine's draws and reseeds (host-boundary
+    //leaf mutex — the engine is not a store).
+    mutable std::mutex m_rngMutex;
 
     //Phase 9d: allocate a built-in Exception instance of the given class,
     //set message + populate backtrace from the current evaluation-stack snapshot,

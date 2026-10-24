@@ -98,21 +98,24 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
-//K2 slice 4 (§2.5 re-entrant callback GIL): every callback that touches
-//VM state takes the GIL through GilEnsureGuard. Inside a carrier window
-//or a non-blocking native the lock is already held and the guard is a
-//no-op; inside a blocking native (or from a host thread) it acquires.
+//K8: every callback locks at its own touch face — store access rides
+//the domain locks inside the VM helpers (mint, list build, exception
+//build), while host-boundary resources (console conversation, RNG,
+//root registries) take their dedicated leaf mutexes. The two
+//scheduler-facing callbacks keep the store lock (see below).
 
 const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle) {
     VmNativeHost* h = Wrap(self);
-    GilEnsureGuard gil(*h->executor);
+    //K8: lock-free — the copy walks the string store, which flattens
+    //and interns under its own maintenance lock.
     h->stringScratch = h->executor->StrValCopy(handle);
     return h->stringScratch.c_str();
 }
 
 int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: lock-free — minting self-locks; rooting rides the registry
+    //mutex inside.
     const int32_t handle = e->MintNewString(utf8 ? utf8 : "");
     //Root across the blocking section: the native may hold this handle
     //for a while before writing it into ret, while other carriers GC.
@@ -124,7 +127,8 @@ int32_t VmExecutor::NativeNewListString(NativeHost* self,
                                         const char* const* items,
                                         int count) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: lock-free — the list build holds the Container domain
+    //internally; rooting rides the registry mutex.
     const int32_t listHeapIdx = e->BuildListString(items, count);
     //The list keeps its elements (MarkListElements); rooting the list
     //covers the whole minted graph.
@@ -134,7 +138,9 @@ int32_t VmExecutor::NativeNewListString(NativeHost* self,
 
 void VmExecutor::NativeWriteOutput(NativeHost* self, const char* text) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: host IO callbacks are not promised thread-safe — the console
+    //output mutex keeps whole-line writes whole.
+    std::lock_guard<std::mutex> outGuard(e->m_consoleOutMutex);
     const char* out = text ? text : "";
     if (e->m_pHostIo) {
         e->m_pHostIo->OnOutput(out);
@@ -146,7 +152,7 @@ void VmExecutor::NativeWriteOutput(NativeHost* self, const char* text) {
 
 void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    std::lock_guard<std::mutex> outGuard(e->m_consoleOutMutex);
     const char* out = text ? text : "";
     if (e->m_pHostIo) {
         //Separate error channel (extension point ④): hosts with a
@@ -183,9 +189,15 @@ TokenView& VmExecutor::EnsureInputView() {
 const char* VmExecutor::NativeReadLine(NativeHost* self) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
-    GilEnsureGuard gil(*e);
     std::string line;
-    const InputReadStatus st = e->EnsureInputView().ReadLine(line);
+    InputReadStatus st;
+    {
+        //K8: the input view is one sequential conversation (lazy init
+        //+ cursor state); the console input mutex serializes readers.
+        //Blocking at a prompt is fine — output has its own mutex.
+        std::lock_guard<std::mutex> inGuard(e->m_consoleInMutex);
+        st = e->EnsureInputView().ReadLine(line);
+    }
     if (st == InputReadStatus::NoChannel)
         e->RaiseNlangException(e->m_ioExcClassIdx,
             "io.readLine: stdin is not available in this session.");
@@ -200,9 +212,12 @@ const char* VmExecutor::NativeReadLine(NativeHost* self) {
 const char* VmExecutor::NativeReadToken(NativeHost* self) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
-    GilEnsureGuard gil(*e);
     std::string token;
-    const InputReadStatus st = e->EnsureInputView().ReadToken(token);
+    InputReadStatus st;
+    {
+        std::lock_guard<std::mutex> inGuard(e->m_consoleInMutex);
+        st = e->EnsureInputView().ReadToken(token);
+    }
     if (st == InputReadStatus::NoChannel)
         e->RaiseNlangException(e->m_ioExcClassIdx,
             "io.readToken: stdin is not available in this session.");
@@ -215,11 +230,13 @@ const char* VmExecutor::NativeReadToken(NativeHost* self) {
 
 int VmExecutor::NativeReadChar(NativeHost* self, uint32_t* outChar) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
     uint32_t codePoint = 0;
     bool invalidUtf8 = false;
-    const InputReadStatus st = e->EnsureInputView().ReadChar(
-        codePoint, invalidUtf8);
+    InputReadStatus st;
+    {
+        std::lock_guard<std::mutex> inGuard(e->m_consoleInMutex);
+        st = e->EnsureInputView().ReadChar(codePoint, invalidUtf8);
+    }
     if (st == InputReadStatus::NoChannel)
         e->RaiseNlangException(e->m_ioExcClassIdx,
             "io.readChar: stdin is not available in this session.");
@@ -234,16 +251,19 @@ int VmExecutor::NativeReadChar(NativeHost* self, uint32_t* outChar) {
 
 int VmExecutor::NativeHasInput(NativeHost* self) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
     //Predicate contract: never raises. A no-channel host latches
     //HasMore false on its first read (which raises); until then the
     //default host probe answers true — documented in io.n's comment.
+    std::lock_guard<std::mutex> inGuard(e->m_consoleInMutex);
     return e->EnsureInputView().HasInput() ? 1 : 0;
 }
 
 void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
                                       const char* message) {
     VmExecutor* e = Wrap(self)->executor;
+    //K8: keeps the store lock — FireOnThrow is a scheduler-facing
+    //checkpoint (the OpThrow family keeps its guard for the same
+    //reason); restated with the scheduler lock in Step 7.
     GilEnsureGuard gil(*e);
     int16_t classIdx = (exceptionKind == NEXC_IOException)
         ? e->m_ioExcClassIdx : e->m_exceptionClassIdx;
@@ -265,7 +285,9 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
 int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
                                            const std::string& message,
                                            int32_t maybeLiveHeapIdx) {
-    GilEnsureGuard g(*this);
+    //K8: lock-free entry — the probe reads heap slots (benign under
+    //the sharing model), the rebuild self-locks (Container), and the
+    //rooting rides the registry mutex.
     //Probe the recorded index: kind intact, same class, same message
     //content — a slot recycled by another instance fails one of the
     //three and falls through to the remint. cell[0] = classIdx,
@@ -295,13 +317,15 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
 
 uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: the shared engine serializes draws and reseeds on the RNG
+    //mutex (host-boundary leaf — the engine is not a store).
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
     return e->m_rng();
 }
 
 void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
     e->m_rng.seed(static_cast<uint32_t>(seed));
 }
 
@@ -355,12 +379,11 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
             "NLang VM: native function not registered: " + callee.name);
     VmNativeHost host;
     InitNativeHost(host);
-    //K7: native dispatch single point — the blocking arm stages roots
-    //and parks frames in executor storage, the direct arm reads and
-    //writes the stores inside the native. EnsureNativeAvailable (DLL
-    //load) above stays outside the guard.
-    GilEnsureGuard g(*this);
     if (it->second.blocking) {
+        //K8: the blocking arm keeps the store lock — the protocol
+        //stages roots and parks frames in executor storage and hands
+        //the lock to the native through the thread's current holder.
+        GilEnsureGuard g(*this);
         NativeFn fn = it->second.fn;
         RunBlockingNative(callee, callParamBase, locals, pResult,
             [&host, fn](const uint8_t* args, uint32_t argc,
@@ -370,6 +393,9 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
             });
         return;
     }
+    //K8 direct arm: lock-free — the native table is read-only during a
+    //run and the host context is call-local; every store the native
+    //touches goes through the callbacks above, each self-guarded.
     it->second.fn(&host.c, pResult, locals + callParamBase,
                   callee.paramCount);
 }
