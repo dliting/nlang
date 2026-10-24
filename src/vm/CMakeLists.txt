@@ -9,6 +9,7 @@ add_library(nlang_vm
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
+    VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp

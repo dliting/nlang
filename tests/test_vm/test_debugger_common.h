@@ -97,6 +97,10 @@ void run_debugger_loop_tests();
 //K4 task 2: derived-context breakpoints/stepping, parked-context
 //inspection through the unified view face — test_debugger_multicontext.cpp.
 void run_debugger_multicontext_tests();
+//K7 task 5: freeze parking without the global lock (concurrent freeze
+//semantics, nested-window pins, mutation consistency) —
+//test_debugger_k7.cpp.
+void run_debugger_k7_tests();
 
 //v0.8.5: runtime error reporting (backtrace file paths, throw messages,
 //InvalidCastException, --no-debug-info anchors) — test_backtrace.cpp.

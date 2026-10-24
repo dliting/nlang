@@ -554,6 +554,22 @@ public:
     }
     int DebugFocusContext() const { return m_debugFocusContext; }
 
+    //K7 task 5: 调试冻结门，引用计数——每个进入冻结停泊的载体持一份
+    //计数（VmExecutor 的 Enter/ExitFreezePark 括号配对加减）。计数非零
+    //期间载体不得开始新分派：冻结载体停泊时不持全局锁，排队/停泊上下文
+    //若照常分派会破坏「单一活跃窗」语义；最后一个冻结载体退出时计数归
+    //零并唤醒运行队列上的门等待者。门等待者也不计入空闲载体数——死锁
+    //检测器不得把冻结中的 run 判为死工作（冻结载体既非空闲也非排队）。
+    void ArmDebugFreezeGate() {
+        GilEnsureGuard g(*this);
+        ++m_debugFreezeDepth;
+    }
+    void DisarmDebugFreezeGate() {
+        GilEnsureGuard g(*this);
+        if (--m_debugFreezeDepth == 0)
+            m_runQueueCv.notify_all();
+    }
+
     //请求关停：置位并唤醒全部等待载体（它们在下次出队时看到 -1 退
     //出）。自守卫——供未持锁的路径（RunPrimaryCarrier 的异常兜底、
     //其他线程）调用；已持锁的路径（MarkFinished/MarkFailed 内部）
@@ -662,6 +678,8 @@ private:
     //K4：调试焦点（D2；-1 = 无）与载体→当前上下文集中登记表（按载体
     //编号下标；-1 = 空闲）。全部读写都在 GIL 内。
     int m_debugFocusContext = -1;
+    //K7 task 5：调试冻结门计数（见 ArmDebugFreezeGate）。读写都在 GIL 内。
+    int m_debugFreezeDepth = 0;
     uint32_t m_carrierCount = 0;
     std::vector<int> m_heldByCarrier;
 

@@ -301,6 +301,12 @@ public:
     DebugFrameInfo FrameInfo(int contextId, size_t depth) const override;
     std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const override;
+    //K7 task 5: the freeze parking bracket (see IDebugHooks.h). The
+    //frozen carrier leaves the GC rendezvous denominator, hands off any
+    //held global lock, and takes a count on the dispatch gate; exit
+    //mirrors it (the last one out opens the gate).
+    void EnterFreezePark(GilHolder*& parkedHolder) override;
+    void ExitFreezePark(GilHolder* parkedHolder) override;
     //Frame source resolution behind the view face (see
     //VmExecutorDebug.cpp): execution-window context → its carrier's stack,
     //otherwise the registry's parked stack.

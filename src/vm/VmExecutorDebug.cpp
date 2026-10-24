@@ -107,10 +107,15 @@ const char* ContextStateName(ContextState state) {
 } // namespace
 
 size_t VmExecutor::ContextCount() const {
+    //K7: the pump queries from the frozen window's thread — the carrier
+    //parks without the global lock — so every view query self-guards
+    //(the old "held lock or quiescent VM" assumption is gone).
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     return m_spScheduler->ContextCount();
 }
 
 DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     DebugContextInfo info;
     info.id = contextId;
     const ExecutionContext* ctx = m_spScheduler->Find(contextId);
@@ -139,9 +144,14 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
 //K4: the frames of one context for inspection. The context in this
 //carrier's execution window owns EvalStack() (its registry copy is
 //empty — the stack was stolen into the window); every other context
-//parks its whole stack in the scheduler registry. Frozen-window only:
-//the GIL is held by this carrier while a checkpoint runs, so no other
-//window can concurrently steal frames back.
+//parks its whole stack in the scheduler registry. K7 justification:
+//queries run under the global lock (self-guarded callers above), which
+//serializes them against frame migration (park/steal both happen under
+//the lock) and against any concurrent collection — so whichever side a
+//context's frames are on at lock-acquire is the side this read sees. A
+//context held by ANOTHER running carrier answers through its registry
+//copy (empty — frameCount 0 plus the held marker): its live frames are
+//on that carrier's stack, mid-flight and not inspectable.
 const std::vector<CallFrame>* VmExecutor::FramesOfContext(
     int contextId) const {
     if (contextId == m_spScheduler->CurrentContextId())
@@ -151,11 +161,13 @@ const std::vector<CallFrame>* VmExecutor::FramesOfContext(
 }
 
 size_t VmExecutor::FrameCount(int contextId) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     return frames ? frames->size() : 0;
 }
 
 DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     DebugFrameInfo info;
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     if (!frames || depth >= frames->size()) return info;
@@ -180,6 +192,7 @@ DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
 
 std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
     size_t depth) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     std::vector<DebugLocalValue> out;
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     if (!frames || depth >= frames->size()) return out;

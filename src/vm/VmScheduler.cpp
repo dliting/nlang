@@ -142,6 +142,16 @@ int VmScheduler::PopNextRunnable() {
     GilEnsureGuard gilGuard(*this);
     std::unique_lock<std::mutex>& gil = gilGuard.Lock();
     for (;;) {
+        //K7 task 5: 调试冻结门——计数非零（冻结窗链开启）期间不开始
+        //新分派（见 ArmDebugFreezeGate）。置于焦点门之前：冻结载体不持
+        //锁停泊，若焦点臂先行，Step* 冻结会把等待者引入焦点 held-wait
+        //（其空闲递增会让死锁检测器把冻结 run 误判为死工作）。门等待不
+        //计入空闲载体数——冻结载体本身既非空闲也非排队，检测器的
+        //不等式在门后不可达。
+        if (m_debugFreezeDepth > 0)
+            m_runQueueCv.wait(gil, [this] {
+                return m_stopRequested || m_debugFreezeDepth == 0;
+            });
         //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
         //可分派者。排队中→本次出队取焦点（越过队首非焦点项）；被别的
         //载体持有→无物可分派，等焦点状态迁移（持有者的停泊/终结/重新

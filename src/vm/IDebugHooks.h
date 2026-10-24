@@ -57,6 +57,11 @@ struct DebugContextInfo {
 //scheduler registry — the same query path covers both. Implementations
 //must not execute NLang code or allocate on the NLang heap — the heap
 //is consistent at freeze time and must stay that way.
+//K7: checkpoints run GIL-free on concurrent carriers, so queries may
+//arrive from the frozen window's pump while other carriers execute —
+//implementations self-guard on the global lock.
+class GilHolder;   //the scheduler's global-lock holder interface
+
 class IVmDebugView {
 public:
     virtual ~IVmDebugView() = default;
@@ -66,6 +71,25 @@ public:
     virtual DebugFrameInfo FrameInfo(int contextId, size_t depth) const = 0;
     virtual std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const = 0;
+    //K7: the freeze parking bracket, driven by the session controller
+    //around the frozen window. Enter: leave the GC stop-the-world
+    //denominator (arriving under any in-flight stop) and hand off the
+    //global lock this checkpoint may hold — nested-window freezes (a
+    //breakpoint inside a toString override) run inside a store guard,
+    //top-level checkpoints hold nothing; parkedHolder receives the
+    //handed-off holder, nullptr when nothing was held. Exit: re-enter
+    //the denominator, re-acquire the handed-off lock, then drop this
+    //window's count on the dispatch gate — the last frozen carrier out
+    //opens the gate. The parkedHolder out/in pair lives in the
+    //controller's Freeze frame so nested parks (a breakpoint inside a
+    //pump-driven evaluation) each restore their own holder. Default
+    //no-ops keep other view implementations source-compatible.
+    virtual void EnterFreezePark(GilHolder*& parkedHolder) {
+        parkedHolder = nullptr;
+    }
+    virtual void ExitFreezePark(GilHolder* parkedHolder) {
+        (void)parkedHolder;
+    }
 };
 
 //Front-end-agnostic debugger callbacks (no CLI/terminal concepts — a
