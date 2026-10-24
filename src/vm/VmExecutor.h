@@ -10,6 +10,7 @@
 #include "VmClassLayout.h"
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
+#include "ChunkedArray.h"
 #include "VmScheduler.h"
 #include <atomic>
 #include <condition_variable>
@@ -1366,11 +1367,11 @@ private:
     //Struct heap: each slot is a vector of int32 values (one per field).
     //Index 0 is a sentinel (empty slot).
     using StructSlot = std::vector<int32_t>;
-    std::vector<StructSlot> m_structHeap;
+    ChunkedArray<StructSlot> m_structHeap;
 
     //GC infrastructure.
-    std::vector<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
-    std::vector<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
+    ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
+    ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
     std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;

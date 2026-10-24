@@ -721,6 +721,23 @@ target_link_libraries(test_domainlocks
 
 add_test(NAME domainlocks_tests COMMAND test_domainlocks)
 
+# K8 Task 2: chunked block storage (stable element addresses, atomic size
+# publication) — real threads for the read/growth overlap contract.
+add_executable(test_chunkedarray
+    test_vm/test_chunkedarray.cpp
+)
+target_include_directories(test_chunkedarray
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_chunkedarray
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME chunkedarray_tests COMMAND test_chunkedarray)
+
 # K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
 # behavior tests — same harness shape as test_threads.
 add_executable(test_stdlib_concurrency

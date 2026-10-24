@@ -294,9 +294,9 @@ int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
         m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(3, 0);
-        m_slotKinds.push_back(0);
-        m_slotStructIdx.push_back(0);
+        m_structHeap.Emplace(3, 0);
+        m_slotKinds.Emplace(0);
+        m_slotStructIdx.Emplace(0);
     }
     m_structHeap[static_cast<size_t>(heapIdx)][0] = target;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = thisIdx;

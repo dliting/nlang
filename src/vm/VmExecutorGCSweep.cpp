@@ -138,8 +138,9 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
 //LiveStringObjectCount for bounded-memory assertions.
 size_t VmExecutor::LiveHeapSlotCount() const {
     size_t live = 0;
-    for (uint8_t kind : m_slotKinds)
-        if (kind != 0) ++live;
+    const size_t slotCount = m_slotKinds.size();
+    for (size_t i = 0; i < slotCount; ++i)
+        if (m_slotKinds[i] != 0) ++live;
     return live;
 }
 

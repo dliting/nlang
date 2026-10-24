@@ -26,9 +26,9 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
         m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(recordCells, 0);
-        m_slotKinds.push_back(RTK_Struct);
-        m_slotStructIdx.push_back(structIdx);
+        m_structHeap.Emplace(recordCells, 0);
+        m_slotKinds.Emplace(RTK_Struct);
+        m_slotStructIdx.Emplace(structIdx);
     }
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
@@ -74,9 +74,9 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
         m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(recordCells, 0);
-        m_slotKinds.push_back(RTK_Class);
-        m_slotStructIdx.push_back(0);
+        m_structHeap.Emplace(recordCells, 0);
+        m_slotKinds.Emplace(RTK_Class);
+        m_slotStructIdx.Emplace(0);
     }
     m_structHeap[static_cast<size_t>(heapIdx)][0] = static_cast<int32_t>(classIdx);
     for (size_t i = 0; i < fields.size(); ++i) {
@@ -105,9 +105,9 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
         m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(totalSlots, 0);
-        m_slotKinds.push_back(RTK_Array);
-        m_slotStructIdx.push_back(arrayTypeIdx);
+        m_structHeap.Emplace(totalSlots, 0);
+        m_slotKinds.Emplace(RTK_Array);
+        m_slotStructIdx.Emplace(arrayTypeIdx);
     }
     m_structHeap[static_cast<size_t>(heapIdx)][0] = RTK_Array;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = arrayTypeIdx;
@@ -143,9 +143,9 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
         m_slotStructIdx[static_cast<size_t>(newHeapIdx)] = structIdx;
     } else {
         newHeapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.push_back(srcSlotCopy);
-        m_slotKinds.push_back(RTK_Struct);
-        m_slotStructIdx.push_back(structIdx);
+        m_structHeap.Emplace(srcSlotCopy);
+        m_slotKinds.Emplace(RTK_Struct);
+        m_slotStructIdx.Emplace(structIdx);
     }
     //Deep-copy struct-typed fields (field i at cell 2i under the uniform
     //stride). Class-typed fields are shallow-copied (reference semantics

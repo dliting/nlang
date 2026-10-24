@@ -76,9 +76,9 @@ int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
         m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     } else {
         heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(3, 0);
-        m_slotKinds.push_back(0);
-        m_slotStructIdx.push_back(0);
+        m_structHeap.Emplace(3, 0);
+        m_slotKinds.Emplace(0);
+        m_slotStructIdx.Emplace(0);
     }
     auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
     rec[0] = static_cast<int32_t>(typeTag);

@@ -114,12 +114,12 @@ void VmExecutor::InitStringStore(const CompiledModule& module) {
 //Initialize struct heap with sentinel at index 0, plus GC state.
 void VmExecutor::InitStructHeap() {
     m_structHeap.clear();
-    m_structHeap.emplace_back();  //empty slot at index 0
+    m_structHeap.Emplace();  //empty slot at index 0
 
     m_slotKinds.clear();
-    m_slotKinds.push_back(0);    //sentinel
+    m_slotKinds.Emplace(0);    //sentinel
     m_slotStructIdx.clear();
-    m_slotStructIdx.push_back(0);
+    m_slotStructIdx.Emplace(0);
     m_freeList.clear();
     m_gcPressure.store(false, std::memory_order_release);
     EvalStack().clear();

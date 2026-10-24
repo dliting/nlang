@@ -15,7 +15,7 @@ namespace nlang {
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
 static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
-    const std::vector<std::vector<int32_t>>& structHeap,
+    const ChunkedArray<std::vector<int32_t>>& structHeap,
     const char* label)
 {
     int32_t thisHeapIdx;
