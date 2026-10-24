@@ -82,3 +82,38 @@ native int[] div(int[] a, int[] b);
 native long[] div(long[] a, long[] b);
 native float[] div(float[] a, float[] b);
 native double[] div(double[] a, double[] b);
+
+//--- reductions (same-name overloads; runtime element-kind dispatch) -----------
+
+// Sum of all elements. The empty array yields the type's zero.
+native int sum(int[] a);
+native long sum(long[] a);
+native float sum(float[] a);
+native double sum(double[] a);
+
+// Largest element; an empty array raises the base Exception.
+native int max(int[] a);
+native long max(long[] a);
+native float max(float[] a);
+native double max(double[] a);
+
+// Smallest element; an empty array raises the base Exception.
+native int min(int[] a);
+native long min(long[] a);
+native float min(float[] a);
+native double min(double[] a);
+
+// Arithmetic mean; always double, for every element kind. An empty
+// array raises the base Exception.
+native double mean(int[] a);
+native double mean(long[] a);
+native double mean(float[] a);
+native double mean(double[] a);
+
+// Inner product of two arrays of the same length. Integer kinds
+// accumulate in 64 bits and return long (no silent overflow); the empty
+// array yields zero.
+native long dot(int[] a, int[] b);
+native long dot(long[] a, long[] b);
+native float dot(float[] a, float[] b);
+native double dot(double[] a, double[] b);

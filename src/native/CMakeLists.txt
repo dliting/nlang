@@ -22,6 +22,11 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
         POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
+# Multi-file module sources beyond the per-module naming pattern.
+target_sources(nlang_tensor PRIVATE
+    tensor/tensor_binary.cpp
+    tensor/tensor_reduce.cpp)
+
 # Deploy every module next to each host tool. The loader's default search path
 # is the host executable's directory. ncc/nvm/ndb/nlang always exist; nide
 # only when the IDE is built. This subdirectory is added AFTER the tools, so
@@ -39,6 +44,11 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
             VERBATIM)
     endforeach()
 endforeach()
+
+# Multi-file module sources beyond the per-module naming pattern.
+target_sources(nlang_tensor PRIVATE
+    tensor/tensor_binary.cpp
+    tensor/tensor_reduce.cpp)
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.

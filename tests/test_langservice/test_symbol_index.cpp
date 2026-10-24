@@ -28,10 +28,10 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 85 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
-    // fs 8, thread 5 (the K3 materialized package), tensor 32 (stage 1:
+    // 105 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
+    // fs 8, thread 5 (the K3 materialized package), tensor 52 (stage 1:
     // creation + elementwise families).
-    CHECK(index.size() == 85);
+    CHECK(index.size() == 105);
 }
 
 static void TestResolvePrint() {
@@ -255,7 +255,7 @@ static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
     // creation + elementwise families).
-    CHECK(index.size() == 85);
+    CHECK(index.size() == 105);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
@@ -263,7 +263,7 @@ static void TestClear() {
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
     // creation + elementwise families).
-    CHECK(index.size() == 85);
+    CHECK(index.size() == 105);
 }
 
 static void TestBlockCommentBraces() {

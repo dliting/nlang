@@ -46,4 +46,12 @@ void TensorSub(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorMul(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorDiv(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
+//--- reduction entries (tensor_reduce.cpp) --------------------------------------
+
+void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorMax(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorMin(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorDot(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+
 } // namespace tensor

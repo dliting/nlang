@@ -149,5 +149,10 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "sub", &tensor::TensorSub);
     regBlocking(registry, "tensor", "mul", &tensor::TensorMul);
     regBlocking(registry, "tensor", "div", &tensor::TensorDiv);
+    regBlocking(registry, "tensor", "sum", &tensor::TensorSum);
+    regBlocking(registry, "tensor", "max", &tensor::TensorMax);
+    regBlocking(registry, "tensor", "min", &tensor::TensorMin);
+    regBlocking(registry, "tensor", "mean", &tensor::TensorMean);
+    regBlocking(registry, "tensor", "dot", &tensor::TensorDot);
     return NLANG_HOST_ABI_VERSION;
 }
