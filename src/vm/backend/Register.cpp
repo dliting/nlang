@@ -354,20 +354,19 @@ void VmBackend::RegisterUnitTables(SnNamespace& root) {
 }
 
 //Same-build cross-unit callees need their producer-side table index for
-//the import record (nlink's authoritative selector). The producer's
-//table layout is built by this backend's own registration sequence, so
-//the index is only knowable by RUNNING that sequence — a hand-replayed
-//count would drift with every builtin change. Shadow-register every
-//inlined library TU once (registration only, no bytecode, no image) and
-//archive its function map; the layout depends only on the unit's own
-//declarations plus the constant builtin set, so it matches the library
-//package's producer build exactly.
-void VmBackend::ShadowRegisterLibraryUnits(SnNamespace& root) {
+//the import record (nlink's authoritative selector) — inlined library
+//sources AND sibling user units in a project build alike (same-name
+//same-arity type overloads link ambiguously without it). The layout is
+//built by this backend's own registration sequence, so the index is
+//only knowable by RUNNING that sequence — a hand-replayed count would
+//drift with every builtin change. Shadow-register every unit once
+//(registration only, no bytecode, no image) and archive its function
+//map; the layout depends only on the unit's own declarations plus the
+//constant builtin set, so it matches the producer exactly.
+void VmBackend::ShadowRegisterUnits(SnNamespace& root) {
     const uint32_t count = m_pRegistry->ModuleCount();
     m_unitFuncIdxByModule.assign(count, {});
     for (uint32_t i = 0; i < count; ++i) {
-        if (!m_pRegistry->IsLibraryModule(i))
-            continue;
         BeginUnit(i, m_pRegistry->ModulePathOf(i));
         RegisterUnitTables(root);
         auto& archived = m_unitFuncIdxByModule[i];
@@ -381,7 +380,7 @@ void VmBackend::ShadowRegisterLibraryUnits(SnNamespace& root) {
     m_compiledModule = CompiledModule{};
 }
 
-uint16_t VmBackend::ProducerIdxOfLibraryFunc(const SnFunction& callee) {
+uint16_t VmBackend::ProducerIdxOfCrossUnitFunc(const SnFunction& callee) {
     const uint32_t owner = m_pRegistry->OwnerOfContext(callee);
     if (owner == ModuleRegistry::NO_OWNER
         || owner >= m_unitFuncIdxByModule.size())

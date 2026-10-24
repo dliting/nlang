@@ -97,15 +97,16 @@ public:
 
     //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
-
-    //Same-build cross-unit callee support: ShadowRegisterLibraryUnits
-    //runs the per-unit registration sequence over every inlined library
-    //TU (registration only — no bytecode, no image) and archives each
-    //one's function-table map; ProducerIdxOfLibraryFunc then reads the
-    //authoritative producer-side index for the import record's ordinal
-    // (nlink's single-select selector). 0xFFFF = no archived record.
-    void ShadowRegisterLibraryUnits(SnNamespace& root);
-    uint16_t ProducerIdxOfLibraryFunc(const SnFunction& callee);
+    //Same-build cross-unit callee support: ShadowRegisterUnits runs
+    //the per-unit registration sequence over EVERY translation unit
+    //once (registration only, no bytecode, no image) and archives each
+    //one's function-table map; ProducerIdxOfCrossUnitFunc then reads
+    //the authoritative producer-side index for the import record
+    //ordinal (nlink single-selects same-name same-arity overloads of
+    //inlined library sources and sibling user units alike). 0xFFFF =
+    //no archived record.
+    void ShadowRegisterUnits(SnNamespace& root);
+    uint16_t ProducerIdxOfCrossUnitFunc(const SnFunction& callee);
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
@@ -1436,16 +1437,15 @@ private:
     SyntaxNodeVisitor<VmBackend> m_EmitVisitor;
     BytecodeEmitter* m_pCurrEmitter = nullptr;
     uint16_t m_resultOffset = 0;
-
     //v2.0: the entry function's qualified key (ResolveEntryPoint), e.g.
     //"main.main". Serialized so the loader can re-resolve the index —
     //the index itself is table-layout-dependent and not serialized.
     std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
-    //Archived per-library-unit function tables (indexed by module idx;
-    //user units register inside the GenerateUnits loop and need no
-    //archive). Filled by ShadowRegisterLibraryUnits.
+    //Archived per-unit function tables (indexed by module idx), the
+    //producer-index source for cross-unit import records. Filled by
+    //ShadowRegisterUnits.
     std::vector<std::unordered_map<SnFunction*, uint16_t>>
         m_unitFuncIdxByModule;
 

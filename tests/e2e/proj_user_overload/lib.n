@@ -1,0 +1,14 @@
+// Producer unit: same-name type overloads (the tensor elementwise
+// shape) as ordinary bytecode functions. No main() (library unit
+// policy).
+int scale(int v) {
+    return v * 2;
+}
+
+double scale(double v) {
+    return v * 2.5;
+}
+
+long scale(long v) {
+    return v * 3;
+}

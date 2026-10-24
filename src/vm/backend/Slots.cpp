@@ -64,7 +64,7 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     if (meta.ownerClassKey.empty()) {
         meta.ownerOrdinal = callee.m_iProducerFuncIdx;
         if (meta.ownerOrdinal == 0xFFFF)
-            meta.ownerOrdinal = ProducerIdxOfLibraryFunc(callee);
+            meta.ownerOrdinal = ProducerIdxOfCrossUnitFunc(callee);
     }
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),

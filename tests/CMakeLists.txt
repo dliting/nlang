@@ -2010,3 +2010,17 @@ if(Python3_FOUND)
     set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 
+
+#Same-name same-arity type overloads across user units (the tensor
+#elementwise shape in plain project code): the shadow-registered
+#producer index single-selects each call's own record. The fixture
+#self-checks all three overloads before printing 42.
+add_test(NAME proj_user_overload_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_user_overload/proj_user_overload.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_user_overload.npkg)
+add_test(NAME proj_user_overload_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_user_overload.npkg)
+set_tests_properties(proj_user_overload_run PROPERTIES
+    DEPENDS proj_user_overload_compile
+    PASS_REGULAR_EXPRESSION "42")

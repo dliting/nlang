@@ -112,12 +112,12 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //from the peer images.
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
-    //Slot-time producer-index replays (ProducerIdxOfLibraryFunc) walk
-    //this tree; registration walks receive it per call as before.
-    //Archive the library units' producer function tables before any real
-    //unit's codegen emits cross-unit import records (Slots.cpp reads the
-    //authoritative index from these archives).
-    ShadowRegisterLibraryUnits(root);
+    //Archive every unit's producer function table before codegen emits
+    //cross-unit import records (Slots.cpp reads the authoritative
+    //index from these archives — same-name type overloads across
+    //units single-select through it).
+    ShadowRegisterUnits(root);
+    ShadowRegisterUnits(root);
     //Whole-tree pre-checks, before any image is built: both concerns
     //span units, so neither is judgeable from inside the per-unit loop
     //(library TUs never reach codegen, and each unit's entry scan only
