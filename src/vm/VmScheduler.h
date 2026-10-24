@@ -257,13 +257,19 @@ public:
     int PopNextRunnable();
 
     //K7 site 1: 停泊过渡——把调用线程整条求值栈搬入上下文的停泊帧
-    //（载体停泊臂，GIL-free 调用点——这是唯一的锁外帧迁移）。搬移经
-    //拥有者方法在全局锁下串行：并发收集者恰好扫「注册表条目」与
-    //ctx->frames」两个面，任一时刻每帧恰在唯一可见面。自守卫。
+    //（载体停泊臂）。形参为右值引用而非值传递：值参数的移动构造发生
+    //在调用点锁外，掏空载体槽与 ctx->frames 落帧之间出现「两不可见」
+    //窗口（收集者的两臂都扫不到，帧内活引用被清扫——conc_waitgroup
+    //ASan 闪烁的两根因之一；主因＝活上下文 resultCell 未保守根，见
+    //VmExecutorGCRoots.cpp 的 MarkContextResultCell）。右值引用只绑定
+    //不搬移，搬移在守卫临界区内发生：并发收集者恰好扫「注册表条目」
+    //与「ctx->frames」两个面，任一时刻每帧恰在唯一可见面（MarkPhase
+    //还把两臂括成同一临界区，迁移无论朝哪向都不能插进两臂之间）。
+    //自守卫。
     //K7：同一临界区内决定队列项——状态仍 Runnable（配额抢占，或停泊
     //展开途中已被唤醒）则搬帧后入队；停泊中则置 framesParked 交由唤
     //醒路径入队（握手见 ExecutionContext::framesParked）。
-    void ParkContextFrames(int id, std::vector<CallFrame> frames);
+    void ParkContextFrames(int id, std::vector<CallFrame>&& frames);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
     //队列成员全部是「另外的」上下文）。自守卫读取——回边配额分支在

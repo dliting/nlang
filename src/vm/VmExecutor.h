@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nlang {
@@ -709,11 +710,30 @@ private:
     //heap-index domains: over-marking is safe (GC is non-moving), and
     //frame zero-init rejects never-written cells.
     void MarkFrameBand(const CallFrame& frame, std::vector<int32_t>& worklist);
+    //Both frame-root surfaces — the published carrier stacks (GcStop
+    //registry scan) and the registry ctx->frames — under ONE scheduler
+    //lock bracket so frame-ownership transfers cannot slip between the
+    //arms (K8 Task 7; see the definition for the invariant).
+    void ScanFrameRootSurfaces(std::vector<int32_t>& worklist);
     //K1 Slice 6: scheduler root arm — parked/queued contexts' frames
     //(not on any evaluation stack under the steal model) plus each context's
     //Thread object and a Failed context's exception object (join rethrows
     //it by heap idx). Same three frame arms as the running stack.
     void MarkSchedulerRoots(std::vector<int32_t>& worklist);
+    //One context's resultCell: conservative both-domain value test for
+    //live contexts (the accumulator of the whole root call tree — K8
+    //Task 7), kind-classified by resultKind once finished/failed (K3).
+    void MarkContextResultCell(const ExecutionContext* ctx,
+                               std::vector<int32_t>& worklist);
+    //K8 Task 7 product tripwire: every pending delivery destination
+    //(channel waiter resultPtr, parked get() joinResultDst) must fall
+    //inside one of the frame buffers the root scan just covered — a
+    //destination escaping both surfaces means a frame transfer lost
+    //its waiter's frame. Runs inside MarkPhase's transfer-freeze
+    //bracket on a consistent range list.
+    void AuditWaiterDestinationRanges(
+        const std::vector<std::pair<const uint8_t*, const uint8_t*>>&
+            frameRanges);
     //K2 slice 4: blocking-native local roots (staged cells and minted
     //handles) — same dual-domain value test as the frame band.
     void MarkNativeCallRoots(std::vector<int32_t>& worklist);

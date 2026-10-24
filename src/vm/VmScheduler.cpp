@@ -194,7 +194,7 @@ int VmScheduler::PopNextRunnable() {
 //停泊帧叠在既有停泊帧之下）——该路径不经本方法（调用点持锁，内联
 //偷取保容量），此处只服务载体停泊臂。
 void VmScheduler::ParkContextFrames(int id,
-                                    std::vector<CallFrame> frames) {
+                                    std::vector<CallFrame>&& frames) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
@@ -202,6 +202,13 @@ void VmScheduler::ParkContextFrames(int id,
     ctx->frames.insert(ctx->frames.end(),
         std::make_move_iterator(frames.begin()),
         std::make_move_iterator(frames.end()));
+    //Element-wise moves leave the source size intact with husk frames
+    //(func still set, localsBuf emptied) — the source vector IS the
+    //carrier slot, whose publication the root scan walks. Clear inside
+    //this critical section so slot-empty and ctx->frames-landing stay
+    //one indivisible state change (same idiom as the blocking-native
+    //steal's EvalStack().clear()).
+    frames.clear();
     //K7 握手（见 ExecutionContext::framesParked）：状态迁移发生在
     //park 位点（ParkForJoin 等，GIL 下），ParkSignal 展开期间唤醒可
     //已发生——此处 Runnable 涵盖配额抢占与「展开途中被唤醒」两形，

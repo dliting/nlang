@@ -144,9 +144,13 @@ public:
     //callback, holding the leaf lock for the WHOLE scan: any executing
     //flip must take that lock first, so "every entry is quiescent"
     //holds by construction (arrived threads block in WaitForCompletion,
-    //non-executing threads are parked in ctx->frames or between
-    //rendezvous steps). Do NOT "optimize" this into a snapshot-then-
-    //scan — releasing the lock mid-scan reopens the race the wait
+    //non-executing threads are parked in ctx->frames). Frame-ownership
+    //transfers between the two scan surfaces (a carrier slot's vector
+    //and ctx->frames) run under the scheduler lock — the caller must
+    //hold that lock across this scan AND its registry-frames arm, or a
+    //transfer slips between the arms and escapes both (MarkPhase's
+    //bracket is the pattern). Do NOT "optimize" this into a snapshot-
+    //then-scan — releasing the lock mid-scan reopens the race the wait
     //closes. The cost is latency (Rule A waiters queue on the lock),
     //never deadlock: nobody takes the leaf lock then the GIL.
     template <typename Fn>

@@ -157,17 +157,10 @@ void VmExecutor::MarkPhase() {
     //published evaluation stack — all quiescent by the rendezvous
     //guarantee (arrived threads block in WaitForCompletion; others can
     //only touch their stack again through BeginExecuting's Rule A gate).
-    //The scan holds the leaf lock throughout — see ScanRegisteredStacks.
+    //K8 Task 7: both frame-root arms and the transfer-freeze bracket
+    //live in ScanFrameRootSurfaces (see its invariant comment).
     std::vector<int32_t> worklist;
-    m_spScheduler->GcStop().ScanRegisteredStacks(
-        [&worklist, this](std::vector<CallFrame>& stack) {
-            for (CallFrame& frame : stack) {
-                MarkFrameLocals(frame, worklist);
-                MarkFrameResult(frame, worklist);
-                MarkFrameBand(frame, worklist);
-            }
-        });
-    MarkSchedulerRoots(worklist);
+    ScanFrameRootSurfaces(worklist);
     //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
     //return slot) and callback-minted handles — roots for as long as
     //their carrier's GIL is away.
@@ -192,6 +185,48 @@ void VmExecutor::MarkPhase() {
             MarkArrayElements(idx, worklist);
         }
     }
+}
+
+//K8 Task 7: the two frame-root arms run as ONE critical section
+//against frame-ownership transfers. A context's frames sit on
+//exactly one of two scan surfaces — the owning carrier slot's
+//published vector (arm 1) or the registry ctx->frames (arm 2) —
+//and every transfer between them (ParkContextFrames, RunContext-
+//Window's restore, the blocking-native steal/restore pair) runs
+//under the scheduler lock. Bracketing BOTH arms with that lock
+//makes the pair indivisible: a stack parked after arm 1 is still
+//in ctx->frames for arm 2, and a stack restored before arm 2 was
+//already scanned from its slot by arm 1. Without the bracket a
+//restore slipped between the arms escaped both scans — a parked
+//recv's delivered handle then swept while its only anchor was in
+//flight (the conc_waitgroup ASan flake). Scheduler→gcStop-leaf is
+//the one legal order, so the nested leaf lock is fine, and
+//MarkSchedulerRoots' own guard nests as a no-op.
+void VmExecutor::ScanFrameRootSurfaces(std::vector<int32_t>& worklist) {
+    VmScheduler::GilEnsureGuard rootScanTransferFreeze(*m_spScheduler);
+    std::vector<std::pair<const uint8_t*, const uint8_t*>> frameRanges;
+    m_spScheduler->GcStop().ScanRegisteredStacks(
+        [&worklist, &frameRanges, this](std::vector<CallFrame>& stack) {
+            for (CallFrame& frame : stack) {
+                MarkFrameLocals(frame, worklist);
+                MarkFrameResult(frame, worklist);
+                MarkFrameBand(frame, worklist);
+                const uint8_t* b = frame.localsBuf.data();
+                frameRanges.emplace_back(b, b + frame.localsBuf.size());
+            }
+        });
+    MarkSchedulerRoots(worklist);
+    for (size_t ci = 0; ci < m_spScheduler->ContextCount(); ++ci) {
+        const ExecutionContext* ctx = m_spScheduler->Find(
+            static_cast<int>(ci));
+        if (!ctx)
+            continue;
+        for (const CallFrame& frame : ctx->frames) {
+            const uint8_t* b = frame.localsBuf.data();
+            frameRanges.emplace_back(b, b + frame.localsBuf.size());
+        }
+    }
+    AuditWaiterDestinationRanges(frameRanges);
 }
 
 //Extension point ③: host-registered roots (host-held reference Values).
@@ -247,31 +282,7 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
                 && !m_markBits[val])
                 PushMarked(val, worklist);
         }
-        //K3: once the context has finished, its return value lives only
-        //in resultCell — classify it by the snapshotted return kind
-        //(MarkFrameResult's same split: string handle vs heap index) so
-        //a Future<T> of a reference T keeps the value alive between the
-        //spawn and the get(). K7 site 10: the discriminator is the
-        //context STATE, not frames.empty() — with the steal model kept
-        //intact, held and queued contexts have empty registry frames
-        //too, and reading their resultCell here would race the owning
-        //carrier's GIL-free OP_Return write (torn read → misclassified
-        //kind → premature sweep of a live reference).
-        if (ctx->state == ContextState::Finished
-                || ctx->state == ContextState::Failed) {
-            uint8_t retKind = ctx->resultKind;
-            int32_t val;
-            std::memcpy(&val, &ctx->resultCell, sizeof(val));
-            if (retKind == RTK_String) {
-                MarkString(val);
-            } else if (retKind == RTK_Class || retKind == RTK_Struct
-                || retKind == RTK_Array || retKind == RTK_Func) {
-                if (val > 0
-                    && static_cast<size_t>(val) < m_slotKinds.size()
-                    && !m_markBits[val])
-                    PushMarked(val, worklist);
-            }
-        }
+        MarkContextResultCell(ctx, worklist);
     }
 }
 
