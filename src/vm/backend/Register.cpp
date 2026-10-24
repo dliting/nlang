@@ -5,6 +5,8 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <cstdio>
+#include <string>
 #include "builder/SymbolSlots.hpp"
 #include <nlang/compiler/SyntaxTree.h>
 #include <nlang/compiler/SnMisc.h>
@@ -333,6 +335,61 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         m_compiledModule.functions.push_back(std::move(cf));
         m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
     });
+}
+
+//The per-unit registration sequence — table layout only. Shared by the
+//GenerateUnits loop (before bytecode emission) and the library shadow
+//registration below; the order IS the layout contract.
+void VmBackend::RegisterUnitTables(SnNamespace& root) {
+    RegisterBuiltinClasses();
+    RegisterStructs(root);
+    RegisterClasses(root);
+    ResolveStructClassRefs();
+    RegisterArrayTypes(root);
+    RegisterEnums(root);
+    RegisterFunctions(root);
+    PopulateClassMethods(root);
+    PopulateStructMethods(root);
+    RegisterInterfaces(root);
+    RegisterEnumMethods(root);
+}
+
+//Same-build cross-unit callees need their producer-side table index for
+//the import record (nlink's authoritative selector). The producer's
+//table layout is built by this backend's own registration sequence, so
+//the index is only knowable by RUNNING that sequence — a hand-replayed
+//count would drift with every builtin change. Shadow-register every
+//inlined library TU once (registration only, no bytecode, no image) and
+//archive its function map; the layout depends only on the unit's own
+//declarations plus the constant builtin set, so it matches the library
+//package's producer build exactly.
+void VmBackend::ShadowRegisterLibraryUnits(SnNamespace& root) {
+    const uint32_t count = m_pRegistry->ModuleCount();
+    m_unitFuncIdxByModule.assign(count, {});
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!m_pRegistry->IsLibraryModule(i))
+            continue;
+        BeginUnit(i, m_pRegistry->ModulePathOf(i));
+        RegisterUnitTables(root);
+        auto& archived = m_unitFuncIdxByModule[i];
+        archived.reserve(m_funcIndexMap.size());
+        for (auto& kv : m_funcIndexMap)
+            archived[kv.first] = static_cast<uint16_t>(kv.second);
+    }
+    //The shadow modules' tables must not leak into a real unit's image:
+    //the first real BeginUnit resets every per-unit member anyway, but
+    //an empty unit set would leave them standing — clear defensively.
+    m_compiledModule = CompiledModule{};
+}
+
+uint16_t VmBackend::ProducerIdxOfLibraryFunc(const SnFunction& callee) {
+    const uint32_t owner = m_pRegistry->OwnerOfContext(callee);
+    if (owner == ModuleRegistry::NO_OWNER
+        || owner >= m_unitFuncIdxByModule.size())
+        return 0xFFFF;
+    const auto& map = m_unitFuncIdxByModule[owner];
+    const auto it = map.find(const_cast<SnFunction*>(&callee));
+    return it != map.end() ? it->second : 0xFFFF;
 }
 
 //K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)

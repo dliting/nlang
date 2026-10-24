@@ -56,9 +56,16 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //owner key) carries the stub's producer function-table index as
     //the record's ordinal, so nlink single-selects the callee's record
     //instead of scanning by name+arity. Class/struct members keep the
-    //replayed member ordinal computed above.
-    if (meta.ownerClassKey.empty())
+    //replayed member ordinal computed above. A same-build cross-unit
+    //callee (an inlined library source, or another user unit in a
+    //project) is no stub and carries no minted index — replay it from
+    //the shared declaration tree; without it, same-name same-arity
+    //overloads (the tensor elementwise family) link ambiguously.
+    if (meta.ownerClassKey.empty()) {
         meta.ownerOrdinal = callee.m_iProducerFuncIdx;
+        if (meta.ownerOrdinal == 0xFFFF)
+            meta.ownerOrdinal = ProducerIdxOfLibraryFunc(callee);
+    }
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(

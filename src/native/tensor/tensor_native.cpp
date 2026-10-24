@@ -1,20 +1,17 @@
 /*---
-tensor native module — the dynamically-loaded implementation of the
-`tensor` package's numeric kernels. Built as nlang_tensor.dll /
-libnlang_tensor.so; the VM loads it through the same mechanism as any
-third-party native library.
+tensor_native.cpp — registration unit and the creation-kernel family of
+the `tensor` package's native module (nlang_tensor.dll). The elementwise
+binary family lives in tensor_binary.cpp; every entry point is declared
+in TensorKernels.h. See that header and include/nlang/vm/NativeHost.h
+for the payload-view contract.
 
-This module depends only on the stable NativeHost ABI and the C++
-standard library — it does not link nlang_vm. Kernels receive pinned
-payload views (getArrayView), compute on them directly, and mint results
-through newArray; see include/nlang/vm/NativeHost.h for the pointer-
-validity contract.
-
-All kernels register through the blocking channel: array work is
-unbounded in element count, so the global lock must be released for the
-duration (the staged-argument roots keep the operands alive).
+Depends only on the stable NativeHost ABI and the C++ standard library —
+it does not link nlang_vm. All kernels register through the blocking
+channel: array work is unbounded in element count, so the global lock
+must be released for the duration (the staged-argument roots keep the
+operands alive).
 ---*/
-#include <nlang/vm/NativeHost.h>
+#include "TensorKernels.h"
 
 #include <cmath>
 #include <cstdint>
@@ -27,18 +24,13 @@ using nlang::native::NewArray;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
 
+namespace tensor {
+
 namespace {
 
 //Element-count guard for arange: an absurd range with a tiny step must
 //fail by name, not by attempting a multi-GB mint.
 constexpr int64_t kArangeMaxElems = 100 * 1000 * 1000;
-
-template <typename T>
-T* CellsOf(const NativeArrayView& v) {
-    return static_cast<T*>(v.data);
-}
-
-//--- creation kernels ----------------------------------------------------------
 
 //zeros/ones/full family: mint then fill with a constant.
 template <typename T>
@@ -83,35 +75,39 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ReturnInt(ret, handle);
 }
 
-//--- per-kind argument readers --------------------------------------------------
+} // namespace
 
+#define TENSOR_CONST_FILL(Name, Kind, T, Value)                        \
+    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
+              int argc) {                                              \
+        (void)argc;                                                    \
+        FillKernel<T>(host, ret, args, (Kind), (Value));               \
+    }
+
+#define TENSOR_CONST_FILL_BY_ARG(Name, Kind, T, Reader)                \
+    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
+              int argc) {                                              \
+        (void)argc;                                                    \
+        FillKernel<T>(host, ret, args, (Kind),                         \
+            static_cast<T>((Reader)(args, 1)));                        \
+    }
+
+#define TENSOR_ARANGE(Name, Kind, T, Reader)                           \
+    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
+              int argc) {                                              \
+        (void)argc;                                                    \
+        ArangeKernel<T>(host, ret, args, (Kind),                       \
+            static_cast<T>((Reader)(args, 0)),                         \
+            static_cast<T>((Reader)(args, 1)),                         \
+            static_cast<T>((Reader)(args, 2)));                        \
+    }
+
+namespace {
 int32_t ReadI(const uint8_t* args, int slot) { return ArgInt(args, slot); }
 int64_t ReadL(const uint8_t* args, int slot) { return ArgLong(args, slot); }
 float   ReadF(const uint8_t* args, int slot) { return ArgFloat(args, slot); }
 double  ReadD(const uint8_t* args, int slot) { return ArgDouble(args, slot); }
-
-//--- registered entry points -----------------------------------------------------
-//Each macro instantiates one blocking native over a shared template; the
-//registration list at the bottom is the package's public name set.
-
-#define TENSOR_CONST_FILL(Name, Kind, T, Value)                             \
-    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {   \
-        FillKernel<T>(host, ret, args, (Kind), (Value));                    \
-    }
-
-#define TENSOR_CONST_FILL_BY_ARG(Name, Kind, T, Reader)                     \
-    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {   \
-        FillKernel<T>(host, ret, args, (Kind),                             \
-            static_cast<T>((Reader)(args, 1)));                             \
-    }
-
-#define TENSOR_ARANGE(Name, Kind, T, Reader)                                \
-    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {   \
-        ArangeKernel<T>(host, ret, args, (Kind),                            \
-            static_cast<T>((Reader)(args, 0)),                              \
-            static_cast<T>((Reader)(args, 1)),                              \
-            static_cast<T>((Reader)(args, 2)));                             \
-    }
+} // namespace
 
 TENSOR_CONST_FILL(ZerosI, NEK_Int32, int32_t, 0)
 TENSOR_CONST_FILL(ZerosL, NEK_Int64, int64_t, 0)
@@ -130,24 +126,28 @@ TENSOR_ARANGE(ArangeL, NEK_Int64, int64_t, ReadL)
 TENSOR_ARANGE(ArangeF, NEK_Float32, float, ReadF)
 TENSOR_ARANGE(ArangeD, NEK_Float64, double, ReadD)
 
-} // namespace
+} // namespace tensor
 
 NLANG_DEFINE_NATIVE_INIT {
-    regBlocking(registry, "tensor", "zerosI", &ZerosI);
-    regBlocking(registry, "tensor", "zerosL", &ZerosL);
-    regBlocking(registry, "tensor", "zerosF", &ZerosF);
-    regBlocking(registry, "tensor", "zerosD", &ZerosD);
-    regBlocking(registry, "tensor", "onesI", &OnesI);
-    regBlocking(registry, "tensor", "onesL", &OnesL);
-    regBlocking(registry, "tensor", "onesF", &OnesF);
-    regBlocking(registry, "tensor", "onesD", &OnesD);
-    regBlocking(registry, "tensor", "fullI", &FullI);
-    regBlocking(registry, "tensor", "fullL", &FullL);
-    regBlocking(registry, "tensor", "fullF", &FullF);
-    regBlocking(registry, "tensor", "fullD", &FullD);
-    regBlocking(registry, "tensor", "arangeI", &ArangeI);
-    regBlocking(registry, "tensor", "arangeL", &ArangeL);
-    regBlocking(registry, "tensor", "arangeF", &ArangeF);
-    regBlocking(registry, "tensor", "arangeD", &ArangeD);
+    regBlocking(registry, "tensor", "zerosI", &tensor::ZerosI);
+    regBlocking(registry, "tensor", "zerosL", &tensor::ZerosL);
+    regBlocking(registry, "tensor", "zerosF", &tensor::ZerosF);
+    regBlocking(registry, "tensor", "zerosD", &tensor::ZerosD);
+    regBlocking(registry, "tensor", "onesI", &tensor::OnesI);
+    regBlocking(registry, "tensor", "onesL", &tensor::OnesL);
+    regBlocking(registry, "tensor", "onesF", &tensor::OnesF);
+    regBlocking(registry, "tensor", "onesD", &tensor::OnesD);
+    regBlocking(registry, "tensor", "fullI", &tensor::FullI);
+    regBlocking(registry, "tensor", "fullL", &tensor::FullL);
+    regBlocking(registry, "tensor", "fullF", &tensor::FullF);
+    regBlocking(registry, "tensor", "fullD", &tensor::FullD);
+    regBlocking(registry, "tensor", "arangeI", &tensor::ArangeI);
+    regBlocking(registry, "tensor", "arangeL", &tensor::ArangeL);
+    regBlocking(registry, "tensor", "arangeF", &tensor::ArangeF);
+    regBlocking(registry, "tensor", "arangeD", &tensor::ArangeD);
+    regBlocking(registry, "tensor", "add", &tensor::TensorAdd);
+    regBlocking(registry, "tensor", "sub", &tensor::TensorSub);
+    regBlocking(registry, "tensor", "mul", &tensor::TensorMul);
+    regBlocking(registry, "tensor", "div", &tensor::TensorDiv);
     return NLANG_HOST_ABI_VERSION;
 }

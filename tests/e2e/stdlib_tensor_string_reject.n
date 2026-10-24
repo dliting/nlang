@@ -1,0 +1,9 @@
+// tensor elementwise type gate: string[] matches no overload of add —
+// compile-time rejection.
+import tensor;
+
+int main() {
+    string[] s = string[2];
+    string[] r = tensor.add(s, s);
+    return 0;
+}

@@ -88,8 +88,24 @@ public:
     //unit whose members the registration walks will see.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
 
+    //The per-unit registration sequence (builtins → structs → classes →
+    //array types → enums → functions → member tables → interfaces →
+    //enum methods), in the order that lays out the unit's tables. Run
+    //for every real unit before its bytecode pass, and by the library
+    //shadow registration below (table layout only — no bytecode).
+    void RegisterUnitTables(SnNamespace& root);
+
     //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
+
+    //Same-build cross-unit callee support: ShadowRegisterLibraryUnits
+    //runs the per-unit registration sequence over every inlined library
+    //TU (registration only — no bytecode, no image) and archives each
+    //one's function-table map; ProducerIdxOfLibraryFunc then reads the
+    //authoritative producer-side index for the import record's ordinal
+    // (nlink's single-select selector). 0xFFFF = no archived record.
+    void ShadowRegisterLibraryUnits(SnNamespace& root);
+    uint16_t ProducerIdxOfLibraryFunc(const SnFunction& callee);
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
@@ -1427,6 +1443,12 @@ private:
     std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    //Archived per-library-unit function tables (indexed by module idx;
+    //user units register inside the GenerateUnits loop and need no
+    //archive). Filled by ShadowRegisterLibraryUnits.
+    std::vector<std::unordered_map<SnFunction*, uint16_t>>
+        m_unitFuncIdxByModule;
+    SnNamespace* m_pGenRoot = nullptr;
 
     //Phase 6 per-unit mode: the registration walks only see members owned
     //by the selected unit, and cross-unit references become import slots.

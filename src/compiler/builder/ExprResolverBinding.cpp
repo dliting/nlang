@@ -110,10 +110,10 @@ int ExprResolveAccessor::ComputeBindingDistance(
 			return -1;
 		int n = CalcTypeDistance(*pSrc, *pTgt);
 		if (n < 0)
-		{
-			LogArrayBindingReject(b);
 			return -1;
-		}
+		//Trial scoring stays pure (TryBindArgs' no-logging contract):
+		//rejecting a non-matching overload is expected among same-name
+		//array overloads; the final verdict's notes name the conversion.
 		//Phase 9e: out bindings require the exact same type — the callee
 		//writes its slot straight back into the caller's variable; any
 		//implicit cast (int→float etc.) would be discarded by writeback.
@@ -122,19 +122,6 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		nDistance += n;
 	}
 	return nDistance;
-}
-
-//0.7.3 B: a cross-element array conversion (an int[] source against a
-//string[] formal) verdicts -1 in CalcTypeDistance — give it the named
-//array diagnostic; the caller's generic "not compatible" alone hides the
-//array reason.
-void ExprResolveAccessor::LogArrayBindingReject(const FormalBinding &b) const
-{
-	if (b.pCallerExpr->IsArrayValued())
-		m_Env.Log(CLL_Error, b.pCallerExpr->Location(),
-			"Invalid conversion \"%s\": an array value only converts "
-			"to the same array type.",
-			b.pCallerExpr->ToString().c_str());
 }
 
 } //namespace nlang

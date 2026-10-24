@@ -54,3 +54,31 @@ native long[] arangeL(long start, long stop, long step);
 native float[] arangeF(float start, float stop, float step);
 // Double arange.
 native double[] arangeD(double start, double stop, double step);
+
+//--- elementwise (same-name overloads; runtime element-kind dispatch) ---------
+
+// Elementwise sum of two arrays of the same length.
+native int[] add(int[] a, int[] b);
+native long[] add(long[] a, long[] b);
+native float[] add(float[] a, float[] b);
+native double[] add(double[] a, double[] b);
+
+// Elementwise difference of two arrays of the same length.
+native int[] sub(int[] a, int[] b);
+native long[] sub(long[] a, long[] b);
+native float[] sub(float[] a, float[] b);
+native double[] sub(double[] a, double[] b);
+
+// Elementwise product of two arrays of the same length.
+native int[] mul(int[] a, int[] b);
+native long[] mul(long[] a, long[] b);
+native float[] mul(float[] a, float[] b);
+native double[] mul(double[] a, double[] b);
+
+// Elementwise quotient of two arrays of the same length. Integer
+// division by zero raises DivByZeroException; float/double division by
+// zero yields IEEE Inf/NaN.
+native int[] div(int[] a, int[] b);
+native long[] div(long[] a, long[] b);
+native float[] div(float[] a, float[] b);
+native double[] div(double[] a, double[] b);

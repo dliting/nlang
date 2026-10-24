@@ -112,6 +112,13 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //from the peer images.
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
+    //Slot-time producer-index replays (ProducerIdxOfLibraryFunc) walk
+    //this tree; registration walks receive it per call as before.
+    m_pGenRoot = &root;
+    //Archive the library units' producer function tables before any real
+    //unit's codegen emits cross-unit import records (Slots.cpp reads the
+    //authoritative index from these archives).
+    ShadowRegisterLibraryUnits(root);
     //Whole-tree pre-checks, before any image is built: both concerns
     //span units, so neither is judgeable from inside the per-unit loop
     //(library TUs never reach codegen, and each unit's entry scan only
@@ -121,28 +128,11 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     UnitBuildResult out;
     for (uint32_t unitIdx : unitIdxs) {
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));
-        RegisterBuiltinClasses();
-        RegisterStructs(root);
-        RegisterClasses(root);
-        ResolveStructClassRefs();
-        RegisterArrayTypes(root);
-        RegisterEnums(root);
-        RegisterFunctions(root);
-        PopulateClassMethods(root);
-        //0.9.11 D2: struct ctor indices ride the same function records,
-        //so the struct counterpart runs beside the class one.
-        PopulateStructMethods(root);
-        //0.9.10 D5: after RegisterFunctions/PopulateClassMethods — the
-        //interface table indexes the function records they created. Must
-        //run before GenerateAllBytecode: body emission can append
-        //placeholder function records, and the table's indices must stay
-        //in the own region.
-        RegisterInterfaces(root);
-        //0.10.14 (v2.9): enum method index tables ride the function
-        //records RegisterFunctions already minted — same ordering
-        //constraint as RegisterInterfaces above (before bytecode
-        //generation appends placeholder records).
-        RegisterEnumMethods(root);
+        RegisterUnitTables(root);
+        //0.9.10 D5 / 0.10.14: the interface and enum-method tables index
+        //the function records RegisterUnitTables minted and precede
+        //bytecode generation (body emission can append placeholder
+        //records whose indices must stay out of the own region).
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit
         //set with two executable mains, so at most one unit owns an
