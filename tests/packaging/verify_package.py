@@ -33,8 +33,8 @@ DEFAULT_RELEASE_DIR = os.path.join(REPO_ROOT, 'release')
 # exact build product of that config, so page/nav drift means a stale
 # package.
 DOCS_CONFIGS = [
-    ('mkdocs.zh.yml', 'zh'),
-    ('mkdocs.en.yml', 'en'),
+    ('docs/mkdocs.zh.yml', 'zh'),
+    ('docs/mkdocs.en.yml', 'en'),
 ]
 DOCS_TOOL_SRC = os.path.join(REPO_ROOT, 'tools', 'nlang-docs', 'src')
 

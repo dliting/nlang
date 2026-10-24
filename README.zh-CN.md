@@ -301,7 +301,7 @@ IDE 测试套件。
 ## 文档站点
 
 双语用户手册（`docs/user_manual/zh/` 与 `docs/user_manual/en/`，每树一份 mkdocs 配置，
-共同继承 `mkdocs.base.yml`）由 CMake 目标 `nlang_docs` 渲染成静态
+共同继承 `mkdocs.base.yml`，三份配置都位于 `docs/`）由 CMake 目标 `nlang_docs` 渲染成静态
 站点（默认开启，`-DNLANG_BUILD_DOCS=OFF` 跳过），合并到
 `<build>/docs/site/{zh,en}` 并置于语言选择落地页
 （`docs/site/index.html`）之后；IDE 的帮助菜单按语言设置打开对应
@@ -316,20 +316,20 @@ PowerShell/cmd 上使用 CMake 配方自己用的
 
 ```bash
 # 迭代预览（普通 mkdocs 热重载服务器；任选一树）
-PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.zh.yml
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config docs/mkdocs.zh.yml
 
 # CMake 目标对每棵树做的事（mkdocs.zh.yml 与 mkdocs.en.yml 都要）：
 # mkdocs build --strict、离线搜索内联与片段审计——站点审计延迟到
 # 两树都建成后（它们互相链接），`check` 再对每树各跑一次
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
-    --config mkdocs.zh.yml --site-dir build/docs/site/zh \
+    --config docs/mkdocs.zh.yml --site-dir build/docs/site/zh \
     --defer-site-audit \
     --ncc build/src/tools/ncc/Release/ncc.exe \
     --nvm build/src/tools/nvm/Release/nvm.exe
 
 # 审计已生成站点的某一树（打包验证也复用）
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
-    --site-dir build/docs/site/zh --config mkdocs.zh.yml
+    --site-dir build/docs/site/zh --config docs/mkdocs.zh.yml
 
 # 独立审计某一页的 ```nlang 片段（编译 + 运行 + 退出码）
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \

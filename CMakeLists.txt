@@ -280,7 +280,7 @@ if(NLANG_BUILD_DOCS)
         COMMAND ${CMAKE_COMMAND} -E remove_directory
                 ${CMAKE_CURRENT_BINARY_DIR}/docs/site
         COMMAND ${NLANG_DOCS_RUN} build
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
                 #The 4th build stage audits the guide's snippets by
                 #compiling+running them with the tree's own tools, so a
@@ -293,23 +293,23 @@ if(NLANG_BUILD_DOCS)
                 #until after the second build (see the check commands).
                 --defer-site-audit
         COMMAND ${NLANG_DOCS_RUN} build
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
                 --ncc $<TARGET_FILE:ncc>
                 --nvm $<TARGET_FILE:nvm>
                 --defer-site-audit
         COMMAND ${NLANG_DOCS_RUN} check
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
         COMMAND ${NLANG_DOCS_RUN} check
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${NLANG_DOCS_DIR}/src/nlang_docs/data/landing.html
                 ${CMAKE_CURRENT_BINARY_DIR}/docs/site/index.html
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.base.yml
-                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
-                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.base.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
                 ${NLANG_DOC_PAGES}
                 ${NLANG_DOCS_DIR}/src/nlang_docs/cli.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/linkcheck.py

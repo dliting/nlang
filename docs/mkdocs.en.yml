@@ -5,10 +5,10 @@
 # change.
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
-docs_dir: docs/user_manual/en
+docs_dir: user_manual/en
 theme:
   language: en
-  custom_dir: tools/nlang-docs/theme_override
+  custom_dir: ../tools/nlang-docs/theme_override
 nav:
   - Home: index.md
   - Getting Started:

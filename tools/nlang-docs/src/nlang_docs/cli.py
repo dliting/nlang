@@ -48,14 +48,20 @@ def _find_nav_config():
 
 def _export_site_version(config_path):
     """Single-source the site footer's version: read the repo's VERSION
-    file (sibling of mkdocs.yml) into NLANG_COPYRIGHT, which mkdocs.yml
-    picks up via its !ENV tag. The variable is owned for the duration of
-    the invocation: with no (or empty) VERSION file it is explicitly
-    unset, so mkdocs falls back to the config's dev label instead of a
-    stale value left by an earlier build in the same process."""
-    version_file = Path(config_path).parent / "VERSION"
+    file (at the repository root; the mkdocs configs live in docs/, so
+    the search walks up from the config) into NLANG_COPYRIGHT, which the
+    config picks up via its !ENV tag. The variable is owned for the
+    duration of the invocation: with no (or empty) VERSION file it is
+    explicitly unset, so mkdocs falls back to the config's dev label
+    instead of a stale value left by an earlier build in the same
+    process."""
+    version_file = None
+    for candidate in Path(config_path).resolve().parents:
+        if (candidate / "VERSION").is_file():
+            version_file = candidate / "VERSION"
+            break
     version = ""
-    if version_file.is_file():
+    if version_file is not None:
         version = version_file.read_text(encoding="utf-8").strip()
     if version:
         os.environ["NLANG_COPYRIGHT"] = "NLang v" + version

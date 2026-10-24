@@ -16,9 +16,10 @@ use_directory_urls: false
 #preserves the characters unencoded. Registers the NLang Pygments
 #lexer before rendering (see the hook file): ```nlang fences get
 #server-side colored spans. Paths resolve relative to the INHERITing
-#config file (both sit at the repository root, next to this base).
+#config file (all three sit in docs/, so repo-tree references carry
+#a ../ segment).
 hooks:
-  - tools/nlang-docs/src/nlang_docs/highlight_hook.py
+  - ../tools/nlang-docs/src/nlang_docs/highlight_hook.py
 markdown_extensions:
   - toc:
       slugify: !!python/name:pymdownx.slugs.gfm

@@ -158,7 +158,8 @@ def test_labeled_fence_path_still_forms_a_block(tmp_path):
     assert "```nlang" not in html
 
 
-_REPO_CONFIG = Path(__file__).resolve().parents[3] / "mkdocs.base.yml"
+_REPO_CONFIG = (Path(__file__).resolve().parents[3] / "docs"
+                / "mkdocs.base.yml")
 
 
 def test_repo_config_mounts_hook_and_superfences():
