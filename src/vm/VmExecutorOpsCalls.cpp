@@ -43,8 +43,8 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
     //Static-bound handle to a free function: {funcIdx, this=0,
     //form=0}. Allocation always happens (no interning) so two
     //references to one function are distinct-but-equal records.
-    //K7: AllocFuncRecord allocates on the growing struct heap.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — AllocFuncRecord pops the calling carrier's
+    //shard; the function table is link-time read-only.
     uint16_t funcIdx = reader.ReadUint16();
     if (funcIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
@@ -54,10 +54,11 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
-    //K7: the handle check reads growing heap storage, and the record
-    //reference handed to ExecuteDelegateCall must stay valid across
-    //callee-side allocation — the guard spans the whole call.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — the handle check is a benign heap read, and the
+    //record reference survives callee-side allocation (ChunkedArray
+    //addresses are stable across growth). Delegates never dispatch to
+    //intrinsics (both ABI arms reject them), so the call body needs no
+    //store serialization beyond what its own arms hold.
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     int32_t handleIdx;
@@ -73,10 +74,7 @@ bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t
 }
 
 bool VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
-    //K7: same guard span as OpCallDelegate — the heap record
-    //reference passed to ExecuteDelegateCall must survive
-    //callee-side allocation.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — same shape as OpCallDelegate.
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     uint32_t outMask = reader.ReadUint32();
@@ -98,9 +96,8 @@ void VmExecutor::OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult) {
     //reads pResult BEFORE writing the handle. A null receiver
     //throws at BIND time — a handle materialized with this==0
     //would dispatch as a free function and silently misframe.
-    //K7: the receiver check reads heap size; AllocFuncRecord
-    //allocates on the growing struct heap.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — the receiver check is a benign heap read;
+    //AllocFuncRecord pops the calling carrier's shard.
     uint16_t funcIdx = reader.ReadUint16();
     int32_t thisIdx;
     std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
@@ -121,9 +118,7 @@ void VmExecutor::OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult) {
     //pool index) instead of a function index; dispatch resolves
     //the override chain on the runtime class at call time. Same
     //bind-time null-receiver guard as MakeBoundFunc.
-    //K7: the receiver check reads heap size; AllocFuncRecord
-    //allocates on the growing struct heap.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — same shape as OpMakeBoundFunc.
     uint16_t nameIdx = reader.ReadUint16();
     int32_t thisIdx;
     std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
@@ -230,7 +225,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     //therefore shows the caller (e.g. CallGet) but not the
     //callee (e.g. Get). This is intentional — the callee never
     //ran — and matches how mainstream runtimes report NPEs.
-    GilEnsureGuard g(*this);   //K7: receiver check reads the heap
+    //K8: lock-free — benign heap + read-only tables; intrinsic/native arms re-acquire internally.
     uint16_t methodNameIdx = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     if (methodNameIdx >= m_currModule->stringConstants.size())
