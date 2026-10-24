@@ -6,6 +6,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 
 namespace nlang {
@@ -110,6 +111,16 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //cross-unit reference left as a placeholder slot + import record — nothing
 //external is merged in; the load-time linker resolves the placeholders
 //from the peer images.
+
+//Stage-2 emit gate helper: rank of the expression's resolved array token.
+uint8_t VmBackend::EmitGateRankOf(const SnExpression& expr)
+{
+    auto* pType = expr.IsResolved() ? expr.EvalDataType() : nullptr;
+    if (!pType || pType->Kind() != NK_ArrayTypeToken)
+        return 0;
+    return static_cast<SnArrayTypeToken*>(pType)->Rank();
+}
+
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
     //Archive every unit's producer function table before codegen emits

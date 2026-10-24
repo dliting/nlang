@@ -95,6 +95,11 @@ public:
     //shadow registration below (table layout only — no bytecode).
     void RegisterUnitTables(SnNamespace& root);
 
+    //Stage-2 emit gate: rank of the expression's resolved array token,
+    //0 when the expression is not array-typed. The temporary ND gates
+    //(task 2) reject rank >= 2 until task 4 lands the ND emission.
+    static uint8_t EmitGateRankOf(const SnExpression& expr);
+
     //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
     //Same-build cross-unit callee support: ShadowRegisterUnits runs

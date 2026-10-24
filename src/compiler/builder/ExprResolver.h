@@ -1080,6 +1080,10 @@ private:
 	//`Foo[n]`) when the base identifier resolved as a TYPE; the index
 	//child doubles as the size expression. True = consumed.
 	bool TrySizedArrayCreation(SnSubscriptExpr &sn);
+	//Stage-2: resolve every creation dimension (named/out forms and
+	//unresolved dimensions consume the expression). Returns false when
+	//a diagnostic already fired.
+	bool ResolveCreationDims(SnSubscriptExpr &sn);
 
 	//0.9.0: expression-position alias support for the creation twins —
 	//the pre-pass expands type positions only, so `P[n]` / `P(args)`

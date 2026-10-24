@@ -1,9 +1,9 @@
 /*---
     EmitExprInitList.cpp — 集合初始化器发射：bare `[...]` / `new T{...}`
-    的数组/List/Dict/类/struct 五路目标形态。
-    从 EmitExprNew.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
+    的数组/List/Dict/类/struct 五路目标形态（2026-09-25 自EmitExprNew.cpp拆出）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -39,6 +39,11 @@ void VmBackend::Access(SnInitListExpr& expr) {
     //---- Array form: target is T[] ----
     //0.9.13 D-new-1: array-valued init lists carry the interned token.
     if (initList.IsArrayValued()) {
+        //Stage-2 task-2 gate: ND init-list emission lands in task 4
+        //(the constant-rectangularity resolution lands with it).
+        if (pTarget && pTarget->Kind() == NK_ArrayTypeToken
+            && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2)
+            { m_pEnv->Log(CLL_Error, initList.Location(), "multi-dimensional arrays are not supported yet."); return; }
         EmitInitListArray(initList, pTarget, emitter, resultOffset);
         return;
     }

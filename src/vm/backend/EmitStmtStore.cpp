@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -127,6 +128,13 @@ static SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
 //exclusive, same discipline as the container path above.
 void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                       BytecodeEmitter& emitter) {
+    //Stage-2 task-2 gate: ND store emission lands in task 4.
+    if (EmitGateRankOf(*sub.Array()) >= 2)
+    {
+        m_pEnv->Log(CLL_Error, sub.Location(),
+            "multi-dimensional arrays are not supported yet.");
+        return;
+    }
     SnField* elemType = ArrayElementStoreType(sub);
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();

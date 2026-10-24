@@ -355,19 +355,47 @@ SnField *SnAssertStmt::FindField(const std::string& sName) const
 
 SnSubscriptAssignStmt::SnSubscriptAssignStmt(SnExpression *pArray,
 	SnExpression *pIndex, SnExpression *pValue, const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pArray(pArray), m_pIndex(pIndex), m_pValue(pValue)
+	Super_(s_Kind, loc), m_pArray(pArray), m_pValue(pValue)
 {
 	assert(m_pArray);
-	assert(m_pIndex);
+	assert(pIndex);
 	assert(m_pValue);
 	AddChild(m_pArray);
-	AddChild(m_pIndex);
+	m_pIndices.push_back(pIndex);
+	AddChild(pIndex);
+	AddChild(m_pValue);
+}
+
+SnSubscriptAssignStmt::SnSubscriptAssignStmt(SnExpression *pArray,
+	UniquePtrList<SnExpression> upIndices, SnExpression *pValue,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pArray(pArray), m_pValue(pValue)
+{
+	assert(m_pArray);
+	assert(m_pValue);
+	AddChild(m_pArray);
+	for (auto *pIndex : upIndices)
+	{
+		assert(pIndex);
+		m_pIndices.push_back(pIndex);
+		AddChild(pIndex);
+	}
+	//Ownership transferred to this node's children — release the
+	//source list so it does not double-delete at scope exit.
+	upIndices.Release();
+	assert(!m_pIndices.empty());
 	AddChild(m_pValue);
 }
 
 std::string SnSubscriptAssignStmt::ToString() const
 {
-	return m_pArray->ToString() + "[" + m_pIndex->ToString() + "] = " +
+	std::string indices;
+	for (size_t i = 0; i < m_pIndices.size(); ++i)
+	{
+		if (i) indices += ", ";
+		indices += m_pIndices[i]->ToString();
+	}
+	return m_pArray->ToString() + "[" + indices + "] = " +
 		m_pValue->ToString() + ";\n";
 }
 

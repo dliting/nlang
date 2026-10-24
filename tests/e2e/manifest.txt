@@ -1452,7 +1452,7 @@ expr_sized_array 42
 expr_subscript_shadow compile_error cannot be used as a variable name
 # --- 0.9.0: alias creation twins and creation store-target rejects ---
 alias_creation_twin 22
-err_alias_array_twin compile_error Multi-dimensional arrays are not supported
+err_alias_array_twin compile_error array of an array type
 err_creation_lhs compile_error cannot assign to an array creation
 err_creation_lhs_compound compile_error cannot assign to an array creation
 alias_generic_creation_twin 9

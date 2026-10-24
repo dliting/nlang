@@ -229,7 +229,8 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
     //the bulk-copy overflows callParamBase into evalArea.
     //StmtPeakDepth already walked it; this closes the asymmetry.
     MaxArgsWalkExpr(*sa.Array(), maxArgs);
-    MaxArgsWalkExpr(*sa.Index(), maxArgs);
+    for (auto *pIndex : sa.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
     MaxArgsWalkExpr(*sa.Value(), maxArgs);
 }
 
@@ -325,7 +326,8 @@ void VmBackend::MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs) {
     if (IsContainerSubscript(*sub.Array()) && maxArgs < 2)
         maxArgs = 2;
     MaxArgsWalkExpr(*sub.Array(), maxArgs);
-    MaxArgsWalkExpr(*sub.Index(), maxArgs);
+    for (auto *pIndex : sub.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
 }
 
 //MaxArgs walker, NK_MemberExpr arm.

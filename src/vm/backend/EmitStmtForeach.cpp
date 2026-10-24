@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include "EmitPrimOps.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
@@ -29,6 +30,9 @@ struct ForeachIterableKind {
     bool isList = false;
     bool isDict = false;
     bool isString = false;
+    //Stage-2 task-2 gate: rank >= 2 array sources park here; the caller
+    //(which owns the diagnostic channel) logs and aborts the emit.
+    bool isGated = false;
     SnField* elemType = nullptr;
 };
 
@@ -63,6 +67,9 @@ static ForeachIterableKind ClassifyForeachIterable(
         SnExpression* pIter) {
     ForeachIterableKind k;
     if (DetectDeclaredArraySource(pIter, k.elemType)) {
+        //Stage-2 task-2 gate: ND foreach emission lands in task 4.
+        if (VmBackend::EmitGateRankOf(*pIter) >= 2)
+            { k.isGated = true; return k; }
         k.isArray = true;
         return k;
     }
@@ -109,6 +116,13 @@ void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
         ForeachIterableKind iter = ClassifyForeachIterable(fe.Iterable());
+        //Stage-2 task-2 gate: ND foreach emission lands in task 4.
+        if (iter.isGated)
+        {
+            m_pEnv->Log(CLL_Error, fe.Location(),
+                "multi-dimensional arrays are not supported yet.");
+            return;
+        }
         //0.7.5 char bridge: string sources take the dedicated
         //code-point expansion (no length/get() calls — OP_StrForeachStep).
         if (iter.isString) {

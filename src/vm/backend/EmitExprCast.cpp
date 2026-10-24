@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include "EmitPrimOps.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
@@ -454,6 +455,13 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
         //(`int[n]` / `Foo[n]`); it emits through the shared new-array
         //path — the base names a type and evaluates to nothing.
         if (sub.NewArrayElem()) {
+            //Stage-2 task-2 gate: ND creation emission lands in task 4.
+            if (sub.Indices().size() > 1)
+            {
+                m_pEnv->Log(CLL_Error, sub.Location(),
+                    "multi-dimensional arrays are not supported yet.");
+                return;
+            }
             EmitNewArray(sub.NewArrayElem(), *sub.Index(), resultOffset);
             return;
         }
@@ -481,20 +489,4 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
 //CopyStruct for struct element types (Phase 9d-3): value copies belong
 //at assignment/store boundaries; copying on read broke write-through
 //receivers — `arr[i].f = v` stored into a discarded copy.
-void VmBackend::EmitArraySubscriptRead(SnSubscriptExpr& sub,
-                                       BytecodeEmitter& emitter,
-                                       uint16_t resultOffset) {
-    EvalAreaClaim claim(*this, 2);
-    uint16_t claimBase = claim.base();
-    EmitExpression(*sub.Array(), emitter, claimBase);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(claimBase);
-    uint16_t indexSlot = claimBase + kFrameSlotBytes;
-    EmitExpression(*sub.Index(), emitter, indexSlot);
-    emitter.Emit(OpCode::OP_LoadElement);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
-}
-
 } //namespace nlang

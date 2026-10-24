@@ -189,8 +189,11 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 	assert(m_pCurrType);
 	if (sn.Array() && !sn.Array()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
-	if (sn.Index() && !sn.Index()->IsResolved())
-		m_ExprResolver.Resolve(*sn.Index(), *sn.Index()->Parent(), *m_pCurrType, ERF_None);
+	for (auto *pIndex : sn.Indices())
+	{
+		if (pIndex && !pIndex->IsResolved())
+			m_ExprResolver.Resolve(*pIndex, *pIndex->Parent(), *m_pCurrType, ERF_None);
+	}
 	//0.9.0: a bare brace stored value takes the base's element type as
 	//its target (the array element, or the container's value slot). The
 	//base is resolved by now, so the element type is derivable.
@@ -425,14 +428,19 @@ void StatementResolveAccessor::ApplyContainerStoreCasts(
 	//(DictKeysEqual compares by the declared kind) and crashed later
 	//lookups. List indexes stay unchecked (a plain int position,
 	//runtime-bounds-checked).
+	//Dict keys are inherently single-index (rank-1 convenience slot).
 	if (pKeyType && sn.Index() && sn.Index()->IsResolved()
 		&& sn.Index()->EvalDataType())
 	{
 		auto keyCast = GetCastInfo(
 			sn.Index()->EvalDataType(), pKeyType);
-		auto iKey = sn.Children().find(sn.m_pIndex);
+		auto iKey = sn.Children().find(sn.m_pIndices.front());
 		if (m_ExprResolver.FixupExprType(iKey, keyCast))
-			sn.m_pIndex = &static_cast<SnCastExpr &>(*iKey);
+		{
+			//The children list already carries the cast node; re-sync
+			//the cached index slot (dual-storage invariant).
+			sn.m_pIndices[0] = &static_cast<SnCastExpr &>(*iKey);
+		}
 	}
 	if (pElemType && sn.Value()->EvalDataType())
 	{

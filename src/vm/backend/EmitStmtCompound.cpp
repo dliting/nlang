@@ -4,6 +4,7 @@
     按语句族分文件，函数尺寸保持 50 行内）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -262,6 +263,13 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
         SnSubscriptExpr& sub, SnField* elemType, int op,
         uint16_t claimBase, uint16_t indexSlot, uint16_t oldValSlot,
         uint16_t rhsSlot, BytecodeEmitter& emitter) {
+    //Stage-2 task-2 gate: ND compound emission lands in task 4.
+    if (EmitGateRankOf(*sub.Array()) >= 2)
+    {
+        m_pEnv->Log(CLL_Error, sub.Location(),
+            "multi-dimensional arrays are not supported yet.");
+        return;
+    }
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);

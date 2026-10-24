@@ -1110,6 +1110,9 @@ Array subscript assignment statement (e.g. arr[i] = value).
 SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
 					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} |
+				Expression '[' ConcreteParamList ']' '=' Expression ';' {
+					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
+				} |
 				//0.9.0: bare brace stored value — the base's element type is
 				//the init list's target (resolver-side inference).
 				Expression '[' Expression ']' '=' BracedInitExpr ';' {
@@ -2017,6 +2020,12 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 
 
 SubscriptExpr:	Expression '[' Expression ']' {
+					$$ = new SnSubscriptExpr($1, $3, @1);
+				} |
+				//Stage-2: comma index lists — a[i, j] (and the creation
+				//twin T[2, 3]). Named/out forms ride ConcreteParamList
+				//and are rejected by the resolver.
+				Expression '[' ConcreteParamList ']' {
 					$$ = new SnSubscriptExpr($1, $3, @1);
 				} ;
 

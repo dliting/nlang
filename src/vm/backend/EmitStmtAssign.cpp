@@ -3,6 +3,7 @@
     从 EmitStmtDecl.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -205,6 +206,13 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
 void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
         BytecodeEmitter& emitter) {
+    //Stage-2 task-2 gate: ND element field-store emission lands in task 4.
+    if (EmitGateRankOf(*sub.Array()) >= 2)
+    {
+        m_pEnv->Log(CLL_Error, sub.Location(),
+            "multi-dimensional arrays are not supported yet.");
+        return;
+    }
     EvalAreaClaim claim(*this, 3);
     uint16_t claimBase = claim.base();
     uint16_t indexSlot = claimBase + kFrameSlotBytes;

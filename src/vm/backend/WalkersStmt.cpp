@@ -288,7 +288,9 @@ uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
     if (ca.Left() && ca.Left()->Kind() == NK_SubscriptExpr) {
         auto& sub = static_cast<SnSubscriptExpr&>(*ca.Left());
         uint16_t b = ExprPeakDepth(*sub.Array(), visited);
-        uint16_t i = ExprPeakDepth(*sub.Index(), visited);
+        uint16_t i = 0;
+        for (auto *pIndex : sub.Indices())
+            i = std::max(i, ExprPeakDepth(*pIndex, visited));
         uint16_t r = ca.Right()
             ? ExprPeakDepth(*ca.Right(), visited) : 0;
         uint16_t m = b > i ? b : i;
@@ -318,7 +320,9 @@ uint16_t VmBackend::SubscriptAssignStmtPeakDepth(SnStatement& stmt,
     //claim. walker-symmetry discipline, 4th instance (after
     //callparambase-clobber #2 and super() #3).
     uint16_t claim = 3;
-    uint16_t d = ExprPeakDepth(*sa.Index(), visited);
+    uint16_t d = 0;
+    for (auto *pIndex : sa.Indices())
+        d = std::max(d, ExprPeakDepth(*pIndex, visited));
     uint16_t v = ExprPeakDepth(*sa.Value(), visited);
     uint16_t a = ExprPeakDepth(*sa.Array(), visited);
     uint16_t m = d > v ? d : v;

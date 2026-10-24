@@ -494,6 +494,32 @@ target_compile_definitions(test_nd_tokens
 
 add_test(NAME nd_tokens_tests COMMAND test_nd_tokens)
 
+# Stage-2 task 2: comma index lists and ND creation resolution.
+add_executable(test_nd_resolve
+    test_vm/test_nd_resolve.cpp
+)
+
+target_include_directories(test_nd_resolve
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_nd_resolve
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_nd_resolve)
+target_compile_definitions(test_nd_resolve
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
+
 # 0.9.11 D2 struct constructor unit tests (console suite): in-process
 # compile+run pinning that the ctor runs on explicit construction calls
 # only, never on bare declarations (test_stdlib's runSource shape).

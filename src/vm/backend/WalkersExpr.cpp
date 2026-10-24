@@ -219,9 +219,18 @@ uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
     //path — the size stages in an evalArea claim(1) and the base names
     //a type (no emission). Walker symmetry with NewArrayExprPeakDepth.
     if (sub.NewArrayElem())
-        return 1 + ExprPeakDepth(*sub.Index(), visited);
+    {
+        //Stage-2: ND subscripts carry N indices — the deepest one wins.
+        uint16_t deepest = 0;
+        for (auto *pIndex : sub.Indices())
+            deepest = std::max(deepest,
+                ExprPeakDepth(*pIndex, visited));
+        return 1 + deepest;
+    }
     uint16_t a = ExprPeakDepth(*sub.Array(), visited);
-    uint16_t i = ExprPeakDepth(*sub.Index(), visited);
+    uint16_t i = 0;
+    for (auto *pIndex : sub.Indices())
+        i = std::max(i, ExprPeakDepth(*pIndex, visited));
     //Both shapes claim 2 evalArea slots (receiver + index): container
     //lowers to a get() call, array reads park receiver/index in the
     //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot

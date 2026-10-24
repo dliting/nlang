@@ -52,6 +52,7 @@ add_library(nlang_vm
     backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
     backend/EmitExprCast.cpp
+    backend/EmitExprSubscript.cpp
     backend/EmitExprBinary.cpp
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
