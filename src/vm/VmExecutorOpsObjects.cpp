@@ -136,7 +136,8 @@ void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
     std::memcpy(locals + dst,
-        slot.data() + 3 + static_cast<size_t>(idx) * cells,
+        slot.data() + kArrayHeaderCells
+            + static_cast<size_t>(idx) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
@@ -168,7 +169,8 @@ void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_StoreElement on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    std::memcpy(slot.data() + 3 + static_cast<size_t>(idx) * cells,
+    std::memcpy(slot.data() + kArrayHeaderCells
+            + static_cast<size_t>(idx) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }
 

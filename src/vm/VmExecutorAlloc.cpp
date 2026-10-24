@@ -95,7 +95,8 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     //0.7.5: 8-byte scalar elements occupy two cells each (registry-
     //driven stride — see ArrayElemCells).
     const int cells = ArrayElemCells(at.elemKind);
-    int32_t totalSlots = 3 + size * cells;
+    int32_t totalSlots =
+        static_cast<int32_t>(kArrayHeaderCells) + size * cells;
     //Arm the collector here — the single allocation choke point — so
     //every minter (OP_AllocArray's own set, native newArray) pays the
     //pending flag. A pure native-mint loop used to grow unbounded:
@@ -127,7 +128,8 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     if (at.elemKind == RTK_Struct && at.elemTypeIdx != 0xFFFF) {
         for (int32_t i = 0; i < size; ++i) {
             int32_t elemIdx = AllocStructOnHeap(at.elemTypeIdx);
-            m_structHeap[static_cast<size_t>(heapIdx)][3 + i * cells] = elemIdx;
+            m_structHeap[static_cast<size_t>(heapIdx)]
+                [kArrayHeaderCells + i * cells] = elemIdx;
         }
     }
     return heapIdx;

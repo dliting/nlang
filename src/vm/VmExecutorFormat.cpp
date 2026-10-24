@@ -217,7 +217,8 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < length; ++i) {
         if (i > 0) result += ", ";
-        FormatArrayElement(result, slot, 3 + static_cast<size_t>(i) * cells,
+        FormatArrayElement(result, slot,
+            kArrayHeaderCells + static_cast<size_t>(i) * cells,
             elemKind, cells, depth);
     }
     result += "]";

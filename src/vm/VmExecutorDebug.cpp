@@ -439,7 +439,7 @@ std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < bound; ++i) {
         if (i > 0) result += ", ";
-        result += FormatDebugField(slot, 3 + static_cast<size_t>(i) * cells,
+        result += FormatDebugField(slot, kArrayHeaderCells + static_cast<size_t>(i) * cells,
             elemKind);
     }
     if (length > bound) result += ", ...";

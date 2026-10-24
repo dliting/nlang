@@ -315,7 +315,8 @@ void VmExecutor::MarkArrayElements(int32_t idx,
     //element-aligned.
     const int cells = ArrayElemCells(at.elemKind);
     for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[idx][3 + i * cells];
+        int32_t elemRef =
+            m_structHeap[idx][kArrayHeaderCells + i * cells];
         //String elements are raw string handles (hole-1 uses 0 =
         //null) — same pre-guard routing as the field arms.
         if (at.elemKind == RTK_String) {
@@ -424,7 +425,7 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
         return;
     int32_t length = m_structHeap[heapIdx][2];
     for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[heapIdx][3 + i];
+        int32_t elemRef = m_structHeap[heapIdx][kArrayHeaderCells + i];
         if (elemRef > 0 && static_cast<size_t>(elemRef) < m_slotKinds.size()
             && m_slotKinds[elemRef] == RTK_Struct) {
             FreeNestedStructs(elemRef, at.elemTypeIdx);

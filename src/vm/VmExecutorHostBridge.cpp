@@ -231,7 +231,8 @@ void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
-    const size_t base = 3 + static_cast<size_t>(index) * cells;
+    const size_t base =
+        kArrayHeaderCells + static_cast<size_t>(index) * cells;
     std::memset(outCell, 0, kFrameSlotBytes);
     std::memcpy(outCell, &slot[base], sizeof(int32_t));
     if (cells == 2)
@@ -248,7 +249,8 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
-    const size_t base = 3 + static_cast<size_t>(index) * cells;
+    const size_t base =
+        kArrayHeaderCells + static_cast<size_t>(index) * cells;
     std::memcpy(&slot[base], cell, sizeof(int32_t));
     if (cells == 2)
         std::memcpy(&slot[base + 1], cell + sizeof(int32_t),

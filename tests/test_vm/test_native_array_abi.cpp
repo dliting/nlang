@@ -221,6 +221,44 @@ void test_empty_array_view()
     PASS();
 }
 
+//double[] natAlignD() — mint a double array, verify its payload is
+//8-byte aligned, write 1.5 through the view, and return the handle.
+//The signature itself declares double[] — a native minting kind K
+//declares K[] in its signature, so the scalar array type is always
+//registered for the module (the newArray contract).
+void NatAlignD(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+    (void)args;
+    const int32_t handle = nlang::native::NewArray(host, NEK_Float64, 4);
+    NativeArrayView v;
+    host->getArrayView(host, handle, &v);
+    if (v.elemCellBytes != 8)
+        nlang::native::Raise(host, NEXC_Base, "elemCellBytes must be 8");
+    static_cast<double*>(v.data)[0] = 1.5;
+    const uintptr_t bits = reinterpret_cast<uintptr_t>(v.data);
+    if (bits % 8 != 0)
+        nlang::native::Raise(host, NEXC_Base,
+                             "double payload is not 8-byte aligned");
+    nlang::native::ReturnInt(ret, handle);
+}
+
+void test_double_payload_alignment()
+{
+    TEST(double_payload_alignment);
+    const int rc = runSourceWithNatives("abi_align",
+        "native double[] natAlignD();\n"
+        "int main() {\n"
+        "    double[] d = natAlignD();\n"
+        "    if (d[0] == 1.5) return 0;\n"
+        "    return 1;\n"
+        "}\n",
+        [](VmExecutor& e, const std::string& tag) {
+            e.RegisterNative(tag + ".natAlignD", &NatAlignD);
+        });
+    CHECK(rc == 0, "double payload must be 8-byte aligned, writable "
+                    "through the view, and round-trip by handle");
+    PASS();
+}
+
 void test_null_handle_raises_npe()
 {
     TEST(null_handle_raises_npe);
@@ -273,6 +311,7 @@ int main()
         test_view_roundtrip_read_write();
         test_mint_and_fill();
         test_empty_array_view();
+        test_double_payload_alignment();
         test_null_handle_raises_npe();
         test_negative_mint_raises_oob();
     } catch (const std::exception& e) {

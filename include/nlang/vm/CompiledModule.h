@@ -159,6 +159,12 @@ static constexpr uint16_t kFrameSlotBytes = 8;
 //1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
 static constexpr uint16_t kHeapCellBytes = 4;
 static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
+//Array record header: [0]=RTK_Array, [1]=arrayTypeIdx, [2]=length,
+//[3]=alignment pad. The pad makes every payload base sit at cell 4 —
+//a 16-byte offset — so the 8-byte element family (long/double) is
+//naturally aligned; SIMD loads in native kernels rely on it. Element i
+//lives at kArrayHeaderCells + i*ArrayElemCells(elemKind).
+static constexpr uint32_t kArrayHeaderCells = 4;
 
 //--- Eval-area slot classes (K2 slice 5) ----------------------------------
 //Precise GC root class for one frame-band slot (the band is
