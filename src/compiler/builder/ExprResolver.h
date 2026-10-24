@@ -881,7 +881,7 @@ private:
 	(Promoted) or log the out-of-range error (Rejected). The fit/lossy
 	predicates themselves live in ExprResolverCastFit.hpp (pure
 	functions, no resolver state). 2026-10-12: ComputeBindingDistance and
-	its binding-distance helpers (LogArrayBindingReject included) moved
+	its binding-distance helpers moved
 	to ExprResolverBinding.cpp at the source-size guard.
 	*/
 	enum ConstantFitGateResult
@@ -898,7 +898,6 @@ private:
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
 		TypeCastInfo &castInfo);
-	void LogArrayBindingReject(const FormalBinding &b) const;
 
 	/*
 	2026-09-27 decomposition of Access(SnBinaryExpr&)

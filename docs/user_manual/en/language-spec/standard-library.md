@@ -1,8 +1,8 @@
 # Standard Library
 
 
-The standard library consists of five packages — `math`, `io`, `fs`,
-`thread`, `concurrent` (package-qualified free functions) — plus string
+The standard library consists of six packages — `math`, `io`, `fs`,
+`thread`, `concurrent`, `tensor` (package-qualified free functions) — plus string
 methods (receiver-dispatched). A package is
 identified by its file's path — `stdlib/io.n` is the package `io` — and
 one build may contain only one package of each name (a duplicate is a
@@ -11,7 +11,8 @@ ordinary directory). Calls use the qualified name only (`math.sin(x)`);
 bare names are not in scope. A package name used as a value
 (`int x = math;`) fails to resolve — packages are not values. In
 terms of duties, io carries content input/output (IO), math numeric
-computation, fs the filesystem's names and metadata, thread the
+computation, fs the filesystem's names and metadata, tensor the numeric
+array kernels (see [tensor](stdlib-tensor.md)), thread the
 virtual-thread spawn and parking primitives, and concurrent the
 `WaitGroup` and `Semaphore` synchronization tools (the
 `Mutex`/`Channel`/`Future` built-in classes excepted — they need no

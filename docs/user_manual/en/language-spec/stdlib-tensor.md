@@ -38,7 +38,7 @@ length mismatches raise the base Exception, and the empty-array rules
 are per the table above. All of them are catchable `Exception` family
 values.
 
-```nim
+```nlang
 import io;
 import tensor;
 

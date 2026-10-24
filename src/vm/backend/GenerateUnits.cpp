@@ -114,7 +114,6 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
     //Slot-time producer-index replays (ProducerIdxOfLibraryFunc) walk
     //this tree; registration walks receive it per call as before.
-    m_pGenRoot = &root;
     //Archive the library units' producer function tables before any real
     //unit's codegen emits cross-unit import records (Slots.cpp reads the
     //authoritative index from these archives).

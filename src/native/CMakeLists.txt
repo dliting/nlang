@@ -43,12 +43,6 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
                 $<TARGET_FILE_DIR:${tool}>
             VERBATIM)
     endforeach()
-endforeach()
-
-# Multi-file module sources beyond the per-module naming pattern.
-target_sources(nlang_tensor PRIVATE
-    tensor/tensor_binary.cpp
-    tensor/tensor_reduce.cpp)
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.

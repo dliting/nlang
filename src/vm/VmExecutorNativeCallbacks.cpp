@@ -85,6 +85,8 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
     GilEnsureGuard gil(*e);
     if (!out)
         e->RaiseNlangExceptionBase("getArrayView: null out view");
+    //A dead handle (0, negative, or past the table) reads as null — the
+    //live-language null array is handle 0; the rest is defensive.
     if (handle <= 0
         || static_cast<size_t>(handle) >= e->m_slotKinds.size()) {
         e->RaiseNlangException(e->m_nullPtrExcClassIdx,

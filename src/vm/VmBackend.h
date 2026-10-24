@@ -1448,7 +1448,6 @@ private:
     //archive). Filled by ShadowRegisterLibraryUnits.
     std::vector<std::unordered_map<SnFunction*, uint16_t>>
         m_unitFuncIdxByModule;
-    SnNamespace* m_pGenRoot = nullptr;
 
     //Phase 6 per-unit mode: the registration walks only see members owned
     //by the selected unit, and cross-unit references become import slots.

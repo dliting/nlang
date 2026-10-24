@@ -20,7 +20,7 @@
 
 **错误语义**与语言内建一致:null数组抛`NullPointerException`,创建长度为负抛`IndexOutOfBoundsException`,整型`div`除零抛`DivByZeroException`(float/double除法遵循IEEE,得Inf/NaN),长度不匹配抛基类Exception,空数组规则见上表。它们都是可捕获的`Exception`家族值。
 
-```nim
+```nlang
 import io;
 import tensor;
 

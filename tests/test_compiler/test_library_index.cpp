@@ -45,7 +45,7 @@ static void TestLoadsStdLib()
 
     // 105 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
     // fs 8, thread 5 (the K3 materialized package), tensor 52 (stage-1
-    // creation + elementwise families). The index counts
+    // creation + elementwise + reduction families). The index counts
     // declaration lines; each symbol's package comes from the file's path
     // (the stem), not from any in-file head.
     CHECK(env.LibraryIndex().size() == 105);

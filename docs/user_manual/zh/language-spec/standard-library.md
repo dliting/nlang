@@ -1,7 +1,7 @@
 # 标准库
 
 
-NLang的标准库由`math`、`io`、`fs`、`thread`、`concurrent`五个包（包限定的自由函数）与string方法（经接收者分派）组成。包由其文件路径标识——`stdlib/io.n`就是包`io`——同一次构建中每个包名只能存在一份（重复是编译错误，诊断指名两条来源；名为`io`的项目目录就是普通目录）。调用只写限定名（`math.sin(x)`）；裸名不在作用域内。包名用作值（`int x = math;`）无法解析——包不是值。分工上，io承担内容输入输出（IO，input/output），math承担数值计算，fs承担文件系统的命名空间与元数据，thread承担虚拟线程的派生与停泊原语，concurrent承担同步工具`WaitGroup`与`Semaphore`（`Mutex`/`Channel`/`Future`等内建类除外——它们无需导入，见[并发](concurrency.md)）。
+NLang的标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`六个包（包限定的自由函数）与string方法（经接收者分派）组成。包由其文件路径标识——`stdlib/io.n`就是包`io`——同一次构建中每个包名只能存在一份（重复是编译错误，诊断指名两条来源；名为`io`的项目目录就是普通目录）。调用只写限定名（`math.sin(x)`）；裸名不在作用域内。包名用作值（`int x = math;`）无法解析——包不是值。分工上，io承担内容输入输出（IO，input/output），math承担数值计算，fs承担文件系统的命名空间与元数据，thread承担虚拟线程的派生与停泊原语，tensor承担数值数组的创建、逐元素与归约内核（见[tensor](stdlib-tensor.md)），concurrent承担同步工具`WaitGroup`与`Semaphore`（`Mutex`/`Channel`/`Future`等内建类除外——它们无需导入，见[并发](concurrency.md)）。
 
 标准库的**签名**（参数类型、参数个数、返回类型）写在随工具链分发的`stdlib/*.n`声明中，经语言服务的符号索引提供给编译器与编辑器（代码补全、悬停、转到定义）。标准库的形状与第三方库一致：`stdlib/*.n`声明接口，其中的`native`成员由`nlang_<ns>.dll`实现，运行期经宿主应用二进制接口（ABI，application binary interface）到达（`thread`包是唯一例外：其`native`声明由虚拟机本体实现，经内建通道分发）。限定调用按声明做类型检查后发射`OP_CallFunc`；内建string方法经接收者分派，发射`OP_CallIntrinsic`。查找`.n`与加载native库的目录规则见[库与搜索路径](stdlib-search-paths.md)。
 
