@@ -50,6 +50,12 @@ constexpr size_t AFFINITY_SCAN_WINDOW = 8;
 //器）定居，调度器公共面据此自守卫（嵌套零开销：本线程已持有则标记
 //已设，内层守卫不动锁）。
 //
+//K8 语义改述：这把锁是**调度器域锁**——守调度器状态（运行队列、上
+//下文注册表、调试焦点、定时器表）与载体的分派持有窗；执行器存储已
+//迁入五域锁（VmDomainLocks.h）。它位于域锁层级之外：域锁永不跨调
+//度器调用持有（无 ABBA 的不变量）；分派窗是唯一被认可的「持调度器
+//锁再向内取域锁」形态（它是载体一切执行的根）。
+//
 //标记不变量：进程内对 m_gil 的一切获取都经某个会设置 t_gilOwner 的
 //持有者（窗口守卫、ensure 守卫、定时器循环顶、调度器自守卫方法）。
 //绕开持有者裸取锁会使该线程下一次嵌套 ensure 守卫在非递归互斥量上
@@ -717,10 +723,12 @@ private:
     static thread_local CarrierState* t_carrier;
 
 public:
-    //K2 INV-1: the GIL — one mutex guarding all mutable executor state
-    //(this scheduler included). One carrier-loop iteration = one holding
-    //window: acquire → pop → execute → handle result → release. Slice 2
-    //adds the waiting-carrier accounting on top of the same mutex.
+    //K2 INV-1, restated for K8: the scheduler domain lock — one mutex
+    //guarding all mutable scheduler state (run queue, context registry,
+    //debug focus, timers). One carrier-loop iteration = one holding
+    //window: acquire → pop → execute → handle result → release.
+    //Executor stores live under the five domain locks (K8); this lock
+    //sits outside the domain order — see the GilHolder contract above.
     std::mutex& Gil() { return m_gil; }
 
 private:

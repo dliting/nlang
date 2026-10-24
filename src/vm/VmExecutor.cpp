@@ -418,10 +418,9 @@ std::string FormatBacktraceFrame(const std::string& funcName,
 //nearest catch handler (or top-level if none).
 [[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
                                                    const std::string& msg) {
-    //K7: exception construction allocates on the heap, string and
-    //list stores, and FireOnThrow touches scheduler focus — pure-
-    //opcode error paths (divide by zero, bad cast, ...) route here,
-    //so the guard lives at this single point.
+    //K8: the exception build self-locks (one Container section); the
+    //guard stays for FireOnThrow — the throw-site checkpoint takes the
+    //scheduler domain lock (same family as OpThrow/OpRethrow).
     GilEnsureGuard g(*this);
     const int32_t heapIdx = BuildNlangException(classIdx, msg);
     //Debugger checkpoint at the throw site, before unwinding starts
