@@ -91,11 +91,9 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
 int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
-    //The single length gate for every minter (language OP_AllocArray,
-    //native newArray): negative lengths and the kMaxArrayElems cap
-    //raise the catchable OutOfBounds family — without the cap a 2-cell
-    //kind at 1.1G elements overflows int32 in header + n*cells and
-    //dies in an uncatchable vector blow-up.
+    //The single length gate (language creation and native minting):
+    //negative or past kMaxArrayElems raises OutOfBounds — without the
+    //cap, header + n*cells overflows int32 for wide kinds.
     if (size < 0 || size > kMaxArrayElems)
         RaiseNlangException(m_oobExcClassIdx,
             "NLang VM: array length out of range");
@@ -106,10 +104,8 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
     int32_t totalSlots =
         static_cast<int32_t>(kArrayHeaderCells) + size * cells;
     //Arm the collector here — the single allocation choke point — so
-    //every minter (OP_AllocArray's own set, native newArray) pays the
-    //pending flag. A pure native-mint loop used to grow unbounded:
-    //no interpreted allocation ever raised the flag (review finding;
-    //same gap class as the deep-copy fix at DeepCopyStruct).
+    //every minter pays the pending flag. A pure native-mint loop used
+    //to grow unbounded (deep-copy gap class, review finding).
     m_gcPending = true;
     int32_t heapIdx;
     if (!m_freeList.empty()) {

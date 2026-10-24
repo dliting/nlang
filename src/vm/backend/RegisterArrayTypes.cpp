@@ -125,6 +125,12 @@ void VmBackend::WalkArrayTypeNode(SnField& n) {
         auto& func = static_cast<SnFunction&>(n);
         for (auto& param : func.Params())
             WalkArrayTypeField(param);
+        //A signature is a declaration: the return array type registers
+        //eagerly too, not lazily at call sites — a native returning
+        //T[] must find its scalar array type registered even when no
+        //caller consumes the result (the newArray contract).
+        if (func.HasReturn() && func.ReturnType())
+            RegisterArrayTypeExpr(func.ReturnType());
         if (func.Body())
             WalkArrayTypeStmt(*func.Body());
     }
