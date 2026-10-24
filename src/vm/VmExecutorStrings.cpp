@@ -116,11 +116,10 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
 //compares content. Two StrVal calls, no minting between them — the
 //returned references stay valid (no store growth).
 bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
-    //K7: the interned-flag read and the flatten below touch the
-    //growing string store; the comparison itself also runs inside
-    //this guard (StrVal returns references, which stay valid only
-    //while the store cannot grow).
-    GilEnsureGuard g(*this);
+    //K8: lock-free. Flag reads are benign value races; StrVal flattens
+    //under the string-maintenance domain lock internally; and ChunkedArray
+    //element addresses are stable across growth, so the two references
+    //survive any interleaved mint on another carrier.
     if (IsInternedString(hA) && IsInternedString(hB))
         return hA == hB;
     return StrVal(hA) == StrVal(hB);
@@ -175,16 +174,22 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
 //growth invalidates it — same discipline as the old ReadStrArg by-value
 //rule).
 const std::string& VmExecutor::StrVal(int32_t handle) {
-    //K7: the in-place cons flatten rewrites the string store. This
-    //guard covers the flatten only — the returned reference is the
-    //caller's responsibility (valid while the caller's own guard
-    //holds; the minting rule below already pins the same discipline).
-    GilEnsureGuard g(*this);
+    //K8: the flat fast path is a lock-free read of immutable content,
+    //and ChunkedArray addresses are stable across growth, so the
+    //returned reference survives interleaved mints on other carriers.
+    //The cons rewrite is string-store maintenance: it runs under the
+    //string-maintenance domain lock (two carriers flattening the same
+    //handle must not interleave their moves), and str is written
+    //before form, so a racing lock-free reader that observes Flat
+    //observes the full content (sharing-model store order).
     if (!IsLiveStringHandle(handle))
         return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
     if (so.form != StrObj::Form::Cons)
         return so.str;
+    DomainGuard g(m_domainLocks, DomainId::StrMaint);
+    if (so.form != StrObj::Form::Cons)
+        return so.str;   //another carrier flattened it while we waited
     std::string flat;
     FlattenInto(flat, handle);
     so.str = std::move(flat);

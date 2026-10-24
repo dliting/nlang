@@ -1,6 +1,11 @@
 /*---
     VmExecutorOpsStrings.cpp — 字符串操作码（拼接/比较/长度/枚举与数组渲染）
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    K8: string reads are lock-free (flat content is immutable and its
+    storage address is stable); minting and cons flattening take the
+    string-maintenance domain lock internally. OP_Array_to_str is the
+    one exception — it stays under the store lock until the Container
+    domain lands (it renders nested List/Dict structure).
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -10,8 +15,8 @@
 namespace nlang {
 
 void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
-    //K7: MintNewString allocates on the growing string store.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — MintNewString takes the intern table's domain
+    //lock internally; the enum-name table is link-time read-only.
     //uint16 enumDefIdx immediate; read int32 enum value from pResult,
     //lookup m_currModule->enumNames[enumDefIdx][value], push name.
     uint16_t enumDefIdx = reader.ReadUint16();
@@ -30,8 +35,10 @@ void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpArray_to_str(uint8_t* pResult) {
-    //K7: heap reads plus MintNewString at the tail; the format walk
-    //reads container and heap stores throughout.
+    //K8: still under the store lock — the format walk reaches
+    //FormatList/FormatDict (structural container reads); freed with
+    //the Container domain (Task 4 Step 4), which snapshots elements
+    //under the container lock instead.
     GilEnsureGuard g(*this);
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
     //push result string to pool, write idx to pResult.
@@ -56,10 +63,10 @@ void VmExecutor::OpArray_to_str(uint8_t* pResult) {
 }
 
 void VmExecutor::OpConcat_str(BytecodeReader& reader, uint8_t* locals) {
-    //K7: both branches touch the growing string store (cons
-    //allocation / materializing mint); the self-concat branch reads
-    //two StrVal references back to back.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — cons allocation pops the calling carrier's
+    //shard; the self-concat branch's StrVal flatten and the mint both
+    //take the string-maintenance domain lock internally (references
+    //stay valid regardless: ChunkedArray addresses are stable).
     //Transparent cons (Task 3): O(1) zero-copy node, flattened
     //lazily on first read (iteratively, in place — see StrVal).
     //n appends cost n nodes, all collectable, instead of n O(n)
@@ -109,9 +116,9 @@ void VmExecutor::OpNe_str(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpStrLen(BytecodeReader& reader, uint8_t* locals) {
-    //K7: the size read runs on the reference StrVal returns — the
-    //guard must cover the caller side of that reference.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — StrVal returns a reference into stable storage
+    //(ChunkedArray addresses never move), and flat content is
+    //immutable after the flatten that produced it.
     uint16_t dst = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     int32_t handle;
@@ -128,8 +135,8 @@ void VmExecutor::OpStrLen(BytecodeReader& reader, uint8_t* locals) {
 //charAt); a null string handle reads "" and fails the range check with
 //the same catchable OOB exception as arrays.
 void VmExecutor::OpStrByteAt(BytecodeReader& reader, uint8_t* locals) {
-    //K7: StrVal's returned reference is read below — guard the read.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — same stable-reference discipline as OP_StrLen;
+    //the out-of-bounds raise re-acquires internally.
     uint16_t dst = reader.ReadUint16();
     uint16_t str = reader.ReadUint16();
     uint16_t idx = reader.ReadUint16();
@@ -153,9 +160,8 @@ void VmExecutor::OpStrByteAt(BytecodeReader& reader, uint8_t* locals) {
 //io.readFile can load arbitrary bytes, so invalid UTF-8 is reachable
 //from pure NLang code and must not be an uncatchable internal error.
 void VmExecutor::OpStrForeachStep(BytecodeReader& reader, uint8_t* locals) {
-    //K7: the whole iteration step reads the flattened content through
-    //a reference from StrVal — the read stays under the guard.
-    GilEnsureGuard g(*this);
+    //K8: lock-free — the flattened content is immutable and its
+    //reference stable; malformed-UTF-8 raises re-acquire internally.
     uint16_t str = reader.ReadUint16();
     uint16_t off = reader.ReadUint16();
     uint16_t cond = reader.ReadUint16();
