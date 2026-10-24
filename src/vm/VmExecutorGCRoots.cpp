@@ -3,6 +3,7 @@
     从 VmExecutorGC.cpp 拆出（2026-10-20 K2 slice 5，零行为变化）。
 ---*/
 #include "VmExecutor.h"
+#include <algorithm>
 #include <cstring>
 
 namespace nlang {
@@ -98,6 +99,34 @@ void VmExecutor::TestRootValue(int32_t val,
         MarkString(val);
     if (static_cast<size_t>(val) < m_slotKinds.size() && !m_markBits[val])
         PushMarked(val, worklist);
+}
+
+//Root-frame RAII (see NativeRootFrameGuard in VmExecutor.h): one
+//blocking section's registration lives and dies with this object, so
+//a sibling carrier's exit can never revoke it (the shared watermark
+//list did — stdlib_tensor_gc_race caught it).
+VmExecutor::NativeRootFrameGuard::NativeRootFrameGuard(
+    VmExecutor& executor, const uint8_t* stagedArgs,
+    uint32_t paramCount, const uint8_t* stagedRet)
+    : m_executor(executor) {
+    m_frame.reserve(static_cast<size_t>(2) + paramCount);
+    m_frame.push_back({stagedRet, 1u, 0});
+    if (paramCount)
+        m_frame.push_back({stagedArgs, paramCount, 0});
+    m_executor.m_liveNativeRootFrames.push_back(&m_frame);
+    m_callerFrame = t_currentNativeRootFrame;
+    t_currentNativeRootFrame = &m_frame;
+    ++t_blockingNativeDepth;
+}
+
+VmExecutor::NativeRootFrameGuard::~NativeRootFrameGuard() {
+    auto& frames = m_executor.m_liveNativeRootFrames;
+    const auto framePos = std::find(frames.begin(), frames.end(),
+        &m_frame);
+    if (framePos != frames.end())
+        frames.erase(framePos);
+    t_currentNativeRootFrame = m_callerFrame;
+    --t_blockingNativeDepth;
 }
 
 } //namespace nlang

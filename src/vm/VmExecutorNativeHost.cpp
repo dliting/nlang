@@ -246,6 +246,8 @@ int VmExecutor::NativeHasInput(NativeHost* self) {
 
 //K2 slice 4 thread-locals (declared in VmExecutor.h).
 thread_local int VmExecutor::t_blockingNativeDepth = 0;
+thread_local std::vector<VmExecutor::NativeCallRoot>*
+    VmExecutor::t_currentNativeRootFrame = nullptr;
 thread_local VmExecutor::GilHolder* VmExecutor::t_gilOwner = nullptr;
 
 //Compiler-side sanity ceiling for call parameter counts (SnData.h
@@ -318,7 +320,6 @@ void VmExecutor::ParkFramesForBlockingNative(ExecutionContext* ctx)
         std::make_move_iterator(m_callStack.end()));
     m_callStack.clear();
     m_spScheduler->MarkBlockedNative(ctx->id);
-    ++t_blockingNativeDepth;
 }
 
 //Restore exactly the stolen frames (a re-entrant host callback may
@@ -337,6 +338,7 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
     m_spScheduler->MarkRunnableHeld(ctx->id);
 }
 
+
 //K2 slice 4 (§2.5) — the blocking-native arm. Stages args and the result
 //cell onto the carrier's C++ stack (the native sees only staging — no
 //concurrent read channel into frame storage remains), steals the frame
@@ -344,9 +346,9 @@ void VmExecutor::RestoreStolenFrames(ExecutionContext* ctx,
 //GIL release keeps INV-2 true mid-window), releases the GIL through the
 //thread's current holder (window guard or a re-entrant callback's ensure
 //guard — nesting works either way), runs the native, reacquires, and
-//truncates the native roots to the watermark UNDER the lock: while the
-//GIL is away the roots must stay armed, since a GC another carrier runs
-//before we get the lock has to see the staged cells (the native may
+//unwinds the section's root frame UNDER the lock (NativeRootFrameGuard):
+//while the GIL is away the roots stay armed, since a GC another carrier
+//runs before we get the lock has to see the staged cells (the native may
 //already have written its result into them — retracting before
 //reacquiring would open a collect-the-result window). Stop decides
 //between ShutdownSignal passthrough (run over: frames stay parked, no
@@ -377,10 +379,10 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
         std::memcpy(stagedArgs, locals + callParamBase,
                     static_cast<size_t>(paramCount) * kFrameSlotBytes);
     uint8_t stagedRet[kFrameSlotBytes] = {0};
-    const size_t watermark = m_nativeCallRoots.size();
-    m_nativeCallRoots.push_back({stagedRet, 1u, 0});
-    if (paramCount)
-        m_nativeCallRoots.push_back({stagedArgs, paramCount, 0});
+    //The staged cells stay rooted across the GIL release and mint
+    //roots land in the guard's frame (see the class comment).
+    NativeRootFrameGuard rootGuard(*this, stagedArgs, paramCount,
+        stagedRet);
     const size_t stolenDepth = m_callStack.size();
     ParkFramesForBlockingNative(ctx);
     owner->Release();
@@ -392,12 +394,11 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
         nativeExc = std::current_exception();
     }
     owner->Acquire();
-    m_nativeCallRoots.resize(watermark);
-    --t_blockingNativeDepth;
-    if (m_spScheduler->StopRequested()) {
-        //Run over: frames stay parked; m_callStack is empty (INV-2).
+    //The guard destructs before either exit below: stagedArgs/
+    //stagedRet live on this C++ stack, so their roots must die with
+    //it. On stop the frames stay parked; m_callStack is empty (INV-2).
+    if (m_spScheduler->StopRequested())
         throw ShutdownSignal();
-    }
     RestoreStolenFrames(ctx, stolenDepth);
     if (nativeExc)
         std::rethrow_exception(nativeExc);
@@ -411,8 +412,9 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
 //thread for the duration of the call).
 void VmExecutor::RootMintedNativeHandle(int32_t handle)
 {
-    if (t_blockingNativeDepth > 0 && handle != 0)
-        m_nativeCallRoots.push_back({nullptr, 0, handle});
+    if (t_blockingNativeDepth > 0 && handle != 0
+        && t_currentNativeRootFrame)
+        t_currentNativeRootFrame->push_back({nullptr, 0, handle});
 }
 
 //--- List<string> construction ---------------------------------------------

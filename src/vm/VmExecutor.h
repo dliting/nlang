@@ -441,8 +441,10 @@ private:
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
-    void OpLoadElement(BytecodeReader& reader, uint8_t* locals);
-    void OpStoreElement(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadElementN(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreElementN(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals);
+    void OpArrayShape(BytecodeReader& reader, uint8_t* locals);
     void OpArrayLength(BytecodeReader& reader, uint8_t* locals);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
@@ -541,6 +543,12 @@ private:
 
     //Allocate an array on the heap.
     //Returns the heap index.
+    //The single array-allocation choke point (language opcodes and
+    //native minting). Grows m_structHeap via emplace_back, so EVERY
+    //reference or pointer into m_structHeap held by the caller is
+    //invalidated: read what is needed into locals first, call, then
+    //re-index. OpArrayShape once read the source record's dims through
+    //a reference held across this call and landed in freed memory.
     int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         const int32_t* dims);
     //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
@@ -1122,19 +1130,50 @@ private:
     //entry, so only address rooting sees the final values); value
     //entries cover handles minted by NativeHost callbacks mid-call
     //(newString et al.) before the native copies them into ret. All
-    //mutations happen under the GIL; CallNative truncates to its
-    //watermark on every exit path after reacquiring.
+    //mutations happen under the GIL. Each blocking section owns one
+    //frame vector (on the carrier's C++ stack), registered here by
+    //address for the mark phase; an exit unregisters only its own
+    //frame, so a concurrent carrier's exit can never revoke another
+    //in-flight section's roots (a shared watermark list assumed LIFO
+    //nesting and broke under carriers — the churn carrier's mint
+    //root vanished mid-kernel; stdlib_tensor_gc_race caught it).
     struct NativeCallRoot {
         const uint8_t* cells = nullptr;  //address form base (null = value)
         uint32_t cellCount = 0;          //address form: 8-byte cell count
         int32_t value = 0;               //value form: minted handle
     };
-    std::vector<NativeCallRoot> m_nativeCallRoots;
+    std::vector<const std::vector<NativeCallRoot>*> m_liveNativeRootFrames;
     //Depth of blocking-native sections entered on this thread. Minting
     //callbacks root their handles only while this is non-zero (a
     //non-blocking native holds the GIL across the whole call, so no GC
     //can intervene between mint and the native writing the handle).
     static thread_local int t_blockingNativeDepth;
+    //The minting callback's own section's root frame (null outside
+    //a blocking section); RootMintedNativeHandle appends there.
+    static thread_local std::vector<NativeCallRoot>*
+        t_currentNativeRootFrame;
+    //RAII registration of one blocking section's root frame: builds
+    //the frame over the section's staged cells (result first, then
+    //args), pushes it, retargets the mint thread-local and bumps the
+    //section depth; destruction unregisters exactly its own frame and
+    //undoes the rest. Construct under the GIL before releasing it,
+    //destroy after reacquiring — the mark phase never sees a torn
+    //state and a throw path (ShutdownSignal, native exception) cannot
+    //leave roots pointing into the leaving C++ stack.
+    class NativeRootFrameGuard {
+    public:
+        NativeRootFrameGuard(VmExecutor& executor,
+            const uint8_t* stagedArgs, uint32_t paramCount,
+            const uint8_t* stagedRet);
+        ~NativeRootFrameGuard();
+        NativeRootFrameGuard(const NativeRootFrameGuard&) = delete;
+        NativeRootFrameGuard& operator=(
+            const NativeRootFrameGuard&) = delete;
+    private:
+        VmExecutor& m_executor;
+        std::vector<NativeCallRoot> m_frame;
+        std::vector<NativeCallRoot>* m_callerFrame = nullptr;
+    };
     //Lazy on-demand loader for native modules (standard-library DLLs and
     //third-party modules use it). Created on first native-module need.
     std::unique_ptr<NativeLibraryLoader> m_upNativeLoader;

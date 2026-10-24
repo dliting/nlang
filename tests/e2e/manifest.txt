@@ -1064,7 +1064,7 @@ enum_method_bare_call compile_error
 class_bare_method_call compile_error
 enum_method_this_member 7
 enum_method_this_field compile_error
-enum_method_array_receiver compile_error
+enum_method_array_receiver 0
 string_array_method_call 2
 class_array_method_call compile_error
 alias_basic 5
@@ -1864,5 +1864,13 @@ stdlib_tensor_string_reject compile_error
 stdlib_tensor_reductions 0
 stdlib_tensor_empty_max 1
 stdlib_tensor_gc_race 0
+blocking_native_roots 0
 int_min_div_wrap 0
 array_alloc_bound 0
+ndarray_basic 0
+ndarray_oob 0
+ndarray_negdim 0
+ndarray_zerodim 0
+ndarray_foreach 0
+ndarray_gc 0
+ndarray_members 0

@@ -144,17 +144,21 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
 //GIL (arm before release, truncate after reacquire), so a collection —
 //which itself holds the GIL — reads a consistent list.
 void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
-    for (const NativeCallRoot& root : m_nativeCallRoots) {
-        if (root.cells) {
-            for (uint32_t i = 0; i < root.cellCount; ++i) {
-                int32_t val;
-                std::memcpy(&val,
-                    root.cells + static_cast<size_t>(i) * kFrameSlotBytes,
-                    sizeof(val));
-                TestRootValue(val, worklist);
+    for (const std::vector<NativeCallRoot>* frame
+        : m_liveNativeRootFrames) {
+        for (const NativeCallRoot& root : *frame) {
+            if (root.cells) {
+                for (uint32_t i = 0; i < root.cellCount; ++i) {
+                    int32_t val;
+                    std::memcpy(&val,
+                        root.cells + static_cast<size_t>(i)
+                            * kFrameSlotBytes,
+                        sizeof(val));
+                    TestRootValue(val, worklist);
+                }
+            } else {
+                TestRootValue(root.value, worklist);
             }
-        } else {
-            TestRootValue(root.value, worklist);
         }
     }
 }
