@@ -704,6 +704,23 @@ target_link_libraries(test_gcworldstop
 
 add_test(NAME gcworldstop_tests COMMAND test_gcworldstop)
 
+# K8 Task 1: domain lock set (mutual exclusion, nesting markers, order
+# tripwire, overlap, telemetry) — real threads, no executor.
+add_executable(test_domainlocks
+    test_vm/test_domainlocks.cpp
+)
+target_include_directories(test_domainlocks
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_domainlocks
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME domainlocks_tests COMMAND test_domainlocks)
+
 # K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
 # behavior tests — same harness shape as test_threads.
 add_executable(test_stdlib_concurrency
