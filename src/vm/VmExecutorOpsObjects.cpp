@@ -1,6 +1,11 @@
 /*---
     VmExecutorOpsObjects.cpp — 堆对象/字段/元素/装箱/转型/异常抛出操作码
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    K8: the field/element/box/cast family runs lock-free under the sharing
+    memory model — field and element writes are benign value races on
+    shared records, allocation goes through the per-carrier shard free
+    lists, and error paths re-acquire inside RaiseNlangException. The
+    throw family keeps the store lock (debug checkpoint).
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -11,7 +16,6 @@
 namespace nlang {
 
 void VmExecutor::OpAllocStruct(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t structIdx = reader.ReadUint16();
     uint16_t fieldCount = reader.ReadUint16();
@@ -21,7 +25,6 @@ void VmExecutor::OpAllocStruct(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpLoadField(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t obj = reader.ReadUint16();
     uint16_t fieldOff = reader.ReadUint16();
@@ -44,7 +47,6 @@ void VmExecutor::OpLoadField(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t obj = reader.ReadUint16();
     uint16_t fieldOff = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
@@ -62,7 +64,6 @@ void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t classIdx = reader.ReadUint16();
     int32_t heapIdx = AllocClassOnHeap(classIdx);
@@ -71,7 +72,6 @@ void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpNullCheck(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t obj = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, locals + obj, sizeof(heapIdx));
@@ -81,7 +81,6 @@ void VmExecutor::OpNullCheck(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     uint16_t structIdx = reader.ReadUint16();
@@ -92,7 +91,6 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpAllocArray(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t arrayTypeIdx = reader.ReadUint16();
     uint16_t sizeSlot = reader.ReadUint16();
@@ -107,7 +105,6 @@ void VmExecutor::OpAllocArray(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
     uint16_t index = reader.ReadUint16();
@@ -149,7 +146,6 @@ void VmExecutor::OpLoadElement(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t arr = reader.ReadUint16();
     uint16_t index = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
@@ -182,7 +178,6 @@ void VmExecutor::OpStoreElement(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
     int32_t heapIdx;
@@ -201,7 +196,6 @@ void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
-    GilEnsureGuard g(*this);
     uint8_t typeTag = reader.ReadByte();
     //0.7.5: payload width from the registry — 8-byte rows (long/ulong)
     //read the full slot; ≤4-byte tags keep the legacy 4-byte read (the
@@ -217,7 +211,6 @@ void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
-    GilEnsureGuard g(*this);
     uint8_t expectedTag = reader.ReadByte();
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
@@ -262,7 +255,6 @@ void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
-    GilEnsureGuard g(*this);
     uint16_t targetClassIdx = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
@@ -339,7 +331,11 @@ std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
 }
 
 void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
-    GilEnsureGuard g(*this);   //ThrownMessageOf reads the heap slot
+    //Throw arm keeps the store lock: FireOnThrow's debug checkpoint
+    //(OnThrow + scheduler focus) is serialized only by it (OP_DebugInfo
+    //is non-pure for the same reason); ThrownMessageOf itself is a
+    //lock-free heap read under the sharing model.
+    GilEnsureGuard g(*this);
     //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
     //raise NLangThrow carrying the heap idx. Catch block above will
     //dispatch via func.tryBlocks.
@@ -354,7 +350,11 @@ void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpRethrow() {
-    GilEnsureGuard g(*this);   //ThrownMessageOf reads the heap slot
+    //Throw arm keeps the store lock: FireOnThrow's debug checkpoint
+    //(OnThrow + scheduler focus) is serialized only by it (OP_DebugInfo
+    //is non-pure for the same reason); ThrownMessageOf itself is a
+    //lock-free heap read under the sharing model.
+    GilEnsureGuard g(*this);
     //Phase 9d: `throw;` — re-raise the currently-caught exception.
     //Pops nothing; the matching OP_PopHandler at catch-block exit
     //(normal path) handles that.

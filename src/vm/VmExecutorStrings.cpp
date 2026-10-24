@@ -69,17 +69,26 @@ bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
 //second mint of live content always hits the table, and a hit on a dead
 //entry falls through and re-registers.
 int32_t VmExecutor::MintNewString(std::string content) {
-    if (content.size() <= kShortStringMaxBytes) {
-        auto it = m_shortStrTable.find(content);
-        if (it != m_shortStrTable.end() && IsLiveStringHandle(it->second))
-            return it->second;
+    //K8: interning mutates the shared weak table, so find + insert are
+    //one critical section under the string-maintenance domain lock. Two
+    //carriers racing the same fresh content must not both miss and mint:
+    //the second insert would orphan the first interned object and break
+    //the uniqueness invariant OP_Eq_str's handle fast path relies on.
+    //Minting inside the lock is fine — TakeStringSlot takes Growth at
+    //most, a forward acquisition (leaf under leaf, never outward).
+    if (content.size() > kShortStringMaxBytes) {
+        const int32_t handle = AllocStringObj();
+        m_stringObjs[static_cast<size_t>(handle)].str = std::move(content);
+        return handle;
     }
+    DomainGuard g(m_domainLocks, DomainId::StrMaint);
+    auto it = m_shortStrTable.find(content);
+    if (it != m_shortStrTable.end() && IsLiveStringHandle(it->second))
+        return it->second;
     int32_t handle = AllocStringObj();
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
-    if (content.size() <= kShortStringMaxBytes) {
-        so.interned = true;
-        m_shortStrTable[content] = handle;   //map keys its own copy
-    }
+    so.interned = true;
+    m_shortStrTable[content] = handle;   //map keys its own copy
     so.str = std::move(content);
     return handle;
 }
