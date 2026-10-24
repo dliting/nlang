@@ -34,12 +34,36 @@ struct ArithEntry
     { *reinterpret_cast<T*>(d) -= *reinterpret_cast<const T*>(s); }
     static void MulImpl(PrimSlot d, PrimConst s)
     { *reinterpret_cast<T*>(d) *= *reinterpret_cast<const T*>(s); }
-    //Integer and float rows share plain /= — the integer zero-divisor
-    //check runs in the handler before dispatch; float follows IEEE.
+    //Integer rows share plain /= — the integer zero-divisor check runs
+    //in the handler before dispatch; float follows IEEE. x86 idiv also
+    //traps on MIN/-1 (STATUS_INTEGER_OVERFLOW): route that one divisor
+    //through the unsigned carrier so it wraps to MIN — the two's-
+    //complement negation result, the shape Java's idiv returns.
     static void DivImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) /= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            if (*reinterpret_cast<const T*>(s) == T(-1)) {
+                using U = std::make_unsigned_t<T>;
+                *reinterpret_cast<T*>(d) = static_cast<T>(
+                    static_cast<U>(0)
+                    - static_cast<U>(*reinterpret_cast<T*>(d)));
+                return;
+            }
+        }
+        *reinterpret_cast<T*>(d) /= *reinterpret_cast<const T*>(s);
+    }
+    //MIN % -1 mathematically yields remainder 0; the same idiv trap
+    //applies, so answer it directly for signed rows.
     static void ModInt(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (std::is_signed_v<T>) {
+            if (*reinterpret_cast<const T*>(s) == T(-1)) {
+                *reinterpret_cast<T*>(d) = 0;
+                return;
+            }
+        }
+        *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s);
+    }
     static void ModFloat(PrimSlot d, PrimConst s)
     {
         //static_cast back: fmod promotes float args to double; the

@@ -1,0 +1,36 @@
+// Integer division edge: INT32_MIN / -1 and INT64_MIN / -1 wrap to the
+// minimum (two's-complement negation overflow) instead of trapping the
+// process. Same for tensor.div. Java's idiv has the same wraparound
+// shape (returning MIN); a hardware trap is never acceptable.
+import io;
+import tensor;
+
+int main() {
+    int one = 0 - 1;
+    int i = -2147483647;
+    i = i - 1;                     // INT32_MIN
+    int iw = i / one;              // wrap: INT32_MIN
+    if (iw != i) return 1;
+    int im = i % one;              // remainder 0 (MIN % -1), no trap
+    if (im != 0) return 5;
+
+    long l = -9223372036854775807;
+    l = l - 1;                     // INT64_MIN
+    long lw = l / one;             // wrap: INT64_MIN
+    if (lw != l) return 2;
+    long lm = l % one;
+    if (lm != 0) return 6;
+
+    int[] ai = tensor.fullI(2, i);
+    int[] m1 = tensor.fullI(2, one);
+    int[] rw = tensor.div(ai, m1);
+    if (rw[0] != i) return 3;
+
+    long[] al = tensor.fullL(2, l);
+    long[] lm1 = tensor.fullL(2, -1);
+    long[] lrw = tensor.div(al, lm1);
+    if (lrw[0] != l) return 4;
+
+    io.print(iw + 1);              // -2147483647: values are real
+    return 0;
+}

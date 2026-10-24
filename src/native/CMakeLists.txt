@@ -43,6 +43,7 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
                 $<TARGET_FILE_DIR:${tool}>
             VERBATIM)
     endforeach()
+endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.

@@ -28,7 +28,18 @@ T ApplyBin(BinOp op, T a, T b) {
         case BinOp::Add: return static_cast<T>(a + b);
         case BinOp::Sub: return static_cast<T>(a - b);
         case BinOp::Mul: return static_cast<T>(a * b);
-        case BinOp::Div: return static_cast<T>(a / b);
+        case BinOp::Div:
+            //MIN/-1 traps x86 idiv (same fix as the language rows):
+            //wrap through the unsigned carrier — negation's two's-
+            //complement result.
+            if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+                if (b == T(-1)) {
+                    using U = std::make_unsigned_t<T>;
+                    return static_cast<T>(static_cast<U>(0)
+                        - static_cast<U>(a));
+                }
+            }
+            return static_cast<T>(a / b);
     }
     return T(0);
 }
