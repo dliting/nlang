@@ -5,8 +5,9 @@ developers create objects without freeing them by hand. This page
 records the four core design decisions — safepoint triggering, a
 precise per-slot handle bitmap with a conservative fallback, the
 parallel array, iterative marking — plus the full mark-sweep algorithm,
-the root set for parked contexts and in-flight blocking natives, and
-the tracing rules for array fields. Understanding these decisions tells
+the root set for running evaluation windows, parked contexts and
+in-flight blocking natives, and the tracing rules for array fields.
+Understanding these decisions tells
 you when the VM collects and which slots count as live.
 
 ### Design Decisions
@@ -117,7 +118,7 @@ CollectGarbage():
 
 MarkPhase():
   clear all mark bits (heap and string stores)
-  for each CallFrame (running stack):
+  for each CallFrame (each carrier's evaluation stack, via the window registry):
     //parameters: declared descriptors
     for each LocalDescriptor with isParam and a reference typeKind:
       RTK_String: MarkString(value)      //handle, not heap index
@@ -195,12 +196,14 @@ O(1), with memory bounded at 2x the live set.
 
 ### Parked Contexts and the Scheduler Root Set
 
-Under the frame-stack machine, the running context's frames ARE the call
-stack; a **parked** context's whole frame stack (sleeping, waiting on a
+Each carrier owns its evaluation stack; a running context's frames ARE
+its carrier's stack, published in the window registry while the window
+is open (see the next section). A **parked** context's whole frame stack
+(sleeping, waiting on a
 join or a `Future.get`, contending a mutex, parked on an empty-channel
 receive or a full-channel send, preempted)
-lives in the scheduler, off the call stack. At collection time both are
-roots:
+lives in the scheduler, off every carrier's stack. At collection time
+both are roots:
 
 - every parked context's every frame runs the same three scan arms as a
   running frame (parameter descriptors, result cell, band bitmap) — a park
@@ -219,33 +222,49 @@ covered by the root set from birth. For the concurrency semantics, see
 [Concurrency](../language-spec/concurrency.md) and the
 [Frame Machine and Scheduler](frame-machine-and-scheduler.md) page.
 
-### GC Under the GIL and Blocking-Native Roots
+### Stop-The-World Rendezvous and Blocking-Native Roots
 
-Every mutation of the heap — allocation, marking, sweeping — happens
-while holding the global interpreter lock (GIL; see
-[Concurrency](../language-spec/concurrency.md)). A collection runs on the
-carrier that holds the GIL, and no other carrier can touch the heap
-meanwhile: there is no separate stop-the-world handshake to coordinate.
+The global interpreter lock (GIL; see
+[Concurrency](../language-spec/concurrency.md)) covers store operations —
+heap, string, and container mutation — while frame-local segments run
+lock-free on their own carriers. Every mutation of the heap — allocation,
+marking, sweeping — still happens while holding the lock, but a carrier
+executing a lock-free segment no longer needs it, so a collection cannot
+simply run "between dispatches": a **stop-the-world rendezvous**
+coordinates it. A carrier at a safepoint that observes the pending
+condition requests a world stop; every carrier with an open evaluation
+window arrives at its next safepoint, the last arriver runs the
+collection inline (holding the lock, uncontended — everyone else waits
+at the rendezvous), and completion wakes the waiters.
 
-- A non-blocking native call holds the GIL for its whole duration, so no
+The root set extends accordingly. Each carrier's evaluation stack is
+published in a window registry for as long as its window is open, and
+the collector scans every published entry: an active window is blocked
+at the rendezvous and therefore stable; a window suspended for a
+blocking native has parked its frames (the stack is empty, the parked
+frames scan as scheduler roots); a window suspended for a debugger
+freeze keeps its frames on the carrier's stack with the carrier blocked
+— stable as well.
+
+- A non-blocking native call holds the lock for its whole duration, so no
   collection can interleave with it and its arguments need no extra
   rooting.
 - A **blocking** native call — declared through the version 5
   registration channel of the native application binary interface
   (ABI) — uses staged cells: the VM copies the arguments into cells it
-  owns, releases the GIL, calls the native, re-acquires the GIL (checking
+  owns, releases the lock, calls the native, re-acquires the lock (checking
   the stop flag first), restores the frame, and copies the result back.
-  During the window without the GIL, a collection on another carrier can
+  During the window without the lock, a collection on another carrier can
   run, so the staged argument cells and the return slot are roots for the
   duration of the call. The return cell is a root by address — the native
   writes it itself.
 - Callbacks into the VM made from inside a blocking native (string
   construction, list construction, raising an exception) re-acquire the
-  GIL per callback. Handles they mint are pushed onto the executor's
+  lock per callback. Handles they mint are pushed onto the executor's
   local-root vector and truncated at a watermark when the call returns;
   they live on the executor rather than on the carrier's C++ stack because
   a collector running on another carrier cannot see that stack.
-- Root-vector mutations happen under the GIL (armed before the release,
+- Root-vector mutations happen under the lock (armed before the release,
   truncated after the re-acquire), so a collection always reads a
   consistent list.
 
@@ -295,5 +314,6 @@ CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()
 ```
 
-A safepoint only fires on a carrier that holds the GIL; parked contexts
+Safepoints fire on every carrier — a frame-local segment running lock-free
+must still arrive at the rendezvous at its next back-edge. Parked contexts
 are not running and need no cooperation to be scanned.

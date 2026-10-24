@@ -163,13 +163,16 @@
   last carrier, so the interleaving is not guaranteed and program
   correctness rests only on the `join`, channel, and mutex
   happens-before edges. See [Concurrency](concurrency.md).
-- **Concurrency: a debugger pause is all-stop**: a paused debugger
-  holds the GIL and every virtual thread freezes with it; timer
-  expirations that fall due during the pause are migrated only after
-  the resume (time-frozen semantics), and the frames and locals of
-  parked contexts remain inspectable while stopped. `ndb` pins a single
-  carrier to keep stepping and breakpoints deterministic; multi-context
-  inspection is covered in [ndb](../cli-tools/ndb.md).
+- **Concurrency: a debugger pause is all-stop**: while the debugger
+  is stopped, a freeze gate blocks every new dispatch — an in-flight
+  dispatch segment finishes and then the carrier stops, so no virtual
+  thread makes progress for the rest of the pause; a timer that falls
+  due during the pause may already be queued, but everything waits for
+  the resume before it dispatches (time-frozen semantics), and the
+  frames and locals of parked contexts remain inspectable while
+  stopped. `ndb` pins a single carrier to keep stepping and
+  breakpoints deterministic; multi-context inspection is covered in
+  [ndb](../cli-tools/ndb.md).
 - **Concurrency: no `await` keyword**: functions are not async-colored
   (see the model section in [Concurrency](concurrency.md));
   `Future.get()` is an honest blocking wait, and `thread.join` waits on

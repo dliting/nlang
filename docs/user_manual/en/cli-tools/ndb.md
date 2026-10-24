@@ -77,17 +77,22 @@ ndb itself with 0.
 ## Multi-context debugging
 
 Contexts spawned by `thread.spawn` are equally under the debugger's
-control: a breakpoint hit or a throw in any context stops everything
-(every carrier freezes). `threads` prints one row per context: the
-focus marker (`*`), the id, the scheduling state (suffixed `@<carrier>`
-while an execution window holds it — this is where running-now differs
-from queued runnable), and the innermost frame location; a finished
-context has no frames and shows only the id and state. `t <id>` moves
+control: a breakpoint hit or a throw in any context stops everything —
+after the stop no new dispatch begins, and each in-flight dispatch
+segment finishes and then halts. `threads` prints one row per context:
+the focus marker (`*`), the id, the scheduling state (suffixed
+`@<carrier>` while an execution window holds it — this is where
+running-now differs from queued runnable), and the innermost frame
+location; a finished context has no frames and shows only the id and
+state. `t <id>` moves
 the inspection focus to that context — `bt`/`frame`/`info locals`/`p`/
 `l`/`x` then address it, and parked frames (a channel receive waiting
-for a sender, say) inspect like any other; each stop resets the focus
-back to the stopped context. `t` also sets the step target (as
-mainstream integrated development environments do): the subsequent
+for a sender, say) inspect like any other; a context still held by a
+carrier (`@<carrier>`) keeps its frames on that carrier's execution
+stack, which is not inspectable while stopped — `bt` and the locals
+query report no frames for it until it parks or finishes; each stop
+resets the focus back to the stopped context. `t` also sets the step
+target (as mainstream integrated development environments do): the subsequent
 `s`/`n`/`f` act on the selected context — stepping with a parked
 context selected lets the other contexts advance, and the selected one
 stops at its next statement once woken; selecting a parked context

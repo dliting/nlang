@@ -6,6 +6,32 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.15] - 2026-10-24
+
+### Changed
+
+- **The global interpreter lock now covers store operations** — heap,
+  string, and container mutations still serialize on the lock, but
+  frame-local computation segments run lock-free and overlap across
+  carriers: pure-compute virtual threads now scale with the carrier
+  count instead of executing one at a time. Single-carrier behavior is
+  unchanged byte for byte; object-dense code still serializes (finer
+  locks are future work).
+- **Per-carrier evaluation stacks** — each carrier owns its evaluation
+  stack (the executor no longer keeps one shared stack); contexts still
+  move their frames into the scheduler on park and back on resume.
+- **Garbage collection stops the world across carriers** — the
+  stop-the-world rendezvous now parks every concurrently executing
+  carrier at its next safepoint (the last arriver collects), and each
+  carrier's evaluation stack is registered as a root while its window
+  is open.
+- **Debugger stops no longer hold the lock** — a stop now arms a
+  reference-counted freeze gate that blocks new dispatches (in-flight
+  segments finish and then halt), and debugger queries take the lock
+  per query, so shared state stays serialized while no bytecode runs.
+  While stopped, a context still held by a carrier reports no frames
+  until it parks or finishes.
+
 ## [0.10.12] - 2026-10-22
 
 ### Changed

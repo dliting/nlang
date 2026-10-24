@@ -1,6 +1,6 @@
 # 并发
 
-NLang提供轻量并发：`thread`包派生**虚拟线程**——共享载体池、在全局解释器锁下每次只运行一个的执行上下文，不是各自独立的操作系统线程。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`与`Semaphore`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`Channel<T>`、`Future<T>`等内建类无需导入。
+NLang提供轻量并发：`thread`包派生**虚拟线程**——共享载体池、共享存储由全局解释器锁保护的执行上下文，不是各自独立的操作系统线程。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`与`Semaphore`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`Channel<T>`、`Future<T>`等内建类无需导入。
 
 调度的确定性分档：单载体（库默认）下完全确定——严格先进先出（FIFO，first in first out）轮转，每上下文跑满固定回边配额才让位（仅当另有可运行上下文时），同一程序在同样的输入下产生同样的交错顺序；多载体下出队带唤醒亲和，交错顺序未指定（见[GIL与多载体](concurrency-gil-carriers.md)）。`sleep`按截止时间排序唤醒。单载体测试可断言交错顺序与终值，多载体测试只断言同步后的结果——都不断言时长。
 
@@ -15,7 +15,7 @@ NLang属于**虚拟线程**一族（同Go、Java虚拟线程）：写并发代�
 | `await promise`／`Promise.all` | `f.get()`／`thread.join(t)` |
 | 回调嵌套 | 直接顺序书写 |
 
-因此NLang没有也不需要`await`关键字：函数不做异步着色，没有状态机变换；`f.get()`就是诚实的阻塞式等待——停泊当前虚拟线程，完成值就绪后原地续行。要到多个载体上真并行（受全局解释器锁约束，原生阻塞窗口除外），用`SetCarrierThreadCount(n)`显式选入（见[GIL与多载体](concurrency-gil-carriers.md)）。
+因此NLang没有也不需要`await`关键字：函数不做异步着色，没有状态机变换；`f.get()`就是诚实的阻塞式等待——停泊当前虚拟线程，完成值就绪后原地续行。要到多个载体上真并行（纯计算段直接重叠，共享存储操作仍经全局解释器锁串行），用`SetCarrierThreadCount(n)`显式选入（见[GIL与多载体](concurrency-gil-carriers.md)）。
 
 ## 选型导引
 
