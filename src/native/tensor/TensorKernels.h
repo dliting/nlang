@@ -22,14 +22,6 @@ T* CellsOf(const NativeArrayView& v) {
 
 //--- creation entries (tensor_native.cpp) --------------------------------------
 
-void ZerosI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void ZerosL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void ZerosF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void ZerosD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void OnesI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void OnesL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void OnesF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void OnesD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);

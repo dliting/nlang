@@ -6,11 +6,15 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.11.0] - 2026-10-24
+## [0.11.1] - 2026-10-24
+
+### 变更
+
+- **tensor创建面统一为一种命名风格**——`zeros`/`ones`删除(冗余:语言的尺寸创建`T[n]`本就零初始化,`full(n, 1)`覆盖ones),`full`/`arange`改为与其他族一致的同名重载——元素类型由实参类型决定(`full(n, value)`、`arange(start, stop, step)`)。公开名从25个降到11个。内部由类型化包装函数分派到按类别的native——native调用收到的是裸值cell、无类型元数据,单个native无法得知调用用的标量类别。`arange(0, 10, -3)`得到`int[]`(精确匹配胜过加宽);要long元素请传long实参。
 
 ### 新增
 
-- **`tensor`包——数值数组内核**——新标准库包(`nlang_tensor.dll`):创建内核(`zeros`/`ones`/`full`/`arange`,覆盖`int`/`long`/`float`/`double`)、逐元素二元内核(`add`/`sub`/`mul`/`div`,同名重载)与归约内核(`sum`/`max`/`min`/`mean`/`dot`;`mean`恒返回`double`,整型`dot`按64位累加)。内核以native代码经钉住载荷视图运行:阶段1实测逐元素加法约为手写循环的49倍,dot约为117倍。错误语义遵循语言家族——null数组抛`NullPointerException`,负长度抛`IndexOutOfBounds`,整型除零抛`DivByZeroException`。
+- **`tensor`包——数值数组内核**——新标准库包(`nlang_tensor.dll`):创建内核(`full`/`arange`,覆盖`int`/`long`/`float`/`double`;零填充数组用语言的尺寸创建`T[n]`)、逐元素二元内核(`add`/`sub`/`mul`/`div`,同名重载)与归约内核(`sum`/`max`/`min`/`mean`/`dot`;`mean`恒返回`double`,整型`dot`按64位累加)。内核以native代码经钉住载荷视图运行:阶段1实测逐元素加法约为手写循环的49倍,dot约为117倍。错误语义遵循语言家族——null数组抛`NullPointerException`,负长度抛`IndexOutOfBounds`,整型除零抛`DivByZeroException`。
 
 - **NativeHost ABI v6:native模块的数组访问**——native库经`getArrayView`获得钉住载荷视图(`NativeArrayView`:rank/dims/strides/elemKind加裸载荷指针,调用期间有效),经`newArray`铸造零初始化数组。异常选择器新增`NullPointer`/`OutOfBounds`/`DivideByZero`家族,内核抛出与语言运行时相同的可捕获异常类。
 

@@ -2,7 +2,7 @@
 import tensor;
 
 int main() {
-    int[] e = tensor.zerosI(0);
+    int[] e = int[0];
     int m = tensor.max(e);
     return m;
 }

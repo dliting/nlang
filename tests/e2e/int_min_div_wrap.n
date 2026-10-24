@@ -21,13 +21,14 @@ int main() {
     long lm = l % one;
     if (lm != 0) return 6;
 
-    int[] ai = tensor.fullI(2, i);
-    int[] m1 = tensor.fullI(2, one);
+    int[] ai = tensor.full(2, i);
+    int[] m1 = tensor.full(2, one);
     int[] rw = tensor.div(ai, m1);
     if (rw[0] != i) return 3;
 
-    long[] al = tensor.fullL(2, l);
-    long[] lm1 = tensor.fullL(2, -1);
+    long[] al = tensor.full(2, l);
+    long m1v = 0 - 1;
+    long[] lm1 = tensor.full(2, m1v);
     long[] lrw = tensor.div(al, lm1);
     if (lrw[0] != l) return 4;
 

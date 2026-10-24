@@ -4,55 +4,62 @@
 // any plain NLang function would compile from this file. Edit freely.
 //
 // Stage 1 covers 1-D numeric kernels over int/long/float/double arrays.
-// Creation kernels carry an element-type suffix (I/L/F/D) — the element
-// intent is not derivable from integer-only arguments, so each kind needs
-// its own name. Elementwise and reduction families use same-name
-// overloads instead: overload resolution picks the declared signature at
-// compile time and the native dispatches on the runtime element kind.
+// The public surface uses ONE naming discipline: same-name overloads, the
+// element kind carried by the typed arguments (the fill value for full,
+// the progression triple for arange, the array operands everywhere else).
+// The suffixed natives below (fullI/fullL/..., arangeI/...) are internal
+// implementation the typed wrappers dispatch to — the native ABI passes
+// raw value cells without kind metadata, so one native cannot see which
+// scalar kind a call carried. Zero-filled arrays need no kernel at all:
+// the language's sized creation `T[n]` is zero-initialized.
 //
 // Error model: null arrays raise NullPointerException, negative lengths
-// raise IndexOutOfBoundsException (language-side alignment), length
-// mismatches, zero arange steps and empty reductions raise the base
-// Exception.
+// or lengths past the 100M-element cap raise IndexOutOfBoundsException,
+// length mismatches, zero arange steps and empty reductions raise the
+// base Exception.
 
-//--- creation -----------------------------------------------------------------
+//--- creation (public overloads over internal per-kind natives) ---------------
 
-// int array of n zeros.
-native int[] zerosI(int n);
-// long array of n zeros.
-native long[] zerosL(int n);
-// float array of n zeros.
-native float[] zerosF(int n);
-// Double array of n zeros.
-native double[] zerosD(int n);
-
-// int array of n ones.
-native int[] onesI(int n);
-// long array of n ones.
-native long[] onesL(int n);
-// float array of n ones.
-native float[] onesF(int n);
-// Double array of n ones.
-native double[] onesD(int n);
-
-// int array of n copies of value.
-native int[] fullI(int n, int value);
-// long array of n copies of value.
-native long[] fullL(int n, long value);
-// float array of n copies of value.
-native float[] fullF(int n, float value);
-// Double array of n copies of value.
-native double[] fullD(int n, double value);
+// n copies of value; the element kind is the value's type.
+int[] full(int n, int value) {
+    return fullI(n, value);
+}
+long[] full(int n, long value) {
+    return fullL(n, value);
+}
+float[] full(int n, float value) {
+    return fullF(n, value);
+}
+double[] full(int n, double value) {
+    return fullD(n, value);
+}
 
 // Half-open arithmetic progression: start, start+step, ... strictly
-// before stop. A zero step, or one that cannot advance toward stop,
+// before stop; the element kind is the common type of the three
+// arguments. A zero step, or one that cannot advance toward stop,
 // raises the base Exception.
+int[] arange(int start, int stop, int step) {
+    return arangeI(start, stop, step);
+}
+long[] arange(long start, long stop, long step) {
+    return arangeL(start, stop, step);
+}
+float[] arange(float start, float stop, float step) {
+    return arangeF(start, stop, step);
+}
+double[] arange(double start, double stop, double step) {
+    return arangeD(start, stop, step);
+}
+
+// Internal per-kind natives (implementation of the overloads above;
+// not part of the documented surface).
+native int[] fullI(int n, int value);
+native long[] fullL(int n, long value);
+native float[] fullF(int n, float value);
+native double[] fullD(int n, double value);
 native int[] arangeI(int start, int stop, int step);
-// long arange; int arguments widen implicitly.
 native long[] arangeL(long start, long stop, long step);
-// float arange.
 native float[] arangeF(float start, float stop, float step);
-// Double arange.
 native double[] arangeD(double start, double stop, double step);
 
 //--- elementwise (same-name overloads; runtime element-kind dispatch) ---------

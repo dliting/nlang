@@ -6,13 +6,28 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.11.0] - 2026-10-24
+## [0.11.1] - 2026-10-24
+
+### Changed
+
+- **The tensor creation surface follows one naming discipline** —
+  `zeros`/`ones` are gone (redundant: the language's sized creation
+  `T[n]` is already zero-initialized, and `full(n, 1)` covers ones),
+  and `full`/`arange` are same-name overloads like every other family —
+  the element kind comes from the typed arguments (`full(n, value)`,
+  `arange(start, stop, step)`). The public surface drops from 25 names
+  to 11. Internally, typed wrappers dispatch to per-kind natives; a
+  native call carries raw value cells without kind metadata, so one
+  native cannot see the scalar kind a call used. `arange(0, 10, -3)`
+  yields `int[]` (exact match beats widening); long elements take long
+  arguments.
 
 ### Added
 
 - **`tensor` package — numeric array kernels** — a new standard-library
-  package (`nlang_tensor.dll`) with creation kernels (`zeros`/`ones`/
-  `full`/`arange` over `int`/`long`/`float`/`double`), elementwise
+  package (`nlang_tensor.dll`) with creation kernels (`full`/`arange`
+  over `int`/`long`/`float`/`double`; zero-filled arrays come from the
+  language's sized creation `T[n]`), elementwise
   binary kernels (`add`/`sub`/`mul`/`div` as same-name overloads), and
   reductions (`sum`/`max`/`min`/`mean`/`dot`; `mean` always returns
   `double`, integer `dot` accumulates in 64 bits). Kernels run as

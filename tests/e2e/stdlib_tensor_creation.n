@@ -1,54 +1,54 @@
-// tensor creation kernels: ones/full/arange across all four element
-// types. zerosD is covered by stdlib_tensor_zeros.
+// tensor creation surface: full/arange same-name overloads (the element
+// kind comes from the typed arguments) plus the language's sized
+// creation, which is already zero-filled — zeros needs no kernel.
 import io;
 import tensor;
 
 int main() {
-    // onesD(3): every element 1.0
-    double[] ones = tensor.onesD(3);
-    if (ones.length() != 3) return 1;
-    if (ones[0] != 1.0 || ones[1] != 1.0 || ones[2] != 1.0) return 2;
+    // zero-filled sized creation (the zeros replacement)
+    double[] zd = double[3];
+    if (zd[0] != 0.0 || zd[2] != 0.0) return 1;
 
-    // fullI(4, 7): sum 28
-    int[] full = tensor.fullI(4, 7);
+    // full: overload picked by the value's type
+    int[] fi = tensor.full(4, 7);
     int sum = 0;
-    foreach (int v in full) sum = sum + v;
-    if (sum != 28) return 3;
+    foreach (int v in fi) sum = sum + v;
+    if (sum != 28) return 2;
+    double[] fd = tensor.full(3, 2.5);
+    if (fd[2] != 2.5) return 3;
+    float[] ff = tensor.full(3, 0.5f);
+    if (ff[1] != 0.5f) return 4;
+    long one = 1;
+    long[] fl = tensor.full(3, one + 4);
+    if (fl[2] != 5) return 5;
+    double[] od = tensor.full(3, 1.0);          // ones via full
+    if (od[1] != 1.0) return 6;
 
-    // arangeD(0, 1, 0.25): length 4, first 0.0, last 0.75
-    double[] d = tensor.arangeD(0.0, 1.0, 0.25);
-    if (d.length() != 4) return 4;
-    if (d[0] != 0.0 || d[3] != 0.75) return 5;
+    // arange: overload picked by the argument types
+    int[] ri = tensor.arange(10, 0, -3);         // 10 7 4 1
+    if (ri.length() != 4) return 7;
+    if (ri[0] != 10 || ri[3] != 1) return 8;
+    double[] rd = tensor.arange(0.0, 1.0, 0.25); // 4 elems, last 0.75
+    if (rd.length() != 4) return 9;
+    if (rd[0] != 0.0 || rd[3] != 0.75) return 10;
+    float[] rf = tensor.arange(0.0f, 1.0f, 0.5f);
+    if (rf.length() != 2) return 11;
+    if (rf[1] != 0.5f) return 12;
+    long s = 0;
+    long e = 8;
+    long st = 2;
+    long[] rl = tensor.arange(s, e, st);
+    if (rl.length() != 4) return 13;
+    if (rl[3] != 6) return 14;
+    // exact match beats widening: int args give int[]
+    int[] exact = tensor.arange(0, 4, 1);
+    if (exact.length() != 4) return 15;
 
-    // arangeI(10, 0, -3): 10,7,4,1
-    int[] r = tensor.arangeI(10, 0, -3);
-    if (r.length() != 4) return 6;
-    if (r[0] != 10 || r[3] != 1) return 7;
-
-    // arangeL via implicit int->long widening
-    long[] lr = tensor.arangeL(0, 8, 2);
-    if (lr.length() != 4) return 8;
-    if (lr[3] != 6) return 9;
-
-    // arangeF with float literals
-    float[] fr = tensor.arangeF(0.0f, 1.0f, 0.5f);
-    if (fr.length() != 2) return 10;
-    if (fr[1] != 0.5f) return 11;
-
-    // zerosI/onesI/onesL/onesF/fullL/fullF/fullD presence + shape
-    if (tensor.zerosI(2)[1] != 0) return 12;
-    if (tensor.onesI(2)[1] != 1) return 13;
-    if (tensor.onesL(2)[1] != 1) return 14;
-    if (tensor.onesF(2)[1] != 1.0f) return 15;
-    if (tensor.fullL(3, 5)[2] != 5) return 16;
-    if (tensor.fullF(3, 2.5f)[2] != 2.5f) return 17;
-    if (tensor.fullD(3, 2.5)[2] != 2.5) return 18;
-
-    // arangeD zero step raises the base Exception family
+    // arange zero step raises the base Exception family
     try {
-        double[] bad = tensor.arangeD(0.0, 1.0, 0.0);
-        if (bad.length() != -1) return 19;   // unreachable
-    } catch (Exception e) {
+        double[] bad = tensor.arange(0.0, 1.0, 0.0);
+        if (bad.length() != -1) return 16;   // unreachable
+    } catch (Exception ex) {
         // expected
     }
     return 0;

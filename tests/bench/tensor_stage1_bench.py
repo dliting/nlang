@@ -33,9 +33,9 @@ SRC_INTERP = """
 import io;
 import tensor;
 int main() {
-    double[] a = tensor.arangeD(0.0, @N@.0, 1.0);
-    double[] b = tensor.fullD(@N@, 1.0);
-    double[] c = tensor.zerosD(@N@);
+    double[] a = tensor.arange(0.0, @N@.0, 1.0);
+    double[] b = tensor.full(@N@, 1.0);
+    double[] c = double[@N@];
     for (int r = 0; r < @ROUNDS@; r = r + 1) {
         for (int i = 0; i < @N@; i = i + 1) {
             c[i] = a[i] + b[i];
@@ -50,9 +50,9 @@ SRC_KERNEL = """
 import io;
 import tensor;
 int main() {
-    double[] a = tensor.arangeD(0.0, @N@.0, 1.0);
-    double[] b = tensor.fullD(@N@, 1.0);
-    double[] c = tensor.zerosD(@N@);
+    double[] a = tensor.arange(0.0, @N@.0, 1.0);
+    double[] b = tensor.full(@N@, 1.0);
+    double[] c = double[@N@];
     for (int r = 0; r < @ROUNDS@; r = r + 1) {
         c = tensor.add(a, b);
     }
@@ -65,8 +65,8 @@ SRC_DOT_INTERP = """
 import io;
 import tensor;
 int main() {
-    double[] a = tensor.arangeD(0.0, @N@.0, 1.0);
-    double[] b = tensor.fullD(@N@, 1.0);
+    double[] a = tensor.arange(0.0, @N@.0, 1.0);
+    double[] b = tensor.full(@N@, 1.0);
     double acc = 0.0;
     for (int r = 0; r < @ROUNDS@; r = r + 1) {
         double s = 0.0;
@@ -84,8 +84,8 @@ SRC_DOT_KERNEL = """
 import io;
 import tensor;
 int main() {
-    double[] a = tensor.arangeD(0.0, @N@.0, 1.0);
-    double[] b = tensor.fullD(@N@, 1.0);
+    double[] a = tensor.arange(0.0, @N@.0, 1.0);
+    double[] b = tensor.full(@N@, 1.0);
     double acc = 0.0;
     for (int r = 0; r < @ROUNDS@; r = r + 1) {
         acc = acc + tensor.dot(a, b);

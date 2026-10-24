@@ -21,7 +21,7 @@ int main() {
     }
     //Native minting hits the same unified bound.
     try {
-        double[] minted = tensor.zerosD(100000001);
+        double[] minted = tensor.full(100000001, 1.0);
         if (minted.length() != -1) return 3; // unreachable
     } catch (IndexOutOfBoundsException oob3) {
         // expected

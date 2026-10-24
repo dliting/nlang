@@ -32,7 +32,7 @@ namespace {
 //fail by name, not by attempting a multi-GB mint.
 constexpr int64_t kArangeMaxElems = 100 * 1000 * 1000;
 
-//zeros/ones/full family: mint then fill with a constant.
+//full family: mint then fill with a constant.
 template <typename T>
 void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 uint8_t kind, T value) {
@@ -48,7 +48,7 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
 
 //Half-open arithmetic progression start, start+step, ... strictly before
 //stop. The element count is ceil(|span/step|) — exact for integral steps
-//and the standard numpy semantics for fractional ones. long double keeps
+//and the standard numpy semantics for fractional steps. long double keeps
 //float/double span division from pre-rounding the ceiling.
 template <typename T>
 void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
@@ -109,14 +109,6 @@ float   ReadF(const uint8_t* args, int slot) { return ArgFloat(args, slot); }
 double  ReadD(const uint8_t* args, int slot) { return ArgDouble(args, slot); }
 } // namespace
 
-TENSOR_CONST_FILL(ZerosI, NEK_Int32, int32_t, 0)
-TENSOR_CONST_FILL(ZerosL, NEK_Int64, int64_t, 0)
-TENSOR_CONST_FILL(ZerosF, NEK_Float32, float, 0.0f)
-TENSOR_CONST_FILL(ZerosD, NEK_Float64, double, 0.0)
-TENSOR_CONST_FILL(OnesI, NEK_Int32, int32_t, 1)
-TENSOR_CONST_FILL(OnesL, NEK_Int64, int64_t, 1)
-TENSOR_CONST_FILL(OnesF, NEK_Float32, float, 1.0f)
-TENSOR_CONST_FILL(OnesD, NEK_Float64, double, 1.0)
 TENSOR_CONST_FILL_BY_ARG(FullI, NEK_Int32, int32_t, ReadI)
 TENSOR_CONST_FILL_BY_ARG(FullL, NEK_Int64, int64_t, ReadL)
 TENSOR_CONST_FILL_BY_ARG(FullF, NEK_Float32, float, ReadF)
@@ -129,14 +121,6 @@ TENSOR_ARANGE(ArangeD, NEK_Float64, double, ReadD)
 } // namespace tensor
 
 NLANG_DEFINE_NATIVE_INIT {
-    regBlocking(registry, "tensor", "zerosI", &tensor::ZerosI);
-    regBlocking(registry, "tensor", "zerosL", &tensor::ZerosL);
-    regBlocking(registry, "tensor", "zerosF", &tensor::ZerosF);
-    regBlocking(registry, "tensor", "zerosD", &tensor::ZerosD);
-    regBlocking(registry, "tensor", "onesI", &tensor::OnesI);
-    regBlocking(registry, "tensor", "onesL", &tensor::OnesL);
-    regBlocking(registry, "tensor", "onesF", &tensor::OnesF);
-    regBlocking(registry, "tensor", "onesD", &tensor::OnesD);
     regBlocking(registry, "tensor", "fullI", &tensor::FullI);
     regBlocking(registry, "tensor", "fullL", &tensor::FullL);
     regBlocking(registry, "tensor", "fullF", &tensor::FullF);
