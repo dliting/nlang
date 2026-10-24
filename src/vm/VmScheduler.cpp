@@ -47,8 +47,6 @@ void VmScheduler::Reset() {
     m_gilWaitersPeak.store(0, std::memory_order_relaxed);
     m_gilWaitNanosTotal.store(0, std::memory_order_relaxed);
     m_gilContendedAcquires.store(0, std::memory_order_relaxed);
-    m_storeGuardAcquires.store(0, std::memory_order_relaxed);
-    m_storeGuardMarkerHits.store(0, std::memory_order_relaxed);
     m_timerCv.notify_all();
 }
 

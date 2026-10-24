@@ -17,6 +17,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
+#include "VmDomainLocks.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
@@ -2908,38 +2909,72 @@ static void test_gil_wait_counters_whitebox()
     PASS();
 }
 
-//--- K7 Task 6（存储守卫遥测）---
+//--- K8 Task 6（域遥测；取代 K7 存储守卫旧口径）---
 
-//GilEnsureGuard 两类获取可区分计数：同线程首次构造真实获取互斥体，
-//嵌套构造命中属主标记（零开销快路径）；析构不重复计数；Reset 每 run
-//清零（与 K5 等待计数器同口径）。
-static void test_store_guard_counters_whitebox()
+//DomainTelemetrySnapshot：单次运行内每域 {获取,竞争,等待µs} 三计数。
+//三段验证：①容器程序后 Container 域获取计数 ≥ add 次数（每次 intrinsic
+//真实取锁）且单载体零竞争；②同一执行器的域锁集被真实线程对撞（1ms
+//持有＋10µs 连发）——竞争计数与等待微秒经快照面贯通（空临界区竞速者
+//可互不重叠，须固定持有窗）；③第二次 Execute 触发 ResetPerRunState
+//清零（与 K5 等待计数同口径）——竞争归零而获取重新累积。
+static void test_domain_telemetry_whitebox()
 {
-    TEST(store_guard_counters_whitebox);
-    VmScheduler sched;
-    CHECK(sched.StoreGuardAcquisitions() == 0
-              && sched.StoreGuardMarkerHits() == 0,
-          "both store-guard counters start at zero");
+    TEST(domain_telemetry_whitebox);
+    const size_t kContainer = static_cast<size_t>(DomainId::Container);
+    CompiledModule mod = buildLinkedModule("k8_domtel",
+        "int main() {\n"
+        "    List<int> l = {};\n"
+        "    int i = 0;\n"
+        "    while (i < 100) { l.add(i); i = i + 1; }\n"
+        "    return l.length();\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 100, "container program runs");
     {
-        VmScheduler::GilEnsureGuard outer(sched);
-        CHECK(sched.StoreGuardAcquisitions() == 1,
-              "first guard construction is a real acquisition");
-        {
-            VmScheduler::GilEnsureGuard nested(sched);
-            CHECK(sched.StoreGuardMarkerHits() == 1,
-                  "nested construction hits the owner marker");
-            CHECK(sched.StoreGuardAcquisitions() == 1,
-                  "the nested hit takes no mutex");
-        }
-        CHECK(sched.StoreGuardMarkerHits() == 1,
-              "nested destruction counts nothing");
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.acquisitions[kContainer] >= 100,
+              "every container intrinsic acquires the Container domain "
+              "(got "
+              + std::to_string(tel.acquisitions[kContainer]) + ")");
+        CHECK(tel.contended[kContainer] == 0,
+              "single-carrier run cannot contend the Container domain");
     }
-    CHECK(sched.StoreGuardAcquisitions() == 1,
-          "outer destruction releases without recounting");
-    sched.Reset();
-    CHECK(sched.StoreGuardAcquisitions() == 0
-              && sched.StoreGuardMarkerHits() == 0,
-          "Reset clears both store-guard counters");
+    {
+        const int kHoldRounds = 50;
+        std::atomic<bool> stop{false};
+        std::thread holder([&exec, &stop, kHoldRounds]() {
+            for (int r = 0; r < kHoldRounds; ++r) {
+                DomainGuard g(exec.DomainLocksForTests(),
+                              DomainId::Container);
+                std::this_thread::sleep_for(
+                    std::chrono::microseconds(1000));
+            }
+            stop.store(true);
+        });
+        std::thread burster([&exec, &stop]() {
+            while (!stop.load()) {
+                DomainGuard g(exec.DomainLocksForTests(),
+                              DomainId::Container);
+                std::this_thread::sleep_for(
+                    std::chrono::microseconds(10));
+            }
+        });
+        holder.join();
+        burster.join();
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.contended[kContainer] > 0,
+              "fixed-window collision recorded as contended");
+        CHECK(tel.waitUs[kContainer] > 0,
+              "wait time recorded through the snapshot surface");
+    }
+    CHECK(exec.Execute(mod) == 100, "executor reuse runs again");
+    {
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.contended[kContainer] == 0,
+              "ResetPerRunState clears domain contention");
+        CHECK(tel.acquisitions[kContainer] >= 100,
+              "acquisitions re-accumulate after the run reset");
+    }
     PASS();
 }
 
@@ -4477,7 +4512,7 @@ int main()
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
         test_gil_wait_counters_whitebox();
-        test_store_guard_counters_whitebox();
+        test_domain_telemetry_whitebox();
         test_gil_wait_time_counters();
         test_gil_wait_counters_no_contention();
         test_debug_focus_exclusive_dispatch();

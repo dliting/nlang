@@ -242,6 +242,17 @@ public:
     int GcRendezvousParks() const {
         return m_gcRendezvousParks.load(std::memory_order_relaxed);
     }
+    //K8 Task 6: per-run per-domain lock telemetry (acquisitions,
+    //contended acquisitions, cumulative wait microseconds) — the
+    //successor of the K7 store-guard counters, which died with the
+    //domain split. Cleared by ResetPerRunState.
+    DomainTelemetry DomainTelemetrySnapshot() const {
+        return m_domainLocks.Snapshot();
+    }
+    //K8 Task 6 white-box seam: drive this executor's domain lock set
+    //from test threads (deterministic contention for the telemetry
+    //contract). Production code never calls this.
+    DomainLockSet& DomainLocksForTests() { return m_domainLocks; }
     //K8 Task 5 white-box knob: make the NEXT collection throw once at
     //its entry — proves the collector's completion guard releases the
     //rendezvous waiters instead of stranding them on the epoch.

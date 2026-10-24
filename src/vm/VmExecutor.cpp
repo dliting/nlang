@@ -41,6 +41,10 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     m_gcPressure.store(false, std::memory_order_release);
     m_gcRendezvousParks.store(0, std::memory_order_relaxed);
     m_preemptSkips = 0;
+    //K8 Task 6: domain-lock telemetry is per-run (one run's contention
+    //must not bleed into the next — same policy as the GIL wait
+    //counters the scheduler Reset clears).
+    m_domainLocks.ClearTelemetry();
     ResumeThrowExcIdxRef() = 0;
     UnwindFrames().clear();
     m_lastBacktrace.clear();

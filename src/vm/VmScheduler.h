@@ -192,13 +192,9 @@ public:
     public:
         explicit GilEnsureGuard(VmScheduler& sched) : m_rSched(sched) {
             if (t_gilOwner != nullptr) {
-                //already held on this thread — nested no-op (marker hit)
-                m_rSched.m_storeGuardMarkerHits.fetch_add(
-                    1, std::memory_order_relaxed);
+                //already held on this thread — nested no-op
                 return;
             }
-            m_rSched.m_storeGuardAcquires.fetch_add(
-                1, std::memory_order_relaxed);
             Acquire();
         }
         GilEnsureGuard(const GilEnsureGuard&) = delete;
@@ -523,17 +519,6 @@ public:
     uint64_t GilContendedAcquires() const {
         return m_gilContendedAcquires.load(std::memory_order_acquire);
     }
-    //K7 store-guard telemetry (per run): GilEnsureGuard classifies each
-    //construction — a real mutex acquisition, or a marker hit (the
-    //guard found this thread already owns the global lock and took
-    //nothing; the nested fast path). The ratio shows how much re-entrant
-    //guard nesting avoids the mutex. Cleared by Reset.
-    uint64_t StoreGuardAcquisitions() const {
-        return m_storeGuardAcquires.load(std::memory_order_acquire);
-    }
-    uint64_t StoreGuardMarkerHits() const {
-        return m_storeGuardMarkerHits.load(std::memory_order_acquire);
-    }
     //辅助载体上的分派次数（白盒观测：多载体并非空转的证据）。主载体
     //线程在 RegisterContext（主载体专属路径）时记录。
     int AuxDispatchCount() const { return m_auxDispatchCount; }
@@ -707,9 +692,6 @@ private:
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::atomic<uint64_t> m_gilWaitNanosTotal{0};  //等待累计纳秒（白盒）
     std::atomic<uint64_t> m_gilContendedAcquires{0};  //竞争获取（白盒）
-    //K7 存储守卫遥测（见 StoreGuardAcquisitions）：真实获取 vs 标记命中。
-    std::atomic<uint64_t> m_storeGuardAcquires{0};
-    std::atomic<uint64_t> m_storeGuardMarkerHits{0};
     std::thread::id m_primaryThreadId{};       //RegisterContext 时记录
     int m_auxDispatchCount = 0;                //辅助载体分派（白盒观测）
     size_t m_affinityHits = 0;                 //亲和出队命中（白盒观测）

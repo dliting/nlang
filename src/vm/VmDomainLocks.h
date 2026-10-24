@@ -27,6 +27,14 @@ enum class DomainId : uint8_t {
     Count = 5
 };
 
+//Per-run domain-lock telemetry snapshot. Arrays are indexed by DomainId
+//ordinal (Container, Sync, Stream, StrMaint, Growth).
+struct DomainTelemetry {
+    uint64_t acquisitions[static_cast<size_t>(DomainId::Count)] = {};
+    uint64_t contended[static_cast<size_t>(DomainId::Count)] = {};
+    uint64_t waitUs[static_cast<size_t>(DomainId::Count)] = {};
+};
+
 class DomainLockSet {
 public:
     std::mutex& Mutex(DomainId id) const { return m_mutexes[Idx(id)]; }
@@ -34,6 +42,26 @@ public:
     uint64_t Acquisitions(DomainId id) const { return m_acquisitions[Idx(id)].load(std::memory_order_relaxed); }
     uint64_t Contended(DomainId id) const { return m_contended[Idx(id)].load(std::memory_order_relaxed); }
     uint64_t WaitUs(DomainId id) const { return m_waitUs[Idx(id)].load(std::memory_order_relaxed); }
+
+    //Whole-set snapshot for run-level telemetry surfaces (probe 1, tests).
+    DomainTelemetry Snapshot() const {
+        DomainTelemetry tel;
+        for (size_t i = 0; i < static_cast<size_t>(DomainId::Count); ++i) {
+            tel.acquisitions[i] = m_acquisitions[i].load(std::memory_order_relaxed);
+            tel.contended[i] = m_contended[i].load(std::memory_order_relaxed);
+            tel.waitUs[i] = m_waitUs[i].load(std::memory_order_relaxed);
+        }
+        return tel;
+    }
+    //Per-run accounting reset (the executor's ResetPerRunState calls it —
+    //one run's contention must not bleed into the next).
+    void ClearTelemetry() {
+        for (size_t i = 0; i < static_cast<size_t>(DomainId::Count); ++i) {
+            m_acquisitions[i].store(0, std::memory_order_relaxed);
+            m_contended[i].store(0, std::memory_order_relaxed);
+            m_waitUs[i].store(0, std::memory_order_relaxed);
+        }
+    }
 
     //Production default: diagnose and terminate. Tests install a recorder.
     void SetTripwireCallback(std::function<DomainId(DomainId)> cb) { m_tripwire = std::move(cb); }
