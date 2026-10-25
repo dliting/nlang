@@ -69,6 +69,39 @@ void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
 //stale mid-call. Pointer math uses data()+offset throughout — &v[size]
 //would be UB for zero-length records.
 
+//View filling for NativeGetArrayView: row-major strides computed into
+//the view's own inline storage (ABI v7) — every live view owns its
+//strides; the v6 host scratch let a second view corrupt the first's.
+//Dims and data point into the validated record header (contract: the
+//pointers stay valid for the duration of the native call only). The
+//record is VmExecutor's heap StructSlot (a vector of int32 cells),
+//taken non-const because the view exposes its raw storage.
+static void FillArrayView(NativeArrayView* out,
+                          std::vector<int32_t>& record,
+                          const CompiledArrayType& at,
+                          size_t payloadBase) {
+    //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
+    //the padded header.
+    const int32_t rank = record[2];
+    const int64_t elemCount = record[3];
+    int32_t stride = 1;
+    for (int32_t d = rank - 1; d >= 0; --d)
+    {
+        out->stridesInline[d] = stride;
+        stride *= record[4 + d];
+    }
+    out->rank = rank;
+    out->dims = record.data() + 4;   //the dims run
+    out->strides = out->stridesInline;
+    out->elemCount = elemCount;
+    out->elemKind = at.elemKind;
+    out->elemCellBytes = static_cast<uint8_t>(
+        ArrayElemCells(at.elemKind) * kHeapCellBytes);
+    out->reserved[0] = 0;
+    out->reserved[1] = 0;
+    out->data = record.data() + payloadBase;   //payload base
+}
+
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
                                    NativeArrayView* out) {
     VmExecutor* e = Wrap(self)->executor;
@@ -96,29 +129,8 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
     if (arrayTypeIdx < 0
         || static_cast<size_t>(arrayTypeIdx) >= arrayTypes.size())
         e->RaiseNlangExceptionBase("getArrayView: corrupt array type index");
-    const auto& at = arrayTypes[static_cast<size_t>(arrayTypeIdx)];
-    //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
-    //the padded header. Row-major strides compute into the view's own
-    //inline storage (ABI v7): every live view owns its strides — the
-    //v6 host scratch let a second view corrupt the first's.
-    const int32_t rank = record[2];
-    const int64_t elemCount = record[3];
-    int32_t stride = 1;
-    for (int32_t d = rank - 1; d >= 0; --d)
-    {
-        out->stridesInline[d] = stride;
-        stride *= record[4 + d];
-    }
-    out->rank = rank;
-    out->dims = record.data() + 4;   //the dims run
-    out->strides = out->stridesInline;
-    out->elemCount = elemCount;
-    out->elemKind = at.elemKind;
-    out->elemCellBytes = static_cast<uint8_t>(
-        ArrayElemCells(at.elemKind) * kHeapCellBytes);
-    out->reserved[0] = 0;
-    out->reserved[1] = 0;
-    out->data = record.data() + payloadBase;   //payload base
+    FillArrayView(out, record,
+                  arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase);
     return 1;
 }
 
