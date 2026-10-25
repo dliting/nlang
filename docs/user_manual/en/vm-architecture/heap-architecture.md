@@ -91,6 +91,30 @@ value bits with no outgoing references to trace. slot[0] is always read
 as the type tag, never misinterpreted as a classIdx. SweepPhase frees
 them like any other unreachable slot.
 
+### Array Records
+
+An array record's header carries the shape; the element area stores
+data at the element stride (1 or 2 cells):
+
+```text
+slot[0] = RTK_Array (record kind)
+slot[1] = arrayTypeIdx (array type table entry)
+slot[2] = rank (dimension count; 1 for 1-D)
+slot[3] = elemCount (total element count, product of the dimensions)
+slots[4 .. 4+rank-1] = element count of each dimension
+(header padded to an even cell count; 8-byte element families stay
+naturally aligned)
+element i = header cells + i * stride, laid out row-major
+```
+
+A 1-D array is the `rank=1` special case; rectangular
+multi-dimensional arrays share the same layout — the element access
+instructions fold multi-dimensional coordinates into a row-major
+flat index, and `OP_ArrayShape` mints a shape array from the header
+dimensions. GC marking resolves the element kind from
+`arrayTypeIdx` and traces reference-shaped elements (class/struct/
+string handles) as out-edges.
+
 ### The String Object Store
 
 Strings are GC-managed immutable objects at run time, held in a separate

@@ -64,12 +64,16 @@
 
 ### 数组
 
-| 操作码          | 操作数                          | 说明                     |
-|-----------------|---------------------------------|--------------------------|
-| OP_AllocArray   | dst, arrayTypeIdx, sizeSlot     | 在堆上分配数组          |
-| OP_LoadElement  | dst, arr, index                 | 读取元素                 |
-| OP_StoreElement | arr, index, src                 | 写入元素                 |
-| OP_ArrayLength  | dst, arr                        | 元素个数 → int32        |
+| 操作码               | 操作数                               | 说明                     |
+|----------------------|--------------------------------------|--------------------------|
+| OP_AllocArrayN       | dst, arrayTypeIdx, rank, dimsBase    | 分配数组；从dimsBase起的rank个连续槽读取各维元素个数 |
+| OP_LoadElementN      | dst, arr, idxBase, rank              | 按idxBase起的rank个坐标读取元素 |
+| OP_StoreElementN     | arr, idxBase, src, rank              | 按idxBase起的rank个坐标写入元素 |
+| OP_LoadElementFlat   | dst, arr, flatIdx                    | 按行主序扁平下标读取元素（foreach遍历用） |
+| OP_ArrayLength       | dst, arr                             | 全部元素个数 → int32    |
+| OP_ArrayShape        | dst, arr                             | 铸造逐维元素个数的一维int数组 |
+
+一维数组是`rank=1`的特例，与多维数组共用同一组指令；各维元素个数在初始化器降级时是编译期常量，运行期创建（尺寸来自表达式）则从求值暂存槽读取。
 
 ### 函数调用
 

@@ -24,25 +24,27 @@
   error — scalar, class, interface, or `Object` targets, `as` casts
   (`ia as int`), non-array parameters, numeric binary operands
   (`arr + 1`), relational or cross-type comparisons (`arr < arr2`,
-  `arr == 5`), condition positions (`if (arr)`), `switch`
-  discriminants, and method receivers. Cross-element and
+  `arr == 5`), condition positions (`if (arr)`) and `switch`
+  discriminants. Cross-element and
   shared-representation array conversions are rejected alike:
   `string[] b = ia`, the covariant upcast `Base[] ba = da`, and
   `enum[]` ↔ `int[]` interconversion all fail with "an array value
   only converts to the same array type". Elements pulled out of
   `List<T[]>` / `Dict<K,T[]>` follow the same rule; their array-ness
-  is visible to the compiler — method-receiver and
-  `switch`-discriminant uses (`li[0].rank()`, `switch (li.get(0))`)
-  are rejected with an explicit error, `foreach` can iterate them into an array-typed
+  is visible to the compiler — the array method surface applies
+  directly (`li[0].rank()`), while `switch`-discriminant use
+  (`switch (li.get(0))`) stays a named rejection, `foreach` can iterate them into an array-typed
   loop variable (array-valued sources may be used directly and are
   evaluated once), and `Dict` keyed on array types uses handle
   identity.
-- **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
-  rejected at compile time ("jagged arrays (T[][]) are not supported") —
-  at locals, fields, parameters, return types, `for`/`foreach` loop
-  variables, and as generic type arguments. The VM has no
-  multi-dimensional array layout; declare flat arrays or use
-  `List<List<T>>`-style containers instead.
+- **Jagged arrays (`T[][]`)**: nested array forms are rejected at
+  compile time ("jagged arrays (T[][]) are not supported") — at
+  locals, fields, parameters, return types, `for`/`foreach` loop
+  variables, and as generic type arguments. Rectangular
+  multi-dimensional arrays (`T[,]`, `T[,,]`) are not jagged forms —
+  see the multi-dimensional arrays section of
+  [Arrays](array.md); use `List<List<T>>`-style containers for
+  irregular row sets.
 - **Bare `{...}` as a method-call receiver**: a bare brace literal needs
   a typed target; as a receiver (`{}.length()`) there is none, so it
   stays rejected — bind a typed local first. A bare bracket literal

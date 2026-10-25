@@ -77,12 +77,19 @@ String and Function Values below).
 
 ### Array
 
-| Opcode          | Operands                        | Description              |
-|-----------------|---------------------------------|--------------------------|
-| OP_AllocArray   | dst, arrayTypeIdx, sizeSlot     | Allocate array on heap   |
-| OP_LoadElement  | dst, arr, index                 | Read element             |
-| OP_StoreElement | arr, index, src                 | Write element            |
-| OP_ArrayLength  | dst, arr                        | Element count → int32    |
+| Opcode              | Operands                             | Description              |
+|---------------------|--------------------------------------|--------------------------|
+| OP_AllocArrayN      | dst, arrayTypeIdx, rank, dimsBase    | Allocate array; read the element count of each of the rank dimensions from consecutive slots at dimsBase |
+| OP_LoadElementN     | dst, arr, idxBase, rank              | Read element by rank coordinates at idxBase |
+| OP_StoreElementN    | arr, idxBase, src, rank              | Write element by rank coordinates at idxBase |
+| OP_LoadElementFlat  | dst, arr, flatIdx                    | Read element by row-major flat index (foreach iteration) |
+| OP_ArrayLength      | dst, arr                             | Total element count → int32 |
+| OP_ArrayShape       | dst, arr                             | Mint a 1-D int array holding the element count of each dimension |
+
+A 1-D array is the `rank=1` special case and shares this instruction
+set with multi-dimensional arrays; initializer lowering emits
+compile-time constants for the dimension sizes, while runtime
+creation (sizes from expressions) reads them from evaluation slots.
 
 ### Function Calls
 

@@ -32,6 +32,7 @@ keeps it within 0-255).
 | cast_operator.n | `as` unboxing and reference downcast (numeric conversions go through implicit assignment) | 10 |
 | const_assert.n | const locals/assert/compound assignment | 11 |
 | out_params.n | `out` parameters for multiple return values | 12 |
+| ndarray_tour.n | rectangular multi-dimensional arrays/comma subscript/rank()/shape()/length | 13 |
 | switch_tour.n | switch/enum branches | 0 |
 | enum_methods.n | enum methods and `this` | 0 |
 | delegates_tour.n | function/method delegates | 7 |

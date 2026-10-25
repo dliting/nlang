@@ -21,3 +21,4 @@ interpolation_tour 9 costs 4990c
 cast_operator 10
 const_assert 11
 out_params 12 17 = 5*3 + 2
+ndarray_tour 13 [[1, 2, 3], [4, 5, 6]]

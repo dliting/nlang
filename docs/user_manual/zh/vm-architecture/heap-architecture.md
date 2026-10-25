@@ -57,6 +57,22 @@ slots[1..2] = 值位（8字节单元对：int32 / float 位模式 / string 对�
 
 `m_slotKinds[idx] = RTK_Boxed`（6）。GC MarkPhase对装箱记录按类型标签分派：字符串标签的payload（slot[1]）是字符串对象仓的句柄，按句柄标记字符串对象；其余标签的值位是原始位模式，没有出边可追。slot[0]始终按类型标签读取，不会被误读成classIdx。SweepPhase与其他不可达槽位一样释放它们。
 
+### 数组记录
+
+数组记录的头部携带形状信息，元素区按元素步宽（1或2槽）存放数据：
+
+```text
+slot[0] = RTK_Array（记录种类）
+slot[1] = arrayTypeIdx（数组类型表项）
+slot[2] = rank（维度数，一维为1）
+slot[3] = elemCount（全部元素个数，各维之积）
+slots[4 .. 4+rank-1] = 各维元素个数
+（头部补齐到偶数槽；8字节元素族自然对齐）
+元素i = 头部槽数 + i × 步宽，行主序铺开
+```
+
+一维数组是`rank=1`的特例；矩形多维数组共用同一布局——元素访问指令把多维坐标折算成行主序扁平下标后读写元素区，`OP_ArrayShape`从头部各维铸造形状数组。GC标记按`arrayTypeIdx`解析元素种类，引用形态的元素（class/struct/string句柄）作为出边下探。
+
 ### 字符串对象仓
 
 字符串在运行期是GC管理的不可变对象，存放在独立的对象仓`m_stringObjs`中。前五类堆记录（class/struct/boxed/func/array）共享`m_structHeap`，字符串是第六类存储，拥有自己的标记位向量、空闲表与回收阈值（回收语义见[垃圾回收设计](garbage-collection-design.md)页）。

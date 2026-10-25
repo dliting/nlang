@@ -43,12 +43,33 @@ their type — `[[1,2],[3]]` and `{{1,2},{3}}` both work.
 
 | Target kind                 | Allocation             | Per-entry store                      |
 |-----------------------------|------------------------|--------------------------------------|
-| `T[]` array                 | `OP_AllocArray` size=N | `OP_ConstInt32 i; OP_StoreElement`  |
+| `T[]` / `T[,,]` array       | `OP_AllocArrayN` (staged dimension sizes) | coordinate constants; `OP_StoreElementN` |
 | `List<T>`                   | `OP_New "List"` + ctor | `OP_Box` (if T primitive); `OP_CallMethod "add"` |
 | `Dict<K,V>`                 | `OP_New "Dict"` + ctor | key and value as expressions; `OP_Box` (if K/V primitive); `OP_CallMethod "set"` |
 | `Channel<T>`                | `OP_New "Channel"` + ctor (unbounded capacity staged as a constant) | — (the resolver rejects entries; values enter through `send`) |
 | user class                  | `OP_New` + no-arg ctor | `OP_StoreField <offset>`            |
 | struct                      | `OP_AllocStruct`       | `OP_StoreField <offset>`            |
+
+### Multi-dimensional array targets
+
+`int[,] m = [[1, 2], [3, 4]];` goes through the same handler; the
+shape validation moves up into the resolver: when the target token's
+dimension count is >= 2, the literal is validated level by level to
+be rectangular — nesting depth equal to the dimension count, equal
+row widths within a level, non-empty top level; jagged forms and
+depth mismatches are named rejections. Each row then resolves
+recursively as a rank-minus-one array literal, and the leaf casts
+happen inside the row.
+
+At emission the dimension sizes are read along the literal's first
+path (sibling rows are already pinned equal by the rectangular
+check), staged in one `EvalAreaClaim`, and `OP_AllocArrayN` allocates
+once; the leaves recurse in row-major order with the coordinate
+constants and the element value sharing one `EvalAreaClaim`'s
+consecutive slots (`[coords | value]`) — the coordinates never land
+in the call-parameter area, which sits directly below a declaration's
+evaluation staging and would clobber the array handle — and each
+leaf stores with `OP_StoreElementN`.
 
 ### Per-method boxing plan reuse
 

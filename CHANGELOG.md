@@ -6,6 +6,35 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] - 2026-10-25
+
+### Added
+
+- **Rectangular multi-dimensional arrays** — `T[,]` / `T[,,]` (up to 8
+  dimensions) are first-class types: comma subscript read/write
+  (`a[i, j]`), the `rank()` / `shape()` / `length()` members,
+  row-major `foreach`, and rectangular `[...]` initializers validated
+  at compile time (nesting depth equal to the dimension count, equal
+  row widths within a level; jagged literals and empty multi-
+  dimensional literals are named rejections). Arrays share one heap
+  layout across ranks — the header carries rank plus the per-dimension
+  sizes, the payload is row-major — and the array opcodes unify into
+  `OP_AllocArrayN` / `OP_LoadElementN` / `OP_StoreElementN` /
+  `OP_ArrayShape` (1-D is the rank=1 case). `int[,]` signatures
+  round-trip module imports (the .ncu type descriptor carries the
+  rank; module format v2.11), and value formatting nests per rank
+  (`[[1, 2], [3, 4]]`). The manual gains a multi-dimensional arrays
+  section, the heap architecture page documents the array record
+  layout, and the array instruction table reflects the unified
+  opcodes.
+
+### Changed
+
+- **Array-typed method receivers** — array values pulled out of
+  containers (`li[0].length()`) call the array method surface
+  directly; the blanket rejection of method-receiver positions is
+  gone (`switch` discriminants stay rejected).
+
 ## [0.11.1] - 2026-10-24
 
 ### Changed

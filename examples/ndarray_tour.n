@@ -1,0 +1,33 @@
+// ndarray_tour.n — rectangular multi-dimensional arrays: creation,
+// comma subscript, rank/shape/length members, row-major foreach,
+// rectangular initializers and nested toString.
+import io;
+
+int sumAll(int[,] m) {
+    int total = 0;
+    foreach (int v in m) {
+        total = total + v;
+    }
+    return total;
+}
+
+int main() {
+    int[,] grid = int[2, 3];      // zero-filled; sizes may be expressions
+    grid[0, 0] = 1;
+    grid[1, 2] = 6;
+
+    int[,,] cube = int[2, 2, 2];
+    cube[1, 0, 1] = 5;
+
+    int[,] lit = [[1, 2, 3], [4, 5, 6]];
+    double[,] scaled = [[0.5, 1.5], [2.5, 3.5]];
+
+    io.print(grid.rank() + "d " + grid.shape() + " cells " + grid.length());
+    io.print(lit);
+    io.print(scaled);
+    io.print("sum " + sumAll(lit) + " cube " + cube.length());
+
+    if (grid.length() == 6 && cube[1, 0, 1] == 5 && sumAll(lit) == 21)
+        return 13;
+    return 1;
+}

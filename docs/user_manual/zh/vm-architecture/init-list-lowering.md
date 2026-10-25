@@ -16,12 +16,18 @@ resolver按槽位把元素目标传播进子初始化列表（`PropagateNestedIn
 
 | 目标kind                    | 分配                   | 逐条目存储                           |
 |-----------------------------|------------------------|--------------------------------------|
-| `T[]`数组                  | `OP_AllocArray` size=N | `OP_ConstInt32 i; OP_StoreElement`  |
+| `T[]` / `T[,,]`数组        | `OP_AllocArrayN`（各维元素个数暂存槽） | 坐标常量；`OP_StoreElementN` |
 | `List<T>`                   | `OP_New "List"` + ctor | `OP_Box`（T为基本类型时）；`OP_CallMethod "add"` |
 | `Dict<K,V>`                 | `OP_New "Dict"` + ctor | 键与值均为表达式；`OP_Box`（K/V为基本类型时）；`OP_CallMethod "set"` |
 | `Channel<T>`                | `OP_New "Channel"` + ctor（无界容量以常量暂存） | —（resolver拒绝条目；值经`send`进入） |
 | 用户class                  | `OP_New` + 无参ctor   | `OP_StoreField <offset>`            |
 | struct                      | `OP_AllocStruct`       | `OP_StoreField <offset>`            |
+
+### 多维数组目标
+
+`int[,] m = [[1, 2], [3, 4]];`走同一处理器，形状校验前移到resolver：目标令牌维度数≥2时，字面量按层校验矩形——嵌套层数等于维度数、同层各行等宽、顶层非空，锯齿与深度不符具名拒绝；随后子行作为维度数减一的一维数组字面量递归决议，叶子cast在行内完成。
+
+发射时各维元素个数沿字面量首路径读取（兄弟行已被矩形校验约束等宽），一次`EvalAreaClaim`暂存维度值后`OP_AllocArrayN`分配；叶子按行主序递归，坐标常量与元素值共享一次`EvalAreaClaim`的连续槽位（`[坐标 | 值]`）——坐标不落在调用参数区，那里与声明位求值暂存相邻，会覆写数组句柄——逐叶`OP_StoreElementN`。
 
 ### 逐方法装箱计划复用
 

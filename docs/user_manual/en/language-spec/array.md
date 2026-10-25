@@ -93,3 +93,59 @@ Rules for where an array value may go in scalar contexts: see
 [Known Limitations](known-limitations.md), "Array values in scalar contexts".
 Iterate an array's elements with `foreach` (see [Foreach](foreach.md)).
 Initialize one with a literal (see [Collection Initializers](collection-initializers.md)).
+
+### Multi-dimensional arrays
+
+Rectangular multi-dimensional arrays are written `T[,]` (two
+dimensions), `T[,,]` (three), up to 8. The dimension count is part of
+the type: `int[,]` and `int[]` are unrelated types — assignment or
+parameter passing between them is rejected at compile time.
+
+```nlang
+int[,] grid = int[2, 3];      // 2x3, zero-filled
+grid[1, 2] = 7;               // comma subscript read/write
+int rows = 2;
+int[,,] t = int[rows, 1, 2];  // sizes may be expressions (runtime)
+```
+
+- **Subscript**: the coordinate count of `a[i, j]` must equal the
+  dimension count — fewer or more coordinates is a compile error;
+  each coordinate is an expression, and an out-of-range coordinate
+  throws `IndexOutOfBoundsException` exactly like the 1-D case.
+  Compound assignment follows the same rules as 1-D subscripts.
+- **Members**: `a.rank()` returns the dimension count; `a.shape()`
+  returns a 1-D `int` array holding the element count of each
+  dimension; `a.length()` returns the total element count (the
+  product of the dimensions).
+- **foreach**: iterates the elements in row-major order (the last
+  dimension varies fastest); the loop variable type is the element
+  type.
+- **Parameters and storage**: `int[,]` works as a parameter, return
+  type, field, and container element type, and survives module
+  imports unchanged; reference semantics and the `string` destination
+  rules match the 1-D case (see
+  [Known Limitations](known-limitations.md)).
+
+Initializers are nested bracket literals, nested as deep as the
+target's dimension count; the shape is validated at compile time to
+be rectangular — nesting depth equal to the dimension count, equal
+row widths within each level:
+
+```nlang
+int[,] m = [[1, 2], [3, 4]];
+int[,,] t = [[[1, 2]], [[3, 4]]];
+double half = 0.5;
+double[,] w = [[half, half * 2], [0.0, 1.0]];   // elements may be expressions
+```
+
+Elements land in the new array in row-major order. Jagged literals
+(rows of unequal width within a level) and a nesting depth that does
+not match the dimension count are named compile-time rejections; at
+dimension count >= 2 the literal must be non-empty — no row to infer
+from means no dimensions (the 1-D `int[] a = [];` form stays legal).
+The brace form keeps its existing rejection for array targets (see
+[Collection Initializers](collection-initializers.md)).
+
+Sized declarations support one dimension only (`int b[100]`); create
+multi-dimensional arrays with `int[2, 3]` — `int a[2, 3];` is a
+syntax error.
