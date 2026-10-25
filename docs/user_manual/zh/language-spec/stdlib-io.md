@@ -7,8 +7,8 @@
 | write | (string\|数组\|标量基本类型) → void | stdout，**不**换行，flush |
 | eprint | (string\|数组\|标量基本类型) → void | stderr + '\n' + flush |
 | print | (string\|数组\|标量基本类型) → void | stdout + '\n' + flush |
-| readLine | () → string | stdin一行，去掉结尾 '\r' |
-| hasInput | () → bool | 输入还未耗尽则true（从不抛错）。文件与管道重定向精确；控制台只报已缓冲内容；调试会话只报已停驻行 |
+| readLine | () → string | stdin一行，去掉结尾'\r' |
+| hasInput | () → bool | 输入还未耗尽则true（从不抛错）。文件与管道重定向精确；控制台只报已缓冲内容；调试会话只报已缓冲的行 |
 | readToken | () → string | 跳过空白（可跨行）取下一个非空白串；输入结束处取不到词抛IOException |
 | readChar | () → char | 取下一个非空白字符（完整码点，UTF-8解码）；输入结束抛IOException；非法序列抛Exception |
 | 数值读取 | readInt()/readLong()/readFloat()/readDouble()/readBool() | readToken取的词交给对应string方法解析 |
@@ -16,15 +16,15 @@
 | writeFile | (string path, string s) → void | 创建/截断；失败 → IOException |
 | appendFile | (string path, string s) → void | 创建/追加；失败 → IOException |
 
-`write`、`print`与`eprint`共用同一实参策略（上表的强制转换三函数）：`write("Name: ")`发出不带换行的提示，键入的回复落在同一控制台行上；`eprint`镜像`print`但写到stderr，让诊断输出与正常输出保持可分离。调试会话内两个流合并进会话的单一输出视图。
+`write`、`print`与`eprint`共用同一实参策略（上表三个做强制转换的函数）：`write("Name: ")`发出不带换行的提示，键入的回复落在同一控制台行上；`eprint`镜像`print`但写到stderr，让诊断输出与正常输出保持可分离。调试会话内两个流合并进会话的单一输出视图。
 
-三函数直接接受string、数组与全部标量基本类型；函数值格式化为`func <name>`。class对象不在实参面上——打印前先显式`.toString()`（`io.print(obj.toString())`）；enum变量同样要先`.toString()`，枚举成员常量例外——`io.print(Color.Red)`直接打印成员名；struct实参直接拒绝（struct没有`toString`）。完整规则见[标准库总览](standard-library.md)。
+三函数直接接受string、数组与全部标量基本类型；函数值格式化为`func <name>`。class对象不能直接作实参——打印前先显式`.toString()`（`io.print(obj.toString())`）；enum变量同样要先`.toString()`，枚举成员常量例外——`io.print(Color.Red)`直接打印成员名；struct实参直接拒绝（struct没有`toString`）。完整规则见[标准库总览](standard-library.md)。
 
 **交互控制台的输入提示符**：当程序即将阻塞在输入读取上，且stdin与stdout都是控制台时，运行时先输出`"> "`提示符再等待——与Python、sqlite3等REPL的做法一致，`nvm`直接运行与ncc进程内运行都适用。只要任一端是管道或重定向（脚本化输入、`nvm x > out.txt`），两个流都保持逐字节不变；nide调试页终端的行模式提示符是同一记号，由nide本地绘制。
 
 **readLine的文件结束（EOF，end of file）语义**：EOF与空输入行都返回`""`（与C++ `std::getline`相同）；空串哨兵区分不了两者，这由`hasInput()`谓词承担——见下节。三个强制转换函数（`write`/`print`/`eprint`）恰好各接受一个实参；打印多个值请多次调用。
 
-`readFile`强制16 MiB上限（与反序列化器对不可信长度前缀施加的同一界限）；更大的文件抛IOException。
+`readFile`强制16 MiB上限（与按长度前缀读取的流操作共用的同一安全上限）；更大的文件抛IOException。
 
 ### 取词读取与混合语义
 

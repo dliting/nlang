@@ -10,8 +10,8 @@
 
 | 类 | 形态 | 语义 |
 |---|---|---|
-| `WaitGroup` | `add(n)`／`done()`／`wait()` | 计数屏障（Go同形）：`add`累计待完成数，每个任务`done`一次，`wait`停泊到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会停泊到死锁报告 |
-| `Semaphore` | `Semaphore(n)`／`acquire()`／`release()` | 计数信号量：`acquire`取走一个许可（计数为0时让出等待），`release`归还一个 |
+| `WaitGroup` | `add(n)` / `done()` / `wait()` | 计数屏障（Go同形）：`add`累计待完成数，每个任务`done`一次，`wait`挂起到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会挂起到死锁报告 |
+| `Semaphore` | `Semaphore(n)` / `acquire()` / `release()` | 计数信号量：`acquire`取走一个许可（计数为0时让出等待），`release`归还一个 |
 
 ```nlang
 import concurrent;

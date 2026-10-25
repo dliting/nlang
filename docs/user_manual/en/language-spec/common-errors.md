@@ -22,7 +22,7 @@ Error: Incompatible type "arr".
 
 An array value has only two legal destinations — its own array type and
 every `string` target (`toString`, etc.); every other scalar context is
-rejected with an explicit error. See → [Known Limitations](known-limitations.md), the
+rejected with an explicit error. See [Known Limitations](known-limitations.md), the
 "Array values in scalar contexts" item.
 
 ### Conditions and logic
@@ -44,8 +44,7 @@ of `&&`/`||`/`!` must all be `bool` (comparisons and predicates already
 produce bool) — int, string, float, char, class, struct, and array are
 all rejected with explicit errors (`if condition must be bool, not "Int32"`,
 `operator '&&' requires bool operands, got "Int32"`). Rewrite as an
-explicit comparison: `if (s != "")`, `if (count != 0)`. See →
-[Statements](statements.md) "Condition typing" and
+explicit comparison: `if (s != "")`, `if (count != 0)`. See [Statements](statements.md) "Condition typing" and
 [Operators](operators.md) "Logical".
 
 ### import and visibility
@@ -62,8 +61,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 unimported standard library package (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
 `io.print` without `import io;` reports `Package 'io' is not imported.
-Add 'import io;' at the top of this file.`. See →
-[Declarations](declarations.md) "Import Declaration".
+Add 'import io;' at the top of this file.`. See [Declarations](declarations.md) "Import Declaration".
 
 ### Default expressions on imported functions
 
@@ -90,7 +88,7 @@ functions, unary negation, and `+` `-` `*` `/` `%` arithmetic over
 those — still evaluated at each call site. Casts, member access, and
 calls nested as arguments sit outside the subset; importing the
 function rejects them on the consumer side with the error above.
-See → [Default Parameters](default-parameters.md).
+See [Default Parameters](default-parameters.md).
 
 ### Declarations and control flow
 
@@ -110,10 +108,10 @@ A control-flow statement's unbraced (bare) body cannot be a declaration
 — use a braced body. When calling a function with an `out` parameter,
 the call site must carry the `out` marker, otherwise you get `The
 function invoke "foo(y)" is not compatible with the declaration.`. See
-→ [Statements](statements.md) "Unbraced body" and
+[Statements](statements.md) "Unbraced body" and
 [Out Parameters](out-parameters.md).
 
-### Top-level direct-init with a member or relational first argument
+### First direct-init argument parsed as a type at top level
 
 ```nlang
 class Vec { public int x; public Vec(int v){ x = v; } }
@@ -127,11 +125,10 @@ Error: syntax error
 ```
 
 At top level, a direct-init declaration whose **first** argument starts
-with an identifier followed by `.` or `<` is read as a type line and
+with an identifier followed by `.` or `<` is read as a type (a qualified or generic name) and
 rejected. Call expressions, subscripts, and every argument after the
 first parse fine; function bodies are unaffected. Workaround: assignment
-initialization — `Vec p = Vec(base.x);`. See →
-[Known Limitations](known-limitations.md).
+initialization — `Vec p = Vec(base.x);`. See [Known Limitations](known-limitations.md).
 
 ### Assignment targets
 
@@ -180,14 +177,14 @@ Error: The class "B" does not implement the method "f(Int32): Int32" required by
 
 A subclass method shares a name with an ancestor virtual method or an
 interface contract but has a different signature. Virtual dispatch works by
-name, so a signature mismatch reads arguments as wrong bits. The
+name, so a signature mismatch misinterprets the argument bits. The
 mismatching declaration reports the primary message (its final sentence is
 the remediation hint) plus a `See also the declaration of ...` line
 pointing at the contract, and the class declaration adds a
 `required by its inheritance contract` line; when the contract is an
 interface method the anchor reads `"IF.val(Int32): Int32"` (next entry).
 Make the signature match the contract exactly (an override), or rename the
-method. See → [Class](class.md), "Virtual methods and overrides".
+method. See [Class](class.md), "Virtual methods and overrides".
 
 ### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
 
@@ -208,15 +205,16 @@ Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" wi
 ```
 
 Two overloads of one method name in the **same class body**, where at
-least one is `virtual`. Virtual dispatch resolves by method name at
-runtime, so one name owns one dispatch slot per class; a second
-signature on that name could only ever run with bit-wrong argument
-reads. Rename the overloads so each signature gets its own name, or
+least one is `virtual`. Virtual dispatch selects the implementation by method name at
+run time, so one name in one class can correspond to only one
+implementation; a second signature on that name would never be called
+(the call site lays out arguments per the first signature, so a
+mismatched one would misinterpret the argument bits). Rename the overloads so each signature gets its own name, or
 drop `virtual` from the whole family — fully non-virtual families
 overload normally. The rendered signatures use the internal type names
 (`Int32`, `String`, `Float`), and a `static` member mixed with an
 instance `virtual` member is rejected the same way (`static` counts as
-a signature difference). See → [Class](class.md), "Virtual methods and
+a signature difference). See [Class](class.md), "Virtual methods and
 overrides".
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
@@ -267,8 +265,7 @@ in the class), the variant
 `The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`
 is reported instead. Provide an implementation with the exact signature
 in the class (or one of its parents); note that a same-name method must
-not coexist as an overload of an interface contract. See →
-[Interface](interface.md), "Implementation contract".
+not coexist as an overload of an interface contract. See [Interface](interface.md), "Implementation contract".
 
 ### switch and enum
 
@@ -291,8 +288,8 @@ Error: switch discriminant must be int, float, string, or enum
 A switch discriminant may be an integer-family value (including char),
 `float`/`double`, `string`, or enum; bool, class, struct, `List`,
 `Dict`, and array values are rejected — use `if`/`else` + `equals()`
-for class values, and expand bool discrimination into `if`/`else`. See
-→ [Switch](switch.md).
+for class values, and expand a bool discriminant into `if`/`else`. See
+[Switch](switch.md).
 
 ### Literal and constant fit
 
@@ -334,7 +331,7 @@ target's range (a constant-fit special case — `byte b = 5` is legal);
 unsuffixed decimal and exponent forms are `double` literals, and integer
 targets never accept float constants (`int x = 2e5` likewise reports
 Incompatible type); string interpolation only supports `${name}` named
-variables, not expressions. See → [Primitives](primitives.md) "Numeric
+variables, not expressions. See [Primitives](primitives.md) "Numeric
 literals" and [String](string.md) "String interpolation".
 
 ### Numeric type mixing
@@ -382,8 +379,7 @@ char never converts implicitly to a numeric type (take the code point
 with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
-suppresses all warnings; an explicit `as` never warns). See →
-[Type Semantics](type-semantics.md) "Numeric conversion matrix" and
+suppresses all warnings; an explicit `as` never warns). See [Type Semantics](type-semantics.md) "Numeric conversion matrix" and
 [Operators](operators.md) "Arithmetic".
 
 ### `as` casts
@@ -416,7 +412,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 writing `as` for a widening that is already implicitly legal is
 redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
-`toDouble()` method family. See → [Type Casts](type-casts.md).
+`toDouble()` method family. See [Type Casts](type-casts.md).
 
 ### Dict initializer keys
 
@@ -431,11 +427,10 @@ int main() {
 Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
 ```
 
-The collection initializer emits dict keys as string constants and boxes
-them by K's tag — this is only correct for `K = string`. Construct a
+The collection initializer supports string keys only — this is correct
+only for `K = string`. Construct a
 non-string-keyed `Dict<K,V>` with the empty initializer, then fill
-entries with `set()`. See →
-[Collection Initializers](collection-initializers.md).
+entries with `set()`. See [Collection Initializers](collection-initializers.md).
 
 ### A struct without a constructor cannot take arguments
 
@@ -474,7 +469,7 @@ Error: Invalid statement.
 
 An anchored head on a generic type (`List<int>{...}`) does not parse.
 Give the literal a typed declaration instead: `List<int> nums = [60];`.
-See → [Known limitations](known-limitations.md), "Generic instantiation
+See [Known limitations](known-limitations.md), "Generic instantiation
 has no anchored head", and [Collection
 Initializers](collection-initializers.md).
 
@@ -490,8 +485,7 @@ Error: The type alias "A" is defined more than once in this translation unit.
 ```
 
 The same alias name may not be defined twice in one translation unit; a
-circular alias (`using A = B; using B = A;`) is rejected. See →
-[Declarations](declarations.md) "Type Aliases".
+circular alias (`using A = B; using B = A;`) is rejected. See [Declarations](declarations.md) "Type Aliases".
 
 ### Source file encoding
 
@@ -507,11 +501,10 @@ Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line
 ```
 
 `.n` sources and `.nproj` project files pass strict Unicode Transformation Format (UTF-8) validation
-before tokenizing (the enforcement point is ncc; nide's build invokes
-ncc, so building there is subject to the same validation): invalid bytes are
+(the check runs in ncc; nide's build invokes ncc, so building there is
+subject to the same validation): invalid bytes are
 rejected with an explicit error (the
 line of the first invalid byte included) and a UTF-16 save gets a
 dedicated hint (`Source file ... is UTF-16, not UTF-8.`) — legacy
 encoding bytes never reach string constants. A
-leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
-[Primitives](primitives.md) "Representation: from source to console".
+leading UTF-8 byte order mark (BOM) is accepted and skipped. See [Primitives](primitives.md) "Representation: from source to console".

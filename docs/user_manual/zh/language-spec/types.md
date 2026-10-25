@@ -20,7 +20,7 @@ NLang是静态类型语言：每个变量、字段、形参与返回值都有声
 | `List<T>`   | 内建泛型——引用            | [内建泛型类](builtin-generic-classes.md) |
 | `Dict<K,V>` | 内建泛型——引用            | [内建泛型类](builtin-generic-classes.md) |
 | `Object`    | 引用——装箱                | [Object与装箱](object.md) |
-| `func<...>` | 一等函数值                | [函数类型与代理](function-types-and-delegates.md) |
+| `func<...>` | 一等函数值                | [函数类型与委托](function-types-and-delegates.md) |
 
 ### 去哪里查
 

@@ -38,7 +38,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 - `标识符 : 表达式` —— struct/class字段（例如`x:1, y:2`）
 - `表达式`（无键）—— 列表元素，或struct位置条目：struct按字段声明顺序填充，`Point{3, 7}`等价于`Point{x:3, y:7}`，可以只给前几个字段（其余保持默认值）。class目标不接受位置条目——`P{3, 7}`报`class initializer "P{...}" requires field:value entries; the positional form is only valid for struct/array targets`。
 
-**字典键必须是string字面量**：集合初始化器把每个键按字符串常量发射并按K的标签装箱——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
+**字典键必须是string字面量**：初始化器只支持string键——这只对`K = string`正确。非string键的`Dict<K,V>`带非空初始化器是编译错误（`Dict<int, int> d = {"1": 2}`报`the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key`）；空初始化器`Dict<int, int> d = {}`合法，随后用`set()`逐条填入。
 
 **类型消歧**：编译器用带类型目标（声明的变量、形参类型、返回类型）或锚定类型名来选择种类：
 
@@ -50,7 +50,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 | struct                   | `{...}`或`StructName{...}` | `field : value`（标识符键）或位置值（按字段声明序） |
 | class                    | `{...}`或`ClassName{...}`  | `field : value`（标识符键） |
 
-**class初始化要求**：类必须有无参构造函数（显式或隐式）。codegen把`C{f1:v1, ...}`降低为无参构造后接逐字段`OP_StoreField`赋值。
+**class初始化要求**：类必须有无参构造函数（显式或隐式）。`C{f1:v1, ...}`等价于先无参构造、再逐字段赋值。
 
 **递归嵌套**：初始化列表可包含其他初始化列表。内层可用方括号形式（`List<List<int>> ll = [[1,2],[3,4]];`），也可在花括号字面量的值位置直接嵌裸花括号（`List<List<int>> m = {{1,2},{3,4}};`）。带键条目仍要求表达式值——struct/class字面量里的`{items: {1,2}}`是语法错误，写`{items: [1,2]}`。嵌套泛型元素类型（`List<List<int>>`、`Dict<K, List<V>>`）受支持（见[内建泛型类](builtin-generic-classes.md) `List<T>`下的嵌套泛型）。
 

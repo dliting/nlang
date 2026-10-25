@@ -13,6 +13,8 @@ NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都�
 | `IndexOutOfBoundsException`  | `Exception` | 数组/列表索引越界 |
 | `AssertionException`          | `Exception` | `assert(false)` |
 | `InvalidCastException`        | `Exception` | `as`强转失败（实际类型不在目标类型的超类链上） |
+| `IOException`                 | `Exception` | 文件读写失败 |
+| `ChannelClosedException`      | `Exception` | 对已关闭通道的`send`/`recv`（见[通道](concurrency-channel.md)） |
 
 ### `try` / `catch`
 
@@ -35,7 +37,7 @@ try {
 
 ```nlang
 throw Exception("error message");   // 抛出一个新异常
-throw;                                   // 重新抛出当前异常（仅在 catch 内）
+throw;                                   // 重新抛出当前异常（仅在catch内）
 ```
 
 - `throw expr` —— 表达式必须求值为Exception子类实例。抛出非Exception值（例如`throw 42`）是编译错误。
@@ -47,7 +49,7 @@ throw;                                   // 重新抛出当前异常（仅在 ca
 class MyException : Exception {
     int code;
     public MyException(string msg) {
-        super(msg);          // 转发到 Exception(message) 构造
+        super(msg);          // 转发到Exception(message) 构造
         this.code = 42;
     }
 }
@@ -60,18 +62,18 @@ class MyException : Exception {
 异常实例暴露两个可读可写字段：
 
 - `message`（string）—— 异常消息。由构造函数（`Exception("msg")`）或VM错误点设置。用户代码可写。
-- `backtrace`（List&lt;string&gt;）—— VM抛出的异常的抛出时刻调用栈快照（`funcName.n:line`条目，最内层在前）。用户构造的异常初始backtrace为空。
+- `backtrace`（List&lt;string&gt;）——VM抛出异常那一刻的调用栈快照（`funcName.n:line`条目，最内层在前）。用户构造的异常初始backtrace为空。
 
 ```nlang
 try {
     int x = 0;
     int y = 1 / x;
 } catch (DivByZeroException e) {
-    int n = e.message.length();       // > 0 —— VM 设置了消息
-    int frames = e.backtrace.length(); // >= 1 —— VM 快照了栈
+    int n = e.message.length();       // > 0 —— VM设置了消息
+    int frames = e.backtrace.length(); // >= 1 —— VM快照了栈
 }
 
-//User 子类继承这两个字段；自身字段排在它们之后。
+//User子类继承这两个字段；自身字段排在它们之后。
 class MyException : Exception {
     int code;
 }
@@ -87,14 +89,14 @@ e.code = 42;
 ```nlang
 try {
     int x = 0;
-    int y = 1 / x;           // 抛出 DivByZeroException
+    int y = 1 / x;           // 抛出DivByZeroException
 } catch (DivByZeroException e) {
     // 被捕获
 }
 
 try {
     List<int> lst = {};
-    return lst.get(999);      // 抛出 IndexOutOfBoundsException
+    return lst.get(999);      // 抛出IndexOutOfBoundsException
 } catch (IndexOutOfBoundsException e) {
     // 被捕获
 }
@@ -120,11 +122,11 @@ try {
 
 - try语句体正常完成（包括从底部落出）
 - 某个catch子句完成（无论是否匹配）
-- 异常展开穿过（finally处理器运行其语句体拷贝，然后重新抛出原异常；这包括从catch语句体内部抛出的异常）
-- `break` / `continue`转移出该区域（跳转前运行内联的finally语句体拷贝，嵌套try时最内层优先）
+- 异常传播穿过（finally语句体运行，然后原异常重新抛出；这包括从catch语句体内部抛出的异常）
+- `break` / `continue`转移出该区域（跳转前运行finally语句体，嵌套try时最内层优先）
 - `return`（返回表达式**先**求值，然后finally语句体运行，然后函数返回）
 
-嵌套：内层finally语句体先于外层运行；之后，包围的catch（若存在）看到该异常。每个finally语句体每次控制流通过恰好执行一次——正常路径与异常路径的拷贝是不相交的代码区域。
+嵌套：内层finally语句体先于外层运行；之后，包围的catch（若存在）看到该异常。每个finally语句体每次控制流通过恰好执行一次。
 
 `try { } finally { }`不带任何catch子句是合法的（finally子句是唯一的处理器）。
 
@@ -132,4 +134,4 @@ try {
 
 ### 调试异常
 
-在nide中按F5启动调试会话；打开"在异常处中断"开关可在抛出点暂停（见[nide中的调试](../getting-started/debugging.md)）；在命令行上，`ndb`的`catch on`同样在抛出点中断（见[命令行ndb](../cli-tools/ndb.md)）。
+在nide中按F5启动调试会话；打开「在异常处中断」开关可在抛出点暂停（见[nide中的调试](../getting-started/debugging.md)）；在命令行上，`ndb`的`catch on`同样在抛出点中断（见[命令行ndb](../cli-tools/ndb.md)）。

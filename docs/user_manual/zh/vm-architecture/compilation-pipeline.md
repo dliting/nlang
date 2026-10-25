@@ -23,4 +23,4 @@ AST → VmBackend → 单元映像 (.ncu)，每个翻译单元一幅
 
 ### ResolveStructClassRefs为何单独一趟
 
-struct可以包含class类型的字段，但`RegisterStructs`先于`RegisterClasses`执行，此时`FindClass`返回 -1，因为class还没有注册。解决办法：RegisterStructs阶段先把类型名存入`m_structFieldTypeNames`，在RegisterClasses之后的单独一趟里再解析class索引。
+struct可以包含class类型的字段，但`RegisterStructs`先于`RegisterClasses`执行，此时`FindClass`返回-1，因为class还没有注册。解决办法：RegisterStructs阶段先把类型名存入`m_structFieldTypeNames`，在RegisterClasses之后的单独一趟里再解析class索引。

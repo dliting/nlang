@@ -55,9 +55,8 @@ parse; give the literal a typed target instead (`List<int> l = {60};`).
   field:value entries; the positional form is only valid for
   struct/array targets`.
 
-**Dict keys must be string literals**: the collection initializer emits
-each key as a string constant and boxes it by K's tag — this is only
-correct for `K = string`. A `Dict<K,V>` with a non-string key and a
+**Dict keys must be string literals**: the initializer supports string
+keys only — this is correct only for `K = string`. A `Dict<K,V>` with a non-string key and a
 non-empty initializer is a compile error (`Dict<int, int> d = {"1": 2}`
 reports `the Dict collection initializer requires string keys; use set()
 with an explicit 'Int32' key`); the empty initializer
@@ -77,8 +76,8 @@ anchored type name to pick the kind:
 | class                | `{...}` or `ClassName{...}` | `field : value` (identifier key) |
 
 **Class init requirements:** the class must have a no-arg constructor
-(explicit or implicit). Codegen lowers `C{f1:v1, ...}` as a no-arg
-construction followed by per-field `OP_StoreField` assignments.
+(explicit or implicit). `C{f1:v1, ...}` is equivalent to a no-arg
+construction followed by per-field assignments.
 
 **Recursive nesting:** init lists may contain other init lists. Inner
 levels may use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)

@@ -77,8 +77,8 @@ Two call shapes:
 - **Member field** — `obj.cb(x)` where `cb` is a `func`-typed field.
 
 Arguments are staged per the `func` type's signature; `out` parameters
-write back to the caller's locals after the call, transparently
-handling the receiver shift for bound methods. Named arguments on
+write back to the caller's locals after the call, and the receiver of a
+bound method is handled automatically by the call. Named arguments on
 delegate invocations are rejected.
 
 ### Equality, null, toString
@@ -125,8 +125,8 @@ delegate invocations are rejected.
 - **`func<...>(...)`** — constructing from a name is not supported;
   bind a reference instead.
 - **`Dict<func<...>, V>`** — `func` as a Dict key (see identity note above).
-- **Boxing into `Object`** (`Object o = f`) — via the generic
-  incompatible-type diagnostic.
+- **Boxing into `Object`** (`Object o = f`; see [Object & Boxing](object.md))
+  — via the generic incompatible-type diagnostic.
 - **`void` or `out` type arguments outside `func`** (`List<void>`,
   `List<out int>`).
 - Function values as `switch` discriminants (no case family matches).

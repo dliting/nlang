@@ -2,11 +2,13 @@
 
 NLang is a statically-typed scripting language for embedding and
 automation — and a testbed for exploring artificial intelligence (AI)-friendly language features.
-It ships with its own compiler (ncc), bytecode VM (nvm), and integrated development environment nide (IDE),
+It ships with its own compiler (ncc), bytecode VM (nvm — it executes the bytecode ncc emits, the instruction form the compiler produces), and integrated development environment nide (IDE),
 developed as an open-source teaching/research project.
 
-This page walks you through installation, running your first program,
-and a quick tour of the language's core features with runnable snippets.
+Getting started: set up the toolchain with [Installation and Layout](install-layout.md),
+run your first program with [Your First Program in Five Minutes](first-program.md),
+then start a quick tour of the language's core features with runnable
+snippets at [Crash Course: Types and Variables](types-and-variables.md).
 It is also the landing page for nide's Help menu entry NLang Getting
 Started.
 

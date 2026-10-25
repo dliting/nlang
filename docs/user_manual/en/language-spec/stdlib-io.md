@@ -11,7 +11,7 @@ Unicode Transformation Format (UTF-8) into full code points
 | eprint | (string\|array\|scalar primitive) → void | stderr + '\n' + flush |
 | print | (string\|array\|scalar primitive) → void | stdout + '\n' + flush |
 | readLine | () → string | stdin line, trailing '\r' stripped |
-| hasInput | () → bool | true while input remains (never raises). Exact for file/pipe redirection; a console reports only buffered input; a debug session only parked lines |
+| hasInput | () → bool | true while input remains (never raises). Exact for file/pipe redirection; a console reports only buffered input; a debug session only buffered lines |
 | readToken | () → string | skips whitespace (across lines) for the next non-whitespace token; no token at end of input raises IOException |
 | readChar | () → char | next non-whitespace character as a full code point (UTF-8 decoded); raises IOException at end of input, Exception on invalid sequences |
 | typed readers | readInt()/readLong()/readFloat()/readDouble()/readBool() | one readToken() token handed to the matching string method |
@@ -19,7 +19,7 @@ Unicode Transformation Format (UTF-8) into full code points
 | writeFile | (string path, string s) → void | create/truncate; failure → IOException |
 | appendFile | (string path, string s) → void | create/append; failure → IOException |
 
-`write`, `print` and `eprint` share one argument policy (the coercing trio
+`write`, `print` and `eprint` share one argument policy (the three coercing functions
 above): `write("Name: ")` emits a prompt without a newline so a typed reply
 lands on the same console line; `eprint` mirrors `print` on stderr for
 diagnostics that stay separable from normal output. Inside a debug session
@@ -27,14 +27,14 @@ the two streams merge into the session's single output view.
 
 The three functions accept string, arrays, and every scalar primitive
 directly; function values format as `func <name>`. Class objects are
-**not** in the argument surface — call `.toString()` before printing
+**not** accepted as arguments — call `.toString()` before printing
 (`io.print(obj.toString())`); enum variables need `.toString()` too,
 with one exception: an enum member constant prints directly —
 `io.print(Color.Red)` prints the member name. Struct arguments are
 rejected outright (structs have no `toString`). Full rules in the
 [standard library overview](standard-library.md).
 
-**input prompt on an interactive console**: when the program is about to
+**Input prompt on an interactive console**: when the program is about to
 block on an input read and both stdin and stdout are consoles, the runtime
 prints a `"> "` prompt before waiting — the REPL convention (Python,
 sqlite3), for both a direct `nvm` run and ncc's in-process run. Whenever
@@ -42,14 +42,14 @@ either end is a pipe or a redirection (scripted input, `nvm x > out.txt`)
 both streams stay byte-exact; the nide debug terminal draws the same token
 itself in line mode.
 
-**end of file (EOF) semantics of readLine**: EOF and an empty input line both
+**End of file (EOF) semantics of readLine**: EOF and an empty input line both
 return `""` (same as C++ `std::getline`); the empty-string sentinel cannot
 tell them apart — that is `hasInput()`'s job (see the next section). Each of
-the coercing trio (`write`/`print`/`eprint`) takes exactly one argument;
+the three coercing functions (`write`/`print`/`eprint`) takes exactly one argument;
 print several values with several calls.
 
-`readFile` enforces a 16 MiB cap (the same bound the deserializer applies to
-untrusted length prefixes); larger files raise IOException.
+`readFile` enforces a 16 MiB cap (the same safety bound that
+length-prefixed stream reads apply); larger files raise IOException.
 
 ### Token reads and mixed semantics
 

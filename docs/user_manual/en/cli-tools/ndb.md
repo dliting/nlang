@@ -78,24 +78,25 @@ ndb itself with 0.
 
 Contexts spawned by `thread.spawn` are equally under the debugger's
 control: a breakpoint hit or a throw in any context stops everything —
-after the stop no new dispatch begins, and each in-flight dispatch
+after the stop no virtual thread starts executing, and each in-flight
 segment finishes and then halts. `threads` prints one row per context:
 the focus marker (`*`), the id, the scheduling state (suffixed
-`@<carrier>` while an execution window holds it — this is where
-running-now differs from queued runnable), and the innermost frame
+`@<carrier>` while a carrier — the operating-system thread running
+it — executes it; this is where running-now differs from queued
+runnable), and the innermost frame
 location; a finished context has no frames and shows only the id and
 state. `t <id>` moves
 the inspection focus to that context — `bt`/`frame`/`info locals`/`p`/
-`l`/`x` then address it, and parked frames (a channel receive waiting
+`l`/`x` then address it, and suspended frames (a channel receive waiting
 for a sender, say) inspect like any other; a context still held by a
 carrier (`@<carrier>`) keeps its frames on that carrier's execution
 stack, which is not inspectable while stopped — `bt` and the locals
-query report no frames for it until it parks or finishes; each stop
+query report no frames for it until it suspends or finishes; each stop
 resets the focus back to the stopped context. `t` also sets the step
 target (as mainstream integrated development environments do): the subsequent
-`s`/`n`/`f` act on the selected context — stepping with a parked
+`s`/`n`/`f` act on the selected context — stepping with a suspended
 context selected lets the other contexts advance, and the selected one
-stops at its next statement once woken; selecting a parked context
+stops at its next statement once woken; selecting a suspended context
 that never wakes still trips the deadlock detector. Without a `t`
 selection, stepping keeps targeting the stopped context.
 
@@ -118,9 +119,9 @@ Program exited with code 9.
 ```
 
 (The breakpoint sits in `run`, which a spawned context executes; when
-it hits, main is parked in a `recv` on an empty channel — `threads`
+it hits, main is suspended in a `recv` on an empty channel — `threads`
 lists it as `parked-chan-recv` while `run` is `runnable@0` (held by
-carrier 0). After `t 0` moves the focus to main, `bt` reads its parked
+carrier 0). After `t 0` moves the focus to main, `bt` reads its suspended
 frame.)
 
 ## Protocol for embedding front ends
@@ -129,12 +130,12 @@ frame.)
 the
 same session over a tab-separated line protocol on stdin/stdout for
 embedding front ends — the nide graphical debugger is built on it.
-Protocol details in
-[Debugging in nide](../getting-started/debugging.md) and
-[Debugger Architecture](../vm-architecture/debugging.md).
+For using the graphical front end, see
+[Debugging in nide](../getting-started/debugging.md); for the protocol
+itself, see [Debugger Architecture](../vm-architecture/debugging.md).
 
 Both the interactive and `--machine` forms accept `-I <dir>` (repeatable)
-to locate closure members and native dynamic libraries; the search dirs
+to locate all dependency members and native dynamic libraries; the search dirs
 are assembled in the same order as nvm: `-I` → program directory →
 `NLANG_PATH` → executable directory / current directory → the
 standard-library directory (where `stdlib.npkg` lives).

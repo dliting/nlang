@@ -61,7 +61,7 @@ Visibility:
   `import a.b.c;`); precompiled dotted packages are currently searched
   by their single last segment.
 - An external module's code does not enter the artifact: the consumer
-  image only records import slots, and the loader relocates the module
+  image only records import references, and the loader relocates the module
   at run time along the same search path (the mechanism is in
   [Command-line Tools / ncc](../cli-tools/ncc.md), "Artifacts and
   load-time linking").
@@ -110,7 +110,7 @@ compiler warning is issued):
 | `bool` | false |
 | `char` | code point 0 |
 | `string` | null handle that reads as the empty string |
-| enum | underlying value 0 |
+| enum | underlying int value 0 |
 | struct | every field's default (zero when no initializer) |
 | class, interface, `Object` | null |
 | arrays, `List`, `Dict` | null |
@@ -122,7 +122,7 @@ indexing, taking the length — raises a `null reference error` with a
 backtrace at run time. `string` is the one exception: a null handle
 reads as the empty string, so `.length()` is 0 and concatenation treats
 it as `""` (see [String](string.md)). An enum's default is the underlying
-value 0: with auto-incremented members that is exactly the first member —
+int value 0: with auto-incremented members that is exactly the first member —
 after `Color c;`, `c == Color.Red` holds; an enum with explicitly
 assigned non-zero values may default to 0, which lands on no member.
 
@@ -146,9 +146,9 @@ int apply(BinOp f) { ... }   // parameters and returns
 ```
 
 **Semantics:**
-- Aliases expand by a **pre-pass before name resolution**: each use site
-  is replaced by a deep copy of the aliased type, so behavior is
-  identical to writing the full type out.
+- Aliases expand **before name resolution**: each use site is replaced
+  by the type it names, so behavior is identical to writing the full
+  type out.
 - Scope is the **translation unit** — the same alias name may map to
   different types in different modules of one program.
 - The right-hand side may **forward-reference** types declared later in

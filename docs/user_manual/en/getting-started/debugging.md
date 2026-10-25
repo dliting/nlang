@@ -73,7 +73,7 @@ The Debug page of the output window concentrates the session state:
   intact;
 - the context tree (context / state / location): one row per concurrent
   context being debugged — the id, the scheduling state (suffixed
-  `@<carrier>` while one carrier's execution window holds it), and the
+  `@<carrier>` while a carrier is executing it), and the
   innermost frame location; clicking a row selects that context, with
   the semantics of [Multi-context debugging](#multi-context-debugging);
 - the call stack tree (# / function / location): clicking a frame
@@ -131,15 +131,15 @@ everything. Clicking a context row selects it as both the inspection
 target and the step target (the same semantics as mainstream IDEs):
 
 - the call stack and locals switch to that context's contents at once,
-  and the editor jumps to its innermost frame location — parked
+  and the editor jumps to its innermost frame location — suspended
   contexts (a channel receive waiting for a sender, say) inspect like
   any other;
 - the subsequent Step Over / Step Into / Step Out all act on that
   context: with a queued context selected, stepping stops at its next
-  statement anchor; with a parked context selected, stepping lets the
+  statement anchor; with a suspended context selected, stepping lets the
   other contexts advance, and the selected one stops at its next
   statement once woken by data;
-- selecting a parked context that never wakes and then stepping still
+- selecting a suspended context that never wakes and then stepping still
   trips the deadlock detector — stepping is not a way around a deadlock;
 - every new stop redirects the selection back to the stopped context,
   so the tree marker never disagrees with where the program actually

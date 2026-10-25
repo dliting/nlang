@@ -92,17 +92,11 @@ for which `parse(format(x)) == x` holds (`0.5` rather than `0.500000`;
 `0.1` prints as `0.1`, not the internal binary approximation). print,
 string methods, and interpolation share the same conversion point.
 
-**Implementation**: all scalar→string conversions share one generalized
-instruction, `OP_Prim_to_str <kind>` (the kind immediate selects one of
-the 12 scalar renderer rows); enum and arrays keep their dedicated
-instructions. `string → numeric` remains rejected — see "Forbidden `as`"
-above.
-
 ### Object.toString() protocol
 
 All class instances inherit `string toString()` from `Object`. The default
-implementation returns `"ClassName@heapIdxHex"` (e.g. `"Point@7"`,
-`"Point@ff"`). User classes override it by declaring `string toString()
+implementation returns a `ClassName@<heap position>` form (e.g.
+`"Point@7"`, `"Point@ff"`). User classes override it by declaring `string toString()
 { ... }` — dispatched by name, like `equals`/`getHashCode`. See
 [Object & Boxing](object.md).
 
@@ -114,12 +108,12 @@ class Point {
 }
 ```
 
-Dispatch matrix:
+Conversion table:
 
 | Receiver          | `.toString()` result          | Overridable? |
 |-------------------|-------------------------------|--------------|
 | class (user override) | user-defined             | yes |
-| class (no override) | `"ClassName@hex(heapIdx)"`   | no (Object built-in) |
+| class (no override) | `ClassName@<heap position>` form | no (Object built-in) |
 | enum              | enum member name (e.g. `"Red"`) | no |
 | all scalar primitives | same rendering as the →string coercion | no |
 | string            | itself (identity)             | no |
@@ -131,12 +125,12 @@ is a compile error (struct is NLang's plain-data type; use class for
 object semantics). See [Struct](struct.md).
 
 **Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`).
-The compiler embeds one name table per enum; the VM looks the member name
-up by value with `OP_Enum_to_str`. Out-of-range enum values throw at run
-time. See [Enum](enum.md).
+The name table ships with the enum in the compiled artifact, and
+`toString()` looks up the member name by value. Out-of-range enum values
+throw at run time. See [Enum](enum.md).
 
 **String identity**: `"hello".toString()` returns `"hello"` — the
-compiler folds this to a no-op (no instruction emitted).
+compiler treats it as an identity — no conversion happens.
 
 **Limitations**:
 - No warning when implicit coercion happens (silent, like Java)

@@ -36,15 +36,15 @@ Shape c = Shape("n"); // binds Shape(string) — a string literal does not
 ```
 
 Default parameters take part in the distance: an exact type match at
-distance 0 beats a widening hop, and a narrowing argument rejects the
-candidate.
+distance 0 beats one level of widening, and a narrowing argument rejects
+the candidate.
 
 ```nlang
 class V {
     public V(int a, int b = 7) { }
     public V(float a) { }
 }
-V a = V(1);     // V(int, int) at 0, ahead of V(float)'s int-to-float hop
+V a = V(1);     // V(int, int) at 0, ahead of V(float)'s int-to-float widening
 V b = V(1.5f);  // V(float) — a float argument does not narrow to int
 ```
 

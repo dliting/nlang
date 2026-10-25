@@ -1,8 +1,8 @@
 # Concurrency
 
-NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that share a carrier pool, with storage operations protected by per-domain locks, not operating-system threads of their own. `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` and `Semaphore` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `Channel<T>`, `Future<T>`, and the other handle types are built-in classes that need no import.
+NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that time-share a small pool of shared **carriers** (operating system threads that run virtual threads); a virtual thread is not an operating system thread of its own, and storage protection is covered in [Carriers and Parallelism](concurrency-carriers.md). `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` and `Semaphore` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `Channel<T>`, `Future<T>`, and the other handle types are built-in classes that need no import.
 
-Scheduling determinism comes in tiers: under a single carrier (the library default) it is fully deterministic — a strict first-in-first-out (FIFO) rotation where a context yields only after exhausting a fixed back-edge quota (and only when another runnable context exists), so the same program with the same inputs produces the same interleaving; with multiple carriers, dequeuing applies wake affinity and the interleaving is unspecified (see [the GIL and multiple carriers](concurrency-gil-carriers.md)). `sleep` wakes in deadline order. Single-carrier tests may assert interleaving and final values; multi-carrier tests assert results after synchronization — never durations.
+Scheduling determinism: under a single carrier (the library default) it is fully deterministic — a strict first-in-first-out (FIFO) rotation where each virtual thread runs about 1000 loop iterations before yielding (and only when another runnable context exists), so the same program with the same inputs produces the same interleaving; with multiple carriers the scheduling order is unspecified (see [Carriers and Parallelism](concurrency-carriers.md)). `sleep` wakes in deadline order. Single-carrier tests may assert interleaving and final values; multi-carrier tests assert only results after synchronization — never durations.
 
 ## The concurrency model: blocking style, no async coloring
 
@@ -15,7 +15,7 @@ NLang belongs to the **virtual-thread** family (like Go, and like Java's virtual
 | `await promise` / `Promise.all` | `f.get()` / `thread.join(t)` |
 | callback nesting | plain sequential code |
 
-This is why NLang has no `await` keyword and does not need one: functions are not async-colored and nothing compiles into a state machine; `f.get()` is an honest blocking wait — the current virtual thread parks, and once the value is ready it continues in place. To run on several carriers with real parallelism (pure-compute segments and object field access overlap directly; containers, strings, streams, and synchronization primitives each take their own domain lock), opt in with `SetCarrierThreadCount(n)` (see [the GIL and multiple carriers](concurrency-gil-carriers.md)).
+This is why NLang has no `await` keyword and does not need one: functions are not async-colored and nothing compiles into a state machine; `f.get()` is an honest blocking wait — the current virtual thread suspends, and once the value is ready it continues in place. To run on several carriers with real parallelism (pure-compute segments and object field access overlap directly; containers, strings, streams, and synchronization primitives each take their own lock, one per data category), opt in with `SetCarrierThreadCount(n)` (see [Carriers and Parallelism](concurrency-carriers.md)).
 
 ## Choosing the right tool
 
@@ -30,14 +30,14 @@ Start from the task you have, not from the tool list. The shipped
 | guard shared mutable state | `Mutex` (lock/unlock/tryLock) |
 | cap how many tasks run a section at once | `Semaphore(n)` |
 | wait for a batch of tasks | `WaitGroup` (add/done/wait) or `join` each |
-| stop a group of waiters at once | `Channel.close()` broadcast |
+| wake a group of waiters at once | `Channel.close()` broadcast |
 
 ## Where to look
 
-- [The GIL and multiple carriers](concurrency-gil-carriers.md) — carriers, storage domain locks, blocking native windows, wake affinity, and what each determinism tier guarantees
+- [Carriers and Parallelism](concurrency-carriers.md) — the execution model, storage protection, which code runs truly in parallel, determinism, and choosing the carrier count
 - [The thread package](concurrency-thread.md) — `spawn`, `join`, `yield`, `id`, `sleep`
 - [Future](concurrency-future.md) — retrieving a spawned task's return value
 - [Mutex](concurrency-mutex.md) — non-reentrant mutual exclusion
 - [Channel](concurrency-channel.md) — message passing and closing semantics
 - [The concurrent package](concurrency-concurrent.md) — `WaitGroup` and `Semaphore`
-- [Parking and scheduling limits](concurrency-parking.md) — exceptions across parking, the main-exit policy, the deadlock report, nested evaluation windows
+- [Suspension and scheduling limits](concurrency-suspension.md) — suspension versus blocking, exceptions across suspension, the main-exit policy, the deadlock report, restrictions inside re-entrant evaluation

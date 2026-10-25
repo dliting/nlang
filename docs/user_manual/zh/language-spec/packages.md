@@ -3,9 +3,9 @@
 **包**是NLang的代码身份单位。每个`.n`文件就是一个包，包名只有一个来源：文件相对其匹配搜索根的路径。文件内没有任何为包命名的语法。
 
 ```nlang
-// stdlib/io.n            -> 包 "io"
-// <根>/vendor/graphics.n（配 -I <根>）-> 包 "vendor.graphics"
-// <根>/gfx/color/deep.n  （配 -I <根>）-> 包 "gfx.color.deep"
+// stdlib/io.n            -> 包"io"
+// <根>/vendor/graphics.n（配-I <根>）-> 包"vendor.graphics"
+// <根>/gfx/color/deep.n（配-I <根>）-> 包"gfx.color.deep"
 import io;
 import vendor.graphics;
 import gfx.color.deep;
@@ -19,7 +19,7 @@ import gfx.color.deep;
 
 ## 编译产物与限定表键
 
-每个包编译为一幅独立的**单元映像**（`.ncu`，格式v2.0），映像里每个struct/class/函数表键都**带包名限定**：`main.main`、`utils.helper.help`、`alib.Point`。无属主的内建保持裸键（`Object`、`List`）。对其他包的引用以**导入槽**记录（目标模块路径 + 限定名），执行时由加载器沿搜索路径装齐整个引用闭包、按限定名链接成唯一的运行期模块——跨包符号在产物里没有实体，只有名字。凡指名符号之处，限定键就是调试器与工具的统一拼写：
+每个包编译为一幅独立的**单元映像**（`.ncu`，格式v2.0），映像里每个struct/class/函数表键都**带包名限定**：`main.main`、`utils.helper.help`、`alib.Point`。无属主的内建保持裸键（`Object`、`List`）。对其他包的引用以**导入引用**记录（目标模块路径 + 限定名），执行时由加载器沿搜索路径装齐全部依赖、按限定名链接成唯一的运行期模块——跨包符号在产物里没有实体，只有名字。凡指名符号之处，限定键就是调试器与工具的统一拼写：
 
 - 断点写限定名：`b main.main`、`b mathutil.triple`；
 - 回溯与停止行打印限定名：`#0 main.main (main.n:6)`、`Stopped: utils.helper.inner`；
@@ -30,7 +30,7 @@ import gfx.color.deep;
 
 ## 流与字面量
 
-`readStruct`/`readObject`以字符串取类型名。该字面量在**编译期**按本文件可见的包（自身包＋已导入的包）定身，并改写为声明的限定表键，到达VM的永远不会是裸名。两个可见包声明同名类型时字面量有歧义——编译错误要求写限定形（`readStruct("alib.S")`）。对象流同样存限定类键：一个程序写出、另一个程序读入的对象必须来自相同的包布局，因为读取端按键直接查表。
+`readStruct`/`readObject`以字符串取类型名。该字面量在**编译期**按本文件可见的包（自身包 + 已导入的包）解析为声明的限定表键，到达VM的永远不会是裸名。两个可见包声明同名类型时字面量有歧义——编译错误要求写限定形（`readStruct("alib.S")`）。对象流同样存限定类键：一个程序写出、另一个程序读入的对象必须来自相同的包布局，因为读取端按键直接查表。
 
 ## native声明
 

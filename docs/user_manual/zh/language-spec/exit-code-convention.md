@@ -28,4 +28,4 @@ ncc、nvm与nlang自身的失败一律退出1，与程序退出码区分：
 - 测试的预期退出码一律取**0–255**：同一程序在任何观察者（Python/cmd/PowerShell/bash）下的视图才一致。
 - 需要大数值时用模运算或派生值，把「自检通过」编码进小退出码，例如循环求和后`if (total == 25) return 25; return 1;`。
 
-详见 → [入门指南/常见问题](../getting-started/faq.md)。
+详见[入门指南/常见问题](../getting-started/faq.md)。

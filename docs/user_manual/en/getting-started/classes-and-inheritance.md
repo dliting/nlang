@@ -42,7 +42,7 @@ concatenation directly. The line between reference and value semantics
 is drawn in [Language Specification /
 Type Semantics](../language-spec/type-semantics.md).
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Class](../language-spec/class.md).
 
 ### Interface
 
@@ -80,4 +80,4 @@ dispatch virtually to the runtime class. Interface members default to
 `public` (the opposite of class members); any other modifier
 (`private`, `static`, ...) is rejected.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Interface](../language-spec/interface.md).

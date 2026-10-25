@@ -32,7 +32,7 @@ for (int j = 0; j < 20; j += 1) {
     if (j % 2 == 1) { continue; } // 步进段运行，然后进入下一轮
     count = count + 1;
 }
-// count == 3（计入 j = 0, 2, 4 的轮次；j = 5 命中 break）
+// count == 3（计入j = 0, 2, 4的轮次；j = 5命中break）
 ```
 
 ### `while`
@@ -64,5 +64,5 @@ int n = 0;
 do {
     n = n + 1;
 } while (false);
-// n == 1 —— 语句体执行了一次（do-while 至少执行一次）
+// n == 1 —— 语句体执行了一次（do-while至少执行一次）
 ```

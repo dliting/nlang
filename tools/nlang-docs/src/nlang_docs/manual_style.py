@@ -172,7 +172,8 @@ def find_abbreviation_violations(terms: dict):
 # code spans, bracket links and emphasis -- is sweep-only, not guarded.)
 _CJK = "一-鿿　-〿！-～"
 SPACING_RE = re.compile(
-    rf"(?<=[{_CJK}]) +(?=[A-Za-z0-9])|(?<=[A-Za-z0-9]) +(?=[{_CJK}])"
+    rf'(?<=[{_CJK}]) +(?=[-\'"A-Za-z0-9])'
+    rf'|(?<=[A-Za-z0-9]) +(?=[{_CJK}])'
 )
 
 

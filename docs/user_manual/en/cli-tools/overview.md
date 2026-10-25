@@ -15,7 +15,7 @@ command-line tools. If PATH is not set up, prefix commands with
 |---|---|---|
 | nlang | Run scripts directly (no `main()` boilerplate) | [nlang](nlang.md) |
 | ncc | Compile (with optional immediate execution) | [ncc](ncc.md) |
-| nvm | Run a compiled module (single- or multi-carrier) | [nvm](nvm.md) |
+| nvm | Run a compiled module (the number of OS threads running virtual threads is configurable) | [nvm](nvm.md) |
 | ndb | Debug a compiled module | [ndb](ndb.md) |
 | ndisasm | Bytecode disassembly | [ndisasm](ndisasm.md) |
 | nide | The graphical integrated development environment (IDE) (build, run, and debug) | [Three Ways to Run](../getting-started/running.md), [Debugging in nide](../getting-started/debugging.md) |
@@ -36,7 +36,7 @@ The five command-line tools use Unicode Transformation Format (UTF-8) as the pro
 command-line arguments and file paths accept full Unicode,
 diagnostics are UTF-8 bytes, and at startup the attached console is
 switched to the UTF-8 code page so the default console displays
-non-American Standard Code for Information Interchange (ASCII) text. Output redirected to a file or pipe is not altered.
+text beyond the American Standard Code for Information Interchange (ASCII). Output redirected to a file or pipe is not altered.
 
 Inputs are UTF-8 too: `.n` source files and `.nproj` project files
 are validated before tokenizing — invalid bytes are rejected with an

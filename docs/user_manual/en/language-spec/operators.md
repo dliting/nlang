@@ -33,7 +33,7 @@ promoted type; assigning back to a narrower type requires an explicit
 The complete promotion and conversion rules are on
 [Type Semantics](type-semantics.md).
 
-`string + string` (OP_Add only) is concatenation; `"x" + 'y'` (char
+`string + string` is concatenation; `"x" + 'y'` (char
 implicitly converts to string) and `+` with a scalar operand concatenate
 the same way. `string - string` and the other arithmetic forms are
 compile errors. See [String](string.md).
@@ -49,17 +49,17 @@ type** (the Java/C# rule): integer left operands narrower than int are
 promoted unarily to int (`byte << 2` is an `int`). The count (right
 operand) follows the ordinary implicit-conversion rule into the result
 type (the [Type Semantics](type-semantics.md) table): an int count works
-on int and long carriers but not on uint or ulong, a long count only on
-long, and a constant count that fits the carrier works on any of them.
-Anything else is a compile error naming both the carrier and the count's
-type (`1 << longCount`). enum
-members ride their int32 carrier
+on int and long result types but not on uint or ulong, a long count only on
+long, and a constant count that fits the result type works on any integer
+result. Anything else is a compile error naming both the result type and
+the count's type (`1 << longCount`). enum
+members use their int32 underlying type directly
 (`Color.Green << 1 == 2`). float, double, bool, char, and string
 operands are compile errors (`operator '<<' requires integer operands`);
 a null operand reports `null is not a valid shift operand`.
 
-`>>` on a signed row is an arithmetic shift (sign-extending,
-`-8 >> 1 == -4`); on an unsigned row it is logical (zero-fill). `<<`
+`>>` on a signed type is an arithmetic shift (sign-extending,
+`-8 >> 1 == -4`); on an unsigned type it is logical (zero-fill). `<<`
 wraps in two's complement (`1 << 31` on int is `INT_MIN`). The count
 must lie in `[0, bit width)` — a negative count or one that reaches the
 type's width throws a runtime error (the division-by-zero family),
@@ -69,12 +69,13 @@ Precedence sits between relational and additive: addition binds tighter
 than shift (`1 << 2 + 3` is `1 << 5`), shift tighter than relational
 (`1 << 2 < 8` compares `4 < 8`).
 
-**Compound forms** `<<=` / `>>=` store back into the left value with
-its declared type as the carrier — no unilateral promotion to int
+**Compound forms** `<<=` / `>>=` store back into the left value's
+declared type — no unilateral promotion to int
 (`byte b <<= 2` stays byte, so `1 <<= 7` wraps to -128 in the signed
-byte row) — and store implicitly like the `+=` family does. The count
+byte type) — and store implicitly like the `+=` family does. The count
 follows the binary form's admission rules (ordinary implicit conversion
-into the carrier, constant rescue, the `[0, bit width)` runtime check),
+into the result type, a constant count admitted whenever its value fits,
+the `[0, bit width)` runtime check),
 so `b <<= 200` is a compile error and a negative variable count throws
 the named runtime error. Supported left values are the
 compound-assignment family (locals, fields, subscript elements); see
@@ -111,8 +112,8 @@ Comparison results are always **`bool`** (`true` / `false`).
 - **String equality** compares content; string relational order is a
   C `strcmp`-style byte-wise comparison (e.g. `"Z" < "a"` is true because
   `'Z'`(90) < `'a'`(97)). Since strings are stored in the Unicode Transformation Format (UTF-8) and UTF-8 byte order
-  equals code-point order, the ordering is also correct for non-American Standard Code for Information Interchange (ASCII)
-  text: `"é" > "z"` is true. See [String](string.md) "Comparison".
+  equals code-point order, the ordering is also correct for text beyond the
+  American Standard Code for Information Interchange (ASCII): `"é" > "z"` is true. See [String](string.md) "Comparison".
 - **Class/reference equality** (`==`, `!=`) is identity (same heap
   object). For value comparison, use the `equals` method and override it in
   your own classes — `==` is unaffected by the override; see [Object &

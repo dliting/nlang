@@ -14,6 +14,8 @@ hierarchy. All exceptions are instances of `Exception` or its subclasses.
 | `IndexOutOfBoundsException` | `Exception` | Array/List index out of bounds |
 | `AssertionException` | `Exception` | `assert(false)` |
 | `InvalidCastException` | `Exception` | A failed `as` downcast (the actual type is not on the target's super-chain) |
+| `IOException` | `Exception` | File I/O failure |
+| `ChannelClosedException` | `Exception` | `send`/`recv` on a closed channel (see [Channels](concurrency-channel.md)) |
 
 ### `try` / `catch`
 
@@ -136,18 +138,17 @@ the try region by **any** of these paths:
 
 - try body completes normally (including falling out the bottom)
 - a catch clause completes (matched or not)
-- an exception unwinds through (the finally handler runs its body copy, then
-  re-throws the original exception; this includes exceptions thrown from
+- an exception propagates through (the finally body runs, then the
+  original exception is re-thrown; this includes exceptions thrown from
   inside a catch body)
-- `break` / `continue` transfer out of the region (an inline copy of the
-  finally body runs before the jump, innermost-first for nested tries)
+- `break` / `continue` transfer out of the region (the finally body runs
+  before the jump, innermost-first for nested tries)
 - `return` (the return expression is evaluated **first**, then the finally body
   runs, then the function returns)
 
 Nesting: inner finally bodies run before outer ones; after them, the
 surrounding catch (if any) sees the exception. Each finally body executes
-exactly once per control-flow pass — the normal-path and exception-path copies
-are disjoint code regions.
+exactly once per control-flow pass.
 
 `try { } finally { }` without any catch clause is legal (the finally
 clause is the only handler).

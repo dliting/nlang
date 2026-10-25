@@ -117,7 +117,7 @@ std::vector<int32_t>    m_listFreeList;    // recycled slots after GC sweep
 | `INTR_List_Set`         | 读取int索引 + 堆索引，替换elements[idx]              |
 | `INTR_List_Length`      | 返回elements.size()                                    |
 | `INTR_List_RemoveAt`    | 读取int索引，elements.erase(...)                      |
-| `INTR_List_IndexOf`     | 线性查找；返回位置或 -1                                 |
+| `INTR_List_IndexOf`     | 线性查找；返回位置或-1                                 |
 | `INTR_List_Contains`    | 线性查找；返回1 / 0                                    |
 | `INTR_List_Clear`       | elements.clear()                                        |
 
@@ -160,7 +160,7 @@ K与V同样统一都是堆索引——基本类型K/V的值在调用点装箱（
 |------------------------|-----------------------------------------------------------|
 | `INTR_Dict_Ctor`       | 分配DictSlot，把索引存入`this.__handle`                 |
 | `INTR_Dict_Set`        | 线性扫描；键已存在则替换V，否则追加(K,V)                |
-| `INTR_Dict_Get`        | 线性扫描；不存在则抛 "Dict key not found"                 |
+| `INTR_Dict_Get`        | 线性扫描；不存在则抛"Dict key not found"                 |
 | `INTR_Dict_ContainsKey`| 线性扫描；返回1 / 0                                      |
 | `INTR_Dict_Remove`     | 线性扫描；找到则擦除，返回1 / 0                          |
 | `INTR_Dict_Clear`      | entries.clear()                                           |
@@ -198,5 +198,5 @@ uint8_t returnTag    = 0;
 **GC集成。** MarkPhase：当class实例的slot[0]等于`m_dictClassIdx`时，读取`__handle`（slot[1]），把每个条目的K与V都按堆引用标记。越界 / 空闲索引跳过。SweepPhase：Dict实例被回收时，其`__handle`压入`m_dictFreeList`，供下一次`INTR_Dict_Ctor`复用。
 
 **ReadHandle统一校验。** `ReadDictHandle(callParamBase, locals,
-methodName)`与`ReadListHandle`镜像：从参数基址读取`thisHeapIdx`，`thisHeapIdx <= 0`抛 "Dict `<method>` on null instance"，超过堆大小抛 "...on stale reference"，句柄槽位为0抛 "...on uninitialized
+methodName)`与`ReadListHandle`镜像：从参数基址读取`thisHeapIdx`，`thisHeapIdx <= 0`抛"Dict `<method>` on null instance"，超过堆大小抛"...on stale reference"，句柄槽位为0抛"...on uninitialized
 instance"。全部6个构造后内建函数都经由这个辅助函数。

@@ -39,11 +39,11 @@ void apply(BinOp f) { io.print(f(10)); }
 
 int main() {
     Counter c = Counter();
-    apply(bar);       // 11    自由函数
-    apply(Counter.twice); // 20    静态：无接收者
-    apply(c.foo);     // 11    绑定：n 变为 1，1 + 10
+    apply(bar);       // 11自由函数
+    apply(Counter.twice); // 20静态：无接收者
+    apply(c.foo);     // 11绑定：n变为1，1 + 10
     Counter b = Big();
-    apply(b.tw);      // 1000  虚分派：运行期类 Big 获胜
+    apply(b.tw);      // 1000虚分派：运行期类Big获胜
     BinOp g = c.foo;
     return g(1) + g(1);   // 状态保持：3 + 4 = 7
 }
@@ -58,7 +58,7 @@ int main() {
 - **裸标识符**——`f(x)`。`func`类型的局部变量/参数/字段**遮蔽**任何同名函数。
 - **成员字段**——`obj.cb(x)`，其中`cb`是`func`类型的字段。
 
-实参按`func`类型的签名暂存；`out`参数在调用后写回调用者的局部变量，并透明处理绑定方法的接收者位移。委托调用不支持具名实参。
+实参按`func`类型的签名暂存；`out`参数在调用后写回调用者的局部变量；绑定方法的接收者由调用自动处理。委托调用不支持具名实参。
 
 ### 相等、null、toString
 
@@ -79,7 +79,7 @@ int main() {
 - **返回位置的`out`**（`func<out int, ...>`）——报出明确的编译错误"out is only allowed on func<...> parameters."并拒绝。
 - **`func<...>(...)`**——不支持以名称构造；请绑定引用。
 - **`Dict<func<...>, V>`**——`func`作Dict键（见上文恒等说明）。
-- **装箱成`Object`**（`Object o = f`）——经泛型的不兼容类型诊断拒绝。
+- **装箱成`Object`**（`Object o = f`，装箱见[Object与装箱](object.md)）——经泛型的不兼容类型诊断拒绝。
 - **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
 - 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误。

@@ -76,6 +76,12 @@ def test_spacing_flags_cjk_latin_boundary():
     assert ms.spacing_violations_in_text(text) != []
 
 
+def test_spacing_flags_minus_and_quote_boundaries():
+    # "无则 -1" and 去掉结尾 '\r' are the same compact-spacing family.
+    text = "首个索引，无则 -1；去掉结尾 '\\r'。\n"
+    assert ms.spacing_violations_in_text(text) != []
+
+
 def test_spacing_allows_compact_code_links_urls():
     text = (
         "# 标题native说明\n"

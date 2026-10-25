@@ -1,6 +1,6 @@
 # 流——ByteStream与FileStream
 
-两个内建流类提供二进制序列化：`ByteStream`在内存缓冲区上读写，`FileStream`落到磁盘文件。方法面相同（FileStream没有`reset()`）。
+两个内建流类提供二进制序列化：`ByteStream`在内存缓冲区上读写，`FileStream`落到磁盘文件。方法集相同（FileStream没有`reset()`）。
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -10,7 +10,7 @@ bs.reset();                  // 回卷游标，保留缓冲区
 double d = bs.readDouble();
 ```
 
-| 方法 | 线上形式 | 说明 |
+| 方法 | 存储形式 | 说明 |
 |---------|-----------|-------|
 | writeInt / readInt | 4字节 | int32 |
 | writeFloat / readFloat | 4字节 | float |
@@ -25,6 +25,6 @@ double d = bs.readDouble();
 
 **FileStream构造**：`FileStream(path, mode)`，mode是`"w"`（创建/截断）、`"a"`（创建/追加）或`"r"`（只读；文件不存在抛运行期错误）。非法mode抛运行期错误。直接初始化声明同样合法：`FileStream fs("data.bin", "w");`（见[类](class.md)「创建实例」）。未赋值的流引用是null，对其调用方法在运行期抛`null reference error`（容器同语义，见[内建泛型类](builtin-generic-classes.md)）。
 
-**实参类型**：标量写入方法按转换矩阵逐实参审查——窄整型与`float`实参隐式加宽进入8字节槽（与`math.sqrt`实参同一规则）；`ulong`实参超出long值域，须显式`as long`；`char`与string实参对数值方法是编译错误。
+**实参类型**：标量写入方法逐实参按转换规则检查——窄整型与`float`实参隐式提升为8字节的`long`/`double`（与`math.sqrt`实参同一规则）；`ulong`实参超出long值域，须显式`as long`；`char`与string实参对数值方法是编译错误。
 
 **流结束（EOS，end of stream）语义**：在游标已到末尾的流上读取抛运行期错误（不是返回0）。

@@ -40,9 +40,9 @@ against the substituted signature — `nums.add("wrong")` is a compile
 error when `nums : List<int>`.
 
 **Erasure runtime model**: `List<int>` and `List<Point>` share the same
-backing class at runtime. Elements are stored uniformly as heap indices
-in a side table; scalar primitive elements (all 12) are boxed via
-`OP_Box` at the call site. Garbage collection (GC) traces list
+backing class at runtime. Elements are stored uniformly as references (heap
+indices); scalar primitive elements (all 12) are boxed on insertion
+(see [Object & Boxing](object.md)). Garbage collection (GC) traces list
 elements as additional roots.
 
 **Array type arguments**: `T` may be an array type — `List<int[]>`
@@ -90,13 +90,11 @@ semantics as other class refs.
 **`foreach`**: the `foreach (Type var in iterable)` construct is
 supported. See [Foreach](foreach.md).
 
-**Nested generics** (`List<List<int>>`): supported. The lexer tracks
-type-argument nesting depth (`<` right after the built-in generic names
-`List`/`Dict` opens a level, each `>` closes one) and splits `>>` into
-two `'>'` tokens while the depth is positive (C#-style scanner split),
-so `List<List<int>>` and `Dict<string, List<int>>` parse. Outside
-generic context `>>` remains a single token (not split) — it is the
-right-shift operator (see [Operators](operators.md) "Shift").
+**Nested generics** (`List<List<int>>`): supported. Inside a generic
+context a `>>` splits into two `>` tokens (same as C#), so
+`List<List<int>>` and `Dict<string, List<int>>` parse. Outside generic
+context `>>` remains a single token — the right-shift operator
+(see [Operators](operators.md) "Shift").
 
 **Cross-module**: container generic signatures cross `.ncu` import
 boundaries — imported functions carry
@@ -145,9 +143,9 @@ checked against the substituted signature — `d.set("x", "y")` is a
 compile error when `d : Dict<string,int>`.
 
 **Erasure runtime model**: `Dict<K,V>` shares a single backing class
-across all instantiations. Entries are stored as `(K heap idx, V heap
-idx)` pairs in a side table; primitive keys/values are
-boxed via `OP_Box` at the call site. GC traces every entry's K and V as
+across all instantiations. Entries are stored as a pair of references `(K, V)`;
+primitive keys/values are boxed on insertion (see
+[Object & Boxing](object.md)). GC traces every entry's K and V as
 additional roots.
 
 **Key equality** is kind-aware:
@@ -174,8 +172,8 @@ provided.
 **`foreach` over keys**: `foreach (K k in dict) { ... }`
 iterates the keys of the dict, Python/JavaScript style. Inside the body,
 call `dict.get(k)` to access the value. Implementation: the compiler
-emits an inline `dict.keys()` call to materialize a fresh `List<K>`, then
-iterates that list. See [Foreach](foreach.md).
+takes one `dict.keys()` snapshot (a fresh `List<K>`), then iterates that
+list. See [Foreach](foreach.md).
 
 **`Dict.keys()`**: returns a new `List<K>` populated with all keys
 (no defined ordering). Useful independently of `foreach` for snapshotting

@@ -36,8 +36,8 @@ into the long range).
 unary-minus forms) assigned to a narrower target type is implicitly legal
 when the value is in the target's range — `byte b = 5;` is legal,
 `byte b = 1000;` is the compile error `constant 1000 out of range for
-'byte'`. The special case covers only the literal itself, not folded
-expressions — `byte b = 1 + 2;` still needs an explicit `as byte` (the
+'byte'`. The special case covers only the literal itself, not constant
+arithmetic expressions — `byte b = 1 + 2;` still needs an explicit `as byte` (the
 type of `1 + 2` is already `int`). The same special case covers a double
 literal into a `float` target: `float f = 1.5;` is legal, `float f =
 1e50;` is a compile error; integer targets never accept floating-point
@@ -59,7 +59,7 @@ from no other type and takes no part in arithmetic.
 
 `char` holds one Unicode scalar value (a code point, excluding the
 surrogate range U+D800..U+DFFF). Literals use single quotes: ordinary
-characters `'a'`, non-American Standard Code for Information Interchange (ASCII) characters `'é'`, escapes (the five `'\n'`,
+characters `'a'`, and those beyond the American Standard Code for Information Interchange (ASCII) such as `'é'`, escapes (the five `'\n'`,
 `'\r'`, `'\t'`, `'\''`, `'\\'`), and the `\uXXXX` escape
 `'\u0041'` (i.e. `'A'`). A surrogate-range escape inside a char literal is a compile
 error; inside a string literal, adjacent surrogate escapes combine into
@@ -95,11 +95,10 @@ the source file, after compilation, and on the console:
   "UTF-8 with byte order mark (BOM)" save form works); other encodings get the hints
   above.
 - **After compilation a char is its 32-bit code point — neither UTF-8
-  nor UTF-16.** Every char lives in a 4-byte slot holding the raw code
-  point: frame slots, the 4 immediate bytes of a char literal, and the
-  4-byte value in boxed records and stream writes. The module format
-  marks the kind in one byte (`char` is kind 19), while the value
-  stays the plain code point end to end.
+  nor UTF-16.** Every char occupies 4 bytes holding the raw code
+  point: local variables, char literals, boxed records (see
+  [Object and Boxing](object.md)), and stream writes all store the same
+  4-byte value, and it stays the plain code point end to end.
 - **Strings are where UTF-8 lives**: a string object is a UTF-8 byte
   sequence (see [String](string.md) "Encoding and length"). A char
   converts to that form on joining a string — `"x" + 'y'` encodes the

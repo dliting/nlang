@@ -83,8 +83,8 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 |---|---|---|
 | `initialize()` | 每进程至少一次，幂等 | 初始化运行时；`shutdown()`经`atexit`自动注册，宿主通常不必显式调用 |
 | `addImportDir(d)` | 任意次，均须在装载程序来源之前 | 追加`import`的链接期搜索目录（如`stdlib`所在目录） |
-| `load(artifact)` | 每实例恰一次，与`runSource()`/`runFile()`三选一 | 装载`.ncu`/`.npkg`并解析闭包；失败抛`LoadError` |
-| `runSource(src)`/`runFile(path)` | 每实例恰一次，与`load()`三选一 | 进程内编译＋执行源码脚本（见第3节）；失败抛`LoadError`，编译失败不消耗程序来源 |
+| `load(artifact)` | 每实例恰一次，与`runSource()`/`runFile()`三选一 | 装载`.ncu`/`.npkg`并装齐其全部依赖；失败抛`LoadError` |
+| `runSource(src)`/`runFile(path)` | 每实例恰一次，与`load()`三选一 | 进程内编译 + 执行源码脚本（见第3节）；失败抛`LoadError`，编译失败不消耗程序来源 |
 | `run()` | 至多一次 | 调脚本`main`，返回退出码；未捕获的脚本异常抛`Exception` |
 | `call(name, args)` | 任意次（装载后、`run()`前后皆可） | 按「单元词干.函数名」键调用模块级函数 |
 
@@ -92,13 +92,13 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 ### 并发与挂起
 
-`run()`经调度器载体执行：脚本里的`thread.sleep`按截止时刻唤醒、`thread.spawn`派生的上下文得到调度、`thread.join`停泊等待——与`nvm`命令行运行完全一致。`main`停泊且再无可运行上下文时（例如空通道`recv`无发送者），`run()`抛可捕获的`std::runtime_error`（消息含`deadlock`），不会挂死。
+`run()`经调度器的载体（carrier，承载虚拟线程运行的操作系统线程）执行：脚本里的`thread.sleep`按截止时刻唤醒、`thread.spawn`派生的上下文得到调度、`thread.join`挂起等待——与`nvm`命令行运行完全一致。`main`挂起且再无可运行上下文时（例如空通道`recv`无发送者），`run()`抛可捕获的`std::runtime_error`（消息含`deadlock`），不会挂死。
 
-`run()`以单载体默认执行：`Interpreter`用一条载体驱动调度器（库默认值），任意时刻只有一个虚拟线程在解释字节码，上下文只在挂起点之间推进。存储操作按域加锁（见[GIL与多载体](../language-spec/concurrency-gil-carriers.md)）；在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体——纯计算段与对象字段访问跨载体并行，按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用停泊当前上下文并放锁，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码、以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取调度器锁，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
+`run()`以单载体默认执行：`Interpreter`用一条载体驱动调度器（库默认值），任意时刻只有一个虚拟线程在解释字节码，上下文只在挂起点之间推进。存储操作按数据类别分组加锁（见[载体与并行](../language-spec/concurrency-carriers.md)）；在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体——纯计算段与对象字段访问跨载体并行，按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用挂起当前上下文并放锁，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取调度器锁，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
 
-经`registerHostFunction`注册的宿主函数一律走阻塞原生协议：VM暂存其实参，停泊当前上下文并放锁，回调执行期间不占用载体，返回后取锁续行。暂存的实参格与返回槽在该窗口内扎根，其他载体上的回收不会回收在途句柄；此类调用内发起的NativeHost回调每次重新取锁。
+经`registerHostFunction`注册的宿主函数一律走阻塞原生协议：VM暂存其实参，挂起当前上下文并放锁，回调执行期间不占用载体，返回后取锁续行。暂存的实参与返回值在该窗口内登记为垃圾回收（GC，garbage collection）根，其他载体上的回收不会回收在途句柄；此类调用内发起的NativeHost回调每次重新取锁。
 
-`call()`是宿主发起的嵌套求值窗口，没有自己的载体轮转：
+`call()`是宿主发起的重入求值，没有自己的载体轮转：
 
 - 会挂起的内在函数一律拒绝，抛`std::runtime_error`（消息含`cannot suspend`）：`thread.yield`、`thread.sleep`、目标未完成的`thread.join`、目标未完成的`Future.get`、竞争中的`Mutex.lock`、空通道`Channel.recv`、满通道`Channel.send`。
 - `thread.spawn`同样拒绝（消息含`spawn`）——新上下文无载体可调度；需要并发的宿主流程请经`run()`进入。
@@ -116,7 +116,7 @@ itp.registerHostFunction("host", "now",
 ```
 
 ```nlang
-//文件名必须是 host.n——声明所在单元的词干就是键的前半段
+//文件名必须是host.n——声明所在单元的词干就是键的前半段
 native int now();
 
 int main() {
@@ -133,7 +133,7 @@ int main() {
 - 标量：`asInt()`/`asString()`等访问器，kind不匹配抛`BadValue`。窄整型（byte/short等）折叠到`Int`/`Long`，枚举折叠到`Int`。
 - 字符串：值语义——两侧各自持有拷贝，改动互不可见。
 - 引用类（容器与对象）：`asList()`/`asDict()`/`asArray()`/`asObject()`返回读写代理，宿主的改动对脚本立即可见，反之亦然。容器元素与对象字段按脚本侧声明类型校验，错配抛`BadValue`。
-- 宿主构造容器：`newList()`/`newDict()`返回builder值，元素暂存在宿主侧；每次作为实参跨入脚本都物化成一个新容器实例（无缓存），元素按形参声明的元素类型校验。
+- 宿主构造容器：`newList()`/`newDict()`返回builder值，元素暂存在宿主侧；每次作为实参跨入脚本都会创建一个新容器实例（无缓存），元素按形参声明的元素类型校验。
 - 内存安全：宿主持有的引用值登记为垃圾回收（GC，garbage collection）根，脚本触发回收不会回收宿主还在用的对象。代理与引用值的有效期受所属`Interpreter`约束。
 
 ```cpp
@@ -150,7 +150,7 @@ nlang::Value sum = itp.call("mymod.sumList", {v});
 | `nlang::Exception` | 未捕获的脚本异常（脚本侧错误） | 宿主边界捕获，读`message()`/`backtrace()`/`exceptionClass()` |
 | `nlang::BadValue` | 宿主用法错误：kind错配、索引越界、重入、生命周期误用 | 属宿主缺陷，修宿主代码而非捕获绕过 |
 | `nlang::LoadError` | 装载与环境失败：坏路径、坏产物、native模块缺失 | 捕获后向使用者报告环境问题 |
-| `std::runtime_error` | VM内部错误与并发边界：死锁报告、嵌套窗口内的挂起或`thread.spawn`拒绝 | 宿主边界捕获并报告 |
+| `std::runtime_error` | VM内部错误与并发边界：死锁报告、重入求值内的挂起或`thread.spawn`拒绝 | 宿主边界捕获并报告 |
 
 ## 8. 输入输出重定向
 

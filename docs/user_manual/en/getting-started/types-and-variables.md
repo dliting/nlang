@@ -62,7 +62,7 @@ compiler assigns (auto-increment from 0 unless you give them explicit
 values); a value converts to `int` directly, `toString()` returns the
 member name, and an enum is a valid `switch` discriminant.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Enum](../language-spec/enum.md).
 
 ### Struct
 
@@ -94,7 +94,7 @@ independent. Unlike a class, a struct has no methods. The line between
 value and reference semantics is drawn in [Language Specification /
 Type Semantics](../language-spec/type-semantics.md).
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Language Specification / Struct](../language-spec/struct.md).
 
 ### Type alias
 
@@ -138,7 +138,7 @@ int main() {
 Output `hello, NLang` and `year: 2026`; exit code 9. Strings are UTF-8
 byte sequences, and `length()`/`substring()`/`indexOf()` all count
 bytes; code-point access (`charAt`, `charCount`, `foreach (char c in s)`)
-is on the String page under "The char bridge".
+is covered by [strings and char](../language-spec/string.md) under "The char bridge".
 
 See also: [Language Specification / Types](../language-spec/types.md),
 [Standard Library](../language-spec/standard-library.md).

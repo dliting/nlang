@@ -29,17 +29,16 @@ language:
 - **Assignment / copy** (`Point q = p;`) copies the whole struct by value,
   including any nested struct fields, so the source and the copy are
   independent.
-- **Parameter passing / return**: deep-copied into the callee's local frame
-  and back out to the caller's result slot. The callee operates on its own
-  copy.
+- **Parameter passing / return**: deep-copied once on the way in and once
+  on the way back. The callee operates on its own copy.
 - **As a class field**: the class owns an independent deep copy. Assigning
-  `obj.s = s1` deep-copies `s1` into the class's field slot.
-- **As an array element**: `Point[n]` eagerly materializes a fresh,
-  independent struct instance per element (including nested struct fields,
+  `obj.s = s1` deep-copies `s1` into the class's field.
+- **As an array element**: `Point[n]` allocates a fresh, independent
+  struct instance per element at creation (including nested struct fields,
   recursively). Reading an element into a struct variable (`Point p = arr[i]`)
   deep-copies it; writing through a subscript (`arr[i].x = v`, `arr[i] = p`)
   stores into the array's own element. Zero-length struct arrays
-  (`Point[0]`) are legal — `.length()` is 0 and no elements are materialized.
+  (`Point[0]`) are legal — `.length()` is 0 and no elements are created.
 
 **Shallow copy of class references within structs**: when a struct contains a
 class-typed field, the class reference (heap index) is copied as-is during
@@ -88,8 +87,8 @@ Point s = Point{5};             // init list: no constructor runs
 - **Positional entries** `Point{3, 7}`: assign in field declaration
   order; you may give only the first few — `Point{5}` fills `x` only and
   leaves the rest at their defaults.
-- A struct array `Point[3]` eagerly materializes a fresh instance per
-  element — see reference semantics above and [Array](array.md).
+- A struct array `Point[3]` allocates a fresh instance per element at
+  creation — see reference semantics above and [Array](array.md).
 
 A field is read or written through the member expression `p.x`; a constructor
 may use `this` to name a field. See [Collection
@@ -111,9 +110,9 @@ struct Point {
 
 Unlike a class, a struct default is **not injected into a constructor** — it
 is applied at every allocation. A bare declaration, an array element, a
-nested field, and a partial init list all materialize the defaults (an
+nested field, and a partial init list all start from the defaults (an
 init-list entry stores over them). A deep copy copies the stored values and
-does not re-apply them. The defaults ride the `.ncu` struct record, so they
+does not re-apply them. The defaults are stored in the `.ncu` struct record, so they
 stay visible after an `import` — see [Module
 Serialization](../vm-architecture/module-serialization.md).
 

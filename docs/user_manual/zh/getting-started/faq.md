@@ -11,26 +11,25 @@ nide侧由输出位置优先级决定（详见[三种运行方式](running.md#�
 
 ### 运行时报`module '...' not found`？
 
-产物不含库代码：`.ncu`/`.npkg`只携带自己的单元，外部模块在**运行期**沿库搜索路径装载链接。报错形如`Runtime error: nloader failed:`（正文行`module 'lib' not found (searched: ...)`），括号里列出了已搜索的全部目录——把依赖所在目录加进`-I`或`NLANG_PATH`，或把依赖放在产物旁边。标准库随工具链分发（`stdlib\`），无需手动配置。机制详见 → [ncc](../cli-tools/ncc.md)的「产物与加载期链接」。
+产物不含库代码：`.ncu`/`.npkg`只携带自己的单元，外部模块在**运行期**沿库搜索路径装载链接。报错形如`Runtime error: nloader failed:`（正文行`module 'lib' not found (searched: ...)`），括号里列出了已搜索的全部目录——把依赖所在目录加进`-I`或`NLANG_PATH`，或把依赖放在产物旁边。标准库随工具链分发（`stdlib\`），无需手动配置。机制详见[ncc](../cli-tools/ncc.md)的「产物与加载期链接」。
 
 ### 退出码不是想要的值？
 
 进程退出码就是`main`的返回值，Windows保留32位原值；但POSIX shell（bash、Git-Bash、持续集成（CI，continuous integration）的bash步骤）按惯例只保留低8位——`return 300`在Python/cmd/PowerShell里看到300，在bash里看到44（对256取模）。写测试或脚本时，让预期退出码落在0–255，各观察者看到的结果才一致。
 
-详见 → [语言规格/退出码约定](../language-spec/exit-code-convention.md)。
+详见[语言规格/退出码约定](../language-spec/exit-code-convention.md)。
 
 ### 中文输出乱码？
 
 程序输出是Unicode转换格式（UTF-8，Unicode Transformation Format）字节。工具链把进程活动代码页设为UTF-8（工具内嵌清单声明，Windows 10 1903及以上生效），并在启动时把所在控制台切换到UTF-8代码页，默认控制台即可正常显示中文输出，无需手动`chcp 65001`。`fs`与`io`的路径、文件名支持美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的字符，同样按UTF-8往返。重定向到文件的输出字节不受影响——用非UTF-8编码打开它的编辑器仍会显示乱码。该代码页切换在工具退出后仍对同一控制台窗口生效，之后其中按旧编码输出的程序可能显示为乱码。
 
-详见 → [语言规格/标准库](../language-spec/standard-library.md)。
+详见[语言规格/标准库](../language-spec/standard-library.md)。
 
 ### 编译报`not valid UTF-8`？
 
 源文件与`.nproj`项目文件必须保存为UTF-8：ncc在词法前对整个文件做严格校验，无效字节得到明确报错（`Source file is not
 valid UTF-8 ... (first invalid byte at line N). Save the file as
-UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见 →
-[语言规格/基本类型](../language-spec/primitives.md)。
+UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见[语言规格/基本类型](../language-spec/primitives.md)。
 
 ### 帮助文档与搜索在哪？
 
@@ -38,9 +37,9 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### `v + 1`不加空格报`syntax error`？
 
-词法层把二元`+`后紧跟的数字吃成带符号字面量——`v+1`被读成标识符`v`后接字面量`+1`，两个表达式连排不构成合法语句，于是报`syntax error`（`Invalid statement.`）。规避：加号两侧留空格（`v + 1`）。
+NLang把`v+1`读成标识符`v`后接带正号的字面量`+1`——两个表达式连排不构成合法语句，于是报`syntax error`（`Invalid statement.`）。规避：加号两侧留空格（`v + 1`）。
 
-详见 → [语言规格/表达式](../language-spec/expressions.md)。
+详见[语言规格/表达式](../language-spec/expressions.md)。
 
 ### 调试时怎么给`io.readLine`输入 / 停止后`finally`不执行 / 断点错位？
 
@@ -48,24 +47,23 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 为什么`io.hasInput()`在交互控制台下不精确？
 
-`hasInput()`要不阻塞地判断输入流的将来，这只有文件与管道重定向做得到。交互控制台按回车交付一行，探询只能看到已缓冲的内容；这与C语言在控制台上做非阻塞读的处境相同。控制台程序通常不需要`hasInput()`：按C的惯例，直接把`readLine()`返回的空串当循环终点即可。调试会话（nide）中`hasInput()`只报告已送达的停驻行；终端的回看与复制照常可用。
+`hasInput()`不阻塞地判断输入流是否还有后续输入，这只有文件与管道重定向做得到。交互控制台按回车交付一行，轮询只能看到已缓冲的内容；这与C语言在控制台上做非阻塞读的处境相同。控制台程序通常不需要`hasInput()`：按C的惯例，直接把`readLine()`返回的空串当循环终点即可。调试会话（nide）中`hasInput()`只报告已输入并送达的行；终端的回看与复制照常可用。
 
 ### 跨模块引用报`Module '...' is not imported`？
 
-`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[语言规格/声明](../language-spec/declarations.md)的「import声明」。完整错误消息见 → [常见错误消息](../language-spec/common-errors.md)。
+`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[语言规格/声明](../language-spec/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
 
 ### 数组值赋给其他类型报`Incompatible type`？
 
-数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言规格/已知限制](../language-spec/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见 →
-[常见错误消息](../language-spec/common-errors.md)。
+数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言规格/已知限制](../language-spec/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
 
 ### 变量不初始化会怎样？
 
-合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码位0、enum是底座值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[语言规格/声明](../language-spec/declarations.md)的「默认值」。
+合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[语言规格/声明](../language-spec/declarations.md)的「默认值」。
 
-### `Point(2, 3)`为什么报函数不存在？
+### `Point(2, 3)`为什么报构造器错误？
 
-`struct`没有构造函数——`Point(2, 3)`被当作按名调用函数而解析落空（`The function "Point" does not exist or is not accessible.`）。struct的创建形式是花括号条目：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「struct没有构造函数」条。
+`Point`未声明构造器——带实参调用它编译报`struct "Point" has no constructor; Point() cannot take arguments`。未声明构造器的struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`；想写`Point(2, 3)`，先声明构造器。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条。
 
 ### 数组和`List`用哪个？
 
@@ -79,14 +77,13 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 `if` / `while` / `do-while` / `for` / `assert`的条件与`&&` / `||` /
 `!`的操作数都必须是`bool`（比较与谓词已经产生bool——没有C式的「非零即真」）；int、string、float、char、class、struct、array都会在编译期报错（`if condition must be bool, not
-"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[语言规格/语句](../language-spec/statements.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见 →
-[常见错误消息](../language-spec/common-errors.md)。
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[语言规格/语句](../language-spec/statements.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
 
 ### 为什么不能像Java/C++那样在子类重载父类虚方法？
 
-NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布局实参，运行期取最近派生的同名方法——不比对签名。如果允许子类为虚方法名添加不同签名的重载，运行期会截走分派并按位错读实参。因此名字一旦绑定虚方法或接口契约，子类的同名方法必须与契约签名一一对应。想提供不同签名的方法，请使用不同的方法名。
+NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布局实参，运行期取最具体的子类的同名方法——不比对签名。如果允许子类为虚方法名添加不同签名的重载，实参会按错误的位置被解读，得到错误结果。因此名字一旦绑定虚方法或接口契约，子类的同名方法必须与契约签名一一对应。想提供不同签名的方法，请使用不同的方法名。
 
-详见 → [语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
+详见[语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
 
 ### 帮助窗口提示「文档未找到」？
 
@@ -97,6 +94,6 @@ installation.」。多因文档站未随包部署到`docs\site\`，或安装目�
 
 内嵌帮助窗口顶栏有Back / Forward导航按钮，可在已访问的文档页之间前进后退；帮助窗口关闭后每次重新打开都会重建（不保留上次的浏览位置）。
 
-更多已知限制 →
+更多已知限制：
 [语言规格/已知限制](../language-spec/known-limitations.md)、[VM架构/已知限制](../vm-architecture/known-limitations.md)。
 

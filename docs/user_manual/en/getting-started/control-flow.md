@@ -82,9 +82,10 @@ int main() {
 ```
 
 Output `finally always runs` and `boom`; exit code 5. The built-in
-exception classes `NullPointerException`, `DivByZeroException`,
-`IndexOutOfBoundsException`, and `AssertionException` all extend
-`Exception`; user classes can inherit from `Exception` too
+exception classes (e.g. `NullPointerException`, `DivByZeroException`,
+`IndexOutOfBoundsException`; the full list is in
+[Exceptions](../language-spec/exception.md)) all extend `Exception`;
+user classes can inherit from `Exception` too
 (`class MyException : Exception`).
 
-See also: [Language Specification / Statements](../language-spec/statements.md).
+See also: [Language Specification / Exceptions](../language-spec/exception.md).

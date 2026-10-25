@@ -11,7 +11,7 @@ assert(condition);
 int x = 5;
 assert(x > 3);            // 通过 —— 无事发生
 try {
-    assert(x > 10);        // 抛出 AssertionException
+    assert(x > 10);        // 抛出AssertionException
 } catch (AssertionException e) {
     // 被捕获
 }

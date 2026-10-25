@@ -81,9 +81,9 @@ the site title) and supports full-text search.
 
 ### `v + 1` with no spaces gives a `syntax error`?
 
-The lexer eats the digits immediately after a binary `+` as a signed
-literal — `v+1` is read as the identifier `v` followed by the literal
-`+1`, and two expressions in a row are not a valid statement, so you
+NLang reads `v+1` as the identifier `v` followed by a plus-signed
+literal `+1` — two expressions in a row are not a valid statement, so
+you
 get `syntax error` (`Invalid statement.`). Work around it by putting
 spaces around the operator (`v + 1`).
 
@@ -110,7 +110,7 @@ line per Enter, so the probe sees only what is already buffered — the
 same position C is in on a console. Console programs usually do not
 need `hasInput()`: following the C convention, treat `readLine()`'s
 empty-string return as the loop's end. In a debug session (nide)
-`hasInput()` reports only already-delivered parked lines; the
+`hasInput()` reports only already-delivered buffered lines; the
 terminal's scrollback and copy work as usual.
 
 ### Cross-module reference gives `Module '...' is not imported`?
@@ -145,13 +145,15 @@ without the check throws a `null reference error` at run time. The full
 table is in [Language Specification /
 Declarations](../language-spec/declarations.md), "Default values".
 
-### Why does `Point(2, 3)` report a missing function?
+### Why does `Point(2, 3)` report a constructor error?
 
-Structs have no constructors — `Point(2, 3)` parses as a call to a
-function named `Point` and fails to resolve (`The function "Point" does
-not exist or is not accessible.`). Create structs with braced entries:
-`Point{x: 2, y: 3}`, or positional `Point{2, 3}` in declaration order.
-See the "Structs have no constructors" entry in [Language Specification
+`Point` declares no constructor — calling it with arguments fails to
+compile with `struct "Point" has no constructor; Point() cannot take
+arguments`. A struct without a constructor is created with a bare
+declaration (`Point p;`) or brace entries: `Point{x: 2, y: 3}`, or
+positional `Point{2, 3}` in declaration order; to write `Point(2, 3)`,
+declare a constructor first. See the "A struct without a constructor
+cannot take arguments" entry in [Language Specification
 / Common Error Messages](../language-spec/common-errors.md).
 
 ### Array or `List` — which one?
@@ -197,10 +199,10 @@ Messages](../language-spec/common-errors.md) for the full error text.
 
 Virtual dispatch in NLang works by method name: the call site lays out
 arguments against the statically bound type's signature, and at run time the
-nearest derived same-name method is taken — signatures are not compared. If
-a subclass could add an overload with a different signature for a virtual
-method's name, it would steal the dispatch at run time and read arguments as
-wrong bits. Once a name is bound to a virtual method or an interface
+most specific subclass's same-name method is taken — signatures are not
+compared. If a subclass could add an overload with a different signature
+for a virtual method's name, the arguments would be read at the wrong
+positions and produce wrong results. Once a name is bound to a virtual method or an interface
 contract, the subclass's same-name methods must map one-to-one onto the
 contract signature. To provide a method with a different signature, use a
 different method name.
@@ -225,7 +227,7 @@ buttons to move between the documentation pages you have visited; the
 help window is rebuilt each time it is reopened (it does not remember
 the last browsing position).
 
-More known limitations →
+More known limitations:
 [Language Specification / Known
 Limitations](../language-spec/known-limitations.md),
 [VM Architecture / Known

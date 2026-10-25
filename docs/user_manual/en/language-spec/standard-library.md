@@ -12,7 +12,7 @@ bare names are not in scope. A package name used as a value
 (`int x = math;`) fails to resolve — packages are not values. In
 terms of duties, io carries content input/output (IO), math numeric
 computation, fs the filesystem's names and metadata, thread the
-virtual-thread spawn and parking primitives, and concurrent the
+virtual-thread spawn and suspension primitives, and concurrent the
 `WaitGroup` and `Semaphore` synchronization tools (the
 `Mutex`/`Channel`/`Future` built-in classes excepted — they need no
 import; see [Concurrency](concurrency.md)).
@@ -25,17 +25,17 @@ service's symbol index. The shape is the one a third-party library uses:
 `nlang_<ns>.dll` and reached through the host application binary interface (ABI) at run time (the `thread` package is the one
 exception: its `native` declarations are implemented inside the virtual
 machine itself and dispatched on the intrinsic channel). A qualified
-call type-checks against the declaration and emits `OP_CallFunc`; the
-built-in string methods are receiver-dispatched and emit
-`OP_CallIntrinsic`. See [Libraries and search paths](stdlib-search-paths.md)
+call type-checks against the declaration and goes through the normal
+function-call path; the built-in string methods are receiver-dispatched
+directly into their built-in implementations. See [Libraries and search paths](stdlib-search-paths.md)
 for the directory rules.
 
-**Parameter types**: each argument is checked against the declared kind
-per the conversion matrix — same-kind passes as-is, matrix-allowed implicit
-widening is applied automatically (integer-family and `float` arguments
+**Parameter types**: each argument is checked against the declared
+parameter type per the conversion rules — same-type arguments pass as-is,
+rules-allowed implicit widening is applied automatically (integer-family and `float` arguments
 enter `double` parameters, e.g. `math.sqrt(4)`; narrowing is always an
 explicit `as` — `math.absi(1.5)` is a compile error). The exceptions are the
-io coercing trio (`write`/`print`/`eprint`), which accept string, arrays,
+three coercing io functions (`write`/`print`/`eprint`), which accept string, arrays,
 all scalar primitives and function values
 (converted at the call site; a function value renders as `func <name>`,
 see [Function Types and Delegates](function-types-and-delegates.md));

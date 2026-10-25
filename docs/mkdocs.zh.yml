@@ -49,9 +49,9 @@ nav:
           - Object与装箱: language-spec/object.md
           - 类型强制转换: language-spec/type-casts.md
           - 类型语义: language-spec/type-semantics.md
-          - 声明: language-spec/declarations.md
-          - 包: language-spec/packages.md
           - 内建泛型类: language-spec/builtin-generic-classes.md
+      - 声明: language-spec/declarations.md
+      - 包: language-spec/packages.md
       - 表达式与语句:
           - 表达式: language-spec/expressions.md
           - 运算符: language-spec/operators.md
@@ -75,13 +75,13 @@ nav:
           - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 并发:
           - 并发: language-spec/concurrency.md
-          - GIL与多载体: language-spec/concurrency-gil-carriers.md
+          - 载体与并行: language-spec/concurrency-carriers.md
           - thread包: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
           - Mutex: language-spec/concurrency-mutex.md
           - Channel: language-spec/concurrency-channel.md
           - 标准库同步工具: language-spec/concurrency-concurrent.md
-          - 停泊与调度限制: language-spec/concurrency-parking.md
+          - 挂起与调度限制: language-spec/concurrency-suspension.md
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md

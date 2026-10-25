@@ -15,19 +15,19 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```nlang
 Color c = Color.Green;     // 限定成员名
 Color d = 1;               // int隐式转换到enum
-int n = c;                 // enum隐式取底座值，这里是1
-Color e;                   // 不初始化：底座值0（自增enum即首个成员）
+int n = c;                 // enum隐式取底层int值，这里是1
+Color e;                   // 不初始化：底层int值0（自增enum即首个成员）
 ```
 
 - 声明时用**限定成员名**`Color.Green`。
-- int到enum也隐式允许（`Color d = 1;`），显式形式是`1 as Color`。底座值是否落在成员上**编译期不检查**——越界值只有在`toString()`查名字时才抛运行期错误（见下文「输出」）。
-- enum到int隐式取底座值（见[类型语义](type-semantics.md)）。
-- 只声明不初始化（`Color e;`）得到底座值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](declarations.md)的默认值表）。
+- int到enum也隐式允许（`Color d = 1;`），显式形式是`1 as Color`。底层int值是否落在成员上**编译期不检查**——越界值只有在`toString()`查名字时才抛运行期错误（见下文「输出」）。
+- enum到int隐式取底层int值（见[类型语义](type-semantics.md)）。
+- 只声明不初始化（`Color e;`）得到底层int值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](declarations.md)的默认值表）。
 - 打印enum变量须先`.toString()`——`io.print`不直接接收enum变量实参；成员常量例外，`io.print(Color.Red)`直接打印成员名`Red`（见[标准库](standard-library.md)的打印支持面）。
 
 ### 值语义
 
-枚举是int32为底座的**值类型**：
+枚举是以int32为底层类型的**值类型**：
 
 - **赋值 / 传参 / 返回**：拷贝int32值。两个变量持有独立值；修改一个绝不影响另一个。
 - **比较**：按整数值比较——`==`/`!=`与关系运算符都比较底层int32（见[运算符](operators.md)）。
@@ -55,7 +55,7 @@ enum Color {
 
 方法声明在成员列表之后，以`;`分隔。只有孤立结尾`;`而无方法的`enum E { A; }`也接受（Java式收尾语法）。每个方法都必须有方法体（抽象方法被拒绝）。
 
-- **`this`就是枚举值。**方法体内`this`是接收者的int32值：可直接参与算术与`switch`（`this * base`、`switch (this)`），没有装箱。方法静态分派（`OP_CallMethodDirect`）——枚举没有继承，也没有虚分派。
+- **`this`就是枚举值。**方法体内`this`是接收者的int32值：可直接参与算术与`switch`（`this * base`、`switch (this)`），没有装箱。方法调用总是静态绑定——枚举没有继承，也没有虚分派。
 - **经接收者调用。**`c.weight(3)`、`this.weight(3)`、`Color.Red.weight(3)`
   ——任何枚举值表达式都可以。裸写的`weight(3)`（无接收者）是编译错误，与class方法一致。
 - **参数：**不支持默认值（`int f(int a, int b = 5)`被拒绝），也不支持`out`参数。
@@ -66,4 +66,4 @@ enum Color {
 
 ### 输出
 
-`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每个枚举一张名字表；VM用`OP_Enum_to_str`按值查成员名。越界的枚举值在运行期抛错。完整`toString`协议见[类型强制转换](type-casts.md)。
+`Color.Red.toString()`返回`"Red"`（不是`"0"`）。名字表随枚举一起编译进产物，`toString()`按值查成员名。越界的枚举值在运行期抛错。完整`toString`协议见[类型强制转换](type-casts.md)。

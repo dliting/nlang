@@ -9,9 +9,9 @@ switch (value) {
 }
 ```
 
-判断量必须是`int`、`float`、`string`、或enum类型值（enum按其int值比较）。class、struct、数组、`null`判断量在编译期被拒绝——共享的`int`规则见[语句](statements.md)「条件类型」，每种类型能是什么见[类型语义](type-semantics.md)。
+判别式必须是`int`、`float`、`string`、或enum类型值（enum按其int值比较）。class、struct、数组、`null`判别式在编译期被拒绝——共享的`int`规则见[语句](statements.md)「条件类型」，每种类型能是什么见[类型语义](type-semantics.md)。
 
-**类型化相等。**比较使用判断量所属族的相等运算符：int与enum精确比较；float按IEEE语义比较（`-0.0 == 0.0`为真，NaN永远不等于任何东西，包括它自己）；string按内容比较，不按同一性。case标签必须与判断量同族——不做跨族转换（对int判断量的`case "1"`是编译错误）。`null`不是合法的case标签。标签可以是计算表达式（例如`case f(x):`）——在运行期按子句顺序求值。
+**类型化相等。**比较使用判别式所属族的相等运算符：int与enum精确比较；float按IEEE语义比较（`-0.0 == 0.0`为真，NaN永远不等于任何东西，包括它自己）；string按内容比较，不按同一性。case标签必须与判别式同族——不做跨族转换（对int判别式的`case "1"`是编译错误）。`null`不是合法的case标签。标签可以是计算表达式（例如`case f(x):`）——在运行期按子句顺序求值。
 
 **多值标签。**一个case子句可列出多个标签（`case 1, 2:`）；任一匹配时执行语句体。
 

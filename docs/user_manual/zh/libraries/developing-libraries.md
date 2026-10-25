@@ -2,7 +2,7 @@
 
 NLang的库机制只有一套：一个库就是导入搜索路径上的一个目录，标准库与第三方库走完全相同的发现、编译与执行路径。本页面向库作者，讲三件事：纯NLang库怎么组织、带native实现的混合库怎么写、写好之后怎么分发。
 
-机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../language-spec/packages.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
+机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../language-spec/packages.md)，五层搜索路径的完整机制见[库与搜索路径](../language-spec/stdlib-search-paths.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
 
 ## 1. 库的形态
 
@@ -77,7 +77,7 @@ NLang的产物按编译单元划分：编译`main.n`只生成消费方自己的�
 mylib ready: 10
 ```
 
-`nvm`运行`main.ncu`时，装载器发现它导入`mylib`，沿搜索路径找到`mylib.ncu`，两个单元在加载期完成链接——库不必进任何全局注册表，摆在搜索路径上即可。（库没有`main`，`ncc mylib.n`的编译＋执行形态会报module has no entry point；库一律用`build`形态编译。）
+`nvm`运行`main.ncu`时，装载器发现它导入`mylib`，沿搜索路径找到`mylib.ncu`，两个单元在加载期完成链接——库不必进任何全局注册表，摆在搜索路径上即可。（库没有`main`，`ncc mylib.n`的编译 + 执行形态会报module has no entry point；库一律用`build`形态编译。）
 
 断言失败会抛异常并以非零码退出，所以示例自带正确性检查。
 

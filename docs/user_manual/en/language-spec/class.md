@@ -2,7 +2,7 @@
 
 
 A `class` is a reference-typed object: it lives on the heap and is accessed
-through a reference (heap index). It carries fields, constructors, methods,
+through a reference (a reference is the object's index on the heap). It carries fields, constructors, methods,
 and a single inheritance line.
 
 ```nlang
@@ -77,8 +77,8 @@ Node c;                   // declaration only: c is null
   assigned by name after construction. See [Collection
   Initializers](collection-initializers.md).
 - The declaration-site form `Node b(42);` is allowed only on the first
-  declarator (`Node a, b(42);` is a syntax error — the paren arm is not
-  in first position); the rules for sized
+  declarator (`Node a, b(42);` is a syntax error — the parenthesized form
+  cannot appear on a later declarator); the rules for sized
   array declarations like `Node arr[3];` are in
   [Known Limitations](known-limitations.md).
 - A declaration without an initializer (`Node c;`) yields null — see the
@@ -89,8 +89,8 @@ Node c;                   // declaration only: c is null
 
 Object memory layout is
 `[typeId, ancestor_fields..., parent_fields..., own_fields...]`.
-The type ID in the first slot identifies the runtime class for virtual
-dispatch.
+The type ID in the first slot records the object's actual class —
+virtual dispatch selects the method through it at run time.
 
 ### Constructors
 
@@ -199,8 +199,8 @@ A subclass method that shares an ancestor virtual method's name but differs in
 a parameter or return type is a compile error: virtual dispatch selects
 methods by name — the call site lays out arguments against the statically
 bound type's signature, and at run time the nearest derived same-name method
-is taken, so a signature mismatch reads arguments and the return value as
-wrong bits. Once a name is bound to a virtual-method contract (a same-name
+is taken, so a signature mismatch misinterprets the argument and
+return-value bits. Once a name is bound to a virtual-method contract (a same-name
 ancestor virtual method, or a same-name method of an interface the class
 `implements`), it **must not be overloaded** in the subclass: the subclass's
 set of same-name methods must map one-to-one onto the contract signature

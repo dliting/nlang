@@ -78,9 +78,8 @@ syntax. Every method must have a body (abstract methods are rejected).
 
 - **`this` is the enum value.** Inside a method, `this` is the int32 value of
   the receiver: it participates in arithmetic and `switch` directly
-  (`this * base`, `switch (this)`), with no boxing. Methods are statically
-  dispatched (`OP_CallMethodDirect`) — enums have no inheritance and no
-  virtual dispatch.
+  (`this * base`, `switch (this)`), with no boxing. Method calls are always statically bound — enums have no inheritance
+  and no virtual dispatch.
 - **Call through a receiver.** `c.weight(3)`, `this.weight(3)`,
   `Color.Red.weight(3)` — any enum-valued expression works. A bare `weight(3)`
   (receiver-less) is a compile error, matching class methods.
@@ -101,7 +100,6 @@ syntax. Every method must have a body (abstract methods are rejected).
 
 ### Output
 
-`Color.Red.toString()` returns `"Red"` (not `"0"`). The compiler embeds a
-per-enum name table; the VM uses `OP_Enum_to_str` to look up the member name
-by value. Out-of-range enum values throw at runtime. See
+`Color.Red.toString()` returns `"Red"` (not `"0"`). The name table ships with the enum in the compiled artifact, and
+`toString()` looks up the member name by value. Out-of-range enum values throw at runtime. See
 [Type Casts](type-casts.md) for the full `toString` protocol.

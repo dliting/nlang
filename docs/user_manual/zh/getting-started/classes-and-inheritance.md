@@ -38,7 +38,7 @@ int main() {
 
 输出`dog has 4 legs`，退出码4。类是引用类型；`toString()`覆写后，对象可直接参与字符串拼接。引用语义与值语义的分界见[语言规格/类型语义](../language-spec/type-semantics.md)。
 
-详见 → [语言规格/声明](../language-spec/declarations.md)。
+详见[语言规格/类](../language-spec/class.md)。
 
 ### 接口
 
@@ -71,5 +71,5 @@ int main() {
 
 输出`16`，退出码16。接口只声明方法签名（没有字段、没有方法体）。类用`class X implements IShape`声明实现；接口类型的变量可持有任意实现对象，调用会虚分派到运行时类。接口成员的默认访问级别是`public`（与类成员的`private`默认相反）；其余修饰符（`private`、`static`等）会被拒绝。
 
-详见 → [语言规格/声明](../language-spec/declarations.md)。
+详见[语言规格/接口](../language-spec/interface.md)。
 

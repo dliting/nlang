@@ -50,12 +50,12 @@ class Counter {
 
 - Bare `return;` exits early; a void function cannot `return expr;`
 - A value-returning function cannot use bare `return;` (compile error)
-- The result of a void call cannot be consumed — assigning it, using it as an
-  operand, or returning it are all compile errors (the call must be an
-  expression statement: `log(3);`)
+- The result of a void call cannot be used — assigning it, using it as an
+  operand, or returning it are all compile errors (the call can only be a
+  standalone statement: `log(3);`)
 - Void functions combine with out parameters for side-effect-only calls
-- Cross-module: imported void stubs likewise carry no consumable result; the
-  same no-result-consumption rules apply on the consumer side
+- Cross-module: imported void functions likewise carry no result; the same
+  no-result rules apply there
 - `void` is not a valid type in any other position (local, field, parameter,
   array element — all rejected at parse time)
 

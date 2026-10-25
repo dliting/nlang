@@ -5,7 +5,7 @@ developers create objects without freeing them by hand. This page
 records the four core design decisions — safepoint triggering, a
 precise per-slot handle bitmap with a conservative fallback, the
 parallel array, iterative marking — plus the full mark-sweep algorithm,
-the root set for running evaluation windows, parked contexts and
+the root set for running evaluation windows, suspended contexts and
 in-flight blocking natives, and the tracing rules for array fields.
 Understanding these decisions tells
 you when the VM collects and which slots count as live.
@@ -76,10 +76,10 @@ hand-built in-memory function record whose bitmap length disagrees with
 its frame layout (the loader rejects that shape in artifacts) falls back
 to the conservative both-domain scan of the whole band.
 
-A parked context's frames can be frozen mid-instruction, and their staging
-values must survive exactly the same way — the bitmap serves parked frames
-and running frames alike (see "Parked contexts and the scheduler root
-set"), with no separate root machinery for the parked shape.
+A suspended context's frames can be frozen mid-instruction, and their staging
+values must survive exactly the same way — the bitmap serves suspended frames
+and running frames alike (see "Suspended contexts and the scheduler root
+set"), with no separate root machinery for the suspended shape.
 
 **3. m_slotStructIdx parallel array for struct type identification**
 
@@ -136,8 +136,8 @@ MarkPhase():
       Dual:      value-test both domains
     //fallback for a bitmap whose length disagrees with the frame layout:
     //value-test both domains over the whole band
-  for each scheduler context:      //parked/queued contexts (steal model)
-    for each parked CallFrame: run the same three arms (params, result, band)
+  for each scheduler context:      //suspended/queued contexts (steal model)
+    for each suspended CallFrame: run the same three arms (params, result, band)
     if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
@@ -194,19 +194,19 @@ after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
 makes triggers advance geometrically with the live set: appends amortize to
 O(1), with memory bounded at 2x the live set.
 
-### Parked Contexts and the Scheduler Root Set
+### Suspended Contexts and the Scheduler Root Set
 
 Each carrier owns its evaluation stack; a running context's frames ARE
 its carrier's stack, published in the window registry while the window
-is open (see the next section). A **parked** context's whole frame stack
+is open (see the next section). A **suspended** context's whole frame stack
 (sleeping, waiting on a
-join or a `Future.get`, contending a mutex, parked on an empty-channel
+join or a `Future.get`, contending a mutex, suspended on an empty-channel
 receive or a full-channel send, preempted)
 lives in the scheduler, off every carrier's stack. At collection time
 both are roots:
 
-- every parked context's every frame runs the same three scan arms as a
-  running frame (parameter descriptors, result cell, band bitmap) — a park
+- every suspended context's every frame runs the same three scan arms as a
+  running frame (parameter descriptors, result cell, band bitmap) — a suspend
   can freeze a frame mid-instruction, and its staging values and handler
   state must all survive;
 - the context's `Thread` object (`join` identifies its target by handle)
@@ -235,7 +235,7 @@ dispatches": a **stop-the-world rendezvous** coordinates it. A carrier
 at a safepoint that observes the pending condition requests a world
 stop; every carrier with an open evaluation window arrives at its next
 safepoint, and the last arriver runs the collection inline — the
-rendezvous pins the constructive fact that every member is parked, so
+rendezvous pins the constructive fact that every member is suspended, so
 mark and sweep touch the stores without taking any domain lock
 (uncontended; everyone else waits at the rendezvous) — and completion
 wakes the waiters.
@@ -244,12 +244,12 @@ The root set extends accordingly. Each carrier's evaluation stack is
 published in a window registry for as long as its window is open, and
 the collector scans every published entry: an active window is blocked
 at the rendezvous and therefore stable; a window suspended for a
-blocking native has parked its frames (the stack is empty, the parked
+blocking native has suspended its frames (the stack is empty, the suspended
 frames scan as scheduler roots); a window suspended for a debugger
 freeze keeps its frames on the carrier's stack with the carrier blocked
 — stable as well.
 
-- A non-blocking native call neither parks nor takes a lock: no
+- A non-blocking native call neither suspends nor takes a lock: no
   collection can advance until its carrier reaches a safepoint again,
   so nothing interleaves with it; its arguments stay on the evaluation
   stack, which the published table covers as roots, and need no extra

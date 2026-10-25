@@ -1,9 +1,9 @@
 # Out Parameters
 
 
-Parameters declared with `out` are writeback slots: the caller's local
-variable is copy-initialized into the callee's frame slot, and after the call
-returns, the callee's value is copied back to the caller's variable.
+A parameter declared with `out` writes its result back to the caller:
+the argument must be a local variable, and after the call returns, the
+callee's assignments to the parameter are written back to that variable.
 
 ```nlang
 int divide(int a, int b, out int rem) {
@@ -17,7 +17,7 @@ int q = divide(17, 5, out r);  // q=3, r=2
 **Semantics:**
 - Out parameters are **inout**: the callee sees the caller's current value
   as the initial value of the parameter local.
-- The writeback occurs after the call returns, in slot order.
+- The writeback occurs after the call returns.
 - The call's return value is stored to the result variable
   **before** out writebacks, so `int x = f(out x)` reads the old `x`
   for the return assignment and then overwrites `x` with the callee's

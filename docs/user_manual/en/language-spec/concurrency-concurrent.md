@@ -16,7 +16,7 @@ On top of the kernel primitives, the `concurrent` standard-library package provi
 
 | Class | Shape | Semantics |
 |---|---|---|
-| `WaitGroup` | `add(n)` / `done()` / `wait()` | A counting barrier (Go-shaped): `add` accumulates outstanding units, each unit calls `done` once, and `wait` parks until the count reaches zero. Contract: `add` before `wait`, and `done` paired with `add` — an unmatched `done` releases `wait` early, a missing `done` parks it until the deadlock report |
+| `WaitGroup` | `add(n)` / `done()` / `wait()` | A counting barrier (Go-shaped): `add` accumulates outstanding units, each unit calls `done` once, and `wait` suspends until the count reaches zero. Contract: `add` before `wait`, and `done` paired with `add` — an unmatched `done` releases `wait` early, a missing `done` suspends it until the deadlock report |
 | `Semaphore` | `Semaphore(n)` / `acquire()` / `release()` | A counting semaphore: `acquire` takes a permit (yielding while the count is zero), `release` returns one |
 
 ```nlang
@@ -55,4 +55,4 @@ int main() {
 }
 ```
 
-`wait` is a real barrier — reading `40` holds exactly when all four increments landed before the read. `Semaphore` currently waits by yielding (the kernel has no condition-variable primitive yet): an `acquire` against a zero count takes turns via `thread.yield` instead of parking, without monopolizing a carrier.
+`wait` is a real barrier — reading `40` holds exactly when all four increments landed before the read. `Semaphore` currently waits by yielding (the kernel has no condition-variable primitive yet): an `acquire` against a zero count takes turns via `thread.yield` instead of suspension, without monopolizing a carrier.
