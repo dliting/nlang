@@ -9,8 +9,9 @@ attempt-without-waiting shape: take the lock when it is free, otherwise
 take another route (skip this round, fall back) instead of suspension in
 the queue.
 
-One rule of thumb splits the two synchronization styles: state you
-share → `Mutex`; data you hand over → [Channel](concurrency-channel.md).
+One rule of thumb splits the three synchronization styles: state you
+share → `Mutex`; data you hand over → [Channel](concurrency-channel.md);
+admission you cap → [Semaphore](concurrency-semaphore.md).
 
 ## The lock
 

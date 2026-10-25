@@ -2,7 +2,7 @@
 
 ## 何时使用
 
-限制同时进入某段代码的任务数——资源池、连接数上限、最多N份并发计算——就用`Semaphore(n)`：进入前`acquire()`取一个许可，离开时`release()`归还，一进一出配对，计数就不会失真。与`Mutex`的差别：互斥体是「同一时间恰好一个」，信号量是「同一时间至多N个」。一条经验划清三种路线：共享的状态用[互斥体](concurrency-mutex.md)，传递的数据用[通道](concurrency-channel.md)，限制并发数用信号量。
+限制同时进入某段代码的任务数——资源池、连接数上限、最多N份并发计算——就用`Semaphore(n)`：进入前`acquire()`取一个许可（permit），离开时`release()`归还，一进一出配对，计数就不会失真。与`Mutex`的差别：互斥体是「同一时间恰好一个」，信号量是「同一时间至多N个」。一条经验划清三种路线：共享的状态用[互斥体](concurrency-mutex.md)，传递的数据用[通道](concurrency-channel.md)，限制并发数用信号量。
 
 ## 许可
 
@@ -14,9 +14,9 @@
 | `release()` | 归还一个许可：有等待者时直接移交给队首（计数不变），否则计数加一；没有持有前提，未`acquire`也可`release`，计数可以超过初值（与Java、Python一致） |
 | `tryAcquire()` | 非挂起探测：许可可得返回`true`并取走，为零返回`false` |
 
-超释放不会立刻出错，但会让计数虚高、限流失真——`acquire`与`release`的配对纪律同`lock`/`unlock`。
+超释放不是错误，但会让计数虚高、限流失真——`acquire`与`release`的配对纪律同`lock`/`unlock`。
 
-限流探针——四个任务抢两个许可，重叠峰值恒为`2`（安装包的`examples/conc_semaphore.n`同款）：
+限流探针——三个任务抢两个许可，重叠峰值恒为`2`（安装包的`examples/conc_semaphore.n`是它的四任务变体）：
 
 ```nlang
 import io;
@@ -86,9 +86,9 @@ int main() {
 }
 ```
 
-单载体下输出恒为`gostarted`——`run`在`release`之前不可能越过`acquire`。
+输出恒为`gostarted`——`run`在`release`之前不可能越过`acquire`。
 
-`tryAcquire()`配`sleep`组出「现在不行就先歇会儿再试」的轮询形态（许可还没到时不占调度轮，也不必派生等待者）：
+`tryAcquire()`配`sleep`组出「现在不行就先歇会儿再试」的轮询形态——`sleep`以毫秒计，不是自旋：许可没到，任务就在`sleep`里歇着，到点才醒来重试一次：
 
 ```nlang
 import io;
@@ -119,8 +119,8 @@ int main() {
 }
 ```
 
-`tryAcquire()`绝不停泊，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与`lock`一样被拒（见[挂起与调度限制](concurrency-suspension.md)）。
+`tryAcquire()`绝不挂起，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与竞争中的`lock`一样被拒（见[重入求值内的限制](concurrency-suspension.md#重入求值内的限制)）。
 
 ## 与Channel对照
 
-有界通道也能表达「至多N个」：容量N的通道满了，`send`自然阻塞。但通道传递的是**数据**——每个`send`都携带一个值；信号量表达的是**计数准入**——`release`不携带任何东西。需要把「进入许可」和「取到的数据」绑在一起（工作队列），用通道；只需要数着名额放人（连接池、并发上限），用信号量。
+有界通道也能表达「至多N个」：容量N的通道满了，`send`自然挂起。但通道传递的是**数据**——每个`send`都携带一个值；信号量表达的是**计数准入**——`release`不携带任何东西。需要把「进入许可」和「取到的数据」绑在一起（工作队列），用通道；只需要数着名额放人（连接池、并发上限），用信号量。

@@ -17,7 +17,7 @@ counting goes through a semaphore.
 `Semaphore` is a built-in handle class and needs no import. The
 constructor `Semaphore(n)` sets the initial permit count `n`: a
 negative value is a runtime error, and `0` is legal — the
-signal-switch shape, where waiters block on a zero-permit semaphore
+signal-switch shape, where waiters suspend on a zero-permit semaphore
 until some future event calls `release`.
 
 | Member | Semantics |
@@ -26,13 +26,13 @@ until some future event calls `release`.
 | `release()` | Returns one permit: with a waiter present it hands the permit directly to the front of the queue (the count is unchanged), otherwise the count gains one; there is no ownership requirement — `release` without `acquire` is legal, and the count may exceed the initial value (as in Java and Python) |
 | `tryAcquire()` | Non-suspending probe: returns `true` and takes a permit when one is available, `false` at zero |
 
-Over-releasing does not fail immediately, but it inflates the count and
+Over-releasing is not an error, but it inflates the count and
 defeats the cap — keep `acquire`/`release` paired with the same
 discipline as `lock`/`unlock`.
 
-An admission probe — four tasks contend for two permits, and the
+An admission probe — three tasks contend for two permits, and the
 overlapping peak is always `2` (the shipped
-`examples/conc_semaphore.n` is the same shape):
+`examples/conc_semaphore.n` is its four-task variant):
 
 ```nlang
 import io;
@@ -103,12 +103,13 @@ int main() {
 }
 ```
 
-Under a single carrier the output is always `gostarted` — `run` cannot
+The output is always `gostarted` — `run` cannot
 pass its `acquire` before the `release`.
 
 `tryAcquire()` plus `sleep` gives the "not yet — rest and retry" polling
-shape (no scheduler rounds burned while the permit is absent, and no
-extra waiter task needed):
+shape — `sleep` is counted in milliseconds, and this is not spinning:
+while the permit is absent the task rests inside `sleep` and wakes to
+retry once per interval:
 
 ```nlang
 import io;
@@ -141,13 +142,13 @@ int main() {
 
 `tryAcquire()` never suspends, so it is safe inside re-entrant
 evaluation (a `toString` override, for example); a zero-permit
-`acquire` is rejected there like a contended `lock` (see [Suspension
-and scheduling limits](concurrency-suspension.md)).
+`acquire` is rejected there like a contended `lock` (see [Restrictions
+inside re-entrant evaluation](concurrency-suspension.md#restrictions-inside-re-entrant-evaluation)).
 
 ## Semaphore versus Channel
 
 A bounded channel also expresses "at most N": once a channel of
-capacity N is full, `send` blocks naturally. But a channel hands off
+capacity N is full, `send` suspends naturally. But a channel hands off
 **data** — every `send` carries a value; a semaphore expresses
 **admission counting** — `release` carries nothing. When the permit and
 the data belong together (a work queue), use a channel; when you only
