@@ -6,6 +6,26 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.3] - 2026-10-25
+
+### Fixed
+
+- **Array view strides are per-view (host ABI v7)** — `getArrayView`
+  computed row-major strides into one host-wide scratch buffer: a second
+  live view (or a concurrent view from another carrier inside a blocking
+  native) overwrote the first's strides. Strides now live inside
+  `NativeArrayView` itself; every view owns its storage. `ArgArray`
+  takes an output parameter (a view holding a pointer into itself
+  cannot travel by value).
+- **Comma sizes in local declarations get a named diagnostic** —
+  `int a[2, 3];` reported a bare syntax error; it now parses and is
+  rejected with guidance toward the creation expression `int[2, 3]`
+  (bare, `= expr`, and brace-initializer forms; class fields still
+  need a creation initializer).
+- **Zero-dimension arrays render their nesting** — `int[3,
+  0].toString()` printed `[]`; it now prints `[[], [], []]` (zero rows
+  still print `[]`; rank-1 empty arrays are unchanged).
+
 ## [0.11.2] - 2026-10-25
 
 ### Added
