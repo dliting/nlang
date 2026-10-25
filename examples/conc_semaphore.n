@@ -2,7 +2,6 @@
 //Semaphore(2) admits at most two tasks into the section at once; the
 //probe counts the overlapping peak under a mutex. Compare with the
 //Mutex example: a mutex admits one task, a semaphore admits N.
-import concurrent;
 import thread;
 import io;
 

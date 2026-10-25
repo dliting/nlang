@@ -1756,4 +1756,4 @@ channel_bounded_semantics 0 Ev12
 # --- 0.10.3: stdlib concurrent package (K3 task 5) ---
 concurrent_waitgroup 0 sum=40
 concurrent_channel_park_gcwindow 0 churn done
-concurrent_semaphore 0 peak=2
+concurrent_semaphore 0 ABC10
