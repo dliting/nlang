@@ -146,6 +146,7 @@ from means no dimensions (the 1-D `int[] a = [];` form stays legal).
 The brace form keeps its existing rejection for array targets (see
 [Collection Initializers](collection-initializers.md)).
 
-Sized declarations support one dimension only (`int b[100]`); create
-multi-dimensional arrays with `int[2, 3]` — `int a[2, 3];` is a
-syntax error.
+Declaration-site sizes are one-dimensional only (`int b[100]`);
+multi-dimensional arrays use `int[2, 3]` creation — `int a[2, 3];`
+is rejected with a named diagnostic pointing at the creation form
+(class fields likewise need a creation initializer).

@@ -243,6 +243,37 @@ void test_brace_row_is_depth_mismatch()
         "brace rows must name the depth mismatch");
     PASS();
 }
+//Comma sizes in declaration position parse so the parser can name
+//the C-style form and point at the creation twin (0.10.7 D3:
+//parse, then reject with guidance).
+void test_decl_comma_size_named_reject()
+{
+    TEST(decl_comma_size_named_reject);
+    const char *msg = "array declarations take one size per bracket";
+    const BuildOutcome bare = buildSource("nd_declsize_bare",
+        "int main() {\n"
+        "    int a[2, 3];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!bare.ok && DiagHas(bare, msg)
+        && !DiagHas(bare, "syntax error"),
+        "bare comma-size declaration must name the creation twin");
+    const BuildOutcome init = buildSource("nd_declsize_init",
+        "int main() {\n"
+        "    int a[2, 3] = 1;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!init.ok && DiagHas(init, msg),
+        "comma-size with initializer must name the creation twin");
+    const BuildOutcome cont = buildSource("nd_declsize_cont",
+        "int main() {\n"
+        "    int x = 1, a[2, 3];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!cont.ok && DiagHas(cont, msg),
+        "continuation declarator must name the creation twin");
+    PASS();
+}
 
 int main()
 {
@@ -257,6 +288,7 @@ int main()
         test_emit_gates_cover_nd_paths();
         test_nd_rank_cap_diagnostics();
         test_brace_row_is_depth_mismatch();
+        test_decl_comma_size_named_reject();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << "\n";
         g_fail++;
