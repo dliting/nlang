@@ -1000,8 +1000,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					//0.11.3: comma sizes parse so the parser can name the
 					//C-style form and point at the creation twin. The first
 					//size rides the array-size payload (0.10.7 D3 precedent)
-					//so the subtree joins the owning AST; the dropped
-					//ConcreteParamList follows parser error-path ownership.
+					//so the subtree joins the owning AST; the ConcreteParamList
+					//is abandoned — the logged CLL_Error fails the build
+					//before any teardown runs.
 					TT_Identifier '[' Expression ',' ConcreteParamList ']' {
 						parser.Log(CLL_Error, @4,
 							"array declarations take one size per "

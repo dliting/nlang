@@ -439,7 +439,7 @@ target_compile_definitions(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
-# NativeHost ABI v6 array-access tests: real VmExecutor + bare-name
+# NativeHost ABI v7 array-access tests: real VmExecutor + bare-name
 # in-process natives exercising getArrayView/newArray end to end
 # (test_native_abi covers the mock-table face, this the real-VM face).
 add_executable(test_native_array_abi
