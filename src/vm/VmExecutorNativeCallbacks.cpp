@@ -86,18 +86,23 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         e->RaiseNlangExceptionBase("getArrayView: value is not an array");
     }
     auto& record = e->m_structHeap[static_cast<size_t>(handle)];
-    const auto& at = e->m_currModule->arrayTypes[
-        static_cast<size_t>(record[1])];
+    //Validate before reading any header cell: ArrayPayloadBase covers the
+    //fixed header, the rank range, and the dims run in one place. The
+    //arrayTypes index is bounds-checked here too — a corrupt record[1]
+    //must not index the module table (or the record) out of range.
+    const size_t payloadBase = ArrayPayloadBase(record);
+    const int32_t arrayTypeIdx = record[1];
+    const auto& arrayTypes = e->m_currModule->arrayTypes;
+    if (arrayTypeIdx < 0
+        || static_cast<size_t>(arrayTypeIdx) >= arrayTypes.size())
+        e->RaiseNlangExceptionBase("getArrayView: corrupt array type index");
+    const auto& at = arrayTypes[static_cast<size_t>(arrayTypeIdx)];
     //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
     //the padded header. Row-major strides compute into the view's own
     //inline storage (ABI v7): every live view owns its strides — the
     //v6 host scratch let a second view corrupt the first's.
     const int32_t rank = record[2];
     const int64_t elemCount = record[3];
-    //Validate before touching caller memory: ArrayPayloadBase throws on a
-    //corrupt rank/size. ABI v7 moved the strides buffer into the caller's
-    //struct, so the loop below must not run on an unvalidated rank.
-    const size_t payloadBase = ArrayPayloadBase(record);
     int32_t stride = 1;
     for (int32_t d = rank - 1; d >= 0; --d)
     {

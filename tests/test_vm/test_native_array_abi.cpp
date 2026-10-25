@@ -15,12 +15,14 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
+#include "VmExecutorNativeHost.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #ifndef STDLIB_DIR
@@ -334,6 +336,98 @@ void test_negative_mint_raises_oob()
     PASS();
 }
 
+//--- corrupt-record defenses (0.11.4 B) ---------------------------------------
+//White-box: mint through the real newArray callback, corrupt the heap
+//record through test probes, then drive the production getArrayView
+//callback. A truncated dims section or a bad arrayTypes index must throw
+//before any header cell is read or caller memory touched.
+struct ExecWithModule {
+    std::unique_ptr<VmExecutor> exec;
+    std::unique_ptr<CompiledModule> mod;
+    VmNativeHost host;
+};
+
+//CHECK does a bare `return`, so this helper returns void and fills an
+//out-param (no value-returning function may CHECK mid-way).
+static void makeExecutorWithArrayModule(const std::string& tag,
+                                        ExecWithModule& out)
+{
+    const auto dir = scratchDir();
+    const auto nPath = dir / (tag + ".n");
+    const auto modPath = dir / (tag + ".ncu");
+    std::filesystem::remove(modPath);
+    {
+        std::ofstream out(nPath, std::ios::binary);
+        out << "int main() {\n"
+               "    int[] a = int[3];\n"
+               "    return 0;\n"
+               "}\n";
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(nPath.string());
+    params.m_sOutputModule = tag;
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    if (!builder.BuildArtifacts()) {
+        FAIL("defense fixture must build");
+        return;
+    }
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+    NcuLoader::Result loaded =
+        NcuLoader::LoadClosure(modPath.string(), loaderOpts);
+    out.mod = std::make_unique<CompiledModule>(
+        NcuLinker::Link(std::move(loaded.units), loaded.entryKey));
+    out.exec = std::make_unique<VmExecutor>();
+    out.exec->InitializeForRun(*out.mod);
+    out.exec->InitNativeHost(out.host);
+}
+
+void test_truncated_dims_record_throws()
+{
+    TEST(truncated_dims_record_throws);
+    ExecWithModule env;
+    makeExecutorWithArrayModule("abi_trunc", env);
+    const int32_t handle =
+        env.host.c.newArray(&env.host.c, NEK_Int32, 3);
+    CHECK(handle > 0, "newArray must mint a live handle");
+    //Keep the 4-cell fixed header, drop the dims run: the stride loop
+    //would read past the record before this fix.
+    env.exec->TruncateArrayRecordForTests(handle, 4);
+    NativeArrayView view;
+    bool threw = false;
+    try {
+        env.host.c.getArrayView(&env.host.c, handle, &view);
+    } catch (...) {
+        threw = true;
+    }
+    CHECK(threw, "truncated dims section must throw, not read OOB");
+    PASS();
+}
+
+void test_corrupt_array_type_index_throws()
+{
+    TEST(corrupt_array_type_index_throws);
+    ExecWithModule env;
+    makeExecutorWithArrayModule("abi_badidx", env);
+    const int32_t handle =
+        env.host.c.newArray(&env.host.c, NEK_Int32, 3);
+    CHECK(handle > 0, "newArray must mint a live handle");
+    env.exec->OverwriteArrayRecordCellForTests(handle, 1, 0x7FFFFFF0);
+    NativeArrayView view;
+    bool threw = false;
+    try {
+        env.host.c.getArrayView(&env.host.c, handle, &view);
+    } catch (...) {
+        threw = true;
+    }
+    CHECK(threw, "out-of-range arrayTypes index must throw, not read OOB");
+    PASS();
+}
+
 int main()
 {
     //Static tables before any compiler work (test_stdlib.cpp / ncc /
@@ -351,6 +445,8 @@ int main()
         test_double_payload_alignment();
         test_null_handle_raises_npe();
         test_negative_mint_raises_oob();
+        test_truncated_dims_record_throws();
+        test_corrupt_array_type_index_throws();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

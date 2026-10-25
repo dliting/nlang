@@ -185,6 +185,23 @@ public:
     void SetConservativeBandForTests(bool conservative) {
         m_conservativeBandForTests = conservative;
     }
+    //0.11.4 B white-box probes: corrupt a live array record so tests can
+    //drive the native callbacks against a malformed record (the defensive
+    //checks are otherwise unreachable — records are VM-built). The tests
+    //pair these with a stack-local VmNativeHost built by InitNativeHost,
+    //mirroring the production native-call wiring.
+    void TruncateArrayRecordForTests(int32_t handle, size_t cells) {
+        m_structHeap[static_cast<size_t>(handle)].resize(cells);
+    }
+    void OverwriteArrayRecordCellForTests(int32_t handle, size_t cell,
+                                          int32_t value) {
+        m_structHeap[static_cast<size_t>(handle)][cell] = value;
+    }
+    //Builds a production-shaped stack-local host (the native-call path
+    //wires one per call). Public for the white-box defense tests only:
+    //VmNativeHost itself is private to src/vm, so the method is
+    //unreachable for outside users.
+    void InitNativeHost(VmNativeHost& host);
 
     //Testing knobs (scheduler quota injection + observability, K1
     //decision 5): clamp the back-edge trip limit, then observe the
@@ -1006,7 +1023,6 @@ private:
     void RootMintedNativeHandle(int32_t handle);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
-    void InitNativeHost(VmNativeHost& host);
     int32_t BuildListString(const char* const* items, int count);
     NativeLibraryLoader& EnsureNativeLoader();
     void EnsureNativeAvailable(const std::string& name);
@@ -1288,7 +1304,15 @@ private:
         if (rank < 1 || rank > kMaxArrayRank)
             throw std::runtime_error(
                 "NLang VM: corrupt array record (rank out of range)");
-        return ArrayHeaderCells(static_cast<uint8_t>(rank));
+        //The header includes the dims run (and its alignment pad cell):
+        //a record shorter than the header has a truncated dims section,
+        //and every dims reader (strides, format, GC) would walk past it.
+        const size_t base =
+            ArrayHeaderCells(static_cast<uint8_t>(rank));
+        if (record.size() < base)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (truncated dimensions)");
+        return base;
     }
 
     //GC infrastructure.
