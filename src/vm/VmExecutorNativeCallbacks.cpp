@@ -110,8 +110,7 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = 0;
     out->reserved[1] = 0;
-    out->data = record.data() + ArrayHeaderCells(
-        static_cast<uint8_t>(rank));   //payload base
+    out->data = record.data() + ArrayPayloadBase(record);   //payload base
     return 1;
 }
 

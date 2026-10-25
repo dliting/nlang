@@ -12,6 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/Config.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
@@ -121,6 +122,14 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //unresolved dimensions consume the expression (true, diagnostics fired).
 bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
 {
+	//Rank cap mirrors the grammar's production-point cap: the index
+	//list IS the dims list, so the cap is validated where dims are.
+	if (sn.Indices().size() > kMaxArrayRank) {
+		m_Env.Log(CLL_Error, sn.Location(),
+			"array rank %d exceeds the maximum of %d.",
+			static_cast<int>(sn.Indices().size()), kMaxArrayRank);
+		return false;  //consumed: the cap diagnostic already fired
+	}
 	for (auto *pIndex : sn.Indices())
 	{
 		if (pIndex->Kind() != NK_IdentifierExpr

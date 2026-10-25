@@ -255,7 +255,7 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     for (int32_t i = 0; i < length; ++i) {
         if (i > 0) result += ", ";
         FormatArrayElement(result, slot,
-            ArrayHeaderCells(1) + static_cast<size_t>(i) * cells,
+            ArrayPayloadBase(slot) + static_cast<size_t>(i) * cells,
             elemKind, cells, depth);
     }
     result += "]";

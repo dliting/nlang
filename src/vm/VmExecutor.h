@@ -1274,6 +1274,23 @@ private:
     using StructSlot = std::vector<int32_t>;
     std::vector<StructSlot> m_structHeap;
 
+    //Payload base of a heap array record, derived from the record's
+    //own rank cell: callers cannot pair a record with a foreign rank
+    //(hardcoded rank-1 reads once corrupted rank >= 3 shapes). A
+    //corrupt record throws here, at the single derivation point,
+    //instead of mis-reading neighbouring cells.
+    static size_t ArrayPayloadBase(const StructSlot& record)
+    {
+        if (record.size() < 4)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (truncated header)");
+        const int32_t rank = record[2];
+        if (rank < 1 || rank > kMaxArrayRank)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (rank out of range)");
+        return ArrayHeaderCells(static_cast<uint8_t>(rank));
+    }
+
     //GC infrastructure.
     std::vector<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     std::vector<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])

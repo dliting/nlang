@@ -27,7 +27,7 @@ static bool CollectNDInitListDims(SnInitListExpr &node,
     if (node.Entries().empty())
         return true;  //deeper dims are 0-width rows
     auto *pFirst = node.Entries()[0].pValue;
-    auto *pRow = pFirst && pFirst->Kind() == NK_InitListExpr
+    auto *pRow = SnInitListExpr::IsBracketForm(pFirst)
         ? static_cast<SnInitListExpr*>(pFirst) : nullptr;
     if (!pRow)
         return false;
@@ -102,7 +102,7 @@ void VmBackend::EmitNDInitListLeaves(SnInitListExpr &node,
         if (!entry.pValue)
             continue;
         coords.push_back(static_cast<int32_t>(i));
-        if (entry.pValue->Kind() == NK_InitListExpr) {
+        if (SnInitListExpr::IsBracketForm(entry.pValue)) {
             EmitNDInitListLeaves(
                 *static_cast<SnInitListExpr*>(entry.pValue), token,
                 coords, coordBase, valueSlot, emitter, resultOffset);

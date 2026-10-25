@@ -48,7 +48,24 @@ struct ImportSpec;
 #include "SyntaxTree.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnData.h>
+#include <nlang/runtime/Config.h>
 using namespace nlang;
+
+//Rank cap at the single production point: compare the full comma
+//count before the uint8 truncation, so a 256+ comma literal cannot
+//wrap to a small rank. Both OT_BracketsND productions route through
+//this one factory.
+static SnArrayTypeExpr* MakeArrayTypeND(SnFieldExpr *pElem,
+	ISourceLocation& loc, int commaCount, ScriptParser& parser)
+{
+	const int rank = commaCount + 1;
+	if (rank > kMaxArrayRank)
+		parser.Log(CLL_Error, loc,
+			"array rank %d exceeds the maximum of %d.",
+			rank, kMaxArrayRank);
+	return new SnArrayTypeExpr(pElem, loc, static_cast<uint8_t>(
+		rank > kMaxArrayRank ? kMaxArrayRank : rank));
+}
 
 //Phase 9b: scan string literal content for ${identifier} interpolation.
 //Returns SnLiteralExpr if no ${...} found; otherwise builds OP_Add tree.
@@ -1793,7 +1810,7 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = MakeFuncType($5, @1);
 					} |
 				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } |
-				Type OT_BracketsND	{ $$ = new SnArrayTypeExpr($1, @2, static_cast<uint8_t>($2) + 1); } ;
+				Type OT_BracketsND	{ $$ = MakeArrayTypeND($1, @2, $2, parser); } ;
 
 //Qualified type reference for UNAMBIGUOUS type positions (params, fields,
 //catch, foreach, return types, type arguments, new): "ns.Type" /
@@ -1883,7 +1900,7 @@ HeadType:	IdentifierExpr {
 				$$ = new SnArrayTypeExpr($1, @2);
 			} |
 			HeadType OT_BracketsND {
-				$$ = new SnArrayTypeExpr($1, @2, static_cast<uint8_t>($2) + 1);
+				$$ = MakeArrayTypeND($1, @2, $2, parser);
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an

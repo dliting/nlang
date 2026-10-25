@@ -166,8 +166,8 @@ bool ExprResolveAccessor::RejectNDShapeLevel(SnInitListExpr &sn,
     size_t childWidth = kUnsetWidth;
     for (auto &entry : entries)
     {
-        auto *pRow = entry.pValue
-            ? UntypedInitListOf(*entry.pValue) : nullptr;
+        auto *pRow = SnInitListExpr::IsBracketForm(entry.pValue)
+            ? static_cast<SnInitListExpr*>(entry.pValue) : nullptr;
         if (!pRow)
         {
             m_Env.Log(CLL_Error,

@@ -283,7 +283,8 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     int32_t shapeIdx = AllocArrayOnHeap(shapeTypeIdx, 1, &shapeDim);
     m_gcPending = true;
     auto& shape = m_structHeap[static_cast<size_t>(shapeIdx)];
-    const int32_t base = static_cast<int32_t>(ArrayHeaderCells(1));
+    const int32_t base =
+        static_cast<int32_t>(ArrayPayloadBase(shape));
     for (int32_t d = 0; d < rank; ++d)
         shape[base + d] = dimsSnapshot[d];
     std::memcpy(locals + dst, &shapeIdx, sizeof(shapeIdx));

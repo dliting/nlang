@@ -35,6 +35,28 @@ All notable changes to NLang are documented here. The format follows
   directly; the blanket rejection of method-receiver positions is
   gone (`switch` discriminants stay rejected).
 
+### Fixed
+
+- **Multi-dimensional leaf initializers** — initializer rows whose
+  leaves are `List` / `Dict` / struct / class literals
+  (`List<int>[,] m = [[{1, 2}, {3, 4}], [{5, 6}, {7, 8}]]`)
+  miscompiled: the emitter treated brace-form leaves as rows and
+  corrupted the frame. The shape gate, the emitter and the frame
+  walkers now share one row predicate (a row is a bracket-form list;
+  brace forms are leaf values), so validation and code generation
+  cannot drift apart.
+- **Array rank cap is a named compile-time diagnostic** — a rank-9
+  declaration (`int[,,,,,,,,]`) previously compiled and died at
+  runtime in an uncatchable VM throw; the grammar's production point
+  and the sized creation twin both report `array rank N exceeds the
+  maximum of 8`, from one shared rank-cap constant.
+- **Host views of multi-dimensional arrays** — `ArrayProxy` and
+  `getArrayView` hardcoded a rank-1 payload base and addressed the
+  wrong cells for rank >= 2. The payload base now derives from the
+  record's own rank cell at a single point shared by every consumer
+  (host bridge, formatting, shape mint, GC, native views), and a
+  corrupt record throws there instead of mis-reading neighbours.
+
 ## [0.11.1] - 2026-10-24
 
 ### Changed

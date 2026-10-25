@@ -198,6 +198,52 @@ void test_emit_gates_cover_nd_paths()
     PASS();
 }
 
+//Rank cap: the grammar and the creation twin reject ranks above the
+//language maximum with a named diagnostic (rank-9 tokens previously
+//compiled and died at runtime in an uncatchable VM range throw).
+void test_nd_rank_cap_diagnostics()
+{
+    TEST(nd_rank_cap_diagnostics);
+    const BuildOutcome decl = buildSource("nd_rank9_decl",
+        "int main() {\n"
+        "    int[,,,,,,,,] a;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!decl.ok && DiagHas(decl, "exceeds the maximum")
+        && !DiagHas(decl, "syntax error"),
+        "rank-9 declaration must name the rank cap");
+    const BuildOutcome make = buildSource("nd_rank9_create",
+        "int main() {\n"
+        "    int[,] a = int[1,2,3,4,5,6,7,8,9];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!make.ok && DiagHas(make, "exceeds the maximum"),
+        "rank-9 creation must name the rank cap");
+    const BuildOutcome edge = buildSource("nd_rank8_ok",
+        "int main() {\n"
+        "    int[,,,,,,,] a;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(edge.ok, "rank-8 declaration stays legal");
+    PASS();
+}
+
+//Brace rows above the leaf level are depth mismatches, not rows: the
+//shape gate and the emitter share one row predicate (bracket form).
+void test_brace_row_is_depth_mismatch()
+{
+    TEST(brace_row_is_depth_mismatch);
+    const BuildOutcome o = buildSource("nd_brace_row",
+        "int main() {\n"
+        "    int[,] m = [{{1, 2}, {3, 4}}];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!o.ok && DiagHas(o, "depth does not match")
+        && !DiagHas(o, "syntax error"),
+        "brace rows must name the depth mismatch");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -209,6 +255,8 @@ int main()
         test_subscript_arity_diagnostics();
         test_jagged_still_rejected();
         test_emit_gates_cover_nd_paths();
+        test_nd_rank_cap_diagnostics();
+        test_brace_row_is_depth_mismatch();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << "\n";
         g_fail++;

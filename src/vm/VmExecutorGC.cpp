@@ -312,8 +312,9 @@ void VmExecutor::MarkArrayElements(int32_t idx,
                                    std::vector<int32_t>& worklist) {
     uint16_t arrayTypeIdx = m_slotStructIdx[idx];
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
-    //Stage-2 header: [2]=rank, [3]=elemCount.
-    const int32_t rank = m_structHeap[idx][2];
+    //Stage-2 header: [3]=elemCount; the payload base derives from
+    //the record's own rank cell.
+    const size_t payloadBase = ArrayPayloadBase(m_structHeap[idx]);
     int32_t length = m_structHeap[idx][3];
     //0.7.5: stride from the registry — reference-bearing kinds are all
     //1-cell (the acceptance test below unchanged); 2-cell scalars hold
@@ -322,7 +323,7 @@ void VmExecutor::MarkArrayElements(int32_t idx,
     const int cells = ArrayElemCells(at.elemKind);
     for (int32_t i = 0; i < length; ++i) {
         int32_t elemRef =
-            m_structHeap[idx][ArrayHeaderCells(rank) + i * cells];
+            m_structHeap[idx][payloadBase + i * cells];
         //String elements are raw string handles (hole-1 uses 0 =
         //null) — same pre-guard routing as the field arms.
         if (at.elemKind == RTK_String) {
@@ -429,12 +430,13 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     if (at.elemKind != RTK_Struct)
         return;
-    //Stage-2 header: [2]=rank, [3]=elemCount.
-    const int32_t rank = m_structHeap[heapIdx][2];
+    //Stage-2 header: [3]=elemCount; the payload base derives from
+    //the record's own rank cell.
+    const size_t payloadBase = ArrayPayloadBase(m_structHeap[heapIdx]);
     int32_t length = m_structHeap[heapIdx][3];
     for (int32_t i = 0; i < length; ++i) {
         int32_t elemRef =
-            m_structHeap[heapIdx][ArrayHeaderCells(rank) + i];
+            m_structHeap[heapIdx][payloadBase + i];
         if (elemRef > 0 && static_cast<size_t>(elemRef) < m_slotKinds.size()
             && m_slotKinds[elemRef] == RTK_Struct) {
             FreeNestedStructs(elemRef, at.elemTypeIdx);

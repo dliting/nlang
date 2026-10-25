@@ -1,0 +1,17 @@
+// ndarray_initlist_listleaf.n — rectangular arrays whose elements are
+// themselves brace-form literals: List and struct leaves ride the same
+// row/leaf predicate as scalar elements.
+class Point {
+    public int x;
+    public int y;
+}
+int main() {
+    List<int>[,] m = [[{1, 2}, {3, 4}], [{5, 6}, {7, 8}]];
+    Point[,] ps = [[{x:1, y:2}, {x:3, y:4}], [{x:5, y:6}, {x:7, y:8}]];
+    int listSum = m[0, 0].get(0) + m[0, 0].get(1)
+        + m[1, 1].get(0) + m[1, 1].get(1);
+    int pointSum = ps[0, 0].x + ps[0, 0].y + ps[1, 1].x + ps[1, 1].y;
+    if (m.length() == 4 && listSum == 18 && pointSum == 18)
+        return 9;
+    return 1;
+}

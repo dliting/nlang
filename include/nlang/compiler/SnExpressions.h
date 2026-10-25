@@ -959,6 +959,17 @@ public:
 	const std::vector<InitEntry> &Entries() const { return m_entries; }
 	bool IsArrayForm() const { return m_isArrayForm; }
 
+	//One row predicate for bracket-form array literals, shared by the
+	//resolver shape gate, the ND emitter walk and the frame walkers:
+	//a row is a bracket-form init list; brace forms (List/Dict/struct/
+	//class literals) are leaf values. Every consumer calls this single
+	//function, so the gate and the emitter cannot drift apart.
+	static bool IsBracketForm(const SnExpression *pExpr)
+	{
+		return pExpr && pExpr->Kind() == NK_InitListExpr
+			&& static_cast<const SnInitListExpr*>(pExpr)->IsArrayForm();
+	}
+
 	//For the bare `[...]` form, the parent context (AssignStmt resolver)
 	//sets the inferred target field from the LHS before this node resolves.
 	//Nullptr until the parent populates it. The resolver uses this only

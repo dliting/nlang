@@ -1,5 +1,6 @@
 #pragma once
 #include "CompiledModuleRecords.h"
+#include <nlang/runtime/Config.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdint>
 #include <cstring>
@@ -181,11 +182,6 @@ inline uint32_t ArrayHeaderCells(uint8_t rank)
 //beyond it. 100M elements is 800MB at the widest element — every
 //legitimate operand fits, and 4 + n*cells can never overflow int32.
 static constexpr int32_t kMaxArrayElems = 100 * 1000 * 1000;
-//Rank cap (dims per array record): the instruction encodes rank as a
-//uint16 but the language grammar and every stack staging buffer cap at
-//this; AllocArrayOnHeap rejects beyond it.
-static constexpr uint8_t kMaxArrayRank = 8;
-
 //--- Eval-area slot classes (K2 slice 5) ----------------------------------
 //Precise GC root class for one frame-band slot (the band is
 //[paramCount, localsSize) — return slot, temps, call staging, evalArea

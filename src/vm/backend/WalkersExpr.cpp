@@ -368,7 +368,7 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
     }
     //Stage-2 ND: a rank>=2 token target lowers as one flat leaf walk —
     //the dims claim (rank slots) releases before the leaf loop's value
-    //claim, so the band peak is max(rank, 1 + deepest leaf). Rows are
+    //claim, so the band peak is (rank + 1 + deepest leaf). Rows are
     //structural (never emitted); only the leaves' depths count.
     if (pTarget && pTarget->Kind() == NK_ArrayTypeToken
         && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2) {
@@ -407,7 +407,7 @@ uint16_t VmBackend::NDLeafPeakDepth(SnInitListExpr& init,
         if (!entry.pValue)
             continue;
         uint16_t cd;
-        if (entry.pValue->Kind() == NK_InitListExpr) {
+        if (SnInitListExpr::IsBracketForm(entry.pValue)) {
             cd = NDLeafPeakDepth(
                 static_cast<SnInitListExpr&>(*entry.pValue), visited);
         } else {
