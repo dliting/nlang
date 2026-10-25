@@ -6,7 +6,7 @@
 
 ## 挂起与异常的正交性
 
-挂起（`sleep`、`join`、竞争`lock`、空`recv`、被抢占）完整保留上下文的执行状态，恢复后续跑。因此：
+挂起（`sleep`、`join`、竞争`lock`、零许可`acquire`、空`recv`、被抢占）完整保留上下文的执行状态，恢复后续跑。因此：
 
 - `try`体内挂起，恢复后`throw`照常落入该`try`的`catch`（跨函数调用同样成立）；
 - `finally`在挂起过的`try`体完成后照常执行且恰执行一次；
@@ -20,8 +20,8 @@
 
 当`main`挂起且再无可运行上下文（例如空通道`recv`永远等不到发送者、互斥体自重锁），虚拟机以运行期错误报告死锁——消息含`deadlock`——而不是挂死进程；工具与嵌入宿主都可捕获该错误。
 
-消息点出的是条件，不是元凶：它不列出谁在等什么。要找那条缺唤醒路径的等待，把程序放到ndb下，在最后一条等待形成之前停住——在派生或等待位置附近设断点或单步——再跑`threads`：每行给出一个上下文的状态（`parked-chan-recv`、`parked-join`、`parked-mutex`等——`parked`即挂起中），挂起行连起来就是谁在等谁（死锁错误本身会终结调试会话，所以要在停机点查，而不是等报告出来再查）。修法几乎总在唤醒一侧：每个`recv`配一个`send`或`close`，每个`lock`配一个`unlock`，每个未清偿的`add`配一个`done`。
+消息点出的是条件，不是元凶：它不列出谁在等什么。要找那条缺唤醒路径的等待，把程序放到ndb下，在最后一条等待形成之前停住——在派生或等待位置附近设断点或单步——再跑`threads`：每行给出一个上下文的状态（`parked-chan-recv`、`parked-join`、`parked-mutex`、`parked-sem`等——`parked`即挂起中），挂起行连起来就是谁在等谁（死锁错误本身会终结调试会话，所以要在停机点查，而不是等报告出来再查）。修法几乎总在唤醒一侧：每个`recv`配一个`send`或`close`，每个`lock`配一个`unlock`，每个`acquire`配一个`release`，每个未清偿的`add`配一个`done`。
 
 ## 重入求值内的限制
 
-虚拟机有时会在操作中途重新进入你的代码——把对象转成字符串时调用你的`toString`覆写、嵌入宿主经`call()`执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部不能挂起：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、空通道`recv`、缓冲已满的有界通道`send`一律以运行期错误拒绝（消息含`cannot suspend`），`thread.spawn`同样拒绝。见[嵌入NLang](../libraries/embedding-api.md)。
+虚拟机有时会在操作中途重新进入你的代码——把对象转成字符串时调用你的`toString`覆写、嵌入宿主经`call()`执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部不能挂起：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、缓冲已满的有界通道`send`一律以运行期错误拒绝（消息含`cannot suspend`），`thread.spawn`同样拒绝。见[嵌入NLang](../libraries/embedding-api.md)。

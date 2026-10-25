@@ -1,7 +1,7 @@
 // Standard library source for the "concurrent" package — pure NLang
 // concurrency utilities built on the kernel handle classes (Mutex,
 // Channel). No native backing: everything here is ordinary NLang code.
-// The Semaphore handle class is a builtin (see stdlib/builtins.n).
+// The Semaphore handle class is a builtin.
 
 // Counts outstanding units of work; wait() blocks the calling virtual
 // thread until the counter reaches zero. Contract (Go WaitGroup shape):

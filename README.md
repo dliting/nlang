@@ -225,7 +225,7 @@ five packages — sources shipped with the toolchain (`stdlib/*.n`),
 provided at run time by `stdlib.npkg` through the same mechanism as any
 library package; their qualified calls still need an explicit `import`
 (`thread` carries the virtual-thread spawn and parking primitives;
-`concurrent` adds `WaitGroup` and `Semaphore` on top of the kernel
+`concurrent` adds `WaitGroup` on top of the kernel
 concurrency primitives). Strings carry built-in
 methods:
 

@@ -18,7 +18,7 @@ Key design goals:
 - [Types](types.md) — the type system at a glance; enum, struct, class, interface, array, and the rest each have their own page
 - [Declarations](declarations.md) and [Packages](packages.md) — imports, variables, type aliases, and module visibility
 - [Expressions & Statements](expressions.md), [Functions](functions.md)
-- [Concurrency](concurrency.md) — virtual threads, channels, mutexes, and futures
+- [Concurrency](concurrency.md) — virtual threads, channels, mutexes, semaphores, and futures
 - [Standard Library](standard-library.md)
 - Runtime: [Memory Management](memory-management.md) and the [Exit Code Convention](exit-code-convention.md)
 - Reference: [Known Limitations](known-limitations.md) and [Common Error Messages](common-errors.md)

@@ -8,7 +8,7 @@ A virtual thread **suspends** at a wait point: its full execution state freezes,
 
 ## Is there a global lock
 
-NLang has no whole-machine global interpreter lock (GIL — if you know Python, the lock in that sense does not exist here). Storage protection is grouped by **data category**, one lock per category: one for containers (List/Dict), one for synchronization primitives (mutex/channel), one for streams, one for string maintenance. Same-category operations serialize against each other; different categories proceed simultaneously; heap and string **allocation** proceeds per carrier without a lock; object **field reads and writes** take no lock. The internal structure of a container or a string can therefore never be torn by concurrency.
+NLang has no whole-machine global interpreter lock (GIL — if you know Python, the lock in that sense does not exist here). Storage protection is grouped by **data category**, one lock per category: one for containers (List/Dict), one for synchronization primitives (mutex/semaphore/channel), one for streams, one for string maintenance. Same-category operations serialize against each other; different categories proceed simultaneously; heap and string **allocation** proceeds per carrier without a lock; object **field reads and writes** take no lock. The internal structure of a container or a string can therefore never be torn by concurrency.
 
 The unlocked categories carry a cost: once an object is shared across carriers (through `spawn` arguments or a channel), concurrent reads and writes of its fields are a **data race** — a half-written transitional value may be read, but memory is never corrupted. Coordinate shared mutable state with a `Mutex`.
 

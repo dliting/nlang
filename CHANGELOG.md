@@ -6,6 +6,29 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.17] - 2026-10-25
+
+### Added
+
+- **Native Semaphore handle class** — `Semaphore` becomes a built-in
+  handle class (no import), the condition-wait counterpart to `Mutex`:
+  `acquire()` at zero permits parks through a real two-phase handshake
+  and wakes in first-in-first-out order; `release()` hands the permit
+  directly to the front waiter (no ownership requirement — the count
+  may exceed the initial value, as in Java and Python); `tryAcquire()`
+  is a non-suspending probe, safe inside re-entrant evaluation. A new
+  manual page (zh+en) covers admission limiting, signal switches, and
+  the polling pattern.
+
+### Changed
+
+- The `concurrent` package drops its spin-yield `Semaphore` (the
+  builtin replaces it; `WaitGroup` is unaffected). The known-limitations
+  entry "Semaphore waits by yielding" is resolved; the concurrency
+  pages now list `acquire` among the blocking calls that hand off
+  automatically and among the suspensions rejected inside re-entrant
+  evaluation.
+
 ## [0.10.16] - 2026-10-25
 
 ### Changed

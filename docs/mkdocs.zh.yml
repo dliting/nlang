@@ -79,6 +79,7 @@ nav:
           - thread包: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
           - Mutex: language-spec/concurrency-mutex.md
+          - Semaphore: language-spec/concurrency-semaphore.md
           - Channel: language-spec/concurrency-channel.md
           - 标准库同步工具: language-spec/concurrency-concurrent.md
           - 挂起与调度限制: language-spec/concurrency-suspension.md

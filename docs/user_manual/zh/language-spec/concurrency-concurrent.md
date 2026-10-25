@@ -2,16 +2,11 @@
 
 ## 何时使用
 
-`Semaphore(n)`限制同时进入某段代码的任务数——资源池、连接数上限这类场景：进入前`acquire`一个许可，离开时`release`归还，一进一出配对，计数就不会失真。`WaitGroup`等一批派生任务全部完成：派生前先`add`好单位数，每个任务收尾时`done`一次，`wait`在整批完成时返回——不需要持有任何`Thread`句柄。
+`WaitGroup`等一批派生任务全部完成：派生前先`add`好单位数，每个任务收尾时`done`一次，`wait`在整批完成时返回——不需要持有任何`Thread`句柄。限制并发数的`Semaphore`是内建句柄类，见[Semaphore](concurrency-semaphore.md)。
 
 ## 工具
 
-内核原语之上，`concurrent`标准库包提供两个常用同步工具（`import concurrent;`后可用）：
-
-| 类 | 形态 | 语义 |
-|---|---|---|
-| `WaitGroup` | `add(n)` / `done()` / `wait()` | 计数屏障（Go同形）：`add`累计待完成数，每个任务`done`一次，`wait`挂起到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会挂起到死锁报告 |
-| `Semaphore` | `Semaphore(n)` / `acquire()` / `release()` | 计数信号量：`acquire`取走一个许可（计数为0时让出等待），`release`归还一个 |
+内核原语之上，`concurrent`标准库包提供`WaitGroup`（`import concurrent;`后可用）：计数屏障（Go同形）——`add(n)`累计待完成数，每个任务`done()`一次，`wait()`挂起到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会挂起到死锁报告。
 
 ```nlang
 import concurrent;
@@ -49,4 +44,4 @@ int main() {
 }
 ```
 
-`wait`是真实的屏障——读到`40`当且仅当四次累加全部落在读之前。`Semaphore`当前以让出等待实现（内核尚无条件变量原语），许可为0时的`acquire`靠`thread.yield`轮转让位，不占载体。
+`wait`是真实的屏障——读到`40`当且仅当四次累加全部落在读之前。

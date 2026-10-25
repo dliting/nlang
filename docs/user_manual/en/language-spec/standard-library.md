@@ -13,9 +13,9 @@ bare names are not in scope. A package name used as a value
 terms of duties, io carries content input/output (IO), math numeric
 computation, fs the filesystem's names and metadata, thread the
 virtual-thread spawn and suspension primitives, and concurrent the
-`WaitGroup` and `Semaphore` synchronization tools (the
-`Mutex`/`Channel`/`Future` built-in classes excepted — they need no
-import; see [Concurrency](concurrency.md)).
+`WaitGroup` synchronization tool (the
+`Mutex`/`Semaphore`/`Channel`/`Future` built-in classes excepted — they
+need no import; see [Concurrency](concurrency.md)).
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler

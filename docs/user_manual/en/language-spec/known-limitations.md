@@ -194,19 +194,16 @@
   `join`**: uncaught exceptions propagate to neither the host nor main —
   the failed context is contained, and joiners receive a rethrow of the
   original exception object; with no joiner, the failure is silent.
-- **Concurrency: `Mutex` is non-reentrant, `Semaphore` waits by
-  yielding**: the mutex cannot be reentered — locking it again while
-  holding it suspends until the deadlock report; the standard-library
-  `Semaphore`'s `acquire` takes turns via `thread.yield` while the
-  permit count is zero (the kernel has no condition-variable primitive
-  yet), so a scarce permit supply merely increases the yield count; the
-  behavior stays correct.
+- **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
+  reentered — locking it again while holding it suspends until the
+  deadlock report. See [Mutex](concurrency-mutex.md).
 - **Concurrency: no suspension inside re-entrant evaluation**: inside
   re-entrant evaluation — your `toString` override called while an
   object is converted to a string, a script function executed for the
   host through `call()` —
   `yield`/`sleep`/`join` on an unfinished target/`Future.get` on an
-  unfinished target/`lock` on a contended mutex/`recv` on an empty
+  unfinished target/`lock` on a contended mutex/`acquire` on a
+  zero-permit semaphore/`recv` on an empty
   channel/`send` on a full bounded channel/`spawn` are all rejected with
   a "cannot suspend" runtime error. Blocking native calls are exempt:
   the calling virtual thread suspends and releases its locks for the

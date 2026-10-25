@@ -6,6 +6,23 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.17] - 2026-10-25
+
+### 新增
+
+- **原生Semaphore句柄类**——`Semaphore`成为内建句柄类（无需导入），
+  `Mutex`的条件等待对位：零许可的`acquire()`经真实两阶段握手停泊，
+  按先进先出顺序唤醒；`release()`把许可直接移交给队首等待者（无持
+  有前提，计数可超初值，同Java与Python）；`tryAcquire()`为非停泊探
+  测，重入求值内可安全调用。手册新增Semaphore页（中英成对）：限流、
+  信号开关与轮询模式。
+
+### 变更
+
+- `concurrent`包删除自旋让位的`Semaphore`（由内建类取代，
+  `WaitGroup`不受影响）。已知限制条目「Semaphore让出等待」就此解决；
+  并发各页把`acquire`列入自动交接的阻塞调用与重入求值内拒绝的挂起。
+
 ## [0.10.16] - 2026-10-25
 
 ### 变更

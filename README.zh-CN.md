@@ -207,7 +207,7 @@ import 来源共用一种语法：
 `math`、`io`、`fs`、`thread` 和 `concurrent` 是标准库的五个包——源码随工具链分发
 （`stdlib/*.n`），运行期由 `stdlib.npkg` 提供，与其他库包同一机制；
 限定调用前需要显式 `import`（`thread` 承载虚拟线程的派生与停泊原语；
-`concurrent` 在内核并发原语之上补足 `WaitGroup` 与 `Semaphore`）。字符串自带内建方法：
+`concurrent` 在内核并发原语之上补足 `WaitGroup`）。字符串自带内建方法：
 
 ```n
 import io;

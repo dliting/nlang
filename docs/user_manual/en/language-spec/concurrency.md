@@ -1,6 +1,6 @@
 # Concurrency
 
-NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that time-share a small pool of shared **carriers** (operating system threads that run virtual threads); a virtual thread is not an operating system thread of its own, and storage protection is covered in [Carriers and Parallelism](concurrency-carriers.md). `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` and `Semaphore` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `Channel<T>`, `Future<T>`, and the other handle types are built-in classes that need no import.
+NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that time-share a small pool of shared **carriers** (operating system threads that run virtual threads); a virtual thread is not an operating system thread of its own, and storage protection is covered in [Carriers and Parallelism](concurrency-carriers.md). `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Semaphore` caps how many tasks run a section at once; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `Channel<T>`, `Semaphore`, `Future<T>`, and the other handle types are built-in classes that need no import.
 
 Scheduling determinism: under a single carrier (the library default) it is fully deterministic — a strict first-in-first-out (FIFO) rotation where each virtual thread runs about 1000 loop iterations before yielding (and only when another runnable context exists), so the same program with the same inputs produces the same interleaving; with multiple carriers the scheduling order is unspecified (see [Carriers and Parallelism](concurrency-carriers.md)). `sleep` wakes in deadline order. Single-carrier tests may assert interleaving and final values; multi-carrier tests assert only results after synchronization — never durations.
 
@@ -38,6 +38,7 @@ Start from the task you have, not from the tool list. The shipped
 - [The thread package](concurrency-thread.md) — `spawn`, `join`, `yield`, `id`, `sleep`
 - [Future](concurrency-future.md) — retrieving a spawned task's return value
 - [Mutex](concurrency-mutex.md) — non-reentrant mutual exclusion
+- [Semaphore](concurrency-semaphore.md) — a counting semaphore
 - [Channel](concurrency-channel.md) — message passing and closing semantics
-- [The concurrent package](concurrency-concurrent.md) — `WaitGroup` and `Semaphore`
+- [The concurrent package](concurrency-concurrent.md) — `WaitGroup`
 - [Suspension and scheduling limits](concurrency-suspension.md) — suspension versus blocking, exceptions across suspension, the main-exit policy, the deadlock report, restrictions inside re-entrant evaluation
