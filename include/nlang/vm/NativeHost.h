@@ -20,6 +20,8 @@
 
 #include <stdint.h>
 
+#include <nlang/runtime/Config.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,7 +46,7 @@ extern "C" {
 // scalar-element array). The exception selector gained the
 // NullPointer/OutOfBounds/DivideByZero families so native code raises
 // the same catchable classes the language runtime does.
-#define NLANG_HOST_ABI_VERSION 6u
+#define NLANG_HOST_ABI_VERSION 7u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -92,8 +94,11 @@ enum NativeElemKind {
 // through getArrayView. The record's cells back every pointer:
 //   dims    - points INTO the record (the dims run; for rank 1 the
 //             single dim equals the element count).
-//   strides - points at host-owned storage (row-major, computed per
-//             call; read-only, thread-safe).
+//   strides - points at stridesInline inside this view (row-major,
+//             computed per call). Each view owns its storage: multiple
+//             live views never share it. Copying the view struct leaves
+//             strides pointing into the original — request a fresh view
+//             instead of copying.
 //   data    - the payload base (element 0). The GC is non-moving and the
 //             argument record is rooted for the duration of the native
 //             call, so the pointer is stable for the call — and only for
@@ -108,6 +113,7 @@ typedef struct NativeArrayView {
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
     uint8_t reserved[2];
+    int32_t stridesInline[nlang::kMaxArrayRank];  // ABI v7: strides points here
     void* data;
 } NativeArrayView;
 
@@ -258,23 +264,22 @@ inline int64_t ArgLong(const uint8_t* args, int slot) {
     return value;
 }
 
-// v6: array argument as a pinned payload view. Raises (never returns)
+// v7: array argument as a pinned payload view. Raises (never returns)
 // when the handle is null or not an array record — the same behavior the
-// language gives null/non-array receivers.
-inline NativeArrayView ArgArray(NativeHost* host, const uint8_t* args,
-                                int slot) {
-    NativeArrayView view;
-    view.rank = 0;
-    view.dims = nullptr;
-    view.strides = nullptr;
-    view.elemCount = 0;
-    view.elemKind = 0;
-    view.elemCellBytes = 0;
-    view.reserved[0] = 0;
-    view.reserved[1] = 0;
-    view.data = nullptr;
-    host->getArrayView(host, ArgInt(args, slot), &view);
-    return view;
+// language gives null/non-array receivers. Out-param form: the view's
+// strides point into itself, so the struct cannot travel by value.
+inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
+                     NativeArrayView* out) {
+    out->rank = 0;
+    out->dims = nullptr;
+    out->strides = nullptr;
+    out->elemCount = 0;
+    out->elemKind = 0;
+    out->elemCellBytes = 0;
+    out->reserved[0] = 0;
+    out->reserved[1] = 0;
+    out->data = nullptr;
+    host->getArrayView(host, ArgInt(args, slot), out);
 }
 
 // v6: mint a zero-initialized array; returns its heap handle.

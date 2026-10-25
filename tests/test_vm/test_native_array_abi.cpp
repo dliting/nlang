@@ -127,6 +127,25 @@ static int runSourceWithNatives(const std::string& tag,
 
 //--- bare-name test natives (ABI v6 exercise) --------------------------------
 
+//int natTwoViewsStrideIndependence(int[,] a, int[,,] b) — two live views
+//must own their strides storage: the v6 host scratch let the second
+//getArrayView overwrite the first view's strides (and two carriers in
+//blocking natives could interleave the same way).
+void NatTwoViewsStrideIndependence(NativeHost* host, uint8_t* ret,
+                                   const uint8_t* args, int argc) {
+    (void)argc;
+    NativeArrayView v1;
+    host->getArrayView(host, nlang::native::ArgInt(args, 0), &v1);
+    NativeArrayView v2;
+    host->getArrayView(host, nlang::native::ArgInt(args, 1), &v2);
+    //v1 is int[2,3] (row-major strides {3,1}); v2 is int[2,2,2] ({4,2,1}).
+    if (v1.strides[0] != 3 || v1.strides[1] != 1
+        || v2.strides[0] != 4 || v2.strides[1] != 2 || v2.strides[2] != 1)
+        nlang::native::Raise(host, NEXC_Base,
+            "two live views must keep independent strides");
+    nlang::native::ReturnInt(ret, 1);
+}
+
 //int natViewRoundtrip(int[] a) — validate the view's fixed fields, write
 //42 through the payload pointer (slot 1), return the element count.
 void NatViewRoundtrip(NativeHost* host, uint8_t* ret,
@@ -165,6 +184,8 @@ void NatMint(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc) {
 static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
 {
     exec.RegisterNative(tag + ".natViewRoundtrip", &NatViewRoundtrip);
+    exec.RegisterNative(tag + ".natTwoViewsStrideIndependence",
+                        &NatTwoViewsStrideIndependence);
     exec.RegisterNative(tag + ".natMint", &NatMint);
 }
 
@@ -185,6 +206,21 @@ void test_view_roundtrip_read_write()
         &RegisterTestNatives);
     CHECK(rc == 0, "roundtrip must return elemCount 3 and persist the "
                    "payload write (a[1]==42)");
+    PASS();
+}
+
+void test_two_views_stride_independence()
+{
+    TEST(two_views_stride_independence);
+    const int rc = runSourceWithNatives("abi_two_views",
+        "native int natTwoViewsStrideIndependence(int[,] a, int[,,] b);\n"
+        "int main() {\n"
+        "    int[,] a = int[2, 3];\n"
+        "    int[,,] b = int[2, 2, 2];\n"
+        "    return natTwoViewsStrideIndependence(a, b) - 1;\n"
+        "}\n",
+        &RegisterTestNatives);
+    CHECK(rc == 0, "two live views must keep independent strides");
     PASS();
 }
 
@@ -309,6 +345,7 @@ int main()
     std::cerr << "=== native array ABI tests ===\n";
     try {
         test_view_roundtrip_read_write();
+        test_two_views_stride_independence();
         test_mint_and_fill();
         test_empty_array_view();
         test_double_payload_alignment();

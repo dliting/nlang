@@ -49,8 +49,10 @@ T ApplyBin(BinOp op, T a, T b) {
 template <typename T>
 void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   uint8_t kind, BinOp op) {
-    NativeArrayView va = ArgArray(host, args, 0);
-    NativeArrayView vb = ArgArray(host, args, 1);
+    NativeArrayView va;
+    NativeArrayView vb;
+    ArgArray(host, args, 0, &va);
+    ArgArray(host, args, 1, &vb);
     if (va.elemKind != vb.elemKind)
         Raise(host, NEXC_Base, "tensor: element type mismatch");
     if (va.elemKind != kind)

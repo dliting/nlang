@@ -89,21 +89,20 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
     const auto& at = e->m_currModule->arrayTypes[
         static_cast<size_t>(record[1])];
     //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
-    //the padded header. Row-major strides compute into the per-call
-    //host scratch (valid for the duration of the call, like every
-    //view pointer).
+    //the padded header. Row-major strides compute into the view's own
+    //inline storage (ABI v7): every live view owns its strides — the
+    //v6 host scratch let a second view corrupt the first's.
     const int32_t rank = record[2];
     const int64_t elemCount = record[3];
-    VmNativeHost* h = reinterpret_cast<VmNativeHost*>(self);
     int32_t stride = 1;
     for (int32_t d = rank - 1; d >= 0; --d)
     {
-        h->stridesScratch[d] = stride;
+        out->stridesInline[d] = stride;
         stride *= record[4 + d];
     }
     out->rank = rank;
     out->dims = record.data() + 4;   //the dims run
-    out->strides = h->stridesScratch;
+    out->strides = out->stridesInline;
     out->elemCount = elemCount;
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(

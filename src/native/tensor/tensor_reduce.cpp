@@ -32,7 +32,8 @@ void ReturnScalar(uint8_t* ret, double v)  { ReturnDouble(ret, v); }
 template <typename T, typename Acc>
 void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
                        const uint8_t* args, RedOp op) {
-    const NativeArrayView v = ArgArray(host, args, 0);
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
     const T* cells = CellsOf<const T>(v);
     if (op == RedOp::Sum) {
         Acc acc = 0;
@@ -56,7 +57,8 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
 //mean: double accumulation, double return, every element kind.
 template <typename T>
 void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
-    const NativeArrayView v = ArgArray(host, args, 0);
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
     if (v.elemCount == 0)
         Raise(host, NEXC_Base, "tensor.mean: empty array");
     const T* cells = CellsOf<const T>(v);
@@ -70,8 +72,10 @@ void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
 //declared return widens with it); float accumulates float, double double.
 template <typename T, typename Acc>
 void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
-    const NativeArrayView va = ArgArray(host, args, 0);
-    const NativeArrayView vb = ArgArray(host, args, 1);
+    NativeArrayView va;
+    NativeArrayView vb;
+    ArgArray(host, args, 0, &va);
+    ArgArray(host, args, 1, &vb);
     if (va.elemKind != vb.elemKind)
         Raise(host, NEXC_Base, "tensor: element type mismatch");
     if (va.elemCount != vb.elemCount)
