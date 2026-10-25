@@ -123,7 +123,7 @@ target_compile_definitions(test_native_loader
     PRIVATE
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_sample>"
 )
-add_dependencies(test_native_loader nlang_sample nlang_badabi nlang_noentry)
+add_dependencies(test_native_loader nlang_sample nlang_badabi nlang_noentry nlang_io)
 add_test(NAME native_loader_tests COMMAND test_native_loader)
 
 # LibrarySearchPath (header-only, pure STL) unit tests: layered ordering,
@@ -1429,6 +1429,7 @@ if(NLANG_BUILD_IDE)
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
+            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
@@ -1915,23 +1916,12 @@ if(NLANG_BUILD_DOCS)
     endif()
 endif()
 
-# Make the stdlib native modules discoverable to in-process VM tests. The
-# loader's default search path is the host executable's directory; a test exe
-# lives in tests/<config>, so copy nlang_math/io/fs there as part of the
-# default test build. Tools (ncc/nvm/ndb) launched as test subprocesses use
-# the copies deployed next to them, so this only serves tests driving the VM
-# in-process (test_stdlib, test_debugger, test_module_import, ...). Depending
-# on the module targets guarantees the DLLs are built and current first.
-add_custom_target(nlang_stdlib_native_for_tests ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:nlang_math>
-                $<TARGET_FILE:nlang_io>
-                $<TARGET_FILE:nlang_fs>
-                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
-    VERBATIM)
-add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
+# In-process VM tests resolve the stdlib native modules through the
+# loader's build-tree fallback (NativeLibraryLoader walks up from the test
+# exe to <build>/native/<config>, the single authoritative module output).
+# No copies land in tests/<config> anymore — which also un-masks the
+# embed_source_tests' AddNativeSearchDir wiring: the exe dir no longer
+# silently satisfies native lookups the host never asked for.
 
 
 # --- Embedding API tests (spec: 2026-10-08-nlang-embedded-host-api) ---
@@ -2021,20 +2011,18 @@ target_compile_definitions(test_embed_api
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu"
         EMBED_MATH_NCU="${embed_fixture_dir}/math.ncu"
         NLANG_TEST_STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}")
-add_dependencies(test_embed_api nlang_embed_fixtures nlang_stdlib_native_for_tests)
+add_dependencies(test_embed_api nlang_embed_fixtures)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
 
 #Embedding source-entry tests (spec: 2026-10-15-embedding-source-entry).
 #Deployed-stdlib fixture: one host-specified directory in the full
 #deployment shape -- stdlib declaration sources + stdlib.npkg + native
 #DLLs -- so import discovery, closure loading and native resolution all
-#resolve from addImportDir dirs (the ONE-list contract). Deliberately
-#NOT depending on nlang_stdlib_native_for_tests: that target copies
-#DLLs next to the test exes, which would mask the AddNativeSearchDir
-#wiring (the exe dir is always first in the native search list,
-#VmExecutorNativeHost.cpp:257). Fresh targeted builds are the genuine
-#probe; full builds still mask via the ALL copies -- documented blind
-#spot, spec §5.
+#resolve from addImportDir dirs (the ONE-list contract). No DLL copies
+#land next to the test exes anymore (the copy target is gone; native
+#modules resolve through the loader's build-tree fallback only when the
+#host-specified dirs miss), so the AddNativeSearchDir wiring is probed
+#honestly in full builds too -- the old documented blind spot is closed.
 set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
 add_custom_target(nlang_embed_deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory

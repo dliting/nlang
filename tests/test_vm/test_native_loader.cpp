@@ -195,6 +195,18 @@ void TestNoEntry(const std::string& fixtureDir) {
 
 } // namespace
 
+//0.11.4 C: build-tree fallback. With no explicit search dirs, the loader
+//must still find the stdlib native modules through the built-in fallback
+//(walk up from the executable to <build>/native/<config>). The test exe
+//runs from <build>/tests/<config>, so the walk reaches the build root.
+void TestBuildTreeFallback() {
+    NativeLibraryLoader loader;
+    const std::string path = loader.LocateModuleFile("io");
+    CHECK(!path.empty(), "fallback must resolve nlang_io in the build tree");
+    CHECK(path.find("native") != std::string::npos,
+          "resolved path must come from the native output directory");
+}
+
 int main() {
     std::string fixtureDir = FIXTURE_DIR;
     std::fprintf(stderr, "=== NativeLibraryLoader Unit Tests ===\n");
@@ -217,6 +229,11 @@ int main() {
     }
     run("BadAbi", &TestBadAbi, fixtureDir);
     run("NoEntry", &TestNoEntry, fixtureDir);
+    try { TestBuildTreeFallback(); }
+    catch (const std::exception& e) {
+        std::fprintf(stderr, "UNCAUGHT in BuildTreeFallback: %s\n", e.what());
+        ++g_fail;
+    }
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

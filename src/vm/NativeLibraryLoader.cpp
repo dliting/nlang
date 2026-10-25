@@ -103,10 +103,53 @@ bool NativeLibraryLoader::IsLoaded(const std::string& ns) const {
     return false;
 }
 
+const std::vector<std::string>& NativeLibraryLoader::FallbackDirs() const {
+    if (m_fallbackResolved)
+        return m_fallbackDirs;
+    m_fallbackResolved = true;
+    const std::string exeDir = ExecutableDir();
+    if (exeDir.empty())
+        return m_fallbackDirs;
+    const std::string configLeaf = fs::path(exeDir).filename().string();
+    fs::path cur = fs::absolute(exeDir);
+    for (int up = 0; up < 8; ++up) {
+        for (const fs::path& candidate :
+             {cur / "native" / configLeaf, cur / "native"}) {
+            std::error_code ec;
+            if (fs::is_directory(candidate, ec))
+                m_fallbackDirs.push_back(candidate.string());
+        }
+        if (!cur.has_parent_path() || cur.parent_path() == cur)
+            break;
+        cur = cur.parent_path();
+    }
+    return m_fallbackDirs;
+}
+
+std::string NativeLibraryLoader::DescribeSearchedDirs() const {
+    std::string searched;
+    auto append = [&searched](const std::string& dir) {
+        searched += "  ";
+        searched += dir;
+        searched += "\n";
+    };
+    for (const auto& dir : m_searchDirs)
+        append(dir);
+    for (const auto& dir : FallbackDirs())
+        append(dir);
+    return searched;
+}
+
 std::string NativeLibraryLoader::LocateModuleFile(
     const std::string& ns) const {
     const std::string fileName = ModuleFileName(ns);
     for (const auto& dir : m_searchDirs) {
+        fs::path candidate = fs::path(dir) / fileName;
+        std::error_code ec;
+        if (fs::is_regular_file(candidate, ec))
+            return candidate.string();
+    }
+    for (const auto& dir : FallbackDirs()) {
         fs::path candidate = fs::path(dir) / fileName;
         std::error_code ec;
         if (fs::is_regular_file(candidate, ec))
@@ -122,15 +165,10 @@ void NativeLibraryLoader::EnsureLoaded(
 
     const std::string path = LocateModuleFile(ns);
     if (path.empty()) {
-        std::string searched;
-        for (const auto& dir : m_searchDirs) {
-            searched += "  ";
-            searched += dir;
-            searched += "\n";
-        }
         throw std::runtime_error(
             "cannot find native module '" + ModuleFileName(ns)
-            + "' for package '" + ns + "'; searched:\n" + searched);
+            + "' for package '" + ns + "'; searched:\n"
+            + DescribeSearchedDirs());
     }
 
     void* handle = OpenShared(path);

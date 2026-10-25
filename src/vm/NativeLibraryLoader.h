@@ -49,6 +49,10 @@ public:
     // Directory containing the running executable (default search location).
     static std::string ExecutableDir();
 
+    // Locate the module file for `ns` across the search dirs and the
+    // built-in build-tree fallback; empty if not found. Pure query.
+    std::string LocateModuleFile(const std::string& ns) const;
+
 private:
     struct LoadedModule {
         std::string ns;
@@ -56,11 +60,24 @@ private:
     };
 
     bool IsLoaded(const std::string& ns) const;
-    // Locate the module file across search dirs; empty if not found.
-    std::string LocateModuleFile(const std::string& ns) const;
+
+    //Built-in last-resort search: development hosts run from
+    //<build>/src/tools/<tool>/<config> or <build>/tests/<config>; the
+    //single authoritative module directory sits at <build>/native/<config>.
+    //Walk up from the executable looking for native/<exe-dir-leaf>
+    //(multi-config) or native (single-config). Installed packages have
+    //no such directory — the fallback is a silent no-op there (the DLLs
+    //ship beside the executable, searched first). Computed once.
+    const std::vector<std::string>& FallbackDirs() const;
+
+    //Indented listing of every consulted directory (explicit search
+    //dirs, then the build-tree fallback) for load-failure diagnostics.
+    std::string DescribeSearchedDirs() const;
 
     std::vector<std::string> m_searchDirs;
     std::vector<LoadedModule> m_loaded;
+    mutable std::vector<std::string> m_fallbackDirs;
+    mutable bool m_fallbackResolved = false;
 };
 
 } // namespace nlang

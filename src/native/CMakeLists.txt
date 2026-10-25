@@ -27,22 +27,16 @@ target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp
     tensor/tensor_reduce.cpp)
 
-# Deploy every module next to each host tool. The loader's default search path
-# is the host executable's directory. ncc/nvm/ndb/nlang always exist; nide
-# only when the IDE is built. This subdirectory is added AFTER the tools, so
-# the tool targets (and their output dirs) are known here.
-set(NLANG_NATIVE_HOST_TOOLS ncc nvm ndb nlang)
-if(TARGET nide)
-    list(APPEND NLANG_NATIVE_HOST_TOOLS nide)
-endif()
+# Single authoritative output: every module lands in <build>/native/<config>
+# and NOTHING copies them around the build tree — hosts resolve them through
+# NativeLibraryLoader's build-tree fallback (walk-up discovery, consulted
+# after explicit search dirs; see NativeLibraryLoader.cpp). The install
+# rules below still ship them beside the executables in bin/, where the
+# loader's executable-dir search (always first) finds them.
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
-    foreach(tool IN LISTS NLANG_NATIVE_HOST_TOOLS)
-        add_custom_command(TARGET nlang_${mod} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:nlang_${mod}>
-                $<TARGET_FILE_DIR:${tool}>
-            VERBATIM)
-    endforeach()
+    set_target_properties(nlang_${mod} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/native/$<CONFIG>"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/native/$<CONFIG>")
 endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
