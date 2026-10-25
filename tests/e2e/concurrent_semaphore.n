@@ -1,8 +1,10 @@
 //Native Semaphore (P2-1): acquire() parks at zero permits and release()
 //hands the permit to the front waiter (FIFO order); tryAcquire() never
-//parks. Probes: a park/wake round trip, the exact three-waiter wake
-//order, and the tryAcquire take/miss pair. Single-carrier sleeps fix
-//the park arrival order, so the wake order is deterministic.
+//parks. Probes: a park/wake round trip, the exact three-waiter delivery
+//order, and the tryAcquire take/miss pair. The sleeps fix the park
+//arrival order (A, B, C in the deque); each release is joined to the
+//waiter it must wake before the next release, so the printed order
+//holds under any carrier count (assert-after-synchronize).
 import thread;
 import io;
 
@@ -34,11 +36,14 @@ int main() {
     thread.sleep(5);
     Thread tc = thread.spawn(c.go);
     thread.sleep(5);
-    gate.release();
-    gate.release();
+    //Delivery order: each release must reach the front waiter; joining
+    //that waiter before the next release turns the wake-to-write edge
+    //into a happens-before edge, so the letters print in deque order.
     gate.release();
     thread.join(ta);
+    gate.release();
     thread.join(tb);
+    gate.release();
     thread.join(tc);
     //tryAcquire: takes the one permit, then misses at zero.
     Semaphore pool = Semaphore(1);
