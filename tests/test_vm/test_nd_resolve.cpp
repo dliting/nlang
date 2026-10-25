@@ -296,6 +296,44 @@ void test_decl_comma_size_named_reject()
     PASS();
 }
 
+void test_decl_comma_size_reject_stress()
+{
+    TEST(decl_comma_size_reject_stress);
+    //The reject branches now explicitly delete the abandoned
+    //ConcreteParamList (container + elements). A botched ownership
+    //transfer surfaces here as a crash or heap corruption over enough
+    //iterations; the diagnostic must stay stable throughout.
+    const char *msg = "array declarations take one size per bracket";
+    for (int i = 0; i < 200; ++i)
+    {
+        const BuildOutcome bare = buildSource("nd_declsize_stress",
+            "int main() {\n"
+            "    int x = 1, a[2, 1 + 2 * 3] = 5;\n"
+            "    return 0;\n"
+            "}\n");
+        CHECK(!bare.ok && DiagHas(bare, msg) && !DiagHas(bare, "syntax error"),
+            "stress iteration must keep the named diagnostic");
+    }
+    PASS();
+}
+
+void test_leading_comma_diagnostics()
+{
+    TEST(leading_comma_diagnostics);
+    const BuildOutcome formal = buildSource("nd_leadcomma_formal",
+        "int f(, int x) { return x; }\n"
+        "int main() { return f(1); }\n");
+    CHECK(!formal.ok && DiagHas(formal, "Unexpected ',' in a param list."),
+        "leading comma in a param list keeps its named diagnostic");
+    const BuildOutcome call = buildSource("nd_leadcomma_call",
+        "int f(int x) { return x; }\n"
+        "int main() { return f(, 1); }\n");
+    CHECK(!call.ok
+        && DiagHas(call, "expected a param before ','"),
+        "leading comma in a call names the corrected message");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -310,6 +348,8 @@ int main()
         test_nd_rank_cap_diagnostics();
         test_brace_row_is_depth_mismatch();
         test_decl_comma_size_named_reject();
+        test_decl_comma_size_reject_stress();
+        test_leading_comma_diagnostics();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << "\n";
         g_fail++;

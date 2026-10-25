@@ -718,7 +718,10 @@ NamespaceMember:	EnumDecl {
 
 FormalParamList:	FormalParamList ',' FormalParam {
 							if ($1->empty())
+							{
 								parser.Log(CLL_Error, @1, "Unexpected ',' in a param list.");
+								delete $3;
+							}
 							else
 								$1->push_back($3);
 							$$ = $1;
@@ -925,7 +928,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$7;
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
 						$1->push_back({*$3, nullptr, nullptr, $5});
 						$$ = $1;
 					} |
@@ -935,7 +940,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$7;
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
 						$1->push_back({*$3, $10, nullptr, $5});
 						$$ = $1;
 					} |
@@ -945,7 +952,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$7;
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
 						$1->push_back({*$3, $10, nullptr, $5});
 						$$ = $1;
 					} |
@@ -1001,14 +1010,17 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					//C-style form and point at the creation twin. The first
 					//size rides the array-size payload (0.10.7 D3 precedent)
 					//so the subtree joins the owning AST; the ConcreteParamList
-					//is abandoned — the logged CLL_Error fails the build
-					//before any teardown runs.
+					//is released here — deleting each element frees its whole
+					//subtree (ImmutableNodeList ownership), so the reject
+					//leaks nothing even in a long-lived host (nide).
 					TT_Identifier '[' Expression ',' ConcreteParamList ']' {
 						parser.Log(CLL_Error, @4,
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5;
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, nullptr, $3});
 					} |
@@ -1018,7 +1030,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5;
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $8, nullptr, $3});
 					} |
@@ -1028,7 +1042,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5;
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $8, nullptr, $3});
 					} |
@@ -2189,8 +2205,8 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 							if ($1->empty())
 							{
 								parser.Log(CLL_Error, @2, "Invalid concrete param list, "
-									"expecte param before ','.");
-
+									"expected a param before ','.");
+								delete $3;
 							}
 							else
 								$1->push_back($3);
