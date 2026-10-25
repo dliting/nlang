@@ -1874,3 +1874,8 @@ ndarray_zerodim 0
 ndarray_foreach 0
 ndarray_gc 0
 ndarray_members 0
+ndarray_initlist 0 2x2 12,34 2.5 4 [[[1, 2]], [[3, 4]]]
+ndarray_initlist_empty compile_error empty initializer
+ndarray_initlist_jagged compile_error equal width
+ndarray_crossmod 0 10 8
+ndarray_tostring 0 [[1, 2], [3, 4]] 1

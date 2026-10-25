@@ -2,6 +2,7 @@
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
+#include "SnArrayTypeToken.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
 #include <functional>
@@ -1030,6 +1031,13 @@ private:
 	//form is reserved for collection, struct, and class initializers.
 	//True = rejected.
 	bool RejectBraceArrayInitTarget(SnInitListExpr &sn, bool bIsArray);
+
+	//Stage-2 ND: the rank>=2 rectangular-literal gate - non-empty top
+	//level, nest depth == rank, equal row widths. True = rejected.
+	bool RejectBadNDInitListShape(SnInitListExpr &sn,
+		SnArrayTypeToken &token);
+	bool RejectNDShapeLevel(SnInitListExpr &sn, uint8_t rank,
+		uint8_t level, size_t &expectedWidth);
 	//0.9.0: nested bare brace entries inherit the slot type they store
 	//into — the element type for array/List/Dict targets, or the
 	//addressed field's declared type for struct/class targets.

@@ -114,7 +114,12 @@ InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
     InitListSlotTypes slots;
     if (bIsArray)
     {
-        slots.pValueType = pTargetField;
+        //Stage-2 ND: an un-peeled ND token target carries the element
+        //inside - slot types are always the leaf element.
+        SnField *pSlot = pTargetField;
+        if (pSlot && pSlot->Kind() == NK_ArrayTypeToken)
+            pSlot = static_cast<SnArrayTypeToken*>(pSlot)->ElemTypeOf();
+        slots.pValueType = pSlot;
         return slots;
     }
     if (pTargetField->Kind() == NK_ClassDecl)
@@ -186,9 +191,18 @@ void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
 void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
     SnField *pTargetField, const InitListSlotTypes &slots)
 {
+    //Stage-2 ND: the outer list's entries are rows (resolved sub-array
+    //literals) - their leaf casts already happened inside the rows; the
+    //outer pass must not adjudicate a row against the leaf element.
+    const bool bNdTarget = pTargetField
+        && pTargetField->Kind() == NK_ArrayTypeToken
+        && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2;
+
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
+        if (bNdTarget)
+            continue;
         //Key slot: only Dict carries a key type; the null check leaves
         //every other shape to the value path alone.
         if (slots.pKeyType)
@@ -318,6 +332,26 @@ bool ExprResolveAccessor::RejectNonEmptyChannelInit(SnInitListExpr &sn,
 void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
     SnField *pTargetField, SnField *pElemType, bool bIsArray)
 {
+    //Stage-2 ND: rows of a rank>=2 target infer the sub-array token
+    //(rank-1) so each row resolves as a normal rank-1 array literal
+    //and its leaves cast against the element type inside the row.
+    if (bIsArray && pElemType && pTargetField
+        && pTargetField->Kind() == NK_ArrayTypeToken
+        && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2)
+    {
+        auto *pToken = static_cast<SnArrayTypeToken*>(pTargetField);
+        auto *pRowTarget = m_Env.InternArrayTypeToken(pElemType,
+            static_cast<uint8_t>(pToken->Rank() - 1));
+        for (auto &entry : sn.Entries())
+        {
+            auto *pValue = entry.pValue;
+            auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
+            if (pNested)
+                pNested->InferredTarget(pRowTarget);
+        }
+        return;
+    }
+
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
@@ -359,8 +393,21 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
     if (RejectInitListEntryKeyForm(sn, pTargetField, bIsArray))
         return true;
 
+    //Stage-2 ND: a rank>=2 token target (kept un-peeled by
+    //ResolveInferredTarget) validates its rectangular literal shape
+    //before the stamp - dims and widths are purely syntactic.
+    if (bIsArray && pTargetField->Kind() == NK_ArrayTypeToken
+        && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2
+        && RejectBadNDInitListShape(sn,
+            *static_cast<SnArrayTypeToken*>(pTargetField)))
+        return true;
+
     //0.9.13 D-new-1: array targets mint the interned array token.
-    sn.EvalDataType(bIsArray ? m_Env.InternArrayTypeToken(pTargetField)
+    //Stage-2 ND: the ND token IS the target - no rank-1 re-mint.
+    sn.EvalDataType(bIsArray
+        ? (pTargetField->Kind() == NK_ArrayTypeToken
+            ? pTargetField
+            : m_Env.InternArrayTypeToken(pTargetField))
         : pTargetField);
     sn.AddFlags(NF_Resolved);
 

@@ -202,6 +202,31 @@ void VmExecutor::FormatArrayElement(std::string& result,
     result += FormatArrayElemScalar(slot[off], elemKind, depth);
 }
 
+//One nesting level of ND formatting: the level's dim partitions the
+//remaining flat payload; the leaf level formats elements at the
+//running flat index (FormatArrayElement handles the per-kind cells).
+void VmExecutor::FormatArrayNDLevel(std::string& result,
+    const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
+    size_t& flatIndex, uint8_t elemKind, int cells, int depth) {
+    result += "[";
+    const int32_t n = slot[4 + level];
+    const size_t base = ArrayHeaderCells(rank);
+    for (int32_t i = 0; i < n; ++i) {
+        if (i > 0) result += ", ";
+        if (level + 1 < rank) {
+            FormatArrayNDLevel(result, slot, rank,
+                static_cast<uint8_t>(level + 1), flatIndex, elemKind,
+                cells, depth);
+        } else {
+            FormatArrayElement(result, slot,
+                base + flatIndex * static_cast<size_t>(cells), elemKind,
+                cells, depth);
+            ++flatIndex;
+        }
+    }
+    result += "]";
+}
+
 std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
@@ -215,6 +240,16 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     if (arrayTypeIdx < m_currModule->arrayTypes.size())
         elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
     if (length <= 0) return "[]";
+    //Stage-2 ND: rank>=2 records carry the dims in the header over one
+    //flat row-major payload — the brackets nest per dim level.
+    const uint8_t rank = static_cast<uint8_t>(slot[2]);
+    if (rank >= 2) {
+        std::string result;
+        size_t flatIndex = 0;
+        FormatArrayNDLevel(result, slot, rank, 0, flatIndex, elemKind,
+            ArrayElemCells(elemKind), depth);
+        return result;
+    }
     std::string result = "[";
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < length; ++i) {

@@ -145,8 +145,8 @@ void test_jagged_still_rejected()
     PASS();
 }
 
-//Every ND value path emits (the Task-2 gates are gone; init-list
-//stays unsupported until task 5).
+//Every ND value path emits (the Task-2 gates are gone; task 5
+//landed the rectangular init-list lowering).
 void test_emit_gates_cover_nd_paths()
 {
     TEST(nd_paths_emit_gates_gone);
@@ -187,7 +187,6 @@ void test_emit_gates_cover_nd_paths()
     CHECK(fe.ok, "foreach over ND must emit");
 
     //init-list target with ND type: parses, but ND init-list resolution
-    //and emission land in task 5 — the gate assertion moves there.
     const BuildOutcome il = buildSource("nd_gate_initlist",
         "int main() {\n"
         "    int[,] a = [[1,2],[3,4]];\n"
@@ -195,7 +194,7 @@ void test_emit_gates_cover_nd_paths()
         "}\n");
     CHECK(!DiagHas(il, "syntax error"),
         "nested bracket init list must parse");
-    CHECK(!il.ok, "ND init-list stays unsupported until task 5");
+    CHECK(il.ok, "ND init-list emits (task 5 lowering)");
     PASS();
 }
 

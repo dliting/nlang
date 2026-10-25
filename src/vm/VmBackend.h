@@ -7,6 +7,7 @@
 //Macro-generated per-node-kind Visit methods; VmBackend doubles as the
 //accessor (Access overloads below) for emission dispatch.
 #include <nlang/compiler/SyntaxNodeVisitor.h>
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
@@ -1361,6 +1362,21 @@ private:
     void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
                                 SnField* pElemField, BytecodeEmitter& emitter,
                                 uint16_t resultOffset, uint16_t valueSlot);
+    //Stage-2 ND: the rectangular-literal lowering (rank>=2 targets).
+    void EmitInitListArrayND(SnInitListExpr& initList,
+                             SnArrayTypeToken& token,
+                             BytecodeEmitter& emitter,
+                             uint16_t resultOffset);
+    void EmitNDInitListLeaves(SnInitListExpr& node,
+                              SnArrayTypeToken& token,
+                              std::vector<int32_t>& coords,
+                              uint16_t coordBase, uint16_t valueSlot,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset);
+    //Walker-side mirror of the ND literal band: rows never emit, so
+    //this is the deepest leaf claim (the band is max(rank, 1 + this)).
+    static uint16_t NDLeafPeakDepth(SnInitListExpr& init,
+                             const std::unordered_set<SnFunction*>& visited);
     void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                    SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,

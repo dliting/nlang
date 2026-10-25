@@ -1,6 +1,6 @@
 /*---
     EmitExprInitList.cpp — 集合初始化器发射：bare `[...]` / `new T{...}`
-    的数组/List/Dict/类/struct 五路目标形态（2026-09-25 自EmitExprNew.cpp拆出）。
+    的数组(ND见EmitExprInitListND)/List/Dict/类/struct 目标形态。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/BuildEnvironment.h>
@@ -19,11 +19,9 @@
 
 namespace nlang {
 
-    //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
-    //Dispatches on resolved EvalDataType:
-    //  - Array (IsArrayValued(), interned token in EvalDataType): OP_AllocArray + per-element OP_StoreElement
-    //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
-    //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
+    //Phase 8e-6: collection initializer dispatch on resolved
+    //EvalDataType — array token (rank-1 here, ND in the ND file) /
+    //List "add" / Dict "set" / Channel / user class / struct.
 void VmBackend::Access(SnInitListExpr& expr) {
     NodeKind kind = expr.Kind();
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -36,14 +34,17 @@ void VmBackend::Access(SnInitListExpr& expr) {
             "NLang backend: init list expression without a resolved target type");
     }
 
-    //---- Array form: target is T[] ----
-    //0.9.13 D-new-1: array-valued init lists carry the interned token.
+    //---- Array form (0.9.13 D-new-1: the interned token) ----
     if (initList.IsArrayValued()) {
-        //Stage-2 task-2 gate: ND init-list emission lands in task 4
-        //(the constant-rectangularity resolution lands with it).
+        //Stage-2 task-5: rank>=2 targets take the rectangular-literal
+        //lowering (the resolver validated the shape and stamped it).
         if (pTarget && pTarget->Kind() == NK_ArrayTypeToken
-            && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2)
-            { m_pEnv->Log(CLL_Error, initList.Location(), "multi-dimensional arrays are not supported yet."); return; }
+            && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2) {
+            EmitInitListArrayND(initList,
+                *static_cast<SnArrayTypeToken*>(pTarget), emitter,
+                resultOffset);
+            return;
+        }
         EmitInitListArray(initList, pTarget, emitter, resultOffset);
         return;
     }
@@ -246,11 +247,10 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         EmitInitListEntryAdd(entry, tBox, addNameIdx, resultOffset, emitter);
 }
 
-//0.10.10: stage one entry slot (a Dict key or a List/Dict value) and box
-//it in place when its declared kind is primitive — the shared shape of
-//the "add"/"set" argument slots. The pResult refresh mirrors the
-//assignment path: the box must read the staged slot, not a stale
-//accumulator left behind by the expression emission.
+//0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
+//box it in place when its declared kind is primitive — the pResult
+//refresh mirrors the assignment path: the box must read the staged
+//slot, not a stale accumulator left behind by the expression emission.
 void VmBackend::EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
                                        const BoxingTagResult& box,
                                        BytecodeEmitter& emitter) {
@@ -496,4 +496,5 @@ void VmBackend::EmitInitListMethodCallTail(uint16_t claimBase,
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
+
 } //namespace nlang

@@ -87,8 +87,14 @@ static void ResolveInferredTarget(SnField *pInferred,
     pTargetField = pInferred->EvalDataType();
     if (pTargetField
         && pTargetField->Kind() == NK_ArrayTypeToken)
-        pTargetField = static_cast<SnArrayTypeToken*>(
-            pTargetField)->ElemTypeOf();
+    {
+        //Stage-2 ND: a rank>=2 token stays the target - the
+        //rectangularity gate and the row propagation need the rank;
+        //only the rank-1 token peels to its element.
+        auto *pToken = static_cast<SnArrayTypeToken*>(pTargetField);
+        if (pToken->Rank() < 2)
+            pTargetField = pToken->ElemTypeOf();
+    }
 }
 
 //Target determination of the collection initializer (Phase 8e-6):
@@ -133,6 +139,65 @@ bool ExprResolveAccessor::ResolveInitListTarget(SnInitListExpr &sn,
         return true;
     m_Env.Log(CLL_Error, sn.Location(), kMsgInitListNoTarget);
     return false;
+}
+
+//Stage-2 ND unset-width sentinel (0 is a legal row width: [[], []]).
+static const size_t kUnsetWidth = static_cast<size_t>(-1);
+
+//One nesting level of the rectangular walk. expectedWidth carries the
+//sibling-agreed entry count at this level (kUnsetWidth = unset; the
+//first row sets it): a rectangle means every level partitions into
+//equal-width rows, and rows above the leaf level are themselves init
+//lists. True = rejected (the walk logged why).
+bool ExprResolveAccessor::RejectNDShapeLevel(SnInitListExpr &sn,
+    uint8_t rank, uint8_t level, size_t &expectedWidth)
+{
+    const auto &entries = sn.Entries();
+    if (expectedWidth == kUnsetWidth)
+        expectedWidth = entries.size();
+    else if (entries.size() != expectedWidth)
+    {
+        m_Env.Log(CLL_Error, sn.Location(),
+            "initializer rows must have equal width");
+        return true;
+    }
+    if (level >= rank)
+        return false;
+    size_t childWidth = kUnsetWidth;
+    for (auto &entry : entries)
+    {
+        auto *pRow = entry.pValue
+            ? UntypedInitListOf(*entry.pValue) : nullptr;
+        if (!pRow)
+        {
+            m_Env.Log(CLL_Error,
+                entry.pValue ? entry.pValue->Location() : sn.Location(),
+                "initializer depth does not match the declared "
+                "array rank");
+            return true;
+        }
+        if (RejectNDShapeLevel(*pRow, rank, level + 1, childWidth))
+            return true;
+    }
+    return false;
+}
+
+//Stage-2 ND: the rank>=2 array initializer's shape gate - the top
+//level must be non-empty (no inner row exists to infer dims[1] from;
+//the rank-1 `int[] a = [];` empty form keeps its legal status) and the
+//literal must be rectangular at compile time. True = rejected.
+bool ExprResolveAccessor::RejectBadNDInitListShape(SnInitListExpr &sn,
+    SnArrayTypeToken &token)
+{
+    if (sn.Entries().empty())
+    {
+        m_Env.Log(CLL_Error, sn.Location(),
+            "empty initializer gives no row to infer the dimensions "
+            "of a multi-dimensional array");
+        return true;
+    }
+    size_t topWidth = kUnsetWidth;
+    return RejectNDShapeLevel(sn, token.Rank(), 1, topWidth);
 }
 
 } //namespace nlang

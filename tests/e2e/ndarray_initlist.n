@@ -1,0 +1,17 @@
+// ND init lists: nested bracket rows with a compile-time rectangular
+// shape (nest depth == rank, uniform row widths). The array allocates
+// through OP_AllocArrayN and the leaves land through OP_StoreElementN
+// with constant row-major coordinates.
+import io;
+int main() {
+    int[,] a = [[1, 2], [3, 4]];
+    int[] dims = a.shape();
+    double[,] m = [[0.5, 1.5], [2.5, 3.5]];
+    int[,,] t = [[[1, 2]], [[3, 4]]];
+    io.print(dims[0].toString() + "x" + dims[1].toString() + " "
+        + (a[0, 0] * 10 + a[0, 1]).toString() + ","
+        + (a[1, 0] * 10 + a[1, 1]).toString() + " "
+        + m[1, 0].toString() + " " + t[1, 0, 1].toString() + " "
+        + t.toString());
+    return 0;
+}

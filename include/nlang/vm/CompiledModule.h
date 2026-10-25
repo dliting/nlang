@@ -135,7 +135,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //(classes methodIndices, structs constructorIndices, interfaces
 //staticMethodIndices). Minor bump: every .ncu recompiles with the
 //current ncc (the loader's hard floor, unchanged).
-inline constexpr uint16_t NCU_FORMAT_MINOR = 10;
+//v2.11 (stage-2 task 5): the TypeDesc array arm carries a rank byte
+//(int[,] formals/returns round-trip; the rank-less rebuild degraded
+//them to rank-1 and broke consumer indexing). Minor bump: every .ncu
+//recompiles with the current ncc (the loader's hard floor, unchanged).
+inline constexpr uint16_t NCU_FORMAT_MINOR = 11;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

@@ -512,6 +512,9 @@ private:
     void FormatArrayElement(std::string& result,
         const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
         int cells, int depth);
+    void FormatArrayNDLevel(std::string& result,
+        const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
+        size_t& flatIndex, uint8_t elemKind, int cells, int depth);
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);

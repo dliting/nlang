@@ -50,7 +50,7 @@ static constexpr size_t kMaxParamDescCount = 256;
 //  u8 kind
 //  RTK_Struct / RTK_Class : u16 typeIdx (index into the module's
 //                           structs / classes table)
-//  RTK_Array              : 1 nested element descriptor
+//  RTK_Array              : 1 nested element descriptor, then u8 rank
 //  RTK_List               : 1 nested T descriptor
 //  RTK_Dict               : 2 nested K, V descriptors
 //  RTK_Func               : u8 paramCount, then paramCount+1 nested
@@ -71,6 +71,9 @@ struct TypeDesc
 {
 	uint8_t kind = RTK_NonSerialized;
 	uint16_t typeIdx = 0xFFFF;
+	//Array arm only: 1 = T[], 2 = T[,] (kMaxArrayRank cap on the wire);
+	//every other kind keeps the default and ignores the byte.
+	uint8_t rank = 1;
 	std::vector<TypeDesc> elems;
 };
 
