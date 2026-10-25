@@ -54,9 +54,10 @@ void VmExecutor::SweepPhase() {
 }
 
 //Dead class instance's container-handle recycling (the sweep's RTK_Class
-//arm): List/Dict (Phase 8e-3/8e-4) and Mutex/Channel (K1 Slices 8/9).
-//Dropped-while-held Mutex/Channel instances leave their waiters parked
-//forever — the carrier's exit guard reports that shape.
+//arm): List/Dict (Phase 8e-3/8e-4), Mutex/Channel (K1 Slices 8/9) and
+//Semaphore (P2-1). Dropped-while-held instances of the sync primitives
+//leave their waiters parked forever — the carrier's exit guard reports
+//that shape.
 void VmExecutor::RecycleClassContainerHandles(size_t i) {
     int32_t classIdx = m_structHeap[i][0];
     //Phase 8e-3: recycle List<T> handle when a List instance is freed.
@@ -83,6 +84,13 @@ void VmExecutor::RecycleClassContainerHandles(size_t i) {
         int32_t handle = m_structHeap[i][kListHandleFieldOffset];
         if (handle > 0)
             m_channelFreeList.push_back(handle);
+    }
+    //P2-1 (v0.10.17): recycle Semaphore handle when an instance is
+    //freed (same parked-waiter hazard and exit-guard report).
+    if (static_cast<int16_t>(classIdx) == m_semaphoreClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_semaphoreFreeList.push_back(handle);
     }
 }
 

@@ -95,6 +95,7 @@ const char* ContextStateName(ContextState state) {
     case ContextState::ParkedTimer:   return "parked-timer";
     case ContextState::ParkedJoin:    return "parked-join";
     case ContextState::ParkedMutex:   return "parked-mutex";
+    case ContextState::ParkedSemaphore: return "parked-sem";
     case ContextState::ParkedChanRecv: return "parked-chan-recv";
     case ContextState::ParkedChanSend: return "parked-chan-send";
     case ContextState::BlockedNative: return "blocked-native";

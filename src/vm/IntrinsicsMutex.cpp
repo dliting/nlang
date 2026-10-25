@@ -60,7 +60,7 @@ bool VmExecutor::IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals)
             //context.
             EnsureSuspensionAllowed();
             slot->waiters.push_back(
-                MutexWaiter{selfId, MutexWaiter::Phase::kPending});
+                SyncWaiter{selfId, SyncWaiter::Phase::kPending});
             mustPark = true;
         }
     }
@@ -72,11 +72,8 @@ bool VmExecutor::IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals)
     return true;
 }
 
-//K8: the recheck half of the mutex handshake — a still-kPending entry
-//commits (kCommitted + RequestPark, [[noreturn]]; a waker in the
-//mark→steal stretch delivers through the K7 framesParked handshake),
-//a kAcquired stamp is consumed here and the caller aborts the
-//migration. A missing entry is a corrupt-table tripwire.
+//K8: the recheck half of the mutex handshake — delegates to the shared
+//stamp consumer (P2-1) with the mutex park reason.
 void VmExecutor::ConsumeMutexParkStamp(int32_t handle, int selfId)
 {
     DomainGuard g(m_domainLocks, DomainId::Sync);
@@ -84,18 +81,31 @@ void VmExecutor::ConsumeMutexParkStamp(int32_t handle, int selfId)
     if (!slot)
         throw std::runtime_error(
             "NLang VM: Mutex call on an uninitialized instance");
-    for (auto it = slot->waiters.begin(); it != slot->waiters.end();
-         ++it) {
+    ConsumeSyncWaiterStamp(slot->waiters, selfId,
+                           ParkSignal::Reason::Mutex);
+}
+
+//P2-1: the stamp-consumption core shared by the Mutex/Semaphore recheck
+//halves — a still-kPending entry commits (kCommitted + RequestPark,
+//[[noreturn]]; a waker in the mark→steal stretch delivers through the
+//K7 framesParked handshake), a kAcquired stamp is consumed here and
+//the caller aborts the migration. A missing entry is a corrupt-table
+//tripwire.
+void VmExecutor::ConsumeSyncWaiterStamp(std::deque<SyncWaiter>& waiters,
+                                        int selfId,
+                                        ParkSignal::Reason reason)
+{
+    for (auto it = waiters.begin(); it != waiters.end(); ++it) {
         if (it->contextId != selfId)
             continue;
-        if (it->phase == MutexWaiter::Phase::kPending) {
-            it->phase = MutexWaiter::Phase::kCommitted;
-            RequestPark(ParkSignal::Reason::Mutex);   //[[noreturn]]
+        if (it->phase == SyncWaiter::Phase::kPending) {
+            it->phase = SyncWaiter::Phase::kCommitted;
+            RequestPark(reason);   //[[noreturn]]
         }
-        slot->waiters.erase(it);   //consume the stamp
+        waiters.erase(it);   //consume the stamp
         return;
     }
-    throw std::runtime_error("NLang VM: mutex waiter entry vanished");
+    throw std::runtime_error("NLang VM: sync waiter entry vanished");
 }
 
 //tryLock()：空闲取之返 true，被持返 false——绝不停泊（唯一不挂起的探
@@ -144,15 +154,15 @@ bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
                 "NLang VM: Mutex.unlock without holding the lock");
         for (auto it = slot->waiters.begin(); it != slot->waiters.end();
              ++it) {
-            if (it->phase != MutexWaiter::Phase::kPending
-                && it->phase != MutexWaiter::Phase::kCommitted)
+            if (it->phase != SyncWaiter::Phase::kPending
+                && it->phase != SyncWaiter::Phase::kCommitted)
                 continue;   //stamped entries are dead mailboxes
             nextOwner = it->contextId;
-            if (it->phase == MutexWaiter::Phase::kCommitted) {
+            if (it->phase == SyncWaiter::Phase::kCommitted) {
                 slot->waiters.erase(it);
                 break;
             }
-            it->phase = MutexWaiter::Phase::kAcquired;
+            it->phase = SyncWaiter::Phase::kAcquired;
             break;
         }
         if (nextOwner < 0)

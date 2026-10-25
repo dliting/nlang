@@ -7,7 +7,7 @@
     准入——thread 与 io 等普通标准库包同轨。
     ② intrinsic 名→id 表（FindThreadIntrinsicId）：后端给
     stdlib/thread.n 的 native 记录盖 intrinsic 章用。
-    ③ Mutex 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
+    ③ Mutex/Semaphore 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
     ＋流方法族尾态（调用方作用域实参解析、void 不留类型），发射走
     OP_CallMethod-by-name 既有轨。Channel<T> 方法走泛型容器方法族
     （ExprResolverMemberContainer.cpp）。
@@ -132,7 +132,7 @@ bool ExprResolveAccessor::BindThreadSpawnCall(SnMemberExpr &snMember,
 	return true;
 }
 
-//--- 同步原语方法（Mutex） ------------------------------------------
+//--- 同步原语方法（Mutex/Semaphore） ---------------------------------
 
 //Fixed call shapes of the K1 sync-primitive surface: SyncMethodShape
 //lives in ThreadNamespace.h (shared with the accessor declaration).
@@ -155,13 +155,28 @@ static bool ClassifySyncPrimitiveMethod(const std::string& className,
 			return true;
 		}
 	}
+	//P2-1: the native counting semaphore — the Mutex method triple's
+	//counterpart (acquire/release/tryAcquire).
+	if (className == "Semaphore")
+	{
+		if (methodName == "acquire" || methodName == "release")
+		{
+			rShape = {0, NK_Void};
+			return true;
+		}
+		if (methodName == "tryAcquire")
+		{
+			rShape = {0, NK_Bool};
+			return true;
+		}
+	}
 	return false;
 }
 
-//Mutex member calls. The synthesized SnClassDecl has no method
-//members, so resolution is by name against the shape table (the stream
-//family's arrangement); emission rides OP_CallMethod-by-name the same
-//way.
+//Mutex/Semaphore member calls. The synthesized SnClassDecl has no
+//method members, so resolution is by name against the shape table (the
+//stream family's arrangement); emission rides OP_CallMethod-by-name the
+//same way.
 bool ExprResolveAccessor::TryResolveSyncPrimitiveMethod(
 	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
 	SyntaxNode *pSavedContext)
@@ -172,7 +187,7 @@ bool ExprResolveAccessor::TryResolveSyncPrimitiveMethod(
 		return false;
 	auto* pClass = static_cast<SnClassDecl*>(m_pContext);
 	const std::string className = pClass->Name();
-	if (className != "Mutex")
+	if (className != "Mutex" && className != "Semaphore")
 		return false;
 	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 	SyncMethodShape shape;

@@ -76,7 +76,8 @@ inline thread_local GilHolder* t_gilOwner = nullptr;
 //它不是错误，任何按 std::exception 捕获的位点不得拦截；RunFrames 的
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
-    enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend };
+    enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend,
+                        Semaphore };
     Reason reason;
     explicit ParkSignal(Reason r) : reason(r) {}
 };
@@ -126,6 +127,7 @@ enum class ContextState {
     ParkedTimer,     //Slice 7：sleep 停泊，wakeAt 到期唤醒
     ParkedJoin,      //Slice 6：join 目标未完成停泊
     ParkedMutex,     //Slice 8：锁竞争停泊
+    ParkedSemaphore, //P2-1 (v0.10.17)：零许可acquire停泊
     ParkedChanRecv,  //Slice 9：空通道接收停泊
     ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
     BlockedNative,   //K2 slice 4：载体在阻塞原生中（帧已窃入 ctx、
@@ -300,6 +302,14 @@ public:
     //互斥唤醒（Slice 8）：unlock 把所有权移交给队首等待者后调用——回
     //Runnable 入队尾。
     void WakeForMutex(int id);
+
+    //P2-1 (v0.10.17)：信号量停泊——state → ParkedSemaphore。等待者集合
+    //在执行器的 SemaphoreSlot 侧表（FIFO）——调度器不记 parkHandle，
+    //唤醒只经 WakeForSemaphore（release 的许可移交触发）。
+    void ParkForSemaphore(int id);
+    //P2-1：唤醒停泊获取者——release 把许可移交给队首等待者后调用——
+    //回 Runnable 入队尾（WakeForMutex 形态）。
+    void WakeForSemaphore(int id);
 
     //通道接收停泊（Slice 9）：state → ParkedChanRecv。等待者集合在执
     //行器的 ChannelSlot 侧表（FIFO，各携带唤醒时写值的目标指针）——

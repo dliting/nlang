@@ -1100,7 +1100,31 @@ private:
     //K8: the recheck half of the mutex handshake — commit a kPending
     //entry (RequestPark follows, [[noreturn]]) or consume a kAcquired
     //stamp (the caller aborts the migration).
+    struct SyncWaiter;   //defined beside the side-table members below
     void ConsumeMutexParkStamp(int32_t handle, int selfId);
+    //P2-1: the stamp-consumption core shared by the Mutex/Semaphore
+    //recheck halves — both stores hold SyncWaiter deques.
+    void ConsumeSyncWaiterStamp(std::deque<SyncWaiter>& waiters,
+                                int selfId, ParkSignal::Reason reason);
+    //P2-1 (v0.10.17): Semaphore method intrinsics
+    //(IntrinsicsSemaphore.cpp). acquire parks FIFO at zero permits (the
+    //two-phase handshake, Mutex shape — release hands the permit to
+    //the front waiter instead of counting up); tryAcquire never parks;
+    //release with no waiter counts up (over-release is legal).
+    struct SemaphoreSlot;   //defined beside the side-table members below
+    bool IntrinsicSemaphoreCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreAcquire(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreRelease(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreTryAcquire(uint16_t callParamBase,
+                                      uint8_t* locals, uint8_t* pResult);
+    //The allocator takes the initial count (the AllocChannelHandle
+    //capacity shape: the slot write shares the allocation's Sync
+    //section — a concurrent growth reallocates the store vector).
+    int32_t AllocSemaphoreHandle(int initialCount);
+    //P2-1: the semaphore store lookup + recheck half (the
+    //ConsumeMutexParkStamp shapes over m_semaphoreStore).
+    SemaphoreSlot* SyncSemaphoreSlotAt(int32_t handle);
+    void ConsumeSemaphoreParkStamp(int32_t handle, int selfId);
     //K1 Slice 9 / K8: Channel method intrinsics (IntrinsicsChannel.cpp).
     //send parks when bounded and full, recv parks on an empty open
     //channel (the result is written at WAKE time through the saved
@@ -1754,18 +1778,32 @@ private:
     //kPending entries and deliver to kCommitted entries; exactly one
     //party consumes each entry: stamped → its aborting parker, committed
     //→ its delivering waker.
-    struct MutexWaiter {
+    struct SyncWaiter {   //P2-1: renamed from MutexWaiter — one waiter
+                          //shape shared by the Mutex/Semaphore stores
         enum class Phase : uint8_t { kPending, kAcquired, kCommitted };
         int contextId;
         Phase phase = Phase::kPending;
     };
     struct MutexSlot {
         int ownerId = -1;
-        std::deque<MutexWaiter> waiters;   //FIFO arrival order
+        std::deque<SyncWaiter> waiters;   //FIFO arrival order
     };
     std::vector<MutexSlot> m_mutexStore;     //index = handle-1 (0 reserved for null)
     std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
     int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
+
+    //P2-1 (v0.10.17): Semaphore side table. count = available permits;
+    //waiters are the FIFO parked acquirers (SyncWaiter, shared with the
+    //Mutex store). Invariant: a live waiter implies count ==
+    //0 — release hands the permit straight to the front waiter, it
+    //never counts up past one.
+    struct SemaphoreSlot {
+        int count = 0;
+        std::deque<SyncWaiter> waiters;   //FIFO arrival order
+    };
+    std::vector<SemaphoreSlot> m_semaphoreStore;   //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>       m_semaphoreFreeList;  //recycled slots after GC sweep
+    int16_t m_semaphoreClassIdx = -1;         //set when "Semaphore" CompiledClass is located
 
     //K1 Slice 9 / K8: Channel side table. buffered holds element values
     //as heap idxs (boxed primitives or class refs) in FIFO order; live
@@ -1774,7 +1812,7 @@ private:
     //front live waiter directly instead of buffering). GC traces
     //buffered through MarkChannelElements; waiters hold raw pointers,
     //never heap idxs.
-    //K8 two-phase park handshake (same shape as MutexWaiter): kValue —
+    //K8 two-phase park handshake (same shape as SyncWaiter): kValue —
     //a value was written through resultPtr (send handoff or close
     //draining the buffer); kClosed — close chose the exception outcome
     //(the aborting parker raises it locally; the delivering waker arms

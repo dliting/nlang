@@ -9,9 +9,9 @@ namespace nlang {
 
 VmExecutor::~VmExecutor() = default;
 
-//The four container side tables (List/Dict/Mutex/Channel) share one
-//reset shape: clear store + free list, cache the builtin class index
-//(absent class → -1 sentinel).
+//The container side tables (List/Dict/Mutex/Channel/Semaphore) share
+//one reset shape: clear store + free list, cache the builtin class
+//index (absent class → -1 sentinel).
 template <typename Store>
 static void ResetContainerSideTable(Store& store,
                                     std::vector<int32_t>& freeList,
@@ -66,6 +66,8 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
                             "Mutex", &m_mutexClassIdx);
     ResetContainerSideTable(m_channelStore, m_channelFreeList, module,
                             kBuiltinChannelTypeName, &m_channelClassIdx);
+    ResetContainerSideTable(m_semaphoreStore, m_semaphoreFreeList, module,
+                            "Semaphore", &m_semaphoreClassIdx);
     CacheBuiltinClassIndexes(module);
 }
 

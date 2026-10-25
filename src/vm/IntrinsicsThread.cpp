@@ -116,6 +116,15 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
             return IntrinsicChannelRecv(callParamBase, locals, pResult);
         case INTR_Channel_Close:
             return IntrinsicChannelClose(callParamBase, locals);
+        case INTR_Semaphore_Ctor:
+            return IntrinsicSemaphoreCtor(callParamBase, locals);
+        case INTR_Semaphore_Acquire:
+            return IntrinsicSemaphoreAcquire(callParamBase, locals);
+        case INTR_Semaphore_Release:
+            return IntrinsicSemaphoreRelease(callParamBase, locals);
+        case INTR_Semaphore_TryAcquire:
+            return IntrinsicSemaphoreTryAcquire(callParamBase, locals,
+                                                pResult);
         default:
             return false;
         }

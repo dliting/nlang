@@ -35,6 +35,7 @@ static SnClassDecl* s_pChannelClosedExcClass = nullptr;  //K3: ChannelClosedExce
 //instantiation minted by GetGenericClassDecl.
 static SnClassDecl* s_pThreadClass = nullptr;
 static SnClassDecl* s_pMutexClass = nullptr;
+static SnClassDecl* s_pSemaphoreClass = nullptr;  //P2-1: native Semaphore
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -80,6 +81,7 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		: (name == "ChannelClosedException") ? s_pChannelClosedExcClass
 		: (name == "Thread") ? s_pThreadClass
 		: (name == "Mutex") ? s_pMutexClass
+		: (name == "Semaphore") ? s_pSemaphoreClass
 		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
 	if (!rpRef)
 	{

@@ -35,6 +35,33 @@ void VmScheduler::WakeForMutex(int id) {
     m_runQueueCv.notify_all();
 }
 
+//P2-1 (v0.10.17)：信号量停泊——仅状态迁移（ParkForMutex 形态）——等
+//待者集合在执行器的 SemaphoreSlot 侧表（FIFO），唤醒由 release 的许可
+//移交显式触发（WakeForSemaphore）。
+void VmScheduler::ParkForSemaphore(int id) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedSemaphore;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行。
+    NotifyGateWaiters();
+}
+
+//P2-1：信号量唤醒——回 Runnable；已完成停泊者入队尾（K7 握手，见
+//ExecutionContext::framesParked；WakeForMutex 形态）。
+void VmScheduler::WakeForSemaphore(int id) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    if (ctx->framesParked)
+        m_runQueue.push_back(id);
+    m_runQueueCv.notify_all();
+}
+
 //通道接收停泊（Slice 9）：仅状态迁移——等待者集合（含各等待者的结果
 //写回指针）在执行器的 ChannelSlot 侧表，唤醒由 send 的直接交付或
 //close 的全员唤醒显式触发（WakeForChanRecv）。

@@ -186,6 +186,15 @@ const BuiltinMethod s_MutexMethods[] = {
     {"tryLock", INTR_Mutex_TryLock, 1, RTK_Bool},
 };
 
+//P2-1 (v0.10.17): native Semaphore — counting permits. acquire parks
+//FIFO at zero (release hands the permit to the front waiter, the Mutex
+//handoff shape); tryAcquire never parks; over-release is legal.
+const BuiltinMethod s_SemaphoreMethods[] = {
+    {"acquire",    INTR_Semaphore_Acquire,    1, RTK_Void},
+    {"release",    INTR_Semaphore_Release,    1, RTK_Void},
+    {"tryAcquire", INTR_Semaphore_TryAcquire, 1, RTK_Bool},
+};
+
 const BuiltinMethod s_ChannelMethods[] = {
     {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
     {"recv",  INTR_Channel_Recv,  1, RTK_Int32},  //this; returns T
@@ -272,6 +281,12 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"ChannelClosedException", BSR_ExceptionBase, nullptr, 0,
         true, INTR_ChannelClosedException_Ctor,
         2, nullptr, 0, BIDX_ChannelClosedExc},
+    //P2-1 (v0.10.17): native Semaphore — appended at the END like the
+    //blocks above (existing class indices stay stable for the .ncu);
+    //ctor is (this, initial) — the Channel capacity shape.
+    {"Semaphore", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
+        true, INTR_Semaphore_Ctor, 2,
+        s_SemaphoreMethods, std::size(s_SemaphoreMethods), BIDX_None},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.

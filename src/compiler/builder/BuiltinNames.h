@@ -32,10 +32,13 @@ inline bool IsBuiltinExceptionClassName(const std::string& name)
 //`thread` NAMESPACE is a different surface — ThreadNamespace.h). K1
 //Slice 9: Channel left the set — it is generic-only (Channel<T>); the
 //element type decides boxing, so the bare name is not a type.
+//P2-1 (v0.10.17): Semaphore joins — the native counting-semaphore
+//builtin (mirrors Mutex; the stdlib concurrent package drops its
+//spinning class in the same version).
 inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream" || name == "Object"
-		|| name == "Thread" || name == "Mutex"
+		|| name == "Thread" || name == "Mutex" || name == "Semaphore"
 		|| IsBuiltinExceptionClassName(name);
 }
 
