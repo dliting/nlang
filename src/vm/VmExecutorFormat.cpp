@@ -210,7 +210,7 @@ void VmExecutor::FormatArrayNDLevel(std::string& result,
     size_t& flatIndex, uint8_t elemKind, int cells, int depth) {
     result += "[";
     const int32_t n = slot[4 + level];
-    const size_t base = ArrayHeaderCells(rank);
+    const size_t base = ArrayPayloadBase(slot);
     for (int32_t i = 0; i < n; ++i) {
         if (i > 0) result += ", ";
         if (level + 1 < rank) {

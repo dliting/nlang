@@ -925,8 +925,8 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5; (void)$7;
-						$1->push_back({*$3, nullptr});
+						(void)$7;
+						$1->push_back({*$3, nullptr, nullptr, $5});
 						$$ = $1;
 					} |
 					LocalDeclList ',' TT_Identifier '[' Expression
@@ -935,8 +935,8 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5; (void)$7;
-						$1->push_back({*$3, $10});
+						(void)$7;
+						$1->push_back({*$3, $10, nullptr, $5});
 						$$ = $1;
 					} |
 					LocalDeclList ',' TT_Identifier '[' Expression
@@ -945,8 +945,8 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$5; (void)$7;
-						$1->push_back({*$3, $10});
+						(void)$7;
+						$1->push_back({*$3, $10, nullptr, $5});
 						$$ = $1;
 					} |
 					TT_Identifier '=' Expression {
@@ -998,15 +998,18 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$$->push_back({*$1, $6, nullptr, $3});
 					} |
 					//0.11.3: comma sizes parse so the parser can name the
-					//C-style form and point at the creation twin.
+					//C-style form and point at the creation twin. The first
+					//size rides the array-size payload (0.10.7 D3 precedent)
+					//so the subtree joins the owning AST; the dropped
+					//ConcreteParamList follows parser error-path ownership.
 					TT_Identifier '[' Expression ',' ConcreteParamList ']' {
 						parser.Log(CLL_Error, @4,
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$3; (void)$5;
+						(void)$5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
-						$$->push_back({*$1, nullptr});
+						$$->push_back({*$1, nullptr, nullptr, $3});
 					} |
 					TT_Identifier '[' Expression ',' ConcreteParamList ']'
 					'=' Expression {
@@ -1014,9 +1017,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$3; (void)$5;
+						(void)$5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
-						$$->push_back({*$1, $8});
+						$$->push_back({*$1, $8, nullptr, $3});
 					} |
 					TT_Identifier '[' Expression ',' ConcreteParamList ']'
 					'=' BracedInitExpr {
@@ -1024,9 +1027,9 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 							"array declarations take one size per "
 							"bracket; multi-dimensional arrays use the "
 							"creation expression int[2, 3]");
-						(void)$3; (void)$5;
+						(void)$5;
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
-						$$->push_back({*$1, $8});
+						$$->push_back({*$1, $8, nullptr, $3});
 					} |
 					TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();

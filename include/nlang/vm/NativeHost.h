@@ -20,8 +20,6 @@
 
 #include <stdint.h>
 
-#include <nlang/runtime/Config.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,7 +43,11 @@ extern "C" {
 // the argument record is rooted for the call) and newArray (mint a
 // scalar-element array). The exception selector gained the
 // NullPointer/OutOfBounds/DivideByZero families so native code raises
-// the same catchable classes the language runtime does.
+// the same catchable classes the language runtime does. Version 7:
+// strides moved into the view itself (NativeArrayView.stridesInline —
+// the v6 host-wide scratch buffer let a second live view overwrite the
+// first's strides); ArgArray became an out-param because the view's
+// strides pointer now points into itself.
 #define NLANG_HOST_ABI_VERSION 7u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
@@ -113,7 +115,7 @@ typedef struct NativeArrayView {
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
     uint8_t reserved[2];
-    int32_t stridesInline[nlang::kMaxArrayRank];  // ABI v7: strides points here
+    int32_t stridesInline[8];  // = kMaxArrayRank (asserted below); ABI v7: strides points here
     void* data;
 } NativeArrayView;
 
@@ -233,6 +235,13 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
 
 #include <cstring>
 #include <string>
+
+#include <nlang/runtime/Config.h>
+
+//The core struct stays C-compatible (plain [8]); this pins the coupling.
+static_assert(nlang::kMaxArrayRank == 8,
+    "NativeArrayView.stridesInline must track kMaxArrayRank "
+    "(bump NLANG_HOST_ABI_VERSION when it changes)");
 
 namespace nlang {
 namespace native {

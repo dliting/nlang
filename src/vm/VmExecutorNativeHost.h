@@ -8,7 +8,6 @@
 // This header is private to src/vm. It only forward-declares VmExecutor to
 // avoid a cycle with VmExecutor.h.
 
-#include "nlang/vm/CompiledModule.h"  //kMaxArrayRank
 #include "nlang/vm/NativeHost.h"
 
 #include <cstdint>

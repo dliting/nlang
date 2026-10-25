@@ -272,6 +272,27 @@ void test_decl_comma_size_named_reject()
         "}\n");
     CHECK(!cont.ok && DiagHas(cont, msg),
         "continuation declarator must name the creation twin");
+    const BuildOutcome binit = buildSource("nd_declsize_binit",
+        "int main() {\n"
+        "    int a[2, 3] = {1};\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!binit.ok && DiagHas(binit, msg),
+        "brace-initializer comma-size must name the creation twin");
+    const BuildOutcome cinit = buildSource("nd_declsize_cinit",
+        "int main() {\n"
+        "    int x = 1, a[2, 3] = 2;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!cinit.ok && DiagHas(cinit, msg),
+        "continuation with initializer must name the creation twin");
+    const BuildOutcome cbinit = buildSource("nd_declsize_cbinit",
+        "int main() {\n"
+        "    int x = 1, a[2, 3] = {1};\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!cbinit.ok && DiagHas(cbinit, msg),
+        "continuation with brace initializer must name the creation twin");
     PASS();
 }
 

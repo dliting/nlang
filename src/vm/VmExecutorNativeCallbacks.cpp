@@ -94,6 +94,10 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
     //v6 host scratch let a second view corrupt the first's.
     const int32_t rank = record[2];
     const int64_t elemCount = record[3];
+    //Validate before touching caller memory: ArrayPayloadBase throws on a
+    //corrupt rank/size. ABI v7 moved the strides buffer into the caller's
+    //struct, so the loop below must not run on an unvalidated rank.
+    const size_t payloadBase = ArrayPayloadBase(record);
     int32_t stride = 1;
     for (int32_t d = rank - 1; d >= 0; --d)
     {
@@ -109,7 +113,7 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = 0;
     out->reserved[1] = 0;
-    out->data = record.data() + ArrayPayloadBase(record);   //payload base
+    out->data = record.data() + payloadBase;   //payload base
     return 1;
 }
 

@@ -1,4 +1,4 @@
-// NativeHost ABI v6 array-access unit tests: real VmExecutor + real heap
+// NativeHost ABI v7 array-access unit tests: real VmExecutor + real heap
 // arrays. Bare-name natives registered in-process exercise getArrayView
 // (view fields, payload read/write round-trip, empty arrays, null handle)
 // and newArray (mint + fill + negative-length rejection). Mirrors
@@ -125,7 +125,7 @@ static int runSourceWithNatives(const std::string& tag,
     }
 }
 
-//--- bare-name test natives (ABI v6 exercise) --------------------------------
+//--- bare-name test natives (ABI v7 exercise) --------------------------------
 
 //int natTwoViewsStrideIndependence(int[,] a, int[,,] b) — two live views
 //must own their strides storage: the v6 host scratch let the second
