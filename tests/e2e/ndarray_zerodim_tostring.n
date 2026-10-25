@@ -1,0 +1,16 @@
+// ndarray_zerodim_tostring.n — zero-element dimensions still render the
+// nesting: int[3,0] is "[[], [], []]", int[0,3] has no rows ("[]"),
+// and rank-1 int[0] stays "[]" (no nesting to show).
+import io;
+int main() {
+    int[,] a = int[3, 0];
+    int[,] b = int[0, 3];
+    int[] c = int[0];
+    int[,,] d = int[2, 0, 3];
+    if (a.toString() == "[[], [], []]" && b.toString() == "[]"
+        && c.toString() == "[]" && d.toString() == "[[], []]")
+        return 7;
+    io.print(a.toString());
+    io.print(d.toString());
+    return 1;
+}

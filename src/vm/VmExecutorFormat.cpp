@@ -233,15 +233,13 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
             "NLang VM: toString depth limit exceeded");
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    //Stage-2 header: rank-1 arrays only reach this formatter today
-    //(ND nests in task 5); elemCount lives in slot[3].
     int32_t length = slot[3];
     uint8_t elemKind = RTK_Int32;
     if (arrayTypeIdx < m_currModule->arrayTypes.size())
         elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
-    if (length <= 0) return "[]";
     //Stage-2 ND: rank>=2 records carry the dims in the header over one
-    //flat row-major payload — the brackets nest per dim level.
+    //flat row-major payload — the brackets nest per dim level, and a
+    //zero dim still shows its nesting (int[3,0] is "[[], [], []]").
     const uint8_t rank = static_cast<uint8_t>(slot[2]);
     if (rank >= 2) {
         std::string result;
@@ -250,6 +248,7 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
             ArrayElemCells(elemKind), depth);
         return result;
     }
+    if (length <= 0) return "[]";
     std::string result = "[";
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < length; ++i) {
