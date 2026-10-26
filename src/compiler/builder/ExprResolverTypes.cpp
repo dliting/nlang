@@ -394,8 +394,42 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	BindArrayTypeToken(idExpr);
 }
 
+SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
+	const std::string &name)
+{
+	SnNamespace *pRoot = TheAST().Root();
+	if (!pRoot)
+		return nullptr;
+	auto range = pRoot->Members().NameDict().equal_range(name);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		SnField &member = *iField->second;
+		if (member.Kind() != NK_ClassDecl)
+			continue;
+		const uint32_t owner = reg.OwnerOf(member);
+		if (owner != ModuleRegistry::NO_OWNER && reg.IsPreludeModule(owner))
+			return static_cast<SnClassDecl *>(&member);
+	}
+	return nullptr;
+}
+
+void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
+	const ModuleRegistry &reg)
+{
+	if (sn.SuperName() || sn.SuperClass())
+		return;
+	SnClassDecl *pObject = FindPreludeClassDecl(reg, "Object");
+	if (!pObject || pObject == &sn)
+		return;
+	sn.SuperClass(pObject);
+}
+
 void ExprResolveAccessor::Access(SnClassDecl &sn)
 {
+	//Builtin-decls source of truth: a baseless class inherits the
+	//prelude-declared Object (both resolver passes call this — the
+	//statement pass needs the chain live for virtual propagation).
+	EnsureImplicitObjectSuperclass(sn, m_Env.Registry());
 	//Resolve super class reference.
 	if (sn.SuperName())
 	{

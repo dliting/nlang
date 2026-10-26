@@ -3,8 +3,10 @@
 // These methods have no real SnFunction, so argument names cannot bind to
 // parameters — pre-fix the named value fell to codegen's expression
 // fallback and silently emitted ConstZero (Dict.set keys became 0,
-// List.add stored 0, equals compared garbage). All five shapes in one file:
-// the resolver reports every error before the build fails.
+// List.add stored 0, equals compared garbage). Four true intrinsics in one
+// file; the fifth shape (class equals) resolved as a declared method since
+// the builtin-decls migration (named arguments bind there) and stays only
+// as a parity witness — the file's rejection comes from the four above.
 struct Point { int x; int y; }
 class Box { int v; }
 

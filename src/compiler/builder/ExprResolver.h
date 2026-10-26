@@ -163,6 +163,9 @@ const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 //Reference-only use below; definition in ScriptLocation.h.
 class ScriptLocation;
 
+//Reference-only use below; definition in ModuleRegistry.h.
+class ModuleRegistry;
+
 //Helpers shared across the ExprResolver*.cpp TUs (2026-09-25/26 splits).
 //Definitions live across those TUs; builder-internal.
 bool HasNamedArgument(SnInvokeExpr& invoke);
@@ -465,15 +468,11 @@ private:
 	bool TryResolveBuiltinMethodFamilies(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
-	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//0.9.10 D2.4: type-name receiver in the Object protocol arm with no
-	//same-name static — the call is an instance call with no receiver.
-	//Logs the diagnostic, restores the context, returns true.
+	//0.9.10 D2.4: type-name receiver calling an instance method with no
+	//same-name static — kept for the non-class toString family's enum
+	//type-name guard. Logs the diagnostic, restores the context, returns
+	//true.
 	bool RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
-		const std::string &name, SyntaxNode *pSavedContext);
-	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, SyntaxNode *pSavedContext);
 	bool IsNonClassToStringReceiver(SnMemberExpr &snMember);
 	bool TryResolveNonClassToString(SnMemberExpr &snMember,
@@ -1293,5 +1292,25 @@ private:
 	ExprResolveAccessor m_Accessor;
 	SyntaxNodeVisitor<ExprResolveAccessor> m_Visitor;
 };
+
+/*
+Builtin-decls source of truth: the prelude-owned root declaration of a
+builtin class name. Scans the merged root namespace for the class the
+"builtins" package owns — never a user shadow, which sits ahead of the
+prelude in the root and must not become other classes' base. Null = the
+prelude has no such class. Definition in ExprResolverTypes.cpp.
+*/
+SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
+	const std::string &name);
+
+/*
+Every class without a declared base inherits the prelude-declared
+Object — the compile-time chain mirror of the backend's implicit-
+inheritance wiring. Idempotent per class (both resolver passes call
+it); the prelude Object itself is the one class that stays rootless.
+Definition in ExprResolverTypes.cpp.
+*/
+void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
+	const ModuleRegistry &reg);
 
 } //namespace nlang

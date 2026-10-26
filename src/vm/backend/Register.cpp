@@ -145,7 +145,6 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_funcIndexMap.clear();
     m_enumIndexMap.clear();
     m_structFieldTypes.clear();
-    m_objectClassIdx = -1;
     m_listClassIdx = -1;
     m_dictClassIdx = -1;
     m_defaultEmitting.clear();

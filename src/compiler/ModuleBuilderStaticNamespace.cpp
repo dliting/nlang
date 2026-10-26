@@ -2,10 +2,10 @@
 ModuleBuilderStaticNamespace.cpp - static-member name rules of the
 method-contract check family (0.9.10 D2.4): statics live in a separate
 namespace from instance dispatch, but a same-parameter-list static
-still claims the dispatch slot of an inherited virtual method or of an
-Object protocol method. Split from ModuleBuilderMethodContracts.cpp
-(2026-10-18 source-size split); the static/instance namespace rule is
-the 0.9.10 behavior change itself.
+still claims the dispatch slot of an inherited virtual method. Split
+from ModuleBuilderMethodContracts.cpp (2026-10-18 source-size split);
+the static/instance namespace rule is the 0.9.10 behavior change
+itself.
 ---*/
 
 #include "ModuleBuilder.h"
@@ -87,14 +87,15 @@ bool CheckStaticVirtualCollision(SnClassDecl &cls,
 } //namespace
 
 //Per-name static-family rules (0.9.10 D2.4): a same-parameter-list
-//static still collides with an inherited virtual method or with an
-//Object protocol slot; every other static shape is contract-orthogonal.
+//static still collides with an inherited virtual method — including
+//the declared Object's protocol methods, which the chain walk reaches
+//like any other base class since the builtin-decls migration (the
+//former hardcoded protocol table is gone). Every other static shape is
+//contract-orthogonal.
 bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
 	const std::vector<SnFunction*> &funcs, BuildEnvironment &env)
 {
-	if (CheckStaticVirtualCollision(cls, name, funcs, env))
-		return true;
-	return CheckObjectProtocol(cls, name, funcs, env);
+	return CheckStaticVirtualCollision(cls, name, funcs, env);
 }
 
 } //namespace nlang

@@ -175,11 +175,12 @@ void TypeCastInfo::CalcCastKind()
 			m_Kind = TCK_None;
 			return;
 		}
-		//Phase 8e-1: implicit upcast to Object. Object is the universal root
-		//at the VM level (VmBackend injects superClassIdx=Object's idx for
-		//every user class with no explicit parent), but the AST-level
-		//SnClassDecl::SuperClass() chain doesn't include Object. Special-case
-		//it here: any class → Object = TCK_Same (no-op, same heap idx).
+		//Phase 8e-1: implicit upcast to Object — TCK_Same (no-op, same heap
+		//idx). User classes reach the declared Object through the generic
+		//chain walk below since the builtin-decls migration; this name
+		//check stays for the sources whose AST chain STOPS SHORT of it:
+		//the synthesized builtin stubs (ByteStream/FileStream) and generic
+		//instantiation decls carry no AST SuperClass().
 		if (m_pTarget && m_pTarget->Name() == "Object")
 		{
 			m_Kind = TCK_Same;
@@ -213,7 +214,10 @@ void TypeCastInfo::CalcCastKind()
 		}
 		//Phase 8e-1.5: implicit downcast from Object. Symmetric to the
 		//upcast special-case above: Object → any user class is a downcast
-		//(runtime-checked via OP_CheckCast in `o as Foo`).
+		//(runtime-checked via OP_CheckCast in `o as Foo`). The name check
+		//(not the target chain walk) covers the user classes whose chain
+		//stops at a synthesized stub — a stub's SuperClass() never names
+		//the declared Object.
 		if (m_pSource && m_pSource->Name() == "Object")
 		{
 			m_Kind = TCK_Downcast;
@@ -264,7 +268,7 @@ void TypeCastInfo::CalcCastKind()
 		//Must be checked BEFORE the generic null-literal rule below so that
 		//`Object o = 5` produces TCK_Box (and emits OP_Box), not TCK_Auto
 		//(which would skip boxing entirely and store the raw int).
-		//Object is recognized by name ("Object") since it has no AST parent.
+		//Primitives have no class chain, so Object is recognized by name.
 		if ((ScalarPrimIndexOf(srcKind) >= 0 || srcKind == NK_String)
 			&& tgtKind == NK_ClassDecl
 			&& m_pTarget && m_pTarget->Name() == "Object")

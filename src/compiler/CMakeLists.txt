@@ -65,7 +65,6 @@ add_library(nlang_compiler
     ModuleBuilderImports.cpp
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
-    ModuleBuilderObjectProtocol.cpp
     ModuleBuilderStaticNamespace.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp

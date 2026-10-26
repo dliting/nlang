@@ -1,7 +1,9 @@
 /*---
-    BuiltinClasses.cpp — 内建类注册表：Object/流族/List/Dict/异常族的数据表与单一登记循环。
+    BuiltinClasses.cpp — 内建类注册表：流族/List/Dict 的数据表与单一登记循环。
     RegisterBuiltinClasses 表驱动化（2026-09-26 可维护性重构，零行为变化：
     行序即注册序，类/函数索引由它派生，golden 对拍覆盖）。
+    Object 随内建类真源化退役：协议方法由 stdlib/builtins.n 的声明类
+    提供，隐式继承在 ApplyImplicitObjectInheritance 里按裸键解析。
 ---*/
 #include "VmBackend.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
@@ -37,19 +39,21 @@ struct BuiltinField {
 };
 
 //Superclass source. BSR_ImplicitObject writes -1, which
-//ApplyImplicitObjectInheritance later resolves to Object (its name guard
-//keeps the Object row itself at -1). The declared Exception family lives
-//in stdlib/builtins.n — its records arrive through the normal declared-
-//class emission, not this table.
+//ApplyImplicitObjectInheritance later resolves to the declared prelude
+//Object record (its name guard keeps classes NAMED "Object" at -1).
+//The declared Exception family and Object live in stdlib/builtins.n —
+//their records arrive through the normal declared-class emission, not
+//this table.
 enum BuiltinSuperRef : int8_t {
     BSR_ImplicitObject,
 };
 
 //Which VmBackend index member captures this class's CompiledClass index
 //(the tail switch in RegisterBuiltinClasses). BIDX_None captures nothing.
-//The Exception family left the table — declared in stdlib/builtins.n.
+//The Exception family and Object left the table — declared in
+//stdlib/builtins.n.
 enum BuiltinIdxMember : uint8_t {
-    BIDX_None, BIDX_Object, BIDX_List, BIDX_Dict,
+    BIDX_None, BIDX_List, BIDX_Dict,
 };
 
 struct BuiltinClassDecl {
@@ -57,25 +61,12 @@ struct BuiltinClassDecl {
     BuiltinSuperRef superRef;
     const BuiltinField* fields;
     size_t fieldCount;
-    bool hasCtor;             //Object alone has no ctor function
+    bool hasCtor;             //no ctor stub when false (Future)
     uint16_t ctorIntrinsicId;
     uint16_t ctorParamCount;  //includes the `this` slot
     const BuiltinMethod* methods;
     size_t methodCount;
     BuiltinIdxMember idxMember;
-};
-
-//Object — root of the class hierarchy: no fields, no ctor; the three
-//protocol intrinsics every class inherits (name-dispatched at runtime
-//through the no-AST-callee codegen path — they are not AST-declared
-//virtuals, so the methodVirtual wire byte stays 0). Method order here is the
-//cc.methodIndices order. (toString's intrinsic *numeric ID* is
-//non-contiguous — 61, not 44 — because List/Dict intrinsics were
-//allocated before that phase; only the ID, not the order.)
-const BuiltinMethod s_ObjectMethods[] = {
-    {"equals",      INTR_Object_Equals,      2, RTK_Int32},
-    {"getHashCode", INTR_Object_GetHashCode, 1, RTK_Int32},
-    {"toString",    INTR_Object_toString,    1, RTK_String},
 };
 
 //Hidden __handle field shared by the stream/container builtins (index
@@ -185,8 +176,6 @@ const BuiltinMethod s_FutureMethods[] = {
 //class and function indices derive from it, so any reorder changes the
 //serialized .ncu (golden compare guards this).
 const BuiltinClassDecl s_BuiltinClassDecls[] = {
-    {"Object",     BSR_ImplicitObject, nullptr, 0, false, 0, 0,
-        s_ObjectMethods, std::size(s_ObjectMethods), BIDX_Object},
     {"ByteStream", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         true, INTR_BS_Ctor, 1,
         s_ByteStreamMethods, std::size(s_ByteStreamMethods), BIDX_None},
@@ -242,7 +231,7 @@ uint16_t PushBuiltinMethodFunc(CompiledModule& module,
 
 //One BuiltinClassDecl row → its CompiledClass record (fields, ctor stub,
 //method stubs). 0.9.11 (v2.6): plural ctor record — a builtin declares at
-//most one ctor, so the vector holds zero or one index (no ctor: Object).
+//most one ctor, so the vector holds zero or one index (no ctor: Future).
 //0.9.12 (v2.7): the access/virtuality byte arrays stay parallel to the
 //index arrays for wire symmetry. Built-in members are intrinsics, not
 //source declarations: they are public and never AST-virtual (their
@@ -277,15 +266,14 @@ CompiledClass BuildBuiltinClass(CompiledModule& module,
 } //namespace
 
 void VmBackend::RegisterBuiltinClasses() {
-    //Every row expands to one CompiledClass plus a ctor stub (except
-    //Object) and method stubs, each with intrinsicId set so
+    //Every row expands to one CompiledClass plus a ctor stub (ctor-less
+    //rows: Future) and method stubs, each with intrinsicId set so
     //OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
     for (const BuiltinClassDecl& decl : s_BuiltinClassDecls) {
         auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
         m_compiledModule.classes.push_back(BuildBuiltinClass(
             m_compiledModule, decl));
         switch (decl.idxMember) {
-            case BIDX_Object:     m_objectClassIdx     = static_cast<int16_t>(classIdx); break;
             case BIDX_List:       m_listClassIdx       = static_cast<int16_t>(classIdx); break;
             case BIDX_Dict:       m_dictClassIdx       = static_cast<int16_t>(classIdx); break;
             default: break;  //BIDX_None — ByteStream/FileStream/Channel/Future

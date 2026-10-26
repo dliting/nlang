@@ -70,3 +70,12 @@ class ChannelClosedException : Exception {
 //is no user-callable constructor.
 class Thread {
 }
+
+//Root of the class hierarchy: every class without a declared base
+//inherits these three protocol methods. Override them with the exact
+//signatures to customize per-class behavior.
+class Object {
+    public virtual native int equals(Object other);
+    public virtual native int getHashCode();
+    public virtual native string toString();
+}

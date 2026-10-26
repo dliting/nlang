@@ -1,6 +1,7 @@
 /*---
-    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream/Object）
-    从 ExprResolverTypes.cpp 抽取（2026-09-27 可维护性重构，零行为变化）。
+    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream）
+    从 ExprResolverTypes.cpp 抽取（2026-09-27 可维护性重构）。Object 随
+    内建类真源化（Task 5）声明化退役：预置包声明经作用域链解析，无单例。
 ---*/
 #include "ExprResolver.h"
 #include "SnMisc.h"
@@ -16,11 +17,10 @@ namespace nlang
 //across all resolution sites (type names, new expressions, member calls).
 static SnClassDecl* s_pByteStreamClass = nullptr;
 static SnClassDecl* s_pFileStreamClass = nullptr;
-static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
 //Channel needs no stand-in: it exists only as Channel<T>, a generic
-//instantiation minted by GetGenericClassDecl. Mutex/Semaphore and
-//Thread lost their stand-ins to the builtin-decls migration — declared
-//in stdlib/builtins.n now.
+//instantiation minted by GetGenericClassDecl. Mutex/Semaphore, Thread
+//and Object lost their stand-ins to the builtin-decls migration —
+//declared in stdlib/builtins.n now.
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -44,8 +44,7 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 	if (!IsBuiltinClassName(name))
 		return nullptr;
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
-		: (name == "FileStream") ? s_pFileStreamClass
-		: s_pObjectClass;
+		: s_pFileStreamClass;
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);

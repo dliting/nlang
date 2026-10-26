@@ -251,8 +251,6 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 		return true;
 	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))
 		return true;
-	if (TryResolveObjectProtocolMethod(snMember, pInnerExpr, pSavedContext))
-		return true;
 	if (TryResolveNonClassToString(snMember, pInnerExpr, pSavedContext))
 		return true;
 	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,

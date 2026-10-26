@@ -140,6 +140,9 @@ void StatementResolveAccessor::PropagateVirtualOverrides(SnClassDecl &sn)
 void StatementResolveAccessor::Access(SnClassDecl &sn)
 {
 	assert(m_pVisitor);
+	//Builtin-decls source of truth: the implicit Object chain must be
+	//live before PropagateVirtualOverrides walks the ancestors.
+	EnsureImplicitObjectSuperclass(sn, m_Env.Registry());
 	ResolveClassBases(sn);
 	PropagateVirtualOverrides(sn);
 	for (auto &field : sn.Members())

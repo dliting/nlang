@@ -1091,6 +1091,11 @@ thread_decl_ctorargs compile_error
 #the mint resolves the prelude record by bare name
 #(parity with pre-migration behavior).
 thread_spawn_shadow 7
+
+# --- Cluster 4: Object declared in stdlib/builtins.n ---
+object_baseref_dispatch 7
+object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString
+object_tostring_arity compile_error
 #Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
 alias_foreach 6
 alias_initlist 42

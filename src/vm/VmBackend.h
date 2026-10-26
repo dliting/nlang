@@ -1426,7 +1426,6 @@ private:
     //struct/class indices built from the nodes once all tables exist
     //(names alone cannot carry cross-unit provenance for the slots).
     std::vector<std::vector<SnField*>> m_structFieldTypes;
-    int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
 

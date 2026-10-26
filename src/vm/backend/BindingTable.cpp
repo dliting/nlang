@@ -55,6 +55,12 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "IOException",               INTR_IOException_Ctor},
     {"builtins", "InvalidCastException",      INTR_InvalidCastException_Ctor},
     {"builtins", "ChannelClosedException",    INTR_ChannelClosedException_Ctor},
+    //Cluster 4 (Object): the three protocol methods. Declared virtual so
+    //override propagation marks user overrides and call sites dispatch by
+    //name; no ctor row (Object is never constructed by user code).
+    {"builtins", "Object.equals",      INTR_Object_Equals},
+    {"builtins", "Object.getHashCode", INTR_Object_GetHashCode},
+    {"builtins", "Object.toString",    INTR_Object_toString},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)
@@ -123,7 +129,14 @@ void VmBackend::ComputeShadowedPreludeNames(SnNamespace& root)
         if (owner != ModuleRegistry::NO_OWNER
             && m_pRegistry->IsPreludeModule(owner))
             preludeNames.insert(member.Name());
-        else
+        //Only a BARE-keyed foreign declaration collides with the
+        //prelude's bare key (the main unit's root members key bare). A
+        //packaged declaration keys qualified — "alib.Object" — and
+        //coexists with the prelude root by design (source-of-truth
+        //design §8, the object_key pin): counting it here would
+        //suppress the prelude record and strand every SuperClass()
+        //reference to it (ClassSlotFor throw).
+        else if (m_pRegistry->QualifiedName(member) == member.Name())
             foreignNames.insert(member.Name());
     }
     for (const auto& name : preludeNames)
