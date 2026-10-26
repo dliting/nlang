@@ -8,6 +8,19 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.11.5] - 2026-10-26
 
+### Added
+
+- **Normative language specification** — the documentation site gains
+  a Specification section: a citable, clause-numbered normative
+  definition of the language, its standard library and its binary
+  formats, seeded with the introduction, lexical structure and syntax
+  chapters (the Chinese tree carries the translated front pages). The
+  user manual becomes informative: where the two disagree, the
+  specification is the authority. Changes to observable semantics now
+  go through the NLang Enhancement Proposal (NLEP) archive, opened
+  with NLEP-0001. Automated guards keep the clause tree synchronized
+  with the lexer, the parser and the site navigation.
+
 ### Changed
 
 - **Array rank cap raised 8 → 64** — the language-wide maximum
