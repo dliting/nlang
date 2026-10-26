@@ -24,7 +24,7 @@ before they land here.
 
 - [0. Introduction](00-introduction.md)
 - [1. Lexical Structure](01-lexical.md)
-- 2. Syntax *(in progress)*
+- [2. Syntax](02-grammar.md)
 - 3. Program Structure and Name Resolution *(planned)*
 - 4. Types *(planned)*
 - 5. Expressions *(planned)*

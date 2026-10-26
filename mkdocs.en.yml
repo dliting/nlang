@@ -38,6 +38,7 @@ nav:
       - Overview: specification/index.md
       - Introduction: specification/00-introduction.md
       - Lexical Structure: specification/01-lexical.md
+      - Grammar: specification/02-grammar.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

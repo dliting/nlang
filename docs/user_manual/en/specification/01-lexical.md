@@ -138,12 +138,13 @@ inside a string is interpreted at the expression level (chapter 5).
 
 The multi-character operators are:
 
-`++` `--` `<<` `<<=` `>>` `>>=` `<=` `>=` `!=` `==` `&&` `||`
-`%=` `&=` `*=` `+=` `-=` `/=` `|=`
+`<<` `<<=` `>>` `>>=` `<=` `>=` `!=` `==` `&&` `||`
+`%=` `*=` `+=` `-=` `/=`
 
-Single-character punctuation forms a token of its own; which
-single characters are legal where is defined by the grammar
-(chapter 2).
+Single-character punctuation forms a token of its own. Which token
+sequences are legal where is defined by the grammar (chapter 2): a
+character sequence that is lexed but appears in no production (such
+as `++`) is rejected as a syntax error.
 
 Type-argument brackets: a `<` that follows one of the built-in
 generic names `List`, `Dict`, `Channel`, `Future` or the keyword

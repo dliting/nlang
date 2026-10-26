@@ -8,3 +8,4 @@
 en/specification/index.md
 en/specification/00-introduction.md
 en/specification/01-lexical.md
+en/specification/02-grammar.md
