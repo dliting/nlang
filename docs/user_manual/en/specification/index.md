@@ -7,7 +7,7 @@ formats. It defines what a conforming implementation must do. The
 informative; where the two disagree about a semantic question, this
 specification is the authority. The English text is normative.
 
-The specification describes NLang 0.11.5. It is a living document:
+The specification describes NLang 0.11.6. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
@@ -27,7 +27,7 @@ before they land here.
 - [2. Syntax](02-grammar.md)
 - [3. Program Structure and Name Resolution](03-program-structure.md)
 - [4. Types](04-types.md)
-- 5. Expressions *(planned)*
+- [5. Expressions](05-expressions.md)
 - 6. Statements *(planned)*
 - 7. Functions and Methods *(planned)*
 - 8. Object Orientation *(planned)*

@@ -1,5 +1,6 @@
 # Collection Initializers
 
+The normative rules are in [specification §5.8](../specification/05-expressions.md).
 
 NLang supports collection literals for arrays, lists, dicts, and
 aggregate (struct/class) initialization. Three syntactic forms:

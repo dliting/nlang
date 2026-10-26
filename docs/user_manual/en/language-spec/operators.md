@@ -1,5 +1,6 @@
 # Operators
 
+The normative rules are in [specification §5.2 and §5.3](../specification/05-expressions.md).
 
 ### Arithmetic
 

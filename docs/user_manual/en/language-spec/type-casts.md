@@ -1,5 +1,6 @@
 # Type Casts
 
+The normative rules are in [specification §5.5](../specification/05-expressions.md).
 
 There are two ways to convert a value between types: the explicit `as`
 operator (scalar narrowing, numeric↔char, unboxing, class downcast), and

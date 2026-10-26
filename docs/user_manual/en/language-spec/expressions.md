@@ -1,5 +1,6 @@
 # Expressions
 
+The normative rules are in [specification §5.1](../specification/05-expressions.md).
 
 An expression produces a value. NLang is statically typed: every expression
 has a type, and the compiler checks each operation against it.

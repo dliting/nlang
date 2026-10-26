@@ -9,3 +9,4 @@ en/specification/01-lexical.md
 en/specification/02-grammar.md
 en/specification/03-program-structure.md
 en/specification/04-types.md
+en/specification/05-expressions.md
