@@ -11,7 +11,7 @@ class Service {
 
     public void outer() {
         gate.lock();
-        inner();
+        this.inner();
         count = count + 1;
         gate.unlock();
     }
@@ -28,6 +28,7 @@ int main() {
     s.gate = ReentrantMutex();
     Thread t = thread.spawn(s.outer);
     thread.join(t);
-    io.print("outer+inner");
+    if (s.count != 11) return 1;
+    io.print("outer+inner+done");
     return 5;
 }

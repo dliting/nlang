@@ -1605,7 +1605,7 @@ void test_rmutex_reentrant_balance()
         "    public void outer() {\n"
         "        m.lock();\n"
         "        n = n + 1;\n"
-        "        inner();\n"
+        "        this.inner();\n"
         "        m.unlock();\n"
         "    }\n"
         "    public void inner() {\n"
@@ -1645,14 +1645,14 @@ void test_rmutex_recursion_holds()
         "    public void walk(int k) {\n"
         "        m.lock();\n"
         "        depth = depth + 1;\n"
-        "        if (k > 0) walk(k - 1);\n"
+        "        if (k > 0) this.walk(k - 1);\n"
         "        m.unlock();\n"
         "    }\n"
         "}\n"
         "int main() {\n"
         "    Walker w = Walker();\n"
         "    w.m = ReentrantMutex();\n"
-        "    w.walk(8);\n"
+        "    w.walk(7);\n"
         "    if (w.depth != 8) return 1;\n"
         "    if (!w.m.tryLock()) return 2;\n"
         "    w.m.unlock();\n"
@@ -1937,9 +1937,12 @@ void test_rmutex_slot_reuse_clean()
     PASS();
 }
 
-//Nested evaluation: a contested lock() rejects with the cannot-suspend
-//rule (it would park); a non-parking tryLock() in the same window is
-//legal and reports the held state.
+//Nested evaluation: a contested lock() inside an implicit-formatting
+//toString (array → string, the documented mid-instruction window)
+//rejects with the cannot-suspend rule; a non-parking tryLock() in the
+//same window is legal and reports the held state. (The concat shape
+//`"x" + b` compiles to an ORDINARY call_method — instruction-granular,
+//suspension-legal — so it must not be used to pin the window rule.)
 void test_rmutex_nested_eval_reject()
 {
     TEST(rmutex_nested_eval_reject);
@@ -1964,13 +1967,14 @@ void test_rmutex_nested_eval_reject()
             "    }\n"
             "}\n"
             "int main() {\n"
-            "    Box b = Box();\n"
+            "    Box[] arr = Box[1];\n"
+            "    arr[0] = Box();\n"
+            "    arr[0].m = ReentrantMutex();\n"
             "    Holder h = Holder();\n"
-            "    b.m = ReentrantMutex();\n"
-            "    h.m = b.m;\n"
+            "    h.m = arr[0].m;\n"
             "    Thread t = thread.spawn(h.hold);\n"
             "    thread.sleep(10);\n"
-            "    string s = \"x\" + b;\n"
+            "    string s = arr;\n"
             "    thread.join(t);\n"
             "    return 0;\n"
             "}\n");
@@ -2004,13 +2008,14 @@ void test_rmutex_nested_eval_reject()
         "    }\n"
         "}\n"
         "int main() {\n"
-        "    Box b = Box();\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    arr[0].m = ReentrantMutex();\n"
         "    Holder h = Holder();\n"
-        "    b.m = ReentrantMutex();\n"
-        "    h.m = b.m;\n"
+        "    h.m = arr[0].m;\n"
         "    Thread t = thread.spawn(h.hold);\n"
         "    thread.sleep(10);\n"
-        "    string s = \"x\" + b;\n"
+        "    string s = arr;\n"
         "    thread.join(t);\n"
         "    return 0;\n"
         "}\n",

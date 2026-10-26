@@ -179,5 +179,12 @@ static constexpr uint16_t INTR_Semaphore_Ctor       = 145;
 static constexpr uint16_t INTR_Semaphore_Acquire    = 146;
 static constexpr uint16_t INTR_Semaphore_Release    = 147;
 static constexpr uint16_t INTR_Semaphore_TryAcquire = 148;
+//0.10.21: native ReentrantMutex — the Mutex receiver-dispatched family
+//shape (slot 0 = this); a per-owner hold count replaces the
+//non-reentrant self-relock park.
+static constexpr uint16_t INTR_ReentrantMutex_Ctor    = 149;
+static constexpr uint16_t INTR_ReentrantMutex_Lock    = 150;
+static constexpr uint16_t INTR_ReentrantMutex_Unlock  = 151;
+static constexpr uint16_t INTR_ReentrantMutex_TryLock = 152;
 
 }  // namespace nlang

@@ -233,4 +233,178 @@ int32_t VmExecutor::AllocMutexHandle() {
     return static_cast<int32_t>(m_mutexStore.size());
 }
 
+//--- 0.10.21: the ReentrantMutex family — the Mutex shapes plus a
+//per-owner hold count. lock()/tryLock() on the owning context take the
+//re-entry arm (count + 1, never park, no scheduler state touched);
+//unlock() decrements and only reaches the handoff arm at zero, where
+//the new owner starts at a FRESH count of 1. Parking, handoff and the
+//0.10.18 stamped-waiter discipline are byte-for-byte the Mutex arms.
+
+bool VmExecutor::IntrinsicReentrantMutexCtor(uint16_t callParamBase,
+                                             uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    if (thisIdx <= 0
+        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in ReentrantMutex "
+                            "constructor");
+    m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
+        = AllocRMutexHandle();
+    return true;
+}
+
+bool VmExecutor::IntrinsicReentrantMutexLock(uint16_t callParamBase,
+                                             uint8_t* locals)
+{
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "ReentrantMutex call");
+    const int selfId = m_spScheduler->CurrentContextId();
+    bool mustPark = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        RMutexSlot* slot = SyncRMutexSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: ReentrantMutex call on an uninitialized "
+                "instance");
+        if (slot->ownerId == selfId) {
+            slot->count += 1;   //re-entry: no park, no scheduler state
+        } else if (slot->ownerId < 0) {
+            slot->ownerId = selfId;
+            slot->count = 1;
+        } else {
+            //Gate BEFORE mutating scheduler state (decision 2 spec (a)):
+            //the nested-window rejection must not leave a half-parked
+            //context.
+            EnsureSuspensionAllowed();
+            slot->waiters.push_back(
+                SyncWaiter{selfId, SyncWaiter::Phase::kPending});
+            mustPark = true;
+        }
+    }
+    if (!mustPark)
+        return true;
+    m_spScheduler->ParkForMutex(selfId);
+    ConsumeRMutexParkStamp(handle, selfId);   //commits or consumes a stamp
+    m_spScheduler->AbortPark(selfId);         //stamp path: never stole
+    return true;
+}
+
+//The recheck half — the mutex stamp consumer against the RMutex store.
+void VmExecutor::ConsumeRMutexParkStamp(int32_t handle, int selfId)
+{
+    DomainGuard g(m_domainLocks, DomainId::Sync);
+    RMutexSlot* slot = SyncRMutexSlotAt(handle);
+    if (!slot)
+        throw std::runtime_error(
+            "NLang VM: ReentrantMutex call on an uninitialized instance");
+    ConsumeSyncWaiterStamp(slot->waiters, selfId,
+                           ParkSignal::Reason::Mutex);
+}
+
+bool VmExecutor::IntrinsicReentrantMutexTryLock(uint16_t callParamBase,
+                                                uint8_t* locals,
+                                                uint8_t* pResult)
+{
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "ReentrantMutex call");
+    const int selfId = m_spScheduler->CurrentContextId();
+    int32_t r = 0;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        RMutexSlot* slot = SyncRMutexSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: ReentrantMutex call on an uninitialized "
+                "instance");
+        if (slot->ownerId == selfId) {
+            slot->count += 1;   //re-entrant probe: count + 1, no park
+            r = 1;
+        } else if (slot->ownerId < 0) {
+            slot->ownerId = selfId;
+            slot->count = 1;
+            r = 1;
+        }
+    }
+    std::memcpy(pResult, &r, sizeof(r));
+    return true;
+}
+
+bool VmExecutor::IntrinsicReentrantMutexUnlock(uint16_t callParamBase,
+                                               uint8_t* locals)
+{
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "ReentrantMutex call");
+    const int selfId = m_spScheduler->CurrentContextId();
+    int nextOwner = -1;
+    bool committedHandoff = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        RMutexSlot* slot = SyncRMutexSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: ReentrantMutex call on an uninitialized "
+                "instance");
+        if (slot->ownerId != selfId)
+            throw std::runtime_error(
+                "NLang VM: ReentrantMutex.unlock without holding the "
+                "lock");
+        //Owner check precedes the count: a balanced decrement that
+        //still holds (count > 0) simply returns.
+        if (--slot->count > 0)
+            return true;
+        for (auto it = slot->waiters.begin(); it != slot->waiters.end();
+             ++it) {
+            if (it->phase != SyncWaiter::Phase::kPending
+                && it->phase != SyncWaiter::Phase::kCommitted)
+                continue;   //stamped entries are dead mailboxes
+            nextOwner = it->contextId;
+            if (it->phase == SyncWaiter::Phase::kCommitted) {
+                slot->waiters.erase(it);
+                committedHandoff = true;
+                break;
+            }
+            it->phase = SyncWaiter::Phase::kAcquired;   //no wake: see the
+                                                        //Mutex arm above
+            break;
+        }
+        if (nextOwner < 0) {
+            slot->ownerId = -1;   //no live waiter
+            slot->count = 0;
+        } else {
+            slot->ownerId = nextOwner;   //the grant starts a FRESH count
+            slot->count = 1;
+        }
+    }
+    if (committedHandoff)
+        m_spScheduler->WakeForMutex(nextOwner);
+    return true;
+}
+
+//0.10.21 shared: side-table lookup — call sites hold the Sync domain
+//guard. Same contract as SyncMutexSlotAt.
+VmExecutor::RMutexSlot* VmExecutor::SyncRMutexSlotAt(int32_t handle) {
+    if (handle <= 0
+        || static_cast<size_t>(handle) > m_rmutexStore.size())
+        return nullptr;
+    return &m_rmutexStore[static_cast<size_t>(handle) - 1];
+}
+
+//0.10.21: allocate a reentrant-mutex side-table slot. Same shape as
+//AllocMutexHandle — reuse resets the whole slot (owner, count, waiters),
+//so a swept handle cannot leak the dying lock's hold count.
+int32_t VmExecutor::AllocRMutexHandle() {
+    DomainGuard g(m_domainLocks, DomainId::Sync);
+    if (!m_rmutexFreeList.empty()) {
+        const int32_t handle = m_rmutexFreeList.back();
+        m_rmutexFreeList.pop_back();
+        m_rmutexStore[static_cast<size_t>(handle) - 1] = RMutexSlot();
+        return handle;
+    }
+    m_rmutexStore.emplace_back();
+    return static_cast<int32_t>(m_rmutexStore.size());
+}
+
 } // namespace nlang

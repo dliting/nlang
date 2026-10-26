@@ -69,6 +69,8 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
                             kBuiltinChannelTypeName, &m_channelClassIdx);
     ResetContainerSideTable(m_semaphoreStore, m_semaphoreFreeList, module,
                             "Semaphore", &m_semaphoreClassIdx);
+    ResetContainerSideTable(m_rmutexStore, m_rmutexFreeList, module,
+                            "ReentrantMutex", &m_rmutexClassIdx);
     CacheBuiltinClassIndexes(module);
 }
 

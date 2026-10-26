@@ -108,6 +108,15 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
             return IntrinsicMutexUnlock(callParamBase, locals);
         case INTR_Mutex_TryLock:
             return IntrinsicMutexTryLock(callParamBase, locals, pResult);
+        case INTR_ReentrantMutex_Ctor:
+            return IntrinsicReentrantMutexCtor(callParamBase, locals);
+        case INTR_ReentrantMutex_Lock:
+            return IntrinsicReentrantMutexLock(callParamBase, locals);
+        case INTR_ReentrantMutex_Unlock:
+            return IntrinsicReentrantMutexUnlock(callParamBase, locals);
+        case INTR_ReentrantMutex_TryLock:
+            return IntrinsicReentrantMutexTryLock(callParamBase, locals,
+                                                  pResult);
         case INTR_Channel_Ctor:
             return IntrinsicChannelCtor(callParamBase, locals);
         case INTR_Channel_Send:

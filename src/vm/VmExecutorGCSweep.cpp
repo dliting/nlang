@@ -92,6 +92,13 @@ void VmExecutor::RecycleClassContainerHandles(size_t i) {
         if (handle > 0)
             m_semaphoreFreeList.push_back(handle);
     }
+    //0.10.21: recycle ReentrantMutex handle when an instance is freed
+    //(same parked-waiter hazard and exit-guard report).
+    if (static_cast<int16_t>(classIdx) == m_rmutexClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_rmutexFreeList.push_back(handle);
+    }
 }
 
 void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {

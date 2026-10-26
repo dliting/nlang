@@ -11,7 +11,7 @@ class Walker {
     public void walk(int k) {
         m.lock();
         depth = depth + 1;
-        if (k > 0) walk(k - 1);
+        if (k > 0) this.walk(k - 1);
         m.unlock();
     }
 }
@@ -19,7 +19,7 @@ class Walker {
 int main() {
     Walker w = Walker();
     w.m = ReentrantMutex();
-    w.walk(8);
+    w.walk(7);
     if (w.depth != 8) return 1;
     if (!w.m.tryLock()) return 2;
     w.m.unlock();

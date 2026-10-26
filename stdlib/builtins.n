@@ -27,6 +27,17 @@ class Semaphore {
     public native bool tryAcquire();
 }
 
+//Reentrant lock: the owning context may lock() again without parking
+//(a per-owner hold count); unlock() must be called once per lock() and
+//releases only when the count reaches zero. The plain Mutex stays
+//non-reentrant — pick ReentrantMutex when methods compose or recurse.
+class ReentrantMutex {
+    public native ReentrantMutex();
+    public native void lock();
+    public native void unlock();
+    public native bool tryLock();
+}
+
 //Base class of every catchable runtime failure. message carries the
 //diagnostic text; backtrace is the call chain at the throw point,
 //innermost first.

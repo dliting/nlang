@@ -44,6 +44,11 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "Semaphore.acquire",    INTR_Semaphore_Acquire},
     {"builtins", "Semaphore.release",    INTR_Semaphore_Release},
     {"builtins", "Semaphore.tryAcquire", INTR_Semaphore_TryAcquire},
+    //0.10.21: ReentrantMutex — the declared reentrant companion.
+    {"builtins", "ReentrantMutex",         INTR_ReentrantMutex_Ctor},
+    {"builtins", "ReentrantMutex.lock",    INTR_ReentrantMutex_Lock},
+    {"builtins", "ReentrantMutex.unlock",  INTR_ReentrantMutex_Unlock},
+    {"builtins", "ReentrantMutex.tryLock", INTR_ReentrantMutex_TryLock},
     //Cluster 2 (Exception family): declared in stdlib/builtins.n, one
     //ctor row each. The VM raise paths keep their by-name class caches;
     //only the ctor call channel is stamped here.
@@ -88,6 +93,7 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 const char* const s_HandleClassNames[] = {
     "ByteStream", "FileStream", "List", "Dict", "Thread",
     "Mutex", "Channel", "Future", "Semaphore",
+    "ReentrantMutex",
 };
 
 bool IsHandleClassName(const std::string& className)

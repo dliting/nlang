@@ -1093,6 +1093,15 @@ private:
     bool IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexTryLock(uint16_t callParamBase, uint8_t* locals,
                                uint8_t* pResult);
+    //0.10.21: the ReentrantMutex family — the Mutex shapes plus the
+    //per-owner hold count (self-held lock()/tryLock() increment and
+    //never park; unlock decrements, handing off only at zero).
+    struct RMutexSlot;   //defined beside the side-table members below
+    bool IntrinsicReentrantMutexCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicReentrantMutexLock(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicReentrantMutexUnlock(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicReentrantMutexTryLock(uint16_t callParamBase,
+                                        uint8_t* locals, uint8_t* pResult);
     //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
     //(free-list pop + growth are structure writes; reentrant for
     //already-inside callers). The handle read is heap-side (lock-free —
@@ -1103,6 +1112,10 @@ private:
     int32_t ReadSyncPrimitiveHandle(uint16_t callParamBase, uint8_t* locals,
                                     const char* callName);
     MutexSlot* SyncMutexSlotAt(int32_t handle);
+    //0.10.21: the ReentrantMutex side-table helpers (same contracts).
+    int32_t AllocRMutexHandle();
+    RMutexSlot* SyncRMutexSlotAt(int32_t handle);
+    void ConsumeRMutexParkStamp(int32_t handle, int selfId);
     //K8: the recheck half of the mutex handshake — commit a kPending
     //entry (RequestPark follows, [[noreturn]]) or consume a kAcquired
     //stamp (the caller aborts the migration).
@@ -1797,6 +1810,21 @@ private:
     std::vector<MutexSlot> m_mutexStore;     //index = handle-1 (0 reserved for null)
     std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
     int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
+
+    //0.10.21: ReentrantMutex side table — the Mutex shape plus a
+    //per-owner hold count. Re-entry (owner == self) increments the
+    //count and never parks; unlock decrements and only hands off at
+    //zero (the handoff grants a FRESH count of 1). Same Sync-domain
+    //two-phase park handshake and the 0.10.18 stamp discipline as the
+    //Mutex store.
+    struct RMutexSlot {
+        int ownerId = -1;
+        int count = 0;
+        std::deque<SyncWaiter> waiters;   //FIFO arrival order
+    };
+    std::vector<RMutexSlot> m_rmutexStore;     //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>    m_rmutexFreeList;  //recycled slots after GC sweep
+    int16_t m_rmutexClassIdx = -1;             //set when "ReentrantMutex" CompiledClass is located
 
     //P2-1 (v0.10.17): Semaphore side table. count = available permits;
     //waiters are the FIFO parked acquirers (SyncWaiter, shared with the
