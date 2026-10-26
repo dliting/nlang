@@ -21,6 +21,14 @@ All notable changes to NLang are documented here. The format follows
   truncated dimensions run or an out-of-range array type index could
   read out of bounds. The record layout is now validated (dims-section
   size, arrayTypes bounds) before any header read.
+- **Native ABI check runs before module init** — the loader called
+  `nlang_native_init` and validated its return value afterwards, so an
+  incompatible module's init executed in full and its registrations
+  (pointers into a library the host unloads on rejection) reached the
+  host registry before the error. Modules now export an
+  `nlang_abi_version` probe (generated automatically by
+  `NLANG_DEFINE_NATIVE_INIT`), resolved and validated before anything
+  else; a module without the probe is rejected with a rebuild hint.
 
 ### Changed
 
@@ -31,13 +39,21 @@ All notable changes to NLang are documented here. The format follows
   up from the executable looking for `native/<config>`) after the
   explicit search dirs, so tool and test executables resolve the
   modules without copies. Embed hosts and installed packages are
-  unaffected (explicit dirs and beside-exe layout win). Development
-  note for existing build trees: the pre-0.11.4 copies beside tool and
-  test executables no longer refresh; after an ABI change they load
-  first and fail with an ABI-version error naming the old file — delete
-  the stale copies (`nlang_{math,io,fs,tensor}.dll` under
-  `src/tools/*/<config>` and `tests/<config>`), the authoritative
-  location is `<build>/native/<config>`.
+  unaffected (explicit dirs and beside-exe layout win). The directory
+  suffix dispatches on the generator: multi-config generators keep
+  `native/<config>` (the executable directory leaf is the config name
+  the walk-up probes), single-config generators (Ninja/Makefiles — the
+  typical Linux form) land the modules directly in `native/`, the only
+  location both fallback candidates reach when executable leaves are
+  tool names. Development note for existing build trees: the pre-0.11.4
+  copies beside tool and test executables no longer refresh; they load
+  first and fail (pre-probe copies report the missing
+  `nlang_abi_version` export) — delete the stale copies
+  (`nlang_{math,io,fs,tensor}.dll` under `src/tools/*/<config>` and
+  `tests/<config>`), the authoritative location is
+  `<build>/native/<config>`. The docs snippet audit now also waits for
+  the tools and native modules, so parallel builds no longer report
+  transient docs failures on half-rebuilt trees.
 
 ## [0.11.3] - 2026-10-25
 
