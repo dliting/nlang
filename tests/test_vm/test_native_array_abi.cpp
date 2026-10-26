@@ -183,12 +183,42 @@ void NatMint(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc) {
     nlang::native::ReturnInt(ret, handle);
 }
 
+//int natHighRankView(int[,,,,,,,,,,,] a) — a rank-12 view: every field
+//(rank/dims/strides/elemCount) checked against dims {1,2,1,...,1,3},
+//payload read at the last cell, and a write the language side re-reads.
+//This also proves the .ncu wire survives rank 12: the module containing
+//the rank-12 type was saved and reloaded before this native ever runs.
+void NatHighRankView(NativeHost* host, uint8_t* ret,
+                     const uint8_t* args, int argc) {
+    (void)argc;
+    NativeArrayView view;
+    host->getArrayView(host, nlang::native::ArgInt(args, 0), &view);
+    const int32_t wantDims[12] = {1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3};
+    const int32_t wantStrides[12] = {6, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1};
+    if (view.rank != 12)
+        nlang::native::Raise(host, NEXC_Base, "rank must be 12");
+    if (view.elemCount != 6)
+        nlang::native::Raise(host, NEXC_Base, "elemCount must be 6");
+    for (int32_t d = 0; d < 12; ++d) {
+        if (view.dims[d] != wantDims[d])
+            nlang::native::Raise(host, NEXC_Base, "dims mismatch");
+        if (view.strides[d] != wantStrides[d])
+            nlang::native::Raise(host, NEXC_Base, "strides mismatch");
+    }
+    int32_t* cells = static_cast<int32_t*>(view.data);
+    if (cells[5] != 5)
+        nlang::native::Raise(host, NEXC_Base, "payload read mismatch");
+    cells[0] = 42;
+    nlang::native::ReturnInt(ret, 1);
+}
+
 static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
 {
     exec.RegisterNative(tag + ".natViewRoundtrip", &NatViewRoundtrip);
     exec.RegisterNative(tag + ".natTwoViewsStrideIndependence",
                         &NatTwoViewsStrideIndependence);
     exec.RegisterNative(tag + ".natMint", &NatMint);
+    exec.RegisterNative(tag + ".natHighRankView", &NatHighRankView);
 }
 
 //--- tests --------------------------------------------------------------------
@@ -223,6 +253,27 @@ void test_two_views_stride_independence()
         "}\n",
         &RegisterTestNatives);
     CHECK(rc == 0, "two live views must keep independent strides");
+    PASS();
+}
+
+void test_high_rank_view()
+{
+    TEST(high_rank_view);
+    //Rank 12 = dims {1,2,1,...,1,3}, elemCount 6. The subscript
+    //a[0,1,0,...,2] is flat cell 5; the native re-derives every view
+    //field and writes cell 0 for the language side to read back.
+    const int rc = runSourceWithNatives("abi_high_rank",
+        "native int natHighRankView(int[,,,,,,,,,,,] a);\n"
+        "int main() {\n"
+        "    int[,,,,,,,,,,,] a = int[1,2,1,1,1,1,1,1,1,1,1,3];\n"
+        "    a[0,1,0,0,0,0,0,0,0,0,0,2] = 5;\n"
+        "    if (natHighRankView(a) != 1) return 1;\n"
+        "    if (a[0,0,0,0,0,0,0,0,0,0,0,0] != 42) return 2;\n"
+        "    return 0;\n"
+        "}\n",
+        &RegisterTestNatives);
+    CHECK(rc == 0, "rank-12 view must expose correct dims/strides and "
+                   "persist the payload round-trip");
     PASS();
 }
 
@@ -439,6 +490,7 @@ int main()
     std::cerr << "=== native array ABI tests ===\n";
     try {
         test_view_roundtrip_read_write();
+        test_high_rank_view();
         test_two_views_stride_independence();
         test_mint_and_fill();
         test_empty_array_view();
