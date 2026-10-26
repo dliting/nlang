@@ -166,6 +166,10 @@ private:
 	//external .ncu stub never shares a bare pool with a local function.
 	//Owned pairs delegate to ModuleRegistry::ShareBarePool (single
 	//authority, same-source discipline as IsBarePoolScope).
+	//The reserved prelude package is a pool of its own (builtin-decls
+	//source-of-truth design §6.7): a user declaration of the same bare
+	//name is shadowing, not redefinition — the registration walks retire
+	//the prelude side instead of flagging the pair.
 	bool SameBarePool(const SnField &f1, const SnField &f2)
 	{
 		auto &reg = m_Env.Registry();
@@ -174,6 +178,8 @@ private:
 		if (owner1 == ModuleRegistry::NO_OWNER
 			|| owner2 == ModuleRegistry::NO_OWNER)
 			return true;
+		if (reg.IsPreludeModule(owner1) || reg.IsPreludeModule(owner2))
+			return false;
 		return reg.ShareBarePool(owner1, owner2);
 	}
 

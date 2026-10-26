@@ -177,8 +177,10 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
         //Per-unit: foreign units' classes belong to their own images;
         //a cross-unit reference slots as a placeholder at its use site.
+        //A shadowed prelude declaration does not register (spec §6.8 —
+        //the same-name user declaration is the visible winner).
         if (node.Kind() == NK_ClassDecl && !node.IsImported()
-            && IsOwnUnit(node))
+            && IsOwnUnit(node) && !IsShadowedPreludeDecl(node))
             RegisterClassDecl(static_cast<SnClassDecl&>(node), declMap);
     });
     ResolveClassMetadata(declMap);
@@ -230,8 +232,12 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
             return;
         //Per-unit: a class stub has no AST methods, and foreign units'
         //classes keep their own image's method table — neither
-        //contributes here.
-        if (node.IsImported() || !IsOwnUnit(node))
+        //contributes here. A shadowed prelude class skips entirely:
+        //this pass CLEAR-AND-REFILLS the tables it touches, so letting a
+        //shadowed prelude class through would replace the user class's
+        //method table with the (retired) prelude one.
+        if (node.IsImported() || !IsOwnUnit(node)
+            || IsShadowedPreludeDecl(node))
             return;
         auto& sn = static_cast<SnClassDecl&>(node);
         int ccIdx = m_compiledModule.FindClass(KeyOf(sn));

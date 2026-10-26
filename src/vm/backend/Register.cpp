@@ -117,6 +117,12 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
             return EnclosureMethodKey(reg, field);
         return field.Name();
     }
+    //Prelude top-level members key bare (builtin-decls source-of-truth
+    //design §6.7): the records land in every image (IsOwnUnit's prelude
+    //arm) and must spell exactly what bare user code resolves —
+    //"Exception", not "builtins.Exception".
+    if (reg.IsPreludeModule(reg.OwnerOf(field)))
+        return field.Name();
     return reg.QualifiedName(field);
 }
 
@@ -165,7 +171,12 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     //that still resolve NO_OWNER are exactly the built-ins and synthetic
     //generic instantiations: own in every unit by design.
     const uint32_t owner = m_pRegistry->OwnerOfContext(member);
-    return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
+    //Prelude members are own in EVERY unit image too (builtin-decls
+    //source-of-truth design §6.7): the prelude unit is a library TU and
+    //never generates, so its declared records ride each project image —
+    //the declared mirror of the ownerless-builtin semantics above.
+    return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER
+        || m_pRegistry->IsPreludeModule(owner);
 }
 
 //Phase 6 D5, per declaration: the host DLL is the first-dot segment
@@ -360,8 +371,11 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         auto& func = static_cast<SnFunction&>(node);
         //Per-unit: only this unit's functions register — cross-unit
         //calls resolve through FunctionSlotFor placeholders. The
-        //body/native gate below already skips imported stubs.
-        if (!IsOwnUnit(func))
+        //body/native gate below already skips imported stubs. A prelude
+        //declaration whose bare name a foreign declaration claims does
+        //not register (spec §6.8 — the foreign declaration is the
+        //visible winner; same rule as the class sites).
+        if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
             return;
         //Phase 9f: native declarations register like normal functions
         //(the record carries isNative + param signature); a body-less

@@ -45,9 +45,12 @@ public:
 	Parse a translation unit.
 	\param unit The translation unit to be parsed.
 	\param bEnableDebug Do we allow the parser output debug information?
+	\param pSourceText When non-null, parse this in-memory text instead
+	       of opening unit.FilePath() (the embedded prelude copy).
 	\return false on error.
 	*/
-	bool ParseUnit(TranslationUnit&, bool bEnableDebug = false);
+	bool ParseUnit(TranslationUnit&, bool bEnableDebug = false,
+		const char* pSourceText = nullptr);
 private:
 	BuildEnvironment &m_Env;
 	ScriptScanner m_Scanner;

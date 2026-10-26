@@ -1,0 +1,8 @@
+//Standard library source for the "builtins" package — authoritative
+//declarations for the builtin classes. Implicitly imported into every
+//compilation unit (JLS §7.5.3 analogue): the names are visible without
+//an import statement, and user declarations shadow them by the
+//ordinary innermost-wins rule. Native class: the implementations live
+//in the VM (intrinsic channel), so class members are declared native.
+//Compile-time inline only: the stdlib.npkg pack list excludes this
+//file; the build-tree stdlib copy keeps it for disk-first development.

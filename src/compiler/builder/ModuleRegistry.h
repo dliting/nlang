@@ -107,6 +107,10 @@ public:
 	bool IsExternal(uint32_t moduleIndex) const;
 	//True for an inline library TU module (search-path <name>.n).
 	bool IsLibraryModule(uint32_t moduleIndex) const;
+	//True for the reserved prelude package's unit ("builtins" —
+	//implicitly imported into every build, own in every unit image;
+	//builtin-decls source-of-truth design §6.7). NO_OWNER is false.
+	bool IsPreludeModule(uint32_t moduleIndex) const;
 
 	//NO_OWNER context (no tagged ancestor) never passes a gate: both
 	//return false for moduleIndex == NO_OWNER — the gate queries are

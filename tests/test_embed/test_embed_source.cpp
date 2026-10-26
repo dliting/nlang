@@ -707,6 +707,105 @@ static void TestCallRejectsSpawnWithoutCarrier() {
     PASS();
 }
 
+//--- prelude package ("builtins") -------------------------------------------
+
+//Case 1 — true dir-less host, zero imports: the embed host clears the
+//stdlib search root (SourceCompiler clears m_sStdLibDir), so this pins
+//that the implicit prelude import keeps the no-search-root pipeline
+//working (embedded-copy path; empty prelude today).
+static void TestPreludeDirlessMinimalProgram() {
+    TEST(TestPreludeDirlessMinimalProgram);
+    Interpreter itp;   //no addImportDir: no search roots at all
+    CHECK(itp.runSource("int main() { return 7; }") == 7,
+        "zero-import program compiles and runs without any search root");
+    PASS();
+}
+
+//Case 2 — normal host (import dir present): existing library imports
+//keep working next to the (empty) prelude.
+static void TestPreludeAlongsideStdlibImports() {
+    TEST(TestPreludeAlongsideStdlibImports);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    const int rc = itp.runSource("import io;\nio.print(\"prelude-ok\");");
+    CHECK(rc == 0, "stdlib import resolves with the prelude in place");
+    CHECK(sink.out == "prelude-ok\n", "io.print output unchanged");
+    PASS();
+}
+
+//Case 3 — explicit `import builtins;` is idempotent next to the implicit
+//prelude import: compiles, output unchanged.
+static void TestPreludeExplicitImportIdempotent() {
+    TEST(TestPreludeExplicitImportIdempotent);
+    Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
+    OutputSink sink; InstallSink(itp, sink);
+    int rc = -1;
+    try {
+        rc = itp.runSource(
+            "import builtins;\nimport io;\nio.print(\"prelude-ok\");");
+    } catch (const LoadError& e) {
+        CHECK(false, std::string("explicit builtins import threw: ") +
+            e.what());
+        PASS();
+        return;
+    }
+    CHECK(rc == 0, "explicit builtins import compiles");
+    CHECK(sink.out == "prelude-ok\n",
+        "output unchanged by the explicit import");
+    PASS();
+}
+
+//Case 4 — reserved package enforcement, embed shape: the implicit
+//prelude import scans the effective roots, so TWO roots offering
+//builtins.n is the duplicate-package diagnosis fired from the prelude's
+//own resolution. A SINGLE host-supplied copy is deliberately the
+//canonical prelude (indistinguishable from a stdlib deployment); the
+//project-file collision is the ncc-side enforcement pin.
+static void TestPreludeReservedNameEnforced() {
+    TEST(TestPreludeReservedNameEnforced);
+    Interpreter itp;
+    ScratchDir scratchA;
+    ScratchDir scratchB;
+    {
+        std::ofstream f(scratchA.path / "builtins.n");
+        f << "//first contested copy\n";
+        std::ofstream g(scratchB.path / "builtins.n");
+        g << "//second contested copy\n";
+    }
+    itp.addImportDir(scratchA.path.string());
+    itp.addImportDir(scratchB.path.string());
+    bool threw = false;
+    try {
+        (void)itp.runSource("import builtins;\nint main() { return 0; }");
+    } catch (const LoadError& e) {
+        threw = true;
+        const std::string text = e.what();
+        CHECK(text.find("Duplicate package") != std::string::npos,
+            "duplicate-package diagnostic fires");
+        CHECK(text.find("builtins") != std::string::npos,
+            "diagnostic names the reserved package");
+    }
+    CHECK(threw, "two roots offering builtins.n are diagnosed");
+    PASS();
+}
+
+//Case 5 — dir-less host + explicit `import builtins;`: the import
+//short-circuit resolves the prelude via the embedded copy (no disk).
+static void TestPreludeExplicitImportDirless() {
+    TEST(TestPreludeExplicitImportDirless);
+    Interpreter itp;   //no search roots
+    try {
+        CHECK(itp.runSource("import builtins;\nint main() { return 7; }") == 7,
+            "explicit builtins import resolves via the embedded copy");
+    } catch (const LoadError& e) {
+        CHECK(false, std::string("explicit builtins import threw: ") +
+            e.what());
+    }
+    PASS();
+}
+
 int main() {
     initialize();
     TestSourceCompilerProducesArtifact();
@@ -735,6 +834,11 @@ int main() {
     TestRunSourceDeadlockIsCatchable();
     TestCallRejectsSuspension();
     TestCallRejectsSpawnWithoutCarrier();
+    TestPreludeDirlessMinimalProgram();
+    TestPreludeAlongsideStdlibImports();
+    TestPreludeExplicitImportIdempotent();
+    TestPreludeReservedNameEnforced();
+    TestPreludeExplicitImportDirless();
     TestConveniencePartialChannels();   //置尾：本测试动过 fd 1
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

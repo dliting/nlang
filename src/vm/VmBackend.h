@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <utility>
@@ -205,8 +206,11 @@ private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
     //budget): signature fill via FillNativeFunctionRecord, then the
-    //thread-package intrinsic stamp (K3 materialization).
+    //binding-table intrinsic stamp.
     void EmitNativeFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
+    //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
+    void StampIntrinsicChannel(SnFunction& func,
         CompiledFunction& compiledFunc);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
@@ -1446,6 +1450,15 @@ private:
     int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
     int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
+    //Shadowed prelude names (builtin-decls source-of-truth design §6.8):
+    //bare names a NON-prelude top-level declaration claims. The prelude's
+    //same-name declarations retire from every registration site
+    //(innermost-wins); user declarations bind first anyway (project TUs
+    //precede the prelude TU on the root), this set keeps the VM tables
+    //from carrying the shadowed prelude records. Computed once per build
+    //in GenerateUnits, before the per-unit loop.
+    std::set<std::string> m_shadowedPreludeNames;
+
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
     const langservice::SymbolIndex* m_pLibraryIndex = nullptr;
@@ -1667,6 +1680,31 @@ private:
             return {false, 0};
         return {true, slot};
     }
+
+    //--- prelude shadowing + intrinsic binding table (definitions in
+    //VmBackend.cpp; consumed by the registration walks and the
+    //two-arm stamping gate in GenerateUnits.cpp).
+
+    //One whole-tree pass collecting the shadowed prelude names (see the
+    //m_shadowedPreludeNames member comment). Top-level members only:
+    //prelude declarations are all root-level, and method-level shadowing
+    //is per-class dispatch, not a bare-name question.
+    void ComputeShadowedPreludeNames(SnNamespace& root);
+
+    //True when THIS declaration is a prelude one whose bare name a
+    //foreign declaration claims — the registration sites skip it (the
+    //foreign declaration is the visible winner).
+    bool IsShadowedPreludeDecl(const SnField& node) const;
 };
+
+//Intrinsic binding table (builtin-decls source-of-truth design §4.5):
+//package-partitioned name→id rows for declarations implemented inside
+//the VM. The two-arm stamping gate keys free functions "pkg.func",
+//methods "Class.method", constructors "Class". Only-append id
+//discipline (include/nlang/vm/Intrinsics.h); a declaration outside the
+//table keeps host-native dispatch (the ordinary native channel).
+bool IsStampedBindingPackage(const std::string& packagePath);
+uint16_t LookupIntrinsicId(const std::string& packagePath,
+    const std::string& key);
 
 } // namespace nlang

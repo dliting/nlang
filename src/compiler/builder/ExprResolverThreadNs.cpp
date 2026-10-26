@@ -5,12 +5,12 @@
     限定回退的专用臂；其余 thread.* 形态（join/yield/id/sleep、
     spawn-void、未知成员）全部落回 TryResolveModuleQualified＋import
     准入——thread 与 io 等普通标准库包同轨。
-    ② intrinsic 名→id 表（FindThreadIntrinsicId）：后端给
-    stdlib/thread.n 的 native 记录盖 intrinsic 章用。
-    ③ Mutex/Semaphore 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
+    ② Mutex/Semaphore 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
     ＋流方法族尾态（调用方作用域实参解析、void 不留类型），发射走
     OP_CallMethod-by-name 既有轨。Channel<T> 方法走泛型容器方法族
     （ExprResolverMemberContainer.cpp）。
+    （intrinsic 名→id 表已并入 VmBackend 的统一绑定表——
+    IsStampedBindingPackage/LookupIntrinsicId。）
 ---*/
 #include "ExprResolver.h"
 #include "ThreadNamespace.h"
@@ -28,24 +28,6 @@
 
 namespace nlang
 {
-
-//--- intrinsic 表 -----------------------------------------------------------
-
-static const ThreadIntrinsicEntry s_ThreadIntrinsics[] = {
-    {"spawn", INTR_Thread_Spawn},
-    {"join",  INTR_Thread_Join},
-    {"yield", INTR_Thread_Yield},
-    {"id",    INTR_Thread_Id},
-    {"sleep", INTR_Thread_Sleep},
-};
-
-uint16_t FindThreadIntrinsicId(const std::string& memberName)
-{
-    for (const auto& e : s_ThreadIntrinsics)
-        if (memberName == e.memberName)
-            return e.intrinsicId;
-    return INTR_None;
-}
 
 //--- 类型化 spawn 窄臂 ------------------------------------------------------
 

@@ -21,17 +21,27 @@ ScriptParser::ScriptParser(BuildEnvironment &env):
 {
 }
 
-bool ScriptParser::ParseUnit(TranslationUnit &unit, bool bEnableDebug /*= false*/)
+bool ScriptParser::ParseUnit(TranslationUnit &unit,
+	bool bEnableDebug /*= false*/, const char* pSourceText /*= nullptr*/)
 {
 	assert(m_Env.CurrModule());
-	if (!m_Scanner.OpenFile(unit.FilePath()))
+	if (pSourceText == nullptr)
 	{
-		//OpenFile puts its full diagnosis (open failure or UTF-8 input
-		//contract violation) in OpenError(); log through env so HasError()
-		//gates downstream and the build aborts instead of segfaulting in
-		//MergeTransUnits on a null TranslationUnit::Root().
-		m_Env.Log(CLL_Error, "%s", m_Scanner.OpenError().c_str());
-		return false;
+		if (!m_Scanner.OpenFile(unit.FilePath()))
+		{
+			//OpenFile puts its full diagnosis (open failure or UTF-8 input
+			//contract violation) in OpenError(); log through env so HasError()
+			//gates downstream and the build aborts instead of segfaulting in
+			//MergeTransUnits on a null TranslationUnit::Root().
+			m_Env.Log(CLL_Error, "%s", m_Scanner.OpenError().c_str());
+			return false;
+		}
+	}
+	else
+	{
+		//In-memory source (the embedded prelude copy): the same scanner
+		//pipeline over a string buffer.
+		m_Scanner.OpenString(pSourceText);
 	}
 	m_Scanner.StartState(0);
 	m_Scanner.TransUnit(&unit);
@@ -39,7 +49,10 @@ bool ScriptParser::ParseUnit(TranslationUnit &unit, bool bEnableDebug /*= false*
 
 	m_pTransUnit = &unit;
 	bool bSuccess = (yyparse(*this, m_Scanner.ScanInfo()) == 0 && !m_Env.HasError());
-	m_Scanner.CloseFile();
+	if (pSourceText == nullptr)
+		m_Scanner.CloseFile();
+	else
+		m_Scanner.CloseString();
 	m_pTransUnit = nullptr;
 
 	return bSuccess;

@@ -44,6 +44,7 @@ add_library(nlang_vm
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
     backend/VmBackend.cpp
+    backend/BindingTable.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
     backend/Slots.cpp

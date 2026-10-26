@@ -212,9 +212,18 @@ file(MAKE_DIRECTORY ${NLANG_STDLIB_BUILD_DIR})
 # a source removal.
 file(GLOB NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/stdlib/*.n)
+#The prelude package is compile-time-inline only: the compiler embeds
+#stdlib/builtins.n at build time, so the .nproj pack list excludes it —
+#a builtins member in the package would be a member no import can
+#reach. The build-tree COPY keeps the file: the stdlib dir is the
+#FindStdLibDir hit and the disk copy is the canonical prelude source
+#for compile-time resolution (edit-and-rebuild iteration).
+set(NLANG_STDLIB_PACKAGE_SOURCES ${NLANG_STDLIB_SOURCES})
+list(REMOVE_ITEM NLANG_STDLIB_PACKAGE_SOURCES
+    ${PROJECT_SOURCE_DIR}/stdlib/builtins.n)
 set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<Project name=\"stdlib\">\n  <Sources>\n")
-foreach(src IN LISTS NLANG_STDLIB_SOURCES)
+foreach(src IN LISTS NLANG_STDLIB_PACKAGE_SOURCES)
     get_filename_component(name "${src}" NAME)
     string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")
 endforeach()

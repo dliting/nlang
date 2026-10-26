@@ -2,6 +2,7 @@
 ModuleRegistry.cpp - compile-time module registry of the NLang compiler.
 ---*/
 #include "ModuleRegistry.h"
+#include "BuiltinPrelude.h"
 #include "TranslationUnit.h"
 #include "SyntaxTree.h"
 #include <algorithm>
@@ -193,6 +194,13 @@ bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 			return true;
 	}
 	return false;
+}
+
+bool ModuleRegistry::IsPreludeModule(uint32_t moduleIndex) const
+{
+	//The size guard rules out NO_OWNER with it (0xFFFFFFFF >= size).
+	return moduleIndex < m_modules.size()
+		&& m_modules[moduleIndex].path == kPreludePackageName;
 }
 
 bool ModuleRegistry::IsCompiledInModule(const std::string& dottedPath) const
