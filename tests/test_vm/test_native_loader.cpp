@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -207,6 +208,41 @@ void TestBuildTreeFallback() {
           "resolved path must come from the native output directory");
 }
 
+//0.11.4 C review: pin the explicit-dirs-before-fallback order. A decoy
+//nlang_io.dll (the badabi fixture renamed) sits in an explicit search
+//dir while the real module is reachable through the fallback: correct
+//order loads the decoy and dies on its ABI check; a reversed order
+//would load the real module silently.
+void TestExplicitDirsWinOverFallback() {
+    namespace fs = std::filesystem;
+    const fs::path decoyDir = fs::temp_directory_path()
+        / "nlang_loader_order_test";
+    std::error_code ec;
+    fs::remove_all(decoyDir, ec);
+    fs::create_directories(decoyDir, ec);
+    fs::copy_file(fs::path(FIXTURE_DIR) / "nlang_badabi.dll",
+                  decoyDir / "nlang_io.dll",
+                  fs::copy_options::overwrite_existing, ec);
+    CHECK(!ec, "decoy copy must succeed");
+
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(decoyDir.string());
+    bool threw = false;
+    std::string message;
+    try {
+        loader.EnsureLoaded("io",
+            [](const std::string&, const std::string&, NativeFn, bool) {});
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        message = e.what();
+    }
+    CHECK(threw, "the explicit-dir decoy must win the load");
+    CHECK(message.find("ABI") != std::string::npos,
+          "the decoy is detectable through its ABI mismatch");
+
+    fs::remove_all(decoyDir, ec);
+}
+
 int main() {
     std::string fixtureDir = FIXTURE_DIR;
     std::fprintf(stderr, "=== NativeLibraryLoader Unit Tests ===\n");
@@ -232,6 +268,12 @@ int main() {
     try { TestBuildTreeFallback(); }
     catch (const std::exception& e) {
         std::fprintf(stderr, "UNCAUGHT in BuildTreeFallback: %s\n", e.what());
+        ++g_fail;
+    }
+    try { TestExplicitDirsWinOverFallback(); }
+    catch (const std::exception& e) {
+        std::fprintf(stderr, "UNCAUGHT in ExplicitDirsWinOverFallback: %s\n",
+                     e.what());
         ++g_fail;
     }
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",

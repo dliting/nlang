@@ -61,6 +61,14 @@ file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
 #executable-dir search finds them -- is materialized here explicitly.
 file(COPY ${NLANG_NATIVE_DLLS} DESTINATION "${CHECK_DIR}")
 
+#The scratch is nested 9 levels under <build>/tests, beyond the reach of
+#the walk-up discovery used for stdlib (and native modules), so nothing
+#can rescue the check from the build tree. The install form instead
+#ships stdlib within walk-up reach of the executables; materializing it
+#beside the exe exercises FindStdLibDir's exe-relative probe — every
+#resolution class must come from the copied layout.
+file(COPY "${STDLIB_DIR}/" DESTINATION "${CHECK_DIR}/stdlib")
+
 #Pin Qt's paths to the scratch copy: without this, Qt falls back to
 #the compiled-in plugin dir of whatever Qt build produced the DLLs
 #(QLibraryInfo::PluginsPath), and a dev machine with Qt installed

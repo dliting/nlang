@@ -1430,7 +1430,12 @@ if(NLANG_BUILD_IDE)
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
             -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>
-            -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check
+            -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
+            #Scratch nested 9 levels under <build>/tests: the loader's
+            #build-tree fallback walks up at most 8, so it cannot rescue
+            #the check from <build>/native — resolution must come from
+            #the copied install-form layout (the property under test).
+            -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
@@ -1919,9 +1924,8 @@ endif()
 # In-process VM tests resolve the stdlib native modules through the
 # loader's build-tree fallback (NativeLibraryLoader walks up from the test
 # exe to <build>/native/<config>, the single authoritative module output).
-# No copies land in tests/<config> anymore — which also un-masks the
-# embed_source_tests' AddNativeSearchDir wiring: the exe dir no longer
-# silently satisfies native lookups the host never asked for.
+# No copies land in tests/<config> anymore; the fallback, not an exe-dir
+# copy, is what satisfies native lookups the host never asked for.
 
 
 # --- Embedding API tests (spec: 2026-10-08-nlang-embedded-host-api) ---
@@ -2019,10 +2023,10 @@ add_test(NAME embed_api_tests COMMAND test_embed_api)
 #deployment shape -- stdlib declaration sources + stdlib.npkg + native
 #DLLs -- so import discovery, closure loading and native resolution all
 #resolve from addImportDir dirs (the ONE-list contract). No DLL copies
-#land next to the test exes anymore (the copy target is gone; native
-#modules resolve through the loader's build-tree fallback only when the
-#host-specified dirs miss), so the AddNativeSearchDir wiring is probed
-#honestly in full builds too -- the old documented blind spot is closed.
+#land next to the test exes anymore (the copy target is gone), but the
+#loader's build-tree fallback still rescues a load if the
+#AddNativeSearchDir wiring regresses -- the wiring is exercised (the
+#happy path proves host dirs resolve first), not absence-probed.
 set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
 add_custom_target(nlang_embed_deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory

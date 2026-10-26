@@ -9,6 +9,11 @@
 // when a module initializes, each registration is forwarded through a
 // caller-supplied std::function callback, so this class needs no knowledge
 // of the VM's internal native table.
+//
+// Thread model: instances are not internally synchronized — calls must be
+// serialized by the caller (the VM loads modules under its global lock).
+// The fallback directory list is computed lazily on first use, which is
+// safe only under that serialization.
 
 #include "nlang/vm/NativeHost.h"
 
