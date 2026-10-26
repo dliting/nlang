@@ -1,6 +1,6 @@
 # 异常
 
-
+规范性规则见规范第9章。
 NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都是`Exception`或其子类的实例。
 
 ### 内建异常类
@@ -9,7 +9,7 @@ NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都�
 |------------------------------|-------------|--------|
 | `Exception`                  | `Object`    | 用户`throw` / Dict键未找到 |
 | `NullPointerException`       | `Exception` | 空引用访问 |
-| `DivByZeroException`          | `Exception` | 整数除/取模零 |
+| `DivByZeroException`          | `Exception` | 任意数值类型除/取模零 |
 | `IndexOutOfBoundsException`  | `Exception` | 数组/列表索引越界 |
 | `AssertionException`          | `Exception` | `assert(false)` |
 | `InvalidCastException`        | `Exception` | `as`强转失败（实际类型不在目标类型的超类链上） |

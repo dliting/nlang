@@ -1,6 +1,6 @@
 # Exceptions
 
-
+The normative rules are in [specification chapter 9](../specification/09-exceptions.md).
 NLang supports structured exception handling with a Java/C#-style class
 hierarchy. All exceptions are instances of `Exception` or its subclasses.
 
@@ -10,7 +10,7 @@ hierarchy. All exceptions are instances of `Exception` or its subclasses.
 |-------|-----------|-----------|
 | `Exception` | `Object` | User `throw` / Dict key not found |
 | `NullPointerException` | `Exception` | Null reference access |
-| `DivByZeroException` | `Exception` | Integer division/modulo by zero |
+| `DivByZeroException` | `Exception` | Division/remainder by zero, any numeric type |
 | `IndexOutOfBoundsException` | `Exception` | Array/List index out of bounds |
 | `AssertionException` | `Exception` | `assert(false)` |
 | `InvalidCastException` | `Exception` | A failed `as` downcast (the actual type is not on the target's super-chain) |

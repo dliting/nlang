@@ -31,7 +31,7 @@ before they land here.
 - [6. Statements](06-statements.md)
 - [7. Functions and Methods](07-functions.md)
 - [8. Object Orientation](08-object-orientation.md)
-- 9. Exceptions *(planned)*
+- [9. Exceptions](09-exceptions.md)
 - 10. Execution Model and Memory Semantics *(planned)*
 - 11. Concurrency *(planned)*
 - 12. Packages and Import Search *(planned)*
