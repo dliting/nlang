@@ -30,7 +30,7 @@ before they land here.
 - [5. Expressions](05-expressions.md)
 - [6. Statements](06-statements.md)
 - [7. Functions and Methods](07-functions.md)
-- 8. Object Orientation *(planned)*
+- [8. Object Orientation](08-object-orientation.md)
 - 9. Exceptions *(planned)*
 - 10. Execution Model and Memory Semantics *(planned)*
 - 11. Concurrency *(planned)*

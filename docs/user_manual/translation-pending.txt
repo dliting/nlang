@@ -12,3 +12,4 @@ en/specification/04-types.md
 en/specification/05-expressions.md
 en/specification/06-statements.md
 en/specification/07-functions.md
+en/specification/08-object-orientation.md

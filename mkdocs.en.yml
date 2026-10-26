@@ -44,6 +44,7 @@ nav:
       - Expressions: specification/05-expressions.md
       - Statements: specification/06-statements.md
       - Functions: specification/07-functions.md
+      - Object Orientation: specification/08-object-orientation.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
