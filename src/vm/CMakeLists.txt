@@ -31,6 +31,7 @@ add_library(nlang_vm
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
     VmExecutorBlockingNative.cpp
+    VmExecutorFailure.cpp
     InputLineSource.cpp
     TokenView.cpp
     DebugSessionController.cpp

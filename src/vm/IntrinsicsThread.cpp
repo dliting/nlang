@@ -258,8 +258,10 @@ bool VmExecutor::IntrinsicJoin(uint16_t callParamBase, uint8_t* locals)
         throw std::runtime_error("NLang VM: a thread cannot join itself");
     if (target->state == ContextState::Finished)
         return true;
-    if (target->state == ContextState::Failed)
+    if (target->state == ContextState::Failed) {
+        m_spScheduler->MarkFailureObserved(targetId);
         ThrowJoinTargetFailure(target->failExcHeapIdx);
+    }
     //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
     //nested-window rejection must not leave a half-parked context.
     EnsureSuspensionAllowed();

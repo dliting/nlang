@@ -111,6 +111,12 @@ public:
     //as the catchable deadlock error. resultCell: 8 bytes out.
     void ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell);
 
+    //0.10.20: run-end report for spawned contexts whose failure no joiner
+    //ever observed — the containment model used to swallow those
+    //silently. Called on the Execute thread after the carriers have
+    //joined (registry quiesced); one stderr line per unobserved failure.
+    void ReportUnobservedSpawnedFailures();
+
     //Extension point ② (spec §8): invoke a free function without a
     //compiler-generated call site. argCells: argc marshalled 8-byte
     //cells (argc <= callee.paramCount); formals beyond argc fill from

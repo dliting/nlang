@@ -151,6 +151,11 @@ struct ExecutionContext {
     int32_t threadObjHeapIdx = 0;   //Slice 6：句柄对象（K1 Thread / K3
                                     //Future，GC 根 + join 入口）
     int32_t failExcHeapIdx = 0;     //Slice 6：失败重抛的异常对象
+    //0.10.20：失败已被任一 joiner 观测（失败唤醒命中等待者，或 join
+    //命中已失败目标的快径重抛）。未被观测的失败在运行收尾时输出警告
+    //——遏制模型不再静默吞噬错误（Python「Task exception was never
+    //retrieved」同款）。
+    bool failObserved = false;
     //Slice 7：ParkedTimer 的唤醒时刻（epoch = 未排定）。
     std::chrono::steady_clock::time_point wakeAt{};
     //Slice 8/9：停泊目标（互斥体/通道）的句柄；0 = 无。
@@ -363,6 +368,9 @@ public:
 
     void MarkFinished(int id, int64_t result);
     void MarkFailed(int id, int32_t failExcHeapIdx);
+    //0.10.20：join 命中已失败目标的快径重抛前登记观测（失败唤醒路径
+    //在 WakeJoiners 内部置位）。自守卫。
+    void MarkFailureObserved(int id);
 
     //观测（白盒测试注入断言）。ContextCount 等读取者保持调用方契约
     //（持锁或静息期）；Find/FindMutable 是热路径查表，自守卫（自锁读

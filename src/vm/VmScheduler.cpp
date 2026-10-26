@@ -323,15 +323,29 @@ void VmScheduler::ParkForJoin(int id, int targetId) {
     NotifyGateWaiters();
 }
 
+//0.10.20：join 命中已失败目标的快径重抛前登记观测——目标异常已被
+//joiner 接收，收尾报告不得再告警。
+void VmScheduler::MarkFailureObserved(int id) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->failObserved = true;
+}
+
 //目标终结：全部 ParkedJoin 于该目标的上下文回 Runnable 入队尾；
 //failed 目标同时置 rethrowOnResume——joiner 恢复执行前重抛目标的
 //原异常对象（保留 raise 时的回溯）。多 joiner 皆唤醒（计划决策 6）。
+//failed 且至少唤醒一名 joiner＝失败已被观测（0.10.20 收尾报告据此
+//区分「无人 watched」的失败）。
 void VmScheduler::WakeJoiners(int targetId, bool failed) {
     GilEnsureGuard g(*this);
+    bool anyJoinerWoken = false;
     for (auto& ctx : m_contexts) {
         if (ctx.state != ContextState::ParkedJoin
             || ctx.parkHandle != targetId)
             continue;
+        anyJoinerWoken = true;
         ctx.state = ContextState::Runnable;
         //K7 握手：只入队已完成停泊者；停泊展开途中被唤醒者由停泊载体
         //在搬帧临界区内补推（见 ExecutionContext::framesParked）。
@@ -343,6 +357,11 @@ void VmScheduler::WakeJoiners(int targetId, bool failed) {
             //立即清空，避免悬垂指针残留注册表。
             ctx.joinResultDst = nullptr;
         }
+    }
+    if (failed && anyJoinerWoken) {
+        ExecutionContext* target = FindMutable(targetId);
+        if (target)
+            target->failObserved = true;
     }
     m_runQueueCv.notify_all();
 }

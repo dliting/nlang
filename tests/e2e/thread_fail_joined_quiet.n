@@ -1,0 +1,18 @@
+//A joined failure is observed — the joiner got the rethrow, so the
+//run-end report must stay silent (negated stderr assertion).
+import thread;
+import io;
+
+void boom() {
+    throw Exception("task exploded");
+}
+
+int main() {
+    Thread t = thread.spawn(boom);
+    try {
+        thread.join(t);
+    } catch (Exception e) {
+        io.print("caught");
+    }
+    return 0;
+}

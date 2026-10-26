@@ -1092,6 +1092,13 @@ thread_decl_ctorargs compile_error
 #(parity with pre-migration behavior).
 thread_spawn_shadow 7
 
+# --- Unobserved spawned-task failure report (0.10.20) ---
+#A task that fails with nobody joining is reported at run end.
+thread_fail_unjoined 0 main-done
+#A joined failure (eager or late rethrow) is observed — silent.
+thread_fail_joined_quiet 0 caught
+thread_fail_late_join 0 late-caught
+
 # --- Cluster 4: Object declared in stdlib/builtins.n ---
 object_baseref_dispatch 7
 object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString

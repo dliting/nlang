@@ -3,6 +3,7 @@
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstring>
 #include <cstdio>
+#include <iostream>
 #include <exception>
 
 namespace nlang {
@@ -188,6 +189,7 @@ int VmExecutor::Execute(const CompiledModule& module) {
     //spawned contexts are symmetric now, and no carrier ever writes a
     //host stack cell.
     RunPrimaryCarrier(mainFunc);
+    ReportUnobservedSpawnedFailures();
     const int64_t result64 =
         m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
     int32_t result;
@@ -204,6 +206,7 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
     if (!m_currModule || entryIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid entry index");
     RunPrimaryCarrier(m_currModule->functions[entryIdx]);
+    ReportUnobservedSpawnedFailures();
     const int64_t result64 =
         m_spScheduler->Find(VmScheduler::kMainThreadId)->resultCell;
     std::memcpy(resultCell, &result64, kFrameSlotBytes);
@@ -226,22 +229,9 @@ void VmExecutor::ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell) {
 //bytecode between store operations runs GIL-free. PopNextRunnable
 //takes and releases the lock internally; the empty-queue wait happens
 //inside it (see VmScheduler.cpp).
-//K2 slice 2: the catch-all arm of CarrierLoop, extracted for the
-//source-size guard. Non-NLang errors (VM-internal, or the deadlock
-//guard) are fatal for the whole run regardless of context — propagate.
-//The frames die with the run (the backtrace comes from UnwindFrames(),
-//not the frame stack): clearing them lets the dispatch end uphold
-//INV-5.
-[[noreturn]] void VmExecutor::FailContextFatal(int ctx)
-{
-    //K7: the clear mutates the published evaluation stack (a registry
-    //scan arm may read it) — take the global lock for the transition.
-    GilEnsureGuard gil(*this);
-    m_spScheduler->MarkFailed(ctx, 0);
-    EvalStack().clear();
-    throw;
-}
-
+//K2 slice 2: the catch-all arm of CarrierLoop (FailContextFatal) and
+//the containment pair (FailContextContained / the 0.10.20 run-end
+//report) live in VmExecutorFailure.cpp.
 void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
     try {
         for (;;) {
@@ -357,19 +347,6 @@ void VmExecutor::ArmResumeRethrow(ExecutionContext* info) {
         throw std::runtime_error(
             "NLang VM: join target failed without an exception object");
     ResumeThrowExcIdxRef() = target->failExcHeapIdx;
-}
-
-//K1 Slice 6: containment for an uncaught NLang exception escaping a
-//context root. Spawned contexts never reach the host with their
-//failure — Failed + wake joiners (with rethrow), dead frames' unwind
-//records dropped; the failure surfaces only through join.
-bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
-    m_spScheduler->MarkFailed(ctx, excHeapIdx);
-    if (ctx == VmScheduler::kMainThreadId)
-        return true;
-    UnwindFrames().clear();   //dead context's records
-    m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
-    return false;
 }
 
 //K1 Slice 4: one context's root window — Execute's former run body,
