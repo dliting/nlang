@@ -178,9 +178,12 @@ SPACING_RE = re.compile(
 )
 # A clause-number heading prefix ("## 0.1 范围与状态") is a structural
 # anchor of the specification tree, mirrored from the English pages;
-# the space between the number and the title is not prose spacing. The
-# exemption covers the prefix only -- the title is still scanned.
-CLAUSE_HEAD = re.compile(r"^#{1,6} \d+(?:\.\d+)* ")
+# the space between the number and the title is not prose spacing.
+# Only dotted clause numbers need the exemption -- a plain numbered
+# heading keeps its trailing dot ("## 1. 标题"), which already breaks
+# the digit-to-CJK boundary -- so the pattern requires the dot and an
+# undotted "## 5 个步骤" stays a violation. The title is still scanned.
+CLAUSE_HEAD = re.compile(r"^#{1,6} \d+\.\d+(?:\.\d+)* ")
 
 
 def spacing_violations_in_text(text: str):

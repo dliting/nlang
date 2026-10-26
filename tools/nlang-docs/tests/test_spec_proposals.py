@@ -19,6 +19,17 @@ def _proposal_pages():
             yield p
 
 
+def test_file_names_wellformed():
+    #_proposal_pages skips non-conforming names; without this check a
+    #mis-named proposal (3-digit number, wrong prefix) would vanish
+    #from every check and the numbering would still read dense.
+    assert PROPOSALS.is_dir(), "the proposal archive must exist"
+    for p in PROPOSALS.glob("*.md"):
+        if p.name != "TEMPLATE.md":
+            assert NAME.match(p.name), \
+                f"{p}: file name must be '<4 digits>-<title>.md'"
+
+
 def test_numbers_dense_unique():
     assert PROPOSALS.is_dir(), "the proposal archive must exist"
     nums = sorted(int(NAME.match(p.name).group(1)) for p in _proposal_pages())

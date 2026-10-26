@@ -119,32 +119,37 @@ quotes, or one escape sequence denoting one scalar value. The
 escapes `\n`, `\r`, `\t`, `\'` and `\\` are defined. The escape
 `\uXXXX` denotes the Basic Multilingual Plane (BMP) code point with
 that number; a surrogate code point written alone is a
-compile-time error, and an adjacent high-surrogate `low-surrogate`
-pair (`\uD800`–`\uDBFF` followed by `\uDC00`–`\uDFFF`) denotes the
-non-BMP scalar value it pairs to. Any other character between the
-quotes is a compile-time error.
+compile-time error. A character literal holds at most one `\uXXXX`
+escape: surrogate pairing (§1.5.4) does not apply here, so no
+character literal denotes a non-BMP scalar value through escapes.
+Any other character between the quotes is a compile-time error.
 
 ### 1.5.4 String literals
 
 A string literal is text between double quotes. It MUST NOT
 contain a raw line break. The escapes `\n`, `\r`, `\t`, `\"`,
-`\\`, `\'`, `\0`, `\a`, `\b`, `\f`, `\v` and `\uXXXX` (with the
-surrogate rules of §1.5.3) are defined; any other escape is a
-compile-time error, and so is an unterminated string. A string
-literal lexes as one token; the interpolation form `${identifier}`
-inside a string is interpreted at the expression level (chapter 5).
+`\\`, `\'`, `\0`, `\a`, `\b`, `\f`, `\v` and `\uXXXX` are defined;
+any other escape is a compile-time error, and so is an
+unterminated string. Within a string, `\uXXXX` denotes a BMP code
+point and a surrogate code point written alone is a compile-time
+error, but an adjacent high-surrogate and low-surrogate pair
+(`\uD800`–`\uDBFF` followed by `\uDC00`–`\uDFFF`) denotes the
+non-BMP scalar value it pairs to. A string literal lexes as one
+token; the interpolation form `${identifier}` inside a string is
+interpreted at the expression level (chapter 5).
 
 ## 1.6 Operators and Punctuation
 
-The multi-character operators are:
+The multi-character operators that appear in the grammar are:
 
 `<<` `<<=` `>>` `>>=` `<=` `>=` `!=` `==` `&&` `||`
 `%=` `*=` `+=` `-=` `/=`
 
-Single-character punctuation forms a token of its own. Which token
-sequences are legal where is defined by the grammar (chapter 2): a
-character sequence that is lexed but appears in no production (such
-as `++`) is rejected as a syntax error.
+The lexer also produces the sequences `++` `--` `&=` `|=` `~=`,
+but none of them appears in any production, so each is rejected as
+a syntax error wherever it occurs. Single-character punctuation
+forms a token of its own. Which token sequences are legal where is
+defined by the grammar (chapter 2).
 
 Type-argument brackets: a `<` that follows one of the built-in
 generic names `List`, `Dict`, `Channel`, `Future` or the keyword

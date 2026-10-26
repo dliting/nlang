@@ -14,7 +14,10 @@ SPEC_LEX = (REPO / "docs" / "user_manual" / "en" / "specification"
 
 # "word" { return KT_Word; }  -- the direct literals
 LITERAL_KW = re.compile(r'"([A-Za-z_#]+)"\s*\{\s*return\s+(KT_\w+)')
-ALL_KT = re.compile(r"return\s+(KT_\w+)")
+# every KT_ token a return statement yields, including one wrapped in
+# a helper call (return KwToken(KT_X);) -- a bare "return KT_" would
+# go blind to that action style
+ALL_KT = re.compile(r"return\b[^;]*?\b(KT_\w+)")
 # spec table rows: | `word` | ... |
 TABLE_ROW = re.compile(r"^\|\s*`([a-z_#]+)`\s*\|", re.M)
 

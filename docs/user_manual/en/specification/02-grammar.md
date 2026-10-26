@@ -171,7 +171,8 @@ DoStmt          = "do" Statement "while" "(" Expression ")" ";" ;
 ForStmt         = "for" "(" InitFor ";" Expression ";" FiniFor ")" Statement ;
 InitFor         = ε | Type LocalDeclList | InvokeExpr
                 | IdentifierExpr "=" Expression ;
-FiniFor         = ε | InvokeExpr | IdentifierExpr CompoundOp Expression ;
+FiniFor         = ε | InvokeExpr | IdentifierExpr "=" Expression
+                | IdentifierExpr CompoundOp Expression ;
 ForeachStmt     = "foreach" "(" Type <identifier> "in"
                   ( Expression | BracedInitExpr ) ")" Statement ;
 
@@ -230,8 +231,8 @@ SubscriptExpr   = Expression "[" ( Expression | ConcreteParamList ) "]" ;
 BracedInitExpr  = "{" InitEntries "}" ;
 InitEntries     = [ InitEntryList ] ;
 InitEntryList   = InitEntry { "," InitEntry } ;
-InitEntry       = ( Expression | BracedInitExpr )
-                  [ ":" ( Expression | BracedInitExpr ) ] ;
+InitEntry       = Expression [ ":" ( Expression | BracedInitExpr ) ]
+                | BracedInitExpr ;
 
 ConcreteParamList = ConcreteParam { "," ConcreteParam } ;
 ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
@@ -251,7 +252,7 @@ lowest; within a group the listed associativity applies.
 
 | Precedence | Operators | Associativity |
 |---|---|---|
-| call, subscript, member | `( )` `[ ]` `.` | left |
+| call, subscript, member | `( )` `[ ]` `.` | left; the call `( )` non-associative |
 | cast | `as` | left |
 | unary | `!` `-` `+` | right |
 | multiplicative | `*` `/` `%` | left |
