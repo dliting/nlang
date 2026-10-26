@@ -3,7 +3,21 @@
 
 The standard library consists of five packages — `math`, `io`, `fs`,
 `thread`, `concurrent` (package-qualified free functions) — plus string
-methods (receiver-dispatched). A package is
+methods (receiver-dispatched). The **prelude package** `builtins`
+(`stdlib/builtins.n`) sits beside them: every build imports it
+automatically, so its declarations are visible without any import
+statement (an explicit `import builtins;` is legal and deduplicates).
+It declares the compiler's non-generic built-in classes as ordinary
+source — the handle classes `Mutex`, `Semaphore`, `Thread`, the
+exception family (`Exception` and its seven built-in subclasses), and
+the hierarchy root `Object`. Their signatures (constructor arity,
+method surface) are exactly what the file declares, and the language
+service treats them like any other declaration. The generic containers
+`List<T>`/`Dict<T>`/`Channel<T>`/`Future<T>` and the streams
+`ByteStream`/`FileStream` are not declared there — they remain
+compiler built-ins (see
+[Built-in generic classes](builtin-generic-classes.md) and
+[Streams](stdlib-streams.md)). A package is
 identified by its file's path — `stdlib/io.n` is the package `io` — and
 one build may contain only one package of each name (a duplicate is a
 compile error naming both sources; a project directory named `io` is an
@@ -13,9 +27,9 @@ bare names are not in scope. A package name used as a value
 terms of duties, io carries content input/output (IO), math numeric
 computation, fs the filesystem's names and metadata, thread the
 virtual-thread spawn and suspension primitives, and concurrent the
-`WaitGroup` synchronization tool (the
-`Mutex`/`Semaphore`/`Channel`/`Future` built-in classes excepted — they
-need no import; see [Concurrency](concurrency.md)).
+`WaitGroup` synchronization tool (the handle classes are not part of
+any function package — see the prelude package `builtins` above and
+[Concurrency](concurrency.md)).
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler

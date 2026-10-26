@@ -3,9 +3,12 @@
 
 `Object` is the implicit root of the class hierarchy. Every class that does not
 explicitly inherit from another class implicitly inherits from `Object`.
-Object is synthesized by the compiler — there is no source-level
-`class Object { ... }` declaration, and users do not write `class Foo : Object`
-(that syntax is rejected).
+Its declaration lives in `stdlib/builtins.n` — the prelude package
+`builtins`, which every build imports automatically (see
+[Standard Library](standard-library.md)); like every prelude
+declaration it is ordinary source you can read. Users do not write
+`class Foo : Object` — the inheritance is implicit, and the explicit
+spelling is rejected.
 
 `Object` is the only class without a parent. The built-in classes sit under
 it as well: `List`, `Dict`, `ByteStream`, `FileStream`, `Exception` and all

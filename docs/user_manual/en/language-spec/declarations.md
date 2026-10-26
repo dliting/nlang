@@ -158,9 +158,10 @@ int apply(BinOp f) { ... }   // parameters and returns
   a compile error.
 - An alias name must not collide with classes, functions, other
   aliases, built-in type names (`List`, `Dict`, `func`, `int`, ...),
-  or an indexed library package name (`math`, `io`, `fs`, `thread`,
-  `concurrent`, or a third-party package found on the search path) in
-  the same translation unit.
+  prelude-declared names (`Mutex`, `Semaphore`, `Thread`, the
+  exception family, `Object`, ...), or an indexed library package
+  name (`math`, `io`, `fs`, `thread`, `concurrent`, or a third-party
+  package found on the search path) in the same translation unit.
 - The scope-opening form `using Foo;` (no `=`) is unchanged and
   unrelated.
 
@@ -176,3 +177,36 @@ int apply(BinOp f) { ... }   // parameters and returns
   to an alias.
 - Diagnostics anchored at a use site sometimes point at the `using` line
   (the expansion clone prefers the alias target's location).
+
+### The `builtins` Prelude Package and Same-Name Priority
+
+Every build imports the prelude package `builtins` (`stdlib/builtins.n`,
+shipped with the toolchain) automatically. It declares the handle
+classes `Mutex`, `Semaphore`, `Thread`, the exception family, and the
+hierarchy root `Object` as ordinary class declarations — constructor
+arity and method surface are exactly what the file declares. See
+[Standard Library](standard-library.md).
+
+A root-level declaration of the same name in your own code **shadows**
+the prelude declaration — the innermost declaration wins in every
+position (type references, constructor calls, member lookup):
+
+```nlang
+class Semaphore { }          // legal: shadows the prelude Semaphore
+
+Semaphore s = Semaphore();   // resolves to YOUR class
+```
+
+The same-name rules are uniform:
+
+- **Type positions and constructor calls** bind to the innermost
+  declaration.
+- **Variable names**: a variable cannot take the name of any type
+  visible at that point. `int Semaphore = 1;` stays a compile error
+  even under the shadow above — the name still resolves to a type.
+- **Type aliases** cannot take a prelude-declared name
+  (`using Semaphore = int;` is a compile error), shadow or not.
+
+A declaration inside a package of your own (`alib.Object` in package
+`alib`) does not shadow anything — only a root-level declaration does;
+the qualified spelling `alib.Object` keeps both classes distinct.

@@ -1,6 +1,6 @@
 # 并发
 
-NLang提供轻量并发：`thread`包派生**虚拟线程**（virtual thread）——在少量共享的**载体**（carrier，承载虚拟线程运行的操作系统线程）上分时复用的执行上下文；虚拟线程不是各自独立的操作系统线程，存储保护见[载体与并行](concurrency-carriers.md)。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Semaphore`限制同时进入的任务数；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`Channel<T>`、`Semaphore`、`Future<T>`与其余句柄类型都是内建类，无需导入。
+NLang提供轻量并发：`thread`包派生**虚拟线程**（virtual thread）——在少量共享的**载体**（carrier，承载虚拟线程运行的操作系统线程）上分时复用的执行上下文；虚拟线程不是各自独立的操作系统线程，存储保护见[载体与并行](concurrency-carriers.md)。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Semaphore`限制同时进入的任务数；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`Semaphore`、`Thread`声明于预置包`builtins`（`stdlib/builtins.n`），每次构建自动导入，因此无需import语句；`Channel<T>`与`Future<T>`是编译器内建类（见[标准库](standard-library.md)）。
 
 调度的确定性：单载体（库默认）下完全确定——严格先进先出（FIFO，first in first out）轮转，每个虚拟线程连续执行约1000次循环迭代才让位（仅当另有可运行上下文时），同一程序在同样的输入下产生同样的交错顺序；多载体下调度顺序未指定（见[载体与并行](concurrency-carriers.md)）。`sleep`按截止时间排序唤醒。单载体测试可断言交错顺序与终值，多载体测试只断言同步后的结果——都不断言时长。
 

@@ -139,8 +139,6 @@
 - **The `implements qualified-name.interface` form is not accepted by
   the grammar** (e.g. `implements lib.IF`): `import` first, then use
   the unqualified name.
-- **A class body cannot be empty**: `class B : A { }` is a syntax
-  error; declare at least one member.
 - **Concurrency: main's return ends the program**: virtual threads still
   suspended or queued when `main` returns are dropped silently — there is no
   implicit wait-for-all; establish completion order explicitly with

@@ -6,6 +6,57 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.19] - 2026-10-27
+
+### Added
+
+- **Prelude package `builtins`: built-in classes declared as ordinary
+  source** — every build automatically imports a prelude package
+  (`stdlib/builtins.n`, shipped with the toolchain; an explicit
+  `import builtins;` is legal and deduplicates) that declares the
+  compiler's non-generic built-in classes as ordinary source: the handle
+  classes `Mutex`, `Semaphore`, `Thread`, the exception family
+  (`Exception` and its seven built-in subclasses), and the hierarchy
+  root `Object`. Constructor arities and method surfaces are exactly
+  what the file declares, and the language service treats them like any
+  other declaration. The generic containers `List<T>`/`Dict<K,V>`/
+  `Channel<T>`/`Future<T>` and the streams `ByteStream`/`FileStream`
+  stay compiler built-ins for now (a follow-up stage migrates them).
+- **Empty class bodies** — `class Thread { }` (the marker-class shape)
+  is legal grammar, mirroring interfaces.
+
+### Changed
+
+- **Same-name priority unified** — a root-level user class shadowing a
+  prelude-declared name now wins at every position: type reference,
+  bare construction (`Semaphore s = Semaphore();` resolves to the user
+  class; previously the construction site still bound the synthesized
+  built-in), and member lookup. Variable naming refuses any name that
+  resolves to a visible type (unchanged behavior, now consults the real
+  visibility chain), and type aliases may no longer hijack
+  prelude-declared names (`using Semaphore = int;` previously compiled).
+- Exception constructor arity is matched against the declared
+  overloads, and the catch clause binds its class index from the
+  resolved catch type directly — diagnostics at these sites reflect the
+  declared signatures. `Thread t = Thread();` (bare allocation) stays
+  legal; `Thread t = Thread(1);` is still rejected.
+
+### Fixed
+
+- **Catch variables scoped to their catch clause** — the catch variable
+  is visible only inside its clause; declaring the same name in the
+  enclosing scope afterwards is a proper local declaration instead of a
+  silent collision.
+- **User-thrown exceptions expose a usable backtrace** — `e.backtrace`
+  on an exception built by user code is an empty list (previously a
+  runtime error on first read).
+
+### Notes
+
+- Measurement (prelude probe — concurrency, exception and container
+  mix; 7 runs): compile wall time min 11.8 ms → 13.2 ms, module size
+  8102 → 9840 bytes; program output byte-identical.
+
 ## [0.10.18] - 2026-10-26
 
 ### Fixed
