@@ -1,5 +1,6 @@
 # Enum
 
+The normative rules are in [specification §4.5](../specification/04-types.md).
 
 An `enum` declares a set of named integer constants. Enum values are `int32`
 at runtime.

@@ -1,5 +1,6 @@
 # Type Semantics
 
+The normative rules are in [specification §4.1 and §4.12](../specification/04-types.md).
 
 Every type in NLang has defined semantics for four operations: **assignment**
 (`a = b`), **parameter passing**, **return value**, and use as a **field or

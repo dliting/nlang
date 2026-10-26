@@ -1,5 +1,6 @@
 # Interface
 
+The normative rules are in [specification §4.8](../specification/04-types.md).
 
 An `interface` declares a set of instance method signatures with no
 fields and no implementation. A class declares conformance with the

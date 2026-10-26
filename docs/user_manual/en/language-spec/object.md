@@ -1,5 +1,6 @@
 # Object & Boxing
 
+The normative rules are in [specification §4.9](../specification/04-types.md).
 
 `Object` is the implicit root of the class hierarchy. Every class that does not
 explicitly inherit from another class implicitly inherits from `Object`.

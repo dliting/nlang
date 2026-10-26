@@ -1,5 +1,6 @@
 # Object与装箱
 
+规范性规则见规范§4.9。
 
 `Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。Object由编译器合成——没有源码级的`class Object { ... }`声明，用户也不写`class Foo : Object`（该语法被拒绝）。
 

@@ -1,5 +1,6 @@
 # Struct
 
+The normative rules are in [specification §4.6](../specification/04-types.md).
 
 A `struct` is a value-typed aggregate of fields. It holds data plus
 optional constructors — no general method bodies. Use a `class` for

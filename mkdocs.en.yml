@@ -40,6 +40,7 @@ nav:
       - Lexical Structure: specification/01-lexical.md
       - Grammar: specification/02-grammar.md
       - Program Structure: specification/03-program-structure.md
+      - Types: specification/04-types.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

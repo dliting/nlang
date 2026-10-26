@@ -26,7 +26,7 @@ before they land here.
 - [1. Lexical Structure](01-lexical.md)
 - [2. Syntax](02-grammar.md)
 - [3. Program Structure and Name Resolution](03-program-structure.md)
-- 4. Types *(planned)*
+- [4. Types](04-types.md)
 - 5. Expressions *(planned)*
 - 6. Statements *(planned)*
 - 7. Functions and Methods *(planned)*

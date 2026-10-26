@@ -1,5 +1,6 @@
 # Array
 
+The normative rules are in [specification §4.3](../specification/04-types.md).
 
 Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 

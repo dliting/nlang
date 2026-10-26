@@ -1,5 +1,6 @@
 # Class
 
+The normative rules are in [specification §4.7](../specification/04-types.md).
 
 A `class` is a reference-typed object: it lives on the heap and is accessed
 through a reference (heap index). It carries fields, constructors, methods,

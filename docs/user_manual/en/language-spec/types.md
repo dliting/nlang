@@ -1,5 +1,6 @@
 # Types
 
+The normative rules are in [specification §4.1](../specification/04-types.md).
 
 NLang is statically typed: every variable, field, parameter, and return
 value has a declared type, and the compiler checks each expression against
