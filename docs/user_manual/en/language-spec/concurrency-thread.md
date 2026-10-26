@@ -1,5 +1,6 @@
 # The thread Package
 
+The normative rules are in [specification §11.1](../specification/11-concurrency.md).
 The `thread` package is an ordinary standard-library package: its authoritative declarations live in `stdlib/thread.n` (completion and the symbol index treat it like any other package), while the implementations are built into the virtual machine itself. Calls need `import thread;` first (the examples in this chapter all import it), and a user package named `thread` collides with the standard library and is rejected by the duplicate-package rule. `spawn`'s typed contract — a `func<T>` delegate yields a `Future<T>` — is bound by the compiler on top of the declared `func<void>` base form.
 
 | Member | Shape | Semantics |

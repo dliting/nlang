@@ -1,5 +1,6 @@
 # 并发
 
+规范性规则见规范第11章。
 NLang提供轻量并发：`thread`包派生**虚拟线程**——共享载体池、在全局解释器锁下每次只运行一个的执行上下文，不是各自独立的操作系统线程。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`与`Semaphore`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`Channel<T>`、`Future<T>`等内建类无需导入。
 
 调度的确定性分档：单载体下完全确定——严格先进先出（FIFO，first in first out）轮转，每上下文跑满固定回边配额才让位（仅当另有可运行上下文时），同一程序在同样的输入下产生同样的交错顺序；多载体下（库默认单载体，`nvm`默认至多4个、可用`--carriers=1`钉为单载体）出队带唤醒亲和，交错顺序未指定（见[GIL与多载体](concurrency-gil-carriers.md)）。`sleep`按截止时间排序唤醒。单载体测试可断言交错顺序与终值，多载体测试只断言同步后的结果——都不断言时长。

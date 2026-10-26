@@ -47,6 +47,7 @@ nav:
       - Object Orientation: specification/08-object-orientation.md
       - Exceptions: specification/09-exceptions.md
       - Execution Model: specification/10-execution-model.md
+      - Concurrency: specification/11-concurrency.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

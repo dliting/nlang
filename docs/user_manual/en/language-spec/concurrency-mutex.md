@@ -1,5 +1,6 @@
 # Mutex
 
+The normative rules are in [specification §11.2](../specification/11-concurrency.md).
 `Mutex` is a non-reentrant mutual-exclusion lock: locking it again while holding it parks forever (see [the deadlock report](concurrency-parking.md#main-exit-policy-and-the-deadlock-report)).
 
 | Member | Semantics |

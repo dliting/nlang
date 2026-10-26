@@ -1,5 +1,6 @@
 # Parking and Scheduling Limits
 
+The normative rules are in [specification §11.1](../specification/11-concurrency.md).
 ## Exceptions and parking are orthogonal
 
 Parking (`sleep`, `join`, contending `lock`, empty-channel `recv`, preemption) preserves the context's full execution state: frames, local variables, `try`/`catch`/`finally` handler state, and the instruction position are all frozen as-is, and execution continues after resumption. Therefore:

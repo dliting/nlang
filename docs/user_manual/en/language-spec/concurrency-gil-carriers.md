@@ -1,5 +1,6 @@
 # The GIL and Multiple Carriers
 
+The normative rules are in [specification §11.1 and §11.6](../specification/11-concurrency.md).
 The VM holds a **global interpreter lock** (GIL): exactly one virtual thread executes bytecode at a time. Context switches happen only at safepoints (function entry and loop back edges), bounded by a scheduler budget of about 1000 back edges per turn. The GIL makes bytecode execution mutually exclusive, so language code never has to guard shared memory against a second virtual thread.
 
 A **carrier** is an operating system thread that runs virtual threads. The library defaults to a single carrier; embedding hosts opt in with `VmExecutor::SetCarrierThreadCount`, and `nvm` defaults to at most four (`--carriers=N`, 1..64). Multi-carrier parallelism comes from one kind of window only: a native call that declared a blocking section under version 5 of the native application binary interface (ABI) — the VM releases the GIL for its duration, so other carriers run other virtual threads (typically overlapping an input/output wait with other work), and the GIL is reacquired before the native returns. A third-party native that does not declare its blocking section holds the GIL for the whole call and every carrier stalls.

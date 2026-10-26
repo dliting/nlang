@@ -1,5 +1,6 @@
 # Channel
 
+The normative rules are in [specification §11.4](../specification/11-concurrency.md).
 `Channel<T>` is a message channel. The element type argument is not optional (a bare `Channel` is a compile error — the element type drives value boxing and receiver-side unboxing). Two construction forms:
 
 ```nlang

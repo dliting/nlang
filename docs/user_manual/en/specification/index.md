@@ -33,7 +33,7 @@ before they land here.
 - [8. Object Orientation](08-object-orientation.md)
 - [9. Exceptions](09-exceptions.md)
 - [10. Execution Model and Memory Semantics](10-execution-model.md)
-- 11. Concurrency *(planned)*
+- [11. Concurrency](11-concurrency.md)
 - 12. Packages and Import Search *(planned)*
 
 ### Part II — The Standard Library

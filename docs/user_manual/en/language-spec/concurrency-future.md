@@ -1,5 +1,6 @@
 # Future
 
+The normative rules are in [specification §11.5](../specification/11-concurrency.md).
 Spawning a delegate with a return value (`func<T>`) yields a `Future<T>` — the retrieval handle for the return value:
 
 | Member | Semantics |
