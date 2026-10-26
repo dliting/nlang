@@ -1,0 +1,6 @@
+// Rank 65 exceeds the language cap of 64: named compile-time
+// rejection at the declaration point (grammar factory).
+int main() {
+    int[,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,] a;
+    return 0;
+}

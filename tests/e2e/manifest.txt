@@ -1881,3 +1881,5 @@ ndarray_crossmod 0 10 8
 ndarray_tostring 0 [[1, 2], [3, 4]] 1
 ndarray_initlist_listleaf 9
 ndarray_zerodim_tostring 7
+ndarray_highrank 0 12 9
+ndarray_rank65 compile_error exceeds the maximum of 64
