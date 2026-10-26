@@ -1,5 +1,6 @@
 # 退出码约定
 
+规范性规则见规范§10.3。
 ## main返回值 → 进程退出码
 
 `main`的返回值就是进程退出码：nvm（以及`ncc run`、`ncc <文件>`的执行阶段）以返回值调用`ExitProcess`结束进程。nlang的脚本没有手写`main()`：顶层`return`就是退出码，因为顶层语句被包裹进合成的`main()`。自带`main()`的普通程序用nlang照常运行（见[nlang](../cli-tools/nlang.md)）。`ncc build`只编译不执行，成功时退出码恒为0。

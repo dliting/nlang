@@ -1,5 +1,6 @@
 # Exit Code Convention
 
+The normative rules are in [specification §10.3](../specification/10-execution-model.md).
 ## main return value → process exit code
 
 `main`'s return value is the process exit code: nvm (and the execution

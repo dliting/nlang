@@ -46,6 +46,7 @@ nav:
       - Functions: specification/07-functions.md
       - Object Orientation: specification/08-object-orientation.md
       - Exceptions: specification/09-exceptions.md
+      - Execution Model: specification/10-execution-model.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

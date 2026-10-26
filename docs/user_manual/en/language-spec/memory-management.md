@@ -1,5 +1,6 @@
 # Memory Management
 
+The normative rules are in [specification chapter 10](../specification/10-execution-model.md).
 NLang is a garbage-collected language: there is no `delete` and no free
 function to call — objects are reclaimed automatically by the garbage
 collector once unreachable. You never release memory manually. This page

@@ -14,3 +14,4 @@ en/specification/06-statements.md
 en/specification/07-functions.md
 en/specification/08-object-orientation.md
 en/specification/09-exceptions.md
+en/specification/10-execution-model.md
