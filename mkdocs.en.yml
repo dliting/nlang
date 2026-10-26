@@ -1,8 +1,8 @@
-# English tree. INHERIT pulls every shared setting from the base; both
-# trees are fully translated (see docs/user_manual/translation-pending.txt, whose
-# list is empty) and the tree-parity pytest runs in strict nav-parity
-# mode: any new page must land in both trees and both navs in the same
-# change.
+# English tree. INHERIT pulls every shared setting from the base; the
+# manual trees are fully translated and the specification tree is being
+# seeded in batches, so docs/user_manual/translation-pending.txt is
+# non-empty and the tree-parity pytest runs in pending mode (strict
+# nav parity locks again once the list empties).
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: docs/user_manual/en
@@ -37,6 +37,7 @@ nav:
   - Specification:
       - Overview: specification/index.md
       - Introduction: specification/00-introduction.md
+      - Lexical Structure: specification/01-lexical.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

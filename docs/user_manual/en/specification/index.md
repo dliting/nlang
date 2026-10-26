@@ -7,9 +7,9 @@ formats. It defines what a conforming implementation must do. The
 informative; where the two disagree about a semantic question, this
 specification is the authority. The English text is normative.
 
-The specification describes NLang 0.11.4. It is a living document:
+The specification describes NLang 0.11.5. It is a living document:
 it always describes the current language, and its version history is
-the repository history — a tag such as `v0.11.4` pins the whole tree
+the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
 
 Where this specification and an implementation disagree, the
@@ -23,7 +23,7 @@ before they land here.
 ### Part I — The Language
 
 - [0. Introduction](00-introduction.md)
-- 1. Lexical Structure *(in progress)*
+- [1. Lexical Structure](01-lexical.md)
 - 2. Syntax *(in progress)*
 - 3. Program Structure and Name Resolution *(planned)*
 - 4. Types *(planned)*
