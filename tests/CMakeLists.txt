@@ -972,6 +972,31 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(import_parse_tests test_import_parse)
 
+    # Generic class declaration grammar tests (promise-select Task 1):
+    # in-process through ModuleBuilder, same shape as test_import_parse.
+    add_executable(test_generic_decl
+        test_compiler/test_generic_decl.cpp
+    )
+    target_link_libraries(test_generic_decl
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_generic_decl)
+    target_compile_definitions(test_generic_decl
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_generic_decl POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_generic_decl>)
+    endif()
+    nlang_add_qtest(generic_decl_tests test_generic_decl)
+
     # Module registry unit tests (module import visibility Task 2):
     # per-TU module path computation relative to the project root, the
     # single-file stem fallback and the reserved segment gate, driven

@@ -214,6 +214,7 @@ static bool CollectQualifiedSegments(
     nlang::SnUsing *						v_pUsing;
     nlang::PtrList<nlang::SnUsing> *		v_pUsingList;
     std::vector<nlang::ImportSpec> *		v_pImportList;
+    std::vector<std::string> *				v_pStrList;
     nlang::ImportSpec *						v_pImportSpec;
     nlang::SnFunction  *      				v_pFunction;
 	nlang::PtrList<nlang::SnFormalParam> *	v_pFormalParamList;
@@ -339,6 +340,7 @@ static bool CollectQualifiedSegments(
 %type <v_pFunction>		StructCtor
 %type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
+%type <v_pStrList>			TypeParamsOpt TypeParams
 %type <v_pInterfaceDecl>	InterfaceDecl
 %type <v_pNameExprList>		ImplementsOpt NameList
 %type <v_pClassMemberList>	InterfaceMemberList
@@ -1388,23 +1390,47 @@ StructCtor:	TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 /*
 Class type declaration.
 */
-ClassDecl:	KT_Class TT_Identifier ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
-					auto* pClass = new SnClassDecl($2, $3, $6, @1);
-					if ($4)
-						for (auto *pNode : *$4)
+ClassDecl:	KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
+					auto* pClass = new SnClassDecl($2, $4, $7, @1);
+					if ($5)
+						for (auto *pNode : *$5)
 							pClass->AddImplementsName(pNode);
+					if ($3)
+						pClass->SetTypeParamNames(std::move(*$3));
+					delete $3;
 					$$ = pClass;
 				} |
 			//Empty body (marker classes): the separate alternative is the
 			//InterfaceDecl shape — an empty ClassMemberList arm would
 			//reintroduce the epsilon-list conflict family the accepted-
 			//conflict ledger records as removed.
-KT_Class	TT_Identifier ClassInheritOpt ImplementsOpt '{' '}' {
-					auto* pClass = new SnClassDecl($2, $3, new PtrList<SnField>(), @1);
-					if ($4)
-						for (auto *pNode : *$4)
+KT_Class	TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' '}' {
+					auto* pClass = new SnClassDecl($2, $4, new PtrList<SnField>(), @1);
+					if ($5)
+						for (auto *pNode : *$5)
 							pClass->AddImplementsName(pNode);
+					if ($3)
+						pClass->SetTypeParamNames(std::move(*$3));
+					delete $3;
 					$$ = pClass;
+				} ;
+
+//Type parameter names of a generic class declaration: `class Name<T, U>`
+//— names only, no bounds. Declaration context only (right after
+//`class <name>`), so the leading '<' has no competing production;
+//measured conflict delta goes in the ledger.
+TypeParamsOpt:	TypeParams { $$ = $1; } |
+				{ $$ = nullptr; } ;
+
+TypeParams:	'<' TT_Identifier '>' {
+					$$ = new std::vector<std::string>;
+					$$->push_back(*$2);
+					delete $2;
+				} |
+			TypeParams ',' TT_Identifier '>' {
+					$$ = $1;
+					$$->push_back(*$3);
+					delete $3;
 				} ;
 
 ClassInheritOpt:	':' TypeName { $$ = $2; } |
@@ -1673,6 +1699,11 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  a top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
+//- 2026-10-27 (generic class declarations): TypeParamsOpt/TypeParams
+//  added after `class <name>` — re-measured 26 shift/reduce,
+//  4 reduce/reduce, ZERO delta. The declaration-context '<' shifts into
+//  TypeParams without a competing reduction (state after TT_Identifier:
+//  shift on '<', $default reduces the empty TypeParamsOpt).
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).

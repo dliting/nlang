@@ -401,6 +401,27 @@ static void CheckOverrideSignatures(SnClassDecl &cls,
 			rejectedNames);
 }
 
+//Generic class declarations carry signature surfaces only: the
+//declaration grammar has no generic method compilation, so every
+//method member of a declared generic must be native.
+static void CheckGenericDeclNativeOnly(SnClassDecl &cls,
+	BuildEnvironment &env)
+{
+	if (!cls.IsGenericDeclaration())
+		return;
+	for (auto &member : cls.Members())
+	{
+		if (member.Kind() != NK_Function)
+			continue;
+		if (member.ContainFlags(NF_Native))
+			continue;
+		env.Log(CLL_Error, member.Location(),
+			"The class \"%s\" is a generic declaration: the method \"%s\" "
+			"must be native (generic declarations carry signatures only).",
+			cls.Name().c_str(), member.Name().c_str());
+	}
+}
+
 //Step 2 — interface completeness (upgrade of the former name-only
 //CheckInterfaceImplementation): every method of every interface along
 //the chain must be implemented by the FIRST same-name method in
@@ -479,6 +500,7 @@ void ModuleBuilder::CheckMethodContracts()
 				: std::set<std::string>();
 		CheckOverrideSignatures(*pCls, *m_upEnv, rejected);
 		CheckInterfaceContracts(*pCls, *m_upEnv, rejected);
+		CheckGenericDeclNativeOnly(*pCls, *m_upEnv);
 		rejectedByClass[pCls] = std::move(rejected);
 	};
 	for (auto *pClass : classes)

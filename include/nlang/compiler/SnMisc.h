@@ -363,6 +363,17 @@ public:
 	bool IsFuncType() const
 	{ return m_bIsGenericInst && m_baseName == kBuiltinFuncTypeName; }
 
+	//Generic class declaration: the type parameter names written on the
+	//declaration (`class Box<T, U>`). Empty for ordinary classes. A
+	//declared generic carries signature surfaces only (all members
+	//native); the names scope the class body and drive signature
+	//substitution at instantiation.
+	bool IsGenericDeclaration() const { return !m_typeParamNames.empty(); }
+	const std::vector<std::string>& TypeParamNames() const
+	{ return m_typeParamNames; }
+	void SetTypeParamNames(std::vector<std::string> names)
+	{ m_typeParamNames = std::move(names); }
+
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;
@@ -372,6 +383,7 @@ private:
 	bool m_bIsGenericInst = false;
 	std::vector<SnField*> m_genericTypeArgs;
 	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances
+	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
 };
 
 //An interface type declaration (e.g. interface IPrintable { void Print(); }).
