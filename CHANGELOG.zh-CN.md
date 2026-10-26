@@ -6,6 +6,20 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.18] - 2026-10-26
+
+### 修复
+
+- **多载体下Mutex/Semaphore的过期唤醒破坏**——unlock/release的盖章臂
+  （把许可或所有权交给已登记但尚未停泊的等待者）也会发出唤醒。该唤
+  醒是冗余的——登记方acquirer的recheck会同步消费盖章——而且调度器锁
+  无公平性保证，滞后的唤醒可能在acquirer已消费盖章并停泊到别的原语
+  之后才落地，把无关的停泊翻回Runnable，令其在未获授予的情况下恢复
+  执行。三载体起表现为节区超发（`Semaphore(2)`放进三个）、偶发
+  `Mutex.unlock without holding the lock`、以及许可丢失型死锁。盖章
+  交付现在只依赖recheck；仅已停泊者的移交才唤醒（Channel族一贯的纪
+  律）。新增四工作者门锤压测钉住该行为。
+
 ## [0.10.17] - 2026-10-25
 
 ### 新增

@@ -132,17 +132,25 @@ bool VmExecutor::IntrinsicMutexTryLock(uint16_t callParamBase,
 }
 
 //unlock(): not the owner → basic error; no live waiter → free; else
-//hand ownership to the front live waiter — committed entries deliver
-//(pop + wake after the release), pending entries stamp kAcquired (the
-//aborting parker returns owning), so no window exists where the lock
-//looks free while a handoff is in flight. The wake is a scheduler call
-//— after the Sync release (a domain lock is never held across one).
+//hand ownership to the front live waiter. Committed entries deliver
+//(pop + wake after the Sync release — the parked call resumes owning);
+//pending entries stamp kAcquired and are NOT woken: the in-window
+//acquirer's recheck consumes the stamp synchronously, so a wake here is
+//redundant — and an unfair-GIL-delayed one lands after the acquirer
+//consumed the stamp and parked on another primitive, flipping that
+//unrelated park to Runnable and resuming it without its grant (observed
+//as section over-admission, spurious unlock errors, and lost-permit
+//deadlocks at >= 3 carriers). The Channel family's handoff arms never
+//woke stamps — this restores that discipline. The committed wake is
+//required and safe: its target is provably still in this park (or mid-
+//unwind toward it), so the flip always lands on the right window.
 bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
 {
     const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
                                                    "Mutex call");
     const int selfId = m_spScheduler->CurrentContextId();
     int nextOwner = -1;
+    bool committedHandoff = false;
     {
         DomainGuard g(m_domainLocks, DomainId::Sync);
         MutexSlot* slot = SyncMutexSlotAt(handle);
@@ -160,9 +168,10 @@ bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
             nextOwner = it->contextId;
             if (it->phase == SyncWaiter::Phase::kCommitted) {
                 slot->waiters.erase(it);
+                committedHandoff = true;
                 break;
             }
-            it->phase = SyncWaiter::Phase::kAcquired;
+            it->phase = SyncWaiter::Phase::kAcquired;   //no wake: see above
             break;
         }
         if (nextOwner < 0)
@@ -170,7 +179,7 @@ bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
         else
             slot->ownerId = nextOwner;
     }
-    if (nextOwner >= 0)
+    if (committedHandoff)
         m_spScheduler->WakeForMutex(nextOwner);
     return true;
 }

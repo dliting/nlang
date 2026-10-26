@@ -105,16 +105,21 @@ bool VmExecutor::IntrinsicSemaphoreAcquire(uint16_t callParamBase,
 //release(): no ownership precondition (a permit may be released without
 //holding one — the count may exceed the initial value). A live front
 //waiter receives the permit directly — committed entries pop + wake
-//after the release, pending entries stamp kAcquired (the aborting
-//acquirer returns holding it) — otherwise the count gains one. The
-//dead-mailbox skip is the unlock shape: stamped entries never
-//re-receive.
+//after the Sync release, pending entries stamp kAcquired and are NOT
+//woken (the in-window acquirer's recheck consumes the stamp
+//synchronously; a wake here is redundant, and an unfair-GIL-delayed one
+//lands after the acquirer consumed the stamp and parked on another
+//primitive, flipping that unrelated park to Runnable and resuming it
+//without its grant — the IntrinsicMutexUnlock header has the full
+//hazard account) — otherwise the count gains one. The dead-mailbox skip
+//is the unlock shape: stamped entries never re-receive.
 bool VmExecutor::IntrinsicSemaphoreRelease(uint16_t callParamBase,
                                            uint8_t* locals)
 {
     const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
                                                    "Semaphore call");
     int nextOwner = -1;
+    bool committedHandoff = false;
     {
         DomainGuard g(m_domainLocks, DomainId::Sync);
         SemaphoreSlot* slot = SyncSemaphoreSlotAt(handle);
@@ -129,15 +134,16 @@ bool VmExecutor::IntrinsicSemaphoreRelease(uint16_t callParamBase,
             nextOwner = it->contextId;
             if (it->phase == SyncWaiter::Phase::kCommitted) {
                 slot->waiters.erase(it);
+                committedHandoff = true;
                 break;
             }
-            it->phase = SyncWaiter::Phase::kAcquired;
+            it->phase = SyncWaiter::Phase::kAcquired;   //no wake: see above
             break;
         }
         if (nextOwner < 0)
             ++slot->count;   //no live waiter — bank the permit
     }
-    if (nextOwner >= 0)
+    if (committedHandoff)
         m_spScheduler->WakeForSemaphore(nextOwner);
     return true;
 }

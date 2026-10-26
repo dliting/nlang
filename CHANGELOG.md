@@ -6,6 +6,24 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.18] - 2026-10-26
+
+### Fixed
+
+- **Mutex/Semaphore stale-wake corruption under high carrier counts** —
+  the unlock/release stamp arm (a permit or ownership handed to a waiter
+  that had registered but not yet parked) also fired a wake. The wake is
+  redundant there — the registering acquirer's recheck consumes the
+  stamp synchronously — and, because the scheduler lock is unfair, a
+  delayed one could land after that acquirer had moved on and parked on
+  another primitive, flipping the unrelated park to Runnable and
+  resuming it without its grant. Observed from three carriers up as
+  section over-admission (`Semaphore(2)` admitting three), spurious
+  `Mutex.unlock without holding the lock` errors, and lost-permit
+  deadlocks. Stamp delivery now relies solely on the recheck; only the
+  committed-park handoff wakes (the discipline the Channel family
+  already followed). Pinned by a 4-worker gate-hammer end-to-end test.
+
 ## [0.10.17] - 2026-10-25
 
 ### Added

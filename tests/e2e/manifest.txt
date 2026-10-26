@@ -1757,6 +1757,7 @@ channel_bounded_semantics 0 Ev12
 concurrent_waitgroup 0 sum=40
 concurrent_channel_park_gcwindow 0 churn done
 concurrent_semaphore 0 ABC10
+concurrent_gate_hammer 17 peak inside the section: 2 (limit 2), total: 40000
 exception_two_catches_same_var 0 AoopB7
 duplicate_local_same_scope compile_error already declared
 local_shadow_catch_var compile_error already declared
