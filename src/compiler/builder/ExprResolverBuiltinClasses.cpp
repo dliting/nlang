@@ -1,5 +1,5 @@
 /*---
-    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream/Object/Thread）
+    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream/Object）
     从 ExprResolverTypes.cpp 抽取（2026-09-27 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
@@ -17,13 +17,10 @@ namespace nlang
 static SnClassDecl* s_pByteStreamClass = nullptr;
 static SnClassDecl* s_pFileStreamClass = nullptr;
 static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
-//K1: the Thread type-system stand-in (the real method/field surface of
-//the concurrency builtins used to live in VmBackend's s_BuiltinClassDecls
-//rows). Channel needs no stand-in: it exists only as Channel<T>, a
-//generic instantiation minted by GetGenericClassDecl. Mutex/Semaphore
-//lost their stand-ins to the builtin-decls migration — declared in
-//stdlib/builtins.n now.
-static SnClassDecl* s_pThreadClass = nullptr;
+//Channel needs no stand-in: it exists only as Channel<T>, a generic
+//instantiation minted by GetGenericClassDecl. Mutex/Semaphore and
+//Thread lost their stand-ins to the builtin-decls migration — declared
+//in stdlib/builtins.n now.
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -48,8 +45,7 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		return nullptr;
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
 		: (name == "FileStream") ? s_pFileStreamClass
-		: (name == "Object") ? s_pObjectClass
-		: s_pThreadClass;
+		: s_pObjectClass;
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);

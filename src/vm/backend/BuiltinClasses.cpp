@@ -158,15 +158,13 @@ const BuiltinMethod s_DictMethods[] = {
     {"toString",    INTR_Dict_toString,    1, RTK_String},
 };
 
-//K1 concurrency builtins. Thread carries the __handle field (the spawned
-//context id) but no ctor — thread.spawn mints instances — and no methods
-//in K1. Channel takes the same __handle shape as the containers
-//(index into the VM-side sync stores). Channel's methods are generic-
-//container surface (the element type is erased at runtime — every
+//K1 concurrency builtins. Channel takes the __handle shape as the
+//containers (index into the VM-side sync stores). Channel's methods are
+//generic-container surface (the element type is erased at runtime — every
 //element is a heap idx; recv's RTK_Int32 is the placeholder return kind,
 //the call site's boxing plan unboxes per T).
-//Mutex/Semaphore left the table: their classes are declared in
-//stdlib/builtins.n, their intrinsic stubs come from the declared
+//Mutex/Semaphore and Thread left the table: their classes are declared
+//in stdlib/builtins.n, their intrinsic stubs come from the declared
 //records stamped by the binding table (backend/BindingTable.cpp).
 const BuiltinMethod s_ChannelMethods[] = {
     {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
@@ -175,9 +173,9 @@ const BuiltinMethod s_ChannelMethods[] = {
 };
 
 //K3: Future<T> — the typed-spawn result handle. __handle = context id
-//(same shape as Thread); no ctor — thread.spawn mints instances. get's
-//RTK_Int32 is the placeholder return kind (the call site's boxing plan
-//unboxes per T, like recv).
+//(the declared Thread takes the same hidden slot); no ctor —
+//thread.spawn mints instances. get's RTK_Int32 is the placeholder
+//return kind (the call site's boxing plan unboxes per T, like recv).
 const BuiltinMethod s_FutureMethods[] = {
     {"get",     INTR_Future_Get,    1, RTK_Int32},  //this; returns T
     {"isDone",  INTR_Future_IsDone, 1, RTK_Bool},
@@ -205,8 +203,6 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
         s_DictMethods, std::size(s_DictMethods), BIDX_Dict},
     //K1 concurrency builtins — appended at the END (existing indices are
     //stable; a reorder changes the serialized .ncu).
-    {"Thread",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        false, 0, 0, nullptr, 0, BIDX_None},
     {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         //K3 task 4: ctor is (this, capacity) — capacity 0 = unbounded;
         //the init-list arm stages the 0 explicitly.
@@ -292,7 +288,7 @@ void VmBackend::RegisterBuiltinClasses() {
             case BIDX_Object:     m_objectClassIdx     = static_cast<int16_t>(classIdx); break;
             case BIDX_List:       m_listClassIdx       = static_cast<int16_t>(classIdx); break;
             case BIDX_Dict:       m_dictClassIdx       = static_cast<int16_t>(classIdx); break;
-            default: break;  //BIDX_None — ByteStream/FileStream/Thread/Channel/Future
+            default: break;  //BIDX_None — ByteStream/FileStream/Channel/Future
         }
     }
 }

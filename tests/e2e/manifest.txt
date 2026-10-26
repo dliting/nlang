@@ -1083,6 +1083,14 @@ alias_fwd_alias compile_error
 alias_clash_builtin compile_error
 #Task 4 Step 0: an empty class body (marker classes) is legal.
 grammar_empty_class 0
+#Task 4: declared-Thread construction contract (no ctor —
+#thread.spawn mints instances; with-args rejects).
+thread_decl_zeroarg 0
+thread_decl_ctorargs compile_error
+#A user class shadowing Thread does not break typed spawn —
+#the mint resolves the prelude record by bare name
+#(parity with pre-migration behavior).
+thread_spawn_shadow 7
 #Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
 alias_foreach 6
 alias_initlist 42

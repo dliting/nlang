@@ -1,12 +1,12 @@
 /*-----------------------------------------------------------------------------
 	ncomp/builder/BuiltinNames.h
 	This file defines the shared name predicates for the lazily synthesized
-built-in classes (ByteStream, FileStream, Object, Thread). ExprResolver
+built-in classes (ByteStream, FileStream, Object). ExprResolver
 owns the synthesis sites; DuplicateFieldChecker consults the same
 predicates for the Phase 13 type-alias clash check, so both must agree on
-one name set. The Exception family left the synthesized set — declared in
-stdlib/builtins.n (builtin-decls source of truth), resolving through the
-scope chain like any class.
+one name set. The Exception family, Mutex/Semaphore and Thread left the
+synthesized set — declared in stdlib/builtins.n (builtin-decls source of
+truth), resolving through the scope chain like any class.
 -----------------------------------------------------------------------------*/
 #pragma once
 #include <string>
@@ -28,11 +28,11 @@ namespace nlang
 //P2-1 (v0.10.17) put Semaphore here with Mutex; the builtin-decls
 //source-of-truth migration removed both again — their classes are
 //declared in stdlib/builtins.n and resolve through the scope chain
-//like any imported class.
+//like any imported class. Thread went the same way in cluster 3.
 inline bool IsBuiltinClassName(const std::string& name)
 {
-	return name == "ByteStream" || name == "FileStream" || name == "Object"
-		|| name == "Thread";
+	return name == "ByteStream" || name == "FileStream"
+		|| name == "Object";
 }
 
 } //namespace nlang

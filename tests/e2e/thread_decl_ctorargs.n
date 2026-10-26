@@ -1,0 +1,6 @@
+//Thread has no constructor: construction with arguments is a
+//compile-time rejection (thread.spawn mints instances).
+int main() {
+	Thread t = Thread(1);
+	return 0;
+}

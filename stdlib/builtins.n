@@ -64,3 +64,9 @@ class InvalidCastException : Exception {
 class ChannelClosedException : Exception {
     public native ChannelClosedException(string message);
 }
+
+//Handle of a spawned virtual thread: the runtime context id lives in
+//the hidden native slot. Instances are minted by thread.spawn — there
+//is no user-callable constructor.
+class Thread {
+}

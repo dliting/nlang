@@ -14,7 +14,6 @@
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
-#include "BuiltinNames.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <vector>
 
@@ -51,12 +50,19 @@ bool ExprResolveAccessor::TryBindTypedSpawn(SnMemberExpr &snMember,
 	if (outcome == SpawnArgOutcome::Diagnosed)
 		return true;
 
-	//Result decl: Thread for a void delegate, Future<T> otherwise.
+	//Result decl: Thread for a void delegate, Future<T> otherwise. The
+	//void arm reads the declared Thread class (stdlib/builtins.n) off
+	//the scope chain — the same lookup any type name takes; the
+	//synthesized singleton retired with the builtin-decls migration. A
+	//miss (name shadowed by a non-type) declines to the fixed path's
+	//diagnostics.
 	SnField *pRetDecl = nullptr;
 	if (pT->Kind() == NK_Void)
 	{
-		ScriptLocation fallback;
-		pRetDecl = GetBuiltinClassDecl("Thread", &fallback);
+		SnField *pThreadDecl = FindTypeNameInAncestor("Thread",
+			*m_pContext, *m_pAccessor, false);
+		if (pThreadDecl && pThreadDecl->Kind() == NK_ClassDecl)
+			pRetDecl = static_cast<SnClassDecl *>(pThreadDecl);
 	}
 	else
 	{
