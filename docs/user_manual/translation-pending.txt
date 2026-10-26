@@ -5,7 +5,5 @@
 # translations follow); its untranslated pages are listed below, which
 # puts the tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
 # in pending mode until the list empties again.
-en/specification/index.md
-en/specification/00-introduction.md
 en/specification/01-lexical.md
 en/specification/02-grammar.md

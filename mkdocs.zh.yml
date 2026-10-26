@@ -1,8 +1,8 @@
-# Chinese tree. INHERIT pulls every shared setting from the base; both
-# trees are fully translated (see docs/user_manual/translation-pending.txt, whose
-# list is empty) and the tree-parity pytest runs in strict nav-parity
-# mode: any new page must land in both trees and both navs in the same
-# change.
+# Chinese tree. INHERIT pulls every shared setting from the base; the
+# manual trees are fully translated and the specification tree is being
+# seeded in batches, so docs/user_manual/translation-pending.txt is
+# non-empty and the tree-parity pytest runs in pending mode (strict
+# nav parity locks again once the list empties).
 INHERIT: mkdocs.base.yml
 site_name: NLang中文文档
 docs_dir: docs/user_manual/zh
@@ -34,6 +34,9 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
+  - 规范:
+      - 概览: specification/index.md
+      - 引言: specification/00-introduction.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
