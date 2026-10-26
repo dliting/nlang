@@ -1081,6 +1081,8 @@ alias_redef compile_error
 alias_clash_class compile_error
 alias_fwd_alias compile_error
 alias_clash_builtin compile_error
+#Task 4 Step 0: an empty class body (marker classes) is legal.
+grammar_empty_class 0
 #Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
 alias_foreach 6
 alias_initlist 42

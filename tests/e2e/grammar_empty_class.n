@@ -1,0 +1,9 @@
+//An empty class body is legal (marker classes; InterfaceDecl already
+//accepts one — ClassDecl gains the same empty production).
+class Marker {
+}
+
+int main() {
+	Marker m = Marker();
+	return 0;
+}
