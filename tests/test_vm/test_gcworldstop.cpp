@@ -23,6 +23,7 @@
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#include <crtdbg.h>
 #endif
 
 using namespace nlang;
@@ -651,6 +652,17 @@ int main(int argc, char** argv)
     //Child process: run one membership-crash case. Reaching the return
     //means the tripwire failed to fire — exit 0 so the parent FAILS.
     if (argc > 1 && std::strncmp(argv[1], "--gcws-crash=", 13) == 0) {
+#ifdef _WIN32
+        //The tripwire's std::terminate ends in abort(), which the debug
+        //CRT (the ASan build links one) reports through a modal dialog —
+        //the expected-abnormal-exit child would block on it until the
+        //parent's 30s wait times out. Route CRT reports to the debugger
+        //stream and drop the abort-time report so the abnormal exit
+        //stays prompt and dialog-free (exit code 3 either way).
+        _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+        _set_abort_behavior(0, _CALL_REPORTFAULT);
+#endif
         GcWorldStop stop;
         std::vector<CallFrame> stack;
         const GcThreadToken token = stop.RegisterThread(&stack);
