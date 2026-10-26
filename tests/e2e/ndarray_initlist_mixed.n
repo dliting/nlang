@@ -1,0 +1,17 @@
+// Stage-3 D3: bracket rows and expression rows mix freely at the same
+// level of an ND initializer (the dynamic arm assembles both).
+int[,] makeRow2(int w) {
+    int[,] r = int[1, w];
+    for (int i = 0; i < w; i += 1) {
+        r[0, i] = i + 7;
+    }
+    return r;
+}
+
+int main() {
+    int[,,] t = [[[1, 2]], makeRow2(2)];
+    if (t.shape()[0] != 2 || t.shape()[1] != 1 || t.shape()[2] != 2) return 1;
+    if (t[0,0,0] != 1 || t[0,0,1] != 2) return 2;
+    if (t[1,0,0] != 7 || t[1,0,1] != 8) return 3;
+    return 0;
+}

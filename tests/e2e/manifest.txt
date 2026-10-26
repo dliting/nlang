@@ -1888,3 +1888,7 @@ stdlib_tensor_reshape 0
 stdlib_tensor_matmul 0
 stdlib_tensor_matmul_bad 0 tensor.matmul: shape mismatch
 stdlib_tensor_nd2 0
+ndarray_initlist_exprrows 0
+ndarray_initlist_mixed 0
+ndarray_initlist_rowlen 1
+ndarray_initlist_nullrow 1

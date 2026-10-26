@@ -1,0 +1,15 @@
+// Stage-3 D3: rows of differing widths raise the catchable shape
+// error naming the dim level and both widths (the sentinel file pins
+// the exact message).
+int[] makeRow(int w) {
+    int[] r = int[w];
+    for (int i = 0; i < w; i += 1) {
+        r[i] = i;
+    }
+    return r;
+}
+
+int main() {
+    int[,] bad = [makeRow(2), makeRow(3)];
+    return 0;
+}

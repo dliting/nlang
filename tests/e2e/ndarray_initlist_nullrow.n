@@ -1,0 +1,7 @@
+// Stage-3 D3: a null expression row takes the null-reference family -
+// the assembler validates every row before use.
+int main() {
+    int[] r = null;
+    int[,] m = [r];
+    return 0;
+}
