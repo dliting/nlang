@@ -120,7 +120,7 @@ NLANG_DEFINE_NATIVE_INIT
 | DLL名 | `nlang_<命名空间>.dll`，如`nlang_num.dll` |
 | 导出 | 两个入口，均由`NLANG_DEFINE_NATIVE_INIT`宏生成：版本探针`nlang_abi_version`与初始化入口`nlang_native_init` |
 | 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放全局锁 |
-| ABI版本 | 任何模块代码运行前先经`nlang_abi_version`探测；版本不符或缺探针即拒载 |
+| ABI版本 | 初始化代码运行前先经`nlang_abi_version`探测；版本不符或缺探针即拒载 |
 | 头文件 | 随源码仓库提供（`include/nlang/vm/NativeHost.h`），无需链接VM库 |
 | 参数助手 | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString`等 |
 

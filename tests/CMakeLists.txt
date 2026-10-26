@@ -113,6 +113,11 @@ add_library(nlang_noprobe SHARED
 )
 target_include_directories(nlang_noprobe PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+add_library(nlang_badreturn SHARED
+    fixtures/native/badreturn/badreturn_native.cpp
+)
+target_include_directories(nlang_badreturn PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # NativeLibraryLoader unit tests: real discovery/loading of the fixtures.
 add_executable(test_native_loader
     test_vm/test_native_loader.cpp
@@ -129,8 +134,8 @@ target_compile_definitions(test_native_loader
     PRIVATE
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_sample>"
 )
-add_dependencies(test_native_loader
-    nlang_sample nlang_badabi nlang_noentry nlang_noprobe nlang_io)
+add_dependencies(test_native_loader nlang_sample nlang_badabi
+    nlang_noentry nlang_noprobe nlang_badreturn nlang_io)
 add_test(NAME native_loader_tests COMMAND test_native_loader)
 
 # LibrarySearchPath (header-only, pure STL) unit tests: layered ordering,

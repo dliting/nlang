@@ -80,7 +80,7 @@ DLL使用**同一个有序目录列表**——前者优先，重复目录规范�
 native实现是普通动态库，背后只有一个稳定契约（`include/nlang/vm/NativeHost.h`）：
 
 - 文件名`nlang_<包名>.dll`（`libnlang_<包名>.so`/`.dylib`），在第4节的搜索路径上定位；
-- 两个导出入口均由宏生成：`nlang_abi_version`（宿主在任何模块代码运行前先校验它）与`nlang_native_init`；版本不符则加载失败并给出可读错误，缺任一导出的模块直接拒绝；
+- 两个导出入口均由宏生成：`nlang_abi_version`（宿主在初始化代码运行前先校验它）与`nlang_native_init`；版本不符则加载失败并给出可读错误，缺任一导出的模块直接拒绝；
 - native函数拿到一个小**宿主接口**：输入输出（IO，input/output）、伪随机数生成器（PRNG，pseudorandom number generator）与字符串访问的回调，而不是链接VM——第三方源码只需要这一个头文件；
 - 懒加载：首次调用某命名空间才触发模块加载，未用到的库零成本。
 

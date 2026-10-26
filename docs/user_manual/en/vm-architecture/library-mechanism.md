@@ -181,7 +181,7 @@ contract (`include/nlang/vm/NativeHost.h`):
 - file name `nlang_<package>.dll` (`libnlang_<package>.so`/`.dylib`), located on
   the section-4 search path;
 - two exported entries, both emitted by the macro: `nlang_abi_version`
-  (the host validates it before any module code runs) and
+  (the host validates it before the module's init runs) and
   `nlang_native_init`; a version mismatch fails the load with a readable
   error, and a module missing either export is rejected;
 - native functions receive a small **host interface** (callbacks for input/output (IO),

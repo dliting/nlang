@@ -325,14 +325,13 @@ if(NLANG_BUILD_DOCS)
     # (always-run) stdlib pack is still refreshing after an ncc rebuild,
     # and every importing snippet fails with "Module 'io' not found".
     # The audit also RUNS the built nvm against the native modules, so it
-    # must wait for the tools and every module the snippets import (the
-    # names mirror NLANG_NATIVE_MODULES in src/native) — without these
-    # edges a contract change (e.g. a new required export) lets the audit
-    # execute a half-rebuilt tree and fail, which MSBuild then reports as
-    # an MSB8066 docs "flake" while silently skipping still-pending
-    # targets.
+    # must wait for the tools and the module aggregate (see
+    # src/native/CMakeLists.txt) — without these edges a contract change
+    # (e.g. a new required export) lets the audit execute a half-rebuilt
+    # tree and fail, which MSBuild then reports as an MSB8066 docs
+    # "flake" while silently skipping still-pending targets.
     add_dependencies(nlang_docs ncc nvm nlang_stdlib_package
-        nlang_math nlang_io nlang_fs nlang_tensor)
+        nlang_native_modules)
     # The package ships the generated site, not the markdown sources.
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/docs/site/
             DESTINATION docs/site)

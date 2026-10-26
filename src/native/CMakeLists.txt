@@ -22,6 +22,14 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
         POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
+# Aggregate target for out-of-directory consumers that need "all modules
+# built" as one build-order edge (the docs snippet audit) — depending on
+# this name instead of re-listing the modules keeps the list single-sourced.
+add_custom_target(nlang_native_modules)
+foreach(mod IN LISTS NLANG_NATIVE_MODULES)
+    add_dependencies(nlang_native_modules nlang_${mod})
+endforeach()
+
 # Multi-file module sources beyond the per-module naming pattern.
 target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp

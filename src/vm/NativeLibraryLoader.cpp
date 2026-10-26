@@ -79,9 +79,9 @@ void RegisterBlockingTrampoline(void* registry, const char* ns,
     (*ctx->callback)(ns ? ns : "", name ? name : "", fn, /*blocking=*/true);
 }
 
-//Resolve and validate the module's ABI probe before any of its code
-//runs: an incompatible module must be rejected before nlang_native_init
-//can register or touch host state (its registrations would be pointers
+//Resolve and validate the module's ABI probe before its init runs: an
+//incompatible module must be rejected before nlang_native_init can
+//register or touch host state (its registrations would be pointers
 //into a library unloaded on rejection). Throws on a missing probe or a
 //version mismatch; returns normally when the module is compatible.
 void ValidateModuleAbi(void* handle, const std::string& path) {
@@ -91,7 +91,8 @@ void ValidateModuleAbi(void* handle, const std::string& path) {
         throw std::runtime_error(
             "native module '" + path
             + "' does not export 'nlang_abi_version' — rebuild it "
-              "against the current nlang/vm/NativeHost.h");
+              "against the current nlang/vm/NativeHost.h (and check "
+              "that hand-written exports sit inside extern \"C\")");
     }
     const auto probe = reinterpret_cast<NativeAbiProbeFn>(probeSymbol);
     const uint32_t reported = probe();

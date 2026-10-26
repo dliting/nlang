@@ -212,6 +212,28 @@ void TestMissingAbiProbe(const std::string& fixtureDir) {
           "no registration may run before the probe is validated");
 }
 
+//0.11.4 follow-up review: the init return value is informational — the
+//probe is the single version authority. A module whose init returns a
+//wrong constant must still load and its registration must reach the
+//host; a refactor that re-adds a return-value check fails here.
+void TestInitReturnInformational(const std::string& fixtureDir) {
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(fixtureDir);
+    int registrations = 0;
+    bool threw = false;
+    try {
+        loader.EnsureLoaded("badreturn",
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(!threw, "a wrong init return must not reject the module");
+    CHECK(registrations == 1,
+          "the module's registration must reach the host");
+}
+
 void TestNoEntry(const std::string& fixtureDir) {
     NativeLibraryLoader loader;
     loader.AddSearchDir(fixtureDir);
@@ -300,6 +322,7 @@ int main() {
     }
     run("BadAbi", &TestBadAbi, fixtureDir);
     run("MissingAbiProbe", &TestMissingAbiProbe, fixtureDir);
+    run("InitReturnInformational", &TestInitReturnInformational, fixtureDir);
     run("NoEntry", &TestNoEntry, fixtureDir);
     try { TestBuildTreeFallback(); }
     catch (const std::exception& e) {

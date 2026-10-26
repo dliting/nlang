@@ -48,10 +48,12 @@ All notable changes to NLang are documented here. The format follows
   tool names. Development note for existing build trees: the pre-0.11.4
   copies beside tool and test executables no longer refresh; they load
   first and fail (pre-probe copies report the missing
-  `nlang_abi_version` export) — delete the stale copies
-  (`nlang_{math,io,fs,tensor}.dll` under `src/tools/*/<config>` and
-  `tests/<config>`), the authoritative location is
-  `<build>/native/<config>`. The docs snippet audit now also waits for
+  `nlang_abi_version` export) — delete the stale copies: under
+  `src/tools/*/<config>` and `tests/<config>` on multi-config
+  generators, beside the tools under `src/tools/<tool>/` on
+  single-config; the authoritative location is
+  `<build>/native/<config>` or `<build>/native` respectively. The docs
+  snippet audit now also waits for
   the tools and native modules, so parallel builds no longer report
   transient docs failures on half-rebuilt trees.
 

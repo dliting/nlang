@@ -26,7 +26,7 @@ extern "C" {
 
 // Bump on any incompatible change to NativeHost, NativeFn or the value
 // layout. A module's nlang_abi_version export reports this; the host
-// resolves and validates that probe BEFORE any module code runs, so a
+// resolves and validates that probe BEFORE the module's init runs, so a
 // version mismatch (or a module without the probe) is rejected without
 // calling nlang_native_init. Version 2: the value slot widened from 4 to 8 bytes (the
 // 0.7.5 slot-width ABI — one uniform frame cell per value). Version 3:
