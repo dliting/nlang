@@ -32,18 +32,6 @@ int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fiel
 //Cell[0] = classIdx (1 cell, used for runtime virtual dispatch via OP_CallMethod).
 //Data fields occupy cells 1, 3, 5, ... (2 cells each).
 int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
-    //Phase 9d: built-in Exception classes expose message/backtrace fields
-    //that aren't materialized as SnClassDecl members (the synthetic class
-    //decl has empty Members()). Runtime layout (VmBackend::RegisterBuiltinClasses):
-    //  cell[1] = message   → offset kHeapCellBytes (4)
-    //  cell[3] = backtrace → offset kHeapCellBytes + kHeapFieldStrideBytes (12)
-    //Walk SuperClass chain so user subclasses of Exception also resolve.
-    if (classDecl.IsBuiltinClass()
-        && IsBuiltinExceptionName(classDecl.Name())) {
-        if (fieldName == "message")  return kHeapCellBytes;
-        if (fieldName == "backtrace") return kHeapCellBytes + kHeapFieldStrideBytes;
-        return -1;
-    }
     //Collect ancestor chain from root to direct parent
     std::vector<SnClassDecl*> ancestors;
     auto* pSuper = classDecl.SuperClass();
@@ -79,25 +67,6 @@ int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& f
 int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
                                         const std::string& fieldName,
                                         uint16_t& off) {
-    //Phase 9d: the built-in Exception row contributes 2 runtime fields
-    //(message, backtrace) that aren't in the synthetic Members() list —
-    //the Exception base record carries them (BuiltinClasses.cpp), so
-    //account for them here. 0.9.12 (v2.7): only the Exception row owns
-    //the pair; intermediate built-in exception subclasses (IOException,
-    //…) own no fields and contribute nothing, because the runtime
-    //layout view joins own-only lists. Pre-v2.7 the registration side
-    //flattened the pair into every subclass record and this walk added
-    //2 fields per matching ancestor; with own-only records counting
-    //twice would push every field below Exception past the allocation.
-    if (ancestor.IsBuiltinClass()
-        && IsBuiltinExceptionName(ancestor.Name())) {
-        if (ancestor.Name() == "Exception") {
-            if (fieldName == "message")  return off;
-            if (fieldName == "backtrace") return off + kHeapFieldStrideBytes;
-            off += 2 * kHeapFieldStrideBytes;
-        }
-        return -1;
-    }
     //A marked prelude ancestor contributes the hidden __handle slot
     //before its declared fields (same predicate as the record insertion;
     //a subclass of Mutex shares the base's handle layout).

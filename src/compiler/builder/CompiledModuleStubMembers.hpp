@@ -8,6 +8,7 @@
 #include "CompiledModuleCtorStub.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
+#include "ModuleRegistry.h"
 #include "SnMisc.h"
 #include "SnData.h"
 #include "SnExpressions.h"
@@ -321,13 +322,15 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 
 //0.9.10 D5: point a class stub's SuperClass at its peer stub from the
 //same module so inherited members resolve through the normal chain
-//walk. A super from another imported module or a builtin (Exception
-//family) falls back to the consumer root's imported/builtin entry; a
-//consumer-owned class of the same name is NOT hijacked.
+//walk. A super from another imported module, a synthesized builtin, or
+//a DECLARED prelude class (owner-gated — e.g. the Exception base of an
+//imported exception subclass) falls back to the consumer root's entry;
+//a consumer-owned class of the same name is NOT hijacked. registry may
+//be null in hosts without one (the prelude arm is skipped).
 inline void LinkSuperclassStub(SnClassDecl &stub, const CompiledClass &cc,
 	const CompiledModule &cm,
 	const std::unordered_map<std::string, SnClassDecl*> &peerStubs,
-	SnNamespace &root)
+	SnNamespace &root, const ModuleRegistry *registry)
 {
 	if (cc.superClassIdx < 0
 		|| cc.superClassIdx >= static_cast<int16_t>(cm.classes.size()))
@@ -345,7 +348,10 @@ inline void LinkSuperclassStub(SnClassDecl &stub, const CompiledClass &cc,
 	{
 		auto *pRootClass = static_cast<SnClassDecl*>(pRoot);
 		if (pRootClass->ContainFlags(NF_Imported)
-			|| pRootClass->IsBuiltinClass())
+			|| pRootClass->IsBuiltinClass()
+			|| (registry
+				&& registry->IsPreludeModule(
+					registry->OwnerOf(*pRootClass))))
 			stub.SuperClass(pRootClass);
 	}
 }

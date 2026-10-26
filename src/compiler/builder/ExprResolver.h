@@ -495,8 +495,6 @@ private:
 	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::vector<SnField*> &typeArgs,
 		const std::string &baseName, const std::string &name);
-	bool TryResolveExceptionField(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	void ResolveInvokeArgsInCallerScope(SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
 	void FinishResolvedMember(SnMemberExpr &snMember,

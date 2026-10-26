@@ -529,6 +529,7 @@ add_executable(test_array_flags
 
 target_include_directories(test_array_flags
     PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )

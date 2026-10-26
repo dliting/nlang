@@ -26,3 +26,41 @@ class Semaphore {
     public native void release();
     public native bool tryAcquire();
 }
+
+//Base class of every catchable runtime failure. message carries the
+//diagnostic text; backtrace is the call chain at the throw point,
+//innermost first.
+class Exception {
+    public string message;
+    public List<string> backtrace;
+    public native Exception(string message);
+}
+
+class NullPointerException : Exception {
+    public native NullPointerException(string message);
+}
+
+class DivByZeroException : Exception {
+    public native DivByZeroException(string message);
+}
+
+class IndexOutOfBoundsException : Exception {
+    public native IndexOutOfBoundsException(string message);
+}
+
+class AssertionException : Exception {
+    public native AssertionException(string message);
+}
+
+class IOException : Exception {
+    public native IOException(string message);
+}
+
+class InvalidCastException : Exception {
+    public native InvalidCastException(string message);
+}
+
+//Raised by Channel receive/send after the channel is closed.
+class ChannelClosedException : Exception {
+    public native ChannelClosedException(string message);
+}

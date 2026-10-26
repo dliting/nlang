@@ -44,6 +44,17 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "Semaphore.acquire",    INTR_Semaphore_Acquire},
     {"builtins", "Semaphore.release",    INTR_Semaphore_Release},
     {"builtins", "Semaphore.tryAcquire", INTR_Semaphore_TryAcquire},
+    //Cluster 2 (Exception family): declared in stdlib/builtins.n, one
+    //ctor row each. The VM raise paths keep their by-name class caches;
+    //only the ctor call channel is stamped here.
+    {"builtins", "Exception",                 INTR_Exception_Ctor},
+    {"builtins", "NullPointerException",      INTR_NullPointerException_Ctor},
+    {"builtins", "DivByZeroException",        INTR_DivByZeroException_Ctor},
+    {"builtins", "IndexOutOfBoundsException", INTR_IndexOutOfBoundsException_Ctor},
+    {"builtins", "AssertionException",        INTR_AssertionException_Ctor},
+    {"builtins", "IOException",               INTR_IOException_Ctor},
+    {"builtins", "InvalidCastException",      INTR_InvalidCastException_Ctor},
+    {"builtins", "ChannelClosedException",    INTR_ChannelClosedException_Ctor},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)

@@ -1763,3 +1763,4 @@ local_shadow_catch_var compile_error already declared
 exception_user_thrown_backtrace 0 code=7 bt=0
 user_shadow_semaphore 7
 sync_method_arity_reject compile_error
+imported_exception_subclass 49

@@ -340,7 +340,7 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 		return false;
 	}
 
-	CompiledModuleNodeBuilder builder(TheAST(), name);
+	CompiledModuleNodeBuilder builder(TheAST(), name, &m_upEnv->Registry());
 	try
 	{
 		builder.BuildFromCompiledModule(cm);

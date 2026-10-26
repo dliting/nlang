@@ -55,20 +55,6 @@ namespace langservice { class SymbolIndex; struct SymbolInfo; }
 //keys from. Pointer only, never owned.
 class ModuleRegistry;
 
-//Phase 9d: the built-in Exception family — synthetic declarations carry
-//no AST fields; the Exception row owns the two-field (message/backtrace)
-//runtime layout and every subclass sees the pair through the chain view
-//(0.9.12 v2.7 own-only records). Used by the field-offset lookup
-//(backend/FieldOffsets.cpp), which may only advance the offset on the
-//Exception row itself.
-inline bool IsBuiltinExceptionName(const std::string& name) {
-    return name == "Exception" || name == "NullPointerException"
-        || name == "DivByZeroException"
-        || name == "IndexOutOfBoundsException"
-        || name == "AssertionException" || name == "IOException"
-        || name == "InvalidCastException";
-}
-
 class VmBackend : public ICodeBackend {
 public:
     VmBackend();
@@ -1443,14 +1429,6 @@ private:
     int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
-    int16_t m_exceptionClassIdx = -1;   //Phase 9d: Exception base class
-    int16_t m_nullPtrExcClassIdx = -1;  //Phase 9d: NullPointerException
-    int16_t m_divZeroExcClassIdx = -1;  //Phase 9d: DivByZeroException
-    int16_t m_oobExcClassIdx = -1;      //Phase 9d: IndexOutOfBoundsException
-    int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
-    int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
-    int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
-    int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
     //Shadowed prelude names (builtin-decls source-of-truth design §6.8):
     //bare names a NON-prelude top-level declaration claims. The prelude's

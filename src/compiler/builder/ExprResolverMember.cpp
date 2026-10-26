@@ -1,5 +1,5 @@
 /*---
-    ExprResolverMember.cpp — 成员表达式解析编排：Access(SnMemberExpr&) 阶段序 +头部拦截 + 异常字段 + 收尾绑定。
+    ExprResolverMember.cpp — 成员表达式解析编排：Access(SnMemberExpr&) 阶段序 +头部拦截 + 收尾绑定。
     从 ExprResolver.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
@@ -18,55 +18,6 @@
 
 namespace nlang
 {
-
-//Phase 9d: built-in Exception class field access (e.message, e.backtrace).
-//The synthetic SnClassDecl has no real member fields, so resolve by name.
-//Field offsets are hard-coded in VmBackend::FindClassFieldOffset:
-//  message  → slot[1] (offset 4)
-//  backtrace → slot[2] (offset 8)
-//This also handles user subclasses of Exception — walk SuperClass()
-//chain to detect Exception ancestry.
-bool ExprResolveAccessor::TryResolveExceptionField(SnMemberExpr &snMember,
-	SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext)
-{
-	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& pInnerExpr->Kind() == NK_IdentifierExpr))
-		return false;
-	auto* pClass = static_cast<SnClassDecl*>(m_pContext);
-	//Walk SuperClass chain looking for a built-in Exception class.
-	bool isExceptionSubclass = false;
-	for (SnClassDecl* pWalk = pClass; pWalk; ) {
-		if (pWalk->IsBuiltinClass()
-			&& IsBuiltinExceptionClassName(pWalk->Name())) {
-			isExceptionSubclass = true;
-			break;
-		}
-		pWalk = pWalk->SuperClass();
-	}
-	if (!isExceptionSubclass)
-		return false;
-	auto& innerId = static_cast<SnIdentifierExpr&>(*pInnerExpr);
-	const auto& fieldName = innerId.Name();
-	SnField* pResultField = nullptr;
-	if (fieldName == "message") {
-		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
-	} else if (fieldName == "backtrace") {
-		//backtrace is List<string> — synthesize the generic instantiation.
-		auto* pStr = SnBuiltinDataType::InstanceOf(NK_String);
-		std::vector<SnField*> listArgs{ pStr };
-		pResultField = GetGenericClassDecl(kBuiltinListTypeName, listArgs,
-			{}, pInnerExpr->Location());
-	}
-	if (!pResultField)
-		return false;
-	innerId.AddFlags(NF_Resolved);
-	snMember.EvalDataType(pResultField);
-	snMember.m_pField = pResultField;
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
-	m_pContext = pSavedContext;
-	return true;
-}
 
 //Phase 9e (pre-existing gap exposed by out params): a method invoke's
 //ARGUMENTS must resolve in the caller's scope. m_pContext is the
@@ -306,8 +257,6 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 		return true;
 	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,
 		pSavedContext))
-		return true;
-	if (TryResolveExceptionField(snMember, pInnerExpr, pSavedContext))
 		return true;
 	return false;
 }

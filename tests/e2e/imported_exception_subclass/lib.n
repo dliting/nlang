@@ -1,0 +1,16 @@
+//Cross-module Exception subclass (builtin-decls source-of-truth pin):
+//the consumer's stub of MyErr must link its superclass to the declared
+//prelude Exception so field offsets and catch-chain matching survive
+//the declared-class migration.
+class MyErr : Exception {
+    public int code;
+    public MyErr(string m, int c) {
+        super(m);
+        this.code = c;
+    }
+}
+
+int failWith(int c) {
+    throw MyErr("from-lib", c);
+    return 0;
+}

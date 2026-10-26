@@ -1,5 +1,5 @@
 /*---
-    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream/Object/Exception 族）
+    ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream/Object/Thread）
     从 ExprResolverTypes.cpp 抽取（2026-09-27 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
@@ -17,18 +17,6 @@ namespace nlang
 static SnClassDecl* s_pByteStreamClass = nullptr;
 static SnClassDecl* s_pFileStreamClass = nullptr;
 static SnClassDecl* s_pObjectClass = nullptr;  //Phase 8e-1: implicit Object base class
-//Phase 9d: built-in Exception hierarchy. Each subclass declares Exception
-//as its super so IsExceptionSubclass's chain walk succeeds. These are
-//type-system stand-ins — actual ctor/fields live in the CompiledClass
-//emitted by VmBackend::RegisterBuiltinClasses.
-static SnClassDecl* s_pExceptionClass = nullptr;
-static SnClassDecl* s_pNullPtrExcClass = nullptr;
-static SnClassDecl* s_pDivZeroExcClass = nullptr;
-static SnClassDecl* s_pOobExcClass = nullptr;
-static SnClassDecl* s_pAssertExcClass = nullptr;
-static SnClassDecl* s_pIoExcClass = nullptr;  //Phase 11: IOException
-static SnClassDecl* s_pInvalidCastExcClass = nullptr;  //v0.8.5: InvalidCastException
-static SnClassDecl* s_pChannelClosedExcClass = nullptr;  //K3: ChannelClosedException
 //K1: the Thread type-system stand-in (the real method/field surface of
 //the concurrency builtins used to live in VmBackend's s_BuiltinClassDecls
 //rows). Channel needs no stand-in: it exists only as Channel<T>, a
@@ -58,29 +46,10 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 {
 	if (!IsBuiltinClassName(name))
 		return nullptr;
-	//Phase 9d: force-create Exception singleton first so subclass chain
-	//walk has a target even if the subclass is requested first.
-	if (IsBuiltinExceptionClassName(name) && !s_pExceptionClass) {
-		auto* pName = new std::string("Exception");
-		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation fallback;
-		s_pExceptionClass = new SnClassDecl(pName, nullptr, pMembers,
-			DeclLocation(pLoc, fallback));
-		s_pExceptionClass->SetBuiltinClass();
-	}
 	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
 		: (name == "FileStream") ? s_pFileStreamClass
 		: (name == "Object") ? s_pObjectClass
-		: (name == "Exception") ? s_pExceptionClass
-		: (name == "NullPointerException") ? s_pNullPtrExcClass
-		: (name == "DivByZeroException") ? s_pDivZeroExcClass
-		: (name == "IndexOutOfBoundsException") ? s_pOobExcClass
-		: (name == "AssertionException") ? s_pAssertExcClass
-		: (name == "IOException") ? s_pIoExcClass
-		: (name == "InvalidCastException") ? s_pInvalidCastExcClass
-		: (name == "ChannelClosedException") ? s_pChannelClosedExcClass
-		: (name == "Thread") ? s_pThreadClass
-		: s_pObjectClass;  //unreachable: IsBuiltinClassName gate above
+		: s_pThreadClass;
 	if (!rpRef)
 	{
 		auto* pName = new std::string(name);
@@ -88,10 +57,6 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		ScriptLocation fallback;
 		rpRef = new SnClassDecl(pName, nullptr, pMembers,
 			DeclLocation(pLoc, fallback));
-		rpRef->SetBuiltinClass();
-		//Phase 9d: subclasses point at Exception singleton for chain walk.
-		if (name != "Exception" && IsBuiltinExceptionClassName(name))
-			rpRef->SuperClass(s_pExceptionClass);
 		rpRef->SetBuiltinClass();
 	}
 	return rpRef;

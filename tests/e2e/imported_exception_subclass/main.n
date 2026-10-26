@@ -1,0 +1,20 @@
+import lib;
+
+int main() {
+    int acc = 0;
+    //Subclass-typed catch on an imported exception: own field + inherited
+    //message through the stub's superclass link (code 4, "from-lib" = 8
+    //chars → 48).
+    try {
+        lib.failWith(4);
+    } catch (MyErr e) {
+        acc += e.code * 10 + e.message.length();
+    }
+    //Base-class catch must match the imported subclass (chain walk): +1.
+    try {
+        lib.failWith(2);
+    } catch (Exception ex) {
+        acc += 1;
+    }
+    return acc;
+}
