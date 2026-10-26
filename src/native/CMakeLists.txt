@@ -27,16 +27,29 @@ target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp
     tensor/tensor_reduce.cpp)
 
-# Single authoritative output: every module lands in <build>/native/<config>
-# and NOTHING copies them around the build tree — hosts resolve them through
-# NativeLibraryLoader's build-tree fallback (walk-up discovery, consulted
-# after explicit search dirs; see NativeLibraryLoader.cpp). The install
-# rules below still ship them beside the executables in bin/, where the
-# loader's executable-dir search (always first) finds them.
+# Single authoritative output and NOTHING copies the modules around the
+# build tree — hosts resolve them through NativeLibraryLoader's build-tree
+# fallback (walk-up discovery, consulted after explicit search dirs; see
+# NativeLibraryLoader.cpp). The install rules below still ship them beside
+# the executables in bin/, where the loader's executable-dir search
+# (always first) finds them.
+#
+# Directory suffix by generator kind, so the fallback's candidates always
+# reach the modules: multi-config executables live in a <config>-named
+# directory (leaf == config name), so native/$<CONFIG> is found by the
+# walk-up's native/<leaf> candidate. Single-config generators put the
+# executables in <tool-name> directories, so any per-config subdirectory
+# would be unreachable (the walk-up probes native/<tool-name> and native
+# only) — the modules must land in native/ with no suffix.
+if(CMAKE_CONFIGURATION_TYPES)
+    set(NLANG_NATIVE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/native/$<CONFIG>")
+else()
+    set(NLANG_NATIVE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/native")
+endif()
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     set_target_properties(nlang_${mod} PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/native/$<CONFIG>"
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/native/$<CONFIG>")
+        LIBRARY_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}")
 endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
