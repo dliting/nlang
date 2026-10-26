@@ -7,9 +7,11 @@
 
 namespace nlang {
 
-//Language cap on array rank (T[,] .. T[,,,,,,,]): the grammar, the
+//Language cap on array rank (T[,] .. up to 64 dims): the grammar, the
 //sized-creation resolver and the VM heap layout all read this one
 //constant (compiler code cannot include the VM header it lived in).
-inline constexpr uint8_t kMaxArrayRank = 8;
+//64 follows the ecosystem ceiling (NumPy 2.0 / PyTorch NPY_MAXDIMS) so
+//the cap itself never becomes the next migration.
+inline constexpr uint8_t kMaxArrayRank = 64;
 
 } //namespace nlang

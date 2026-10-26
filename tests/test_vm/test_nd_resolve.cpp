@@ -199,26 +199,48 @@ void test_emit_gates_cover_nd_paths()
 }
 
 //Rank cap: the grammar and the creation twin reject ranks above the
-//language maximum with a named diagnostic (rank-9 tokens previously
-//compiled and died at runtime in an uncatchable VM range throw).
+//language maximum (64) with a named diagnostic, while every rank up to
+//the cap parses and type-checks (rank-9 tokens previously compiled and
+//died at runtime in an uncatchable VM range throw). Comma counts that
+//would truncate on narrowing to uint8 must be rejected before that.
 void test_nd_rank_cap_diagnostics()
 {
     TEST(nd_rank_cap_diagnostics);
-    const BuildOutcome decl = buildSource("nd_rank9_decl",
+    const std::string commas9 = std::string(8, ',');
+    const BuildOutcome decl9 = buildSource("nd_rank9_ok",
         "int main() {\n"
-        "    int[,,,,,,,,] a;\n"
+        "    int[" + commas9 + "] a;\n"
         "    return 0;\n"
         "}\n");
-    CHECK(!decl.ok && DiagHas(decl, "exceeds the maximum")
-        && !DiagHas(decl, "syntax error"),
-        "rank-9 declaration must name the rank cap");
-    const BuildOutcome make = buildSource("nd_rank9_create",
+    CHECK(decl9.ok, "rank-9 declaration is legal at cap 64");
+    const BuildOutcome create9 = buildSource("nd_rank9_create_ok",
         "int main() {\n"
-        "    int[,] a = int[1,2,3,4,5,6,7,8,9];\n"
+        "    int[" + commas9 + "] a = int[1,2,3,4,5,6,7,8,9];\n"
         "    return 0;\n"
         "}\n");
-    CHECK(!make.ok && DiagHas(make, "exceeds the maximum"),
-        "rank-9 creation must name the rank cap");
+    CHECK(create9.ok, "rank-9 creation is legal at cap 64");
+    const BuildOutcome edge64 = buildSource("nd_rank64_ok",
+        "int main() {\n"
+        "    int[" + std::string(63, ',') + "] a;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(edge64.ok, "rank-64 declaration stays legal");
+    const BuildOutcome over = buildSource("nd_rank65_decl",
+        "int main() {\n"
+        "    int[" + std::string(64, ',') + "] a;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!over.ok && DiagHas(over, "exceeds the maximum of 64")
+        && !DiagHas(over, "syntax error"),
+        "rank-65 declaration must name the rank cap 64");
+    const BuildOutcome wide = buildSource("nd_rank301_decl",
+        "int main() {\n"
+        "    int[" + std::string(300, ',') + "] a;\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!wide.ok && DiagHas(wide, "exceeds the maximum")
+        && !DiagHas(wide, "syntax error"),
+        "rank-301 tokens must be rejected before uint8 truncation");
     const BuildOutcome edge = buildSource("nd_rank8_ok",
         "int main() {\n"
         "    int[,,,,,,,] a;\n"

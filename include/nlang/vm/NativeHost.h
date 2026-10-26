@@ -49,8 +49,11 @@ extern "C" {
 // strides moved into the view itself (NativeArrayView.stridesInline —
 // the v6 host-wide scratch buffer let a second live view overwrite the
 // first's strides); ArgArray became an out-param because the view's
-// strides pointer now points into itself.
-#define NLANG_HOST_ABI_VERSION 7u
+// strides pointer now points into itself. Version 8: the rank cap left
+// the header (kMaxArrayRank moved to runtime/Config.h) and rose 8 -> 64,
+// so stridesInline widened to match (the view is stack-allocated; dims
+// still points into the record and grows nothing).
+#define NLANG_HOST_ABI_VERSION 8u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -117,7 +120,7 @@ typedef struct NativeArrayView {
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
     uint8_t reserved[2];
-    int32_t stridesInline[8];  // = kMaxArrayRank (asserted below); ABI v7: strides points here
+    int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
     void* data;
 } NativeArrayView;
 
@@ -255,8 +258,8 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
 
 #include <nlang/runtime/Config.h>
 
-//The core struct stays C-compatible (plain [8]); this pins the coupling.
-static_assert(nlang::kMaxArrayRank == 8,
+//The core struct stays C-compatible (plain [64]); this pins the coupling.
+static_assert(nlang::kMaxArrayRank == 64,
     "NativeArrayView.stridesInline must track kMaxArrayRank "
     "(bump NLANG_HOST_ABI_VERSION when it changes)");
 
