@@ -96,6 +96,7 @@ enum class OpCode : uint8_t {
     OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase
     OP_LoadElementN,    // uint16 dst, uint16 arr, uint16 idxBase, uint16 rank
     OP_StoreElementN,   // uint16 arr, uint16 idxBase, uint16 src, uint16 rank
+    OP_AssembleArrayN,  // uint16 dst, uint16 typeIdx, uint16 elemsBase, uint16 count
     OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
     OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
     OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
@@ -206,6 +207,7 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
+    OpCode::OP_AssembleArrayN,
     OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
 static constexpr OpCode kStrideOutMaskWords[] = {
     OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,

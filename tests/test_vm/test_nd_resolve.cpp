@@ -291,9 +291,9 @@ void test_nd_initlist_dynamic_row_expr()
         "expression rows must not hit the literal-depth gate");
     CHECK(!DiagHas(o, "ncompatible"),
         "well-typed expression rows must pass the cast adjudication");
-    //Task 6 (dynamic lowering) flips this test to CHECK(o.ok): until
-    //then the emitter logs its pending-lowering gate and the build
-    //stays red by design.
+    //Task 6: the dynamic lowering (OP_AssembleArrayN) makes the build
+    //green end to end.
+    CHECK(o.ok, "expression rows must lower via the dynamic arm");
     PASS();
 }
 
@@ -315,7 +315,8 @@ void test_nd_initlist_dynamic_mixed_rows()
         "mixed rows must not hit the literal-depth gate");
     CHECK(!DiagHas(o, "ncompatible"),
         "well-typed mixed rows must pass the cast adjudication");
-    //Task 6 (dynamic lowering) flips this test to CHECK(o.ok).
+    //Task 6: mixed rows lower through the same dynamic arm.
+    CHECK(o.ok, "mixed rows must lower via the dynamic arm");
     PASS();
 }
 

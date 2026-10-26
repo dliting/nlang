@@ -458,6 +458,19 @@ private:
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
+    //Stage-3 D3: assemble a rank>=2 array from staged row handles (the
+    //dynamic-shape initializer arm); contract at the implementation.
+    void OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals);
+    //Validation pass of OpAssembleArrayN: null/kind/row-rank gates plus
+    //the shared per-level width check, and the handle/dims snapshot the
+    //allocation consumes.
+    void SnapshotAssembleRows(const uint8_t* locals, uint16_t elemSlotBase,
+        uint16_t rowCount, uint8_t rank, std::vector<int32_t>& rowHandles,
+        int32_t* dims);
+    //Row-payload copy of OpAssembleArrayN (see the implementation).
+    void CopyAssembleRows(int32_t heapIdx,
+        const CompiledArrayType& arrayType,
+        const std::vector<int32_t>& rowHandles);
     void OpLoadElementN(BytecodeReader& reader, uint8_t* locals);
     void OpStoreElementN(BytecodeReader& reader, uint8_t* locals);
     void OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals);

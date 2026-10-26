@@ -1060,6 +1060,10 @@ private:
 	//against K.
 	void ApplyInitListSlotCasts(SnInitListExpr &sn, SnField *pTargetField,
 		const InitListSlotTypes &slots);
+	//Stage-3 D3: the ND arm of the slot cast pass - every expression
+	//entry adjudicates against the ROW token (one rank below target).
+	void ApplyNDInitListRowCasts(SnInitListExpr &sn,
+		SnArrayTypeToken &token, const InitListSlotTypes &slots);
 	SnField *InitListEntryFieldType(SnField &targetDecl,
 		const SnInitListExpr &sn, size_t entryIdx);
 	//K1 Slice 9: channel initializers must be empty (send() is the only

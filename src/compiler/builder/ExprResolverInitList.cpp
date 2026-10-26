@@ -191,47 +191,20 @@ void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
 void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
     SnField *pTargetField, const InitListSlotTypes &slots)
 {
-    //Stage-2 ND: the outer list's entries are rows (resolved sub-array
-    //literals) - their leaf casts already happened inside the rows; the
-    //outer pass must not adjudicate a row against the leaf element.
+    //Stage-2 ND: the outer entries are rows - their leaf casts already
+    //happened inside the rows; never adjudicate a row vs the leaf.
     const bool bNdTarget = pTargetField
         && pTargetField->Kind() == NK_ArrayTypeToken
         && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2;
 
-    //Stage-3 (D3): an ND entry may also be an expression storing a row.
-    //Each such entry adjudicates against the ROW token (one rank below
-    //the target) — a scalar or rank-mismatched expression takes the
-    //existing cast diagnostics here. Bracket rows keep the stage-2
-    //skip: their leaves cast inside the row's own resolution.
     if (bNdTarget)
-    {
-        auto *pToken = static_cast<SnArrayTypeToken *>(pTargetField);
-        auto *pRowTarget = m_Env.InternArrayTypeToken(slots.pValueType,
-            static_cast<uint8_t>(pToken->Rank() - 1));
-        const auto &ndEntries = sn.Entries();
-        for (size_t nIdx = 0; nIdx < ndEntries.size(); ++nIdx)
-        {
-            auto *pValue = ndEntries[nIdx].pValue;
-            if (!pValue || UntypedInitListOf(*pValue))
-                continue;
-            if (!pValue->IsResolved() || !pValue->EvalDataType())
-                continue;
-            TypeCastInfo castInfo(pValue->EvalDataType(), pRowTarget);
-            auto iExpr = sn.Children().find(pValue);
-            if (iExpr == sn.Children().end())
-                continue;
-            if (FixupExprType(iExpr, castInfo))
-                sn.SetEntryValue(nIdx,
-                    &static_cast<SnCastExpr &>(*iExpr));
-        }
-        return;
-    }
+        return ApplyNDInitListRowCasts(sn,
+            static_cast<SnArrayTypeToken &>(*pTargetField), slots);
 
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
-        //Key slot: only Dict carries a key type; the null check leaves
-        //every other shape to the value path alone.
+        //Key slot: only Dict carries a key type (null = value path).
         if (slots.pKeyType)
         {
             auto *pKey = entries[nIdx].pKey;
@@ -245,8 +218,7 @@ void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
                         &static_cast<SnCastExpr &>(*iKey));
             }
         }
-        //Value slot: the element/value type for array/List/Dict, or the
-        //addressed field's declared type for struct/class.
+        //Value slot: element/value type, or the addressed field type.
         auto *pValue = entries[nIdx].pValue;
         if (!pValue || !pValue->IsResolved()
             || !pValue->EvalDataType())
@@ -257,6 +229,34 @@ void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
         if (!pSlotType)
             continue;
         TypeCastInfo castInfo(pValue->EvalDataType(), pSlotType);
+        auto iExpr = sn.Children().find(pValue);
+        if (iExpr == sn.Children().end())
+            continue;
+        if (FixupExprType(iExpr, castInfo))
+            sn.SetEntryValue(nIdx,
+                &static_cast<SnCastExpr &>(*iExpr));
+    }
+}
+
+//Stage-3 (D3): an ND entry may also be an expression storing a row.
+//Each such entry adjudicates against the ROW token (one rank below
+//the target) — a scalar or rank-mismatched expression takes the
+//existing cast diagnostics here. Bracket rows keep the stage-2
+//skip: their leaves cast inside the row's own resolution.
+void ExprResolveAccessor::ApplyNDInitListRowCasts(SnInitListExpr &sn,
+    SnArrayTypeToken &token, const InitListSlotTypes &slots)
+{
+    auto *pRowTarget = m_Env.InternArrayTypeToken(slots.pValueType,
+        static_cast<uint8_t>(token.Rank() - 1));
+    const auto &ndEntries = sn.Entries();
+    for (size_t nIdx = 0; nIdx < ndEntries.size(); ++nIdx)
+    {
+        auto *pValue = ndEntries[nIdx].pValue;
+        if (!pValue || UntypedInitListOf(*pValue))
+            continue;
+        if (!pValue->IsResolved() || !pValue->EvalDataType())
+            continue;
+        TypeCastInfo castInfo(pValue->EvalDataType(), pRowTarget);
         auto iExpr = sn.Children().find(pValue);
         if (iExpr == sn.Children().end())
             continue;

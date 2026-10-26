@@ -72,8 +72,9 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
             break;
         case OpCode::OP_AllocArrayN:
-            // dst, typeIdx, rank, dimsBase — table operand is the SECOND
-            // uint16 (the rank rides after it, no remap needed)
+        case OpCode::OP_AssembleArrayN:
+            // dst, typeIdx, ... — the table operand is the SECOND
+            // uint16 (rank/elem base ride after it, no remap needed)
             PatchOperand(bc, pos + 3, maps.arrayTypes, "array type",
                          onUnmapped);
             break;

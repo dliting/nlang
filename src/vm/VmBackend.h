@@ -1377,6 +1377,21 @@ private:
     //this is the deepest leaf claim (the band is max(rank, 1 + this)).
     static uint16_t NDLeafPeakDepth(SnInitListExpr& init,
                              const std::unordered_set<SnFunction*>& visited);
+    //Stage-3 D3: true when any above-leaf entry is a plain expression
+    //(neither a bracket row nor a brace list) - the dynamic
+    //OP_AssembleArrayN arm owns such literals. Shared by the emitter
+    //dispatch and the walker peak-depth mirror so the two cannot drift.
+    static bool NDInitListHasExpressionRow(SnInitListExpr& node,
+                             uint8_t aboveLeaf);
+    //Depth of the dynamic arm (see EmitInitListArrayNDynamic).
+    static uint16_t NDInitListDynamicPeakDepth(SnInitListExpr& init,
+                             const std::unordered_set<SnFunction*>& visited);
+    //Stage-3 D3 dynamic arm: rows evaluate into one claim band, then
+    //OP_AssembleArrayN builds the record at runtime.
+    void EmitInitListArrayNDynamic(SnInitListExpr& initList,
+                             SnArrayTypeToken& token,
+                             BytecodeEmitter& emitter,
+                             uint16_t resultOffset);
     void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                    SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,

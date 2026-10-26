@@ -28,10 +28,11 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 105 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
-    // fs 8, thread 5 (the K3 materialized package), tensor 52 (stage 1:
-    // creation + elementwise + reduction families).
-    CHECK(index.size() == 105);
+    // 181 functions: io 15 (10 natives + 5 typed-reader wrappers),
+    // math 25, fs 8, thread 5 (the K3 materialized package), tensor 128
+    // (stage-1 creation/elementwise/reduction + stage-3 matrix family,
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
 }
 
 static void TestResolvePrint() {
@@ -254,16 +255,16 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // creation + elementwise + reduction families).
-    CHECK(index.size() == 105);
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    // creation + elementwise + reduction families).
-    CHECK(index.size() == 105);
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
 }
 
 static void TestBlockCommentBraces() {

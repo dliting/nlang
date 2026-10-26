@@ -54,6 +54,7 @@ static const char* s_OpCodeNames[] = {
     "alloc_array_n",
     "load_element_n",
     "store_element_n",
+    "assemble_array_n",
     "array_length",
     "load_element_flat",
     "array_shape",

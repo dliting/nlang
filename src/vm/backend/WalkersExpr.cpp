@@ -374,6 +374,9 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
         && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2) {
         const uint8_t rank =
             static_cast<SnArrayTypeToken*>(pTarget)->Rank();
+        if (NDInitListHasExpressionRow(init,
+                static_cast<uint8_t>(rank - 1)))
+            return NDInitListDynamicPeakDepth(init, visited);
         //The leaf claim is [coords | value] = rank + 1 slots; nested
         //emissions inside a leaf value climb above it.
         uint16_t claim = static_cast<uint16_t>(rank + 1);
@@ -395,6 +398,19 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
         }
     }
     return claimSize + maxChild;
+}
+
+//Stage-3 dynamic arm of the ND depth: the row-handle claim (one slot
+//per entry) hosts every entry's full emission depth.
+uint16_t VmBackend::NDInitListDynamicPeakDepth(SnInitListExpr& init,
+    const std::unordered_set<SnFunction*>& visited) {
+    uint16_t rowMax = 0;
+    for (auto& entry : init.Entries()) {
+        if (!entry.pValue) continue;
+        uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
+        if (cd > rowMax) rowMax = cd;
+    }
+    return static_cast<uint16_t>(init.Entries().size() + rowMax);
 }
 
 //Deepest leaf-expression claim of an ND literal: rows are structural

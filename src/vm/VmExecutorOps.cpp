@@ -398,6 +398,10 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpAllocArrayN(reader, locals);
             break;
 
+        case OpCode::OP_AssembleArrayN:
+            OpAssembleArrayN(reader, locals);
+            break;
+
         case OpCode::OP_LoadElementN:
             OpLoadElementN(reader, locals);
             break;
