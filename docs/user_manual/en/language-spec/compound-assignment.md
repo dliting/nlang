@@ -1,6 +1,6 @@
 # Compound Assignment
 
-
+The normative rules are in [specification §6.2](../specification/06-statements.md).
 ```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
 ```

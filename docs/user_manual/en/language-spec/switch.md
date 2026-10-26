@@ -1,6 +1,6 @@
 # Switch
 
-
+The normative rules are in [specification §6.3](../specification/06-statements.md).
 ```nlang
 switch (value) {
     case 1, 2: ...

@@ -1,6 +1,6 @@
 # If
 
-
+规范性规则见规范§6.3。
 ```nlang
 if (cond) { body }
 if (cond) { body } else { body }

@@ -1,6 +1,6 @@
 # Loops
 
-
+The normative rules are in [specification §6.4](../specification/06-statements.md).
 NLang has three loop forms: `for`, `while`, and `do-while`. They share the
 `bool` condition rule and `break`/`continue` semantics (see
 [Statements](statements.md) "Condition typing").

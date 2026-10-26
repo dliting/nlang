@@ -28,7 +28,7 @@ before they land here.
 - [3. Program Structure and Name Resolution](03-program-structure.md)
 - [4. Types](04-types.md)
 - [5. Expressions](05-expressions.md)
-- 6. Statements *(planned)*
+- [6. Statements](06-statements.md)
 - 7. Functions and Methods *(planned)*
 - 8. Object Orientation *(planned)*
 - 9. Exceptions *(planned)*

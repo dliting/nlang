@@ -1,6 +1,6 @@
 # Assert
 
-
+规范性规则见规范§6.5。
 ```nlang
 assert(condition);
 ```

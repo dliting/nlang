@@ -1,6 +1,6 @@
 # Statements
 
-
+The normative rules are in [specification chapter 6](../specification/06-statements.md).
 NLang's control-flow statements. This page covers the rules they share; each
 specific statement has its own page.
 

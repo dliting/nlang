@@ -1,6 +1,6 @@
 # Switch
 
-
+规范性规则见规范§6.3。
 ```nlang
 switch (value) {
     case 1, 2: ...

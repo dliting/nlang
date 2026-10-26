@@ -1,6 +1,6 @@
 # Const局部
 
-
+规范性规则见规范§6.1。
 ```nlang
 const int X = 5;
 const string Greeting = "hello";

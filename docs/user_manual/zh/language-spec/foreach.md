@@ -1,6 +1,6 @@
 # Foreach
 
-
+规范性规则见规范§6.4。
 ```nlang
 foreach (Type var in iterable) { body }
 ```

@@ -42,6 +42,7 @@ nav:
       - Program Structure: specification/03-program-structure.md
       - Types: specification/04-types.md
       - Expressions: specification/05-expressions.md
+      - Statements: specification/06-statements.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

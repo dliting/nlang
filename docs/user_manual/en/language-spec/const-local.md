@@ -1,6 +1,6 @@
 # Const Local
 
-
+The normative rules are in [specification §6.1](../specification/06-statements.md).
 ```nlang
 const int X = 5;
 const string Greeting = "hello";
