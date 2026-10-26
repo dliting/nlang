@@ -149,10 +149,29 @@ static const size_t kUnsetWidth = static_cast<size_t>(-1);
 //first row sets it): a rectangle means every level partitions into
 //equal-width rows, and rows above the leaf level are themselves init
 //lists. True = rejected (the walk logged why).
+//Stage-3 (D3): above the leaf level a node holding any expression
+//entry defers its shape to the runtime builder — no width gate and no
+//descent for that node (its literal rows still validate on their own
+//resolution). Leaf-level rows (level == rank) are all-scalar and keep
+//the width gate, so all-literal trees reject exactly as in stage 2.
 bool ExprResolveAccessor::RejectNDShapeLevel(SnInitListExpr &sn,
     uint8_t rank, uint8_t level, size_t &expectedWidth)
 {
     const auto &entries = sn.Entries();
+    if (level < rank)
+    {
+        for (auto &entry : entries)
+        {
+            //A brace list stays a shape error (arrays take the bracket
+            //form); only a non-list EXPRESSION defers to the runtime.
+            auto *pValue = entry.pValue;
+            if (!SnInitListExpr::IsBracketForm(pValue)
+                && !(pValue && UntypedInitListOf(*pValue)))
+            {
+                return false;
+            }
+        }
+    }
     if (expectedWidth == kUnsetWidth)
         expectedWidth = entries.size();
     else if (entries.size() != expectedWidth)

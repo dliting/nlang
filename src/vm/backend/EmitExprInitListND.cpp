@@ -48,8 +48,12 @@ void VmBackend::EmitInitListArrayND(SnInitListExpr &initList,
     uint16_t arrayTypeIdx = RegisterArrayType(pElemField, rank);
     std::vector<int32_t> dims;
     if (!CollectNDInitListDims(initList, rank, dims)) {
+        //Distinct from the resolver gate of the same walk: the resolver
+        //(stage-3 D3) now admits expression rows, so this text means
+        //the dynamic lowering is missing, not a user shape error.
         m_pEnv->Log(CLL_Error, initList.Location(),
-            "initializer depth does not match the declared array rank");
+            "an ND initializer with expression entries cannot be "
+            "lowered yet");
         return;
     }
     {

@@ -198,11 +198,38 @@ void ExprResolveAccessor::ApplyInitListSlotCasts(SnInitListExpr &sn,
         && pTargetField->Kind() == NK_ArrayTypeToken
         && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2;
 
+    //Stage-3 (D3): an ND entry may also be an expression storing a row.
+    //Each such entry adjudicates against the ROW token (one rank below
+    //the target) — a scalar or rank-mismatched expression takes the
+    //existing cast diagnostics here. Bracket rows keep the stage-2
+    //skip: their leaves cast inside the row's own resolution.
+    if (bNdTarget)
+    {
+        auto *pToken = static_cast<SnArrayTypeToken *>(pTargetField);
+        auto *pRowTarget = m_Env.InternArrayTypeToken(slots.pValueType,
+            static_cast<uint8_t>(pToken->Rank() - 1));
+        const auto &ndEntries = sn.Entries();
+        for (size_t nIdx = 0; nIdx < ndEntries.size(); ++nIdx)
+        {
+            auto *pValue = ndEntries[nIdx].pValue;
+            if (!pValue || UntypedInitListOf(*pValue))
+                continue;
+            if (!pValue->IsResolved() || !pValue->EvalDataType())
+                continue;
+            TypeCastInfo castInfo(pValue->EvalDataType(), pRowTarget);
+            auto iExpr = sn.Children().find(pValue);
+            if (iExpr == sn.Children().end())
+                continue;
+            if (FixupExprType(iExpr, castInfo))
+                sn.SetEntryValue(nIdx,
+                    &static_cast<SnCastExpr &>(*iExpr));
+        }
+        return;
+    }
+
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
-        if (bNdTarget)
-            continue;
         //Key slot: only Dict carries a key type; the null check leaves
         //every other shape to the value path alone.
         if (slots.pKeyType)

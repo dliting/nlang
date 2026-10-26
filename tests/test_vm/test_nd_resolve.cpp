@@ -265,6 +265,95 @@ void test_brace_row_is_depth_mismatch()
         "brace rows must name the depth mismatch");
     PASS();
 }
+//--- D3: dynamic-shape (expression) entries in ND initializers ---------------
+
+//Shared row factory: returns a fresh int[w] row.
+static const char* kDynRowFactory =
+    "int[] makeRow(int w) {\n"
+    "    int[] r = int[w];\n"
+    "    for (int i = 0; i < w; i += 1) {\n"
+    "        r[i] = i;\n"
+    "    }\n"
+    "    return r;\n"
+    "}\n";
+
+//An array-valued entry of the matching row rank resolves (D3 rule 2).
+void test_nd_initlist_dynamic_row_expr()
+{
+    TEST(nd_initlist_dynamic_row_expr);
+    const BuildOutcome o = buildSource("nd_dyn_row",
+        std::string(kDynRowFactory) +
+        "int main() {\n"
+        "    int[,] m = [makeRow(2), makeRow(2)];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!DiagHas(o, "depth does not match"),
+        "expression rows must not hit the literal-depth gate");
+    CHECK(!DiagHas(o, "ncompatible"),
+        "well-typed expression rows must pass the cast adjudication");
+    //Task 6 (dynamic lowering) flips this test to CHECK(o.ok): until
+    //then the emitter logs its pending-lowering gate and the build
+    //stays red by design.
+    PASS();
+}
+
+//Deep mixing: a rank-3 target mixes a 2-D literal row with an
+//expression row returning int[,] (D3: same-level mixing is legal).
+void test_nd_initlist_dynamic_mixed_rows()
+{
+    TEST(nd_initlist_dynamic_mixed_rows);
+    const BuildOutcome o = buildSource("nd_dyn_mixed",
+        "int[,] makeRow2(int w) {\n"
+        "    int[,] r = int[1,w];\n"
+        "    return r;\n"
+        "}\n"
+        "int main() {\n"
+        "    int[,,] t = [[[1, 2]], makeRow2(2)];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!DiagHas(o, "depth does not match"),
+        "mixed rows must not hit the literal-depth gate");
+    CHECK(!DiagHas(o, "ncompatible"),
+        "well-typed mixed rows must pass the cast adjudication");
+    //Task 6 (dynamic lowering) flips this test to CHECK(o.ok).
+    PASS();
+}
+
+//A scalar entry where a row belongs takes the existing cast
+//diagnostic family (no new dedicated diagnostic).
+void test_nd_initlist_dynamic_scalar_entry_rejected()
+{
+    TEST(nd_initlist_dynamic_scalar_entry);
+    const BuildOutcome o = buildSource("nd_dyn_scalar",
+        "int main() {\n"
+        "    int[,] m = [42];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!o.ok,
+        "a scalar entry where a row belongs must be rejected");
+    CHECK(DiagHas(o, "ncompatible"),
+        "the rejection must come from the cast diagnostics");
+    PASS();
+}
+
+//A rank-mismatched expression entry (int[] into an int[,,] target
+//whose rows are int[,]) is rejected by the same family.
+void test_nd_initlist_dynamic_rank_mismatch_rejected()
+{
+    TEST(nd_initlist_dynamic_rank_mismatch);
+    const BuildOutcome o = buildSource("nd_dyn_rank",
+        std::string(kDynRowFactory) +
+        "int main() {\n"
+        "    int[,,] t = [makeRow(2)];\n"
+        "    return 0;\n"
+        "}\n");
+    CHECK(!o.ok,
+        "an int[] entry into an int[,,] target must be rejected");
+    CHECK(DiagHas(o, "an array value only converts to the same array type"),
+        "the rank mismatch must come from the cast diagnostics");
+    PASS();
+}
+
 //Comma sizes in declaration position parse so the parser can name
 //the C-style form and point at the creation twin (0.10.7 D3:
 //parse, then reject with guidance).
@@ -383,6 +472,10 @@ int main()
         test_decl_comma_size_named_reject();
         test_decl_comma_size_reject_stress();
         test_leading_comma_diagnostics();
+        test_nd_initlist_dynamic_row_expr();
+        test_nd_initlist_dynamic_mixed_rows();
+        test_nd_initlist_dynamic_scalar_entry_rejected();
+        test_nd_initlist_dynamic_rank_mismatch_rejected();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << "\n";
         g_fail++;
