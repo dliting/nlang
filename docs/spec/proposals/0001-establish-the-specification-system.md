@@ -60,3 +60,19 @@ the clause tree; where the two disagree, the specification wins and
 the disagreement is a defect to fix on one side. The guard suite
 under `tools/nlang-docs/tests/` grows to keep the specification
 synchronized with the lexer, the parser and the site navigation.
+
+## Implementation status
+
+Updated 2026-10-26 (batch 1 landed): the tree skeleton, §0
+Introduction, §1 Lexical Structure and §2 Syntax are published in
+English; the Chinese front page and §0 translation are published,
+with §1–§2 in the translation backlog. The guard suite covers
+clause numbering, cross-references, navigation, the reserved-word
+table against the lexer, the EBNF symbol set against the parser in
+both directions, this archive's hygiene, and the version anchor
+against the `VERSION` file. Still to seed in later batches:
+chapters §3–§12 (language), §13–§19 (standard library), §20–§23
+(binary formats) and the remaining Chinese translations; the index
+pages mark unwritten chapters as planned, and
+`docs/user_manual/translation-pending.txt` tracks the translation
+backlog.
