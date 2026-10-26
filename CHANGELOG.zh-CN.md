@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.5] - 2026-10-26
+
+### 变更
+
+- **数组秩上限 8 → 64**——语言全局最大维数对齐生态上限(NumPy 2.0 的 `NPY_MAXDIMS` = 64),深层张量不再撞人为墙上限。文法、下标解析器、线格式解析器与 VM 缓冲均由同一常量派生。宿主 ABI 升至 v8(`NativeArrayView.stridesInline` 扩容至 64):native 模块须重新编译,陈旧二进制被加载器的 ABI 探针拒绝。`.ncu` 模块格式不变——既有模块照常加载。
+
 ## [0.11.4] - 2026-10-26
 
 ### 修复

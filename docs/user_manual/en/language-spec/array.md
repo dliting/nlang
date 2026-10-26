@@ -97,7 +97,7 @@ Initialize one with a literal (see [Collection Initializers](collection-initiali
 ### Multi-dimensional arrays
 
 Rectangular multi-dimensional arrays are written `T[,]` (two
-dimensions), `T[,,]` (three), up to 8. The dimension count is part of
+dimensions), `T[,,]` (three), up to 64. The dimension count is part of
 the type: `int[,]` and `int[]` are unrelated types — assignment or
 parameter passing between them is rejected at compile time.
 

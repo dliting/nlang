@@ -6,6 +6,20 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.5] - 2026-10-26
+
+### Changed
+
+- **Array rank cap raised 8 → 64** — the language-wide maximum
+  dimension count now matches the ecosystem ceiling (NumPy 2.0's
+  `NPY_MAXDIMS` = 64), so deep tensors never hit an artificial wall.
+  The grammar, the subscript resolver, the wire-format parser and the
+  VM buffers all derive from the one constant. The host ABI bumps to
+  v8 (`NativeArrayView.stridesInline` widened to 64): native modules
+  must be recompiled, and stale binaries are rejected by the loader's
+  ABI probe. The `.ncu` module format is unchanged — existing modules
+  load as before.
+
 ## [0.11.4] - 2026-10-26
 
 ### Fixed
