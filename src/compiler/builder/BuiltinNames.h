@@ -28,17 +28,18 @@ inline bool IsBuiltinExceptionClassName(const std::string& name)
 //singleton. Everything routes through this one function now.
 //Phase 5: the bare-name comparison stays — builtins carry no owner tag,
 //so their table keys stay bare; a user `pkg.Object` never matches here.
-//K1: the concurrency builtins Thread/Mutex join the set (the lowercase
+//K1: the concurrency builtin Thread joined the set (the lowercase
 //`thread` NAMESPACE is a different surface — ThreadNamespace.h). K1
 //Slice 9: Channel left the set — it is generic-only (Channel<T>); the
 //element type decides boxing, so the bare name is not a type.
-//P2-1 (v0.10.17): Semaphore joins — the native counting-semaphore
-//builtin (mirrors Mutex; the stdlib concurrent package drops its
-//spinning class in the same version).
+//P2-1 (v0.10.17) put Semaphore here with Mutex; the builtin-decls
+//source-of-truth migration removed both again — their classes are
+//declared in stdlib/builtins.n and resolve through the scope chain
+//like any imported class.
 inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream" || name == "Object"
-		|| name == "Thread" || name == "Mutex" || name == "Semaphore"
+		|| name == "Thread"
 		|| IsBuiltinExceptionClassName(name);
 }
 

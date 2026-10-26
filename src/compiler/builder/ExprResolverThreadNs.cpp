@@ -5,12 +5,10 @@
     限定回退的专用臂；其余 thread.* 形态（join/yield/id/sleep、
     spawn-void、未知成员）全部落回 TryResolveModuleQualified＋import
     准入——thread 与 io 等普通标准库包同轨。
-    ② Mutex/Semaphore 同步原语方法（TryResolveSyncPrimitiveMethod）：按名分类梯
-    ＋流方法族尾态（调用方作用域实参解析、void 不留类型），发射走
-    OP_CallMethod-by-name 既有轨。Channel<T> 方法走泛型容器方法族
-    （ExprResolverMemberContainer.cpp）。
     （intrinsic 名→id 表已并入 VmBackend 的统一绑定表——
-    IsStampedBindingPackage/LookupIntrinsicId。）
+    IsStampedBindingPackage/LookupIntrinsicId。Mutex/Semaphore 的
+    同步原语解析特例已随声明化退役——方法走普通成员解析，
+    Channel<T> 方法走泛型容器方法族。）
 ---*/
 #include "ExprResolver.h"
 #include "ThreadNamespace.h"
@@ -111,118 +109,6 @@ bool ExprResolveAccessor::BindThreadSpawnCall(SnMemberExpr &snMember,
 		return true;
 	}
 	FinishConsumedMember(snMember);
-	return true;
-}
-
-//--- 同步原语方法（Mutex/Semaphore） ---------------------------------
-
-//Fixed call shapes of the K1 sync-primitive surface: SyncMethodShape
-//lives in ThreadNamespace.h (shared with the accessor declaration).
-//Channel<T> methods (send/recv/close) are NOT here — they ride the
-//generic container-method family (ExprResolverMemberContainer.cpp),
-//where the element type argument drives boxing and recv's return type.
-static bool ClassifySyncPrimitiveMethod(const std::string& className,
-	const std::string& methodName, SyncMethodShape& rShape)
-{
-	if (className == "Mutex")
-	{
-		if (methodName == "lock" || methodName == "unlock")
-		{
-			rShape = {0, NK_Void};
-			return true;
-		}
-		if (methodName == "tryLock")
-		{
-			rShape = {0, NK_Bool};
-			return true;
-		}
-	}
-	//P2-1: the native counting semaphore — the Mutex method triple's
-	//counterpart (acquire/release/tryAcquire).
-	if (className == "Semaphore")
-	{
-		if (methodName == "acquire" || methodName == "release")
-		{
-			rShape = {0, NK_Void};
-			return true;
-		}
-		if (methodName == "tryAcquire")
-		{
-			rShape = {0, NK_Bool};
-			return true;
-		}
-	}
-	return false;
-}
-
-//Mutex/Semaphore member calls. The synthesized SnClassDecl has no
-//method members, so resolution is by name against the shape table (the
-//stream family's arrangement); emission rides OP_CallMethod-by-name the
-//same way.
-bool ExprResolveAccessor::TryResolveSyncPrimitiveMethod(
-	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
-	SyntaxNode *pSavedContext)
-{
-	if (!(m_pContext && m_pContext->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl*>(m_pContext)->IsBuiltinClass()
-		&& pInnerExpr->Kind() == NK_InvokeExpr))
-		return false;
-	auto* pClass = static_cast<SnClassDecl*>(m_pContext);
-	const std::string className = pClass->Name();
-	if (className != "Mutex" && className != "Semaphore")
-		return false;
-	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
-	SyncMethodShape shape;
-	if (!ClassifySyncPrimitiveMethod(className, invoke.CalleeName(),
-			shape))
-		return false;   //not ours (a user typo) — generic failure
-	return FinishSyncPrimitiveCall(snMember, invoke, pInnerExpr, shape,
-		pSavedContext);
-}
-
-//TryResolveSyncPrimitiveMethod's post-classification tail: named/out
-//veto, caller-scope argument resolution, arity check, and the member's
-//type wiring. Always consumes the member.
-bool ExprResolveAccessor::FinishSyncPrimitiveCall(SnMemberExpr &snMember,
-	SnInvokeExpr &invoke, SnFieldExpr *pInnerExpr,
-	const SyncMethodShape &shape, SyntaxNode *pSavedContext)
-{
-	//Named/out arguments cannot ride by-name dispatch (Round-12/14 rule).
-	if (RejectNamedOrOutArguments(invoke))
-	{
-		m_pContext = pSavedContext;
-		return true;
-	}
-	//Args resolve in the caller's scope (the synthesized class scope is
-	//empty) — the stream tail's arrangement.
-	m_pContext = pSavedContext;
-	RemoveFlags(ERF_SearchInParentOnly);
-	ResolveExpressionList(invoke.Params());
-	//Params()is a child-node view without size() — count by iteration.
-	int argCount = 0;
-	for (auto& param : invoke.Params())
-	{
-		(void)param;
-		++argCount;
-	}
-	if (argCount != shape.paramCount)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"'%s' takes %d argument%s.", invoke.CalleeName().c_str(),
-			shape.paramCount, shape.paramCount == 1 ? "" : "s");
-		m_pContext = pSavedContext;
-		return true;
-	}
-	pInnerExpr->AddFlags(NF_Resolved);
-	if (shape.returnType != NK_Void)
-	{
-		auto* pRet = SnBuiltinDataType::InstanceOf(shape.returnType);
-		snMember.EvalDataType(pRet);
-		snMember.m_pField = pRet;
-	}
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
-	m_pContext = pSavedContext;
 	return true;
 }
 

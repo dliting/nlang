@@ -287,7 +287,7 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 }
 
 //Access's builtin by-name method families, in the historical dispatch
-//order (each family logs its own rejections; the sync primitives run
+//order (each family logs its own rejections; the string family runs
 //before the stream family — close() is a stream method name too).
 bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 	SnMemberExpr &snMember, SnExpression *pOuterExpr,
@@ -297,8 +297,6 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 		return true;
 	if (TryResolveArrayLengthMethod(snMember, pOuterExpr, pInnerExpr,
 		pSavedContext))
-		return true;
-	if (TryResolveSyncPrimitiveMethod(snMember, pInnerExpr, pSavedContext))
 		return true;
 	if (TryResolveStreamBuiltinMethod(snMember, pInnerExpr, pSavedContext))
 		return true;

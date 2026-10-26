@@ -6,3 +6,23 @@
 //in the VM (intrinsic channel), so class members are declared native.
 //Compile-time inline only: the stdlib.npkg pack list excludes this
 //file; the build-tree stdlib copy keeps it for disk-first development.
+
+//Mutual exclusion: lock() parks the caller while the mutex is held;
+//unlock() hands ownership to the front waiter (FIFO handoff).
+//tryLock() takes the mutex only if it is free; never parks.
+class Mutex {
+    public native Mutex();
+    public native void lock();
+    public native void unlock();
+    public native bool tryLock();
+}
+
+//Counting semaphore with FIFO handoff: acquire() parks at zero permits
+//and release() hands the permit directly to the front waiter.
+//tryAcquire() never parks; over-release is legal.
+class Semaphore {
+    public native Semaphore(int initial);
+    public native void acquire();
+    public native void release();
+    public native bool tryAcquire();
+}

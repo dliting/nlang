@@ -182,6 +182,12 @@ private:
 	//roots) are gone after the merge.
 	void ExpandTypeAliases();
 	//Merge the root fields in different translation units into the AST.
+	//Runs in PrepareUnits BEFORE LoadImports: the import-stub collision
+	//checks (nameExistsInRoot) must see the consumer's own declarations,
+	//or a peer image's prelude records (own in every image by design)
+	//would be minted into the root beside them. TU order (user, prelude,
+	//libraries) is the root member order — the shadowing contract (user
+	//declarations ahead of the prelude) rides it.
 	void MergeTransUnits();
 	//Tag a (unit-root or nested) namespace's direct members with the
 	//owning module index; nested namespaces recurse (they can span TUs).

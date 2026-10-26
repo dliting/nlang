@@ -58,7 +58,12 @@ int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& f
         if (found >= 0)
             return found;
     }
-    //Search in this class (after all parent fields)
+    //Search in this class (after all parent fields). A marked prelude
+    //class reserves the first data slot for the hidden __handle (the
+    //compile-time mirror of CollectOwnClassFields' insertion — the same
+    //owner-gated predicate, so a name-sharing user class walks flat).
+    if (IsHandleClassDecl(classDecl))
+        off += kHeapFieldStrideBytes;
     for (auto& member : classDecl.Members()) {
         if (member.Kind() == NK_ClassField && member.Name() == fieldName)
             return off;
@@ -93,6 +98,11 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
         }
         return -1;
     }
+    //A marked prelude ancestor contributes the hidden __handle slot
+    //before its declared fields (same predicate as the record insertion;
+    //a subclass of Mutex shares the base's handle layout).
+    if (IsHandleClassDecl(ancestor))
+        off += kHeapFieldStrideBytes;
     for (auto& member : ancestor.Members()) {
         if (member.Kind() == NK_ClassField && member.Name() == fieldName)
             return off;

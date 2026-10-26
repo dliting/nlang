@@ -10,10 +10,6 @@
 namespace nlang
 {
 
-//K3 sync-primitive method shape (ThreadNamespace.h defines it; a
-//reference parameter needs no full type here).
-struct SyncMethodShape;
-
 enum FindFuncResult
 {
 	//The function name is not found.
@@ -464,15 +460,6 @@ private:
 		uint8_t want);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//K1: Mutex/Channel by-name methods — runs BEFORE the stream family
-	//(close is also a stream method name and would be captured there).
-	bool TryResolveSyncPrimitiveMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//TryResolveSyncPrimitiveMethod's post-classification tail: named/out
-	//veto, caller-scope argument resolution, arity check, type wiring.
-	bool FinishSyncPrimitiveCall(SnMemberExpr &snMember,
-		SnInvokeExpr &invoke, SnFieldExpr *pInnerExpr,
-		const SyncMethodShape &shape, SyntaxNode *pSavedContext);
 	//Access's builtin by-name method families, historical dispatch order
 	//(extracted for the 50-line function budget).
 	bool TryResolveBuiltinMethodFamilies(SnMemberExpr &snMember,

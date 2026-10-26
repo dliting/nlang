@@ -101,7 +101,10 @@ void VmBackend::StampIntrinsicChannel(SnFunction& func,
             || pParent->Kind() == NK_InterfaceDecl
             || pParent->Kind() == NK_EnumDecl
             || pParent->Kind() == NK_StructDecl);
-    const uint32_t owner = m_pRegistry->OwnerOf(func);
+    //Owner-of-CONTEXT, not the flat tag: class members carry no owner
+    //tag of their own (the IsOwnUnit contract), so a declared prelude
+    //ctor/method would read NO_OWNER here and never stamp.
+    const uint32_t owner = m_pRegistry->OwnerOfContext(func);
     if (owner == ModuleRegistry::NO_OWNER)
         return;
     const std::string packagePath = m_pRegistry->ModulePathOf(owner);

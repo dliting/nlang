@@ -175,26 +175,14 @@ const BuiltinMethod s_DictMethods[] = {
 
 //K1 concurrency builtins. Thread carries the __handle field (the spawned
 //context id) but no ctor — thread.spawn mints instances — and no methods
-//in K1. Mutex/Channel take the same __handle shape as the containers
+//in K1. Channel takes the same __handle shape as the containers
 //(index into the VM-side sync stores). Channel's methods are generic-
 //container surface (the element type is erased at runtime — every
 //element is a heap idx; recv's RTK_Int32 is the placeholder return kind,
 //the call site's boxing plan unboxes per T).
-const BuiltinMethod s_MutexMethods[] = {
-    {"lock",    INTR_Mutex_Lock,    1, RTK_Void},
-    {"unlock",  INTR_Mutex_Unlock,  1, RTK_Void},
-    {"tryLock", INTR_Mutex_TryLock, 1, RTK_Bool},
-};
-
-//P2-1 (v0.10.17): native Semaphore — counting permits. acquire parks
-//FIFO at zero (release hands the permit to the front waiter, the Mutex
-//handoff shape); tryAcquire never parks; over-release is legal.
-const BuiltinMethod s_SemaphoreMethods[] = {
-    {"acquire",    INTR_Semaphore_Acquire,    1, RTK_Void},
-    {"release",    INTR_Semaphore_Release,    1, RTK_Void},
-    {"tryAcquire", INTR_Semaphore_TryAcquire, 1, RTK_Bool},
-};
-
+//Mutex/Semaphore left the table: their classes are declared in
+//stdlib/builtins.n, their intrinsic stubs come from the declared
+//records stamped by the binding table (backend/BindingTable.cpp).
 const BuiltinMethod s_ChannelMethods[] = {
     {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
     {"recv",  INTR_Channel_Recv,  1, RTK_Int32},  //this; returns T
@@ -260,9 +248,6 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     //stable; a reorder changes the serialized .ncu).
     {"Thread",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         false, 0, 0, nullptr, 0, BIDX_None},
-    {"Mutex",   BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        true, INTR_Mutex_Ctor, 1,
-        s_MutexMethods, std::size(s_MutexMethods), BIDX_None},
     {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         //K3 task 4: ctor is (this, capacity) — capacity 0 = unbounded;
         //the init-list arm stages the 0 explicitly.
@@ -281,12 +266,6 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"ChannelClosedException", BSR_ExceptionBase, nullptr, 0,
         true, INTR_ChannelClosedException_Ctor,
         2, nullptr, 0, BIDX_ChannelClosedExc},
-    //P2-1 (v0.10.17): native Semaphore — appended at the END like the
-    //blocks above (existing class indices stay stable for the .ncu);
-    //ctor is (this, initial) — the Channel capacity shape.
-    {"Semaphore", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        true, INTR_Semaphore_Ctor, 2,
-        s_SemaphoreMethods, std::size(s_SemaphoreMethods), BIDX_None},
 };
 
 //One BuiltinField row → the CompiledClass field arrays.

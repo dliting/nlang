@@ -24,6 +24,19 @@ namespace nlang {
 //lives on the Exception base record (BuiltinClasses.cpp), so user
 //subclasses see it through the chain instead of a per-subclass copy.
 void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
+    //A marked prelude class's record leads with the hidden __handle —
+    //the fixed cell[1] slot the intrinsic stores and ctors write
+    //(source-of-truth design §6.4). Not an AST member: FindField misses
+    //it, so the post-registration passes keep the default (non-
+    //serialized) descriptor, and the runtime layout view (VmClassLayout)
+    //joins the slot through these very arrays.
+    if (IsHandleClassDecl(sn)) {
+        cc.fieldNames.push_back("__handle");
+        cc.fieldTypeKinds.push_back(RTK_Int32);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //private / accessible via field ref
+    }
     for (auto& member : sn.Members()) {
         if (member.Kind() == NK_ClassField) {
             auto& cf = static_cast<SnClassField&>(member);

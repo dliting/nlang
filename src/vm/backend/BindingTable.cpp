@@ -33,6 +33,17 @@ const BindingRow s_BindingRows[] = {
     {"thread", "thread.yield", INTR_Thread_Yield},
     {"thread", "thread.id",    INTR_Thread_Id},
     {"thread", "thread.sleep", INTR_Thread_Sleep},
+    //Cluster 1 (Mutex/Semaphore): declared in stdlib/builtins.n. The
+    //type-member stamping arm binds the declared native records onto
+    //the intrinsic channel; the constructor key is the bare class name.
+    {"builtins", "Mutex",                INTR_Mutex_Ctor},
+    {"builtins", "Mutex.lock",           INTR_Mutex_Lock},
+    {"builtins", "Mutex.unlock",         INTR_Mutex_Unlock},
+    {"builtins", "Mutex.tryLock",        INTR_Mutex_TryLock},
+    {"builtins", "Semaphore",            INTR_Semaphore_Ctor},
+    {"builtins", "Semaphore.acquire",    INTR_Semaphore_Acquire},
+    {"builtins", "Semaphore.release",    INTR_Semaphore_Release},
+    {"builtins", "Semaphore.tryAcquire", INTR_Semaphore_TryAcquire},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)
@@ -50,6 +61,37 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
         if (packagePath == row.packagePath && key == row.key)
             return row.intrinsicId;
     return INTR_None;
+}
+
+//Handle-class marker (builtin-decls source-of-truth design §6.4): the
+//prelude classes whose CompiledClass record leads with the hidden
+//__handle field — the one by-name C++-side list that survives the
+//migration. Append-only. Entries whose cluster has not been declared
+//yet are inert: the marker fires only for a DECLARED prelude class.
+const char* const s_HandleClassNames[] = {
+    "ByteStream", "FileStream", "List", "Dict", "Thread",
+    "Mutex", "Channel", "Future", "Semaphore",
+};
+
+bool IsHandleClassName(const std::string& className)
+{
+    for (const char* name : s_HandleClassNames)
+        if (className == name)
+            return true;
+    return false;
+}
+
+//Owner-gated marker check (record insertion and the FieldOffsets mirror
+//must consult the SAME predicate or the layouts diverge): a user class
+//that merely shares the name after shadowing is not the builtin, so
+//neither its record nor its offset walk reserves the handle slot.
+bool VmBackend::IsHandleClassDecl(const SnField& decl) const
+{
+    if (!IsHandleClassName(decl.Name()))
+        return false;
+    const uint32_t owner = m_pRegistry->OwnerOf(decl);
+    return owner != ModuleRegistry::NO_OWNER
+        && m_pRegistry->IsPreludeModule(owner);
 }
 
 //--- prelude shadowing ------------------------------------------------------

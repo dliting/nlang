@@ -225,18 +225,20 @@ private:
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
 
     //Flattened member-field offset helpers (definitions live in
-    //EmitExprMember.cpp), shared by the member-read, assign-store,
-    //and new-expression emitters across emission TUs.
+    //FieldOffsets.cpp), shared by the member-read, assign-store,
+    //and new-expression emitters across emission TUs. Non-static: the
+    //handle-class skip consults the owner via the registry, the same
+    //predicate CollectOwnClassFields inserts the hidden __handle with.
     static int FindFieldOffset(SnStructDecl& structDecl,
                                const std::string& fieldName);
-    static int FindClassFieldOffset(SnClassDecl& classDecl,
-                                    const std::string& fieldName);
+    int FindClassFieldOffset(SnClassDecl& classDecl,
+                             const std::string& fieldName);
     //FindClassFieldOffset arm: one ancestor in the root→parent walk —
     //returns the field offset when the field lives there, else -1; `off`
     //always advances past that ancestor's data fields.
-    static int ClassAncestorFieldOffset(SnClassDecl& ancestor,
-                                        const std::string& fieldName,
-                                        uint16_t& off);
+    int ClassAncestorFieldOffset(SnClassDecl& ancestor,
+                                 const std::string& fieldName,
+                                 uint16_t& off);
     //0.9.11 D2: generalized to struct fields — returns the owning type
     //decl (SnClassDecl or SnStructDecl) for a member field of either,
     //null otherwise; the caller dispatches the offset helper by the
@@ -1695,6 +1697,14 @@ private:
     //foreign declaration claims — the registration sites skip it (the
     //foreign declaration is the visible winner).
     bool IsShadowedPreludeDecl(const SnField& node) const;
+
+    //True when this class declaration is a prelude builtin whose record
+    //leads with the hidden __handle field (binding-table marker, §6.4).
+    //Owner-gated: a user class sharing the name after shadowing is not
+    //the builtin. Record insertion (CollectOwnClassFields) and the
+    //FieldOffsets mirror consult the SAME predicate so the layouts
+    //cannot diverge.
+    bool IsHandleClassDecl(const SnField& decl) const;
 };
 
 //Intrinsic binding table (builtin-decls source-of-truth design §4.5):
@@ -1706,5 +1716,8 @@ private:
 bool IsStampedBindingPackage(const std::string& packagePath);
 uint16_t LookupIntrinsicId(const std::string& packagePath,
     const std::string& key);
+//Handle-class marker (§6.4): true for a prelude class name whose record
+//carries the hidden __handle field. Append-only list.
+bool IsHandleClassName(const std::string& className);
 
 } // namespace nlang

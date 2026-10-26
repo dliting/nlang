@@ -85,15 +85,26 @@ bool ModuleBuilder::PrepareUnits()
 	ExpandTypeAliases();
 	if (m_upEnv->HasError())
 		return false;
+	//Merge TU roots BEFORE import stubbing: a peer image carries the
+	//prelude records too (own in every image by design), and the
+	//stub-side collision checks (nameExistsInRoot) are what keep those
+	//from being minted into the root beside the consumer's own
+	//declarations. Without this, declared builtin classes clash with
+	//their own imported mirrors. TU order (user, prelude, libraries)
+	//keeps the shadowing contract — user declarations sit ahead of the
+	//prelude in the root.
+	MergeTransUnits();
+	if (m_upEnv->HasError())
+		return false;
 	//Load .ncu imports and merge stubs into the root namespace.
 	return LoadImports();
 }
 
 bool ModuleBuilder::ResolveAll()
 {
-	//Merge user TU roots (post-import) into the AST root, then run every
-	//resolution pass.
-	MergeTransUnits();
+	//TU roots merged at the end of PrepareUnits (before LoadImports —
+	//the stub-side collision checks need the consumer's own
+	//declarations). Run every resolution pass on the merged root.
 	ResolveUsingLists();
 	ResolveDataTypes();
 	//D8: a top-level statement paragraph plus an explicit main() in the same
