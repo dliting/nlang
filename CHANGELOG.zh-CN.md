@@ -6,6 +6,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.6]
+
+### 新增
+
+- **tensor包矩阵内核**——`transpose`（`T[,]` → `T[,]`）、`flatten`（`T[,]` → `T[]`）与`reshape1`–`reshape8`族（扁平`T[]`＋`int[]`形状 → 至多8维的任意目标维度）以native块拷贝内核运行于四种标量元素类型。
+- **`tensor.matmul`**——int/long/float/double的原生矩阵乘（i-k-j累加：整型回绕，浮点遵循IEEE）；二维操作数校验，不匹配消息报出双方形状。
+- **二维逐元素与归约面**——`add`/`sub`/`mul`/`div`与`sum`/`max`/`min`/`mean`新增镜像一维同名的`T[,]`重载；逐元素内核保持操作数形状且要求形状相等，归约按行主序摊平。
+- **动态形状数组初始化器**——叶层之上的条目可以是任何求值为低一维数组的表达式，与方括号行自由混排；首行在运行期钉住内层各维，行宽不齐抛可捕获的基类Exception并报出层数与两个行宽，`null`行抛NullPointerException。经新操作码`OP_AssembleArrayN`下沉。
+- **宿主ABI v9**——`newArrayShaped(elemKind, rank, dims)`让native代码经共享校验路径创建定形数组。
+- **阶段3 matmul基准**——`tests/bench/tensor_stage3_bench.py`对比手写三重循环与`tensor.matmul`（128×128 int矩阵，基准机约107倍）。
+- **语言规范第一部分**——规范新增十个语言章节：程序结构与名称解析、类型、表达式、语句、函数与方法、面向对象、异常、执行模型与内存语义、并发、包与导入搜索。语言本体（§0–§12）的全部可引用条款现已具有规范性；标准库与二进制格式章节在后续批次补写。
+
 ## [0.11.5] - 2026-10-26
 
 ### 新增

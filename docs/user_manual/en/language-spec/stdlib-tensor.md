@@ -15,7 +15,7 @@ families from the array operands). Exact argument matches beat wider
 ones: `arange(0, 10, -3)` yields `int[]`; pass `long` arguments for a
 `long[]`. Zero-filled arrays need no kernel — the language's sized
 creation `T[n]` is already zero-initialized (`double[256]`), and "ones"
-is `full(n, 1)`. The table below is the package's whole documented
+is `full(n, 1)`. The tables below are the package's whole documented
 surface; suffixed declarations in `stdlib/tensor.n` (`fullI`,
 `arangeD`, ...) are internal implementation of the overloads, not part
 of it.
@@ -42,6 +42,45 @@ toward `stop`, raises the base Exception.
 length mismatches raise the base Exception, and the empty-array rules
 are per the table above. All of them are catchable `Exception` family
 values.
+
+## Matrix and rank-2 kernels
+
+The rank-2 face mirrors the 1-D names on `T[,]` operands, and the
+matrix family adds shape-changing and product kernels:
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| add sub mul div | (T[,], T[,]) → T[,] | elementwise binary; shapes must be equal |
+| sum | (T[,]) → T | flattens in row-major order |
+| max min | (T[,]) → T | flattens; empty matrix → Exception |
+| mean | (T[,]) → double | always double; empty matrix → Exception |
+| transpose | (T[,]) → T[,] | [r, c] becomes [c, r] |
+| flatten | (T[,]) → T[] | row-major copy to rank 1 |
+| reshape1..8 | (T[], int[] shape) → T[...] | target rank carried by the name; see below |
+| matmul | (T[,], T[,]) → T[,] | matrix product; int/long wrap around, float/double follow IEEE |
+
+**transpose** and **flatten** are block copies — `transpose` maps
+`[r, c]` to `[c, r]`, `flatten` copies row-major into a rank-1 array.
+
+**reshape1**–**reshape8** take a flat `T[]` source (call `flatten`
+first to adapt a higher-rank matrix) and an `int[]` shape whose
+length must equal the target rank carried by the name and whose
+product must equal the element count; a negative dimension, a wrong
+length, or a product mismatch raises the base Exception with both
+numbers spelled out.
+
+**matmul** requires two rank-2 operands with agreeing inner
+dimensions (columns of `a` = rows of `b`); mismatches raise the base
+Exception reporting both shapes (`tensor.matmul: shape mismatch
+(2x3 vs 2x2)`). The elementwise rank-2 kernels require equal shapes
+and report them the same way (`tensor: shape mismatch (2x3 vs 2x2)`).
+
+```nlang
+int[,] m = [[1, 2], [3, 4]];
+int[,] t = tensor.transpose(m);      // [[1, 3], [2, 4]]
+int[] f = tensor.flatten(m);         // [1, 2, 3, 4]
+int[,] p = tensor.matmul(m, m);      // [[7, 10], [15, 22]]
+```
 
 ```nlang
 import io;

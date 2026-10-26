@@ -144,6 +144,30 @@ Elements land in the new array in row-major order. Jagged literals
 not match the dimension count are named compile-time rejections; at
 dimension count >= 2 the literal must be non-empty — no row to infer
 from means no dimensions (the 1-D `int[] a = [];` form stays legal).
+
+An entry above the leaf level may also be an expression that yields
+an array of exactly one dimension below the target — a function
+result, a variable, any array-valued expression — and such expression
+rows mix freely with bracket rows at the same level:
+
+```nlang
+int[] makeRow(int w) {
+    int[] r = int[w];
+    for (int i = 0; i < w; i += 1) { r[i] = i; }
+    return r;
+}
+
+int[,] m = [makeRow(2), [3, 4]];    // expression row + bracket row
+```
+
+With an expression row present the shape is a runtime fact: the
+first row pins the inner dimensions, and every later row must agree
+with it. Rows of differing width raise a catchable base `Exception`
+naming the level and both widths (`ND initializer widths differ (dim
+1: 2 vs 3)`); a `null` row raises `NullPointerException`. A scalar
+where a row belongs stays a compile-time rejection. Without
+expression rows the whole shape remains a compile-time fact.
+
 The brace form keeps its existing rejection for array targets (see
 [Collection Initializers](collection-initializers.md)).
 

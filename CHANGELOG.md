@@ -6,6 +6,42 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.6]
+
+### Added
+
+- **Matrix kernels in the tensor package** — `transpose` (`T[,]` →
+  `T[,]`), `flatten` (`T[,]` → `T[]`) and the `reshape1`–`reshape8`
+  family (flat `T[]` + `int[]` shape → any target rank up to 8) run
+  as native block-copy kernels over the four scalar element kinds.
+- **`tensor.matmul`** — native matrix product for
+  `int`/`long`/`float`/`double` (i-k-j accumulator: integer kinds
+  wrap around, floating kinds follow IEEE); rank-2 operand
+  validation with both shapes spelled out in the mismatch message.
+- **Rank-2 elementwise and reduction face** — `add`/`sub`/`mul`/`div`
+  and `sum`/`max`/`min`/`mean` gain `T[,]` overloads mirroring the
+  1-D names; elementwise kernels preserve the operand shape and
+  require equal shapes, reductions flatten in row-major order.
+- **Dynamic-shape array initializers** — an initializer entry above
+  the leaf level may be any expression yielding an array of exactly
+  one dimension below the target, mixing freely with bracket rows;
+  the first row pins the inner dimensions at runtime, differing row
+  widths raise a catchable base Exception naming the level and both
+  widths, and a null row raises NullPointerException. Lowered via
+  the new `OP_AssembleArrayN` opcode.
+- **Host ABI v9** — `newArrayShaped(elemKind, rank, dims)` lets
+  native code mint shaped arrays through the shared validation path.
+- **Stage-3 matmul benchmark** — `tests/bench/tensor_stage3_bench.py`
+  compares a hand-written triple loop against `tensor.matmul`
+  (128×128 int matrices; ~107× on the reference machine).
+- **Language specification Part I** — the specification gains the
+  ten language chapters: program structure and name resolution,
+  types, expressions, statements, functions and methods, object
+  orientation, exceptions, execution model and memory semantics,
+  concurrency, and packages and import search. Every citable clause
+  of the language proper (§0–§12) is now normative; the standard
+  library and binary-format chapters follow in later batches.
+
 ## [0.11.5] - 2026-10-26
 
 ### Added
