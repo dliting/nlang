@@ -1883,3 +1883,5 @@ ndarray_initlist_listleaf 9
 ndarray_zerodim_tostring 7
 ndarray_highrank 0 12 9
 ndarray_rank65 compile_error exceeds the maximum of 64
+stdlib_tensor_transpose 0
+stdlib_tensor_reshape 0

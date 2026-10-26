@@ -46,4 +46,21 @@ void TensorMin(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorDot(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
+//--- matrix entries (tensor_matrix.cpp) ------------------------------------------
+//The reshape family: one entry per target rank — the rank rides the
+//registered name (reshape1..reshape8; all four element kinds share it).
+
+void TensorTranspose(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     int argc);
+void TensorFlatten(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+void TensorReshape1(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape2(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape3(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape4(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape5(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape6(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape7(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape8(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+
 } // namespace tensor

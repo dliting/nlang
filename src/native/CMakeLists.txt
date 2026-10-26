@@ -33,6 +33,7 @@ endforeach()
 # Multi-file module sources beyond the per-module naming pattern.
 target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp
+    tensor/tensor_matrix.cpp
     tensor/tensor_reduce.cpp)
 
 # Single authoritative output and NOTHING copies the modules around the

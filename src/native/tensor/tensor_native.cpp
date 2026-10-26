@@ -138,5 +138,17 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "min", &tensor::TensorMin);
     regBlocking(registry, "tensor", "mean", &tensor::TensorMean);
     regBlocking(registry, "tensor", "dot", &tensor::TensorDot);
+    regBlocking(registry, "tensor", "transpose", &tensor::TensorTranspose);
+    regBlocking(registry, "tensor", "flatten", &tensor::TensorFlatten);
+    //Mechanical rank rows: reshape1..8 share one kernel — the target
+    //rank rides the entry name, all four element kinds the registration.
+    regBlocking(registry, "tensor", "reshape1", &tensor::TensorReshape1);
+    regBlocking(registry, "tensor", "reshape2", &tensor::TensorReshape2);
+    regBlocking(registry, "tensor", "reshape3", &tensor::TensorReshape3);
+    regBlocking(registry, "tensor", "reshape4", &tensor::TensorReshape4);
+    regBlocking(registry, "tensor", "reshape5", &tensor::TensorReshape5);
+    regBlocking(registry, "tensor", "reshape6", &tensor::TensorReshape6);
+    regBlocking(registry, "tensor", "reshape7", &tensor::TensorReshape7);
+    regBlocking(registry, "tensor", "reshape8", &tensor::TensorReshape8);
     return NLANG_HOST_ABI_VERSION;
 }

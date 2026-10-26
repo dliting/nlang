@@ -124,3 +124,56 @@ native long dot(int[] a, int[] b);
 native long dot(long[] a, long[] b);
 native float dot(float[] a, float[] b);
 native double dot(double[] a, double[] b);
+
+//--- matrix family --------------------------------------------------------------
+
+// Rank-2 transpose: [rows, cols] -> [cols, rows] as a row-major copy.
+native int[,] transpose(int[,] a);
+native long[,] transpose(long[,] a);
+native float[,] transpose(float[,] a);
+native double[,] transpose(double[,] a);
+
+// Flatten to rank 1 in row-major order (the most common reshape).
+native int[] flatten(int[,] a);
+native long[] flatten(long[,] a);
+native float[] flatten(float[,] a);
+native double[] flatten(double[,] a);
+
+// Reshape any source array to the target rank carried by the name: the
+// element count must equal the product of `shape` — otherwise the base
+// Exception raises with both numbers spelled out, and a negative shape
+// dim raises IndexOutOfBoundsException (matching sized creation).
+// Target ranks 1..8 are declared; the global rank cap is 64 — append
+// rows mechanically as needs arise.
+native int[] reshape1(int[] a, int[] shape);
+native int[,] reshape2(int[] a, int[] shape);
+native int[,,] reshape3(int[] a, int[] shape);
+native int[,,,] reshape4(int[] a, int[] shape);
+native int[,,,,] reshape5(int[] a, int[] shape);
+native int[,,,,,,] reshape6(int[] a, int[] shape);
+native int[,,,,,,,] reshape7(int[] a, int[] shape);
+native int[,,,,,,,,] reshape8(int[] a, int[] shape);
+native long[] reshape1(long[] a, int[] shape);
+native long[,] reshape2(long[] a, int[] shape);
+native long[,,] reshape3(long[] a, int[] shape);
+native long[,,,] reshape4(long[] a, int[] shape);
+native long[,,,,] reshape5(long[] a, int[] shape);
+native long[,,,,,,] reshape6(long[] a, int[] shape);
+native long[,,,,,,,] reshape7(long[] a, int[] shape);
+native long[,,,,,,,,] reshape8(long[] a, int[] shape);
+native float[] reshape1(float[] a, int[] shape);
+native float[,] reshape2(float[] a, int[] shape);
+native float[,,] reshape3(float[] a, int[] shape);
+native float[,,,] reshape4(float[] a, int[] shape);
+native float[,,,,] reshape5(float[] a, int[] shape);
+native float[,,,,,,] reshape6(float[] a, int[] shape);
+native float[,,,,,,,] reshape7(float[] a, int[] shape);
+native float[,,,,,,,,] reshape8(float[] a, int[] shape);
+native double[] reshape1(double[] a, int[] shape);
+native double[,] reshape2(double[] a, int[] shape);
+native double[,,] reshape3(double[] a, int[] shape);
+native double[,,,] reshape4(double[] a, int[] shape);
+native double[,,,,] reshape5(double[] a, int[] shape);
+native double[,,,,,,] reshape6(double[] a, int[] shape);
+native double[,,,,,,,] reshape7(double[] a, int[] shape);
+native double[,,,,,,,,] reshape8(double[] a, int[] shape);
