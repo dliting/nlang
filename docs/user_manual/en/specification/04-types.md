@@ -83,12 +83,13 @@ number of dimensions, at least 1 and at most 64. The rank is part
 of the type: `int[]` and `int[,,]` are different types, and so are
 `int[]` and `long[]`. A rank above 64 is a compile-time error.
 
-The rank is written with bracket suffixes after the element type
-(§2.3): each `[]` adds one dimension and each `[,,]` adds two.
-The element type of an array type is never itself an array type:
-`int[][]` is rank 2 with element type `int`, not an array of
-arrays. A jagged shape — an array whose elements are arrays of
-different lengths — is not expressible.
+The rank is written as a single bracket suffix group after the
+element type (§2.3): `[]` is rank 1, `[,]` is rank 2, `[,,]` is
+rank 3, and so on — the rank is the number of commas plus one. A
+type carries at most one bracket suffix group: a second group, as
+in `int[][]`, is a compile-time error. A jagged shape — an array
+whose elements are arrays of different lengths — is not
+expressible.
 
 An array value is created with a length for each dimension, and
 those lengths never change for the value's lifetime. Every element
