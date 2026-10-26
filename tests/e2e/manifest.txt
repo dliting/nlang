@@ -1096,6 +1096,10 @@ thread_spawn_shadow 7
 object_baseref_dispatch 7
 object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString
 object_tostring_arity compile_error
+
+# --- Final sweep: same-name priority locks for the migrated names ---
+naming_reserved_prelude compile_error names a type
+alias_clash_prelude compile_error cannot be used as a type alias
 #Phase 13 Step 0 fix round (superpowers r1): crash repros + coverage locks.
 alias_foreach 6
 alias_initlist 42

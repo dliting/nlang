@@ -1,0 +1,8 @@
+//An alias may not hijack a prelude-declared class name. The clash
+//check runs before the units merge, so it consults the prelude unit's
+//own root rather than the merged tree.
+using Semaphore = int;
+
+int main() {
+    return 0;
+}

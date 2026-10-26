@@ -279,9 +279,13 @@ public:
 	expanded by then. Compared sets: other aliases of the same unit, the
 	unit's own root members, built-in type names in the tree root (int/
 	float/string), lazily synthesized built-in class names, the built-in
-	generic class names, and the reserved stdlib namespace names.
+	generic class names, the reserved stdlib namespace names, and the
+	prelude package's declared root members (pPreludeRoot — the units are
+	not merged yet, so the merged tree cannot answer; a declared builtin
+	name must not be hijackable by an alias, final-sweep lock).
 	*/
-	void CheckUnitAliases(const TranslationUnit &unit, SnNamespace &treeRoot)
+	void CheckUnitAliases(const TranslationUnit &unit, SnNamespace &treeRoot,
+		SnNamespace *pPreludeRoot)
 	{
 		auto pUsings = unit.Usings();
 		if (!pUsings)
@@ -302,7 +306,8 @@ public:
 			}
 			//Names that resolution would route somewhere else than the
 			//alias: same-unit declarations, built-in types and classes,
-			//built-in generics, reserved stdlib namespaces.
+			//built-in generics, reserved stdlib namespaces, prelude
+			//declarations.
 			//0.8.3: "Func" dropped — func is a keyword, so it can no
 			//longer be spelled as a type alias name; List/Dict stay
 			//(plain identifiers, spellable as alias names).
@@ -310,7 +315,8 @@ public:
 				|| treeRoot.FindField(sName)
 				|| sName == kBuiltinListTypeName || sName == kBuiltinDictTypeName
 				|| IsBuiltinClassName(sName)
-				|| m_Accessor.m_Env.IsLibraryPackage(sName))
+				|| m_Accessor.m_Env.IsLibraryPackage(sName)
+				|| (pPreludeRoot && pPreludeRoot->FindField(sName)))
 			{
 				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
 					"The name \"%s\" cannot be used as a type alias.",

@@ -297,9 +297,24 @@ void ModuleBuilder::ExpandTypeAliases()
 	//Errors abort the build right after this step.
 	DuplicateFieldChecker checker(*m_upEnv);
 	AliasExpander expander(*m_upEnv);
+	//The prelude unit's root is still intact (the merge clears it) — its
+	//declared names join the clash set even though the merged tree cannot
+	//answer yet (builtin-decls final sweep; TU order == module index).
+	SnNamespace *pPreludeRoot = nullptr;
+	const ModuleRegistry &registry = m_upEnv->Registry();
+	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		checker.CheckUnitAliases(*pTransUnit, TreeRoot());
+		if (registry.IsPreludeModule(moduleIndex))
+		{
+			pPreludeRoot = pTransUnit->Root();
+			break;
+		}
+		++moduleIndex;
+	}
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot);
 		expander.ProcessUnit(*pTransUnit);
 	}
 }
