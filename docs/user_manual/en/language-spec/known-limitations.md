@@ -191,7 +191,9 @@
 - **Concurrency: a spawned thread's failure surfaces only through
   `join`**: uncaught exceptions propagate to neither the host nor main —
   the failed context is contained, and joiners receive a rethrow of the
-  original exception object; with no joiner, the failure is silent.
+  original exception object. A failure no joiner ever observed is not
+  silently lost: at run end the VM prints one stderr line per such task
+  (task id, exception type and message).
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
   deadlock report. See [Mutex](concurrency-mutex.md).

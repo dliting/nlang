@@ -12,7 +12,7 @@ Suspension (`sleep`, `join`, contending `lock`, zero-permit `acquire`, empty-cha
 - `finally` still runs — exactly once — after a `try` body that suspended;
 - Suspending inside an entered `catch` handler still leaves `throw;` (rethrow) working after resumption.
 
-An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed and its call stack is dropped. The failure surfaces only on the waiting side — `join` and `Future.get` rethrow the task's original exception object — so put the `try`/`catch` where you wait, not where you spawn.
+An **uncaught** exception in a spawned context propagates to neither the host nor main: the context is marked failed and its call stack is dropped. The failure surfaces only on the waiting side — `join` and `Future.get` rethrow the task's original exception object — so put the `try`/`catch` where you wait, not where you spawn. A failure nobody ever waited for is not silently lost: at run end the VM prints one stderr warning per such task (task id, exception type and message).
 
 ## Main-exit policy and the deadlock report
 

@@ -6,6 +6,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.20] - 2026-10-27
+
+### 修复
+
+- **无人观测的派生任务失败不再被静默吞噬**——派生任务的未捕获异常
+  若没有任何`join`/`Future.get`观测过，此前会无痕迹消失：运行以绿色
+  退出码结束、错误杳无音信。现在VM在运行收尾时对每个这样的任务输出
+  一行stderr警告——`NLang VM: spawned task <任务号> failed with
+  uncaught <类型>: <消息> (never joined)`——即Python「Task exception
+  was never retrieved」的对位行为。已被joiner观测的失败（包括join
+  命中已失败目标的即时重抛）保持静默；退出码与程序输出不变。三个
+  e2e测试钉住：未join告警、即时join与晚join均静默。
+
 ## [0.10.19] - 2026-10-27
 
 ### 新增

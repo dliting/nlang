@@ -6,6 +6,21 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.20] - 2026-10-27
+
+### Fixed
+
+- **Unobserved spawned-task failures are no longer swallowed silently** —
+  a spawned task whose uncaught exception no `join`/`Future.get` ever
+  observed used to disappear without a trace: the run ended green with
+  the error gone. At run end the VM now prints one stderr line per such
+  task — `NLang VM: spawned task <id> failed with uncaught <Type>:
+  <message> (never joined)` — the Python "Task exception was never
+  retrieved" analogue. Failures a joiner observed (the eager rethrow of
+  a join on an already-failed target included) stay silent; exit codes
+  and program output are unchanged. Pinned by three e2e tests (unjoined
+  warns; eager and late joins stay quiet).
+
 ## [0.10.19] - 2026-10-27
 
 ### Added
