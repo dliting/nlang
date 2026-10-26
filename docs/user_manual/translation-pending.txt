@@ -7,3 +7,4 @@
 # in pending mode until the list empties again.
 en/specification/01-lexical.md
 en/specification/02-grammar.md
+en/specification/03-program-structure.md

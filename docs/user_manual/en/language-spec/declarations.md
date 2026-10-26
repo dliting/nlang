@@ -183,8 +183,10 @@ int apply(BinOp f) { ... }   // parameters and returns
   or an indexed library package name (`math`, `io`, `fs`, `thread`,
   `concurrent`, or a third-party package found on the search path) in
   the same translation unit.
-- The scope-opening form `using Foo;` (no `=`) is unchanged and
-  unrelated.
+- The scope-opening form `using Foo;` (no `=`) is a different
+  directive: it must name a package, and today every such directive
+  is rejected — see
+  [specification §3.4](../specification/03-program-structure.md).
 
 **Restrictions:**
 - The right-hand side must be a **primitive type name** (`int`, `float`,

@@ -16,14 +16,19 @@ import gfx.color.deep;
 
 ## Qualified names
 
-Everything a package declares is reached through its qualified name —
+Everything a package declares can be reached through its qualified
+name —
 `package.member` (and `package.sub.member` for a dotted package). The
 import opens the qualified name only: after `import lib;` you write
 `lib.f()`, and the bare `f()` does not resolve through the import. (A
 file in the same directory as the caller shares that directory's bare
 pool — the same-directory rule is unchanged.)
 
-Types are qualified the same way: `alib.Point`, `gfx.color.deep.Shade`.
+Qualified type names are spelled the same way: `alib.Point`,
+`gfx.color.deep.Shade`. Unlike functions, a type is also reachable by
+its bare name program-wide, whatever package declares it — the
+normative rule is
+[specification §3.6](../specification/03-program-structure.md).
 Two packages sharing a last path segment (`a.io`, `b.io`) are two
 different packages; each keeps its own functions and its own types, and
 one build may contain only one package of each dotted name — two
