@@ -148,7 +148,7 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
     //Length bounds (negative and cap) raise in AllocArrayOnHeap — the
     //choke point shared with the language's sized creation. Native
     //minting is rank-1 in stage 1; the single dim is the length.
-    const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind);
+    const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind, 1);
     const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx, 1, &length);
     //Root across the blocking section: the native holds this handle while
     //filling the payload, and other carriers may GC before it reaches ret.
@@ -156,28 +156,56 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
     return handle;
 }
 
-uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk) const {
+int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
+                                         int32_t rank, const int32_t* dims) {
+    VmExecutor* e = Wrap(self)->executor;
+    GilEnsureGuard gil(*e);
+    //Same four mintable kinds as newArray (rationale there).
+    if (elemKind != NEK_Int32 && elemKind != NEK_Int64
+        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
+        e->RaiseNlangExceptionBase(
+            "newArrayShaped: element kind is not a mintable scalar");
+    }
+    //The language cap is the ABI contract: a mint above kMaxArrayRank
+    //could never be addressed from NLang code.
+    if (rank < 1 || rank > kMaxArrayRank) {
+        e->RaiseNlangExceptionBase("newArrayShaped: rank out of range");
+    }
+    //Per-dim bounds (negative, cap, product) raise in AllocArrayOnHeap —
+    //the choke point shared with the language's sized creation.
+    const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind,
+        static_cast<uint8_t>(rank));
+    const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx,
+        static_cast<uint8_t>(rank), dims);
+    //Root across the blocking section (same discipline as newArray).
+    e->RootMintedNativeHandle(handle);
+    return handle;
+}
+
+uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk,
+                                            uint8_t rank) const {
     if (!m_currModule) {
         throw std::runtime_error(
             "NLang VM: no linked module for array-type lookup");
     }
     const auto& table = m_currModule->arrayTypes;
     for (size_t i = 0; i < table.size(); ++i) {
-        //rank == 1: native minting is one-dimensional; without the
-        //filter int[] and int[,] would collapse onto one entry.
+        //Rank filter: without it int[] and int[,] would collapse onto
+        //one entry — native minting picks the entry matching its rank.
         if (table[i].elemKind == elemRtk
             && table[i].elemTypeIdx == 0xFFFF
-            && table[i].rank == 1) {
+            && table[i].rank == rank) {
             return static_cast<uint16_t>(i);
         }
     }
     //The unified-library mechanism inlines every stdlib TU, so each
     //tensor signature's array type is registered at compile time. A miss
-    //here means a native minted a kind the program never declared — an
-    //invariant break, not a runtime condition.
+    //here means a native minted a (kind, rank) the program never declared
+    //— an invariant break, not a runtime condition.
     throw std::runtime_error(
         "NLang VM: no scalar array type registered for elem kind "
-        + std::to_string(static_cast<int>(elemRtk)));
+        + std::to_string(static_cast<int>(elemRtk)) + " rank "
+        + std::to_string(static_cast<int>(rank)));
 }
 
 } // namespace nlang

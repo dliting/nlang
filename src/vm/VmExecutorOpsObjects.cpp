@@ -278,7 +278,7 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
         dimsSnapshot[d] = slot[4 + d];
     //The shape array is int[rank] — one dim cell per rank; the scalar
     //int[] table entry comes from the mint filter.
-    const uint16_t shapeTypeIdx = FindScalarArrayTypeIdx(RTK_Int32);
+    const uint16_t shapeTypeIdx = FindScalarArrayTypeIdx(RTK_Int32, 1);
     int32_t shapeDim = rank;
     int32_t shapeIdx = AllocArrayOnHeap(shapeTypeIdx, 1, &shapeDim);
     m_gcPending = true;

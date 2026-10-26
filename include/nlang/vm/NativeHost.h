@@ -52,8 +52,10 @@ extern "C" {
 // strides pointer now points into itself. Version 8: the rank cap left
 // the header (kMaxArrayRank moved to runtime/Config.h) and rose 8 -> 64,
 // so stridesInline widened to match (the view is stack-allocated; dims
-// still points into the record and grows nothing).
-#define NLANG_HOST_ABI_VERSION 8u
+// still points into the record and grows nothing). Version 9: newArrayShaped
+// (mint an ND array from explicit dims) joined the table so matrix-family
+// kernels can mint [rows, cols] and beyond; newArray stays rank-1.
+#define NLANG_HOST_ABI_VERSION 9u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -185,6 +187,15 @@ struct NativeHost {
     // beyond the allocation guard raises the same family. The handle is
     // rooted until the native writes it into its return cell.
     int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
+
+    // Mint a new ND array of a scalar element kind with the given rank and
+    // dims, zero-initialized; returns its heap handle. A rank outside
+    // [1, kMaxArrayRank] raises by name; negative dims and the allocation
+    // cap raise in the shared sized-creation choke point (OutOfBounds
+    // family). The handle is rooted until the native writes it into its
+    // return cell. (v9)
+    int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
+                              int32_t rank, const int32_t* dims);
 };
 
 // Version probe. The host resolves this export first and rejects the
@@ -314,6 +325,12 @@ inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
 // v6: mint a zero-initialized array; returns its heap handle.
 inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
     return host->newArray(host, elemKind, length);
+}
+
+// v9: mint a zero-initialized ND array from explicit dims.
+inline int32_t NewArrayShaped(NativeHost* host, uint8_t elemKind,
+                              int32_t rank, const int32_t* dims) {
+    return host->newArrayShaped(host, elemKind, rank, dims);
 }
 
 inline std::string ArgString(NativeHost* host, const uint8_t* args,

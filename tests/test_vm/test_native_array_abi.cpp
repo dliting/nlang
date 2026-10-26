@@ -212,6 +212,18 @@ void NatHighRankView(NativeHost* host, uint8_t* ret,
     nlang::native::ReturnInt(ret, 1);
 }
 
+//int natMint2x3() — mint a rank-2 [2,3] through newArrayShaped (ABI
+//v9): the language side receives an ND handle and reads the shape and
+//the zero-initialized payload.
+void NatMint2x3(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                int argc) {
+    (void)args;
+    (void)argc;
+    const int32_t dims[2] = {2, 3};
+    const int32_t handle = nlang::native::NewArrayShaped(host, NEK_Int32, 2, dims);
+    nlang::native::ReturnInt(ret, handle);
+}
+
 static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
 {
     exec.RegisterNative(tag + ".natViewRoundtrip", &NatViewRoundtrip);
@@ -219,6 +231,25 @@ static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
                         &NatTwoViewsStrideIndependence);
     exec.RegisterNative(tag + ".natMint", &NatMint);
     exec.RegisterNative(tag + ".natHighRankView", &NatHighRankView);
+    exec.RegisterNative(tag + ".natMint2x3", &NatMint2x3);
+}
+
+void test_mint_shaped()
+{
+    TEST(mint_shaped);
+    const int rc = runSourceWithNatives("abi_mint_shaped",
+        "native int[,] natMint2x3();\n"
+        "int main() {\n"
+        "    int[,] m = natMint2x3();\n"
+        "    if (m.rank() != 2) return 1;\n"
+        "    int[] s = m.shape();\n"
+        "    if (s[0] != 2 || s[1] != 3) return 2;\n"
+        "    if (m[1,2] != 0) return 3;\n"
+        "    return 0;\n"
+        "}\n",
+        &RegisterTestNatives);
+    CHECK(rc == 0, "shaped mint must return a live rank-2 zeroed array");
+    PASS();
 }
 
 //--- tests --------------------------------------------------------------------
@@ -491,6 +522,7 @@ int main()
     try {
         test_view_roundtrip_read_write();
         test_high_rank_view();
+        test_mint_shaped();
         test_two_views_stride_independence();
         test_mint_and_fill();
         test_empty_array_view();

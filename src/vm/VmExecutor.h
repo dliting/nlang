@@ -1054,12 +1054,16 @@ private:
         NativeArrayView* out);
     static int32_t NativeNewArray(NativeHost* self, uint8_t elemKind,
         int32_t length);
-    //Locate the scalar array-type record for elemRtk in the linked
+    //v9 ND side of minting (contract in NativeHost.h): shaped mint for the
+    //matrix-family kernels.
+    static int32_t NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
+        int32_t rank, const int32_t* dims);
+    //Locate the scalar array-type record for (elemRtk, rank) in the linked
     //module's arrayTypes (elemTypeIdx == 0xFFFF). Lookup-only: m_currModule
     //is const and the stdlib TU inlining registers every declared array
     //type at compile time — a miss is an invariant violation, not an
     //appendable state.
-    uint16_t FindScalarArrayTypeIdx(uint8_t elemRtk) const;
+    uint16_t FindScalarArrayTypeIdx(uint8_t elemRtk, uint8_t rank) const;
 
     //Allocate a handle from the ByteStream side table. Returns 1-based handle.
     int32_t AllocByteStreamHandle();
