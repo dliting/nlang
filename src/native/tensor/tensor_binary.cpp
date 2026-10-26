@@ -8,11 +8,12 @@ element kind of the first view picks the typed kernel.
 #include "TensorKernels.h"
 
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgInt;
-using nlang::native::NewArray;
+using nlang::native::NewArrayShaped;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
 
@@ -44,6 +45,26 @@ T ApplyBin(BinOp op, T a, T b) {
     return T(0);
 }
 
+//Shape equality for the elementwise family: rank and every dim must
+//match — strictly stronger than the old rank-1 length check, which is
+//this rule's rank-1 special case.
+bool ShapesEqual(const NativeArrayView& a, const NativeArrayView& b) {
+    if (a.rank != b.rank || a.elemCount != b.elemCount)
+        return false;
+    for (int32_t d = 0; d < a.rank; ++d)
+        if (a.dims[d] != b.dims[d])
+            return false;
+    return true;
+}
+
+//"2x3" style shape text for the mismatch message.
+std::string ShapeText(const NativeArrayView& v) {
+    std::string text = std::to_string(v.dims[0]);
+    for (int32_t d = 1; d < v.rank; ++d)
+        text += "x" + std::to_string(v.dims[d]);
+    return text;
+}
+
 //Integer division mirrors the language: /0 raises DivByZeroException.
 //Floating division follows IEEE (Inf/NaN propagate silently).
 template <typename T>
@@ -57,10 +78,12 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         Raise(host, NEXC_Base, "tensor: element type mismatch");
     if (va.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
-    if (va.elemCount != vb.elemCount)
-        Raise(host, NEXC_Base, "tensor: length mismatch");
-    const int32_t handle = NewArray(host, kind,
-        static_cast<int32_t>(va.elemCount));
+    if (!ShapesEqual(va, vb))
+        Raise(host, NEXC_Base, "tensor: shape mismatch ("
+            + ShapeText(va) + " vs " + ShapeText(vb) + ")");
+    //The output keeps the operand shape (rank-2 in, rank-2 out); for
+    //rank 1 the single dim is the length, as before.
+    const int32_t handle = NewArrayShaped(host, kind, va.rank, va.dims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
     const T* ca = CellsOf<const T>(va);

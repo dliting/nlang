@@ -1,0 +1,38 @@
+// tensor rank-2 surface: elementwise binaries keep the operand shape,
+// reductions flatten, and shape mismatches raise with both shapes in
+// the message.
+import io;
+import tensor;
+
+int main() {
+    int[,] a = [[1, 2], [3, 4]];
+    int[,] b = [[10, 20], [30, 40]];
+
+    int[,] s = tensor.add(a, b);
+    if (s.shape()[0] != 2 || s.shape()[1] != 2) return 1;
+    if (s[0,0] != 11 || s[0,1] != 22 || s[1,0] != 33 || s[1,1] != 44) return 2;
+
+    int[,] q = tensor.div(b, a);
+    if (q[0,0] != 10 || q[0,1] != 10 || q[1,0] != 10 || q[1,1] != 10) return 3;
+
+    // reductions flatten over the whole payload
+    if (tensor.sum(a) != 10) return 4;
+    if (tensor.max(b) != 40) return 5;
+    if (tensor.min(a) != 1) return 6;
+    if (tensor.mean(a) != 2.5) return 7;
+
+    // double kind
+    double[,] x = [[1.0, 2.0], [3.0, 4.0]];
+    double[,] y = tensor.add(x, x);
+    if (y[1,1] != 8.0) return 8;
+
+    // a shape mismatch is catchable and names both shapes exactly
+    int[,] c = [[1], [2], [3]];              // 3x1 against 2x2
+    try {
+        tensor.add(a, c);
+    } catch (Exception e) {
+        if (e.message != "tensor: shape mismatch (2x2 vs 3x1)") return 10;
+        return 0;
+    }
+    return 9;
+}

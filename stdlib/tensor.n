@@ -186,3 +186,51 @@ native int[,] matmul(int[,] a, int[,] b);
 native long[,] matmul(long[,] a, long[,] b);
 native float[,] matmul(float[,] a, float[,] b);
 native double[,] matmul(double[,] a, double[,] b);
+
+//--- rank-2 surface (same kernels; elementwise keeps the operand shape,
+//--- reductions flatten over the payload) --------------------------------------
+
+// Elementwise sum of two same-shape rank-2 arrays.
+native int[,] add(int[,] a, int[,] b);
+native long[,] add(long[,] a, long[,] b);
+native float[,] add(float[,] a, float[,] b);
+native double[,] add(double[,] a, double[,] b);
+
+// Elementwise difference of two same-shape rank-2 arrays.
+native int[,] sub(int[,] a, int[,] b);
+native long[,] sub(long[,] a, long[,] b);
+native float[,] sub(float[,] a, float[,] b);
+native double[,] sub(double[,] a, double[,] b);
+
+// Elementwise product of two same-shape rank-2 arrays.
+native int[,] mul(int[,] a, int[,] b);
+native long[,] mul(long[,] a, long[,] b);
+native float[,] mul(float[,] a, float[,] b);
+native double[,] mul(double[,] a, double[,] b);
+
+// Elementwise quotient of two same-shape rank-2 arrays (division rules
+// as in the rank-1 overloads).
+native int[,] div(int[,] a, int[,] b);
+native long[,] div(long[,] a, long[,] b);
+native float[,] div(float[,] a, float[,] b);
+native double[,] div(double[,] a, double[,] b);
+
+// Sum / largest / smallest over all elements of a rank-2 array.
+native int sum(int[,] a);
+native long sum(long[,] a);
+native float sum(float[,] a);
+native double sum(double[,] a);
+native int max(int[,] a);
+native long max(long[,] a);
+native float max(float[,] a);
+native double max(double[,] a);
+native int min(int[,] a);
+native long min(long[,] a);
+native float min(float[,] a);
+native double min(double[,] a);
+
+// Arithmetic mean over a rank-2 array; always double.
+native double mean(int[,] a);
+native double mean(long[,] a);
+native double mean(float[,] a);
+native double mean(double[,] a);
