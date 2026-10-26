@@ -25,8 +25,10 @@ extern "C" {
 #endif
 
 // Bump on any incompatible change to NativeHost, NativeFn or the value
-// layout. A module's nlang_native_init returns this; the host rejects a
-// mismatch. Version 2: the value slot widened from 4 to 8 bytes (the
+// layout. A module's nlang_abi_version export reports this; the host
+// resolves and validates that probe BEFORE any module code runs, so a
+// version mismatch (or a module without the probe) is rejected without
+// calling nlang_native_init. Version 2: the value slot widened from 4 to 8 bytes (the
 // 0.7.5 slot-width ABI — one uniform frame cell per value). Version 3:
 // the writeError callback added (io.eprint's stderr channel — only the
 // host knows whether a session owns the streams). Version 4: the input
@@ -182,14 +184,24 @@ struct NativeHost {
     int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
 };
 
-// Module entry point. The host loads the shared library, resolves
-// `nlang_native_init`, and calls it once. The module registers each of
-// its functions via `reg` (non-blocking: runs while the VM's global
-// lock is held) or `regBlocking` (may take unbounded time: the VM
-// stages args/result, parks the context and releases the lock around
-// the call), forwarding the opaque `registry` pointer. Registering the
-// same ns.name through both channels is a load error.
-// Returns NLANG_HOST_ABI_VERSION so the host can verify compatibility.
+// Version probe. The host resolves this export first and rejects the
+// module when it is missing or reports a different NLANG_HOST_ABI_VERSION
+// — an incompatible module's init must never run, or its registrations
+// (pointers into a library the host immediately unloads) would leak.
+#define NLANG_NATIVE_ABI_SYMBOL nlang_abi_version
+typedef unsigned (*NativeAbiProbeFn)(void);
+
+// Module entry point. The host loads the shared library, validates
+// `nlang_abi_version`, then resolves `nlang_native_init` and calls it
+// once. The module registers each of its functions via `reg`
+// (non-blocking: runs while the VM's global lock is held) or
+// `regBlocking` (may take unbounded time: the VM stages args/result,
+// parks the context and releases the lock around the call), forwarding
+// the opaque `registry` pointer. Registering the same ns.name through
+// both channels is a load error.
+// The init return value is informational (the probe is the single
+// version authority); returning NLANG_HOST_ABI_VERSION keeps hand-written
+// modules honest.
 typedef void (*RegisterNativeFn)(void* registry, const char* ns,
                                  const char* name, NativeFn fn);
 typedef void (*RegisterNativeBlockingFn)(void* registry, const char* ns,
@@ -213,12 +225,17 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
     NLANG_NATIVE_EXTERN __attribute__((visibility("default")))
 #endif
 
-// Convenience macro for the entry point:
+// Convenience macro for the module's exports. It emits a correct
+// nlang_abi_version probe automatically, so a module only writes its
+// init body:
 //   NLANG_DEFINE_NATIVE_INIT {
 //       reg(registry, "math", "sqrt", &...);          //fast, GIL held
 //       regBlocking(registry, "io", "readFile", &...); //may wait
 //   }
 #define NLANG_DEFINE_NATIVE_INIT \
+    NLANG_NATIVE_EXPORT unsigned nlang_abi_version(void) { \
+        return NLANG_HOST_ABI_VERSION; \
+    } \
     NLANG_NATIVE_EXPORT int nlang_native_init(void* registry, \
                                               RegisterNativeFn reg, \
                                               RegisterNativeBlockingFn regBlocking)

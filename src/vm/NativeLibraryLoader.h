@@ -43,11 +43,13 @@ public:
     void AddSearchDir(std::string dir);
 
     // Ensure the module implementing namespace `ns` is loaded. The first
-    // call loads the shared library and runs its init; later calls are
-    // no-ops. `registerFn` receives every function the module exports.
-    // Throws std::runtime_error (with a message naming the searched paths)
-    // when the module cannot be found, has no nlang_native_init entry, or
-    // reports an incompatible ABI version.
+    // call loads the shared library, validates its nlang_abi_version
+    // probe (BEFORE any module code runs) and then runs its init; later
+    // calls are no-ops. `registerFn` receives every function the module
+    // registers. Throws std::runtime_error (with a message naming the
+    // searched paths) when the module cannot be found, does not export
+    // nlang_abi_version, has no nlang_native_init entry, or reports an
+    // incompatible ABI version.
     void EnsureLoaded(const std::string& ns,
                       RegisterNativeCallback registerFn);
 

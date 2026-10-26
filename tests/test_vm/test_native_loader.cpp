@@ -165,9 +165,12 @@ void TestBadAbi(const std::string& fixtureDir) {
     loader.AddSearchDir(fixtureDir);
     bool threw = false;
     std::string message;
+    int registrations = 0;
     try {
         loader.EnsureLoaded("badabi",
-            [](const std::string&, const std::string&, NativeFn, bool) {});
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -175,6 +178,38 @@ void TestBadAbi(const std::string& fixtureDir) {
     CHECK(threw, "bad ABI throws");
     CHECK(message.find("ABI") != std::string::npos,
           "bad-ABI error mentions ABI");
+    //0.11.4 follow-up: the fixture registers before returning its bad
+    //version. Version validation must reject the module BEFORE its init
+    //runs — a registration delivered here points into a module the
+    //loader unloads on the very next line.
+    CHECK(registrations == 0,
+          "rejected module must not leak registrations into the host");
+}
+
+//0.11.4 follow-up: the ABI check is an nlang_abi_version export resolved
+//and validated before nlang_native_init is even resolved. A module
+//without the probe is rejected by name; its init (which registers and
+//returns a correct version) must never run.
+void TestMissingAbiProbe(const std::string& fixtureDir) {
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(fixtureDir);
+    bool threw = false;
+    std::string message;
+    int registrations = 0;
+    try {
+        loader.EnsureLoaded("noprobe",
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        message = e.what();
+    }
+    CHECK(threw, "module without the ABI probe must be rejected");
+    CHECK(message.find("nlang_abi_version") != std::string::npos,
+          "missing-probe error names nlang_abi_version");
+    CHECK(registrations == 0,
+          "no registration may run before the probe is validated");
 }
 
 void TestNoEntry(const std::string& fixtureDir) {
@@ -264,6 +299,7 @@ int main() {
         ++g_fail;
     }
     run("BadAbi", &TestBadAbi, fixtureDir);
+    run("MissingAbiProbe", &TestMissingAbiProbe, fixtureDir);
     run("NoEntry", &TestNoEntry, fixtureDir);
     try { TestBuildTreeFallback(); }
     catch (const std::exception& e) {

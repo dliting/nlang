@@ -180,10 +180,10 @@ contract (`include/nlang/vm/NativeHost.h`):
 
 - file name `nlang_<package>.dll` (`libnlang_<package>.so`/`.dylib`), located on
   the section-4 search path;
-- exactly one exported entry point, `nlang_native_init`, registered
-  through a macro that also pins the host ABI version
-  (`NLANG_HOST_ABI_VERSION`); a version mismatch fails the load with a
-  readable error, and a module without the entry is rejected;
+- two exported entries, both emitted by the macro: `nlang_abi_version`
+  (the host validates it before any module code runs) and
+  `nlang_native_init`; a version mismatch fails the load with a readable
+  error, and a module missing either export is rejected;
 - native functions receive a small **host interface** (callbacks for input/output (IO),
   pseudorandom number generator (PRNG) and string access) instead of linking the VM — the third-party
   source needs only the one header;
