@@ -1,6 +1,6 @@
 # Functions
 
-
+The normative rules are in [specification chapter 7](../specification/07-functions.md).
 A function has a return type, zero or more named parameters, and a body. This
 page covers the core (declaration, parameters, return, recursion, `void`) and
 the stack-frame layout; each feature has its own page.

@@ -1,6 +1,6 @@
 # Function Types & Delegates
 
-
+The normative rules are in [specification §7.4](../specification/07-functions.md).
 Function types are introduced by the `func` keyword:
 `func<Return, Params...>` describes **function values**. The first type
 argument is always the **return type** (may be `void`); the remaining

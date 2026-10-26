@@ -43,6 +43,7 @@ nav:
       - Types: specification/04-types.md
       - Expressions: specification/05-expressions.md
       - Statements: specification/06-statements.md
+      - Functions: specification/07-functions.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

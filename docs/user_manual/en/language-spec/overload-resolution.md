@@ -1,6 +1,6 @@
 # Overload Resolution
 
-
+The normative rules are in [specification §7.3](../specification/07-functions.md).
 When multiple overloads exist, the compiler selects the best match by
 computing a type-distance score. If two or more overloads match with equal
 distance, the call is ambiguous and a compile error is reported.

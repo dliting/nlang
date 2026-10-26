@@ -29,7 +29,7 @@ before they land here.
 - [4. Types](04-types.md)
 - [5. Expressions](05-expressions.md)
 - [6. Statements](06-statements.md)
-- 7. Functions and Methods *(planned)*
+- [7. Functions and Methods](07-functions.md)
 - 8. Object Orientation *(planned)*
 - 9. Exceptions *(planned)*
 - 10. Execution Model and Memory Semantics *(planned)*

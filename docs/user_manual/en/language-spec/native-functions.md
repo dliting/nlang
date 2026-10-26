@@ -1,6 +1,6 @@
 # Native Functions
 
-
+The normative rules are in [specification §7.5](../specification/07-functions.md).
 A function declaration marked `native` has **no body** — the
 implementation is provided by the embedding host at runtime:
 

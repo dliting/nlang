@@ -1,6 +1,6 @@
 # Named Arguments
 
-
+The normative rules are in [specification §7.2](../specification/07-functions.md).
 Arguments may be passed by name using `name = expr` syntax. Positional
 arguments must precede named arguments.
 
