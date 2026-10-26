@@ -1,0 +1,8 @@
+//Duplicate local declarations in one scope are rejected: the resolver's
+//local table is first-wins, so the duplicate used to be silently dropped
+//and its references statically bound to the earlier declaration.
+int main() {
+    int x = 1;
+    int x = 2;
+    return x;
+}

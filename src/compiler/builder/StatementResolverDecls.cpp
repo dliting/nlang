@@ -340,6 +340,17 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 //Enum declaration resolving (member values, enum-method rejections)
 //likewise lives in StatementResolverDeclEnum.cpp.
 
+//First-wins AddLocal would leave a duplicate declarator's references
+//statically bound to the earlier declaration (masked only by layout).
+static void RejectDuplicateDeclarator(BuildEnvironment &env,
+	SnParagraph &paragraph, const std::string &name, SnLocalVar *pLocal,
+	const ISourceLocation *pLoc)
+{
+	if (!paragraph.AddLocal(name, pLocal))
+		env.Log(CLL_Error, pLoc,
+			"local '%s' is already declared in this scope", name.c_str());
+}
+
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedElemField)
@@ -363,7 +374,8 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 		//inference and member receivers key on it.
 		if (bIsArray || pSizedElemField)
 			pLocal->SetArrayType(true);
-		paragraph.AddLocal(decl.name, pLocal);
+		RejectDuplicateDeclarator(m_Env, paragraph, decl.name, pLocal,
+			sn.Location());
 
 		//Each payload shape delegates to its concern TU: the
 		//decomposition is built, inserted at iInsert and resolved

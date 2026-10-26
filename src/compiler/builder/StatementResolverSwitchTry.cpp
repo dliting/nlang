@@ -350,18 +350,32 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 			"catch type must be Exception or a subclass");
 	}
 
-	//2. Find enclosing paragraph for catch var registration.
-	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
+	//2. Register the catch var in the catch BODY's own paragraph so the
+	//var is scoped to its clause. Every clause of a function shares the
+	//enclosing paragraph and AddLocal is first-wins, so enclosing-
+	//paragraph registration made a second same-named var silently drop
+	//and its references bind to the first clause's type (a user
+	//subclass's own field then failed to resolve — or worse, a smaller
+	//builtin layout was read out of bounds at runtime). A bare-statement
+	//body (no braces) has no paragraph of its own; the var keeps the
+	//legacy enclosing-paragraph registration there.
+	auto *pEnclosing = FindEnclosingParagraph(sn.Parent());
+	auto *pBodyParagraph = (sn.Body()
+		&& sn.Body()->Kind() == NK_Paragraph)
+		? static_cast<SnParagraph*>(sn.Body()) : nullptr;
+	auto *pScope = pBodyParagraph ? pBodyParagraph : pEnclosing;
 	//3. Register catch var (typed by catch type; assignable in body).
-	if (pParagraph && sn.CatchType()->IsResolved()
+	if (pScope && sn.CatchType()->IsResolved()
 		&& sn.CatchType()->Field()) {
 		//0.9.0 semantic restriction: the catch parameter may not reuse
-		//a visible type name.
-		RejectTypeNameVariable(sn.VarName(), *pParagraph, *m_pCurrType,
-			sn.Location());
+		//a visible type name. The gate still consults the ENCLOSING
+		//paragraph — the scope the clause shares with sibling code.
+		if (pEnclosing)
+			RejectTypeNameVariable(sn.VarName(), *pEnclosing, *m_pCurrType,
+				sn.Location());
 		auto *pLocal = new SnLocalVar(sn.VarName(),
 			sn.CatchType()->Field(), *sn.Location());
-		pParagraph->AddLocal(sn.VarName(), pLocal);
+		pScope->AddLocal(sn.VarName(), pLocal);
 	}
 
 	//4. Resolve body.

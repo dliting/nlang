@@ -1,0 +1,19 @@
+//A local declaration may not reuse its catch clause's variable name in
+//the same scope: the clause-scoped catch var owns the body paragraph,
+//so the duplicate declarator must be diagnosed instead of silently
+//misbinding (Java aligns; C++ would shadow, which the first-wins local
+//table cannot represent faithfully).
+import io;
+
+class MyError : Exception {
+    public int code;
+}
+
+int main() {
+    try {
+        throw MyError("x");
+    } catch (MyError e) {
+        int e = 5;
+    }
+    return 0;
+}
