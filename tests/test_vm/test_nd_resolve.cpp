@@ -302,16 +302,18 @@ void test_decl_comma_size_reject_stress()
     //The reject branches now explicitly delete the abandoned
     //ConcreteParamList (container + elements). A botched ownership
     //transfer surfaces here as a crash or heap corruption over enough
-    //iterations; the diagnostic must stay stable throughout. All five
+    //iterations; the diagnostic must stay stable throughout. All six
     //declared forms rotate so every delete site (first-declarator and
-    //continuation families) is exercised.
+    //continuation families × bare / expression / brace initializer) is
+    //exercised.
     const char *msg = "array declarations take one size per bracket";
     static const char *const sources[] = {
         "int main() {\n    int a[2, 1 + 2 * 3];\n    return 0;\n}\n",
         "int main() {\n    int a[2, 1 + 2 * 3] = 5;\n    return 0;\n}\n",
-        "int main() {\n    int x = 1, a[2, 1 + 2 * 3];\n    return 0;\n}\n",
         "int main() {\n    int a[2, 1 + 2 * 3] = {5};\n    return 0;\n}\n",
+        "int main() {\n    int x = 1, a[2, 1 + 2 * 3];\n    return 0;\n}\n",
         "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = 5;\n    return 0;\n}\n",
+        "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = {5};\n    return 0;\n}\n",
     };
     for (int i = 0; i < 200; ++i)
     {
