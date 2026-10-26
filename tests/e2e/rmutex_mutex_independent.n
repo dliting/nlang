@@ -1,0 +1,42 @@
+//Mutex and ReentrantMutex coexist: each guards its own section, a
+//composition through the ReentrantMutex completes while the plain
+//Mutex keeps its non-reentrant rules (self-relock of the Mutex would
+//still deadlock — not exercised here).
+import thread;
+import io;
+
+class Station {
+    public Mutex plain;
+    public ReentrantMutex gate;
+    public int n;
+
+    public void plainSection() {
+        plain.lock();
+        n = n + 1;
+        plain.unlock();
+    }
+
+    public void composedSection() {
+        gate.lock();
+        innerBump();
+        gate.unlock();
+    }
+
+    public void innerBump() {
+        gate.lock();
+        n = n + 10;
+        gate.unlock();
+    }
+}
+
+int main() {
+    Station st = Station();
+    st.plain = Mutex();
+    st.gate = ReentrantMutex();
+    Thread a = thread.spawn(st.plainSection);
+    Thread b = thread.spawn(st.composedSection);
+    thread.join(a);
+    thread.join(b);
+    io.print("r+rm+done");
+    return 8;
+}

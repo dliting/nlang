@@ -1586,6 +1586,442 @@ void test_mutex_relock_deadlock_surfaces()
     PASS();
 }
 
+// --- 0.10.21: ReentrantMutex — per-owner hold count, zero release ---
+
+//Composition shape: the public method and the helper it calls both lock
+//the SAME mutex — the exact pattern that self-deadlocks a plain Mutex.
+//The hold count must carry through both lock/unlock pairs; after the
+//task finishes the lock is free (third-party tryLock succeeds).
+void test_rmutex_reentrant_balance()
+{
+    TEST(rmutex_reentrant_balance);
+    std::string out;
+    const int rc = runSourceCapturing("rm_balance",
+        "import thread;\n"
+        "import io;\n"
+        "class Outer {\n"
+        "    public ReentrantMutex m;\n"
+        "    public int n;\n"
+        "    public void outer() {\n"
+        "        m.lock();\n"
+        "        n = n + 1;\n"
+        "        inner();\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void inner() {\n"
+        "        m.lock();\n"
+        "        n = n + 10;\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Outer o = Outer();\n"
+        "    o.m = ReentrantMutex();\n"
+        "    Thread t = thread.spawn(o.outer);\n"
+        "    thread.join(t);\n"
+        "    if (!o.m.tryLock()) io.write(\"held\");\n"
+        "    if (o.n != 11) return 1;\n"
+        "    return 7;\n"
+        "}\n",
+        out);
+    CHECK(rc == 7, "composed locking completes (got rc " +
+        std::to_string(rc) + ")");
+    CHECK(out.empty(), "the lock is free after the balanced pairs (got: "
+        + out + ")");
+    PASS();
+}
+
+//Classic RLock scenario: recursive acquisition on the same context —
+//depth 8 nested locks, unwinding releases in reverse; the balance must
+//land exactly at zero.
+void test_rmutex_recursion_holds()
+{
+    TEST(rmutex_recursion_holds);
+    const int rc = runSource("rm_recursion",
+        "import thread;\n"
+        "class Walker {\n"
+        "    public ReentrantMutex m;\n"
+        "    public int depth;\n"
+        "    public void walk(int k) {\n"
+        "        m.lock();\n"
+        "        depth = depth + 1;\n"
+        "        if (k > 0) walk(k - 1);\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Walker w = Walker();\n"
+        "    w.m = ReentrantMutex();\n"
+        "    w.walk(8);\n"
+        "    if (w.depth != 8) return 1;\n"
+        "    if (!w.m.tryLock()) return 2;\n"
+        "    w.m.unlock();\n"
+        "    return 7;\n"
+        "}\n");
+    CHECK(rc == 7, "recursive reentrancy balances to zero (got rc " +
+        std::to_string(rc) + ")");
+    PASS();
+}
+
+//Cross-context: the holder keeps a count of 2 across two sleeps; the
+//probe's tryLock sees held and its lock parks through BOTH releases —
+//the count-1 unlock must NOT hand off. Ordering pins the count.
+void test_rmutex_serializes_cross_context()
+{
+    TEST(rmutex_serializes_cross_context);
+    std::string out;
+    const int rc = runSourceCapturing("rm_cross",
+        "import thread;\n"
+        "import io;\n"
+        "class Gate {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void holdTwo() {\n"
+        "        m.lock();\n"
+        "        m.lock();\n"
+        "        io.write(\"a\");\n"
+        "        thread.sleep(20);\n"
+        "        m.unlock();\n"
+        "        io.write(\"b\");\n"
+        "        thread.sleep(20);\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void probe() {\n"
+        "        thread.sleep(5);\n"
+        "        if (!m.tryLock()) io.write(\"x\");\n"
+        "        m.lock();\n"
+        "        io.write(\"c\");\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = ReentrantMutex();\n"
+        "    Thread a = thread.spawn(g.holdTwo);\n"
+        "    Thread b = thread.spawn(g.probe);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "cross-context program completes");
+    CHECK(out == "axbc",
+        "probe sees held at count 2, parks until count reaches zero "
+        "(got: " + out + ")");
+    PASS();
+}
+
+//unlock() is owner-only, and the owner check precedes any count change:
+//(a) unlocking a free lock errors; (b) over-unlocking past zero errors;
+//(c) a balanced pair really frees the lock for a third party.
+void test_rmutex_unlock_owner_only()
+{
+    TEST(rmutex_unlock_owner_only);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("rm_unlock_free",
+            "int main() {\n"
+            "    ReentrantMutex m = ReentrantMutex();\n"
+            "    m.unlock();\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "unlock without holding must be an error");
+    CHECK(what.find("without holding") != std::string::npos,
+        "message names the rule (got: " + what + ")");
+
+    threw = false;
+    try {
+        runSource("rm_unlock_over",
+            "int main() {\n"
+            "    ReentrantMutex m = ReentrantMutex();\n"
+            "    m.lock();\n"
+            "    m.unlock();\n"
+            "    m.unlock();\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "over-unlock past zero must be an error");
+    CHECK(what.find("without holding") != std::string::npos,
+        "message names the rule (got: " + what + ")");
+
+    std::string out;
+    const int rc = runSourceCapturing("rm_unlock_balance",
+        "import thread;\n"
+        "import io;\n"
+        "class Gate {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void probe() {\n"
+        "        thread.sleep(20);\n"
+        "        if (m.tryLock()) io.write(\"f\");\n"
+        "        else io.write(\"h\");\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = ReentrantMutex();\n"
+        "    g.m.lock();\n"
+        "    g.m.lock();\n"
+        "    g.m.unlock();\n"
+        "    g.m.unlock();\n"
+        "    Thread t = thread.spawn(g.probe);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "balanced program completes");
+    CHECK(out == "f", "the balanced pair frees the lock (got: " + out
+        + ")");
+    PASS();
+}
+
+//tryLock: free → take; self-held → reentrant probe (count +1, never
+//parks); held by another → false. The count semantics are pinned by
+//probing between unlocks: one release of two holds still reads held.
+void test_rmutex_trylock_reentrant()
+{
+    TEST(rmutex_trylock_reentrant);
+    std::string out;
+    const int rc = runSourceCapturing("rm_trylock",
+        "import thread;\n"
+        "import io;\n"
+        "class Gate {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void probe() {\n"
+        "        if (m.tryLock()) { io.write(\"t\"); m.unlock(); }\n"
+        "        else { io.write(\"h\"); }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = ReentrantMutex();\n"
+        "    g.m.tryLock();\n"
+        "    g.m.tryLock();\n"
+        "    Thread a = thread.spawn(g.probe);\n"
+        "    thread.join(a);\n"
+        "    g.m.unlock();\n"
+        "    Thread b = thread.spawn(g.probe);\n"
+        "    thread.join(b);\n"
+        "    g.m.unlock();\n"
+        "    Thread c = thread.spawn(g.probe);\n"
+        "    thread.join(c);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "tryLock program completes");
+    CHECK(out == "hht",
+        "self-held tryLock reenters; one release of two still held; "
+        "zero frees (got: " + out + ")");
+    PASS();
+}
+
+//FIFO handoff at zero: the first release of a double hold must NOT
+//hand off (the waiter stays parked); the zero-release hands to the
+//FIFO-front waiter with a FRESH count of 1 — its single unlock frees
+//the lock for the third party. Kills the inherit-the-count and
+//hand-off-early mutations.
+void test_rmutex_fifo_handoff()
+{
+    TEST(rmutex_fifo_handoff);
+    std::string out;
+    const int rc = runSourceCapturing("rm_fifo",
+        "import thread;\n"
+        "import io;\n"
+        "class Gate {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void first() {\n"
+        "        m.lock();\n"
+        "        m.lock();\n"
+        "        io.write(\"1\");\n"
+        "        thread.sleep(30);\n"
+        "        m.unlock();\n"
+        "        thread.sleep(30);\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void second() {\n"
+        "        thread.sleep(5);\n"
+        "        m.lock();\n"
+        "        io.write(\"2\");\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "    public void third() {\n"
+        "        thread.sleep(80);\n"
+        "        if (m.tryLock()) { io.write(\"3\"); m.unlock(); }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Gate g = Gate();\n"
+        "    g.m = ReentrantMutex();\n"
+        "    Thread a = thread.spawn(g.first);\n"
+        "    Thread b = thread.spawn(g.second);\n"
+        "    Thread d = thread.spawn(g.third);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(d);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "fifo handoff program completes");
+    CHECK(out == "123",
+        "handoff happens only at zero, with a fresh count (got: "
+        + out + ")");
+    PASS();
+}
+
+//Slot reuse under GC stress: an instance that dies while held (count
+//2, owner = main) leaves a stale slot; the swept handle must come back
+//reset — a fresh double hold/unlock pair lands at zero both times.
+//Kills the stale-count-survives-reuse mutation (a stale count turns
+//the probes into "hh").
+void test_rmutex_slot_reuse_clean()
+{
+    TEST(rmutex_slot_reuse_clean);
+    CompiledModule mod = buildLinkedModule("rm_reuse",
+        "import thread;\n"
+        "import io;\n"
+        "class Holder {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void grab() {\n"
+        "        m.lock();\n"
+        "        m.lock();\n"
+        "    }\n"
+        "    public void probe() {\n"
+        "        if (m.tryLock()) io.write(\"t\");\n"
+        "        else io.write(\"h\");\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "void makeStale() {\n"
+        "    Holder h = Holder();\n"
+        "    h.m = ReentrantMutex();\n"
+        "    h.grab();\n"
+        "}\n"
+        "int main() {\n"
+        "    makeStale();\n"
+        "    int i = 0;\n"
+        "    while (i < 300) {\n"
+        "        Holder storm = Holder();\n"
+        "        storm.m = ReentrantMutex();\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    Holder f = Holder();\n"
+        "    f.m = ReentrantMutex();\n"
+        "    f.m.lock();\n"
+        "    f.m.lock();\n"
+        "    f.m.unlock();\n"
+        "    f.m.unlock();\n"
+        "    Thread t = thread.spawn(f.probe);\n"
+        "    thread.join(t);\n"
+        "    f.m.lock();\n"
+        "    f.m.lock();\n"
+        "    f.m.unlock();\n"
+        "    f.m.unlock();\n"
+        "    Thread u = thread.spawn(f.probe);\n"
+        "    thread.join(u);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0, "reuse program completes");
+    CHECK(io.m_out == "tt",
+        "a swept slot comes back reset (got: " + io.m_out + ")");
+    PASS();
+}
+
+//Nested evaluation: a contested lock() rejects with the cannot-suspend
+//rule (it would park); a non-parking tryLock() in the same window is
+//legal and reports the held state.
+void test_rmutex_nested_eval_reject()
+{
+    TEST(rmutex_nested_eval_reject);
+    bool threw = false;
+    std::string what;
+    try {
+        runSource("rm_lock_ts",
+            "import thread;\n"
+            "class Box {\n"
+            "    public ReentrantMutex m;\n"
+            "    public string toString() {\n"
+            "        m.lock();\n"
+            "        return \"b\";\n"
+            "    }\n"
+            "}\n"
+            "class Holder {\n"
+            "    public ReentrantMutex m;\n"
+            "    public void hold() {\n"
+            "        m.lock();\n"
+            "        thread.sleep(80);\n"
+            "        m.unlock();\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box b = Box();\n"
+            "    Holder h = Holder();\n"
+            "    b.m = ReentrantMutex();\n"
+            "    h.m = b.m;\n"
+            "    Thread t = thread.spawn(h.hold);\n"
+            "    thread.sleep(10);\n"
+            "    string s = \"x\" + b;\n"
+            "    thread.join(t);\n"
+            "    return 0;\n"
+            "}\n");
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "a contested lock inside toString must reject");
+    CHECK(what.find("cannot suspend inside a nested evaluation")
+              != std::string::npos,
+        "message names the nested-evaluation rule (got: " + what + ")");
+
+    std::string out;
+    const int rc = runSourceCapturing("rm_trylock_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public ReentrantMutex m;\n"
+        "    public string toString() {\n"
+        "        if (m.tryLock()) { io.write(\"t\"); m.unlock(); }\n"
+        "        else io.write(\"f\");\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "class Holder {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void hold() {\n"
+        "        m.lock();\n"
+        "        thread.sleep(80);\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box b = Box();\n"
+        "    Holder h = Holder();\n"
+        "    b.m = ReentrantMutex();\n"
+        "    h.m = b.m;\n"
+        "    Thread t = thread.spawn(h.hold);\n"
+        "    thread.sleep(10);\n"
+        "    string s = \"x\" + b;\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "tryLock program completes");
+    CHECK(out == "f",
+        "a non-parking tryLock inside the window reports held (got: "
+        + out + ")");
+    PASS();
+}
+
 //Slice 9：无界缓冲 FIFO。worker 依次发送三个值；main 依序接收——缓冲区
 //顺序即接收顺序。
 void test_channel_fifo_buffer_order()
@@ -4593,6 +5029,14 @@ int main()
         runGuarded(test_gc_keeps_mutex_parked_roots);
         runGuarded(test_mutex_unlock_without_hold_rejected);
         runGuarded(test_mutex_relock_deadlock_surfaces);
+        runGuarded(test_rmutex_reentrant_balance);
+        runGuarded(test_rmutex_recursion_holds);
+        runGuarded(test_rmutex_serializes_cross_context);
+        runGuarded(test_rmutex_unlock_owner_only);
+        runGuarded(test_rmutex_trylock_reentrant);
+        runGuarded(test_rmutex_fifo_handoff);
+        runGuarded(test_rmutex_slot_reuse_clean);
+        runGuarded(test_rmutex_nested_eval_reject);
         runGuarded(test_channel_fifo_buffer_order);
         runGuarded(test_channel_recv_parks_until_send);
         runGuarded(test_channel_closed_semantics);

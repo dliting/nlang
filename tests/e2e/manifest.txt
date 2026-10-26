@@ -1099,6 +1099,14 @@ thread_fail_unjoined 0 main-done
 thread_fail_joined_quiet 0 caught
 thread_fail_late_join 0 late-caught
 
+# --- 0.10.21: ReentrantMutex declared class ---
+#Method composition through one reentrant lock.
+rmutex_composition 5 outer+inner+done
+#Recursive acquisition, depth 8, balanced to zero.
+rmutex_recursion 6 depth=8
+#Mutex and ReentrantMutex coexist.
+rmutex_mutex_independent 8 r+rm+done
+
 # --- Cluster 4: Object declared in stdlib/builtins.n ---
 object_baseref_dispatch 7
 object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString

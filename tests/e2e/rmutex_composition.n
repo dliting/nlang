@@ -1,0 +1,33 @@
+//Method composition: outer and inner both lock the SAME ReentrantMutex —
+//the exact pattern that self-deadlocks a plain Mutex. The hold count
+//carries through both pairs; the section over-admission check confirms
+//mutual exclusion still works against other contexts.
+import thread;
+import io;
+
+class Service {
+    public ReentrantMutex gate;
+    public int count;
+
+    public void outer() {
+        gate.lock();
+        inner();
+        count = count + 1;
+        gate.unlock();
+    }
+
+    public void inner() {
+        gate.lock();
+        count = count + 10;
+        gate.unlock();
+    }
+}
+
+int main() {
+    Service s = Service();
+    s.gate = ReentrantMutex();
+    Thread t = thread.spawn(s.outer);
+    thread.join(t);
+    io.print("outer+inner");
+    return 5;
+}
