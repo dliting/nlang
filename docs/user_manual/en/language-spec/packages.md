@@ -1,5 +1,6 @@
 # Packages
 
+The normative rules are in [specification chapter 12](../specification/12-packages.md).
 A **package** is NLang's unit of code identity. Every `.n` file is one
 package, and the package name comes from exactly one source: the file's
 path relative to the search root it was found under. There is no

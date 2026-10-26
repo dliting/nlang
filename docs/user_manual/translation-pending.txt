@@ -16,3 +16,4 @@ en/specification/08-object-orientation.md
 en/specification/09-exceptions.md
 en/specification/10-execution-model.md
 en/specification/11-concurrency.md
+en/specification/12-packages.md

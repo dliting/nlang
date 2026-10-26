@@ -47,7 +47,7 @@ one carrier runs a context, the others wait: bytecode execution
 stays mutually exclusive, so language code never guards shared
 memory against a concurrent context. The lock is released for one
 window only — a native call that declared a blocking section under
-the native application binary interface (chapter 23) — and
+the native application binary interface (chapter 22) — and
 reacquired before the native returns; a native that does not
 declare its blocking section holds the lock for the whole call.
 

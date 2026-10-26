@@ -48,6 +48,7 @@ nav:
       - Exceptions: specification/09-exceptions.md
       - Execution Model: specification/10-execution-model.md
       - Concurrency: specification/11-concurrency.md
+      - Packages: specification/12-packages.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

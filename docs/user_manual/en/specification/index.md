@@ -34,7 +34,7 @@ before they land here.
 - [9. Exceptions](09-exceptions.md)
 - [10. Execution Model and Memory Semantics](10-execution-model.md)
 - [11. Concurrency](11-concurrency.md)
-- 12. Packages and Import Search *(planned)*
+- [12. Packages and Import Search](12-packages.md)
 
 ### Part II — The Standard Library
 
@@ -48,7 +48,6 @@ before they land here.
 
 ### Part III — Binary Formats
 
-- 20. The `.nmod` Module File *(planned)*
-- 21. The `.ncu` Compiled Unit *(planned)*
-- 22. The `.npkg` Package *(planned)*
-- 23. The Native Application Binary Interface (ABI) *(planned)*
+- 20. The `.ncu` Unit Image *(planned)*
+- 21. The `.npkg` Package Archive *(planned)*
+- 22. The Native Application Binary Interface (ABI) *(planned)*
