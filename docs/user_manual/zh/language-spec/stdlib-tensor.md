@@ -35,7 +35,7 @@
 
 **transpose**与**flatten**都是块拷贝——`transpose`把`[r, c]`映到`[c, r]`,`flatten`按行主序拷成一维数组。
 
-**reshape1**–**reshape8**接受扁平的`T[]`源(更高维矩阵先用`flatten`适配)和`int[]`形状:形状长度须等于名字承载的目标维度数,乘积须等于元素总数;维度为负、长度不符或乘积不符抛基类Exception,并报出两侧数值。
+**reshape1**–**reshape8**接受扁平的`T[]`源(更高维矩阵先用`flatten`适配)和`int[]`形状:形状长度须等于名字承载的目标维度数,乘积须等于元素总数;长度不符或乘积不符抛基类Exception并报出两侧数值,维度为负走尺寸创建家族(`IndexOutOfBoundsException`),与`T[n]`创建同族。
 
 **matmul**要求两个二维操作数且内维一致(`a`的列数=`b`的行数);不符抛基类Exception并报出双方形状(`tensor.matmul: shape mismatch (2x3 vs 2x2)`)。二维逐元素内核要求形状相等,报法相同(`tensor: shape mismatch (2x3 vs 2x2)`)。
 

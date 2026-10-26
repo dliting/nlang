@@ -65,9 +65,10 @@ matrix family adds shape-changing and product kernels:
 **reshape1**–**reshape8** take a flat `T[]` source (call `flatten`
 first to adapt a higher-rank matrix) and an `int[]` shape whose
 length must equal the target rank carried by the name and whose
-product must equal the element count; a negative dimension, a wrong
-length, or a product mismatch raises the base Exception with both
-numbers spelled out.
+product must equal the element count; a wrong length or a product
+mismatch raises the base Exception with both numbers spelled out,
+while a negative dimension takes the sized-creation family
+(`IndexOutOfBoundsException`), mirroring `T[n]` creation.
 
 **matmul** requires two rank-2 operands with agreeing inner
 dimensions (columns of `a` = rows of `b`); mismatches raise the base

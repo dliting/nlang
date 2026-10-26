@@ -1892,3 +1892,4 @@ ndarray_initlist_exprrows 0
 ndarray_initlist_mixed 0
 ndarray_initlist_rowlen 1
 ndarray_initlist_nullrow 1
+stdlib_tensor_reshape_negdim 0
