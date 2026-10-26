@@ -6,6 +6,39 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.4] - 2026-10-26
+
+### Fixed
+
+- **Grammar reject branches release abandoned parse results** — the
+  comma-size declaration rejects (and the two leading-comma param-list
+  rejects) discarded already-parsed subtrees without freeing them, so
+  a long-lived host compiling repeatedly (nide) leaked every rejected
+  attempt. The reject arms now delete the container and each element;
+  deleting an element frees its whole subtree (node ownership).
+- **Corrupt array records fail fast at the ABI boundary** —
+  `getArrayView` read header cells before validating the record: a
+  truncated dimensions run or an out-of-range array type index could
+  read out of bounds. The record layout is now validated (dims-section
+  size, arrayTypes bounds) before any header read.
+
+### Changed
+
+- **One authoritative native module directory per build tree** — the
+  standard-library native DLLs now build only into
+  `<build>/native/<config>`; the per-tool `POST_BUILD` copies are gone.
+  `NativeLibraryLoader` consults a built-in build-tree fallback (walk
+  up from the executable looking for `native/<config>`) after the
+  explicit search dirs, so tool and test executables resolve the
+  modules without copies. Embed hosts and installed packages are
+  unaffected (explicit dirs and beside-exe layout win). Development
+  note for existing build trees: the pre-0.11.4 copies beside tool and
+  test executables no longer refresh; after an ABI change they load
+  first and fail with an ABI-version error naming the old file — delete
+  the stale copies (`nlang_{math,io,fs,tensor}.dll` under
+  `src/tools/*/<config>` and `tests/<config>`), the authoritative
+  location is `<build>/native/<config>`.
+
 ## [0.11.3] - 2026-10-25
 
 ### Fixed

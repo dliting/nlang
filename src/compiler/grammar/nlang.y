@@ -1793,9 +1793,11 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-23, bison 3.8.2, on the
-//0.10.10 grammar): 25 shift/reduce, 3 reduce/reduce — the 0.10.10
-//unified entry list changed no counts, only state numbers; every one resolved
+//Accepted-conflict ledger (re-measured 2026-10-26, bison 3.8.2): 27
+//shift/reduce, 3 reduce/reduce — unchanged through the 0.10.10 unified
+//entry list (25/3 then); the +2 arrived with 0.11.2's comma index lists
+//and ND creation expressions (f6a2fb88, both on comma vs expression
+//lists, resolved by shift to the index-list reading); every one resolved
 //by bison's default to the intended reading. Deterministic parsers
 //cannot use %expect alongside r/r conflicts, so no %expect pins these
 //numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to stay
