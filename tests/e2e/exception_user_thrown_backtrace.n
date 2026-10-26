@@ -1,0 +1,30 @@
+//A user-thrown exception's backtrace is an empty (initialized) List by
+//design — raise-time frames are attached only to VM-raised exceptions.
+//The Exception ctor intrinsic used to mint the backtrace List with
+//__handle = 0, which ReadListHandle rejects as uninitialized, so any
+//List method on e.backtrace died with a runtime error instead of
+//reporting 0 (BuildNlangException, the VM-throw path, always allocated
+//a real side-table slot).
+import io;
+
+class MyError : Exception {
+    public int code;
+    public MyError(string message, int c) {
+        super(message);
+        this.code = c;
+    }
+}
+
+int main() {
+    try {
+        throw MyError("custom", 7);
+    } catch (MyError e) {
+        io.write("code=" + e.code + " bt=" + e.backtrace.length());
+    }
+    try {
+        throw Exception("plain");
+    } catch (Exception e2) {
+        io.write("bt2=" + e2.backtrace.length());
+    }
+    return 0;
+}

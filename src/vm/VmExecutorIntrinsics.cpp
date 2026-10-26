@@ -157,15 +157,18 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         //no allocation between read and write.
         m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgHandle;
 
-        //cell[3] = backtrace. Allocate a List<string>, set __handle = 0
-        //(empty), then write its heap idx to cell[3]. The allocation may
-        //reallocate m_structHeap, so we don't hold any references across
-        //the AllocClassOnHeap call.
+        //cell[3] = backtrace. Allocate a List<string> and initialize it
+        //to a real empty list — a side-table slot via AllocListHandle,
+        //handle >= 1. User-thrown exceptions carry no raise-time frames
+        //by design, but the field must be a usable empty List:
+        //ReadListHandle rejects handle <= 0 as uninitialized. Mirrors
+        //BuildNlangException (the VM-throw path). The allocation may
+        //reallocate m_structHeap, so no references are held across it.
         int32_t listHeapIdx = AllocClassOnHeap(
             static_cast<uint16_t>(m_listClassIdx));
         if (listHeapIdx > 0) {
-            //__handle field (cell[1] of List instance) = 0 = empty
-            m_structHeap[static_cast<size_t>(listHeapIdx)][1] = 0;
+            int32_t listHandle = AllocListHandle();
+            m_structHeap[static_cast<size_t>(listHeapIdx)][1] = listHandle;
             m_structHeap[static_cast<size_t>(thisHeapIdx)][3] = listHeapIdx;
         }
         return;

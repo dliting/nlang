@@ -1760,3 +1760,4 @@ concurrent_semaphore 0 ABC10
 exception_two_catches_same_var 0 AoopB7
 duplicate_local_same_scope compile_error already declared
 local_shadow_catch_var compile_error already declared
+exception_user_thrown_backtrace 0 code=7 bt=0
