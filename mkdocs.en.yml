@@ -34,6 +34,9 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
+  - Specification:
+      - Overview: specification/index.md
+      - Introduction: specification/00-introduction.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
