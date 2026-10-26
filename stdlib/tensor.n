@@ -177,3 +177,12 @@ native double[,,,,] reshape5(double[] a, int[] shape);
 native double[,,,,,,] reshape6(double[] a, int[] shape);
 native double[,,,,,,,] reshape7(double[] a, int[] shape);
 native double[,,,,,,,,] reshape8(double[] a, int[] shape);
+
+// Matrix product: [aRows, aCols] * [bRows, bCols] -> [aRows, bCols];
+// the inner dimensions must match — otherwise the base Exception names
+// both shapes. Arithmetic follows the language-wide rules: int/long
+// wrap around, float/double follow IEEE.
+native int[,] matmul(int[,] a, int[,] b);
+native long[,] matmul(long[,] a, long[,] b);
+native float[,] matmul(float[,] a, float[,] b);
+native double[,] matmul(double[,] a, double[,] b);

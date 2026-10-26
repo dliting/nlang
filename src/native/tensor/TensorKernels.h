@@ -62,5 +62,7 @@ void TensorReshape5(NativeHost* host, uint8_t* ret, const uint8_t* args, int arg
 void TensorReshape6(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorReshape7(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorReshape8(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorMatmul(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
 
 } // namespace tensor

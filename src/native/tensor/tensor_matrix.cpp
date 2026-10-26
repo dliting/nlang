@@ -118,6 +118,48 @@ void ReshapeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ReturnInt(ret, handle);
 }
 
+//MatMul body: naive i-k-j with the accumulator taken from the element
+//type — int/long wrap around (the language-wide arithmetic rule, no
+//silent widening), float/double follow IEEE.
+template <typename T>
+void MatMulTyped(NativeHost* host, uint8_t* ret, const uint8_t* args) {
+    NativeArrayView a;
+    ArgArray(host, args, 0, &a);
+    NativeArrayView b;
+    ArgArray(host, args, 1, &b);
+    if (a.rank != 2 || b.rank != 2)
+        Raise(host, NEXC_Base, "tensor.matmul: expects rank-2 operands");
+    const int32_t aRows = a.dims[0];
+    const int32_t aCols = a.dims[1];
+    const int32_t bRows = b.dims[0];
+    const int32_t bCols = b.dims[1];
+    if (aCols != bRows) {
+        Raise(host, NEXC_Base,
+              std::string("tensor.matmul: shape mismatch (")
+                  + std::to_string(aRows) + "x" + std::to_string(aCols)
+                  + " vs " + std::to_string(bRows) + "x"
+                  + std::to_string(bCols) + ")");
+    }
+    const int32_t outDims[2] = {aRows, bCols};
+    const int32_t handle = NewArrayShaped(host, a.elemKind, 2, outDims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    const T* aCells = CellsOf<T>(a);
+    const T* bCells = CellsOf<T>(b);
+    T* outCells = CellsOf<T>(out);
+    for (int32_t i = 0; i < aRows; ++i) {
+        for (int32_t k = 0; k < aCols; ++k) {
+            const T aik = aCells[static_cast<int64_t>(i) * aCols + k];
+            for (int32_t j = 0; j < bCols; ++j) {
+                T& acc = outCells[static_cast<int64_t>(i) * bCols + j];
+                acc = static_cast<T>(
+                    acc + aik * bCells[static_cast<int64_t>(k) * bCols + j]);
+            }
+        }
+    }
+    ReturnInt(ret, handle);
+}
+
 } // namespace
 
 void TensorTranspose(NativeHost* host, uint8_t* ret, const uint8_t* args,
@@ -127,7 +169,7 @@ void TensorTranspose(NativeHost* host, uint8_t* ret, const uint8_t* args,
 }
 
 void TensorFlatten(NativeHost* host, uint8_t* ret, const uint8_t* args,
-                      int argc) {
+                   int argc) {
     (void)argc;
     FlattenKernel(host, ret, args);
 }
@@ -148,5 +190,22 @@ TENSOR_RESHAPE_DEF(5)
 TENSOR_RESHAPE_DEF(6)
 TENSOR_RESHAPE_DEF(7)
 TENSOR_RESHAPE_DEF(8)
+
+void TensorMatmul(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc) {
+    (void)argc;
+    //Kind dispatch off the first operand; a null handle raised in
+    //ArgArray already.
+    NativeArrayView probe;
+    ArgArray(host, args, 0, &probe);
+    switch (probe.elemKind) {
+        case NEK_Int32:   MatMulTyped<int32_t>(host, ret, args); break;
+        case NEK_Int64:   MatMulTyped<int64_t>(host, ret, args); break;
+        case NEK_Float32: MatMulTyped<float>(host, ret, args); break;
+        case NEK_Float64: MatMulTyped<double>(host, ret, args); break;
+        default:
+            Raise(host, NEXC_Base, "tensor.matmul: unknown element kind");
+    }
+}
 
 } // namespace tensor

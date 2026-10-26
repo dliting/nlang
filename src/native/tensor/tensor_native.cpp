@@ -150,5 +150,6 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "reshape6", &tensor::TensorReshape6);
     regBlocking(registry, "tensor", "reshape7", &tensor::TensorReshape7);
     regBlocking(registry, "tensor", "reshape8", &tensor::TensorReshape8);
+    regBlocking(registry, "tensor", "matmul", &tensor::TensorMatmul);
     return NLANG_HOST_ABI_VERSION;
 }
