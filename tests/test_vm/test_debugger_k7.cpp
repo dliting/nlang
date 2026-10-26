@@ -128,14 +128,17 @@ void test_freeze_releases_inflight_segment()
             return;
         //With the lock released by the freeze park, the in-flight
         //segment's output write lands and the following receive parks —
-        //both observable before the window closes.
+        //both observable before the window closes. The deadline is
+        //generous (the pre-K7 regression stalls the write FOREVER, not
+        //merely slowly): the ASan leg's 2M-iteration segment alone
+        //runs ~2s, so a tight bound would misfire there.
         auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(2000);
+            + std::chrono::milliseconds(10000);
         while (!io.contains("b1")
                && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         sawB1 = io.contains("b1");
-        deadline += std::chrono::milliseconds(2000);
+        deadline += std::chrono::milliseconds(10000);
         do {
             workerState = c.View().ContextInfo(1).stateName;
             if (workerState == "parked-chan-recv")
