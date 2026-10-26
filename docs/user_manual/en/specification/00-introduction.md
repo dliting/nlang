@@ -51,8 +51,8 @@ A defined term is set in italics at its first definition and linked
 from later uses.
 
 *Compilation unit*: one `.n` source file as processed by the
-compiler, together with the declarations it imports (see §12 when
-written).
+compiler, together with the declarations it imports (defined in
+chapter 12).
 
 *Normative*: binding on implementations. The English text of this
 specification is normative; translations are informative.
@@ -80,6 +80,7 @@ What happens inside an implementation is outside this
 specification. The virtual machine's internal representation, its
 register allocation, the optimizations it performs and the internal
 structure of its garbage collector are not constrained here,
-provided every observable outcome still matches §10 when written.
+provided every observable outcome still matches chapter 10.
 The binary formats of Part III are the exception: they are specified
 because tools and host programs consume them directly.
+
