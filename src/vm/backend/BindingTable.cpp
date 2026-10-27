@@ -7,11 +7,14 @@
 ---*/
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
+#include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/vm/Intrinsics.h>
 #include <cassert>
 #include <set>
+#include <string>
+#include <vector>
 
 namespace nlang {
 
@@ -26,13 +29,15 @@ namespace nlang {
 //intrinsic's arguments start at slot 0 (every receiver-dispatched row
 //defaults to false: slot 0 = the instance).
 struct BindingRow {
-    const char* packagePath;
-    const char* key;
+    std::string packagePath;
+    std::string key;
     uint16_t intrinsicId;
     bool noReceiver = false;
 };
 
-const BindingRow s_BindingRows[] = {
+//The literal declared-source rows. The static-face rows are DERIVED
+//from the face table in BindingRows() below — they never appear here.
+static const BindingRow s_LiteralRows[] = {
     {"thread", "thread.spawn", INTR_Thread_Spawn},
     {"thread", "thread.join",  INTR_Thread_Join},
     {"thread", "thread.yield", INTR_Thread_Yield},
@@ -84,28 +89,42 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "Object.toString",    INTR_Object_toString},
     //Cluster 5 (Promise): declared generic template in stdlib/builtins.n;
     //the erased instance's members stamp through the same key shape
-    //(erasure naming keys them bare "Promise"/"Promise.future"). The
-    //completion intrinsics bind with Task 4 (complete /
-    //completeExceptionally).
+    //(erasure naming keys them bare "Promise"/"Promise.future").
     {"builtins", "Promise",        INTR_Promise_Ctor},
     {"builtins", "Promise.future", INTR_Promise_Future},
     {"builtins", "Promise.complete", INTR_Promise_Complete},
     {"builtins", "Promise.completeExceptionally",
-                                   INTR_Promise_CompleteExceptionally},
-    //The intrinsic channel's first NO-RECEIVER row: Future.selectAny
-    //is a static face on the type name, so no instance rides slot 0 —
-    //the wait-set array is the sole argument. Today the compiler emits
-    //the OP_CallIntrinsic directly (Future is still a synthetic class,
-    //nothing declares this member); the row records the ABI for the
-    //builtins source-of-truth migration, when a declared static native
-    //Future.selectAny stamps onto this channel.
-    {"builtins", "Future.selectAny", INTR_Future_SelectAny,
-                                   /*noReceiver=*/true},
+                               INTR_Promise_CompleteExceptionally},
 };
+
+//The literal rows plus the DERIVED static-face rows. A face's row comes
+//from the face table (BuiltinNames.h) — the single hand-maintained
+//source — so a second static face cannot drift between the two tables:
+//the intrinsic id matches by construction and noReceiver is true by
+//definition of a static face (the type name qualifies the call, no
+//instance rides slot 0). The derived rows stay inert until the builtins
+//source-of-truth migration declares a static native member that stamps
+//onto this channel.
+const std::vector<BindingRow>& BindingRows()
+{
+    static const std::vector<BindingRow> s_rows = [] {
+        std::vector<BindingRow> rows(std::begin(s_LiteralRows),
+                                     std::end(s_LiteralRows));
+        size_t faceCount = 0;
+        const BuiltinStaticFace* pFaces = BuiltinStaticFaces(faceCount);
+        for (size_t i = 0; i < faceCount; ++i)
+            rows.push_back({"builtins",
+                std::string(pFaces[i].typeName) + "."
+                    + pFaces[i].methodName,
+                pFaces[i].intrinsicId, /*noReceiver=*/true});
+        return rows;
+    }();
+    return s_rows;
+}
 
 bool IsStampedBindingPackage(const std::string& packagePath)
 {
-    for (const auto& row : s_BindingRows)
+    for (const auto& row : BindingRows())
         if (packagePath == row.packagePath)
             return true;
     return false;
@@ -114,7 +133,7 @@ bool IsStampedBindingPackage(const std::string& packagePath)
 uint16_t LookupIntrinsicId(const std::string& packagePath,
     const std::string& key)
 {
-    for (const auto& row : s_BindingRows)
+    for (const auto& row : BindingRows())
         if (packagePath == row.packagePath && key == row.key)
             return row.intrinsicId;
     return INTR_None;

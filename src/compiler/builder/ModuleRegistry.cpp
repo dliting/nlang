@@ -140,6 +140,13 @@ void ModuleRegistry::Reset()
 	m_modules.clear();
 	m_ownerOf.clear();
 	m_externalStubs.clear();
+	//The per-build registries drop with the tables for the same reason
+	//the owner tags do: their entries are keyed by pointers into the
+	//previous run's syntax tree, which RegisterUnits' caller has
+	//already destroyed. Replacement (not clear-in-place) so the old
+	//registry's destructor frees its minted nodes with it.
+	m_upDeclaredGenerics = std::make_unique<GenericInstanceRegistry>();
+	m_upSyntheticBuiltins = std::make_unique<SyntheticBuiltinRegistry>();
 }
 
 uint32_t ModuleRegistry::AddExternalModule(const std::string& name)

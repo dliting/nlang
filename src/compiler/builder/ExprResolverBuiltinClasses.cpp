@@ -18,14 +18,15 @@ namespace nlang
 {
 
 //Canonical SnClassDecl instances for built-in classes. These must be
-//singletons so that CalcTypeDistance's pointer identity check works
-//across all resolution sites (type names, new expressions, member calls).
-static SnClassDecl* s_pByteStreamClass = nullptr;
-static SnClassDecl* s_pFileStreamClass = nullptr;
-//Channel needs no stand-in: it exists only as Channel<T>, a generic
-//instantiation minted by GetGenericClassDecl. Mutex/Semaphore, Thread
-//and Object lost their stand-ins to the builtin-decls migration —
-//declared in stdlib/builtins.n now.
+//singletons WITHIN A BUILD so that CalcTypeDistance's pointer identity
+//check works across all resolution sites (type names, new expressions,
+//member calls); the singletons live in the build's
+//SyntheticBuiltinRegistry (a process-global would keep pointers alive
+//past the tree they were minted against). Channel needs no stand-in:
+//it exists only as Channel<T>, a generic instantiation minted by
+//GetGenericClassDecl. Mutex/Semaphore, Thread and Object lost their
+//stand-ins to the builtin-decls migration — declared in
+//stdlib/builtins.n now.
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
@@ -43,23 +44,22 @@ const ISourceLocation& DeclLocation(const ISourceLocation* pLoc,
 //Precondition: name passes IsBuiltinClassName. Returns nullptr for any
 //other name (defensive — callers skip resolution and the identifier
 //surfaces as a normal unresolved-name error).
-SnClassDecl* GetBuiltinClassDecl(const std::string& name,
-	const ISourceLocation* pLoc)
+SnClassDecl* GetBuiltinClassDecl(ModuleRegistry& reg,
+	const std::string& name, const ISourceLocation* pLoc)
 {
 	if (!IsBuiltinClassName(name))
 		return nullptr;
-	SnClassDecl*& rpRef = (name == "ByteStream") ? s_pByteStreamClass
-		: s_pFileStreamClass;
-	if (!rpRef)
-	{
-		auto* pName = new std::string(name);
-		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation fallback;
-		rpRef = new SnClassDecl(pName, nullptr, pMembers,
-			DeclLocation(pLoc, fallback));
-		rpRef->SetBuiltinClass();
-	}
-	return rpRef;
+	auto& synthetics = reg.SyntheticBuiltins();
+	if (SnClassDecl* pExisting = synthetics.FindBuiltinClass(name))
+		return pExisting;
+	auto* pName = new std::string(name);
+	auto* pMembers = new PtrList<SnField>();
+	ScriptLocation fallback;
+	auto* pClass = new SnClassDecl(pName, nullptr, pMembers,
+		DeclLocation(pLoc, fallback));
+	pClass->SetBuiltinClass();
+	synthetics.AdoptBuiltinClass(name, pClass);
+	return pClass;
 }
 
 SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
@@ -97,13 +97,25 @@ void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
 //The shared resolver/backend face table (Future.selectAny today). The
 //resolver's arm gates and arity-checks from these rows; the backend's
 //emission reads the intrinsic id from the SAME row and never evaluates
-//the qualifier — one row, one identity, no duplicated dispatch.
+//the qualifier — one row, one identity, no duplicated dispatch. The
+//binding table (BindingTable.cpp) derives its static-face binding rows
+//from this table too, so a second face lands in exactly one
+//hand-maintained place.
+static const BuiltinStaticFace s_Faces[] = {
+	{kBuiltinFutureTypeName, "selectAny", INTR_Future_SelectAny, 1},
+};
+
+//Every face row (the derivation input for the binding table's
+//static-face rows).
+const BuiltinStaticFace* BuiltinStaticFaces(size_t& count)
+{
+	count = sizeof(s_Faces) / sizeof(s_Faces[0]);
+	return s_Faces;
+}
+
 const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
 	const std::string& methodName)
 {
-	static const BuiltinStaticFace s_Faces[] = {
-		{kBuiltinFutureTypeName, "selectAny", INTR_Future_SelectAny, 1},
-	};
 	for (const auto& face : s_Faces)
 		if (typeName == face.typeName && methodName == face.methodName)
 			return &face;
@@ -117,34 +129,29 @@ const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
 //arguments). The decl exists solely as the outer identifier's binding
 //so the tree resolves fully; pointer identity against it is the
 //codegen marker (the backend never emits the qualifier as a value).
-static std::map<std::string, SnClassDecl*>& StaticFaceMintTable()
+//Per-build singletons (the build's SyntheticBuiltinRegistry) — the
+//pointer identity they exist for only means anything within one build.
+SnClassDecl* BuiltinStaticFaceClassDecl(ModuleRegistry& reg,
+	const std::string& typeName)
 {
-	static std::map<std::string, SnClassDecl*> s_minted;
-	return s_minted;
+	auto& synthetics = reg.SyntheticBuiltins();
+	if (SnClassDecl* pExisting = synthetics.FindFaceClass(typeName))
+		return pExisting;
+	auto* pName = new std::string(typeName);
+	auto* pMembers = new PtrList<SnField>();
+	ScriptLocation fallback;
+	auto* pClass = new SnClassDecl(pName, nullptr, pMembers,
+		DeclLocation(nullptr, fallback));
+	pClass->SetBuiltinClass();
+	synthetics.AdoptFaceClass(typeName, pClass);
+	return pClass;
 }
 
-SnClassDecl* BuiltinStaticFaceClassDecl(const std::string& typeName)
-{
-	SnClassDecl*& rpRef = StaticFaceMintTable()[typeName];
-	if (!rpRef)
-	{
-		auto* pName = new std::string(typeName);
-		auto* pMembers = new PtrList<SnField>();
-		ScriptLocation fallback;
-		rpRef = new SnClassDecl(pName, nullptr, pMembers,
-			DeclLocation(nullptr, fallback));
-		rpRef->SetBuiltinClass();
-	}
-	return rpRef;
-}
-
-//Non-minting probe: nullptr until the resolver minted this type name's
+//Non-minting probe: null until the resolver minted this type name's
 //qualifier (codegen's pointer-identity check consults it).
-SnClassDecl* FindBuiltinStaticFaceClassDecl(const std::string& typeName)
+SnClassDecl* FindBuiltinStaticFaceClassDecl(const ModuleRegistry& reg,
+	const std::string& typeName)
 {
-	auto& minted = StaticFaceMintTable();
-	auto it = minted.find(typeName);
-	return it == minted.end() ? nullptr : it->second;
+	return reg.SyntheticBuiltins().FindFaceClass(typeName);
 }
-
 } //namespace nlang

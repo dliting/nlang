@@ -14,6 +14,7 @@ gate (module import visibility plan, spec §6).
 #include <memory>
 #include "SyntaxNode.h"
 #include "GenericInstanceRegistry.h"
+#include "SyntheticBuiltinRegistry.h"
 
 namespace nlang
 {
@@ -212,6 +213,15 @@ public:
 		return *m_upDeclaredGenerics;
 	}
 
+	//Synthetic builtin declarations minted on demand for this build
+	//(builtin generic instantiations, ByteStream/FileStream
+	//singletons, static-face qualifiers). Same per-build scope and
+	//the same ownership duty as DeclaredGenerics.
+	SyntheticBuiltinRegistry& SyntheticBuiltins() const
+	{
+		return *m_upSyntheticBuiltins;
+	}
+
 	uint32_t ModuleCount() const
 	{
 		return static_cast<uint32_t>(m_modules.size());
@@ -274,6 +284,10 @@ private:
 	//GenericInstanceRegistry.h.
 	std::unique_ptr<GenericInstanceRegistry> m_upDeclaredGenerics
 		= std::make_unique<GenericInstanceRegistry>();
+	//Synthetic builtin declarations for this build (see
+	//SyntheticBuiltinRegistry.h).
+	std::unique_ptr<SyntheticBuiltinRegistry> m_upSyntheticBuiltins
+		= std::make_unique<SyntheticBuiltinRegistry>();
 };
 
 } //namespace nlang

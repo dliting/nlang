@@ -34,7 +34,8 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 	const auto& name = fieldExpr.ToString();
 	if (IsBuiltinClassName(name))
 		ResolveFieldExprAs(fieldExpr,
-			GetBuiltinClassDecl(name, fieldExpr.Location()));
+			GetBuiltinClassDecl(m_Env.Registry(),
+				name, fieldExpr.Location()));
 }
 
 //Binds the resolved type declaration to the new-expression. Classes keep
@@ -164,7 +165,7 @@ SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 	const ISourceLocation *pLoc)
 {
 	if (IsBuiltinClassName(name))
-		return GetBuiltinClassDecl(name, pLoc);
+		return GetBuiltinClassDecl(m_Env.Registry(), name, pLoc);
 	//0.9.12 D-new-6: a ctor-call position names a *type*, so the scope
 	//walk must skip value hits instead of stopping at the first one —
 	//inside the class the name is shadowed by its own constructor

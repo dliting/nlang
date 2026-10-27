@@ -63,7 +63,8 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 		if (IsBuiltinClassName(name))
 		{
 			ResolveFieldExprAs(*pFieldExpr,
-				GetBuiltinClassDecl(name, pFieldExpr->Location()));
+				GetBuiltinClassDecl(m_Env.Registry(),
+				name, pFieldExpr->Location()));
 		}
 	}
 
@@ -103,7 +104,8 @@ bool ExprResolveAccessor::TryRebindShadowedTypeName(SnNameExpr &nameExpr,
 		*m_pAccessor);
 	if (!pField && IsBuiltinClassName(name))
 	{
-		pField = GetBuiltinClassDecl(name, nameExpr.Location());
+		pField = GetBuiltinClassDecl(
+			m_Env.Registry(), name, nameExpr.Location());
 	}
 	if (!pField)
 	{

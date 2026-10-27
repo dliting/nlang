@@ -52,6 +52,10 @@ struct BuiltinStaticFace
 };
 const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
 	const std::string& methodName);
+//Every face row — the single source the binding table derives its
+//static-face rows from (one face, one ABI, no second hand-maintained
+//copy to drift).
+const BuiltinStaticFace* BuiltinStaticFaces(size_t& count);
 
 //The static-face qualifier singleton: the arm binds the outer
 //identifier of the member call to this decl (pointer identity is the
@@ -59,9 +63,14 @@ const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
 //(resolver only). Deliberately outside IsBuiltinClassName: bare
 //`Future` stays rejected in every type position (a generic type needs
 //arguments) — the singleton exists solely as the call qualifier.
-SnClassDecl* BuiltinStaticFaceClassDecl(const std::string& typeName);
+//Per-build singletons: they live in ModuleRegistry's
+//SyntheticBuiltinRegistry, so both functions take the registry.
+class ModuleRegistry;
+SnClassDecl* BuiltinStaticFaceClassDecl(ModuleRegistry& reg,
+	const std::string& typeName);
 //Non-minting probe (codegen): nullptr until the resolver minted one for
 //this type name.
-SnClassDecl* FindBuiltinStaticFaceClassDecl(const std::string& typeName);
+SnClassDecl* FindBuiltinStaticFaceClassDecl(const ModuleRegistry& reg,
+	const std::string& typeName);
 
 } //namespace nlang

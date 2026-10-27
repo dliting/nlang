@@ -161,10 +161,12 @@ inline bool IsReceiverlessFuncRefTarget(const SnField &func)
 }
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
-//StatementResolver's Dict subscript-store bind site.
+//StatementResolver's Dict subscript-store bind site. Pure node reads
+//(the node carries its type args and out flags); the MINT functions
+//below take the per-build registry.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
-//Phase 13: out-flag side table of a func instantiation (parallel to
-//GetGenericTypeArgs; map access semantics, default-empty on miss).
+//Phase 13: out-flag read of a func instantiation (parallel to
+//GetGenericTypeArgs; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 
@@ -184,7 +186,8 @@ std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
 const char* StdLibKindName(uint8_t rtk);
 bool IsGenericClassDecl(SnClassDecl* pClass);
-SnClassDecl* GetGenericClassDecl(const std::string& baseName,
+SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
+	const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
 	const ISourceLocation* pLoc);
 //Location pass-through for on-demand minted decls (built-in classes,
@@ -220,8 +223,8 @@ bool IsBarePoolScope(const SyntaxNode &scope);
 bool IsTypeOrNamespaceBinding(const SnField *pField);
 //2026-09-26 second split: builtin-class minting and the func signature
 //match are consumed from the Values/New and Cast TUs respectively.
-SnClassDecl* GetBuiltinClassDecl(const std::string& name,
-	const ISourceLocation* pLoc);
+SnClassDecl* GetBuiltinClassDecl(ModuleRegistry& reg,
+	const std::string& name, const ISourceLocation* pLoc);
 bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
 
 //String built-in method table entry (defined in vm/StdLib.h); the member

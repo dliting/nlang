@@ -12,6 +12,11 @@ surfaces only — no generic method compilation).
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
+#include "builder/ModuleRegistry.h"
+#include <nlang/compiler/SyntheticBuiltinRegistry.h>
+#include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/ScriptLocation.h>
+#include <memory>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -312,6 +317,104 @@ private slots:
             "a parameter default value in a generic declaration must be rejected");
         QVERIFY2(anyErrorMentions(outcome.second, "cannot have a default value"),
             "diagnostic must name the default-value rule");
+    }
+
+    //Two in-process builds with different synthetic-generic shapes. The
+    //synthetic caches (List/Dict instantiations, ByteStream singleton,
+    //static-face qualifier) were process-global maps keyed by raw tree
+    //pointers — the same corruption class the declared-generic registry
+    //fix scoped per build: once the allocator reuses a freed address
+    //from the first build, a stale entry can serve the second. The
+    //shape difference is the detector — a stale int-shaped List/Dict
+    //serving B's string uses is a compile error, so each cycle asserts
+    //every shape still builds clean after the others.
+    void syntheticsSecondBuildIsolated()
+    {
+        const auto pathA = writeTempSource("syn_two_a.n",
+            "int main() {\n"
+            "    List<int> l = [10, 20, 30];\n"
+            "    int x = l.get(1);\n"
+            "    Dict<string, int> d = {};\n"
+            "    d.set(\"one\", 1);\n"
+            "    ByteStream bs = ByteStream();\n"
+            "    bs.writeInt(x);\n"
+            "    return 0;\n"
+            "}\n");
+        const auto pathB = writeTempSource("syn_two_b.n",
+            "int main() {\n"
+            "    List<string> l = [\"a\", \"b\"];\n"
+            "    string s = l.get(0);\n"
+            "    Dict<int, string> d = {};\n"
+            "    d.set(1, \"one\");\n"
+            "    ByteStream bs = ByteStream();\n"
+            "    bs.writeString(s);\n"
+            "    return 0;\n"
+            "}\n");
+        const auto pathC = writeTempSource("syn_two_c.n",
+            "int main() {\n"
+            "    Promise<int> pa = Promise();\n"
+            "    Future<int> a = pa.future();\n"
+            "    Future<int>[] arr = [a];\n"
+            "    Future.selectAny(arr);\n"
+            "    return 0;\n"
+            "}\n");
+        for (int cycle = 0; cycle != 3; ++cycle)
+        {
+            const auto a = compileSource("syn_two_a", pathA);
+            QVERIFY2(a.first && a.second.empty(),
+                "int-shaped synthetics must build clean");
+            const auto b = compileSource("syn_two_b", pathB);
+            QVERIFY2(b.first && b.second.empty(),
+                "string-shaped synthetics must build clean after the "
+                "int-shaped build (a stale int instance would reject "
+                "string s = l.get(0))");
+            const auto c = compileSource("syn_two_c", pathC);
+            QVERIFY2(c.first && c.second.empty(),
+                "Promise/Future/selectAny synthetics must build clean "
+                "after the container builds");
+        }
+    }
+
+    //The per-build boundary (final-review finding): RegisterUnits calls
+    //ModuleRegistry::Reset() to drop the previous run's module tables
+    //("owner tags point into its destroyed AST") — the per-build
+    //registries must drop with them. A surviving registry keeps entries
+    //keyed by pointers into that same destroyed tree, which is the
+    //same-address corruption class both registries exist to remove.
+    //Pinned at the registry seam (the double-BuildArtifacts flow is not
+    //a supported path — TU re-registration rejects the duplicate
+    //package before Reset's downstream): adopt into a standalone
+    //ModuleRegistry, Reset, and both registries must come back empty
+    //(the adopted nodes are freed with their registry).
+    void registryResetDropsPerBuildRegistries()
+    {
+        ModuleRegistry reg;
+        auto makeDecl = [] {
+            return new SnClassDecl(new std::string("Minted"),
+                nullptr, nullptr, ScriptLocation());
+        };
+        SyntheticBuiltinRegistry::GenericInstKey key;
+        key.baseName = "List";
+        SnClassDecl* pGeneric = makeDecl();
+        SnClassDecl* pSingleton = makeDecl();
+        reg.SyntheticBuiltins().AdoptGeneric(key, pGeneric);
+        reg.SyntheticBuiltins().AdoptBuiltinClass("ByteStream", pSingleton);
+        //Templates are raw references (the registry owns instances and
+        //placeholders only), so this one stays test-owned.
+        std::unique_ptr<SnClassDecl> upTemplate(makeDecl());
+        SnClassDecl* pInstance = makeDecl();
+        reg.DeclaredGenerics().AdoptInstance(pInstance, upTemplate.get(),
+            {}, 0);
+        QCOMPARE(reg.SyntheticBuiltins().MintedCount(), size_t(2));
+        QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance)
+            == upTemplate.get());
+
+        reg.Reset();
+
+        QCOMPARE(reg.SyntheticBuiltins().MintedCount(), size_t(0));
+        //pInstance was freed with the reset registry; only its pointer
+        //VALUE is compared here (map lookup, no dereference).
+        QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance) == nullptr);
     }
 };
 

@@ -205,7 +205,8 @@ void ExprResolveAccessor::BindTableStringMethodResult(SnMemberExpr &snMember,
 	{
 		std::vector<SnField*> listArgs{
 			SnBuiltinDataType::InstanceOf(NK_String) };
-		pResultField = GetGenericClassDecl(kBuiltinListTypeName, listArgs,
+		pResultField = GetGenericClassDecl(m_Env.Registry(),
+				kBuiltinListTypeName, listArgs,
 			{}, invoke.Location());
 		break;
 	}

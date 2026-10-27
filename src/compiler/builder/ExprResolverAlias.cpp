@@ -100,7 +100,7 @@ SnField *ExprResolveAccessor::ProbeAliasType(const std::string &name,
 		return nullptr;  //no root identifier (defensive)
 	const auto &rootName = pRootId->Name();
 	if (IsBuiltinClassName(rootName))
-		return GetBuiltinClassDecl(rootName, pLoc);
+		return GetBuiltinClassDecl(m_Env.Registry(), rootName, pLoc);
 	if (pRootId->Field())
 		return nullptr;  //a pre-resolved non-class built-in type
 	auto *pField = FindFieldInAncestor(rootName, *m_pContext,

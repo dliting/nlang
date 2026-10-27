@@ -113,7 +113,7 @@ bool ExprResolveAccessor::BindStaticFaceCall(SnMemberExpr &snMember,
 	//inner invoke resolved with no callee (the container-method family
 	//shape); member result = int (the winning index).
 	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Outer()),
-		BuiltinStaticFaceClassDecl(typeName));
+		BuiltinStaticFaceClassDecl(m_Env.Registry(), typeName));
 	invoke.AddFlags(NF_Resolved);
 	auto *pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
 	snMember.EvalDataType(pInt);

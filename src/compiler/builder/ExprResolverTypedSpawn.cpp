@@ -66,7 +66,8 @@ bool ExprResolveAccessor::TryBindTypedSpawn(SnMemberExpr &snMember,
 	}
 	else
 	{
-		pRetDecl = GetGenericClassDecl(kBuiltinFutureTypeName, {pT}, {},
+		pRetDecl = GetGenericClassDecl(m_Env.Registry(),
+			kBuiltinFutureTypeName, {pT}, {},
 			snMember.Location());
 	}
 	if (!pRetDecl)
@@ -133,7 +134,7 @@ ExprResolveAccessor::SpawnTFromBareRef(SnExpression &arg, SnField *&rpT)
 	if (!rpT)
 		return SpawnArgOutcome::Declined;
 	std::vector<SnField *> funcArgs{rpT};
-	auto *pFuncDecl = GetGenericClassDecl(kBuiltinFuncTypeName,
+	auto *pFuncDecl = GetGenericClassDecl(m_Env.Registry(), kBuiltinFuncTypeName,
 		funcArgs, {}, &fallback);
 	if (!pFuncDecl || !BindFuncRefToExpected(m_Env,
 			static_cast<SnIdentifierExpr &>(arg), pFuncDecl))

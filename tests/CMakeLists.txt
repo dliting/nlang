@@ -977,6 +977,13 @@ if(NLANG_BUILD_IDE)
     add_executable(test_generic_decl
         test_compiler/test_generic_decl.cpp
     )
+    #src/compiler: builder/ModuleRegistry.h (the second-build-seam test
+    #reads Registry().SyntheticBuiltins(); same internal-header reach as
+    #test_array_flags).
+    target_include_directories(test_generic_decl
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
     target_link_libraries(test_generic_decl
         PRIVATE
             nlang_compiler

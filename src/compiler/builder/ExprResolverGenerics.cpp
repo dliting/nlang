@@ -22,67 +22,88 @@ namespace nlang
 {
 
 
-//Phase 8e-3: Built-in generic class instantiation cache.
-//Key: (base class name, resolved type-arg SnField* pointers).
-//Value: synthetic SnClassDecl representing this instantiation. The same
-//key MUST always return the same SnClassDecl* — pointer identity is
-//load-bearing for CalcTypeDistance and for VmBackend's class index lookup.
+//==================== synthetic builtin registry ====================
 //
-//At runtime, all instantiations share a single CompiledClass named "List"
-//via VmBackend's name-prefix strip. The synthetic SnClassDecl is a
-//compile-time artifact only.
-struct GenericInstKey {
-	std::string baseName;
-	std::vector<SnField*> typeArgs;
-	//Phase 13: out markers live on the type-arg expression nodes (NF_Out),
-	//not on the canonical fields, so the key needs a parallel flag vector —
-	//without it func<void,int> and func<void,out int> collapse into one
-	//declaration and the first instantiation silently wins.
-	//0.7.3 B: array-ness needs no flag vector anymore — an array-typed
-	//argument IS the interned SnArrayTypeToken in typeArgs, so pointer
-	//identity keeps List<int> and List<int[]> distinct keys.
-	std::vector<uint8> outFlags;
-	bool operator<(const GenericInstKey& rhs) const {
-		if (baseName != rhs.baseName) return baseName < rhs.baseName;
-		if (typeArgs.size() != rhs.typeArgs.size())
-			return typeArgs.size() < rhs.typeArgs.size();
-		if (outFlags != rhs.outFlags) return outFlags < rhs.outFlags;
-		for (size_t i = 0; i < typeArgs.size(); ++i) {
-			if (typeArgs[i] != rhs.typeArgs[i])
-				return typeArgs[i] < rhs.typeArgs[i];
-		}
-		return false;
-	}
-};
-static std::map<GenericInstKey, SnClassDecl*> s_genericInstances;
+//Definitions for SyntheticBuiltinRegistry (owned by ModuleRegistry —
+//one per build; see the header). The minting free functions below it
+//keep the name/arity logic; this block is storage and ownership only,
+//the same split GenericInstanceRegistry keeps with
+//GetDeclaredGenericClassDecl.
 
-//Side table: synthetic class → its type arguments. Used by Access(SnMemberExpr&)
-//to compute method return types (e.g., List<int>.Get() returns int = typeArgs[0]).
-//Also mirrored on SnClassDecl::GenericTypeArgs() for VmBackend codegen.
-static std::map<SnClassDecl*, std::vector<SnField*>> s_genericTypeArgs;
-
-//Phase 13: parallel out-flag side table (same key discipline as
-//s_genericTypeArgs). func's delegate-binding channel reads the signature
-//(return type + out-marked params) from these two tables.
-static std::map<SnClassDecl*, std::vector<uint8>> s_genericOutFlags;
-
-//Phase 13: out-flag side-table accessor (same key discipline as
-//GetGenericTypeArgs; map operator[] default-inserts on miss, matching
-//the historical direct map access at the func bind sites).
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
+SyntheticBuiltinRegistry::~SyntheticBuiltinRegistry()
 {
-	return s_genericOutFlags[pClass];
+	//The registry owns every node it minted. The synthetic decls are
+	//detached from any tree, so nothing else frees them.
+	for (auto* pDecl : m_minted)
+		delete pDecl;
 }
 
-//Lookup type arguments for a synthetic generic class. Returns empty vector
-//if not a generic instantiation.
+void SyntheticBuiltinRegistry::Own(SnClassDecl* pDecl)
+{
+	m_minted.push_back(pDecl);
+}
+
+SnClassDecl* SyntheticBuiltinRegistry::FindGeneric(
+	const GenericInstKey& key) const
+{
+	auto it = m_genericInstances.find(key);
+	return it != m_genericInstances.end() ? it->second : nullptr;
+}
+
+void SyntheticBuiltinRegistry::AdoptGeneric(const GenericInstKey& key,
+	SnClassDecl* pDecl)
+{
+	m_genericInstances[key] = pDecl;
+	Own(pDecl);
+}
+
+SnClassDecl* SyntheticBuiltinRegistry::FindBuiltinClass(
+	const std::string& name) const
+{
+	auto it = m_builtinClasses.find(name);
+	return it != m_builtinClasses.end() ? it->second : nullptr;
+}
+
+void SyntheticBuiltinRegistry::AdoptBuiltinClass(const std::string& name,
+	SnClassDecl* pDecl)
+{
+	m_builtinClasses[name] = pDecl;
+	Own(pDecl);
+}
+
+SnClassDecl* SyntheticBuiltinRegistry::FindFaceClass(
+	const std::string& typeName) const
+{
+	auto it = m_faceClasses.find(typeName);
+	return it != m_faceClasses.end() ? it->second : nullptr;
+}
+
+void SyntheticBuiltinRegistry::AdoptFaceClass(const std::string& typeName,
+	SnClassDecl* pDecl)
+{
+	m_faceClasses[typeName] = pDecl;
+	Own(pDecl);
+}
+
+//Phase 13: the func instantiation's parameter out markers. Stored ON the
+//node since the per-build registry migration (context-free predicates
+//like IsUnboundFuncRef read a synthetic func's signature with no
+//registry handle); default-empty for non-func classes.
+const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
+{
+	static const std::vector<uint8> s_empty;
+	return pClass ? pClass->GenericOutFlags() : s_empty;
+}
+
+//Type arguments of a generic instantiation (List<T> → {T}, Dict<K,V> →
+//{K,V}; empty otherwise). Every mint — synthetic AND declared — sets
+//GenericTypeArgs on the node itself; the historical process-global side
+//table (whose fallback branch no mint could ever miss) is gone with the
+//per-build registry.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
 {
 	if (pClass && pClass->IsGenericInstantiation())
 		return pClass->GenericTypeArgs();
-	auto it = s_genericTypeArgs.find(pClass);
-	if (it != s_genericTypeArgs.end())
-		return it->second;
 	return {};
 }
 
@@ -98,16 +119,21 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 //Phase 13: func<R, P...> (variadic, >= 1). outFlags are normalized here
 //so callers that infer instantiations (List element inference) can pass
 //an empty vector while declaration-path keys stay distinct.
-SnClassDecl* GetGenericClassDecl(const std::string& baseName,
+//The cache is per-build (ModuleRegistry's SyntheticBuiltinRegistry):
+//the key is built from interned type-arg pointers, which only keep
+//identity within one build's syntax tree.
+SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
+	const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
 	const ISourceLocation* pLoc)
 {
 	std::vector<uint8> normOutFlags(outFlags);
 	normOutFlags.resize(typeArgs.size(), 0);
-	GenericInstKey key{baseName, typeArgs, normOutFlags};
-	auto it = s_genericInstances.find(key);
-	if (it != s_genericInstances.end())
-		return it->second;
+	SyntheticBuiltinRegistry::GenericInstKey key{baseName, typeArgs,
+		normOutFlags};
+	auto& synthetics = reg.SyntheticBuiltins();
+	if (SnClassDecl* pCached = synthetics.FindGeneric(key))
+		return pCached;
 
 	//Built-in generic + arity check. List/Dict have fixed arity; func is
 	//variadic: first argument is the return type, the rest are params.
@@ -141,11 +167,9 @@ SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 	pClass->SetBuiltinClass();
 	pClass->SetGenericInstantiation();
 	pClass->SetGenericTypeArgs(typeArgs);
+	pClass->SetGenericOutFlags(normOutFlags);
 	pClass->SetBaseName(baseName);
-	s_genericInstances[key] = pClass;
-	//Side table for member-call return-type lookup (List<int>.Get() → int).
-	s_genericTypeArgs[pClass] = typeArgs;
-	s_genericOutFlags[pClass] = normOutFlags;
+	synthetics.AdoptGeneric(key, pClass);
 	return pClass;
 }
 

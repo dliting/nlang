@@ -156,7 +156,9 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 		return;
 	}
 
-	auto *pSynClass = GetGenericClassDecl(baseName, typeArgs, outFlags,
+	auto *pSynClass =
+		GetGenericClassDecl(m_Env.Registry(), baseName,
+			typeArgs, outFlags,
 		pBase->Location());
 	if (!pSynClass)
 	{
@@ -244,7 +246,8 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 	const auto& name = idExpr.Name();
 	if (IsBuiltinClassName(name))
 	{
-		ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
+		ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(
+			m_Env.Registry(), name, idExpr.Location()));
 		return true;
 	}
 

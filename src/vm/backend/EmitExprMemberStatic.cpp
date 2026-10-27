@@ -67,7 +67,7 @@ bool VmBackend::EmitMemberStaticFaceCall(SnMemberExpr& member,
         return false;
     const std::string& typeName =
         static_cast<SnIdentifierExpr*>(outer)->Name();
-    SnClassDecl* singleton = FindBuiltinStaticFaceClassDecl(typeName);
+    SnClassDecl* singleton = FindBuiltinStaticFaceClassDecl(*m_pRegistry, typeName);
     if (!singleton
         || static_cast<SnFieldExpr*>(outer)->Field() != singleton)
         return false;

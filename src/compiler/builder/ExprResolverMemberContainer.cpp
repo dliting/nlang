@@ -316,7 +316,8 @@ SnField *ExprResolveAccessor::ComputeContainerMethodResult(
 		//interned token — pointer identity keeps List<int[]> distinct.
 		if (!typeArgs.empty() && typeArgs[0]) {
 			std::vector<SnField*> listArgs{ typeArgs[0] };
-			auto* pListClass = GetGenericClassDecl(kBuiltinListTypeName,
+			auto* pListClass = GetGenericClassDecl(m_Env.Registry(),
+				kBuiltinListTypeName,
 				listArgs, {}, invoke.Location());
 			if (pListClass) {
 				//SnClassDecl IS-A SnField, so it can serve as EvalDataType.
