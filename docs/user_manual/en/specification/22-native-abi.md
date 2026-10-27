@@ -71,11 +71,11 @@ no directory raises a host-level run-time error at the call
    the export is rejected;
 4. calls it once (§22.3).
 
-A rejection at step 1 or 2 unloads the module without running
-any of its code: the registrations of an incompatible module —
-pointers into a library the host unloads at once — must never
-enter the native table. A rejected module raises a host-level
-run-time error at the call (§9.1).
+A rejection at any step unloads the module before its init
+runs: the registrations of an incompatible module — pointers
+into a library the host unloads at once — must never enter the
+native table. A rejected module raises a host-level run-time
+error at the call (§9.1).
 
 **Lifetime.** A loaded module stays loaded until the host
 shuts down, and modules are unloaded in reverse order of
@@ -139,7 +139,9 @@ void fn(NativeHost* host, uint8_t* ret,
   `void` native writes nothing;
 - `args` — the base of `argc` value cells holding the
   arguments;
-- `argc` — the declared parameter count of the call.
+- `argc` — the number of value cells in `args`: the declared
+  formal count for a free function, one more for a method or
+  constructor, counting the receiver (Arguments, below).
 
 **Arguments.** A free native function receives its first
 formal in `args[0]`. A method or constructor receives the
@@ -212,10 +214,11 @@ stripped, or null at end of input; an empty line is `""`
 returns the next token; at end of input the host raises
 before returning, so a null result is defensive only (§15.3).
 `readChar` decodes one full UTF-8 scalar into `outChar` and
-returns `0`, or returns `1` after raising at end of input;
-text that is not valid UTF-8 raises the base `Exception`
-(§15.3). `hasInput` returns `1` when a `readLine` would still
-produce a line and never raises (§15.3). The buffers the
+returns `0`; at end of input the host raises before returning,
+so the `1` result is defensive only (§15.3). Text that is not
+valid UTF-8 raises the base `Exception` (§15.3). `hasInput`
+returns `1` when a `readLine` would still produce a line and
+never raises (§15.3). The buffers the
 input callbacks return are valid only until the next host
 callback.
 
@@ -277,6 +280,8 @@ payload:
 | `elemCount` | `int64_t` | the total element count |
 | `elemKind` | `uint8_t` | the element kind (§22.5) |
 | `elemCellBytes` | `uint8_t` | the per-element stride in bytes: `4`, or `8` for `long` and `double` |
+| `reserved` | `uint8_t[2]` | written `0`; the reader ignores the field |
+| `stridesInline` | `int32_t[64]` | the storage `strides` points at: 64 entries, the rank ceiling (§22.5) |
 | `data` | `void*` | the payload base — element zero |
 
 **Addressing.** The element at indices `i[0] … i[rank-1]`

@@ -234,9 +234,10 @@ and an access byte (§8.4).
 
 A *type descriptor* is the recursive encoding of one declared
 type. Descriptors appear as field descriptors, parameter
-descriptors, return descriptors and interface constant types
-(§20.3, §20.4). On the wire a descriptor is a u16 byte count
-followed by that many descriptor bytes; a count of `0` records
+descriptors, return descriptors, interface constant types and
+interface instance-method signatures (§20.3, §20.4). On the
+wire a descriptor is a u16 byte count followed by that many
+descriptor bytes; a count of `0` records
 a type not expressible in this grammar, and a consumer
 rebuilding a stub for such a member degrades to an `int`
 placeholder.
@@ -359,17 +360,21 @@ rejected image never runs in part. The rejection sites:
 - **version.** Below 2.11 → reject with a "recompile with the
   current compiler" diagnostic; above 2.11 → reject with an
   "upgrade the toolchain" diagnostic (§20.1).
-- **count and length caps.** The unit name length, the string
+- **count and length caps.** Counts and lengths are bounded
+  before allocation. Capped at 2^24: the unit name, the string
   constant count and each constant length, the array type
-  count, the enumeration count, the enum value count and each
-  value name length, and each import section count are capped
-  at 2^24; the enum member-method count is capped at 2^20. A
-  larger value is rejected before allocation.
+  count, the function, struct and class counts and their name
+  and field-name lengths, the enumeration count, the enum
+  value count and each value name length, and each import
+  section count. Capped at 2^20: the interface count and the
+  enum member-method count. Capped at 2^16: local names,
+  source-file paths and handle-mask bytes. A larger value is
+  rejected before allocation.
 - **descriptor indices.** After the type tables are read, every
   struct and class index carried by a type descriptor — in
-  function parameter and return descriptors, field descriptors
-  and interface constant types — must address an existing
-  table entry.
+  function parameter and return descriptors, field descriptors,
+  interface constant types and interface instance-method
+  signatures — must address an existing table entry.
 - **owner kind.** An import slot with an owner kind above `2` →
   reject.
 - **import tails.** An import count larger than its table's own

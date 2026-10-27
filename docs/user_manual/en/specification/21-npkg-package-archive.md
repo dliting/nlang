@@ -87,8 +87,8 @@ resolves to exactly one member.
 
 A member's checksum is a 64-bit hash of its exact image bytes,
 computed by the FNV-1a recurrence: start from the offset basis
-1469598103934665603; for each byte, XOR the byte into the hash
-and multiply by the prime 1099511628211 (2^40 + 553771), all
+14695981039346656037; for each byte, XOR the byte into the hash
+and multiply by the prime 1099511628211 (2^40 + 435), all
 modulo 2^64. The checksum detects accidental corruption; it is
 not a security primitive — the reserved signature block of
 §21.2 is the place for one. Extraction verifies it, and a
