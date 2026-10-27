@@ -63,23 +63,24 @@ synchronized with the lexer, the parser and the site navigation.
 
 ## Implementation status
 
-Updated 2026-10-27 (batch 4 landed): the specification is complete
-in English. Part I — §0 Introduction, §1 Lexical Structure, §2
-Syntax and the language chapters §3–§12 (program structure and name
-resolution, types, expressions, statements, functions and methods,
-object orientation, exceptions, execution model and memory
-semantics, concurrency, packages and import search); Part II — the
-standard library chapters §13–§19 (built-in classes and library
-conventions, the math package, the io package and streams, the fs
-package, the concurrency library, the tensor package, and the
-library exception map); and Part III — the binary-format chapters
-§20–§22 (the `.ncu` unit image, the `.npkg` package archive and the
-native host ABI) are published. The Chinese tree carries the
-translated front pages and §0, with §1–§22 in the translation
-backlog. The guard suite covers clause numbering, cross-references,
-navigation, the reserved-word table against the lexer, the EBNF
-symbol set against the parser in both directions, this archive's
-hygiene, and the version anchor against the `VERSION` file. The
-remaining work is the Chinese translation;
-`docs/user_manual/translation-pending.txt` tracks the translation
-backlog.
+Updated 2026-10-27 (batch 5 landed): the specification is complete
+in English and fully translated into Chinese. Part I — §0
+Introduction, §1 Lexical Structure, §2 Syntax and the language
+chapters §3–§12 (program structure and name resolution, types,
+expressions, statements, functions and methods, object orientation,
+exceptions, execution model and memory semantics, concurrency,
+packages and import search); Part II — the standard library chapters
+§13–§19 (built-in classes and library conventions, the math package,
+the io package and streams, the fs package, the concurrency library,
+the tensor package, and the library exception map); and Part III —
+the binary-format chapters §20–§22 (the `.ncu` unit image, the
+`.npkg` package archive and the native host ABI) are published in
+English, and the Chinese tree carries the reference translation of
+every chapter. The guard suite covers clause numbering,
+cross-references, navigation, the reserved-word table against the
+lexer, the EBNF symbol set against the parser in both directions,
+this archive's hygiene, and the version anchor against the `VERSION`
+file. `docs/user_manual/translation-pending.txt` is empty; with it
+empty the tree-parity guard enforces strict navigation parity
+between the two trees, and any future untranslated page must be
+listed there until it is translated.

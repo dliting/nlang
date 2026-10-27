@@ -1,8 +1,9 @@
-# Chinese tree. INHERIT pulls every shared setting from the base; the
-# manual trees are fully translated and the specification tree is being
-# seeded in batches, so docs/user_manual/translation-pending.txt is
-# non-empty and the tree-parity pytest runs in pending mode (strict
-# nav parity locks again once the list empties).
+# Chinese tree. INHERIT pulls every shared setting from the base; both
+# the manual trees and the specification tree are fully translated, so
+# docs/user_manual/translation-pending.txt is empty and the tree-parity
+# pytest runs in strict mode (the two navs must list identical page
+# paths; a page missing from one nav fails the gate even when
+# translated).
 INHERIT: mkdocs.base.yml
 site_name: NLang中文文档
 docs_dir: docs/user_manual/zh
@@ -56,6 +57,9 @@ nav:
       - 并发库: specification/17-concurrency-library.md
       - tensor包: specification/18-tensor.md
       - 库异常: specification/19-library-exceptions.md
+      - .ncu单元映像: specification/20-ncu-unit-image.md
+      - .npkg包档案: specification/21-npkg-package-archive.md
+      - 原生应用二进制接口: specification/22-native-abi.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
