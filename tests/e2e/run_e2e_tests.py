@@ -27,6 +27,7 @@ _examples_tmp/ (their run CWD), removed at end of run.
 
 import os
 import sys
+import glob
 import subprocess
 import shutil
 import shlex
@@ -60,6 +61,18 @@ def _manifest_configs():
     if os.path.isfile(EXAMPLES_MANIFEST):
         configs.append((EXAMPLES_MANIFEST, EXAMPLES_DIR, EXAMPLES_TMP))
     return configs
+
+def _orphan_run_stderr_sidecars(known_names):
+    """Names of <name>.run.stderr files whose <name> is no manifest
+    entry. The runner asserts run-phase stderr only when the sidecar
+    exists, so a rename that forgets the sidecar silently drops the
+    assertion — an orphan is a suite defect, not dead weight."""
+    orphans = []
+    for path in sorted(glob.glob(os.path.join(SCRIPT_DIR, '*.run.stderr'))):
+        stem = os.path.basename(path)[:-len('.run.stderr')]
+        if stem not in known_names:
+            orphans.append(stem)
+    return orphans
 
 #Tests that need CWD=SCRIPT_DIR for their relative file paths, plus a
 #scratch dir pre-cleaned before and removed after the run.
@@ -140,6 +153,21 @@ def main():
     failed = 0
     warnings = []
     errors = []
+
+    #Sidecar coverage: every <name>.run.stderr must key a manifest
+    #entry, else its diagnostic assertion is silently skipped.
+    known_names = set()
+    for manifest_path, _, _ in _manifest_configs():
+        with open(manifest_path, encoding='utf-8') as mf:
+            for line in mf:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    known_names.add(line.split(None, 1)[0])
+    for orphan in _orphan_run_stderr_sidecars(known_names):
+        print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
+        failed += 1
+        errors.append(
+            f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
     for manifest_path, sources_dir, out_dir in _manifest_configs():
       with open(manifest_path, 'r', encoding='utf-8') as f:
