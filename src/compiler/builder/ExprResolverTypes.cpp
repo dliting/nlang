@@ -149,8 +149,41 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	std::string baseName = pBase->ToString();
 	if (!IsBuiltinGenericTypeName(baseName))
 	{
-		m_Env.Log(CLL_Error, genType.Location(),
-			"\"%s\" is not a built-in generic type.", baseName.c_str());
+		//Declared-generic instantiation (`class Box<T>` + `Box<int>`):
+		//the base must name a generic-declaration class in scope.
+		SnClassDecl *pTemplate = nullptr;
+		if (m_pContext)
+		{
+			auto *pProbed = FindTypeNameInAncestor(baseName, *m_pContext,
+				*m_pAccessor, false);
+			if (pProbed && pProbed->Kind() == NK_ClassDecl
+				&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
+				pTemplate = static_cast<SnClassDecl*>(pProbed);
+		}
+		if (!pTemplate)
+		{
+			m_Env.Log(CLL_Error, genType.Location(),
+				"\"%s\" is not a built-in generic type.", baseName.c_str());
+			return;
+		}
+		const size_t expected = pTemplate->TypeParamNames().size();
+		if (genType.TypeArgs().size() != expected)
+		{
+			m_Env.Log(CLL_Error, genType.Location(),
+				"The generic class \"%s\" expects %zu type argument(s), "
+				"but got %zu.",
+				baseName.c_str(), expected, genType.TypeArgs().size());
+			return;
+		}
+		std::vector<SnField*> typeArgs;
+		std::vector<uint8> outFlags;
+		if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+			return;
+		auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs,
+			m_Env.Registry().OwnerOfContext(genType));
+		if (!pInstance)
+			return;
+		ResolveFieldExprAs(genType, pInstance);
 		return;
 	}
 
@@ -262,6 +295,19 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 	{
 		ResolveFieldExprAs(idExpr, GetBuiltinClassDecl(name, idExpr.Location()));
 		return true;
+	}
+
+	//Declared-generic machinery: a type parameter name inside its own
+	//template binds to the interned placeholder (Rejected = the
+	//diagnostic is already logged, e.g. a field referencing T).
+	switch (BindTypeParamPlaceholderIfAny(idExpr))
+	{
+	case TypeParamBindResult::Bound:
+		return true;
+	case TypeParamBindResult::Rejected:
+		return false;
+	case TypeParamBindResult::NotApplicable:
+		break;
 	}
 
 	m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",

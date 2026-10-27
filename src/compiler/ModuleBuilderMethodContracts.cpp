@@ -403,7 +403,10 @@ static void CheckOverrideSignatures(SnClassDecl &cls,
 
 //Generic class declarations carry signature surfaces only: the
 //declaration grammar has no generic method compilation, so every
-//method member of a declared generic must be native.
+//method member of a declared generic must be native, without
+//parameter default values (instantiations copy signatures, and the
+//default-expression machinery has no generic shape). Field members
+//carry no initializers for the same reason.
 static void CheckGenericDeclNativeOnly(SnClassDecl &cls,
 	BuildEnvironment &env)
 {
@@ -412,13 +415,35 @@ static void CheckGenericDeclNativeOnly(SnClassDecl &cls,
 	for (auto &member : cls.Members())
 	{
 		if (member.Kind() != NK_Function)
+		{
+			if (member.Kind() == NK_ClassField)
+			{
+				auto &field = static_cast<SnDataField &>(member);
+				if (field.Value())
+					env.Log(CLL_Error, member.Location(),
+						"The class \"%s\" is a generic declaration: the "
+						"field \"%s\" cannot have an initializer "
+						"(generic declarations carry signatures only).",
+						cls.Name().c_str(), member.Name().c_str());
+			}
 			continue;
-		if (member.ContainFlags(NF_Native))
-			continue;
-		env.Log(CLL_Error, member.Location(),
-			"The class \"%s\" is a generic declaration: the method \"%s\" "
-			"must be native (generic declarations carry signatures only).",
-			cls.Name().c_str(), member.Name().c_str());
+		}
+		auto &func = static_cast<SnFunction &>(member);
+		if (!func.ContainFlags(NF_Native))
+			env.Log(CLL_Error, member.Location(),
+				"The class \"%s\" is a generic declaration: the method "
+				"\"%s\" must be native (generic declarations carry "
+				"signatures only).",
+				cls.Name().c_str(), member.Name().c_str());
+		for (auto &param : func.Params())
+			if (param.Value())
+				env.Log(CLL_Error, param.Location(),
+					"The class \"%s\" is a generic declaration: the "
+					"parameter \"%s\" of \"%s\" cannot have a default "
+					"value (generic declarations carry signatures "
+					"only).",
+					cls.Name().c_str(), param.Name().c_str(),
+					member.Name().c_str());
 	}
 }
 

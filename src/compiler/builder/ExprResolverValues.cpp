@@ -54,6 +54,21 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	if (!pFieldExpr->IsResolved())
 		return;
 
+	//A generic declaration used bare is not a type: only its
+	//instantiations are (Box<int>, never bare Box). The ctor-call path
+	//probes class names separately (ProbeCtorType), so construction is
+	//unaffected.
+	auto *pBareType = pFieldExpr->Field();
+	if (pBareType && pBareType->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pBareType)->IsGenericDeclaration())
+	{
+		m_Env.Log(CLL_Error, nameExpr.Location(),
+			"The class \"%s\" is a generic declaration; provide type "
+			"arguments (like %s<int>) at every use.",
+			pBareType->Name().c_str(), pBareType->Name().c_str());
+		return;
+	}
+
 	//0.9.x shadow guard: every grammar site that builds an SnNameExpr is
 	//a TYPE position, so a value binding in the inner resolution must be
 	//exchanged for a type/namespace one before the final bind.

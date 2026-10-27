@@ -7,11 +7,31 @@
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
 #include <nlang/compiler/SnData.h>
+#include <nlang/compiler/GenericInstanceRegistry.h>
 
 namespace nlang {
 
 void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     GenerateBytecodeRecursive(root);
+    //Declared-generic instantiations are detached nodes — the tree walk
+    //above never reaches them. Their member records register through
+    //RegisterFunctions; their emission (native record fill, signature
+    //descriptors) runs here with the same body-or-native filter the
+    //tree walk applies.
+    ForEachDeclaredGenericInstance(m_currentUnitIdx,
+        [this](SnClassDecl& inst) {
+            for (auto& member : inst.Members())
+            {
+                if (member.Kind() != NK_Function)
+                    continue;
+                auto& func = static_cast<SnFunction&>(member);
+                if (!func.Body() && !func.ContainFlags(NF_Native))
+                    continue;
+                auto it = m_funcIndexMap.find(&func);
+                if (it != m_funcIndexMap.end())
+                    GenerateFunction(func, it->second);
+            }
+        });
     //Phase 5: entryPoint write-side close-out (definition in Register.cpp).
     ResolveEntryPoint(root);
 }

@@ -985,6 +985,28 @@ private:
 	//Consumed (cleared) by TryBindChannelCtorInvoke.
 	SnField *m_pCtorInvokeTarget = nullptr;
 
+	//Declared-generic machinery (`class Name<T, ...>`, registry in
+	//GenericInstanceRegistry.h): mint-or-fetch the synthetic
+	//instantiation of tmpl for typeArgs, member signatures deep-copied
+	//with placeholders substituted. ownerUnit selects the unit image the
+	//instantiation registers into.
+	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
+		const std::vector<SnField*>& typeArgs, uint32_t ownerUnit);
+	//Deep-copy one resolved type expression from a template signature,
+	//rebinding type-parameter placeholders to the instantiation's type
+	//arguments. Null = a shape the substitution does not carry (the
+	//minter rejects the member).
+	SnFieldExpr* SubstituteTypeExpr(SnFieldExpr& srcType,
+		const std::vector<SnField*>& typeArgs);
+	//Type-parameter placeholder binder for TryResolveBuiltinNameFallback:
+	//walks the identifier's ancestors for an enclosing generic
+	//declaration declaring this name as a type parameter. Rejected = the
+	//name is a type parameter referenced from a field member (fields
+	//share the VM layout across instantiations and cannot be generic).
+	enum class TypeParamBindResult { NotApplicable, Bound, Rejected };
+	TypeParamBindResult BindTypeParamPlaceholderIfAny(
+		SnIdentifierExpr& idExpr);
+
 	/*
 	2026-09-29 split of the collection-initializer resolution family
 	(ExprResolverInitList.cpp, out of ExprResolverNew.cpp at the

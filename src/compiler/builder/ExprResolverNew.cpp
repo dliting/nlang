@@ -12,6 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include "ModuleRegistry.h"
 #include <algorithm>
 #include <map>
@@ -218,6 +219,40 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 			return true;
 		}
 		return false;
+	}
+	//Declared-generic construction: the probe names the TEMPLATE; the
+	//instance comes from the assign-published target type (`Box<int> b
+	//= Box();` — the same channel the builtin Channel ctor uses).
+	if (pTypeDecl->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pTypeDecl)->IsGenericDeclaration())
+	{
+		auto &tmpl = static_cast<SnClassDecl&>(*pTypeDecl);
+		auto *pTarget = m_pCtorInvokeTarget;
+		m_pCtorInvokeTarget = nullptr;
+		auto *pTargetType = pTarget ? pTarget->EvalDataType() : nullptr;
+		auto *pInstance = (pTargetType
+			&& pTargetType->Kind() == NK_ClassDecl
+			&& static_cast<SnClassDecl*>(pTargetType)->IsGenericInstantiation()
+			&& DeclaredInstanceOf(
+				static_cast<SnClassDecl*>(pTargetType)) == &tmpl)
+			? static_cast<SnClassDecl*>(pTargetType) : nullptr;
+		if (!pInstance)
+		{
+			m_Env.Log(CLL_Error, snInvoke.Location(),
+				"generic class \"%s\" cannot be constructed by bare "
+				"name; declare a typed target like %s<...> v = %s();",
+				tmpl.Name().c_str(), tmpl.Name().c_str(),
+				tmpl.Name().c_str());
+			return true;
+		}
+		ResolveFieldExprAs(snInvoke, pInstance);
+		snInvoke.CtorClass(pInstance);
+		std::vector<SnExpression*> actuals;
+		for (auto &param : snInvoke.Params())
+			actuals.push_back(&param);
+		snInvoke.CtorFunction(SelectCtorForArgs(pInstance, actuals,
+			snInvoke.Location()));
+		return true;
 	}
 	//ResolveFieldExprAs carries the type in both Field() (member chains
 	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType

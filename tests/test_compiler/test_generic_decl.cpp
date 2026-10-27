@@ -135,6 +135,70 @@ private slots:
         QVERIFY2(anyErrorMentions(outcome.second, "get"),
             "diagnostic must name the offending method");
     }
+
+    //A declared generic instantiates: the member signatures substitute
+    //the type arguments (Box<int>.get() reads as int), and the class
+    //builds clean end to end.
+    void declGenericInstantiatesMembers()
+    {
+        const auto path = writeTempSource("generic_inst.n",
+            "class Box<T> {\n"
+            "    public native Box();\n"
+            "    public native T get();\n"
+            "    public native void set(T v);\n"
+            "}\n"
+            "int main() {\n"
+            "    Box<int> b = Box();\n"
+            "    int x = b.get();\n"
+            "    b.set(x);\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_inst", path);
+        QVERIFY2(outcome.first,
+            "declared generic instantiation must build clean");
+        QVERIFY2(outcome.second.empty(),
+            "no diagnostics expected for the instantiated generic");
+    }
+
+    //The type-argument count is checked against the declaration's
+    //parameter list.
+    void declGenericRejectsWrongArity()
+    {
+        const auto path = writeTempSource("generic_arity.n",
+            "class Box<T> {\n"
+            "    public native Box();\n"
+            "    public native T get();\n"
+            "}\n"
+            "int main() {\n"
+            "    Box<int, string> b = Box();\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_arity", path);
+        QVERIFY2(!outcome.first,
+            "wrong type-argument count must fail the build");
+        QVERIFY2(anyErrorMentions(outcome.second, "type argument"),
+            "diagnostic must name the type-argument count mismatch");
+    }
+
+    //A generic declaration used bare (no type arguments) is not a type:
+    //the diagnostic names the instantiation form.
+    void declGenericRejectsBareType()
+    {
+        const auto path = writeTempSource("generic_bare.n",
+            "class Box<T> {\n"
+            "    public native Box();\n"
+            "    public native T get();\n"
+            "}\n"
+            "int main() {\n"
+            "    Box b = Box();\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_bare", path);
+        QVERIFY2(!outcome.first,
+            "a bare generic declaration must not be usable as a type");
+        QVERIFY2(anyErrorMentions(outcome.second, "type argument"),
+            "diagnostic must point at the missing type arguments");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGenericDecl)

@@ -12,6 +12,7 @@
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/compiler/TranslationUnit.h>
 #include <nlang/compiler/Logger.h>
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/runtime/NodeConsts.h>
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
@@ -369,6 +370,18 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         //visible winner; same rule as the class sites).
         if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
             return;
+        //A generic declaration is a signature-surface template: only its
+        //instantiations' member copies register. Under erasure naming the
+        //template member and the instance member share one key, so a
+        //template record would both collide with the instance's and drag
+        //its placeholder-typed signature into signature-descriptor
+        //emission (whose leaf resolvers expect registered classes).
+        {
+            auto* pParent = func.Parent();
+            if (pParent && pParent->Kind() == NK_ClassDecl
+                && static_cast<SnClassDecl*>(pParent)->IsGenericDeclaration())
+                return;
+        }
         //Phase 9f: native declarations register like normal functions
         //(the record carries isNative + param signature); a body-less
         //non-native declaration gets no record.
@@ -379,6 +392,25 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
         cf.sourceFile = SourceFilePathOf(func);
         m_compiledModule.functions.push_back(std::move(cf));
         m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+    });
+    //Declared-generic instantiation members: the signature copies
+    //register like any native member so the method tables and direct
+    //call sites can index them. Each instantiation mints once, so the
+    //records are unique per unit image.
+    ForEachDeclaredGenericInstance(m_currentUnitIdx, [&](SnClassDecl& inst) {
+        for (auto& member : inst.Members())
+        {
+            if (member.Kind() != NK_Function)
+                continue;
+            auto& func = static_cast<SnFunction&>(member);
+            if (!func.Body() && !func.ContainFlags(NF_Native))
+                continue;
+            CompiledFunction cf;
+            cf.name = KeyOf(func);
+            cf.sourceFile = SourceFilePathOf(func);
+            m_compiledModule.functions.push_back(std::move(cf));
+            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+        }
     });
 }
 
