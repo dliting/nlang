@@ -6,6 +6,25 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.21] - 2026-10-27
+
+### Added
+
+- **`ReentrantMutex` — the declared reentrant companion to `Mutex`** —
+  the owning context's `lock()`/`tryLock()` increment a per-owner hold
+  count and never park; `unlock()` decrements and releases only at
+  zero, handing the FIFO-front waiter a fresh count of 1. This removes
+  the easiest `Mutex` trap: composed methods (a public method locking
+  the same lock a callee also locks) and recursive locking bodies
+  self-deadlock a plain `Mutex` but complete cleanly here — the
+  Python `threading.RLock` / Java `ReentrantLock` model. The plain
+  `Mutex` keeps its non-reentrant rules (its self-relock deadlock
+  report stays a useful design-bug signal); contended parking reuses
+  the same Sync-domain handshake, stamped-waiter discipline and
+  deadlock guard, with no new park reason. Declared in the prelude
+  package like the other handle classes — no import. Manual page
+  (zh+en) covers the choice guide, composition and recursion shapes.
+
 ## [0.10.20] - 2026-10-27
 
 ### Fixed

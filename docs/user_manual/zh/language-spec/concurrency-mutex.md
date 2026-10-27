@@ -8,7 +8,7 @@
 
 ## 锁
 
-`Mutex`是不可重入互斥体：持有期间再次`lock`会永久挂起（见[死锁报告](concurrency-suspension.md#主退出策略与死锁报告)）。
+`Mutex`是不可重入互斥体：持有期间再次`lock`会永久挂起（见[死锁报告](concurrency-suspension.md#主退出策略与死锁报告)）——方法组合或递归场景请用[ReentrantMutex](concurrency-reentrant-mutex.md)。
 
 | 成员 | 语义 |
 |---|---|

@@ -240,7 +240,9 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
-  deadlock report. See [Mutex](concurrency-mutex.md).
+  deadlock report; composed or recursive methods take
+  [ReentrantMutex](concurrency-reentrant-mutex.md). See
+  [Mutex](concurrency-mutex.md).
 
 - **Concurrency: no suspension inside re-entrant evaluation**: inside
   re-entrant evaluation — your `toString` override called while an

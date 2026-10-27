@@ -90,7 +90,7 @@
 
 - **并发：派生线程的失败只经`join`浮出**：未捕获异常不传播给宿主或main——失败上下文被遏制，`join`它的上下文收到原异常对象的重抛；没有等待者时失败无声。
 
-- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告。见[Mutex](concurrency-mutex.md)。
+- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](concurrency-reentrant-mutex.md)。见[Mutex](concurrency-mutex.md)。
 
 - **并发：重入求值内不能挂起**：把对象转字符串时调用`toString`覆写、嵌入宿主经`call()`执行脚本等重入求值内，`yield`/`sleep`/未完成的`join`/未完成的`Future.get`/竞争中的`lock`/零许可`acquire`/空通道`recv`/有界通道满时的`send`/`spawn`一律以"cannot suspend"运行期错误拒绝。阻塞原生调用不受此限：发起调用的虚拟线程挂起并放锁，等待期间其他载体照常运行。
 

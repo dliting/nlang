@@ -6,6 +6,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.21] - 2026-10-27
+
+### 新增
+
+- **`ReentrantMutex`——`Mutex`的可重入对位声明类**——持有上下文的
+  `lock()`/`tryLock()`递增每持有者的持有计数，绝不停泊；`unlock()`
+  递减、归零才释放，队首等待者以全新计数1接手。这消除了`Mutex`最容
+  易踩的坑：方法组合（公共方法与它调用的方法加同一把锁）与递归加锁
+  在普通`Mutex`上是自死锁，在这里干净完成——即Python
+  `threading.RLock`与Java`ReentrantLock`的持有计数模型。普通`Mutex`
+  保持不可重入规则（其自重锁死锁报告仍是设计缺陷信号）；竞争停泊
+  复用同一Sync域握手、stamped等待者纪律与死锁守卫，不新增park
+  reason。与其他句柄类一样声明于预置包——无需import。手册新页
+  （中英成对）覆盖选择指引、组合与递归两形态。
+
 ## [0.10.20] - 2026-10-27
 
 ### 修复

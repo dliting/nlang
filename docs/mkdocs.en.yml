@@ -80,6 +80,7 @@ nav:
           - Future: language-spec/concurrency-future.md
           - Mutex: language-spec/concurrency-mutex.md
           - Semaphore: language-spec/concurrency-semaphore.md
+          - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
           - Channel: language-spec/concurrency-channel.md
           - The concurrent Package: language-spec/concurrency-concurrent.md
           - Suspension and Scheduling Limits: language-spec/concurrency-suspension.md

@@ -24,4 +24,4 @@
 
 ## 重入求值内的限制
 
-虚拟机有时会在操作中途重新进入你的代码——把对象转成字符串时调用你的`toString`覆写、嵌入宿主经`call()`执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部不能挂起：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、缓冲已满的有界通道`send`一律以运行期错误拒绝（消息含`cannot suspend`），`thread.spawn`同样拒绝。见[嵌入NLang](../libraries/embedding-api.md)。
+虚拟机有时会在操作中途重新进入你的代码——把对象转成字符串时调用你的`toString`覆写、嵌入宿主经`call()`执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部不能挂起：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、缓冲已满的有界通道`send`一律以运行期错误拒绝（消息含`cannot suspend`），`thread.spawn`同样拒绝。字符串拼接表达式（`"x" + obj`）对类操作数的隐式`toString`调用编译为普通方法调用，不在重入求值之列。见[嵌入NLang](../libraries/embedding-api.md)。
