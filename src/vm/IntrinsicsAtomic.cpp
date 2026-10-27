@@ -16,6 +16,59 @@
 
 namespace nlang {
 
+//0.10.22 dispatcher: the ReentrantMutex (0.10.21), Semaphore and
+//AtomicInt families' ids route here from ExecuteIntrinsicSync's
+//default arm (one forward keeps the caller's switch under the 50-line
+//function budget). Unknown ids return false — the caller surfaces the
+//unknown-intrinsic error.
+bool VmExecutor::ExecuteIntrinsicAtomic(uint16_t intrinsicId,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    switch (intrinsicId)
+    {
+    case INTR_ReentrantMutex_Ctor:
+        return IntrinsicReentrantMutexCtor(callParamBase, locals);
+    case INTR_ReentrantMutex_Lock:
+        return IntrinsicReentrantMutexLock(callParamBase, locals);
+    case INTR_ReentrantMutex_Unlock:
+        return IntrinsicReentrantMutexUnlock(callParamBase, locals);
+    case INTR_ReentrantMutex_TryLock:
+        return IntrinsicReentrantMutexTryLock(callParamBase, locals,
+                                              pResult);
+    case INTR_Semaphore_Ctor:
+        return IntrinsicSemaphoreCtor(callParamBase, locals);
+    case INTR_Semaphore_Acquire:
+        return IntrinsicSemaphoreAcquire(callParamBase, locals);
+    case INTR_Semaphore_Release:
+        return IntrinsicSemaphoreRelease(callParamBase, locals);
+    case INTR_Semaphore_TryAcquire:
+        return IntrinsicSemaphoreTryAcquire(callParamBase, locals, pResult);
+    case INTR_AtomicInt_Ctor:
+        return IntrinsicAtomicIntCtor(callParamBase, locals);
+    case INTR_AtomicInt_Load:
+        return IntrinsicAtomicIntLoad(callParamBase, locals, pResult);
+    case INTR_AtomicInt_Store:
+        return IntrinsicAtomicIntStore(callParamBase, locals);
+    case INTR_AtomicInt_GetAndSet:
+        return IntrinsicAtomicIntGetAndSet(callParamBase, locals, pResult);
+    case INTR_AtomicInt_CompareExchange:
+        return IntrinsicAtomicIntCompareExchange(callParamBase, locals,
+                                                 pResult);
+    case INTR_AtomicInt_GetAndAdd:
+        return IntrinsicAtomicIntGetAndAdd(callParamBase, locals, pResult);
+    case INTR_AtomicInt_AddAndGet:
+        return IntrinsicAtomicIntAddAndGet(callParamBase, locals, pResult);
+    case INTR_AtomicInt_IncrementAndGet:
+        return IntrinsicAtomicIntIncrementAndGet(callParamBase, locals,
+                                                 pResult);
+    case INTR_AtomicInt_GetAndIncrement:
+        return IntrinsicAtomicIntGetAndIncrement(callParamBase, locals,
+                                                 pResult);
+    default:
+        return false;
+    }
+}
+
 //ctor: materialize the side-table slot and write the handle into
 //__handle (the Semaphore shape). The declaration's default parameter
 //(`int initial = 0`) guarantees the argument slot is staged at the

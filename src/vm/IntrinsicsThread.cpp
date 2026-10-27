@@ -117,30 +117,6 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
         case INTR_ReentrantMutex_TryLock:
             return IntrinsicReentrantMutexTryLock(callParamBase, locals,
                                                   pResult);
-        case INTR_AtomicInt_Ctor:
-            return IntrinsicAtomicIntCtor(callParamBase, locals);
-        case INTR_AtomicInt_Load:
-            return IntrinsicAtomicIntLoad(callParamBase, locals, pResult);
-        case INTR_AtomicInt_Store:
-            return IntrinsicAtomicIntStore(callParamBase, locals);
-        case INTR_AtomicInt_GetAndSet:
-            return IntrinsicAtomicIntGetAndSet(callParamBase, locals,
-                                               pResult);
-        case INTR_AtomicInt_CompareExchange:
-            return IntrinsicAtomicIntCompareExchange(callParamBase, locals,
-                                                     pResult);
-        case INTR_AtomicInt_GetAndAdd:
-            return IntrinsicAtomicIntGetAndAdd(callParamBase, locals,
-                                               pResult);
-        case INTR_AtomicInt_AddAndGet:
-            return IntrinsicAtomicIntAddAndGet(callParamBase, locals,
-                                               pResult);
-        case INTR_AtomicInt_IncrementAndGet:
-            return IntrinsicAtomicIntIncrementAndGet(callParamBase, locals,
-                                                     pResult);
-        case INTR_AtomicInt_GetAndIncrement:
-            return IntrinsicAtomicIntGetAndIncrement(callParamBase, locals,
-                                                     pResult);
         case INTR_Channel_Ctor:
             return IntrinsicChannelCtor(callParamBase, locals);
         case INTR_Channel_Send:
@@ -149,17 +125,13 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
             return IntrinsicChannelRecv(callParamBase, locals, pResult);
         case INTR_Channel_Close:
             return IntrinsicChannelClose(callParamBase, locals);
-        case INTR_Semaphore_Ctor:
-            return IntrinsicSemaphoreCtor(callParamBase, locals);
-        case INTR_Semaphore_Acquire:
-            return IntrinsicSemaphoreAcquire(callParamBase, locals);
-        case INTR_Semaphore_Release:
-            return IntrinsicSemaphoreRelease(callParamBase, locals);
-        case INTR_Semaphore_TryAcquire:
-            return IntrinsicSemaphoreTryAcquire(callParamBase, locals,
-                                                pResult);
         default:
-            return false;
+            //0.10.21/0.10.22: the ReentrantMutex, Semaphore and
+            //AtomicInt families route through the shared Sync-family
+            //dispatcher (IntrinsicsAtomic.cpp) — keeps this switch
+            //under the 50-line function budget.
+            return ExecuteIntrinsicAtomic(intrinsicId, callParamBase,
+                                          locals, pResult);
         }
     }
     catch (DeferredNlangRaise& r)

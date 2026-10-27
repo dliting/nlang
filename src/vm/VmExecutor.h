@@ -1122,6 +1122,10 @@ private:
                                            uint8_t* locals, uint8_t* pResult);
     bool IntrinsicAtomicIntGetAndIncrement(uint16_t callParamBase,
                                            uint8_t* locals, uint8_t* pResult);
+    //The family's dispatcher — ExecuteIntrinsicSync's default arm
+    //forwards here (IntrinsicsAtomic.cpp); false = unknown id.
+    bool ExecuteIntrinsicAtomic(uint16_t intrinsicId, uint16_t callParamBase,
+                                uint8_t* locals, uint8_t* pResult);
     //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
     //(free-list pop + growth are structure writes; reentrant for
     //already-inside callers). The handle read is heap-side (lock-free —
