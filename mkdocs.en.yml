@@ -57,6 +57,7 @@ nav:
       - The tensor Package: specification/18-tensor.md
       - Library Exceptions: specification/19-library-exceptions.md
       - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
+      - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
