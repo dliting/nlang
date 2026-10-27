@@ -44,6 +44,7 @@ add_library(nlang_vm
     IntrinsicsChannel.cpp
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
+    IntrinsicsAtomic.cpp
     backend/VmBackend.cpp
     backend/BindingTable.cpp
     backend/GenerateUnits.cpp

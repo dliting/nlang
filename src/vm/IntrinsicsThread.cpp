@@ -117,6 +117,30 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
         case INTR_ReentrantMutex_TryLock:
             return IntrinsicReentrantMutexTryLock(callParamBase, locals,
                                                   pResult);
+        case INTR_AtomicInt_Ctor:
+            return IntrinsicAtomicIntCtor(callParamBase, locals);
+        case INTR_AtomicInt_Load:
+            return IntrinsicAtomicIntLoad(callParamBase, locals, pResult);
+        case INTR_AtomicInt_Store:
+            return IntrinsicAtomicIntStore(callParamBase, locals);
+        case INTR_AtomicInt_GetAndSet:
+            return IntrinsicAtomicIntGetAndSet(callParamBase, locals,
+                                               pResult);
+        case INTR_AtomicInt_CompareExchange:
+            return IntrinsicAtomicIntCompareExchange(callParamBase, locals,
+                                                     pResult);
+        case INTR_AtomicInt_GetAndAdd:
+            return IntrinsicAtomicIntGetAndAdd(callParamBase, locals,
+                                               pResult);
+        case INTR_AtomicInt_AddAndGet:
+            return IntrinsicAtomicIntAddAndGet(callParamBase, locals,
+                                               pResult);
+        case INTR_AtomicInt_IncrementAndGet:
+            return IntrinsicAtomicIntIncrementAndGet(callParamBase, locals,
+                                                     pResult);
+        case INTR_AtomicInt_GetAndIncrement:
+            return IntrinsicAtomicIntGetAndIncrement(callParamBase, locals,
+                                                     pResult);
         case INTR_Channel_Ctor:
             return IntrinsicChannelCtor(callParamBase, locals);
         case INTR_Channel_Send:

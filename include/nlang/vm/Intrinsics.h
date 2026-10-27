@@ -186,5 +186,18 @@ static constexpr uint16_t INTR_ReentrantMutex_Ctor    = 149;
 static constexpr uint16_t INTR_ReentrantMutex_Lock    = 150;
 static constexpr uint16_t INTR_ReentrantMutex_Unlock  = 151;
 static constexpr uint16_t INTR_ReentrantMutex_TryLock = 152;
+//0.10.22: native AtomicInt — the receiver-dispatched family shape
+//(slot 0 = this; int args start at callParamBase + kFrameSlotBytes).
+//Single ctor: `int initial = 0` rides the default-parameter staging,
+//so one id serves both arities.
+static constexpr uint16_t INTR_AtomicInt_Ctor            = 153;
+static constexpr uint16_t INTR_AtomicInt_Load            = 154;
+static constexpr uint16_t INTR_AtomicInt_Store           = 155;
+static constexpr uint16_t INTR_AtomicInt_GetAndSet       = 156;
+static constexpr uint16_t INTR_AtomicInt_CompareExchange = 157;
+static constexpr uint16_t INTR_AtomicInt_GetAndAdd       = 158;
+static constexpr uint16_t INTR_AtomicInt_AddAndGet       = 159;
+static constexpr uint16_t INTR_AtomicInt_IncrementAndGet = 160;
+static constexpr uint16_t INTR_AtomicInt_GetAndIncrement = 161;
 
 }  // namespace nlang

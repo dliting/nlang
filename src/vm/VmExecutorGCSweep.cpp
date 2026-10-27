@@ -99,6 +99,13 @@ void VmExecutor::RecycleClassContainerHandles(size_t i) {
         if (handle > 0)
             m_rmutexFreeList.push_back(handle);
     }
+    //0.10.22: recycle AtomicInt handle when an instance is freed (the
+    //value is a plain int — no rooting, same recycling discipline).
+    if (static_cast<int16_t>(classIdx) == m_atomicClassIdx) {
+        int32_t handle = m_structHeap[i][kListHandleFieldOffset];
+        if (handle > 0)
+            m_atomicFreeList.push_back(handle);
+    }
 }
 
 void VmExecutor::FreeOwnedStructs(int32_t heapIdx) {

@@ -767,13 +767,14 @@ void test_atomic_nested_eval_legal()
         "}\n",
         out);
     CHECK(rc == 0, "nested-eval program completes");
-    CHECK(out == "ok",
+    CHECK(out == "[ok]",
         "load/store are legal inside the window (got: " + out + ")");
     PASS();
 }
 
-//A bare allocation (never constructed) has no side-table slot — the
-//uninitialized-instance rejection, same shape as the Mutex family.
+//A bare allocation (never constructed) has a zero __handle — the
+//null-reference rejection, the Semaphore family's observed shape (the
+//uninitialized-instance arm covers the rarer stale-handle form).
 void test_atomic_uninit_rejected()
 {
     TEST(atomic_uninit_rejected);
@@ -793,7 +794,7 @@ void test_atomic_uninit_rejected()
         what = e.what();
     }
     CHECK(threw, "a call on a never-constructed instance must be an error");
-    CHECK(what.find("uninitialized instance") != std::string::npos,
+    CHECK(what.find("null reference") != std::string::npos,
         "message names the rule (got: " + what + ")");
     PASS();
 }

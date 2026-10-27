@@ -71,6 +71,8 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
                             "Semaphore", &m_semaphoreClassIdx);
     ResetContainerSideTable(m_rmutexStore, m_rmutexFreeList, module,
                             "ReentrantMutex", &m_rmutexClassIdx);
+    ResetContainerSideTable(m_atomicStore, m_atomicFreeList, module,
+                            "AtomicInt", &m_atomicClassIdx);
     CacheBuiltinClassIndexes(module);
 }
 

@@ -49,6 +49,17 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "ReentrantMutex.lock",    INTR_ReentrantMutex_Lock},
     {"builtins", "ReentrantMutex.unlock",  INTR_ReentrantMutex_Unlock},
     {"builtins", "ReentrantMutex.tryLock", INTR_ReentrantMutex_TryLock},
+    //0.10.22: AtomicInt — the declared atomic-integer family. One ctor
+    //id: the declaration's default parameter stages the omitted arg.
+    {"builtins", "AtomicInt",                   INTR_AtomicInt_Ctor},
+    {"builtins", "AtomicInt.load",              INTR_AtomicInt_Load},
+    {"builtins", "AtomicInt.store",             INTR_AtomicInt_Store},
+    {"builtins", "AtomicInt.getAndSet",         INTR_AtomicInt_GetAndSet},
+    {"builtins", "AtomicInt.compareExchange",   INTR_AtomicInt_CompareExchange},
+    {"builtins", "AtomicInt.getAndAdd",         INTR_AtomicInt_GetAndAdd},
+    {"builtins", "AtomicInt.addAndGet",         INTR_AtomicInt_AddAndGet},
+    {"builtins", "AtomicInt.incrementAndGet",   INTR_AtomicInt_IncrementAndGet},
+    {"builtins", "AtomicInt.getAndIncrement",   INTR_AtomicInt_GetAndIncrement},
     //Cluster 2 (Exception family): declared in stdlib/builtins.n, one
     //ctor row each. The VM raise paths keep their by-name class caches;
     //only the ctor call channel is stamped here.
@@ -94,6 +105,7 @@ const char* const s_HandleClassNames[] = {
     "ByteStream", "FileStream", "List", "Dict", "Thread",
     "Mutex", "Channel", "Future", "Semaphore",
     "ReentrantMutex",
+    "AtomicInt",
 };
 
 bool IsHandleClassName(const std::string& className)

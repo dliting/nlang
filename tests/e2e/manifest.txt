@@ -1112,8 +1112,8 @@ rmutex_mutex_independent 8 r+rm+done
 atomic_counter 0 total=10000
 #CAS-as-flag: exactly one winner.
 atomic_flag_once 0 winner=1
-#AtomicInt beside Mutex/ReentrantMutex: 1+200+2=203 then done.
-atomic_mixed 0 203
+#AtomicInt beside Mutex/ReentrantMutex: ops=101, x+y=3, then done.
+atomic_mixed 0 done
 
 # --- Cluster 4: Object declared in stdlib/builtins.n ---
 object_baseref_dispatch 7

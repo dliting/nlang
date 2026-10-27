@@ -41,7 +41,9 @@ int main() {
     Thread b = thread.spawn(s.composed);
     thread.join(a);
     thread.join(b);
-    io.print(s.ops.load() + s.x + s.y);
+    //ops: 1 (pairUpdate) + 100 (composed) = 101; x==1, y==2.
+    io.print(s.ops.load());
+    io.print(s.x + s.y);
     io.print("done");
     return 0;
 }

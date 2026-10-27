@@ -1102,6 +1102,26 @@ private:
     bool IntrinsicReentrantMutexUnlock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicReentrantMutexTryLock(uint16_t callParamBase,
                                         uint8_t* locals, uint8_t* pResult);
+    //0.10.22: the AtomicInt family — no park paths anywhere; the
+    //sync-category lock serializes every read-modify-write. Value
+    //returners memcpy the full frame slot to pResult.
+    struct AtomicSlot;   //defined beside the side-table members below
+    bool IntrinsicAtomicIntCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicAtomicIntLoad(uint16_t callParamBase, uint8_t* locals,
+                                uint8_t* pResult);
+    bool IntrinsicAtomicIntStore(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicAtomicIntGetAndSet(uint16_t callParamBase, uint8_t* locals,
+                                     uint8_t* pResult);
+    bool IntrinsicAtomicIntCompareExchange(uint16_t callParamBase,
+                                           uint8_t* locals, uint8_t* pResult);
+    bool IntrinsicAtomicIntGetAndAdd(uint16_t callParamBase, uint8_t* locals,
+                                     uint8_t* pResult);
+    bool IntrinsicAtomicIntAddAndGet(uint16_t callParamBase, uint8_t* locals,
+                                     uint8_t* pResult);
+    bool IntrinsicAtomicIntIncrementAndGet(uint16_t callParamBase,
+                                           uint8_t* locals, uint8_t* pResult);
+    bool IntrinsicAtomicIntGetAndIncrement(uint16_t callParamBase,
+                                           uint8_t* locals, uint8_t* pResult);
     //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
     //(free-list pop + growth are structure writes; reentrant for
     //already-inside callers). The handle read is heap-side (lock-free —
@@ -1116,6 +1136,10 @@ private:
     int32_t AllocRMutexHandle();
     RMutexSlot* SyncRMutexSlotAt(int32_t handle);
     void ConsumeRMutexParkStamp(int32_t handle, int selfId);
+    //0.10.22: the AtomicInt side-table helpers (same contracts; no
+    //park-stamp consumer — nothing parks).
+    int32_t AllocAtomicHandle();
+    AtomicSlot* SyncAtomicSlotAt(int32_t handle);
     //K8: the recheck half of the mutex handshake — commit a kPending
     //entry (RequestPark follows, [[noreturn]]) or consume a kAcquired
     //stamp (the caller aborts the migration).
@@ -1825,6 +1849,17 @@ private:
     std::vector<RMutexSlot> m_rmutexStore;     //index = handle-1 (0 reserved for null)
     std::vector<int32_t>    m_rmutexFreeList;  //recycled slots after GC sweep
     int16_t m_rmutexClassIdx = -1;             //set when "ReentrantMutex" CompiledClass is located
+
+    //0.10.22: AtomicInt side table. Plain int32 value — the
+    //sync-category lock serializes every read-modify-write across
+    //carriers (std::atomic is neither copyable nor movable, which the
+    //store's growth/reuse paths require; and the lock makes it moot).
+    struct AtomicSlot {
+        int32_t value = 0;
+    };
+    std::vector<AtomicSlot> m_atomicStore;     //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>    m_atomicFreeList;  //recycled slots after GC sweep
+    int16_t m_atomicClassIdx = -1;             //set when "AtomicInt" CompiledClass is located
 
     //P2-1 (v0.10.17): Semaphore side table. count = available permits;
     //waiters are the FIFO parked acquirers (SyncWaiter, shared with the
