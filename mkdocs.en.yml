@@ -50,6 +50,7 @@ nav:
       - Concurrency: specification/11-concurrency.md
       - Packages: specification/12-packages.md
       - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
+      - The math Package: specification/14-math.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

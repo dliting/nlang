@@ -1,5 +1,7 @@
 # math — 25 functions
 
+The normative rules are in [specification §14.2–§14.5](../specification/14-math.md).
+
 The floating-point function family all runs at **double** precision:
 parameters and return values are `double`; integer and
 `float` arguments enter via implicit widening (`math.sqrt(4)` and

@@ -18,3 +18,4 @@ en/specification/10-execution-model.md
 en/specification/11-concurrency.md
 en/specification/12-packages.md
 en/specification/13-builtin-classes.md
+en/specification/14-math.md

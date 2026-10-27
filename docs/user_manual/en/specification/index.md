@@ -39,7 +39,7 @@ before they land here.
 ### Part II — The Standard Library
 
 - [13. Built-in Classes and Library Conventions](13-builtin-classes.md)
-- 14. `std.math` *(planned)*
+- [14. The `math` Package](14-math.md)
 - 15. `std.io` and Streams *(planned)*
 - 16. `std.fs` *(planned)*
 - 17. Concurrency Library *(planned)*
