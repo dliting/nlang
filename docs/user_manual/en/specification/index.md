@@ -43,7 +43,7 @@ before they land here.
 - [15. The io Package and Streams](15-io-streams.md)
 - [16. The fs Package](16-fs.md)
 - [17. The Concurrency Library](17-concurrency-library.md)
-- 18. `std.tensor` *(planned)*
+- [18. The tensor Package](18-tensor.md)
 - 19. Library Exceptions *(planned)*
 
 ### Part III — Binary Formats

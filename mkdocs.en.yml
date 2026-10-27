@@ -54,6 +54,7 @@ nav:
       - The io Package and Streams: specification/15-io-streams.md
       - The fs Package: specification/16-fs.md
       - The Concurrency Library: specification/17-concurrency-library.md
+      - The tensor Package: specification/18-tensor.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

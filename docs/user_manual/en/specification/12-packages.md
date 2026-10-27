@@ -108,7 +108,7 @@ directory. Both directories are system-default search entries
 configuration.
 
 Standard library packages are imported like any other (§3.3);
-chapter 17 describes the units they hold. The classes the
+chapters 14–18 describe the units they hold. The classes the
 implementation provides itself — the built-in value, container
 and handle classes of chapters 4, 8 and 11 — need no import.
 
