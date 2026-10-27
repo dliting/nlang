@@ -144,8 +144,9 @@ The standard library follows one surface convention.
   are a single uppercase letter; `main` is lowercase (§3.2).
 - A pure accessor may carry a `get` prefix (`getHashCode`); the
   prevailing style is the bare name (`length`, `count`, `keys`).
-  Predicates carry no `is` or `has` prefix (`contains`,
-  `startsWith`, `exists`).
+  Methods of the built-in classes name predicates bare
+  (`contains`, `startsWith`, `containsKey`); package functions
+  may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
   of §9.3; the library declares no exception classes of its own.
   Chapter 19 maps each library operation to the class it raises.

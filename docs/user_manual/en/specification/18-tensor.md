@@ -100,7 +100,8 @@ cannot advance toward `stop`, raises `Exception`. A length or
 shape mismatch in a two-operand kernel, a `reshape` shape whose
 length misses the target rank or whose product misses the
 element count, and `max`, `min` or `mean` on an empty array all
-raise `Exception`, naming both shapes or both counts.
+raise `Exception`; the shape and length mismatch messages name
+both sides.
 
 > Implementation note. Kernels read and write the array
 > payloads through pinned views, so one kernel call replaces an

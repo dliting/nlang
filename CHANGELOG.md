@@ -39,8 +39,26 @@ All notable changes to NLang are documented here. The format follows
   types, expressions, statements, functions and methods, object
   orientation, exceptions, execution model and memory semantics,
   concurrency, and packages and import search. Every citable clause
-  of the language proper (§0–§12) is now normative; the standard
-  library and binary-format chapters follow in later batches.
+  of the language proper (§0–§12) is now normative.
+- **Language specification Part II** — the specification gains the
+  seven standard library chapters: built-in classes and library
+  conventions, the math package, the io package and streams, the
+  fs package, the concurrency library, the tensor package, and the
+  library exception map. Every citable clause of the standard
+  library (§13–§19) is now normative; the binary-format chapters
+  follow in a later batch.
+
+### Fixed
+
+- **Floating-point division by −0.0** — the zero-divisor check now
+  uses IEEE equality for the floating-point kinds, so `x / y` and
+  `x % y` raise `DivByZeroException` for a −0.0 divisor as well as
+  for +0.0 (the byte-wise check missed the sign-only bit pattern
+  and −0.0 division silently produced IEEE −inf).
+- **`tensor.dot` length mismatch message** — the message now
+  names both operand lengths (`tensor: length mismatch (3 vs
+  8)`), matching the shape and length mismatch messages
+  elsewhere in the package.
 
 ## [0.11.5] - 2026-10-26
 

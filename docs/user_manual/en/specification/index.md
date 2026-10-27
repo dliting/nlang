@@ -39,7 +39,7 @@ before they land here.
 ### Part II — The Standard Library
 
 - [13. Built-in Classes and Library Conventions](13-builtin-classes.md)
-- [14. The `math` Package](14-math.md)
+- [14. The math Package](14-math.md)
 - [15. The io Package and Streams](15-io-streams.md)
 - [16. The fs Package](16-fs.md)
 - [17. The Concurrency Library](17-concurrency-library.md)

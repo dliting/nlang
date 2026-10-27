@@ -67,7 +67,8 @@ calling context parks and the carrier lock is released while
 the call waits.
 
 - `io.hasInput()` returns `true` when input remains to be read
-  and `false` at end of input. It never raises.
+  and `false` at end of input. It never raises. With no input
+  channel it returns `true` until a read raises `IOException`.
 - `io.readLine()` returns the next line without its terminator;
   a trailing carriage return is stripped. At end of input it
   returns `""`: an empty line and the end of input are not
@@ -76,11 +77,12 @@ the call waits.
 - `io.readToken()` returns the next whitespace-delimited token.
   At end of input it raises `IOException`; with no input
   channel likewise.
-- `io.readChar()` returns the next code point, decoded from the
-  input's Unicode Transformation Format (UTF-8) bytes. At end
-  of input it raises `IOException`; with no input channel
-  likewise. A byte sequence that is not valid UTF-8 raises
-  `Exception` (§9.3), not `IOException`.
+- `io.readChar()` returns the next non-whitespace code point,
+  decoded from the input's Unicode Transformation Format
+  (UTF-8) bytes; leading whitespace is skipped, as for
+  `readToken`. At end of input it raises `IOException`; with no
+  input channel likewise. A byte sequence that is not valid
+  UTF-8 raises `Exception` (§9.3), not `IOException`.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
   convert it with the matching string method (§13.3): end of
@@ -125,8 +127,10 @@ it and the program ends. The failure sites are an invalid mode,
 a failed open (including `"r"` on a missing file), access
 through a closed or invalid handle, a write to a read-only
 stream or a read from a write-only stream, a read past the end
-of the stream, and a struct or object read naming a type the
-program does not declare.
+of the stream, a struct or object read naming a type the
+program does not declare, and a struct or class value with an
+array or function-typed field written by `writeStruct` or
+`writeObject`.
 
 The method surface is identical except where noted:
 
@@ -144,12 +148,14 @@ The method surface is identical except where noted:
 | `reset()` | rewinds the cursor to 0 and clears the object-identity state; the buffer is kept (`ByteStream` only) |
 | `close()` | releases the buffer or the file handle; the handle becomes invalid |
 
-The scalar write methods accept an argument that reaches the
-slot type through the §4.12 widening: an `int` enters
-`writeLong` and a `float` enters `writeDouble`; a narrowing
-argument (a `double` to `writeFloat`, a `long` to `writeInt`)
-is a compile-time error, as is a `char` or `string` argument to
-a numeric method.
+The scalar write methods admit arguments by width. The 8-byte
+writers take any value §4.12 assigns implicitly to their slot
+type: an `int` enters `writeLong`, and a `float` or an integer
+enters `writeDouble`, the conversion applied at the call site.
+The 4-byte writers are exact: `writeInt` takes an integer of at
+most 32 bits, and `writeFloat` takes exactly a `float`. A
+rejected argument is a compile-time error, as is a `char` or
+`string` argument to a numeric method.
 
 A read consumes the stream in write order; reading past the end
 raises the host-level error rather than yielding a value. A
