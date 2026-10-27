@@ -82,7 +82,7 @@ All notable changes to NLang are documented here. The format follows
   earlier builds must be rebuilt (their stored checksums no
   longer verify).
 
-## [0.11.7]
+## [0.11.7] - 2026-10-28
 
 ### Added
 
