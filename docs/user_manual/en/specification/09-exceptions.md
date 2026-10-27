@@ -40,8 +40,8 @@ A *host-level* run-time error (§7.1) is not an exception: no
 define host-level failures name their sites — the call-depth
 bound (§7.1), a missing native function (§7.5), the unboxing and
 `null`-downcast failures of §5.5, an enumeration `toString()`
-beyond its member table (§4.5), and the concurrency failures of
-chapter 11.
+beyond its member table (§4.5), the `toString` nesting bound of
+§13.2, and the concurrency failures of chapter 11.
 
 ## 9.2 try / catch / finally
 

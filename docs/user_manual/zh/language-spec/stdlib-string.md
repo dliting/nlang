@@ -1,5 +1,7 @@
 # string方法——18个内建
 
+规范性规则见规范§13.2–§13.3。
+
 string接收者上的方法（`s.substring(1)`；字面量接收者亦可：`"abc".toUpper()`）。string方法清单如下。**字节语义**（Go/Lua模型）：length、substring与indexOf以字节偏移计；Unicode转换格式（UTF-8，Unicode Transformation Format）字节顺序等于码点序（因此关系比较良定义）；大小写转换仅美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）。按码点访问（`charAt`/`charCount`/`foreach char`）是在字节核心之上的码点层——见[字符串](string.md)「char桥接」。
 
 | 方法 | 签名 | 说明 |
