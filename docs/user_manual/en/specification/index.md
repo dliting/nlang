@@ -48,6 +48,6 @@ before they land here.
 
 ### Part III — Binary Formats
 
-- 20. The `.ncu` Unit Image *(planned)*
+- [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
 - 21. The `.npkg` Package Archive *(planned)*
 - 22. The Native Application Binary Interface (ABI) *(planned)*

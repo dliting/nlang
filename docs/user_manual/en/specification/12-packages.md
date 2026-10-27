@@ -62,7 +62,7 @@ file `a/b/c.n` under a search root. At compile time:
   the same name — whose declarations enter the build as stubs;
   a dotted path with no source in the build is a compile-time
   error, since external artifacts carry single-segment names
-  (§3.3, chapter 20).
+  (§3.3, §20.2).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies
