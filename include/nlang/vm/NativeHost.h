@@ -157,9 +157,10 @@ struct NativeHost {
     // v4 input side. readToken skips whitespace (across lines) and
     // returns the next token, or null at end of input — the host raises
     // before returning null, so natives treat null as defensive only.
-    // readChar decodes one full UTF-8 scalar; 0 = ok, 1 = end of input
-    // (host raised). hasInput never raises: 1 = a readLine would still
-    // produce a line.
+    // readChar decodes one full UTF-8 scalar; 0 = ok — at end of input
+    // or on invalid UTF-8 the host raises before returning, so natives
+    // never observe the 1. hasInput never raises: 1 = a readLine would
+    // still produce a line.
     const char* (*readToken)(NativeHost* self);
     int (*readChar)(NativeHost* self, uint32_t* outChar);
     int (*hasInput)(NativeHost* self);

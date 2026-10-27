@@ -17,12 +17,15 @@
 
 namespace nlang {
 
-//Stage-3 D3: true when any above-leaf entry is a plain expression -
-//neither a bracket row nor a brace list. Such literals take the
-//dynamic OP_AssembleArrayN arm (their shapes are runtime values).
-//Shared by the emitter dispatch and the walker's peak-depth mirror so
-//the two cannot drift. Brace lists count as non-expressions here: the
-//resolver rejects them with its own depth diagnostic.
+//Stage-3 D3: true when any above-leaf entry is not a bracket row -
+//a plain expression, or a brace-form row the resolver let through.
+//Such literals take the dynamic OP_AssembleArrayN arm (their shapes
+//are runtime values). Shared by the emitter dispatch and the walker's
+//peak-depth mirror so the two cannot drift. The resolver rejects
+//brace rows with its own depth diagnostic before emit sees one;
+//counting them here keeps the emitter total - the static arm's dims
+//walk cannot follow a brace row, and the dynamic arm emits any
+//resolved row literal as a row handle.
 bool VmBackend::NDInitListHasExpressionRow(SnInitListExpr &node,
     uint8_t aboveLeaf) {
     for (auto &entry : node.Entries()) {
@@ -33,7 +36,7 @@ bool VmBackend::NDInitListHasExpressionRow(SnInitListExpr &node,
                     *static_cast<SnInitListExpr *>(entry.pValue),
                     static_cast<uint8_t>(aboveLeaf - 1)))
                 return true;
-        } else if (entry.pValue->Kind() != NK_InitListExpr) {
+        } else {
             return true;
         }
     }
@@ -64,15 +67,18 @@ static bool CollectNDInitListDims(SnInitListExpr &node,
 //compile-time rectangular shape (nest depth == rank, equal row
 //widths), so the dims feed one OP_AllocArrayN and each leaf lands
 //through OP_StoreElementN at its constant row-major coordinate.
+//The dynamic dispatch runs before the array-type registration: the
+//dynamic arm registers the type itself, so a literal never registers
+//the same entry twice.
 void VmBackend::EmitInitListArrayND(SnInitListExpr &initList,
     SnArrayTypeToken &token, BytecodeEmitter &emitter,
     uint16_t resultOffset) {
     const uint8_t rank = token.Rank();
-    uint16_t arrayTypeIdx = RegisterArrayType(token.ElemTypeOf(), rank);
-    //An expression row means runtime shapes: dynamic arm.
+    //Expression rows mean runtime shapes: the dynamic arm owns them.
     if (NDInitListHasExpressionRow(initList, static_cast<uint8_t>(rank - 1)))
         return EmitInitListArrayNDynamic(initList, token, emitter,
                                          resultOffset);
+    uint16_t arrayTypeIdx = RegisterArrayType(token.ElemTypeOf(), rank);
     std::vector<int32_t> dims;
     if (!CollectNDInitListDims(initList, rank, dims)) {
         //Resolver breach: only bracket rows ride the static arm.

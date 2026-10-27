@@ -53,6 +53,29 @@ int main() {
     long[] lback = tensor.flatten(lm);
     if (lback.length() != 4 || lback[2] != 12) return 10;
 
+    // ranks 4..8: the declared rank must equal the rank the kernel
+    // mints (the reshape6/7/8 declaration commas once rode one rank
+    // high, and the VM aborted on the unregistered scalar array type)
+    int[,,,] d4 = tensor.reshape4(four, [2, 2, 1, 1]);
+    if (d4.shape()[2] != 1 || d4[1,1,0,0] != 4) return 12;
+    int[,,,,] d5 = tensor.reshape5(four, [1, 1, 2, 1, 2]);
+    if (d5[0,0,1,0,1] != 4) return 13;
+    int[] six = int[6];
+    for (int i = 0; i < 6; i += 1) {
+        six[i] = i + 1;
+    }
+    int[,,,,,] d6 = tensor.reshape6(six, [1, 1, 1, 1, 1, 6]);
+    if (d6.shape()[5] != 6 || d6[0,0,0,0,0,5] != 6) return 14;
+    int[,,,,,,] d7 = tensor.reshape7(six, [1, 1, 1, 1, 1, 1, 6]);
+    if (d7.shape()[6] != 6 || d7[0,0,0,0,0,0,5] != 6) return 15;
+    int[,,,,,,,] d8 = tensor.reshape8(six, [1, 1, 1, 1, 1, 1, 1, 6]);
+    if (d8.shape()[7] != 6 || d8[0,0,0,0,0,0,0,5] != 6) return 16;
+    // double kind cross-check: the comma fix applies to all four kinds,
+    // and one non-int row proves the pattern held across the family
+    double[] dsix = double[6];
+    double[,,,,,,,] d8d = tensor.reshape8(dsix, [1, 1, 1, 1, 1, 1, 1, 6]);
+    if (d8d.shape()[7] != 6) return 17;
+
     // element-count mismatch raises the base Exception and is catchable
     bool caught = false;
     try {

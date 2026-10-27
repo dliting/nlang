@@ -171,6 +171,16 @@ int main() {
         }
     }
 
+    //(6) Checksum known answers: the standard FNV-1a 64 vectors pin the
+    //offset basis and the prime (the basis once lost its last digit in
+    //this code, and the round-trip tests above cannot see that).
+    CHECK(NcuChecksum("", 0) == 0xcbf29ce484222325ull,
+          "FNV-1a 64 of the empty string");
+    CHECK(NcuChecksum("a", 1) == 0xaf63dc4c8601ec8cull,
+          "FNV-1a 64 of \"a\"");
+    CHECK(NcuChecksum("foobar", 6) == 0x85944171f73967e8ull,
+          "FNV-1a 64 of \"foobar\"");
+
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

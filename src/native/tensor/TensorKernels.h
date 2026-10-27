@@ -9,6 +9,7 @@ files include it.
 #include <nlang/vm/NativeHost.h>
 
 #include <cstdint>
+#include <string>
 
 namespace tensor {
 
@@ -18,6 +19,15 @@ namespace tensor {
 template <typename T>
 T* CellsOf(const NativeArrayView& v) {
     return static_cast<T*>(v.data);
+}
+
+//"2x3" style shape text for the mismatch messages (elementwise and
+//matmul raise with it).
+inline std::string ShapeText(const NativeArrayView& v) {
+    std::string text = std::to_string(v.dims[0]);
+    for (int32_t d = 1; d < v.rank; ++d)
+        text += "x" + std::to_string(v.dims[d]);
+    return text;
 }
 
 //--- creation entries (tensor_native.cpp) --------------------------------------

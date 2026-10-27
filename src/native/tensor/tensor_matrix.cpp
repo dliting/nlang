@@ -129,6 +129,12 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ArgArray(host, args, 1, &b);
     if (a.rank != 2 || b.rank != 2)
         Raise(host, NEXC_Base, "tensor.matmul: expects rank-2 operands");
+    //The language-side overloads keep the kinds equal; the gate guards
+    //the ABI surface (a mismatched pair would read b's cells through
+    //a's carrier and return garbage). Same message shape as the
+    //elementwise family.
+    if (a.elemKind != b.elemKind)
+        Raise(host, NEXC_Base, "tensor.matmul: element type mismatch");
     const int32_t aRows = a.dims[0];
     const int32_t aCols = a.dims[1];
     const int32_t bRows = b.dims[0];
@@ -136,9 +142,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     if (aCols != bRows) {
         Raise(host, NEXC_Base,
               std::string("tensor.matmul: shape mismatch (")
-                  + std::to_string(aRows) + "x" + std::to_string(aCols)
-                  + " vs " + std::to_string(bRows) + "x"
-                  + std::to_string(bCols) + ")");
+                  + ShapeText(a) + " vs " + ShapeText(b) + ")");
     }
     const int32_t outDims[2] = {aRows, bCols};
     const int32_t handle = NewArrayShaped(host, a.elemKind, 2, outDims);
