@@ -37,6 +37,18 @@ nav:
   - 规范:
       - 概览: specification/index.md
       - 引言: specification/00-introduction.md
+      - 词法结构: specification/01-lexical.md
+      - 语法: specification/02-grammar.md
+      - 程序结构与名称解析: specification/03-program-structure.md
+      - 类型: specification/04-types.md
+      - 表达式: specification/05-expressions.md
+      - 语句: specification/06-statements.md
+      - 函数与方法: specification/07-functions.md
+      - 面向对象: specification/08-object-orientation.md
+      - 异常: specification/09-exceptions.md
+      - 执行模型与内存语义: specification/10-execution-model.md
+      - 并发: specification/11-concurrency.md
+      - 包与导入查找: specification/12-packages.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
