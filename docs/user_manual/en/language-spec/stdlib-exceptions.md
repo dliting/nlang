@@ -1,5 +1,7 @@
 # Exception mapping
 
+The normative rules are in [specification §19.1–§19.2](../specification/19-library-exceptions.md).
+
 - **IOException**: `io.readFile`/`writeFile`/`appendFile` and every raising
   `fs.*` function; `io.readToken`/`readChar` and the typed readers at end
   of input (or in a session without stdin).

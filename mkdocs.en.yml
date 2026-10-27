@@ -55,6 +55,7 @@ nav:
       - The fs Package: specification/16-fs.md
       - The Concurrency Library: specification/17-concurrency-library.md
       - The tensor Package: specification/18-tensor.md
+      - Library Exceptions: specification/19-library-exceptions.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

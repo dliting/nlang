@@ -44,7 +44,7 @@ before they land here.
 - [16. The fs Package](16-fs.md)
 - [17. The Concurrency Library](17-concurrency-library.md)
 - [18. The tensor Package](18-tensor.md)
-- 19. Library Exceptions *(planned)*
+- [19. Library Exceptions](19-library-exceptions.md)
 
 ### Part III — Binary Formats
 
