@@ -41,7 +41,7 @@ before they land here.
 - [13. Built-in Classes and Library Conventions](13-builtin-classes.md)
 - [14. The `math` Package](14-math.md)
 - [15. The io Package and Streams](15-io-streams.md)
-- 16. `std.fs` *(planned)*
+- [16. The fs Package](16-fs.md)
 - 17. Concurrency Library *(planned)*
 - 18. `std.tensor` *(planned)*
 - 19. Library Exceptions *(planned)*

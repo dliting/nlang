@@ -52,6 +52,7 @@ nav:
       - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
       - The math Package: specification/14-math.md
       - The io Package and Streams: specification/15-io-streams.md
+      - The fs Package: specification/16-fs.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

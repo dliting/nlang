@@ -1,11 +1,13 @@
 # fs——名字、目录、元数据
 
+规范性规则见规范§16.1–§16.4。
+
 `fs`从不读写内容——内容属于`io`。这一划分是操作原则：io = 全部内容（控制台 + 磁盘文本），fs = 命名空间/目录/元数据。
 
 | 函数 | 签名 | 说明 |
 |----------|-----------|-------|
 | exists / isFile / isDirectory | (string) → bool | 从不抛错 |
-| size | (string) → int | 字节大小；仅普通文件；超过2 GiB → IOException |
+| size | (string) → int | 字节大小；仅普通文件；超出`int`值域 → IOException |
 | listFiles | (string) → List\<string\> | 仅名字，非递归，仅普通文件，按字典序排序 |
 | makeDirs | (string) → void | mkdir -p（幂等） |
 | remove | (string) → void | 文件或空目录 |
