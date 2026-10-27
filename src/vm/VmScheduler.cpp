@@ -76,6 +76,7 @@ int VmScheduler::RegisterParkedPromiseContext() {
     ExecutionContext ctx;
     ctx.id = id;
     ctx.state = ContextState::ParkedPromise;
+    ctx.unclassifiedResult = true;   //complete(T) values carry no RTK
     m_contexts.push_back(std::move(ctx));
     return id;
 }

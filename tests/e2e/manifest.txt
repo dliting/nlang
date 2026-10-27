@@ -1809,3 +1809,8 @@ sync_method_arity_reject compile_error
 imported_exception_subclass 49
 promise_basic 0 false
 user_shadow_promise compile_error
+promise_complete 0 42
+promise_double_complete 0 true false 1
+promise_complete_exceptional 0 promise exploded
+promise_reentrant_complete 0 re true 7
+promise_ref_gc 0 kept-7

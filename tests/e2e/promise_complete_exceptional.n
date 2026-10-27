@@ -1,0 +1,37 @@
+// completeExceptionally decides the promise as failed: get() rethrows
+// the ORIGINAL exception object (message comparison in the catch); an
+// unobserved exceptional completion surfaces in the run-end report
+// (the 0.10.20 unobserved-failure stderr line — asserted via .run.stderr).
+import thread;
+import io;
+
+class FailSource {
+    public Promise<string> p;
+    public void fire() {
+        p.completeExceptionally(Exception("promise exploded"));
+    }
+}
+
+int main() {
+    //Observed: main receives the original exception object back.
+    Promise<string> p = Promise();
+    Future<string> f = p.future();
+    FailSource src = FailSource();
+    src.p = p;
+    Thread t = thread.spawn(src.fire);
+    try {
+        string v = f.get();
+        io.print("no-throw");        // must not happen
+    } catch (Exception e) {
+        io.print(e.message);         // expect: promise exploded
+    }
+    thread.join(t);
+    //Unobserved: nobody ever awaits this one — the run-end report names
+    //the failed promise on stderr.
+    Promise<string> q = Promise();
+    FailSource src2 = FailSource();
+    src2.p = q;
+    Thread t2 = thread.spawn(src2.fire);
+    thread.join(t2);
+    return 0;
+}

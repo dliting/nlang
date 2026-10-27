@@ -1,0 +1,30 @@
+// Reentrant completion: complete() inside a toString override, fired
+// through the implicit string-conversion evaluation window. complete()
+// only transitions scheduler state and wakes waiters — it never parks,
+// so the nested window is legal (no "cannot suspend" rejection).
+import io;
+
+class Reentrant {
+    public Promise<int> p;
+    public bool ok;
+    public string toString() {
+        ok = p.complete(7);
+        return "re";
+    }
+}
+
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    Reentrant r = Reentrant();
+    r.p = p;
+    string t = r;            //implicit conversion window: toString runs
+    int v = f.get();
+    io.write(t);
+    io.write(" ");
+    io.write(r.ok);
+    io.write(" ");
+    io.write(v);
+    io.write("\n");
+    return 0;
+}

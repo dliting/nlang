@@ -1,0 +1,34 @@
+// First-wins: exactly one complete() succeeds. The spawn side fires at
+// ~300ms, main at ~500ms — the sleep margins order the two completion
+// attempts deterministically (assert-after-synchronize); the promise
+// keeps the first decision and get() returns the first value.
+import thread;
+import io;
+
+class Completer {
+    public Promise<int> p;
+    public bool ok;
+    public void fire() {
+        thread.sleep(300);
+        ok = p.complete(1);
+    }
+}
+
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    Completer c = Completer();
+    c.p = p;
+    Thread t = thread.spawn(c.fire);
+    thread.sleep(500);
+    bool late = p.complete(2);
+    int v = f.get();
+    io.write(c.ok);
+    io.write(" ");
+    io.write(late);
+    io.write(" ");
+    io.write(v);
+    io.write("\n");
+    thread.join(t);
+    return 0;
+}

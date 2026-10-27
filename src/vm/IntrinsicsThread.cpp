@@ -93,6 +93,18 @@ bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
             ? IntrinsicPromiseCtor(callParamBase, locals, pResult)
             : IntrinsicPromiseFuture(callParamBase, locals, pResult);
     }
+    case INTR_Promise_Complete:
+    case INTR_Promise_CompleteExceptionally:
+    {
+        //The guard spans the WHOLE call: the undecided check, the state
+        //transition, the result delivery and the wake form one atomic
+        //first-wins sequence (two racing completes order themselves).
+        GilEnsureGuard g(*this);
+        return intrinsicId == INTR_Promise_Complete
+            ? IntrinsicPromiseComplete(callParamBase, locals, pResult)
+            : IntrinsicPromiseCompleteExceptionally(callParamBase, locals,
+                                                    pResult);
+    }
     default:
         return ExecuteIntrinsicSync(intrinsicId, callParamBase, locals,
                                     pResult);

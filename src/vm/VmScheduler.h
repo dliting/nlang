@@ -169,6 +169,10 @@ struct ExecutionContext {
     //resultCell 不再被任何帧根覆盖，GC 的调度器根臂据本字段判定
     //resultCell 是否持引用域值（MarkFrameResult 同款判别）。
     uint8_t resultKind = 0;
+    //Promise 内部上下文专用：complete(T) 的值位来自擦除签名，VM 无从
+    //分类（spawn 的 returnTypeKind 快照在此不存在）。置位后 GC 根臂对
+    //resultCell 恒走保守双域测试（活上下文同款；至多过标）。
+    bool unclassifiedResult = false;
     //K3：get() 停泊者的取值目的地（调用点的 pResult 槽，指向停泊帧
     //localsBuf 内部——停泊期间帧整体驻留注册表，缓冲地址稳定）。
     //目标 Finished 时由 DeliverJoinResults 写入并清空；join 停泊者

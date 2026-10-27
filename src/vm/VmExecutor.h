@@ -1243,18 +1243,27 @@ private:
                                uint8_t* pResult);
     bool IntrinsicFutureGet(uint16_t callParamBase, uint8_t* locals,
                             uint8_t* pResult);
-    //Promise<T>: the born-parked completion source. The ctor registers a
-    //never-scheduled internal context and mints the handle over its id
-    //(same hidden-slot shape as Thread/Future); future() hands out a
-    //reader handle that resolves to the SAME context, so every Future
+    //Promise<T>: the born-parked completion source. The ctor follows the
+    //Semaphore protocol (the call site allocates the receiver; the ctor
+    //writes the internal context's id into its hidden __handle slot —
+    //same slot shape as Thread/Future); future() hands out a reader
+    //handle that resolves to the SAME context, so every Future
     //operation (isDone/get) works on the promise's decision state
-    //unchanged. complete()/completeExceptionally() arrive with the
-    //completion intrinsics.
-    int32_t MintPromiseObject(int ctxId);
+    //unchanged.
     bool IntrinsicPromiseCtor(uint16_t callParamBase, uint8_t* locals,
                               uint8_t* pResult);
     bool IntrinsicPromiseFuture(uint16_t callParamBase, uint8_t* locals,
                                 uint8_t* pResult);
+    //complete(T value): first-wins transition of the born-parked context
+    //to Finished — the raw T bits land in the result cell, parked getters
+    //receive them and wake. completeExceptionally(Exception) transitions
+    //to Failed; parked getters rethrow the original exception object.
+    //Both return false on an already-decided promise.
+    bool IntrinsicPromiseComplete(uint16_t callParamBase, uint8_t* locals,
+                                  uint8_t* pResult);
+    bool IntrinsicPromiseCompleteExceptionally(uint16_t callParamBase,
+                                               uint8_t* locals,
+                                               uint8_t* pResult);
     //Rethrow a failed join target's original exception object (by heap
     //idx — same object, same raise-time backtrace). Shared by the join
     //intrinsic (target already Failed) and the resume path.
@@ -1698,9 +1707,6 @@ private:
     int16_t m_threadClassIdx = -1;
     //K3: cached "Future" class index (typed spawn mints instances).
     int16_t m_futureClassIdx = -1;
-    //Promise: cached "Promise" class index (the erased declared-generic
-    //instantiation registers the record; the ctor mints instances).
-    int16_t m_promiseClassIdx = -1;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
     //Initialized in Execute() via module.FindClass; -1 = not found (only

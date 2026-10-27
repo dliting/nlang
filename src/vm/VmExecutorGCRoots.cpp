@@ -125,6 +125,19 @@ void VmExecutor::TestRootValue(int32_t val,
 //queued contexts have empty registry frames too.
 void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
                                        std::vector<int32_t>& worklist) {
+    //Promise contexts: complete(T)'s value came through an erased
+    //signature, so no resultKind classification exists (spawn's
+    //returnTypeKind snapshot has no equivalent at a promise mint). The
+    //conservative both-domain test covers every T; it over-marks at
+    //worst (the live-context arm's discipline) and the scan runs at the
+    //quiescent rendezvous, so no torn read.
+    if (ctx->unclassifiedResult) {
+        int32_t cellHalves[2];
+        std::memcpy(cellHalves, &ctx->resultCell, sizeof(cellHalves));
+        for (int32_t half : cellHalves)
+            TestRootValue(half, worklist);
+        return;
+    }
     if (ctx->state != ContextState::Finished
             && ctx->state != ContextState::Failed) {
         int32_t cellHalves[2];

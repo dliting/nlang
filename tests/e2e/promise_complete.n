@@ -1,0 +1,25 @@
+// Promise<T> completion source: a spawned context completes the promise
+// while main awaits future.get(). The Waiter idiom (class field + bound
+// method delegate) shares the promise across contexts — NLang has no
+// closure capture.
+import thread;
+import io;
+
+class Completer {
+    public Promise<int> p;
+    public void fire() {
+        p.complete(42);
+    }
+}
+
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    Completer c = Completer();
+    c.p = p;
+    Thread t = thread.spawn(c.fire);
+    int v = f.get();
+    io.print(v);          // expect: 42
+    thread.join(t);
+    return 0;
+}

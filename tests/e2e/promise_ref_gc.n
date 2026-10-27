@@ -1,0 +1,28 @@
+import thread;
+import io;
+class Completer {
+    public Promise<string> p;
+    public int n;
+    public void fire() {
+        //Runtime-built string: NOT in the constant pool, so after this
+        //context finishes the ONLY root is the promise result cell.
+        p.complete("kept-" + n);
+    }
+}
+int main() {
+    Promise<string> p = Promise();
+    Future<string> f = p.future();
+    Completer c = Completer();
+    c.p = p;
+    c.n = 7;
+    Thread t = thread.spawn(c.fire);
+    thread.join(t);
+    //Churn forces collections between completion and get.
+    int i = 0;
+    while (i < 5000) {
+        string junk = "garbage-" + i;
+        i = i + 1;
+    }
+    io.print(f.get());
+    return 0;
+}
