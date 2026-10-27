@@ -1,0 +1,7 @@
+// A rank>=2 target has no inner row to infer dims[1] from, so the
+// empty initializer is a named rejection (rank-1 `int[] a = [];`
+// keeps its legal empty form).
+int main() {
+    int[,] a = [];
+    return 0;
+}

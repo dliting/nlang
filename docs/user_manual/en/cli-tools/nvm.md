@@ -19,6 +19,11 @@ one per line, e.g. `'<path>': Failed to open module file: <path>`).
 values so any untraced reference goes stale within a few allocations —
 useful for verifying memory-management changes, not needed in everyday
 use. The flag may appear before or after the program path.
+`--carriers=N` sets the scheduler's carrier-thread count (1..64): `nvm`
+defaults to at most four (capped by the machine's parallelism), and
+`--carriers=1` pins a single carrier for deterministic interleaving
+(see [the GIL and multiple carriers](../language-spec/concurrency-carriers.md)).
+A value outside the range is rejected before the program starts.
 
 The artifact itself carries no library code: the loader first discovers
 every dependency along the search path (the standard-library archive,

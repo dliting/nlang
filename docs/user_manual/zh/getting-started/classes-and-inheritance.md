@@ -69,7 +69,7 @@ int main() {
 }
 ```
 
-输出`16`，退出码16。接口只声明方法签名（没有字段、没有方法体）。类用`class X implements IShape`声明实现；接口类型的变量可持有任意实现对象，调用会虚分派到运行时类。接口成员的默认访问级别是`public`（与类成员的`private`默认相反）；其余修饰符（`private`、`static`等）会被拒绝。
+输出`16`，退出码16。接口声明实例方法签名（没有实例字段、没有实例方法体），接口类型自身还可携带带方法体的`public static`方法与`static const`常量。类用`class X implements IShape`声明实现；接口类型的变量可持有任意实现对象，调用会虚分派到运行时类。接口实例成员的默认访问级别是`public`（与类成员的`private`默认相反）；其余修饰符（`private`、`virtual`等）会被拒绝。
 
 详见[语言规格/接口](../language-spec/interface.md)。
 

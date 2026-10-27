@@ -1,8 +1,9 @@
 # Chinese tree. INHERIT pulls every shared setting from the base; both
-# trees are fully translated (see docs/user_manual/translation-pending.txt, whose
-# list is empty) and the tree-parity pytest runs in strict nav-parity
-# mode: any new page must land in both trees and both navs in the same
-# change.
+# the manual trees and the specification tree are fully translated, so
+# docs/user_manual/translation-pending.txt is empty and the tree-parity
+# pytest runs in strict mode (the two navs must list identical page
+# paths; a page missing from one nav fails the gate even when
+# translated).
 INHERIT: mkdocs.base.yml
 site_name: NLang中文文档
 docs_dir: user_manual/zh
@@ -34,6 +35,31 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
+  - 规范:
+      - 概览: specification/index.md
+      - 引言: specification/00-introduction.md
+      - 词法结构: specification/01-lexical.md
+      - 语法: specification/02-grammar.md
+      - 程序结构与名称解析: specification/03-program-structure.md
+      - 类型: specification/04-types.md
+      - 表达式: specification/05-expressions.md
+      - 语句: specification/06-statements.md
+      - 函数与方法: specification/07-functions.md
+      - 面向对象: specification/08-object-orientation.md
+      - 异常: specification/09-exceptions.md
+      - 执行模型与内存语义: specification/10-execution-model.md
+      - 并发: specification/11-concurrency.md
+      - 包与导入查找: specification/12-packages.md
+      - 内建类与库约定: specification/13-builtin-classes.md
+      - math包: specification/14-math.md
+      - io包与流: specification/15-io-streams.md
+      - fs包: specification/16-fs.md
+      - 并发库: specification/17-concurrency-library.md
+      - tensor包: specification/18-tensor.md
+      - 库异常: specification/19-library-exceptions.md
+      - .ncu单元映像: specification/20-ncu-unit-image.md
+      - .npkg包档案: specification/21-npkg-package-archive.md
+      - 原生应用二进制接口: specification/22-native-abi.md
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
@@ -89,6 +115,7 @@ nav:
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
+          - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md
           - string方法: language-spec/stdlib-string.md

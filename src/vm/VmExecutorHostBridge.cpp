@@ -243,8 +243,10 @@ bool VmExecutor::HostKeysEqual(int32_t aHeapIdx, int32_t bHeapIdx) {
 }
 
 uint32_t VmExecutor::HostArrayLength(int32_t heapIdx) const {
+    //Stage-2 header: elemCount in slot[3]. ND arrays expose the total
+    //count — host views address the row-major payload flat.
     return static_cast<uint32_t>(
-        m_structHeap[static_cast<size_t>(heapIdx)][2]);
+        m_structHeap[static_cast<size_t>(heapIdx)][3]);
 }
 
 void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
@@ -256,7 +258,8 @@ void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
-    const size_t base = 3 + static_cast<size_t>(index) * cells;
+    const size_t base =
+        ArrayPayloadBase(slot) + static_cast<size_t>(index) * cells;
     std::memset(outCell, 0, kFrameSlotBytes);
     std::memcpy(outCell, &slot[base], sizeof(int32_t));
     if (cells == 2)
@@ -273,7 +276,8 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
-    const size_t base = 3 + static_cast<size_t>(index) * cells;
+    const size_t base =
+        ArrayPayloadBase(slot) + static_cast<size_t>(index) * cells;
     std::memcpy(&slot[base], cell, sizeof(int32_t));
     if (cells == 2)
         std::memcpy(&slot[base + 1], cell + sizeof(int32_t),

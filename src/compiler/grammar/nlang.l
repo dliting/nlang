@@ -201,6 +201,12 @@ Float       {DecDigit}*"."{DecDigit}+([eE][-+]?{DecDigit}+)?[fF]?|{DecDigit}+[eE
 Name		{Alpha}({Alpha}|{DecDigit})*
 LineComment	\/\/[^\n]*
 
+/*Stage-2 rectangular arrays: the rules section folds a bracketed comma
+  run into ONE token (OT_BracketsND) carrying the comma count, mirroring
+  the OT_Brackets fold — the type suffix never reaches the grammar as
+  separate characters, which keeps the statement-head positions free of
+  reduce/reduce conflicts with subscript expressions.*/
+
 %%
 	#define scanner (*yyextra)
 	bool bConcatToken = false;
@@ -335,13 +341,23 @@ LineComment	\/\/[^\n]*
 
             /* single-char angle brackets with generic-depth tracking */
 "<"         {
-                /* '<' opens a type-argument list only when it directly
-                 * follows a built-in generic name (List/Dict via the
-                 * identifier rule below; func via its keyword rule).
-                 * Any other '<' is a comparison and leaves the depth
-                 * alone. */
+                /* Two openers: a '<' directly after a flagged generic
+                 * name (the built-in generics; func via its keyword
+                 * rule) reaches the parser as the dedicated OT_TypeLt — the
+                 * anchored generic literal `List<int>{...}` needs that
+                 * type-bracket reading distinct from the comparison '<'
+                 * in expression states. Any other '<' arrives plain;
+                 * TYPE-context generic use (declared generics such as
+                 * `Box<int> b;`) parses on the plain spelling — a
+                 * declared generic's name cannot live in a scan-time
+                 * set. Both openers increment the depth counter, which
+                 * makes ">>" split into two '>' tokens inside a
+                 * type-argument list. */
                 if (scanner.TakePendingGenericOpen())
+                {
                     scanner.IncGenericDepth();
+                    return OT_TypeLt;
+                }
                 return '<';
             }
 ">"         {
@@ -350,21 +366,24 @@ LineComment	\/\/[^\n]*
             }
 
 \[\]        { return OT_Brackets; }
+\[,+\]      { yylval->v_Int = static_cast<nlang::int32>(yyleng) - 2; return OT_BracketsND; }
 
 {Name}      {
                 SET_TEXT(yytext);
-                /* Flag List/Dict so a following '<' opens a
-                 * type-argument list (see the '<' rule). Every identifier
+                /* Flag the built-in generic names so a following '<'
+                 * opens a type-argument list (see the '<' rule); the
+                 * declared generics (Promise, user classes) are
+                 * deliberately not here — their use sites parse on the
+                 * grammar's plain-'<' type arms. Every identifier
                  * rewrites this flag, so it can only reach a '<' across
                  * blanks/comments — a comparison `List < 3` against a
-                 * variable shadowing the type name is misread (documented
-                 * limitation). */
+                 * variable shadowing the type name is misread
+                 * (documented limitation). */
                 /*Flex action code runs in the global namespace, so the
-                 *built-in name constants are qualified with nlang::
-                 *(they live in the runtime namespace). */
+                 *predicate is qualified with nlang:: (it lives in the
+                 *runtime namespace). */
                 scanner.PendingGenericOpen(
-                    strcmp(yytext, nlang::kBuiltinListTypeName) == 0
-                    || strcmp(yytext, nlang::kBuiltinDictTypeName) == 0);
+                    nlang::IsBuiltinGenericTypeName(yytext));
                 return TT_Identifier;
             }
 

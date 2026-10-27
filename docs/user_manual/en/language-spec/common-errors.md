@@ -65,20 +65,22 @@ Add 'import io;' at the top of this file.`. See [Declarations](declarations.md) 
 
 ### Default expressions on imported functions
 
-```nlang
-// lib.n
-int helper() { return 1; }
-int g(int a = helper() as int) { return a; }
+```nlang lib.n
+int addCast(float a, int b = a as int) {
+    return b;
+}
+```
 
-// main.n
+```nlang main.n
 import lib;
+
 int main() {
-    return lib.g();
+    return lib.addCast(1.5f);
 }
 ```
 
 ```text
-Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
 ```
 
 A default expression crosses the `.ncu` boundary only inside the
@@ -88,7 +90,26 @@ functions, unary negation, and `+` `-` `*` `/` `%` arithmetic over
 those — still evaluated at each call site. Casts, member access, and
 calls nested as arguments sit outside the subset; importing the
 function rejects them on the consumer side with the error above.
-See [Default Parameters](default-parameters.md).
+Compiling the sources together in one project build does not hit this
+restriction — the default expression is used directly. See →
+[Default Parameters](default-parameters.md).
+
+### Imported function does not match its record
+
+```console
+$ nvm main.ncu
+Runtime error: nlink failed:
+  unit 'main': imported function 'score' (paramCount 1) from module 'lib' does not match its record in the owning unit (stale artifact — recompile the importing module)
+```
+
+A cross-module call records the callee's position in the producing unit's
+function table. If the producer is recompiled and that position shifts (an
+overload added or removed, a function reordered) while the importing
+module's `.ncu` is left stale, the recorded position no longer names the
+same function. The linker refuses to guess and reports this rather than
+silently binding the call to the wrong record. Recompile the importing
+module against the current producer artifact. See →
+[Packages](packages.md).
 
 ### Declarations and control flow
 
@@ -379,7 +400,8 @@ char never converts implicitly to a numeric type (take the code point
 with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
-suppresses all warnings; an explicit `as` never warns). See [Type Semantics](type-semantics.md) "Numeric conversion matrix" and
+suppresses this warning family; an explicit `as` never warns). See →
+[Type Semantics](type-semantics.md) "Numeric conversion matrix" and
 [Operators](operators.md) "Arithmetic".
 
 ### `as` casts
@@ -414,7 +436,7 @@ redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
 `toDouble()` method family. See [Type Casts](type-casts.md).
 
-### Dict initializer keys
+### Dict initializer key type mismatch
 
 ```nlang
 int main() {
@@ -424,13 +446,14 @@ int main() {
 ```
 
 ```text
-Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+Error: Incompatible type "1".
 ```
 
-The collection initializer supports string keys only — this is correct
-only for `K = string`. Construct a
-non-string-keyed `Dict<K,V>` with the empty initializer, then fill
-entries with `set()`. See [Collection Initializers](collection-initializers.md).
+Dict initializer keys are expressions checked against the declared key
+type K by the same conversion rule as values — a string key in a
+`Dict<int, int>` fails that check. Write a key of the declared key type
+(`{1: 2}`), or declare `K` as `string`. See →
+[Collection Initializers](collection-initializers.md).
 
 ### A struct without a constructor cannot take arguments
 
@@ -452,26 +475,6 @@ declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
 to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
 run it (see [Struct](struct.md) "Creating and initializing" and
 [Collection Initializers](collection-initializers.md)).
-
-### Generic braced anchors
-
-```nlang
-int main() {
-    List<int> nums = List<int>{60};
-    return 0;
-}
-```
-
-```text
-Error: syntax error
-Error: Invalid statement.
-```
-
-An anchored head on a generic type (`List<int>{...}`) does not parse.
-Give the literal a typed declaration instead: `List<int> nums = [60];`.
-See [Known limitations](known-limitations.md), "Generic instantiation
-has no anchored head", and [Collection
-Initializers](collection-initializers.md).
 
 ### Type aliases
 
@@ -496,8 +499,10 @@ int main() {
 }
 ```
 
-```text
+```console
+$ ncc build src_not_utf8.n -o app.ncu
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
+Compilation failed.
 ```
 
 `.n` sources and `.nproj` project files pass strict Unicode Transformation Format (UTF-8) validation
@@ -506,5 +511,9 @@ subject to the same validation): invalid bytes are
 rejected with an explicit error (the
 line of the first invalid byte included) and a UTF-16 save gets a
 dedicated hint (`Source file ... is UTF-16, not UTF-8.`) — legacy
-encoding bytes never reach string constants. A
-leading UTF-8 byte order mark (BOM) is accepted and skipped. See [Primitives](primitives.md) "Representation: from source to console".
+encoding bytes never reach string constants. The block above shows the
+file's logical content; the diagnostic comes from the bytes actually
+stored on disk, so the same source compiles fine once re-saved as
+UTF-8. A
+leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
+[Primitives](primitives.md) "Representation: from source to console".

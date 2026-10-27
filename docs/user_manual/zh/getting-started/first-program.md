@@ -13,7 +13,7 @@ int main() {
 
 ### 路径A：在nide中
 
-1. 启动nide，菜单文件 → 新建 → 文件...，输入上面的代码，保存为`hello.n`。（也可以文件 → 打开 → 项目...，选择`examples/hello_project/hello_project.nproj`。）
+1. 启动nide，菜单文件 → 新建 → 新建文件...，输入上面的代码，保存为`hello.n`。（也可以文件 → 打开 → 打开项目...，选择`examples/hello_project/hello_project.nproj`。）
 2. 菜单构建 → 构建项目；编译诊断显示在输出窗口的「编译输出」页。
 3. 菜单运行 → 开始运行（Ctrl+F5）；程序输出显示在「终端」页，应看到`hello, NLang`。
 

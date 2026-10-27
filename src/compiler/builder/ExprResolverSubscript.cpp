@@ -12,6 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/Config.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
@@ -96,7 +97,7 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 			auto iKey = sn.Children().find(sn.Index());
 			if (iKey != sn.Children().end()
 				&& FixupExprType(iKey, keyCast))
-				sn.Index(static_cast<SnExpression*>(&*iKey));
+				sn.m_pIndices[0] = static_cast<SnExpression*>(&*iKey);
 		}
 	}
 	if (!elem)
@@ -117,6 +118,35 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //BindArrayTypeToken mints the array token over it — the same tail as
 //Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
 //then `Ints[2]`) is rejected as a creation head.
+//Stage-2: resolve every creation dimension; named/out forms and
+//unresolved dimensions consume the expression (true, diagnostics fired).
+bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
+{
+	//Rank cap mirrors the grammar's production-point cap: the index
+	//list IS the dims list, so the cap is validated where dims are.
+	if (sn.Indices().size() > kMaxArrayRank) {
+		m_Env.Log(CLL_Error, sn.Location(),
+			"array rank %d exceeds the maximum of %d.",
+			static_cast<int>(sn.Indices().size()), kMaxArrayRank);
+		return false;  //consumed: the cap diagnostic already fired
+	}
+	for (auto *pIndex : sn.Indices())
+	{
+		if (pIndex->Kind() != NK_IdentifierExpr
+			&& pIndex->Kind() != NK_NameExpr
+			&& !pIndex->IsDataExpr())
+		{
+			m_Env.Log(CLL_Error, pIndex->Location(),
+				"array creation dimensions must be plain expressions.");
+			return false;
+		}
+		pIndex->Accept(*m_pVisitor);
+		if (!pIndex->IsResolved())
+			return false;  //consumed: the dimension diagnostic already fired
+	}
+	return true;
+}
+
 bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 {
 	auto &arrayExpr = *sn.Array();
@@ -145,17 +175,22 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	if (pBaseFieldExpr->IsArrayType())
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
-			"Multi-dimensional arrays are not supported.");
+			"cannot create an array of an array type; declare the element "
+			"type once with its rank.");
 		return true;
 	}
-	//Resolve the size expression.
-	sn.Index()->Accept(*m_pVisitor);
-	if (!sn.Index()->IsResolved())
-		return true;  //consumed: the size diagnostic already fired
+	//Stage-2: the creation twin T[2, 3] carries N dimensions — the index
+	//list IS the rank. Named/out forms ride ConcreteParamList and are
+	//rejected here.
+	if (!ResolveCreationDims(sn))
+		return true;
 	sn.NewArrayElem(pElemField);
-	sn.EvalDataType(pElemField);
+	//Stage-2: the minted token carries the rank — the index count. The
+	//BindArrayTypeToken tail interns rank-1 only, so the creation path
+	//interns directly with its own rank.
+	const uint8_t rank = static_cast<uint8_t>(sn.Indices().size());
+	sn.EvalDataType(m_Env.InternArrayTypeToken(pElemField, rank));
 	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
 	return true;
 }
 
@@ -171,11 +206,13 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 	if (TrySizedArrayCreation(sn))
 		return;
 
-	//Resolve index expression.
-	auto& indexExpr = *sn.Index();
-	indexExpr.Accept(*m_pVisitor);
-	if (!indexExpr.IsResolved())
-		return;
+	//Resolve every index (rank-1 subscripts hold exactly one).
+	for (auto *pIndex : sn.Indices())
+	{
+		pIndex->Accept(*m_pVisitor);
+		if (!pIndex->IsResolved())
+			return;
+	}
 
 	//Look up arr.length-style access is handled by MemberExpr.
 	//For now, the result type of subscript is the element type.
@@ -184,14 +221,24 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))
 		return;
-	if (arrayType)
+	if (arrayType && arrayType->Kind() == NK_ArrayTypeToken)
 	{
+		//Stage-2: the index count must equal the token rank — the named
+		//arity diagnostic replaces the old single-index assumption.
+		const auto rank = static_cast<SnArrayTypeToken*>(arrayType)->Rank();
+		if (sn.Indices().size() != rank)
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"array subscript expects %u indices, got %u.",
+				static_cast<unsigned>(rank),
+				static_cast<unsigned>(sn.Indices().size()));
+			return;
+		}
 		//0.7.3 B token path: an
 		//array-valued base carries the interned array token — the
 		//subscript's own type is its ELEMENT.
-		if (arrayType->Kind() == NK_ArrayTypeToken)
-			arrayType = static_cast<SnArrayTypeToken*>(
-				arrayType)->ElemTypeOf();
+		arrayType = static_cast<SnArrayTypeToken*>(
+			arrayType)->ElemTypeOf();
 		sn.EvalDataType(arrayType);
 	}
 	sn.AddFlags(NF_Resolved);

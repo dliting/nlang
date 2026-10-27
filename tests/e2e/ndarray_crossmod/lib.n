@@ -1,0 +1,17 @@
+// ndarray_crossmod — ND signatures round-trip across the module wire:
+// the TypeDesc array arm carries the rank, so the consumer stub
+// rebuilds `int[,]` formals and a `double[,]` return exactly (a
+// rank-less rebuild degrades both to rank-1 and breaks indexing).
+int sum(int[,] a) {
+    int total = 0;
+    for (int r = 0; r < a.shape()[0]; r = r + 1)
+        for (int c = 0; c < a.shape()[1]; c = c + 1)
+            total = total + a[r, c];
+    return total;
+}
+
+double[,] scale(double[,] m, double k) {
+    double[,] res = [[m[0, 0] * k, m[0, 1] * k],
+                     [m[1, 0] * k, m[1, 1] * k]];
+    return res;
+}

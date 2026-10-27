@@ -268,7 +268,61 @@ bool VmBackend::EmitMemberBuiltinDispatch(SnMemberExpr& member,
     }
     if (EmitMemberArrayLengthMethod(member, emitter, resultOffset))
         return true;
+    if (EmitMemberArrayRankMethod(member, emitter, resultOffset))
+        return true;
+    if (EmitMemberArrayShapeMethod(member, emitter, resultOffset))
+        return true;
     return false;
+}
+
+//Stage-2: arr.rank() — the rank is a compile-time property of the
+//receiver's token; the receiver still evaluates (and null-checks) for
+//side-effect and null-semantics parity with length().
+bool VmBackend::EmitMemberArrayRankMethod(SnMemberExpr& member,
+                                          BytecodeEmitter& emitter,
+                                          uint16_t resultOffset) {
+    auto* inner = member.Inner();
+    if (!(inner && inner->Kind() == NK_InvokeExpr
+        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "rank"
+        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
+            == static_cast<SnInvokeExpr*>(inner)->Params().end()
+        && member.Outer()->IsArrayValued()))
+        return false;
+    auto* pToken = static_cast<SnArrayTypeToken*>(
+        member.Outer()->EvalDataType());
+    EmitExpression(*member.Outer(), emitter, resultOffset);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(resultOffset);
+    emitter.Emit(OpCode::OP_ConstInt32);
+    emitter.EmitInt32(static_cast<int32_t>(pToken->Rank()));
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    return true;
+}
+
+//Stage-2: arr.shape() — mints int[rank] with the dims (OP_ArrayShape).
+bool VmBackend::EmitMemberArrayShapeMethod(SnMemberExpr& member,
+                                           BytecodeEmitter& emitter,
+                                           uint16_t resultOffset) {
+    auto* inner = member.Inner();
+    if (!(inner && inner->Kind() == NK_InvokeExpr
+        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "shape"
+        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
+            == static_cast<SnInvokeExpr*>(inner)->Params().end()
+        && member.Outer()->IsArrayValued()))
+        return false;
+    //The runtime mint looks up int[] in the module's arrayTypes table:
+    //register it here (the lazy codegen-time registration every other
+    //expression-side array follows — EmitExprNew, init lists), since a
+    //declaration elsewhere must not be required to carry it.
+    RegisterArrayType(SnBuiltinDataType::InstanceOf(NK_Int32));
+    EmitExpression(*member.Outer(), emitter, resultOffset);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(resultOffset);
+    emitter.Emit(OpCode::OP_ArrayShape);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(resultOffset);
+    return true;
 }
 
 //Typed-receiver phase: struct field read, class field read or method call,

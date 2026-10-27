@@ -1,5 +1,6 @@
 # 类型语义
 
+规范性规则见规范§4.1与§4.12。
 
 NLang中每种类型都对四个操作定义了语义：**赋值**（`a = b`）、**参数传递**、**返回值**，以及作为**字段或数组元素**的用法。本页是完整的逐类型摘要；每行链接到详细讲解该类型的页面。
 
@@ -46,7 +47,7 @@ NLang中每种类型都对四个操作定义了语义：**赋值**（`a = b`）�
 - 浮点加宽：`float→double`。
 - `char→string`（编码为该码点的Unicode转换格式（UTF-8，Unicode Transformation Format）串）；`enum→int`（底层int值）。
 
-**隐式但有损警告**——目标类型装不下源值域时，编译器发出`implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn`可整体抑制）：
+**隐式但有损警告**——目标类型装不下源值域时，编译器发出`implicit conversion from 'X' to 'Y' loses precision`（`ncc --no-warn`抑制这一族警告）：
 
 - `int/uint/long/ulong → float`
 - `long/ulong → double`

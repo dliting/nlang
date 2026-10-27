@@ -1,3 +1,6 @@
+// 0.10.8 D1: the form parses as the comparison a < b (a bool
+// value); bool does not implicitly convert to int, so no
+// constructor of V matches the argument list.
 class V { public int x; public V(int a){ x = a; } }
 int a = 3;
 int b = 4;

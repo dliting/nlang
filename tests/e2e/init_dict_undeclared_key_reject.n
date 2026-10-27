@@ -1,0 +1,7 @@
+// 0.10.10: an undeclared identifier used as a Dict key reports the
+// standard unresolved-identifier error at the key location (the key is
+// an ordinary expression position).
+int main() {
+    Dict<string, int> d = {zz: 1};
+    return 0;
+}

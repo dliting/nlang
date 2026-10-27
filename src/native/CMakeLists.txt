@@ -9,7 +9,7 @@
 #   Linux:   libnlang_<ns>.so
 #   macOS:   libnlang_<ns>.dylib
 
-set(NLANG_NATIVE_MODULES math io fs)
+set(NLANG_NATIVE_MODULES math io fs tensor)
 
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
@@ -22,26 +22,47 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
         POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
-# Deploy every module next to each host tool. The loader's default search path
-# is the host executable's directory. ncc/nvm/ndb/nlang always exist; nide
-# only when the IDE is built. This subdirectory is added AFTER the tools, so
-# the tool targets (and their output dirs) are known here.
-set(NLANG_NATIVE_HOST_TOOLS ncc nvm ndb nlang)
-if(TARGET nide)
-    list(APPEND NLANG_NATIVE_HOST_TOOLS nide)
+# Aggregate target for out-of-directory consumers that need "all modules
+# built" as one build-order edge (the docs snippet audit) — depending on
+# this name instead of re-listing the modules keeps the list single-sourced.
+add_custom_target(nlang_native_modules)
+foreach(mod IN LISTS NLANG_NATIVE_MODULES)
+    add_dependencies(nlang_native_modules nlang_${mod})
+endforeach()
+
+# Multi-file module sources beyond the per-module naming pattern.
+target_sources(nlang_tensor PRIVATE
+    tensor/tensor_binary.cpp
+    tensor/tensor_matrix.cpp
+    tensor/tensor_reduce.cpp)
+
+# Single authoritative output and NOTHING copies the modules around the
+# build tree — hosts resolve them through NativeLibraryLoader's build-tree
+# fallback (walk-up discovery, consulted after explicit search dirs; see
+# NativeLibraryLoader.cpp). The install rules below still ship them beside
+# the executables in bin/, where the loader's executable-dir search
+# (always first) finds them.
+#
+# Directory suffix by generator kind, so the fallback's candidates always
+# reach the modules: multi-config executables live in a <config>-named
+# directory (leaf == config name), so native/$<CONFIG> is found by the
+# walk-up's native/<leaf> candidate. Single-config generators put the
+# executables in <tool-name> directories, so any per-config subdirectory
+# would be unreachable (the walk-up probes native/<tool-name> and native
+# only) — the modules must land in native/ with no suffix.
+if(CMAKE_CONFIGURATION_TYPES)
+    set(NLANG_NATIVE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/native/$<CONFIG>")
+else()
+    set(NLANG_NATIVE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/native")
 endif()
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
-    foreach(tool IN LISTS NLANG_NATIVE_HOST_TOOLS)
-        add_custom_command(TARGET nlang_${mod} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:nlang_${mod}>
-                $<TARGET_FILE_DIR:${tool}>
-            VERBATIM)
-    endforeach()
+    set_target_properties(nlang_${mod} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}")
 endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.
-install(TARGETS nlang_math nlang_io nlang_fs
+install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION bin)

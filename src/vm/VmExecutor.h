@@ -283,6 +283,23 @@ public:
     void SetConservativeBandForTests(bool conservative) {
         m_conservativeBandForTests = conservative;
     }
+    //0.11.4 B white-box probes: corrupt a live array record so tests can
+    //drive the native callbacks against a malformed record (the defensive
+    //checks are otherwise unreachable — records are VM-built). The tests
+    //pair these with a stack-local VmNativeHost built by InitNativeHost,
+    //mirroring the production native-call wiring.
+    void TruncateArrayRecordForTests(int32_t handle, size_t cells) {
+        m_structHeap[static_cast<size_t>(handle)].resize(cells);
+    }
+    void OverwriteArrayRecordCellForTests(int32_t handle, size_t cell,
+                                          int32_t value) {
+        m_structHeap[static_cast<size_t>(handle)][cell] = value;
+    }
+    //Builds a production-shaped stack-local host (the native-call path
+    //wires one per call). Public for the white-box defense tests only:
+    //VmNativeHost itself is private to src/vm, so the method is
+    //unreachable for outside users.
+    void InitNativeHost(VmNativeHost& host);
 
     //Testing knobs (scheduler quota injection + observability, K1
     //decision 5): clamp the back-edge trip limit, then observe the
@@ -579,9 +596,24 @@ private:
     void OpNew(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
-    void OpAllocArray(BytecodeReader& reader, uint8_t* locals);
-    void OpLoadElement(BytecodeReader& reader, uint8_t* locals);
-    void OpStoreElement(BytecodeReader& reader, uint8_t* locals);
+    void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
+    //Stage-3 D3: assemble a rank>=2 array from staged row handles (the
+    //dynamic-shape initializer arm); contract at the implementation.
+    void OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals);
+    //Validation pass of OpAssembleArrayN: null/kind/row-rank gates plus
+    //the shared per-level width check, and the handle/dims snapshot the
+    //allocation consumes.
+    void SnapshotAssembleRows(const uint8_t* locals, uint16_t elemSlotBase,
+        uint16_t rowCount, uint8_t rank, std::vector<int32_t>& rowHandles,
+        int32_t* dims);
+    //Row-payload copy of OpAssembleArrayN (see the implementation).
+    void CopyAssembleRows(int32_t heapIdx,
+        const CompiledArrayType& arrayType,
+        const std::vector<int32_t>& rowHandles);
+    void OpLoadElementN(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreElementN(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals);
+    void OpArrayShape(BytecodeReader& reader, uint8_t* locals);
     void OpArrayLength(BytecodeReader& reader, uint8_t* locals);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
@@ -657,6 +689,9 @@ private:
     void FormatArrayElement(std::string& result,
         const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
         int cells, int depth);
+    void FormatArrayNDLevel(std::string& result,
+        const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
+        size_t& flatIndex, uint8_t elemKind, int cells, int depth);
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);
@@ -688,7 +723,16 @@ private:
 
     //Allocate an array on the heap.
     //Returns the heap index.
-    int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size);
+    //The single array-allocation choke point (language opcodes and
+    //native minting). Grows m_structHeap via emplace_back, so EVERY
+    //reference or pointer into m_structHeap held by the caller is
+    //invalidated: read what is needed into locals first, call, then
+    //re-index. OpArrayShape once read the source record's dims through
+    //a reference held across this call and landed in freed memory.
+    int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+        const int32_t* dims);
+    //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
+    int32_t ValidateArrayDims(uint8_t rank, const int32_t* dims);
 
     //GC: mark-sweep garbage collection.
     //Design decisions (see docs/user_manual/en/vm-architecture/garbage-collection-design.md
@@ -1382,7 +1426,6 @@ private:
         uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
-    void InitNativeHost(VmNativeHost& host);
     int32_t BuildListString(const char* const* items, int count);
     NativeLibraryLoader& EnsureNativeLoader();
     void EnsureNativeAvailable(const std::string& name);
@@ -1408,6 +1451,22 @@ private:
         const char* message);
     static uint32_t NativeNextRandom(NativeHost* self);
     static void NativeSeedRandom(NativeHost* self, int32_t seed);
+    //v6 array side (contract in NativeHost.h): pinned payload view and
+    //zero-initialized minting for scalar-element arrays.
+    static int NativeGetArrayView(NativeHost* self, int32_t handle,
+        NativeArrayView* out);
+    static int32_t NativeNewArray(NativeHost* self, uint8_t elemKind,
+        int32_t length);
+    //v9 ND side of minting (contract in NativeHost.h): shaped mint for the
+    //matrix-family kernels.
+    static int32_t NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
+        int32_t rank, const int32_t* dims);
+    //Locate the scalar array-type record for (elemRtk, rank) in the linked
+    //module's arrayTypes (elemTypeIdx == 0xFFFF). Lookup-only: m_currModule
+    //is const and the stdlib TU inlining registers every declared array
+    //type at compile time — a miss is an invariant violation, not an
+    //appendable state.
+    uint16_t FindScalarArrayTypeIdx(uint8_t elemRtk, uint8_t rank) const;
 
     //Allocate a handle from the ByteStream side table. Returns 1-based handle.
     int32_t AllocByteStreamHandle();
@@ -1632,6 +1691,31 @@ private:
     //Index 0 is a sentinel (empty slot).
     using StructSlot = std::vector<int32_t>;
     ChunkedArray<StructSlot> m_structHeap;
+
+    //Payload base of a heap array record, derived from the record's
+    //own rank cell: callers cannot pair a record with a foreign rank
+    //(hardcoded rank-1 reads once corrupted rank >= 3 shapes). A
+    //corrupt record throws here, at the single derivation point,
+    //instead of mis-reading neighbouring cells.
+    static size_t ArrayPayloadBase(const StructSlot& record)
+    {
+        if (record.size() < 4)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (truncated header)");
+        const int32_t rank = record[2];
+        if (rank < 1 || rank > kMaxArrayRank)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (rank out of range)");
+        //The header includes the dims run (and its alignment pad cell):
+        //a record shorter than the header has a truncated dims section,
+        //and every dims reader (strides, format, GC) would walk past it.
+        const size_t base =
+            ArrayHeaderCells(static_cast<uint8_t>(rank));
+        if (record.size() < base)
+            throw std::runtime_error(
+                "NLang VM: corrupt array record (truncated dimensions)");
+        return base;
+    }
 
     //GC infrastructure.
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free

@@ -1,5 +1,6 @@
 # thread包
 
+规范性规则见规范§11.1与§17.1。
 `thread`是标准库包：权威声明在`stdlib/thread.n`（符号索引与补全因此对它一视同仁），实现内建于虚拟机本体。调用前需`import thread;`（本章示例均已导入）；自建同名包会与标准库包撞名，被重复包规则拒绝。`spawn`的类型化契约——`func<T>`委托返回`Future<T>`——由编译器在声明的`func<void>`基础形态之上附加绑定。
 
 | 成员 | 形态 | 语义 |
@@ -54,14 +55,14 @@ int main() {
     Thread t = thread.spawn(worker);
     try {
         thread.join(t);
-        return 4;
+        return 1;              // join 会重抛失败的上下文：此路不可达
     } catch (Exception e) {
         if (e.message == "wboom") {
-            return 0;
+            return 30;         // 正是 worker 里抛出的那个实例
         }
-        return 2;
+        return 1;
     }
 }
 ```
 
-`join`已完成的目标准确返回，不重复等待；`join`自身（把`Thread`交回其派生者）是运行期错误。失败上下文保留的异常对象由调度器持有到运行结束（上下文记录不剪除），供任何迟到的`join`重抛。
+`join`已完成的目标立即返回，不重复等待；当前上下文`join`自己的句柄（等待自己完成）是运行期错误。失败上下文保留的异常对象由调度器持有到运行结束（上下文记录不剪除），供任何迟到的`join`重抛。

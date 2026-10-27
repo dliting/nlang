@@ -1,0 +1,12 @@
+// 0.10.10: struct initializer keys are field names — a call
+// expression key is rejected.
+int f() { return 1; }
+
+struct S {
+    int a;
+}
+
+int main() {
+    S s = {f(): 1};
+    return s.a;
+}

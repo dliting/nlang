@@ -103,31 +103,61 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     return heapIdx;
 }
 
-int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, int32_t size) {
+//The single length gate (language creation and native minting): every
+//dimension must be non-negative and within kMaxArrayElems, and the
+//product (elemCount) must stay within it too — int64 accumulation so
+//the product itself cannot overflow the check.
+int32_t VmExecutor::ValidateArrayDims(uint8_t rank, const int32_t* dims)
+{
+    int64_t elemCount = 1;
+    for (uint8_t d = 0; d < rank; ++d)
+    {
+        if (dims[d] < 0 || dims[d] > kMaxArrayElems)
+            RaiseNlangException(m_oobExcClassIdx,
+                "NLang VM: array length out of range");
+        elemCount *= dims[d];
+        if (elemCount > kMaxArrayElems)
+            RaiseNlangException(m_oobExcClassIdx,
+                "NLang VM: array length out of range");
+    }
+    return static_cast<int32_t>(elemCount);
+}
+
+int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+    const int32_t* dims) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
     const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
+    const int32_t size = ValidateArrayDims(rank, dims);
     //0.7.5: 8-byte scalar elements occupy two cells each (registry-
     //driven stride — see ArrayElemCells).
     const int cells = ArrayElemCells(at.elemKind);
-    int32_t totalSlots = 3 + size * cells;
+    int32_t totalSlots =
+        static_cast<int32_t>(ArrayHeaderCells(rank)) + size * cells;
+    //The one array allocation path shared by language creation and
+    //native minting: raise the collector-pending flag here, so a loop
+    //that only allocates through natives still reaches collection.
+    NoteGcPressure();
     const int32_t heapIdx = TakeHeapSlot();
     m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
-    m_structHeap[static_cast<size_t>(heapIdx)][0] = RTK_Array;
-    m_structHeap[static_cast<size_t>(heapIdx)][1] = arrayTypeIdx;
-    m_structHeap[static_cast<size_t>(heapIdx)][2] = size;
-    //Phase 9d-3: struct-typed elements have value semantics — materialize
-    //a fresh struct per element, mirroring AllocStructOnHeap's recursive
-    //materialization of nested struct fields. MarkPhase already traces
-    //RTK_Struct array elements, so the materialized structs stay reachable.
-    //Write elements by index (AllocStructOnHeap may grow m_structHeap and
-    //reallocate the outer vector; no reference is held across the call).
+    auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
+    record[0] = RTK_Array;
+    record[1] = arrayTypeIdx;
+    record[2] = rank;
+    record[3] = size;
+    for (uint8_t d = 0; d < rank; ++d) record[4 + d] = dims[d];
+    //Phase 9d-3: struct-typed elements have value semantics — a fresh
+    //struct per element (MarkPhase traces RTK_Struct array elements).
+    //Write by index: AllocStructOnHeap may reallocate the outer vector.
     if (at.elemKind == RTK_Struct && at.elemTypeIdx != 0xFFFF) {
+        const int32_t base =
+            static_cast<int32_t>(ArrayHeaderCells(rank));
         for (int32_t i = 0; i < size; ++i) {
             int32_t elemIdx = AllocStructOnHeap(at.elemTypeIdx);
-            m_structHeap[static_cast<size_t>(heapIdx)][3 + i * cells] = elemIdx;
+            m_structHeap[static_cast<size_t>(heapIdx)]
+                [base + i * cells] = elemIdx;
         }
     }
     return heapIdx;

@@ -1,9 +1,9 @@
 /*---
     EmitExprInitList.cpp — 集合初始化器发射：bare `[...]` / `new T{...}`
-    的数组/List/Dict/类/struct 五路目标形态。
-    从 EmitExprNew.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
+    的数组(ND见EmitExprInitListND)/List/Dict/类/struct 目标形态。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -19,11 +19,9 @@
 
 namespace nlang {
 
-    //Phase 8e-6: collection initializer `[...]` / `new T{...}`.
-    //Dispatches on resolved EvalDataType:
-    //  - Array (IsArrayValued(), interned token in EvalDataType): OP_AllocArray + per-element OP_StoreElement
-    //  - List<T> (SnClassDecl, BaseName "List"): OP_New + per-entry OP_CallMethod "add" with boxing
-    //  - Dict/Struct/Class: handled in Phase D (falls through to assert for now).
+    //Phase 8e-6: collection initializer dispatch on resolved
+    //EvalDataType — array token (rank-1 here, ND in the ND file) /
+    //List "add" / Dict "set" / Channel / user class / struct.
 void VmBackend::Access(SnInitListExpr& expr) {
     NodeKind kind = expr.Kind();
     BytecodeEmitter& emitter = *m_pCurrEmitter;
@@ -36,9 +34,17 @@ void VmBackend::Access(SnInitListExpr& expr) {
             "NLang backend: init list expression without a resolved target type");
     }
 
-    //---- Array form: target is T[] ----
-    //0.9.13 D-new-1: array-valued init lists carry the interned token.
+    //---- Array form (0.9.13 D-new-1: the interned token) ----
     if (initList.IsArrayValued()) {
+        //Stage-2 task-5: rank>=2 targets take the rectangular-literal
+        //lowering (the resolver validated the shape and stamped it).
+        if (pTarget && pTarget->Kind() == NK_ArrayTypeToken
+            && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2) {
+            EmitInitListArrayND(initList,
+                *static_cast<SnArrayTypeToken*>(pTarget), emitter,
+                resultOffset);
+            return;
+        }
         EmitInitListArray(initList, pTarget, emitter, resultOffset);
         return;
     }
@@ -82,9 +88,10 @@ void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pArrayToken
     emitter.EmitInt32(n);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.Emit(OpCode::OP_AllocArray);
+    emitter.Emit(OpCode::OP_AllocArrayN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(arrayTypeIdx);
+    emitter.EmitUint16(1);  // rank
     emitter.EmitUint16(m_currFunc->tempSlot);
 
     //Stage entry values in an evalArea claim, never a temp: a
@@ -130,10 +137,11 @@ void VmBackend::EmitInitListArrayEntry(const InitEntry& entry,
     emitter.EmitInt32(entryIndex);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    emitter.Emit(OpCode::OP_StoreElement);
+    emitter.Emit(OpCode::OP_StoreElementN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.EmitUint16(valueSlot);
+    emitter.EmitUint16(1);  // rank — initializer targets are rank-1 here
 }
 
 //Shared by the class-shaped init-list arms: OP_New into resultOffset,
@@ -239,8 +247,27 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
         EmitInitListEntryAdd(entry, tBox, addNameIdx, resultOffset, emitter);
 }
 
+//0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
+//box it in place when its declared kind is primitive — the pResult
+//refresh mirrors the assignment path: the box must read the staged
+//slot, not a stale accumulator left behind by the expression emission.
+void VmBackend::EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
+                                       const BoxingTagResult& box,
+                                       BytecodeEmitter& emitter) {
+    EmitExpression(expr, emitter, off);
+    if (box.isPrimitive) {
+        EmitPResultRefresh(emitter, off);
+        emitter.Emit(OpCode::OP_Box);
+        emitter.EmitByte(box.tag);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(off);
+    }
+}
+
 //List-form per-entry: stage {this, value} in an evalArea claim, box a
 //primitive value in place, then OP_CallMethod "add" via callParamBase.
+//The entry key is meaningless here — the resolver guarantees List
+//entries are positional (RejectInitListEntryKeyForm).
 void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
                                      BoxingTagResult tBox,
                                      uint16_t addNameIdx, uint16_t resultOffset,
@@ -257,14 +284,7 @@ void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
     EvalAreaClaim claim(*this, 2);  // this, value
     uint16_t claimBase = claim.base();
     uint16_t valOff = claimBase + 1 * kFrameSlotBytes;
-    EmitExpression(*entry.pValue, emitter, valOff);
-    if (tBox.isPrimitive) {
-        EmitPResultRefresh(emitter, valOff);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(tBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(valOff);
-    }
+    EmitInitListStageBoxed(*entry.pValue, valOff, tBox, emitter);
     EmitInitListMethodCallTail(claimBase, 2, addNameIdx, resultOffset,
                                emitter);
 }
@@ -300,19 +320,15 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
 
 //Dict-form per-entry: stage {this, key, value} in an evalArea claim,
 //box primitive key/value, then OP_CallMethod "set" via callParamBase.
+//0.10.10: the key is an expression like the value — the resolver
+//guarantees every Dict entry carries one (RejectInitListEntryKeyForm);
+//the key-slot cast already adjudicated it against K.
 void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
                                      BoxingTagResult kBox,
                                      BoxingTagResult vBox, uint16_t setNameIdx,
                                      uint16_t resultOffset,
                                      BytecodeEmitter& emitter) {
-    if (!entry.pValue) return;
-    //Key: dict requires String key form. Identifier keys are
-    //accepted for struct init only — for dict they would be
-    //a resolver error. Value-only entries are also invalid.
-    if (entry.keyKind != InitEntry::KeyKind::String
-        && entry.keyKind != InitEntry::KeyKind::Identifier) {
-        return;
-    }
+    if (!entry.pValue || !entry.pKey) return;
     //Phase 9c follow-up: route through EvalAreaClaim so the key
     //and value live in evalArea, immune to nested-call bulk-copies
     //to callParamBase. Pre-fix, a value like `helper(5,3)` would
@@ -321,26 +337,10 @@ void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
     uint16_t claimBase = claim.base();
     uint16_t keyOff = claimBase + 1 * kFrameSlotBytes;
     uint16_t valOff = claimBase + 2 * kFrameSlotBytes;
-    uint16_t keyPoolIdx = AddStringConstant(entry.keyStr);
-    emitter.Emit(OpCode::OP_ConstString);
-    emitter.EmitUint16(keyPoolIdx);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(keyOff);
-    if (kBox.isPrimitive) {
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(kBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(keyOff);
-    }
+    //Key
+    EmitInitListStageBoxed(*entry.pKey, keyOff, kBox, emitter);
     //Value
-    EmitExpression(*entry.pValue, emitter, valOff);
-    if (vBox.isPrimitive) {
-        EmitPResultRefresh(emitter, valOff);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(vBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(valOff);
-    }
+    EmitInitListStageBoxed(*entry.pValue, valOff, vBox, emitter);
     EmitInitListMethodCallTail(claimBase, 3, setNameIdx, resultOffset,
                                emitter);
 }
@@ -394,10 +394,11 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
     EvalAreaClaim valueClaim(*this, 1);
     uint16_t valueSlot = valueClaim.base();
     for (auto& entry : initList.Entries()) {
-        if (entry.keyKind != InitEntry::KeyKind::Identifier)
+        if (!KeyIsIdentifier(entry))
             continue;
         if (!entry.pValue) continue;
-        int off = FindClassFieldOffset(classDecl, entry.keyStr);
+        int off = FindClassFieldOffset(classDecl,
+            static_cast<SnIdentifierExpr*>(entry.pKey)->Name());
         if (off < 0) continue;
         EmitExpression(*entry.pValue, emitter, valueSlot);
         emitter.Emit(OpCode::OP_StoreField);
@@ -451,8 +452,9 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
     for (auto& entry : initList.Entries()) {
         if (!entry.pValue) continue;
         int off = -1;
-        if (entry.keyKind == InitEntry::KeyKind::Identifier) {
-            off = FindFieldOffset(structDecl, entry.keyStr);
+        if (KeyIsIdentifier(entry)) {
+            off = FindFieldOffset(structDecl,
+                static_cast<SnIdentifierExpr*>(entry.pKey)->Name());
         } else if (ordinal < structDecl.Fields().size()) {
             //Declaration-order positional entry: field ordinal i sits at
             //byte offset i * kHeapFieldStrideBytes under the uniform
@@ -494,4 +496,5 @@ void VmBackend::EmitInitListMethodCallTail(uint16_t claimBase,
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
+
 } //namespace nlang

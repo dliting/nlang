@@ -1,10 +1,13 @@
 #--- nide deployment self-containment check (Phase 10 Step 9) ---
 #Copies the assembled nide output (nide.exe + Qt DLLs + platforms/ +
-#ncc/nvm/ndb, placed there by the POST_BUILD steps) to a scratch
-#directory and runs a curated subset of the main-window test suite
-#from there with the QPA plugin path cleared. The test exe must
-#resolve the Qt DLLs (app-dir first), the platform plugin, the
-#stdlib package and ncc/nvm/ndb purely from the copied layout.
+#ncc/nvm/ndb, placed there by the POST_BUILD steps) plus the stdlib
+#native modules (NLANG_NATIVE_DLLS -- they live only under
+#<build>/native/<config>, so the install-form beside-exe layout is
+#assembled here) to a scratch directory and runs a curated subset of
+#the main-window test suite from there with the QPA plugin path
+#cleared. The test exe must resolve the Qt DLLs (app-dir first), the
+#platform plugin, the stdlib package, the native modules and
+#ncc/nvm/ndb purely from the copied layout.
 #
 #Division of concerns: business behavior is the in-tree
 #mainwindow_tests run's job (the full 115-test suite runs there).
@@ -51,6 +54,20 @@ file(REMOVE_RECURSE "${CHECK_DIR}")
 file(MAKE_DIRECTORY "${CHECK_DIR}")
 file(COPY "${DEPLOY_DIR}/" DESTINATION "${CHECK_DIR}")
 file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
+
+#Stdlib native modules no longer land in the tool dirs (single
+#authoritative <build>/native/<config> output since 0.11.4), so the
+#install-form layout -- DLLs beside the executable, where the loader's
+#executable-dir search finds them -- is materialized here explicitly.
+file(COPY ${NLANG_NATIVE_DLLS} DESTINATION "${CHECK_DIR}")
+
+#The scratch is nested 9 levels under <build>/tests, beyond the reach of
+#the walk-up discovery used for stdlib (and native modules), so nothing
+#can rescue the check from the build tree. The install form instead
+#ships stdlib within walk-up reach of the executables; materializing it
+#beside the exe exercises FindStdLibDir's exe-relative probe — every
+#resolution class must come from the copied layout.
+file(COPY "${STDLIB_DIR}/" DESTINATION "${CHECK_DIR}/stdlib")
 
 #Pin Qt's paths to the scratch copy: without this, Qt falls back to
 #the compiled-in plugin dir of whatever Qt build produced the DLLs

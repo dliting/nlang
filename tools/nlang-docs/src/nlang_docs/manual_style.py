@@ -3,7 +3,9 @@
 Two checks share one markdown line scanner:
 
 - compact spacing: an ASCII space at a CJK/fullwidth <-> Latin/digit
-  boundary in prose (rule A of docs/user-manual-style-guide.md);
+  boundary in prose (rule A of docs/user-manual-style-guide.md); a
+  clause-number heading prefix ("## 0.1 标题") is exempt as a
+  structural anchor of the specification tree;
 - abbreviation co-occurrence: when a controlled abbreviation occurs in
   body prose, a full form from the guide's term table must co-occur on
   the same page (headings keep the short form and are not scanned).
@@ -175,11 +177,22 @@ SPACING_RE = re.compile(
     rf'(?<=[{_CJK}]) +(?=[-\'"A-Za-z0-9])'
     rf'|(?<=[A-Za-z0-9]) +(?=[{_CJK}])'
 )
+# A clause-number heading prefix ("## 0.1 范围与状态") is a structural
+# anchor of the specification tree, mirrored from the English pages;
+# the space between the number and the title is not prose spacing.
+# Only dotted clause numbers need the exemption -- a plain numbered
+# heading keeps its trailing dot ("## 1. 标题"), which already breaks
+# the digit-to-CJK boundary -- so the pattern requires the dot and an
+# undotted "## 5 个步骤" stays a violation. The title is still scanned.
+CLAUSE_HEAD = re.compile(r"^#{1,6} \d+\.\d+(?:\.\d+)* ")
 
 
 def spacing_violations_in_text(text: str):
     hits = []
     for lineno, line in prose_lines(text, drop_headings=False):
+        m = CLAUSE_HEAD.match(line)
+        if m:
+            line = line[m.end():]
         m = SPACING_RE.search(line)
         if m:
             hits.append((lineno, line.strip()))

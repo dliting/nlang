@@ -1,6 +1,6 @@
 # native函数
 
-
+规范性规则见规范§7.5。
 标记为`native`的函数声明**没有函数体**——实现由嵌入宿主在运行期提供：
 
 ```nlang
@@ -15,7 +15,7 @@ int main() {
 
 **模型。**声明编译为只携带签名的函数记录（无字节码）。自由函数的查找键是`<包名>.<函数名>`（包名取声明所在翻译单元的模块路径；类成员方法保持裸名）。调用点上，VM先查宿主注册的native函数表；带包名的键未命中时，装载器按包名在搜索路径上定位`nlang_<包名>.dll`并由它注册（懒加载：首次调用才触发装载）；仍未命中才抛错。命中后直接以调用方暂存的实参单元调用native实现：
 
-- 应用二进制接口（ABI，application binary interface）：实参`i`占据`args[i*8]`处8字节槽的低4字节——小端`int32`/`float`位或堆索引（槽内即4字节载荷，与栈帧槽位同宽同构，见[栈帧布局](../vm-architecture/stack-frame-layout.md)），与内建函数ABI相同。native实现把4字节返回值写入`ret`（`void` native函数可为null）。
+- 应用二进制接口（ABI，application binary interface）：每个值占一个8字节栈帧槽；实参`i`位于`args[i*8]`——`int32`/`float`位或堆索引占低4字节（小端），`long`/`double`用满8字节（与栈帧槽位同宽同构，见[栈帧布局](../vm-architecture/stack-frame-layout.md)），与内建函数ABI相同。native实现把返回值写入`ret`——窄类型4字节、`long`/`double`8字节（`void` native函数可为null）。
 - 解析失败在调用点抛错，绝不静默产生垃圾：包名对应的`nlang_<包名>.dll`不存在时报`cannot find native module 'nlang_<包名>.dll' for package '<包名>'`（后随已搜索目录列表）；动态链接库（DLL，dynamic-link library）装载后仍未注册该名字时报`native function not registered: <name>`。
 - 默认参数可用（分派前在调用点填充），跨模块导入亦然（默认值随native标志一起序列化进模块文件）。
 

@@ -26,8 +26,8 @@ Suggested reading order for the Language Specification:
 For the execution engine: start with
 [VM Architecture / Overview](../vm-architecture/overview.md), then read
 the compilation pipeline, stack frame layout, bytecode instructions, and
-the other chapters as needed. The five command-line tools (nlang, ncc, nvm,
-ndb, ndisasm) are documented in the
+the other chapters as needed. The five command-line tools (nlang, ncc,
+nvm, ndb, ndisasm) are documented in the
 [Command-line Tools](../cli-tools/overview.md) chapter. For debugging
 inside the integrated development environment (IDE), see [Debugging in nide](debugging.md).
 

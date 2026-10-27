@@ -1,0 +1,17 @@
+// Stage-3: a negative shape dim in the reshape family raises the
+// sized-creation family (IndexOutOfBoundsException), not the base
+// Exception - the per-dim validation lives in the shared sized-creation
+// choke point, mirroring `int[n]` creation semantics.
+import tensor;
+
+int main() {
+    int[] src = tensor.arange(0, 6, 1);
+    int[] shape = [-1, 2];
+    try {
+        tensor.reshape2(src, shape);
+    } catch (IndexOutOfBoundsException e) {
+        if (e.message != "tensor.reshape: shape dim is negative") return 10;
+        return 0;
+    }
+    return 9;
+}

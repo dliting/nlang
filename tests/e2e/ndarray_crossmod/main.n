@@ -1,0 +1,10 @@
+import io;
+import lib;
+
+int main() {
+    int[,] grid = [[1, 2], [3, 4]];
+    double[,] dm = [[1.0, 2.0], [3.0, 4.0]];
+    double[,] scaled = lib.scale(dm, 2.0);
+    io.print(lib.sum(grid).toString() + " " + scaled[1, 1].toString());
+    return 0;
+}

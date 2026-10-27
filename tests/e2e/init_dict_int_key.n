@@ -1,0 +1,7 @@
+// 0.10.10: non-string key types are legal — literal and variable int
+// keys into Dict<int, string>.
+int main() {
+    int n = 10;
+    Dict<int, string> d = {1: "one", n: "ten"};
+    return d[10].length() + d[1].length();
+}

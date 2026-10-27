@@ -55,7 +55,7 @@ itp.setOutputHandler(
 int rc = itp.runSource("import io; io.print(6*7);");   //rc == 0
 ```
 
-要`import io`，先把标准库目录加入导入路径——库声明与包的解析只走`addImportDir`给出的目录（进程内嵌入不读`NLANG_PATH`，也不搜索宿主可执行文件目录或当前目录）；原生模块（`nlang_io.dll`等）的解析同样走导入目录，但可执行文件所在目录恒居原生搜索表首位——残留该处的旧版DLL会遮蔽导入目录里的副本。典型部署是把`stdlib`目录——`.n`声明、`stdlib.npkg`、原生动态链接库（DLL，dynamic-link library）——整个放到应用数据目录，启动时`addImportDir`一次。
+要`import io`，先把标准库目录加入导入路径——库声明与包的解析走`addImportDir`给出的目录，`runFile`形态下脚本所在目录还会自动加入搜索（进程内嵌入不读`NLANG_PATH`，也不搜索宿主可执行文件目录或当前目录）；原生模块（`nlang_io.dll`等）的解析同样走导入目录，但可执行文件所在目录恒居原生搜索表首位——残留该处的旧版DLL会遮蔽导入目录里的副本。典型部署是把`stdlib`目录——`.n`声明、`stdlib.npkg`、原生动态链接库（DLL，dynamic-link library）——整个放到应用数据目录，启动时`addImportDir`一次。
 
 执行完成后仍可`call`脚本声明的函数（键为`<模块名>.<函数名>`）：字符串源码的模块名固定为`script`；`runFile`的模块名是文件名词干，词干须为合法标识符——`my-script.n`这类含连字符的文件名会被拒绝。
 
@@ -75,7 +75,7 @@ opts.importDirs.push_back("path/to/stdlib");
 int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 ```
 
-`runScript`/`runScriptFile`内部新建解释器、执行、销毁，不保留状态；需要宿主函数或跑后`call`时请用完整的`Interpreter`流程。顶层`return`建议取0-255（Windows进程退出码按8位截断）。
+`runScript`/`runScriptFile`内部新建解释器、执行、销毁，不保留状态；需要宿主函数或跑后`call`时请用完整的`Interpreter`流程。顶层`return`建议取0-255：进程退出码按32位原值传递，POSIX shell只观察低8位（见[退出码约定](../language-spec/exit-code-convention.md)）。
 
 ## 4. 生命周期
 

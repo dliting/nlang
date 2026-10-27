@@ -57,6 +57,13 @@ Thumbs.db
 # Local agent guidance and settings (machine-specific; not shipped)
 .claude/
 docs/superpowers/
+AGENT.md
 AGENTS.md
 AGENTS.reference.md
+.zcodeignore
 .superpowers/
+
+# Transient staging and auxiliary build trees (regenerated)
+_CPack_Packages/
+build-src-entry/
+build-sync/

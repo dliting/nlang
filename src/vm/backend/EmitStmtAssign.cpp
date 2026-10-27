@@ -3,6 +3,7 @@
     从 EmitStmtDecl.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -205,24 +206,29 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
 void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
         BytecodeEmitter& emitter) {
-    EvalAreaClaim claim(*this, 3);
+    //Stage-2: N indices + element temp + value in one exclusive claim.
+    const size_t rank = sub.Indices().size();
+    EvalAreaClaim claim(*this, rank + 2);
     uint16_t claimBase = claim.base();
-    uint16_t indexSlot = claimBase + kFrameSlotBytes;
-    uint16_t valueSlot = claimBase + 2 * kFrameSlotBytes;
-    //1. Evaluate right side → claim[2]
+    uint16_t idxBase = claimBase + kFrameSlotBytes;
+    uint16_t valueSlot = claimBase + (rank + 1) * kFrameSlotBytes;
+    //1. Evaluate right side → value slot
     EmitExpression(*assign.Right(), emitter, valueSlot);
-    //2. Evaluate index → claim[1]
-    EmitExpression(*sub.Index(), emitter, indexSlot);
+    //2. Evaluate indices → idxBase..
+    for (size_t d = 0; d < rank; ++d)
+        EmitExpression(*sub.Indices()[d], emitter,
+            idxBase + d * kFrameSlotBytes);
     //3. Evaluate array ref → claim[0], null-checked
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
     //4. load element into tempSlot (free scratch — all operands are
     //parked in exclusive claim slots now)
-    emitter.Emit(OpCode::OP_LoadElement);
+    emitter.Emit(OpCode::OP_LoadElementN);
     emitter.EmitUint16(m_currFunc->tempSlot);
     emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
+    emitter.EmitUint16(idxBase);
+    emitter.EmitUint16(static_cast<uint16_t>(rank));
     //5. null_check the element (class) or skip (struct is value)
     if (elemType->Kind() == NK_ClassDecl) {
         emitter.Emit(OpCode::OP_NullCheck);

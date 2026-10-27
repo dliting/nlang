@@ -50,23 +50,35 @@ file.`。详见[声明](declarations.md)「import声明」。
 
 ### 被导入函数的默认表达式
 
-```nlang
-// lib.n
-int helper() { return 1; }
-int g(int a = helper() as int) { return a; }
+```nlang lib.n
+int addCast(float a, int b = a as int) {
+    return b;
+}
+```
 
-// main.n
+```nlang main.n
 import lib;
+
 int main() {
-    return lib.g();
+    return lib.addCast(1.5f);
 }
 ```
 
 ```text
-Error: imported function 'lib.g' has a default for parameter 0 outside the cross-module subset; supported: int/float/double/long/ulong/string/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
 ```
 
-默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。默认参数语义见[默认参数](default-parameters.md)。
+默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。同一工程内源码一起编译不受此限制——默认表达式直接使用。默认参数语义见[默认参数](default-parameters.md)。
+
+### 被导入函数与其记录不符
+
+```console
+$ nvm main.ncu
+Runtime error: nlink failed:
+  unit 'main': imported function 'score' (paramCount 1) from module 'lib' does not match its record in the owning unit (stale artifact — recompile the importing module)
+```
+
+跨模块调用记录被调函数在生产方单元函数表中的位置。若生产方重新编译后该位置发生移动（增删重载、函数重排），而导入方的`.ncu`仍是旧产物，记录的位置就不再指向同一个函数。链接器不猜测，直接报此错，而不是把调用悄悄连到错误的记录。请对照当前的生产方产物重新编译导入方。详见[包](packages.md)。
 
 ### 声明与控制流
 
@@ -299,7 +311,7 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`整体抑制，显式`as`不警告）。详见[类型语义](type-semantics.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型语义](type-semantics.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
 
 ### `as`转换
 
@@ -329,7 +341,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 
 `as`只用于转换矩阵不放行的对——对已经隐式合法的加宽写`as`是冗余（`ubyte→int`直接`int i = b;`）；string→数值的`as`被禁止——用`s.toInt()`/`toLong()`/`toDouble()`方法族。详见[类型强制转换](type-casts.md)。
 
-### 字典初始化器键
+### 字典初始化器键类型不符
 
 ```nlang
 int main() {
@@ -339,10 +351,10 @@ int main() {
 ```
 
 ```text
-Error: the Dict collection initializer requires string keys; use set() with an explicit 'Int32' key
+Error: Incompatible type "1".
 ```
 
-集合初始化器只支持string键——这只对`K = string`正确。非string键的`Dict<K,V>`用空初始化器构造后`set()`逐条填入。详见[集合初始化器](collection-initializers.md)。
+字典初始化器的键是表达式，按与值相同的转换规则对照声明的键类型K检查——`Dict<int, int>`里的string键过不了该检查。写声明的键类型的键（`{1: 2}`），或把K声明为`string`。详见[集合初始化器](collection-initializers.md)。
 
 ### 未声明构造器的struct不能带实参
 
@@ -359,22 +371,6 @@ Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
 未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
-
-### 泛型花括号锚定
-
-```nlang
-int main() {
-    List<int> nums = List<int>{60};
-    return 0;
-}
-```
-
-```text
-Error: syntax error
-Error: Invalid statement.
-```
-
-泛型类型的锚定头（`List<int>{...}`）无法解析。给字面量一个带类型声明即可：`List<int> nums = [60];`。详见[已知限制](known-limitations.md)「泛型实例化没有锚定头」条与[集合初始化器](collection-initializers.md)。
 
 ### 类型别名
 
@@ -398,8 +394,10 @@ int main() {
 }
 ```
 
-```text
+```console
+$ ncc build src_not_utf8.n -o app.ncu
 Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line 2). Save the file as UTF-8.
+Compilation failed.
 ```
 
-`.n`源文件与`.nproj`项目文件由ncc做严格的Unicode转换格式（UTF-8，Unicode Transformation Format）校验（nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](primitives.md)「表示链：从源码到控制台」。
+`.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](primitives.md)「表示链：从源码到控制台」。

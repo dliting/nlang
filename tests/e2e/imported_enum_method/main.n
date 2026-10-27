@@ -1,0 +1,8 @@
+import lib;
+
+int main() {
+    lib.Color c = lib.Color.Green;
+    if (c.rank() != 10) return 1;
+    if (lib.Color.Blue.rank() != 20) return 2;
+    return 0;
+}

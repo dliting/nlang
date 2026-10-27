@@ -27,9 +27,13 @@ runtime module. The language itself:
 - **Garbage-collected** — no `delete`; objects are reclaimed
   automatically once unreachable, so you never free memory by hand (see
   [Memory Management](../language-spec/memory-management.md));
+- **Concurrent** — `thread.spawn` runs a function on its own thread and
+  yields a `Future<T>` for its result; `Mutex`, `Channel`, and the
+  `concurrent` package (`WaitGroup`, `Semaphore`) provide the
+  synchronization layer;
 - **Modern scripting staples** — exception handling, string
   interpolation, `out` parameters, default parameters, and the
-  `math`/`io`/`fs` standard libraries.
+  `math`/`io`/`fs`/`thread`/`concurrent` standard libraries.
 
 The six tools shipped with the package:
 

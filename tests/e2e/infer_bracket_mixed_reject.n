@@ -1,0 +1,5 @@
+// 0.10.8 D2: entries of differing types give no single element type —
+// the named diagnostic asks for an explicit type.
+int main() {
+    return [1, 2.5].length();
+}

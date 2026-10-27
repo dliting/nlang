@@ -25,8 +25,10 @@ extern "C" {
 #endif
 
 // Bump on any incompatible change to NativeHost, NativeFn or the value
-// layout. A module's nlang_native_init returns this; the host rejects a
-// mismatch. Version 2: the value slot widened from 4 to 8 bytes (the
+// layout. A module's nlang_abi_version export reports this; the host
+// resolves and validates that probe BEFORE the module's init runs, so a
+// version mismatch (or a module without the probe) is rejected without
+// calling nlang_native_init. Version 2: the value slot widened from 4 to 8 bytes (the
 // 0.7.5 slot-width ABI — one uniform frame cell per value). Version 3:
 // the writeError callback added (io.eprint's stderr channel — only the
 // host knows whether a session owns the streams). Version 4: the input
@@ -37,7 +39,23 @@ extern "C" {
 // (file and stream I/O). The VM stages their arguments and result off
 // the frame, parks the context and releases its global lock around the
 // call; NativeFn itself is unchanged (the staging is transparent).
-#define NLANG_HOST_ABI_VERSION 5u
+// Version 6: the array-payload side — getArrayView (a pinned view of a
+// heap array record's cells: dims/strides/elemKind + the raw payload
+// pointer, valid for the duration of the call; the GC is non-moving and
+// the argument record is rooted for the call) and newArray (mint a
+// scalar-element array). The exception selector gained the
+// NullPointer/OutOfBounds/DivideByZero families so native code raises
+// the same catchable classes the language runtime does. Version 7:
+// strides moved into the view itself (NativeArrayView.stridesInline —
+// the v6 host-wide scratch buffer let a second live view overwrite the
+// first's strides); ArgArray became an out-param because the view's
+// strides pointer now points into itself. Version 8: the rank cap left
+// the header (kMaxArrayRank moved to runtime/Config.h) and rose 8 -> 64,
+// so stridesInline widened to match (the view is stack-allocated; dims
+// still points into the record and grows nothing). Version 9: newArrayShaped
+// (mint an ND array from explicit dims) joined the table so matrix-family
+// kernels can mint [rows, cols] and beyond; newArray stays rank-1.
+#define NLANG_HOST_ABI_VERSION 9u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -61,8 +79,52 @@ typedef void (*NativeFn)(NativeHost* host, uint8_t* ret,
 // Exception class selector for NativeHost.raiseException.
 enum NativeExceptionKind {
     NEXC_Base = 0,        // base Exception (math argument/range errors, ...)
-    NEXC_IOException = 1  // IOException (io/fs failures)
+    NEXC_IOException = 1, // IOException (io/fs failures)
+    //v6: same catchable families the language runtime raises, so native
+    //kernels are catchable exactly like built-in operations.
+    NEXC_NullPointer = 2, // NullPointerException (null array handle, ...)
+    NEXC_OutOfBounds = 3, // IndexOutOfBoundsException (negative length, ...)
+    NEXC_DivideByZero = 4 // DivByZeroException (integer kernel division)
 };
+
+// Scalar element kinds a native may mint arrays of or inspect through a
+// NativeArrayView. Values MIRROR the runtime RTK_* scalar codes in
+// PrimitiveTypes.h (single source; keep in tie by this comment — same
+// discipline as kMaxNativeStagedParams mirroring the compiler constant).
+// The identity mapping lets the host map NEK -> RTK with no table.
+enum NativeElemKind {
+    NEK_Int32   = 0,   // RTK_Int32
+    NEK_Float32 = 1,   // RTK_Float
+    NEK_Int64   = 15,  // RTK_Long
+    NEK_Float64 = 17   // RTK_Double
+};
+
+// A pinned view of one heap array record's payload, handed to a native
+// through getArrayView. The record's cells back every pointer:
+//   dims    - points INTO the record (the dims run; for rank 1 the
+//             single dim equals the element count).
+//   strides - points at stridesInline inside this view (row-major,
+//             computed per call). Each view owns its storage: multiple
+//             live views never share it. Copying the view struct leaves
+//             strides pointing into the original — request a fresh view
+//             instead of copying.
+//   data    - the payload base (element 0). The GC is non-moving and the
+//             argument record is rooted for the duration of the native
+//             call, so the pointer is stable for the call — and only for
+//             the call. Never cache it past return.
+// elemCellBytes is the per-element stride in bytes (4, or 8 for the
+// 8-byte scalar family); elemCount the total element count.
+typedef struct NativeArrayView {
+    int32_t rank;
+    const int32_t* dims;
+    const int32_t* strides;
+    int64_t elemCount;
+    uint8_t elemKind;      // NativeElemKind value
+    uint8_t elemCellBytes;
+    uint8_t reserved[2];
+    int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
+    void* data;
+} NativeArrayView;
 
 struct NativeHost {
     uint32_t abiVersion;
@@ -95,9 +157,10 @@ struct NativeHost {
     // v4 input side. readToken skips whitespace (across lines) and
     // returns the next token, or null at end of input — the host raises
     // before returning null, so natives treat null as defensive only.
-    // readChar decodes one full UTF-8 scalar; 0 = ok, 1 = end of input
-    // (host raised). hasInput never raises: 1 = a readLine would still
-    // produce a line.
+    // readChar decodes one full UTF-8 scalar; 0 = ok — at end of input
+    // or on invalid UTF-8 the host raises before returning, so natives
+    // never observe the 1. hasInput never raises: 1 = a readLine would
+    // still produce a line.
     const char* (*readToken)(NativeHost* self);
     int (*readChar)(NativeHost* self, uint32_t* outChar);
     int (*hasInput)(NativeHost* self);
@@ -109,16 +172,51 @@ struct NativeHost {
     // PRNG access (state owned by the VM).
     uint32_t (*nextRandom)(NativeHost* self);
     void (*seedRandom)(NativeHost* self, int32_t seed);
+
+    // v6 array side. getArrayView fills *out with a pinned view of the
+    // array record behind the heap handle. A null handle raises
+    // NullPointerException, a non-array record raises the base Exception;
+    // on return the view is fully populated (returns 1 — errors raise,
+    // there is no non-raising outcome). The view is valid only for the
+    // duration of this native call.
+    int (*getArrayView)(NativeHost* self, int32_t handle,
+                        NativeArrayView* out);
+
+    // Mint a new array of a scalar element kind with `length` elements,
+    // zero-initialized; returns its heap handle. A negative length raises
+    // the OutOfBounds family (language-side `T[-n]` alignment), a length
+    // beyond the allocation guard raises the same family. The handle is
+    // rooted until the native writes it into its return cell.
+    int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
+
+    // Mint a new ND array of a scalar element kind with the given rank and
+    // dims, zero-initialized; returns its heap handle. A rank outside
+    // [1, kMaxArrayRank] raises by name; negative dims and the allocation
+    // cap raise in the shared sized-creation choke point (OutOfBounds
+    // family). The handle is rooted until the native writes it into its
+    // return cell. (v9)
+    int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
+                              int32_t rank, const int32_t* dims);
 };
 
-// Module entry point. The host loads the shared library, resolves
-// `nlang_native_init`, and calls it once. The module registers each of
-// its functions via `reg` (non-blocking: runs while the VM's global
-// lock is held) or `regBlocking` (may take unbounded time: the VM
-// stages args/result, parks the context and releases the lock around
-// the call), forwarding the opaque `registry` pointer. Registering the
-// same ns.name through both channels is a load error.
-// Returns NLANG_HOST_ABI_VERSION so the host can verify compatibility.
+// Version probe. The host resolves this export first and rejects the
+// module when it is missing or reports a different NLANG_HOST_ABI_VERSION
+// — an incompatible module's init must never run, or its registrations
+// (pointers into a library the host immediately unloads) would leak.
+#define NLANG_NATIVE_ABI_SYMBOL nlang_abi_version
+typedef unsigned (*NativeAbiProbeFn)(void);
+
+// Module entry point. The host loads the shared library, validates
+// `nlang_abi_version`, then resolves `nlang_native_init` and calls it
+// once. The module registers each of its functions via `reg`
+// (non-blocking: runs while the VM's global lock is held) or
+// `regBlocking` (may take unbounded time: the VM stages args/result,
+// parks the context and releases the lock around the call), forwarding
+// the opaque `registry` pointer. Registering the same ns.name through
+// both channels is a load error.
+// The init return value is informational (the probe is the single
+// version authority); returning NLANG_HOST_ABI_VERSION keeps hand-written
+// modules honest.
 typedef void (*RegisterNativeFn)(void* registry, const char* ns,
                                  const char* name, NativeFn fn);
 typedef void (*RegisterNativeBlockingFn)(void* registry, const char* ns,
@@ -142,12 +240,17 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
     NLANG_NATIVE_EXTERN __attribute__((visibility("default")))
 #endif
 
-// Convenience macro for the entry point:
+// Convenience macro for the module's exports. It emits a correct
+// nlang_abi_version probe automatically, so a module only writes its
+// init body:
 //   NLANG_DEFINE_NATIVE_INIT {
 //       reg(registry, "math", "sqrt", &...);          //fast, GIL held
 //       regBlocking(registry, "io", "readFile", &...); //may wait
 //   }
 #define NLANG_DEFINE_NATIVE_INIT \
+    NLANG_NATIVE_EXPORT unsigned nlang_abi_version(void) { \
+        return NLANG_HOST_ABI_VERSION; \
+    } \
     NLANG_NATIVE_EXPORT int nlang_native_init(void* registry, \
                                               RegisterNativeFn reg, \
                                               RegisterNativeBlockingFn regBlocking)
@@ -164,6 +267,13 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
 
 #include <cstring>
 #include <string>
+
+#include <nlang/runtime/Config.h>
+
+//The core struct stays C-compatible (plain [64]); this pins the coupling.
+static_assert(nlang::kMaxArrayRank == 64,
+    "NativeArrayView.stridesInline must track kMaxArrayRank "
+    "(bump NLANG_HOST_ABI_VERSION when it changes)");
 
 namespace nlang {
 namespace native {
@@ -193,6 +303,35 @@ inline int64_t ArgLong(const uint8_t* args, int slot) {
     int64_t value = 0;
     std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
     return value;
+}
+
+// v7: array argument as a pinned payload view. Raises (never returns)
+// when the handle is null or not an array record — the same behavior the
+// language gives null/non-array receivers. Out-param form: the view's
+// strides point into itself, so the struct cannot travel by value.
+inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
+                     NativeArrayView* out) {
+    out->rank = 0;
+    out->dims = nullptr;
+    out->strides = nullptr;
+    out->elemCount = 0;
+    out->elemKind = 0;
+    out->elemCellBytes = 0;
+    out->reserved[0] = 0;
+    out->reserved[1] = 0;
+    out->data = nullptr;
+    host->getArrayView(host, ArgInt(args, slot), out);
+}
+
+// v6: mint a zero-initialized array; returns its heap handle.
+inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
+    return host->newArray(host, elemKind, length);
+}
+
+// v9: mint a zero-initialized ND array from explicit dims.
+inline int32_t NewArrayShaped(NativeHost* host, uint8_t elemKind,
+                              int32_t rank, const int32_t* dims) {
+    return host->newArrayShaped(host, elemKind, rank, dims);
 }
 
 inline std::string ArgString(NativeHost* host, const uint8_t* args,

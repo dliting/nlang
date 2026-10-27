@@ -1,0 +1,11 @@
+enum Level {
+    Low, High;
+
+    public int step(int n) {
+        return this + n;
+    }
+
+    public int step(double n) {
+        return 100;
+    }
+}

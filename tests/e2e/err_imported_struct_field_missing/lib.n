@@ -1,0 +1,8 @@
+//0.10.14: producer exports a struct; the consumer names a field that
+//does not exist. With the stub carrying the real fields, the
+//unresolved-field error now fires only for a genuine miss.
+struct Vec {
+	int x;
+	int y;
+	public Vec(int a, int b) { x = a; y = b; }
+}

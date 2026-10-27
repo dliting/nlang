@@ -35,9 +35,9 @@ UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存�
 
 nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行工具」都在集成开发环境（IDE，integrated development environment）内嵌的帮助窗口中打开（内容即安装目录`docs\site\`下的文档站），左侧是导航目录。搜索框在窗口左上角（站点标题旁），支持全文检索。
 
-### `v + 1`不加空格报`syntax error`？
+### `v--1`报`syntax error`？
 
-NLang把`v+1`读成标识符`v`后接带正号的字面量`+1`——两个表达式连排不构成合法语句，于是报`syntax error`（`Invalid statement.`）。规避：加号两侧留空格（`v + 1`）。
+词法层把`--`与`++`识别为单个词法单元（为文法尚未使用的自增/自减运算符预留），`v--1`被读成`v`、`--`、`1`，不构成合法语句，于是报`syntax error`（`Invalid statement.`）。两个运算符之间加空格（`v - -1`）或给单目操作数加括号（`v - (-1)`）即可。普通的`v+1`、`v+-1`没有问题——`+-`不是词法单元。
 
 详见[语言规格/表达式](../language-spec/expressions.md)。
 
@@ -61,9 +61,9 @@ NLang把`v+1`读成标识符`v`后接带正号的字面量`+1`——两个表达
 
 合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[语言规格/声明](../language-spec/declarations.md)的「默认值」。
 
-### `Point(2, 3)`为什么报构造器错误？
+### `Point(2, 3)`为什么报「没有构造器」？
 
-`Point`未声明构造器——带实参调用它编译报`struct "Point" has no constructor; Point() cannot take arguments`。未声明构造器的struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`；想写`Point(2, 3)`，先声明构造器。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条。
+未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../language-spec/struct.md)「创建与初始化」。
 
 ### 数组和`List`用哪个？
 

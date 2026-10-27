@@ -1,0 +1,6 @@
+// 0.10.7 D2: the scalar sibling takes its own initializer (rejected
+// before the flip: the sibling used to be a null int[]).
+int main() {
+    int a[3], b = 5;
+    return b + a[0];
+}

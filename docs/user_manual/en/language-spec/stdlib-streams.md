@@ -1,5 +1,7 @@
 # Streams — ByteStream and FileStream
 
+The normative rules are in [specification §15.5](../specification/15-io-streams.md).
+
 Two built-in stream classes provide binary serialization: `ByteStream` reads
 and writes over an in-memory buffer, `FileStream` lands on a disk file. The
 method set is identical (FileStream has no `reset()`).
@@ -9,8 +11,12 @@ ByteStream bs = ByteStream();
 bs.writeInt(1);
 bs.writeDouble(0.5);
 bs.reset();                  // rewinds the cursor, keeps the buffer
-double d = bs.readDouble();
+int n = bs.readInt();        // 1
+double d = bs.readDouble();  // 0.5
 ```
+
+Reads consume the stream in write order — the example reads the int back
+before the double.
 
 | Method | Stored form | Notes |
 |---------|-----------|-------|
@@ -23,7 +29,7 @@ double d = bs.readDouble();
 | writeObject / readObject | recursive reference graph | class instances; read likewise by type name |
 | length / position | — | byte count / current cursor |
 | reset (ByteStream only) | — | rewinds the cursor, keeps the buffer |
-| close | — | releases the FileStream's file handle |
+| close | — | closes the stream (on FileStream, releases the file handle); later calls raise a runtime error |
 
 **FileStream construction**: `FileStream(path, mode)`, where mode is
 `"w"` (create/truncate), `"a"` (create/append) or `"r"` (read-only; a

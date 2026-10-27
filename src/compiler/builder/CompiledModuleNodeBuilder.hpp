@@ -79,6 +79,8 @@ public:
 			cm.structs.size() - cm.structImports.size();
 		const size_t ownClasses =
 			cm.classes.size() - cm.classImports.size();
+		const size_t ownEnums =
+			cm.enumNames.size() - cm.enumImports.size();
 
 		auto loc = CompiledModuleNodeLocation(cm.name);
 
@@ -117,6 +119,12 @@ public:
 		for (const auto &iface : cm.interfaces)
 			for (uint16_t si : iface.staticMethodIndices)
 				methodOrCtorIndices.insert(si);
+		//0.10.14: enum methods are likewise owned by their enum stub —
+		//without this they were promoted to free stubs under the leaf
+		//name (the double-mint the enum import corrects).
+		for (size_t ei = 0; ei < ownEnums; ++ei)
+			for (uint16_t mi : cm.enumMethodIndices[ei])
+				methodOrCtorIndices.insert(mi);
 
 		//Functions first so that subsequent class/struct stub members can
 		//reference them by name if needed (resolver does name-based lookup
@@ -128,8 +136,10 @@ public:
 				continue;  //class method/ctor — owned by its class, not free
 			//Free functions have no declared member access on the wire —
 			//the stub mints public (top-level declarations are public).
-			SnFunction *stub =
-				CreateFunctionStub(cm.functions[i], cm, loc, FA_Public);
+			//0.10.14: the table index rides the stub — the namespace
+			//branch of the cross-unit slot record carries it.
+			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
+				loc, FA_Public, ProducerIdxClamp(i));
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -183,6 +193,19 @@ public:
 			if (nameExistsInRoot(LeafNameOfKey(iface.name)))
 				continue;  //R10-1
 			SnInterfaceDecl *stub = CreateInterfaceStub(iface, cm, loc);
+			m_Tree.Root()->Members().push_back(stub);
+			m_importedTypes.push_back(stub);
+		}
+
+		//0.10.14: enums — value members + member-method stubs, bound
+		//through the same FindModuleType channel as structs/classes.
+		for (size_t ei = 0; ei < ownEnums; ++ei)
+		{
+			if (nameExistsInRoot(LeafNameOfKey(cm.enumKeys[ei])))
+				continue;  //R10-1
+			SnEnumDecl *stub = CreateEnumStub(cm.enumKeys[ei],
+				cm.enumNames[ei], cm.enumMethodIndices[ei],
+				cm.enumMethodAccess[ei], cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}

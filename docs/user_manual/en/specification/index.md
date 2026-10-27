@@ -1,0 +1,53 @@
+# Specification
+
+This tree is the normative specification of the NLang programming
+language: its core language, its standard library, and its binary
+formats. It defines what a conforming implementation must do. The
+[user manual](../index.md) teaches how to use the language and is
+informative; where the two disagree about a semantic question, this
+specification is the authority. The English text is normative.
+
+The specification describes NLang 0.11.7. It is a living document:
+it always describes the current language, and its version history is
+the repository history — a tag such as `v0.11.5` pins the whole tree
+at one point of the language's evolution.
+
+Where this specification and an implementation disagree, the
+disagreement is a defect in one of them. It is resolved by deciding
+which side is correct and fixing that side; significant semantic
+changes go through the NLang Enhancement Proposal (NLEP) process
+before they land here.
+
+## Contents
+
+### Part I — The Language
+
+- [0. Introduction](00-introduction.md)
+- [1. Lexical Structure](01-lexical.md)
+- [2. Syntax](02-grammar.md)
+- [3. Program Structure and Name Resolution](03-program-structure.md)
+- [4. Types](04-types.md)
+- [5. Expressions](05-expressions.md)
+- [6. Statements](06-statements.md)
+- [7. Functions and Methods](07-functions.md)
+- [8. Object Orientation](08-object-orientation.md)
+- [9. Exceptions](09-exceptions.md)
+- [10. Execution Model and Memory Semantics](10-execution-model.md)
+- [11. Concurrency](11-concurrency.md)
+- [12. Packages and Import Search](12-packages.md)
+
+### Part II — The Standard Library
+
+- [13. Built-in Classes and Library Conventions](13-builtin-classes.md)
+- [14. The math Package](14-math.md)
+- [15. The io Package and Streams](15-io-streams.md)
+- [16. The fs Package](16-fs.md)
+- [17. The Concurrency Library](17-concurrency-library.md)
+- [18. The tensor Package](18-tensor.md)
+- [19. Library Exceptions](19-library-exceptions.md)
+
+### Part III — Binary Formats
+
+- [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
+- [21. The `.npkg` Package Archive](21-npkg-package-archive.md)
+- [22. The Native Application Binary Interface (ABI)](22-native-abi.md)

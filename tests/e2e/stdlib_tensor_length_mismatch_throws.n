@@ -1,0 +1,10 @@
+// tensor elementwise length mismatch: uncaught, exit 1 with the
+// automatic backtrace path.
+import tensor;
+
+int main() {
+    int[] a = tensor.arangeI(1, 4, 1);
+    int[] b = tensor.arangeI(1, 9, 1);
+    int[] s = tensor.add(a, b);
+    return s[0];
+}

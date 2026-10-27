@@ -12,7 +12,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 | Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
 | Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` |
 | Methods — predicate (returns `bool`) | camelCase, bare word | `contains(x)`, `startsWith(s)`, `fs.exists(p)` |
-| Free functions | camelCase | `print(s)`, `assert(c)` |
+| Free functions | camelCase | `io.print(s)`, `computeTotal()` |
 | Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
 | Entry-point function `main` | lowercase (sole exception) | `int main()` |
 | Enum values | PascalCase | `Color.Red`, `Day.Monday` |

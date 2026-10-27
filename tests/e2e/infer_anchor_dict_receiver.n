@@ -1,0 +1,4 @@
+// 0.10.8 D1: the anchored form covers Dict (keyed entries).
+int main() {
+    return Dict<string, int>{"a": 1}.count();
+}

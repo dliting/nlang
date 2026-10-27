@@ -106,6 +106,17 @@ target_include_directories(nlang_badabi PRIVATE ${PROJECT_SOURCE_DIR}/include)
 add_library(nlang_noentry SHARED
     fixtures/native/noentry/noentry_native.cpp
 )
+target_include_directories(nlang_noentry PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+add_library(nlang_noprobe SHARED
+    fixtures/native/noprobe/noprobe_native.cpp
+)
+target_include_directories(nlang_noprobe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+add_library(nlang_badreturn SHARED
+    fixtures/native/badreturn/badreturn_native.cpp
+)
+target_include_directories(nlang_badreturn PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 # NativeLibraryLoader unit tests: real discovery/loading of the fixtures.
 add_executable(test_native_loader
@@ -123,7 +134,8 @@ target_compile_definitions(test_native_loader
     PRIVATE
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_sample>"
 )
-add_dependencies(test_native_loader nlang_sample nlang_badabi nlang_noentry)
+add_dependencies(test_native_loader nlang_sample nlang_badabi
+    nlang_noentry nlang_noprobe nlang_badreturn nlang_io)
 add_test(NAME native_loader_tests COMMAND test_native_loader)
 
 # LibrarySearchPath (header-only, pure STL) unit tests: layered ordering,
@@ -438,6 +450,108 @@ target_compile_definitions(test_stdlib
 )
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
+
+# NativeHost ABI v7 array-access tests: real VmExecutor + bare-name
+# in-process natives exercising getArrayView/newArray end to end
+# (test_native_abi covers the mock-table face, this the real-VM face).
+add_executable(test_native_array_abi
+    test_vm/test_native_array_abi.cpp
+)
+
+target_include_directories(test_native_array_abi
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_native_array_abi
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_native_array_abi)
+target_compile_definitions(test_native_array_abi
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME native_array_abi_tests COMMAND test_native_array_abi)
+
+# Stage-2 task 1: rank-carrying array type tokens (comma suffix grammar,
+# jagged gate preservation, generic-argument acceptance).
+add_executable(test_nd_tokens
+    test_vm/test_nd_tokens.cpp
+)
+
+target_include_directories(test_nd_tokens
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_nd_tokens
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_nd_tokens)
+target_compile_definitions(test_nd_tokens
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME nd_tokens_tests COMMAND test_nd_tokens)
+
+# Stage-2 task 2: comma index lists and ND creation resolution.
+add_executable(test_nd_resolve
+    test_vm/test_nd_resolve.cpp
+)
+
+target_include_directories(test_nd_resolve
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_nd_resolve
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_nd_resolve)
+target_compile_definitions(test_nd_resolve
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
+
+# Stride-table integrity: every opcode resolves to an extent in
+# [1, 9] (the rewrite regression — inline-braced constexpr rows
+# silently failed to match under MSVC).
+add_executable(test_stride_table
+    test_vm/test_stride_table.cpp
+)
+
+target_include_directories(test_stride_table
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_stride_table
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+
+add_test(NAME stride_table_tests COMMAND test_stride_table)
 
 # 0.9.11 D2 struct constructor unit tests (console suite): in-process
 # compile+run pinning that the ctor runs on explicit construction calls
@@ -1429,7 +1543,13 @@ if(NLANG_BUILD_IDE)
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
-            -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check
+            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>
+            -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
+            #Scratch nested 9 levels under <build>/tests: the loader's
+            #build-tree fallback walks up at most 8, so it cannot rescue
+            #the check from <build>/native — resolution must come from
+            #the copied install-form layout (the property under test).
+            -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
@@ -1915,23 +2035,11 @@ if(NLANG_BUILD_DOCS)
     endif()
 endif()
 
-# Make the stdlib native modules discoverable to in-process VM tests. The
-# loader's default search path is the host executable's directory; a test exe
-# lives in tests/<config>, so copy nlang_math/io/fs there as part of the
-# default test build. Tools (ncc/nvm/ndb) launched as test subprocesses use
-# the copies deployed next to them, so this only serves tests driving the VM
-# in-process (test_stdlib, test_debugger, test_module_import, ...). Depending
-# on the module targets guarantees the DLLs are built and current first.
-add_custom_target(nlang_stdlib_native_for_tests ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:nlang_math>
-                $<TARGET_FILE:nlang_io>
-                $<TARGET_FILE:nlang_fs>
-                "${CMAKE_BINARY_DIR}/tests/$<CONFIG>"
-    VERBATIM)
-add_dependencies(nlang_stdlib_native_for_tests nlang_math nlang_io nlang_fs)
+# In-process VM tests resolve the stdlib native modules through the
+# loader's build-tree fallback (NativeLibraryLoader walks up from the test
+# exe to <build>/native/<config>, the single authoritative module output).
+# No copies land in tests/<config> anymore; the fallback, not an exe-dir
+# copy, is what satisfies native lookups the host never asked for.
 
 
 # --- Embedding API tests (spec: 2026-10-08-nlang-embedded-host-api) ---
@@ -2021,20 +2129,18 @@ target_compile_definitions(test_embed_api
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu"
         EMBED_MATH_NCU="${embed_fixture_dir}/math.ncu"
         NLANG_TEST_STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}")
-add_dependencies(test_embed_api nlang_embed_fixtures nlang_stdlib_native_for_tests)
+add_dependencies(test_embed_api nlang_embed_fixtures)
 add_test(NAME embed_api_tests COMMAND test_embed_api)
 
 #Embedding source-entry tests (spec: 2026-10-15-embedding-source-entry).
 #Deployed-stdlib fixture: one host-specified directory in the full
 #deployment shape -- stdlib declaration sources + stdlib.npkg + native
 #DLLs -- so import discovery, closure loading and native resolution all
-#resolve from addImportDir dirs (the ONE-list contract). Deliberately
-#NOT depending on nlang_stdlib_native_for_tests: that target copies
-#DLLs next to the test exes, which would mask the AddNativeSearchDir
-#wiring (the exe dir is always first in the native search list,
-#VmExecutorNativeHost.cpp:257). Fresh targeted builds are the genuine
-#probe; full builds still mask via the ALL copies -- documented blind
-#spot, spec §5.
+#resolve from addImportDir dirs (the ONE-list contract). No DLL copies
+#land next to the test exes anymore (the copy target is gone), but the
+#loader's build-tree fallback still rescues a load if the
+#AddNativeSearchDir wiring regresses -- the wiring is exercised (the
+#happy path proves host dirs resolve first), not absence-probed.
 set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
 add_custom_target(nlang_embed_deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -2084,3 +2190,17 @@ if(Python3_FOUND)
     set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 
+
+#Same-name same-arity type overloads across user units (the tensor
+#elementwise shape in plain project code): the shadow-registered
+#producer index single-selects each call's own record. The fixture
+#self-checks all three overloads before printing 42.
+add_test(NAME proj_user_overload_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_user_overload/proj_user_overload.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_user_overload.npkg)
+add_test(NAME proj_user_overload_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_user_overload.npkg)
+set_tests_properties(proj_user_overload_run PROPERTIES
+    DEPENDS proj_user_overload_compile
+    PASS_REGULAR_EXPRESSION "42")

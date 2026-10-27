@@ -83,9 +83,10 @@ runs it. Specifics:
 
 ## func-Prefixed Forward Declarations
 
-A bare `int f();` at top level is a syntax error, because the
-empty-parameter form must belong to a function definition. To declare
-without defining, mark it with the explicit `func` prefix:
+At top level, empty parentheses belong to a zero-argument construction,
+not to a function declaration: `Foo f();` constructs a `Foo` through its
+zero-argument constructor, while `int f();` is rejected (`"Int32" is not a class or struct type.`). To declare a function without defining
+it, mark the declaration with the explicit `func` prefix:
 
 ```nlang
 func int twice(int v);   //declaration: implemented elsewhere (native or external)

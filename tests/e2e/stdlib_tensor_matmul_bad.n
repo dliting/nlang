@@ -1,0 +1,16 @@
+// tensor.matmul shape mismatch: 2x3 * 2x3 raises the base Exception
+// naming both shapes; the message is caught and printed for the
+// manifest stdout pin.
+import io;
+import tensor;
+
+int main() {
+    int[,] a = [[1, 2, 3], [4, 5, 6]];
+    try {
+        tensor.matmul(a, a);
+    } catch (Exception e) {
+        io.print(e.message);
+        return 0;
+    }
+    return 1;
+}

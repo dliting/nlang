@@ -95,6 +95,9 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.raiseException = &VmExecutor::NativeRaiseException;
     host.c.nextRandom = &VmExecutor::NativeNextRandom;
     host.c.seedRandom = &VmExecutor::NativeSeedRandom;
+    host.c.getArrayView = &VmExecutor::NativeGetArrayView;
+    host.c.newArray = &VmExecutor::NativeNewArray;
+    host.c.newArrayShaped = &VmExecutor::NativeNewArrayShaped;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
@@ -258,25 +261,6 @@ int VmExecutor::NativeHasInput(NativeHost* self) {
     return e->EnsureInputView().HasInput() ? 1 : 0;
 }
 
-void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
-                                      const char* message) {
-    VmExecutor* e = Wrap(self)->executor;
-    //K8: keeps the store lock — FireOnThrow is a scheduler-facing
-    //checkpoint (the OpThrow family keeps its guard for the same
-    //reason); restated with the scheduler lock in Step 7.
-    GilEnsureGuard gil(*e);
-    int16_t classIdx = (exceptionKind == NEXC_IOException)
-        ? e->m_ioExcClassIdx : e->m_exceptionClassIdx;
-    //Build-then-root-then-throw: between this throw and the blocking
-    //arm's catch the GIL is away (the unwinding guard above releases
-    //it), and a GC on another carrier must not sweep the in-flight
-    //exception object while the native unwinds toward it.
-    const int32_t heapIdx = e->BuildNlangException(
-        classIdx, message ? message : "");
-    e->RootMintedNativeHandle(heapIdx);
-    e->FireOnThrow();
-    throw NLangThrow(heapIdx, message ? message : "");
-}
 
 //K8: host-held exception rethrow resolution — see the header comment.
 //Same family as NativeRaiseException above (exception + unwind
@@ -315,19 +299,6 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
     return heapIdx;
 }
 
-uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
-    VmExecutor* e = Wrap(self)->executor;
-    //K8: the shared engine serializes draws and reseeds on the RNG
-    //mutex (host-boundary leaf — the engine is not a store).
-    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
-    return e->m_rng();
-}
-
-void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
-    VmExecutor* e = Wrap(self)->executor;
-    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
-    e->m_rng.seed(static_cast<uint32_t>(seed));
-}
 
 //--- Native call bridge (K2 slice 4, §2.5) -----------------------------------
 //The registration tables and the dispatch into native code; the blocking

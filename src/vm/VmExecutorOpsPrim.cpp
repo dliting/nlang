@@ -34,12 +34,36 @@ struct ArithEntry
     { *reinterpret_cast<T*>(d) -= *reinterpret_cast<const T*>(s); }
     static void MulImpl(PrimSlot d, PrimConst s)
     { *reinterpret_cast<T*>(d) *= *reinterpret_cast<const T*>(s); }
-    //Integer and float rows share plain /= — the integer zero-divisor
-    //check runs in the handler before dispatch; float follows IEEE.
+    //Integer rows share plain /= — the integer zero-divisor check runs
+    //in the handler before dispatch; float follows IEEE. x86 idiv also
+    //traps on MIN/-1 (STATUS_INTEGER_OVERFLOW): route that one divisor
+    //through the unsigned carrier so it wraps to MIN — the two's-
+    //complement negation result, the shape Java's idiv returns.
     static void DivImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) /= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            if (*reinterpret_cast<const T*>(s) == T(-1)) {
+                using U = std::make_unsigned_t<T>;
+                *reinterpret_cast<T*>(d) = static_cast<T>(
+                    static_cast<U>(0)
+                    - static_cast<U>(*reinterpret_cast<T*>(d)));
+                return;
+            }
+        }
+        *reinterpret_cast<T*>(d) /= *reinterpret_cast<const T*>(s);
+    }
+    //MIN % -1 mathematically yields remainder 0; the same idiv trap
+    //applies, so answer it directly for signed rows.
     static void ModInt(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (std::is_signed_v<T>) {
+            if (*reinterpret_cast<const T*>(s) == T(-1)) {
+                *reinterpret_cast<T*>(d) = 0;
+                return;
+            }
+        }
+        *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s);
+    }
     static void ModFloat(PrimSlot d, PrimConst s)
     {
         //static_cast back: fmod promotes float args to double; the
@@ -49,8 +73,21 @@ struct ArithEntry
             std::fmod(*reinterpret_cast<T*>(d),
                       *reinterpret_cast<const T*>(s)));
     }
+    //Negation of INT_MIN is signed-overflow UB by the letter (x86 neg
+    //never faults, but the shl row already set the unsigned-carrier
+    //precedent): route signed integer rows through it — the two's-
+    //complement result is exactly -(unsigned)value.
     static void NegImpl(PrimSlot d)
-    { *reinterpret_cast<T*>(d) = -*reinterpret_cast<T*>(d); }
+    {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            using U = std::make_unsigned_t<T>;
+            *reinterpret_cast<T*>(d) = static_cast<T>(
+                static_cast<U>(0)
+                - static_cast<U>(*reinterpret_cast<T*>(d)));
+        } else {
+            *reinterpret_cast<T*>(d) = -*reinterpret_cast<T*>(d);
+        }
+    }
 
     //0.9.9 shifts, integer rows only (kInt gates; float/bool/char rows
     //compile to nullptr — the resolver rejects them compile-time).
@@ -252,13 +289,27 @@ int64_t VmExecutor::ReadScalarAsInt64(int row, const uint8_t* p) const
     }
 }
 
-//True when all width bytes of the slot are zero — covers the integer
-//zero divisor and the float +-0.0 divisor alike (the legacy OP_Div_f32
-//raised on b == 0.0f, so bit-zero is the behavior-equivalent test).
-static bool SlotIsZero(const uint8_t* p, uint8_t width)
+//Zero-divisor test: the integer kinds test all width bytes zero; the
+//float kinds test IEEE equality with zero, which also catches −0.0
+//(the legacy OP_Div_f32 raised on b == 0.0f — true for −0.0 — and the
+//language has no IEEE infinities, so −0.0 must raise like +0.0).
+static bool SlotIsZeroDivisor(int primIdx, const uint8_t* p)
 {
-    for (uint8_t i = 0; i < width; ++i)
-        if (p[i]) return false;
+    const auto& row = kScalarPrims[primIdx];
+    if (row.category == PC_Float)
+    {
+        if (row.slotWidth == 4)
+        {
+            float v;
+            std::memcpy(&v, p, sizeof(v));
+            return v == 0.0f;
+        }
+        double v;
+        std::memcpy(&v, p, sizeof(v));
+        return v == 0.0;
+    }
+    for (uint8_t k = 0; k < row.slotWidth; ++k)
+        if (p[k]) return false;
     return true;
 }
 
@@ -303,7 +354,7 @@ void VmExecutor::OpDiv(BytecodeReader& r, uint8_t* locals)
     if (i < 0 || !kDivTable[i])
         RaiseNlangException(m_exceptionClassIdx,
             "NLang VM: div on unsupported kind");
-    if (SlotIsZero(locals + src, kScalarPrims[i].slotWidth))
+    if (SlotIsZeroDivisor(i, locals + src))
         RaiseNlangException(m_divZeroExcClassIdx,
             "NLang VM: division by zero");
     kDivTable[i](locals + dst, locals + src);
@@ -317,7 +368,7 @@ void VmExecutor::OpMod(BytecodeReader& r, uint8_t* locals)
     if (i < 0 || !kModTable[i])
         RaiseNlangException(m_exceptionClassIdx,
             "NLang VM: mod on unsupported kind");
-    if (SlotIsZero(locals + src, kScalarPrims[i].slotWidth))
+    if (SlotIsZeroDivisor(i, locals + src))
         RaiseNlangException(m_divZeroExcClassIdx,
             "NLang VM: modulo by zero");
     kModTable[i](locals + dst, locals + src);

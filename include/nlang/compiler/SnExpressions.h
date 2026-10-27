@@ -201,20 +201,30 @@ private:
 
 typedef MutableChildNodeList<SnExpression> SnExpressionList;
 
-//Phase 8e-6: one entry in an init list `{...}`.
-//KeyKind==String → dict entry (key is a string literal value).
-//KeyKind==Identifier → struct/class field (key is a field name).
-//Array-form init lists `[...]` do not carry entries of this struct;
-//they use the plain element list directly via the Entries() vector.
+//0.10.10: one entry in a collection initializer — an optional key
+//expression and a value expression. The target shape decides how the
+//key is read: a value slot (Dict), a field name (bare identifier on
+//struct/class), or absent (array/List). Key form is derived from the
+//node kind, never from a parser token category.
 //Per-entry source location can be retrieved from pValue->Location()
 //when needed for diagnostics.
 struct InitEntry
 {
-	enum class KeyKind { None, String, Identifier };
-	KeyKind          keyKind = KeyKind::None;
-	std::string      keyStr;
+	SnExpression    *pKey   = nullptr;
 	SnExpression    *pValue = nullptr;
 };
+//0.10.10: the key form of an initializer entry, derived from the key
+//node kind — never from a parser token category. Absent = positional,
+//identifier = a struct/class field name, any other expression = a Dict
+//key. Shared by the resolver's entry-form gate and the codegen arms.
+inline bool KeyIsAbsent(const InitEntry &entry)
+{
+	return entry.pKey == nullptr;
+}
+inline bool KeyIsIdentifier(const InitEntry &entry)
+{
+	return entry.pKey && entry.pKey->Kind() == NK_IdentifierExpr;
+}
 
 //The syntax node of a literal constant expression.
 class NLANG_COMPILER_API SnLiteralExpr: public SnExpression
@@ -534,11 +544,19 @@ public:
 	static const NodeKind	s_Kind			= NK_ArrayTypeExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
 public:
-	SnArrayTypeExpr(SnFieldExpr *pElemType, const ISourceLocation &loc);
+	SnArrayTypeExpr(SnFieldExpr *pElemType, const ISourceLocation &loc,
+		uint8_t rank = 1);
 
 	SnFieldExpr *ElementType() const
 	{
 		return m_pElementType;
+	}
+
+	//Comma count + 1: T[] is rank 1, T[,] is rank 2. The jagged gate
+	//walks NESTED nodes and never reads this.
+	uint8_t Rank() const
+	{
+		return m_Rank;
 	}
 
 	bool IsArrayType() const override
@@ -553,6 +571,7 @@ public:
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnFieldExpr *m_pElementType;
+	uint8_t m_Rank;
 };
 
 //Phase 8e-3: Generic type expression (e.g. "List<int>", "Dict<K,V>").
@@ -845,19 +864,29 @@ public:
 class NLANG_COMPILER_API SnSubscriptExpr : public SnCompoundFieldExpr
 {
 	typedef SnCompoundFieldExpr Super_;
+	friend class ExprResolveAccessor;
 public:
 	static const NodeKind	s_Kind			= NK_SubscriptExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
 public:
 	SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
 		const ISourceLocation &loc);
+	//Stage-2: comma index lists — a[i, j, k] (and the creation twin
+	//T[2, 3]). Takes ownership of the adopted pointers.
+	SnSubscriptExpr(SnExpression *pArray,
+		UniquePtrList<SnExpression> upIndices, const ISourceLocation &loc);
 
 	SnExpression *Array() const { return m_pArray; }
-	SnExpression *Index() const { return m_pIndex; }
-	//0.7.5: resolver wrap hook — FixupExprType replaces the index child
-	//in the children list; the cached slot must follow it (same splice
-	//discipline ReplaceChildNode routes through ResetChild).
-	void Index(SnExpression *pIndex) { m_pIndex = pIndex; }
+	//All indices in source order: rank-1 subscripts hold exactly one,
+	//rank-N rectangular subscripts hold exactly N (the creation twin
+	//holds the N dimensions).
+	const std::vector<SnExpression *> &Indices() const { return m_pIndices; }
+	//First index, or null (dict/string/container paths are inherently
+	//single-index and read this convenience).
+	SnExpression *Index() const
+	{
+		return m_pIndices.empty() ? nullptr : m_pIndices.front();
+	}
 
 	//0.9.0: set when the base identifier resolves as a TYPE rather than a
 	//value (`int[n]` / `Foo[n]` creation). Non-owning element type field;
@@ -872,7 +901,7 @@ public:
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 private:
 	SnExpression *m_pArray;
-	SnExpression *m_pIndex;
+	std::vector<SnExpression *> m_pIndices;
 	SnField *m_pNewArrayElem = nullptr;
 };
 
@@ -918,7 +947,8 @@ public:
 	//pExplicitType is nullptr for the bare form. For `new Type{...}`,
 	//pExplicitType carries the Type expression (NameExpr/GenericTypeExpr).
 	//isArrayForm distinguishes `[...]` (true) from `{...}` (false).
-	//For array form, entries' keyKind is None (only values are used).
+	//Both forms share the unified entry list; array/List entries carry
+	//no key expression, Dict entries always do.
 	SnInitListExpr(SnFieldExpr *pExplicitType,
 		std::vector<InitEntry> entries, bool isArrayForm,
 		const ISourceLocation &loc);
@@ -928,6 +958,17 @@ public:
 	SnFieldExpr *ExplicitType() const { return m_pExplicitType; }
 	const std::vector<InitEntry> &Entries() const { return m_entries; }
 	bool IsArrayForm() const { return m_isArrayForm; }
+
+	//One row predicate for bracket-form array literals, shared by the
+	//resolver shape gate, the ND emitter walk and the frame walkers:
+	//a row is a bracket-form init list; brace forms (List/Dict/struct/
+	//class literals) are leaf values. Every consumer calls this single
+	//function, so the gate and the emitter cannot drift apart.
+	static bool IsBracketForm(const SnExpression *pExpr)
+	{
+		return pExpr && pExpr->Kind() == NK_InitListExpr
+			&& static_cast<const SnInitListExpr*>(pExpr)->IsArrayForm();
+	}
 
 	//For the bare `[...]` form, the parent context (AssignStmt resolver)
 	//sets the inferred target field from the LHS before this node resolves.
@@ -943,6 +984,13 @@ public:
 	void SetEntryValue(size_t nIdx, SnExpression *pValue)
 	{
 		m_entries[nIdx].pValue = pValue;
+	}
+
+	//Resolver write-back for the Dict key-slot cast (mirrors
+	//SetEntryValue for the value slot).
+	void SetEntryKey(size_t nIdx, SnExpression *pKey)
+	{
+		m_entries[nIdx].pKey = pKey;
 	}
 
 	//0.9.11 T6 (D10): the zero-formal constructor the resolver selected

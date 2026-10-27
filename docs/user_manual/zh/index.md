@@ -4,6 +4,7 @@ NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是
 
 - [NLang入门](getting-started/what-is-nlang.md)——安装、第一个程序、语言速览与常见问题
 - [命令行工具](cli-tools/overview.md)——五个命令行工具（nlang/ncc/nvm/ndb/ndisasm）的用法
-- [语言规格](language-spec/overview.md)——完整语法与语义
+- [语言规范](specification/index.md)——规范性、可引用条款的语言、标准库与二进制格式定义
+- [语言规格](language-spec/overview.md)——资料性用户手册：带示例的语法与语义；与规范不一致时，以规范为准
 - [库与集成](libraries/developing-libraries.md)——开发第三方库、子进程集成与进程内嵌入
 - [VM架构](vm-architecture/overview.md)——字节码与执行引擎设计

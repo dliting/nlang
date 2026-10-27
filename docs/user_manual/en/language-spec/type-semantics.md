@@ -1,5 +1,6 @@
 # Type Semantics
 
+The normative rules are in [specification §4.1 and §4.12](../specification/04-types.md).
 
 Every type in NLang has defined semantics for four operations: **assignment**
 (`a = b`), **parameter passing**, **return value**, and use as a **field or
@@ -77,7 +78,7 @@ are on [Primitives](primitives.md) and [Type Casts](type-casts.md).
 
 **Implicit with a lossy warning** — when the target's range cannot hold
 the source's, the compiler emits `implicit conversion from 'X' to 'Y'
-loses precision` (`ncc --no-warn` suppresses all warnings):
+loses precision` (`ncc --no-warn` suppresses this warning family):
 
 - `int/uint/long/ulong → float`
 - `long/ulong → double`

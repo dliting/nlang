@@ -1,0 +1,7 @@
+// 0.10.8 D1: generic-name flagging follows the compiler's authoritative
+// predicate, so a Channel head tracks generic depth and the nested `>>`
+// splits correctly (measured broken before this change).
+int main() {
+    Channel<Channel<int>> c;
+    return 0;
+}

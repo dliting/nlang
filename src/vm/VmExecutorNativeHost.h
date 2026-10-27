@@ -10,6 +10,7 @@
 
 #include "nlang/vm/NativeHost.h"
 
+#include <cstdint>
 #include <string>
 
 namespace nlang {

@@ -83,10 +83,6 @@ This page collects the language-level limitations visible to user programs, with
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
   sized declaration (`int b[100] = {7, 8};`) is a syntax error.
 
-- **Generic instantiation has no anchored head**: `List<int>{60}` does
-  not parse — give the literal a typed declaration (see
-  [Collection Initializers](collection-initializers.md)).
-
 - **Generic-element fixed arrays are declaration-only**:
   `List<int> a[2];` declares the array; there is no expression-position
   counterpart.

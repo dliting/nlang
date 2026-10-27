@@ -1,6 +1,6 @@
 # 循环
 
-
+规范性规则见规范§6.4。
 NLang有三种循环形式：`for`、`while`、`do-while`。它们共享`bool`条件规则与`break`/`continue`语义（见[语句](statements.md)「条件类型」）。
 
 ### `for`

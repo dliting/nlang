@@ -8,6 +8,7 @@
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <unordered_set>
 
 namespace nlang {
@@ -219,14 +220,22 @@ uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
     //path — the size stages in an evalArea claim(1) and the base names
     //a type (no emission). Walker symmetry with NewArrayExprPeakDepth.
     if (sub.NewArrayElem())
-        return 1 + ExprPeakDepth(*sub.Index(), visited);
+    {
+        //Stage-2: ND creation stages one eval-area slot per dim, plus
+        //each dim's own nested peak.
+        uint16_t deepest = 0;
+        for (auto *pIndex : sub.Indices())
+            deepest = std::max(deepest,
+                ExprPeakDepth(*pIndex, visited));
+        return static_cast<uint16_t>(sub.Indices().size()) + deepest;
+    }
     uint16_t a = ExprPeakDepth(*sub.Array(), visited);
-    uint16_t i = ExprPeakDepth(*sub.Index(), visited);
-    //Both shapes claim 2 evalArea slots (receiver + index): container
-    //lowers to a get() call, array reads park receiver/index in the
-    //claim directly (Phase 10 audit round-3 — was a 4-deep PickTempSlot
-    //chain that wrapped and clobbered at nesting depth 5).
-    uint16_t claim = 2;
+    uint16_t i = 0;
+    for (auto *pIndex : sub.Indices())
+        i = std::max(i, ExprPeakDepth(*pIndex, visited));
+    //Stage-2: the read claim is receiver + N indices (container lowers
+    //to a get() call — same count, its index is one expression).
+    const uint16_t claim = static_cast<uint16_t>(1 + sub.Indices().size());
     uint16_t m = (a > i ? a : i);
     return claim + m;
 }
@@ -357,14 +366,72 @@ uint16_t VmBackend::InitListExprPeakDepth(SnExpression& expr,
         if (baseName == kBuiltinDictTypeName) claimSize = 3;
         else if (baseName == kBuiltinListTypeName) claimSize = 2;
     }
+    //Stage-2 ND: a rank>=2 token target lowers as one flat leaf walk —
+    //the dims claim (rank slots) releases before the leaf loop's value
+    //claim, so the band peak is (rank + 1 + deepest leaf). Rows are
+    //structural (never emitted); only the leaves' depths count.
+    if (pTarget && pTarget->Kind() == NK_ArrayTypeToken
+        && static_cast<SnArrayTypeToken*>(pTarget)->Rank() >= 2) {
+        const uint8_t rank =
+            static_cast<SnArrayTypeToken*>(pTarget)->Rank();
+        if (NDInitListHasExpressionRow(init,
+                static_cast<uint8_t>(rank - 1)))
+            return NDInitListDynamicPeakDepth(init, visited);
+        //The leaf claim is [coords | value] = rank + 1 slots; nested
+        //emissions inside a leaf value climb above it.
+        uint16_t claim = static_cast<uint16_t>(rank + 1);
+        uint16_t leafMax = NDLeafPeakDepth(init, visited);
+        claim = static_cast<uint16_t>(claim + leafMax);
+        return claim;
+    }
     uint16_t maxChild = 0;
     for (auto& entry : init.Entries()) {
+        //0.10.10: the Dict key stages into the claim's key slot, so its
+        //nested depth rides the same claimSize — count it like the value.
+        if (entry.pKey) {
+            uint16_t cd = ExprPeakDepth(*entry.pKey, visited);
+            if (cd > maxChild) maxChild = cd;
+        }
         if (entry.pValue) {
             uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
             if (cd > maxChild) maxChild = cd;
         }
     }
     return claimSize + maxChild;
+}
+
+//Stage-3 dynamic arm of the ND depth: the row-handle claim (one slot
+//per entry) hosts every entry's full emission depth.
+uint16_t VmBackend::NDInitListDynamicPeakDepth(SnInitListExpr& init,
+    const std::unordered_set<SnFunction*>& visited) {
+    uint16_t rowMax = 0;
+    for (auto& entry : init.Entries()) {
+        if (!entry.pValue) continue;
+        uint16_t cd = ExprPeakDepth(*entry.pValue, visited);
+        if (cd > rowMax) rowMax = cd;
+    }
+    return static_cast<uint16_t>(init.Entries().size() + rowMax);
+}
+
+//Deepest leaf-expression claim of an ND literal: rows are structural
+//and emit nothing, so the walk descends through them without charging
+//a row claim and takes the max ExprPeakDepth over the leaves.
+uint16_t VmBackend::NDLeafPeakDepth(SnInitListExpr& init,
+    const std::unordered_set<SnFunction*>& visited) {
+    uint16_t deepest = 0;
+    for (auto& entry : init.Entries()) {
+        if (!entry.pValue)
+            continue;
+        uint16_t cd;
+        if (SnInitListExpr::IsBracketForm(entry.pValue)) {
+            cd = NDLeafPeakDepth(
+                static_cast<SnInitListExpr&>(*entry.pValue), visited);
+        } else {
+            cd = ExprPeakDepth(*entry.pValue, visited);
+        }
+        if (cd > deepest) deepest = cd;
+    }
+    return deepest;
 }
 
 } //namespace nlang

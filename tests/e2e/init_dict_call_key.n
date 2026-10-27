@@ -1,0 +1,10 @@
+// 0.10.10: a nested call expression is a Dict key — pins the frame
+// walkers' descent into key subtrees (observedPeakCursor tripwire).
+string makeKey(int n) {
+    return "k" + n;
+}
+
+int main() {
+    Dict<string, int> d = {makeKey(1) + makeKey(2): 5};
+    return d["k1k2"];
+}

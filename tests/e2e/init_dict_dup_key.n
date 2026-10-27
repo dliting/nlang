@@ -1,0 +1,6 @@
+// 0.10.10: duplicate keys — the later entry overwrites (set() semantics).
+int main() {
+    string a = "x";
+    Dict<string, int> d = {a: 1, "x": 2};
+    return d["x"];
+}

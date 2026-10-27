@@ -67,7 +67,12 @@ void StatementResolveAccessor::Access(SnEnumDecl &sn)
 	*/
 	for (auto &method : sn.Methods())
 	{
-		RejectIllegalEnumMethod(method);
+		//0.10.14: the declaration-side rejections target user-written
+		//declarations — the stub's bodyless method stubs passed the
+		//same contract at the producer. The methods are still walked
+		//so their synthesized formals resolve (same as class stubs).
+		if (!sn.IsImported())
+			RejectIllegalEnumMethod(method);
 		method.Accept(*m_pVisitor);
 	}
 }
@@ -120,6 +125,17 @@ bool StatementResolveAccessor::TryAssignExplicitEnumValue(
 void StatementResolveAccessor::AssignEnumMemberValues(SnEnumDecl &sn)
 {
 	assert(m_pVisitor);
+	//0.10.14: an imported enum stub already carries the producer's
+	//member values (wire table indices — sparse explicit-value gaps
+	//included); re-assigning would collapse them to sequential 0..N.
+	//The declaration contract ran at the producer, so only the
+	//resolved flag is missing (the switch D8 defense gate reads
+	//member values from resolved enum decls).
+	if (sn.IsImported())
+	{
+		sn.AddFlags(NF_Resolved);
+		return;
+	}
 	int32_t nextValue = 0;
 	for (auto &member : sn.Members())
 	{

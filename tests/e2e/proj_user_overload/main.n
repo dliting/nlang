@@ -1,0 +1,16 @@
+// Consumer: same-name same-arity type overloads across user units must
+// bind each call to the selected overload's own record (the producer
+// function index on the import slot). Expected exit 0.
+import io;
+import lib;
+
+int main() {
+    int i = 21;
+    double d = 2.0;
+    long l = 7;
+    if (lib.scale(i) != 42) return 1;     // int overload
+    if (lib.scale(d) != 5.0) return 2;    // double overload
+    if (lib.scale(l) != 21) return 3;     // long overload
+    io.print(lib.scale(i));
+    return 0;
+}

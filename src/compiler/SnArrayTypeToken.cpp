@@ -10,13 +10,14 @@ namespace nlang
 {
 
 SnArrayTypeToken::SnArrayTypeToken(SnField *pElemType,
-	const ISourceLocation &loc) :
+	const ISourceLocation &loc, uint8_t rank) :
 	//Interned tokens are synthetic (no source position of their own)
 	//and carry an empty name — the display path is ToString().
 	Super_(s_Kind, FA_Public, s_DefaultFlags, new std::string(), loc),
-	m_pElemType(pElemType)
+	m_pElemType(pElemType), m_Rank(rank)
 {
 	assert(pElemType);
+	assert(m_Rank >= 1);
 }
 
 void SnArrayTypeToken::Accept(ISyntaxNodeVisitor &v)
@@ -26,7 +27,8 @@ void SnArrayTypeToken::Accept(ISyntaxNodeVisitor &v)
 
 std::string SnArrayTypeToken::ToString() const
 {
-	return m_pElemType->ToString() + "[]";
+	std::string suffix = m_Rank == 1 ? "[]" : "[" + std::string(m_Rank - 1, ',') + "]";
+	return m_pElemType->ToString() + suffix;
 }
 
 SnField *SnArrayTypeToken::FindField(const std::string&) const

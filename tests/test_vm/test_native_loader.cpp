@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -164,9 +165,12 @@ void TestBadAbi(const std::string& fixtureDir) {
     loader.AddSearchDir(fixtureDir);
     bool threw = false;
     std::string message;
+    int registrations = 0;
     try {
         loader.EnsureLoaded("badabi",
-            [](const std::string&, const std::string&, NativeFn, bool) {});
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -174,6 +178,60 @@ void TestBadAbi(const std::string& fixtureDir) {
     CHECK(threw, "bad ABI throws");
     CHECK(message.find("ABI") != std::string::npos,
           "bad-ABI error mentions ABI");
+    //0.11.4 follow-up: the fixture registers before returning its bad
+    //version. Version validation must reject the module BEFORE its init
+    //runs — a registration delivered here points into a module the
+    //loader unloads on the very next line.
+    CHECK(registrations == 0,
+          "rejected module must not leak registrations into the host");
+}
+
+//0.11.4 follow-up: the ABI check is an nlang_abi_version export resolved
+//and validated before nlang_native_init is even resolved. A module
+//without the probe is rejected by name; its init (which registers and
+//returns a correct version) must never run.
+void TestMissingAbiProbe(const std::string& fixtureDir) {
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(fixtureDir);
+    bool threw = false;
+    std::string message;
+    int registrations = 0;
+    try {
+        loader.EnsureLoaded("noprobe",
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        message = e.what();
+    }
+    CHECK(threw, "module without the ABI probe must be rejected");
+    CHECK(message.find("nlang_abi_version") != std::string::npos,
+          "missing-probe error names nlang_abi_version");
+    CHECK(registrations == 0,
+          "no registration may run before the probe is validated");
+}
+
+//0.11.4 follow-up review: the init return value is informational — the
+//probe is the single version authority. A module whose init returns a
+//wrong constant must still load and its registration must reach the
+//host; a refactor that re-adds a return-value check fails here.
+void TestInitReturnInformational(const std::string& fixtureDir) {
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(fixtureDir);
+    int registrations = 0;
+    bool threw = false;
+    try {
+        loader.EnsureLoaded("badreturn",
+            [&](const std::string&, const std::string&, NativeFn, bool) {
+                ++registrations;
+            });
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(!threw, "a wrong init return must not reject the module");
+    CHECK(registrations == 1,
+          "the module's registration must reach the host");
 }
 
 void TestNoEntry(const std::string& fixtureDir) {
@@ -194,6 +252,53 @@ void TestNoEntry(const std::string& fixtureDir) {
 }
 
 } // namespace
+
+//0.11.4 C: build-tree fallback. With no explicit search dirs, the loader
+//must still find the stdlib native modules through the built-in fallback
+//(walk up from the executable to <build>/native/<config>). The test exe
+//runs from <build>/tests/<config>, so the walk reaches the build root.
+void TestBuildTreeFallback() {
+    NativeLibraryLoader loader;
+    const std::string path = loader.LocateModuleFile("io");
+    CHECK(!path.empty(), "fallback must resolve nlang_io in the build tree");
+    CHECK(path.find("native") != std::string::npos,
+          "resolved path must come from the native output directory");
+}
+
+//0.11.4 C review: pin the explicit-dirs-before-fallback order. A decoy
+//nlang_io.dll (the badabi fixture renamed) sits in an explicit search
+//dir while the real module is reachable through the fallback: correct
+//order loads the decoy and dies on its ABI check; a reversed order
+//would load the real module silently.
+void TestExplicitDirsWinOverFallback() {
+    namespace fs = std::filesystem;
+    const fs::path decoyDir = fs::temp_directory_path()
+        / "nlang_loader_order_test";
+    std::error_code ec;
+    fs::remove_all(decoyDir, ec);
+    fs::create_directories(decoyDir, ec);
+    fs::copy_file(fs::path(FIXTURE_DIR) / "nlang_badabi.dll",
+                  decoyDir / "nlang_io.dll",
+                  fs::copy_options::overwrite_existing, ec);
+    CHECK(!ec, "decoy copy must succeed");
+
+    NativeLibraryLoader loader;
+    loader.AddSearchDir(decoyDir.string());
+    bool threw = false;
+    std::string message;
+    try {
+        loader.EnsureLoaded("io",
+            [](const std::string&, const std::string&, NativeFn, bool) {});
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        message = e.what();
+    }
+    CHECK(threw, "the explicit-dir decoy must win the load");
+    CHECK(message.find("ABI") != std::string::npos,
+          "the decoy is detectable through its ABI mismatch");
+
+    fs::remove_all(decoyDir, ec);
+}
 
 int main() {
     std::string fixtureDir = FIXTURE_DIR;
@@ -216,7 +321,20 @@ int main() {
         ++g_fail;
     }
     run("BadAbi", &TestBadAbi, fixtureDir);
+    run("MissingAbiProbe", &TestMissingAbiProbe, fixtureDir);
+    run("InitReturnInformational", &TestInitReturnInformational, fixtureDir);
     run("NoEntry", &TestNoEntry, fixtureDir);
+    try { TestBuildTreeFallback(); }
+    catch (const std::exception& e) {
+        std::fprintf(stderr, "UNCAUGHT in BuildTreeFallback: %s\n", e.what());
+        ++g_fail;
+    }
+    try { TestExplicitDirsWinOverFallback(); }
+    catch (const std::exception& e) {
+        std::fprintf(stderr, "UNCAUGHT in ExplicitDirsWinOverFallback: %s\n",
+                     e.what());
+        ++g_fail;
+    }
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -1,9 +1,37 @@
 int main() {
-    //Lock the behavior for float division by zero. NLang THROWS (it
-    //does not follow IEEE 754 ±inf semantics like C/C++/Java). The
-    //throw → exit 1 path is the expected outcome.
+    //Lock the behavior for float division and remainder by zero. NLang
+    //THROWS (it does not follow IEEE 754 ±inf semantics like C/C++/
+    //Java). Both zero signs must raise: the legacy OP_Div_f32 raised
+    //on b == 0.0f, which is also true for −0.0. Each raise counts; a
+    //divisor that slips through leaves the count short.
+    int caught = 0;
     float z = 0.0;
-    float r = 1.0f / z;
-    if (r > 0) { return 7; }
+    try {
+        float r = 1.0f / z;
+    } catch (DivByZeroException e) {
+        caught = caught + 1;
+    }
+    float zero = 0.0;
+    float neg = -1.0;
+    float mz = zero * neg;            //−0.0 at run time (no folding)
+    try {
+        float r = 2.0f / mz;
+    } catch (DivByZeroException e) {
+        caught = caught + 1;
+    }
+    try {
+        float m = 2.0f % mz;
+    } catch (DivByZeroException e) {
+        caught = caught + 1;
+    }
+    double dzero = 0.0;
+    double dneg = -1.0;
+    double dz = dzero * dneg;         //−0.0 on the 8-byte row
+    try {
+        double d = 2.0 / dz;
+    } catch (DivByZeroException e) {
+        caught = caught + 1;
+    }
+    if (caught != 4) { return 20 + caught; }
     return 0;
 }

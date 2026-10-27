@@ -30,7 +30,7 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
         return;
     for (auto& entry : sn.Entries())
     {
-        if (entry.keyKind != InitEntry::KeyKind::Identifier)
+        if (!KeyIsIdentifier(entry))
         {
             m_Env.Log(CLL_Error,
                 entry.pValue ? entry.pValue->Location() : sn.Location(),

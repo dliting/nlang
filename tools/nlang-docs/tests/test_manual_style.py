@@ -76,6 +76,20 @@ def test_spacing_flags_cjk_latin_boundary():
     assert ms.spacing_violations_in_text(text) != []
 
 
+def test_spacing_allows_clause_numbered_headings():
+    # Clause numbers (§0.1) are structural anchors of the normative
+    # specification tree, mirrored from the en pages; the digit-to-CJK
+    # boundary after the number is not prose spacing. The exemption
+    # covers only the heading's number prefix, not the title itself.
+    assert ms.spacing_violations_in_text("## 0.1 范围与状态\n") == []
+    assert ms.spacing_violations_in_text("## 2.7 运算符优先级\n") == []
+    assert ms.spacing_violations_in_text("## 0.1 范围 NLang状态\n") != []
+    # the exemption is for dotted clause numbers only: a plain numbered
+    # heading keeps its trailing dot ("## 1. 标题") and needs no
+    # exemption, so an undotted digit↔CJK boundary stays a violation
+    assert ms.spacing_violations_in_text("## 5 个步骤\n") != []
+
+
 def test_spacing_flags_minus_and_quote_boundaries():
     # "无则 -1" and 去掉结尾 '\r' are the same compact-spacing family.
     text = "首个索引，无则 -1；去掉结尾 '\\r'。\n"

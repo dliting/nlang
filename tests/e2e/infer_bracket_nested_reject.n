@@ -1,0 +1,6 @@
+// 0.10.8 D2 boundary: the inner bracket resolves to an array type via
+// the same inference; an array-typed element would mint a token-of-
+// token target — the jagged-array diagnostic owns that shape.
+int main() {
+    return [[1, 2]].length();
+}

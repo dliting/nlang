@@ -7,6 +7,7 @@
 //Macro-generated per-node-kind Visit methods; VmBackend doubles as the
 //accessor (Access overloads below) for emission dispatch.
 #include <nlang/compiler/SyntaxNodeVisitor.h>
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
@@ -75,8 +76,30 @@ public:
     //unit whose members the registration walks will see.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
 
+    //The per-unit registration sequence (builtins → structs → classes →
+    //array types → enums → functions → member tables → interfaces →
+    //enum methods), in the order that lays out the unit's tables. Run
+    //for every real unit before its bytecode pass, and by the library
+    //shadow registration below (table layout only — no bytecode).
+    void RegisterUnitTables(SnNamespace& root);
+
+    //Stage-2 emit gate: rank of the expression's resolved array token,
+    //0 when the expression is not array-typed. The temporary ND gates
+    //(task 2) reject rank >= 2 until task 4 lands the ND emission.
+    static uint8_t EmitGateRankOf(const SnExpression& expr);
+
     //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
+    //Same-build cross-unit callee support: ShadowRegisterUnits runs
+    //the per-unit registration sequence over EVERY translation unit
+    //once (registration only, no bytecode, no image) and archives each
+    //one's function-table map; ProducerIdxOfCrossUnitFunc then reads
+    //the authoritative producer-side index for the import record
+    //ordinal (nlink single-selects same-name same-arity overloads of
+    //inlined library sources and sibling user units alike). 0xFFFF =
+    //no archived record.
+    void ShadowRegisterUnits(SnNamespace& root);
+    uint16_t ProducerIdxOfCrossUnitFunc(const SnFunction& callee);
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
@@ -296,6 +319,10 @@ private:
                             const std::string& fieldName,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
     //Array length() builtin method.
+    bool EmitMemberArrayRankMethod(SnMemberExpr& member,
+        BytecodeEmitter& emitter, uint16_t resultOffset);
+    bool EmitMemberArrayShapeMethod(SnMemberExpr& member,
+        BytecodeEmitter& emitter, uint16_t resultOffset);
     bool EmitMemberArrayLengthMethod(SnMemberExpr& member,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
@@ -1051,6 +1078,10 @@ private:
     //0.9.11 D2: struct counterpart — fills CompiledStruct.constructorIndices
     //in declaration order (structs declare constructors only).
     void PopulateStructMethods(SnNamespace& root);
+    //0.10.14 (v2.9): per-enum member-method index/access tables
+    //(parallel to enumNames/enumKeys; keyed on m_funcIndexMap). Defined
+    //in backend/RegisterEnums.cpp beside RegisterEnums.
+    void RegisterEnumMethods(SnNamespace& root);
     //0.9.10 D5: per-unit interface statics table (name = qualified key,
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
@@ -1105,7 +1136,7 @@ private:
 
     //Register an array type from its element type field.
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
-    uint16_t RegisterArrayType(SnField* pElemType);
+    uint16_t RegisterArrayType(SnField* pElemType, uint8_t rank = 1);
 
     static uint8_t RuntimeTypeKind(SnField* pType);
     //Return-type kind for .ncu serialization; array-ness is read from the
@@ -1317,6 +1348,11 @@ private:
     //evalArea claim before OP_AllocArray.
     void EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
                       uint16_t resultOffset);
+    //Stage-2: ND creation — dims evaluated once each, left to right,
+    //staged into consecutive eval-area slots for OP_AllocArrayN.
+    void EmitNewArrayND(SnField* pElemType,
+        const std::vector<SnExpression*>& dims, uint16_t resultOffset,
+        BytecodeEmitter& emitter);
 
     //SnInitListExpr arms: one per target shape (array / List<T> /
     //Dict<K,V> / user class / struct). EmitNewObjectAndNoArgCtor is the
@@ -1330,6 +1366,37 @@ private:
     void EmitInitListArrayEntry(const InitEntry& entry, int32_t entryIndex,
                                 SnField* pElemField, BytecodeEmitter& emitter,
                                 uint16_t resultOffset, uint16_t valueSlot);
+    //Stage-2 ND: the rectangular-literal lowering (rank>=2 targets).
+    void EmitInitListArrayND(SnInitListExpr& initList,
+                             SnArrayTypeToken& token,
+                             BytecodeEmitter& emitter,
+                             uint16_t resultOffset);
+    void EmitNDInitListLeaves(SnInitListExpr& node,
+                              SnArrayTypeToken& token,
+                              std::vector<int32_t>& coords,
+                              uint16_t coordBase, uint16_t valueSlot,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset);
+    //Walker-side mirror of the ND literal band: rows never emit, so
+    //this is the deepest leaf claim (the band is max(rank, 1 + this)).
+    static uint16_t NDLeafPeakDepth(SnInitListExpr& init,
+                             const std::unordered_set<SnFunction*>& visited);
+    //Stage-3 D3: true when any above-leaf entry is not a bracket row
+    //(a plain expression, or a brace-form row the resolver let
+    //through) - the dynamic OP_AssembleArrayN arm owns such literals.
+    //Shared by the emitter dispatch and the walker peak-depth mirror
+    //so the two cannot drift.
+    static bool NDInitListHasExpressionRow(SnInitListExpr& node,
+                             uint8_t aboveLeaf);
+    //Depth of the dynamic arm (see EmitInitListArrayNDynamic).
+    static uint16_t NDInitListDynamicPeakDepth(SnInitListExpr& init,
+                             const std::unordered_set<SnFunction*>& visited);
+    //Stage-3 D3 dynamic arm: rows evaluate into one claim band, then
+    //OP_AssembleArrayN builds the record at runtime.
+    void EmitInitListArrayNDynamic(SnInitListExpr& initList,
+                             SnArrayTypeToken& token,
+                             BytecodeEmitter& emitter,
+                             uint16_t resultOffset);
     void EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
                                    SnFunction* pCtorFn, uint16_t classIdx,
                                    BytecodeEmitter& emitter,
@@ -1345,6 +1412,12 @@ private:
     void EmitInitListEntrySet(const InitEntry& entry, BoxingTagResult kBox,
                               BoxingTagResult vBox, uint16_t setNameIdx,
                               uint16_t resultOffset, BytecodeEmitter& emitter);
+    //0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
+    //box it in place when its declared kind is primitive — the shared
+    //shape of the "add"/"set" argument slots.
+    void EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
+                                const BoxingTagResult& box,
+                                BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);
     //K1 Slice 9: `Channel<T> c = {};` — construct only (no entries).
@@ -1414,13 +1487,17 @@ private:
     SyntaxNodeVisitor<VmBackend> m_EmitVisitor;
     BytecodeEmitter* m_pCurrEmitter = nullptr;
     uint16_t m_resultOffset = 0;
-
     //v2.0: the entry function's qualified key (ResolveEntryPoint), e.g.
     //"main.main". Serialized so the loader can re-resolve the index —
     //the index itself is table-layout-dependent and not serialized.
     std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    //Archived per-unit function tables (indexed by module idx), the
+    //producer-index source for cross-unit import records. Filled by
+    //ShadowRegisterUnits.
+    std::vector<std::unordered_map<SnFunction*, uint16_t>>
+        m_unitFuncIdxByModule;
 
     //Phase 6 per-unit mode: the registration walks only see members owned
     //by the selected unit, and cross-unit references become import slots.

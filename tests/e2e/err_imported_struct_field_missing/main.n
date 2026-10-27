@@ -1,0 +1,7 @@
+//Sealed .ncu import: read a field the producer struct does not declare.
+import lib;
+
+int main() {
+	lib.Vec v = lib.Vec(3, 4);
+	return v.z;
+}

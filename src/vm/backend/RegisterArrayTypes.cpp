@@ -16,7 +16,7 @@
 
 namespace nlang {
 
-uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
+uint16_t VmBackend::RegisterArrayType(SnField* pElemType, uint8_t rank) {
     uint8_t elemKind = RuntimeTypeKind(pElemType);
     uint16_t elemTypeIdx = 0xFFFF;
     //Per-unit: named element types slot through the placeholder-aware
@@ -32,12 +32,13 @@ uint16_t VmBackend::RegisterArrayType(SnField* pElemType) {
         elemTypeIdx = static_cast<uint16_t>(
             ClassSlotFor(static_cast<SnClassDecl&>(*pElemType)));
     }
-    int existing = m_compiledModule.FindArray(elemKind, elemTypeIdx);
+    int existing = m_compiledModule.FindArray(elemKind, elemTypeIdx, rank);
     if (existing >= 0)
         return static_cast<uint16_t>(existing);
     CompiledArrayType at;
     at.elemKind = elemKind;
     at.elemTypeIdx = elemTypeIdx;
+    at.rank = rank;
     m_compiledModule.arrayTypes.push_back(at);
     return static_cast<uint16_t>(m_compiledModule.arrayTypes.size() - 1);
 }
@@ -58,8 +59,12 @@ void VmBackend::RegisterArrayTypes(SnNamespace& root) {
 void VmBackend::RegisterArrayTypeExpr(SnFieldExpr* pTypeExpr) {
     auto* pField = pTypeExpr ? pTypeExpr->Field() : nullptr;
     if (pField && pField->Kind() == NK_ArrayTypeToken)
-        RegisterArrayType(static_cast<SnArrayTypeToken*>(
-            pField)->ElemTypeOf());
+    {
+        auto* pToken = static_cast<SnArrayTypeToken*>(pField);
+        //Stage-2: the token carries the rank — T[] and T[,] are
+        //distinct table entries keyed (elemKind, elemTypeIdx, rank).
+        RegisterArrayType(pToken->ElemTypeOf(), pToken->Rank());
+    }
 }
 
 void VmBackend::WalkArrayTypeField(SnField& f) {
@@ -85,7 +90,24 @@ void VmBackend::WalkArrayTypeStmt(SnStatement& s) {
         for (auto& child : static_cast<SnParagraph&>(s).Statements())
             WalkArrayTypeStmt(child);
     } else if (s.Kind() == NK_LocalDeclStmt) {
-        RegisterArrayTypeExpr(static_cast<SnLocalDeclStmt&>(s).Type());
+        auto& decl = static_cast<SnLocalDeclStmt&>(s);
+        RegisterArrayTypeExpr(decl.Type());
+        //0.10.7 D2: sized declarators register their element type from
+        //the head field — the statement type stays the head type, so
+        //the interned-token check above misses them.
+        auto* pHeadField = decl.Type()->Field();
+        if (pHeadField)
+            for (auto& d : decl.Decls())
+                if (d.bArrayType)
+                {
+                    //Sized declarators are rank-1 (comma declarator
+                    //sizes are not supported in stage 2).
+                    const uint8_t rank = (pHeadField->Kind()
+                        == NK_ArrayTypeToken)
+                        ? static_cast<SnArrayTypeToken*>(
+                            pHeadField)->Rank() : 1;
+                    RegisterArrayType(pHeadField, rank);
+                }
     } else if (s.Kind() == NK_IfStmt) {
         auto& ifStmt = static_cast<SnIfStmt&>(s);
         if (ifStmt.ThenStmt()) WalkArrayTypeStmt(*ifStmt.ThenStmt());
@@ -116,6 +138,12 @@ void VmBackend::WalkArrayTypeNode(SnField& n) {
         auto& func = static_cast<SnFunction&>(n);
         for (auto& param : func.Params())
             WalkArrayTypeField(param);
+        //A signature is a declaration: the return array type registers
+        //eagerly too, not lazily at call sites — a native returning
+        //T[] must find its scalar array type registered even when no
+        //caller consumes the result (the newArray contract).
+        if (func.HasReturn() && func.ReturnType())
+            RegisterArrayTypeExpr(func.ReturnType());
         if (func.Body())
             WalkArrayTypeStmt(*func.Body());
     }

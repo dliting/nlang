@@ -1,5 +1,7 @@
 # io — content IO
 
+The normative rules are in [specification §15.1–§15.4](../specification/15-io-streams.md).
+
 `io` carries all content reads and writes: the
 console and disk text files. Multi-byte input decodes as
 Unicode Transformation Format (UTF-8) into full code points
@@ -26,8 +28,9 @@ diagnostics that stay separable from normal output. Inside a debug session
 the two streams merge into the session's single output view.
 
 The three functions accept string, arrays, and every scalar primitive
-directly; function values format as `func <name>`. Class objects are
-**not** accepted as arguments — call `.toString()` before printing
+directly; function values format as `func <name>`; `null` is rejected
+(`io.print(null)` is a compile error). Class objects are
+**not** in the argument surface — call `.toString()` before printing
 (`io.print(obj.toString())`); enum variables need `.toString()` too,
 with one exception: an enum member constant prints directly —
 `io.print(Color.Red)` prints the member name. Struct arguments are

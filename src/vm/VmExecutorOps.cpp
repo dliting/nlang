@@ -405,20 +405,30 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpCopyStruct(reader, locals);
             break;
 
-        case OpCode::OP_AllocArray:
-            OpAllocArray(reader, locals);
+        case OpCode::OP_AllocArrayN:
+            OpAllocArrayN(reader, locals);
             break;
 
-        case OpCode::OP_LoadElement:
-            OpLoadElement(reader, locals);
+        case OpCode::OP_AssembleArrayN:
+            OpAssembleArrayN(reader, locals);
             break;
 
-        case OpCode::OP_StoreElement:
-            OpStoreElement(reader, locals);
+        case OpCode::OP_LoadElementN:
+            OpLoadElementN(reader, locals);
+            break;
+
+        case OpCode::OP_StoreElementN:
+            OpStoreElementN(reader, locals);
             break;
 
         case OpCode::OP_ArrayLength:
             OpArrayLength(reader, locals);
+            break;
+        case OpCode::OP_LoadElementFlat:
+            OpLoadElementFlat(reader, locals);
+            break;
+        case OpCode::OP_ArrayShape:
+            OpArrayShape(reader, locals);
             break;
 
         //Phase 8e-1: primitive → Object boxing.

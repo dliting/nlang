@@ -1,8 +1,8 @@
-# English tree. INHERIT pulls every shared setting from the base; both
-# trees are fully translated (see docs/user_manual/translation-pending.txt, whose
-# list is empty) and the tree-parity pytest runs in strict nav-parity
-# mode: any new page must land in both trees and both navs in the same
-# change.
+# English tree. INHERIT pulls every shared setting from the base; the
+# manual trees are fully translated and the specification tree is being
+# seeded in batches, so docs/user_manual/translation-pending.txt is
+# non-empty and the tree-parity pytest runs in pending mode (strict
+# nav parity locks again once the list empties).
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: user_manual/en
@@ -34,6 +34,31 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
+  - Specification:
+      - Overview: specification/index.md
+      - Introduction: specification/00-introduction.md
+      - Lexical Structure: specification/01-lexical.md
+      - Grammar: specification/02-grammar.md
+      - Program Structure: specification/03-program-structure.md
+      - Types: specification/04-types.md
+      - Expressions: specification/05-expressions.md
+      - Statements: specification/06-statements.md
+      - Functions: specification/07-functions.md
+      - Object Orientation: specification/08-object-orientation.md
+      - Exceptions: specification/09-exceptions.md
+      - Execution Model: specification/10-execution-model.md
+      - Concurrency: specification/11-concurrency.md
+      - Packages: specification/12-packages.md
+      - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
+      - The math Package: specification/14-math.md
+      - The io Package and Streams: specification/15-io-streams.md
+      - The fs Package: specification/16-fs.md
+      - The Concurrency Library: specification/17-concurrency-library.md
+      - The tensor Package: specification/18-tensor.md
+      - Library Exceptions: specification/19-library-exceptions.md
+      - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
+      - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
+      - The Native Application Binary Interface (ABI): specification/22-native-abi.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
@@ -89,6 +114,7 @@ nav:
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
+          - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md
           - string methods: language-spec/stdlib-string.md

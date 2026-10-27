@@ -19,6 +19,7 @@ add_library(nlang_vm
     VmExecutorOpsControl.cpp
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
+    VmExecutorOpsArrayN.cpp
     VmExecutorOpsObjects.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
@@ -31,6 +32,7 @@ add_library(nlang_vm
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeCallbacks.cpp
     VmExecutorBlockingNative.cpp
     VmExecutorFailure.cpp
     InputLineSource.cpp
@@ -56,6 +58,8 @@ add_library(nlang_vm
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/RegisterInterfaces.cpp
+    backend/RegisterEnums.cpp
+    backend/RegisterStructs.cpp
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp
@@ -65,9 +69,11 @@ add_library(nlang_vm
     backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
     backend/EmitExprCast.cpp
+    backend/EmitExprSubscript.cpp
     backend/EmitExprBinary.cpp
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
+    backend/EmitExprInitListND.cpp
     backend/EmitExprMember.cpp
     backend/FieldOffsets.cpp
     backend/EmitExprMemberCall.cpp
@@ -91,6 +97,7 @@ add_library(nlang_vm
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
     ModuleSaverRecordsInterfaces.cpp
+    ModuleSaverRecordsEnums.cpp
     NcuPackage.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp

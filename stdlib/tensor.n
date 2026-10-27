@@ -1,0 +1,236 @@
+// Standard library source for the "tensor" package — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into every
+// build. The native functions are implemented in the host (nlang_tensor.dll);
+// any plain NLang function would compile from this file. Edit freely.
+//
+// Stage 1 covers 1-D numeric kernels over int/long/float/double arrays.
+// The public surface uses ONE naming discipline: same-name overloads, the
+// element kind carried by the typed arguments (the fill value for full,
+// the progression triple for arange, the array operands everywhere else).
+// The suffixed natives below (fullI/fullL/..., arangeI/...) are internal
+// implementation the typed wrappers dispatch to — the native ABI passes
+// raw value cells without kind metadata, so one native cannot see which
+// scalar kind a call carried. Zero-filled arrays need no kernel at all:
+// the language's sized creation `T[n]` is zero-initialized.
+//
+// Error model: null arrays raise NullPointerException, negative lengths
+// or lengths past the 100M-element cap raise IndexOutOfBoundsException,
+// length mismatches, zero arange steps and empty reductions raise the
+// base Exception.
+
+//--- creation (public overloads over internal per-kind natives) ---------------
+
+// n copies of value; the element kind is the value's type.
+int[] full(int n, int value) {
+    return fullI(n, value);
+}
+long[] full(int n, long value) {
+    return fullL(n, value);
+}
+float[] full(int n, float value) {
+    return fullF(n, value);
+}
+double[] full(int n, double value) {
+    return fullD(n, value);
+}
+
+// Half-open arithmetic progression: start, start+step, ... strictly
+// before stop; the element kind is the common type of the three
+// arguments. A zero step, or one that cannot advance toward stop,
+// raises the base Exception.
+int[] arange(int start, int stop, int step) {
+    return arangeI(start, stop, step);
+}
+long[] arange(long start, long stop, long step) {
+    return arangeL(start, stop, step);
+}
+float[] arange(float start, float stop, float step) {
+    return arangeF(start, stop, step);
+}
+double[] arange(double start, double stop, double step) {
+    return arangeD(start, stop, step);
+}
+
+// Internal per-kind natives (implementation of the overloads above;
+// not part of the documented surface).
+native int[] fullI(int n, int value);
+native long[] fullL(int n, long value);
+native float[] fullF(int n, float value);
+native double[] fullD(int n, double value);
+native int[] arangeI(int start, int stop, int step);
+native long[] arangeL(long start, long stop, long step);
+native float[] arangeF(float start, float stop, float step);
+native double[] arangeD(double start, double stop, double step);
+
+//--- elementwise (same-name overloads; runtime element-kind dispatch) ---------
+
+// Elementwise sum of two arrays of the same length.
+native int[] add(int[] a, int[] b);
+native long[] add(long[] a, long[] b);
+native float[] add(float[] a, float[] b);
+native double[] add(double[] a, double[] b);
+
+// Elementwise difference of two arrays of the same length.
+native int[] sub(int[] a, int[] b);
+native long[] sub(long[] a, long[] b);
+native float[] sub(float[] a, float[] b);
+native double[] sub(double[] a, double[] b);
+
+// Elementwise product of two arrays of the same length.
+native int[] mul(int[] a, int[] b);
+native long[] mul(long[] a, long[] b);
+native float[] mul(float[] a, float[] b);
+native double[] mul(double[] a, double[] b);
+
+// Elementwise quotient of two arrays of the same length. Integer
+// division by zero raises DivByZeroException; float/double division by
+// zero yields IEEE Inf/NaN.
+native int[] div(int[] a, int[] b);
+native long[] div(long[] a, long[] b);
+native float[] div(float[] a, float[] b);
+native double[] div(double[] a, double[] b);
+
+//--- reductions (same-name overloads; runtime element-kind dispatch) -----------
+
+// Sum of all elements. The empty array yields the type's zero.
+native int sum(int[] a);
+native long sum(long[] a);
+native float sum(float[] a);
+native double sum(double[] a);
+
+// Largest element; an empty array raises the base Exception.
+native int max(int[] a);
+native long max(long[] a);
+native float max(float[] a);
+native double max(double[] a);
+
+// Smallest element; an empty array raises the base Exception.
+native int min(int[] a);
+native long min(long[] a);
+native float min(float[] a);
+native double min(double[] a);
+
+// Arithmetic mean; always double, for every element kind. An empty
+// array raises the base Exception.
+native double mean(int[] a);
+native double mean(long[] a);
+native double mean(float[] a);
+native double mean(double[] a);
+
+// Inner product of two arrays of the same length. Integer kinds
+// accumulate in 64 bits and return long (no silent overflow); the empty
+// array yields zero.
+native long dot(int[] a, int[] b);
+native long dot(long[] a, long[] b);
+native float dot(float[] a, float[] b);
+native double dot(double[] a, double[] b);
+
+//--- matrix family --------------------------------------------------------------
+
+// Rank-2 transpose: [rows, cols] -> [cols, rows] as a row-major copy.
+native int[,] transpose(int[,] a);
+native long[,] transpose(long[,] a);
+native float[,] transpose(float[,] a);
+native double[,] transpose(double[,] a);
+
+// Flatten to rank 1 in row-major order (the most common reshape).
+native int[] flatten(int[,] a);
+native long[] flatten(long[,] a);
+native float[] flatten(float[,] a);
+native double[] flatten(double[,] a);
+
+// Reshape any source array to the target rank carried by the name: the
+// element count must equal the product of `shape` — otherwise the base
+// Exception raises with both numbers spelled out, and a negative shape
+// dim raises IndexOutOfBoundsException (matching sized creation).
+// Target ranks 1..8 are declared; the global rank cap is 64 — append
+// rows mechanically as needs arise.
+native int[] reshape1(int[] a, int[] shape);
+native int[,] reshape2(int[] a, int[] shape);
+native int[,,] reshape3(int[] a, int[] shape);
+native int[,,,] reshape4(int[] a, int[] shape);
+native int[,,,,] reshape5(int[] a, int[] shape);
+native int[,,,,,] reshape6(int[] a, int[] shape);
+native int[,,,,,,] reshape7(int[] a, int[] shape);
+native int[,,,,,,,] reshape8(int[] a, int[] shape);
+native long[] reshape1(long[] a, int[] shape);
+native long[,] reshape2(long[] a, int[] shape);
+native long[,,] reshape3(long[] a, int[] shape);
+native long[,,,] reshape4(long[] a, int[] shape);
+native long[,,,,] reshape5(long[] a, int[] shape);
+native long[,,,,,] reshape6(long[] a, int[] shape);
+native long[,,,,,,] reshape7(long[] a, int[] shape);
+native long[,,,,,,,] reshape8(long[] a, int[] shape);
+native float[] reshape1(float[] a, int[] shape);
+native float[,] reshape2(float[] a, int[] shape);
+native float[,,] reshape3(float[] a, int[] shape);
+native float[,,,] reshape4(float[] a, int[] shape);
+native float[,,,,] reshape5(float[] a, int[] shape);
+native float[,,,,,] reshape6(float[] a, int[] shape);
+native float[,,,,,,] reshape7(float[] a, int[] shape);
+native float[,,,,,,,] reshape8(float[] a, int[] shape);
+native double[] reshape1(double[] a, int[] shape);
+native double[,] reshape2(double[] a, int[] shape);
+native double[,,] reshape3(double[] a, int[] shape);
+native double[,,,] reshape4(double[] a, int[] shape);
+native double[,,,,] reshape5(double[] a, int[] shape);
+native double[,,,,,] reshape6(double[] a, int[] shape);
+native double[,,,,,,] reshape7(double[] a, int[] shape);
+native double[,,,,,,,] reshape8(double[] a, int[] shape);
+
+// Matrix product: [aRows, aCols] * [bRows, bCols] -> [aRows, bCols];
+// the inner dimensions must match — otherwise the base Exception names
+// both shapes. Arithmetic follows the language-wide rules: int/long
+// wrap around, float/double follow IEEE.
+native int[,] matmul(int[,] a, int[,] b);
+native long[,] matmul(long[,] a, long[,] b);
+native float[,] matmul(float[,] a, float[,] b);
+native double[,] matmul(double[,] a, double[,] b);
+
+//--- rank-2 surface (same kernels; elementwise keeps the operand shape,
+//--- reductions flatten over the payload) --------------------------------------
+
+// Elementwise sum of two same-shape rank-2 arrays.
+native int[,] add(int[,] a, int[,] b);
+native long[,] add(long[,] a, long[,] b);
+native float[,] add(float[,] a, float[,] b);
+native double[,] add(double[,] a, double[,] b);
+
+// Elementwise difference of two same-shape rank-2 arrays.
+native int[,] sub(int[,] a, int[,] b);
+native long[,] sub(long[,] a, long[,] b);
+native float[,] sub(float[,] a, float[,] b);
+native double[,] sub(double[,] a, double[,] b);
+
+// Elementwise product of two same-shape rank-2 arrays.
+native int[,] mul(int[,] a, int[,] b);
+native long[,] mul(long[,] a, long[,] b);
+native float[,] mul(float[,] a, float[,] b);
+native double[,] mul(double[,] a, double[,] b);
+
+// Elementwise quotient of two same-shape rank-2 arrays (division rules
+// as in the rank-1 overloads).
+native int[,] div(int[,] a, int[,] b);
+native long[,] div(long[,] a, long[,] b);
+native float[,] div(float[,] a, float[,] b);
+native double[,] div(double[,] a, double[,] b);
+
+// Sum / largest / smallest over all elements of a rank-2 array.
+native int sum(int[,] a);
+native long sum(long[,] a);
+native float sum(float[,] a);
+native double sum(double[,] a);
+native int max(int[,] a);
+native long max(long[,] a);
+native float max(float[,] a);
+native double max(double[,] a);
+native int min(int[,] a);
+native long min(long[,] a);
+native float min(float[,] a);
+native double min(double[,] a);
+
+// Arithmetic mean over a rank-2 array; always double.
+native double mean(int[,] a);
+native double mean(long[,] a);
+native double mean(float[,] a);
+native double mean(double[,] a);

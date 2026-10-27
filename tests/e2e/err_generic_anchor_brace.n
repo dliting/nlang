@@ -1,4 +1,0 @@
-public int main() {
-    List<int> l = List<int>{60};
-    return l.length();
-}

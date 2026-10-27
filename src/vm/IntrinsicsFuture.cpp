@@ -100,8 +100,11 @@ bool VmExecutor::IntrinsicFutureGet(uint16_t callParamBase,
 //IntrinsicFutureSelectAny's structural half (split for the 50-line
 //budget): read the wait-set array off slot 0, validate the shape, and
 //collect the (contextId, index) pairs. Checks in order: non-empty set,
-//no null elements, no self-await (the get() wording), set size within
-//DEFAULT_SELECT_ANY_MAX. Throws on every violation.
+//rank-1 shape, no null elements, no self-await (the get() wording),
+//set size within DEFAULT_SELECT_ANY_MAX. Throws on every violation.
+//Array access follows the stage-2 unified layout (CompiledModule.h):
+//[2]=rank, [3]=elemCount, elements from ArrayHeaderCells(rank) — the
+//0.10.x fixed 3-cell header reading broke here in the 0.11 merge.
 void VmExecutor::CollectSelectAnyTargets(uint16_t callParamBase,
     uint8_t* locals, int selfId,
     std::vector<std::pair<int, int>>& targets)
@@ -114,40 +117,42 @@ void VmExecutor::CollectSelectAnyTargets(uint16_t callParamBase,
         RaiseNlangException(m_nullPtrExcClassIdx,
             "NLang VM: null reference in selectAny");
     auto& setSlot = m_structHeap[static_cast<size_t>(setIdx)];
-    const int32_t count = setSlot[2];
+    const uint8_t rank = static_cast<uint8_t>(setSlot[2]);
+    const int32_t count = setSlot[3];
     if (count == 0)
         throw std::runtime_error(
             "NLang VM: selectAny requires at least one future");
+    if (count > DEFAULT_SELECT_ANY_MAX)
+        throw std::runtime_error("NLang VM: selectAny supports at most "
+            + std::to_string(DEFAULT_SELECT_ANY_MAX) + " futures");
+    if (rank != 1)
+        throw std::runtime_error(
+            "NLang VM: selectAny requires a rank-1 future array");
     const uint16_t arrayTypeIdx = static_cast<uint16_t>(setSlot[1]);
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
             "NLang VM: selectAny on invalid array type");
+    const size_t elemBase = ArrayHeaderCells(rank);
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[arrayTypeIdx].elemKind);
     for (int32_t i = 0; i < count; ++i) {
         int32_t futIdx;
-        std::memcpy(&futIdx, setSlot.data() + 3
+        std::memcpy(&futIdx, setSlot.data() + elemBase
             + static_cast<size_t>(i) * cells, sizeof(futIdx));
         if (futIdx <= 0
             || static_cast<size_t>(futIdx) >= m_structHeap.size())
             RaiseNlangException(m_nullPtrExcClassIdx,
                 "NLang VM: null future in selectAny");
-        const int32_t ctxId =
-            m_structHeap[static_cast<size_t>(futIdx)]
-                        [kListHandleFieldOffset];
+        auto& future = m_structHeap[static_cast<size_t>(futIdx)];
+        const int32_t ctxId = future[kListHandleFieldOffset];
         if (!m_spScheduler->Find(ctxId))
             throw std::runtime_error(
                 "NLang VM: Future call on an uninitialized instance");
         if (ctxId == selfId)
             throw std::runtime_error(
-                "NLang VM: a future cannot be awaited by its own "
-                "context");
+                "NLang VM: a future cannot be awaited by its own context");
         targets.emplace_back(ctxId, static_cast<int>(i));
     }
-    if (count > DEFAULT_SELECT_ANY_MAX)
-        throw std::runtime_error(
-            "NLang VM: selectAny supports at most "
-            + std::to_string(DEFAULT_SELECT_ANY_MAX) + " futures");
 }
 
 //Future.selectAny(Future[] futures) — the STATIC face: no receiver,

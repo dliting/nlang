@@ -1,0 +1,9 @@
+//Sealed .ncu import: write an imported struct field and read it back.
+//Expected 10.
+import lib;
+
+int main() {
+	lib.Vec v = lib.Vec(3, 4);
+	v.y = 10;
+	return v.y;
+}

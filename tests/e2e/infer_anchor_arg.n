@@ -1,0 +1,8 @@
+// 0.10.8 D1: the anchored form works as a call argument.
+int sum(List<int> l) {
+    return l.length();
+}
+
+int main() {
+    return sum(List<int>{60});
+}

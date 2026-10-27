@@ -8,6 +8,7 @@
 #include "CompiledModuleCtorStub.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
+#include "SymbolSlots.hpp"
 #include "ModuleRegistry.h"
 #include "SnMisc.h"
 #include "SnData.h"
@@ -29,9 +30,13 @@ namespace nlang
 //flag adds an explicit IsImported() gate for safety. `access` is the
 //member's declared access (0.9.12: class statics carry it on the wire);
 //free functions and interface statics mint FA_Public at the call site.
+//`producerIdx` is the record's index in the producer's own function
+//table (0.10.14, clamped through ProducerIdxClamp) — it rides the stub
+//to the cross-unit slot record; no default value, every mint site
+//states it explicitly.
 inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
-	FieldAccessType access)
+	FieldAccessType access, uint16_t producerIdx)
 {
 	//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
 	//v1.12: the serialized descriptor supplies the true type; the
@@ -110,6 +115,9 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	//RegisterStructs/Classes/.../PopulateClassMethods' IsImported()
 	//gates would not skip these stubs.
 	pFunc->AddFlags(NF_Imported);
+	//0.10.14: the producer table index rides the stub to the
+	//cross-unit slot record (see SnFunction::m_iProducerFuncIdx).
+	pFunc->m_iProducerFuncIdx = producerIdx;
 	//0.9.10 D5: the static flag rides the record — the resolver's
 	//receiver-namespace split (MatchesReceiverForm) and the emitter's
 	//slot arity (FunctionSlotFor: statics take no this slot) both key
@@ -120,14 +128,16 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	return pFunc;
 }
 
-//Build a SnStructDecl stub for an imported CompiledStruct.
-//Fields stay wire-only — VmBackend.RegisterStructs skips imported
-//stubs entirely (R3 + IsImported gating) and external struct FIELD
-//access is out of scope. 0.9.11 v2.6: the CONSTRUCTORS are rebuilt
-//(from constructorIndices, declaration order) — a cross-module
-//`pkg.Vec(3,4)` needs member declarations to bind against; the call
-//itself emits an imported function slot, never local bytecode.
-//0.9.12 (v2.7): each constructor stub carries its declared access
+//0.10.14: build a SnStructDecl stub for an imported struct. Own fields
+//AND constructors rebuild from the wire (the field data has been
+//serialized since v1.12); external field access resolves through the
+//stub members exactly like the class stub's. Struct members are always
+//public (the declaration contract rejects a non-public modifier — e2e
+//err_struct_field_private), so no wire access byte is needed.
+//Constructors rebuild from constructorIndices (declaration order) — a
+//cross-module `pkg.Vec(3,4)` needs member declarations to bind
+//against; the call itself emits an imported function slot, never local
+//bytecode. Each constructor stub carries its declared access
 //(constructorAccess) — a private struct ctor stays private at the
 //consumer.
 inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
@@ -139,6 +149,26 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	//PtrList* whose ownership is transferred via the implicit
 	//inner_collection* constructor.
 	auto *pMembers = new PtrList<SnField>();
+
+	//Field members in wire order = producer declaration order — the
+	//order FindFieldOffset counts, so stub offsets match the runtime
+	//layout. Type synthesis mirrors CreateClassStub's field loop
+	//(descriptor first, NonSerialized sentinel falls back to the
+	//parallel kind table).
+	for (uint16_t fi = 0; fi < cs.fieldCount
+		&& fi < cs.fieldNames.size(); ++fi)
+	{
+		TypeDesc td;
+		if (fi < cs.fieldTypeDescs.size())
+			td = cs.fieldTypeDescs[fi];
+		if (td.kind == RTK_NonSerialized && fi < cs.fieldTypeKinds.size())
+			td.kind = cs.fieldTypeKinds[fi];
+		auto *pField = new SnStructField(
+			SynthTypeExprFromDesc(td, cm, loc),
+			new std::string(cs.fieldNames[fi]), FA_Public, loc);
+		pMembers->push_back(pField);
+	}
+
 	for (size_t ci = 0; ci < cs.constructorIndices.size(); ++ci)
 	{
 		//Out-of-range is a corrupt image — the loader validated the
@@ -149,8 +179,8 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 		const FieldAccessType access = ci < cs.constructorAccess.size()
 			? static_cast<FieldAccessType>(cs.constructorAccess[ci])
 			: FA_Public;
-		pMembers->push_back(
-			CreateMethodStub(cm.functions[idx], cm, loc, access));
+		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
+			access, ProducerIdxClamp(idx)));
 	}
 	auto pName = new std::string(LeafNameOfKey(cs.name));
 	auto *pDecl = new SnStructDecl(pName, pMembers, loc);
@@ -216,8 +246,10 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		//Staticness rides the function record (isStatic); the access
 		//byte is orthogonal.
 		SnFunction *pMethod = cm.functions[idx].isStatic
-			? CreateFunctionStub(cm.functions[idx], cm, loc, access)
-			: CreateMethodStub(cm.functions[idx], cm, loc, access);
+			? CreateFunctionStub(cm.functions[idx], cm, loc, access,
+				ProducerIdxClamp(idx))
+			: CreateMethodStub(cm.functions[idx], cm, loc, access,
+				ProducerIdxClamp(idx));
 		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
 			pMethod->AddFlags(NF_Virtual);
 		pMembers->push_back(pMethod);
@@ -234,8 +266,8 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		const FieldAccessType access = ci < cc.constructorAccess.size()
 			? static_cast<FieldAccessType>(cc.constructorAccess[ci])
 			: FA_Public;
-		pMembers->push_back(
-			CreateMethodStub(cm.functions[idx], cm, loc, access));
+		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
+			access, ProducerIdxClamp(idx)));
 	}
 
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
@@ -257,8 +289,8 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	for (auto idx : ci.staticMethodIndices)
 	{
 		if (idx < cm.functions.size())
-			pMembers->push_back(
-				CreateFunctionStub(cm.functions[idx], cm, loc, FA_Public));
+			pMembers->push_back(CreateFunctionStub(cm.functions[idx], cm,
+				loc, FA_Public, ProducerIdxClamp(idx)));
 	}
 	//0.9.10 D3: exported constants rebuild as `public static const`
 	//fields whose synthesized literal initializer folds again at the
@@ -316,6 +348,48 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		pMembers->push_back(pFunc);
 	}
 	auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
+	pDecl->AddFlags(NF_Imported);   //R6-2
+	return pDecl;
+}
+
+//0.10.14: build a SnEnumDecl stub for an imported enum. Value members
+//rebuild from the sparse name table (empty slots = explicit-value gaps,
+//skipped; member value = table index). Member methods rebuild from the
+//v2.9 method tables as instance-method stubs (CreateMethodStub — an
+//enum method's receiver is the enum value) with their declared access.
+//The stub joins ImportedTypes() so FindModuleType binds "<pkg>.<Enum>".
+inline SnEnumDecl *CreateEnumStub(const std::string &qualifiedKey,
+	const std::vector<std::string> &valueNames,
+	const std::vector<uint16_t> &methodIndices,
+	const std::vector<uint8_t> &methodAccess,
+	const CompiledModule &cm, const ISourceLocation &loc)
+{
+	auto *pValues = new PtrList<SnEnumMember>();
+	for (size_t vi = 0; vi < valueNames.size(); ++vi)
+	{
+		if (valueNames[vi].empty())
+			continue;   //explicit-value gap (sparse fill)
+		auto *pMember = new SnEnumMember(
+			new std::string(valueNames[vi]), nullptr, loc);
+		pMember->SetValue(static_cast<int32_t>(vi));
+		pValues->push_back(pMember);
+	}
+	auto *pMethods = new PtrList<SnFunction>();
+	for (size_t mi = 0; mi < methodIndices.size(); ++mi)
+	{
+		const uint16_t idx = methodIndices[mi];
+		//Out-of-range is a corrupt image (the loader validated the
+		//counts); the bound check keeps stub minting defensive.
+		if (idx >= cm.functions.size())
+			continue;
+		const FieldAccessType access = mi < methodAccess.size()
+			? static_cast<FieldAccessType>(methodAccess[mi])
+			: FA_Public;
+		pMethods->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
+			access, ProducerIdxClamp(idx)));
+	}
+	auto pName = new std::string(LeafNameOfKey(qualifiedKey));
+	auto *pDecl = new SnEnumDecl(pName, pValues, pMethods, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
 	return pDecl;
 }

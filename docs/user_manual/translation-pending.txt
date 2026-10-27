@@ -1,7 +1,7 @@
 # Bilingual manual translation backlog. One line per existing page
 # that lacks its counterpart in the other language tree:
 #   <tree>/<relative-path>.md
-# The list is now EMPTY: every page of both trees has its counterpart,
-# so the tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
-# runs in strict parity mode -- the two navs must list identical page
-# paths, and any new page must land in both trees in the same change.
+# The list is currently empty: both the manual trees and the
+# specification tree are fully translated, which puts the tree-parity
+# pytest (tools/nlang-docs/tests/test_tree_parity.py) in strict mode --
+# any newly untranslated page must be listed here until translated.

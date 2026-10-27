@@ -1,6 +1,6 @@
 # Assert
 
-
+The normative rules are in [specification §6.5](../specification/06-statements.md).
 ```nlang
 assert(condition);
 ```

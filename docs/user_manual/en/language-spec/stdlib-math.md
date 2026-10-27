@@ -1,11 +1,16 @@
 # math — 25 functions
 
+The normative rules are in [specification §14.2–§14.5](../specification/14-math.md).
+
 The floating-point function family all runs at **double** precision:
 parameters and return values are `double`; integer and
 `float` arguments enter via implicit widening (`math.sqrt(4)` and
 `math.sin(1.5f)` both compile).
 `sin`/`cos`/`tan` take radians; `asin`/`acos`/`atan` return radians.
 `log` is the natural logarithm.
+Domain errors of the transcendental family (`sqrt` of a negative, `log`
+of a non-positive, `asin`/`acos` outside [-1, 1]) return NaN following C
+semantics — they do not throw.
 `floor`/`ceil`/`round` return **long** (`round` is half-away-from-zero).
 
 | Function | Signature | Notes |

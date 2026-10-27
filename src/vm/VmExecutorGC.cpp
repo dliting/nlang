@@ -308,8 +308,6 @@ void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
                     sizeof(val));
                 TestRootValue(val, worklist);
             }
-        } else {
-            TestRootValue(root.value, worklist);
         }
     }
 }
@@ -463,14 +461,18 @@ void VmExecutor::MarkArrayElements(int32_t idx,
                                    std::vector<int32_t>& worklist) {
     uint16_t arrayTypeIdx = m_slotStructIdx[idx];
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
-    int32_t length = m_structHeap[idx][2];
+    //Stage-2 header: [3]=elemCount; the payload base derives from
+    //the record's own rank cell.
+    const size_t payloadBase = ArrayPayloadBase(m_structHeap[idx]);
+    int32_t length = m_structHeap[idx][3];
     //0.7.5: stride from the registry — reference-bearing kinds are all
     //1-cell (the acceptance test below unchanged); 2-cell scalars hold
     //no references, the honest offset just keeps the reads
     //element-aligned.
     const int cells = ArrayElemCells(at.elemKind);
     for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[idx][3 + i * cells];
+        int32_t elemRef =
+            m_structHeap[idx][payloadBase + i * cells];
         //String elements are raw string handles (hole-1 uses 0 =
         //null) — same pre-guard routing as the field arms.
         if (at.elemKind == RTK_String) {

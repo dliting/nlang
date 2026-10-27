@@ -1,0 +1,7 @@
+// 0.10.9 p23: a keyed entry against a List target is a compile error —
+// List stores positional elements, the key had no meaning and was
+// silently dropped (the value stored as an element).
+int main() {
+    List<int> l = {x: 1};
+    return l.length();
+}

@@ -1,12 +1,12 @@
 # Const局部
 
-
+规范性规则见规范§6.1。
 ```nlang
 const int X = 5;
 const string Greeting = "hello";
 ```
 
-标记为`const`的局部变量必须在声明时初始化，之后不能再被赋值或复合赋值。仅支持**局部** const；不支持class/struct字段的const。一般形式见[变量声明](declarations.md)。
+标记为`const`的局部变量必须在声明时初始化，之后不能再被赋值或复合赋值。形参也可以标记`const`（被调方不能对其重新赋值）；class/struct字段上的`const`是语法错误。一般形式见[变量声明](declarations.md)。
 
 **const是浅的（Java-`final`风格）**：`const`防止重新绑定*名字*，但不冻结被引用对象的状态。通过const局部做成员变更是允许的：
 

@@ -111,8 +111,12 @@ static void test_link_two_units() {
     lib.classes.push_back(rec);                       //own 1
     lib.enumNames.push_back({"A0"});                  //own 0
     lib.enumKeys.push_back("lib.ColorA");
+    lib.enumMethodIndices.push_back({});
+    lib.enumMethodAccess.push_back({});
     lib.enumNames.push_back({"Red", "Green"});        //own 1
     lib.enumKeys.push_back("lib.Color");
+    lib.enumMethodIndices.push_back({});
+    lib.enumMethodAccess.push_back({});
     lib.functions.push_back(MakeFunc("lib.g", 0));    //own 0
     CompiledFunction lf = MakeFunc("lib.f", 1);       //own 1
     {
@@ -153,6 +157,8 @@ static void test_link_two_units() {
     app.structImports.push_back({"lib", "lib.Point", 0});
     app.enumNames.push_back({});                     //slot 0: empty names
     app.enumKeys.push_back("lib.Color");
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
     app.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::vector<CompiledModule> units;
@@ -201,6 +207,48 @@ static void test_link_two_units() {
           "lib's own string remapped into merged numbering");
     CHECK(merged.entryPoint == 0, "entryKey resolves to app.main");
 
+    PASS();
+}
+
+//0.10.14 (v2.9): merging remaps enumMethodIndices through the unit's
+//function map — the merged enum must point at the merged function
+//record, not the producer-local index.
+static void test_enum_method_index_remap_on_merge() {
+    TEST(enum_method_index_remap_on_merge);
+    CompiledModule lib = MakeUnit("lib");
+    lib.enumNames.push_back({"Red", "Green"});
+    lib.enumKeys.push_back("lib.Color");
+    lib.enumMethodIndices.push_back({0});    //lib's own function 0
+    lib.enumMethodAccess.push_back({0});
+    lib.functions.push_back(MakeFunc("lib.Color.rank", 1));  //own 0
+
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    //The import record rides WITH its placeholder tail entry (the
+    //table invariant test_link_two_units mirrors).
+    app.functions.push_back(MakeFunc("lib.Color.rank", 1));  //slot 1
+    app.functionImports.push_back({"lib", "lib.Color.rank", 1});
+    app.enumNames.push_back({});             //placeholder enum slot
+    app.enumKeys.push_back("lib.Color");
+    app.enumImports.push_back({"lib", "lib.Color", 0});
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    int en = merged.FindEnum("lib.Color");
+    CHECK(en >= 0, "merged enum present");
+    CHECK(merged.enumMethodIndices[en].size() == 1, "method table merged");
+    //Producer-local 0 must land on the merged record. app.main owns
+    //merged index 0, so a missed remap reads the wrong name — the
+    //assertion discriminates, it cannot pass on a stale index.
+    uint16_t remapped = merged.enumMethodIndices[en][0];
+    CHECK(remapped < merged.functions.size()
+        && merged.functions[remapped].name == "lib.Color.rank",
+        "method index remapped to the merged record");
     PASS();
 }
 
@@ -278,6 +326,8 @@ static void test_link_unresolved_all_at_once() {
     app.structImports.push_back({"nope", "nope.S", 0});
     app.enumNames.push_back({});
     app.enumKeys.push_back("nope.E");
+    app.enumMethodIndices.push_back({});
+    app.enumMethodAccess.push_back({});
     app.enumImports.push_back({"nope", "nope.E", 0});
 
     std::vector<CompiledModule> units;
@@ -398,7 +448,7 @@ static void test_link_array_types_dedup() {
     CompiledFunction lf = MakeFunc("lib.f", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_AllocArray);
+        em.Emit(OpCode::OP_AllocArrayN);
         em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(0);
         em.Emit(OpCode::OP_Return);
         lf.bytecode = em.TakeBytes();
@@ -415,7 +465,7 @@ static void test_link_array_types_dedup() {
     CompiledFunction mainf = MakeFunc("app.main", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_AllocArray);
+        em.Emit(OpCode::OP_AllocArrayN);
         em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(0);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
@@ -431,12 +481,12 @@ static void test_link_array_types_dedup() {
     CHECK(merged.structs.size() == 1, "struct placeholder not copied");
     BytecodeReader r0(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(r0.ReadOp() == OpCode::OP_AllocArray, "AllocArray opcode");
+    CHECK(r0.ReadOp() == OpCode::OP_AllocArrayN, "AllocArray opcode");
     CHECK(r0.ReadUint16() == 1, "app dst operand untouched");
     CHECK(r0.ReadUint16() == 0, "app array operand -> merged Point[] 0");
     BytecodeReader r1(merged.functions[1].bytecode.data(),
                       merged.functions[1].bytecode.size());
-    CHECK(r1.ReadOp() == OpCode::OP_AllocArray, "AllocArray opcode");
+    CHECK(r1.ReadOp() == OpCode::OP_AllocArrayN, "AllocArray opcode");
     CHECK(r1.ReadUint16() == 2, "lib dst operand untouched");
     CHECK(r1.ReadUint16() == 0, "lib Point[] operand 1 -> merged 0");
 
@@ -995,6 +1045,123 @@ static void test_link_interface_signature_remap() {
     PASS();
 }
 
+//0.10.14: a namespace-branch import record with an ownerOrdinal
+//single-selects the target record by index — two same-name same-arity
+//candidates no longer collide (the old ambiguity error is gone). The
+//remapped call operand pins WHICH record was chosen, not just "no
+//error": a wrong single-select would land on the other merged index.
+static void test_namespace_ordinal_single_select() {
+    TEST(namespace_ordinal_single_select);
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("lib.f", 1));  //own 0: int shape
+    lib.functions.push_back(MakeFunc("lib.f", 1));  //own 1: float shape
+    CompiledModule app = MakeUnit("app");
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));       //own 0
+    app.functions.push_back(MakeFunc("lib.f", 1));   //slot 1 (placeholder)
+    //The record names the SECOND candidate (producer index 1).
+    app.functionImports.push_back({"lib", "lib.f", 1, "", false, 0, 1});
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+    CHECK(merged.functions.size() == 3, "main + both lib.f records");
+    //Merged layout: app.main=0, lib own 0->1, lib own 1->2. The slot
+    //operand must have been remapped to 2 (the ordinal-1 record).
+    BytecodeReader rd(merged.functions[0].bytecode.data(),
+                      merged.functions[0].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "CallFunc opcode");
+    CHECK(rd.ReadUint16() == 2, "ordinal 1 -> merged record of producer 1");
+    PASS();
+}
+
+//0.10.14 (Review Focus #1): a stale consumer record whose ordinal
+//points at a drifted signature reports a named error, never a silent
+//mislink.
+static void test_namespace_ordinal_recheck_mismatch() {
+    TEST(namespace_ordinal_recheck_mismatch);
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("lib.g", 2));  //ordinal 0 exists,
+                                                    //arity differs
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    app.functions.push_back(MakeFunc("lib.g", 1));  //slot 1
+    app.functionImports.push_back({"lib", "lib.g", 1, "", false, 0, 0});
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    std::string msg;
+    CHECK(LinkThrows(std::move(units), "", &msg),
+          "a drifted ordinal throws");
+    CHECK(Contains(msg, "does not match its record"),
+          "named stale-artifact diagnostic");
+    CHECK(Contains(msg, "lib.g"), "diagnostic names the import");
+    PASS();
+}
+
+//0.10.14: the 0xFFFF fallback keeps today's scan semantics — a single
+//match still links through the scan.
+static void test_namespace_fallback_scan_unchanged() {
+    TEST(namespace_fallback_scan_unchanged);
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("lib.h", 1));
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    app.functions.push_back(MakeFunc("lib.h", 1));  //slot 1
+    //0xFFFF ordinal: the legacy scan path stays live.
+    app.functionImports.push_back(
+        {"lib", "lib.h", 1, "", false, 0, 0xFFFF});
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+    CHECK(merged.functions.size() == 2, "main + lib.h");
+    PASS();
+}
+
+//0.10.14 (Review Focus #5): two same-arity overload records with
+//distinct ordinals coexist and each resolves to its own callee (the
+//dedup key already carries ownerOrdinal — no collapse).
+static void test_two_namespace_records_same_arity() {
+    TEST(two_namespace_records_same_arity);
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("lib.k", 1));  //own 0
+    lib.functions.push_back(MakeFunc("lib.k", 1));  //own 1
+    CompiledModule app = MakeUnit("app");
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));        //own 0
+    app.functions.push_back(MakeFunc("lib.k", 1));    //slot 1
+    app.functionImports.push_back({"lib", "lib.k", 1, "", false, 0, 0});
+    app.functions.push_back(MakeFunc("lib.k", 1));    //slot 2
+    app.functionImports.push_back({"lib", "lib.k", 1, "", false, 0, 1});
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+    CHECK(merged.functions.size() == 3, "main + both records");
+    BytecodeReader rd(merged.functions[0].bytecode.data(),
+                      merged.functions[0].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "first call");
+    CHECK(rd.ReadUint16() == 1, "ordinal 0 -> merged record 1");
+    rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "second call");
+    CHECK(rd.ReadUint16() == 2, "ordinal 1 -> merged record 2");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1006,6 +1173,11 @@ int main() {
     std::cerr << "=== NLang nlink Unit Tests ===\n\n";
 
     try { test_link_two_units(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_enum_method_index_remap_on_merge(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
@@ -1066,6 +1238,26 @@ int main() {
         g_fail++;
     }
     try { test_link_interface_signature_remap(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_namespace_ordinal_single_select(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_namespace_ordinal_recheck_mismatch(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_namespace_fallback_scan_unchanged(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_two_namespace_records_same_arity(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

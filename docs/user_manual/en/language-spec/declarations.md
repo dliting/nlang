@@ -1,5 +1,6 @@
 # Declarations
 
+The normative rules are in [specification §3.3–§3.5](../specification/03-program-structure.md).
 
 Type declarations — `enum`, `struct`, `class`, `interface` — each live on their
 own page: [Enum](enum.md), [Struct](struct.md), [Class](class.md),
@@ -98,6 +99,28 @@ form is a compile error (`"Int32" is not a class or struct type.`). The
 bodyless function-declaration spelling keeps the `func` marker
 (`func Foo f();`).
 
+A declaration may list several declarators separated by commas, and
+every declarator may use any of the first declarator's forms — plain,
+`= value`, `= {…}` initializer, `(args)` direct-init, `()` zero-argument
+construction, `[n]` sized, `[n] = [...]` sized with entries:
+
+```nlang
+int a, b = 5;               // a is 0, b is 5
+int xs[3], ys[2];           // two arrays of different lengths
+Vec v(2), w();              // both constructed (w via the zero-argument constructor)
+List<int> l, m = {1, 2};    // m gets the brace initializer
+int p[3], q;                // p is an int array, q is a plain int
+```
+
+Each declarator's type is the head type plus its own brackets: in
+`int a[3], b;` the `b` is a plain `int`, not an array. A head type that
+is itself an array (`int[] a, b;`) makes every declarator an array.
+
+A name introduced by any declaration — variable, parameter, field, or
+loop variable — must not reuse a visible type name: with `class Counter`
+in scope, `int Counter = 5;` reports
+`"Counter" names a type; it cannot be used as a variable name.`
+
 ### Default Values
 
 A declaration without an initializer gets the type's default value (no
@@ -162,17 +185,19 @@ int apply(BinOp f) { ... }   // parameters and returns
   exception family, `Object`, ...), or an indexed library package
   name (`math`, `io`, `fs`, `thread`, `concurrent`, or a third-party
   package found on the search path) in the same translation unit.
-- The scope-opening form `using Foo;` (no `=`) is unchanged and
-  unrelated.
+- The scope-opening form `using Foo;` (no `=`) is a different
+  directive: it must name a package, and today every such directive
+  is rejected — see
+  [specification §3.4](../specification/03-program-structure.md).
 
 **Restrictions:**
-- The right-hand side must be a **primitive type name** (`int`, `float`,
-  `string`, etc.), an **array type** (`int[]`), a **generic instantiation**
-  (`List<int>`), or a **function type** (`func<int, int>`). A bare
-  **class/struct/enum type name** (`using X = Counter;`) is not a valid
-  target — it fails as a parser syntax error. **Member paths**
-  (`using X = ns.Inner;`) are also not supported — the grammar's type
-  form is identifier-only, so they fail as a parser syntax error.
+- The right-hand side must be a **type**: a **primitive type name**
+  (`int`, `float`, `string`, etc.), a **class/struct/enum type name**
+  (`using X = Counter;`), an **array type** (`int[]`), a **generic
+  instantiation** (`List<int>`), or a **function type**
+  (`func<int, int>`). **Member paths** (`using X = ns.Inner;`) are
+  not supported — the declaration itself parses, but every use site
+  fails to resolve.
 - Aliases are type-position only; a value expression can never resolve
   to an alias.
 - Diagnostics anchored at a use site sometimes point at the `using` line

@@ -1,0 +1,18 @@
+// tensor.dot length mismatch: lengths 3 and 8 raise the base
+// Exception naming both counts (the family convention — reshape,
+// matmul and the elementwise kernels all spell out both numbers);
+// the message is caught and printed for the manifest stdout pin.
+import io;
+import tensor;
+
+int main() {
+    int[] a = tensor.arangeI(1, 4, 1);
+    int[] b = tensor.arangeI(1, 9, 1);
+    try {
+        tensor.dot(a, b);
+    } catch (Exception e) {
+        io.print(e.message);
+        return 0;
+    }
+    return 1;
+}

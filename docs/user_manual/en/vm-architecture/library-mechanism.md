@@ -95,9 +95,12 @@ Consequences of one shared model:
   virtual dispatch and enum methods included). A type position writes
   the reference as `package.Type`; the resolver looks the declaration up in
   the compiled-in unit (`ModuleRegistry::FindModuleType`) and binds it,
-  and an unimported package is diagnosed rather than silently bound. An
-  external `.ncu` exposes no source-level types, so `package.Type` resolves
-  only for inlined library sources.
+  and an unimported package is diagnosed rather than silently bound.
+  External `.ncu` entries contribute stub declarations rebuilt from the
+  module's serialized records — struct, class, and interface stubs
+  (class stubs carry the full member surface since format 2.7) — so
+  `package.Type` binds there too; enum types get no stubs, and a
+  qualified reference to one is rejected.
 - **Deduplication** is tracked per *fully-parsed library file*, separate
   from the symbol index's already-indexed set: standard-library
   packages are signature-indexed at build-environment construction,
@@ -177,10 +180,10 @@ contract (`include/nlang/vm/NativeHost.h`):
 
 - file name `nlang_<package>.dll` (`libnlang_<package>.so`/`.dylib`), located on
   the section-4 search path;
-- exactly one exported entry point, `nlang_native_init`, registered
-  through a macro that also pins the host ABI version
-  (`NLANG_HOST_ABI_VERSION`); a version mismatch fails the load with a
-  readable error, and a module without the entry is rejected;
+- two exported entries, both emitted by the macro: `nlang_abi_version`
+  (the host validates it before the module's init runs) and
+  `nlang_native_init`; a version mismatch fails the load with a readable
+  error, and a module missing either export is rejected;
 - native functions receive a small **host interface** (callbacks for input/output (IO),
   pseudorandom number generator (PRNG) and string access) instead of linking the VM — the third-party
   source needs only the one header;

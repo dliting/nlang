@@ -165,6 +165,29 @@ private slots:
             "no diagnostics expected for the instantiated generic");
     }
 
+    //Two or more type parameters: the declaration list and the use-site
+    //argument list both carry commas (regression for the 0.11.0
+    //single-parameter-only TypeParams shape).
+    void declGenericMultiParamDeclares()
+    {
+        const auto path = writeTempSource("generic_multi.n",
+            "class Pair<K, V> {\n"
+            "    public native Pair();\n"
+            "    public native K first();\n"
+            "    public native void second(V v);\n"
+            "}\n"
+            "int main() {\n"
+            "    Pair<int, string> p = Pair();\n"
+            "    p.second(\"x\");\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_multi", path);
+        QVERIFY2(outcome.first,
+            "multi-parameter generic declaration must build clean");
+        QVERIFY2(outcome.second.empty(),
+            "no diagnostics expected for the multi-parameter generic");
+    }
+
     //The type-argument count is checked against the declaration's
     //parameter list.
     void declGenericRejectsWrongArity()

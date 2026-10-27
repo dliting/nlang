@@ -1,6 +1,6 @@
 # Default Parameters
 
-
+The normative rules are in [specification §7.2](../specification/07-functions.md).
 Function parameters may have default values. Defaults can appear at any
 position (not just trailing). A default expression may reference earlier
 formal parameters.

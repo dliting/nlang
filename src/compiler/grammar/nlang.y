@@ -48,7 +48,24 @@ struct ImportSpec;
 #include "SyntaxTree.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnData.h>
+#include <nlang/runtime/Config.h>
 using namespace nlang;
+
+//Rank cap at the single production point: compare the full comma
+//count before the uint8 truncation, so a 256+ comma literal cannot
+//wrap to a small rank. Both OT_BracketsND productions route through
+//this one factory.
+static SnArrayTypeExpr* MakeArrayTypeND(SnFieldExpr *pElem,
+	ISourceLocation& loc, int commaCount, ScriptParser& parser)
+{
+	const int rank = commaCount + 1;
+	if (rank > kMaxArrayRank)
+		parser.Log(CLL_Error, loc,
+			"array rank %d exceeds the maximum of %d.",
+			rank, kMaxArrayRank);
+	return new SnArrayTypeExpr(pElem, loc, static_cast<uint8_t>(
+		rank > kMaxArrayRank ? kMaxArrayRank : rank));
+}
 
 //Phase 9b: scan string literal content for ${identifier} interpolation.
 //Returns SnLiteralExpr if no ${...} found; otherwise builds OP_Add tree.
@@ -311,7 +328,7 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr SubscriptExpr
 %type <v_pExpressionList>		ConcreteParamList
 %type <v_pExpression>			ConcreteParam BracedInitExpr
-%type <v_pInitEntryList>		InitListElements InitListElementList InitEntries InitEntryList
+%type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
@@ -340,7 +357,7 @@ static bool CollectQualifiedSegments(
 %type <v_pFunction>		StructCtor
 %type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
-%type <v_pStrList>			TypeParamsOpt TypeParams
+%type <v_pStrList>			TypeParamsOpt TypeParams TypeParamRests
 %type <v_pInterfaceDecl>	InterfaceDecl
 %type <v_pNameExprList>		ImplementsOpt NameList
 %type <v_pClassMemberList>	InterfaceMemberList
@@ -445,6 +462,8 @@ static bool CollectQualifiedSegments(
 %token OT_DIVS
 %token OT_BORS
 %token OT_Brackets
+%token <v_Int>	OT_BracketsND
+%token OT_TypeLt
 
 %nonassoc P_Then
 %nonassoc KT_Else
@@ -701,7 +720,10 @@ NamespaceMember:	EnumDecl {
 
 FormalParamList:	FormalParamList ',' FormalParam {
 							if ($1->empty())
+							{
 								parser.Log(CLL_Error, @1, "Unexpected ',' in a param list.");
+								delete $3;
+							}
 							else
 								$1->push_back($3);
 							$$ = $1;
@@ -862,6 +884,82 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, $5});
 						$$ = $1;
 					} |
+					//0.10.7 D1: brace-init continuation `T a, b = {…};` —
+					//the declared type becomes the init list's target
+					//(resolver-side inference, same as the first arm).
+					LocalDeclList ',' TT_Identifier '=' BracedInitExpr {
+						$1->push_back({*$3, $5});
+						$$ = $1;
+					} |
+					//0.10.7 D1: direct-init continuation `T a, b(args);` —
+					//the ctor-arg payload rides the same slot as the first
+					//arm; the resolver dispatches per declarator.
+					LocalDeclList ',' TT_Identifier '(' ConcreteParamList ')' {
+						$1->push_back({*$3, nullptr, $5, nullptr});
+						$$ = $1;
+					} |
+					//0.10.7 D1: zero-argument direct-init continuation
+					//`T a, b();` — explicit empty parens (0.9.15 reading).
+					LocalDeclList ',' TT_Identifier '(' ')' {
+						$1->push_back({*$3, nullptr, new PtrList<SnExpression>(), nullptr});
+						$$ = $1;
+					} |
+					//0.10.7 D1: sized continuation `T a, b[n];` (and the
+					//partial-init form). 0.10.7 D2: the size types only
+					//its own declarator — siblings keep the head type.
+					LocalDeclList ',' TT_Identifier '[' Expression ']' {
+						$1->push_back({*$3, nullptr, nullptr, $5});
+						$$ = $1;
+					} |
+					LocalDeclList ',' TT_Identifier '[' Expression ']' '=' Expression {
+						$1->push_back({*$3, $8, nullptr, $5});
+						$$ = $1;
+					} |
+					//0.10.7 D3: brace form on a sized continuation
+					//declarator — parses so the resolver can name the
+					//form violation.
+					LocalDeclList ',' TT_Identifier '[' Expression ']' '=' BracedInitExpr {
+						$1->push_back({*$3, $8, nullptr, $5});
+						$$ = $1;
+					} |
+					//0.11.3: comma sizes on a continuation declarator
+					//get the same named reject as the first one.
+					LocalDeclList ',' TT_Identifier '[' Expression
+					',' ConcreteParamList ']' {
+						parser.Log(CLL_Error, @6,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
+						$1->push_back({*$3, nullptr, nullptr, $5});
+						$$ = $1;
+					} |
+					LocalDeclList ',' TT_Identifier '[' Expression
+					',' ConcreteParamList ']' '=' Expression {
+						parser.Log(CLL_Error, @6,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
+						$1->push_back({*$3, $10, nullptr, $5});
+						$$ = $1;
+					} |
+					LocalDeclList ',' TT_Identifier '[' Expression
+					',' ConcreteParamList ']' '=' BracedInitExpr {
+						parser.Log(CLL_Error, @6,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$7)
+							delete pExpr;
+						delete $7;
+						$1->push_back({*$3, $10, nullptr, $5});
+						$$ = $1;
+					} |
 					TT_Identifier '=' Expression {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $3});
@@ -893,8 +991,8 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					//(and the partial-init form `T name[n] = [e1, e2];`).
 					//The size rides the pArraySize payload slot; the resolver
 					//synthesizes `name = new T[n]` plus one subscript assign
-					//per initializer entry. First declarator only: the plain
-					//continuation arms after a comma carry no size.
+					//per initializer entry. 0.10.7 D2: a size payload types
+					//only its own declarator; siblings keep the head type.
 					TT_Identifier '[' Expression ']' {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, nullptr, nullptr, $3});
@@ -902,6 +1000,55 @@ LocalDeclList: LocalDeclList ',' TT_Identifier {
 					TT_Identifier '[' Expression ']' '=' Expression {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
 						$$->push_back({*$1, $6, nullptr, $3});
+					} |
+					//0.10.7 D3: the brace form parses so the resolver can
+					//name the form violation (array initializers keep the
+					//bracket form — 0.9.11 D6 single-shape design).
+					TT_Identifier '[' Expression ']' '=' BracedInitExpr {
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $6, nullptr, $3});
+					} |
+					//0.11.3: comma sizes parse so the parser can name the
+					//C-style form and point at the creation twin. The first
+					//size rides the array-size payload (0.10.7 D3 precedent)
+					//so the subtree joins the owning AST; the ConcreteParamList
+					//is released here — deleting each element frees its whole
+					//subtree (ImmutableNodeList ownership), so the reject
+					//leaks nothing even in a long-lived host (nide).
+					TT_Identifier '[' Expression ',' ConcreteParamList ']' {
+						parser.Log(CLL_Error, @4,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, nullptr, nullptr, $3});
+					} |
+					TT_Identifier '[' Expression ',' ConcreteParamList ']'
+					'=' Expression {
+						parser.Log(CLL_Error, @4,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $8, nullptr, $3});
+					} |
+					TT_Identifier '[' Expression ',' ConcreteParamList ']'
+					'=' BracedInitExpr {
+						parser.Log(CLL_Error, @4,
+							"array declarations take one size per "
+							"bracket; multi-dimensional arrays use the "
+							"creation expression int[2, 3]");
+						for (auto* pExpr : *$5)
+							delete pExpr;
+						delete $5;
+						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
+						$$->push_back({*$1, $8, nullptr, $3});
 					} |
 					TT_Identifier {
 						$$ = new std::vector<SnLocalDeclStmt::LocalDecl>();
@@ -1063,6 +1210,9 @@ SuperCallStmt: KT_Super '(' ConcreteParamList ')' ';' {
 Array subscript assignment statement (e.g. arr[i] = value).
 */
 SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
+					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
+				} |
+				Expression '[' ConcreteParamList ']' '=' Expression ';' {
 					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} |
 				//0.9.0: bare brace stored value — the base's element type is
@@ -1422,16 +1572,36 @@ KT_Class	TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' '}' {
 TypeParamsOpt:	TypeParams { $$ = $1; } |
 				{ $$ = nullptr; } ;
 
-TypeParams:	'<' TT_Identifier '>' {
-					$$ = new std::vector<std::string>;
-					$$->push_back(*$2);
+//Generic-declaration openers are always plain '<' (2026-10-28 merge):
+//declared generics (Promise, user `class C<T>`) are not in the
+//scanner's flag set — no scan-time set can know a module's class
+//declarations — and the flagged built-ins are never class-declared, so
+//no other spelling is reachable here. Use sites split the same way:
+//flagged names open on OT_TypeLt, declared names on plain '<' (the
+//Type/HeadType twin arms).
+//
+//The parameter list is the standard list idiom — a head parameter plus
+//zero or more (',' parameter) rests, closed by one '>'. The previous
+//shape (a self-recursive arm that re-opened with '<') made every
+//declaration with two or more parameters a syntax error: after
+//`class C<K` the parser needed '>' to reduce the base arm, so the ','
+//had no action (0.11.0 shipped single-parameter-only; the spec's
+//TypeParams EBNF always described the list).
+TypeParams:	'<' TT_Identifier TypeParamRests '>' {
+					$$ = $3;
+					$$->insert($$->begin(), *$2);
 					delete $2;
+				} ;
+
+TypeParamRests:	{
+					$$ = new std::vector<std::string>;
 				} |
-			TypeParams ',' TT_Identifier '>' {
+				TypeParamRests ',' TT_Identifier {
 					$$ = $1;
 					$$->push_back(*$3);
 					delete $3;
 				} ;
+
 
 ClassInheritOpt:	':' TypeName { $$ = $2; } |
 					{ $$ = nullptr; } ;
@@ -1535,6 +1705,24 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 				//and the method-name clash.
 				AccessType NodeFlagsNonEmpty Type TT_Identifier '=' Expression ';' {
 					auto* field = new SnClassField($3, $4, $1, @1, $6);
+					field->AddFlags($2);
+					$$ = field;
+				} |
+				//0.10.7 D4: the field shapes with missing parts parse
+				//and hit the declaration contract (StatementResolver-
+				//Types.cpp): zero-flag forms report "must be static
+				//const", the no-initializer form reports the missing
+				//constant expression. Isomorphic to ClassMember's
+				//field arms — the ';'/`=`/`(` lookahead split is
+				//proven conflict-free in the class body.
+				AccessType Type TT_Identifier '=' Expression ';' {
+					$$ = new SnClassField($2, $3, $1, @1, $5);
+				} |
+				AccessType Type TT_Identifier ';' {
+					$$ = new SnClassField($2, $3, $1, @1);
+				} |
+				AccessType NodeFlagsNonEmpty Type TT_Identifier ';' {
+					auto* field = new SnClassField($3, $4, $1, @1);
 					field->AddFlags($2);
 					$$ = field;
 				} ;
@@ -1662,48 +1850,71 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //the InterfaceDecl empty-body production) took the grammar from 75 rr
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
-//Accepted-conflict ledger (re-measured 2026-10-14, bison 3.8.2, on the
-//v0.9.1 script-mode grammar): 23 shift/reduce, 4 reduce/reduce, every
-//one resolved by bison's default to the intended reading. Deterministic
+//Accepted-conflict ledger (re-measured 2026-10-28, bison 3.8.2, on the
+//0.11 merge grammar): 30 shift/reduce, 3 reduce/reduce. History: dev's
+//line measured 27/3 with every generic opener on the 0.10.8 D1
+//OT_TypeLt token; master's declared-generics line re-adopted the
+//plain-'<' family because a user-declared generic class name cannot
+//live in any scan-time set. The merge keeps BOTH openers with disjoint
+//duties: OT_TypeLt survives where the name is scan-time-known and the
+//opener must never compete with the comparison '<' (the anchored
+//literal `List<int>{...}`, an Expression production — a plain-'<' opener
+//there flips every `a < b` state to the generic reading), and Type/
+//HeadType carry twin arms on both spellings so user-declared generics
+//parse in type positions. The total moves 27/3 → 30/3. The same
+//re-measure also replaced TypeParams' base arm with the standard list
+//idiom (TypeParamRests) — the old self-recursive shape rejected every
+//declaration with two or more parameters without touching these
+//counts. Every one
+//resolved by bison's default to the intended reading. Deterministic
 //parsers cannot use %expect alongside r/r conflicts, so no %expect pins
-//these numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr
-//to stay silent, and the counts are guarded by re-measuring (the
+//these numbers: the build passes -Wno-conflicts-sr/-Wno-conflicts-rr to
+//stay silent, and the counts are guarded by re-measuring (the
 //conflicts: lines of a `bison -v` .output) on every grammar edit —
-//compare against this ledger and never bump it silently.
-//- states 113/130 (1 each): the '<' shapes — an explicit generic type
-//  head (`List<int> l;`) and the void-return func spellings. Reduce-
-//  first keeps the declaration reading.
-//- state 266 (2): catch/finally after a nested `try` statement — the
-//  dangling-clause shape; shift binds the clause to the innermost try.
-//- states 287/288 (1 each, added with TypeName): ':' / `as` followed by
-//  a dotted type name — '.' shifts to continue the chain, the default
-//  reduces TypeName. Nothing may follow a type name with '.', so the
-//  default is the intended reading.
-//- state 541 (16): ClassMember's NodeFlag-singular vs
-//  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
-//  tokens — both derivations parse the same member; shift keeps reading
-//  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
-//  arm, taking this family from 20 down to 16.
+//compare against this ledger and never bump it silently. State numbers
+//are those of the current .output; they shift with every grammar
+//change, so the whole list is re-derived at each re-measure.
 //- state 12 (1, v0.9.1): `const` opening a top-level function vs the
 //  const statement — the AccessTypeEmpty epsilon loses the shift, so
 //  `const int x = 5;` lives and `const int f(){}` is rejected (a true
 //  LALR ambiguity; zero corpus hits, recorded as a known limitation).
-//- state 282 (2 r/r, v0.9.1): the empty-paren double epsilon —
-//  FormalParamList's and ConcreteParamList's empty productions both
-//  reduce on ')' and ','. Bison prefers the rule declared earlier in
-//  this file, so the function header wins and `int main(){}` parses;
-//  a bodyless bare `T name();` is therefore always a construction,
-//  never a declaration — forward declarations carry the explicit
-//  `func` marker for that reason.
-//- state 398 (2 r/r, v0.9.1): NameExpr vs Expression on '.'/'<' after
-//  a top-level direct-init first argument — NameExpr wins, so
+//- states 114/131 (1 each): the '<' shapes in head position — an
+//  explicit generic type head (`Box<int> b;`) and the void-return func
+//  spellings, on the plain-'<' arms. Shift keeps the generic reading;
+//  the comparison reading loses only in these head states — never in
+//  pure expression states (the anchored literal holds OT_TypeLt).
+//- state 276 (2): catch/finally after a nested `try` statement — the
+//  dangling-clause shape; shift binds the clause to the innermost try.
+//- state 293 (1 sr + 2 rr): after `T name(`, ')' shifts to the explicit
+//  empty-parens arm, and FormalParamList's vs ConcreteParamList's empty
+//  productions both reduce on ')' and ',' — the function header wins
+//  (earlier-declared rule), so a bodyless bare `T name();` is always a
+//  construction, never a declaration; forward declarations carry the
+//  explicit `func` marker for that reason.
+//- states 298/299 (1 each, added with TypeName): ':' / `as` followed by
+//  a dotted type name — '.' shifts to continue the chain, the default
+//  reduces TypeName. Nothing may follow a type name with '.', so the
+//  default is the intended reading.
+//- states 317/365 (1 each, added with 0.11.2's comma index lists): in a
+//  comma-index/subscript-assign context, ']' shifts to the subscript-
+//  assign reading instead of reducing a bare ConcreteParam expression.
+//- states 367/382 (1 each, added with 0.9.15): the empty-parens shape
+//  on the body-context first declarator (`T name();` inside a body)
+//  and the top-level header alone — ')' shifts to the explicit empty
+//  arm; same reading as state 293.
+//- state 428 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
+//  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
-//- 2026-10-27 (generic class declarations): TypeParamsOpt/TypeParams
-//  added after `class <name>` — re-measured 26 shift/reduce,
-//  4 reduce/reduce, ZERO delta. The declaration-context '<' shifts into
-//  TypeParams without a competing reduction (state after TT_Identifier:
-//  shift on '<', $default reduces the empty TypeParamsOpt).
+//- state 538 (1, added with 0.10.7 D1): the same empty-parens shape on
+//  a continuation declarator — after `T a, b(`, ')' shifts to the
+//  explicit empty-parens continuation arm; `T a, b();` is a zero-
+//  argument construction, same reading as the first arm.
+//- state 677 (16): ClassMember's NodeFlag-singular vs
+//  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
+//  tokens — both derivations parse the same member; shift keeps reading
+//  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
+//  arm, taking this family from 20 down to 16.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -1711,45 +1922,61 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 //suffix from subscript expression (arr[i]).
 //The array suffix produces a dedicated SnArrayTypeExpr node, keeping
 //SnNameExpr focused on plain name expressions.
-//Phase 8e-3: NameExpr '<' TypeList '>' produces SnGenericTypeExpr for
-//built-in generic types like List<T>. No LALR(1) conflict because Type
-//is only reached in declaration contexts where Expression is not a valid
-//reduction (Type is never an Expression in NLang grammar).
+//Phase 8e-3: the generic spellings produce SnGenericTypeExpr for
+//generic types like List<T>. Both angle spellings exist (2026-10-28
+//merge): OT_TypeLt for scan-flagged names (built-ins + Promise) and
+//plain '<' for user-declared generics, whose names cannot live in a
+//scan-time set. The openers are distinct tokens, so the sister
+//productions never compete over one lookahead.
 Type:	NameExpr		{ $$ = $1; } |
 				QualifiedType	{ $$ = $1; } |
-				NameExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr($1, $3, @1); } |
+				IdentifierExpr OT_TypeLt TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1); } |
+				IdentifierExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1); } |
 				//Phase 13: void in the first type-arg slot (func's return
 				//slot). KT_Void never derives Type, so the void spellings
 				//need their own sister productions; the void node must be a
 				//real type argument so `func<void,int>` and `func<int>`
 				//produce different GenericInstKeys.
-				NameExpr '<' KT_Void '>'	{
+				IdentifierExpr OT_TypeLt KT_Void '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
-						$$ = new SnGenericTypeExpr($1,
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
 							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 					} |
-				NameExpr '<' KT_Void ',' TypeList '>'	{
+				IdentifierExpr '<' KT_Void '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+					} |
+				IdentifierExpr OT_TypeLt KT_Void ',' TypeList '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
-						$$ = new SnGenericTypeExpr($1, $5, @1);
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
+					} |
+				IdentifierExpr '<' KT_Void ',' TypeList '>'	{
+						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+						$5->insert($5->begin(), pVoid);
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
 					} |
 				//0.8.3: func is a keyword; its generic spellings mirror
 				//the NameExpr ones above but start from KT_Func and mint
-				//the base-name node from kBuiltinFuncTypeName.
-				KT_Func '<' TypeList '>'	{
+				//the base-name node from kBuiltinFuncTypeName. The func
+				//keyword is always scan-flagged, so only the OT_TypeLt
+				//spelling is reachable here.
+				KT_Func OT_TypeLt TypeList '>'	{
 						$$ = MakeFuncType($3, @1);
 					} |
-				KT_Func '<' KT_Void '>'	{
+				KT_Func OT_TypeLt KT_Void '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$$ = MakeFuncType(
 							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 					} |
-				KT_Func '<' KT_Void ',' TypeList '>'	{
+				KT_Func OT_TypeLt KT_Void ',' TypeList '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
 						$$ = MakeFuncType($5, @1);
 					} |
-				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } ;
+				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } |
+				Type OT_BracketsND	{ $$ = MakeArrayTypeND($1, @2, $2, parser); } ;
 
 //Qualified type reference for UNAMBIGUOUS type positions (params, fields,
 //catch, foreach, return types, type arguments, new): "ns.Type" /
@@ -1785,13 +2012,29 @@ QualifiedType:	NameExpr '.' TT_Identifier {
 HeadType:	IdentifierExpr {
 				$$ = new SnNameExpr($1, @1);
 			} |
+			//Dual angle spellings, same rule as Type above: OT_TypeLt
+			//for scan-flagged names, plain '<' for user-declared
+			//generics. Distinct openers, no shared lookahead.
+			IdentifierExpr OT_TypeLt TypeList '>' {
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
+			} |
 			IdentifierExpr '<' TypeList '>' {
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
+			} |
+			IdentifierExpr OT_TypeLt KT_Void '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 			} |
 			IdentifierExpr '<' KT_Void '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
 					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+			} |
+			IdentifierExpr OT_TypeLt KT_Void ',' TypeList '>' {
+				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+				$5->insert($5->begin(), pVoid);
+				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
 			} |
 			IdentifierExpr '<' KT_Void ',' TypeList '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
@@ -1821,22 +2064,27 @@ HeadType:	IdentifierExpr {
 			} |
 			//0.8.3: func is a keyword; its generic spellings mirror
 			//the IdentifierExpr ones above but start from KT_Func and
-			//mint the base-name node from kBuiltinFuncTypeName.
-			KT_Func '<' TypeList '>' {
+			//mint the base-name node from kBuiltinFuncTypeName. The
+			//keyword is always scan-flagged, so only the OT_TypeLt
+			//spelling is reachable.
+			KT_Func OT_TypeLt TypeList '>' {
 				$$ = MakeFuncType($3, @1);
 			} |
-			KT_Func '<' KT_Void '>' {
+			KT_Func OT_TypeLt KT_Void '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$$ = MakeFuncType(
 					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 			} |
-			KT_Func '<' KT_Void ',' TypeList '>' {
+			KT_Func OT_TypeLt KT_Void ',' TypeList '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$5->insert($5->begin(), pVoid);
 				$$ = MakeFuncType($5, @1);
 			} |
 			HeadType OT_Brackets {
 				$$ = new SnArrayTypeExpr($1, @2);
+			} |
+			HeadType OT_BracketsND {
+				$$ = MakeArrayTypeND($1, @2, $2, parser);
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an
@@ -1873,7 +2121,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//form is allowed bare; dict/struct `{...}` requires an anchored
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
 				//with Paragraph (block statement).
-				'[' InitListElements ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
+				'[' InitEntries ']'	{ $$ = new SnInitListExpr(nullptr, *$2, true, @1); delete $2; } |
 				//0.9.13 B5: the lexer collapses `[]` into one OT_Brackets token.
 				OT_Brackets	{ auto* pEmpty = new std::vector<nlang::InitEntry>(); $$ = new SnInitListExpr(nullptr, *pEmpty, true, @1); delete pEmpty; } |
 				//0.9.0: anchored brace init `Vec{x: 1, y: 2}`. The identifier
@@ -1885,6 +2133,22 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 					auto* pName = new SnNameExpr(pId, @1);
 					$$ = new SnInitListExpr(pName, *$3, false, @1);
 					delete $3;
+				} |
+				//0.10.8 D1: anchored generic instantiation literal
+				//`List<int>{60}`. The opener is the dedicated OT_TypeLt
+				//(scan-flagged generic names only): as an Expression
+				//production it must never compete with the comparison
+				//'<' — a plain-'<' opener here would flip every
+				//`a < b` expression state to the generic reading
+				//(0.11 merge re-measure). Declared generics have no
+				//expression-position generic use; their type contexts
+				//parse on the plain-'<' arms. In this state '{' shifts
+				//(the literal) and a name reduces the type.
+				IdentifierExpr OT_TypeLt TypeList '>' '{' InitEntries '}' {
+					$$ = new SnInitListExpr(
+						new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1),
+						*$6, false, @1);
+					delete $6;
 				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
@@ -1911,8 +2175,10 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//resolver reject (func types have no by-name constructor; bind
 				//a reference) - the diagnostic experience inherited from the
 				//removed `new func<...>()` spelling. KT_Func is a keyword, so
-				//this arm cannot collide with the generic-name parses.
-				KT_Func '<' TypeList '>' '(' ConcreteParamList ')' {
+				//this arm cannot collide with the generic-name parses; the
+				//keyword is always scan-flagged, so only the OT_TypeLt
+				//spelling is reachable.
+				KT_Func OT_TypeLt TypeList '>' '(' ConcreteParamList ')' {
 					$$ = new SnNewExpr(MakeFuncType($3, @1), $6, @1);
 				} ;
 
@@ -1957,6 +2223,12 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 
 SubscriptExpr:	Expression '[' Expression ']' {
 					$$ = new SnSubscriptExpr($1, $3, @1);
+				} |
+				//Stage-2: comma index lists — a[i, j] (and the creation
+				//twin T[2, 3]). Named/out forms ride ConcreteParamList
+				//and are rejected by the resolver.
+				Expression '[' ConcreteParamList ']' {
+					$$ = new SnSubscriptExpr($1, $3, @1);
 				} ;
 
 //0.9.0: bare `{...}` initializer for the value positions wired below
@@ -1971,51 +2243,11 @@ BracedInitExpr:	'{' InitEntries '}' {
 					delete $2;
 				} ;
 
-//Phase 8e-6: collection initializer element lists.
-//InitListElements is the comma-separated value list for the array form `[...]`.
-//InitEntries is the comma-separated key:value list for the brace form `{...}`.
-//Each InitEntry's key form (STRING vs IDENTIFIER) decides dict vs struct at
-//resolver time. Both lists may be empty (matches `[]` and `{}`).
-InitListElements:	{
-						$$ = new std::vector<nlang::InitEntry>();
-					} |
-					InitListElementList {
-						$$ = $1;
-					} ;
-
-InitListElementList:	Expression {
-						auto* pVec = new std::vector<nlang::InitEntry>();
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $1;
-						pVec->push_back(std::move(e));
-						$$ = pVec;
-					} |
-					//0.9.0: nested bare brace element (`[{"d": 3}]`) — the
-					//outer slot's element type is the nested list's target.
-					BracedInitExpr {
-						auto* pVec = new std::vector<nlang::InitEntry>();
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $1;
-						pVec->push_back(std::move(e));
-						$$ = pVec;
-					} |
-					InitListElementList ',' Expression {
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $3;
-						$1->push_back(std::move(e));
-						$$ = $1;
-					} |
-					InitListElementList ',' BracedInitExpr {
-						nlang::InitEntry e;
-						e.keyKind = nlang::InitEntry::KeyKind::None;
-						e.pValue = $3;
-						$1->push_back(std::move(e));
-						$$ = $1;
-					} ;
-
+//0.10.10: one comma-separated entry list shared by both forms (`[...]`
+//and `{...}`). Each entry carries an optional key expression and a value
+//expression; the target shape (array/List/Dict/struct/class) decides how
+//the key is read — absent, a value slot, or a field name. The list may be
+//empty (matches `[]` and `{}`).
 InitEntries:	{
 						$$ = new std::vector<nlang::InitEntry>();
 					} |
@@ -2035,34 +2267,38 @@ InitEntryList:	InitEntry {
 						$$ = $1;
 					} ;
 
-InitEntry:	TT_String ':' Expression {
+InitEntry:	//Keyed entry. The key is any expression; the target shape
+					//decides how it is read (Dict value slot / struct-class
+					//field name). No ternary operator exists, so `Expression
+					//':'` is unambiguous.
+					Expression ':' Expression {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::String;
-						pE->keyStr = *$1;
+						pE->pKey = $1;
 						pE->pValue = $3;
 						$$ = pE;
 					} |
-					TT_Identifier ':' Expression {
+					//0.10.8 D4: keyed entry with a bare brace value. The
+					//slot type (Dict value / struct-class field) supplies
+					//the nested target (PropagateNestedInitListTargets);
+					//array-typed fields keep the bracket form via the
+					//existing array-form gate.
+					Expression ':' BracedInitExpr {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::Identifier;
-						pE->keyStr = *$1;
+						pE->pKey = $1;
 						pE->pValue = $3;
 						$$ = pE;
 					} |
-					//Value-only entry for the value-position brace/bracket forms.
-					//Resolver dispatches on target type: List → values, struct
-					//→ fields in declaration order, dict → error (dict requires
-					//string keys).
+					//Value-only entry (List/array elements, positional
+					//struct fields). The resolver rejects a value-only
+					//entry on Dict and class targets.
 					Expression {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::None;
 						pE->pValue = $1;
 						$$ = pE;
 					} |
 					//0.9.13 B6: nested bare brace entry.
 					BracedInitExpr {
 						auto* pE = new nlang::InitEntry();
-						pE->keyKind = nlang::InitEntry::KeyKind::None;
 						pE->pValue = $1;
 						$$ = pE;
 					} ;
@@ -2071,8 +2307,8 @@ ConcreteParamList:	ConcreteParamList ',' ConcreteParam {
 							if ($1->empty())
 							{
 								parser.Log(CLL_Error, @2, "Invalid concrete param list, "
-									"expecte param before ','.");
-
+									"expected a param before ','.");
+								delete $3;
 							}
 							else
 								$1->push_back($3);

@@ -1,0 +1,23 @@
+// 0.10.10: evaluation order — key before value, entries in order.
+class Trace {
+    public string s;
+
+    public string key(string t) {
+        this.s = this.s + "k" + t;
+        return t;
+    }
+
+    public int value(string t) {
+        this.s = this.s + "v" + t;
+        return 1;
+    }
+}
+
+int main() {
+    Trace t = Trace();
+    Dict<string, int> d = {t.key("1"): t.value("1"), t.key("2"): t.value("2")};
+    if (t.s == "k1v1k2v2") {
+        return 0;
+    }
+    return 1;
+}

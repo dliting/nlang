@@ -59,20 +59,27 @@ several are already decided):
 
 ```nlang
 import io;
+import thread;
+
+//The completer runs concurrently: it settles b while main waits.
+class Sources {
+    public Promise<int> pb;
+    public void fire() { pb.complete(2); }
+}
 
 int main() {
+    Sources s = Sources();
+    s.pb = Promise();
     Promise<int> pa = Promise();
-    Promise<int> pb = Promise();
     Future<int> a = pa.future();
-    Future<int> b = pb.future();
+    Future<int> b = s.pb.future();
     Future<int>[] arr = [a, b];
+    Thread t = thread.spawn(s.fire);
     int winner = Future.selectAny(arr);
     io.write(winner.toString());
     io.write(" ");
-    io.write(a.get().toString());
+    io.write(arr[winner].get().toString());
     io.write("\n");
-    pb.complete(2);
-    pa.complete(1);
     return 0;
 }
 ```

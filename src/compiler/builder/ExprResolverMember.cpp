@@ -156,7 +156,9 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 		//through to the builtin dispatch in Access(), which owns the
 		//arity check (a dedicated "takes no arguments" message) instead
 		//of this generic reject.
-		if (invoke.CalleeName() == "length")
+		if (invoke.CalleeName() == "length"
+			|| invoke.CalleeName() == "rank"
+			|| invoke.CalleeName() == "shape")
 			return false;
 		if (invoke.CalleeName() != "toString"
 			|| !(pOuterExpr->IsArrayValued()

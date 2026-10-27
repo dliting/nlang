@@ -1,0 +1,40 @@
+// tensor GC race: a churn thread allocates (and drops) arrays while the
+// main thread runs blocking tensor kernels over a large array. The
+// staged-argument roots plus the non-moving collector must keep the
+// operand's payload pointer stable for every dot — the result must match
+// the scalar reference each round.
+import thread;
+import tensor;
+
+void churn() {
+    int rounds = 0;
+    while (rounds < 1500) {
+        //Language-side allocation arms the collector's pending flag
+        //(OP_AllocArray); >1024 heap records over the run pushes past
+        //the default GC threshold, so collections genuinely interleave
+        //with the main thread's blocking kernels.
+        int[] buf = int[10000];
+        buf[0] = rounds;
+        int[] probe = tensor.arange(0, 100, 1);
+        int s = tensor.sum(probe) + buf[0];
+        rounds = rounds + 1;
+    }
+}
+
+int main() {
+    double[] a = tensor.arange(0.0, 262144.0, 1.0);
+    double expected = 0.0;
+    for (int i = 0; i < 262144; i = i + 1) {
+        double di = i;
+        expected = expected + di * di;
+    }
+    Thread t = thread.spawn(churn);
+    int ok = 0;
+    for (int round = 0; round < 200; round = round + 1) {
+        double got = tensor.dot(a, a);
+        if (got == expected) ok = ok + 1;
+    }
+    thread.join(t);
+    if (ok != 200) return 1;
+    return 0;
+}

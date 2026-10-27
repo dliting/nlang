@@ -1,6 +1,6 @@
 # Overload Resolution
 
-
+The normative rules are in [specification §7.3](../specification/07-functions.md).
 When multiple overloads exist, the compiler selects the best match by
 computing a type-distance score. If two or more overloads match with equal
 distance, the call is ambiguous and a compile error is reported.
@@ -72,3 +72,29 @@ U u = U("s");   // Error: no constructor of class "U" matches the argument list
 For a struct the word in the diagnostic is `struct`
 (`no constructor of struct "S" matches the argument list`,
 `ambiguous constructor call to struct "S": ...`).
+
+### Cross-module overloads
+
+Overloads of an imported free function, interface static method, or enum
+method resolve exactly as within a unit: the compiler picks the best match
+by parameter type at the call site, and the linker connects that selected
+overload to its own record in the producing unit. Two same-name overloads
+with the same parameter count but different parameter types therefore link
+without ambiguity — the call site has already decided which one runs.
+
+```nlang lib.n
+int score(int v) { return v + 1; }
+int score(double v) { return 100; }
+```
+
+```nlang
+import lib;
+
+int a = lib.score(1);     // int overload    -> 2
+int b = lib.score(2.5);   // double overload -> 100
+```
+
+The compile-time ambiguity rule is unchanged: when an argument converts to
+the parameter type of two overloads at equal distance, the resolver reports
+the ambiguity at the call site, whether or not the overloads live in another
+module.

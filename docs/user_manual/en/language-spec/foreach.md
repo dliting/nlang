@@ -1,6 +1,6 @@
 # Foreach
 
-
+The normative rules are in [specification §6.4](../specification/06-statements.md).
 ```nlang
 foreach (Type var in iterable) { body }
 ```

@@ -6,6 +6,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
+#include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 
@@ -177,6 +178,16 @@ void VmBackend::StampIntrinsicChannel(SnFunction& func,
 //cross-unit reference left as a placeholder slot + import record — nothing
 //external is merged in; the load-time linker resolves the placeholders
 //from the peer images.
+
+//Stage-2 emit gate helper: rank of the expression's resolved array token.
+uint8_t VmBackend::EmitGateRankOf(const SnExpression& expr)
+{
+    auto* pType = expr.IsResolved() ? expr.EvalDataType() : nullptr;
+    if (!pType || pType->Kind() != NK_ArrayTypeToken)
+        return 0;
+    return static_cast<SnArrayTypeToken*>(pType)->Rank();
+}
+
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
     //Whole-tree pre-checks, before any image is built: both concerns
@@ -187,27 +198,27 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         return {};
     //Whole-tree, once: which prelude bare names a foreign declaration
     //claims (spec §6.8) — the registration walks below consult the set.
+    //Merged-tree ordering: this must precede ShadowRegisterUnits — the
+    //shadow replays the registration sequence to archive producer
+    //function-table indices, and a set-less shadow would apply the §6.8
+    //gate differently from the real pass, drifting every archived
+    //ordinal (the replay is the cross-unit import record's selector;
+    //nlink rejects the drifted record at load).
     ComputeShadowedPreludeNames(root);
+
+    //Archive every unit's producer function table before codegen emits
+    //cross-unit import records (Slots.cpp reads the authoritative
+    //index from these archives — same-name type overloads across
+    //units single-select through it).
+    ShadowRegisterUnits(root);
     UnitBuildResult out;
     for (uint32_t unitIdx : unitIdxs) {
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));
-        RegisterBuiltinClasses();
-        RegisterStructs(root);
-        RegisterClasses(root);
-        ResolveStructClassRefs();
-        RegisterArrayTypes(root);
-        RegisterEnums(root);
-        RegisterFunctions(root);
-        PopulateClassMethods(root);
-        //0.9.11 D2: struct ctor indices ride the same function records,
-        //so the struct counterpart runs beside the class one.
-        PopulateStructMethods(root);
-        //0.9.10 D5: after RegisterFunctions/PopulateClassMethods — the
-        //interface table indexes the function records they created. Must
-        //run before GenerateAllBytecode: body emission can append
-        //placeholder function records, and the table's indices must stay
-        //in the own region.
-        RegisterInterfaces(root);
+        RegisterUnitTables(root);
+        //0.9.10 D5 / 0.10.14: the interface and enum-method tables index
+        //the function records RegisterUnitTables minted and precede
+        //bytecode generation (body emission can append placeholder
+        //records whose indices must stay out of the own region).
         GenerateAllBytecode(root);
         //Entry collection: the pre-check above already refused a unit
         //set with two executable mains, so at most one unit owns an

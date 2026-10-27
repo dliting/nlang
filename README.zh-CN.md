@@ -2,43 +2,43 @@
 
 **中文** | [English](README.md)
 
-NLang 是一门面向嵌入与自动化场景的类型安全语言——提供精简的
-C++ 宿主 API、原生绑定与进程内调试钩子——同时也是 AI 友好语言特性的
-试验台。它自带编译器、字节码虚拟机、调试器与 IDE，作为一个开放的
+NLang是一门面向嵌入与自动化场景的类型安全语言——提供精简的
+C++宿主API、原生绑定与进程内调试钩子——同时也是AI友好语言特性的
+试验台。它自带编译器、字节码虚拟机、调试器与IDE，作为一个开放的
 教学/研究项目开发。
 
 ![NLang IDE（nide）](docs/images/nide-overview.png)
 
-NLang IDE：左侧解决方案树（项目与独立 `.n` 文件）、中部编辑器、
+NLang IDE：左侧解决方案树（项目与独立`.n`文件）、中部编辑器、
 下方构建与运行输出。界面语言默认跟随系统区域设置，可在
-工具 → 选项 中固定为中文或英文（重启后生效）。
+工具 → 选项中固定为中文或英文（重启后生效）。
 
 ## 快速开始
 
-部署和学习 NLang 最快的途径是预构建的 Windows 发布包——无需任何
+部署和学习NLang最快的途径是预构建的Windows发布包——无需任何
 工具链，无需构建：
 
-1. **下载** 安装程序 `NLang-<version>-win64.exe`（或便携版
+1. **下载**安装程序`NLang-<version>-win64.exe`（或便携版
    `NLang-<version>-win64.zip`），见
-   [releases 页面](https://github.com/dliting/nlang/releases)。
-2. **安装** —— 运行安装程序（默认安装到 `C:\Program Files\NLang`，
-   并为 IDE 添加开始菜单项；会有 UAC 提示）。不想安装？把便携版
-   压缩包解压到任意可写目录，运行 `bin\nide.exe` 即可。
-3. **阅读手册** —— 启动 **NLang IDE** 并打开其 **帮助菜单**：
+   [releases页面](https://github.com/dliting/nlang/releases)。
+2. **安装**——运行安装程序（默认安装到`C:\Program Files\NLang`，
+   并为IDE添加开始菜单项；会有UAC提示）。不想安装？把便携版
+   压缩包解压到任意可写目录，运行`bin\nide.exe`即可。
+3. **阅读手册**——启动**NLang IDE**并打开其**帮助菜单**：
    完整的文档站随包分发，完全离线可用。「入门」章节按主题逐页
-   讲解语言、命令行与 IDE，并附可运行的示例程序。
-4. **跑点什么** —— 在 IDE 中打开自带的 `examples/` 并按运行
-   （先复制到可写目录——项目构建会把 `.npkg` 写在项目文件旁，而安装
-   目录只读；独立 `.n` 文件的产物落在每用户临时区）。
-   `examples/README.md` 索引了全部示例。并发示例从
-   `examples/conc_spawn_join.n` 开始。
+   讲解语言、命令行与IDE，并附可运行的示例程序。
+4. **跑点什么**——在IDE中打开自带的`examples/`并按运行
+   （先复制到可写目录——项目构建会把`.npkg`写在项目文件旁，而安装
+   目录只读；独立`.n`文件的产物落在每用户临时区）。
+   `examples/README.zh-CN.md`索引了全部示例。并发示例从
+   `examples/conc_spawn_join.n`开始。
 
    想在终端一行跑通？运行
    `bin\nlang -c "import io; io.print(\"hello\");"`，
-   无需 `main()` 样板，也不在磁盘留下产物。
+   无需`main()`样板，也不在磁盘留下产物。
 
-可执行文件动态链接 MSVC 运行时——若机器上没有 Visual Studio 2022，
-请安装 [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
+可执行文件动态链接MSVC运行时——若机器上没有Visual Studio 2022，
+请安装[VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
 
 想改从源码构建？本页其余部分介绍构建。
 
@@ -47,28 +47,28 @@ NLang IDE：左侧解决方案树（项目与独立 `.n` 文件）、中部编�
 | 依赖 | 版本 | 必需 | 说明 |
 |------------|---------|----------|-------|
 | CMake | 3.16+ | 是 | 构建系统 |
-| C++ 编译器 | C++17 | 是 | MSVC 19.44+ / GCC 9+ / Clang 10+ |
+| C++编译器 | C++17 | 是 | MSVC 19.44+ / GCC 9+ / Clang 10+ |
 | Flex | 2.6+ | 是（开发） | 词法分析器生成器。Windows：[win_flex_bison](https://github.com/lexxmark/winflexbison) |
 | Bison | 3.0+ | 是（开发） | 语法分析器生成器。Windows：[win_flex_bison](https://github.com/lexxmark/winflexbison) |
-| Python3 | 3.13+ | 可选 | 构建脚本。Windows 上推荐 conda `py313` 环境 |
-| Qt5 | 5.15+ | 仅 IDE | Core、Xml、Widgets 模块 |
+| Python3 | 3.13+ | 可选 | 构建脚本。Windows上推荐conda `py313`环境 |
+| Qt5 | 5.15+ | 仅IDE | Core、Xml、Widgets模块 |
 | LLVM | 15+ | 可选 | 代码生成后端（`-DNLANG_ENABLE_LLVM=ON`） |
 
-### Windows 开发环境配置
+### Windows开发环境配置
 
-1. 安装 Visual Studio 2022（含 C++17 支持）
-2. 下载 [win_flex_bison](https://github.com/lexxmark/winflexbison)，
-   把 `flex.exe` 和 `bison.exe` 放到已知目录（如
+1. 安装Visual Studio 2022（含C++17支持）
+2. 下载[win_flex_bison](https://github.com/lexxmark/winflexbison)，
+   把`flex.exe`和`bison.exe`放到已知目录（如
    `C:\dev\win_flex_bison\`）
-3. 显式给出 Flex/Bison 路径进行配置：
+3. 显式给出Flex/Bison路径进行配置：
    ```bash
    cmake -B build -DFLEX_EXE="C:/dev/win_flex_bison/flex.exe" \
                   -DBISON_EXE="C:/dev/win_flex_bison/bison.exe"
    ```
-4. 构建脚本使用 Python3，且在默认 `NLANG_BUILD_DOCS=ON` 下文档站
+4. 构建脚本使用Python3，且在默认`NLANG_BUILD_DOCS=ON`下文档站
    （mkdocs）也使用它（`pip install -r tools/docs-requirements.txt`，
-   解释器可用 `-DNLANG_DOCS_PYTHON=<path>` 指定；关闭文档用
-   `-DNLANG_BUILD_DOCS=OFF`）。`-DPYTHON3_EXECUTABLE=<path>` 覆盖
+   解释器可用`-DNLANG_DOCS_PYTHON=<path>`指定；关闭文档用
+   `-DNLANG_BUILD_DOCS=OFF`）。`-DPYTHON3_EXECUTABLE=<path>`覆盖
    构建脚本使用的解释器。
 
 ## 构建
@@ -82,24 +82,24 @@ cmake --build build
 
 | 选项 | 默认值 | 说明 |
 |--------|---------|-------------|
-| `-DNLANG_ENABLE_LLVM` | OFF | 启用 LLVM 代码生成后端 |
-| `-DNLANG_BUILD_IDE` | OFF | 构建 Qt5 IDE（nide） |
+| `-DNLANG_ENABLE_LLVM` | OFF | 启用LLVM代码生成后端 |
+| `-DNLANG_BUILD_IDE` | OFF | 构建Qt5 IDE（nide） |
 | `-DNLANG_BUILD_TESTS` | OFF | 构建单元测试 |
-| `-DNLANG_BUILD_DOCS` | ON | 构建 mkdocs 文档站 |
-| `-DNLANG_DOCS_PYTHON` | `python` | 运行 mkdocs 的解释器（见 `tools/docs-requirements.txt`） |
-| `-DFLEX_EXE` | 自动 | flex 可执行文件路径 |
-| `-DBISON_EXE` | 自动 | bison 可执行文件路径 |
-| `-DPYTHON3_EXECUTABLE` | 自动 | 构建脚本使用的 Python3 路径 |
+| `-DNLANG_BUILD_DOCS` | ON | 构建mkdocs文档站 |
+| `-DNLANG_DOCS_PYTHON` | `python` | 运行mkdocs的解释器（见`tools/docs-requirements.txt`） |
+| `-DFLEX_EXE` | 自动 | flex可执行文件路径 |
+| `-DBISON_EXE` | 自动 | bison可执行文件路径 |
+| `-DPYTHON3_EXECUTABLE` | 自动 | 构建脚本使用的Python3路径 |
 
-### Windows 上已知的 Flex/Bison 问题
+### Windows上已知的Flex/Bison问题
 
-- **`unistd.h` 包含**：Flex 2.6 的 `%option nounistd` 并不能阻止
-  生成的头文件包含 `<unistd.h>`。我们用 CMakeLists.txt 中的
-  `YY_NO_UNISTD_H` 编译定义处理。
-- **`INT8_MIN` 宏重定义**：Flex 在非 C99 回退分支中生成
-  `INT8_MIN/MAX` 宏，而 MSVC 的 `<stdint.h>` 也定义它们，导致
-  C4005 警告。我们在 `nlang.l` 中用 `%top{ #include <stdint.h> }`
-  处理——让 `<stdint.h>` 先于 flex 的定义被包含，`#ifndef` 守卫
+- **`unistd.h`包含**：Flex 2.6的`%option nounistd`并不能阻止
+  生成的头文件包含`<unistd.h>`。我们用CMakeLists.txt中的
+  `YY_NO_UNISTD_H`编译定义处理。
+- **`INT8_MIN`宏重定义**：Flex在非C99回退分支中生成
+  `INT8_MIN/MAX`宏，而MSVC的`<stdint.h>`也定义它们，导致
+  C4005警告。我们在`nlang.l`中用`%top{ #include <stdint.h> }`
+  处理——让`<stdint.h>`先于flex的定义被包含，`#ifndef`守卫
   便会跳过冲突的宏。
 
 ## 命令行工具
@@ -109,9 +109,9 @@ nlang <script.n> [-I <dir>...]                    直接运行脚本
 nlang -c "<statements>" [-I <dir>...]             运行内联语句
 ```
 
-nlang 以 python 解释器的方式运行 NLang：顶层语句被包裹进合成的
-`main()`，退出码即顶层 `return`，不在磁盘留下任何产物
-（完整语义见 `docs/user_manual/zh/cli-tools/nlang.md`）。
+nlang以python解释器的方式运行NLang：顶层语句被包裹进合成的
+`main()`，退出码即顶层`return`，不在磁盘留下任何产物
+（完整语义见`docs/user_manual/zh/cli-tools/nlang.md`）。
 
 ```text
 ncc <source.n> [-o out.ncu] [-I <dir>...]         编译并执行
@@ -121,10 +121,10 @@ ncc build -p <project.nproj> [-o out.npkg]        编译一个项目
 ncc run <program.ncu|.npkg>                       仅执行
 ```
 
-单文件编译产出 `.ncu` 单元映像；项目编译打包 `.npkg` 程序包（每个
+单文件编译产出`.ncu`单元映像；项目编译打包`.npkg`程序包（每个
 源单元一个成员，外加一条入口记录）。产物不含库代码：执行时由加载器
 沿搜索路径发现整个引用闭包并链接成唯一的运行期模块（标准库即随
-工具链分发的 `stdlib.npkg`）。
+工具链分发的`stdlib.npkg`）。
 
 ### 调试
 
@@ -133,23 +133,23 @@ ndb <program.ncu|.npkg>   调试已编译的程序（像 gdb `start` 一样在
                           首条语句处初始停驻）
 ```
 
-命令：`b <file.n:LINE | LINE | funcName>` 设断点（裸 `LINE` 在
-当前帧的文件中解析；函数名按包限定，如 `utils.addBoth`），`i b` 列出断点，`d <id>` 删除，`c` 继续，
-`s`/`n`/`f` 单步进入/跳过/跳出，`bt` 回溯，`frame <n>` 选择帧，
-`info locals` 列出局部变量，`p <name>` 打印一个局部变量，
-`l [line]` 源码窗口，`x` 当前帧的反汇编，`threads` 列出全部上下文，
-`t <id>` 切换调试焦点，`catch on|off` 抛异常时
-中断（默认 off），`q` 退出——stdin EOF 等同 `q`。程序结束时 ndb
-打印 `Program exited with code N.` 并以同一退出码退出。
+命令：`b <file.n:LINE | LINE | funcName>`设断点（裸`LINE`在
+当前帧的文件中解析；函数名按包限定，如`utils.addBoth`），`i b`列出断点，`d <id>`删除，`c`继续，
+`s`/`n`/`f`单步进入/跳过/跳出，`bt`回溯，`frame <n>`选择帧，
+`info locals`列出局部变量，`p <name>`打印一个局部变量，
+`l [line]`源码窗口，`x`当前帧的反汇编，`threads`列出全部上下文，
+`t <id>`切换调试焦点，`catch on|off`抛异常时
+中断（默认off），`q`退出——stdin EOF等同`q`。程序结束时ndb
+打印`Program exited with code N.`并以同一退出码退出。
 
-面向嵌入场景，`ndb --machine <program.ncu|.npkg>` 在 stdin/stdout 上以
-制表符分隔的行协议暴露同一会话——nide 调试器即构建于其上。引擎侧
-分层见 `docs/user_manual/zh/vm-architecture/debugging.md`。
+面向嵌入场景，`ndb --machine <program.ncu|.npkg>`在stdin/stdout上以
+制表符分隔的行协议暴露同一会话——nide调试器即构建于其上。引擎侧
+分层见`docs/user_manual/zh/vm-architecture/debugging.md`。
 
-所有命令行工具用 `--version` 报告版本（如 `ncc (NLang) <version>`）。
-IDE 在 帮助 → 关于 中显示，文档站在页脚显示。
+所有命令行工具用`--version`报告版本（如`ncc (NLang) <version>`）。
+IDE在帮助 → 关于中显示，文档站在页脚显示。
 
-多源项目由 `.nproj` XML 文件描述（见 `examples/hello_project/`）：
+多源项目由`.nproj` XML文件描述（见`examples/hello_project/`）：
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -161,55 +161,55 @@ IDE 在 帮助 → 关于 中显示，文档站在页脚显示。
 </Project>
 ```
 
-`name` 是输出模块名（默认取文件名主干），`outputDir` 可选地重定向
-`.npkg`（相对项目文件），`File` 路径相对项目文件所在目录。
+`name`是输出模块名（默认取文件名主干），`outputDir`可选地重定向
+`.npkg`（相对项目文件），`File`路径相对项目文件所在目录。
 
 ## 模块与导入
 
-跨文件引用是显式的：`import` 声明一个文件可以调用哪些模块，编译器
+跨文件引用是显式的：`import`声明一个文件可以调用哪些模块，编译器
 拒绝其余一切（同目录文件是唯一例外——它们隐式互相可见）。三种
-import 来源共用一种语法：
+import来源共用一种语法：
 
 | 来源 | 模块路径 | 示例 |
 |---|---|---|
-| 项目文件 | 相对 `.nproj` 的点分路径 | `utils/helper.n` → `import utils.helper;` |
-| 外部模块 | 文件名主干（单段）：`.ncu` 文件，或恰好暴露一个模块的 `.npkg` | `lib.ncu` → `import lib;` |
-| 标准库包 | `io` / `math` / `fs`（随工具链分发） | `import io;` |
+| 项目文件 | 相对`.nproj`的点分路径 | `utils/helper.n` → `import utils.helper;` |
+| 外部模块 | 文件名主干（单段）：`.ncu`文件，或恰好暴露一个模块的`.npkg` | `lib.ncu` → `import lib;` |
+| 标准库包 | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor`（随工具链分发） | `import io;` |
 
-| 引用目标 | 需要 import？ | 调用形式 |
+| 引用目标 | 需要import？ | 调用形式 |
 |---|---|---|
 | 同一文件 | 否 | 裸名 |
 | 同目录其他文件 | 否（隐式） | 裸名或限定名 |
 | 跨目录、同项目 | **是** | 仅限定名（`utils.helper.f()`） |
 | 外部模块 | **是** | 仅限定名（`lib.f()`） |
-| 标准库 `io`/`math`/`fs` | **是** | 限定名（`io.print`） |
+| 标准库包 | **是** | 限定名（`io.print`） |
 
-此矩阵覆盖根级函数。跨目录共享的命名空间成员是 v1 的唯一例外——
-任何形式都无法从另一目录访问（见「声明」章的 Import Declaration）。
+此矩阵覆盖根级函数。跨目录共享的命名空间成员是v1的唯一例外——
+任何形式都无法从另一目录访问（见「声明」章的Import Declaration）。
 
-通配 import 是递归前缀匹配：`import utils.*;` 可达 `utils/` 及其
+通配import是递归前缀匹配：`import utils.*;`可达`utils/`及其
 所有嵌套子目录（`utils.helper`、`utils.sub.x`）。调用仍使用完整
-路径——没有 `from m import *` 形式。重复与重叠的 import 幂等。
+路径——没有`from m import *`形式。重复与重叠的import幂等。
 
 未导入的引用以精确诊断失败，例如
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
 （`docs/user_manual/zh/language-spec/declarations.md`，Import Declaration）。
 
-编译单元使用带版本的二进制格式，当前为 v2.1（导入槽与逐单元模块
+编译单元使用带版本的二进制格式，当前为v2.8（导入槽与逐单元模块
 路径——加载期链接模型）。加载器强制兼容性
-下限：下限提升后，较旧的 `.ncu` 会因过期被拒绝，必须用匹配的
-`ncc` 重新编译。格式历史（每个版本新增或变更了什么）见
-[CHANGELOG.md](CHANGELOG.md)。
+下限：下限提升后，较旧的`.ncu`会因过期被拒绝，必须用匹配的
+`ncc`重新编译。格式历史（每个版本新增或变更了什么）见
+`CHANGELOG.md`。
 
 ## 标准库
 
-`math`、`io`、`fs`、`thread` 和 `concurrent` 是标准库的五个包——源码随工具链分发
-（`stdlib/*.n`），运行期由 `stdlib.npkg` 提供，与其他库包同一机制；
-限定调用前需要显式 `import`（`thread` 承载虚拟线程的派生与停泊原语；
-`concurrent` 在内核并发原语之上补足 `WaitGroup`）。字符串自带内建方法：
+`math`、`io`、`fs`、`thread`、`concurrent`和`tensor`是标准库的六个包——源码随工具链分发
+（`stdlib/*.n`），运行期由`stdlib.npkg`提供，与其他库包同一机制；
+限定调用前需要显式`import`（`thread`承载虚拟线程的派生与挂起原语；
+`concurrent`在内核并发原语之上补足`WaitGroup`）。字符串自带内建方法：
 
-```n
+```nlang
 import io;
 import math;
 import fs;
@@ -227,23 +227,23 @@ int main() {
 
 完整细节——参数类型政策、异常映射、字节语义、确定性
 PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.md`）；
-示例的可运行副本在 `examples/stdlib_*.n`。
+示例的可运行副本在`examples/stdlib_*.n`。
 
-初次接触 NLang？`docs/user_manual/zh/getting-started/` 章节按主题逐页讲解
-语言、命令行与 IDE（也可从 nide 帮助菜单到达）；
-`examples/README.md` 索引了全部可运行示例。
+初次接触NLang？`docs/user_manual/zh/getting-started/`章节按主题逐页讲解
+语言、命令行与IDE（也可从nide帮助菜单到达）；
+`examples/README.zh-CN.md`索引了全部可运行示例。
 
 ## 嵌入
 
-宿主 C++ 程序链接 `nlang_embed` 库，经由 `nlang::Interpreter` 在进程内
-驱动引擎：装载 `.ncu`/`.npkg`，运行 `main`，按名调用模块函数，交换
-类型化的值（含容器与对象），注册 `native` 宿主函数，并把
-`io.print`/`io.eprint` 重定向到宿主回调。脚本也可以直接从源码运行：
-`runSource`/`runFile` 进程内编译并执行 ad-hoc 脚本（免写 `main()`
-样板），`runScript` 则把整套流程封装成一次性调用。脚本线程的共享存储操作
-按域加锁保护；`Interpreter`默认使用单载体，在`VmExecutor`层
-嵌入的宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用
-停泊并放锁，纯计算段与对象字段访问无锁重叠）。最小宿主示例随包分发
+宿主C++程序链接`nlang_embed`库，经由`nlang::Interpreter`在进程内
+驱动引擎：装载`.ncu`/`.npkg`，运行`main`，按名调用模块函数，交换
+类型化的值（含容器与对象），注册`native`宿主函数，并把
+`io.print`/`io.eprint`重定向到宿主回调。脚本也可以直接从源码运行：
+`runSource`/`runFile`进程内编译并执行ad-hoc脚本（免写`main()`
+样板），`runScript`则把整套流程封装成一次性调用。脚本线程的共享存储操作
+按域加锁保护；`Interpreter`默认使用单载体，在`VmExecutor`层嵌入的
+宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用停泊并放锁，
+纯计算段与对象字段访问无锁重叠）。最小宿主示例随包分发
 （`examples/embed_host/`），完整章节见
 `docs/user_manual/zh/libraries/embedding-api.md`。
 
@@ -255,64 +255,64 @@ cmake -B build-ide -DNLANG_BUILD_IDE=ON \
 cmake --build build-ide --config Release
 ```
 
-`build-ide/src/tools/nide/Release/` 下的构建输出本身就是可运行的
-布局：Qt 运行时 DLL、`platforms/` 插件目录，以及 `ncc`/`nvm`/`ndb`
-工具都被复制到 `nide.exe` 旁边（IDE 从自身目录调用它们），因此该
+`build-ide/src/tools/nide/Release/`下的构建输出本身就是可运行的
+布局：Qt运行时DLL、`platforms/`插件目录，以及`ncc`/`nvm`/`ndb`
+工具都被复制到`nide.exe`旁边（IDE从自身目录调用它们），因此该
 目录可以原样复制到别处使用。
-界面语言默认跟随系统区域设置，可在 工具 → 选项 中固定为中文或
+界面语言默认跟随系统区域设置，可在工具 → 选项中固定为中文或
 英文（重启后生效）；未翻译的字符串回退到其原文。
 
-通过 文件 → 新建文件 创建的文件加入解决方案树中选中的项目
-（或解决方案的唯一项目）；文件通过 F2 或树/页签右键菜单原地
+通过「文件 → 新建文件」创建的文件加入解决方案树中选中的项目
+（或解决方案的唯一项目）；文件通过F2或树/页签右键菜单原地
 重命名（有未保存修改的打开编辑器会先保存到旧路径），分割器布局
-跨会话持久化，文件 → 最近打开 记住最近的解决方案、项目与文件。
+跨会话持久化，「文件 → 最近打开」记住最近的解决方案、项目与文件。
 
-通过 文件 → 打开 打开的独立 `.n` 文件（无需项目）出现在
+通过「文件 → 打开」打开的独立`.n`文件（无需项目）出现在
 「独立文件」树分组中，可直接构建与运行：模块落在
-`%TEMP%\nlang-nide\` 下，源文件变化后「运行」会自动重建它。
-帮助菜单在 IDE 内嵌查看器中显示随包分发的文档站
+`%TEMP%\nlang-nide\`下，源文件变化后「运行」会自动重建它。
+帮助菜单在IDE内嵌查看器中显示随包分发的文档站
 （`docs/site`）。
 
-nide 还自带调试器（底层驱动 `ndb --machine`；完整演练见
-`docs/user_manual/zh/getting-started/debugging.md`）。F5 启动调试会话——程序
-运行到首个断点或运行到底——Shift+F5 随时停止：停止是硬终止，
-因此死循环或卡住的原生调用不会阻塞 IDE。断点用 F9 或行号槽点击
-切换（行号槽圆点初始为空心，实会话确认该行存在于已编译模块后
+nide还自带调试器（底层驱动`ndb --machine`；完整演练见
+`docs/user_manual/zh/getting-started/debugging.md`）。F5启动调试会话——程序
+运行到首个断点或运行到底——Shift+F5随时停止：停止是硬终止，
+因此死循环或卡住的原生调用不会阻塞IDE。断点用F9或装订线单击
+切换（装订线圆点初始为空心，调试会话确认该行存在于已编译模块后
 变实心），跨会话持久化并跟随文件重命名。停驻期间，输出区的
-「调试」页显示上下文列表（`thread.spawn` 派生的并发上下文与
-main 并列，点击行即切换查看与单步目标）、调用栈（点击帧跳转并
-刷新局部变量）、该帧的局部变量，以及在每个抛出点中断的
-「抛异常时中断」开关。
+「调试」页显示上下文树（每个调试上下文一行——主程序与每个派生
+线程——含编号、状态与当前位置；点击某行即把检查与步进焦点切到
+该上下文）、所选上下文的调用栈（点击帧跳转并刷新局部变量）、
+该帧的局部变量，以及在每个抛出点中断的「抛异常时中断」开关。
 
 | 动作 | 快捷键 |
 |------|--------|
-| 启动调试 / 继续 | F5 |
-| 运行（不调试） | Ctrl+F5 |
+| 启动调试（继续） | F5 |
+| 运行 → 开始运行（不调试） | Ctrl+F5 |
 | 停止调试 | Shift+F5 |
 | 切换断点 | F9 |
 | 单步跳过 | F10 |
 | 单步进入 | F11 |
 | 单步跳出 | Shift+F11 |
 
-`ctest -C Release -R nide_deploy_check` 验证自包含性：把布局复制
-到临时目录，用 `qt.conf` 把 Qt 的搜索路径钉在那里，并从那里运行
-IDE 测试套件。
+`ctest -C Release -R nide_deploy_check`验证自包含性：把布局复制
+到临时目录，用`qt.conf`把Qt的搜索路径钉在那里，并从那里运行
+IDE测试套件。
 
 ## 文档站点
 
-双语用户手册（`docs/user_manual/zh/` 与 `docs/user_manual/en/`，每树一份 mkdocs 配置，
-共同继承 `mkdocs.base.yml`，三份配置都位于 `docs/`）由 CMake 目标 `nlang_docs` 渲染成静态
-站点（默认开启，`-DNLANG_BUILD_DOCS=OFF` 跳过），合并到
-`<build>/docs/site/{zh,en}` 并置于语言选择落地页
-（`docs/site/index.html`）之后；IDE 的帮助菜单按语言设置打开对应
-树中的页面。工具链版本钉在 `tools/docs-requirements.txt`
+双语用户手册（`docs/user_manual/zh/`与`docs/user_manual/en/`，每树一份mkdocs配置，
+共同继承`mkdocs.base.yml`，三份配置都位于`docs/`）由CMake目标`nlang_docs`渲染成静态
+站点（默认开启，`-DNLANG_BUILD_DOCS=OFF`跳过），合并到
+`<build>/docs/site/{zh,en}`并置于语言选择落地页
+（`docs/site/index.html`）之后；IDE的帮助菜单按语言设置打开对应
+树中的页面。工具链版本钉在`tools/docs-requirements.txt`
 （`pip install -r tools/docs-requirements.txt`，再用
-`-DNLANG_DOCS_PYTHON=<解释器>` 配置）。
+`-DNLANG_DOCS_PYTHON=<解释器>`配置）。
 
-管线位于 `tools/nlang-docs/`，是自包含的包、不安装——通过
-`PYTHONPATH` 直接从源码树运行（Git Bash 的 env 前缀语法；在
-PowerShell/cmd 上使用 CMake 配方自己用的
-`cmake -E env PYTHONPATH=... <python> ...` 惯用法）：
+管线位于`tools/nlang-docs/`，是自包含的包、不安装——通过
+`PYTHONPATH`直接从源码树运行（Git Bash的env前缀语法；在
+PowerShell/cmd上使用CMake配方自己用的
+`cmake -E env PYTHONPATH=... <python> ...`惯用法）：
 
 ```bash
 # 迭代预览（普通 mkdocs 热重载服务器；任选一树）
@@ -336,28 +336,28 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \
     --doc docs/user_manual/zh/getting-started/first-program.md --ncc <ncc> --nvm <nvm>
 ```
 
-`build` 串联四个阶段：mkdocs 构建、离线搜索内联、站点审计，以及
-——当已知 `--ncc`/`--nvm`（CMake 目标总是传入）时——片段审计：
-编译并运行入门指南中的每个 ```nlang 程序，与片段承诺的进程退出码
+`build`串联四个阶段：mkdocs构建、离线搜索内联、站点审计，以及
+——当已知`--ncc`/`--nvm`（CMake目标总是传入）时——片段审计：
+编译并运行入门指南中的每个```nlang程序，与片段承诺的进程退出码
 比对，因此破坏了文档示例的语言变更会让文档构建失败。
 
-站点必须从 `file://` 完全离线渲染：URL 保持扁平
-（`use_directory_urls: false`）、禁用网络字体、不从任何 CDN 加载，
-且构建把搜索索引内联进 `search/search_index.js` 本身
-（mkdocs-material 的 offline 插件也能做，但它会注入来自 unpkg 的
+站点必须从`file://`完全离线渲染：URL保持扁平
+（`use_directory_urls: false`）、禁用网络字体、不从任何CDN加载，
+且构建把搜索索引内联进`search/search_index.js`本身
+（mkdocs-material的offline插件也能做，但它会注入来自unpkg的
 CDN polyfill，因此管线手工实现内联——见
 `tools/nlang-docs/src/nlang_docs/offline_search.py`）。`check`
-审计强制这一形态：内部链接必须解析到已存在的 `.html` 文件、
-`#fragment` 必须存在、目录形式链接被拒绝、已构建页面集合必须等于
-`--config` 传入的每树 `nav`（缺失与不可达都会失败），且任何
-`script[src]`/`link[href]` 不得引用 http(s)——站点必须在完全没有
+审计强制这一形态：内部链接必须解析到已存在的`.html`文件、
+`#fragment`必须存在、目录形式链接被拒绝、已构建页面集合必须等于
+`--config`传入的每树`nav`（缺失与不可达都会失败），且任何
+`script[src]`/`link[href]`不得引用http(s)——站点必须在完全没有
 网络时加载。单元测试：`pytest tools/nlang-docs/tests`（也以
-`nlang_docs_pytest` 接入 ctest）。
+`nlang_docs_pytest`接入ctest）。
 
 ## 打包（Windows）
 
-发布包从 IDE 构建树用 CPack 产出（它包含全部工具；纯工具树无法
-分发 `nide`）：
+发布包从IDE构建树用CPack产出（它包含全部工具；纯工具树无法
+分发`nide`）：
 
 ```bash
 cmake -B build-ide -DNLANG_BUILD_IDE=ON \
@@ -368,29 +368,29 @@ cmake --build build-ide --config Release
 cd build-ide && cpack -C Release -B ../release
 ```
 
-这会产出 `release/NLang-<version>-win64.zip`（便携版）和
-`release/NLang-<version>-win64.exe`（NSIS 安装程序；需要 NSIS
-3.03+——在 `PATH` 上或经 `-DNLANG_NSIS_MAKENSIS` 传入）。两者包含
-相同布局：`bin/`（`nide`、`ncc`、`nvm`、`ndisasm`、`ndb`、Qt 运行时
-与标准库 native 动态库）、`stdlib/`（声明文件与编译好的
-`stdlib.npkg` 包），外加 `examples/`、生成的文档站（`docs/site/`）、
-`LICENSE`、`CHANGELOG.md` 与 `README.md`。安装程序默认装到
-`C:\Program Files\NLang` 并为 IDE 添加开始菜单快捷方式。
+这会产出`release/NLang-<version>-win64.zip`（便携版）和
+`release/NLang-<version>-win64.exe`（NSIS安装程序；需要NSIS
+3.03+——在`PATH`上或经`-DNLANG_NSIS_MAKENSIS`传入）。两者包含
+相同布局：`bin/`（`nide`、`ncc`、`nvm`、`ndisasm`、`ndb`、Qt运行时
+与标准库native动态库）、`stdlib/`（声明文件与编译好的
+`stdlib.npkg`包），外加`examples/`、生成的文档站（`docs/site/`）、
+`LICENSE`、`CHANGELOG.md`与`README.md`。安装程序默认装到
+`C:\Program Files\NLang`并为IDE添加开始菜单快捷方式。
 
 注意：
 
-- 安装程序默认装到标准用户不可写的 `C:\Program Files\NLang`。在
-  IDE 中打开 `examples/` 前先复制到可写目录——项目构建会把 `.npkg`
-  写在项目文件旁（独立 `.n` 文件的产物落在每用户临时区，但编辑示例
+- 安装程序默认装到标准用户不可写的`C:\Program Files\NLang`。在
+  IDE中打开`examples/`前先复制到可写目录——项目构建会把`.npkg`
+  写在项目文件旁（独立`.n`文件的产物落在每用户临时区，但编辑示例
   本身仍需要可写副本）。
-- 可执行文件动态链接 MSVC 运行时；目标机器需要
-  [Visual Studio 的 VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-  （装有 Visual Studio 2022 的机器已具备）。
-- `python tests/packaging/verify_package.py` 校验构建出的包：解压
+- 可执行文件动态链接MSVC运行时；目标机器需要
+  [Visual Studio的VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+  （装有Visual Studio 2022的机器已具备）。
+- `python tests/packaging/verify_package.py`校验构建出的包：解压
   zip、断言布局、用公开文本守卫扫描随包散文（不得出现对私有前代
-  代码库的引用——与 `nlang_docs_pytest` 门同一模式源）、用
-  `nlang_docs check` 管线审计打包的文档站，并用包内工具链编译运行
-  `examples/hello.n` 做冒烟测试。
+  代码库的引用——与`nlang_docs_pytest`门同一模式源）、用
+  `nlang_docs check`管线审计打包的文档站，并用包内工具链编译运行
+  `examples/hello.n`做冒烟测试。
 
 ## 项目结构
 

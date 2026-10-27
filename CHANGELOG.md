@@ -6,6 +6,385 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.8] - 2026-10-28
+
+### Added
+
+- **dev line merged into master** — the full 0.11.1-0.11.7 union:
+  multi-dimensional arrays (stages 1-2, `OP_AssembleArrayN`, shaped
+  host allocation, ABI v8/v9, rank cap 64), the tensor package
+  (elementwise kernels, reductions, `matmul`, `transpose`, `flatten`,
+  `reshape1`-`reshape8`, stage-3 benchmarks), cross-module imports
+  over external `.ncu` v2.9, the builtin-declaration prelude package
+  (spec section 6.8), the language specification Part I in English
+  and Chinese, and the K9-K11 concurrency design documents.
+- **Multi-parameter generic class declarations** — `class Pair<K, V>`
+  and every wider parameter list now parse; the type-argument use
+  site already accepted commas, the declaration list did not.
+
+### Changed
+
+- **Dual generic-opener grammar** — scan-flagged builtin names
+  (`List`, `Dict`, `func`, `Channel`, `Future`) keep the dedicated
+  type-bracket token that anchors the generic literal
+  `List<int>{...}`; declared generics (`Promise`, user classes) parse
+  on the plain-`<` family so a declaration's name never needs a
+  scan-time set. The accepted-conflict ledger re-measures at
+  30 shift/reduce, 3 reduce/reduce.
+
+### Fixed
+
+- `Future.selectAny` read the wait-set array with the pre-stage-2
+  header layout, crashing on real sets; it now walks the unified
+  layout (`ArrayHeaderCells`) and validates rank, capacity, and
+  element nullness in order.
+- The `Promise`/`Future` manual-page examples could deadlock or
+  report a nondeterministic winner; both language versions now use a
+  deterministic completer, and two e2e expectations were aligned
+  with the merged compiler's messages.
+
+## [0.11.7] - 2026-10-28
+
+### Added
+
+- **Concurrency execution architecture merged from master** —
+  domain locks, GC world-stop, scheduler carrier slots, and the
+  sharded heap land as the system design of the concurrency
+  regions; the native `Semaphore` handle class joins the prelude
+  (P2-1).
+
+### Changed
+
+- **Prelude builtin-declaration package** — `Object`, `Thread`,
+  `Mutex`, `Semaphore`, the `Exception` family, and empty class
+  bodies are declared in the prelude package; prelude spellable
+  names and the shadowing rule (spec section 6.8) come with it.
+- **Function-table layout contract** — `RegisterFunctions` fills
+  each unit's table in two ownership phases (unit-own first, then
+  prelude/builtin), so a consumer's shadow replay matches the
+  library producer's layout and cross-unit import records cite
+  stable ordinals.
+- **GC sweep reads the stage-2 array header** — array struct
+  elements are freed through `[3]=elemCount` and
+  `ArrayPayloadBase`, matching allocation and mark.
+
+### Fixed
+
+- Catch-variable scoping, type-alias hijack of prelude names
+  (rejected), ncc stdout flushing, and unobserved subtask failure
+  reporting, merged from master's 0.10.12-0.10.20 batch.
+
+## [0.11.6]
+
+### Added
+
+- **Matrix kernels in the tensor package** — `transpose` (`T[,]` →
+  `T[,]`), `flatten` (`T[,]` → `T[]`) and the `reshape1`–`reshape8`
+  family (flat `T[]` + `int[]` shape → any target rank up to 8) run
+  as native block-copy kernels over the four scalar element kinds.
+- **`tensor.matmul`** — native matrix product for
+  `int`/`long`/`float`/`double` (i-k-j accumulator: integer kinds
+  wrap around, floating kinds follow IEEE); rank-2 operand
+  validation with both shapes spelled out in the mismatch message.
+- **Rank-2 elementwise and reduction face** — `add`/`sub`/`mul`/`div`
+  and `sum`/`max`/`min`/`mean` gain `T[,]` overloads mirroring the
+  1-D names; elementwise kernels preserve the operand shape and
+  require equal shapes, reductions flatten in row-major order.
+- **Dynamic-shape array initializers** — an initializer entry above
+  the leaf level may be any expression yielding an array of exactly
+  one dimension below the target, mixing freely with bracket rows;
+  the first row pins the inner dimensions at runtime, differing row
+  widths raise a catchable base Exception naming the level and both
+  widths, and a null row raises NullPointerException. Lowered via
+  the new `OP_AssembleArrayN` opcode.
+- **Host ABI v9** — `newArrayShaped(elemKind, rank, dims)` lets
+  native code mint shaped arrays through the shared validation path.
+- **Stage-3 matmul benchmark** — `tests/bench/tensor_stage3_bench.py`
+  compares a hand-written triple loop against `tensor.matmul`
+  (128×128 int matrices; ~107× on the reference machine).
+- **Language specification Part I** — the specification gains the
+  ten language chapters: program structure and name resolution,
+  types, expressions, statements, functions and methods, object
+  orientation, exceptions, execution model and memory semantics,
+  concurrency, and packages and import search. Every citable clause
+  of the language proper (§0–§12) is now normative.
+- **Language specification Part II** — the specification gains the
+  seven standard library chapters: built-in classes and library
+  conventions, the math package, the io package and streams, the
+  fs package, the concurrency library, the tensor package, and the
+  library exception map. Every citable clause of the standard
+  library (§13–§19) is now normative.
+- **Language specification Part III** — the specification gains the
+  three binary-format chapters: the `.ncu` unit image, the `.npkg`
+  package archive and the native host ABI. Every citable clause of
+  the binary formats (§20–§22) is now normative, completing the
+  specification.
+- **Chinese translation of the language specification** — the
+  Chinese documentation tree now carries the reference translation
+  of the complete specification: the index and every chapter §0–§22.
+  The English text remains normative and the Chinese text is marked
+  informative on every page. The translation backlog is empty, and
+  the documentation guard now enforces strict navigation parity
+  between the two language trees.
+
+### Fixed
+
+- **Floating-point division by −0.0** — the zero-divisor check now
+  uses IEEE equality for the floating-point kinds, so `x / y` and
+  `x % y` raise `DivByZeroException` for a −0.0 divisor as well as
+  for +0.0 (the byte-wise check missed the sign-only bit pattern
+  and −0.0 division silently produced IEEE −inf).
+- **`tensor.dot` length mismatch message** — the message now
+  names both operand lengths (`tensor: length mismatch (3 vs
+  8)`), matching the shape and length mismatch messages
+  elsewhere in the package.
+- **Opcode names in disassembly** — `load_element_flat`,
+  `array_length` and `array_shape` sat against the wrong entries
+  of the opcode name table, so `ndisasm` printed a neighbouring
+  instruction's name for these three; the table now matches the
+  opcode order.
+- **`.npkg` checksum basis** — the member checksum's FNV-1a 64
+  offset basis had lost its final digit, hashing archives with a
+  non-standard basis. The checksum now matches the standard
+  FNV-1a 64 known-answer vectors; `.npkg` archives produced by
+  earlier builds must be rebuilt (their stored checksums no
+  longer verify).
+
+## [0.11.5] - 2026-10-26
+
+### Added
+
+- **Normative language specification** — the documentation site gains
+  a Specification section: a citable, clause-numbered normative
+  definition of the language, its standard library and its binary
+  formats, seeded with the introduction, lexical structure and syntax
+  chapters (the Chinese tree carries the translated front pages). The
+  user manual becomes informative: where the two disagree, the
+  specification is the authority. Changes to observable semantics now
+  go through the NLang Enhancement Proposal (NLEP) archive, opened
+  with NLEP-0001. Automated guards keep the clause tree synchronized
+  with the lexer, the parser and the site navigation.
+
+### Changed
+
+- **Array rank cap raised 8 → 64** — the language-wide maximum
+  dimension count now matches the ecosystem ceiling (NumPy 2.0's
+  `NPY_MAXDIMS` = 64), so deep tensors never hit an artificial wall.
+  The grammar, the subscript resolver, the wire-format parser and the
+  VM buffers all derive from the one constant. The host ABI bumps to
+  v8 (`NativeArrayView.stridesInline` widened to 64): native modules
+  must be recompiled, and stale binaries are rejected by the loader's
+  ABI probe. The `.ncu` module format is unchanged — existing modules
+  load as before.
+
+## [0.11.4] - 2026-10-26
+
+### Fixed
+
+- **Grammar reject branches release abandoned parse results** — the
+  comma-size declaration rejects (and the two leading-comma param-list
+  rejects) discarded already-parsed subtrees without freeing them, so
+  a long-lived host compiling repeatedly (nide) leaked every rejected
+  attempt. The reject arms now delete the container and each element;
+  deleting an element frees its whole subtree (node ownership).
+- **Corrupt array records fail fast at the ABI boundary** —
+  `getArrayView` read header cells before validating the record: a
+  truncated dimensions run or an out-of-range array type index could
+  read out of bounds. The record layout is now validated (dims-section
+  size, arrayTypes bounds) before any header read.
+- **Native ABI check runs before module init** — the loader called
+  `nlang_native_init` and validated its return value afterwards, so an
+  incompatible module's init executed in full and its registrations
+  (pointers into a library the host unloads on rejection) reached the
+  host registry before the error. Modules now export an
+  `nlang_abi_version` probe (generated automatically by
+  `NLANG_DEFINE_NATIVE_INIT`), resolved and validated before anything
+  else; a module without the probe is rejected with a rebuild hint.
+
+### Changed
+
+- **One authoritative native module directory per build tree** — the
+  standard-library native DLLs now build only into
+  `<build>/native/<config>`; the per-tool `POST_BUILD` copies are gone.
+  `NativeLibraryLoader` consults a built-in build-tree fallback (walk
+  up from the executable looking for `native/<config>`) after the
+  explicit search dirs, so tool and test executables resolve the
+  modules without copies. Embed hosts and installed packages are
+  unaffected (explicit dirs and beside-exe layout win). The directory
+  suffix dispatches on the generator: multi-config generators keep
+  `native/<config>` (the executable directory leaf is the config name
+  the walk-up probes), single-config generators (Ninja/Makefiles — the
+  typical Linux form) land the modules directly in `native/`, the only
+  location both fallback candidates reach when executable leaves are
+  tool names. Development note for existing build trees: the pre-0.11.4
+  copies beside tool and test executables no longer refresh; they load
+  first and fail (pre-probe copies report the missing
+  `nlang_abi_version` export) — delete the stale copies: under
+  `src/tools/*/<config>` and `tests/<config>` on multi-config
+  generators, beside the tools under `src/tools/<tool>/` on
+  single-config; the authoritative location is
+  `<build>/native/<config>` or `<build>/native` respectively. The docs
+  snippet audit now also waits for
+  the tools and native modules, so parallel builds no longer report
+  transient docs failures on half-rebuilt trees.
+
+## [0.11.3] - 2026-10-25
+
+### Fixed
+
+- **Array view strides are per-view (host ABI v7)** — `getArrayView`
+  computed row-major strides into one host-wide scratch buffer: a second
+  live view (or a concurrent view from another carrier inside a blocking
+  native) overwrote the first's strides. Strides now live inside
+  `NativeArrayView` itself; every view owns its storage. `ArgArray`
+  takes an output parameter (a view holding a pointer into itself
+  cannot travel by value).
+- **Comma sizes in local declarations get a named diagnostic** —
+  `int a[2, 3];` reported a bare syntax error; it now parses and is
+  rejected with guidance toward the creation expression `int[2, 3]`
+  (bare, `= expr`, and brace-initializer forms; class fields still
+  need a creation initializer).
+- **Zero-dimension arrays render their nesting** — `int[3,
+  0].toString()` printed `[]`; it now prints `[[], [], []]` (zero rows
+  still print `[]`; rank-1 empty arrays are unchanged).
+
+## [0.11.2] - 2026-10-25
+
+### Added
+
+- **Rectangular multi-dimensional arrays** — `T[,]` / `T[,,]` (up to 8
+  dimensions) are first-class types: comma subscript read/write
+  (`a[i, j]`), the `rank()` / `shape()` / `length()` members,
+  row-major `foreach`, and rectangular `[...]` initializers validated
+  at compile time (nesting depth equal to the dimension count, equal
+  row widths within a level; jagged literals and empty multi-
+  dimensional literals are named rejections). Arrays share one heap
+  layout across ranks — the header carries rank plus the per-dimension
+  sizes, the payload is row-major — and the array opcodes unify into
+  `OP_AllocArrayN` / `OP_LoadElementN` / `OP_StoreElementN` /
+  `OP_ArrayShape` (1-D is the rank=1 case). `int[,]` signatures
+  round-trip module imports (the .ncu type descriptor carries the
+  rank; module format v2.11), and value formatting nests per rank
+  (`[[1, 2], [3, 4]]`). The manual gains a multi-dimensional arrays
+  section, the heap architecture page documents the array record
+  layout, and the array instruction table reflects the unified
+  opcodes.
+
+### Changed
+
+- **Array-typed method receivers** — array values pulled out of
+  containers (`li[0].length()`) call the array method surface
+  directly; the blanket rejection of method-receiver positions is
+  gone (`switch` discriminants stay rejected).
+
+### Fixed
+
+- **Multi-dimensional leaf initializers** — initializer rows whose
+  leaves are `List` / `Dict` / struct / class literals
+  (`List<int>[,] m = [[{1, 2}, {3, 4}], [{5, 6}, {7, 8}]]`)
+  miscompiled: the emitter treated brace-form leaves as rows and
+  corrupted the frame. The shape gate, the emitter and the frame
+  walkers now share one row predicate (a row is a bracket-form list;
+  brace forms are leaf values), so validation and code generation
+  cannot drift apart.
+- **Array rank cap is a named compile-time diagnostic** — a rank-9
+  declaration (`int[,,,,,,,,]`) previously compiled and died at
+  runtime in an uncatchable VM throw; the grammar's production point
+  and the sized creation twin both report `array rank N exceeds the
+  maximum of 8`, from one shared rank-cap constant.
+- **Host views of multi-dimensional arrays** — `ArrayProxy` and
+  `getArrayView` hardcoded a rank-1 payload base and addressed the
+  wrong cells for rank >= 2. The payload base now derives from the
+  record's own rank cell at a single point shared by every consumer
+  (host bridge, formatting, shape mint, GC, native views), and a
+  corrupt record throws there instead of mis-reading neighbours.
+
+## [0.11.1] - 2026-10-24
+
+### Changed
+
+- **The tensor creation surface follows one naming discipline** —
+  `zeros`/`ones` are gone (redundant: the language's sized creation
+  `T[n]` is already zero-initialized, and `full(n, 1)` covers ones),
+  and `full`/`arange` are same-name overloads like every other family —
+  the element kind comes from the typed arguments (`full(n, value)`,
+  `arange(start, stop, step)`). The public surface drops from 25 names
+  to 11. Internally, typed wrappers dispatch to per-kind natives; a
+  native call carries raw value cells without kind metadata, so one
+  native cannot see the scalar kind a call used. `arange(0, 10, -3)`
+  yields `int[]` (exact match beats widening); long elements take long
+  arguments.
+
+### Added
+
+- **`tensor` package — numeric array kernels** — a new standard-library
+  package (`nlang_tensor.dll`) with creation kernels (`full`/`arange`
+  over `int`/`long`/`float`/`double`; zero-filled arrays come from the
+  language's sized creation `T[n]`), elementwise
+  binary kernels (`add`/`sub`/`mul`/`div` as same-name overloads), and
+  reductions (`sum`/`max`/`min`/`mean`/`dot`; `mean` always returns
+  `double`, integer `dot` accumulates in 64 bits). Kernels run as
+  native code over pinned payload views: stage-1 measurements show
+  elementwise add at ~49x and dot at ~117x the hand-written loop.
+  Error semantics follow the language families — null arrays raise
+  `NullPointerException`, negative lengths `IndexOutOfBounds`,
+  integer division by zero `DivByZeroException`.
+
+- **NativeHost ABI v6: array access for native modules** — native
+  libraries receive pinned payload views through `getArrayView`
+  (`NativeArrayView`: rank/dims/strides/elemKind + the raw payload
+  pointer, valid for the duration of the call) and mint zero-initialized
+  arrays through `newArray`. The exception selector gained the
+  `NullPointer`/`OutOfBounds`/`DivideByZero` families so kernels raise
+  the same catchable classes the language runtime does.
+
+### Fixed
+
+- **Same-name same-arity type overloads link unambiguously across units**
+  — the consumer build now records the producer function-table index for
+  same-build cross-unit callees by shadow-registering every translation
+  unit's tables (inlined library sources and sibling user units in a
+  project alike); the linker single-selects the chosen overload instead
+  of reporting `is ambiguous: 4 matching records`. The tensor
+  elementwise shape now works in plain project code too.
+
+- **Integer `MIN / -1` and `MIN % -1` wrap instead of trapping** — x86
+  `idiv` raised STATUS_INTEGER_OVERFLOW and killed the process for
+  `INT32_MIN / -1` and `INT64_MIN / -1` (and the matching modulo); the
+  language rows and `tensor.div` now route a -1 divisor through the
+  unsigned carrier, yielding the two's-complement wrap (Java's shape).
+  `MIN % -1` is 0.
+
+- **Array payloads are 8-byte aligned** — the rank-1 array record
+  header grows to 4 cells so the long/double element family sits at a
+  naturally aligned payload base (the payload sat at a 4-mod-8 offset:
+  undefined behavior and an unaligned-access penalty native kernels
+  paid); the first brick of the stage-2 unified n-dimensional array
+  layout.
+
+- **Array creation is uniformly bounded** — a negative length or one
+  past 100 million elements raises the catchable
+  `IndexOutOfBoundsException` at the creation site, from `T[n]` and
+  native minting alike; without the cap a wide element kind at 1.1G
+  elements overflowed int32 inside the allocator and died in an
+  uncatchable vector blow-up.
+
+- **GC arms at the array allocation choke point** — a pure native-mint
+  loop (e.g. `tensor.arangeI` in a tight loop) never raised the
+  collector's pending flag and grew unbounded (11.1 GB peak in the
+  review probe; ~12 MB after).
+
+- **Array return types register eagerly with their signatures** — a
+  native returning `T[]` previously registered its array type lazily
+  at call sites, so a call whose result went unused left the type
+  unregistered and minting failed by invariant.
+
+- **Overload trial scoring no longer leaks hard errors** — rejecting a
+  non-matching overload candidate used to emit an "array value only
+  converts" error even when another overload matched; the diagnostic now
+  comes from the final verdict's per-argument notes, which name both the
+  actual and the expected type.
+
 ## [0.11.0] - 2026-10-28
 
 ### Added
@@ -259,6 +638,79 @@ All notable changes to NLang are documented here. The format follows
   While stopped, a context still held by a carrier reports no frames
   until it parks or finishes.
 
+## [0.10.14] - 2026-10-24
+
+### Added
+
+- **Imported structs carry their fields across the boundary** — an
+  imported `struct`'s `public` fields are now readable and writable in
+  the importing module, and the anchored brace form `lib.Vec v =
+  {x: 1, y: 2};` fills fields by name. Construction and field defaults
+  already worked across the boundary; field access was the gap.
+  `private` fields stay unreachable.
+
+- **Enums are full module members** — an imported `enum`'s type, values,
+  member methods, and `toString` are all reachable through the package
+  name (`lib.Color`, `lib.Color.Red`, `lib.Color.Blue.rank()`,
+  `lib.Color.Red.toString()`). A member method dispatches through either
+  a variable receiver or a member constant, with the same static
+  dispatch as inside the defining module; a `private` member method is
+  not reachable across the boundary.
+
+- **Cross-module overloads resolve by parameter type** — an imported
+  free function, interface static method, or enum method that declares
+  two same-name overloads with the same parameter count but different
+  parameter types no longer reports a link-time ambiguity. The call
+  site's type-based selection travels to the linker, which binds each
+  call to the selected overload's own record in the producing unit.
+
+- **A stale importing artifact is reported, not mis-linked** — when a
+  producer is recompiled and an imported function's table position
+  shifts while the importing module's `.ncu` is left stale, the linker
+  reports `imported function '...' does not match its record in the
+  owning unit` instead of silently binding the call to the wrong record.
+  The remedy is to recompile the importing module.
+
+### Changed
+
+- **Module image format 2.9** — enum records now serialize their
+  member-method indices and access bytes, the fourth instance of a type
+  record carrying its own member-function indices (alongside class
+  method indices, struct constructor indices, and interface static
+  method indices). The `.ncu` format minor version rises 2.8 → 2.9;
+  every `.ncu` must be recompiled with this version of the toolchain.
+
+## [0.10.13] - 2026-10-23
+
+### Fixed
+
+- **The manual and README pair audited against real behavior** — every
+  factual claim across the full manual (190 pages) and both READMEs was
+  checked against the actual compiler, VM, debugger and IDE. The audit
+  corrected stale or wrong statements, among them: undocumented
+  compile-time restrictions now stated (bool comparison operands, named
+  arguments in constructor calls, `out` parameter targets), diagnostics
+  quoted under wrong names, a fabricated bytecode-opcode reference table
+  replaced with the real instruction set, stale format-version records
+  (module images record format 2.8), missing CLI flags
+  (`nvm --carriers`), and stdlib pages completed with missing functions,
+  limits and error behaviors.
+
+- **Every manual code example now compiles and runs** — the docs
+  pipeline builds and executes each code example in the manual for
+  real, including error examples whose expected diagnostics are checked
+  verbatim and examples whose exit codes come from the actual run;
+  examples that had drifted behind language evolution were repaired.
+
+- **Debugging documentation reflects the multi-context debugger** — the
+  nide context tree (one row per debug context: id, scheduler state
+  with a carrier suffix, location; clicking a row switches the
+  inspection and stepping focus) is now documented in both READMEs and
+  the debugging pages; the ndb `t <id>` command is described with its
+  current semantics (focus switch plus step-target selection,
+  per-context frame numbers), replacing the outdated single-focus
+  description.
+
 ## [0.10.12] - 2026-10-22
 
 ### Changed
@@ -303,6 +755,96 @@ All notable changes to NLang are documented here. The format follows
   task-to-tool chooser table.
 - **`nvm --carriers` documented** — the nvm page covers the flag's
   range, its default, and the deterministic single-carrier tier.
+
+## [0.10.10] - 2026-10-23
+
+### Added
+
+- **Expression dictionary keys** — every entry of a `Dict<K,V>`
+  initializer carries a key expression, checked against the declared
+  key type K by the same conversion rule as values: variables
+  (`{k: 7}`), calls (`{makeKey(1) + makeKey(2): 5}`), member accesses
+  (`{c.name: 8}`), compound expressions (`{a + "y": 3}`), and
+  non-string key types (`Dict<int, string> d = {1: "one", n: "ten"};`).
+  Keys evaluate before their values and entries left-to-right; a
+  duplicate key overwrites the earlier entry, the same `set()`
+  semantics as at runtime. The previous "string literal keys only"
+  restriction is removed.
+
+### Fixed
+
+- **Bracket-form keyed entries report named diagnostics** —
+  `int[] arr = [1: 2];` and `List<int> l = [1: 2];` now report a
+  positional-entries diagnostic naming the target kind instead of a
+  bare syntax error.
+
+## [0.10.9] - 2026-10-23
+
+### Fixed
+
+- **Entry key form must match the initializer target** — entry forms
+  that were silently accepted are now compile errors: a keyed entry in
+  a `List<T>` initializer (`List<int> l = {x: 1};` stored `1` and
+  dropped the key), a keyless entry in a `Dict<K,V>` initializer
+  (`Dict<string, int> d = {1, 2};` silently stored nothing), a
+  string-literal key in a struct initializer (`S s = {"a": 1};` filled
+  fields positionally), and an identifier key in a `Dict` initializer
+  (`{a: 1}` was silently taken as the string `"a"` — dict keys must be
+  string literals).
+
+## [0.10.8] - 2026-10-22
+
+### Added
+
+- **Anchored generic instantiation literals** — `List<int>{60}`,
+  `Dict<string, int>{"a": 1}`, and the nested `List<List<int>>{{1, 2}}`
+  parse in any expression position (method receivers, call arguments,
+  subscripts). The anchored head is limited to the built-in generic
+  names (`List`, `Dict`, `Channel`, `Future`).
+- **Bare brace values in keyed entries** —
+  `Dict<string, List<int>> d = {"a": {1, 2}};` and struct field entries
+  `{items: {1, 2}}`; array-typed fields keep the bracket form.
+- **Brace-form `foreach` sources** — `foreach (int x in {1, 2, 3})`
+  iterates a `List<int>` inferred from the loop variable's type.
+- **Target-less bracket literals infer the element type** —
+  `[1, 2].length()`, `[1, 2][1]`. Empty literals and mixed-type entries
+  still require a typed target.
+
+### Fixed
+
+- **Nested `Channel`/`Future` generics** — types headed by `Channel` or
+  `Future` with nested generic arguments (e.g. `Channel<Channel<int>>`)
+  now parse; the lexer's generic-name check follows the compiler's
+  built-in generic name predicate instead of a hardcoded two-name list.
+
+## [0.10.7] - 2026-10-22
+
+### Added
+
+- **Declarator continuation forms** — after a comma, every declarator
+  may use the full first-declarator form: sized `int a, b[3];`, sized
+  with entries `int a[3], b[2] = [4, 5];`, direct-init
+  `Vec a(2), b(3);`, zero-argument construction `Vec a(2), b();`, and
+  brace initializer `List<int> a, b = {1};`.
+- **Per-declarator typing** — each declarator's type is the head type
+  plus its own brackets: in `int a[3], b;` the sibling `b` is a plain
+  int (it previously inherited the array type from the sized
+  declarator).
+- **Interface field diagnostics** — an interface member written as a
+  field with missing parts (`public int X = 1;`, `public int X;`,
+  `static const int X;`) now reports the declaration contract
+  ("must be static const", "must be a constant expression") instead of
+  a bare syntax error.
+
+### Changed
+
+- **Protocol methods are public** — methods matching the Object
+  protocol signatures (`equals`, `getHashCode`, `toString`) are
+  callable externally regardless of the access modifier; the rule is
+  now documented (behavior unchanged).
+- **Brace form at sized declarations** — `int a[3] = {1, 2, 3};`
+  parses and reports the array-initializer form diagnostic pointing at
+  `[...]` instead of a syntax error.
 
 ## [0.10.6] - 2026-10-22
 
@@ -1821,6 +2363,7 @@ First public release.
 - Documentation: a fully offline-capable documentation site and runnable
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
+
 
 [0.7.0]: https://github.com/dliting/nlang/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/dliting/nlang/compare/v0.6.1...v0.6.2

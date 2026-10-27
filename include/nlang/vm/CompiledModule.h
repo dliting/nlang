@@ -1,5 +1,6 @@
 #pragma once
 #include "CompiledModuleRecords.h"
+#include <nlang/runtime/Config.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstdint>
 #include <cstring>
@@ -129,7 +130,17 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //existing intrinsic-stub serialization). A v2.7 module has no trailing
 //mask and misparses the next record's leading bytes; refuse v2.7 and
 //older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 8;
+//v2.9 (0.10.14): per-enum member-method tables (enumMethodIndices /
+//enumMethodAccess), parallel to enumNames/enumKeys — the fourth
+//instance of "a type record carries its own member-function indices"
+//(classes methodIndices, structs constructorIndices, interfaces
+//staticMethodIndices). Minor bump: every .ncu recompiles with the
+//current ncc (the loader's hard floor, unchanged).
+//v2.11 (stage-2 task 5): the TypeDesc array arm carries a rank byte
+//(int[,] formals/returns round-trip; the rank-less rebuild degraded
+//them to rank-1 and broke consumer indexing). Minor bump: every .ncu
+//recompiles with the current ncc (the loader's hard floor, unchanged).
+inline constexpr uint16_t NCU_FORMAT_MINOR = 11;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -153,7 +164,24 @@ static constexpr uint16_t kFrameSlotBytes = 8;
 //1 cell for kinds up to 4 bytes, 2 cells for the long/double family.
 static constexpr uint16_t kHeapCellBytes = 4;
 static constexpr uint16_t kHeapFieldStrideBytes = 8;  // = 2 * kHeapCellBytes
-
+//Array record header (stage-2 unified layout):
+//  [0]=RTK_Array, [1]=arrayTypeIdx, [2]=rank, [3]=elemCount,
+//  [4..4+rank-1]=dims (elements per dimension), then padding so the
+//  payload base sits at an EVEN cell index — the 8-byte element family
+//  (long/double) is naturally aligned; SIMD loads in native kernels
+//  rely on it. Element i of a rank-1 array lives at
+//  ArrayHeaderCells(rank) + i*ArrayElemCells(elemKind); for rank >= 2
+//  the payload is row-major over dims.
+inline uint32_t ArrayHeaderCells(uint8_t rank)
+{
+    const uint32_t cells = 4u + rank;
+    return cells + (cells & 1u);
+}
+//Element-count cap for one array, language creation and native minting
+//alike: the single allocation choke point raises the OutOfBounds family
+//beyond it. 100M elements is 800MB at the widest element — every
+//legitimate operand fits, and 4 + n*cells can never overflow int32.
+static constexpr int32_t kMaxArrayElems = 100 * 1000 * 1000;
 //--- Eval-area slot classes (K2 slice 5) ----------------------------------
 //Precise GC root class for one frame-band slot (the band is
 //[paramCount, localsSize) — return slot, temps, call staging, evalArea
@@ -202,6 +230,15 @@ struct CompiledModule {
     //names). nlink name-addresses enum import slots and dedups enums
     //by key — enumNames alone carries no type identity.
     std::vector<std::string> enumKeys;
+    //v2.9 (0.10.14): per-enum member-method tables, parallel to
+    //enumNames/enumKeys (every construction site keeps the four vectors
+    //in lockstep, including placeholder slots, which carry empty
+    //vectors). enumMethodIndices[i] = the enum's method functions'
+    //indices into the producer's own function table, declaration order;
+    //enumMethodAccess[i] = the per-method declared access byte (FA_*),
+    //mirroring the class methodAccess gate on the consumer side.
+    std::vector<std::vector<uint16_t>> enumMethodIndices;
+    std::vector<std::vector<uint8_t>> enumMethodAccess;
 
     //v2.0 phase 6: cross-unit reference slots. Each unit's tables hold its
     //OWN declarations first (indices 0..n-1); slots n..n+m are PLACEHOLDER
@@ -278,10 +315,11 @@ struct CompiledModule {
         return -1;
     }
 
-    int FindArray(uint8_t elemKind, uint16_t elemTypeIdx) const {
+    int FindArray(uint8_t elemKind, uint16_t elemTypeIdx, uint8_t rank) const {
         for (int i = 0; i < static_cast<int>(arrayTypes.size()); ++i)
             if (arrayTypes[i].elemKind == elemKind
-                && arrayTypes[i].elemTypeIdx == elemTypeIdx)
+                && arrayTypes[i].elemTypeIdx == elemTypeIdx
+                && arrayTypes[i].rank == rank)
                 return i;
         return -1;
     }

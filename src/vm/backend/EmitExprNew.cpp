@@ -197,9 +197,29 @@ void VmBackend::EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
     EvalAreaClaim sizeClaim(*this, 1);
     uint16_t sizeSlot = sizeClaim.base();
     EmitExpression(sizeExpr, emitter, sizeSlot);
-    emitter.Emit(OpCode::OP_AllocArray);
+    emitter.Emit(OpCode::OP_AllocArrayN);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(sizeSlot);
+    emitter.EmitUint16(1);  // rank: the single-size form is rank 1
+    emitter.EmitUint16(sizeSlot);  // dimsBase (one dimension)
+}
+
+//Stage-2: ND creation T[d0, d1, ...] — dims stage into consecutive
+//eval-area slots and the rank rides the opcode. The table entry is
+//keyed (elemKind, elemTypeIdx, rank) — ND creation registers its own.
+void VmBackend::EmitNewArrayND(SnField* pElemType,
+    const std::vector<SnExpression*>& dims, uint16_t resultOffset,
+    BytecodeEmitter& emitter) {
+    const uint8_t rank = static_cast<uint8_t>(dims.size());
+    uint16_t arrayTypeIdx = RegisterArrayType(pElemType, rank);
+    EvalAreaClaim dimsClaim(*this, rank);
+    uint16_t dimsBase = dimsClaim.base();
+    for (uint8_t d = 0; d < rank; ++d)
+        EmitExpression(*dims[d], emitter, dimsBase + d * kFrameSlotBytes);
+    emitter.Emit(OpCode::OP_AllocArrayN);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(arrayTypeIdx);
+    emitter.EmitUint16(rank);
+    emitter.EmitUint16(dimsBase);
 }
 } //namespace nlang

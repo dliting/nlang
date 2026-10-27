@@ -415,6 +415,24 @@ static void TestArrayAndObjectProxies() {
     PASS();
 }
 
+static void TestArrayProxyNdFlatView() {
+    TEST(TestArrayProxyNdFlatView);
+    Interpreter itp;
+    itp.load(EMBED_CONTAINERS_NCU);
+    Value c = itp.call("containers_demo.makeCube", {});
+    ArrayProxy arr = c.asArray();
+    CHECK(arr.size() == 8, "cube size is the element count");
+    CHECK(arr.get(7).asInt() == 7, "flat get at [1,1,1]");
+    CHECK(arr.get(0).asInt() == 0, "flat get at [0,0,0]");
+    arr.set(3, Value(int32_t(5)));
+    CHECK(arr.get(3).asInt() == 5, "flat set/get");
+    //The language side must still read the right cell after host
+    //edits — a wrong payload base corrupts the shape instead.
+    CHECK(itp.call("containers_demo.readCubeCell", {c}).asInt() == 7,
+        "language-side read after host edits");
+    PASS();
+}
+
 static void TestArrayProxyBoundsAndKindGuards() {
     TEST(TestArrayProxyBoundsAndKindGuards);
     Interpreter itp;
@@ -627,6 +645,7 @@ int main() {
     TestListProxyRoundTrip();
     TestDictProxy();
     TestArrayAndObjectProxies();
+    TestArrayProxyNdFlatView();
     TestArrayProxyBoundsAndKindGuards();
     TestBuildersMaterializePerCrossing();
     TestBuilderDictRejectsReferenceKeys();

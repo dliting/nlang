@@ -1,6 +1,6 @@
 # Statements
 
-
+The normative rules are in [specification chapter 6](../specification/06-statements.md).
 NLang's control-flow statements. This page covers the rules they share; each
 specific statement has its own page.
 
@@ -14,7 +14,7 @@ specific statement has its own page.
 | `switch` / `case` / `default`              | [Switch](switch.md) |
 | `try` / `catch` / `throw` / `finally`      | [Exceptions](exception.md) |
 | `assert`                                   | [Assert](assert.md) |
-| compound assignment (`+=` `-=` `*=` `/=` `%=`) | [Compound Assignment](compound-assignment.md) |
+| compound assignment (`+=` `-=` `*=` `/=` `%=` `<<=` `>>=`) | [Compound Assignment](compound-assignment.md) |
 | `const` local variable                     | [Const Local](const-local.md) |
 
 ### Condition typing

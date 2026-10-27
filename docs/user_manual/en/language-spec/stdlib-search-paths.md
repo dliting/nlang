@@ -1,7 +1,9 @@
 # Libraries and search paths
 
+The normative rules are in [specification §12.2 and §12.3](../specification/12-packages.md).
 NLang libraries are carried by **`.n` source files**: the standard
-`math.n`/`io.n`/`fs.n` ship with the toolchain, and a third-party library is
+`math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n` ship with the toolchain,
+and a third-party library is
 just a directory of `.n` files (optionally alongside native dynamic
 libraries). A function implemented outside NLang is declared with the
 `native` keyword (`native void print(string s);`) — such a declaration carries
@@ -19,8 +21,10 @@ files and where the run time loads the `.ncu`/`.npkg` members an
 artifact depends on, plus the native dynamic libraries — the
 standard library and third-party libraries, compile-time discovery and
 run-time loading all use the **same set of directories**. Directories are
-assembled in the following order, earlier ones winning; duplicates keep only
-the first occurrence (paths are normalized, and case-folded on Windows):
+assembled in the following order; earlier entries win for compiled
+artifacts, while a package source offered by two roots is a compile error
+rather than a shadow; duplicates keep only the first occurrence (paths are
+normalized, and case-folded on Windows):
 
 1. command-line `-I <dir>` (highest priority; repeatable);
 2. `<ImportPaths>` in the `.nproj` project file;

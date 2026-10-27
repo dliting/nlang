@@ -16,6 +16,7 @@ struct FunctionSlotHit {
     int hit = -1;
     size_t hits = 0;
     bool ownerClassFound = false;   //owner-keyed: class reached, member missed
+    bool ordinalMismatch = false;   //ordinal pointed at a drifted signature
 };
 
 //空属主键分支：命名空间级函数，限定键在目标单元自有函数区定址；
@@ -24,6 +25,22 @@ static FunctionSlotHit ResolveNamespacedFunction(
     const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
     FunctionSlotHit r;
     const size_t tgtOwn = tgt.functions.size() - tgt.functionImports.size();
+    //0.10.14: the producer function-table index is the authoritative
+    //selector (mirrors ResolveMethodRecord) — single-select by index,
+    //then recheck name+arity+staticness against a stale consumer
+    //artifact. 0xFFFF = legacy/malformed record: keep the scan below.
+    if (imp.ownerOrdinal != 0xFFFF) {
+        if (imp.ownerOrdinal < tgtOwn
+            && tgt.functions[imp.ownerOrdinal].name == imp.name
+            && tgt.functions[imp.ownerOrdinal].paramCount == imp.paramCount
+            && tgt.functions[imp.ownerOrdinal].isStatic == imp.isStatic) {
+            r.hit = static_cast<int>(imp.ownerOrdinal);
+            r.hits = 1;
+        } else {
+            r.ordinalMismatch = true;
+        }
+        return r;
+    }
     for (uint32_t k = 0; k < tgtOwn; ++k) {
         //0.9.10 v2.4: staticness is part of the linkage identity — an
         //interface static and a same-shape free function are distinct.
@@ -218,8 +235,15 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
                 : ResolveOwnerKeyedFunction(tgt, imp);
             const uint32_t slot = static_cast<uint32_t>(ownCount + j);
             if (r.hits == 0)
-                problems.push_back(FunctionMissLine(u, what, imp,
-                                                    r.ownerClassFound));
+                problems.push_back(r.ordinalMismatch
+                    ? "unit '" + u.modulePath + "': imported " + what
+                        + " [DBG ordinal=" + std::to_string(imp.ownerOrdinal)
+                        + " tgtOwn=" + std::to_string(tgt.functions.size() - tgt.functionImports.size())
+                        + " tgtFnAt=" + (imp.ownerOrdinal < tgt.functions.size()
+                            ? tgt.functions[imp.ownerOrdinal].name : "<oob>")
+                        + " does not match its record in the owning unit "
+                        + "(stale artifact — recompile the importing module)"
+                    : FunctionMissLine(u, what, imp, r.ownerClassFound));
             else if (r.hits > 1)
                 problems.push_back("unit '" + u.modulePath
                     + "': imported " + what + " is ambiguous: "

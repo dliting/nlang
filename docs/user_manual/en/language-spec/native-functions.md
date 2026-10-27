@@ -1,6 +1,6 @@
 # Native Functions
 
-
+The normative rules are in [specification §7.5](../specification/07-functions.md).
 A function declaration marked `native` has **no body** — the
 implementation is provided by the embedding host at runtime:
 
@@ -24,14 +24,14 @@ path and lets it register (lazy: the load triggers on the first call);
 only a further miss throws. On a hit the native is invoked directly with
 the caller's staged argument cells:
 
-- application binary interface (ABI): argument `i` occupies the low 4
-  bytes of the 8-byte slot at `args[i*8]` — little-endian
-  `int32`/`float` bits or a heap index (a 4-byte payload in a
-  frame-width slot; see the
+- application binary interface (ABI): every value is one 8-byte frame
+  cell; argument `i` sits at `args[i*8]` — `int32`/`float` bits or a heap
+  index in the low 4 bytes (little-endian), while `long`/`double` use the
+  full 8 bytes (see the
   [Stack Frame Layout](../vm-architecture/stack-frame-layout.md)),
   identical to the intrinsic ABI.
-  The native writes its 4-byte return value into `ret` (may be null for
-  `void` natives).
+  The native writes its return value into `ret` — 4 bytes for the narrow
+  kinds, 8 for `long`/`double` (may be null for `void` natives).
 - Resolution failures throw at the call site — never silent garbage: a
   missing `nlang_<package>.dll` reports `cannot find native module
   'nlang_<package>.dll' for package '<package>'` (followed by the

@@ -38,7 +38,7 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 	//field/param/return types arrive through ResolveDataTypes, and
 	//local/for/foreach type expressions through ExprResolver::Resolve.
 	ResolveFieldExprAs(arrTypeExpr,
-		m_Env.InternArrayTypeToken(pElemType->Field()));
+		m_Env.InternArrayTypeToken(pElemType->Field(), arrTypeExpr.Rank()));
 }
 
 //Type-argument collection of Access(SnGenericTypeExpr&): resolves each

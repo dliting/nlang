@@ -1,10 +1,12 @@
 /*---
-    Register.cpp — 函数注册族：arrays/enums/functions/entry point（类族在
-    RegisterClass.cpp，struct 族在 RegisterStructs.cpp）。
+    Register.cpp — 函数注册族与入口点解析（类族在 RegisterClass.cpp、
+    struct 族在 RegisterStructs.cpp、接口在 RegisterInterfaces.cpp、
+    数组在 RegisterArrayTypes.cpp、枚举在 RegisterEnums.cpp）。
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
 #include "builder/SymbolSlots.hpp"
+#include <string>
 #include <nlang/compiler/SyntaxTree.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -204,98 +206,72 @@ bool VmBackend::RejectMultiSegmentNatives(SnNamespace& root) {
     return refused;
 }
 
-//struct 注册族（RegisterStructDecl/RegisterStructs/ResolveStructClassRefs）
-//位于 RegisterStructs.cpp（2026-10-27 尺寸守卫触发的拆分）。
+
+//结构体登记族（RegisterStructDecl/RegisterStructs/ResolveStructClassRefs）
+//位于 RegisterStructs.cpp（尺寸守卫触发的拆分，一族一 TU）。
 
 //数组类型发现与注册族（RegisterArrayType/WalkArrayType*）位于
 //RegisterArrayTypes.cpp（2026-10-02 尺寸守卫触发的拆分）。
 
-//Phase 8e-9b: collect every enum declaration's value-name table into
-//m_compiledModule.enumNames, and remember each SnEnumDecl*'s defIdx for
-//later codegen (SnCastExpr src-type lookup). Enum declarations may live
-//at namespace top level or nested inside class/struct scopes (handled by
-//CanBeFuncParentEx, same pattern as RegisterStructs/RegisterClasses).
-void VmBackend::RegisterEnums(SnNamespace& root) {
-    m_enumIndexMap.clear();
-    m_compiledModule.enumNames.clear();
-    m_compiledModule.enumKeys.clear();
-    //Placeholder slots are appended AFTER registration (codegen), so
-    //clearing the import table here can never wipe a live placeholder —
-    //it only keeps a premature one from leaving an orphan import entry.
-    m_compiledModule.enumImports.clear();
-    auto registerEnum = [&](SnEnumDecl& sn) {
-        auto defIdx = m_compiledModule.enumNames.size();
-        std::vector<std::string> names;
-        for (auto& member : sn.Members()) {
-            if (member.Kind() == NK_EnumMember) {
-                auto& em = static_cast<SnEnumMember&>(member);
-                //Enum values are sequential starting at 0; if user provides
-                //explicit values that skip numbers, the corresponding slots
-                //are filled with empty strings (OP_Enum_to_str will throw
-                //"enum value out of range" at runtime if hit). Negative
-                //values are rejected at resolve time; the guard keeps a
-                //slipped-through negative from wrapping to SIZE_MAX and
-                //hanging the table fill (defense, not a semantic path).
-                if (em.Value() < 0)
-                    continue;
-                while (names.size() <= static_cast<size_t>(em.Value()))
-                    names.push_back(std::string());
-                names[static_cast<size_t>(em.Value())] = em.Name();
-            }
-        }
-        m_compiledModule.enumNames.push_back(std::move(names));
-        //v2.0: parallel qualified key (nlink name-addresses enum slots).
-        m_compiledModule.enumKeys.push_back(KeyOf(sn));
-        m_enumIndexMap[&sn] = defIdx;
-    };
-    ForEachDeclNode(root, [&](SnField& node) {
-        //Per-unit: foreign units' enums belong to their own images.
-        if (node.Kind() == NK_EnumDecl && !node.IsImported()
-            && IsOwnUnit(node))
-            registerEnum(static_cast<SnEnumDecl&>(node));
-    });
-}
+//枚举登记族（RegisterEnums/RegisterEnumMethods）位于
+//RegisterEnums.cpp（0.10.14 v2.9 尺寸守卫触发的拆分，一表一 TU）。
 
 //v1.9 (debugger): the source-file spelling lives in SourceFilePathOf
 //(anonymous namespace, top of file) — shared with the entry-point scan.
 
+//True when func is a member of a generic class declaration (the
+//signature-surface template, not an instantiation). Under erasure naming
+//the template member and the instance member share one key, so a template
+//record would both collide with the instance's and drag its placeholder-
+//typed signature into signature-descriptor emission (whose leaf resolvers
+//expect registered classes) — only instantiations' member copies register.
+static bool IsGenericTemplateMember(const SnFunction& func) {
+    const SyntaxNode* pParent = func.Parent();
+    return pParent && pParent->Kind() == NK_ClassDecl
+        && static_cast<const SnClassDecl*>(pParent)->IsGenericDeclaration();
+}
+
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
-    ForEachDeclNode(root, [&](SnField& node) {
-        if (node.Kind() != NK_Function)
-            return;
-        auto& func = static_cast<SnFunction&>(node);
-        //Per-unit: only this unit's functions register — cross-unit
-        //calls resolve through FunctionSlotFor placeholders. The
-        //body/native gate below already skips imported stubs. A prelude
-        //declaration whose bare name a foreign declaration claims does
-        //not register (spec §6.8 — the foreign declaration is the
-        //visible winner; same rule as the class sites).
-        if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
-            return;
-        //A generic declaration is a signature-surface template: only its
-        //instantiations' member copies register. Under erasure naming the
-        //template member and the instance member share one key, so a
-        //template record would both collide with the instance's and drag
-        //its placeholder-typed signature into signature-descriptor
-        //emission (whose leaf resolvers expect registered classes).
-        {
-            auto* pParent = func.Parent();
-            if (pParent && pParent->Kind() == NK_ClassDecl
-                && static_cast<SnClassDecl*>(pParent)->IsGenericDeclaration())
+    //Two-phase fill: the unit's own declarations first, then the
+    //prelude/builtin-owned ones. The function-table layout is a
+    //cross-process contract — a library build's npkg table and a
+    //consumer's shadow replay must interleave identically, but tree
+    //insertion order does not survive the trip (a library build parses
+    //the library unit before the prelude; a consumer inlines the
+    //prelude first, so a single tree-order pass drifts every prelude
+    //ordinal and nlink rejects the import record at load). Ownership
+    //phase is the invariant both processes agree on.
+    for (const bool preludePhase : { false, true }) {
+        ForEachDeclNode(root, [&](SnField& node) {
+            if (node.Kind() != NK_Function)
                 return;
-        }
-        //Phase 9f: native declarations register like normal functions
-        //(the record carries isNative + param signature); a body-less
-        //non-native declaration gets no record.
-        if (!func.Body() && !func.ContainFlags(NF_Native))
-            return;
-        CompiledFunction cf;
-        cf.name = KeyOf(func);
-        cf.sourceFile = SourceFilePathOf(func);
-        m_compiledModule.functions.push_back(std::move(cf));
-        m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
-    });
+            auto& func = static_cast<SnFunction&>(node);
+            //Per-unit: only this unit's functions register — cross-unit
+            //calls resolve through FunctionSlotFor placeholders. The
+            //body/native gate below already skips imported stubs. A prelude
+            //declaration whose bare name a foreign declaration claims does
+            //not register (spec §6.8 — the foreign declaration is the
+            //visible winner; same rule as the class sites).
+            if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
+                return;
+            const uint32_t owner = m_pRegistry->OwnerOfContext(func);
+            if ((owner != m_currentUnitIdx) != preludePhase)
+                return;
+            if (IsGenericTemplateMember(func))
+                return;
+            //Phase 9f: native declarations register like normal functions
+            //(the record carries isNative + param signature); a body-less
+            //non-native declaration gets no record.
+            if (!func.Body() && !func.ContainFlags(NF_Native))
+                return;
+            CompiledFunction cf;
+            cf.name = KeyOf(func);
+            cf.sourceFile = SourceFilePathOf(func);
+            m_compiledModule.functions.push_back(std::move(cf));
+            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+        });
+    }
     RegisterDeclaredGenericInstanceMembers();
 }
 
@@ -320,6 +296,60 @@ void VmBackend::RegisterDeclaredGenericInstanceMembers() {
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         }
     });
+}
+
+//The per-unit registration sequence — table layout only. Shared by the
+//GenerateUnits loop (before bytecode emission) and the library shadow
+//registration below; the order IS the layout contract.
+void VmBackend::RegisterUnitTables(SnNamespace& root) {
+    RegisterBuiltinClasses();
+    RegisterStructs(root);
+    RegisterClasses(root);
+    ResolveStructClassRefs();
+    RegisterArrayTypes(root);
+    RegisterEnums(root);
+    RegisterFunctions(root);
+    PopulateClassMethods(root);
+    PopulateStructMethods(root);
+    RegisterInterfaces(root);
+    RegisterEnumMethods(root);
+}
+
+//Same-build cross-unit callees need their producer-side table index for
+//the import record (nlink's authoritative selector) — inlined library
+//sources AND sibling user units in a project build alike (same-name
+//same-arity type overloads link ambiguously without it). The layout is
+//built by this backend's own registration sequence, so the index is
+//only knowable by RUNNING that sequence — a hand-replayed count would
+//drift with every builtin change. Shadow-register every unit once
+//(registration only, no bytecode, no image) and archive its function
+//map; the layout depends only on the unit's own declarations plus the
+//constant builtin set, so it matches the producer exactly.
+void VmBackend::ShadowRegisterUnits(SnNamespace& root) {
+    const uint32_t count = m_pRegistry->ModuleCount();
+    m_unitFuncIdxByModule.assign(count, {});
+    for (uint32_t i = 0; i < count; ++i) {
+        BeginUnit(i, m_pRegistry->ModulePathOf(i));
+        RegisterUnitTables(root);
+        auto& archived = m_unitFuncIdxByModule[i];
+        archived.reserve(m_funcIndexMap.size());
+        for (auto& kv : m_funcIndexMap)
+            archived[kv.first] = static_cast<uint16_t>(kv.second);
+    }
+    //The shadow modules' tables must not leak into a real unit's image:
+    //the first real BeginUnit resets every per-unit member anyway, but
+    //an empty unit set would leave them standing — clear defensively.
+    m_compiledModule = CompiledModule{};
+}
+
+uint16_t VmBackend::ProducerIdxOfCrossUnitFunc(const SnFunction& callee) {
+    const uint32_t owner = m_pRegistry->OwnerOfContext(callee);
+    if (owner == ModuleRegistry::NO_OWNER
+        || owner >= m_unitFuncIdxByModule.size())
+        return 0xFFFF;
+    const auto& map = m_unitFuncIdxByModule[owner];
+    const auto it = map.find(const_cast<SnFunction*>(&callee));
+    return it != map.end() ? it->second : 0xFFFF;
 }
 
 //K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)

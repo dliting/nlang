@@ -351,6 +351,28 @@ static void RejectDuplicateDeclarator(BuildEnvironment &env,
 			"local '%s' is already declared in this scope", name.c_str());
 }
 
+//0.10.7 D2: a size payload types only its own declarator; the
+//interned array token is that declarator's field (the statement
+//type stays the head type for every declarator).
+SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
+	SnLocalDeclStmt::LocalDecl &decl, const ISourceLocation &loc,
+	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
+	SnField *pSizedArrayField)
+{
+	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
+		? pSizedArrayField : pTypeField;
+	auto *pLocal = new SnLocalVar(decl.name, pDeclField, loc);
+	//0.9.0/0.10.7: bare [...] inference and member receivers key on
+	//the array flag — a head-array statement flags every
+	//declarator, a size payload flags only its own.
+	if (bIsArray || (pSizedArrayField && decl.pArraySize))
+		pLocal->SetArrayType(true);
+	if (pSizedArrayField && decl.pArraySize)
+		decl.bArrayType = true;
+	RejectDuplicateDeclarator(m_Env, paragraph, decl.name, pLocal, &loc);
+	return pLocal;
+}
+
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedElemField)
@@ -363,19 +385,17 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	//gave b = 0). std::list insertion keeps this iterator valid.
 	auto iInsert = paragraph.Children().find(&sn);
 	++iInsert;
+	//0.10.7 D2: the interned array token types every sized
+	//declarator (CreateDeclaratorLocal); the statement type stays
+	//the head type for every declarator.
+	SnField *pSizedArrayField = pSizedElemField
+		? m_Env.InternArrayTypeToken(pSizedElemField) : nullptr;
 	for (auto &decl : sn.Decls())
 	{
 		RejectTypeNameVariable(decl.name, paragraph, *m_pCurrType,
 			sn.Location());
-		auto *pLocal = new SnLocalVar(decl.name, pTypeField,
-			*sn.Location());
-		//0.9.0: a sized statement types EVERY declarator as an array
-		//(re-bind is statement-level, so is the flag) — bare [...]
-		//inference and member receivers key on it.
-		if (bIsArray || pSizedElemField)
-			pLocal->SetArrayType(true);
-		RejectDuplicateDeclarator(m_Env, paragraph, decl.name, pLocal,
-			sn.Location());
+		auto *pLocal = CreateDeclaratorLocal(decl, *sn.Location(),
+			paragraph, pTypeField, bIsArray, pSizedArrayField);
 
 		//Each payload shape delegates to its concern TU: the
 		//decomposition is built, inserted at iInsert and resolved
@@ -417,8 +437,8 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"jagged arrays (T[][]) are not supported");
 
-	//0.9.0: the sized-declarator type re-shape (token re-bind, jagged
-	//reject, element capture) lives in StatementResolverDeclArray.cpp.
+	//0.9.0/0.10.7: the sized-declarator typing (jagged reject, element
+	//capture) lives in StatementResolverDeclArray.cpp.
 	auto *pSizedElemField = BindSizedArrayDeclType(sn);
 
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());

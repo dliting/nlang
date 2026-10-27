@@ -1,5 +1,6 @@
 # 内建泛型类
 
+规范性规则见规范§4.10。
 
 ### `List<T>`
 
@@ -55,7 +56,7 @@ int main() {
 
 经`get`/下标取出的元素类型是`Object`：要当作`int`等具体类型使用，必须`as int`显式拆箱；运行期校验实际存放的类型，不符时抛出异常。`contains`与`indexOf`按值比较装箱的基本类型元素——不是引用恒等。`Dict<K,V>`的`V`（或`K`）为`Object`时同理。
 
-**null List引用**：尚未以`List<T>()`赋值的`List<T>`字段或变量持有null。对null调用任何方法抛出`null reference in CallMethod`——与其他class引用相同的空指针异常（NPE，null pointer exception）语义。
+**null List引用**：尚未以`List<T>()`赋值的`List<T>`字段或变量持有null。对null调用任何方法抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference in CallMethod`——与其他class引用相同的空指针异常（NPE，null pointer exception）语义。
 
 **集合初始化器**：支持`[1, 2, 3]`字面量语法（数组与`List<T>`的裸方括号形式）。见[集合初始化器](collection-initializers.md)。
 
@@ -106,7 +107,7 @@ int removed = squares.remove(4);        // 1
 - `class` / `struct`键：比较堆索引（恒等），与Java的`IdentityHashMap`、C# 默认的`object.Equals`一致。用户的`equals`覆写**不参与比较**——基于覆写`equals`的键相等语义不受支持。
 - 数组键（`Dict<int[], V>`）：按句柄恒等比较——两个内容相同但独立的`int[2]`数组是不同的键。
 
-**null Dict引用**：尚未以`Dict<K,V>()`赋值的`Dict<K,V>`字段或变量持有null。对null调用任何方法抛出`NLang VM: Dict <method> on null instance`。
+**null Dict引用**：尚未以`Dict<K,V>()`赋值的`Dict<K,V>`字段或变量持有null。对null调用任何方法抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference in CallMethod`。
 
 **线性扫描查找（当前限制）**：每次`set`/`get`/`containsKey`/`remove`都对条目向量做O(n)扫描。对典型的小脚本可以接受；不提供O(1)哈希表查找。
 
@@ -144,8 +145,9 @@ List<Point> pts = ...;
 pts[0].x = 9;           // 经下标接收者的成员写
 int s = pts[0].x + pts[0].y;
 
-List<int>[] arr = List<int>[2];   // 泛型实例化的数组
+List<int> arr[2];       // 泛型实例化的数组（声明形式）
 arr[0] = {};
+arr[0].add(1);
 arr[0][1];              // 穿过数组元素的容器下标
 ```
 

@@ -1,5 +1,7 @@
 # string methods — 18 built-ins
 
+The normative rules are in [specification §13.2–§13.3](../specification/13-builtin-classes.md).
+
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
 `"abc".toUpper()`). The string method list is as follows. **Byte
 semantics** (Go/Lua model): length, substring
@@ -24,6 +26,12 @@ byte access — see [String](string.md) "The char bridge".
 | charAt | (int byteIndex) → char | the code point **starting at** that byte offset; out of range → IndexOutOfBoundsException, continuation byte → Exception |
 | charCount | () → int | code-point count (contrast `length()`, bytes); invalid sequence → Exception |
 
-String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range
-throws the runtime error `string index out of range`) — byte access goes
-through the subscript, code-point access through `charAt`.
+Beyond the 18 table methods, a string receiver also answers `length()`
+(byte count — see [String](string.md)), `equals(other)` (content equality,
+the same relation as `==`; yields int `1`/`0`), `getHashCode()` (content
+hash as int — equal strings hash equal) and `toString()` (identity —
+returns the string itself).
+
+String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range →
+IndexOutOfBoundsException) — byte access goes through the subscript,
+code-point access through `charAt`.

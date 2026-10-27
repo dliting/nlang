@@ -1,5 +1,6 @@
 # 类型强制转换
 
+规范性规则见规范§5.5。
 
 在类型之间转换值有两种方式：显式的`as`运算符（标量收窄、数值↔char、拆箱、类向下强转），以及向`string`的隐式强制转换。标量家族内部哪些转换隐式合法（加宽、值域包含、整型→浮点）由转换矩阵决定——见[类型语义](type-semantics.md)。
 
@@ -13,7 +14,7 @@ expr as TypeName
 
 - **标量收窄与跨符号**（按位截断，C# unchecked同构）：`d as int`（double→int）、`d as float`（double→float）、`l as int`（long→int）、`s as ubyte`（反向跨符号）——一切隐式矩阵不放行的标量对都可用`as`明示。显式即用户明示，**不产生有损转换警告**。
 - **数值↔char**：`c as int`取码点；`65 as char`显式构造char，运行期校验标量值合法性（代理区或超过U+10FFFF抛运行期错误`value is not a valid Unicode scalar value`）。
-- **拆箱**：`o as int` / `o as long` / `o as string`等——解开一个装箱基本类型，全部12个标量都可拆。若`o`为null或装箱类型标签不匹配则抛出。
+- **拆箱**：`o as int` / `o as long` / `o as string`等——解开一个装箱基本类型，全部12个标量都可拆。若`o`为null或装箱类型标签不匹配，抛宿主级运行期错误——不是可捕获的nlang异常（与下文类向下强转不同）。
 - **类向下强转**：`o as SubClass`——校验`o`的运行期类是`SubClass`或其子类。不匹配则抛`InvalidCastException`——可被`catch`捕获，`message`形如`NLang VM: invalid cast - expected X, got Y`（X/Y为目标/实际类叶名）；未捕获时进程以非零码退出。`o as Object`是无操作（为对称性允许）。
 
 `as`只用于矩阵不放行的转换对——对**已经隐式合法**的转换使用`as`也是编译错误（`` `as` cannot perform implicit conversion `UByte` → `Int32` ``）：`ubyte`到`int`本来就隐式加宽，写`b as int`是冗余，直接`int x = b;`即可。隐式矩阵见[类型语义](type-semantics.md)。
@@ -69,7 +70,7 @@ class Point {
 
 **隐式强制转换**：`"x" + obj`自动调用`obj.toString()`，与Java/C#相同。适用于class、enum与全部标量接收者。struct接收者被**永久排除**——`"x" + structInstance`是编译错误（struct是NLang的纯数据类型；要对象语义请用class）。见[结构体](struct.md)。
 
-**enum名输出**：`Color.Red.toString()`返回`"Red"`（不是`"0"`）——名字表随枚举一起编译进产物，按值查名。越界enum值在运行期抛出。见[枚举](enum.md)。
+**enum名输出**：`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每张enum名表；VM用`OP_Enum_to_str`按值查找成员名。超出名字表的值在运行期抛出；被显式编号跳过的值转成空串。见[枚举](enum.md)。
 
 **字符串恒等**：`"hello".toString()`返回`"hello"`——编译器直接按恒等处理，不产生任何转换。
 

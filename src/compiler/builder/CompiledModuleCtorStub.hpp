@@ -34,9 +34,13 @@ namespace nlang
 //beats minting a stub whose call frame is one slot off (the
 //walker/codegen claim split would trip the observedPeakCursor tripwire
 //far from the cause).
+//`producerIdx` (0.10.14): the record's index in the producer's own
+//function table, clamped by the caller through ProducerIdxClamp — it
+//rides the stub to the cross-unit slot record. No default value: every
+//mint site states it explicitly.
 inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
-	FieldAccessType access)
+	FieldAccessType access, uint16_t producerIdx)
 {
 	if (cf.paramCount < 1)
 		throw std::runtime_error(
@@ -99,6 +103,9 @@ inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	auto *pFunc = new SnFunction(access, NF_Data, pRetType, pName,
 		pParams, loc);
 	pFunc->AddFlags(NF_Imported);   //R6-2
+	//0.10.14: the producer table index rides the stub to the
+	//cross-unit slot record (see SnFunction::m_iProducerFuncIdx).
+	pFunc->m_iProducerFuncIdx = producerIdx;
 	if (cf.isStatic)
 		pFunc->AddFlags(NF_Static);
 	return pFunc;

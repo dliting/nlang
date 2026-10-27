@@ -14,10 +14,13 @@ on every merged TU member (top-level and container members).
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
+#include <nlang/compiler/SyntaxTree.h>
 //Internal header: the registry is an opaque type in the public API, so
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
+#include "builder/CompiledModuleNodeBuilder.hpp"
+#include "builder/CompiledModuleStubMembers.hpp"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
@@ -90,6 +93,7 @@ struct CompileOutcome
     std::vector<std::string> errors;
     std::vector<std::string> modulePaths;   //ModulePathOf, TU order
     std::vector<std::string> directories;   //DirectoryOf, TU order
+    std::vector<CompiledModule> units;      //BuildUnitImages unit images (stub-rebuild checks)
 };
 
 //Compile the given sources with an optional project root.
@@ -119,6 +123,9 @@ CompileOutcome compile(const std::string& tag,
     try { images = builder.BuildUnitImages(); }
     catch (const std::exception&) { }
     outcome.ok = !images.units.empty();
+    //Move after the ok computation — reading the moved-from vector
+    //would pin ok to false.
+    outcome.units = std::move(images.units);
     outcome.errors = logger.errorsText();
     const ModuleRegistry& reg = builder.Registry();
     for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
@@ -1675,8 +1682,8 @@ private slots:
     //carry the full member surface the wire describes -- class fields
     //(private included, with access), the static/instance method split,
     //the virtual flag, constructor access, no ghost instance methods for
-    //constructors, struct constructors with wire-only fields, and the
-    //interface instance signature. This pins the CompiledModuleStubMembers
+    //constructors, struct constructors AND struct fields (0.10.14), and
+    //the interface instance signature. This pins the CompiledModuleStubMembers
     //rebuild shape against the rlib.n surface (the consumer only imports
     //the lib; member USE resolution is T3's contract).
     void importedTypeStubSurfaceRebuilt()
@@ -1748,7 +1755,7 @@ private slots:
         QCOMPARE(ctorPublicOneArg, size_t(1));
         QCOMPARE(ctorPrivateNoArg, size_t(1));
 
-        //--- struct Point: constructor stub, wire-only fields -----------
+        //--- struct Point: constructor stub + rebuilt fields ------------
         const SnField* pPoint =
             findMember(rootView.Members(), NK_StructDecl, "Point");
         QVERIFY2(pPoint != nullptr, "Point stub must reach the merged root");
@@ -1759,9 +1766,16 @@ private slots:
         QVERIFY2(pPointCtor != nullptr, "struct constructor must reach the stub");
         QVERIFY(pPointCtor->AccessType() == FA_Public);
         QVERIFY(static_cast<const SnFunction&>(*pPointCtor).Params().size() == 2);
-        //Struct fields stay wire-only (external struct field access is
-        //out of scope; the stub carries constructors only).
-        QVERIFY(findMember(point.Members(), NK_StructField, "x") == nullptr);
+        //0.10.14: struct fields rebuild from the wire too — both fields
+        //land on the stub, public (the declaration contract keeps struct
+        //members public).
+        const SnField* pPointX =
+            findMember(point.Members(), NK_StructField, "x");
+        QVERIFY2(pPointX != nullptr, "struct field x must reach the stub");
+        QVERIFY(pPointX->AccessType() == FA_Public);
+        const SnField* pPointY =
+            findMember(point.Members(), NK_StructField, "y");
+        QVERIFY2(pPointY != nullptr, "struct field y must reach the stub");
 
         //--- interface Greeter: instance signature ----------------------
         const SnField* pGreeter =
@@ -1829,6 +1843,234 @@ private slots:
         QVERIFY(pW == pWidget);
         QVERIFY(pb[0]->Type()->Field() == pW);
         QVERIFY(pb[1]->Type()->Field() == pW);
+    }
+
+    //0.10.14: the struct stub rebuilds its own fields from the wire —
+    //names, types, and declaration order (stub order = wire order =
+    //producer declaration order, which is what FindFieldOffset counts).
+    void importedStructStubRebuildsFields()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_stub_struct_fields";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "lib.n", std::ios::binary)
+            << "struct Vec {\n"
+               "    int x;\n"
+               "    float y;\n"
+               "    public Vec(int a, float b) { x = a; y = b; }\n"
+               "}\n";
+        const auto outcome = compile("stub_struct_fields",
+            {(dir / "lib.n").string()}, dir.string());
+        QVERIFY2(outcome.ok, "producer lib must build clean");
+        QCOMPARE(outcome.units.size(), size_t(1));
+
+        //Mint the consumer stubs over a fresh runtime tree (the same
+        //path ModuleBuilderImports takes for an imported .ncu). The
+        //global tree is required, not a local one: the scalar
+        //pre-binding inside SynthTypeExprFromDesc resolves through
+        //TheAST().FindNode (SnBuiltinDataType::InstanceOf), and
+        //compile()'s ModuleBuilder destructor clears the global tree
+        //— a local tree would mint unbound scalar field types.
+        BuildParams params;
+        MemLogger logger;
+        BuildEnvironment env(params, logger);
+        TheAST().Clear();
+        TheAST().BuildFromRuntime(env);
+        CompiledModuleNodeBuilder stubBuilder(TheAST(), "lib");
+        stubBuilder.BuildFromCompiledModule(outcome.units[0]);
+
+        const SnField* pVec =
+            findMember(TheAST().Root()->Members(), NK_StructDecl, "Vec");
+        QVERIFY2(pVec != nullptr, "Vec stub must reach the consumer root");
+        QVERIFY(pVec->ContainFlags(NF_Imported));
+        const auto& vec = static_cast<const SnStructDecl&>(*pVec);
+
+        //Type() lives on SnStructField, not the SnField base.
+        std::vector<const SnStructField*> fields;
+        for (const auto& member : vec.Members())
+            if (member.Kind() == NK_StructField)
+                fields.push_back(static_cast<const SnStructField*>(&member));
+        QCOMPARE(fields.size(), size_t(2));
+        QCOMPARE(fields[0]->Name(), std::string("x"));
+        QCOMPARE(fields[1]->Name(), std::string("y"));
+        //The minted type expression is syntactic (SynthTypeExprFromDesc
+        //mirrors the parser's shape; the consumer's ResolveDataTypes
+        //pass binds named types later — e2e imported_struct_field_*
+        //pin the end-to-end typed behavior). Scalars arrive pre-bound:
+        //the builtin-kind SnIdentifierExpr ctor keeps the node kind at
+        //NK_IdentifierExpr (the parser's shape for every type
+        //reference) and points Field() at the builtin type node,
+        //exactly like a parsed `int x;` once resolution has run.
+        QVERIFY2(fields[0]->Type() != nullptr, "field x must carry a type");
+        QVERIFY(fields[0]->Type()->Kind() == NK_IdentifierExpr);
+        QVERIFY2(fields[0]->Type()->Field() != nullptr,
+            "scalar stub type must be pre-bound to its builtin type");
+        QVERIFY(fields[0]->Type()->Field()->Kind() == NK_Int32);
+        QVERIFY(fields[1]->Type() != nullptr);
+        QVERIFY(fields[1]->Type()->Kind() == NK_IdentifierExpr);
+        QVERIFY(fields[1]->Type()->Field() != nullptr);
+        QVERIFY(fields[1]->Type()->Field()->Kind() == NK_Float);
+    }
+
+    //0.10.14: the enum stub rebuilds value members (sparse gaps
+    //skipped, member value = table index) and member methods with their
+    //declared access — and the enum's methods are NOT promoted to free
+    //stubs (the double-mint the enum import corrects).
+    void importedEnumStubRebuildsMembersAndMethods()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_stub_enum";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "lib.n", std::ios::binary)
+            << "enum Color {\n"
+               "    Red, Green = 5, Blue;\n"
+               "    public int rank() { return this; }\n"
+               "    private int hidden() { return 0; }\n"
+               "}\n";
+        const auto outcome = compile("stub_enum",
+            {(dir / "lib.n").string()}, dir.string());
+        QVERIFY2(outcome.ok, "producer lib must build clean");
+        QCOMPARE(outcome.units.size(), size_t(1));
+
+        //Global tree, same reason as importedStructStubRebuildsFields.
+        BuildParams params;
+        MemLogger logger;
+        BuildEnvironment env(params, logger);
+        TheAST().Clear();
+        TheAST().BuildFromRuntime(env);
+        CompiledModuleNodeBuilder stubBuilder(TheAST(), "lib");
+        stubBuilder.BuildFromCompiledModule(outcome.units[0]);
+
+        const SnField* pColor =
+            findMember(TheAST().Root()->Members(), NK_EnumDecl, "Color");
+        QVERIFY2(pColor != nullptr, "Color stub must reach the consumer root");
+        QVERIFY(pColor->ContainFlags(NF_Imported));
+        const auto& color = static_cast<const SnEnumDecl&>(*pColor);
+
+        std::vector<const SnEnumMember*> values;
+        for (const auto& member : color.Members())
+            values.push_back(&member);
+        QCOMPARE(values.size(), size_t(3));
+        QCOMPARE(values[0]->Name(), std::string("Red"));
+        QCOMPARE(values[0]->Value(), 0);
+        QCOMPARE(values[1]->Name(), std::string("Green"));
+        QCOMPARE(values[1]->Value(), 5);   //sparse gap: value = table index
+        QCOMPARE(values[2]->Name(), std::string("Blue"));
+        QCOMPARE(values[2]->Value(), 6);
+
+        std::vector<const SnFunction*> methods;
+        for (const auto& method : color.Methods())
+            methods.push_back(&method);
+        QCOMPARE(methods.size(), size_t(2));
+        QCOMPARE(methods[0]->Name(), std::string("rank"));
+        QCOMPARE(static_cast<int>(methods[0]->AccessType()),
+            static_cast<int>(FA_Public));
+        QCOMPARE(methods[1]->Name(), std::string("hidden"));
+        QCOMPARE(static_cast<int>(methods[1]->AccessType()),
+            static_cast<int>(FA_Private));
+
+        //Free-stub filter: the enum's methods stay owned by the enum.
+        QVERIFY2(findMember(TheAST().Root()->Members(), NK_Function, "rank")
+            == nullptr, "enum method must not be promoted to a free stub");
+    }
+
+    //0.10.14 (Review Focus #3): the producer-index clamp keeps a table
+    //beyond the 16-bit index space on the 0xFFFF fallback — never a
+    //wrap into a wrong record.
+    void producerIdxClampKeepsFallback()
+    {
+        QCOMPARE(ProducerIdxClamp(0), uint16_t(0));
+        QCOMPARE(ProducerIdxClamp(7), uint16_t(7));
+        QCOMPARE(ProducerIdxClamp(0xFFFF), uint16_t(0xFFFF));
+        QCOMPARE(ProducerIdxClamp(0x10000), uint16_t(0xFFFF));
+    }
+
+    //0.10.14 (spec §7): two overload calls mint TWO namespace-level
+    //slot records with distinct ownerOrdinals — the FunctionSymbolSlot
+    //dedup key already carries the ordinal, so the pair must not
+    //collapse into one record.
+    void overloadCallsMintDistinctOrdinalRecords()
+    {
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path()
+            / "nlang_overload_ordinal_records";
+        const fs::path src = root / "src";
+        const fs::path out = root / "out";
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(src, ec);
+        fs::create_directories(out, ec);
+        auto writeFile = [](const fs::path& file, const char* body)
+        {
+            std::ofstream s(file, std::ios::binary);
+            s << body;
+            return s.good();
+        };
+        //Sealed layout (mirrors the e2e directory-form runner): the
+        //producer SOURCE lives in src/, its .ncu artifact in out/. The
+        //consumer's only import dir is out/, which carries no .n source,
+        //so the producer resolves through the external-stub path (the
+        //cross-module package model the spec pins) — never through
+        //library-source inlining, where the consumer cannot know the
+        //producer's compiled table index and the 0xFFFF fallback keeps
+        //today's ambiguity (spec section 6).
+        QVERIFY(writeFile(src / "ovlib.n",
+            "int ov(int v) { return v + 1; }\n"
+            "int ov(double v) { return 100; }\n"));
+        QVERIFY(writeFile(src / "main.n",
+            "import ovlib;\n"
+            "int main() { return ovlib.ov(1) + ovlib.ov(2.5); }\n"));
+        //Stage 1: the producer .ncu (module name "ovlib" is unique in
+        //this process, so the global ModuleManager never refuses it).
+        {
+            BuildParams lp;
+            lp.m_ImportDirs.clear();
+            lp.m_SourceFiles.push_back((src / "ovlib.n").string());
+            lp.m_sOutputModule = "ovlib";
+            lp.m_sOutputDir = out.string();
+            lp.m_sTempDir = out.string();
+            lp.m_sStdLibDir = STDLIB_DIR;
+            MemLogger ll;
+            ModuleBuilder lb(lp, ll);
+            bool libOk = false;
+            try { libOk = lb.BuildArtifacts(); }
+            catch (const std::exception&) { libOk = false; }
+            QVERIFY2(libOk, joinErrors(ll.errorsText()).c_str());
+        }
+        //Stage 2: the consumer — unit images in hand, no artifact write.
+        //out/ is the sole import dir (only ovlib.ncu, no ovlib.n).
+        BuildParams mp;
+        mp.m_ImportDirs.clear();
+        mp.m_ImportDirs.push_back(out.string());
+        mp.m_SourceFiles.push_back((src / "main.n").string());
+        mp.m_sProjectDir = src.string();
+        mp.m_sOutputModule = "ovtest";
+        mp.m_sOutputDir = out.string();
+        mp.m_sTempDir = out.string();
+        mp.m_sStdLibDir = STDLIB_DIR;
+        MemLogger ml;
+        ModuleBuilder mb(mp, ml);
+        ModuleBuilder::UnitImages images;
+        try { images = mb.BuildUnitImages(); }
+        catch (const std::exception& e) { QFAIL(e.what()); }
+        QVERIFY2(!images.units.empty(),
+            joinErrors(ml.errorsText()).c_str());
+        //Collect the ovlib.ov namespace records across every unit
+        //image (only main mints them; name is the qualified key).
+        int found = 0;
+        uint16_t ordinals[2] = {0xFFFF, 0xFFFF};
+        for (const auto& u : images.units)
+            for (const auto& imp : u.functionImports)
+                if (imp.name == "ovlib.ov" && imp.paramCount == 1)
+                {
+                    QVERIFY2(found < 2, "exactly two records expected");
+                    ordinals[found++] = imp.ownerOrdinal;
+                }
+        QCOMPARE(found, 2);
+        QVERIFY2(ordinals[0] != 0xFFFF && ordinals[1] != 0xFFFF,
+            "both records carry a real producer table index");
+        QVERIFY2(ordinals[0] != ordinals[1],
+            "the two overload records carry distinct ordinals");
     }
 };
 

@@ -29,6 +29,7 @@ int main()
 |---|---|---|
 | `bin\nvm.exe` | VM执行器 | 运行脚本 |
 | `bin\ncc.exe` | 编译器 | 从源码编译 |
+| `bin\nlang.exe` | 脚本运行器（一步编译并运行`.n`） | 直接运行脚本 |
 | `bin\ndb.exe` | 调试器 | 调试集成 |
 | `bin\ndisasm.exe` | 字节码反汇编 | 深度诊断 |
 | `bin\nide.exe`与Qt运行时 | 集成开发环境（IDE，integrated development environment）及其依赖 | 仅图形界面开发 |

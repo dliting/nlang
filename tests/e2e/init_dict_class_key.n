@@ -1,0 +1,11 @@
+// 0.10.10: a class instance is a Dict key (identity comparison).
+class Box {
+    public int m;
+}
+
+int main() {
+    Box b = Box();
+    b.m = 5;
+    Dict<Box, int> d = {b: 9};
+    return d[b];
+}

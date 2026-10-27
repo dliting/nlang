@@ -1,5 +1,6 @@
 # Object与装箱
 
+规范性规则见规范§4.9。
 
 `Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。其声明位于`stdlib/builtins.n`——预置包`builtins`，每次构建自动导入（见[标准库](standard-library.md)）；与其他预置声明一样，它是可阅读的普通源码。用户不写`class Foo : Object`——继承是隐式的，显式写法被拒绝。
 
@@ -41,6 +42,12 @@ Object还提供第三个虚方法`string toString()`：默认输出`类名@堆�
 | toString | `toString(): string` |
 
 **string的值语义**：string虽是基本类型，但`string.getHashCode()`与`string.equals(string)`调用被内建化为*值*语义（哈希用`std::hash`，equals用内容比较）。这使string无需包装类即可用作`Dict`键。见[字符串](string.md)。
+
+**协议方法不受访问修饰符限制，始终公开**：名字与签名匹配Object协议成员
+（`equals(Object): int`、`getHashCode(): int`、`toString(): string`）的
+方法，即使声明为默认访问或`private`，也可在类外调用——协议派发按名字
+查找、不检查可见性。修饰符在协议声明上照常接受但不产生封装效果；普通
+成员照常受检。
 
 **`==`运算符不受`equals`影响**：Object.equals是可选实现（opt-in）的方法。class引用上的`==`运算符直接比较堆索引。`equals`单独存在的原因，是允许用户类以值相等覆写它，而不破坏更大代码库中恒等相等测试。
 

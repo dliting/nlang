@@ -151,9 +151,14 @@ void VmExecutor::FreeOwnedArrayStructElements(int32_t heapIdx) {
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     if (at.elemKind != RTK_Struct)
         return;
-    int32_t length = m_structHeap[heapIdx][2];
+    //Stage-2 header: [3]=elemCount; the payload base derives from
+    //the record's own rank cell (same reads as MarkArrayElements —
+    //the pre-stage-2 layout read [2] as the length and [3+i] as the
+    //element refs, freeing live structs through the size cell).
+    const size_t payloadBase = ArrayPayloadBase(m_structHeap[heapIdx]);
+    int32_t length = m_structHeap[heapIdx][3];
     for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef = m_structHeap[heapIdx][3 + i];
+        int32_t elemRef = m_structHeap[heapIdx][payloadBase + i];
         if (elemRef > 0 && static_cast<size_t>(elemRef) < m_slotKinds.size()
             && m_slotKinds[elemRef] == RTK_Struct) {
             FreeNestedStructs(elemRef, at.elemTypeIdx);

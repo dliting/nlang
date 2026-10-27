@@ -1,0 +1,5 @@
+import lib;
+
+int main() {
+    return lib.Calc.run(1) + lib.Calc.run(2.5);
+}

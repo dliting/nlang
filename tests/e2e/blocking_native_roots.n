@@ -1,0 +1,26 @@
+// Blocking-native staged roots are per-section: a long blocking call on
+// one carrier must not revoke a later section's roots when it exits.
+// Main holds a long sum kernel per round; churn's short arange calls
+// mint arrays whose mint root is their only reference mid-fill. With a
+// shared truncated root list the mint gets swept mid-kernel and the
+// fill then hits a swept record (getArrayView raises through join).
+import tensor;
+import thread;
+
+void churn() {
+    int rounds = 0;
+    while (rounds < 3000) {
+        int[] probe = tensor.arange(0, 500, 1);
+        rounds = rounds + 1;
+    }
+}
+
+int main() {
+    double[] big = tensor.arange(0.0, 1000000.0, 1.0);
+    Thread t = thread.spawn(churn);
+    for (int round = 0; round < 60; round = round + 1) {
+        double s = tensor.sum(big);
+    }
+    thread.join(t);
+    return 0;
+}

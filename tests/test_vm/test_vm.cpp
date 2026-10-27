@@ -1,4 +1,5 @@
 #include "BytecodeEmitter.h"
+#include "BytecodeOps.h"
 #include "BytecodeReader.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/runtime/AutoPointers.h"
@@ -230,6 +231,12 @@ void test_module_import_slots_roundtrip() {
     mod.enumNames.push_back({});  //placeholder slot for lib.Color
     mod.enumKeys.push_back("app.Color");
     mod.enumKeys.push_back("lib.Color");  //placeholder carries the target key
+    //v2.9: the method tables keep the four-vector lockstep (the writer
+    //refuses a diverging module); this module carries no enum methods.
+    mod.enumMethodIndices.push_back({});
+    mod.enumMethodIndices.push_back({});
+    mod.enumMethodAccess.push_back({});
+    mod.enumMethodAccess.push_back({});
     mod.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::string tmpPath = std::filesystem::temp_directory_path().string()
@@ -978,6 +985,31 @@ void test_autopointers_move_semantics() {
     PASS();
 }
 
+// --- OpCode name table ---
+
+//The name table is positional against the OpCode enum: a swapped row
+//mislabels the disassembly of two opcodes at once (the array mnemonics
+//once did). Pin the four array rows plus the table's first and last
+//entry so a row insertion or swap cannot pass silently.
+void test_opcode_name_table() {
+    TEST(opcode_name_table);
+    CHECK(OpCodeName(OpCode::OP_Return) == std::string("return"),
+        "return labels the first opcode");
+    CHECK(OpCodeName(OpCode::OP_AssembleArrayN)
+              == std::string("assemble_array_n"),
+        "assemble_array_n labels OP_AssembleArrayN");
+    CHECK(OpCodeName(OpCode::OP_LoadElementFlat)
+              == std::string("load_element_flat"),
+        "load_element_flat labels OP_LoadElementFlat");
+    CHECK(OpCodeName(OpCode::OP_ArrayLength) == std::string("array_length"),
+        "array_length labels OP_ArrayLength");
+    CHECK(OpCodeName(OpCode::OP_ArrayShape) == std::string("array_shape"),
+        "array_shape labels OP_ArrayShape");
+    CHECK(OpCodeName(OpCode::OP_Shr) == std::string("shr"),
+        "shr labels the last opcode");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -997,6 +1029,13 @@ int main() {
 
     // CompiledModule
     test_find_function();
+
+    // OpCode name table (positional against the enum)
+    try { test_opcode_name_table(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
 
     // AutoPointers move semantics (header-only)
     try { test_autopointers_move_semantics(); }

@@ -200,13 +200,31 @@ std::string SnThisExpr::ToString() const
 
 SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
 	const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pArray(pArray), m_pIndex(pIndex)
+	Super_(s_Kind, loc), m_pArray(pArray)
 {
 	//Phase 13 Step 0.5 container unification: both operands are regular
 	//children (dual-storage invariant); the resolvers reach them through
-	//the Array()/Index() accessors with direct Accepts.
+	//the Array()/Indices() accessors with direct Accepts.
 	AddChild(m_pArray);
-	AddChild(m_pIndex);
+	m_pIndices.push_back(pIndex);
+	AddChild(pIndex);
+}
+
+SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray,
+	UniquePtrList<SnExpression> upIndices, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pArray(pArray)
+{
+	AddChild(m_pArray);
+	for (auto *pIndex : upIndices)
+	{
+		assert(pIndex);
+		m_pIndices.push_back(pIndex);
+		AddChild(pIndex);
+	}
+	//Ownership transferred to this node's children — release the
+	//source list so it does not double-delete at scope exit.
+	upIndices.Release();
+	assert(!m_pIndices.empty());
 }
 
 void SnSubscriptExpr::Accept(ISyntaxNodeVisitor &v)
@@ -228,10 +246,13 @@ bool SnSubscriptExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		ResetChild(m_pArray, static_cast<SnExpression *>(pNew));
 		return true;
 	}
-	if (m_pIndex == pOld)
+	for (auto *&pIndex : m_pIndices)
 	{
-		ResetChild(m_pIndex, static_cast<SnExpression *>(pNew));
-		return true;
+		if (pIndex == pOld)
+		{
+			ResetChild(pIndex, static_cast<SnExpression *>(pNew));
+			return true;
+		}
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
@@ -295,9 +316,15 @@ SnInitListExpr::SnInitListExpr(SnFieldExpr *pExplicitType,
 {
 	if (m_pExplicitType)
 		AddChild(m_pExplicitType);
+	//0.10.10: every entry registers key-then-value so Children() order
+	//matches entry order; consumers must not assume value-only children.
 	for (auto &e : m_entries)
+	{
+		if (e.pKey)
+			AddChild(e.pKey);
 		if (e.pValue)
 			AddChild(e.pValue);
+	}
 }
 
 SnInitListExpr::~SnInitListExpr()

@@ -1,6 +1,6 @@
 # If
 
-
+The normative rules are in [specification §6.3](../specification/06-statements.md).
 ```nlang
 if (cond) { body }
 if (cond) { body } else { body }

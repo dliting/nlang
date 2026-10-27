@@ -1,0 +1,9 @@
+//Sealed .ncu import: subscript-write and read an imported array field.
+//Expected 20+3=23.
+import lib;
+
+int main() {
+	lib.Grid g = lib.Grid();
+	g.cells[1] = 20;
+	return g.cells[1] + g.cells[2];
+}

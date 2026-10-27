@@ -19,11 +19,11 @@ namespace nlang {
 //mechanics). All four helpers discriminate by IsOwnUnit first and THROW
 //when an own declaration misses its table: a silent placeholder would
 //target the unit's own module path and could "link" to itself, hiding
-//the registration-order bug. Imported ENUM stubs never enter
-//m_enumIndexMap — safe, because only the parser creates SnEnumDecl
-//(a .ncu import builds no enum AST node), so every pEnumDecl reaching
-//EnumSlotFor is a registered source enum and the own-miss throw
-//cannot fire.
+//the registration-order bug. Imported ENUM stubs (0.10.14) never enter
+//m_enumIndexMap: the minted stub is NF_Imported and reaches
+//EnumSlotFor's placeholder-slot branch (the own-miss throw only fires
+//for own declarations), so the cross-unit EnumSymbolSlot channel —
+//dead until the enum stub landed — is the live path.
 uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     if (IsOwnUnit(callee)) {
         auto it = m_funcIndexMap.find(&callee);
@@ -51,6 +51,21 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
             || pParent->Kind() == NK_EnumDecl)
         && !isStatic;
     auto meta = CrossUnitOwnerMeta(callee);
+    //0.10.14: the namespace branch (free functions, interface statics,
+    //enum methods — CrossUnitOwnerMeta leaves ownerKind 0 + an empty
+    //owner key) carries the stub's producer function-table index as
+    //the record's ordinal, so nlink single-selects the callee's record
+    //instead of scanning by name+arity. Class/struct members keep the
+    //replayed member ordinal computed above. A same-build cross-unit
+    //callee (an inlined library source, or another user unit in a
+    //project) is no stub and carries no minted index — replay it from
+    //the shared declaration tree; without it, same-name same-arity
+    //overloads (the tensor elementwise family) link ambiguously.
+    if (meta.ownerClassKey.empty()) {
+        meta.ownerOrdinal = callee.m_iProducerFuncIdx;
+        if (meta.ownerOrdinal == 0xFFFF)
+            meta.ownerOrdinal = ProducerIdxOfCrossUnitFunc(callee);
+    }
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(

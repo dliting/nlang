@@ -54,6 +54,16 @@ int churnStrings(int rounds) {
     return s.length();
 }
 
+int[,,] makeCube() {
+    int[,,] c = int[2, 2, 2];
+    c[1, 1, 1] = 7;
+    return c;
+}
+
+int readCubeCell(int[,,] c) {
+    return c[1, 1, 1];
+}
+
 int main() {
     return 0;
 }

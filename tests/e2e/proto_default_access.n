@@ -1,0 +1,15 @@
+// 0.10.7 D5: protocol methods are callable from outside regardless of
+// the access modifier (name-keyed dispatch); the rule is now documented
+// in object.md. Default-access toString also feeds the implicit string
+// coercion.
+class C {
+    string toString() { return "ab"; }
+    int getHashCode() { return 3; }
+}
+int main() {
+    C c = C();
+    string s = "x" + c;
+    if (s != "xab") { return 9; }
+    if (c.toString() != "ab") { return 9; }
+    return c.getHashCode();
+}

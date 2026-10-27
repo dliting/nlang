@@ -1,7 +1,8 @@
-// 0.9.0: unsized siblings of a sized declarator share the array type.
+// 0.10.7 D2: per-declarator typing — the unsized sibling keeps the head
+// type (a plain int), not the sized declarator's array type.
 int main() {
     int a[3], b;
-    b = [1, 2];
+    b = 5;
     a[0] = 4;
-    return b[1] + a[0];
+    return b + a[0];
 }

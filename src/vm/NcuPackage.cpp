@@ -66,8 +66,9 @@ uint64_t GetU64(const std::string &image, size_t pos)
 
 uint64_t NcuChecksum(const char *data, size_t size)
 {
-    //FNV-1a 64.
-    uint64_t hash = 1469598103934665603ull;
+    //FNV-1a 64 (the standard offset basis and prime; the basis once
+    //lost its last digit here — see the known-answer tests).
+    uint64_t hash = 14695981039346656037ull;
     for (size_t i = 0; i < size; ++i)
     {
         hash ^= static_cast<unsigned char>(data[i]);

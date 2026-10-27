@@ -23,7 +23,18 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 		out.push_back(static_cast<uint8_t>(td.typeIdx & 0xFF));
 		out.push_back(static_cast<uint8_t>(td.typeIdx >> 8));
 	}
-	else if (td.kind == RTK_Array || td.kind == RTK_List)
+	else if (td.kind == RTK_Array)
+	{
+		if (td.elems.empty())
+			throw std::runtime_error(
+				"type descriptor arity violation: container kind without "
+				"its nested descriptor");
+		AppendTypeDescBytes(out, td.elems[0]);
+		//v2.11: the rank rides after the element descriptor, so the
+		//consumer's stub rebuild mints T[,] instead of degrading to T[].
+		out.push_back(td.rank);
+	}
+	else if (td.kind == RTK_List)
 	{
 		if (td.elems.empty())
 			throw std::runtime_error(
@@ -59,9 +70,8 @@ namespace {
 TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth);
 
-//RTK_Func body: u8 paramCount, then the params and the return as nested
-//descriptors (mirror of AppendTypeDescBytes). The depth cap rides the
-//recursion like the container arms.
+//RTK_Func body: u8 paramCount, then the params and the return as
+//nested descriptors (mirror of AppendTypeDescBytes).
 void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 	size_t& pos, size_t depth)
 {
@@ -72,6 +82,21 @@ void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 	for (uint8_t param = 0; param < paramCount; ++param)
 		td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+}
+
+//RTK_Array body: the element descriptor, then the v2.11 rank byte
+//(the cap mirrors the language-side kMaxArrayRank).
+void ParseArrayBody(TypeDesc& td, const uint8_t* pData, size_t size,
+	size_t& pos, size_t depth)
+{
+	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+	if (pos >= size)
+		throw std::runtime_error(
+			"Invalid module: truncated type descriptor");
+	td.rank = pData[pos++];
+	if (td.rank < 1 || td.rank > kMaxArrayRank)
+		throw std::runtime_error(
+			"Invalid module: array descriptor rank out of range");
 }
 
 TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
@@ -95,6 +120,8 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			pos += 2;
 			break;
 		case RTK_Array:
+			ParseArrayBody(td, pData, size, pos, depth);
+			break;
 		case RTK_List:
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			break;
@@ -107,15 +134,13 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			break;
 		case RTK_String:
 		case RTK_Boxed:
-		//Void leaf: legal only as the return slot of an RTK_Func
-		//descriptor — a top-level one degrades to the int32 placeholder
-		//on the consumer side.
+		//Void leaf: legal only as an RTK_Func return slot — a top-level
+		//one degrades to the int32 placeholder on the consumer side.
 		case RTK_Void:
 		case RTK_NonSerialized:
 			break;
 		default:
-			//0.7.5: every scalar kind (RTK_Int32/RTK_Float and the
-			//RTK_Byte..RTK_Char family) is a kind-byte-only leaf —
+			//0.7.5: every scalar kind is a kind-byte-only leaf —
 			//accept through the registry instead of enumerating rows.
 			if (ScalarPrimIndexOfRtk(td.kind) < 0)
 				throw std::runtime_error(
@@ -203,6 +228,7 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 			return td;
 		}
 		td.kind = RTK_Array;
+		td.rank = static_cast<SnArrayTypeToken*>(pType)->Rank();
 		td.elems.push_back(BuildTypeDesc(
 			static_cast<SnArrayTypeToken*>(pType)->ElemTypeOf(), slots,
 			depth + 1));

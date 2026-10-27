@@ -1,0 +1,6 @@
+// 0.10.9 p23: one keyless entry among keyed ones is rejected — before
+// the gate the keyed entry survived and the keyless one was dropped.
+int main() {
+    Dict<string, int> d = {"a": 1, 2};
+    return d.count();
+}

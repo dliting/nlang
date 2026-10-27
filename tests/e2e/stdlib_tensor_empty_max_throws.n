@@ -1,0 +1,8 @@
+// tensor max of an empty array: uncaught base Exception, exit 1.
+import tensor;
+
+int main() {
+    int[] e = int[0];
+    int m = tensor.max(e);
+    return m;
+}

@@ -1,0 +1,6 @@
+// Row widths must agree at resolve time; a jagged literal is a named
+// rejection, not a silent rectangular truncation.
+int main() {
+    int[,] a = [[1, 2], [3]];
+    return 0;
+}

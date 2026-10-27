@@ -1,0 +1,23 @@
+// Stage-3 D3: expression rows in an ND initializer lower via
+// OP_AssembleArrayN - the first row pins the inner dims, every row is
+// validated against it, and the payload lands row-major.
+int[] makeRow(int w) {
+    int[] r = int[w];
+    for (int i = 0; i < w; i += 1) {
+        r[i] = i * 10;
+    }
+    return r;
+}
+
+int main() {
+    int[,] m = [makeRow(2), makeRow(2)];
+    if (m.shape()[0] != 2 || m.shape()[1] != 2) return 1;
+    if (m[0,0] != 0 || m[0,1] != 10) return 2;
+    if (m[1,0] != 0 || m[1,1] != 10) return 3;
+    int s = 0;
+    foreach (int v in m) {
+        s += v;
+    }
+    if (s != 20) return 4;
+    return 0;
+}

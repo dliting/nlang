@@ -1,0 +1,6 @@
+// 0.10.10: a string variable names a Dict key (expression key).
+int main() {
+    string k = "key";
+    Dict<string, int> d = {k: 7};
+    return d["key"];
+}

@@ -113,7 +113,8 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 		case RTK_Array:
 			if (!td.elems.empty())
 				return new SnArrayTypeExpr(
-					SynthTypeExprFromDesc(td.elems[0], cm, loc), loc);
+					SynthTypeExprFromDesc(td.elems[0], cm, loc), loc,
+					td.rank);
 			break;
 		case RTK_List:
 			if (!td.elems.empty())

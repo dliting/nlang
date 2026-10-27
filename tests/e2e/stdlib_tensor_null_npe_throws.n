@@ -1,0 +1,9 @@
+// tensor null array argument: NullPointerException, uncaught (exit 1).
+import tensor;
+
+int main() {
+    double[] a = double[2];
+    double[] b = null;
+    double[] s = tensor.add(a, b);
+    return 0;
+}

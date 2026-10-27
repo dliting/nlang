@@ -154,6 +154,9 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 sizeof(mod.arrayTypes[i].elemKind));
         fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemTypeIdx),
                 sizeof(mod.arrayTypes[i].elemTypeIdx));
+        //Stage-2: rank rides the record (v2.10).
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].rank),
+                sizeof(mod.arrayTypes[i].rank));
     }
 
     //Phase 8e-9b: enum name tables.
@@ -190,6 +193,29 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                     "Invalid module: truncated enum keys");
             mod.enumKeys[i].resize(len);
             fs.read(mod.enumKeys[i].data(), len);
+        }
+        //v2.9 (0.10.14): per-enum member-method tables (parallel to
+        //enumNames/enumKeys). Per enum: uint32 methodCount, then per
+        //method: uint16 function index + uint8 access byte.
+        mod.enumMethodIndices.resize(enumCount);
+        mod.enumMethodAccess.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint32_t methodCount;
+            fs.read(reinterpret_cast<char*>(&methodCount),
+                    sizeof(methodCount));
+            if (!fs.good() || methodCount > (1u << 20))
+                throw std::runtime_error(
+                    "Invalid module: bad enum method count");
+            mod.enumMethodIndices[i].resize(methodCount);
+            mod.enumMethodAccess[i].resize(methodCount);
+            for (uint32_t j = 0; j < methodCount; ++j) {
+                fs.read(reinterpret_cast<char*>(
+                    &mod.enumMethodIndices[i][j]),
+                    sizeof(mod.enumMethodIndices[i][j]));
+                fs.read(reinterpret_cast<char*>(
+                    &mod.enumMethodAccess[i][j]),
+                    sizeof(mod.enumMethodAccess[i][j]));
+            }
         }
         if (!fs.good())
             throw std::runtime_error("Invalid module: truncated enum keys");

@@ -1,0 +1,11 @@
+// Zero dimensions are legal: elemCount 0.
+import io;
+int main() {
+    int[,] a = int[0,3];
+    if (a.length() != 0) return 1;
+    int s = 0;
+    foreach (int v in a) s = s + 1;
+    if (s != 0) return 2;
+    io.print("empty");
+    return 0;
+}

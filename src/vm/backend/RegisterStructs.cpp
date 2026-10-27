@@ -1,11 +1,13 @@
 /*---
-    RegisterStructs.cpp — struct 注册族（RegisterStructDecl/RegisterStructs/
-    ResolveStructClassRefs）。从 Register.cpp 拆出（2026-10-27 尺寸守卫触发的
-    拆分，零行为变化；先例见 RegisterArrayTypes.cpp）。
+    RegisterStructs.cpp — 结构体登记族：RegisterStructDecl/RegisterStructs
+    （结构体表填充）与 ResolveStructClassRefs（类/类型描述回填）。
+    从 Register.cpp 拆出（尺寸守卫触发的拆分，沿用一族一 TU 惯例；
+    先例见 RegisterArrayTypes.cpp）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SyntaxTree.h>
 #include <nlang/compiler/SnData.h>
+#include "builder/ModuleRegistry.h"
 #include <vector>
 
 namespace nlang {

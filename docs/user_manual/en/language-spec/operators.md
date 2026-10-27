@@ -1,5 +1,6 @@
 # Operators
 
+The normative rules are in [specification §5.2 and §5.3](../specification/05-expressions.md).
 
 ### Arithmetic
 
@@ -109,6 +110,11 @@ Comparison results are always **`bool`** (`true` / `false`).
   char against a number goes through no implicit conversion — take the
   code point first with `c as int` (`a char value can only be compared
   with a char value`).
+- **bool compares only with bool, and only for equality**: `true == true`
+  is true, but ordering a bool is a compile error (`bool values cannot be
+  ordered; only == and != are supported`), and so is comparing a bool
+  with any other type (`a bool value can only be compared with a bool
+  value`).
 - **String equality** compares content; string relational order is a
   C `strcmp`-style byte-wise comparison (e.g. `"Z" < "a"` is true because
   `'Z'`(90) < `'a'`(97)). Since strings are stored in the Unicode Transformation Format (UTF-8) and UTF-8 byte order
@@ -134,4 +140,4 @@ observable effect at all — no calls, no throws. The result is always
 **`bool`** (never an original operand value). The operands of `&&`,
 `||`, and `!` must be `bool` (`operator '&&' requires bool operands`) —
 comparisons and predicates already produce bool. See
-[Statements](statements.md) "Condition types".
+[Statements](statements.md) "Condition typing".

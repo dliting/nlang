@@ -1,5 +1,8 @@
 # The concurrent Package
 
+The normative rules are in [specification §11.3](../specification/11-concurrency.md)
+and [§17.2](../specification/17-concurrency-library.md).
+
 ## When to use
 
 `WaitGroup` waits for a fan-out batch: `add` the unit count before

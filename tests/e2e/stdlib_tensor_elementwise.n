@@ -1,0 +1,49 @@
+// tensor elementwise binary kernels: same-name overloads across
+// int/long/float/double; the native dispatches on the runtime element
+// kind. Division semantics follow the language: integer /0 raises
+// DivByZeroException, float/double /0 yields IEEE Inf/NaN.
+import io;
+import tensor;
+
+int main() {
+    // add across all four kinds
+    int[] ai = tensor.arangeI(1, 5, 1);            // 1 2 3 4
+    int[] bi = tensor.full(4, 10);
+    int[] si = tensor.add(ai, bi);
+    if (si[0] != 11 || si[3] != 14) return 1;
+
+    long[] al = tensor.arangeL(1, 5, 1);
+    long[] sl = tensor.add(al, al);
+    if (sl[0] != 2 || sl[3] != 8) return 2;
+
+    float[] af = tensor.arangeF(1.0f, 3.0f, 1.0f);
+    float[] sf = tensor.sub(af, af);
+    if (sf[0] != 0.0f || sf[1] != 0.0f) return 3;
+
+    double[] ad = tensor.arangeD(0.0, 2.0, 0.5);   // 0 0.5 1.0 1.5
+    double[] sd = tensor.add(ad, ad);
+    if (sd[0] != 0.0 || sd[1] != 1.0 || sd[3] != 3.0) return 4;
+
+    // mul / div (double)
+    double[] md = tensor.mul(ad, ad);
+    if (md[1] != 0.25) return 5;
+    double[] dd = tensor.div(tensor.full(4, 3.0), tensor.full(4, 2.0));
+    if (dd[0] != 1.5) return 6;
+
+    // double division by zero yields +Inf (IEEE), printed not asserted
+    double[] dz = tensor.div(tensor.full(2, 1.0), double[2]);
+    if (dz[0] <= 0.0) return 7;                    // +Inf passes > 0
+
+    // sub (int)
+    int[] mi = tensor.sub(bi, ai);
+    if (mi[0] != 9 || mi[3] != 6) return 8;
+
+    // integer division by zero raises the DivByZero family (catchable)
+    try {
+        int[] iz = tensor.div(bi, int[4]);
+        if (iz[0] != -1) return 9;                 // unreachable
+    } catch (DivByZeroException dbz) {
+        // expected
+    }
+    return 0;
+}

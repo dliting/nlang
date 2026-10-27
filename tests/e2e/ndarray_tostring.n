@@ -1,0 +1,11 @@
+// ND arrays format as nested brackets per rank, both through the io
+// printer (FormatArray) and through toString().
+import io;
+int main() {
+    int[,] a = [[1, 2], [3, 4]];
+    string s = a.toString();
+    int eq = 0;
+    if (s == "[[1, 2], [3, 4]]") eq = 1;
+    io.print(s + " " + eq.toString());
+    return 0;
+}

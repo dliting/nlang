@@ -37,7 +37,7 @@ nlang不经`main()`样板直接运行NLang语句，用法与python解释器一�
 
 ## func前缀前置声明
 
-顶层的裸`int f();`是语法错误，因为空参数形式必须属于函数定义。只声明不定义时，用`func`前缀显式标记：
+顶层的空括号属于零参构造，不属于函数声明：`Foo f();`经零参构造器构造一个`Foo`，而`int f();`会被拒绝（`"Int32" is not a class or struct type.`）。只声明不定义时，用`func`前缀显式标记：
 
 ```nlang
 func int twice(int v);   //声明：实现在别处（native或外部链接）

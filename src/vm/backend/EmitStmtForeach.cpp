@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include "EmitPrimOps.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
@@ -63,6 +64,8 @@ static ForeachIterableKind ClassifyForeachIterable(
         SnExpression* pIter) {
     ForeachIterableKind k;
     if (DetectDeclaredArraySource(pIter, k.elemType)) {
+        //Stage-2: array sources of ANY rank lower to the flat walk —
+        //rank-1 flat order is the linear order, unchanged.
         k.isArray = true;
         return k;
     }
@@ -256,8 +259,10 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         uint8_t elemKind, const ForeachSlots& slots,
         BytecodeEmitter& emitter) {
     if (isArray) {
-        //OP_LoadElement <dst> <arr> <index>
-        emitter.Emit(OpCode::OP_LoadElement);
+        //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
+        //is contiguous row-major, so the linear index walks rank-1 and
+        //rank-N arrays identically.
+        emitter.Emit(OpCode::OP_LoadElementFlat);
         emitter.EmitUint16(slots.userVarSlot);
         emitter.EmitUint16(slots.iterSlot);
         emitter.EmitUint16(slots.iSlot);

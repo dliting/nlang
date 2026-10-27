@@ -47,6 +47,7 @@ by qualified function name in the second file):
 
 ```console
 $ ncc build -p examples/hello_project/hello_project.nproj -o hello_project.npkg
+Output package file: hello_project.npkg ...
 Compiled successfully: hello_project.npkg
 $ ndb hello_project.npkg
 Stopped: main.main (main.n:6)

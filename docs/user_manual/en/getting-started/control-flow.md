@@ -82,10 +82,12 @@ int main() {
 ```
 
 Output `finally always runs` and `boom`; exit code 5. The built-in
-exception classes (e.g. `NullPointerException`, `DivByZeroException`,
-`IndexOutOfBoundsException`; the full list is in
-[Exceptions](../language-spec/exception.md)) all extend `Exception`;
-user classes can inherit from `Exception` too
-(`class MyException : Exception`).
+exception classes `NullPointerException`, `DivByZeroException`,
+`IndexOutOfBoundsException`, `AssertionException`, `InvalidCastException`,
+`IOException`, and `ChannelClosedException` all extend `Exception`; user
+classes can inherit from `Exception` too (`class MyException : Exception`).
+Which operations raise which class is mapped on the
+[Exceptions](../language-spec/exception.md) and
+[Exception mapping](../language-spec/stdlib-exceptions.md) pages.
 
 See also: [Language Specification / Exceptions](../language-spec/exception.md).

@@ -1,5 +1,6 @@
 # Class
 
+The normative rules are in [specification §4.7](../specification/04-types.md) and [chapter 8](../specification/08-object-orientation.md).
 
 A `class` is a reference-typed object: it lives on the heap and is accessed
 through a reference (a reference is the object's index on the heap). It carries fields, constructors, methods,
@@ -67,20 +68,19 @@ Node c;                   // declaration only: c is null
 - A **constructor call** `Node(42)` is an expression: it allocates the
   object on the heap, runs the constructor with the arguments, and
   returns the reference. Writing `P()` for a class without a constructor
-  is legal too — it just allocates and zero-initializes the fields. A
-  bare call of the class's own name inside the class body is not a
-  constructor call (see [Known Limitations](known-limitations.md)).
+  is legal too — it just allocates and zero-initializes the fields.
+  Inside the class body the class's own name still denotes a
+  constructor call — `Node(7)` in a method of `Node` creates a new
+  object.
 - The **anchored brace form** `P{value: 42}` fills fields with
   `field:value` entries: the class must have a parameterless
   constructor (explicit or implicit) — this page's `Node`, whose
   constructor takes `Node(int v)`, does not qualify; fields are
   assigned by name after construction. See [Collection
   Initializers](collection-initializers.md).
-- The declaration-site form `Node b(42);` is allowed only on the first
-  declarator (`Node a, b(42);` is a syntax error — the parenthesized form
-  cannot appear on a later declarator); the rules for sized
-  array declarations like `Node arr[3];` are in
-  [Known Limitations](known-limitations.md).
+- The declaration-site forms work on **every** declarator of a
+  comma-separated list: `Node a(1), b(42);` and `Node arr[3];` are both
+  legal — see the declarator forms in [Declarations](declarations.md).
 - A declaration without an initializer (`Node c;`) yields null — see the
   default value table in [Declarations](declarations.md) and Null check
   below.
@@ -258,13 +258,19 @@ arguments, and overloads included), and virtual calls dispatch
 dynamically exactly as within one unit.
 
 ```nlang
-import lib;   // lib declares: class B { public virtual int f(int x) { ... } }
+import lib;
 class D : lib.B {
     public int f(int x) { return x + 10; }   // overrides lib.B.f
 }
 int main() {
     D d = D();
     return d.f(3);
+}
+```
+
+```nlang lib.n
+class B {
+    public virtual int f(int x) { return x; }
 }
 ```
 
@@ -280,11 +286,12 @@ int main() {
   members are not, and `protected` members are reachable inside a
   subclass body. A non-`public` constructor cannot be called across
   the boundary.
-- **External structs and enums**: an imported `struct`'s fields are
-  not accessible across the module boundary (construction and passing
-  the value to the producer's functions work), and an `enum` is not
-  exported as a module member — see [Known
-  Limitations](known-limitations.md).
+- **External structs and enums**: an imported `struct`'s `public`
+  fields are readable and writable across the module boundary (and
+  the anchored brace form `lib.Vec v = {x: 1, y: 2};` fills fields by
+  name), and an `enum` is a full module member — its type, values,
+  member methods, and `toString` all work through the package name
+  (`lib.Color.Red`, `lib.Color.rank()`).
 
 ### Null check
 

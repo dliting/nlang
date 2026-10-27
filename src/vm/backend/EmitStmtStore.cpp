@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -128,10 +129,13 @@ static SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
 void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                       BytecodeEmitter& emitter) {
     SnField* elemType = ArrayElementStoreType(sub);
-    EvalAreaClaim claim(*this, 3);
+    //Stage-2: N indices + value + receiver in one exclusive claim;
+    //the receiver parks LAST (null-checked) like the rank-1 form.
+    const size_t rank = sub.Indices().size();
+    EvalAreaClaim claim(*this, rank + 2);
     uint16_t claimBase = claim.base();
-    uint16_t indexSlot = claimBase + kFrameSlotBytes;
-    uint16_t valueSlot = claimBase + 2 * kFrameSlotBytes;
+    uint16_t idxBase = claimBase + kFrameSlotBytes;
+    uint16_t valueSlot = claimBase + (rank + 1) * kFrameSlotBytes;
     //Object[] element stores arrive pre-boxed: the resolver's
     //element-type gate (Access(SnSubscriptAssignStmt)) wraps
     //primitive values in a TCK_Box cast, so this emit includes the
@@ -139,7 +143,9 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     //container path use. Null literals skip the wrap at the
     //resolver and keep their raw identity.
     EmitExpression(*sub.Value(), emitter, valueSlot);
-    EmitExpression(*sub.Index(), emitter, indexSlot);
+    for (size_t d = 0; d < rank; ++d)
+        EmitExpression(*sub.Indices()[d], emitter,
+            idxBase + d * kFrameSlotBytes);
     //Array reference last, null-checked (mirrors container path).
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
@@ -152,10 +158,11 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
         EmitStructDeepCopy(valueSlot, valueSlot,
             static_cast<SnStructDecl&>(*elemType), emitter);
     }
-    emitter.Emit(OpCode::OP_StoreElement);
+    emitter.Emit(OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(indexSlot);
+    emitter.EmitUint16(idxBase);
     emitter.EmitUint16(valueSlot);
+    emitter.EmitUint16(static_cast<uint16_t>(rank));
 }
 
 } //namespace nlang

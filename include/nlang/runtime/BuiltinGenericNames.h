@@ -46,6 +46,14 @@ inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 //element type decides send's boxing and recv's unboxing, so a bare
 //Channel is not a type). K3: Future (arity 1 — the type argument is the
 //spawned function's return type, delivered by Future.get).
+//
+//This set is also the scanner's generic-open flag set: a '<' directly
+//after one of these names is a type-argument opener. Declared generics
+//— the stdlib's Promise and every user-declared `class C<T>` — are
+//deliberately NOT here: no lex-time set can know a module's class
+//declarations, so their use sites parse on the grammar's plain-'<' type
+//arms instead (0.11 merge). The resolver routes on this set alone to
+//separate synthetic-minting from declared-template instantiation.
 inline bool IsBuiltinGenericTypeName(const std::string& name)
 {
 	return name == kBuiltinListTypeName || name == kBuiltinDictTypeName

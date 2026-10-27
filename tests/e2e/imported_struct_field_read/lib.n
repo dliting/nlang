@@ -1,0 +1,9 @@
+//0.10.14: producer exports a struct whose fields the consumer reads.
+//The struct stub rebuilds field members from the wire (the field data
+//has been serialized since v1.12), so the qualified field read
+//resolves against the stub instead of failing FindField.
+struct Vec {
+	int x;
+	int y;
+	public Vec(int a, int b) { x = a; y = b; }
+}

@@ -1,0 +1,6 @@
+// 0.10.10: an int literal key into Dict<long, int> converts by the
+// same rule as values.
+int main() {
+    Dict<long, int> d = {7: 40, 8: 2};
+    return d[7] + d[8];
+}

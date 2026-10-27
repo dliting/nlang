@@ -1,5 +1,6 @@
 # Primitives
 
+The normative rules are in [specification §4.2](../specification/04-types.md).
 
 NLang has 12 scalar primitive types: 8 integers, 2 floating-point types,
 `bool`, and `char`. A 13th primitive, `string`, is an immutable object with

@@ -1,0 +1,6 @@
+// 0.10.10: a concatenation of a variable and a literal is a Dict key.
+int main() {
+    string a = "x";
+    Dict<string, int> d = {a + "y": 3};
+    return d["xy"];
+}

@@ -205,22 +205,59 @@ void VmExecutor::FormatArrayElement(std::string& result,
     result += FormatArrayElemScalar(slot[off], elemKind, depth);
 }
 
+//One nesting level of ND formatting: the level's dim partitions the
+//remaining flat payload; the leaf level formats elements at the
+//running flat index (FormatArrayElement handles the per-kind cells).
+void VmExecutor::FormatArrayNDLevel(std::string& result,
+    const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
+    size_t& flatIndex, uint8_t elemKind, int cells, int depth) {
+    result += "[";
+    const int32_t n = slot[4 + level];
+    const size_t base = ArrayPayloadBase(slot);
+    for (int32_t i = 0; i < n; ++i) {
+        if (i > 0) result += ", ";
+        if (level + 1 < rank) {
+            FormatArrayNDLevel(result, slot, rank,
+                static_cast<uint8_t>(level + 1), flatIndex, elemKind,
+                cells, depth);
+        } else {
+            FormatArrayElement(result, slot,
+                base + flatIndex * static_cast<size_t>(cells), elemKind,
+                cells, depth);
+            ++flatIndex;
+        }
+    }
+    result += "]";
+}
+
 std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
             "NLang VM: toString depth limit exceeded");
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    int32_t length = slot[2];
+    int32_t length = slot[3];
     uint8_t elemKind = RTK_Int32;
     if (arrayTypeIdx < m_currModule->arrayTypes.size())
         elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
+    //Stage-2 ND: rank>=2 records carry the dims in the header over one
+    //flat row-major payload — the brackets nest per dim level, and a
+    //zero dim still shows its nesting (int[3,0] is "[[], [], []]").
+    const uint8_t rank = static_cast<uint8_t>(slot[2]);
+    if (rank >= 2) {
+        std::string result;
+        size_t flatIndex = 0;
+        FormatArrayNDLevel(result, slot, rank, 0, flatIndex, elemKind,
+            ArrayElemCells(elemKind), depth);
+        return result;
+    }
     if (length <= 0) return "[]";
     std::string result = "[";
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < length; ++i) {
         if (i > 0) result += ", ";
-        FormatArrayElement(result, slot, 3 + static_cast<size_t>(i) * cells,
+        FormatArrayElement(result, slot,
+            ArrayPayloadBase(slot) + static_cast<size_t>(i) * cells,
             elemKind, cells, depth);
     }
     result += "]";

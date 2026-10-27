@@ -1,0 +1,6 @@
+// 0.10.7 D3: the brace form at a sized declaration parses and gets the
+// named brace-reservation diagnostic (was a bare syntax error).
+int main() {
+    int a[3] = {1, 2, 3};
+    return 0;
+}

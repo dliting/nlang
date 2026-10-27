@@ -1,0 +1,6 @@
+// 0.10.8 D4: a keyed entry value may be a bare brace literal — the
+// Dict value slot (List<int>) is the nested target.
+int main() {
+    Dict<string, List<int>> d = {"a": {1, 2}, "b": {3}};
+    return d.get("a").length() + d.get("b").length();
+}

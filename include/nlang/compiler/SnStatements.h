@@ -211,6 +211,13 @@ public:
 		//pInitExpr; the resolver detaches it into a synthesized
 		//SnNewArrayExpr (an owning child, never deleted by hand).
 		SnExpression *pArraySize = nullptr;
+		//0.10.7 D2: set by the resolver when this declarator's slot is
+		//an array handle (size payload present). Codegen keys the slot
+		//kind on it: the statement type stays the head type for every
+		//declarator, and the pArraySize payload is consumed during
+		//resolution, so this flag is the only array-ness signal that
+		//reaches codegen for a sized declarator.
+		bool bArrayType = false;
 	};
 
 	SnLocalDeclStmt(SnFieldExpr *pType,
@@ -327,9 +334,18 @@ public:
 
 	SnSubscriptAssignStmt(SnExpression *pArray, SnExpression *pIndex,
 		SnExpression *pValue, const ISourceLocation &loc);
+	//Stage-2: comma index lists — a[i, j] = v. Takes ownership.
+	SnSubscriptAssignStmt(SnExpression *pArray,
+		UniquePtrList<SnExpression> upIndices, SnExpression *pValue,
+		const ISourceLocation &loc);
 
 	SnExpression *Array() const { return m_pArray; }
-	SnExpression *Index() const { return m_pIndex; }
+	//First index, or null (rank-1/dict paths read this convenience).
+	SnExpression *Index() const
+	{
+		return m_pIndices.empty() ? nullptr : m_pIndices.front();
+	}
+	const std::vector<SnExpression *> &Indices() const { return m_pIndices; }
 	SnExpression *Value() const { return m_pValue; }
 
 	std::string ToString() const override;
@@ -338,7 +354,7 @@ public:
 private:
 	friend class StatementResolveAccessor;
 	SnExpression *m_pArray;
-	SnExpression *m_pIndex;
+	std::vector<SnExpression *> m_pIndices;
 	SnExpression *m_pValue;
 };
 

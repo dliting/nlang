@@ -229,7 +229,8 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
     //the bulk-copy overflows callParamBase into evalArea.
     //StmtPeakDepth already walked it; this closes the asymmetry.
     MaxArgsWalkExpr(*sa.Array(), maxArgs);
-    MaxArgsWalkExpr(*sa.Index(), maxArgs);
+    for (auto *pIndex : sa.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
     MaxArgsWalkExpr(*sa.Value(), maxArgs);
 }
 
@@ -325,7 +326,8 @@ void VmBackend::MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs) {
     if (IsContainerSubscript(*sub.Array()) && maxArgs < 2)
         maxArgs = 2;
     MaxArgsWalkExpr(*sub.Array(), maxArgs);
-    MaxArgsWalkExpr(*sub.Index(), maxArgs);
+    for (auto *pIndex : sub.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
 }
 
 //MaxArgs walker, NK_MemberExpr arm.
@@ -396,7 +398,11 @@ void VmBackend::MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs) {
         //aliases evalArea[0] (the init-list's own handle slot).
         else if (bn == kBuiltinChannelTypeName && 2 > maxArgs) maxArgs = 2;
     }
-    for (auto& entry : init.Entries())
+    //0.10.10: keys are expressions too — a Dict key can carry
+    //implicit calls of its own (helper(1): v).
+    for (auto& entry : init.Entries()) {
+        if (entry.pKey) MaxArgsWalkExpr(*entry.pKey, maxArgs);
         if (entry.pValue) MaxArgsWalkExpr(*entry.pValue, maxArgs);
+    }
 }
 } //namespace nlang

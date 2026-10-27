@@ -1,0 +1,30 @@
+// Array allocation bounds: the length cap (100M elements) and the
+// int32 overflow edge both raise the catchable OutOfBounds family —
+// from the language's sized creation just like from native minting.
+import tensor;
+
+int main() {
+    //2-cell kind: 4 + 1100000000*2 overflows int32 without the guard —
+    //an uncatchable vector blow-up, not an exception.
+    try {
+        double[] big = double[1100000000];
+        if (big.length() != -1) return 1;   // unreachable
+    } catch (IndexOutOfBoundsException oob) {
+        // expected
+    }
+    //1-cell kind just past the cap.
+    try {
+        int[] many = int[100000001];
+        if (many.length() != -1) return 2;  // unreachable
+    } catch (IndexOutOfBoundsException oob2) {
+        // expected
+    }
+    //Native minting hits the same unified bound.
+    try {
+        double[] minted = tensor.full(100000001, 1.0);
+        if (minted.length() != -1) return 3; // unreachable
+    } catch (IndexOutOfBoundsException oob3) {
+        // expected
+    }
+    return 0;
+}

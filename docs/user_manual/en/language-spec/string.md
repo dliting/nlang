@@ -1,5 +1,6 @@
 # String
 
+The normative rules are in [specification §4.4](../specification/04-types.md).
 
 `string` is a primitive, but unlike the scalar types (integers, floats,
 `bool`, `char`) it is an **immutable object** referenced by a handle. This

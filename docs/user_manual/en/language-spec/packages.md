@@ -1,5 +1,6 @@
 # Packages
 
+The normative rules are in [specification chapter 12](../specification/12-packages.md).
 A **package** is NLang's unit of code identity. Every `.n` file is one
 package, and the package name comes from exactly one source: the file's
 path relative to the search root it was found under. There is no
@@ -16,14 +17,19 @@ import gfx.color.deep;
 
 ## Qualified names
 
-Everything a package declares is reached through its qualified name —
+Everything a package declares can be reached through its qualified
+name —
 `package.member` (and `package.sub.member` for a dotted package). The
 import opens the qualified name only: after `import lib;` you write
 `lib.f()`, and the bare `f()` does not resolve through the import. (A
 file in the same directory as the caller shares that directory's bare
 pool — the same-directory rule is unchanged.)
 
-Types are qualified the same way: `alib.Point`, `gfx.color.deep.Shade`.
+Qualified type names are spelled the same way: `alib.Point`,
+`gfx.color.deep.Shade`. Unlike functions, a type is also reachable by
+its bare name program-wide, whatever package declares it — the
+normative rule is
+[specification §3.6](../specification/03-program-structure.md).
 Two packages sharing a last path segment (`a.io`, `b.io`) are two
 different packages; each keeps its own functions and its own types, and
 one build may contain only one package of each dotted name — two
@@ -33,7 +39,7 @@ source paths.
 ## Compiled artifacts and qualified table keys
 
 Every package compiles into its own **unit image** (`.ncu`, format
-v2.0), and each struct/class/function table key in the image is
+v2.9), and each struct/class/function table key in the image is
 **package-qualified**: `main.main`, `utils.helper.help`, `alib.Point`.
 Ownerless built-ins keep their bare keys (`Object`, `List`). References
 into other packages are recorded as **import references** (target module
@@ -45,8 +51,8 @@ tool spelling wherever a symbol is named:
 
 - breakpoints take the qualified name: `b main.main`,
   `b mathutil.triple`;
-- backtraces and stop lines print it: `#0 main.main (main.n:6)`,
-  `Stopped: utils.helper.inner`;
+- backtraces and stop lines print it: `#0  main.main (main.n:6)`,
+  `Stopped: utils.helper.inner (helper.n:6)`;
 - `ndisasm -func main.main` filters by the same spelling;
 - a value of function type renders with its key: `func alib.twice`.
 
@@ -56,6 +62,13 @@ Where a value render names a type for the reader — an object's default
 qualified key, the name as source wrote it. The qualified key remains
 the spelling of linkage (linking, streams, disassembly); a value
 render shows the type, not its linkage identity.
+
+Overloads resolve by parameter type across the boundary as well: when a
+package declares two functions of the same name and parameter count with
+different parameter types, the call site's type-based selection travels to
+the linker, which connects each call to the selected overload's own record.
+An imported overload set therefore links exactly, with no name-and-arity
+ambiguity. See [Overload Resolution](overload-resolution.md#cross-module-overloads).
 
 ## Streams and literals
 
@@ -71,11 +84,12 @@ directly.
 
 ## Native declarations
 
-A `native` declaration's host dynamic-link library (DLL) is named from the package's **first
-segment** (`nlang_<segment>.dll`), so `native` inside a multi-segment
-package (`gfx.color.deep`) cannot name a host library and is a
-compile-time diagnostic. Native declarations in single-segment packages
-name the host library by the rule above.
+A `native` declaration's host dynamic-link library (DLL) is named
+from the package's **first segment** (`nlang_<segment>.dll`), so
+`native` inside a multi-segment package (`gfx.color.deep`) cannot
+name a host library and is a compile-time diagnostic. Native
+declarations in single-segment packages name the host library by
+the rule above.
 
 ## Generics on qualified types
 

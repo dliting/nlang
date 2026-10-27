@@ -1,10 +1,9 @@
 // --- VmExecutor debug view + value formatters (ndb support) ---
 // IVmDebugView implementation (frozen-time read-only queries) and the
 // shallow formatters backing it. Separate TU by design: VmExecutor.cpp
-// (the execution core) only ever gains checkpoint calls; every line of
-// inspection logic lives here. Formatters are const and MUST NOT
-// execute NLang code (no toString dispatch) or allocate on the NLang
-// heap — the heap is frozen and consistent at checkpoint time.
+// (the execution core) only ever gains checkpoint calls. Formatters are
+// const and MUST NOT execute NLang code (no toString dispatch) or
+// allocate on the NLang heap — frozen and consistent at checkpoint time.
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
@@ -419,7 +418,7 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
     }
     case RTK_Array: {
         uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-        int32_t length = slot[2];
+        int32_t length = slot[3];  //stage-2 header: elemCount
         uint8_t elemKind = RTK_Int32;
         if (m_currModule
             && arrayTypeIdx < m_currModule->arrayTypes.size())
@@ -439,7 +438,7 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
 std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    int32_t length = slot[2];
+    int32_t length = slot[3];  //stage-2 header: elemCount
     uint8_t elemKind = RTK_Int32;
     if (m_currModule
         && arrayTypeIdx < m_currModule->arrayTypes.size())
@@ -453,7 +452,8 @@ std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     const int cells = ArrayElemCells(elemKind);
     for (int32_t i = 0; i < bound; ++i) {
         if (i > 0) result += ", ";
-        result += FormatDebugField(slot, 3 + static_cast<size_t>(i) * cells,
+        result += FormatDebugField(slot,
+            ArrayPayloadBase(slot) + static_cast<size_t>(i) * cells,
             elemKind);
     }
     if (length > bound) result += ", ...";

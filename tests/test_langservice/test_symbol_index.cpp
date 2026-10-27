@@ -28,9 +28,11 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 53 functions: io 15 (10 natives + 5 typed-reader wrappers), math 25,
-    // fs 8, thread 5 (the K3 materialized package).
-    CHECK(index.size() == 53);
+    // 181 functions: io 15 (10 natives + 5 typed-reader wrappers),
+    // math 25, fs 8, thread 5 (the K3 materialized package), tensor 128
+    // (stage-1 creation/elementwise/reduction + stage-3 matrix family,
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
 }
 
 static void TestResolvePrint() {
@@ -83,11 +85,12 @@ static void TestCompletion() {
     CHECK(fsSyms.size() == 8);
 
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 4);
+    CHECK(namespaces.size() == 5);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "io");
     CHECK(namespaces[2] == "math");
-    CHECK(namespaces[3] == "thread");
+    CHECK(namespaces[3] == "tensor");
+    CHECK(namespaces[4] == "thread");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -252,14 +255,16 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 53);
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 53);
+    // matmul and the rank-2 face).
+    CHECK(index.size() == 181);
 }
 
 static void TestBlockCommentBraces() {

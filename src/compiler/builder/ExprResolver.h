@@ -2,6 +2,7 @@
 #include "SnExpressions.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
+#include "SnArrayTypeToken.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
 #include <functional>
@@ -213,6 +214,14 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 //argument admission (ExprResolverBinding.cpp). Definition in
 //ExprResolverInitList.cpp.
 bool IsInitListTargetShape(SnField *pType);
+//0.10.10: the slot types init-list entries bind against — the array
+//element type / the List value slot / the Dict key+value slots. Both
+//null = the target types its entries per field (struct/class).
+struct InitListSlotTypes
+{
+	SnField *pKeyType = nullptr;
+	SnField *pValueType = nullptr;
+};
 bool IsBarePoolScope(const SyntaxNode &scope);
 //0.9.x shadow guard: the binding kinds a TYPE-position name (SnNameExpr)
 //may take — type declarations (IsTypeField: the NF_Type|NF_Field family)
@@ -451,6 +460,9 @@ private:
 		const StringMethodEntry *pMethod);
 	bool TryResolveArrayLengthMethod(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
+		SyntaxNode *pSavedContext);
+	bool TryResolveArrayBuiltinInvoke(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		SyntaxNode *pSavedContext);
 	SnField *ResolveStreamSpecialTypeArg(SnInvokeExpr &invoke,
 		NodeKind wantKind, const char *pMethodDisp,
@@ -872,7 +884,7 @@ private:
 	(Promoted) or log the out-of-range error (Rejected). The fit/lossy
 	predicates themselves live in ExprResolverCastFit.hpp (pure
 	functions, no resolver state). 2026-10-12: ComputeBindingDistance and
-	its binding-distance helpers (LogArrayBindingReject included) moved
+	its binding-distance helpers moved
 	to ExprResolverBinding.cpp at the source-size guard.
 	*/
 	enum ConstantFitGateResult
@@ -889,7 +901,6 @@ private:
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
 		TypeCastInfo &castInfo);
-	void LogArrayBindingReject(const FormalBinding &b) const;
 
 	/*
 	2026-09-27 decomposition of Access(SnBinaryExpr&)
@@ -1041,8 +1052,8 @@ private:
 	2026-09-29 split of the collection-initializer resolution family
 	(ExprResolverInitList.cpp, out of ExprResolverNew.cpp at the
 	source-size guard) — the phases of Access(SnInitListExpr&): target
-	determination, the class-form checks, the 0.7.5 Dict key-form gate
-	and the element/field cast wraps.
+	determination, the class-form checks, the entry-form gates and the
+	slot cast wraps.
 	*/
 	bool ResolveInitListTarget(SnInitListExpr &sn,
 		SnField* &pTargetField, bool &bIsArray);
@@ -1056,6 +1067,13 @@ private:
 	//form is reserved for collection, struct, and class initializers.
 	//True = rejected.
 	bool RejectBraceArrayInitTarget(SnInitListExpr &sn, bool bIsArray);
+
+	//Stage-2 ND: the rank>=2 rectangular-literal gate - non-empty top
+	//level, nest depth == rank, equal row widths. True = rejected.
+	bool RejectBadNDInitListShape(SnInitListExpr &sn,
+		SnArrayTypeToken &token);
+	bool RejectNDShapeLevel(SnInitListExpr &sn, uint8_t rank,
+		uint8_t level, size_t &expectedWidth);
 	//0.9.0: nested bare brace entries inherit the slot type they store
 	//into — the element type for array/List/Dict targets, or the
 	//addressed field's declared type for struct/class targets.
@@ -1067,20 +1085,35 @@ private:
 	//size.
 	void CheckClassCtorForInitList(SnInitListExpr &sn,
 		SnClassDecl *pClassDecl);
-	SnField *ResolveInitListElemType(SnField *pTargetField, bool bIsArray);
-	void BindInitListFuncRefs(SnInitListExpr &sn, SnField *pElemType);
-	void ApplyInitListElemCasts(SnInitListExpr &sn, SnField *pElemType);
-	void ApplyInitListFieldCasts(SnInitListExpr &sn, SnField *pTargetField);
+	//0.10.10: the slot types the entries bind against (array element /
+	//List value / Dict key+value; a null pair = per-field struct/class).
+	InitListSlotTypes ResolveInitListSlotTypes(SnField *pTargetField,
+		bool bIsArray);
+	void BindInitListFuncRefs(SnInitListExpr &sn,
+		const InitListSlotTypes &slots);
+	//0.10.10: the merged entry-slot cast pass — value slots against the
+	//slot type or the addressed field (struct/class), Dict key slots
+	//against K.
+	void ApplyInitListSlotCasts(SnInitListExpr &sn, SnField *pTargetField,
+		const InitListSlotTypes &slots);
+	//Stage-3 D3: the ND arm of the slot cast pass - every expression
+	//entry adjudicates against the ROW token (one rank below target).
+	void ApplyNDInitListRowCasts(SnInitListExpr &sn,
+		SnArrayTypeToken &token, const InitListSlotTypes &slots);
 	SnField *InitListEntryFieldType(SnField &targetDecl,
 		const SnInitListExpr &sn, size_t entryIdx);
-	bool RejectNonStringDictInitKeys(SnInitListExpr &sn,
-		SnField *pTargetField);
 	//K1 Slice 9: channel initializers must be empty (send() is the only
 	//insertion path). True = rejected.
 	bool RejectNonEmptyChannelInit(SnInitListExpr &sn,
 		SnField *pTargetField);
+	//0.10.10: the entry key form must match the target shape (array and
+	//List positional, Dict keyed, struct positional-or-field-name; the
+	//class form is covered by CheckClassInitListForm). True = rejected;
+	//the first offending entry logged its diagnostic.
+	bool RejectInitListEntryKeyForm(SnInitListExpr &sn,
+		SnField *pTargetField, bool bIsArray);
 	//Target-shape phase of Access(SnInitListExpr&) (split out for size):
-	//the three form gates, then stamping the resolved type token and the
+	//the form gates, then stamping the resolved type token and the
 	//class-form ctor contract. True = rejected.
 	bool PrepareInitListShape(SnInitListExpr &sn,
 		SnField *pTargetField, bool bIsArray);
@@ -1098,6 +1131,10 @@ private:
 	//`Foo[n]`) when the base identifier resolved as a TYPE; the index
 	//child doubles as the size expression. True = consumed.
 	bool TrySizedArrayCreation(SnSubscriptExpr &sn);
+	//Stage-2: resolve every creation dimension (named/out forms and
+	//unresolved dimensions consume the expression). Returns false when
+	//a diagnostic already fired.
+	bool ResolveCreationDims(SnSubscriptExpr &sn);
 
 	//0.9.0: expression-position alias support for the creation twins —
 	//the pre-pass expands type positions only, so `P[n]` / `P(args)`

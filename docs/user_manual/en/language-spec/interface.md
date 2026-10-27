@@ -1,5 +1,6 @@
 # Interface
 
+The normative rules are in [specification §4.8](../specification/04-types.md) and [§8.3](../specification/08-object-orientation.md).
 
 An `interface` declares a set of instance method signatures with no
 fields and no implementation. A class declares conformance with the
@@ -40,8 +41,8 @@ An interface value has no standalone instance — it always points at an
 implementing class's object. Upcast assignment (from an instance
 variable or a constructor call) needs no cast syntax. `n == null` tests
 for null directly; accessing a member on a null interface reference
-(`n.Area()`) raises a `null reference error` with a backtrace at run
-time.
+(`n.Area()`) throws a `NullPointerException` at run time, catchable
+with `try/catch` — see [Exceptions](exception.md).
 
 ### What an interface supports
 

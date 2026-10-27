@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    //B inherits 6; the explicit-value gaps (1..4, 7..9) must not shift
+    //the stub's member values (Review Focus #2).
+    return lib.Code.B + lib.Code.C - lib.Code.A;
+}
