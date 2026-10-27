@@ -7,8 +7,9 @@ const string Greeting = "hello";
 ```
 
 Local variables marked `const` must be initialized at declaration and cannot
-subsequently be assigned or compound-assigned. Only **local** const is
-supported; class/struct field const is not. See
+subsequently be assigned or compound-assigned. Function parameters may
+carry `const` too (the callee may not reassign them); `const` on a
+class/struct field is a syntax error. See
 [Variable Declaration](declarations.md) for the general form.
 
 **Const is shallow (Java-`final`-style)**: `const` prevents rebinding the *name*

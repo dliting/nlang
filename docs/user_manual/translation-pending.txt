@@ -1,19 +1,7 @@
 # Bilingual manual translation backlog. One line per existing page
 # that lacks its counterpart in the other language tree:
 #   <tree>/<relative-path>.md
-# The specification tree is being seeded in batches (en first, zh
-# translations follow); its untranslated pages are listed below, which
-# puts the tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
-# in pending mode until the list empties again.
-en/specification/01-lexical.md
-en/specification/02-grammar.md
-en/specification/03-program-structure.md
-en/specification/04-types.md
-en/specification/05-expressions.md
-en/specification/06-statements.md
-en/specification/07-functions.md
-en/specification/08-object-orientation.md
-en/specification/09-exceptions.md
-en/specification/10-execution-model.md
-en/specification/11-concurrency.md
-en/specification/12-packages.md
+# The list is currently empty: both the manual trees and the
+# specification tree are fully translated, which puts the tree-parity
+# pytest (tools/nlang-docs/tests/test_tree_parity.py) in strict mode --
+# any newly untranslated page must be listed here until translated.

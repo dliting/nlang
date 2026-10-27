@@ -79,7 +79,9 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     if (va.elemKind != vb.elemKind)
         Raise(host, NEXC_Base, "tensor: element type mismatch");
     if (va.elemCount != vb.elemCount)
-        Raise(host, NEXC_Base, "tensor: length mismatch");
+        Raise(host, NEXC_Base, "tensor: length mismatch ("
+            + std::to_string(va.elemCount) + " vs "
+            + std::to_string(vb.elemCount) + ")");
     const T* ca = CellsOf<const T>(va);
     const T* cb = CellsOf<const T>(vb);
     Acc acc = 0;

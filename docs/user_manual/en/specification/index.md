@@ -38,16 +38,16 @@ before they land here.
 
 ### Part II — The Standard Library
 
-- 13. Built-in Classes and Library Conventions *(planned)*
-- 14. `std.math` *(planned)*
-- 15. `std.io` and Streams *(planned)*
-- 16. `std.fs` *(planned)*
-- 17. Concurrency Library *(planned)*
-- 18. `std.tensor` *(planned)*
-- 19. Library Exceptions *(planned)*
+- [13. Built-in Classes and Library Conventions](13-builtin-classes.md)
+- [14. The math Package](14-math.md)
+- [15. The io Package and Streams](15-io-streams.md)
+- [16. The fs Package](16-fs.md)
+- [17. The Concurrency Library](17-concurrency-library.md)
+- [18. The tensor Package](18-tensor.md)
+- [19. Library Exceptions](19-library-exceptions.md)
 
 ### Part III — Binary Formats
 
-- 20. The `.ncu` Unit Image *(planned)*
-- 21. The `.npkg` Package Archive *(planned)*
-- 22. The Native Application Binary Interface (ABI) *(planned)*
+- [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
+- [21. The `.npkg` Package Archive](21-npkg-package-archive.md)
+- [22. The Native Application Binary Interface (ABI)](22-native-abi.md)

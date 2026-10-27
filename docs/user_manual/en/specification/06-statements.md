@@ -19,9 +19,10 @@ evaluation order of the initializers is unspecified (§0.4).
 `x` cannot be assigned to, by simple or compound assignment
 (§6.2): a compile-time error. The constraint is shallow — storing
 into an element of a `const` array, or writing a field through a
-`const` class reference, is allowed. `const` is a property of
-local declarations only; it does not apply to fields or
-parameters.
+`const` class reference, is allowed. `const` applies to local
+declarations and to formal parameters; a parameter takes its
+value from the argument and declares no initializer. On a field
+`const` is a syntax error.
 
 A lone `;` is the empty statement: it does nothing, and an
 implementation SHOULD warn that it is ignored. An expression is
@@ -76,22 +77,24 @@ array, or `null` discriminant is a compile-time error.
 
 The syntax of `switch` is §2.5: case clauses first, then an
 optional `default` clause last; a `default` clause in any other
-position is a syntax error. Each case label is an expression. At
-run time the labels are evaluated in clause order, top to bottom,
-and the first clause whose label equals the discriminant under the
-equality of §5.2 runs; the labels of later clauses are not
+position is a syntax error. A case clause carries one or more
+comma-separated labels; each label is an expression. At run time
+the labels are evaluated in clause order, top to bottom, and
+within a clause left to right; the first label that equals the
+discriminant under the equality of §5.2 runs its clause, and the
+remaining labels of that clause and of later clauses are not
 evaluated. For a floating-point discriminant, `NaN` matches no
 label and `−0.0` matches a label of `0.0` (§5.2). A case label's
 type must belong to the same family as the discriminant's type;
-the families are the integer types with enumerations, the
-floating-point types, `char` and `string`. There is no conversion
+the families are the integer types with enumerations and `char`,
+the floating-point types, and `string`. There is no conversion
 between families: an integer label on a floating-point
 discriminant is a compile-time error. A `null` label is a
-compile-time error. A constant label
-outside the value range of the discriminant type is a
-compile-time error. Two clauses with the same constant label are a
-compile-time error; non-constant labels may repeat, and the first
-match wins.
+compile-time error. A constant label outside the value range of
+the discriminant type is a
+compile-time error. Two labels with the same constant value, in
+the same clause or in different clauses, are a compile-time
+error; non-constant labels may repeat, and the first match wins.
 
 When the statement list of a clause completes, control passes to
 the end of the `switch`: execution never falls through from one

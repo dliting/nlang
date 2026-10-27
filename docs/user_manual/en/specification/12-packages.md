@@ -62,7 +62,7 @@ file `a/b/c.n` under a search root. At compile time:
   the same name — whose declarations enter the build as stubs;
   a dotted path with no source in the build is a compile-time
   error, since external artifacts carry single-segment names
-  (§3.3, chapter 20).
+  (§3.3, §20.2).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies
@@ -108,7 +108,7 @@ directory. Both directories are system-default search entries
 configuration.
 
 Standard library packages are imported like any other (§3.3);
-chapter 17 describes the units they hold. The classes the
+chapters 14–18 describe the units they hold. The classes the
 implementation provides itself — the built-in value, container
 and handle classes of chapters 4, 8 and 11 — need no import.
 

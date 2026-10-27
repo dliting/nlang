@@ -1,5 +1,7 @@
 # tensor — numeric array kernels
 
+The normative rules are in [specification §18.1–§18.5](../specification/18-tensor.md).
+
 The `tensor` package provides numeric kernels over the four scalar
 element kinds (`int`, `long`, `float`, `double`). Kernels run as native
 code in `nlang_tensor.dll` — the array payloads are read and written
@@ -92,7 +94,7 @@ int main() {
     double[] b = tensor.full(4, 2.0);
     double[] c = tensor.add(a, b);                 // 2.0 2.25 2.5 2.75
     io.print(tensor.sum(c));                       // 9.5
-    io.print(tensor.dot(a, a));                    // 0.625
+    io.print(tensor.dot(a, a));                    // 0.875
     return 0;
 }
 ```

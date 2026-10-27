@@ -57,14 +57,6 @@ bool ShapesEqual(const NativeArrayView& a, const NativeArrayView& b) {
     return true;
 }
 
-//"2x3" style shape text for the mismatch message.
-std::string ShapeText(const NativeArrayView& v) {
-    std::string text = std::to_string(v.dims[0]);
-    for (int32_t d = 1; d < v.rank; ++d)
-        text += "x" + std::to_string(v.dims[d]);
-    return text;
-}
-
 //Integer division mirrors the language: /0 raises DivByZeroException.
 //Floating division follows IEEE (Inf/NaN propagate silently).
 template <typename T>

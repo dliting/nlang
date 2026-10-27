@@ -1,5 +1,7 @@
 # string methods — 18 built-ins
 
+The normative rules are in [specification §13.2–§13.3](../specification/13-builtin-classes.md).
+
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
 `"abc".toUpper()`). The string method list is as follows. **Byte
 semantics** (Go/Lua model): length, substring

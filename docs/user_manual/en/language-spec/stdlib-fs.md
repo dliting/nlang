@@ -1,12 +1,14 @@
 # fs — names, directories, metadata
 
+The normative rules are in [specification §16.1–§16.4](../specification/16-fs.md).
+
 `fs` never reads or writes content — content belongs to `io`. The split is an
 operation principle: io = all content (console + disk text), fs = names/directories/metadata.
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | exists / isFile / isDirectory | (string) → bool | never raise |
-| size | (string) → int | byte size; regular files only; over 2 GiB → IOException |
+| size | (string) → int | byte size; regular files only; beyond the `int` range → IOException |
 | listFiles | (string) → List\<string\> | names only, non-recursive, regular files only, lexicographically sorted |
 | makeDirs | (string) → void | mkdir -p (idempotent) |
 | remove | (string) → void | file or empty directory |

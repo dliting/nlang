@@ -1,5 +1,7 @@
 # Streams — ByteStream and FileStream
 
+The normative rules are in [specification §15.5](../specification/15-io-streams.md).
+
 Two built-in stream classes provide binary serialization: `ByteStream` reads
 and writes over an in-memory buffer, `FileStream` lands on a disk file. The
 method set is identical (FileStream has no `reset()`).

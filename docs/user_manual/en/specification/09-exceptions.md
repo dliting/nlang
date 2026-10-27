@@ -33,15 +33,16 @@ catchable: access through a `null` reference (§4.7, §5.6, §5.7),
 division or remainder by zero and an out-of-range shift count
 (§5.2), an out-of-range subscript (§5.7), a failed assertion
 (§6.5), a failed `as` downcast (§5.5), and the library errors of
-chapter 13.
+chapter 19.
 
 A *host-level* run-time error (§7.1) is not an exception: no
 `catch` clause handles it and the program ends. The sections that
 define host-level failures name their sites — the call-depth
 bound (§7.1), a missing native function (§7.5), the unboxing and
 `null`-downcast failures of §5.5, an enumeration `toString()`
-beyond its member table (§4.5), and the concurrency failures of
-chapter 11.
+beyond its member table (§4.5), the `toString` nesting bound of
+§13.2, the stream failures of §15.5, and the concurrency
+failures of chapter 11.
 
 ## 9.2 try / catch / finally
 
@@ -93,11 +94,11 @@ classes are `Exception` and its seven direct subclasses:
 | `Exception` | a user `throw` of `Exception` itself; a `Dict` read for an absent key (§4.10); VM sites with no class of their own: an out-of-range shift count (§5.2), a `char` conversion outside the Unicode scalar values (§5.5), a `Channel` constructed with a negative capacity (§11.4) |
 | `NullPointerException` | a member access, method call or call through a `null` class, interface or function reference (§4.7, §5.6, §5.7) |
 | `DivByZeroException` | division or remainder by zero, at any numeric width (§5.2) |
-| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7) |
+| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7); a sized array creation with a negative length or an element count past the bound (§4.3); a `string` `substring` or `charAt` out of range (§13.3) |
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
 | `IOException` | a failed `io` or `fs` operation (chapter 15, chapter 16) |
-| `ChannelClosedException` | an operation on a closed channel (chapter 17) |
+| `ChannelClosedException` | an operation on a closed channel (§11.4) |
 
 Every exception instance carries two fields, inherited from
 `Exception`:

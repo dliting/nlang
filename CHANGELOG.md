@@ -39,8 +39,48 @@ All notable changes to NLang are documented here. The format follows
   types, expressions, statements, functions and methods, object
   orientation, exceptions, execution model and memory semantics,
   concurrency, and packages and import search. Every citable clause
-  of the language proper (§0–§12) is now normative; the standard
-  library and binary-format chapters follow in later batches.
+  of the language proper (§0–§12) is now normative.
+- **Language specification Part II** — the specification gains the
+  seven standard library chapters: built-in classes and library
+  conventions, the math package, the io package and streams, the
+  fs package, the concurrency library, the tensor package, and the
+  library exception map. Every citable clause of the standard
+  library (§13–§19) is now normative.
+- **Language specification Part III** — the specification gains the
+  three binary-format chapters: the `.ncu` unit image, the `.npkg`
+  package archive and the native host ABI. Every citable clause of
+  the binary formats (§20–§22) is now normative, completing the
+  specification.
+- **Chinese translation of the language specification** — the
+  Chinese documentation tree now carries the reference translation
+  of the complete specification: the index and every chapter §0–§22.
+  The English text remains normative and the Chinese text is marked
+  informative on every page. The translation backlog is empty, and
+  the documentation guard now enforces strict navigation parity
+  between the two language trees.
+
+### Fixed
+
+- **Floating-point division by −0.0** — the zero-divisor check now
+  uses IEEE equality for the floating-point kinds, so `x / y` and
+  `x % y` raise `DivByZeroException` for a −0.0 divisor as well as
+  for +0.0 (the byte-wise check missed the sign-only bit pattern
+  and −0.0 division silently produced IEEE −inf).
+- **`tensor.dot` length mismatch message** — the message now
+  names both operand lengths (`tensor: length mismatch (3 vs
+  8)`), matching the shape and length mismatch messages
+  elsewhere in the package.
+- **Opcode names in disassembly** — `load_element_flat`,
+  `array_length` and `array_shape` sat against the wrong entries
+  of the opcode name table, so `ndisasm` printed a neighbouring
+  instruction's name for these three; the table now matches the
+  opcode order.
+- **`.npkg` checksum basis** — the member checksum's FNV-1a 64
+  offset basis had lost its final digit, hashing archives with a
+  non-standard basis. The checksum now matches the standard
+  FNV-1a 64 known-answer vectors; `.npkg` archives produced by
+  earlier builds must be rebuilt (their stored checksums no
+  longer verify).
 
 ## [0.11.7]
 

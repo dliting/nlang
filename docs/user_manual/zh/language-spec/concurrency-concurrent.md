@@ -1,5 +1,7 @@
 # 标准库同步工具
 
+规范性规则见规范§11.3与§17.2。
+
 ## 何时使用
 
 `WaitGroup`等一批派生任务全部完成：派生前先`add`好单位数，每个任务收尾时`done`一次，`wait`在整批完成时返回——不需要持有任何`Thread`句柄。限制并发数的`Semaphore`是内建句柄类，见[Semaphore](concurrency-semaphore.md)。

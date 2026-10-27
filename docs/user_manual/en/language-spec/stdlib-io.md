@@ -1,5 +1,7 @@
 # io — content IO
 
+The normative rules are in [specification §15.1–§15.4](../specification/15-io-streams.md).
+
 `io` carries all content reads and writes: the
 console and disk text files. Multi-byte input decodes as
 Unicode Transformation Format (UTF-8) into full code points

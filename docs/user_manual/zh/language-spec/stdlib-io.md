@@ -1,5 +1,7 @@
 # io——内容IO
 
+规范性规则见规范§15.1–§15.4。
+
 `io`承载全部内容读写：控制台与磁盘文本文件。多字节输入按Unicode转换格式（UTF-8，Unicode Transformation Format）解码为完整码点（`readChar`）；磁盘内容按字节原样往返。
 
 | 函数 | 签名 | 说明 |

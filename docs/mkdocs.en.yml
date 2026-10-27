@@ -49,6 +49,16 @@ nav:
       - Execution Model: specification/10-execution-model.md
       - Concurrency: specification/11-concurrency.md
       - Packages: specification/12-packages.md
+      - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
+      - The math Package: specification/14-math.md
+      - The io Package and Streams: specification/15-io-streams.md
+      - The fs Package: specification/16-fs.md
+      - The Concurrency Library: specification/17-concurrency-library.md
+      - The tensor Package: specification/18-tensor.md
+      - Library Exceptions: specification/19-library-exceptions.md
+      - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
+      - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
+      - The Native Application Binary Interface (ABI): specification/22-native-abi.md
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md

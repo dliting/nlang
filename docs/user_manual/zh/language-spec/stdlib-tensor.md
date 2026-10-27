@@ -1,5 +1,7 @@
 # tensor——数值数组内核
 
+规范性规则见规范§18.1–§18.5。
+
 `tensor`包提供四种标量元素类型(`int`/`long`/`float`/`double`)上的数值内核。内核以native代码运行于`nlang_tensor.dll`——数组载荷经钉住视图直接读写,一次内核调用替代整个解释循环(阶段1实测:逐元素加法约为手写循环的49倍,dot约为117倍)。
 
 **命名一致**:所有族都用同名重载——编译器按实参类型选定声明,元素类型来自带类型的实参(`full(n, value)`取自value,`arange(start, stop, step)`取自等差三元组,数组族取自数组操作数)。精确实参匹配胜过加宽:`arange(0, 10, -3)`得到`int[]`;要`long[]`请传long实参。零填充数组无需内核——语言的尺寸创建`T[n]`本就零初始化(如`double[256]`),"全1"即`full(n, 1)`。下两表即本包全部公开面;`stdlib/tensor.n`中带后缀的声明(`fullI`、`arangeD`等)是重载的内部实现,不属于公开面。
@@ -55,7 +57,7 @@ int main() {
     double[] b = tensor.full(4, 2.0);
     double[] c = tensor.add(a, b);                 // 2.0 2.25 2.5 2.75
     io.print(tensor.sum(c));                       // 9.5
-    io.print(tensor.dot(a, a));                    // 0.625
+    io.print(tensor.dot(a, a));                    // 0.875
     return 0;
 }
 ```
