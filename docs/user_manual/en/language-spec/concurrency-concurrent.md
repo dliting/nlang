@@ -1,6 +1,7 @@
 # The concurrent Package
 
-The normative rules are in [specification §11.3](../specification/11-concurrency.md).
+The normative rules are in [specification §11.3](../specification/11-concurrency.md)
+and [§17.2](../specification/17-concurrency-library.md).
 On top of the kernel primitives, the `concurrent` standard-library package provides two common synchronization tools (available after `import concurrent;`):
 
 | Class | Shape | Semantics |

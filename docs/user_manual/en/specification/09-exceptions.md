@@ -98,7 +98,7 @@ classes are `Exception` and its seven direct subclasses:
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
 | `IOException` | a failed `io` or `fs` operation (chapter 15, chapter 16) |
-| `ChannelClosedException` | an operation on a closed channel (chapter 17) |
+| `ChannelClosedException` | an operation on a closed channel (§11.4) |
 
 Every exception instance carries two fields, inherited from
 `Exception`:

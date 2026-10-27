@@ -21,3 +21,4 @@ en/specification/13-builtin-classes.md
 en/specification/14-math.md
 en/specification/15-io-streams.md
 en/specification/16-fs.md
+en/specification/17-concurrency-library.md

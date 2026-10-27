@@ -42,7 +42,7 @@ before they land here.
 - [14. The `math` Package](14-math.md)
 - [15. The io Package and Streams](15-io-streams.md)
 - [16. The fs Package](16-fs.md)
-- 17. Concurrency Library *(planned)*
+- [17. The Concurrency Library](17-concurrency-library.md)
 - 18. `std.tensor` *(planned)*
 - 19. Library Exceptions *(planned)*
 
