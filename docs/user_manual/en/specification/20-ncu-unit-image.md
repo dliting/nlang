@@ -99,7 +99,7 @@ constructor of the unit, in registration order. Each record:
 | Field | Width | Content |
 |---|---|---|
 | name | u32 length + bytes | the qualified key (§3.6) |
-| frame slots | u16 | the frame size in slots: parameters (the receiver included), locals and scratch (§10.2) |
+| frame size | u16 | the frame size in bytes, eight bytes per slot: parameters (the receiver included), locals and scratch (§10.2) |
 | parameter count | u16 | the formal count, including the implicit receiver slot of a method or constructor (§8.1) |
 | return kind | u16 | the type-kind code of the return type (§20.5); `0xFE` for `void` |
 | intrinsic id | u16 | `0xFFFF` for an ordinary function; otherwise an engine-internal identifier of a built-in intrinsic |
@@ -126,10 +126,10 @@ body-less by contract (§7.5).
 **Try blocks.** Each entry is five 2-byte values: the start and
 end bytecode offsets of the protected range, the handler entry
 offset, the class-table index of the caught type, and the frame
-slot that receives the exception (§9.2).
+byte offset of the local that receives the exception (§9.2).
 
-**Local descriptors.** Each entry is the frame slot index
-(u16), the slot count (u16), a parameter flag (u8, `1` for a
+**Local descriptors.** Each entry is the frame byte offset
+(u16), the byte size (u16), a parameter flag (u8, `1` for a
 formal or the receiver), the declared type's kind code (u8,
 §20.5), the bytecode offset at which the local becomes visible
 (u16; `0` for entry — parameters and the receiver), and the
@@ -146,7 +146,8 @@ the first local — index equal to the parameter count — through
 the last frame slot. Each slot carries a 2-bit code: `0` holds
 no root, `1` a string handle, `2` a heap index (a class, struct
 or array instance), `3` either; four slots share one byte, the
-lowest-numbered slot in the two least significant bits. A
+lowest-numbered slot in the two least significant bits. The
+size is the band slot count divided by four, rounded up; a
 record with an empty band — a `native` or intrinsic record —
 writes size `0`.
 
@@ -313,7 +314,9 @@ byte:
 | `0x23` | a call: a u16 length and the callee's qualified key, a u32 parameter count, a u8 argument count, then that many child trees |
 
 A default expression tree nests at most 16 levels and spans at
-most 4096 bytes; a reader rejects a tree that exceeds either.
+most 4096 bytes; the writer records a default whose expression
+would exceed either ceiling as `0xFC`, and a reader rejects a
+tree that exceeds either.
 
 ## 20.7 Import Slots
 
@@ -371,6 +374,10 @@ rejected image never runs in part. The rejection sites:
   reject.
 - **import tails.** An import count larger than its table's own
   entry count → reject.
+- **handle mask.** A mask byte count other than the band size
+  of §20.3 — the frame slot count (the frame size divided by
+  eight) minus the parameter count, one code per four slots
+  rounded up; zero for an empty band — → reject.
 - **entry key.** An empty key means no entry (a library image);
   a non-empty key must name a function of the image, or the
   image is rejected.
