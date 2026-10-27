@@ -83,8 +83,8 @@ loading.
 
 ## 22.3 Exports and Registration
 
-**Exports.** A module exports exactly two symbols, both with C
-linkage and unmangled names:
+**Exports.** The ABI surface of a module is two symbols with C
+linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|

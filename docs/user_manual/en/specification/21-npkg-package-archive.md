@@ -63,9 +63,11 @@ member, in ascending byte-wise module-path order:
 | length | u64 | the image byte count |
 | checksum | u64 | §21.4 |
 
-**Blobs.** After the table, the member images follow in table
-order, each beginning at its recorded offset. A member's bytes
-are a complete unit image (chapter 20).
+**Blobs.** The writer lays the member images out after the
+table in table order, each beginning at its recorded offset; a
+reader follows the recorded offsets and does not require the
+images to be adjacent. A member's bytes are a complete unit
+image (chapter 20).
 
 ## 21.3 Entry Record and Member Identity
 
