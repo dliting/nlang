@@ -5,13 +5,6 @@
 # translations follow); its untranslated pages are listed below, which
 # puts the tree-parity pytest (tools/nlang-docs/tests/test_tree_parity.py)
 # in pending mode until the list empties again.
-en/specification/13-builtin-classes.md
-en/specification/14-math.md
-en/specification/15-io-streams.md
-en/specification/16-fs.md
-en/specification/17-concurrency-library.md
-en/specification/18-tensor.md
-en/specification/19-library-exceptions.md
 en/specification/20-ncu-unit-image.md
 en/specification/21-npkg-package-archive.md
 en/specification/22-native-abi.md
