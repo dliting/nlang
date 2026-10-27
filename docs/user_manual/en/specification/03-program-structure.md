@@ -166,8 +166,8 @@ At program scope, visibility depends on what the name denotes:
 - a *type* (class, struct, enum or interface) declared at top level
   is visible program-wide, whatever directory its unit lives in.
 - if the walk finds no binding, a bare identifier may still resolve
-  to a built-in class name; chapter 8 and chapter 9 enumerate the
-  built-in classes.
+  to a built-in class name; §4.9, §4.10, §9.3 and chapter 11
+  enumerate the built-in classes.
 
 In type position, the same walk runs restricted to type bindings: a
 value binding does not hide a type binding.

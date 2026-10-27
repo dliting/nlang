@@ -63,16 +63,21 @@ synchronized with the lexer, the parser and the site navigation.
 
 ## Implementation status
 
-Updated 2026-10-26 (batch 1 landed): the tree skeleton, §0
-Introduction, §1 Lexical Structure and §2 Syntax are published in
-English; the Chinese front page and §0 translation are published,
-with §1–§2 in the translation backlog. The guard suite covers
-clause numbering, cross-references, navigation, the reserved-word
-table against the lexer, the EBNF symbol set against the parser in
-both directions, this archive's hygiene, and the version anchor
-against the `VERSION` file. Still to seed in later batches:
-chapters §3–§12 (language), §13–§19 (standard library), §20–§23
-(binary formats) and the remaining Chinese translations; the index
-pages mark unwritten chapters as planned, and
+Updated 2026-10-27 (batch 2 landed): Part I is complete in
+English — §0 Introduction, §1 Lexical Structure, §2 Syntax and the
+language chapters §3–§12 (program structure and name resolution,
+types, expressions, statements, functions and methods, object
+orientation, exceptions, execution model and memory semantics,
+concurrency, packages and import search) are published; the
+Chinese tree carries the translated front pages and §0, with
+§1–§12 in the translation backlog. The guard suite covers clause
+numbering, cross-references, navigation, the reserved-word table
+against the lexer, the EBNF symbol set against the parser in both
+directions, this archive's hygiene, and the version anchor against
+the `VERSION` file. Still to seed in later batches: chapters
+§13–§19 (standard library) and §20–§22 (binary formats; the
+planned `.nmod` chapter was dropped as the extension is obsolete)
+and the remaining Chinese translations; the index pages mark
+unwritten chapters as planned, and
 `docs/user_manual/translation-pending.txt` tracks the translation
 backlog.

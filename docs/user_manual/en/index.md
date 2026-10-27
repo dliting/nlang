@@ -8,7 +8,11 @@ documentation distributed with the IDE.
 
 - [Getting Started](getting-started/what-is-nlang.md) — installation,
   the first program, a language tour, and FAQ
-- [Language Specification](language-spec/overview.md) — complete syntax
-  and semantics
+- [Specification](specification/index.md) — the normative,
+  clause-numbered definition of the language, its standard library
+  and its binary formats
+- [Language Specification](language-spec/overview.md) — the
+  informative manual: syntax and semantics with examples; where it
+  and the specification disagree, the specification is the authority
 - [VM Architecture](vm-architecture/overview.md) — bytecode and
   execution engine design

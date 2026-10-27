@@ -38,8 +38,10 @@ chapter 13.
 A *host-level* run-time error (§7.1) is not an exception: no
 `catch` clause handles it and the program ends. The sections that
 define host-level failures name their sites — the call-depth
-bound (§7.1), a missing native function (§7.5), and the unboxing
-and `null`-downcast failures of §5.5.
+bound (§7.1), a missing native function (§7.5), the unboxing and
+`null`-downcast failures of §5.5, an enumeration `toString()`
+beyond its member table (§4.5), and the concurrency failures of
+chapter 11.
 
 ## 9.2 try / catch / finally
 
@@ -84,11 +86,11 @@ flow in flight.
 ## 9.3 Built-in Exceptions
 
 `Exception` extends `Object` (§4.9). The built-in exception
-classes are its eight direct subclasses:
+classes are `Exception` and its seven direct subclasses:
 
 | Class | Raised by |
 | --- | --- |
-| `Exception` | a user `throw` of `Exception` itself; a `Dict` read for an absent key (§4.10); VM sites with no class of their own: an out-of-range shift count (§5.2), a `char` conversion outside the Unicode scalar values (§5.5) |
+| `Exception` | a user `throw` of `Exception` itself; a `Dict` read for an absent key (§4.10); VM sites with no class of their own: an out-of-range shift count (§5.2), a `char` conversion outside the Unicode scalar values (§5.5), a `Channel` constructed with a negative capacity (§11.4) |
 | `NullPointerException` | a member access, method call or call through a `null` class, interface or function reference (§4.7, §5.6, §5.7) |
 | `DivByZeroException` | division or remainder by zero, at any numeric width (§5.2) |
 | `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7) |
