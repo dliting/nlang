@@ -1,0 +1,8 @@
+// An empty wait set can never decide — rejected at the call.
+import io;
+int main() {
+    Future<int> arr[0];
+    int winner = Future.selectAny(arr);
+    io.print(winner);
+    return 0;
+}

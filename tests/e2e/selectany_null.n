@@ -1,0 +1,13 @@
+// A null element has no context to wait on — rejected before any
+// registration touches the scheduler.
+import io;
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    Future<int> arr[2];
+    arr[0] = f;
+    arr[1] = null;
+    int winner = Future.selectAny(arr);
+    io.print(winner);
+    return 0;
+}

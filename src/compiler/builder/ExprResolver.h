@@ -1158,6 +1158,20 @@ private:
 	//every other thread.* shape declines to TryResolveModuleQualified
 	//(ExprResolverThreadNs.cpp). True = consumed; false = declined.
 	bool TryResolveThreadSpawn(SnMemberExpr &snMember);
+	//Static faces on builtin generic TYPE NAMES (Future.selectAny): the
+	//type name as a call qualifier, no receiver — the intrinsic's
+	//arguments stage from slot 0. Rides the head position right after
+	//the spawn arm; (typeName, methodName) must hit the
+	//BuiltinNames.h face table and no user binding may shadow the
+	//qualifier name (m12 — a user local/field/type wins)
+	//(ExprResolverStaticFace.cpp). True = consumed; false = declined.
+	bool TryResolveBuiltinStaticFace(SnMemberExpr &snMember);
+	//TryResolveBuiltinStaticFace's bind tail (split for the 50-line
+	//budget): caller-scope args, the wait-set shape check, then the
+	//binding (outer → qualifier singleton, invoke resolved callee-less,
+	//member result = int). Always consumes the member.
+	bool BindStaticFaceCall(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		const BuiltinStaticFace *pFace, const std::string &typeName);
 	//TryResolveThreadSpawn's bind tail (split for the 50-line function
 	//budget): caller-scope args, the typed func<T>→Future<T> arm, the
 	//fixed match against the declared func<void> prototype. Always

@@ -1,12 +1,15 @@
 /*---
-    IntrinsicsFuture.cpp — K3 Future<T> 内在函数族（142-143）：
+    IntrinsicsFuture.cpp — K3 Future<T> 内在函数族（142-143＋静态面 153）：
     接收者派发形态（槽 0 = this）。__handle 即上下文 id（与 Thread 同
-    布局，无侧表间接）；get 随任务 2 落地。从 IntrinsicsThread.cpp 抽出
+    布局，无侧表间接）；get 随任务 2 落地；selectAny（153）为首个静态
+    面——无接收者，等待集数组独占槽 0。从 IntrinsicsThread.cpp 抽出
     （源文件 500 行预算）。
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace nlang {
 
@@ -91,6 +94,104 @@ bool VmExecutor::IntrinsicFutureGet(uint16_t callParamBase,
     EnsureSuspensionAllowed();
     m_spScheduler->FindMutable(selfId)->joinResultDst = pResult;
     m_spScheduler->ParkForJoin(selfId, ctx.id);
+    RequestPark(ParkSignal::Reason::Join);   //[[noreturn]]
+}
+
+//IntrinsicFutureSelectAny's structural half (split for the 50-line
+//budget): read the wait-set array off slot 0, validate the shape, and
+//collect the (contextId, index) pairs. Checks in order: non-empty set,
+//no null elements, no self-await (the get() wording), set size within
+//DEFAULT_SELECT_ANY_MAX. Throws on every violation.
+void VmExecutor::CollectSelectAnyTargets(uint16_t callParamBase,
+    uint8_t* locals, int selfId,
+    std::vector<std::pair<int, int>>& targets)
+{
+    int32_t setIdx;
+    std::memcpy(&setIdx, locals + callParamBase, sizeof(setIdx));
+    if (setIdx <= 0
+        || static_cast<size_t>(setIdx) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(setIdx)] != RTK_Array)
+        RaiseNlangException(m_nullPtrExcClassIdx,
+            "NLang VM: null reference in selectAny");
+    auto& setSlot = m_structHeap[static_cast<size_t>(setIdx)];
+    const int32_t count = setSlot[2];
+    if (count == 0)
+        throw std::runtime_error(
+            "NLang VM: selectAny requires at least one future");
+    const uint16_t arrayTypeIdx = static_cast<uint16_t>(setSlot[1]);
+    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: selectAny on invalid array type");
+    const int cells = ArrayElemCells(
+        m_currModule->arrayTypes[arrayTypeIdx].elemKind);
+    for (int32_t i = 0; i < count; ++i) {
+        int32_t futIdx;
+        std::memcpy(&futIdx, setSlot.data() + 3
+            + static_cast<size_t>(i) * cells, sizeof(futIdx));
+        if (futIdx <= 0
+            || static_cast<size_t>(futIdx) >= m_structHeap.size())
+            RaiseNlangException(m_nullPtrExcClassIdx,
+                "NLang VM: null future in selectAny");
+        const int32_t ctxId =
+            m_structHeap[static_cast<size_t>(futIdx)]
+                        [kListHandleFieldOffset];
+        if (!m_spScheduler->Find(ctxId))
+            throw std::runtime_error(
+                "NLang VM: Future call on an uninitialized instance");
+        if (ctxId == selfId)
+            throw std::runtime_error(
+                "NLang VM: a future cannot be awaited by its own "
+                "context");
+        targets.emplace_back(ctxId, static_cast<int>(i));
+    }
+    if (count > DEFAULT_SELECT_ANY_MAX)
+        throw std::runtime_error(
+            "NLang VM: selectAny supports at most "
+            + std::to_string(DEFAULT_SELECT_ANY_MAX) + " futures");
+}
+
+//Future.selectAny(Future[] futures) — the STATIC face: no receiver,
+//the wait-set array rides slot 0 (the binding row's noReceiver ABI).
+//A decided target (Finished or Failed — failure is decided; its
+//observation belongs to get()) short-circuits with the minimal such
+//index, no suspension needed; an all-pending set parks the caller on
+//the join mechanism with joinResultDst as the index destination — the
+//wait set registers waiter-side and the winner-side wake (WakeJoiners)
+//delivers the index and clears the registration in one lock domain.
+bool VmExecutor::IntrinsicFutureSelectAny(uint16_t callParamBase,
+                                          uint8_t* locals, uint8_t* pResult)
+{
+    const int selfId = m_spScheduler->CurrentContextId();
+    std::vector<std::pair<int, int>> targets;
+    CollectSelectAnyTargets(callParamBase, locals, selfId, targets);
+    //Decided-now probe: a read-only take needs no suspension gate
+    //(get's fast-path discipline).
+    int decided = -1;
+    for (const auto& entry : targets) {
+        const ExecutionContext* target = m_spScheduler->Find(entry.first);
+        if (!target
+            || (target->state != ContextState::Finished
+                && target->state != ContextState::Failed))
+            continue;
+        if (decided < 0 || entry.second < decided)
+            decided = entry.second;
+    }
+    if (decided >= 0) {
+        std::memcpy(pResult, &decided, sizeof(decided));
+        return true;
+    }
+    //Gate BEFORE mutating scheduler state (get's decision (a)).
+    EnsureSuspensionAllowed();
+    m_spScheduler->FindMutable(selfId)->joinResultDst = pResult;
+    //A target deciding between the probe and the registration
+    //short-circuits inside the lock (the destination set above is
+    //then unhooked — nothing parked).
+    const int won = m_spScheduler->ParkForJoinAny(selfId, targets);
+    if (won >= 0) {
+        m_spScheduler->FindMutable(selfId)->joinResultDst = nullptr;
+        std::memcpy(pResult, &won, sizeof(won));
+        return true;
+    }
     RequestPark(ParkSignal::Reason::Join);   //[[noreturn]]
 }
 

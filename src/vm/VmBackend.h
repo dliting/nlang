@@ -269,6 +269,12 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //Static face on a builtin generic type name (Future.selectAny):
+    //no receiver — args stage from claim slot 0 and dispatch straight
+    //to OP_CallIntrinsic (the face table's row carries the id).
+    bool EmitMemberStaticFaceCall(SnMemberExpr& member,
+                                  BytecodeEmitter& emitter,
+                                  uint16_t resultOffset);
     bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                          SnField* outerType,
                                          BytecodeEmitter& emitter,

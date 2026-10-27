@@ -1243,6 +1243,16 @@ private:
                                uint8_t* pResult);
     bool IntrinsicFutureGet(uint16_t callParamBase, uint8_t* locals,
                             uint8_t* pResult);
+    //Static face — NO receiver: the wait-set array rides slot 0 (the
+    //binding row's noReceiver ABI); dispatched via OP_CallIntrinsic.
+    bool IntrinsicFutureSelectAny(uint16_t callParamBase, uint8_t* locals,
+                                  uint8_t* pResult);
+    //IntrinsicFutureSelectAny's structural half: read + validate the
+    //wait-set array, collect the (contextId, index) pairs (throws on
+    //every violation).
+    void CollectSelectAnyTargets(uint16_t callParamBase, uint8_t* locals,
+                                 int selfId,
+                                 std::vector<std::pair<int, int>>& targets);
     //Promise<T>: the born-parked completion source. The ctor follows the
     //Semaphore protocol (the call site allocates the receiver; the ctor
     //writes the internal context's id into its hidden __handle slot —

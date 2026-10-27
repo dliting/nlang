@@ -1,9 +1,9 @@
 /*---
     VmScheduler.cpp — 上下文调度器实现（并发 K1；K2 多载体化 2026-10-20）
-    Slice 4 骨架 + Slice 6 join 停泊/唤醒 + Slice 8 互斥停泊/唤醒 + K2：
+    Slice 4 骨架 + Slice 8 互斥停泊/唤醒 + K2：
     条件变量谓词等待、关停通知、死锁检测、每载体状态。定时器关注点
-    （sleep 停泊/到期迁移/专用线程）在 VmSchedulerTimer.cpp（K5 task 6
-    拆分）。
+    在 VmSchedulerTimer.cpp（K5 task 6 拆分）；join 域（停泊/观测/唤醒/
+    取值投递，含 selectAny 等待集）在 VmSchedulerJoin.cpp。
 ---*/
 #include "VmScheduler.h"
 #include <algorithm>
@@ -325,77 +325,8 @@ void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
     }
 }
 
-//join 停泊（Slice 6）：状态与目标登记；调用方（载体）随后把帧整栈搬
-//入 ctx->frames。不入运行队列——只有目标终结才唤醒。
-void VmScheduler::ParkForJoin(int id, int targetId) {
-    GilEnsureGuard g(*this);
-    ExecutionContext* ctx = FindMutable(id);
-    if (!ctx)
-        return;
-    ctx->state = ContextState::ParkedJoin;
-    ctx->parkHandle = targetId;
-    ReleaseHeldIfCurrent(id);
-    //K4：焦点停泊（离开 Runnable）——门等待者须重评（放行）。
-    NotifyGateWaiters();
-}
-
-//0.10.20：join 命中已失败目标的快径重抛前登记观测——目标异常已被
-//joiner 接收，收尾报告不得再告警。
-void VmScheduler::MarkFailureObserved(int id) {
-    GilEnsureGuard g(*this);
-    ExecutionContext* ctx = FindMutable(id);
-    if (!ctx)
-        return;
-    ctx->failObserved = true;
-}
-
-//目标终结：全部 ParkedJoin 于该目标的上下文回 Runnable 入队尾；
-//failed 目标同时置 rethrowOnResume——joiner 恢复执行前重抛目标的
-//原异常对象（保留 raise 时的回溯）。多 joiner 皆唤醒（计划决策 6）。
-//failed 且至少唤醒一名 joiner＝失败已被观测（0.10.20 收尾报告据此
-//区分「无人 watched」的失败）。
-void VmScheduler::WakeJoiners(int targetId, bool failed) {
-    GilEnsureGuard g(*this);
-    bool anyJoinerWoken = false;
-    for (auto& ctx : m_contexts) {
-        if (ctx.state != ContextState::ParkedJoin
-            || ctx.parkHandle != targetId)
-            continue;
-        anyJoinerWoken = true;
-        ctx.state = ContextState::Runnable;
-        //K7 握手：只入队已完成停泊者；停泊展开途中被唤醒者由停泊载体
-        //在搬帧临界区内补推（见 ExecutionContext::framesParked）。
-        if (ctx.framesParked)
-            m_runQueue.push_back(ctx.id);
-        if (failed) {
-            ctx.rethrowOnResume = true;
-            //K3：失败路径不走取值投递，目的地随帧 unwind 作废——
-            //立即清空，避免悬垂指针残留注册表。
-            ctx.joinResultDst = nullptr;
-        }
-    }
-    if (failed && anyJoinerWoken) {
-        ExecutionContext* target = FindMutable(targetId);
-        if (target)
-            target->failObserved = true;
-    }
-    m_runQueueCv.notify_all();
-}
-
-//K3：取值投递（见头文件）。逐停泊者 memcpy kFrameSlotBytes——resultCell
-//是 int64_t 统一槽，任何返回种类都按原始 8 字节搬运。join 停泊者
-//（joinResultDst 为 null）跳过。
-void VmScheduler::DeliverJoinResults(int targetId, int64_t resultCell) {
-    GilEnsureGuard g(*this);
-    for (auto& ctx : m_contexts) {
-        if (ctx.state != ContextState::ParkedJoin
-            || ctx.parkHandle != targetId
-            || !ctx.joinResultDst)
-            continue;
-        std::memcpy(ctx.joinResultDst, &resultCell, sizeof(resultCell));
-        ctx.joinResultDst = nullptr;
-    }
-}
+//join 域关注点（停泊/观测/唤醒/取值投递，含 selectAny 等待集）在
+//VmSchedulerJoin.cpp（Future.selectAny 落地后的 500 行预算拆分）。
 
 //K2 slice 3：析构——置关停、唤醒、join。唯一让定时器线程退出的路径；
 //每 run 的关停标志（m_stopRequested）不影响它（常驻执行器，避免每轮

@@ -41,6 +41,15 @@ namespace nlang {
 //回边配额（决策 5）：每 N 次回边安全点允许一次调度决策。
 constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
 
+//selectAny 等待集上限：失控等待集是程序错误而非等待——登记驻留等待
+//者上下文、每次决定按集线性扫描，64 使两侧开销都可忽略。
+constexpr int DEFAULT_SELECT_ANY_MAX = 64;
+
+//selectAny 停泊哨兵：parkHandle 无单一目标可记（等待集在
+//selectAnyTargets），单目标等值扫描（DeliverJoinResults/WakeJoiners
+//的 parkHandle 比较）永不匹配等待集停泊者。
+constexpr int kSelectAnyNoTarget = -1;
+
 //K4 唤醒亲和（D7）：出队偏好扫描只看队首常数窗——窗口内找得到自己
 //跑过的上下文就取它，否则回退队首；O(1) 摊还（每载体每次出队至多
 //多扫 8 项），每次出队恰消费一项故无饥饿。
@@ -178,6 +187,12 @@ struct ExecutionContext {
     //目标 Finished 时由 DeliverJoinResults 写入并清空；join 停泊者
     //恒为 null。失败唤醒时随 rethrowOnResume 一并清空（帧即将 unwind）。
     uint8_t* joinResultDst = nullptr;
+    //selectAny 停泊者的等待集（目标上下文 id, 调用点下标）：非空 ⇔
+    //本上下文因 selectAny 停泊（parkHandle 恒 kSelectAnyNoTarget）。
+    //任一目标决定时赢家侧同锁把下标写入 joinResultDst 并清空本表
+    //——登记只驻留等待者一侧，清表即消除全部其余登记，无逐目标
+    //清理回走。失败目标同算决定：赢家收下标（值域观察归 get()）。
+    std::vector<std::pair<int, int>> selectAnyTargets;
     //K3：恢复时重抛的异常对象（通道 close 唤醒已排干 recv 等待者的臂
     //——对象在 close 调用内预建并经本字段扎根，恢复时
     //ArmResumeRethrow 直取；join 失败重抛不走此字段，仍按 parkHandle
@@ -309,6 +324,13 @@ public:
     //搬运由载体统一完成。目标未在运行队列之列——唤醒只经 WakeJoiners。
     void ParkForJoin(int id, int targetId);
 
+    //selectAny 停泊（Future.selectAny）：等待集登记驻留等待者上下文
+    //（selectAnyTargets）。锁内复扫已决定目标——调用方探测与登记之间
+    //的窗口内决定者在此短路（返回最小下标，不停泊、无状态变更）；
+    //全未决定才登记并停泊（返回 -1，帧搬运同 ParkForJoin 由载体完成）。
+    int ParkForJoinAny(int id,
+        const std::vector<std::pair<int, int>>& targets);
+
     //sleep 停泊（Slice 7）：state → ParkedTimer、记唤醒时刻并入定时器
     //表；不入运行队列——到期由 PopNextRunnable 的空队列处理分支迁回 Runnable。
     void ParkForTimer(int id,
@@ -361,6 +383,15 @@ public:
     //rethrowOnResume（joiner 恢复时重抛目标的 failExcHeapIdx）。多
     //joiner 皆唤醒（计划决策 6）。
     void WakeJoiners(int targetId, bool failed);
+
+    //WakeJoiners 的 selectAny 等待者半边（持有 GIL 的调用方内联调用，
+    //无自守卫）：等待集含本目标的 ParkedJoin 上下文即赢家——下标投递
+    //（joinResultDst）、回 Runnable、入队（framesParked 握手）与等待集
+    //清除同锁完成；失败目标同算决定（无 rethrow、不置 failObserved——
+    //值域观察归 get()，未观察的失败仍走收尾报告）。清表即消除其余全部
+    //登记（等待者侧登记、赢家侧统一清——Go runtime/select 的等待者自清
+    //在全局锁模型下由赢家侧等价承担）。
+    void WakeSelectAnyWaiters(int targetId);
 
     //K3：把 Finished 目标的取值投递给全部 get() 停泊者（joinResultDst
     //非 null、parkHandle 命中本目标的 ParkedJoin 上下文）——停泊的调用

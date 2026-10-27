@@ -1,0 +1,22 @@
+// A failed future counts as decided: selectAny returns its index and
+// the failure stays observable through get() (original object rethrown).
+import io;
+int main() {
+    Promise<int> pa = Promise();
+    Promise<int> pb = Promise();
+    Future<int> a = pa.future();
+    Future<int> b = pb.future();
+    pb.completeExceptionally(Exception("boom"));
+    Future<int>[] arr = [b, a];
+    io.write(Future.selectAny(arr));
+    io.write(" ");
+    try {
+        int v = b.get();
+        io.write("no-throw");
+    } catch (Exception e) {
+        io.write(e.message);
+    }
+    io.write("\n");
+    pa.complete(9);
+    return 0;
+}

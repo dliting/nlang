@@ -1,0 +1,20 @@
+// Two spawned futures race; the fast one (index 1) wins the selectAny
+// park, and the slow one deciding LATER must not disturb the woken
+// caller (winner-side registration cleanup) — its get() still works.
+import thread;
+import io;
+int slow() { thread.sleep(120); return 10; }
+int fast() { return 20; }
+int main() {
+    Future<int> a = thread.spawn(slow);
+    Future<int> b = thread.spawn(fast);
+    Future<int>[] arr = [a, b];
+    int winner = Future.selectAny(arr);
+    io.write(winner);
+    io.write(" ");
+    io.write(b.get());
+    io.write(" ");
+    io.write(a.get());
+    io.write("\n");
+    return 0;
+}

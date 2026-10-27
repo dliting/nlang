@@ -9,10 +9,15 @@ left the synthesized set — declared in stdlib/builtins.n (builtin-decls
 source of truth), resolving through the scope chain like any class.
 -----------------------------------------------------------------------------*/
 #pragma once
+#include <cstdint>
 #include <string>
 
 namespace nlang
 {
+
+class SnClassDecl;
+struct SnMemberExpr;
+struct SnInvokeExpr;
 
 //Phase 10 audit H2: single predicate for every name GetBuiltinClassDecl
 //can synthesize. Call sites used to duplicate this filter three times —
@@ -31,5 +36,32 @@ inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream";
 }
+
+//Static faces on builtin generic TYPE NAMES — the type name as a call
+//qualifier (`Future.selectAny(futures)`), no receiver instance: the
+//intrinsic's arguments start at slot 0 (the binding row's noReceiver
+//ABI). The resolver's chain-head arm gates + arity-checks from this
+//table; the backend's emission reads the intrinsic id from the SAME
+//row and never evaluates the qualifier.
+struct BuiltinStaticFace
+{
+	const char* typeName;
+	const char* methodName;
+	uint16_t intrinsicId;
+	size_t argCount;
+};
+const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
+	const std::string& methodName);
+
+//The static-face qualifier singleton: the arm binds the outer
+//identifier of the member call to this decl (pointer identity is the
+//codegen marker), keeping the tree fully resolved. MINTING version
+//(resolver only). Deliberately outside IsBuiltinClassName: bare
+//`Future` stays rejected in every type position (a generic type needs
+//arguments) — the singleton exists solely as the call qualifier.
+SnClassDecl* BuiltinStaticFaceClassDecl(const std::string& typeName);
+//Non-minting probe (codegen): nullptr until the resolver minted one for
+//this type name.
+SnClassDecl* FindBuiltinStaticFaceClassDecl(const std::string& typeName);
 
 } //namespace nlang

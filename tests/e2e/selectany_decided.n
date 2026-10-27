@@ -1,0 +1,17 @@
+// Every target already decided at the call: the minimal index wins,
+// regardless of the order the completions happened in.
+import io;
+int main() {
+    Promise<int> pa = Promise();
+    Promise<int> pb = Promise();
+    Future<int> a = pa.future();
+    Future<int> b = pb.future();
+    pb.complete(2);
+    pa.complete(1);
+    Future<int>[] arr = [a, b];
+    io.write(Future.selectAny(arr));
+    io.write(" ");
+    io.write(a.get());
+    io.write("\n");
+    return 0;
+}

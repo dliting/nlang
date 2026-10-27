@@ -10,6 +10,9 @@
 #include "SyntaxTree.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/vm/Intrinsics.h>
+#include <map>
 
 namespace nlang
 {
@@ -87,6 +90,61 @@ void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
 	if (!pObject || pObject == &sn)
 		return;
 	sn.SuperClass(pObject);
+}
+
+//--- static faces on builtin generic type names --------------------------------
+
+//The shared resolver/backend face table (Future.selectAny today). The
+//resolver's arm gates and arity-checks from these rows; the backend's
+//emission reads the intrinsic id from the SAME row and never evaluates
+//the qualifier — one row, one identity, no duplicated dispatch.
+const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
+	const std::string& methodName)
+{
+	static const BuiltinStaticFace s_Faces[] = {
+		{kBuiltinFutureTypeName, "selectAny", INTR_Future_SelectAny, 1},
+	};
+	for (const auto& face : s_Faces)
+		if (typeName == face.typeName && methodName == face.methodName)
+			return &face;
+	return nullptr;
+}
+
+//The face qualifier singletons (one per face type name), minted like
+//GetBuiltinClassDecl's singletons above — SetBuiltinClass marks them
+//synthetic — but deliberately OUTSIDE IsBuiltinClassName: bare `Future`
+//must stay rejected in every type position (a generic type needs
+//arguments). The decl exists solely as the outer identifier's binding
+//so the tree resolves fully; pointer identity against it is the
+//codegen marker (the backend never emits the qualifier as a value).
+static std::map<std::string, SnClassDecl*>& StaticFaceMintTable()
+{
+	static std::map<std::string, SnClassDecl*> s_minted;
+	return s_minted;
+}
+
+SnClassDecl* BuiltinStaticFaceClassDecl(const std::string& typeName)
+{
+	SnClassDecl*& rpRef = StaticFaceMintTable()[typeName];
+	if (!rpRef)
+	{
+		auto* pName = new std::string(typeName);
+		auto* pMembers = new PtrList<SnField>();
+		ScriptLocation fallback;
+		rpRef = new SnClassDecl(pName, nullptr, pMembers,
+			DeclLocation(nullptr, fallback));
+		rpRef->SetBuiltinClass();
+	}
+	return rpRef;
+}
+
+//Non-minting probe: nullptr until the resolver minted this type name's
+//qualifier (codegen's pointer-identity check consults it).
+SnClassDecl* FindBuiltinStaticFaceClassDecl(const std::string& typeName)
+{
+	auto& minted = StaticFaceMintTable();
+	auto it = minted.find(typeName);
+	return it == minted.end() ? nullptr : it->second;
 }
 
 } //namespace nlang

@@ -271,10 +271,17 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
 void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     //Emitted by VmBackend for string.getHashCode() / string.equals()
     //(strings are primitives without a class, so the call can't go
-    //through OP_CallMethod's callee.intrinsicId path). Dispatch
-    //reuses the same ExecuteIntrinsic used by the method path.
+    //through OP_CallMethod's callee.intrinsicId path) and for the
+    //static builtin faces (Future.selectAny — no receiver object).
+    //Dispatch reuses the same ExecuteIntrinsic used by the method path.
     uint16_t intrinsicId = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
+    //Parking: pc must advance BEFORE ExecuteIntrinsic — a parking
+    //intrinsic (selectAny) suspends mid-frame and resume re-enters at
+    //frame.pc; re-executing the call would re-park forever (the
+    //OpCallFunc/OpCallMethod invariant). The non-parking string faces
+    //are unaffected — their re-entry point is identical either way.
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     ExecuteIntrinsic(intrinsicId, callParamBase, locals, pResult);
 }
 

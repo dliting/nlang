@@ -66,6 +66,12 @@ void VmBackend::Access(SnMemberExpr& expr) {
     //throw), no null check, args stage from slot 0.
     if (EmitMemberStaticCall(member, emitter, resultOffset))
         return;
+    //Static faces on builtin generic type names (Future.selectAny):
+    //detection is the qualifier singleton's pointer identity — must
+    //run before the typed-receiver dispatch reads the outer's type
+    //(nothing ever emits the qualifier as a value).
+    if (EmitMemberStaticFaceCall(member, emitter, resultOffset))
+        return;
     auto* outerType = member.Outer()->EvalDataType();
     if (EmitMemberTypedReceiverDispatch(member, outerType, emitter,
                                         resultOffset))

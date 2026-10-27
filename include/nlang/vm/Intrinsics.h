@@ -208,5 +208,9 @@ static constexpr uint16_t INTR_Promise_Ctor                  = 162;
 static constexpr uint16_t INTR_Promise_Future                = 163;
 static constexpr uint16_t INTR_Promise_Complete              = 164;
 static constexpr uint16_t INTR_Promise_CompleteExceptionally = 165;
+//Future.selectAny: the first STATIC face on a builtin generic
+//type name — no receiver rides slot 0; the wait-set array is the sole
+//argument (args-from-slot-0 ABI, the binding row's noReceiver shape).
+static constexpr uint16_t INTR_Future_SelectAny = 166;
 
 }  // namespace nlang

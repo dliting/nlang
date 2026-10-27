@@ -1814,3 +1814,12 @@ promise_double_complete 0 true false 1
 promise_complete_exceptional 0 promise exploded
 promise_reentrant_complete 0 re true 7
 promise_ref_gc 0 kept-7
+selectany_race 0 1 20 10
+selectany_decided 0 0 1
+selectany_failed 0 0 boom
+selectany_empty 1
+selectany_null 1
+selectany_ceiling 1
+selectany_selfref 1
+selectany_dup 0 0 7
+selectany_late_failure 0 0 5

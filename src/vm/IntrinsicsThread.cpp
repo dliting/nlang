@@ -83,6 +83,14 @@ bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
             ? IntrinsicFutureIsDone(callParamBase, locals, pResult)
             : IntrinsicFutureGet(callParamBase, locals, pResult);
     }
+    //The STATIC face rides the same Future family despite the no-
+    //receiver ABI (slot 0 = the wait-set array): the whole call is
+    //registry state and a possible park — the readers' domain.
+    case INTR_Future_SelectAny:
+    {
+        GilEnsureGuard g(*this);
+        return IntrinsicFutureSelectAny(callParamBase, locals, pResult);
+    }
     //Promise arms are registry-state and heap minting only — the same
     //scheduler domain as the Future readers above.
     case INTR_Promise_Ctor:

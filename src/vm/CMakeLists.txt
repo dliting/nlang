@@ -4,6 +4,7 @@ add_library(nlang_vm
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
     VmSchedulerSync.cpp
+    VmSchedulerJoin.cpp
     VmExecutor.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
@@ -70,6 +71,7 @@ add_library(nlang_vm
     backend/EmitExprMember.cpp
     backend/FieldOffsets.cpp
     backend/EmitExprMemberCall.cpp
+    backend/EmitExprMemberStatic.cpp
     backend/EmitExprMemberString.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp

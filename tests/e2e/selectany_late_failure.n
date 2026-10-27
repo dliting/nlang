@@ -1,0 +1,18 @@
+// The winner is woken by A; B failing afterwards must not disturb the
+// caller — but B's failure was never observed, so the run-end report
+// names it on stderr.
+import io;
+int main() {
+    Promise<int> pa = Promise();
+    Promise<int> pb = Promise();
+    Future<int> a = pa.future();
+    Future<int> b = pb.future();
+    pa.complete(5);
+    Future<int>[] arr = [a, b];
+    io.write(Future.selectAny(arr));
+    io.write(" ");
+    pb.completeExceptionally(Exception("late-boom"));
+    io.write(a.get());
+    io.write("\n");
+    return 0;
+}

@@ -206,6 +206,12 @@ bool ExprResolveAccessor::TryResolveMemberHead(SnMemberExpr &snMember,
 	//local/field/type named `thread` wins.
 	if (TryResolveThreadSpawn(snMember))
 		return true;
+	//Static faces on builtin generic type names (Future.selectAny):
+	//same head position, same consumption contract. m12 priority lives
+	//inside the arm — a user local/field/type named like the face's
+	//type wins and the ordinary paths keep the chain.
+	if (TryResolveBuiltinStaticFace(snMember))
+		return true;
 	//for dotted call chains. Runs BEFORE the outer resolves — a module
 	//diagnostic must not double with a spurious "Cannot resolve the field",
 	//and a declined chain leaves normal resolution untouched.

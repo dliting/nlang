@@ -1,0 +1,14 @@
+// The same future registered at several indices: the minimal index
+// wins and the duplicate registrations clear without double wakes.
+import thread;
+import io;
+int work() { return 7; }
+int main() {
+    Future<int> f = thread.spawn(work);
+    Future<int>[] arr = [f, f, f];
+    io.write(Future.selectAny(arr));
+    io.write(" ");
+    io.write(f.get());
+    io.write("\n");
+    return 0;
+}

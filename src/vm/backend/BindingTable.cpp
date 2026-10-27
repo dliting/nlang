@@ -22,10 +22,14 @@ namespace nlang {
 //binding table (Task 1 of the builtin-decls source-of-truth plan). A
 //declaration outside the table keeps host-native dispatch (the
 //ordinary native channel).
+//noReceiver marks the STATIC-face ABI: no `this` rides slot 0 — the
+//intrinsic's arguments start at slot 0 (every receiver-dispatched row
+//defaults to false: slot 0 = the instance).
 struct BindingRow {
     const char* packagePath;
     const char* key;
     uint16_t intrinsicId;
+    bool noReceiver = false;
 };
 
 const BindingRow s_BindingRows[] = {
@@ -88,6 +92,15 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "Promise.complete", INTR_Promise_Complete},
     {"builtins", "Promise.completeExceptionally",
                                    INTR_Promise_CompleteExceptionally},
+    //The intrinsic channel's first NO-RECEIVER row: Future.selectAny
+    //is a static face on the type name, so no instance rides slot 0 —
+    //the wait-set array is the sole argument. Today the compiler emits
+    //the OP_CallIntrinsic directly (Future is still a synthetic class,
+    //nothing declares this member); the row records the ABI for the
+    //builtins source-of-truth migration, when a declared static native
+    //Future.selectAny stamps onto this channel.
+    {"builtins", "Future.selectAny", INTR_Future_SelectAny,
+                                   /*noReceiver=*/true},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)

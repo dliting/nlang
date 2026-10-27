@@ -120,35 +120,6 @@ bool VmBackend::EmitMemberEnumMethodCall(SnMemberExpr& member,
     return true;
 }
 
-//0.9.10: type-name-qualified static call (Util.twice(21), I.stat()) —
-//the resolver bound the inner invoke to an NF_Static callee. No receiver
-//value exists, so the outer identifier is never emitted; arguments stage
-//from slot 0 against a frame with no __this slot (AllocParamsAndDefaults
-//skips the this slot for statics), and dispatch is direct by function
-//index like the final-method arm.
-bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
-                                     BytecodeEmitter& emitter,
-                                     uint16_t resultOffset) {
-    auto* inner = member.Inner();
-    if (!(inner && inner->Kind() == NK_InvokeExpr))
-        return false;
-    auto& invoke = static_cast<SnInvokeExpr&>(*inner);
-    auto* callee = invoke.Callee();
-    if (!(callee && callee->ContainFlags(NF_Static)))
-        return false;
-    std::vector<OutSpill> outSpills;
-    EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
-                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                 &outSpills);
-    EmitMemberDirectMethodCall(callee, outSpills, emitter);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-    if (!outSpills.empty())
-        EmitOutSpills(outSpills, emitter);
-    emitter.Emit(OpCode::OP_ParaEnd);
-    return true;
-}
-
 //Interface method call (e.g. p.Print()).
 //At runtime, p holds a heap reference whose actual class is unknown
 //at compile time. Always dispatch virtually by method name — the

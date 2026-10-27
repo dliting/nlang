@@ -1,0 +1,30 @@
+// A context waiting on its own future among the set is the get()
+// self-await shape — the same basic-exception rejection (uncatchable,
+// fatal for the run, identical wording). The spawned task parks on a
+// promise gate first, so the ordering is deterministic. The delegate
+// pre-binds into a func<int> local (typed spawn takes a resolved func
+// value; a bare bound-method reference carries no expected type in
+// argument position).
+import thread;
+import io;
+class SelfWait {
+    public Future<int> me;
+    public Promise<int> gate;
+    public int wait() {
+        int opened = gate.future().get();
+        Future<int> one[1];
+        one[0] = me;
+        int winner = Future.selectAny(one);
+        return winner;
+    }
+}
+int main() {
+    SelfWait s = SelfWait();
+    s.gate = Promise();
+    func<int> d = s.wait;
+    s.me = thread.spawn(d);
+    s.gate.complete(1);
+    int v = s.me.get();
+    io.print("unreachable");
+    return 0;
+}

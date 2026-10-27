@@ -1,0 +1,16 @@
+// The wait set is bounded (DEFAULT_SELECT_ANY_MAX = 64); 65 entries
+// is a runaway set, not a wait.
+import io;
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    Future<int> arr[65];
+    int i = 0;
+    while (i < 65) {
+        arr[i] = f;
+        i = i + 1;
+    }
+    int winner = Future.selectAny(arr);
+    io.print(winner);
+    return 0;
+}
