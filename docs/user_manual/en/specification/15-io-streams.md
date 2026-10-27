@@ -6,7 +6,7 @@ and `FileStream` provide binary serialization of values,
 structs and class graphs. §15.1 fixes the package form and the
 argument admission rule that governs every package call;
 §15.2–§15.4 define the io functions; §15.5 defines the stream
-classes.
+classes; §15.6 fixes the byte-level encoding of stream values.
 
 ## 15.1 Package Form
 
@@ -166,4 +166,82 @@ instance. `close()` on a `FileStream` releases the
 operating-system handle and invalidates the stream handle;
 later calls on the same reference report the invalid-handle
 error. The byte-level encoding of the values — byte order and
-the struct and object forms — is fixed by chapter 20.
+the struct and object forms — is fixed by §15.6.
+
+## 15.6 Stream Encoding
+
+This section fixes the byte-level encoding exchanged by the
+write and read methods of §15.5. The encoding is the same for
+`ByteStream` and `FileStream`. The stream carries no header:
+each method appends its record at the cursor, and a stream
+written by successive calls is the concatenation of those
+records.
+
+**Byte order.** Every multi-byte value is written in
+little-endian order, least significant byte first. Integers
+are written in two's-complement form at the width of their
+type, and `float` and `double` are written as the IEEE 754
+binary32 and binary64 encodings of the value (§4.2).
+
+**Scalar methods.** `writeInt` and `writeFloat` append 4 bytes
+and `writeLong` and `writeDouble` append 8: the encoding of
+the value in the method's slot type. The implicit widening of
+§15.5 is applied at the call site, so the bytes always carry
+the slot type's width — `writeLong(42)` appends the 8 bytes of
+the `long` value 42.
+
+**Strings.** `writeString(s)` appends a 4-byte signed length —
+the byte count of `s` — followed by exactly those bytes. The
+bytes are whatever the string holds (§4.4); the encoding
+imposes no text form on them. `readString` treats a negative
+length, a length above 16 MiB, and a length that runs past the
+end of the stream alike: each is a host-level run-time error
+(§9.1).
+
+**Structs.** `writeStruct(v)` appends no header and no type
+name: the fields of `v`'s type in declaration order, each
+encoded by its own type —
+
+| Field type | Encoding |
+|---|---|
+| a scalar primitive (§4.2) | the value at its own width: 1 byte for `byte` and `ubyte`, 2 for `short` and `ushort`, 4 for `int`, `uint`, `float`, `bool` and `char`, 8 for `long`, `ulong` and `double`; a `bool` is `0` or `1` and a `char` is its code point |
+| `string` | the `writeString` form |
+| a struct | the same struct encoding, inline and recursive |
+| a class | the class record below |
+
+`readStruct(name)` consumes exactly that byte sequence against
+the named type: the stream and the program must agree on the
+type's shape. Array and function-typed fields are rejected on
+the write side (§15.5).
+
+**Class records.** `writeObject(c)` appends one record per
+class-typed value, tagged by its first byte:
+
+| Tag | Value | Encoding |
+|---|---|---|
+| `0` | `null` | the tag byte alone |
+| `1` | an instance written for the first time | the tag byte, a 4-byte unsigned length, the class's qualified name (§3.6), then the instance's fields — inherited fields first, base class to derived class — each encoded as in the struct table |
+| `2` | an instance already written on this stream | the tag byte and a 4-byte object id |
+
+Object ids are assigned in write order, counting from 0, one
+id per tag-`1` record. `readObject(name)` re-creates the
+graph: a tag-`1` record's name must name a class the program
+declares, and that class must be the named type or a subclass
+of it (§8.1); the instance is registered under the next id
+before its fields are read, so a cycle resolves to the same
+instance. A tag other than `0`, `1` or `2`, an object id not
+yet read, a name the program does not declare, and a class
+that is neither the named type nor a subclass of it are
+host-level run-time errors (§9.1).
+
+**Identity state.** The id numbering belongs to the stream,
+not to the call: successive `writeObject` calls on one stream
+continue the numbering, and successive `readObject` calls
+rebuild one shared pairing, so an instance written by an
+earlier call can be referenced by a later one. `reset()` and
+`close()` clear the state on both sides (§15.5).
+
+**Depth.** A value nested more than 64 levels deep — struct
+within struct, class within class, or either within the other
+— raises a host-level run-time error (§9.1), on the write side
+and on the read side alike.
