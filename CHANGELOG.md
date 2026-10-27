@@ -51,6 +51,13 @@ All notable changes to NLang are documented here. The format follows
   package archive and the native host ABI. Every citable clause of
   the binary formats (§20–§22) is now normative, completing the
   specification.
+- **Chinese translation of the language specification** — the
+  Chinese documentation tree now carries the reference translation
+  of the complete specification: the index and every chapter §0–§22.
+  The English text remains normative and the Chinese text is marked
+  informative on every page. The translation backlog is empty, and
+  the documentation guard now enforces strict navigation parity
+  between the two language trees.
 
 ### Fixed
 
