@@ -18,6 +18,22 @@
 - **阶段3 matmul基准**——`tests/bench/tensor_stage3_bench.py`对比手写三重循环与`tensor.matmul`（128×128 int矩阵，基准机约107倍）。
 - **语言规范第一部分**——规范新增十个语言章节：程序结构与名称解析、类型、表达式、语句、函数与方法、面向对象、异常、执行模型与内存语义、并发、包与导入搜索。语言本体（§0–§12）的全部可引用条款现已具有规范性；标准库与二进制格式章节在后续批次补写。
 
+## [0.11.7]
+
+### Added
+
+- **合并 master 的并发执行架构**——域锁、GC世界停、调度器载体槽、分片堆作为并发区域系统设计落地；原生`Semaphore`句柄类加入prelude（P2-1）。
+
+### Changed
+
+- **prelude内建声明包**——`Object`、`Thread`、`Mutex`、`Semaphore`、`Exception`族与空类体在prelude包内声明；随附prelude可拼写名与遮蔽规则（规范6.8节）。
+- **函数表布局契约**——`RegisterFunctions`按两所有权相填充每单元表（先本单元自有、后prelude/内建），consumer影子重放与库生产者布局一致，跨单元导入记录引用稳定序号。
+- **GC清扫读取stage-2数组头部**——数组结构体元素经`[3]=elemCount`与`ArrayPayloadBase`释放，与分配、标记一致。
+
+### Fixed
+
+- 合入master 0.10.12–0.10.20批次修复：catch变量作用域、prelude名的类型别名劫持（拒绝）、ncc stdout冲洗、未观测子任务失败上报。
+
 ## [0.11.5] - 2026-10-26
 
 ### 新增

@@ -42,6 +42,37 @@ All notable changes to NLang are documented here. The format follows
   of the language proper (§0–§12) is now normative; the standard
   library and binary-format chapters follow in later batches.
 
+## [0.11.7]
+
+### Added
+
+- **Concurrency execution architecture merged from master** —
+  domain locks, GC world-stop, scheduler carrier slots, and the
+  sharded heap land as the system design of the concurrency
+  regions; the native `Semaphore` handle class joins the prelude
+  (P2-1).
+
+### Changed
+
+- **Prelude builtin-declaration package** — `Object`, `Thread`,
+  `Mutex`, `Semaphore`, the `Exception` family, and empty class
+  bodies are declared in the prelude package; prelude spellable
+  names and the shadowing rule (spec section 6.8) come with it.
+- **Function-table layout contract** — `RegisterFunctions` fills
+  each unit's table in two ownership phases (unit-own first, then
+  prelude/builtin), so a consumer's shadow replay matches the
+  library producer's layout and cross-unit import records cite
+  stable ordinals.
+- **GC sweep reads the stage-2 array header** — array struct
+  elements are freed through `[3]=elemCount` and
+  `ArrayPayloadBase`, matching allocation and mark.
+
+### Fixed
+
+- Catch-variable scoping, type-alias hijack of prelude names
+  (rejected), ncc stdout flushing, and unobserved subtask failure
+  reporting, merged from master's 0.10.12-0.10.20 batch.
+
 ## [0.11.5] - 2026-10-26
 
 ### Added
