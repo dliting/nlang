@@ -304,7 +304,8 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 //index them. Each instantiation mints once, so the records are unique
 //per unit image.
 void VmBackend::RegisterDeclaredGenericInstanceMembers() {
-    ForEachDeclaredGenericInstance(m_currentUnitIdx, [&](SnClassDecl& inst) {
+    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+        [&](SnClassDecl& inst) {
         for (auto& member : inst.Members())
         {
             if (member.Kind() != NK_Function)

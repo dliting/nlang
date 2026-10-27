@@ -6,6 +6,7 @@
     superClassIdx 链拼接（VmClassLayout），线格式不再重复携带。
 ---*/
 #include "VmBackend.h"
+#include "builder/ModuleRegistry.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -210,7 +211,8 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     //every instantiation of a template shares the erased CompiledClass
     //(identical layout, name-keyed method dispatch), so the first
     //instantiation per key registers and the rest dedup silently.
-    ForEachDeclaredGenericInstance(m_currentUnitIdx, [&](SnClassDecl& inst) {
+    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+        [&](SnClassDecl& inst) {
         if (declMap.count(KeyOf(inst)))
             return;
         RegisterClassDecl(inst, declMap);
@@ -292,7 +294,8 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
     //Instantiation method tables: the signature copies own function
     //records (registered by RegisterFunctions), so the erased record
     //refills from the instantiation's members.
-    ForEachDeclaredGenericInstance(m_currentUnitIdx, [&](SnClassDecl& inst) {
+    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+        [&](SnClassDecl& inst) {
         int ccIdx = m_compiledModule.FindClass(KeyOf(inst));
         if (ccIdx < 0) return;
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];

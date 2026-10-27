@@ -11,7 +11,9 @@ gate (module import visibility plan, spec §6).
 #include <unordered_map>
 #include <functional>
 #include <cstdint>
+#include <memory>
 #include "SyntaxNode.h"
+#include "GenericInstanceRegistry.h"
 
 namespace nlang
 {
@@ -203,6 +205,13 @@ public:
 	//"current TU" for a resolver context (spec F18); NO_OWNER at root.
 	uint32_t OwnerOfContext(const SyntaxNode& context) const;
 
+	//Declared-generic placeholder/instantiation state for this build
+	//(both the resolver and the VM backend reach it through here).
+	GenericInstanceRegistry& DeclaredGenerics() const
+	{
+		return *m_upDeclaredGenerics;
+	}
+
 	uint32_t ModuleCount() const
 	{
 		return static_cast<uint32_t>(m_modules.size());
@@ -260,6 +269,11 @@ private:
 	//plan: qualified calls resolve through the stub table, never
 	//through the shared root).
 	std::unordered_map<uint32_t, std::vector<SnFunction*>> m_externalStubs;
+	//Declared-generic machinery for this build (placeholders and
+	//instantiations, owned node lifetime). Per-build scope: see
+	//GenericInstanceRegistry.h.
+	std::unique_ptr<GenericInstanceRegistry> m_upDeclaredGenerics
+		= std::make_unique<GenericInstanceRegistry>();
 };
 
 } //namespace nlang

@@ -222,7 +222,7 @@ SnClassDecl *ExprResolveAccessor::ResolveDeclaredGenericCtorTarget(
 	auto *pInstance = (pTargetType
 		&& pTargetType->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl*>(pTargetType)->IsGenericInstantiation()
-		&& DeclaredInstanceOf(
+		&& m_Env.Registry().DeclaredGenerics().InstanceOf(
 			static_cast<SnClassDecl*>(pTargetType)) == &tmpl)
 		? static_cast<SnClassDecl*>(pTargetType) : nullptr;
 	if (!pInstance)

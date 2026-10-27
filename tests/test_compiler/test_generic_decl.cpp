@@ -199,6 +199,32 @@ private slots:
         QVERIFY2(anyErrorMentions(outcome.second, "type argument"),
             "diagnostic must point at the missing type arguments");
     }
+
+    //A class FIELD of declared-generic type mints the instantiation in
+    //the declaration pass — before the template's own signatures resolve.
+    //The mint must resolve the clone's signature surface: an unresolved
+    //return type read as void here, and the cache served the broken
+    //instance to every later use of the same instantiation.
+    void declGenericFieldMintResolvesMembers()
+    {
+        const auto path = writeTempSource("generic_field_mint.n",
+            "class C {\n"
+            "    public Promise<int> p;\n"
+            "}\n"
+            "int main() {\n"
+            "    Promise<int> p = Promise();\n"
+            "    Future<int> f = p.future();\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_field_mint", path);
+        QString diag;
+        for (const auto& e : outcome.second) diag += QString::fromStdString(e) + " | ";
+        QVERIFY2(outcome.first,
+            qPrintable("a declared-generic field must mint a complete "
+                       "instance — errors: " + diag));
+        QVERIFY2(!anyErrorMentions(outcome.second, "void function"),
+            "future() must keep its declared return type");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGenericDecl)

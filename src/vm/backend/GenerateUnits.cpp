@@ -18,7 +18,7 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     //RegisterFunctions; their emission (native record fill, signature
     //descriptors) runs here with the same body-or-native filter the
     //tree walk applies.
-    ForEachDeclaredGenericInstance(m_currentUnitIdx,
+    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
         [this](SnClassDecl& inst) {
             for (auto& member : inst.Members())
             {
@@ -121,7 +121,8 @@ uint32_t VmBackend::IntrinsicChannelOwnerOf(const SnFunction& func) const
     auto* pInstance = static_cast<const SnClassDecl*>(pParent);
     if (!pInstance->IsGenericInstantiation())
         return ModuleRegistry::NO_OWNER;
-    const SnClassDecl* pTemplate = DeclaredInstanceOf(pInstance);
+    const SnClassDecl* pTemplate
+        = m_pRegistry->DeclaredGenerics().InstanceOf(pInstance);
     if (!pTemplate)
         return ModuleRegistry::NO_OWNER;
     return m_pRegistry->OwnerOf(*pTemplate);

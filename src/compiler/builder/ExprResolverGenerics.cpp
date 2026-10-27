@@ -156,93 +156,82 @@ SnClassDecl* GetGenericClassDecl(const std::string& baseName,
 //their member signatures against interned placeholder types, and every
 //`Name<Arg...>` use mints a synthetic instantiation whose members are
 //signature deep-copies with placeholders substituted. Everything here
-//is a compile-time artifact; the VM side reads the registries through
-//GenericInstanceRegistry.h.
+//is a compile-time artifact; the VM side reads the registry through
+//GenericInstanceRegistry.h. The registry instance is owned by
+//ModuleRegistry — one per BUILD (process-global maps would be keyed
+//by per-build pointers and unit indices; see that header).
 
-namespace {
-
-struct TypeParamKey {
-	const SnClassDecl* pTemplate;
-	std::string name;
-	bool operator<(const TypeParamKey& rhs) const {
-		if (pTemplate != rhs.pTemplate) return pTemplate < rhs.pTemplate;
-		return name < rhs.name;
-	}
-};
-//Placeholder for one (template, type parameter) pair, interned on first
-//request. The placeholder is an opaque class-typed node so ordinary type
-//binding (IsTypeOrNamespaceBinding, EvalDataType) accepts it.
-static std::map<TypeParamKey, SnField*> s_typeParamPlaceholders;
-//Placeholder → its parameter position (the index into the template's
-//TypeParamNames()); the substitution reads the actual argument here.
-static std::map<const SnField*, size_t> s_placeholderIndex;
-
-struct DeclaredInstKey {
-	const SnClassDecl* pTemplate;
-	std::vector<const SnField*> typeArgs;
-	bool operator<(const DeclaredInstKey& rhs) const {
-		if (pTemplate != rhs.pTemplate) return pTemplate < rhs.pTemplate;
-		if (typeArgs.size() != rhs.typeArgs.size())
-			return typeArgs.size() < rhs.typeArgs.size();
-		for (size_t i = 0; i < typeArgs.size(); ++i)
-			if (typeArgs[i] != rhs.typeArgs[i])
-				return typeArgs[i] < rhs.typeArgs[i];
-		return false;
-	}
-};
-static std::map<DeclaredInstKey, SnClassDecl*> s_declaredInstances;
-//Instantiation → its template (the ctor-call arm matches the published
-//target's instantiation against the probed template through this).
-static std::map<const SnClassDecl*, const SnClassDecl*> s_instanceTemplate;
-//Instantiation → the unit whose resolution minted it (registration and
-//method-table population read it per unit image).
-static std::map<const SnClassDecl*, uint32_t> s_instanceOwner;
-//Per-unit mint order for the registration walks.
-static std::map<uint32_t, std::vector<SnClassDecl*>> s_instancesByUnit;
-
-} //namespace
-
-SnField* FindTypeParamPlaceholder(SnClassDecl& tmpl, const std::string& name,
-	size_t position)
+GenericInstanceRegistry::~GenericInstanceRegistry()
 {
-	const TypeParamKey key{&tmpl, name};
-	auto it = s_typeParamPlaceholders.find(key);
-	if (it != s_typeParamPlaceholders.end())
+	//The registry owns every node it minted. Instances and placeholders
+	//are detached from any tree, so nothing else frees them.
+	for (auto& kv : m_instances)
+		delete kv.second;
+	for (auto& kv : m_placeholders)
+		delete kv.second;
+}
+
+SnField* GenericInstanceRegistry::PlaceholderFor(SnClassDecl& tmpl,
+	const std::string& name, size_t position)
+{
+	const PlaceholderKey key{&tmpl, name};
+	auto it = m_placeholders.find(key);
+	if (it != m_placeholders.end())
 		return it->second;
 	//An opaque class-typed node: every type-binding site accepts it and
 	//nothing dereferences into it (members never reference placeholders).
 	auto* pName = new std::string(name);
 	auto* pPlaceholder = new SnClassDecl(pName, nullptr,
 		new PtrList<SnField>(), *tmpl.Location());
-	s_typeParamPlaceholders[key] = pPlaceholder;
-	s_placeholderIndex[pPlaceholder] = position;
+	m_placeholders[key] = pPlaceholder;
+	m_placeholderIndex[pPlaceholder] = position;
 	return pPlaceholder;
 }
 
-bool IsTypeParamPlaceholder(const SnField* pField)
+bool GenericInstanceRegistry::IsPlaceholder(const SnField* pField) const
 {
-	return pField && s_placeholderIndex.count(pField) > 0;
+	return pField && m_placeholderIndex.count(pField) > 0;
 }
 
-size_t TypeParamIndexOf(const SnField* pPlaceholder)
+size_t GenericInstanceRegistry::PlaceholderIndex(
+	const SnField* pPlaceholder) const
 {
-	auto it = s_placeholderIndex.find(pPlaceholder);
-	assert(it != s_placeholderIndex.end());
+	auto it = m_placeholderIndex.find(pPlaceholder);
+	assert(it != m_placeholderIndex.end());
 	return it->second;
 }
 
-SnClassDecl* DeclaredInstanceOf(const SnClassDecl* pInstance)
+SnClassDecl* GenericInstanceRegistry::InstanceOf(
+	const SnClassDecl* pInstance) const
 {
-	auto it = s_instanceTemplate.find(pInstance);
-	return it != s_instanceTemplate.end()
+	auto it = m_instanceTemplate.find(pInstance);
+	return it != m_instanceTemplate.end()
 		? const_cast<SnClassDecl*>(it->second) : nullptr;
 }
 
-void ForEachDeclaredGenericInstance(uint32_t ownerUnit,
-	const std::function<void(SnClassDecl&)>& visitor)
+void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
+	const SnClassDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs, uint32_t ownerUnit)
 {
-	auto it = s_instancesByUnit.find(ownerUnit);
-	if (it == s_instancesByUnit.end())
+	InstanceKey key{pTemplate, typeArgs};
+	m_instances[key] = pInstance;
+	m_instanceTemplate[pInstance] = pTemplate;
+	m_instancesByUnit[ownerUnit].push_back(pInstance);
+}
+
+SnClassDecl* GenericInstanceRegistry::FindInstance(
+	const SnClassDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs) const
+{
+	auto it = m_instances.find(InstanceKey{pTemplate, typeArgs});
+	return it != m_instances.end() ? it->second : nullptr;
+}
+
+void GenericInstanceRegistry::ForEachInstance(uint32_t ownerUnit,
+	const std::function<void(SnClassDecl&)>& visitor) const
+{
+	auto it = m_instancesByUnit.find(ownerUnit);
+	if (it == m_instancesByUnit.end())
 		return;
 	for (auto* pInstance : it->second)
 		visitor(*pInstance);
@@ -318,13 +307,22 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs,
 	uint32_t ownerUnit)
 {
-	DeclaredInstKey key{&tmpl, {}};
-	key.typeArgs.reserve(typeArgs.size());
-	for (auto* pArg : typeArgs)
-		key.typeArgs.push_back(pArg);
-	auto it = s_declaredInstances.find(key);
-	if (it != s_declaredInstances.end())
-		return it->second;
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	std::vector<const SnField*> keyArgs(typeArgs.begin(), typeArgs.end());
+	if (auto* pCached = generics.FindInstance(&tmpl, keyArgs))
+		return pCached;
+
+	//Invariant: clone SIGNATURE-COMPLETE templates only. The mint can
+	//fire from the declaration pass (a class field of declared-generic
+	//type) before the template's own signatures resolved — cloning then
+	//copies unresolved type expressions and the cache would serve a
+	//broken instance to every later phase. Completing the template HERE,
+	//at the single chokepoint every consumer reaches the mint through,
+	//makes instantiation order-independent (the same machinery the
+	//ordinary pre-pass runs; per-member flags make the later pass a
+	//no-op). ResolveDataTypes is idempotent and flag-guarded.
+	ExprResolver templateCompleter(m_Env);
+	templateCompleter.ResolveDataTypes(tmpl, tmpl);
 
 	//Erasure naming: the instantiation shares the template's bare name,
 	//the same way every List<T> shares the backing "List" class — the
@@ -346,10 +344,7 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	pInstance->SetBaseName(tmpl.Name());
 	pInstance->SetGenericTypeArgs(typeArgs);
 
-	s_declaredInstances[key] = pInstance;
-	s_instanceTemplate[pInstance] = &tmpl;
-	s_instanceOwner[pInstance] = ownerUnit;
-	s_instancesByUnit[ownerUnit].push_back(pInstance);
+	generics.AdoptInstance(pInstance, &tmpl, keyArgs, ownerUnit);
 	return pInstance;
 }
 
@@ -370,8 +365,9 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 				*srcType.Location()), *srcType.Location());
 		if (name.IsResolved())
 		{
-			auto* pBinding = IsTypeParamPlaceholder(name.Field())
-				? typeArgs[TypeParamIndexOf(name.Field())]
+			auto& generics = m_Env.Registry().DeclaredGenerics();
+			auto* pBinding = generics.IsPlaceholder(name.Field())
+				? typeArgs[generics.PlaceholderIndex(name.Field())]
 				: name.Field();
 			ResolveFieldExprAs(*pCopy, pBinding);
 		}
@@ -456,8 +452,9 @@ ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 					name.c_str());
 				return TypeParamBindResult::Rejected;
 			}
-			auto* pPlaceholder = FindTypeParamPlaceholder(cls, name,
-				static_cast<size_t>(paramIt - params.begin()));
+			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
+				.PlaceholderFor(cls, name,
+					static_cast<size_t>(paramIt - params.begin()));
 			ResolveFieldExprAs(idExpr, pPlaceholder);
 			return TypeParamBindResult::Bound;
 		}

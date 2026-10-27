@@ -85,6 +85,9 @@ const BindingRow s_BindingRows[] = {
     //completeExceptionally).
     {"builtins", "Promise",        INTR_Promise_Ctor},
     {"builtins", "Promise.future", INTR_Promise_Future},
+    {"builtins", "Promise.complete", INTR_Promise_Complete},
+    {"builtins", "Promise.completeExceptionally",
+                                   INTR_Promise_CompleteExceptionally},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)
@@ -141,7 +144,7 @@ bool VmBackend::IsHandleClassDecl(const SnField& decl) const
     {
         if (pClass->IsGenericInstantiation())
         {
-            pOwnerDecl = DeclaredInstanceOf(pClass);
+            pOwnerDecl = m_pRegistry->DeclaredGenerics().InstanceOf(pClass);
             if (!pOwnerDecl)
                 return false;
         }
