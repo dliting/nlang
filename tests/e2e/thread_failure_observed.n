@@ -1,0 +1,22 @@
+//P2-2: a failure retrieved through thread.failure() is observed — the
+//run ends green with no "never joined" report (no .run.stderr file on
+//this entry: an empty stderr is the expectation).
+import thread;
+
+void boomer() {
+    throw Exception("observed-boom");
+}
+
+int main() {
+    Thread t = thread.spawn(boomer);
+    int spins = 0;
+    while (!thread.isFailed(t) && spins < 10000) {
+        spins = spins + 1;
+        thread.yield();
+    }
+    Exception e = thread.failure(t);
+    if (e == null) {
+        return 1;
+    }
+    return 0;
+}

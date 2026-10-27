@@ -1833,6 +1833,8 @@ thread_spawn_shadow 7
 thread_fail_unjoined 0 main-done
 thread_fail_joined_quiet 0 caught
 thread_fail_late_join 0 late-caught
+thread_failure_probe 0 probe-boom
+thread_failure_observed 0
 object_baseref_dispatch 7
 object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString
 object_tostring_arity compile_error

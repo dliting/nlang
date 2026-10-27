@@ -21,13 +21,11 @@ namespace nlang {
 bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //K8: the family splits at the dispatch. thread.* arms touch
-    //scheduler state and heap minting only — they keep the scheduler
-    //domain lock (whole-body; a park's suspension unwind destroys the
-    //guard first). The handle methods forward below: Future arms are
-    //scheduler-state too, while the Mutex/Channel arms own the Sync
-    //domain over the side tables and must never hold the scheduler
-    //lock across their park/wake calls (the K8 domain-lock invariant).
+    //K8: the family splits at the dispatch — the thread.*/Future arms
+    //below hold the scheduler domain lock whole-body, while the
+    //Mutex/Channel arms own the Sync domain and must never hold the
+    //scheduler lock across their park/wake calls (domain-lock
+    //invariant; see the file header).
     switch (intrinsicId)
     {
     case INTR_Thread_Yield:
@@ -35,6 +33,8 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     case INTR_Thread_Spawn:
     case INTR_Thread_Join:
     case INTR_Thread_Sleep:
+    case INTR_Thread_IsFailed:
+    case INTR_Thread_Failure:
         break;
     default:
         return ExecuteIntrinsicHandleMethods(intrinsicId, callParamBase,
@@ -58,6 +58,10 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
         return IntrinsicSpawn(callParamBase, locals, pResult);
     case INTR_Thread_Join:
         return IntrinsicJoin(callParamBase, locals);
+    case INTR_Thread_IsFailed:
+        return IntrinsicThreadIsFailed(callParamBase, locals, pResult);
+    case INTR_Thread_Failure:
+        return IntrinsicThreadFailure(callParamBase, locals, pResult);
     case INTR_Thread_Sleep:
         return IntrinsicSleep(callParamBase, locals);
     default:
@@ -302,6 +306,61 @@ bool VmExecutor::IntrinsicJoin(uint16_t callParamBase, uint8_t* locals)
     EnsureSuspensionAllowed();
     m_spScheduler->ParkForJoin(selfId, targetId);
     RequestPark(ParkSignal::Reason::Join);   //[[noreturn]]
+}
+
+//Shared prologue of the P2-2 probes: resolve the Thread argument to a
+//live target context (the same validation shape as join).
+const ExecutionContext& VmExecutor::ResolveProbeTarget(
+    uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t threadObjIdx;
+    std::memcpy(&threadObjIdx, locals + callParamBase,
+                sizeof(threadObjIdx));
+    if (threadObjIdx <= 0
+        || static_cast<size_t>(threadObjIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null reference in thread probe");
+    const int32_t targetId =
+        m_structHeap[static_cast<size_t>(threadObjIdx)][1];
+    const ExecutionContext* target = m_spScheduler->Find(targetId);
+    if (!target)
+        throw std::runtime_error(
+            "NLang VM: thread probe target is not a live context");
+    return *target;
+}
+
+//thread.isFailed(Thread t): true once the target finished with an
+//uncaught exception; false while running and after a clean finish.
+//Idempotent read — never marks the failure observed (the run-end
+//"never joined" warning stays honest: only retrieving the failure
+//reason counts as observation).
+bool VmExecutor::IntrinsicThreadIsFailed(uint16_t callParamBase,
+                                         uint8_t* locals, uint8_t* pResult)
+{
+    const ExecutionContext& target
+        = ResolveProbeTarget(callParamBase, locals);
+    const int32_t r = target.state == ContextState::Failed ? 1 : 0;
+    std::memcpy(pResult, &r, sizeof(r));
+    return true;
+}
+
+//thread.failure(Thread t): the target's original exception object (the
+//same instance join rethrows), or null when the target has not failed
+//("not yet" and "finished clean" read the same — pair with isFailed to
+//tell them apart). Retrieval marks the failure observed, so a task
+//whose failure was taken here no longer reports at run end.
+bool VmExecutor::IntrinsicThreadFailure(uint16_t callParamBase,
+                                        uint8_t* locals, uint8_t* pResult)
+{
+    const ExecutionContext& target
+        = ResolveProbeTarget(callParamBase, locals);
+    int32_t excIdx = 0;
+    if (target.state == ContextState::Failed) {
+        excIdx = target.failExcHeapIdx;
+        m_spScheduler->MarkFailureObserved(target.id);
+    }
+    std::memcpy(pResult, &excIdx, sizeof(excIdx));
+    return true;
 }
 
 //thread.sleep(ms)。steady_clock 截止时刻经 ParkForTimer 登记（状态 +

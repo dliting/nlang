@@ -1,0 +1,28 @@
+//P2-2: programmatic spawn-failure observability — poll isFailed, take
+//the failure object (idempotent), and watch join still rethrow it.
+import thread;
+import io;
+
+void boomer() {
+    throw Exception("probe-boom");
+}
+
+int main() {
+    Thread t = thread.spawn(boomer);
+    int spins = 0;
+    while (!thread.isFailed(t) && spins < 10000) {
+        spins = spins + 1;
+        thread.yield();
+    }
+    Exception e1 = thread.failure(t);
+    io.print(e1.message);
+    Exception e2 = thread.failure(t);
+    io.print(e2.message);
+    try {
+        thread.join(t);
+        return 1;
+    } catch (Exception re) {
+        io.print(re.message);
+    }
+    return 0;
+}

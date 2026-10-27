@@ -86,7 +86,7 @@
 
 - **并发：多路等待限于`Future`域**：`Future`可经`Promise`手工完成（[Promise](concurrency-promise.md)），`Future.selectAny`提供「任意一个先决定」的多路等待；但通道上没有「任意一个就绪」的`recv`变体——多源通道要任意收，须为每个源经`Promise`组合一层再对`Future`数组`selectAny`。
 
-- **并发：派生线程的失败只经`join`浮出**：未捕获异常不传播给宿主或main——失败上下文被遏制，`join`它的上下文收到原异常对象的重抛；没有等待者时失败无声。
+- **并发：派生线程的失败不传播给宿主或main**：未捕获异常被遏制在失败上下文内。等待侧经`join`/`Future.get`观测失败（原异常对象的重抛）；非阻塞观测走`thread.isFailed`/`thread.failure`（见[探测任务失败](concurrency-thread.md#探测任务失败)）。无人等待也无人取回的失败不会无声丢失：运行结束时VM对每个这样的任务在stderr打一行（任务id、异常类型与消息）。
 
 - **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](concurrency-reentrant-mutex.md)。见[Mutex](concurrency-mutex.md)。
 

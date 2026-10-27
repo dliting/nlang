@@ -15,6 +15,15 @@ native Thread spawn(func<void> f);
 // rethrows its original exception object into this context.
 native void join(Thread t);
 
+// Non-blocking failure probes. isFailed reports whether the target
+// finished with an uncaught exception (false while running and after a
+// clean finish); it never marks the failure as observed. failure
+// returns the failed task's original exception object — the same
+// instance join rethrows — or null when the target has not failed, and
+// the retrieval counts as observation (no run-end report for it).
+native bool isFailed(Thread t);
+native Exception failure(Thread t);
+
 // Voluntary yield: the context goes to the back of the run queue.
 native void yield();
 

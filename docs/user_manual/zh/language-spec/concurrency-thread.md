@@ -66,3 +66,39 @@ int main() {
 ```
 
 `join`已完成的目标立即返回，不重复等待；当前上下文`join`自己的句柄（等待自己完成）是运行期错误。失败上下文保留的异常对象由调度器持有到运行结束（上下文记录不剪除），供任何迟到的`join`重抛。
+
+## 探测任务失败
+
+有时等待并不是合适的动作：监视循环想在不挂起的前提下查看任务状态。`thread.isFailed`与`thread.failure`是对派生任务失败状态的非阻塞读取：
+
+| 成员 | 形态 | 语义 |
+|---|---|---|
+| `thread.isFailed(t)` | `Thread` → `bool` | 目标以未捕获异常结束后为`true`；运行中与干净完成均为`false`。纯读取——从不把失败标记为已观测 |
+| `thread.failure(t)` | `Thread` → `Exception` | 目标的原异常对象（与`join`重抛的是同一实例），目标尚未失败时为`null`。取回即观测：经此处取走的失败不再出现在运行结束报告里 |
+
+两个函数的句柄校验与`join`相同（null句柄抛`NullPointerException`；已死的上下文id是运行期错误）。它们从不挂起，轮询循环里用是安全的：
+
+```nlang
+import io;
+import thread;
+
+void fragile() {
+    throw Exception("disk full");
+}
+
+int main() {
+    Thread t = thread.spawn(fragile);
+    int spins = 0;
+    while (!thread.isFailed(t) && spins < 10000) {
+        spins = spins + 1;
+        thread.yield();
+    }
+    if (thread.isFailed(t)) {
+        Exception e = thread.failure(t);
+        io.print(e.message);       // disk full
+    }
+    return 0;
+}
+```
+
+两个读取回答的问题不同，天然成对：`isFailed`区分「已失败」与「运行中或干净完成」；`failure`用失败原因区分「已失败」与其他一切（null即未失败）。经`failure`取回会把失败标记为已观测——这样取走失败的任务豁免于运行结束时的无人观测报告。`join`与`Future.get`同样会标记观测；只有`isFailed`不碰状态，因为「探知事实」不等于「取走原因」。

@@ -71,3 +71,39 @@ int main() {
 ```
 
 `join` on an already-finished target returns immediately without waiting again; joining a context onto itself is a runtime error. A failed context's retained exception object is held by the scheduler until the run ends (context records are never pruned), so a late `join` still rethrows it.
+
+## Probing a task's failure
+
+Sometimes waiting is not the right move: a supervisor loop wants to check on a task without suspending. `thread.isFailed` and `thread.failure` are non-blocking reads of a spawned task's failure state:
+
+| Member | Shape | Semantics |
+|---|---|---|
+| `thread.isFailed(t)` | `Thread` → `bool` | `true` once the target finished with an uncaught exception; `false` while it runs and after a clean finish. A pure read — it never marks the failure as observed |
+| `thread.failure(t)` | `Thread` → `Exception` | The target's original exception object (the same instance `join` rethrows), or `null` when the target has not failed. The retrieval counts as observation, so a failure taken here no longer reports at run end |
+
+Both functions validate the handle the same way `join` does (a null handle raises `NullPointerException`; a dead context id is a runtime error). They never suspend, so they are safe inside polling loops:
+
+```nlang
+import io;
+import thread;
+
+void fragile() {
+    throw Exception("disk full");
+}
+
+int main() {
+    Thread t = thread.spawn(fragile);
+    int spins = 0;
+    while (!thread.isFailed(t) && spins < 10000) {
+        spins = spins + 1;
+        thread.yield();
+    }
+    if (thread.isFailed(t)) {
+        Exception e = thread.failure(t);
+        io.print(e.message);       // disk full
+    }
+    return 0;
+}
+```
+
+The two reads answer different questions and pair naturally: `isFailed` distinguishes "failed" from "still running or finished clean"; `failure` distinguishes "failed" from everything else by handing back the reason (null means not failed). Retrieving through `failure` marks the failure as observed — a task whose failure was taken this way is exempt from the run-end report that otherwise lists failures nobody ever waited for. `join` and `Future.get` keep marking the observation too; only `isFailed` leaves the state untouched, because peeking at the fact is not the same as taking the reason.

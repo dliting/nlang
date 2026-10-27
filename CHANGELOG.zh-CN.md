@@ -6,6 +6,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.9] - 2026-10-28
+
+### 新增
+
+- **spawn失败观测原语**——`thread.isFailed(t)`在派生任务以未捕获异常结束后读`true`（运行中与干净完成均为false），`thread.failure(t)`返回任务的原异常对象——与`join`重抛的是同一实例——尚未失败时为null。两者非阻塞、轮询循环内安全、句柄校验与`join`一致。经`failure`取回即标记观测，任务随之豁免运行结束的"never joined"报告；`isFailed`是纯读取。
+
+### 变更
+
+- known-limitations的派生线程失败条目改述四条观测通道（join、`Future.get`、两个探测原语），不再写"只经join"；运行结束报告覆盖无人等待**也**无人取回的失败。
+
 ## [0.11.8] - 2026-10-28
 
 ### 新增

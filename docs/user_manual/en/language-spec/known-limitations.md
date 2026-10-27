@@ -238,12 +238,15 @@ This page collects the language-level limitations visible to user programs, with
   whichever comes first, wrap each source with a `Promise` and call
   `selectAny` over the array of `Future` values.
 
-- **Concurrency: a spawned thread's failure surfaces only through
-  `join`**: uncaught exceptions propagate to neither the host nor main —
-  the failed context is contained, and joiners receive a rethrow of the
-  original exception object. A failure no joiner ever observed is not
-  silently lost: at run end the VM prints one stderr line per such task
-  (task id, exception type and message).
+- **Concurrency: a spawned thread's failure never propagates to the
+  host or main**: uncaught exceptions are contained in the failed
+  context. Waiting sides observe the failure through `join`/`Future.get`
+  (a rethrow of the original exception object); non-blocking observation
+  is available through `thread.isFailed`/`thread.failure` (see
+  [Probing a task's failure](concurrency-thread.md#probing-a-tasks-failure)).
+  A failure nobody ever waited for or retrieved is not silently lost: at
+  run end the VM prints one stderr line per such task (task id, exception
+  type and message).
 
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the

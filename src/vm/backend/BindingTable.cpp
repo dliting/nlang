@@ -43,6 +43,9 @@ static const BindingRow s_LiteralRows[] = {
     {"thread", "thread.yield", INTR_Thread_Yield},
     {"thread", "thread.id",    INTR_Thread_Id},
     {"thread", "thread.sleep", INTR_Thread_Sleep},
+    //P2-2: spawn-failure observability probes (non-blocking).
+    {"thread", "thread.isFailed", INTR_Thread_IsFailed},
+    {"thread", "thread.failure",  INTR_Thread_Failure},
     //Cluster 1 (Mutex/Semaphore): declared in stdlib/builtins.n. The
     //type-member stamping arm binds the declared native records onto
     //the intrinsic channel; the constructor key is the bare class name.

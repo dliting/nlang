@@ -212,5 +212,9 @@ static constexpr uint16_t INTR_Promise_CompleteExceptionally = 165;
 //type name — no receiver rides slot 0; the wait-set array is the sole
 //argument (args-from-slot-0 ABI, the binding row's noReceiver shape).
 static constexpr uint16_t INTR_Future_SelectAny = 166;
+//P2-2 (v0.11.9): spawn-failure observability — thread-namespace free
+//functions (slot 0 = the Thread argument, same shape as join).
+static constexpr uint16_t INTR_Thread_IsFailed = 167;
+static constexpr uint16_t INTR_Thread_Failure  = 168;
 
 }  // namespace nlang

@@ -1122,6 +1122,18 @@ private:
     bool IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                         uint8_t* pResult);
     bool IntrinsicJoin(uint16_t callParamBase, uint8_t* locals);
+    //P2-2: spawn-failure observability probes. Non-blocking reads of
+    //the target context's failure state; failure() additionally
+    //retrieves the original exception object (the same instance join
+    //rethrows) and marks the failure observed, which silences the
+    //run-end "never joined" warning. isFailed() never marks anything.
+    bool IntrinsicThreadIsFailed(uint16_t callParamBase, uint8_t* locals,
+                                 uint8_t* pResult);
+    bool IntrinsicThreadFailure(uint16_t callParamBase, uint8_t* locals,
+                                uint8_t* pResult);
+    //Shared validation prologue of the two probes (join's shape).
+    const ExecutionContext& ResolveProbeTarget(uint16_t callParamBase,
+                                               uint8_t* locals);
     //K1 Slice 7: park the current context on a steady_clock deadline;
     // negative durations are rejected as a basic error.
     bool IntrinsicSleep(uint16_t callParamBase, uint8_t* locals);

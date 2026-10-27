@@ -6,6 +6,27 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.9] - 2026-10-28
+
+### Added
+
+- **Spawn-failure observability probes** — `thread.isFailed(t)` reads
+  `true` once a spawned task finished with an uncaught exception
+  (false while running and after a clean finish), and
+  `thread.failure(t)` hands back the task's original exception object —
+  the same instance `join` rethrows — or `null` when it has not failed.
+  Both are non-blocking, safe inside polling loops, and validate the
+  handle like `join`. Retrieving through `failure` marks the failure
+  observed, exempting the task from the run-end "never joined" report;
+  `isFailed` is a pure read.
+
+### Changed
+
+- The known-limitations entry on spawned-thread failure now describes
+  the four observation channels (join, `Future.get`, the two probes)
+  instead of "only through join"; the run-end report covers failures
+  nobody waited for **or** retrieved.
+
 ## [0.11.8] - 2026-10-28
 
 ### Added

@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <list>
 #include <stdexcept>
 #include <string>
@@ -799,6 +800,182 @@ void test_atomic_uninit_rejected()
     PASS();
 }
 
+//P2-2: thread.isFailed/failure — non-blocking spawn-failure probes.
+//Running target reads false/null; a failed target flips isFailed and
+//failure() hands back the original exception object (idempotent, and
+//join still rethrows it afterwards).
+void test_thread_probe_running_and_failed()
+{
+    TEST(thread_probe_running_and_failed);
+    std::string out;
+    const int rc = runSourceCapturing("probe_faces",
+        "import thread;\n"
+        "import io;\n"
+        "void boomer() {\n"
+        "    throw Exception(\"boom-42\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(boomer);\n"
+        "    if (thread.isFailed(t)) {\n"
+        "        io.write(\"early-fail\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    Exception early = thread.failure(t);\n"
+        "    if (early != null) {\n"
+        "        io.write(\"early-exc\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    int spins = 0;\n"
+        "    while (!thread.isFailed(t) && spins < 10000) {\n"
+        "        spins = spins + 1;\n"
+        "        thread.yield();\n"
+        "    }\n"
+        "    if (!thread.isFailed(t)) {\n"
+        "        io.write(\"never-failed\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    Exception e1 = thread.failure(t);\n"
+        "    io.write(e1.message);\n"
+        "    Exception e2 = thread.failure(t);\n"
+        "    io.write(\"|\");\n"
+        "    io.write(e2.message);\n"
+        "    try {\n"
+        "        thread.join(t);\n"
+        "        io.write(\"|no-rethrow\");\n"
+        "        return 1;\n"
+        "    } catch (Exception re) {\n"
+        "        io.write(\"|\");\n"
+        "        io.write(re.message);\n"
+        "    }\n"
+        "    io.write(\"\\n\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "probe program completes (rc=" + std::to_string(rc) + ")");
+    CHECK(out == "boom-42|boom-42|boom-42\n",
+          "failed target probes true, retrieval is idempotent, and join "
+          "still rethrows (got: " + out + ")");
+    PASS();
+}
+
+//P2-2: a clean finish never reads failed — isFailed stays false and
+//failure() stays null after join.
+void test_thread_probe_clean_finish()
+{
+    TEST(thread_probe_clean_finish);
+    std::string out;
+    const int rc = runSourceCapturing("probe_clean",
+        "import thread;\n"
+        "import io;\n"
+        "void worker() {\n"
+        "    io.write(\"w\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    thread.join(t);\n"
+        "    if (thread.isFailed(t)) {\n"
+        "        io.write(\"false-positive\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    Exception e = thread.failure(t);\n"
+        "    if (e != null) {\n"
+        "        io.write(\"phantom-failure\");\n"
+        "        return 1;\n"
+        "    }\n"
+        "    io.write(\"clean\\n\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "clean-finish program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "wclean\n",
+          "clean target probes false/null after join (got: " + out + ")");
+    PASS();
+}
+
+//P2-2: retrieving the failure through thread.failure() counts as
+//observation — the run-end "never joined" report disappears. The
+//control run (nobody joins, nobody retrieves) still reports on stderr.
+void test_thread_probe_suppresses_unobserved_warning()
+{
+    TEST(thread_probe_suppresses_unobserved_warning);
+    const std::string head =
+        "import thread;\n"
+        "void boomer() {\n"
+        "    throw Exception(\"suppressed\");\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(boomer);\n"
+        "    int spins = 0;\n"
+        "    while (!thread.isFailed(t) && spins < 10000) {\n"
+        "        spins = spins + 1;\n"
+        "        thread.yield();\n"
+        "    }\n";
+    const std::string tail =
+        "    return 0;\n"
+        "}\n";
+    const std::string retrieve = "    Exception e = thread.failure(t);\n";
+    const std::string noop = "    thread.yield();\n";
+    for (int arm = 0; arm < 2; ++arm) {
+        const std::string source = head + (arm == 0 ? retrieve : noop)
+            + tail;
+        std::string out;
+        std::ostringstream errBuf;
+        auto* oldBuf = std::cerr.rdbuf(errBuf.rdbuf());
+        const int rc = runSourceCapturing(
+            arm == 0 ? "probe_suppress" : "probe_control", source, out);
+        std::cerr.rdbuf(oldBuf);
+        const std::string err = errBuf.str();
+        CHECK(rc == 0, "arm " + std::to_string(arm) + " completes (rc="
+              + std::to_string(rc) + ")");
+        if (arm == 0) {
+            CHECK(err.find("never joined") == std::string::npos,
+                  "retrieved failure must not report at run end (got: "
+                  + err + ")");
+        } else {
+            CHECK(err.find("failed with uncaught Exception: suppressed")
+                      != std::string::npos,
+                  "unretrieved failure still reports at run end (got: "
+                  + err + ")");
+        }
+    }
+    PASS();
+}
+
+//P2-2: a null Thread handle raises NullPointerException, same as join.
+void test_thread_probe_null_handle_rejects()
+{
+    TEST(thread_probe_null_handle_rejects);
+    std::string out;
+    const int rc = runSourceCapturing("probe_null",
+        "import thread;\n"
+        "import io;\n"
+        "int main() {\n"
+        "    Thread t = null;\n"
+        "    try {\n"
+        "        thread.isFailed(t);\n"
+        "        io.write(\"no-raise\");\n"
+        "        return 1;\n"
+        "    } catch (NullPointerException e) {\n"
+        "        io.write(\"npe\\n\");\n"
+        "    }\n"
+        "    try {\n"
+        "        thread.failure(t);\n"
+        "        io.write(\"no-raise\");\n"
+        "        return 1;\n"
+        "    } catch (NullPointerException e) {\n"
+        "        io.write(\"npe\\n\");\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "null-handle program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "npe\nnpe\n",
+          "both probes reject a null handle (got: " + out + ")");
+    PASS();
+}
+
 //Catch per-test exceptions (build failures, deadlock-guard throws) as
 //FAIL lines instead of killing the whole binary (test_threads.cpp
 //runGuarded shape).
@@ -841,6 +1018,10 @@ int main()
     runGuarded(test_atomic_flag_pattern);
     runGuarded(test_atomic_nested_eval_legal);
     runGuarded(test_atomic_uninit_rejected);
+    runGuarded(test_thread_probe_running_and_failed);
+    runGuarded(test_thread_probe_clean_finish);
+    runGuarded(test_thread_probe_suppresses_unobserved_warning);
+    runGuarded(test_thread_probe_null_handle_rejects);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";
