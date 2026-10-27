@@ -1,5 +1,7 @@
 # 流——ByteStream与FileStream
 
+规范性规则见规范§15.5。
+
 两个内建流类提供二进制序列化：`ByteStream`在内存缓冲区上读写，`FileStream`落到磁盘文件。方法面相同（FileStream没有`reset()`）。
 
 ```nlang

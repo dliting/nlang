@@ -154,7 +154,7 @@ through `toString` (§5.3, chapter 8).
 
 A function value does not enter `Object` (§4.11). It cannot be a
 `Dict` key, a `switch` discriminant, or the target of the
-serialization methods (chapter 13).
+serialization methods (chapter 15).
 
 ## 7.5 Native Functions
 
