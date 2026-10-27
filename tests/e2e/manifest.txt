@@ -1823,3 +1823,4 @@ selectany_ceiling 1
 selectany_selfref 1
 selectany_dup 0 0 7
 selectany_late_failure 0 0 5
+selectany_wake_late_failure 0 0 6

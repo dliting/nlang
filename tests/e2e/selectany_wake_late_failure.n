@@ -1,0 +1,41 @@
+//Parked-then-woken selectAny with a late-arriving FAILURE loser: both
+//sources are pending when selectAny is called (the caller parks), the
+//winner completes and wakes it, and the loser fails exceptionally
+//AFTER that wake — the cleared wait-set registration means the failure
+//must not disturb the waiter, and since no one ever gets the loser's
+//value, the run-end report names it on stderr. (The decided-now
+//short-circuit form is selectany_late_failure.)
+import io;
+import thread;
+
+class Winner {
+    public Promise<int> p;
+    public int v;
+    public void run() { thread.sleep(30); p.complete(v); }
+}
+
+class Loser {
+    public Promise<int> p;
+    public void run() { thread.sleep(90); p.completeExceptionally(Exception("wake-loser-boom")); }
+}
+
+int main() {
+    Promise<int> pa = Promise();
+    Promise<int> pb = Promise();
+    Winner w = Winner();
+    w.p = pa;
+    w.v = 6;
+    Loser l = Loser();
+    l.p = pb;
+    Thread tw = thread.spawn(w.run);
+    Thread tl = thread.spawn(l.run);
+    Future<int> a = pa.future();
+    Future<int> b = pb.future();
+    Future<int>[] arr = [a, b];
+    int winner = Future.selectAny(arr);
+    int got = a.get();
+    thread.join(tw);
+    thread.join(tl);
+    io.print(winner.toString() + " " + got.toString());
+    return 0;
+}

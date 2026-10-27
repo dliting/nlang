@@ -1,6 +1,8 @@
-// The winner is woken by A; B failing afterwards must not disturb the
-// caller — but B's failure was never observed, so the run-end report
-// names it on stderr.
+// Decided-now short circuit: A is already complete when selectAny runs,
+// so the caller never parks (the re-scan probe returns slot 0 at once).
+// B failing afterwards must not disturb the caller — but B's failure
+// was never observed, so the run-end report names it on stderr. (The
+// parked-then-woken form with a late failure is selectany_wake_late_failure.)
 import io;
 int main() {
     Promise<int> pa = Promise();

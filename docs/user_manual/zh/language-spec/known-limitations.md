@@ -4,7 +4,7 @@
 
 ### 类型、数组与集合
 
-- **用户自定义泛型**：不支持`class Foo<T> { ... }`。编译器只识别内建泛型类（`List<T>`、`Dict<K,V>`）。
+- **泛型类声明仅签名面（全native成员）**：`class Box<T> { ... }`声明被接受，但只承载签名——成员必须是native方法，泛型体内的nlang方法体、字段初始化器、参数默认值一律在编译期被拒绝；无宿主绑定的native成员能编译通过，运行期才报`native function not registered`。日常泛型请用内建容器（`List<T>`、`Dict<K,V>`、`Channel<T>`、`Future<T>`）与预置`Promise<T>`。
 
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
   `toChar`，见[string方法](stdlib-string.md)）；本条是有意的规格缩窄，不是缺陷。

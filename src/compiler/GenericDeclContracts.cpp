@@ -10,6 +10,31 @@
 namespace nlang
 {
 
+namespace
+{
+//A member named like one of the declaration's type parameters would
+//shadow the parameter inside the declaration's scope, where the
+//parameter name IS a type (spec §8: collision is a declaration-level
+//error, checked for every member kind).
+void CheckMemberNotTypeParamName(const SnClassDecl &cls,
+	const SnField &member, BuildEnvironment &env)
+{
+	const auto &names = cls.TypeParamNames();
+	const std::string &memberName = member.Name();
+	for (const auto &paramName : names)
+		if (memberName == paramName)
+		{
+			env.Log(CLL_Error, member.Location(),
+				"The class \"%s\" is a generic declaration: the member "
+				"\"%s\" collides with the type parameter \"%s\" (the "
+				"parameter name is a type in this declaration's scope).",
+				cls.Name().c_str(), memberName.c_str(),
+				paramName.c_str());
+			return;
+		}
+}
+} //namespace
+
 //Generic class declarations carry signature surfaces only: the
 //declaration grammar has no generic method compilation, so every
 //method member of a declared generic must be native, without
@@ -23,6 +48,7 @@ void CheckGenericDeclNativeOnly(SnClassDecl &cls,
 		return;
 	for (auto &member : cls.Members())
 	{
+		CheckMemberNotTypeParamName(cls, member, env);
 		if (member.Kind() != NK_Function)
 		{
 			if (member.Kind() == NK_ClassField)

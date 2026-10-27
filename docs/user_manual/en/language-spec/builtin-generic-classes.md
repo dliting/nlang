@@ -4,8 +4,10 @@
 ### `List<T>`
 
 `List<T>` is a growable, ordered, index-addressable collection. It is
-a **built-in generic class** — only `List` and `Dict` are recognized
-by the compiler; user-defined `class Foo<T>` is not supported.
+a **built-in generic class** — the compiler's built-in generics also
+include `Dict<K,V>`, `Channel<T>`, and `Future<T>`; generic class
+declarations are signature-only for now (see
+[Known Limitations](known-limitations.md)).
 
 ```nlang
 List<int> nums = {};
@@ -106,9 +108,10 @@ descriptor grammar (see Known Limitations).
 ### `Dict<K,V>`
 
 `Dict<K,V>` is an associative array mapping keys of type `K` to values
-of type `V`. Like `List<T>`, it is a **built-in generic class** — only
-`List` and `Dict` are recognized by the compiler; user-defined generics
-are not supported.
+of type `V`. Like `List<T>`, it is a **built-in generic class** — the
+compiler's built-in generics also include `Channel<T>` and `Future<T>`;
+generic class declarations are signature-only for now (see
+[Known Limitations](known-limitations.md)).
 
 ```nlang
 Dict<string,int> scores = {};

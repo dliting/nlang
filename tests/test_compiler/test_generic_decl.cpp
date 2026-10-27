@@ -225,6 +225,94 @@ private slots:
         QVERIFY2(!anyErrorMentions(outcome.second, "void function"),
             "future() must keep its declared return type");
     }
+    //A member named like a type parameter is rejected: within the
+    //declaration's scope the parameter name is a type, so a member with
+    //that name would shadow it (spec §8: type-parameter/member name
+    //collision is a declaration-level error).
+    void declGenericRejectsTypeParamMemberNameCollision()
+    {
+        const auto path = writeTempSource("generic_name_clash.n",
+            "class Box<T> {\n"
+            "    public native Box();\n"
+            "    public native int T();\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_name_clash", path);
+        QVERIFY2(!outcome.first,
+            "a member named like a type parameter must be rejected");
+        QVERIFY2(anyErrorMentions(outcome.second, "T"),
+            "diagnostic must name the colliding member");
+    }
+
+    //An empty generic body parses (the marker-class shape, consistent
+    //with empty non-generic class bodies).
+    void declGenericAcceptsEmptyBody()
+    {
+        const auto path = writeTempSource("generic_empty.n",
+            "class Empty<T> { }\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_empty", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "an empty generic body must parse");
+    }
+
+    //A generic declaration composes with inheritance and interface
+    //implementation (the ClassDecl productions keep their optional
+    //clauses under a type-parameter list).
+    void declGenericAcceptsInheritanceCombos()
+    {
+        const auto path = writeTempSource("generic_inherit.n",
+            "class Base {\n"
+            "    public int b;\n"
+            "}\n"
+            "interface IF {\n"
+            "    public int ifc();\n"
+            "}\n"
+            "class WithBase<T> : Base {\n"
+            "    public native int size();\n"
+            "}\n"
+            "class WithImpl<T> implements IF {\n"
+            "    public native int ifc();\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_inherit", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "inheritance/implementation must compose with a type-parameter list");
+        QVERIFY2(outcome.first,
+            "generic inheritance/implementation combos must build clean");
+    }
+
+    //A field initializer inside a generic declaration is rejected —
+    //signatures only (the initializer is executable shape).
+    void declGenericRejectsFieldInitializer()
+    {
+        const auto path = writeTempSource("generic_field_init.n",
+            "class Box<T> {\n"
+            "    public int x = 5;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_field_init", path);
+        QVERIFY2(!outcome.first,
+            "a field initializer in a generic declaration must be rejected");
+        QVERIFY2(anyErrorMentions(outcome.second, "cannot have an initializer"),
+            "diagnostic must name the initializer rule");
+    }
+
+    //A parameter default value inside a generic declaration is rejected
+    //— signatures only (defaults are executable shape).
+    void declGenericRejectsParameterDefaultValue()
+    {
+        const auto path = writeTempSource("generic_default.n",
+            "class Box<T> {\n"
+            "    public native int f(int n = 3);\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_default", path);
+        QVERIFY2(!outcome.first,
+            "a parameter default value in a generic declaration must be rejected");
+        QVERIFY2(anyErrorMentions(outcome.second, "cannot have a default value"),
+            "diagnostic must name the default-value rule");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestGenericDecl)

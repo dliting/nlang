@@ -4,8 +4,15 @@ This page collects the language-level limitations visible to user programs, with
 
 ### Types, arrays and collections
 
-- **User-defined generics**: `class Foo<T> { ... }` is not supported. Only
-  built-in generic classes (`List<T>`, `Dict<K,V>`) are recognized.
+- **Generic class declarations are signature-only (all-native members)**:
+  `class Box<T> { ... }` declarations are accepted, but carry signatures
+  only — members must be native methods, and nlang method bodies, field
+  initializers, and parameter default values inside a generic declaration
+  are rejected at compile time; a native member without a host binding
+  compiles and fails only at runtime with `native function not
+  registered`. For everyday generics use the built-in containers
+  (`List<T>`, `Dict<K,V>`, `Channel<T>`, `Future<T>`) and the prelude
+  `Promise<T>`.
 
 - **`as` from string to a numeric type is forbidden**: `"5" as int` is a
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
