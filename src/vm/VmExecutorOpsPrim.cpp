@@ -289,13 +289,27 @@ int64_t VmExecutor::ReadScalarAsInt64(int row, const uint8_t* p) const
     }
 }
 
-//True when all width bytes of the slot are zero — covers the integer
-//zero divisor and the float +-0.0 divisor alike (the legacy OP_Div_f32
-//raised on b == 0.0f, so bit-zero is the behavior-equivalent test).
-static bool SlotIsZero(const uint8_t* p, uint8_t width)
+//Zero-divisor test: the integer kinds test all width bytes zero; the
+//float kinds test IEEE equality with zero, which also catches −0.0
+//(the legacy OP_Div_f32 raised on b == 0.0f — true for −0.0 — and the
+//language has no IEEE infinities, so −0.0 must raise like +0.0).
+static bool SlotIsZeroDivisor(int primIdx, const uint8_t* p)
 {
-    for (uint8_t i = 0; i < width; ++i)
-        if (p[i]) return false;
+    const auto& row = kScalarPrims[primIdx];
+    if (row.category == PC_Float)
+    {
+        if (row.slotWidth == 4)
+        {
+            float v;
+            std::memcpy(&v, p, sizeof(v));
+            return v == 0.0f;
+        }
+        double v;
+        std::memcpy(&v, p, sizeof(v));
+        return v == 0.0;
+    }
+    for (uint8_t k = 0; k < row.slotWidth; ++k)
+        if (p[k]) return false;
     return true;
 }
 
@@ -340,7 +354,7 @@ void VmExecutor::OpDiv(BytecodeReader& r, uint8_t* locals)
     if (i < 0 || !kDivTable[i])
         RaiseNlangException(m_exceptionClassIdx,
             "NLang VM: div on unsupported kind");
-    if (SlotIsZero(locals + src, kScalarPrims[i].slotWidth))
+    if (SlotIsZeroDivisor(i, locals + src))
         RaiseNlangException(m_divZeroExcClassIdx,
             "NLang VM: division by zero");
     kDivTable[i](locals + dst, locals + src);
@@ -354,7 +368,7 @@ void VmExecutor::OpMod(BytecodeReader& r, uint8_t* locals)
     if (i < 0 || !kModTable[i])
         RaiseNlangException(m_exceptionClassIdx,
             "NLang VM: mod on unsupported kind");
-    if (SlotIsZero(locals + src, kScalarPrims[i].slotWidth))
+    if (SlotIsZeroDivisor(i, locals + src))
         RaiseNlangException(m_divZeroExcClassIdx,
             "NLang VM: modulo by zero");
     kModTable[i](locals + dst, locals + src);
