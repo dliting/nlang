@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.22] - 2026-10-27
+
+### Added
+
+- **`AtomicInt` — the declared atomic-integer class** — lock-free
+  single-value primitives for cross-carrier shared state: `load`,
+  `store`, `getAndSet` (returns the previous value), `compareExchange`
+  (CAS: equals-expect sets and returns true), and the add family with
+  the Java `getAndX`/`xAndGet` naming convention (old/new), plus both
+  increment faces. Counters, flags and sequence numbers no longer need
+  a coarse mutex; a four-task four-carrier increment test lands exactly
+  (10000/10000), and the CAS-as-flag race crowns exactly one winner.
+  No method parks — all stay legal inside a re-entrant evaluation.
+  Declared in the prelude package like the other handle classes — no
+  import. Manual page (zh+en) covers the choice guide against Mutex,
+  the counter and flag shapes, and the Java naming note.
+
 ## [0.10.21] - 2026-10-27
 
 ### Added

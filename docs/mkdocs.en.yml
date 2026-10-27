@@ -81,6 +81,7 @@ nav:
           - Mutex: language-spec/concurrency-mutex.md
           - Semaphore: language-spec/concurrency-semaphore.md
           - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
+          - AtomicInt: language-spec/concurrency-atomic.md
           - Channel: language-spec/concurrency-channel.md
           - The concurrent Package: language-spec/concurrency-concurrent.md
           - Suspension and Scheduling Limits: language-spec/concurrency-suspension.md

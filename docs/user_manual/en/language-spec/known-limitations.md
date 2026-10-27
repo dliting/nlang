@@ -193,7 +193,9 @@ This page collects the language-level limitations visible to user programs, with
   maintenance still serializes on its domain lock, and concurrent
   reads and writes of a shared object's fields (shared through
   `spawn` arguments or a channel) are a data race — a transitional
-  value may be read; coordinate shared mutable state with a `Mutex`.
+  value may be read; single-value state takes
+  [AtomicInt](concurrency-atomic.md), multi-field invariants take a
+  `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count
   with `VmExecutor::SetCarrierThreadCount` (embedding hosts, default

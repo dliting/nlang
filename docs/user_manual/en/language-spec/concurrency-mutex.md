@@ -4,7 +4,9 @@
 
 Use a `Mutex` for shared mutable state — a counter, a cache, a flag —
 that several tasks read and write: the lock makes each read-modify-write
-sequence atomic, so no update is lost. `tryLock()` fits the
+sequence atomic, so no update is lost. A single hot value (a pure
+counter, a flag) can go lighter — [AtomicInt](concurrency-atomic.md)
+makes the read-modify-write one step, no mutex needed. `tryLock()` fits the
 attempt-without-waiting shape: take the lock when it is free, otherwise
 take another route (skip this round, fall back) instead of suspension in
 the queue.
