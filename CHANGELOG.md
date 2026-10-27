@@ -6,6 +6,48 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - unreleased
+
+### Added
+
+- **`Promise<T>` — a manual completion source for `Future`** — when the
+  value does not come from a spawned function (bridging an external
+  event, converging several producers), `Promise()` mints a
+  completion-source handle and `future()` hands out its `Future<T>`
+  view, usable everywhere a spawned `Future` is. `complete(value)`
+  finishes it atomically under the scheduler lock — the first caller
+  wins, racing losers return `false`; `completeExceptionally(e)` fails
+  it with the caller's exception object; both may be called from any
+  context. The backing context is born parked (never scheduled), so
+  `get()`/`isDone()` on the result behave exactly like on a spawned
+  task's `Future`, and an unobserved exceptional completion reaches the
+  run-end report. `Promise<T>` is declared as ordinary generic source in
+  the prelude (`stdlib/builtins.n`) — the first built-in class shipped
+  as a declared generic (user-defined generic classes remain
+  unsupported).
+- **`Future.selectAny(futures)` — multi-way waiting** — the first
+  static face on a built-in generic type name. `Future.selectAny` takes
+  an array of `Future` values, parks the caller until any member
+  decides, and delivers the winning index (the smallest one when
+  several are already decided). A failed member counts as decided —
+  observation of its value domain belongs to `get()`, and unobserved
+  failures still reach the run-end report. Duplicated members are
+  legal; losers keep running; the natural pre-selectAny workaround (one
+  spawned waiter per source converging through a channel) remains
+  available and behaves the same. Checked at runtime: empty array,
+  `null` member, uninitialized handle, a `Future` awaited by its own
+  context (uncatchable fatal, the `get` self-await shape), and a
+  ceiling on the wait-set size.
+
+### Fixed
+
+- **A second in-process build no longer corrupts the first** — the
+  generic-instance registry was process-global state keyed by raw
+  pointers and per-build unit indices, so an embedder or test host
+  building a second module in one process silently poisoned the first
+  build's instances. The registry now lives in the per-build
+  `ModuleRegistry` and owns every minted instance node.
+
 ## [0.10.22] - 2026-10-27
 
 ### Added

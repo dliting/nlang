@@ -227,11 +227,13 @@ This page collects the language-level limitations visible to user programs, with
   `Future.get()` is an honest blocking wait, and `thread.join` waits on
   a valueless `Thread`.
 
-- **Concurrency: `Future` comes only from `spawn`**: there is no manual
-  completion source (you cannot construct an unfinished `Future` in the
-  current context and fill it yourself), and no `select`-style
-  multi-way wait — for "whichever is ready first", spawn one waiter per
-  source and converge through a channel.
+- **Concurrency: multi-way waiting stays in the `Future` domain**: a
+  `Future` can be completed by hand through a `Promise`
+  ([Promise](concurrency-promise.md)), and `Future.selectAny` provides
+  the "whichever decides first" multi-way wait; but channels have no
+  "whichever is ready" `recv` variant — to receive from many sources
+  whichever comes first, wrap each source with a `Promise` and call
+  `selectAny` over the array of `Future` values.
 
 - **Concurrency: a spawned thread's failure surfaces only through
   `join`**: uncaught exceptions propagate to neither the host nor main —

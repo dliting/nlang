@@ -29,3 +29,4 @@ conc_waitgroup 18 fan-out complete, total 100
 conc_channel_close 19 both receivers stopped, total received 15
 conc_carriers_demo 20 total 1..1000: 500500
 conc_shared_list 21 plain length: 10, paired length: 10
+conc_selectany 22 selectAny: winner 1, total 50

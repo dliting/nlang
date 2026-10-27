@@ -78,6 +78,7 @@ nav:
           - Carriers and Parallelism: language-spec/concurrency-carriers.md
           - The thread Package: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
+          - Promise: language-spec/concurrency-promise.md
           - Mutex: language-spec/concurrency-mutex.md
           - Semaphore: language-spec/concurrency-semaphore.md
           - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md

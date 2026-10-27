@@ -1,0 +1,42 @@
+//Concurrency example — Promise and Future.selectAny: manual completion
+//and multi-way waiting. Two forms of "whichever decides first" run side
+//by side: selectAny directly, and the pre-selectAny channel-converge
+//workaround (one spawned waiter per source reporting through a shared
+//channel). Both pick the same winner and print the same line.
+import thread;
+import io;
+
+int sourceSlow() { thread.sleep(60); return 30; }
+int sourceFast() { return 20; }
+
+class Forwarder {
+    public Channel<int> ch;
+    public int idx;
+    public void run() { ch.send(idx); }
+}
+
+int main() {
+    //Form 1: selectAny over Future values — one static call.
+    Future<int> a = thread.spawn(sourceSlow);
+    Future<int> b = thread.spawn(sourceFast);
+    Future<int>[] arr = [a, b];
+    int winner = Future.selectAny(arr);
+    int total = a.get() + b.get();
+    io.print("selectAny: winner ${winner}, total ${total}");
+
+    //Form 2 (the old workaround): one forwarder per source; the first
+    //message through the channel is the winner.
+    Channel<int> ch = Channel(2);
+    Forwarder f0 = Forwarder();
+    Forwarder f1 = Forwarder();
+    f0.ch = ch; f0.idx = 0;
+    f1.ch = ch; f1.idx = 1;
+    Thread t0 = thread.spawn(f0.run);
+    Thread t1 = thread.spawn(f1.run);
+    int winner2 = ch.recv();
+    thread.join(t0);
+    thread.join(t1);
+    int total2 = 30 + 20;
+    io.print("channel converge: winner ${winner2}, total ${total2}");
+    return 22;
+}

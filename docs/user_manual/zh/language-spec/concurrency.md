@@ -1,6 +1,6 @@
 # 并发
 
-NLang提供轻量并发：`thread`包派生**虚拟线程**（virtual thread）——在少量共享的**载体**（carrier，承载虚拟线程运行的操作系统线程）上分时复用的执行上下文；虚拟线程不是各自独立的操作系统线程，存储保护见[载体与并行](concurrency-carriers.md)。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Semaphore`限制同时进入的任务数；`Future<T>`取回派生任务的返回值；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`ReentrantMutex`、`AtomicInt`、`Semaphore`、`Thread`声明于预置包`builtins`（`stdlib/builtins.n`），每次构建自动导入，因此无需import语句；`Channel<T>`与`Future<T>`是编译器内建类（见[标准库](standard-library.md)）。
+NLang提供轻量并发：`thread`包派生**虚拟线程**（virtual thread）——在少量共享的**载体**（carrier，承载虚拟线程运行的操作系统线程）上分时复用的执行上下文；虚拟线程不是各自独立的操作系统线程，存储保护见[载体与并行](concurrency-carriers.md)。`Mutex`与`Channel<T>`提供互斥与传递式同步；`Semaphore`限制同时进入的任务数；`Future<T>`取回派生任务的返回值；`Promise<T>`手工完成`Future`，`Future.selectAny`在多个`Future`间多路等待；`join`建立完成顺序；标准库`concurrent`包在其上提供`WaitGroup`。`thread`是标准库包，声明见`stdlib/thread.n`，与其他标准库包一样需`import thread;`后使用；`Mutex`、`ReentrantMutex`、`AtomicInt`、`Semaphore`、`Thread`、`Promise<T>`声明于预置包`builtins`（`stdlib/builtins.n`），每次构建自动导入，因此无需import语句；`Channel<T>`与`Future<T>`是编译器内建类（见[标准库](standard-library.md)）。
 
 调度的确定性：单载体（库默认）下完全确定——严格先进先出（FIFO，first in first out）轮转，每个虚拟线程连续执行约1000次循环迭代才让位（仅当另有可运行上下文时），同一程序在同样的输入下产生同样的交错顺序；多载体下调度顺序未指定（见[载体与并行](concurrency-carriers.md)）。`sleep`按截止时间排序唤醒。单载体测试可断言交错顺序与终值，多载体测试只断言同步后的结果——都不断言时长。
 
@@ -25,6 +25,8 @@ NLang属于**虚拟线程**一族（同Go、Java虚拟线程）：写并发代�
 |---|---|
 | 启动一个后台任务 | `thread.spawn(f)` |
 | 取回任务的返回值 | 派生带返回值的函数 → `Future<T>` → `get()` |
+| 手工构造并完成一个`Future` | `Promise<T>`（`future()`分发，`complete`先完成者获胜） |
+| 等任意一个先就绪 | `Future.selectAny(futures)`（返回获胜下标） |
 | 在任务之间传值 | `Channel<T>`（send/recv/close） |
 | 保护共享可变状态 | `Mutex`（lock/unlock/tryLock） |
 | 方法组合或递归体内加锁 | `ReentrantMutex`（可重入，见[ReentrantMutex](concurrency-reentrant-mutex.md)） |
@@ -38,6 +40,7 @@ NLang属于**虚拟线程**一族（同Go、Java虚拟线程）：写并发代�
 - [载体与并行](concurrency-carriers.md)——执行模型、存储保护、哪些代码真并行、确定性与载体数选择
 - [thread包](concurrency-thread.md)——`spawn`、`join`、`yield`、`id`、`sleep`
 - [Future](concurrency-future.md)——取回派生任务的返回值
+- [Promise](concurrency-promise.md)——手工完成源与`Future.selectAny`多路等待
 - [Mutex](concurrency-mutex.md)——不可重入互斥
 - [Semaphore](concurrency-semaphore.md)——计数信号量
 - [Channel](concurrency-channel.md)——消息传递与关闭语义

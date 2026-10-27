@@ -30,3 +30,5 @@ int main() {
 ```
 
 `get()`是诚实的阻塞式等待（[并发模型](concurrency.md#并发模型阻塞式书写无异步着色)一节「无异步着色」的落点）：调用者挂起，值就绪后原地续行——这就是NLang的`await`。多个上下文可以`get()`同一个`Future`，全部都会被唤醒并拿到同一个值；`get()`已完成的目标准确返回，可重复调用。失败上下文的结果值不可取——`get()`重抛原异常对象（类型、`message`与`backtrace`字段原样）。`get()`自己派生的`Future`（把`Future`交回其派生者）是运行期错误，消息点名规则；此时没有任何事件能唤醒它，虚拟机会以死锁报告拦下（见[主退出策略与死锁报告](concurrency-suspension.md#主退出策略与死锁报告)）。
+
+值不来自派生出去的函数时，用[Promise](concurrency-promise.md)手工构造并完成`Future`；要在多个`Future`间「任意一个先就绪」，用`Future.selectAny`（同样见[Promise](concurrency-promise.md#futureselectany多路等待)）。

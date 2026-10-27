@@ -1,6 +1,6 @@
 # Concurrency
 
-NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that time-share a small pool of shared **carriers** (operating system threads that run virtual threads); a virtual thread is not an operating system thread of its own, and storage protection is covered in [Carriers and Parallelism](concurrency-carriers.md). `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Semaphore` caps how many tasks run a section at once; `Future<T>` retrieves a spawned task's return value; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `ReentrantMutex`, `AtomicInt`, `Semaphore`, and `Thread` are declared in the prelude package `builtins` (`stdlib/builtins.n`), which every build imports automatically, so they need no import statement; `Channel<T>` and `Future<T>` are compiler built-ins (see [Standard Library](standard-library.md)).
+NLang provides lightweight concurrency: the `thread` package spawns **virtual threads** — execution contexts that time-share a small pool of shared **carriers** (operating system threads that run virtual threads); a virtual thread is not an operating system thread of its own, and storage protection is covered in [Carriers and Parallelism](concurrency-carriers.md). `Mutex` and `Channel<T>` provide mutual exclusion and message-passing synchronization; `Semaphore` caps how many tasks run a section at once; `Future<T>` retrieves a spawned task's return value; `Promise<T>` completes a `Future` by hand, and `Future.selectAny` waits across several `Future` values; `join` establishes completion order; the standard-library `concurrent` package adds `WaitGroup` on top. The `thread` package is part of the standard library — its declarations live in `stdlib/thread.n` — and like every standard-library package it needs `import thread;` before use. `Mutex`, `ReentrantMutex`, `AtomicInt`, `Semaphore`, `Thread`, and `Promise<T>` are declared in the prelude package `builtins` (`stdlib/builtins.n`), which every build imports automatically, so they need no import statement; `Channel<T>` and `Future<T>` are compiler built-ins (see [Standard Library](standard-library.md)).
 
 Scheduling determinism: under a single carrier (the library default) it is fully deterministic — a strict first-in-first-out (FIFO) rotation where each virtual thread runs about 1000 loop iterations before yielding (and only when another runnable context exists), so the same program with the same inputs produces the same interleaving; with multiple carriers the scheduling order is unspecified (see [Carriers and Parallelism](concurrency-carriers.md)). `sleep` wakes in deadline order. Single-carrier tests may assert interleaving and final values; multi-carrier tests assert only results after synchronization — never durations.
 
@@ -26,6 +26,8 @@ Start from the task you have, not from the tool list. The shipped
 |---|---|
 | start a background task | `thread.spawn(f)` |
 | get a task's return value | spawn a returning function → `Future<T>` → `get()` |
+| construct and complete a `Future` by hand | `Promise<T>` (`future()` hands out the handle, `complete` is first-wins) |
+| wait for whichever is ready first | `Future.selectAny(futures)` (returns the winning index) |
 | hand values between tasks | `Channel<T>` (send/recv/close) |
 | guard shared mutable state | `Mutex` (lock/unlock/tryLock) |
 | lock inside composed or recursive methods | `ReentrantMutex` (reentrant; see [ReentrantMutex](concurrency-reentrant-mutex.md)) |
@@ -39,6 +41,7 @@ Start from the task you have, not from the tool list. The shipped
 - [Carriers and Parallelism](concurrency-carriers.md) — the execution model, storage protection, which code runs truly in parallel, determinism, and choosing the carrier count
 - [The thread package](concurrency-thread.md) — `spawn`, `join`, `yield`, `id`, `sleep`
 - [Future](concurrency-future.md) — retrieving a spawned task's return value
+- [Promise](concurrency-promise.md) — the manual completion source, and `Future.selectAny` multi-way waiting
 - [Mutex](concurrency-mutex.md) — non-reentrant mutual exclusion
 - [Semaphore](concurrency-semaphore.md) — a counting semaphore
 - [Channel](concurrency-channel.md) — message passing and closing semantics
