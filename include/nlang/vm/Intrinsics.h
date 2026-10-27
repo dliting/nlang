@@ -199,5 +199,14 @@ static constexpr uint16_t INTR_AtomicInt_GetAndAdd       = 158;
 static constexpr uint16_t INTR_AtomicInt_AddAndGet       = 159;
 static constexpr uint16_t INTR_AtomicInt_IncrementAndGet = 160;
 static constexpr uint16_t INTR_AtomicInt_GetAndIncrement = 161;
+//Promise family: receiver-dispatched like the Future family (slot 0 =
+//this, the Promise instance). Ctor and future() land with the
+//born-parked completion source; complete() and completeExceptionally()
+//join them with the completion intrinsics. (Ids follow the
+//ReentrantMutex/AtomicInt blocks that landed on master first.)
+static constexpr uint16_t INTR_Promise_Ctor                  = 162;
+static constexpr uint16_t INTR_Promise_Future                = 163;
+static constexpr uint16_t INTR_Promise_Complete              = 164;
+static constexpr uint16_t INTR_Promise_CompleteExceptionally = 165;
 
 }  // namespace nlang

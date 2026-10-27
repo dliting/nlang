@@ -1,0 +1,13 @@
+// Promise<T>: born-parked completion source. Two future() handles share
+// one decision state; an undecided promise at main's end exits silently
+// (join exit semantics — no deadlock warning, no unobserved-failure
+// report). Prints "false" twice; exit 0 pins every gate.
+import io;
+int main() {
+    Promise<int> p = Promise();
+    Future<int> f = p.future();
+    io.print(f.isDone());          // expect: false
+    Future<int> f2 = p.future();   // second handle, same decision state
+    io.print(f2.isDone());         // expect: false
+    return 0;
+}

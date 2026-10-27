@@ -16,19 +16,8 @@
 namespace nlang
 {
 
-//Depth of the array-type chain (int[] = 1, int[][] = 2, …). Depth >= 2
-//is a jagged declaration form: the VM has no multi-dimensional layout
-//(pre-token, the element masquerade additionally degraded such
-//declarations twice silently), so it is rejected at the declaration
-//site (array redesign B, spec §5.5).
-int ArrayTypeDepth(const SnFieldExpr* pType)
-{
-	int depth = 0;
-	for (const auto* pCur = pType; pCur
-		&& pCur->Kind() == NK_ArrayTypeExpr; ++depth)
-		pCur = static_cast<const SnArrayTypeExpr*>(pCur)->ElementType();
-	return depth;
-}
+//ArrayTypeDepth / RejectInvalidTypeArg 位于 ExprResolverTypeArgs.cpp
+//（2026-10-27 尺寸守卫触发的拆分）。
 
 void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 {
@@ -50,54 +39,6 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 	//local/for/foreach type expressions through ExprResolver::Resolve.
 	ResolveFieldExprAs(arrTypeExpr,
 		m_Env.InternArrayTypeToken(pElemType->Field()));
-}
-
-//Phase 8e-3: resolve a built-in generic type expression like `List<int>`.
-//The base NameExpr must match a known built-in generic (currently only
-//"List"). Type arguments are resolved in the caller's scope. We then
-//mint (or fetch) a synthetic SnClassDecl unique to (base, typeArgs) so
-//that CalcTypeDistance's pointer-identity check distinguishes
-//List<int> from List<string>.
-//
-//Note: we deliberately do NOT call pBase->Accept() — that would invoke
-//Access(SnNameExpr&) which tries to resolve "List" as a regular name
-//and fails. Built-in generic names exist only in Type position with
-//type arguments; bare "List" is not a valid type.
-//Per-argument reject gate of the generic type-argument loop below:
-//void and out are func-only features (void only in the first / return
-//slot, out only on parameter slots), and a jagged argument has no VM
-//layout (the same gate as declaration sites, spec §5.5). True =
-//rejected with the named diagnostic.
-static bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
-	const std::string &baseName, bool bFirstArg)
-{
-	//Phase 13: void and out are func-only type-argument features.
-	//void may only occupy func's first (return) type slot; out may
-	//only mark func parameter slots (any position after the first).
-	bool isVoidArg = pTA->Field()->Kind() == NK_Void;
-	bool isOutArg = pTA->ContainFlags(NF_Out);
-	if (isVoidArg && !(baseName == kBuiltinFuncTypeName && bFirstArg))
-	{
-		env.Log(CLL_Error, pTA->Location(),
-			"void is only allowed as the return slot of func<...>.");
-		return true;
-	}
-	if (isOutArg && !(baseName == kBuiltinFuncTypeName && !bFirstArg))
-	{
-		env.Log(CLL_Error, pTA->Location(),
-			"out is only allowed on func<...> parameters.");
-		return true;
-	}
-	//Array redesign B: a jagged type argument has no VM layout — the
-	//same gate as declaration sites (spec §5.5), enforced here because
-	//generic type-arg position is a distinct declaration form.
-	if (ArrayTypeDepth(pTA) >= 2)
-	{
-		env.Log(CLL_Error, pTA->Location(),
-			"jagged arrays (T[][]) are not supported.");
-		return true;
-	}
-	return false;
 }
 
 //Type-argument collection of Access(SnGenericTypeExpr&): resolves each
@@ -139,6 +80,50 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 	return true;
 }
 
+//Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
+//`Box<int>`): the base must name a generic-declaration class in scope;
+//the arity check runs against its parameter list; the instantiation is
+//minted (cached) and bound. False = a diagnostic is logged.
+bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
+	SnGenericTypeExpr &genType, const std::string &baseName)
+{
+	//The base must name a generic-declaration class in scope.
+	SnClassDecl *pTemplate = nullptr;
+	if (m_pContext)
+	{
+		auto *pProbed = FindTypeNameInAncestor(baseName, *m_pContext,
+			*m_pAccessor, false);
+		if (pProbed && pProbed->Kind() == NK_ClassDecl
+			&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
+			pTemplate = static_cast<SnClassDecl*>(pProbed);
+	}
+	if (!pTemplate)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"\"%s\" is not a built-in generic type.", baseName.c_str());
+		return false;
+	}
+	const size_t expected = pTemplate->TypeParamNames().size();
+	if (genType.TypeArgs().size() != expected)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"The generic class \"%s\" expects %zu type argument(s), "
+			"but got %zu.",
+			baseName.c_str(), expected, genType.TypeArgs().size());
+		return false;
+	}
+	std::vector<SnField*> typeArgs;
+	std::vector<uint8> outFlags;
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+		return false;
+	auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs,
+		m_Env.Registry().OwnerOfContext(genType));
+	if (!pInstance)
+		return false;
+	ResolveFieldExprAs(genType, pInstance);
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 {
 	if (genType.IsResolved())
@@ -149,41 +134,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	std::string baseName = pBase->ToString();
 	if (!IsBuiltinGenericTypeName(baseName))
 	{
-		//Declared-generic instantiation (`class Box<T>` + `Box<int>`):
-		//the base must name a generic-declaration class in scope.
-		SnClassDecl *pTemplate = nullptr;
-		if (m_pContext)
-		{
-			auto *pProbed = FindTypeNameInAncestor(baseName, *m_pContext,
-				*m_pAccessor, false);
-			if (pProbed && pProbed->Kind() == NK_ClassDecl
-				&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
-				pTemplate = static_cast<SnClassDecl*>(pProbed);
-		}
-		if (!pTemplate)
-		{
-			m_Env.Log(CLL_Error, genType.Location(),
-				"\"%s\" is not a built-in generic type.", baseName.c_str());
-			return;
-		}
-		const size_t expected = pTemplate->TypeParamNames().size();
-		if (genType.TypeArgs().size() != expected)
-		{
-			m_Env.Log(CLL_Error, genType.Location(),
-				"The generic class \"%s\" expects %zu type argument(s), "
-				"but got %zu.",
-				baseName.c_str(), expected, genType.TypeArgs().size());
-			return;
-		}
-		std::vector<SnField*> typeArgs;
-		std::vector<uint8> outFlags;
-		if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
-			return;
-		auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs,
-			m_Env.Registry().OwnerOfContext(genType));
-		if (!pInstance)
-			return;
-		ResolveFieldExprAs(genType, pInstance);
+		TryResolveDeclaredGenericInstance(genType, baseName);
 		return;
 	}
 
@@ -440,35 +391,8 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 	BindArrayTypeToken(idExpr);
 }
 
-SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
-	const std::string &name)
-{
-	SnNamespace *pRoot = TheAST().Root();
-	if (!pRoot)
-		return nullptr;
-	auto range = pRoot->Members().NameDict().equal_range(name);
-	for (auto iField = range.first; iField != range.second; ++iField)
-	{
-		SnField &member = *iField->second;
-		if (member.Kind() != NK_ClassDecl)
-			continue;
-		const uint32_t owner = reg.OwnerOf(member);
-		if (owner != ModuleRegistry::NO_OWNER && reg.IsPreludeModule(owner))
-			return static_cast<SnClassDecl *>(&member);
-	}
-	return nullptr;
-}
-
-void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
-	const ModuleRegistry &reg)
-{
-	if (sn.SuperName() || sn.SuperClass())
-		return;
-	SnClassDecl *pObject = FindPreludeClassDecl(reg, "Object");
-	if (!pObject || pObject == &sn)
-		return;
-	sn.SuperClass(pObject);
-}
+//FindPreludeClassDecl / EnsureImplicitObjectSuperclass 位于
+//ExprResolverBuiltinClasses.cpp（2026-10-27 尺寸守卫触发的拆分）。
 
 void ExprResolveAccessor::Access(SnClassDecl &sn)
 {

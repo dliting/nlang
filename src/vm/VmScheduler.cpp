@@ -65,6 +65,21 @@ int VmScheduler::RegisterContext() {
     return id;
 }
 
+//Promise internal contexts: same registry insertion as RegisterContext
+//(GC roots, join targeting and run-end reporting see them through the
+//one table) but born ParkedPromise and NEVER queued — no frames exist,
+//so a dispatch would be an undefined shape. Completion migrates the
+//state from the Promise.complete intrinsics, not from the scheduler.
+int VmScheduler::RegisterParkedPromiseContext() {
+    GilEnsureGuard g(*this);
+    const int id = m_nextId++;
+    ExecutionContext ctx;
+    ctx.id = id;
+    ctx.state = ContextState::ParkedPromise;
+    m_contexts.push_back(std::move(ctx));
+    return id;
+}
+
 //空队列时的等待分支（须持 GIL，gil 即其锁——wait 期间释放、醒来重
 //取）：全部载体在条件变量上纯谓词等待（无截止时间——定时器到期迁
 //移由专用线程负责，其入队经同一条件变量唤醒载体）。死锁检测在进入

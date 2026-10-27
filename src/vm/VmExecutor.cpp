@@ -101,6 +101,10 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     //K3: same for the Future face of typed spawn.
     int futureIdx = module.FindClass("Future");
     m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
+    //Promise: the erased declared-generic instantiation's record (the
+    //ctor mints instances).
+    int promiseIdx = module.FindClass("Promise");
+    m_promiseClassIdx = (promiseIdx >= 0) ? static_cast<int16_t>(promiseIdx) : -1;
 }
 
 //String objectization: eagerly materialize every module string constant

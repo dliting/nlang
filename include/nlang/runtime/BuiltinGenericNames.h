@@ -30,6 +30,14 @@ inline constexpr const char* kBuiltinDictTypeName = "Dict";
 inline constexpr const char* kBuiltinFuncTypeName = "func";
 inline constexpr const char* kBuiltinChannelTypeName = "Channel";
 inline constexpr const char* kBuiltinFutureTypeName = "Future";
+//Promise is a DECLARED generic (stdlib/builtins.n template + hidden
+//__handle slot + intrinsics), NOT a member of the synthetic-minting
+//whitelist below: every consumer of IsBuiltinGenericTypeName routes on
+//it between the synthetic and the declared-template resolution paths,
+//and Promise must take the declared path (its members are substituted
+//from the AST template). The constant exists for the handle-class name
+//table and the executor's erased-class cache.
+inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 
 //Returns true if name is a recognized built-in generic type name.
 //Phase 8e-3: List (arity 1). Phase 8e-4: Dict (arity 2). Phase 13:

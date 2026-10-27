@@ -25,6 +25,24 @@ void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 	assert(sn.IsResolved());
 }
 
+//Access(SnNameExpr&)'s bare-generic guard: a generic declaration used
+//bare is not a type — only its instantiations are (Box<int>, never bare
+//Box). The ctor-call path probes class names separately (ProbeCtorType),
+//so construction is unaffected. True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectBareGenericTypeUse(
+	SnFieldExpr &fieldExpr, const ISourceLocation *pLoc)
+{
+	auto *pBareType = fieldExpr.Field();
+	if (!pBareType || pBareType->Kind() != NK_ClassDecl
+		|| !static_cast<SnClassDecl*>(pBareType)->IsGenericDeclaration())
+		return false;
+	m_Env.Log(CLL_Error, pLoc,
+		"The class \"%s\" is a generic declaration; provide type "
+		"arguments (like %s<int>) at every use.",
+		pBareType->Name().c_str(), pBareType->Name().c_str());
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 {
 	if (nameExpr.IsResolved())
@@ -36,11 +54,9 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	assert(pFieldExpr);
 	pFieldExpr->Accept(*m_pVisitor);
 
-	//Builtin class names: ByteStream, FileStream, Object (Phase 8e-1).
-	//Phase 9d: Exception hierarchy (Exception, NullPointerException,
-	//DivByZeroException, IndexOutOfBoundsException, AssertionException).
-	//When used as a type name (e.g. "ByteStream s = ..."), the name
-	//doesn't exist in the AST namespace. Synthesize a singleton SnClassDecl.
+	//Builtin class names: ByteStream, FileStream (the synthesized
+	//singletons — see ExprResolverBuiltinClasses.cpp); every other name
+	//the AST namespace owns resolved through the inner walk above.
 	if (!pFieldExpr->IsResolved())
 	{
 		const auto& name = pFieldExpr->ToString();
@@ -54,20 +70,8 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	if (!pFieldExpr->IsResolved())
 		return;
 
-	//A generic declaration used bare is not a type: only its
-	//instantiations are (Box<int>, never bare Box). The ctor-call path
-	//probes class names separately (ProbeCtorType), so construction is
-	//unaffected.
-	auto *pBareType = pFieldExpr->Field();
-	if (pBareType && pBareType->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl*>(pBareType)->IsGenericDeclaration())
-	{
-		m_Env.Log(CLL_Error, nameExpr.Location(),
-			"The class \"%s\" is a generic declaration; provide type "
-			"arguments (like %s<int>) at every use.",
-			pBareType->Name().c_str(), pBareType->Name().c_str());
+	if (RejectBareGenericTypeUse(*pFieldExpr, nameExpr.Location()))
 		return;
-	}
 
 	//0.9.x shadow guard: every grammar site that builds an SnNameExpr is
 	//a TYPE position, so a value binding in the inner resolution must be

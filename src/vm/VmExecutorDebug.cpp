@@ -87,8 +87,7 @@ void VmExecutor::FireOnThrow() {
 
 namespace {
 
-//Scheduler state names for context listings (the ndb `threads` column
-//and machine-protocol context events share them).
+//Scheduler state names (ndb `threads` column, machine context events).
 const char* ContextStateName(ContextState state) {
     switch (state) {
     case ContextState::Runnable:      return "runnable";
@@ -98,6 +97,7 @@ const char* ContextStateName(ContextState state) {
     case ContextState::ParkedSemaphore: return "parked-sem";
     case ContextState::ParkedChanRecv: return "parked-chan-recv";
     case ContextState::ParkedChanSend: return "parked-chan-send";
+    case ContextState::ParkedPromise:  return "parked-promise";
     case ContextState::BlockedNative: return "blocked-native";
     case ContextState::Finished:      return "finished";
     case ContextState::Failed:        return "failed";

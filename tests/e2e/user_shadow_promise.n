@@ -1,0 +1,11 @@
+// User shadow: a root-level non-generic `class Promise` wins the type
+// probe (innermost declaration wins); writing Promise<int> is a compile
+// error — the prelude generic template must not fall back under a
+// same-name user declaration (spec §6.8, user_shadow_semaphore twin).
+class Promise {
+    public int tag;
+}
+int main() {
+    Promise<int> p = Promise();
+    return p.tag;
+}

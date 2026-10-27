@@ -1,13 +1,15 @@
 /*---
     ExprResolverBuiltinClasses.cpp — 内建类单例机器（ByteStream/FileStream）
-    从 ExprResolverTypes.cpp 抽取（2026-09-27 可维护性重构）。Object 随
-    内建类真源化（Task 5）声明化退役：预置包声明经作用域链解析，无单例。
+    与预置包类声明查找（FindPreludeClassDecl/EnsureImplicitObjectSuperclass，
+    2026-10-27 尺寸守卫触发的拆分）。Object 随内建类真源化（Task 5）声明化
+    退役：预置包声明经作用域链解析，无单例。
 ---*/
 #include "ExprResolver.h"
 #include "SnMisc.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuiltinNames.h"
+#include "ModuleRegistry.h"
 
 namespace nlang
 {
@@ -55,6 +57,36 @@ SnClassDecl* GetBuiltinClassDecl(const std::string& name,
 		rpRef->SetBuiltinClass();
 	}
 	return rpRef;
+}
+
+SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
+	const std::string &name)
+{
+	SnNamespace *pRoot = TheAST().Root();
+	if (!pRoot)
+		return nullptr;
+	auto range = pRoot->Members().NameDict().equal_range(name);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		SnField &member = *iField->second;
+		if (member.Kind() != NK_ClassDecl)
+			continue;
+		const uint32_t owner = reg.OwnerOf(member);
+		if (owner != ModuleRegistry::NO_OWNER && reg.IsPreludeModule(owner))
+			return static_cast<SnClassDecl *>(&member);
+	}
+	return nullptr;
+}
+
+void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
+	const ModuleRegistry &reg)
+{
+	if (sn.SuperName() || sn.SuperClass())
+		return;
+	SnClassDecl *pObject = FindPreludeClassDecl(reg, "Object");
+	if (!pObject || pObject == &sn)
+		return;
+	sn.SuperClass(pObject);
 }
 
 } //namespace nlang

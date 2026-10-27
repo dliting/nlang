@@ -102,6 +102,31 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
     m_currFunc = nullptr;
 }
 
+//The intrinsic-channel owner of a native declaration. Owner-of-CONTEXT,
+//not the flat tag: class members carry no owner tag of their own (the
+//IsOwnUnit contract), so a declared prelude ctor/method would read
+//NO_OWNER from the flat tag and never stamp. Declared-generic instance
+//copies are detached (they never entered the syntax tree), so even the
+//context walk finds no tagged ancestor — the template's owner speaks
+//for them (the copies substitute into the template's signatures: same
+//package, same intrinsic channel).
+uint32_t VmBackend::IntrinsicChannelOwnerOf(const SnFunction& func) const
+{
+    uint32_t owner = m_pRegistry->OwnerOfContext(func);
+    if (owner != ModuleRegistry::NO_OWNER)
+        return owner;
+    const SyntaxNode* pParent = func.Parent();
+    if (!pParent || pParent->Kind() != NK_ClassDecl)
+        return ModuleRegistry::NO_OWNER;
+    auto* pInstance = static_cast<const SnClassDecl*>(pParent);
+    if (!pInstance->IsGenericInstantiation())
+        return ModuleRegistry::NO_OWNER;
+    const SnClassDecl* pTemplate = DeclaredInstanceOf(pInstance);
+    if (!pTemplate)
+        return ModuleRegistry::NO_OWNER;
+    return m_pRegistry->OwnerOf(*pTemplate);
+}
+
 //StampIntrinsicChannel: the binding-table arm of the native record
 //(builtin-decls source-of-truth design §4.5). A declaration whose
 //OWNING unit's package has binding-table rows flips onto the intrinsic
@@ -121,10 +146,7 @@ void VmBackend::StampIntrinsicChannel(SnFunction& func,
             || pParent->Kind() == NK_InterfaceDecl
             || pParent->Kind() == NK_EnumDecl
             || pParent->Kind() == NK_StructDecl);
-    //Owner-of-CONTEXT, not the flat tag: class members carry no owner
-    //tag of their own (the IsOwnUnit contract), so a declared prelude
-    //ctor/method would read NO_OWNER here and never stamp.
-    const uint32_t owner = m_pRegistry->OwnerOfContext(func);
+    const uint32_t owner = IntrinsicChannelOwnerOf(func);
     if (owner == ModuleRegistry::NO_OWNER)
         return;
     const std::string packagePath = m_pRegistry->ModulePathOf(owner);

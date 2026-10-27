@@ -198,6 +198,9 @@ private:
     //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
     void StampIntrinsicChannel(SnFunction& func,
         CompiledFunction& compiledFunc);
+    //StampIntrinsicChannel's owner resolution (context walk, with the
+    //declared-generic instance-copy arm resolving through the template).
+    uint32_t IntrinsicChannelOwnerOf(const SnFunction& func) const;
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
@@ -1032,6 +1035,9 @@ private:
     void WalkArrayTypeNode(SnField& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
+    //RegisterFunctions tail: the detached declared-generic instantiation
+    //members (the tree walk above never reaches them).
+    void RegisterDeclaredGenericInstanceMembers();
     void PopulateClassMethods(SnNamespace& root);
     //PopulateClassMethods worker: one class's method/ctor tables from its
     //AST members in declaration order (keys on m_funcIndexMap).

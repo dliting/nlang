@@ -8,6 +8,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/vm/Intrinsics.h>
 #include <cassert>
 #include <set>
@@ -77,6 +78,13 @@ const BindingRow s_BindingRows[] = {
     {"builtins", "Object.equals",      INTR_Object_Equals},
     {"builtins", "Object.getHashCode", INTR_Object_GetHashCode},
     {"builtins", "Object.toString",    INTR_Object_toString},
+    //Cluster 5 (Promise): declared generic template in stdlib/builtins.n;
+    //the erased instance's members stamp through the same key shape
+    //(erasure naming keys them bare "Promise"/"Promise.future"). The
+    //completion intrinsics bind with Task 4 (complete /
+    //completeExceptionally).
+    {"builtins", "Promise",        INTR_Promise_Ctor},
+    {"builtins", "Promise.future", INTR_Promise_Future},
 };
 
 bool IsStampedBindingPackage(const std::string& packagePath)
@@ -103,7 +111,7 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 //yet are inert: the marker fires only for a DECLARED prelude class.
 const char* const s_HandleClassNames[] = {
     "ByteStream", "FileStream", "List", "Dict", "Thread",
-    "Mutex", "Channel", "Future", "Semaphore",
+    "Mutex", "Channel", "Future", "Semaphore", "Promise",
     "ReentrantMutex",
     "AtomicInt",
 };
@@ -120,11 +128,25 @@ bool IsHandleClassName(const std::string& className)
 //must consult the SAME predicate or the layouts diverge): a user class
 //that merely shares the name after shadowing is not the builtin, so
 //neither its record nor its offset walk reserves the handle slot.
+//A declared-generic instantiation is a detached node — no owner tag of
+//its own (OwnerOf is a pointer map) — so its handle-ness resolves
+//through the template's owner: a prelude generic template's erased
+//instances carry the hidden slot; a user shadow template's do not.
 bool VmBackend::IsHandleClassDecl(const SnField& decl) const
 {
     if (!IsHandleClassName(decl.Name()))
         return false;
-    const uint32_t owner = m_pRegistry->OwnerOf(decl);
+    const SnField* pOwnerDecl = &decl;
+    if (auto* pClass = dynamic_cast<const SnClassDecl*>(&decl))
+    {
+        if (pClass->IsGenericInstantiation())
+        {
+            pOwnerDecl = DeclaredInstanceOf(pClass);
+            if (!pOwnerDecl)
+                return false;
+        }
+    }
+    const uint32_t owner = m_pRegistry->OwnerOf(*pOwnerDecl);
     return owner != ModuleRegistry::NO_OWNER
         && m_pRegistry->IsPreludeModule(owner);
 }

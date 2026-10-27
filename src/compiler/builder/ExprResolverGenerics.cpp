@@ -282,30 +282,14 @@ SnField* CloneGenericMember(SnField& src,
 	return nullptr;
 }
 
-SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
-	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs,
-	uint32_t ownerUnit)
+//GetDeclaredGenericClassDecl's member-copy loop: each member copy
+//substitutes its type expressions before joining the instance. The
+//copies accumulate BEFORE the SnClassDecl ctor runs — the ctor adopts
+//the list through a by-value UniquePtrList and deletes the shell, so
+//the returned list pointer must not be touched again after adoption.
+PtrList<SnField>* ExprResolveAccessor::CloneInstanceMembers(
+	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs)
 {
-	DeclaredInstKey key{&tmpl, {}};
-	key.typeArgs.reserve(typeArgs.size());
-	for (auto* pArg : typeArgs)
-		key.typeArgs.push_back(pArg);
-	auto it = s_declaredInstances.find(key);
-	if (it != s_declaredInstances.end())
-		return it->second;
-
-	//Erasure naming: the instantiation shares the template's bare name,
-	//the same way every List<T> shares the backing "List" class — the
-	//VM keys the CompiledClass, the intrinsic channel and the ctor
-	//classification off the bare name, so no consumer needs a
-	//display-name special case. Distinct instantiations stay distinct
-	//compile-time types through node identity.
-
-	//Signatures in, placeholders out: each member copy substitutes its
-	//type expressions before joining the instance. The copies accumulate
-	//BEFORE the SnClassDecl ctor runs — the ctor adopts the list through
-	//a by-value UniquePtrList and deletes the shell, so pMembers dangles
-	//from that point on and must not be touched again.
 	auto* pMembers = new PtrList<SnField>();
 	for (auto& member : tmpl.Members())
 	{
@@ -327,6 +311,32 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 		}
 		pMembers->push_back(pCopy);
 	}
+	return pMembers;
+}
+
+SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
+	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs,
+	uint32_t ownerUnit)
+{
+	DeclaredInstKey key{&tmpl, {}};
+	key.typeArgs.reserve(typeArgs.size());
+	for (auto* pArg : typeArgs)
+		key.typeArgs.push_back(pArg);
+	auto it = s_declaredInstances.find(key);
+	if (it != s_declaredInstances.end())
+		return it->second;
+
+	//Erasure naming: the instantiation shares the template's bare name,
+	//the same way every List<T> shares the backing "List" class — the
+	//VM keys the CompiledClass, the intrinsic channel and the ctor
+	//classification off the bare name, so no consumer needs a
+	//display-name special case. Distinct instantiations stay distinct
+	//compile-time types through node identity.
+
+	//Signatures in, placeholders out (CloneInstanceMembers).
+	auto* pMembers = CloneInstanceMembers(tmpl, typeArgs);
+	if (!pMembers)
+		return nullptr;
 
 	auto* pName = new std::string(tmpl.Name());
 	auto* pInstance = new SnClassDecl(pName, nullptr, pMembers,
@@ -388,26 +398,30 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 	//arguments, then resolve the copy — the instantiation cache mints
 	//the instantiation for the ACTUAL arguments.
 	if (srcType.Kind() == NK_GenericTypeExpr)
-	{
-		auto& gen = static_cast<SnGenericTypeExpr&>(srcType);
-		auto* pBaseCopy = SubstituteTypeExpr(*gen.Base(), typeArgs);
-		if (!pBaseCopy)
-			return nullptr;
-		auto* pArgs = new std::vector<SnFieldExpr*>;
-		for (auto* pArg : gen.TypeArgs())
-		{
-			auto* pArgCopy = SubstituteTypeExpr(*pArg, typeArgs);
-			if (!pArgCopy)
-				return nullptr;
-			pArgs->push_back(pArgCopy);
-		}
-		auto* pCopy = new SnGenericTypeExpr(pBaseCopy, pArgs,
-			*srcType.Location());
-		if (srcType.IsResolved())
-			Access(*pCopy);
-		return pCopy;
-	}
+		return SubstituteGenericTypeExpr(
+			static_cast<SnGenericTypeExpr&>(srcType), typeArgs);
 	return nullptr;
+}
+
+SnFieldExpr* ExprResolveAccessor::SubstituteGenericTypeExpr(
+	SnGenericTypeExpr& gen, const std::vector<SnField*>& typeArgs)
+{
+	auto* pBaseCopy = SubstituteTypeExpr(*gen.Base(), typeArgs);
+	if (!pBaseCopy)
+		return nullptr;
+	auto* pArgs = new std::vector<SnFieldExpr*>;
+	for (auto* pArg : gen.TypeArgs())
+	{
+		auto* pArgCopy = SubstituteTypeExpr(*pArg, typeArgs);
+		if (!pArgCopy)
+			return nullptr;
+		pArgs->push_back(pArgCopy);
+	}
+	auto* pCopy = new SnGenericTypeExpr(pBaseCopy, pArgs,
+		*gen.Location());
+	if (gen.IsResolved())
+		Access(*pCopy);
+	return pCopy;
 }
 
 ExprResolveAccessor::TypeParamBindResult

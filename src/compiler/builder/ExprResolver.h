@@ -74,6 +74,14 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
+//Per-argument reject gate of the generic type-argument loop: void and
+//out are func-only features (void only in the return slot, out only on
+//parameter slots), and a jagged argument has no VM layout (spec §5.5).
+//True = rejected with the named diagnostic. Definition in
+//ExprResolverTypeArgs.cpp.
+bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
+	const std::string &baseName, bool bFirstArg);
+
 /*
 Phase 13: bind a pending bare-function reference (see IsUnboundFuncRef)
 to the expected func<...> type of the injection site. Validates the
@@ -538,6 +546,10 @@ private:
 	*/
 	bool TryRebindShadowedTypeName(SnNameExpr &nameExpr,
 		SnFieldExpr &fieldExpr);
+	//Access(SnNameExpr&)'s bare-generic guard: a generic declaration used
+	//bare is not a type (only its instantiations are). True = rejected.
+	bool RejectBareGenericTypeUse(SnFieldExpr &fieldExpr,
+		const ISourceLocation *pLoc);
 
 	SnField *FindFieldInUsings(std::string &sName, const UsingList &usings,
 		const SnField & accessor);
@@ -980,6 +992,12 @@ private:
 	//ctor call against that instantiation. False = no usable Channel
 	//target (the caller keeps its generic reject).
 	bool TryBindChannelCtorInvoke(SnInvokeExpr &snInvoke);
+	//TryResolveCtorInvoke's arms: the bare-generic reject (0.9.0/K3) and
+	//the declared-generic target resolution (template → assign-published
+	//instance). True/null = consumed (diagnostic logged).
+	bool RejectBareGenericCtorInvoke(SnInvokeExpr &snInvoke);
+	SnClassDecl *ResolveDeclaredGenericCtorTarget(SnInvokeExpr &snInvoke,
+		SnClassDecl &tmpl);
 	//K3 task 4: the LHS declared type published by the assign resolver
 	//for the arm above; null outside an assignment's RHS resolution.
 	//Consumed (cleared) by TryBindChannelCtorInvoke.
@@ -992,11 +1010,20 @@ private:
 	//instantiation registers into.
 	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, uint32_t ownerUnit);
+	//GetDeclaredGenericClassDecl's member-copy loop (accumulates before
+	//the instance ctor adopts the list). Null = a member shape the
+	//instantiation cannot carry (diagnostic logged, copies released).
+	PtrList<SnField>* CloneInstanceMembers(SnClassDecl& tmpl,
+		const std::vector<SnField*>& typeArgs);
 	//Deep-copy one resolved type expression from a template signature,
 	//rebinding type-parameter placeholders to the instantiation's type
 	//arguments. Null = a shape the substitution does not carry (the
 	//minter rejects the member).
 	SnFieldExpr* SubstituteTypeExpr(SnFieldExpr& srcType,
+		const std::vector<SnField*>& typeArgs);
+	//SubstituteTypeExpr's nested-instantiation arm (`Future<T>`,
+	//`List<T>`): substitute base and arguments, then resolve the copy.
+	SnFieldExpr* SubstituteGenericTypeExpr(SnGenericTypeExpr& gen,
 		const std::vector<SnField*>& typeArgs);
 	//Type-parameter placeholder binder for TryResolveBuiltinNameFallback:
 	//walks the identifier's ancestors for an enclosing generic
@@ -1092,6 +1119,10 @@ private:
 	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
 		std::vector<uint8> &outFlags);
+	//Access(SnGenericTypeExpr&)'s declared-template arm (scope probe,
+	//arity check, instantiation mint-and-bind).
+	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
+		const std::string &baseName);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
 		uint32_t curModule);
 	//The value-position bare lookup of Access(SnIdentifierExpr&): the

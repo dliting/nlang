@@ -83,6 +83,16 @@ bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
             ? IntrinsicFutureIsDone(callParamBase, locals, pResult)
             : IntrinsicFutureGet(callParamBase, locals, pResult);
     }
+    //Promise arms are registry-state and heap minting only — the same
+    //scheduler domain as the Future readers above.
+    case INTR_Promise_Ctor:
+    case INTR_Promise_Future:
+    {
+        GilEnsureGuard g(*this);
+        return intrinsicId == INTR_Promise_Ctor
+            ? IntrinsicPromiseCtor(callParamBase, locals, pResult)
+            : IntrinsicPromiseFuture(callParamBase, locals, pResult);
+    }
     default:
         return ExecuteIntrinsicSync(intrinsicId, callParamBase, locals,
                                     pResult);

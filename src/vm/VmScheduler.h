@@ -130,6 +130,9 @@ enum class ContextState {
     ParkedSemaphore, //P2-1 (v0.10.17)：零许可acquire停泊
     ParkedChanRecv,  //Slice 9：空通道接收停泊
     ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
+    ParkedPromise,   //Promise 内部上下文：出生停泊，无代码帧，永不被
+                     //调度；Promise.complete 决定其结局（Finished/
+                     //Failed 迁移＋唤醒 join 停泊者）
     BlockedNative,   //K2 slice 4：载体在阻塞原生中（帧已窃入 ctx、
                      //GIL 已释放；原生返回后载体原地续跑，不入队）
     Finished,        //根帧正常返回
@@ -245,6 +248,13 @@ public:
 
     //注册新上下文并入队尾；id 单调分配（main 恒为 0）。自守卫。
     int RegisterContext();
+
+    //Promise 内部上下文的出生注册：登记进注册表（GC 根、join 目标、
+    //收尾报告的同一全域）但置 ParkedPromise 且**不入队**——无代码帧，
+    //任何调度分派对它都是未定义形态；结局只由 Promise.complete/
+    //completeExceptionally 决定（Finished/Failed 迁移＋WakeJoiners）。
+    //自守卫。
+    int RegisterParkedPromiseContext();
 
     //FIFO 弹出下一个待运行上下文并记为本载体当前上下文。K7：契约翻
     //转——内部自守卫（焦点门谓词等待与空队列 cv 等待经守卫的 Lock()

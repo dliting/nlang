@@ -36,4 +36,11 @@ std::string FormatSignature(const std::string &name, const SnFunction &f);
 bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
 	const std::vector<SnFunction*> &funcs, BuildEnvironment &env);
 
+//Generic class declarations carry signature surfaces only: every method
+//member must be native, without parameter default values, and field
+//members carry no initializers (definition in GenericDeclContracts.cpp;
+//the declaration grammar has no generic method compilation and the
+//instantiation copies the signatures).
+void CheckGenericDeclNativeOnly(SnClassDecl &cls, BuildEnvironment &env);
+
 } //namespace nlang

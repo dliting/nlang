@@ -41,6 +41,7 @@ add_library(nlang_vm
     IntrinsicsFileStream.cpp
     IntrinsicsThread.cpp
     IntrinsicsFuture.cpp
+    IntrinsicsPromise.cpp
     IntrinsicsChannel.cpp
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
@@ -49,6 +50,7 @@ add_library(nlang_vm
     backend/BindingTable.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
+    backend/RegisterStructs.cpp
     backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp

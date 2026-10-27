@@ -97,6 +97,17 @@ class ChannelClosedException : Exception {
 class Thread {
 }
 
+//Completion source: a user-constructed counterpart of spawn-minted
+//futures. complete()/completeExceptionally() decide the outcome exactly
+//once (first call wins, later calls return false); future() mints a
+//reader handle that can be passed anywhere and awaited with get().
+class Promise<T> {
+    public native Promise();
+    public native Future<T> future();
+    public native bool complete(T value);
+    public native bool completeExceptionally(Exception reason);
+}
+
 //Root of the class hierarchy: every class without a declared base
 //inherits these three protocol methods. Override them with the exact
 //signatures to customize per-class behavior.

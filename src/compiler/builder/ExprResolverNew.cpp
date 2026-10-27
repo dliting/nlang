@@ -186,6 +186,56 @@ SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 	return ProbeAliasType(name, pLoc);
 }
 
+//TryResolveCtorInvoke's no-class arm: the probe found no declaration —
+//a bare generic name is rejected with the fix-naming diagnostic (0.9.0:
+//List/Dict exist only as typed instantiations; the probe runs first so
+//a user class named List is legal and must construct). K3 task 4:
+//`Channel<int> c = Channel(n);` — the assign resolver published the
+//declared LHS type; a Channel target binds the invoke as the
+//bounded-capacity ctor call. List/Dict keep the reject: their bare
+//names read as element lists, a different contract. True = consumed.
+bool ExprResolveAccessor::RejectBareGenericCtorInvoke(
+	SnInvokeExpr &snInvoke)
+{
+	if (!IsBuiltinGenericTypeName(snInvoke.CalleeName()))
+		return false;
+	if (snInvoke.CalleeName() == kBuiltinChannelTypeName
+		&& TryBindChannelCtorInvoke(snInvoke))
+		return true;
+	m_Env.Log(CLL_Error, snInvoke.Location(),
+		"generic class \"%s\" cannot be constructed by bare name; "
+		"use [] or {} with a typed declaration",
+		snInvoke.CalleeName().c_str());
+	return true;
+}
+
+//TryResolveCtorInvoke's declared-generic arm: the probe names the
+//TEMPLATE; the instance comes from the assign-published target type
+//(`Box<int> b = Box();` — the same channel the builtin Channel ctor
+//uses). Null = rejected with the named diagnostic (consumed).
+SnClassDecl *ExprResolveAccessor::ResolveDeclaredGenericCtorTarget(
+	SnInvokeExpr &snInvoke, SnClassDecl &tmpl)
+{
+	auto *pTarget = m_pCtorInvokeTarget;
+	m_pCtorInvokeTarget = nullptr;
+	auto *pTargetType = pTarget ? pTarget->EvalDataType() : nullptr;
+	auto *pInstance = (pTargetType
+		&& pTargetType->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pTargetType)->IsGenericInstantiation()
+		&& DeclaredInstanceOf(
+			static_cast<SnClassDecl*>(pTargetType)) == &tmpl)
+		? static_cast<SnClassDecl*>(pTargetType) : nullptr;
+	if (!pInstance)
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"generic class \"%s\" cannot be constructed by bare "
+			"name; declare a typed target like %s<...> v = %s();",
+			tmpl.Name().c_str(), tmpl.Name().c_str(),
+			tmpl.Name().c_str());
+	}
+	return pInstance;
+}
+
 //Bare `Foo(args)` without new: bind the invoke as a constructor call.
 //Runs ONLY in the invoke-resolution failure branch (functions keep
 //priority), with the arguments already resolved. True = consumed —
@@ -197,62 +247,17 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
 		snInvoke.Location());
 	if (!pTypeDecl)
-	{
-		//0.9.0: List/Dict exist only as typed instantiations — no class
-		//declaration a probe could find. Name the fix instead of letting
-		//the generic function-not-found text through. The probe runs
-		//first: a user class named List is legal and must construct.
-		if (IsBuiltinGenericTypeName(snInvoke.CalleeName()))
-		{
-			//K3 task 4: `Channel<int> c = Channel(n);` — the assign
-			//resolver published the declared LHS type; a Channel target
-			//binds the invoke as the bounded-capacity ctor call.
-			//List/Dict keep the reject: their bare names read as
-			//element lists, a different contract.
-			if (snInvoke.CalleeName() == kBuiltinChannelTypeName
-				&& TryBindChannelCtorInvoke(snInvoke))
-				return true;
-			m_Env.Log(CLL_Error, snInvoke.Location(),
-				"generic class \"%s\" cannot be constructed by bare name; "
-				"use [] or {} with a typed declaration",
-				snInvoke.CalleeName().c_str());
-			return true;
-		}
-		return false;
-	}
-	//Declared-generic construction: the probe names the TEMPLATE; the
-	//instance comes from the assign-published target type (`Box<int> b
-	//= Box();` — the same channel the builtin Channel ctor uses).
+		return RejectBareGenericCtorInvoke(snInvoke);
+	//Declared-generic construction: swap the template for the
+	//assign-published instance; the ordinary ctor tail binds it.
 	if (pTypeDecl->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl*>(pTypeDecl)->IsGenericDeclaration())
 	{
-		auto &tmpl = static_cast<SnClassDecl&>(*pTypeDecl);
-		auto *pTarget = m_pCtorInvokeTarget;
-		m_pCtorInvokeTarget = nullptr;
-		auto *pTargetType = pTarget ? pTarget->EvalDataType() : nullptr;
-		auto *pInstance = (pTargetType
-			&& pTargetType->Kind() == NK_ClassDecl
-			&& static_cast<SnClassDecl*>(pTargetType)->IsGenericInstantiation()
-			&& DeclaredInstanceOf(
-				static_cast<SnClassDecl*>(pTargetType)) == &tmpl)
-			? static_cast<SnClassDecl*>(pTargetType) : nullptr;
+		auto *pInstance = ResolveDeclaredGenericCtorTarget(snInvoke,
+			static_cast<SnClassDecl&>(*pTypeDecl));
 		if (!pInstance)
-		{
-			m_Env.Log(CLL_Error, snInvoke.Location(),
-				"generic class \"%s\" cannot be constructed by bare "
-				"name; declare a typed target like %s<...> v = %s();",
-				tmpl.Name().c_str(), tmpl.Name().c_str(),
-				tmpl.Name().c_str());
 			return true;
-		}
-		ResolveFieldExprAs(snInvoke, pInstance);
-		snInvoke.CtorClass(pInstance);
-		std::vector<SnExpression*> actuals;
-		for (auto &param : snInvoke.Params())
-			actuals.push_back(&param);
-		snInvoke.CtorFunction(SelectCtorForArgs(pInstance, actuals,
-			snInvoke.Location()));
-		return true;
+		pTypeDecl = pInstance;
 	}
 	//ResolveFieldExprAs carries the type in both Field() (member chains
 	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType
