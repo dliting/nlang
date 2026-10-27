@@ -32,7 +32,7 @@ inside a function's bytecode array: the array is an opaque byte
 string here. It is pinned to the same format version — a 2.11
 image carries the instruction set of the 2.11 toolchain — but
 the opcode values and instruction forms are not part of this
-specification. The native calling convention is chapter 22; the
+specification. The native calling convention is §22.4; the
 archive that packs images is chapter 21.
 
 **Determinism.** Compiling the same source program twice with

@@ -50,4 +50,4 @@ before they land here.
 
 - [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
 - [21. The `.npkg` Package Archive](21-npkg-package-archive.md)
-- 22. The Native Application Binary Interface (ABI) *(planned)*
+- [22. The Native Application Binary Interface (ABI)](22-native-abi.md)

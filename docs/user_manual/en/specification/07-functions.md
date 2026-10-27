@@ -179,4 +179,4 @@ If the host cannot find the implementation, the call raises a
 host-level run-time error (§7.1). The host is responsible for
 matching the declared signature: a mismatch between the declaration
 and the host implementation is not a type error and yields
-unspecified results (§0.4). The calling convention is chapter 22.
+unspecified results (§0.4). The calling convention is §22.4.

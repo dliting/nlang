@@ -26,3 +26,4 @@ en/specification/18-tensor.md
 en/specification/19-library-exceptions.md
 en/specification/20-ncu-unit-image.md
 en/specification/21-npkg-package-archive.md
+en/specification/22-native-abi.md
