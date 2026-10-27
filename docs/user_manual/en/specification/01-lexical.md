@@ -89,8 +89,12 @@ identifiers:
 | `while` |
 
 `func` is both a reserved word and the keyword spelling of the
-function type (chapter 4 when written); its type-argument behavior is
-specified in §1.6.
+function type (chapter 4); its type-argument behavior is specified
+in §1.6.
+
+Being reserved is independent of grammar use: `elseif` and `state`
+are reserved but appear in no grammar production today (§6.3
+likewise notes that `if` has no `elseif` keyword).
 
 ## 1.5 Literals
 
@@ -162,4 +166,4 @@ the comparison operator.
 
 Array type suffixes: `[]` denotes a one-dimensional array type, and
 `[`, one or more commas, `]` denotes a rectangular array type of
-rank equal to the comma count plus one (chapter 4 when written).
+rank equal to the comma count plus one (chapter 4).

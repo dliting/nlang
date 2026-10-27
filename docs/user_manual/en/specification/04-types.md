@@ -273,6 +273,10 @@ value — and the remaining arguments are the parameter types in
 order (§2.3). A parameter type argument may carry the `out`
 prefix. A function with no parameters is written `func<R>`.
 
+`void` appears as a type argument only in the return slot of
+`func<...>`; any other type argument written `void` — such as
+`List<void>` — is a compile-time error.
+
 Two function types are the same type when their return types,
 parameter types and `out` markers match position by position.
 There is no variance: neither the return type nor a parameter type

@@ -1,5 +1,6 @@
 # Declarations
 
+The normative rules are in [specification §3.3–§3.5](../specification/03-program-structure.md).
 
 Type declarations — `enum`, `struct`, `class`, `interface` — each live on their
 own page: [Enum](enum.md), [Struct](struct.md), [Class](class.md),
@@ -190,13 +191,13 @@ int apply(BinOp f) { ... }   // parameters and returns
   [specification §3.4](../specification/03-program-structure.md).
 
 **Restrictions:**
-- The right-hand side must be a **primitive type name** (`int`, `float`,
-  `string`, etc.), an **array type** (`int[]`), a **generic instantiation**
-  (`List<int>`), or a **function type** (`func<int, int>`). A bare
-  **class/struct/enum type name** (`using X = Counter;`) is not a valid
-  target — it fails as a parser syntax error. **Member paths**
-  (`using X = ns.Inner;`) are also not supported — the declaration
-  itself parses, but every use site fails to resolve.
+- The right-hand side must be a **type**: a **primitive type name**
+  (`int`, `float`, `string`, etc.), a **class/struct/enum type name**
+  (`using X = Counter;`), an **array type** (`int[]`), a **generic
+  instantiation** (`List<int>`), or a **function type**
+  (`func<int, int>`). **Member paths** (`using X = ns.Inner;`) are
+  not supported — the declaration itself parses, but every use site
+  fails to resolve.
 - Aliases are type-position only; a value expression can never resolve
   to an alias.
 - Diagnostics anchored at a use site sometimes point at the `using` line

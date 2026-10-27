@@ -10,8 +10,12 @@ documentation distributed with the IDE.
 - [Getting Started](getting-started/what-is-nlang.md) — installation,
   the first program, a language tour, and FAQ
 - [Command-line Tools](cli-tools/overview.md) — the five command-line tools (nlang, ncc, nvm, ndb, ndisasm)
-- [Language Specification](language-spec/overview.md) — complete syntax
-  and semantics
+- [Specification](specification/index.md) — the normative,
+  clause-numbered definition of the language, its standard library
+  and its binary formats
+- [Language Specification](language-spec/overview.md) — the
+  informative manual: syntax and semantics with examples; where it
+  and the specification disagree, the specification is the authority
 - [Libraries & Integration](libraries/developing-libraries.md) — writing third-party libraries, subprocess integration, and in-process embedding
 - [VM Architecture](vm-architecture/overview.md) — bytecode and
   execution engine design

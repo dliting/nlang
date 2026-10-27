@@ -20,8 +20,8 @@ NLang moves code in four kinds of file.
   standard library ships as `stdlib.npkg` (§12.4). The format is
   chapter 21.
 - **Native host library.** The host dynamic library that carries
-  `native` implementations, named from the first segment of the
-  declaring package (§7.5).
+  `native` implementations, named from the declaring package,
+  which is necessarily single-segment (§7.5).
 
 A build whose units supply no entry (§3.2) produces a library
 artifact: importable by other builds, not runnable.
@@ -43,11 +43,8 @@ order, earlier entries first:
 
 Entries are normalized; a directory listed more than once keeps
 its first occurrence (paths compare case-insensitively on
-Windows). The system defaults are tool-specific: the compiler
-adds the standard-library directory, while the runner's defaults
-are the executable's directory and the current directory — the
-runner finds the standard library in the archive shipped next to
-the executable (§12.4).
+Windows). Every tool includes all three system-default
+directories; their relative order is *unspecified* (§0.4).
 
 An import of the package path `a.b.c` (§3.3) names the source
 file `a/b/c.n` under a search root. At compile time:
@@ -57,12 +54,15 @@ file `a/b/c.n` under a search root. At compile time:
   imports of an inlined unit are resolved by the same rules, to
   a fixed point;
 - if two or more roots offer it, it is a compile-time error
-  naming both source paths: a package name is unique in a build,
+  naming the source paths: a package name is unique in a build,
   never silently shadowed;
-- if no root offers a source, the import resolves to an external
-  artifact — the first search directory holding `a.b.c.ncu` or
-  `a.b.c.npkg`, a unit image before an archive of the same name
-  — whose declarations enter the build as stubs.
+- if no root offers a source: a single-segment path `c` (§3.3)
+  resolves to an external artifact — the first search directory
+  holding `c.ncu` or `c.npkg`, a unit image before an archive of
+  the same name — whose declarations enter the build as stubs;
+  a dotted path with no source in the build is a compile-time
+  error, since external artifacts carry single-segment names
+  (§3.3, chapter 20).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies

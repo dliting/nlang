@@ -24,15 +24,16 @@ implementations are built into the virtual machine.
 - `thread.join(t)` suspends the calling context until the target
   context finishes. Several contexts may join one target; all are
   woken. Joining an already-finished context returns immediately;
-  joining a context onto itself is a run-time error.
+  joining a context onto itself is a *host-level* run-time error
+  (§9.1).
 - `thread.yield()` moves the calling context to the back of the
   run queue.
 - `thread.id()` yields the current context's identifier: the
   entry context is `0`, spawned contexts are non-zero.
 - `thread.sleep(ms)` suspends until the deadline; `sleep(0)` is a
-  yield; a negative duration is a run-time error. The deadline is
-  a lower bound: a sleeper wakes within the host's timer
-  granularity.
+  yield; a negative duration is a *host-level* run-time error
+  (§9.1). The deadline is a lower bound: a sleeper wakes within
+  the host's timer granularity.
 
 An exception that escapes the top of a spawned context's body
 marks the context *failed*; it propagates neither to the host nor
@@ -52,10 +53,10 @@ reacquired before the native returns; a native that does not
 declare its blocking section holds the lock for the whole call.
 
 When the entry context returns, the program ends: contexts still
-parked or queued are dropped without running further. If the
-entry context is parked and no runnable context remains, the
-implementation reports a deadlock as a run-time error rather than
-waiting forever.
+parked or queued are dropped without running further. If no
+context is runnable, no timer is pending, and no native call is
+blocked, the implementation reports a deadlock as a *host-level*
+run-time error (§9.1) rather than waiting forever.
 
 Suspending operations — `join` on an unfinished target,
 `Future.get()` on an unfinished target, a contended `lock`, an
@@ -66,23 +67,28 @@ body still reaches that body's `catch`; a `finally` still runs
 exactly once; a rethrow after a parked `catch` still rethrows
 (§9.1). Inside a nested evaluation window — a `toString`
 evaluation, or a host `call()` window — none of these operations
-may suspend: each is rejected as a run-time error there, as is
-`thread.spawn`.
+may suspend: each is rejected there as a *host-level* run-time
+error (§9.1). `thread.spawn` likewise requires a carrier in
+flight: in a host `call()` window, where none runs, it is
+rejected the same way.
 
 ## 11.2 Mutex
 
-A `Mutex` is a non-reentrant mutual-exclusion lock; it is a
-built-in handle class and needs no import.
+A `Mutex` is a non-reentrant mutual-exclusion lock. It is a
+*handle class*: a built-in class whose instances wrap an
+implementation-managed object, whose constructors and methods are
+built into the virtual machine, and whose name needs no import
+(§12.4).
 
 - `lock()` acquires the lock. While another context holds it, the
   caller parks in a queue and is woken in arrival order. Locking a
   mutex the caller already holds parks forever: nothing can wake
   the caller, and the program ends under the exit policy of §11.1
-  — the deadlock report if the entry context is parked and no
-  runnable context remains, otherwise the parked context is
-  dropped when the entry context returns.
+  — the deadlock report of §11.1 when nothing else can make
+  progress, otherwise the parked context is dropped when the
+  entry context returns.
 - `unlock()` releases it. Unlocking a mutex the caller does not
-  hold is a run-time error.
+  hold is a *host-level* run-time error (§9.1).
 - `tryLock()` never parks: it acquires and yields `true` when the
   lock is free, and yields `false` when it is held.
 
@@ -93,30 +99,27 @@ away.
 ## 11.3 Semaphore
 
 A `Semaphore` admits at most N contexts into a section: a mutex
-admits one, a semaphore admits N. The normative model is the
-built-in handle class (no import):
+admits one, a semaphore admits N. It is provided by the
+`concurrent` standard-library package (chapter 17; import
+required, §12.4):
 
-- `Semaphore(n)` sets the initial permit count; a negative `n` is
-  a run-time error; `0` is legal — the signal-switch shape, where
-  waiters stop at `acquire` until a later `release` lets them
-  through.
-- `acquire()` takes one permit. At zero permits the caller
-  suspends and queues, woken in arrival order — a real
-  suspension, like `lock`.
-- `release()` returns one permit. With a waiter queued, the
-  permit passes directly to the head of the queue and the count
-  is unchanged; otherwise the count increases by one. There is no
-  ownership requirement: `release` without a matching `acquire`
-  is legal and the count may exceed the initial value.
-- `tryAcquire()` never suspends: it takes a permit and yields
-  `true` when one is available, and yields `false` at zero.
+- `Semaphore(n)` sets the initial permit count. A negative `n`
+  starts the count in deficit: `release` must raise it above zero
+  before any `acquire` proceeds. `0` is legal — the signal-switch
+  shape, where waiters stop at `acquire` until a later `release`
+  lets them through.
+- `acquire()` takes one permit. While the count is not positive
+  the caller waits by yielding its turn (§11.1) — a cooperative
+  spin, not a park — and the order among concurrent waiters is
+  *unspecified* (§0.4).
+- `release()` returns one permit: the count increases by one.
+  There is no ownership requirement: `release` without a matching
+  `acquire` is legal and the count may exceed the initial value.
 
-> Implementation note. The 0.11.6 implementation on this
-> development line provides `Semaphore` in the `concurrent`
-> package (import required), without `tryAcquire`, and its
-> `acquire` waits by yielding in turn rather than parking. The
-> parking handle class above is the normative target; the two
-> forms merge in the planned synchronization-primitive work.
+> Implementation note. The planned synchronization-primitive work
+> replaces this library form with a handle class (§11.2):
+> `acquire` parks in arrival order, `tryAcquire()` is added, and
+> a negative `n` becomes a *host-level* run-time error (§9.1).
 
 The `concurrent` standard-library package (chapter 17) also
 provides `WaitGroup`: `add(n)` accumulates outstanding units,
@@ -131,13 +134,13 @@ of §11.1.
 A `Channel<T>` passes values between contexts. The element type
 argument is required: it drives the boxing on send and the
 unboxing on receive, by the same mechanism as `List<T>` (§4.10);
-reference elements pass through directly. A channel is a built-in
-handle class and needs no import.
+reference elements pass through directly. A channel is a handle
+class (§11.2).
 
 Construction takes two forms: `{}` creates an unbounded channel;
 `Channel(n)` creates one with buffer capacity `n` — `0` means
-unbounded, `n >= 1` bounds the buffer, and a negative `n` is a
-run-time error.
+unbounded, `n >= 1` bounds the buffer, and a negative `n` raises
+`Exception` (§9.3).
 
 - `send(v)` appends to the buffer. On an unbounded channel it
   never parks; on a bounded channel it parks in a queue while the
@@ -168,8 +171,8 @@ return value, produced by `thread.spawn` on a `func<T>` delegate
   one future; all wake with the same value or the same object.
   `get()` on a finished future returns immediately and may be
   called repeatedly. A context may not `get()` the future of its
-  own spawn: that call is a run-time error, since nothing could
-  wake the context.
+  own spawn: that call is a *host-level* run-time error (§9.1),
+  since nothing could wake the context.
 - `isDone()` never parks: it yields `true` once the target has
   finished, normally or failed.
 
@@ -178,7 +181,8 @@ return value, produced by `thread.spawn` on a `func<T>` delegate
 Under a single carrier the schedule is deterministic: a strict
 first-in-first-out queue with a fixed back-edge budget, so the
 same program with the same inputs produces the same interleaving
-on every run.
+on every run, apart from `sleep` deadlines, which follow the
+host's clock (§11.1).
 
 Under more carriers, dispatch may reorder: a carrier prefers the
 context it last ran, so which context leaves the queue first is
