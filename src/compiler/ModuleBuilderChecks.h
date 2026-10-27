@@ -2,7 +2,7 @@
 ModuleBuilderChecks.h - internal seam of the ModuleBuilder check
 translation units: declarations shared between ModuleBuilderChecks.cpp
 and the split check TUs (ModuleBuilderMethodContracts.cpp,
-ModuleBuilderObjectProtocol.cpp, ModuleBuilderStaticNamespace.cpp).
+ModuleBuilderStaticNamespace.cpp).
 Split from ModuleBuilderChecks.cpp (2026-10-17 maintainability
 refactor, zero behavior change).
 ---*/
@@ -24,22 +24,16 @@ class BuildEnvironment;
 void CollectClasses(SnNamespace &root,
 	std::vector<SnClassDecl*> &classes);
 
-//Render a method signature for diagnostics; shared by the contracts,
-//Object-protocol and static-namespace TUs. Definition in
-//ModuleBuilderChecks.cpp.
+//Render a method signature for diagnostics; shared by the contracts
+//and static-namespace TUs. Definition in ModuleBuilderChecks.cpp.
 std::string FormatSignature(const std::string &name, const SnFunction &f);
 
 //Per-name static-family rules of the method-contract family (definition
 //in ModuleBuilderStaticNamespace.cpp): true when an own static claims an
-//inherited virtual or Object-protocol dispatch slot (0.9.10 D2.4).
+//inherited virtual dispatch slot (0.9.10 D2.4) — the declared Object's
+//protocol methods are inherited virtuals like any other since the
+//builtin-decls migration.
 bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
-	const std::vector<SnFunction*> &funcs, BuildEnvironment &env);
-
-//Object-protocol check of the method-contract family (definition in
-//ModuleBuilderObjectProtocol.cpp): true when any own same-name method
-//of cls mismatches the implicit Object contract (equals/getHashCode/
-//toString, spec D4).
-bool CheckObjectProtocol(SnClassDecl &cls, const std::string &name,
 	const std::vector<SnFunction*> &funcs, BuildEnvironment &env);
 
 } //namespace nlang

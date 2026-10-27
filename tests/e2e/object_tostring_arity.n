@@ -1,0 +1,9 @@
+//toString() takes no arguments on a class receiver — a call with
+//arguments is rejected (arity surface of the declared protocol).
+class P {
+}
+int main() {
+    P p = P();
+    string s = p.toString(1);
+    return 0;
+}

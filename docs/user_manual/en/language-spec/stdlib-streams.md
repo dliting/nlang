@@ -2,7 +2,7 @@
 
 Two built-in stream classes provide binary serialization: `ByteStream` reads
 and writes over an in-memory buffer, `FileStream` lands on a disk file. The
-method surface is identical (FileStream has no `reset()`).
+method set is identical (FileStream has no `reset()`).
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -16,7 +16,7 @@ double d = bs.readDouble();  // 0.5
 Reads consume the stream in write order — the example reads the int back
 before the double.
 
-| Method | Wire form | Notes |
+| Method | Stored form | Notes |
 |---------|-----------|-------|
 | writeInt / readInt | 4 bytes | int32 |
 | writeFloat / readFloat | 4 bytes | float |
@@ -39,10 +39,10 @@ at run time (same semantics as the containers in [Built-in Generic
 Classes](builtin-generic-classes.md)).
 
 **Argument types**: the scalar write methods check each argument per the
-conversion matrix — narrower integer and `float` arguments implicitly widen
-into the 8-byte slots (the same rule as `math.sqrt` arguments); a `ulong`
+conversion rules — narrower integer and `float` arguments implicitly widen
+to 8-byte `long`/`double` (the same rule as `math.sqrt` arguments); a `ulong`
 argument exceeds the long range and needs an explicit `as long`; `char`
 and string arguments are compile errors for the numeric methods.
 
-**end of stream (EOS) semantics**: reading from a stream whose cursor is already at the end
+**End of stream (EOS) semantics**: reading from a stream whose cursor is already at the end
 throws a runtime error (it does not return 0).

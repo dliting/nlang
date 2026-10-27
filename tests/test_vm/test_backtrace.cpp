@@ -235,7 +235,7 @@ static void TestStripDebugInfoRemovesAnchors() {
 }
 
 // --- 帧机等价钉死（K1 Slice 2）：回溯仅有的两种可观测形态各一条字节级断言。
-// 等价性论证：m_unwindFrames 在 catch 命中时清空 → 文本回溯只在未捕获路径
+// 等价性论证：解退记录在 catch 命中时清空 → 文本回溯只在未捕获路径
 // 可观测；字段回溯（RaiseNlangException 在抛出点从调用栈构造）是第二种。
 // 两者逐字节钉死后，帧机与递归引擎的可观测行为收口于此。
 

@@ -15,7 +15,7 @@ namespace nlang {
 //Helper: read this.__handle from callParamBase[0].
 //Returns the 1-based handle. Throws if invalid or closed.
 static int32_t ReadStreamHandle(uint16_t callParamBase, uint8_t* locals,
-    const std::vector<std::vector<int32_t>>& structHeap,
+    const ChunkedArray<std::vector<int32_t>>& structHeap,
     const char* label)
 {
     int32_t thisHeapIdx;
@@ -34,6 +34,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
     //FileStream intrinsics (20-37): 20-29 primitives (4-byte), 30-31
     //struct, 32-33 object, 34-37 the 8-byte scalar quartet.
     if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadDouble) {
+        DomainGuard g(m_domainLocks, DomainId::Stream);
         switch (intrinsicId) {
         case INTR_FS_Ctor: {
             //this at callParamBase[0], path string idx at [1], mode string idx at [2].

@@ -41,6 +41,14 @@ keeps it within 0-255).
 | stdlib_math.n | standard library `math` package | 0 |
 | stdlib_io.n | io console and file content (needs stdin) | 0 |
 | stdlib_fs.n | fs paths/directories/metadata | 0 |
+| conc_spawn_join.n | concurrency: spawn tasks and wait with `join` | 13 |
+| conc_future.n | concurrency: `Future` return values | 14 |
+| conc_channel_pipeline.n | concurrency: channel producer-consumer and `close` | 15 |
+| conc_mutex_counter.n | concurrency: `Mutex`-protected shared counter | 16 |
+| conc_semaphore.n | concurrency: `Semaphore` concurrency cap | 17 |
+| conc_waitgroup.n | concurrency: `WaitGroup` over a batch of tasks | 18 |
+| conc_channel_close.n | concurrency: `close` broadcast exit signal | 19 |
+| conc_carriers_demo.n | concurrency: carrier count does not change results (try `nvm --carriers=1` vs `--carriers=8`) | 20 |
 | hello_project/ | multi-file project (open the `.nproj` in nide) | 0 |
 | libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
 | embed_host/ | minimal C++ embedding host (built by CMake; run `embed_host <artifact.ncu|.npkg>`) | 0 |

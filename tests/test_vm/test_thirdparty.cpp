@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -213,6 +214,58 @@ int buildAndRun(const fs::path& pkg, CapturingIo& ioCapture,
         std::fprintf(stderr, "load/link failed: %s\n", e.what());
         return -1;
     }
+}
+
+//K5 (GIL removal batch 1, §7.2): build and run one scenario while
+//keeping the executor alive, so the native-registry prewarm invariant
+//can be asserted through the white-box getter (buildAndRun drops the
+//executor with its result). Any failure phase — library pre-build,
+//compile, load/link, or a run that throws — lands in `error` with rc
+//left at -1; callers pin the phase by what they assert on.
+struct RunOutcome {
+    int rc = -1;
+    std::unique_ptr<VmExecutor> executor;
+    std::string error;
+};
+
+RunOutcome buildAndKeepExecutor(const fs::path& pkg, CapturingIo& ioCapture) {
+    RunOutcome out;
+    //Collect first, build after: the library builds drop new files into
+    //the same directory this walk enumerates (same rule as buildAndRun).
+    std::vector<fs::path> libSources;
+    for (fs::recursive_directory_iterator it(pkg), end; it != end; ++it) {
+        if (!it->is_regular_file() || it->path().extension() != ".n"
+            || it->path().stem() == "prog")
+            continue;
+        libSources.push_back(it->path());
+    }
+    for (const auto& src : libSources)
+        if (!buildLibraryUnit(src, pkg)) {
+            out.error = "library unit pre-build failed";
+            return out;
+        }
+    ScenarioBuild build = compileScenario(pkg, {});
+    if (!build.ok) {
+        out.error = build.log;
+        return out;
+    }
+    try {
+        const std::string moduleName = pkg.filename().string();
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {pkg.string(), STDLIB_DIR};
+        NcuLoader::Result loaded = NcuLoader::LoadClosure(
+            (pkg / (moduleName + ".ncu")).string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+                                             loaded.entryKey);
+        out.executor = std::make_unique<VmExecutor>();
+        out.executor->AddNativeSearchDir(pkg.string());
+        out.executor->SetHostIo(&ioCapture);
+        out.rc = out.executor->Execute(mod);
+    } catch (const std::exception& e) {
+        out.error = e.what();
+        out.rc = -1;
+    }
+    return out;
 }
 
 void TestThirdPartyNativeLibrary() {
@@ -654,6 +707,104 @@ static void TestProgramPackageWithoutSources() {
           "the diagnostic names the multi-member refusal");
 }
 
+//(8) K5 / GIL removal batch 1 (§7.2): the native registry is pre-warmed
+//at run init. (8a) a program that references a native library but calls
+//no native still finds every declared native registered — the prewarm
+//scan, not a call, mapped the DLL. (8b) a declared native whose DLL
+//exists nowhere is tolerated at init (the program runs to completion;
+//a naive rethrow variant fails here), and tolerance is not silent
+//success — the name stays unregistered. (8c) the first call of that
+//native re-attempts the load and throws the identical lazy diagnostic
+//(the loader does not cache failures), keeping the pre-change error
+//timing. The DLL-present-but-export-missing twin ("native function not
+//registered") is pinned embed-side (test_embed_api.cpp).
+static void TestNativePrewarm() {
+    const fs::path root = packageDir();   //one call: wipes the shared root
+
+    //(8a) positive: one plain function (pulls the library unit into the
+    //closure via a real call) beside the three native declarations
+    //(ride along in the linked image, never called).
+    const fs::path pos = root / "prewarm_pos";
+    fs::create_directories(pos);
+    {
+        std::ofstream out(pos / "mylib.n", std::ios::binary);
+        out << "int plain() { return 1; }\n"
+               "native int add(int a, int b);\n"
+               "native int mul(int a, int b);\n"
+               "native string greet(string who);\n";
+    }
+    {
+        std::ofstream out(pos / "prog.n", std::ios::binary);
+        out << "import mylib;\n"
+               "int main() { if (mylib.plain() != 1) return 1; return 0; }\n";
+    }
+    std::error_code copyErr;
+    fs::copy_file(fs::path(FIXTURE_DIR) / kNativeDllName,
+                  pos / kNativeDllName,
+                  fs::copy_options::overwrite_existing, copyErr);
+    CHECK(!copyErr, "nlang_mylib.dll copied for the prewarm scenario");
+    {
+        CapturingIo io;
+        RunOutcome run = buildAndKeepExecutor(pos, io);
+        CHECK(run.error.empty() && run.rc == 0,
+              "prewarm program runs (no native called)");
+        CHECK(run.executor && run.executor->IsNativeRegistered("mylib.add")
+              && run.executor->IsNativeRegistered("mylib.mul")
+              && run.executor->IsNativeRegistered("mylib.greet"),
+              "declared natives are registered without any call");
+    }
+
+    //(8b) tolerance: no fixture builds nlang_ghostlib.dll anywhere (the
+    //executable dir included), yet a program that never calls the
+    //native runs to completion.
+    const fs::path missing = root / "prewarm_missing";
+    fs::create_directories(missing);
+    {
+        std::ofstream out(missing / "ghostlib.n", std::ios::binary);
+        out << "int plain() { return 1; }\n"
+               "native int nope(int a);\n";
+    }
+    {
+        std::ofstream out(missing / "prog.n", std::ios::binary);
+        out << "import ghostlib;\n"
+               "int main() { if (ghostlib.plain() != 1) return 1; return 0; }\n";
+    }
+    {
+        CapturingIo io;
+        RunOutcome run = buildAndKeepExecutor(missing, io);
+        CHECK(run.error.empty() && run.rc == 0,
+              "an unavailable native module is tolerated at run init");
+        CHECK(run.executor
+              && !run.executor->IsNativeRegistered("ghostlib.nope"),
+              "tolerance is not silent success (name stays unregistered)");
+    }
+
+    //(8c) error timing: the first call re-attempts and throws the same
+    //loader diagnostic. ghostlib is rebuilt in its own scenario dir
+    //(one compile per dir — ModuleManager never unloads).
+    const fs::path missingCall = root / "prewarm_missing_call";
+    fs::create_directories(missingCall);
+    {
+        std::ofstream out(missingCall / "ghostlib.n", std::ios::binary);
+        out << "int plain() { return 1; }\n"
+               "native int nope(int a);\n";
+    }
+    {
+        std::ofstream out(missingCall / "prog.n", std::ios::binary);
+        out << "import ghostlib;\n"
+               "int main() { return ghostlib.nope(1); }\n";
+    }
+    {
+        CapturingIo io;
+        RunOutcome run = buildAndKeepExecutor(missingCall, io);
+        CHECK(run.rc == -1
+              && run.error.find("cannot find native module")
+                     != std::string::npos
+              && run.error.find("nlang_ghostlib") != std::string::npos,
+              "first call of an unavailable native keeps its loader diagnostic");
+    }
+}
+
 int main() {
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
@@ -667,6 +818,7 @@ int main() {
     TestNativeInMultiSegmentPackageRejected();
     TestSameLastSegmentPackagesCoexist();
     TestProgramPackageWithoutSources();
+    TestNativePrewarm();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

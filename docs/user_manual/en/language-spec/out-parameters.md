@@ -17,7 +17,7 @@ int q = divide(17, 5, out r);  // q=3, r=2
 **Semantics:**
 - Out parameters are **inout**: the callee sees the caller's current value
   as the initial value of the parameter local.
-- The writeback occurs after the call returns, in slot order.
+- The writeback occurs after the call returns.
 - The call's return value is stored to the result variable
   **before** out writebacks, so `int x = f(out x)` reads the old `x`
   for the return assignment and then overwrites `x` with the callee's

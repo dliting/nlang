@@ -10,6 +10,9 @@
 #include "VmClassLayout.h"
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
+#include "ChunkedArray.h"
+#include "ShardFreeList.h"
+#include "VmDomainLocks.h"
 #include "VmScheduler.h"
 #include <atomic>
 #include <condition_variable>
@@ -24,6 +27,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nlang {
@@ -37,6 +41,16 @@ struct NLangThrow : public std::runtime_error {
     int32_t heapIdx;
     NLangThrow(int32_t h, std::string msg)
         : std::runtime_error(msg), heapIdx(h) {}
+};
+
+//K8: deferred-raise carrier for code inside a domain-guarded section.
+//RaiseNlangException builds an exception object (a Container acquisition)
+//and runs FireOnThrow (the scheduler lock) — both reverse acquisitions
+//under any domain. The guarded site throws this instead; the section
+//boundary converts it into the real raise.
+struct DeferredNlangRaise {
+    int16_t classIdx;
+    std::string message;
 };
 
 //v0.8.5: single source for one backtrace frame's text, shared by
@@ -97,6 +111,12 @@ public:
     //as the catchable deadlock error. resultCell: 8 bytes out.
     void ExecuteLoadedEntry(uint16_t entryIdx, uint8_t* resultCell);
 
+    //0.10.20: run-end report for spawned contexts whose failure no joiner
+    //ever observed — the containment model used to swallow those
+    //silently. Called on the Execute thread after the carriers have
+    //joined (registry quiesced); one stderr line per unobserved failure.
+    void ReportUnobservedSpawnedFailures();
+
     //Extension point ② (spec §8): invoke a free function without a
     //compiler-generated call site. argCells: argc marshalled 8-byte
     //cells (argc <= callee.paramCount); formals beyond argc fill from
@@ -116,6 +136,9 @@ public:
     //minting/allocation/typed-access primitives the embedding adapter
     //needs. Thin public wrappers over existing internal machinery —
     //no new semantics.
+    //K7: single-embedding-thread constraint — these wrappers do not
+    //self-guard the stores they touch; a second embedding thread
+    //would need each of them guarded first.
     int32_t MintHostString(const std::string& content);
     int32_t BoxHostScalar(uint8_t typeTag, int64_t bits);
     int32_t AllocHostList();
@@ -170,15 +193,90 @@ public:
     //Slot runtime kind (m_slotKinds) — boxed/class discrimination for
     //element decode (class instances are 3+ cells, size alone lies).
     uint8_t HostSlotKind(int32_t heapIdx) const;
+    //K8: rethrow target for a host-held script exception. The instance
+    //may have been collected between the escape into host code and a
+    //later rethrow (host memory is not scanned). Probe: the recorded
+    //index still holds the same class and message → same instance;
+    //otherwise mint a fresh instance from the saved fields. The remint
+    //is observationally equivalent (same class, same message; the fresh
+    //backtrace reflects the rethrow site, and any pre-death script
+    //mutation of the original was lost by the collection either way).
+    //The target is rooted for the unwind — NativeRaiseException's
+    //build-root-throw choreography.
+    int32_t ExceptionRethrowTarget(const std::string& exceptionClass,
+                                   const std::string& message,
+                                   int32_t maybeLiveHeapIdx);
 
     //Testing knobs (white-box GC pressure): clamp both thresholds so any
     //untraced handle turns stale almost immediately, and observe the live
-    //string-object population for bounded-memory assertions.
+    //string-object population for bounded-memory assertions. The
+    //post-sweep backoff still applies (pre-K6 stress semantics): the
+    //tiny clamp keeps the store small, so the cadence stays high —
+    //hundreds of collections per churn run — without forcing every
+    //safepoint of a growing live set (quadratic; the deep-chain e2e
+    //pins the timing).
+    //K8: the clamp also shrinks the allocation growth quantum to one
+    //slot — block batching would pad the store past the clamp and the
+    //sweep's high-water floor would absorb the padding (first collection
+    //starves every later one in a small run).
     void SetGcStressThresholds(size_t records) {
         m_gcThreshold = records;
         m_strGcThreshold = records;
+        m_allocQuantum = 1;
+    }
+    //K6 D3: restore default thresholds. The test binaries run every
+    //test function in one process — the stress clamp must be clearable
+    //or it leaks into later tests.
+    void ResetGcThresholds() {
+        m_gcThreshold = GC_THRESHOLD_DEFAULT;
+        m_strGcThreshold = kStrGcThresholdDefault;
+        m_allocQuantum = DEFAULT_SHARD_BLOCK;
     }
     size_t LiveStringObjectCount() const;   //live slots, immortal included
+    //K6 D7 white-box observability: collection count (per run; resets
+    //with ResetPerRunState) and live heap slots (kinds != free).
+    size_t GcCollectionCount() const { return m_gcCollections; }
+    size_t LiveHeapSlotCount() const;
+    //K7: this thread's own executing bit — registry-membership observability
+    //(the white-box shape the K6 window count served: parked-in-native reads
+    //false, a nested evaluation window reads true, quiescent reads false).
+    bool GcExecutingSelf() const {
+        return m_spScheduler->GcStop().ExecutingSelf();
+    }
+    //K7: per-run count of rendezvous parks — arrivals that blocked in
+    //WaitForCompletion instead of collecting inline (single-carrier
+    //degenerate runs read 0; real multiparty runs read > 0).
+    int GcRendezvousParks() const {
+        return m_gcRendezvousParks.load(std::memory_order_relaxed);
+    }
+    //K8 Task 6: per-run per-domain lock telemetry (acquisitions,
+    //contended acquisitions, cumulative wait microseconds) — the
+    //successor of the K7 store-guard counters, which died with the
+    //domain split. Cleared by ResetPerRunState.
+    DomainTelemetry DomainTelemetrySnapshot() const {
+        return m_domainLocks.Snapshot();
+    }
+    //K8 Task 6 white-box seam: drive this executor's domain lock set
+    //from test threads (deterministic contention for the telemetry
+    //contract). Production code never calls this.
+    DomainLockSet& DomainLocksForTests() { return m_domainLocks; }
+    //K8 Task 5 white-box knob: make the NEXT collection throw once at
+    //its entry — proves the collector's completion guard releases the
+    //rendezvous waiters instead of stranding them on the epoch.
+    void SetThrowOnceInCollectForTests() {
+        m_gcThrowOnceForTests.store(true, std::memory_order_relaxed);
+    }
+    //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
+    //native-root ownership set through the same push/remove paths the
+    //blocking arm uses. Production code never calls these.
+    void TestPushNativeRoot(const uint8_t* cells, uint32_t cellCount,
+                            int32_t value, uint64_t owner) {
+        std::lock_guard<std::mutex> g(m_rootRegistryMutex);
+        m_nativeCallRoots.push_back(
+            NativeCallRoot{cells, cellCount, value, owner});
+    }
+    void TestRemoveNativeRoots(uint64_t owner) { RemoveNativeRoots(owner); }
+    size_t TestNativeRootCount() const { return m_nativeCallRoots.size(); }
     //K2 slice 5 white-box knob: force the conservative both-domain band
     //scan even when a valid handle mask is present — the A/B baseline
     //for proving the precise scan keeps the same object graph alive.
@@ -214,6 +312,10 @@ public:
     }
     int SchedulerQuotaFires() const { return m_quotaFires; }
     int SchedulerPreemptSkips() const { return m_preemptSkips; }
+    //K7 white-box probe: the current thread's evaluation slot must be
+    //empty around a completed run — pins the frame-privatization routing
+    //(carrier slot / fallback slot) without exposing the stack itself.
+    bool EvalStackProbeEmpty() { return EvalStack().empty(); }
     //K2 slice 2 white-box observability: contexts dispatched on
     //auxiliary carriers, and the peak number of carriers contending
     //for the GIL — together they prove a configured pool genuinely
@@ -224,11 +326,27 @@ public:
     int SchedulerGilWaitersPeak() const {
         return m_spScheduler->GilWaitersPeak();
     }
+    //K5 batch 1 white-box observability: the GIL wait-time dimension —
+    //cumulative nanoseconds waited and acquisitions that began while
+    //another waiter was already queued. Per run (cleared by the
+    //scheduler's Reset).
+    uint64_t SchedulerGilWaitNanosTotal() const {
+        return m_spScheduler->GilWaitNanosTotal();
+    }
+    uint64_t SchedulerGilContendedAcquires() const {
+        return m_spScheduler->GilContendedAcquires();
+    }
     //K4: carrier -> context currently held in its execution window (the
     //scheduler's GIL-guarded mirror; -1 = idle). White-box only — the
     //threads listing and tests consume it.
     int SchedulerHeldContextOfCarrier(int carrierId) const {
         return m_spScheduler->HeldContextOfCarrier(carrierId);
+    }
+    //GIL removal batch 1 (§7.2) white-box observability: is a native
+    //name in the registry (host table or pre-warmed module)? Pins the
+    //run-init prewarm invariant without forcing a call.
+    bool IsNativeRegistered(const std::string& name) const {
+        return m_natives.count(name) != 0;
     }
 
     //K2 slice 2 (plan ruling P1): carrier-thread count for the next run —
@@ -249,7 +367,7 @@ public:
 
     //IVmDebugView — definitions in VmExecutorDebug.cpp. Frame queries
     //address one context by id: the context in this carrier's execution
-    //window reads m_callStack, every other context reads its parked
+    //window reads the current thread's evaluation stack, every other context reads its parked
     //frames in the scheduler registry (K4: unified inspection face).
     size_t ContextCount() const override;
     DebugContextInfo ContextInfo(int contextId) const override;
@@ -257,8 +375,14 @@ public:
     DebugFrameInfo FrameInfo(int contextId, size_t depth) const override;
     std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const override;
+    //K7 task 5: the freeze parking bracket (see IDebugHooks.h). The
+    //frozen carrier leaves the GC rendezvous denominator, hands off any
+    //held global lock, and takes a count on the dispatch gate; exit
+    //mirrors it (the last one out opens the gate).
+    void EnterFreezePark(GilHolder*& parkedHolder) override;
+    void ExitFreezePark(GilHolder* parkedHolder) override;
     //Frame source resolution behind the view face (see
-    //VmExecutorDebug.cpp): execution-window context → m_callStack,
+    //VmExecutorDebug.cpp): execution-window context → its carrier's stack,
     //otherwise the registry's parked stack.
     const std::vector<CallFrame>* FramesOfContext(int contextId) const;
 
@@ -318,15 +442,19 @@ private:
     void CacheBuiltinClassIndexes(const CompiledModule& module);
 
     //Frame machine (concurrency K1): NLang calls push frames onto
-    //m_callStack and one iterative dispatch loop runs them — NLang
+    //the evaluation stack and one iterative dispatch loop runs them — NLang
     //recursion no longer consumes C++ stack. RunFrames(baseDepth) runs
     //until the stack shrinks back to baseDepth (root window: 0; nested
     //toString/host windows: the depth at their entry). Definitions in
     //VmExecutorOps.cpp.
     void RunFrames(size_t baseDepth);
+    //K6 D2: RunFrames is a thin wrapper holding the evaluation-window
+    //guard; the frame-machine body lives in RunFramesInner (the body is
+    //at the source-size guard's function line ceiling).
+    void RunFramesInner(size_t baseDepth);
     //K1 Slice 6: at RunFrames entry, throw the armed join-target failure
     //(a resumed joiner over a FAILED target) inside the handler-search
-    //try — no-op unless the carrier armed m_resumeThrowExcIdx.
+    //try — no-op unless the carrier armed ResumeThrowExcIdxRef().
     void ConsumeResumeThrow();
     void DispatchFrames(size_t baseDepth);   //inner loop; throws on error
     //Bind a catch handler for the in-flight exception in this frame
@@ -342,8 +470,14 @@ private:
         uint16_t callParamBase, uint32_t outMask, uint8_t outShift);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
         int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+    //Root/toString/host windows. deferSafepoint: callers that stage raw
+    //caller-owned handle cells into the frame right after the push must
+    //defer the entry safepoint until staging completes — a collection at
+    //the gap would see zeroed param slots and kill the not-yet-staged
+    //handles (they exist nowhere else; host memory is not scanned). Such
+    //callers run CheckGCSafepoint() themselves once staging is done.
     uint8_t* PushRootFrame(const CompiledFunction& func,
-        uint8_t* externalResult);           //root/toString/host windows
+        uint8_t* externalResult, bool deferSafepoint = false);
     void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
     //bookkeeping both exception paths in RunFrames share.
@@ -353,15 +487,20 @@ private:
     void RecordUnwindAndPopFrame();
     //The frame's result cell: the external C++ cell (root/toString/host
     //windows) or a slot in another frame — resolved fresh, never cached
-    //across a push (m_callStack growth moves CallFrame objects; the
+    //across a push (stack growth moves CallFrame objects; the
     //per-frame localsBuf buffer itself is move-stable).
     uint8_t* FrameResultCell(const CallFrame& frame);
 
     //Host-bridge internals (definitions in VmExecutorHostBridge.cpp):
     //FillDefaults stages the Option-B defaults for a by-name call's
-    //missing formals (what a compiler call site would have staged).
+    //missing formals (what a compiler call site would have staged);
+    //RunBridgeNativeCall stages the caller-frame ABI copy and invokes
+    //CallNative for CallFunctionByIdx's native arm.
     void FillDefaults(const CompiledFunction& callee,
                       uint8_t* frameCells, uint32_t argc);
+    void RunBridgeNativeCall(const CompiledFunction& callee,
+                             const uint8_t* argCells, uint32_t argc,
+                             uint8_t* resultCell);
     void FillOneDefault(const CompiledFunction& callee,
                         const DefaultValueDesc& d, uint8_t* cell);
     //0.9.11 T4: the single folded-constant write site (definition in
@@ -435,7 +574,7 @@ private:
     int64_t ReadScalarAsInt64(int row, const uint8_t* p) const;
     void OpLogicalNot(BytecodeReader& reader, uint8_t* locals);
     //Call family contract (frame machine): return true when a new frame
-    //was pushed — the dispatcher must re-fetch m_callStack.back() before
+    //was pushed — the dispatcher must re-fetch EvalStack().back() before
     //the next instruction. False = handled inline (native/intrinsic/
     //diagnostic throw).
     bool OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
@@ -518,6 +657,14 @@ private:
     //Allocate a struct on the heap with recursive nested struct allocation.
     //Returns the heap index.
     int32_t AllocStructOnHeap(uint16_t structIdx);
+    //K8 sharding: own-shard lock-free pop, Growth-locked block refill.
+    int32_t TakeHeapSlot();
+    int32_t TakeStringSlot();
+    size_t CurrentShard() const;
+    void GrowHeapShardBlockLocked(size_t shard);
+    void GrowStrShardBlockLocked(size_t shard);
+    //Sweep-only routing of a free heap index to its mapped shard.
+    void HeapSweepPush(int32_t idx);
 
     //Allocate a class object on the heap with recursive field allocation.
     //Returns the heap index.
@@ -613,14 +760,36 @@ private:
     //heap-index domains: over-marking is safe (GC is non-moving), and
     //frame zero-init rejects never-written cells.
     void MarkFrameBand(const CallFrame& frame, std::vector<int32_t>& worklist);
+    //Both frame-root surfaces — the published carrier stacks (GcStop
+    //registry scan) and the registry ctx->frames — under ONE scheduler
+    //lock bracket so frame-ownership transfers cannot slip between the
+    //arms (K8 Task 7; see the definition for the invariant).
+    void ScanFrameRootSurfaces(std::vector<int32_t>& worklist);
     //K1 Slice 6: scheduler root arm — parked/queued contexts' frames
-    //(not in m_callStack under the steal model) plus each context's
+    //(not on any evaluation stack under the steal model) plus each context's
     //Thread object and a Failed context's exception object (join rethrows
     //it by heap idx). Same three frame arms as the running stack.
     void MarkSchedulerRoots(std::vector<int32_t>& worklist);
+    //One context's resultCell: conservative both-domain value test for
+    //live contexts (the accumulator of the whole root call tree — K8
+    //Task 7), kind-classified by resultKind once finished/failed (K3).
+    void MarkContextResultCell(const ExecutionContext* ctx,
+                               std::vector<int32_t>& worklist);
+    //K8 Task 7 product tripwire: every pending delivery destination
+    //(channel waiter resultPtr, parked get() joinResultDst) must fall
+    //inside one of the frame buffers the root scan just covered — a
+    //destination escaping both surfaces means a frame transfer lost
+    //its waiter's frame. Runs inside MarkPhase's transfer-freeze
+    //bracket on a consistent range list.
+    void AuditWaiterDestinationRanges(
+        const std::vector<std::pair<const uint8_t*, const uint8_t*>>&
+            frameRanges);
     //K2 slice 4: blocking-native local roots (staged cells and minted
     //handles) — same dual-domain value test as the frame band.
     void MarkNativeCallRoots(std::vector<int32_t>& worklist);
+    //Extension point ③: host-registered roots (host-held reference
+    //Values) — same dual-domain value test as the frame band.
+    void MarkHostRoots(std::vector<int32_t>& worklist);
     //Shared value test behind the frame band and the native roots: a
     //true reference is valid in exactly its own domain (string-store
     //handle vs heap idx); a cross-domain hit can only over-mark.
@@ -634,16 +803,38 @@ private:
     void MarkStructFields(int32_t idx, std::vector<int32_t>& worklist);
     void MarkArrayElements(int32_t idx, std::vector<int32_t>& worklist);
     void SweepPhase();
+    void RecycleClassContainerHandles(size_t heapIdx);
     void FreeOwnedStructs(int32_t heapIdx);
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
     void FreeOwnedArrayStructElements(int32_t heapIdx);
 
-    //Build a backtrace string from m_unwindFrames. Called when an exception
+    //Build a backtrace string from UnwindFrames(). Called when an exception
     //propagates out of main(); format is "  at <func> (<module>.n:<line>)".
     std::string FormatBacktrace() const;
 
     //Check if GC should run at a safepoint (function entry, loop back-edge).
     void CheckGCSafepoint();
+    //K7 site 2 helpers. CollectAndReenter: the elected last arriver's
+    //collection plus this thread's re-entry into the rendezvous
+    //denominator — exception-balanced (the re-entry runs before any
+    //unwind continues; see VmExecutorGC.cpp). CollectAndComplete: the
+    //last arriver's epilogue — lock-free collection behind the
+    //AssertAllArrived quiescence gate, pressure-flag clear, then an
+    //RAII completion (clearing before the completion notify means
+    //joiners wake to a cleared flag — no collection storm; an escaping
+    //exception still completes the epoch before unwinding). NoteGcPressure:
+    //the allocation sites' trigger store (GIL held; synthesizes both
+    //threshold domains).
+    //GcPressureExceeded: the backedge poll's acquire load. NestDepth /
+    //GcPollRootDepth: this thread's slot reads for the poll gate.
+    void CollectAndReenter(GcWorldStop& stop);
+    void CollectAndComplete();
+    void NoteGcPressure();
+    bool GcPressureExceeded() const;
+    int NestDepth() { return m_spScheduler->CarrierNestDepthRef(); }
+    int GcPollRootDepth() {
+        return m_spScheduler->CarrierGcPollRootDepthRef();
+    }
 
     //K1 decision 5: back-edge quota side-check (called beside the GC
     //safepoint in OpJump). Budget exhaustion with another runnable
@@ -698,7 +889,7 @@ private:
     void RethrowAuxiliaryError();
 
     //K1 Slice 6: one context's turn on the carrier — resume (frames
-    //return to m_callStack; a failed-join joiner rethrows before
+    //return to the carrier's evaluation stack; a failed-join joiner rethrows before
     //dispatch) or start main's fresh root window; on return, record the
     //result and wake joiners. K2: every context, main included, writes
     //its result into ctx->resultCell (registry cell — stable across
@@ -707,7 +898,7 @@ private:
     void RunContextWindow(int ctx, ExecutionContext* info,
                           const CompiledFunction& mainFunc);
 
-    //K1 Slice 6: arm m_resumeThrowExcIdx when this context was woken
+    //K1 Slice 6: arm ResumeThrowExcIdxRef() when this context was woken
     //over a FAILED join target (rethrowOnResume). Refuses loudly on a
     //missing/exceptionless target — never silently no-op.
     void ArmResumeRethrow(ExecutionContext* info);
@@ -718,106 +909,138 @@ private:
     //drop). Main: rethrow to the host. Returns true for main.
     bool FailContextContained(int ctx, int32_t excHeapIdx);
 
-    //K2 slice 1: one carrier-loop iteration's GIL holding window. The
-    //destructor releases the lock and checks INV-2 on every exit path
-    //(fallthrough, continue, break, stack-unwinding throw): no frame may
-    //survive outside a holding window. Runtime check (not assert) so
-    //Release gates exercise it too — a frame leaking across a released
-    //GIL is silent corruption once slice 2 adds carriers, so a broken
-    //invariant terminates rather than throws (throwing from a destructor
-    //during unwinding would be UB anyway). K2 slice 2: the constructor
-    //maintains the GIL-waiter count around the lock acquisition — the
-    //yield rule reads it to keep lock contenders from starving.
-    //K2 slice 4 (§2.5): the GIL holder this thread currently owns the
-    //lock through — normally the carrier's window guard; transiently a
-    //re-entrant host callback's GilEnsureGuard while a blocking native
-    //has the window's lock away. The blocking-native arm hands the lock
-    //off through the current holder, so blocking works at any re-entry
-    //depth. The owner designation is thread state, not lock state:
-    //during PopNextRunnable's internal cv wait the lock is momentarily
-    //away while the designation persists (only VM-internal code runs
-    //there — nothing can observe the gap).
-    class GilHolder {
-    public:
-        virtual ~GilHolder() = default;
-        virtual void Release() = 0;   //unlock + clear owner
-        virtual void Acquire() = 0;   //counted lock + set owner
-    };
+    //K2 slice 2: CarrierLoop's catch-all — a non-NLang error is fatal
+    //for the whole run: mark the context failed, drop its frames, and
+    //rethrow (the backtrace comes from the unwind records instead).
+    [[noreturn]] void FailContextFatal(int ctx);
 
-    class GilWindowGuard : public GilHolder {
+    //K7 site 1: per-dispatch participation scope — the carrier enters
+    //the GC rendezvous denominator before executing bytecode and arrives
+    //when the dispatch ends. Placement inside CarrierLoop's try block
+    //is load-bearing (C++ unwinding rule): try-block automatic objects
+    //destruct BEFORE catch bodies, so every throw out of the try — all
+    //four catch arms — completes this thread's arrival (possibly
+    //collecting inline as the last arriver) while the frames are still
+    //on THIS thread's evaluation stack, exactly where the registry's
+    //scan arm finds them. A zombie whose entry a Reset retired reads
+    //false from both flips and skips (GcWorldStop zombie tolerance).
+    class ExecutingScope {
     public:
-        explicit GilWindowGuard(VmExecutor& exec) : m_rExec(exec) {
-            Acquire();
+        explicit ExecutingScope(VmExecutor& exec) : m_rExec(exec) {
+            m_rExec.m_spScheduler->GcStop().BeginExecuting();
         }
-        GilWindowGuard(const GilWindowGuard&) = delete;
-        GilWindowGuard& operator=(const GilWindowGuard&) = delete;
-        ~GilWindowGuard() {
-            if (!m_rExec.m_callStack.empty()) {
-                std::terminate();   //INV-2 broken: refuse to continue
-            }
-            if (m_lock.owns_lock()) {
-                m_lock.unlock();
-                if (t_gilOwner == this)
-                    t_gilOwner = nullptr;
-            }
-        }
-        //PopNextRunnable needs the lock itself (its cv wait releases
-        //and reacquires it).
-        std::unique_lock<std::mutex>& Lock() { return m_lock; }
-        void Release() override {
-            m_lock.unlock();
-            if (t_gilOwner == this)
-                t_gilOwner = nullptr;
-        }
-        void Acquire() override {
-            m_rExec.m_spScheduler->BeginGilWait();
-            m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait();
-            t_gilOwner = this;
+        ExecutingScope(const ExecutingScope&) = delete;
+        ExecutingScope& operator=(const ExecutingScope&) = delete;
+        ~ExecutingScope() {
+            if (m_rExec.m_spScheduler->GcStop().EndExecuting())
+                m_rExec.CollectAndComplete();   //last arriver collects
         }
     private:
-        //Declaration order matters: m_lock's initializer reads m_rExec.
         VmExecutor& m_rExec;
-        std::unique_lock<std::mutex> m_lock{
-            m_rExec.m_spScheduler->Gil(), std::defer_lock};
+    };
+
+    //K7 site 2: release the global lock across a whole rendezvous
+    //sequence (CheckGCSafepoint's GIL-holding callers — the spawn tail
+    //inside an intrinsic's store guard, guarded function entries). Rule
+    //A parks on the rendezvous condition variable and the last arriver's
+    //inline collection needs the global lock, so waiting under it
+    //deadlocks; the bracket must span EndExecuting -> wait -> collect ->
+    //BeginExecuting as a whole. The GilHolder* is saved BEFORE Release
+    //clears t_gilOwner (RunBlockingNative's precedent). GIL-free callers
+    //construct a no-op.
+    class GilHandoffScope {
+    public:
+        explicit GilHandoffScope(VmExecutor&) {
+            if (t_gilOwner != nullptr) {
+                m_pHolder = t_gilOwner;
+                m_pHolder->Release();
+            }
+        }
+        GilHandoffScope(const GilHandoffScope&) = delete;
+        GilHandoffScope& operator=(const GilHandoffScope&) = delete;
+        ~GilHandoffScope() {
+            if (m_pHolder)
+                m_pHolder->Acquire();
+        }
+    private:
+        GilHolder* m_pHolder = nullptr;
+    };
+
+    //K7 site 4: host-bridge participation RAII — self-classifying
+    //through ExecutingSelf at every bridge entry (the embedder's
+    //outermost call, a blocking-native callback's re-entry, nested
+    //bridge calls):
+    //  unregistered           -> RegisterThread + BeginExecuting (a
+    //                            participation root; unregisters at exit)
+    //  registered + executing -> no-op (already counted; a Rule A wait
+    //                            here would self-deadlock the rendezvous)
+    //  registered + not exec. -> BeginExecuting (callback re-entry: the
+    //                            blocking arm parked this thread; the
+    //                            callback's frames must be scanned
+    //                            through this thread's own entry)
+    // The flipping branches record a participation-root depth so
+    // CheckGCSafepoint keeps polling inside the window — bridge windows
+    // run at nestDepth >= 1 (NestEvalGuard increments unconditionally),
+    // so a raw "depth > 0" gate would never poll a host-outermost run
+    // and every stop snapshotting it executing would hang. Construct
+    // BEFORE any global-lock acquisition at the entry (Rule A contract).
+    class BridgeExecutingScope {
+    public:
+        explicit BridgeExecutingScope(VmExecutor& exec) : m_rExec(exec) {
+            GcWorldStop& stop = m_rExec.m_spScheduler->GcStop();
+            if (stop.ExecutingSelf())
+                return;   //nested bridge call — already participating
+            m_flipped = true;
+            if (!stop.IsRegistered()) {
+                m_token = stop.RegisterThread(
+                    &m_rExec.m_spScheduler->CarrierEvalStackRef());
+                m_registered = true;
+            }
+            stop.BeginExecuting();
+            int& rootDepth =
+                m_rExec.m_spScheduler->CarrierGcPollRootDepthRef();
+            m_savedRootDepth = rootDepth;
+            rootDepth = m_rExec.m_spScheduler->CarrierNestDepthRef() + 1;
+        }
+        BridgeExecutingScope(const BridgeExecutingScope&) = delete;
+        BridgeExecutingScope& operator=(const BridgeExecutingScope&) = delete;
+        ~BridgeExecutingScope() {
+            if (!m_flipped)
+                return;
+            GcWorldStop& stop = m_rExec.m_spScheduler->GcStop();
+            m_rExec.m_spScheduler->CarrierGcPollRootDepthRef()
+                = m_savedRootDepth;
+            if (stop.EndExecuting())
+                m_rExec.CollectAndComplete();
+            if (m_registered)
+                stop.UnregisterThread(m_token);
+        }
+    private:
+        VmExecutor& m_rExec;
+        GcThreadToken m_token;
+        bool m_flipped = false;
+        bool m_registered = false;
+        int m_savedRootDepth = 0;
     };
 
     //K2 slice 4 (§2.5 re-entrant callback GIL): acquire the GIL unless
     //this thread already holds it (carrier window or an outer ensure
     //guard). NativeHost callbacks and the by-name bridge enter the VM
     //through here — including from inside a blocking native, where the
-    //carrier's window lock is away.
-    class GilEnsureGuard : public GilHolder {
+    //carrier's window lock is away. K7: the mechanism lives in
+    //VmScheduler::GilEnsureGuard now; this entry point keeps the
+    //VmExecutor& shape so the re-entrant callback sites are unchanged.
+    //Nesting works across both guard families through the shared
+    //namespace-scope t_gilOwner.
+    class GilEnsureGuard {
     public:
-        explicit GilEnsureGuard(VmExecutor& exec) : m_rExec(exec) {
-            if (t_gilOwner != nullptr)
-                return;   //already held on this thread — nested no-op
-            Acquire();
-        }
+        explicit GilEnsureGuard(VmExecutor& exec)
+            : m_guard(*exec.m_spScheduler) {}
         GilEnsureGuard(const GilEnsureGuard&) = delete;
         GilEnsureGuard& operator=(const GilEnsureGuard&) = delete;
-        ~GilEnsureGuard() {
-            if (m_lock.owns_lock())
-                Release();
-        }
-        void Release() override {
-            m_lock.unlock();
-            if (t_gilOwner == this)
-                t_gilOwner = nullptr;
-        }
-        void Acquire() override {
-            m_rExec.m_spScheduler->BeginGilWait();
-            m_lock.lock();
-            m_rExec.m_spScheduler->EndGilWait();
-            t_gilOwner = this;
-        }
     private:
-        //Declaration order matters: m_lock's initializer reads m_rExec.
-        VmExecutor& m_rExec;
-        std::unique_lock<std::mutex> m_lock{
-            m_rExec.m_spScheduler->Gil(), std::defer_lock};
+        VmScheduler::GilEnsureGuard m_guard;
     };
-    static thread_local GilHolder* t_gilOwner;
 
     //K4: checkpoints fire for every context (K1 decision 7 lifted) —
     //the hooks see spawned contexts' statements and throws too.
@@ -847,6 +1070,12 @@ private:
     //at callParamBase[0] and the arguments start at slot 1 (the string.equals
     //ABI). math/io/fs are not intrinsics: they are library sources whose
     //native members run from nlang_<ns>.dll.
+    bool ExecuteIntrinsicContainer(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //Structural half: caller must hold the Container domain guard
+    //(DomainGuard is per-thread reentrant; composite sites may nest).
+    bool ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     bool ExecuteIntrinsicString(uint16_t intrinsicId, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
@@ -864,13 +1093,26 @@ private:
     //false when the id is not ours. thread.* functions are called via
     //OP_CallFunc — args start at callParamBase slot 0 (no `this`); the
     //sync-primitive methods ride the receiver-dispatched shape (slot 0
-    //= this).
+    //= this). K8: the family splits at the dispatch — thread.* arms keep
+    //the scheduler domain lock (scheduler state + heap minting), while
+    //the Mutex/Channel arms take the Sync domain over the side tables
+    //(ExecuteIntrinsicSync) and must never hold the scheduler lock
+    //across their park/wake calls.
     bool ExecuteIntrinsicThread(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     //The __handle builtin methods (Mutex/Channel/K3 Future —
     //receiver-dispatched, slot 0 = this); ExecuteIntrinsicThread's
-    //default arm forwards here (50-line function budget).
+    //default arm forwards here (50-line function budget). K8: Future
+    //arms keep the scheduler lock; Mutex/Channel forward again to
+    //ExecuteIntrinsicSync.
     bool ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //K8: the Mutex/Channel family entry. Structural work (slot
+    //resolution, table mutation, waiter registration) runs inside
+    //Sync-domain sections in the arms; park/wake scheduler calls run
+    //between the sections — never under the domain. NLang raises inside
+    //a section defer (DeferredNlangRaise) and convert here.
+    bool ExecuteIntrinsicSync(uint16_t intrinsicId,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
     //K1 Slice 6 spawn/join bodies (IntrinsicsThread.cpp), extracted from
     //ExecuteIntrinsicThread for the file/function size guards. spawn
@@ -883,29 +1125,63 @@ private:
     //K1 Slice 7: park the current context on a steady_clock deadline;
     // negative durations are rejected as a basic error.
     bool IntrinsicSleep(uint16_t callParamBase, uint8_t* locals);
-    //K1 Slice 8: Mutex method intrinsics (IntrinsicsThread.cpp). lock
-    //parks on contention (FIFO waiters, non-reentrant — a self-relock
-    //parks and the carrier's exit guard reports the deadlock); tryLock
-    //never parks; unlock validates ownership and hands off to the front
-    //waiter.
+    //K1 Slice 8 / K8: Mutex method intrinsics (IntrinsicsThread.cpp).
+    //lock parks on contention (FIFO waiters, non-reentrant — a
+    //self-relock parks and the carrier's exit guard reports the
+    //deadlock) via the two-phase park handshake (see
+    //ExecuteIntrinsicSync); tryLock never parks; unlock validates
+    //ownership and hands off to the front waiter.
     struct MutexSlot;   //defined beside the side-table members below
     bool IntrinsicMutexCtor(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicMutexTryLock(uint16_t callParamBase, uint8_t* locals,
                                uint8_t* pResult);
-    //Slice 8 helpers: allocate a side-table slot (handle = index+1, 0
-    //reserved for null) and resolve a receiver instance to its slot.
+    //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
+    //(free-list pop + growth are structure writes; reentrant for
+    //already-inside callers). The handle read is heap-side (lock-free —
+    //D2 field reads; raises before any domain is taken); the slot lookup
+    //runs under the caller's Sync guard and defers the
+    //uninitialized-instance error via a null return.
     int32_t AllocMutexHandle();
-    MutexSlot& ResolveMutexSlot(uint16_t callParamBase, uint8_t* locals);
-    //K1 Slice 9: Channel method intrinsics (IntrinsicsThread.cpp). send
-    //never parks (unbounded buffer — hands the value to the front waiter
-    //or appends); recv parks on an empty, open channel and its result is
-    //written at WAKE time through the saved destination pointer (the
-    //parked call is not re-executed on resume — the pc-advance
-    //invariant); close is idempotent and wakes every waiter (buffered
-    //values drain first; recv on a drained channel yields the zero
-    //value / null reference).
+    int32_t ReadSyncPrimitiveHandle(uint16_t callParamBase, uint8_t* locals,
+                                    const char* callName);
+    MutexSlot* SyncMutexSlotAt(int32_t handle);
+    //K8: the recheck half of the mutex handshake — commit a kPending
+    //entry (RequestPark follows, [[noreturn]]) or consume a kAcquired
+    //stamp (the caller aborts the migration).
+    struct SyncWaiter;   //defined beside the side-table members below
+    void ConsumeMutexParkStamp(int32_t handle, int selfId);
+    //P2-1: the stamp-consumption core shared by the Mutex/Semaphore
+    //recheck halves — both stores hold SyncWaiter deques.
+    void ConsumeSyncWaiterStamp(std::deque<SyncWaiter>& waiters,
+                                int selfId, ParkSignal::Reason reason);
+    //P2-1 (v0.10.17): Semaphore method intrinsics
+    //(IntrinsicsSemaphore.cpp). acquire parks FIFO at zero permits (the
+    //two-phase handshake, Mutex shape — release hands the permit to
+    //the front waiter instead of counting up); tryAcquire never parks;
+    //release with no waiter counts up (over-release is legal).
+    struct SemaphoreSlot;   //defined beside the side-table members below
+    bool IntrinsicSemaphoreCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreAcquire(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreRelease(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicSemaphoreTryAcquire(uint16_t callParamBase,
+                                      uint8_t* locals, uint8_t* pResult);
+    //The allocator takes the initial count (the AllocChannelHandle
+    //capacity shape: the slot write shares the allocation's Sync
+    //section — a concurrent growth reallocates the store vector).
+    int32_t AllocSemaphoreHandle(int initialCount);
+    //P2-1: the semaphore store lookup + recheck half (the
+    //ConsumeMutexParkStamp shapes over m_semaphoreStore).
+    SemaphoreSlot* SyncSemaphoreSlotAt(int32_t handle);
+    void ConsumeSemaphoreParkStamp(int32_t handle, int selfId);
+    //K1 Slice 9 / K8: Channel method intrinsics (IntrinsicsChannel.cpp).
+    //send parks when bounded and full, recv parks on an empty open
+    //channel (the result is written at WAKE time through the saved
+    //destination pointer — the parked call is not re-executed on resume,
+    //the pc-advance invariant); both ride the two-phase handshake. close
+    //is idempotent and wakes every waiter (buffered values drain first;
+    //the rest wake with the catchable closed exception).
     struct ChannelWaiter;  //defined beside the side-table members below
     struct ChannelSlot;    //same
     bool IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals);
@@ -913,17 +1189,45 @@ private:
     bool IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
                               uint8_t* pResult);
     bool IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals);
-    //Same side-table discipline as the Mutex helpers above.
-    int32_t AllocChannelHandle();
-    ChannelSlot& ResolveChannelSlot(uint16_t callParamBase,
-                                    uint8_t* locals);
-    //Wake-time value delivery shared by send and close: write through
-    //the waiter's saved destination, then make the context runnable.
-    void DeliverToWaiter(ChannelWaiter& waiter, int32_t value);
-    //K3 task 4: close's sender arm — every parked sender wakes with the
-    //prebuilt catchable closed exception (armed + rooted on its context,
-    //same discipline as the recv-waiter arm); pending values are dropped.
-    void WakeClosedPendingSenders(ChannelSlot& slot);
+    //Same side-table discipline as the Mutex helpers above; the channel
+    //allocator takes the initial capacity (the minted handle is not yet
+    //visible, but the slot write shares the growth section).
+    int32_t AllocChannelHandle(int32_t capacity);
+    ChannelSlot* SyncChannelSlotAt(int32_t handle);
+    //K8: the recheck verdict of the two-phase handshake — the stamped
+    //outcome a channel aborter self-serves at its call site (kValue:
+    //the deliverer already wrote pResult / moved the value into the
+    //buffer; kClosed: raise the closed exception after the release).
+    enum class AbortOutcome : uint8_t { kValue, kClosed };
+    //K8: the recheck halves. Under Sync: our entry still kPending →
+    //commit (mark kCommitted; RequestPark follows — [[noreturn]]).
+    //Stamped → pop the entry, abort the migration, return the outcome.
+    //A missing entry is a corrupt-table tripwire (each entry has
+    //exactly one consumer by construction).
+    AbortOutcome CommitOrAbortChanRecv(int32_t handle, int selfId);
+    void CommitOrAbortChanSend(int32_t handle, int selfId);
+    //K8: send's handoff to the first live waiter (see
+    //IntrinsicsChannel.cpp); recv's slot-free staging of the head live
+    //pending value into the buffer (returns the committed sender to
+    //wake after the release, -1 when none — a pending sender gets
+    //stamped kValue).
+    bool HandoffToLiveWaiter(ChannelSlot& slot, int32_t value,
+                             int& wakeRecv);
+    int StagePendingSend(ChannelSlot& slot);
+    //K8: close's exception arms — one prebuilt object per audience
+    //(recv waiters / pending senders), armed inside the wake call's
+    //scheduler critical section (rooted on the context via
+    //resumeExcHeapIdx; the GC traces that field). Committed audiences
+    //only — stamped parkers self-serve their stamps.
+    void WakeClosedWaiters(const std::vector<int>& recvs,
+                           const std::vector<int>& senders);
+    //K8: close's Sync-section sweeps — stamp pending parkers / collect
+    //committed audiences (see IntrinsicsChannel.cpp).
+    void CollectClosedRecvOutcomes(ChannelSlot& slot,
+                                   std::vector<int>& valueWoken,
+                                   std::vector<int>& closedRecvs);
+    void CollectClosedSenders(ChannelSlot& slot,
+                              std::vector<int>& closedSenders);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
     //(no native/intrinsic bodies, zero-argument contract) and mint the
     //Thread object for a registered context (__handle = context id).
@@ -1024,7 +1328,7 @@ private:
     bool RunBlockingNative(const CompiledFunction& callee,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         const BlockingInvoke& invoke);
-    //Steal m_callStack into the context (BlockedNative) / restore
+    //Steal the evaluation stack into the context (BlockedNative) / restore
     //exactly the stolen tail (Runnable-held). Split out of
     //RunBlockingNative for the source-size guard; park also raises
     //t_blockingNativeDepth (the restore lowers it in the caller,
@@ -1034,6 +1338,20 @@ private:
     //Root a handle minted by a NativeHost callback — no-op outside a
     //blocking section (see t_blockingNativeDepth). Called under the GIL.
     void RootMintedNativeHandle(int32_t handle);
+    //K8: stage a blocking arm's ret/args cells into the root registry
+    //(under the root-registry mutex).
+    void StageNativeRoots(const uint8_t* ret, const uint8_t* args,
+                          uint32_t argCount, uint64_t owner);
+    //K6 D11: erase exactly one arm's root entries (staged cells + its
+    //callbacks' minted values) — replaces the old watermark truncation.
+    void RemoveNativeRoots(uint64_t owner);
+    //K6: the reacquire tail of RunBlockingNative (split for the source-
+    //size guard): root teardown by owner identity, the run-generation
+    //zombie guard (K6 D9), stop passthrough, and frame restore. Throws
+    //ShutdownSignal when the run ended under the native (frames stay
+    //parked; the caller's staged cells die with its stack).
+    void FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
+        uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
     int32_t BuildListString(const char* const* items, int count);
@@ -1144,17 +1462,22 @@ private:
         std::string str;         //Flat: content; Cons: unused
         int32_t left = 0, right = 0;  //Cons: child handles (0 = empty side)
     };
-    std::vector<StrObj> m_stringObjs;
+    ChunkedArray<StrObj> m_stringObjs;
     //Parallel to m_stringObjs — kept in step at exactly three sites:
-    //AllocStringObj's growth arm, MarkPhase's head reset, SweepStrings'
-    //tail reset.
+    //GrowStrShardBlockLocked (the growth arm), MarkPhase's head reset,
+    //SweepStrings' tail reset.
     std::vector<bool> m_strMarkBits;
-    std::vector<int32_t> m_strFreeList;
+    ShardFreeList m_strShards;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
     int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
     //Name → host function table for native calls. The flag carries the
     //K2 slice 4 blocking declaration (registration channel); non-blocking
     //natives run with the GIL held as before.
+    //GIL removal batch 1 (§7.2) invariant: while frames execute this
+    //table is read-only. Writes belong to registration time — host
+    //RegisterNative* before the run, and the run-init prewarm in
+    //InitializeForRun (which tolerates unavailable modules so the
+    //first call keeps its lazy diagnostic).
     struct NativeEntry {
         NativeFn fn = nullptr;
         bool blocking = false;
@@ -1166,50 +1489,32 @@ private:
     //entry, so only address rooting sees the final values); value
     //entries cover handles minted by NativeHost callbacks mid-call
     //(newString et al.) before the native copies them into ret. All
-    //mutations happen under the GIL. Each blocking section owns one
-    //frame vector (on the carrier's C++ stack), registered here by
-    //address for the mark phase; an exit unregisters only its own
-    //frame, so a concurrent carrier's exit can never revoke another
-    //in-flight section's roots (a shared watermark list assumed LIFO
-    //nesting and broke under carriers — the churn carrier's mint
-    //root vanished mid-kernel; stdlib_tensor_gc_race caught it).
+    //mutations happen under the GIL; each blocking arm removes
+    //exactly its own entries on every exit path after reacquiring
+    //(K6 D11: concurrent arms interleave pushes, so position-based
+    //truncation could erase a LIVE arm's roots).
     struct NativeCallRoot {
         const uint8_t* cells = nullptr;  //address form base (null = value)
         uint32_t cellCount = 0;          //address form: 8-byte cell count
         int32_t value = 0;               //value form: minted handle
+        uint64_t owner = 0;              //K6 D11: the blocking arm that
+                                         //pushed this (0 = never valid)
     };
-    std::vector<const std::vector<NativeCallRoot>*> m_liveNativeRootFrames;
+    std::vector<NativeCallRoot> m_nativeCallRoots;
+    //K8: host-boundary resources are not stores, so they take small
+    //dedicated leaf mutexes instead of domain locks. This one guards
+    //both root registries (native call roots and host roots) — pushes,
+    //staging and removal only; the collector reads at rendezvous.
+    mutable std::mutex m_rootRegistryMutex;
     //Depth of blocking-native sections entered on this thread. Minting
     //callbacks root their handles only while this is non-zero (a
     //non-blocking native holds the GIL across the whole call, so no GC
     //can intervene between mint and the native writing the handle).
     static thread_local int t_blockingNativeDepth;
-    //The minting callback's own section's root frame (null outside
-    //a blocking section); RootMintedNativeHandle appends there.
-    static thread_local std::vector<NativeCallRoot>*
-        t_currentNativeRootFrame;
-    //RAII registration of one blocking section's root frame: builds
-    //the frame over the section's staged cells (result first, then
-    //args), pushes it, retargets the mint thread-local and bumps the
-    //section depth; destruction unregisters exactly its own frame and
-    //undoes the rest. Construct under the GIL before releasing it,
-    //destroy after reacquiring — the mark phase never sees a torn
-    //state and a throw path (ShutdownSignal, native exception) cannot
-    //leave roots pointing into the leaving C++ stack.
-    class NativeRootFrameGuard {
-    public:
-        NativeRootFrameGuard(VmExecutor& executor,
-            const uint8_t* stagedArgs, uint32_t paramCount,
-            const uint8_t* stagedRet);
-        ~NativeRootFrameGuard();
-        NativeRootFrameGuard(const NativeRootFrameGuard&) = delete;
-        NativeRootFrameGuard& operator=(
-            const NativeRootFrameGuard&) = delete;
-    private:
-        VmExecutor& m_executor;
-        std::vector<NativeCallRoot> m_frame;
-        std::vector<NativeCallRoot>* m_callerFrame = nullptr;
-    };
+    //K6 D11: the innermost blocking arm on this thread — callback-minted
+    //value roots attribute to it (nested arms save/restore around their
+    //invoke). 0 outside any blocking section.
+    static thread_local uint64_t t_currentNativeRootOwner;
     //Lazy on-demand loader for native modules (standard-library DLLs and
     //third-party modules use it). Created on first native-module need.
     std::unique_ptr<NativeLibraryLoader> m_upNativeLoader;
@@ -1220,7 +1525,8 @@ private:
     //K2 slice 1: confluence slot for an auxiliary-carrier error (slice 2
     //writes it; the primary carrier rethrows it exactly once in
     //JoinAndCollect). Backtrace snapshotted at the capture site because
-    //m_unwindFrames is executor-global mutable state.
+    //the unwind records live on the capturing thread's slot (K7) —
+    //the primary carrier cannot read them after the fact.
     std::exception_ptr m_auxError;
     std::string m_auxBacktrace;
 
@@ -1244,6 +1550,13 @@ private:
     //else the portable stdin reader; TokenView owns the shared cursor.
     std::unique_ptr<LineSource> m_upInputSource;
     std::unique_ptr<TokenView> m_upInputView;
+    //K8: the console conversation mutexes (host-boundary, not stores).
+    //Input serializes the lazy view init and the cursor state; output
+    //serializes host callbacks that are not promised thread-safe. They
+    //are separate so a carrier blocked at a prompt does not stall
+    //another carrier's prints.
+    mutable std::mutex m_consoleInMutex;
+    mutable std::mutex m_consoleOutMutex;
 
     //ndb: functions[] index of the innermost frame. Module functions
     //vector is stable after load (no reallocation), so pointer
@@ -1291,7 +1604,7 @@ private:
     bool IsInternedString(int32_t handle) const;             //live + in the short-string table
     bool StringsEqual(int32_t hA, int32_t hB);               //single source for OP_Eq_str / OP_Ne_str
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
-    int32_t AllocStringObj();                                //raw slot, sets m_gcPending
+    int32_t AllocStringObj();                                //raw slot, sets m_gcPressure
     bool IsLiveStringHandle(int32_t handle) const;
     //Requires an Execute()-initialized store (m_emptyStrHandle); all
     //callers are mid-execution today.
@@ -1305,7 +1618,7 @@ private:
     //Struct heap: each slot is a vector of int32 values (one per field).
     //Index 0 is a sentinel (empty slot).
     using StructSlot = std::vector<int32_t>;
-    std::vector<StructSlot> m_structHeap;
+    ChunkedArray<StructSlot> m_structHeap;
 
     //Payload base of a heap array record, derived from the record's
     //own rank cell: callers cannot pair a record with a foreign rank
@@ -1333,12 +1646,25 @@ private:
     }
 
     //GC infrastructure.
-    std::vector<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
-    std::vector<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
+    ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
+    ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
-    std::vector<int32_t>  m_freeList;       //free heap slot indices for reuse
+    ShardFreeList m_heapShards;   //K8: per-carrier free heap slot shards
+    DomainLockSet m_domainLocks;  //K8: Growth (later: Container/Sync/Stream/StrMaint)
+    //K8: slots appended per growth event. DEFAULT_SHARD_BLOCK in
+    //production (mimalloc-style batch refill); 1 under gc-stress so the
+    //store stays exactly as large as its population.
+    size_t m_allocQuantum = DEFAULT_SHARD_BLOCK;
     size_t m_gcThreshold = GC_THRESHOLD_DEFAULT;
-    bool   m_gcPending = false;
+    //K7: atomic trigger flag — allocation sites store the synthesized
+    //threshold condition under the GIL (release); the GIL-free backedge
+    //poll only loads (acquire) and must never read the store sizes
+    //unlocked. Cleared in CollectAndComplete (GIL held, after the
+    //collection, before Complete).
+    std::atomic<bool> m_gcPressure{false};
+    std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
+    std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
+    size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 
     //String-store GC plumbing (collection activates in Task 2).
@@ -1348,14 +1674,24 @@ private:
     std::unordered_map<std::string, int32_t> m_shortStrTable;  //weak: content -> live handle
     static constexpr uint8_t kStrFormDead = 0xFF;   //free-slot sentinel
 
-    //Call frame stack — the frame machine's substrate and the GC root
-    //set. One CallFrame per active NLang function invocation. The frame
-    //type itself lives in CallFrame.h (the scheduler's parked contexts
-    //own frame stacks by value; K1 Slice 4 extraction, zero changes).
-    std::vector<CallFrame> m_callStack;
+    //K7 frame privatization: the evaluation stack moved to the carrier
+    //slot (running frames belong to the thread executing them). These
+    //accessors route to the current thread's slot — the carrier's own
+    //storage, or the fallback slot for host threads re-entering through
+    //the bridge. The steal protocol is unchanged: parking moves frames
+    //into ctx->frames, resume moves them back. Deliberately const (the
+    //slot is thread state reached through the scheduler pointer, not
+    //executor-object state; const debug views read it) and returning a
+    //mutable ref for the same reason.
+    std::vector<CallFrame>& EvalStack() const { return m_spScheduler->CarrierEvalStackRef(); }
+    //Unwind records + resume-rethrow arming are per-thread companion
+    //state for the same reason they were executor-global before: only
+    //one evaluation window runs at a time per thread.
+    std::vector<UnwindFrame>& UnwindFrames() const { return m_spScheduler->CarrierUnwindFramesRef(); }
+    int32_t& ResumeThrowExcIdxRef() const { return m_spScheduler->CarrierResumeThrowExcIdxRef(); }
 
     //K1 decision 5: the single-carrier scheduler. The running context's
-    //frames ARE m_callStack (a park steals them into the context — see
+    //frames ARE the slot's evalStack (a park steals them into the context — see
     //VmScheduler.h's file header).
     std::unique_ptr<VmScheduler> m_spScheduler =
         std::make_unique<VmScheduler>();
@@ -1368,8 +1704,9 @@ private:
     //feed the white-box tests. Nested evaluation windows skip the quota
     //entirely (a park there is impossible — see RequestPark).
     int m_schedTripLimit = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
-    int m_quotaFires = 0;
-    int m_preemptSkips = 0;
+    //K7: incremented on the back-edge fast path outside the GIL.
+    std::atomic<int> m_quotaFires{0};
+    std::atomic<int> m_preemptSkips{0};
     //K2 slice 2: the auxiliary carrier pool. One record per launched
     //thread; exited is shared_ptr so a detached thread (grace deadline
     //hit mid-host-callback) still owns its flag safely.
@@ -1386,8 +1723,8 @@ private:
     //original exception INTO the restored frame stack, so the joiner's own
     //try/catch — and the uncaught path — see it exactly as if the join
     //call had thrown). 0 = none; consumed at entry. Armed by the carrier
-    //only (top-level resume, nestDepth 0).
-    int32_t m_resumeThrowExcIdx = 0;
+    //only (top-level resume, nestDepth 0). K7: lives on the carrier slot
+    //as ResumeThrowExcIdxRef().
     //K1 Slice 6: cached "Thread" class index (spawn mints instances).
     int16_t m_threadClassIdx = -1;
     //K3: cached "Future" class index (typed spawn mints instances).
@@ -1412,9 +1749,12 @@ private:
     //from random_device at each Execute() so runs differ unless the
     //program calls math.srand itself.
     std::mt19937 m_rng;
+    //K8: serializes the shared engine's draws and reseeds (host-boundary
+    //leaf mutex — the engine is not a store).
+    mutable std::mutex m_rngMutex;
 
     //Phase 9d: allocate a built-in Exception instance of the given class,
-    //set message + populate backtrace from the current m_callStack snapshot,
+    //set message + populate backtrace from the current evaluation-stack snapshot,
     //and throw NLangThrow carrying its heap idx. The throw site is expected
     //to be a converted `throw std::runtime_error(...)` site; the caller
     //supplies the human-readable message (used for what() / debugging).
@@ -1444,16 +1784,12 @@ private:
     //lookup to decide whether a catch clause can handle the thrown exception.
     bool IsInstanceOrSubclass(int32_t heapIdx, uint16_t targetClassIdx);
 
-    //Frames captured during exception unwinding. Populated by
+    //Frames captured during exception unwinding (records live on the
+    //carrier slot via UnwindFrames(); the UnwindFrame struct itself
+    //moved to CallFrame.h at namespace scope in K7). Populated by
     //RecordUnwindAndPopFrame as RunFrames unwinds frames innermost-first;
     //cleared when a catch handler takes the exception, so only the
     //uncaught path yields observable text (FormatBacktrace renders it).
-    struct UnwindFrame {
-        std::string funcName;
-        std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit
-        uint16_t currentLine;
-    };
-    std::vector<UnwindFrame> m_unwindFrames;
 
     //ByteStream side table: handle (1-based) → state.
     struct ByteStreamState {
@@ -1502,6 +1838,10 @@ private:
     //(strings by content, others by bits), reference values by identity.
     //Returns the matching index or -1.
     int32_t FindListElement(const ListSlot& list, int32_t value);
+    //K8 formatting snapshots: one Container-domain section, copy out.
+    std::vector<int32_t> SnapshotListElements(int32_t handle) const;
+    std::vector<std::pair<int32_t, int32_t>> SnapshotDictEntries(
+        int32_t handle) const;
 
     //Phase 8e-4: Dict<K,V> side table. Entries are (K heap idx, V heap idx)
     //pairs; K and V are uniformly heap idxs (boxed primitives via OP_Box at
@@ -1515,51 +1855,89 @@ private:
     std::vector<int32_t>  m_dictFreeList;    //recycled slots after GC sweep
     int16_t m_dictClassIdx = -1;             //set when "Dict" CompiledClass is located
 
-    //K1 Slice 8: Mutex side table. ownerId -1 = unlocked (context ids
-    //are ≥ 0 — main IS 0, so 0 cannot double as the free sentinel);
-    //waiters hold context ids in FIFO arrival order — unlock hands
-    //ownership to the front waiter (non-reentrant: a self-relock parks).
+    //K1 Slice 8 / K8: Mutex side table. ownerId -1 = unlocked (context
+    //ids are ≥ 0 — main IS 0, so 0 cannot double as the free sentinel).
     //Only context ids live here, never heap idxs, so GC does not trace
     //this store.
+    //K8 two-phase park handshake: a parking lock registers kPending and
+    //its recheck either commits (kCommitted — parked or stealing; an
+    //unlock in the mark→steal stretch delivers through the K7
+    //framesParked handshake) or finds kAcquired — unlock already
+    //transferred ownership inside the registration→migration window
+    //(the aborting parker returns holding the lock). Wakers stamp
+    //kPending entries and deliver to kCommitted entries; exactly one
+    //party consumes each entry: stamped → its aborting parker, committed
+    //→ its delivering waker.
+    struct SyncWaiter {   //P2-1: renamed from MutexWaiter — one waiter
+                          //shape shared by the Mutex/Semaphore stores
+        enum class Phase : uint8_t { kPending, kAcquired, kCommitted };
+        int contextId;
+        Phase phase = Phase::kPending;
+    };
     struct MutexSlot {
         int ownerId = -1;
-        std::deque<int> waiters;
+        std::deque<SyncWaiter> waiters;   //FIFO arrival order
     };
     std::vector<MutexSlot> m_mutexStore;     //index = handle-1 (0 reserved for null)
     std::vector<int32_t>   m_mutexFreeList;  //recycled slots after GC sweep
     int16_t m_mutexClassIdx = -1;            //set when "Mutex" CompiledClass is located
 
-    //K1 Slice 9: Channel side table. buffered holds element values as
-    //heap idxs (boxed primitives or class refs) in FIFO order; waiters
-    //are parked recv calls — each carries the destination pointer its
-    //result must be written through at wake time (the parked call is
-    //not re-executed; the pointer targets a frame slot or the frame's
-    //evalArea band, both stable across the park/steal/restore moves —
-    //the localsBuf vector move transfers the heap allocation). Invariant:
-    //waiters exist only while the buffer is empty (recv parks solely on
-    //an empty open channel; send hands off to the front waiter directly
-    //instead of buffering). GC traces buffered through
-    //MarkChannelElements; waiters hold raw pointers, never heap idxs.
+    //P2-1 (v0.10.17): Semaphore side table. count = available permits;
+    //waiters are the FIFO parked acquirers (SyncWaiter, shared with the
+    //Mutex store). Invariant: a live waiter implies count ==
+    //0 — release hands the permit straight to the front waiter, it
+    //never counts up past one.
+    struct SemaphoreSlot {
+        int count = 0;
+        std::deque<SyncWaiter> waiters;   //FIFO arrival order
+    };
+    std::vector<SemaphoreSlot> m_semaphoreStore;   //index = handle-1 (0 reserved for null)
+    std::vector<int32_t>       m_semaphoreFreeList;  //recycled slots after GC sweep
+    int16_t m_semaphoreClassIdx = -1;         //set when "Semaphore" CompiledClass is located
+
+    //K1 Slice 9 / K8: Channel side table. buffered holds element values
+    //as heap idxs (boxed primitives or class refs) in FIFO order; live
+    //(kPending/kCommitted) waiters exist only while the buffer is empty
+    //(recv parks solely on an empty open channel; send hands off to the
+    //front live waiter directly instead of buffering). GC traces
+    //buffered through MarkChannelElements; waiters hold raw pointers,
+    //never heap idxs.
+    //K8 two-phase park handshake (same shape as SyncWaiter): kValue —
+    //a value was written through resultPtr (send handoff or close
+    //draining the buffer); kClosed — close chose the exception outcome
+    //(the aborting parker raises it locally; the delivering waker arms
+    //the committed shape through the wake call's rethrow parameter —
+    //never a flag, which would race a mid-park abort).
     struct ChannelWaiter {
+        enum class Phase : uint8_t {
+            kPending, kValue, kClosed, kCommitted
+        };
         int contextId;
-        uint8_t* resultPtr;
+        uint8_t* resultPtr;   //frame slot / evalArea band — park-stable
+        Phase phase = Phase::kPending;
+    };
+    //Bounded sends park value+owner FIFO; send returns nothing, so
+    //there is no result destination. Phase semantics as above: recv's
+    //slot-free path moves the value into the buffer and stamps kValue
+    //(the aborting sender's recheck returns with the send complete) or
+    //delivers to kCommitted (moved + wake); close stamps kClosed /
+    //collects the committed senders. No trace arm: a pending value
+    //stays anchored by its sender's parked frame until it lands in
+    //buffered (traced) or is dropped.
+    struct PendingSend {
+        enum class Phase : uint8_t {
+            kPending, kValue, kClosed, kCommitted
+        };
+        int32_t value;
+        int senderId;
+        Phase phase = Phase::kPending;
     };
     struct ChannelSlot {
         std::deque<int32_t> buffered;
         std::deque<ChannelWaiter> waiters;
         bool closed = false;
-        //K3 task 4: bounded capacity (0 = unbounded). When the buffer is
-        //full and no recv waits, send parks the value+owner in the two
-        //pending queues (same indices — pendingSends[i] belongs to
-        //pendingSenders[i]); recv frees a slot by moving the head pending
-        //value into the buffer and waking its owner (resume only — the
-        //parked call is not re-executed). close delivers the closed
-        //exception to every pending sender and drops the pending values.
-        //No trace arm for pendingSends: each parked value is anchored by
-        //its sender's parked frame (formals are precisely scanned).
-        int32_t capacity = 0;
-        std::deque<int32_t> pendingSends;
-        std::deque<int> pendingSenders;
+        int32_t capacity = 0;   //K3 task 4: 0 = unbounded
+        std::deque<PendingSend> pending;
     };
     std::vector<ChannelSlot> m_channelStore;   //index = handle-1 (0 reserved for null)
     std::vector<int32_t>     m_channelFreeList;//recycled slots after GC sweep

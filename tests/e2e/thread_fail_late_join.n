@@ -1,0 +1,19 @@
+//Joining an already-failed target (the rethrow fast path) counts as
+//observing the failure — no run-end warning may fire.
+import thread;
+import io;
+
+void boom() {
+    throw Exception("late case");
+}
+
+int main() {
+    Thread t = thread.spawn(boom);
+    thread.sleep(200);   //the task has failed by now — nobody watched
+    try {
+        thread.join(t);
+    } catch (Exception e) {
+        io.print("late-caught");
+    }
+    return 0;
+}

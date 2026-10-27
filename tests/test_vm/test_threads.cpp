@@ -17,10 +17,12 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
+#include "VmDomainLocks.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -215,7 +217,7 @@ void test_frame_deep_recursion_succeeds()
 
 //递归边界逐位对齐（等价预言）：递归引擎以 m_recurseDepth 计数，全部
 //ExecuteFunction 调用（含 main 根）共用 RECURSE_LIMIT=1000 — 前 1000 个
-//帧成功、第 1001 个帧抛。帧机以 m_callStack.size() 计数，边界必须重合：
+//帧成功、第 1001 个帧抛。帧机以当前求值栈的帧数计数，边界必须重合：
 //main 根 + 999 次 sum 调用（n∈[0,998]）= 1000 帧成功；sum(999) 需要
 //第 1001 帧，抛 "recursion limit exceeded"。
 void test_frame_recursion_boundary_exact()
@@ -2641,6 +2643,22 @@ void test_channel_bounded_pending_survives_gc()
     PASS();
 }
 
+void test_eval_stack_routes_to_fallback_slot()
+{
+    TEST(eval_stack_routes_to_fallback_slot);
+    //The test thread is not a carrier: EvalStack() must route to this
+    //thread's fallback slot and stay empty around a completed run.
+    CompiledModule mod = buildLinkedModule("eval_slot_route",
+        "int main() {\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.EvalStackProbeEmpty(), "fallback slot empty before run");
+    CHECK(exec.Execute(mod) == 0, "run completes");
+    CHECK(exec.EvalStackProbeEmpty(), "fallback slot empty after run");
+    PASS();
+}
+
 static void runGuarded(void (*fn)())
 {
     try {
@@ -2862,6 +2880,165 @@ static void test_aux_carriers_actually_execute()
     PASS();
 }
 
+// --- K5 Task 6（GIL 批 1：等待时间计数器）---
+
+//计数器族的白盒钉板（直构调度器，镜像 test_debug_focus_exclusive_dispatch
+//的形状）：竞争分类（进入等待时已有他者排队才算竞争获取）、纳秒累计、
+//Reset 每 run 清零。Begin/End 只动等待者计数不动互斥本体，与 Reset 的
+//自守卫获取无死锁交互；1ms sleep 保证时长断言跨时钟精度确定成立。
+static void test_gil_wait_counters_whitebox()
+{
+    TEST(gil_wait_counters_whitebox);
+    VmScheduler sched;
+    const auto t1 = sched.BeginGilWait();
+    CHECK(sched.GilContendedAcquires() == 0,
+          "a lone waiter is not a contended acquire");
+    const auto t2 = sched.BeginGilWait();
+    CHECK(sched.GilContendedAcquires() == 1,
+          "acquiring while another waiter is queued counts as contended");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    sched.EndGilWait(t2);
+    sched.EndGilWait(t1);
+    CHECK(sched.GilWaitNanosTotal() > 0,
+          "wait time accumulated in nanoseconds");
+    sched.Reset();
+    CHECK(sched.GilContendedAcquires() == 0,
+          "Reset clears the contended-acquire counter");
+    CHECK(sched.GilWaitNanosTotal() == 0,
+          "Reset clears the wait-nanoseconds accumulator");
+    PASS();
+}
+
+//--- K8 Task 6（域遥测；取代 K7 存储守卫旧口径）---
+
+//DomainTelemetrySnapshot：单次运行内每域 {获取,竞争,等待µs} 三计数。
+//三段验证：①容器程序后 Container 域获取计数 ≥ add 次数（每次 intrinsic
+//真实取锁）且单载体零竞争；②同一执行器的域锁集被真实线程对撞（1ms
+//持有＋10µs 连发）——竞争计数与等待微秒经快照面贯通（空临界区竞速者
+//可互不重叠，须固定持有窗）；③第二次 Execute 触发 ResetPerRunState
+//清零（与 K5 等待计数同口径）——竞争归零而获取重新累积。
+static void test_domain_telemetry_whitebox()
+{
+    TEST(domain_telemetry_whitebox);
+    const size_t kContainer = static_cast<size_t>(DomainId::Container);
+    CompiledModule mod = buildLinkedModule("k8_domtel",
+        "int main() {\n"
+        "    List<int> l = {};\n"
+        "    int i = 0;\n"
+        "    while (i < 100) { l.add(i); i = i + 1; }\n"
+        "    return l.length();\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 100, "container program runs");
+    {
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.acquisitions[kContainer] >= 100,
+              "every container intrinsic acquires the Container domain "
+              "(got "
+              + std::to_string(tel.acquisitions[kContainer]) + ")");
+        CHECK(tel.contended[kContainer] == 0,
+              "single-carrier run cannot contend the Container domain");
+    }
+    {
+        const int kHoldRounds = 50;
+        std::atomic<bool> stop{false};
+        std::thread holder([&exec, &stop, kHoldRounds]() {
+            for (int r = 0; r < kHoldRounds; ++r) {
+                DomainGuard g(exec.DomainLocksForTests(),
+                              DomainId::Container);
+                std::this_thread::sleep_for(
+                    std::chrono::microseconds(1000));
+            }
+            stop.store(true);
+        });
+        std::thread burster([&exec, &stop]() {
+            while (!stop.load()) {
+                DomainGuard g(exec.DomainLocksForTests(),
+                              DomainId::Container);
+                std::this_thread::sleep_for(
+                    std::chrono::microseconds(10));
+            }
+        });
+        holder.join();
+        burster.join();
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.contended[kContainer] > 0,
+              "fixed-window collision recorded as contended");
+        CHECK(tel.waitUs[kContainer] > 0,
+              "wait time recorded through the snapshot surface");
+    }
+    CHECK(exec.Execute(mod) == 100, "executor reuse runs again");
+    {
+        const DomainTelemetry tel = exec.DomainTelemetrySnapshot();
+        CHECK(tel.contended[kContainer] == 0,
+              "ResetPerRunState clears domain contention");
+        CHECK(tel.acquisitions[kContainer] >= 100,
+              "acquisitions re-accumulate after the run reset");
+    }
+    PASS();
+}
+
+//端到端：多载体真实竞争下两个新计数器都非零（与既有 GilWaitersPeak>0
+//同源——peak>0 即某刻 ≥2 并发等待者，后到者必计入竞争获取）。
+static void test_gil_wait_time_counters()
+{
+    TEST(gil_wait_time_counters);
+    CompiledModule mod = buildLinkedModule("gil_wait_time",
+        "import thread;\n"
+        "import io;\n"
+        "void w() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        int j = 0;\n"
+        "        while (j < 400) { j = j + 1; }\n"
+        "        io.write(\"x\");\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread a = thread.spawn(w);\n"
+        "    Thread b = thread.spawn(w);\n"
+        "    Thread c = thread.spawn(w);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetSchedulerTripForTests(1);
+    exec.SetCarrierThreadCount(4);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    CHECK(exec.Execute(mod) == 0,
+          "four-carrier three-worker program completes");
+    CHECK(exec.SchedulerGilContendedAcquires() > 0,
+          "contended GIL acquisitions were counted under multi-carrier "
+          "contention");
+    CHECK(exec.SchedulerGilWaitNanosTotal() > 0,
+          "GIL wait time accumulated under multi-carrier contention");
+    PASS();
+}
+
+//单载体无竞争路径不误增：默认 1 载体、单上下文纯计算（无 spawn、无
+//sleep——定时器线程懒启动不发生），主载体是唯一 GIL 获取者，竞争计数
+//恒 0。不钉纳秒累计——无竞争的 lock() 也耗数十纳秒，非零不确定。
+static void test_gil_wait_counters_no_contention()
+{
+    TEST(gil_wait_counters_no_contention);
+    CompiledModule mod = buildLinkedModule("gil_wait_calm",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200) { i = i + 1; }\n"
+        "    return 42;\n"
+        "}\n");
+    VmExecutor exec;
+    CHECK(exec.Execute(mod) == 42,
+          "single-carrier single-context program completes");
+    CHECK(exec.SchedulerGilContendedAcquires() == 0,
+          "no contended acquires on the single-carrier uncontended path");
+    PASS();
+}
+
 // --- K4 Task 1（载体身份＋当前上下文集中登记＋调试焦点分派）---
 
 //焦点独占分派（调度器白盒，D2）：焦点 Runnable 时它是唯一可分派上下文
@@ -2874,41 +3051,42 @@ static void test_debug_focus_exclusive_dispatch()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: the scheduler surface self-guards per call — drive it lock-free
+    //(PopNextRunnable's cv wait needs its internal guard's own lock).
     CHECK(sched.RegisterContext() == 0, "main registers as id 0");
     CHECK(sched.RegisterContext() == 1, "first worker registers as id 1");
     CHECK(sched.RegisterContext() == 2, "second worker registers as id 2");
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable() == 0,
           "no focus set: the FIFO head dispatches");
     CHECK(sched.HeldContextOfCarrier(0) == 0,
           "the held mirror records the dispatched context");
     //焦点钉在队尾：独占分派必须取焦点而非队首（纯 FIFO 会返回 1）
     sched.SetDebugFocusContext(2);
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable() == 2,
           "queued focus dispatches exclusively, jumping the queue");
     CHECK(sched.HeldContextOfCarrier(0) == 2,
           "the mirror follows the focus dispatch");
     //焦点停泊（模拟步进落到空通道 recv/竞争锁）：门无状态放开
     sched.ParkForMutex(2);
+    //K7：补完停泊握手——生产中停泊载体在 ParkSignal 捕获位点搬帧并
+    //置 framesParked，唤醒路径只入队已完成停泊者；白盒模拟同形补一
+    //步空搬，WakeForMutex 才会入队本上下文。
+    sched.ParkContextFrames(2, {});
     CHECK(sched.HeldContextOfCarrier(0) == -1,
           "parking releases the held mirror slot");
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable() == 1,
           "parked focus opens the gate: the head dispatches");
     sched.Requeue(1);
     sched.WakeForMutex(2);   //queue [1, 2] — focus at the tail again
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable() == 2,
           "requeued focus resumes exclusivity over the head");
     //焦点终结：门开，常规分派照常（此后队列空，用关停收尾）
     sched.MarkFinished(2, 0);
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable() == 1,
           "a finished focus leaves the gate open");
-    //RequestStop 自取 GIL（供未持锁路径调用）——持有者须先放锁再调。
-    {
-        gil.unlock();
-        sched.RequestStop();
-        gil.lock();
-    }
-    CHECK(sched.PopNextRunnable(gil) == -1,
+    //RequestStop 自守卫获取 GIL——本测试不持锁，其真实获取路径直跑。
+    sched.RequestStop();
+    CHECK(sched.PopNextRunnable() == -1,
           "stop ends the dequeue loop");
     PASS();
 }
@@ -2923,19 +3101,20 @@ static void test_debug_focus_held_wait()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: the scheduler surface self-guards per call — drive it lock-free
+    //(PopNextRunnable's cv wait needs its internal guard's own lock).
     sched.RegisterContext();                //0 main
     const int focusId = sched.RegisterContext();   //1: focus-to-be
     sched.RegisterContext();                //2: head contender
-    CHECK(sched.PopNextRunnable(gil) == 0, "main dispatches first");
-    CHECK(sched.PopNextRunnable(gil) == focusId,
+    CHECK(sched.PopNextRunnable() == 0, "main dispatches first");
+    CHECK(sched.PopNextRunnable() == focusId,
           "the focus context is dispatched (now held, not queued)");
     sched.SetDebugFocusContext(focusId);    //Runnable + held: gate closed
     std::thread stopper([&sched] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         sched.RequestStop();
     });
-    const int got = sched.PopNextRunnable(gil);
+    const int got = sched.PopNextRunnable();
     stopper.join();
     CHECK(got == -1,
           "focus held by a window: the dequeue waits for its release "
@@ -3046,25 +3225,26 @@ static void test_affinity_prefers_last_runner()
     VmScheduler sched;
     sched.ConfigureCarriers(2);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: the scheduler surface self-guards per call — drive it lock-free
+    //(PopNextRunnable's cv wait needs its internal guard's own lock).
     CHECK(sched.RegisterContext() == 0, "main registers as id 0");
     CHECK(sched.RegisterContext() == 1, "worker 1 registers");
     CHECK(sched.RegisterContext() == 2, "worker 2 registers");
     //载体 0 连续分派全部三个上下文（队首恒为无偏好 255 → 窗内最早
     //命中即队首，纯 FIFO 不变），全部盖上载体 0 的戳。
-    CHECK(sched.PopNextRunnable(gil) == 0, "carrier 0 dispatches 0");
-    CHECK(sched.PopNextRunnable(gil) == 1, "carrier 0 dispatches 1");
-    CHECK(sched.PopNextRunnable(gil) == 2, "carrier 0 dispatches 2");
+    CHECK(sched.PopNextRunnable() == 0, "carrier 0 dispatches 0");
+    CHECK(sched.PopNextRunnable() == 1, "carrier 0 dispatches 1");
+    CHECK(sched.PopNextRunnable() == 2, "carrier 0 dispatches 2");
     sched.Requeue(0);
     sched.Requeue(1);   //queue [0(c0), 1(c0)]
     //载体 1 分派队首 0（窗内无自己的戳，回退队首）——0 改盖载体 1 戳。
     sched.InstallSelfCarrier(1);
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable() == 0,
           "carrier 1 falls back to the head (no own stamp in window)");
     sched.Requeue(0);   //queue [1(c0), 0(c1)]
     //偏好分派：载体 1 的窗扫描命中位置 1 的 0(c1)——越过队首 1(c0)。
     //纯 FIFO（与未实现亲和的现状）返回 1；亲和实现必须返回 0。
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable() == 0,
           "carrier 1 takes its own previously-run context, jumping the "
           "head stamped for another carrier");
     PASS();
@@ -3079,13 +3259,14 @@ static void test_affinity_window_fallback()
     VmScheduler sched;
     sched.ConfigureCarriers(2);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: the scheduler surface self-guards per call — drive it lock-free
+    //(PopNextRunnable's cv wait needs its internal guard's own lock).
     for (int id = 0; id < 10; ++id)
         CHECK(sched.RegisterContext() == id, "context registers in id order");
     //载体 0 逐个分派全部 10 个上下文（全为无偏好 255 → 恒取队首），
     //全部盖上载体 0 的戳。
     for (int id = 0; id < 10; ++id)
-        CHECK(sched.PopNextRunnable(gil) == id,
+        CHECK(sched.PopNextRunnable() == id,
               "carrier 0 drains the queue in FIFO order");
     //重建队列 [1..8](c0 戳)，随后载体 1 分派队首 1（回退）——被盖 c1
     //戳的是 1。再回队 9(c0) 与 1(c1)：[2..8, 9, 1(c1)]，自己的戳落在
@@ -3093,7 +3274,7 @@ static void test_affinity_window_fallback()
     for (int id = 1; id <= 8; ++id)
         sched.Requeue(id);              //queue [1..8] all c0
     sched.InstallSelfCarrier(1);
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable() == 1,
           "carrier 1 falls back to the head (window holds no own stamp)");
     sched.Requeue(9);                   //queue [2..8, 9] all c0
     sched.Requeue(1);                   //queue [2..8, 9, 1(c1)]
@@ -3101,14 +3282,14 @@ static void test_affinity_window_fallback()
           "fallback dispatches are observable in the miss counter");
     //窗口覆盖位置 0..7（8 项）：[2..8, 9] 全是 c0 戳，1(c1) 在位置 8
     //——窗口之外，必须回退队首 2；无界扫描会越过前缀取到 1。
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable() == 2,
           "an own-stamped entry beyond the 8-entry window is NOT taken; "
           "the head dispatches instead");
     CHECK(sched.AffinityHits() == 0,
           "carrier 1 never exercised affinity before the window slid");
     //窗口随消费滑动：队首 2 被取走后 1(c1) 进入窗内（位置 7），下次
     //出队必须命中越队取它——位次 ≥ 窗口的项在前项被消费后即可及。
-    CHECK(sched.PopNextRunnable(gil) == 1,
+    CHECK(sched.PopNextRunnable() == 1,
           "the own-stamped entry enters the window once the head is "
           "consumed — affinity takes it");
     CHECK(sched.AffinityHits() == 1,
@@ -3126,18 +3307,19 @@ static void test_affinity_single_carrier_fifo_identity()
     VmScheduler sched;
     sched.ConfigureCarriers(1);
     sched.InstallSelfCarrier(0);
-    std::unique_lock<std::mutex> gil(sched.Gil());
+    //K7: the scheduler surface self-guards per call — drive it lock-free
+    //(PopNextRunnable's cv wait needs its internal guard's own lock).
     CHECK(sched.RegisterContext() == 0, "context 0 registers");
     CHECK(sched.RegisterContext() == 1, "context 1 registers");
-    CHECK(sched.PopNextRunnable(gil) == 0, "context 0 dispatches (stamp c0)");
-    CHECK(sched.PopNextRunnable(gil) == 1, "context 1 dispatches (stamp c0)");
+    CHECK(sched.PopNextRunnable() == 0, "context 0 dispatches (stamp c0)");
+    CHECK(sched.PopNextRunnable() == 1, "context 1 dispatches (stamp c0)");
     CHECK(sched.RegisterContext() == 2,
           "context 2 registers after the queue drained (255, no stamp)");
     sched.Requeue(0);   //queue [2(255), 0(c0)]
-    CHECK(sched.PopNextRunnable(gil) == 2,
+    CHECK(sched.PopNextRunnable() == 2,
           "the never-dispatched head dispatches — single carrier stays "
           "pure FIFO (exact-match-only affinity would jump it to 0)");
-    CHECK(sched.PopNextRunnable(gil) == 0,
+    CHECK(sched.PopNextRunnable() == 0,
           "the stamped entry follows in FIFO order");
     PASS();
 }
@@ -3228,6 +3410,380 @@ static int runBlockingNative(const std::string& tag,
     return rc;
 }
 
+// --- K6 Task 4（D9：游离载体运行世代守卫）---
+//run 1 的 worker 载体在 3s 阻塞原生里时 run 1 收尾：join 宽限 2s 不
+//足 → 线程脱离成僵尸，其帧仍在已被 Reset 清掉的旧上下文里。run 2
+//复用同一执行器（镜像 test_executor_reuse_two_runs 的复用形态），睡
+//1.5s 后做分配搅动＋输出——僵尸在 t≈3s 于 run 2 中途醒来，世代比对
+//不匹配 → 静默退出（不碰 run 2 的原生根、不解引用已销毁上下文）。
+//守卫缺失（旧代码）：resize(watermark) 以 run-1 的陈旧水位截断 run 2
+//的原生根向量 + 悬垂 ctx 解引用——ASan 下必炸，普通构建下可能静默
+//腐蚀；本测试因此是防回归钉＋ASan 腿的普通构建半边（普通构建下旧
+//代码也可能恰好通过——真正的红由 ASan 构建承担）。
+//时序余量账：宽限 2s < 原生 3s（必脱离）；run 2 主睡 1.5s + 搅动
+//≥1s ⇒ run 2 在 t≈3s 僵尸醒来时仍在跑（余量 ≥1s，见计划 Review
+//Focus 4）。
+static void test_zombie_carrier_generation_guard()
+{
+    TEST(zombie_carrier_generation_guard);
+    //Run 1: worker parks in a 3s blocking native; main returns at once.
+    CompiledModule modA = buildLinkedModule("zomb_guard_a",
+        "import thread;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { nbWait(3000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    return 7;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.RegisterNativeBlocking("zomb_guard_a.nbWait", &NbWait);
+    CaptureIo ioA;
+    exec.SetHostIo(&ioA);
+    CHECK(exec.Execute(modA) == 7, "run 1 completes (worker stranded)");
+
+    //Run 2 on the same executor: sleep past the zombie's wake, churn,
+    //output, exit 9. The zombie wakes mid-run-2 (needs a GIL-free
+    //moment — the sleep parks main, so the GIL is away).
+    CompiledModule modB = buildLinkedModule("zomb_guard_b",
+        "import thread;\n"
+        "import io;\n"
+        "int main() {\n"
+        "    thread.sleep(1500);\n"
+        "    int i = 0;\n"
+        "    while (i < 30000) {\n"
+        "        string garbage = \"z\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    io.write(\"run2-done\");\n"
+        "    return 9;\n"
+        "}\n");
+    CaptureIo ioB;
+    exec.SetHostIo(&ioB);
+    const int rc = exec.Execute(modB);
+    CHECK(rc == 9, "run 2 completes with its exit code (zombie exited "
+                   "silently; got rc=" + std::to_string(rc) + ")");
+    CHECK(ioB.m_out.find("run2-done") != std::string::npos,
+          "run 2 output intact (got: " + ioB.m_out + ")");
+    PASS();
+}
+
+// --- K7 Task 4（阻塞原生停泊时执行位翻灭）---
+//停泊族两形态的会合资格语义：调度器停泊（join/sleep/recv/mutex/
+//channel）经 ParkSignal 穿出——执行作用域析构翻灭执行位；**阻塞原生
+//停泊**的 C++ 窗框架留在栈上（RunFrames 不退出），由停泊点的
+//EndExecuting 显式离册（K7 site 5）。观察点放在原生体内：睡眠后采样
+//（此时 main 已停泊、worker 早已停泊于定时器睡眠），采样 0 ⇔ 本线程
+//执行位已翻灭；缺 EndExecuting 则位仍立 → 采样恒 1。确定性判别，不
+//用宿主线程轮询：main 进原生前的执行位仅微秒级立着，轮询命中翻转序
+//列的概率≈0（实测已证伪轮询方案）。
+static VmExecutor* s_winParkExec = nullptr;
+static std::atomic<int> s_windowDuringNative{-1};
+static void NbSampleWindow(NativeHost*, uint8_t*, const uint8_t* args, int)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        native::ArgInt(args, 0)));
+    s_windowDuringNative.store(s_winParkExec->GcExecutingSelf() ? 1 : 0);
+}
+static void test_executing_bit_off_while_native_blocked()
+{
+    TEST(executing_bit_off_while_native_blocked);
+    CompiledModule mod = buildLinkedModule("win_parked",
+        "import thread;\n"
+        "native void nbSample(int ms);\n"
+        "void w() { thread.sleep(100000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    nbSample(300);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    s_winParkExec = &exec;
+    s_windowDuringNative.store(-1);
+    exec.RegisterNativeBlocking("win_parked.nbSample", &NbSampleWindow);
+    CHECK(exec.Execute(mod) == 0, "blocking-native program completes");
+    CHECK(s_windowDuringNative.load() == 0,
+        "the blocking-native park flips the executing bit off (got "
+        + std::to_string(s_windowDuringNative.load()) + ")");
+    s_winParkExec = nullptr;
+    PASS();
+}
+
+// --- K6 Task 5（D7：收集计数器——压力下收集确实发生）---
+static void test_gc_collection_count_under_stress()
+{
+    TEST(gc_collection_count_under_stress);
+    CompiledModule mod = buildLinkedModule("gc_count",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) {\n"
+        "        string garbage = \"g\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "stress program completes");
+    CHECK(exec.GcCollectionCount() > 100,
+        "collections actually ran under stress (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K7 Task 4（stop 路径后世代容忍完好）---
+//run 1 的 worker 在 3s 阻塞原生里时 run 1 收尾（宽限 2s 不够 → 脱离
+//成僵尸）；run 2 复用同一执行器：main 睡 1.5s 后进 400ms 采样原生。
+//僵尸在 t≈3s 于 run 2 中途醒来：FinishBlockingNative 的 BeginExecuting
+//命中的是已被 Reset 退役的登记条目 → 僵尸容忍返回 false（不等待、不
+//复活）；世代守卫抛 ShutdownSignal 静默退出——全程不触碰 run 2 的登
+//记表。run 2 的采样点（t≈4s，僵尸已退出）读 0 ⇔ 无幽灵残留；若退役
+//不彻底或令牌复用错位，僵尸的苏醒会触发绊线终止或污染 run 2 的会合
+//分母——两侧失衡都被「run 2 完整跑完＋采样 0」钉住。
+static void test_executing_bit_intact_after_stop_path()
+{
+    TEST(executing_bit_intact_after_stop_path);
+    CompiledModule modA = buildLinkedModule("win_stop_a",
+        "import thread;\n"
+        "native void nbWait(int ms);\n"
+        "void w() { nbWait(3000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.RegisterNativeBlocking("win_stop_a.nbWait", &NbWait);
+    CHECK(exec.Execute(modA) == 0,
+        "run 1 completes (worker stranded mid-native)");
+    CompiledModule modB = buildLinkedModule("win_stop_b",
+        "import thread;\n"
+        "native void nbSample(int ms);\n"
+        "void w() { thread.sleep(100000); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(w);\n"
+        "    thread.sleep(1500);\n"
+        "    nbSample(400);\n"
+        "    return 0;\n"
+        "}\n");
+    s_winParkExec = &exec;
+    s_windowDuringNative.store(-1);
+    exec.RegisterNativeBlocking("win_stop_b.nbSample", &NbSampleWindow);
+    CHECK(exec.Execute(modB) == 0, "run 2 completes");
+    CHECK(s_windowDuringNative.load() == 0,
+        "run 2's rendezvous state is clean after run 1's zombie exited "
+        "via the stop path (got "
+        + std::to_string(s_windowDuringNative.load()) + ")");
+    s_winParkExec = nullptr;
+    PASS();
+}
+
+// --- K7 Task 4（嵌套求值窗不另立会合资格）---
+//数组→字符串强转经 FormatArray→toString 覆写开**嵌套 RunFrames**（同
+//线程深度 2）——嵌套窗体内非阻塞原生直读本线程执行位必须仍为 1（分
+//派执行作用域早已立位，嵌套窗不新立资格；K7 删除了 K6 的窗记账——
+//位是每线程单份），run 结束后归 0。嵌套窗形态仿 test_scheduler_quota_
+//skips_nested_windows 的强转嵌套窗；探针走 RegisterNative 非阻塞路径
+//（CallNative 原地直呼，无窗口转换）。NativeFn 签名与返回值写法以
+//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsMint 形态为
+//准（返回 void，经 native::ReturnInt 写结果格）。
+static VmExecutor* s_windowProbeExec = nullptr;
+static void WindowProbe(NativeHost*, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    native::ReturnInt(ret, s_windowProbeExec->GcExecutingSelf() ? 1 : 0);
+}
+static void test_nested_window_single_membership()
+{
+    TEST(nested_window_single_membership);
+    CompiledModule mod = buildLinkedModule("win_nested",
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        int n = winprobe();\n"
+        "        if (n != 1) return \"bad\";\n"
+        "        return \"ok\";\n"
+        "    }\n"
+        "}\n"
+        "native int winprobe();\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    if (t != \"[ok]\") return 1;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    s_windowProbeExec = &exec;
+    exec.RegisterNative("win_nested.winprobe", &WindowProbe);
+    CHECK(!exec.GcExecutingSelf(), "not executing before the run");
+    CHECK(exec.Execute(mod) == 0,
+        "nested toString window keeps the single executing bit (depth 2, "
+        "one membership)");
+    s_windowProbeExec = nullptr;
+    CHECK(!exec.GcExecutingSelf(),
+        "executing bit returns to off after the run");
+    PASS();
+}
+
+// --- K6 Task 6（D3：堆侧阈值回退）---
+//高搅动小活集：越过 1024 首收集后自由表覆盖分配，size 停在阈值+1，
+//回退 max(threshold, size) 令触发谓词翻回假——收集节奏＝自由表耗尽
+//（≈每 ~1000 次分配一次）。旧行为（无回退）：size 恒 > 阈值 ⇒ 每个
+//安全点都收集（数千次）。
+static void test_backoff_heap_after_cliff()
+{
+    TEST(backoff_heap_after_cliff);
+    CompiledModule mod = buildLinkedModule("bo_heap",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        p.v = i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(mod) == 0, "churn program completes");
+    const size_t collections = exec.GcCollectionCount();
+    CHECK(collections <= 20,
+        "post-cliff collection cadence is free-list exhaustion, not "
+        "every-safepoint (got " + std::to_string(collections) + ")");
+    CHECK(collections >= 1, "the cliff itself did collect at least once");
+    //D7 consumer: bounded liveness — the store recycles slots in place
+    //(size never shrinks), so the kind!=free population is bounded by
+    //the backed-off threshold (~1025) plus the unswept inter-collection
+    //tail; 5000 dead P objects never mean 5000 occupied slots (the
+    //no-GC shape). NOT <100: the tail since the last back-edge sweep
+    //is itself dead-but-unswept (~900 slots here) and counts nonzero.
+    const size_t liveSlots = exec.LiveHeapSlotCount();
+    CHECK(liveSlots < 1200,
+        "heap slot population stays bounded under churn (got "
+        + std::to_string(liveSlots) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：字符串侧对称回退）---
+//旧回退 max(threshold, 2*live) 在小活集搅动下同样每安全点收集
+//（live≈2 ⇒ 阈值永不抬升、size 恒越界）。max(threshold, size) 同治。
+static void test_backoff_string_symmetric()
+{
+    TEST(backoff_string_symmetric);
+    CompiledModule mod = buildLinkedModule("bo_str",
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        string garbage = \"g\" + i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(mod) == 0, "string churn program completes");
+    const size_t collections = exec.GcCollectionCount();
+    CHECK(collections <= 20,
+        "string store backs off symmetrically (got "
+        + std::to_string(collections) + ")");
+    CHECK(collections >= 1, "crossed the string threshold at least once");
+    PASS();
+}
+
+// --- K6 Task 6（D3：压力模式高节奏）---
+//压力＝钉小初始阈值；回退照常运行（pre-K6 语义，deep_chain e2e 钉住
+//计时）。size 臂主导下每收集周期 size 仅 +1、节奏＝自由表耗尽＝size，
+//算术步进 ⇒ 5000 次分配约 √(2N)≈100 次收集——远高于常规模式同型程序
+//（≤20 次），又非每安全点强制。
+static void test_stress_keeps_high_cadence()
+{
+    TEST(stress_keeps_high_cadence);
+    CompiledModule mod = buildLinkedModule("bo_stress",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        p.v = i;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    exec.SetGcStressThresholds(8);
+    CHECK(exec.Execute(mod) == 0, "stress churn program completes");
+    CHECK(exec.GcCollectionCount() > 50,
+        "stress keeps a high collection cadence (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：阈值跨 run 持久）---
+//执行器复用（嵌入宿主形态）：run 1 搋动后阈值已抬到高水位；run 2
+//微量分配不得再收集。m_gcCollections 每 run 清零（Task 5），断言的是
+//run 2 自己的计数。
+static void test_thresholds_persist_across_runs()
+{
+    TEST(thresholds_persist_across_runs);
+    CompiledModule churn = buildLinkedModule("bo_persist1",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 5000) {\n"
+        "        P p = P();\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.ResetGcThresholds();
+    CHECK(exec.Execute(churn) == 0, "run 1 churn completes");
+    CompiledModule tiny = buildLinkedModule("bo_persist2",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    P a = P();\n"
+        "    P b = P();\n"
+        "    int i = 0;\n"
+        "    while (i < 100) { i = i + 1; }\n"
+        "    return a.v + b.v;\n"
+        "}\n");
+    CHECK(exec.Execute(tiny) == 0, "run 2 tiny completes");
+    //The loop's back-edges are safepoints that would collect at every
+    //iteration if the threshold had reset to the default (size stays at
+    //run 1's high-water mark, above 1024); persistence keeps the
+    //predicate false — zero collections. The two fresh allocations
+    //reuse free-list slots, so size never crosses the backed-off mark.
+    CHECK(exec.GcCollectionCount() == 0,
+        "backed-off threshold survives into the reused run (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// --- K6 Task 6（D3：复位旋钮恢复默认行为）---
+static void test_reset_gc_thresholds_restores_defaults()
+{
+    TEST(reset_gc_thresholds_restores_defaults);
+    VmExecutor exec;
+    exec.SetGcStressThresholds(4);
+    exec.ResetGcThresholds();
+    //A default-threshold tiny program must not collect: proves the
+    //stress clamp is gone (a stale clamp would collect on the second
+    //allocation).
+    CompiledModule mod = buildLinkedModule("bo_reset",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    P a = P();\n"
+        "    return a.v;\n"
+        "}\n");
+    CHECK(exec.Execute(mod) == 0, "tiny program completes");
+    CHECK(exec.GcCollectionCount() == 0,
+        "defaults restored — no collection, no stress residue");
+    PASS();
+}
+
 //协议判别器 1（GIL 释放）：main 阻塞 150ms，worker 在窗口内抢到 GIL 并
 //输出。main 从 spawn 到阻塞调用之间无回边（不会被配额抢占），故 worker
 //的输出先于 main-after 只能来自「阻塞期间 GIL 离手」；不释放则顺序反转
@@ -3291,6 +3847,32 @@ static void test_blocking_native_staged_roots_survive_gc_storm()
     CHECK(out.find("echo:payload") != std::string::npos,
           "the staged result handle survived every collection in the "
           "window (got: " + out + ")");
+    PASS();
+}
+
+// --- K6 Task 3（D11：原生根按属主移除）---
+//并发阻塞臂交错时，位置截断（旧 resize-to-watermark）会误杀别人的在
+//飞根：A 于水位 5 压入两项、B 于水位 7 压入两项、A 先退出——旧代码
+//resize(5) 杀掉 B 的两项。属主化后 A 只删自己的。本测试白盒驱动
+//m_nativeCallRoots 的交错形状（产品级交错由探针 2 的 ASan 腿覆盖）。
+//RemoveNativeRoots 是私有成员：经 VmExecutor.h 的 K6 测试旋钮
+//（TestPushNativeRoot 族）压入/移除/断言。
+static void test_native_root_owner_removal()
+{
+    TEST(native_root_owner_removal);
+    VmExecutor exec;
+    uint8_t a1[8] = {}, a2[8] = {}, b1[8] = {}, b2[8] = {};
+    //Interleaved pushes: A, A, B, B — a positional watermark for A's
+    //exit sits between B's entries (the shape that kills them).
+    exec.TestPushNativeRoot(&a1[0], 1, 0, 101);
+    exec.TestPushNativeRoot(&a2[0], 1, 0, 101);
+    exec.TestPushNativeRoot(&b1[0], 1, 0, 202);
+    exec.TestPushNativeRoot(&b2[0], 1, 0, 202);
+    exec.TestRemoveNativeRoots(101);   // A exits first
+    CHECK(exec.TestNativeRootCount() == 2,
+          "only A's entries removed; B's survive");
+    exec.TestRemoveNativeRoots(202);
+    CHECK(exec.TestNativeRootCount() == 0, "B's removal empties the set");
     PASS();
 }
 
@@ -3431,6 +4013,482 @@ static void test_gc_bitmap_survives_ncu_roundtrip()
     PASS();
 }
 
+// --- K7 Task 4（真实多方会合：注册表分母＋跨载体存活＋单载体退化）---
+
+//4 载体并发跑分配密集程序（压力阈值 4）：会合分母真实为多——某载体
+//发起停止时其余载体执行中，末到者内联收集、先到者停泊等待（非退化
+//形态）。断言：运行完成、终值正确、停泊计数 > 0（真实停泊路径确实
+//被走到）；各 worker 的 keep 对象仅存活于「另一载体求值栈」——收集
+//者的注册表扫描臂缺失时该对象被清扫，终值错误变红。
+static void test_real_multiparty_rendezvous()
+{
+    TEST(real_multiparty_rendezvous);
+    CompiledModule mod = buildLinkedModule("k7_multi_rendezvous",
+        "import thread;\n"
+        "class Node { public int v; }\n"
+        "int wA() {\n"
+        "    Node keep = Node();\n"
+        "    keep.v = 77;\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { Node g = Node(); g.v = i; i = i + 1; }\n"
+        "    return keep.v;\n"
+        "}\n"
+        "int wB() {\n"
+        "    Node keep = Node();\n"
+        "    keep.v = 88;\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { Node g = Node(); g.v = i; i = i + 1; }\n"
+        "    return keep.v;\n"
+        "}\n"
+        "int wC() {\n"
+        "    Node keep = Node();\n"
+        "    keep.v = 99;\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { Node g = Node(); g.v = i; i = i + 1; }\n"
+        "    return keep.v;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> a = thread.spawn(wA);\n"
+        "    Future<int> b = thread.spawn(wB);\n"
+        "    Future<int> c = thread.spawn(wC);\n"
+        "    int i = 0;\n"
+        "    while (i < 2000) { Node g = Node(); g.v = i; i = i + 1; }\n"
+        "    if (a.get() != 77) return 1;\n"
+        "    if (b.get() != 88) return 2;\n"
+        "    if (c.get() != 99) return 3;\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(4);
+    exec.SetGcStressThresholds(4);
+    CHECK(exec.Execute(mod) == 0,
+          "multiparty rendezvous run completes with every held value "
+          "intact");
+    CHECK(exec.GcCollectionCount() > 0, "collections actually ran");
+    CHECK(exec.GcRendezvousParks() > 0,
+          "some rendezvous parked a non-last arriver (real multiparty "
+          "path, got "
+          + std::to_string(exec.GcRendezvousParks()) + ")");
+    PASS();
+}
+
+//单载体退化形态：唯一在执行线程发起即末到（期望数=1），一切收集内
+//联完成——停泊计数恒 0。若单载体路径误入停泊等待（分母多算），轻则
+//计数变红，重则挂死由超时暴露。
+static void test_single_carrier_inline_shape()
+{
+    TEST(single_carrier_inline_shape);
+    CompiledModule mod = buildLinkedModule("k7_single_inline",
+        "class P { public int v; }\n"
+        "int main() {\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { P p = P(); p.v = i; i = i + 1; }\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(1);
+    exec.SetGcStressThresholds(4);
+    CHECK(exec.Execute(mod) == 0, "single-carrier stress run completes");
+    CHECK(exec.GcCollectionCount() > 10, "collections actually ran (got "
+          + std::to_string(exec.GcCollectionCount()) + ")");
+    CHECK(exec.GcRendezvousParks() == 0,
+          "the sole executer collects inline every time (got "
+          + std::to_string(exec.GcRendezvousParks()) + ")");
+    PASS();
+}
+
+//阻塞原生回调重入（已注册且未执行分支）：载体 A 的阻塞原生在睡眠后
+//经 CallByName 重入字节码——该线程此刻已被 EndExecuting、帧已偷取进
+//上下文；载体 B 同时搅动触发收集风暴。判别键必须是 ExecutingSelf：
+//重入须重新 BeginExecuting 成为完整参与方（其增长中的帧经自身注册表
+//条目被扫描、自身安全点到达），否则收集者扫描臂与回调栈并发。断
+//言：不挂死、回调结果正确。
+static VmExecutor* s_rendezvousCbExec = nullptr;
+static std::atomic<int> s_rendezvousCbResult{-1};
+static void NbReenterChurn(NativeHost*, uint8_t*,
+                           const uint8_t* args, int)
+{
+    const int ms = native::ArgInt(args, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    uint8_t cell[8] = {};
+    s_rendezvousCbExec->CallByName("k7_cb_gc.cb_body", nullptr, 0, cell);
+    int32_t v = 0;
+    std::memcpy(&v, cell, sizeof(v));
+    s_rendezvousCbResult.store(v);
+}
+static void test_blocking_native_callback_during_gc()
+{
+    TEST(blocking_native_callback_during_gc);
+    CompiledModule mod = buildLinkedModule("k7_cb_gc",
+        "import thread;\n"
+        "native void nbReenter(int ms);\n"
+        "class Node { public int v; }\n"
+        "void churner() {\n"
+        "    int i = 0;\n"
+        "    while (i < 60000) { string g = \"g\" + i; i = i + 1; }\n"
+        "}\n"
+        "int cb_body() {\n"
+        "    Node keep = Node();\n"
+        "    keep.v = 55;\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { string s = \"c\" + i; i = i + 1; }\n"
+        "    return keep.v;\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churner);\n"
+        "    nbReenter(100);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.SetGcStressThresholds(4);
+    s_rendezvousCbExec = &exec;
+    s_rendezvousCbResult.store(-1);
+    exec.RegisterNativeBlocking("k7_cb_gc.nbReenter", &NbReenterChurn);
+    CHECK(exec.Execute(mod) == 0,
+          "run completes while a blocking-native callback re-enters "
+          "bytecode under a GC storm");
+    CHECK(s_rendezvousCbResult.load() == 55,
+          "callback held its value across every collection (got "
+          + std::to_string(s_rendezvousCbResult.load()) + ")");
+    s_rendezvousCbExec = nullptr;
+    PASS();
+}
+
+//宿主最外层轮询门（参与根深度）：宿主线程（非载体）在 run 在飞期间
+//经 CallByName 进入长分配循环——桥把它注册并翻开执行位；其嵌套深度
+//恒 ≥1（桥的 NestEvalGuard 无条件递增），裸「深度>0 抑制」会让它整
+//跑永不轮询，任何把它计入分母的停止发起都等不到到达 → 死锁挂死。
+//断言：不挂死、宿主侧结果正确。
+static std::atomic<int> s_hostPhase{0};    //0=未开始 1=宿主在飞 2=完成
+static std::atomic<int> s_hostLoopResult{-1};
+static void HostGo(NativeHost*, uint8_t*, const uint8_t*, int)
+{
+    s_hostPhase.store(1);
+}
+static void HostPhase(NativeHost*, uint8_t* ret, const uint8_t*, int)
+{
+    native::ReturnInt(ret, s_hostPhase.load());
+}
+static void test_host_outermost_polls()
+{
+    TEST(host_outermost_polls);
+    CompiledModule mod = buildLinkedModule("k7_host_poll",
+        "import thread;\n"
+        "native void hostGo();\n"
+        "native int hostPhase();\n"
+        "class Node { public int v; }\n"
+        "void churner() {\n"
+        "    int i = 0;\n"
+        "    while (i < 40000) { string g = \"g\" + i; i = i + 1; }\n"
+        "}\n"
+        "int host_loop() {\n"
+        "    Node keep = Node();\n"
+        "    keep.v = 99;\n"
+        "    int i = 0;\n"
+        "    while (i < 30000) { string s = \"h\" + i; i = i + 1; }\n"
+        "    return keep.v;\n"
+        "}\n"
+        "int main() {\n"
+        "    hostGo();\n"
+        "    Thread t1 = thread.spawn(churner);\n"
+        "    Thread t2 = thread.spawn(churner);\n"
+        "    while (hostPhase() != 2) { thread.yield(); }\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(2);
+    exec.SetGcStressThresholds(4);
+    exec.RegisterNative("k7_host_poll.hostGo", &HostGo);
+    exec.RegisterNative("k7_host_poll.hostPhase", &HostPhase);
+    s_hostPhase.store(0);
+    s_hostLoopResult.store(-1);
+    std::thread host([&] {
+        while (s_hostPhase.load() == 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        uint8_t cell[8] = {};
+        int32_t v = -2;   //bridge failure sentinel — never deadlock main
+        try {
+            exec.CallByName("k7_host_poll.host_loop", nullptr, 0, cell);
+            std::memcpy(&v, cell, sizeof(v));
+        } catch (const std::exception&) {
+        }
+        s_hostLoopResult.store(v);
+        s_hostPhase.store(2);
+    });
+    CHECK(exec.Execute(mod) == 0,
+          "run completes while the host thread executes its own "
+          "bytecode");
+    host.join();
+    CHECK(s_hostLoopResult.load() == 99,
+          "host outermost loop survived every collection (got "
+          + std::to_string(s_hostLoopResult.load()) + ")");
+    PASS();
+}
+
+// --- K8（领域拆分锁）：Sync 域停泊唤醒握手压力测试 ---
+
+//runParallelCarriers：K8 压力形态——真实多载体并行（默认配额，不压
+//trip）。停泊/唤醒握手窗口由操作系统线程真并发打开；丢失唤醒表现为
+//join 永不返回（测试超时红），而非错误结果。
+static int runParallelCarriers(const std::string& tag,
+                               const std::string& source, uint32_t carriers,
+                               std::string& rOut)
+{
+    CompiledModule mod = buildLinkedModule(tag, source);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(carriers);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    const int rc = exec.Execute(mod);
+    rOut = io.m_out;
+    return rc;
+}
+
+//K8 Task 4：close 对在途 recv 的中止竞态。300 轮，每轮：worker 无限排
+//干通道，main 送 1 值后以变化自旋量（0..22）关闭通道——close 必须落在
+//recv 停泊路径的任意相位（检查缓冲后登记前／已登记未停泊／已停泊）。
+//send 先于 close，故不变量每轮恒成立：drained==1（缓冲值不丢）且
+//aborts==300（每次关闭都中止了排干循环）。丢失唤醒＝join 挂死；丢失
+//缓冲值或丢失中止＝返回码非零。旧实现（GIL 全串行）下本测试亦须通过
+//＝回归护栏。
+static void test_k8_close_abort_recv_storm()
+{
+    TEST(k8_close_abort_recv_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_close_abort",
+        "import thread;\n"
+        "class RecvCloser {\n"
+        "    public Channel<int> c;\n"
+        "    public int drained;\n"
+        "    public int aborts;\n"
+        "    public void drain() {\n"
+        "        try {\n"
+        "            while (true) { drained = drained + c.recv(); }\n"
+        "        } catch (ChannelClosedException e) {\n"
+        "            aborts = aborts + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    RecvCloser w = RecvCloser();\n"
+        "    int r = 0;\n"
+        "    while (r < 300) {\n"
+        "        w.c = Channel(0);\n"
+        "        w.drained = 0;\n"
+        "        Thread t = thread.spawn(w.drain);\n"
+        "        w.c.send(1);\n"
+        "        int s = 0;\n"
+        "        while (s < r % 23) { s = s + 1; }\n"
+        "        w.c.close();\n"
+        "        thread.join(t);\n"
+        "        if (w.drained != 1) { return 2; }\n"
+        "        r = r + 1;\n"
+        "    }\n"
+        "    if (w.aborts != 300) { return 1; }\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "300 rounds of close racing an in-flight recv: the buffered value "
+          "survives every round and every close aborts the drain loop (rc="
+          + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 4：互斥体高频换手风暴。4 个 worker 各 2000 次临界区递增共享
+//计数——持锁/等待/换手三态在 4 载体真并行下高频交错，unlock→下一等
+//待者的唤醒传递路径（所有权移交）丢失唤醒＝挂死；终值 8000 校验互斥
+//正确性。旧实现下亦须通过＝回归护栏。
+static void test_k8_mutex_handoff_storm()
+{
+    TEST(k8_mutex_handoff_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_mutex_storm",
+        "import thread;\n"
+        "class Shared {\n"
+        "    public Mutex gate;\n"
+        "    public int count;\n"
+        "    public void bump() {\n"
+        "        int i = 0;\n"
+        "        while (i < 2000) {\n"
+        "            gate.lock();\n"
+        "            count = count + 1;\n"
+        "            gate.unlock();\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Shared s = Shared();\n"
+        "    s.gate = Mutex();\n"
+        "    Thread a = thread.spawn(s.bump);\n"
+        "    Thread b = thread.spawn(s.bump);\n"
+        "    Thread c = thread.spawn(s.bump);\n"
+        "    Thread d = thread.spawn(s.bump);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(c);\n"
+        "    thread.join(d);\n"
+        "    if (s.count == 8000) { return 0; }\n"
+        "    return 1;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "8000 handoffs under one mutex across four parallel carriers "
+          "keep the count exact (rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 4：容量 1 通道乒乓。1000 轮请求/应答：两侧轮流停泊（send 满载
+//停泊、recv 空停泊），每轮两次停泊两次唤醒，覆盖停泊矩阵全部四格。
+//丢失任一唤醒＝挂死；末值 1000 校验值传递链完整。旧实现下亦须通过＝
+//回归护栏。
+static void test_k8_bounded_pingpong_storm()
+{
+    TEST(k8_bounded_pingpong_storm);
+    std::string out;
+    const int rc = runParallelCarriers("k8_pingpong",
+        "import thread;\n"
+        "class Pong {\n"
+        "    public Channel<int> req;\n"
+        "    public Channel<int> ack;\n"
+        "    public void responder() {\n"
+        "        int i = 0;\n"
+        "        while (i < 1000) {\n"
+        "            int v = req.recv();\n"
+        "            ack.send(v + 1);\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Pong p = Pong();\n"
+        "    p.req = Channel(1);\n"
+        "    p.ack = Channel(1);\n"
+        "    Thread t = thread.spawn(p.responder);\n"
+        "    int i = 0;\n"
+        "    int last = 0;\n"
+        "    while (i < 1000) {\n"
+        "        p.req.send(i);\n"
+        "        last = p.ack.recv();\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    if (last == 1000) { return 0; }\n"
+        "    return 1;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0,
+          "1000 bounded ping-pong rounds alternate park and wake on both "
+          "sides without losing one (rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 5：宿主根登记表并发搅动下的收集。根登记表（host/native 两张）
+//的变异方持 m_rootRegistryMutex 叶锁（K8 宿主边界归域），但阻塞原生
+//载体不在 GC 会合分母内——其登记/撤销可与收集并发。收集侧标记臂必须
+//同锁迭代（快照后扫描会重开窗口）。本测试用真实线程在 gc-stress 多
+//载体运行期间持续 Push/PopHostRoot：固定形态下恒绿；无锁迭代形态下为
+//概率性崩溃（结构竞争）。
+static void test_k8_gc_host_root_churn_under_collection()
+{
+    TEST(k8_gc_host_root_churn_under_collection);
+    const std::string src =
+        "import thread;\n"
+        "int churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(churn);\n"
+        "    int j = 0;\n"
+        "    while (j < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(j);\n"
+        "        j = j + 1;\n"
+        "    }\n"
+        "    while (!f.isDone()) { thread.yield(); }\n"
+        "    return 5;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("k8_host_root_churn", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(4);
+    exec.SetGcStressThresholds(4);   //collections run constantly
+    std::atomic<bool> churnDone{false};
+    std::thread churner([&exec, &churnDone]() {
+        uint32_t round = 0;
+        while (!churnDone.load(std::memory_order_relaxed)) {
+            const int32_t v = static_cast<int32_t>(round & 1);
+            exec.PushHostRoot(RTK_String, v);
+            exec.PopHostRoot(RTK_String, v);
+            ++round;
+        }
+    });
+    const int rc = exec.Execute(mod);
+    churnDone.store(true, std::memory_order_relaxed);
+    churner.join();
+    CHECK(rc == 5, "churning host roots never corrupt a collection "
+          "(rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
+//K8 Task 5：收集内异常不得挂死会合。注入一次收集入口抛出：完成守卫
+//必须先推进 Complete 再传播——停泊在纪元上的等待者被释放，随后以运行
+//失败收场（压力旗标仍在，等待者会重新请求收集并正常完成剩余工作）。
+//无守卫形态＝全体等待者永挂（本测试挂死即红）。
+static void test_k8_gc_collect_exception_releases_waiters()
+{
+    TEST(k8_gc_collect_exception_releases_waiters);
+    const std::string src =
+        "import thread;\n"
+        "int alloc() {\n"
+        "    int i = 0;\n"
+        "    while (i < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(i);\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        "int main() {\n"
+        "    Future<int> f = thread.spawn(alloc);\n"
+        "    int j = 0;\n"
+        "    while (j < 3000) {\n"
+        "        List<int> junk = {};\n"
+        "        junk.add(j);\n"
+        "        j = j + 1;\n"
+        "    }\n"
+        "    while (!f.isDone()) { thread.yield(); }\n"
+        "    return 7;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule("k8_gc_collect_throw", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(4);
+    exec.SetGcStressThresholds(4);
+    exec.SetThrowOnceInCollectForTests();
+    bool threw = false;
+    int rc = -1;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception&) {
+        threw = true;   //the injected failure surfaces — waiters were released
+    }
+    CHECK(threw || rc != 7,
+          "injected collection failure surfaces as a failed run "
+          "(threw=" + std::to_string(threw ? 1 : 0)
+          + " rc=" + std::to_string(rc) + ")");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -3453,6 +4511,10 @@ int main()
         test_single_carrier_deterministic_multi_unspecified();
         test_carrier_pool_two_runs();
         test_aux_carriers_actually_execute();
+        test_gil_wait_counters_whitebox();
+        test_domain_telemetry_whitebox();
+        test_gil_wait_time_counters();
+        test_gil_wait_counters_no_contention();
         test_debug_focus_exclusive_dispatch();
         test_debug_focus_held_wait();
         test_held_context_mirror_reset_after_run();
@@ -3463,9 +4525,24 @@ int main()
         test_aux_carrier_error_confluence();
         runGuarded(test_blocking_native_releases_gil);
         runGuarded(test_blocking_native_staged_roots_survive_gc_storm);
+        runGuarded(test_native_root_owner_removal);
+        runGuarded(test_zombie_carrier_generation_guard);
+        runGuarded(test_executing_bit_off_while_native_blocked);
+        runGuarded(test_gc_collection_count_under_stress);
+        runGuarded(test_executing_bit_intact_after_stop_path);
+        runGuarded(test_nested_window_single_membership);
+        runGuarded(test_backoff_heap_after_cliff);
+        runGuarded(test_backoff_string_symmetric);
+        runGuarded(test_stress_keeps_high_cadence);
+        runGuarded(test_thresholds_persist_across_runs);
+        runGuarded(test_reset_gc_thresholds_restores_defaults);
         runGuarded(test_shutdown_signal_passthrough);
         runGuarded(test_gc_bitmap_matches_conservative_band);
         runGuarded(test_gc_bitmap_survives_ncu_roundtrip);
+        runGuarded(test_real_multiparty_rendezvous);
+        runGuarded(test_single_carrier_inline_shape);
+        runGuarded(test_blocking_native_callback_during_gc);
+        runGuarded(test_host_outermost_polls);
         test_harness_smoke();
         test_harness_smoke_exception_path();
         test_frame_recursion_limit_message();
@@ -3549,6 +4626,12 @@ int main()
         runGuarded(test_channel_capacity_non_int_rejected);
         runGuarded(test_channel_bare_ctor_no_args_rejected);
         runGuarded(test_channel_bounded_pending_survives_gc);
+        runGuarded(test_eval_stack_routes_to_fallback_slot);
+        runGuarded(test_k8_close_abort_recv_storm);
+        runGuarded(test_k8_mutex_handoff_storm);
+        runGuarded(test_k8_bounded_pingpong_storm);
+        runGuarded(test_k8_gc_host_root_churn_under_collection);
+        runGuarded(test_k8_gc_collect_exception_releases_waiters);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

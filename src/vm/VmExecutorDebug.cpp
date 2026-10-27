@@ -1,10 +1,9 @@
 // --- VmExecutor debug view + value formatters (ndb support) ---
 // IVmDebugView implementation (frozen-time read-only queries) and the
 // shallow formatters backing it. Separate TU by design: VmExecutor.cpp
-// (the execution core) only ever gains checkpoint calls; every line of
-// inspection logic lives here. Formatters are const and MUST NOT
-// execute NLang code (no toString dispatch) or allocate on the NLang
-// heap — the heap is frozen and consistent at checkpoint time.
+// (the execution core) only ever gains checkpoint calls. Formatters are
+// const and MUST NOT execute NLang code (no toString dispatch) or
+// allocate on the NLang heap — frozen and consistent at checkpoint time.
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"
@@ -62,9 +61,9 @@ std::string DebugCharDisplay(uint32_t cp) {
 } // namespace
 
 uint16_t VmExecutor::CurrentFuncIdx() const {
-    if (m_callStack.empty() || !m_currModule) return 0;
+    if (EvalStack().empty() || !m_currModule) return 0;
     return static_cast<uint16_t>(
-        m_callStack.back().func - m_currModule->functions.data());
+        EvalStack().back().func - m_currModule->functions.data());
 }
 
 void VmExecutor::FireOnThrow() {
@@ -73,12 +72,12 @@ void VmExecutor::FireOnThrow() {
     if (!DebugHooksActive()) return;
     DebugStopInfo stop;
     stop.contextId = m_spScheduler->CurrentContextId();
-    if (!m_callStack.empty()) {
-        stop.pc = m_callStack.back().currentPc;
-        stop.line = m_callStack.back().currentLine;
+    if (!EvalStack().empty()) {
+        stop.pc = EvalStack().back().currentPc;
+        stop.line = EvalStack().back().currentLine;
     }
     stop.funcIdx = CurrentFuncIdx();
-    stop.depth = m_callStack.size();
+    stop.depth = EvalStack().size();
     m_pDebugHooks->OnThrow(stop, *this);
     SyncDebugFocus();
 }
@@ -95,6 +94,7 @@ const char* ContextStateName(ContextState state) {
     case ContextState::ParkedTimer:   return "parked-timer";
     case ContextState::ParkedJoin:    return "parked-join";
     case ContextState::ParkedMutex:   return "parked-mutex";
+    case ContextState::ParkedSemaphore: return "parked-sem";
     case ContextState::ParkedChanRecv: return "parked-chan-recv";
     case ContextState::ParkedChanSend: return "parked-chan-send";
     case ContextState::BlockedNative: return "blocked-native";
@@ -107,10 +107,15 @@ const char* ContextStateName(ContextState state) {
 } // namespace
 
 size_t VmExecutor::ContextCount() const {
+    //K7: the pump queries from the frozen window's thread — the carrier
+    //parks without the global lock — so every view query self-guards
+    //(the old "held lock or quiescent VM" assumption is gone).
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     return m_spScheduler->ContextCount();
 }
 
 DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     DebugContextInfo info;
     info.id = contextId;
     const ExecutionContext* ctx = m_spScheduler->Find(contextId);
@@ -121,7 +126,7 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
     info.stateName = ContextStateName(ctx->state);
     info.heldByCarrier = m_spScheduler->HoldingCarrierOf(contextId);
     //Frames of the context in this carrier's execution window live in
-    //m_callStack; every other context keeps its whole stack parked in
+    //the current thread's evaluation stack; every other context keeps its whole stack parked in
     //the registry (FramesOfContext below applies the same split).
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     info.frameCount = frames->size();
@@ -137,25 +142,32 @@ DebugContextInfo VmExecutor::ContextInfo(int contextId) const {
 }
 
 //K4: the frames of one context for inspection. The context in this
-//carrier's execution window owns m_callStack (its registry copy is
+//carrier's execution window owns EvalStack() (its registry copy is
 //empty — the stack was stolen into the window); every other context
-//parks its whole stack in the scheduler registry. Frozen-window only:
-//the GIL is held by this carrier while a checkpoint runs, so no other
-//window can concurrently steal frames back.
+//parks its whole stack in the scheduler registry. K7 justification:
+//queries run under the global lock (self-guarded callers above), which
+//serializes them against frame migration (park/steal both happen under
+//the lock) and against any concurrent collection — so whichever side a
+//context's frames are on at lock-acquire is the side this read sees. A
+//context held by ANOTHER running carrier answers through its registry
+//copy (empty — frameCount 0 plus the held marker): its live frames are
+//on that carrier's stack, mid-flight and not inspectable.
 const std::vector<CallFrame>* VmExecutor::FramesOfContext(
     int contextId) const {
     if (contextId == m_spScheduler->CurrentContextId())
-        return &m_callStack;
+        return &EvalStack();
     const ExecutionContext* ctx = m_spScheduler->Find(contextId);
     return ctx ? &ctx->frames : nullptr;
 }
 
 size_t VmExecutor::FrameCount(int contextId) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     return frames ? frames->size() : 0;
 }
 
 DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     DebugFrameInfo info;
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     if (!frames || depth >= frames->size()) return info;
@@ -180,6 +192,7 @@ DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
 
 std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
     size_t depth) const {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
     std::vector<DebugLocalValue> out;
     const std::vector<CallFrame>* frames = FramesOfContext(contextId);
     if (!frames || depth >= frames->size()) return out;
@@ -452,8 +465,7 @@ std::string VmExecutor::FormatDebugList(int32_t handle) const {
     if (handle <= 0
         || static_cast<size_t>(handle) > m_listStore.size())
         return "List[0]{}";
-    const auto& elems =
-        m_listStore[static_cast<size_t>(handle) - 1].elements;
+    std::vector<int32_t> elems = SnapshotListElements(handle);
     std::string result = "List[" + std::to_string(elems.size()) + "]{";
     size_t bound = elems.size() < static_cast<size_t>(kMaxElementsShown)
         ? elems.size() : static_cast<size_t>(kMaxElementsShown);
@@ -470,8 +482,8 @@ std::string VmExecutor::FormatDebugDict(int32_t handle) const {
     if (handle <= 0
         || static_cast<size_t>(handle) > m_dictStore.size())
         return "Dict[0]{}";
-    const auto& entries =
-        m_dictStore[static_cast<size_t>(handle) - 1].entries;
+    std::vector<std::pair<int32_t, int32_t>> entries
+        = SnapshotDictEntries(handle);
     std::string result = "Dict[" + std::to_string(entries.size()) + "]{";
     size_t bound = entries.size() < static_cast<size_t>(kMaxElementsShown)
         ? entries.size() : static_cast<size_t>(kMaxElementsShown);

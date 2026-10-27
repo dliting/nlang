@@ -1,19 +1,21 @@
 # Object & Boxing
 
-The normative rules are in [specification §4.9](../specification/04-types.md).
 
 `Object` is the implicit root of the class hierarchy. Every class that does not
 explicitly inherit from another class implicitly inherits from `Object`.
-Object is synthesized by the compiler — there is no source-level
-`class Object { ... }` declaration, and users do not write `class Foo : Object`
-(that syntax is rejected).
+Its declaration lives in `stdlib/builtins.n` — the prelude package
+`builtins`, which every build imports automatically (see
+[Standard Library](standard-library.md)); like every prelude
+declaration it is ordinary source you can read. Users do not write
+`class Foo : Object` — the inheritance is implicit, and the explicit
+spelling is rejected.
 
 `Object` is the only class without a parent. The built-in classes sit under
 it as well: `List`, `Dict`, `ByteStream`, `FileStream`, `Exception` and all
 of its built-in subclasses (`NullPointerException`, `DivByZeroException`,
 `IndexOutOfBoundsException`, `AssertionException`, `IOException`,
-`InvalidCastException`, `ChannelClosedException`) share the one hierarchy
-with user classes, so any class instance can be assigned to
+`InvalidCastException`, `ChannelClosedException`) share the
+one hierarchy with user classes, so any class instance can be assigned to
 an `Object` variable. Types outside the class hierarchy: primitives,
 `string` and enums enter `Object` through boxing (an enum by its integer
 value, see the next section); arrays, structs and interfaces are not
@@ -78,14 +80,6 @@ them exactly):
 This makes strings usable as `Dict` keys without a wrapper class. See
 [String](string.md).
 
-**Protocol methods are public regardless of the access modifier**: a
-method whose name and signature match an Object protocol member
-(`equals(Object): int`, `getHashCode(): int`, `toString(): string`) is
-callable from outside its class even when declared with default access
-or `private` — protocol dispatch is name-keyed and ignores visibility.
-The modifier is accepted on protocol declarations but has no enclosing
-effect there; on ordinary members it works as usual.
-
 **`==` is unaffected by `equals`**: `Object.equals` is an opt-in method. The
 `==` operator on class references compares heap indices directly. The reason
 `equals` exists as a separate method is to allow user classes to override with
@@ -117,10 +111,9 @@ The runtime representation is a tagged boxed slot (slot[0] = type tag,
 slot[1] = value bits). Boxed slots hold no references and are explicitly
 skipped by the garbage collection (GC) mark phase.
 
-**`null` literal boxing preservation**: the literal `0` (used for `null`)
-short-circuits `OP_Box` — no heap slot is allocated, and the value `0` remains
-as the Object slot's contents. This keeps `Object o = null` and `Object o = 0`
-as no-ops rather than wrapping 0 in a boxed-int heap ref.
+**`null` is not boxed**: `Object o = null` and `Object o = 0` allocate no
+heap object — the null reference is the value 0 itself, not a boxed int
+wrapping 0.
 
 ### Unboxing and downcasting
 

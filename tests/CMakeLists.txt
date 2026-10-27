@@ -643,6 +643,7 @@ add_executable(test_array_flags
 
 target_include_directories(test_array_flags
     PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
@@ -801,6 +802,74 @@ target_compile_definitions(test_threads
 
 add_test(NAME threads_tests COMMAND test_threads)
 
+# K6 Task 1: GC stop-the-world rendezvous protocol white-box tests
+# (real threads; no compiler/stdlib involvement).
+add_executable(test_gcworldstop
+    test_vm/test_gcworldstop.cpp
+)
+target_include_directories(test_gcworldstop
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_gcworldstop
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME gcworldstop_tests COMMAND test_gcworldstop)
+
+# K8 Task 1: domain lock set (mutual exclusion, nesting markers, order
+# tripwire, overlap, telemetry) — real threads, no executor.
+add_executable(test_domainlocks
+    test_vm/test_domainlocks.cpp
+)
+target_include_directories(test_domainlocks
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_domainlocks
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME domainlocks_tests COMMAND test_domainlocks)
+
+# K8 Task 2: chunked block storage (stable element addresses, atomic size
+# publication) — real threads for the read/growth overlap contract.
+add_executable(test_chunkedarray
+    test_vm/test_chunkedarray.cpp
+)
+target_include_directories(test_chunkedarray
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_chunkedarray
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME chunkedarray_tests COMMAND test_chunkedarray)
+
+# K8 Task 3: sharded free lists (own-shard lock-free pop, Growth-locked
+# block refill, sweep redistribution) — real threads for uniqueness.
+add_executable(test_shardalloc
+    test_vm/test_shardalloc.cpp
+)
+target_include_directories(test_shardalloc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_shardalloc
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME shardalloc_tests COMMAND test_shardalloc)
+
 # K3 task 5: stdlib concurrent package (pure-NLang WaitGroup/Semaphore)
 # behavior tests — same harness shape as test_threads.
 add_executable(test_stdlib_concurrency
@@ -843,6 +912,7 @@ add_executable(test_debugger
     test_vm/test_debugger_controller.cpp
     test_vm/test_debugger_machine.cpp
     test_vm/test_debugger_multicontext.cpp
+    test_vm/test_debugger_k7.cpp
     test_vm/test_backtrace.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSession.cpp
     ${PROJECT_SOURCE_DIR}/src/tools/ndb/DebugSessionInspect.cpp

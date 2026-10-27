@@ -71,6 +71,13 @@ static void DumpClasses(const CompiledModule& module) {
         std::cout << "  [" << i << "] " << cc.name
                   << " (fields=" << cc.fieldCount
                   << ", super=" << cc.superClassIdx << ")\n";
+        std::cout << "    methods:";
+        for (uint16_t mi : cc.methodIndices)
+            std::cout << " " << mi;
+        std::cout << "\n    ctors:";
+        for (uint16_t ci2 : cc.constructorIndices)
+            std::cout << " " << ci2;
+        std::cout << "\n";
         for (uint16_t j = 0; j < cc.fieldCount; ++j) {
             std::cout << "    " << cc.fieldNames[j]
                       << ": " << DisasmTypeKindName(cc.fieldTypeKinds[j]);

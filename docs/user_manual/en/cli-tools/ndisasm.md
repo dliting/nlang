@@ -3,7 +3,7 @@
 ndisasm turns a `.ncu` back into a readable bytecode dump — the
 answer to "what did the compiler actually generate?". Use it to
 cross-check instruction addresses against ndb's `x` output, inspect
-import slots before load-time linking, and diagnose serialization or
+the import references before load-time linking, and diagnose serialization or
 module-loading problems.
 
 ```text

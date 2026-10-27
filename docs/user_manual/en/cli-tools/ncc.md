@@ -26,7 +26,7 @@ use it too. Artifacts come in two forms: single-source builds produce a
 | `-p <nproj>` | project forms | Cannot be combined with a source positional; giving it twice is an error |
 | `--no-warn` | 1-4 | Suppresses the implicit-conversion precision-loss warnings (the `loses precision` family); other warnings — e.g. `Empty statement will be ignored.` — are still reported |
 | `--no-debug-info` | 1-4 | Produces a module without per-statement debug anchors: a smaller artifact, but no backtrace line numbers and no breakpoints/stepping (see [Debugging in nide](../getting-started/debugging.md)) |
-| `-I <dir>` (or `-I<dir>` glued) | 1-5 | Library search path, may be given repeatedly: at compile time it locates imported `.n` files and external `.ncu`/`.npkg`; at run time it locates closure members and native dynamic libraries |
+| `-I <dir>` (or `-I<dir>` glued) | 1-5 | Library search path, may be given repeatedly: at compile time it locates imported `.n` files and external `.ncu`/`.npkg`; at run time it locates all dependency members and native dynamic libraries |
 | `--verbose` / `-v` | 1-5 | Prints the resolved import search path — one directory per line, annotated with the layer it came from — then proceeds normally (the listing shape is the same as nvm's) |
 
 Form 5 (`ncc run`) does not take `--no-warn` or `--no-debug-info`; like
@@ -49,7 +49,7 @@ form directly.)
 NLang artifacts **do not embed library code**: every participating source
 file yields its own **unit image**, and cross-package symbols
 (`io.print`, `utils.helper.answer`) are recorded in the image as **import
-slots**. At load time the loader discovers every dependency along the
+references**. At load time the loader discovers every dependency along the
 library search path — library archives such as `stdlib.npkg`, external
 `.ncu` files — and links them with the artifact into one runtime module.
 nvm, `ncc run`, and ncc's compile-and-execute all go through this same
@@ -119,7 +119,7 @@ source/project directory, the `NLANG_PATH` environment variable (`;` on
 Windows, `:` on POSIX), and finally system defaults such as the
 standard-library directory. Earlier directories win; duplicates keep only
 the first occurrence. The same directory set keeps serving the run time:
-closure loading (`.ncu`/`.npkg` member lookup) and native dynamic
+dependency loading (`.ncu`/`.npkg` member lookup) and native dynamic
 library loading. `--verbose` (short form `-v`) makes ncc print this
 resolved ordering (each line annotated with its layer, e.g. `(-I)`,
 `(project import paths)`, `(local directory)`, `(NLANG_PATH)`,

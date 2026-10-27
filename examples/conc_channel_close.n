@@ -1,0 +1,49 @@
+//Concurrency example 7 of 8 — close as a broadcast stop signal.
+//Two receivers loop on recv. close() drains any buffered value into
+//waiters first, then wakes every remaining receiver with
+//ChannelClosedException — one close stops the whole group, and each
+//receiver catches it and finishes its own way.
+import thread;
+import io;
+
+class Receiver {
+    public string name;
+    public Channel<int> feed;
+    public int got;
+    public void run() {
+        io.print("${name}: receiving");
+        while (true) {
+            try {
+                int v = feed.recv();
+                got = got + v;
+            } catch (ChannelClosedException e) {
+                io.print("${name}: channel closed, exiting");
+                break;
+            }
+        }
+    }
+}
+
+int main() {
+    Channel<int> c = {};
+    Receiver r1 = Receiver();
+    r1.name = "R1";
+    r1.feed = c;
+    Receiver r2 = Receiver();
+    r2.name = "R2";
+    r2.feed = c;
+    Thread t1 = thread.spawn(r1.run);
+    Thread t2 = thread.spawn(r2.run);
+    for (int i = 1; i <= 5; i = i + 1) {
+        c.send(i);
+    }
+    c.close();
+    thread.join(t1);
+    thread.join(t2);
+    int total = r1.got + r2.got;
+    io.print("both receivers stopped, total received ${total}");
+    if (total == 15) {
+        return 19;
+    }
+    return 1;
+}

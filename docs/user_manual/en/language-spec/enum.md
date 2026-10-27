@@ -83,9 +83,8 @@ syntax. Every method must have a body (abstract methods are rejected).
 
 - **`this` is the enum value.** Inside a method, `this` is the int32 value of
   the receiver: it participates in arithmetic and `switch` directly
-  (`this * base`, `switch (this)`), with no boxing. Methods are statically
-  dispatched (`OP_CallMethodDirect`) — enums have no inheritance and no
-  virtual dispatch.
+  (`this * base`, `switch (this)`), with no boxing. Method calls are always statically bound — enums have no inheritance
+  and no virtual dispatch.
 - **Call through a receiver.** `c.weight(3)`, `this.weight(3)`,
   `Color.Red.weight(3)` — any enum-valued expression works. A bare `weight(3)`
   (receiver-less) is a compile error, matching class methods.

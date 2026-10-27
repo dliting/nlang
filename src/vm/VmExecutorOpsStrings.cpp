@@ -1,6 +1,9 @@
 /*---
     VmExecutorOpsStrings.cpp — 字符串操作码（拼接/比较/长度/枚举与数组渲染）
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    K8: string reads are lock-free (flat content is immutable and its
+    storage address is stable); minting and cons flattening take the
+    string-maintenance domain lock internally.
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -10,6 +13,8 @@
 namespace nlang {
 
 void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
+    //K8: lock-free — MintNewString takes the intern table's domain
+    //lock internally; the enum-name table is link-time read-only.
     //uint16 enumDefIdx immediate; read int32 enum value from pResult,
     //lookup m_currModule->enumNames[enumDefIdx][value], push name.
     uint16_t enumDefIdx = reader.ReadUint16();
@@ -28,6 +33,9 @@ void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 void VmExecutor::OpArray_to_str(uint8_t* pResult) {
+    //K8: lock-free — the format walkers snapshot container structure
+    //under the Container domain lock internally; everything else here
+    //is benign heap reads plus a self-locking mint.
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
     //push result string to pool, write idx to pResult.
     //Reads heap layout via FormatArray (stage-2 header: rank/elemCount/
@@ -51,6 +59,10 @@ void VmExecutor::OpArray_to_str(uint8_t* pResult) {
 }
 
 void VmExecutor::OpConcat_str(BytecodeReader& reader, uint8_t* locals) {
+    //K8: lock-free — cons allocation pops the calling carrier's
+    //shard; the self-concat branch's StrVal flatten and the mint both
+    //take the string-maintenance domain lock internally (references
+    //stay valid regardless: ChunkedArray addresses are stable).
     //Transparent cons (Task 3): O(1) zero-copy node, flattened
     //lazily on first read (iteratively, in place — see StrVal).
     //n appends cost n nodes, all collectable, instead of n O(n)
@@ -100,6 +112,9 @@ void VmExecutor::OpNe_str(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpStrLen(BytecodeReader& reader, uint8_t* locals) {
+    //K8: lock-free — StrVal returns a reference into stable storage
+    //(ChunkedArray addresses never move), and flat content is
+    //immutable after the flatten that produced it.
     uint16_t dst = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     int32_t handle;
@@ -116,6 +131,8 @@ void VmExecutor::OpStrLen(BytecodeReader& reader, uint8_t* locals) {
 //charAt); a null string handle reads "" and fails the range check with
 //the same catchable OOB exception as arrays.
 void VmExecutor::OpStrByteAt(BytecodeReader& reader, uint8_t* locals) {
+    //K8: lock-free — same stable-reference discipline as OP_StrLen;
+    //the out-of-bounds raise re-acquires internally.
     uint16_t dst = reader.ReadUint16();
     uint16_t str = reader.ReadUint16();
     uint16_t idx = reader.ReadUint16();
@@ -139,6 +156,8 @@ void VmExecutor::OpStrByteAt(BytecodeReader& reader, uint8_t* locals) {
 //io.readFile can load arbitrary bytes, so invalid UTF-8 is reachable
 //from pure NLang code and must not be an uncatchable internal error.
 void VmExecutor::OpStrForeachStep(BytecodeReader& reader, uint8_t* locals) {
+    //K8: lock-free — the flattened content is immutable and its
+    //reference stable; malformed-UTF-8 raises re-acquire internally.
     uint16_t str = reader.ReadUint16();
     uint16_t off = reader.ReadUint16();
     uint16_t cond = reader.ReadUint16();

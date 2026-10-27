@@ -52,7 +52,7 @@ foo(Point{x:1, y:2}, Point{x:3, y:4});
 | struct                   | `{...}`或`StructName{...}` | `field : value`（标识符键）或位置值（按字段声明序） |
 | class                    | `{...}`或`ClassName{...}`  | `field : value`（标识符键） |
 
-**class初始化要求**：类必须有无参构造函数（显式或隐式）。codegen把`C{f1:v1, ...}`降低为无参构造后接逐字段`OP_StoreField`赋值。
+**class初始化要求**：类必须有无参构造函数（显式或隐式）。`C{f1:v1, ...}`等价于先无参构造、再逐字段赋值。
 
 **递归嵌套**：初始化列表可包含其他初始化列表。内层可用方括号形式（`List<List<int>> ll = [[1,2],[3,4]];`），也可在花括号字面量的值位置直接嵌裸花括号（`List<List<int>> m = {{1,2},{3,4}};`）。带键条目的值位置同样接受裸花括号（`Dict<string, List<int>>`目标写`{"a": {1, 2}}`，`List<int>`字段写`{items: {1, 2}}`）；数组类型字段保持方括号形式（`{items: [1, 2]}`）。嵌套泛型元素类型（`List<List<int>>`、`Dict<K, List<V>>`）受支持（见[内建泛型类](builtin-generic-classes.md) `List<T>`下的嵌套泛型）。
 

@@ -22,7 +22,7 @@ use. The flag may appear before or after the program path.
 `--carriers=N` sets the scheduler's carrier-thread count (1..64): `nvm`
 defaults to at most four (capped by the machine's parallelism), and
 `--carriers=1` pins a single carrier for deterministic interleaving
-(see [the GIL and multiple carriers](../language-spec/concurrency-gil-carriers.md)).
+(see [the GIL and multiple carriers](../language-spec/concurrency-carriers.md)).
 A value outside the range is rejected before the program starts.
 
 The artifact itself carries no library code: the loader first discovers
@@ -35,8 +35,8 @@ searched — check `-I` and `NLANG_PATH` first (the mechanism is covered
 in [ncc](ncc.md), "Artifacts and load-time linking").
 
 `-I <dir>` appends a library search directory (repeatable). At run time
-closure members and native dynamic libraries are located across ordered
-directories: `-I` dirs → the program's directory → the `NLANG_PATH`
+all dependency members and native dynamic libraries are located across
+ordered directories: `-I` dirs → the program's directory → the `NLANG_PATH`
 environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory → the standard-library directory (where
 `stdlib.npkg` lives); earlier dirs win and duplicates keep only the
@@ -44,11 +44,33 @@ first. See
 ["Libraries and search paths"](../language-spec/stdlib-search-paths.md)
 for the full rules.
 
+## Concurrency and carriers
+
+`--carriers=N` sets how many operating-system threads execute the
+program's virtual threads (1..64; out-of-range values are rejected).
+Omitted, nvm uses the smaller of 4 and the machine's hardware
+concurrency. `--carriers=1` is fully deterministic: a strict
+first-in-first-out rotation, so the same program with the same inputs
+produces the same interleaving every run — tests may assert on it.
+With more than one carrier the interleaving is unspecified: program
+correctness must rest on the synchronization primitives (`join`,
+`Channel`, `Mutex`, `Future.get`), never on timing. The carrier count
+changes interleaving, not results:
+
+```text
+nvm --carriers=1 program.ncu    # reproducible interleaving
+nvm --carriers=8 program.ncu    # same results, different interleaving
+```
+
+See [Carriers and
+Parallelism](../language-spec/concurrency-carriers.md) for what
+multiple carriers actually parallelize; the shipped `examples/conc_*.n`
+demonstrate the flag.
+
 `--verbose` (short form `-v`) prints the resolved search path before
 the program runs —
 one directory per line, in search order, each line annotated with the
 layer it came from (`(-I)`, `(local directory)`, `(NLANG_PATH)`,
-`(system)`) — then executes normally. It is the observability
-counterpart of the not-found diagnostic above: rerun the failing
+`(system)`) — then executes normally. When the not-found diagnostic above fires, rerun the failing
 invocation with `--verbose` to see every directory that will be
 searched.

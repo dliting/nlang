@@ -102,11 +102,15 @@ DebugSessionController::DebugSessionController(const CompiledModule& module,
     : m_module(module), m_frontEnd(frontEnd) {}
 
 // --- breakpoint table ---
+//K7: every accessor locks — concurrent carriers scan the table from
+//their statement checkpoints (OnStatement) while the active window's
+//pump may edit it (ndb `b`/`d` mid-freeze).
 
 int DebugSessionController::AddBreakpoint(const std::string& file, int line,
     bool exactFile) {
     if (line <= 0)
         return 0;   //source lines are 1-based: nothing can bind
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     //Table key: one id per (normalized file, line).
     const std::string key = NormalizePath(file);
     for (const auto& bp : m_breakpoints)
@@ -146,6 +150,7 @@ int DebugSessionController::AddBreakpoint(const std::string& file, int line,
 
 int DebugSessionController::AddFunctionBreakpoint(
     const std::string& funcName) {
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     //Table key: one id per function name (identifiers are case-sensitive,
     //so the raw name is the key). Line bps always carry line > 0, so the
     //two key spaces cannot collide. funcName is matched against table
@@ -175,6 +180,7 @@ int DebugSessionController::AddFunctionBreakpoint(
 }
 
 bool DebugSessionController::DeleteBreakpoint(int id) {
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     auto it = std::find_if(m_breakpoints.begin(), m_breakpoints.end(),
         [&](const Breakpoint& bp) { return bp.id == id; });
     if (it == m_breakpoints.end())
@@ -184,12 +190,14 @@ bool DebugSessionController::DeleteBreakpoint(int id) {
 }
 
 void DebugSessionController::SetBreakOnThrow(bool on) {
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     m_breakOnThrow = on;
 }
 
 // --- frozen window discipline ---
 
 void DebugSessionController::RequireFrozenWindow(const char* who) const {
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     if (!m_pView)
         throw std::logic_error(std::string(who)
             + " outside the frozen window (OnStopped..WaitUntilResume)");
@@ -197,45 +205,74 @@ void DebugSessionController::RequireFrozenWindow(const char* who) const {
 
 void DebugSessionController::Continue() {
     RequireFrozenWindow("Continue");
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     m_mode = RunMode::Continue;
     m_stepFocusContext = -1;   //release the exclusive-dispatch focus
 }
 
 void DebugSessionController::SetStepTargetContext(int contextId) {
     RequireFrozenWindow("SetStepTargetContext");
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     m_selectedContextId = contextId;
 }
 
 void DebugSessionController::StepInto() {
     RequireFrozenWindow("StepInto");
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     m_mode = RunMode::StepInto;
     m_stepFocusContext = m_selectedContextId;
 }
 
+//StepOver/StepOut arm the mode atomically with the captured depth
+//baseline, but the depth QUERY runs outside the state lock: view
+//queries take the global lock, and the state mutex must never be held
+//across it (leaf discipline). Reading the baseline first is safe — the
+//old mode is still armed while querying, so no checkpoint can act on a
+//half-updated StepOver.
 void DebugSessionController::StepOver() {
     RequireFrozenWindow("StepOver");
-    m_mode = RunMode::StepOver;
-    m_stepFocusContext = m_selectedContextId;
+    int selected;
+    IVmDebugView* view;
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        selected = m_selectedContextId;
+        view = m_pView;
+    }
     //The depth baseline belongs to the context being stepped: a selected
     //context other than the stopped one must be measured in its own
     //frames (parked frames are enumerable — K4).
-    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
+    const size_t depth = view->FrameCount(selected);
+    std::lock_guard<std::mutex> lk(m_stateMutex);
+    m_mode = RunMode::StepOver;
+    m_stepFocusContext = selected;
+    m_stepDepth = depth;
 }
 
 void DebugSessionController::StepOut() {
     RequireFrozenWindow("StepOut");
+    int selected;
+    IVmDebugView* view;
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        selected = m_selectedContextId;
+        view = m_pView;
+    }
+    const size_t depth = view->FrameCount(selected);
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     m_mode = RunMode::StepOut;
-    m_stepFocusContext = m_selectedContextId;
-    m_stepDepth = m_pView->FrameCount(m_selectedContextId);
+    m_stepFocusContext = selected;
+    m_stepDepth = depth;
 }
 
 const IVmDebugView& DebugSessionController::View() const {
     RequireFrozenWindow("View");
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     return *m_pView;
 }
 
 std::vector<DebugSessionController::BreakpointRow>
 DebugSessionController::BreakpointRows() const {
+    std::lock_guard<std::mutex> lk(m_stateMutex);
     std::vector<BreakpointRow> rows;
     rows.reserve(m_breakpoints.size());
     for (const auto& bp : m_breakpoints)
@@ -273,32 +310,45 @@ bool DebugSessionController::ShouldStepStop(
 
 void DebugSessionController::OnStatement(const DebugStopInfo& stop,
     IVmDebugView& view) {
-    m_pView = &view;
-
+    //K7: carriers checkpoint concurrently — the hit decision (scan +
+    //hits bump) is one locked step, so a pump-side DeleteBreakpoint
+    //either lands before the decision (the hitter reports the withdrawn
+    //breakpoint's id — the hit was already decided) or silences every
+    //later checkpoint. No torn middle state exists.
     const std::pair<uint16_t, uint16_t> anchor = {stop.funcIdx, stop.pc};
-    auto it = std::find_if(m_breakpoints.begin(), m_breakpoints.end(),
-        [&](const Breakpoint& bp) {
-            return std::find(bp.anchors.begin(), bp.anchors.end(), anchor)
-                != bp.anchors.end();
-        });
+    int hitId = 0;
+    bool stepStop = false;
+    RunMode mode = RunMode::Continue;
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        auto it = std::find_if(m_breakpoints.begin(), m_breakpoints.end(),
+            [&](const Breakpoint& bp) {
+                return std::find(bp.anchors.begin(), bp.anchors.end(),
+                                 anchor) != bp.anchors.end();
+            });
+        if (it != m_breakpoints.end()) {
+            it->hits += 1;
+            hitId = it->id;
+        } else {
+            stepStop = ShouldStepStop(stop);
+        }
+        mode = m_mode;
+    }
     //Breakpoints are global: any context hitting an anchor freezes the
     //run — including one interrupting an armed step (the front end's
     //next command re-targets the focus).
-    if (it != m_breakpoints.end()) {
-        it->hits += 1;
+    if (hitId != 0) {
         Freeze(StopInfo{StopInfo::Reason::Breakpoint, stop.contextId,
-                        it->id, stop.line, stop.funcIdx, stop.depth});
-        m_pView = nullptr;
+                        hitId, stop.line, stop.funcIdx, stop.depth}, view);
         return;
     }
-    if (ShouldStepStop(stop)) {
-        const auto reason = (m_mode == RunMode::InitialStop)
+    if (stepStop) {
+        const auto reason = (mode == RunMode::InitialStop)
             ? StopInfo::Reason::Initial
             : StopInfo::Reason::Step;
         Freeze(StopInfo{reason, stop.contextId, 0,
-                        stop.line, stop.funcIdx, stop.depth});
+                        stop.line, stop.funcIdx, stop.depth}, view);
     }
-    m_pView = nullptr;
 }
 
 void DebugSessionController::OnThrow(const DebugStopInfo& stop,
@@ -306,12 +356,15 @@ void DebugSessionController::OnThrow(const DebugStopInfo& stop,
     //`break on throw`: freeze at the throw site before unwinding starts —
     //the full NLang stack and locals are still alive here. Covers every
     //context (K4).
-    if (!m_breakOnThrow)
+    bool breakOnThrow;
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        breakOnThrow = m_breakOnThrow;
+    }
+    if (!breakOnThrow)
         return;
-    m_pView = &view;
     Freeze(StopInfo{StopInfo::Reason::Throw, stop.contextId, 0,
-                    stop.line, stop.funcIdx, stop.depth});
-    m_pView = nullptr;
+                    stop.line, stop.funcIdx, stop.depth}, view);
 }
 
 //Announce the freeze, then block in the front end's pump until a resume
@@ -320,10 +373,46 @@ void DebugSessionController::OnThrow(const DebugStopInfo& stop,
 //re-targets the selection to the stopped context BEFORE OnStopped, so
 //the window opens with view and step target pointing there (both front
 //ends reset their own inspection selection in OnStopped — same instant).
-void DebugSessionController::Freeze(const StopInfo& info) {
-    m_selectedContextId = info.contextId;
-    m_frontEnd.OnStopped(info);
+//K7: the carrier parks (GC denominator exit + global-lock handoff) and
+//the freeze SERIALIZES through the queue — the first hitter's window is
+//active immediately; later hitters park and wait for the token (their
+//context id), opening theirs when the active window closes. The parked
+//holder pairs Enter/Exit inside this frame, so nested parks (a
+//breakpoint inside a pump-driven evaluation) each restore their own.
+void DebugSessionController::Freeze(const StopInfo& info,
+    IVmDebugView& view) {
+    GilHolder* parkedHolder = nullptr;
+    view.EnterFreezePark(parkedHolder);
+    {
+        std::unique_lock<std::mutex> lk(m_stateMutex);
+        if (m_frozenContextId < 0)
+            m_frozenContextId = info.contextId;
+        else
+            m_freezeQueue.push_back(info.contextId);
+        m_freezeQueueCv.wait(lk, [this, &info] {
+            return m_frozenContextId == info.contextId;
+        });
+        m_selectedContextId = info.contextId;
+        m_pView = &view;   //window opens
+    }
+    //The pump runs UNLOCKED: the front end calls back into the
+    //controller throughout the window (resume commands, view queries,
+    //breakpoint edits).
+    m_frontEnd.OnStopped(info);   //front end must not throw (contract)
     m_frontEnd.WaitUntilResume();
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        m_pView = nullptr;   //window closes
+        //Hand the token to the next queued freezer, if any.
+        if (!m_freezeQueue.empty()) {
+            m_frozenContextId = m_freezeQueue.front();
+            m_freezeQueue.pop_front();
+        } else {
+            m_frozenContextId = -1;
+        }
+        m_freezeQueueCv.notify_all();
+    }
+    view.ExitFreezePark(parkedHolder);
 }
 
 } // namespace nlang

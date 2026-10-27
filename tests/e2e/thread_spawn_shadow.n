@@ -1,0 +1,21 @@
+//A user class shadowing the Thread name does not break typed spawn:
+//the handle classes register under bare names in the prelude package's
+//own image, and the runtime mint resolves its record by that bare name
+//— the user declaration only wins compile-time name resolution. Parity
+//with the pre-migration behavior (0.10.12 differential, same exit).
+import thread;
+
+class Thread {
+}
+
+class W {
+    public void run() {
+    }
+}
+
+int main() {
+    W w = W();
+    Thread t = thread.spawn(w.run);
+    thread.join(t);
+    return 7;
+}

@@ -20,7 +20,7 @@ ncc把源码编译为字节码产物，可选立即执行。它是日常开发�
 | `-p <nproj>` | 项目形态 | 不可与源文件位置参数同用；重复给报错 |
 | `--no-warn` | 形态1-4 | 抑制隐式转换的精度损失警告（`loses precision`一族）；其余警告（如`Empty statement will be ignored.`）仍会报告 |
 | `--no-debug-info` | 形态1-4 | 产出不含语句调试锚点的模块：产物更小，但回溯无行号、断点与单步不可用（见[在nide中调试](../getting-started/debugging.md)） |
-| `-I <dir>`（或`-I<dir>`连写） | 形态1-5 | 库搜索路径，可多次给：编译期查找被import的`.n`与外部`.ncu`/`.npkg`，运行期定位闭包成员与native动态库 |
+| `-I <dir>`（或`-I<dir>`连写） | 形态1-5 | 库搜索路径，可多次给：编译期查找被import的`.n`与外部`.ncu`/`.npkg`，运行期定位全部依赖成员与native动态库 |
 | `--verbose` / `-v` | 形态1-5 | 打印解析后的导入搜索路径——每行一个目录，括注来源层——随后照常执行（列表形态与nvm相同） |
 
 形态5（`ncc run`）不接受`--no-warn`与`--no-debug-info`，与`-o`、`-p`一样按多余参数报错。错误与诊断信息打到stderr，`Compiled successfully:`成功行打到stdout。常见错误形态：
@@ -36,7 +36,7 @@ Error: 'examples/hello_project/hello_project.nproj' looks like a project file; u
 
 ## 产物与加载期链接
 
-NLang的产物**不含库代码**：每个参与编译的源文件产出一幅独立的**单元映像**，跨包符号（如`io.print`、`utils.helper.answer`）在映像里以**导入槽**记录。执行时，加载器沿库搜索路径发现全部依赖——`stdlib.npkg`这样的库包、外部`.ncu`——与产物一起链接成唯一的运行期模块。nvm、`ncc run`与ncc的编译后立即执行走的都是同一条装载＋链接路径，行为一致。
+NLang的产物**不含库代码**：每个参与编译的源文件产出一幅独立的**单元映像**，跨包符号（如`io.print`、`utils.helper.answer`）在映像里以**导入引用**记录。执行时，加载器沿库搜索路径发现全部依赖——`stdlib.npkg`这样的库包、外部`.ncu`——与产物一起链接成唯一的运行期模块。nvm、`ncc run`与ncc的编译后立即执行走的都是同一条装载 + 链接路径，行为一致。
 
 - **`.ncu`（单元映像）**——单文件编译的产物，承载入口单元。运行它时，它import的外部模块必须仍在搜索路径上可定位（标准库随工具链分发，自动找到；第三方库须`-I`指路或设`NLANG_PATH`）。
 - **`.npkg`（包归档）**——项目编译的产物：项目里每个单元一个成员（成员名即模块路径），程序包额外携带一条入口记录。同一格式也用于纯库分发（`stdlib.npkg`就是成员为`io`/`math`/`fs`/`thread`/`concurrent`的库包）。
@@ -75,7 +75,7 @@ Runtime error: nloader failed:
 
 ## 库搜索路径
 
-被`import`的`.n`文件按一组有序目录查找：`-I`指定的目录排在最前，其后是`.nproj`的`<ImportPaths>`、源文件 / 项目目录、环境变量`NLANG_PATH`（Windows以`;`、POSIX以`:`分隔），最后是标准库目录等系统缺省。前面的目录优先，重复目录只保留第一次出现。同一组目录在运行期继续服务闭包装载（`.ncu`/`.npkg`成员定位）与native动态库加载。`--verbose`（短写法`-v`）让ncc在开始编译之前打印这份解析后的顺序（每行括注来源层，如`(-I)`、`(project import paths)`、`(local
+被`import`的`.n`文件按一组有序目录查找：`-I`指定的目录排在最前，其后是`.nproj`的`<ImportPaths>`、源文件 / 项目目录、环境变量`NLANG_PATH`（Windows以`;`、POSIX以`:`分隔），最后是标准库目录等系统缺省。前面的目录优先，重复目录只保留第一次出现。同一组目录在运行期继续服务依赖装载（`.ncu`/`.npkg`成员定位）与native动态库加载。`--verbose`（短写法`-v`）让ncc在开始编译之前打印这份解析后的顺序（每行括注来源层，如`(-I)`、`(project import paths)`、`(local
 directory)`、`(NLANG_PATH)`、`(system)`）。
 
 `.nproj`可用`<ImportPaths>`持久化搜索目录（路径相对项目文件存储）：

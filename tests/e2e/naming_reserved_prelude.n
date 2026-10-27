@@ -1,0 +1,8 @@
+//The 0.9.0 variable-naming gate consults the real visibility chain:
+//a prelude-declared class name is spellable as a type, so a variable
+//of the same name is refused (declared-era shape — the synthesized
+//builtins carried their own IsBuiltinClassName guard once).
+int main() {
+    int Semaphore = 1;
+    return Semaphore;
+}

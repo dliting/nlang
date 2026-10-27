@@ -38,13 +38,20 @@ ndb's command loop runs inside the callback.
 
 Concurrency semantics: hooks install on the executor and cover **every
 context** — a breakpoint, throw or step anchor hit in main or in a
-`thread.spawn`-derived context triggers an **all-stop**: the callback
-runs inside the global interpreter lock (GIL) window, so a stop freezes
-every carrier at once. Inspection is per-context too: parked contexts
-(waiting on a channel receive, contending a mutex, or an unfinished
-`Future.get`) inspect the same as one held by an execution window.
-While stopped, time freezes — the timer thread's expiry migrations also
-need the GIL and are replayed after the resume.
+`thread.spawn`-derived context triggers an **all-stop**: the carrier
+suspends its evaluation window — releasing the domain lock first when the
+checkpoint landed inside a store segment — and arms a
+reference-counted freeze gate that blocks every new dispatch, so each
+in-flight dispatch segment finishes and then the carrier halts.
+Debugger queries acquire the scheduler lock per query, serializing
+against scheduler-state mutations; the freeze gate holds back every
+dispatch for the rest of the pause, so no bytecode runs. Inspection is
+per-context too: suspended contexts (waiting on a channel receive,
+contending a mutex, or an unfinished `Future.get`) inspect in full,
+while a context still held by a carrier keeps its frames on that
+carrier's execution stack and reports none until it suspends or finishes.
+While stopped, time freezes — a timer that falls due may already be
+queued, but everything waits for the resume before it dispatches.
 
 Statement granularity: one stop per statement. Two statements on the
 same line stop twice; a statement spanning lines stops once.
@@ -95,7 +102,7 @@ tab-joined lines with escaped fields
 (payload escaped like any field) delivers one program input line —
 recognized on the raw wire text so payload spaces survive, accepted at
 every read site (queued as type-ahead before `run`, queued without
-breaking a frozen stop, consumed live while the program is parked in
+breaking a frozen stop, consumed live while the program is suspended in
 `io.readLine`), and never answers; the program's next read is the
 response. The session opens with a prelude in which breakpoints are
 preset; `run` ends the prelude and starts execution — before it,
@@ -121,14 +128,14 @@ state, holding carrier, innermost frame location).
 `IHostIo` (src/vm/IHostIo.h) decouples the executor's input/output (I/O) from the
 process console: output bytes arrive verbatim through `OnOutput`, and
 input is opt-in and tri-state — `ReadInputLine` answers Line, Eof or
-NoChannel while the program is parked in an input read (blocking is
+NoChannel while the program is suspended in an input read (blocking is
 allowed); a host that does not override it answers NoChannel, which
 makes the input reads raise a catchable IOException instead of silently
 consuming the embedder's stream. `HasInputLine` is the non-blocking
 probe behind `io.hasInput` (a host without a probe keeps the default
 "input may exist"). Machine mode implements the seam to route program
 output into `output` events and to feed the input reads from `stdin`
-data commands (its probe reports parked lines only); with no host
+data commands (its probe reports only lines already delivered to the channel); with no host
 installed (nvm, ncc, the CLI front ends) behavior is unchanged. All
 three callbacks must not throw: they run on the execution thread, inside
 the same freeze-time discipline as the hooks.

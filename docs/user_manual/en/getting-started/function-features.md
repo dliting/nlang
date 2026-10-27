@@ -78,8 +78,8 @@ command-line tools locate `nlang_<package>.dll` on the search path by
 that package, while an embedding host registers implementations by name.
 The standard library's `io.print` is exactly such a native (declared
 `native void print(string)` in `stdlib/io.n`, implemented in
-`nlang_io.dll`). The call dispatches straight to the implementation with
-no NLang frame; NLang-side wrappers like `quad` are ordinary functions.
+`nlang_io.dll`). The call goes straight to the built-in implementation without a
+function call on the NLang side (no call-stack entry); NLang-side wrappers like `quad` are ordinary functions.
 
 See also: [Language Specification / Functions](../language-spec/functions.md).
 
@@ -150,8 +150,9 @@ and any mix of wildcard and exact imports — are idempotent with union
 semantics.
 
 For the complete visibility matrix (who needs an import, which call
-forms are allowed) and the import diagnostics, see the Import
-Declaration section of the Language Specification.
+forms are allowed) and all six error messages, see the [Import
+Declaration](../language-spec/declarations.md#import-declaration) section
+of the Language Specification.
 
 See also: [Language Specification / Declarations](../language-spec/declarations.md),
 [Standard Library](../language-spec/standard-library.md).

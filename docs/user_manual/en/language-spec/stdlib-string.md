@@ -4,9 +4,9 @@ Methods on the string receiver (`s.substring(1)`; literal receivers work:
 `"abc".toUpper()`). The string method list is as follows. **Byte
 semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; Unicode Transformation Format (UTF-8) byte order equals code point order (so
-relational comparison is well-defined); case conversion is American Standard Code for Information Interchange (ASCII)-only.
-Code-point access (`charAt`/`charCount`/`foreach char`) is a code-point layer
-over the byte core — see [String](string.md) "The char bridge".
+relational comparison has a definite result); case conversion covers the American Standard Code for Information Interchange (ASCII) only.
+Code-point access (`charAt`/`charCount`/`foreach char`) is built on top of
+byte access — see [String](string.md) "The char bridge".
 
 | Method | Signature | Notes |
 |---------|-----------|-------|

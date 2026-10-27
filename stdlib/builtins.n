@@ -1,0 +1,81 @@
+//Standard library source for the "builtins" package — authoritative
+//declarations for the builtin classes. Implicitly imported into every
+//compilation unit (JLS §7.5.3 analogue): the names are visible without
+//an import statement, and user declarations shadow them by the
+//ordinary innermost-wins rule. Native class: the implementations live
+//in the VM (intrinsic channel), so class members are declared native.
+//Compile-time inline only: the stdlib.npkg pack list excludes this
+//file; the build-tree stdlib copy keeps it for disk-first development.
+
+//Mutual exclusion: lock() parks the caller while the mutex is held;
+//unlock() hands ownership to the front waiter (FIFO handoff).
+//tryLock() takes the mutex only if it is free; never parks.
+class Mutex {
+    public native Mutex();
+    public native void lock();
+    public native void unlock();
+    public native bool tryLock();
+}
+
+//Counting semaphore with FIFO handoff: acquire() parks at zero permits
+//and release() hands the permit directly to the front waiter.
+//tryAcquire() never parks; over-release is legal.
+class Semaphore {
+    public native Semaphore(int initial);
+    public native void acquire();
+    public native void release();
+    public native bool tryAcquire();
+}
+
+//Base class of every catchable runtime failure. message carries the
+//diagnostic text; backtrace is the call chain at the throw point,
+//innermost first.
+class Exception {
+    public string message;
+    public List<string> backtrace;
+    public native Exception(string message);
+}
+
+class NullPointerException : Exception {
+    public native NullPointerException(string message);
+}
+
+class DivByZeroException : Exception {
+    public native DivByZeroException(string message);
+}
+
+class IndexOutOfBoundsException : Exception {
+    public native IndexOutOfBoundsException(string message);
+}
+
+class AssertionException : Exception {
+    public native AssertionException(string message);
+}
+
+class IOException : Exception {
+    public native IOException(string message);
+}
+
+class InvalidCastException : Exception {
+    public native InvalidCastException(string message);
+}
+
+//Raised by Channel receive/send after the channel is closed.
+class ChannelClosedException : Exception {
+    public native ChannelClosedException(string message);
+}
+
+//Handle of a spawned virtual thread: the runtime context id lives in
+//the hidden native slot. Instances are minted by thread.spawn — there
+//is no user-callable constructor.
+class Thread {
+}
+
+//Root of the class hierarchy: every class without a declared base
+//inherits these three protocol methods. Override them with the exact
+//signatures to customize per-class behavior.
+class Object {
+    public virtual native int equals(Object other);
+    public virtual native int getHashCode();
+    public virtual native string toString();
+}

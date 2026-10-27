@@ -41,7 +41,7 @@ the run's message and backtrace rows; double-click a row to jump to
 its source location. An unavailable path is reported on the status
 bar.
 
-### Configuring nide
+#### Configuring nide
 
 Tools → Options opens the settings dialog with five settings:
 
@@ -71,7 +71,7 @@ Tools → Options opens the settings dialog with five settings:
   setting (one point per notch), and the size persists across
   sessions.
 
-### Recent
+#### Recent
 
 File → Recent remembers the recently opened solutions (.nsln),
 projects (.nproj), and files across sessions — at most 10, in
@@ -83,7 +83,7 @@ until a newer entry evicts it; entries sharing a file name get an
 automatic directory suffix to disambiguate. "Clear Recent List"
 empties the whole list at once.
 
-### Project Properties
+#### Project Properties
 
 Project → Project Properties opens the project dialog with four
 fields:
@@ -100,7 +100,7 @@ fields:
   is the same as the global build output directory in "Configuring
   nide".
 - **Intermediate directory**: a reserved field the current
-  toolchain does not consume yet — currently unused.
+  toolchain does not use yet — currently unused.
 
 ### 2. The command line
 

@@ -16,8 +16,8 @@ enum Direction { North = 0, East = 90, South = 180, West = 270 }
 ```nlang
 Color c = Color.Green;     // 限定成员名
 Color d = 1;               // int隐式转换到enum
-int n = c;                 // enum隐式取底座值，这里是1
-Color e;                   // 不初始化：底座值0（自增enum即首个成员）
+int n = c;                 // enum隐式取底层int值，这里是1
+Color e;                   // 不初始化：底层int值0（自增enum即首个成员）
 ```
 
 - 声明时用**限定成员名**`Color.Green`。
@@ -28,7 +28,7 @@ Color e;                   // 不初始化：底座值0（自增enum即首个成
 
 ### 值语义
 
-枚举是int32为底座的**值类型**：
+枚举是以int32为底层类型的**值类型**：
 
 - **赋值 / 传参 / 返回**：拷贝int32值。两个变量持有独立值；修改一个绝不影响另一个。
 - **比较**：按整数值比较——`==`/`!=`与关系运算符都比较底层int32（见[运算符](operators.md)）。
@@ -56,7 +56,7 @@ enum Color {
 
 方法声明在成员列表之后，以`;`分隔。只有孤立结尾`;`而无方法的`enum E { A; }`也接受（Java式收尾语法）。每个方法都必须有方法体（抽象方法被拒绝）。
 
-- **`this`就是枚举值。**方法体内`this`是接收者的int32值：可直接参与算术与`switch`（`this * base`、`switch (this)`），没有装箱。方法静态分派（`OP_CallMethodDirect`）——枚举没有继承，也没有虚分派。
+- **`this`就是枚举值。**方法体内`this`是接收者的int32值：可直接参与算术与`switch`（`this * base`、`switch (this)`），没有装箱。方法调用总是静态绑定——枚举没有继承，也没有虚分派。
 - **经接收者调用。**`c.weight(3)`、`this.weight(3)`、`Color.Red.weight(3)`
   ——任何枚举值表达式都可以。裸写的`weight(3)`（无接收者）是编译错误，与class方法一致。
 - **参数：**不支持默认值（`int f(int a, int b = 5)`被拒绝），也不支持`out`参数。

@@ -6,8 +6,8 @@
 ```nlang
 int foo(int a) { return 100; }
 int foo(int a, int b = 0) { return 200; }
-foo(5, 10);   // OK：第二个重载（2 个实参匹配 2 个形参）
-foo(5);       // 错误：二义（两个重载都接受 1 个实参）
+foo(5, 10);   // OK：第二个重载（2个实参匹配2个形参）
+foo(5);       // 错误：二义（两个重载都接受1个实参）
 ```
 
 ### 构造器重载
@@ -21,13 +21,13 @@ class Shape {
     public Shape(int r) { this.tag = 10 + r; }
     public Shape(string name) { this.tag = 2; }
 }
-Shape a = Shape();    // 绑定 Shape()
-Shape b(3);           // 绑定 Shape(int)
-Shape c = Shape("n"); // 绑定 Shape(string)——字符串字面量不转换为int，
+Shape a = Shape();    // 绑定Shape()
+Shape b(3);           // 绑定Shape(int)
+Shape c = Shape("n"); // 绑定Shape(string)——字符串字面量不转换为int，
                       // 只有string构造器能匹配
 ```
 
-默认参数参与距离计算：精确类型匹配（距离0）优先于加宽一跳，收窄实参会拒绝对应候选。
+默认参数参与距离计算：精确类型匹配（距离0）优先于一级加宽，收窄实参会拒绝对应候选。
 
 ```nlang
 class V {

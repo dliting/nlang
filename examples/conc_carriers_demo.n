@@ -1,0 +1,44 @@
+//Concurrency example 8 of 8 — the carrier count does not change results.
+//Two tasks each sum a range; join gives happens-before, so the total is
+//500500 no matter how many carriers execute the program. Try:
+//    nvm --carriers=1 conc_carriers_demo.ncu
+//    nvm --carriers=8 conc_carriers_demo.ncu
+//The progress lines interleave differently; the last line never changes.
+import thread;
+import io;
+
+class RangeSum {
+    public string name;
+    public int from;
+    public int to;
+    public int result;
+    public void run() {
+        int total = 0;
+        for (int i = from; i <= to; i = i + 1) {
+            total = total + i;
+        }
+        result = total;
+        io.print("${name}: ${from}..${to} sums to ${result}");
+    }
+}
+
+int main() {
+    RangeSum a = RangeSum();
+    a.name = "A";
+    a.from = 1;
+    a.to = 500;
+    RangeSum b = RangeSum();
+    b.name = "B";
+    b.from = 501;
+    b.to = 1000;
+    Thread ta = thread.spawn(a.run);
+    Thread tb = thread.spawn(b.run);
+    thread.join(ta);
+    thread.join(tb);
+    int total = a.result + b.result;
+    io.print("total 1..1000: ${total}");
+    if (total == 500500) {
+        return 20;
+    }
+    return 1;
+}

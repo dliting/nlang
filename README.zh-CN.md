@@ -30,7 +30,8 @@ NLang IDE：左侧解决方案树（项目与独立`.n`文件）、中部编辑�
 4. **跑点什么**——在IDE中打开自带的`examples/`并按运行
    （先复制到可写目录——项目构建会把`.npkg`写在项目文件旁，而安装
    目录只读；独立`.n`文件的产物落在每用户临时区）。
-   `examples/README.zh-CN.md`索引了全部示例。
+   `examples/README.zh-CN.md`索引了全部示例。并发示例从
+   `examples/conc_spawn_join.n`开始。
 
    想在终端一行跑通？运行
    `bin\nlang -c "import io; io.print(\"hello\");"`，
@@ -205,8 +206,8 @@ import来源共用一种语法：
 
 `math`、`io`、`fs`、`thread`、`concurrent`和`tensor`是标准库的六个包——源码随工具链分发
 （`stdlib/*.n`），运行期由`stdlib.npkg`提供，与其他库包同一机制；
-限定调用前需要显式`import`（`thread`承载虚拟线程的派生与停泊原语；
-`concurrent`在内核并发原语之上补足`WaitGroup`与`Semaphore`）。字符串自带内建方法：
+限定调用前需要显式`import`（`thread`承载虚拟线程的派生与挂起原语；
+`concurrent`在内核并发原语之上补足`WaitGroup`）。字符串自带内建方法：
 
 ```nlang
 import io;
@@ -239,10 +240,11 @@ PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.
 类型化的值（含容器与对象），注册`native`宿主函数，并把
 `io.print`/`io.eprint`重定向到宿主回调。脚本也可以直接从源码运行：
 `runSource`/`runFile`进程内编译并执行ad-hoc脚本（免写`main()`
-样板），`runScript`则把整套流程封装成一次性调用。脚本线程在全局
-解释器锁下运行；`Interpreter`默认使用单载体，在`VmExecutor`层嵌入的
-宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用会释放
-锁）。最小宿主示例随包分发（`examples/embed_host/`），完整章节见
+样板），`runScript`则把整套流程封装成一次性调用。脚本线程的共享存储操作
+按域加锁保护；`Interpreter`默认使用单载体，在`VmExecutor`层嵌入的
+宿主可经`SetCarrierThreadCount`显式选入多载体（阻塞原生调用停泊并放锁，
+纯计算段与对象字段访问无锁重叠）。最小宿主示例随包分发
+（`examples/embed_host/`），完整章节见
 `docs/user_manual/zh/libraries/embedding-api.md`。
 
 ## IDE（nide）
@@ -299,7 +301,7 @@ IDE测试套件。
 ## 文档站点
 
 双语用户手册（`docs/user_manual/zh/`与`docs/user_manual/en/`，每树一份mkdocs配置，
-共同继承`mkdocs.base.yml`）由CMake目标`nlang_docs`渲染成静态
+共同继承`mkdocs.base.yml`，三份配置都位于`docs/`）由CMake目标`nlang_docs`渲染成静态
 站点（默认开启，`-DNLANG_BUILD_DOCS=OFF`跳过），合并到
 `<build>/docs/site/{zh,en}`并置于语言选择落地页
 （`docs/site/index.html`）之后；IDE的帮助菜单按语言设置打开对应
@@ -314,20 +316,20 @@ PowerShell/cmd上使用CMake配方自己用的
 
 ```bash
 # 迭代预览（普通 mkdocs 热重载服务器；任选一树）
-PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.zh.yml
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config docs/mkdocs.zh.yml
 
 # CMake 目标对每棵树做的事（mkdocs.zh.yml 与 mkdocs.en.yml 都要）：
 # mkdocs build --strict、离线搜索内联与片段审计——站点审计延迟到
 # 两树都建成后（它们互相链接），`check` 再对每树各跑一次
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
-    --config mkdocs.zh.yml --site-dir build/docs/site/zh \
+    --config docs/mkdocs.zh.yml --site-dir build/docs/site/zh \
     --defer-site-audit \
     --ncc build/src/tools/ncc/Release/ncc.exe \
     --nvm build/src/tools/nvm/Release/nvm.exe
 
 # 审计已生成站点的某一树（打包验证也复用）
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
-    --site-dir build/docs/site/zh --config mkdocs.zh.yml
+    --site-dir build/docs/site/zh --config docs/mkdocs.zh.yml
 
 # 独立审计某一页的 ```nlang 片段（编译 + 运行 + 退出码）
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \

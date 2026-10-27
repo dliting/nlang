@@ -33,12 +33,12 @@ source to console".
 
 Strings are **immutable objects** at run time: concatenation and substring
 extraction produce new content, and an existing object's content never
-changes. A string slot holds a handle into the string object store; handle 0
-means null and **reads as the empty string** `""`.
+changes. A string variable holds a handle (a reference) to its string object;
+handle 0 means null and **reads as the empty string** `""`.
 
 - **Constants live as long as the execution**: string literals from the
-  source are materialized as immortal objects when the module starts
-  executing and are never collected during the run.
+  source are created as immortal objects when the module starts executing
+  and are never collected during the run.
 - **Short-string interning**: runtime strings up to 40 bytes are interned by
   content — identical content shares one object. `==` still compares content;
   the semantics are unchanged.
@@ -67,7 +67,7 @@ means null and **reads as the empty string** `""`.
 `==` / `!=` compare **content**. Relational ordering (`<`, `>`, `<=`, `>=`)
 uses C `strcmp`-style byte-by-byte comparison (e.g. `"Z" < "a"` is true because
 `'Z'` (90) < `'a'` (97)). Because strings are UTF-8 and UTF-8 byte order
-equals code-point order, ordering is also correct for non-American Standard Code for Information Interchange (ASCII) text:
+equals code-point order, ordering is also correct for text beyond the American Standard Code for Information Interchange (ASCII):
 `"é" > "z"` is true. Mixed string/non-string comparison is a compile error
 except against the null literal — `s == null` reads the null side as the empty
 string, so `"" == null` is true and any non-empty string compares unequal. The
@@ -105,8 +105,9 @@ string s = "Hello ${name}!";   // "Hello world!"
 NLang supports `${identifier}` interpolation inside double-quoted string
 literals — the named variable's value is rendered via the same coercion paths
 as primitive → string and collection `toString()` (see [Type Casts](type-casts.md)).
-Interpolation is rewritten at compile time into an equivalent `OP_Add`
-string-concatenation expression; no new opcode is introduced.
+Interpolation is rewritten at compile time into an equivalent string
+concatenation — its semantics are exactly those of the handwritten
+concatenation.
 
 **Syntax constraints**:
 
@@ -129,17 +130,17 @@ string b = "price: $";  // literal "price: $"
 string c = "$$100";     // literal "$100"
 ```
 
-**Type dispatch**: the identifier's resolved type determines the coercion
-applied automatically:
+**Conversion by type**: the identifier's type determines the coercion
+applied at interpolation:
 
-| Identifier type | Coercion applied       |
+| Identifier type | Interpolated result    |
 |-----------------|------------------------|
-| scalar primitives (integer family, `float`/`double`, `bool`, `char`) | `OP_Prim_to_str <kind>` |
+| scalar primitives (integer family, `float`/`double`, `bool`, `char`) | same rendering as concatenation |
 | `string`          | none                   |
-| `enum`            | `OP_Enum_to_str`       |
-| `Array`           | `OP_Array_to_str`      |
-| `List` / `Dict`   | `OP_CallMethod "toString"` |
-| `class`           | `OP_CallMethod "toString"` |
+| `enum`            | the enum member name   |
+| `Array`           | array content format (e.g. `"[1, 2]"`) |
+| `List` / `Dict`   | calls `toString()` (collection content format) |
+| `class`           | calls `toString()` (default: `ClassName@<heap position>`) |
 
 ### The char bridge
 
@@ -162,7 +163,7 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
 
 ### Null
 
-A string slot may hold the null handle (0). Unlike a null class reference
+A string variable may hold the null handle (0). Unlike a null class reference
 (which throws on member access), a null string **reads as the empty string**
 `""` — calling `s.length()` on a null string returns 0. See
 [Class](class.md) for the contrasting class null semantics.

@@ -1,7 +1,23 @@
 /*---
-    IntrinsicsChannel.cpp — K1 Slice 9 / K3 Task 4 Channel<T> 内在函数
-    族（138-141）：构造（容量契约）、send/recv/close、侧表槽位与等待者
-    交付。从 IntrinsicsThread.cpp 抽出（源文件 500 行预算）。
+    IntrinsicsChannel.cpp — K1 Slice 9 / K3 Task 4 Channel<T> intrinsic
+    family (138-141): construction (the capacity contract), send/recv/
+    close, and the side-table slots. Split out of IntrinsicsThread.cpp
+    (the 500-line source budget).
+    K8: every arm runs under the Sync domain — structural sections
+    (slot resolution, table mutation, waiter registration) stay inside
+    the domain while park/wake scheduler calls run between sections
+    (a domain lock is never held across a scheduler call). Parking
+    rides the two-phase handshake: Sync{register} → scheduler{ParkFor*}
+    → Sync{recheck}. The recheck commits on a still-kPending entry
+    (RequestPark; a waker in the mark→steal stretch delivers through
+    the K7 framesParked handshake) and aborts on a stamp — the outcome
+    self-serves at the call site (a value already written through
+    resultPtr, or the closed exception raised after the release). A
+    waker inside the registration→migration window stamps the entry
+    and wakes a Runnable-held context — a no-op — relying on the
+    recheck to abort instead of park: the lost-wakeup window closed.
+    Stamps stay in Sync-owned table state — never a scheduler flag,
+    which would race a mid-park abort's unlocked read.
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -9,9 +25,11 @@
 
 namespace nlang {
 
-//Slice 9: Channel() 构造——物化侧表槽位并把句柄写进 __handle（同
-//Mutex 构造形态：接收者即 callParamBase 槽 0 的实例记录）。K3 Task 4:
-//槽 1 = 容量（两个发射点都显式摆值；0 = 无界），负值抛可捕获的容量错误。
+//Slice 9: Channel() construction — materialize the side-table slot and
+//write the handle into __handle (the Mutex shape: the receiver is the
+//instance record at callParamBase slot 0). K3 Task 4: slot 1 = capacity
+//(both emit sites stage the value explicitly; 0 = unbounded); negative
+//raises the catchable capacity error.
 bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
 {
     int32_t thisIdx;
@@ -26,189 +44,389 @@ bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
     if (capacity < kChannelUnboundedCapacity)
         RaiseNlangException(m_exceptionClassIdx,
             "channel capacity must be 0 (unbounded) or at least 1");
-    const int32_t handle = AllocChannelHandle();
-    m_channelStore[static_cast<size_t>(handle) - 1].capacity = capacity;
+    //K8: the capacity write joins the allocation inside the allocator's
+    //Sync section — the minted handle is not yet visible, but a
+    //concurrent growth reallocates the store vector, so the slot write
+    //shares the structure section.
+    const int32_t handle = AllocChannelHandle(capacity);
     m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
         = handle;
     return true;
 }
 
-//send(v)：无界缓冲时永不停泊（K3 Task 4 起有界容量可停泊）。closed →
-//抛可捕获的 ChannelClosedException（语言面异常，用户代码可恢复）；
-//有等待者 → 值直接交付队首（缓冲必空——不变量）；否则入缓冲尾。值即
-//擦除后的堆句柄（装箱记录或类引用）。
+//send(v): closed → the catchable ChannelClosedException (deferred — a
+//reverse acquisition under the domain); a live waiter → write the value
+//through its saved destination (the buffer is empty — invariant) and
+//wake after the release (committed) or stamp kValue (pending — the
+//aborting parker self-serves); bounded and full → the two-phase park
+//(value+owner FIFO; recv's slot-free path stages the value into the
+//buffer). Values are erased heap handles.
 bool VmExecutor::IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals)
 {
-    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
-    if (slot.closed)
-        RaiseNlangException(m_channelClosedExcClassIdx,
-                            "send on a closed channel");
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "Channel call");
     int32_t value;
     std::memcpy(&value, locals + callParamBase + kFrameSlotBytes,
                 sizeof(value));
-    if (!slot.waiters.empty()) {
-        DeliverToWaiter(slot.waiters.front(), value);
-        slot.waiters.pop_front();
+    const int selfId = m_spScheduler->CurrentContextId();
+    int wakeRecv = -1;
+    bool mustPark = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        ChannelSlot* slot = SyncChannelSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: Channel call on an uninitialized instance");
+        if (slot->closed)
+            throw DeferredNlangRaise{m_channelClosedExcClassIdx,
+                                     "send on a closed channel"};
+        if (!HandoffToLiveWaiter(*slot, value, wakeRecv)) {
+            if (slot->capacity > 0
+                && slot->buffered.size()
+                       >= static_cast<size_t>(slot->capacity)) {
+                //Gate BEFORE mutating scheduler state (decision 2 spec
+                //(a)): the nested-window rejection must not leave a
+                //half-parked context.
+                EnsureSuspensionAllowed();
+                slot->pending.push_back(PendingSend{value, selfId,
+                    PendingSend::Phase::kPending});
+                mustPark = true;
+            } else {
+                slot->buffered.push_back(value);
+            }
+        }
+    }
+    if (wakeRecv >= 0) {
+        m_spScheduler->WakeForChanRecv(wakeRecv);
         return true;
     }
-    //K3 Task 4: bounded and full (a waiter implies an empty buffer, so
-    //reaching here means the buffer owns every slot) → park value+owner
-    //FIFO; recv's slot-free move wakes the owner with the value already
-    //staged into the buffer.
-    if (slot.capacity > 0
-        && slot.buffered.size() >= static_cast<size_t>(slot.capacity)) {
-        EnsureSuspensionAllowed();
-        const int selfId = m_spScheduler->CurrentContextId();
-        slot.pendingSends.push_back(value);
-        slot.pendingSenders.push_back(selfId);
-        m_spScheduler->ParkForChanSend(selfId);
-        RequestPark(ParkSignal::Reason::ChanSend);   //[[noreturn]]
-    }
-    slot.buffered.push_back(value);
-    return true;
+    if (!mustPark)
+        return true;
+    m_spScheduler->ParkForChanSend(selfId);
+    CommitOrAbortChanSend(handle, selfId);
+    return true;   //kValue: recv staged the value into the buffer
 }
 
-//recv()：缓冲非空 → 弹头写 pResult；closed 且空 → 抛可捕获的
-//ChannelClosedException（K3 Task 3：诚实的通道终点，取代 K1 的 null
-//返回——拆箱形态下 null 对基元 T 本就无解）；空且开放 → 停泊：登记唤
-//醒时写值的目标指针 pResult（停泊的调用不会重执行——pc 推进不变量），
-//send 的直接交付或 close 的交付/异常唤醒写回。
+//recv(): buffer non-empty → pop the head into pResult (the freed slot
+//stages the head live pending value and wakes its owner after the
+//release); closed and drained → the catchable ChannelClosedException
+//(deferred); empty and open → the two-phase park (the destination
+//pointer pResult is registered — a parked call is not re-executed, the
+//pc-advance invariant; send's handoff or close's delivery/exception
+//write through it).
 bool VmExecutor::IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
                                       uint8_t* pResult)
 {
-    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
-    if (!slot.buffered.empty()) {
-        const int32_t value = slot.buffered.front();
-        slot.buffered.pop_front();
-        //K3 Task 4: a slot freed — stage the head pending value into the
-        //buffer and wake its owner (resume only; the parked call is not
-        //re-executed, its value is already queued).
-        if (!slot.pendingSenders.empty()) {
-            slot.buffered.push_back(slot.pendingSends.front());
-            slot.pendingSends.pop_front();
-            m_spScheduler->WakeForChanSend(slot.pendingSenders.front());
-            slot.pendingSenders.pop_front();
-        }
-        std::memcpy(pResult, &value, sizeof(value));
-        return true;
-    }
-    if (slot.closed)
-        RaiseNlangException(m_channelClosedExcClassIdx,
-                            "recv on a closed and drained channel");
-    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
-    //nested-window rejection must not leave a half-parked context.
-    EnsureSuspensionAllowed();
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "Channel call");
     const int selfId = m_spScheduler->CurrentContextId();
-    slot.waiters.push_back(ChannelWaiter{selfId, pResult});
+    int wakeSender = -1;
+    bool mustPark = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        ChannelSlot* slot = SyncChannelSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: Channel call on an uninitialized instance");
+        if (!slot->buffered.empty()) {
+            const int32_t value = slot->buffered.front();
+            slot->buffered.pop_front();
+            wakeSender = StagePendingSend(*slot);
+            std::memcpy(pResult, &value, sizeof(value));
+        } else if (slot->closed) {
+            throw DeferredNlangRaise{m_channelClosedExcClassIdx,
+                "recv on a closed and drained channel"};
+        } else {
+            //Gate BEFORE mutating scheduler state (decision 2 spec (a)):
+            //the nested-window rejection must not leave a half-parked
+            //context.
+            EnsureSuspensionAllowed();
+            slot->waiters.push_back(ChannelWaiter{selfId, pResult,
+                ChannelWaiter::Phase::kPending});
+            mustPark = true;
+        }
+    }
+    if (wakeSender >= 0)
+        m_spScheduler->WakeForChanSend(wakeSender);
+    if (!mustPark)
+        return true;
     m_spScheduler->ParkForChanRecv(selfId);
-    RequestPark(ParkSignal::Reason::ChanRecv);   //[[noreturn]]
+    if (CommitOrAbortChanRecv(handle, selfId) == AbortOutcome::kClosed)
+        RaiseNlangException(m_channelClosedExcClassIdx,
+            "recv on a closed and drained channel");   //[[noreturn]]
+    return true;   //kValue: the deliverer already wrote pResult
 }
 
-//close()：幂等置位；首闭时唤醒全部等待者——缓冲值先排干（已发送的值
-//先于关闭信号被取走），排干后剩余等待者以 ChannelClosedException 唤醒
-//（K3 Task 3：停泊中的消费者同样看见诚实的通道终点）。等待者必伴随空
-//缓冲（不变量），异常分支为常规形态。
+//close(): idempotent flag; waiters drain buffered values first (sent
+//values precede the close signal — K3 Task 3), the rest get the
+//catchable ChannelClosedException; parked senders' pending values are
+//dropped. K8: committed entries deliver through resultPtr / arm via
+//the wake call's rethrow parameter; pending entries take stamps their
+//aborting parkers self-serve. The exception OBJECTS build after the
+//release (a Container acquisition is reverse under Sync) and arm
+//inside the wake calls' scheduler critical sections.
 bool VmExecutor::IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals)
 {
-    ChannelSlot& slot = ResolveChannelSlot(callParamBase, locals);
-    if (slot.closed)
-        return true;
-    slot.closed = true;
-    //K3 Task 3: waiters the buffer can't satisfy wake with the
-    //catchable ChannelClosedException instead of a silent null. The
-    //object is prebuilt once (first drained waiter) and rooted the
-    //moment it lands on the waiter's context — a scheduler root — so
-    //the gap until that context resumes is covered. No GC safepoint
-    //exists inside this intrinsic, so the build-and-arm window is
-    //atomic with respect to collection.
-    int32_t closedExc = 0;
-    while (!slot.waiters.empty()) {
-        ChannelWaiter waiter = slot.waiters.front();
-        slot.waiters.pop_front();
-        if (!slot.buffered.empty()) {
-            const int32_t value = slot.buffered.front();
-            slot.buffered.pop_front();
-            DeliverToWaiter(waiter, value);
-            continue;
-        }
-        ExecutionContext* parkedCtx
-            = m_spScheduler->FindMutable(waiter.contextId);
-        if (!parkedCtx)
-            continue;   //corrupt registry — nothing to wake
-        if (closedExc == 0)
-            closedExc = BuildNlangException(m_channelClosedExcClassIdx,
-                "recv on a closed and drained channel");
-        parkedCtx->rethrowOnResume = true;
-        parkedCtx->resumeExcHeapIdx = closedExc;
-        m_spScheduler->WakeForChanRecv(waiter.contextId);
+    const int32_t handle = ReadSyncPrimitiveHandle(callParamBase, locals,
+                                                   "Channel call");
+    std::vector<int> valueWoken;    //committed waiters that drained a value
+    std::vector<int> closedRecvs;
+    std::vector<int> closedSenders;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        ChannelSlot* slot = SyncChannelSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: Channel call on an uninitialized instance");
+        if (slot->closed)
+            return true;
+        slot->closed = true;
+        CollectClosedRecvOutcomes(*slot, valueWoken, closedRecvs);
+        CollectClosedSenders(*slot, closedSenders);
     }
-    //K3 Task 4: parked senders wake with the same catchable exception;
-    //their pending values are dropped (never delivered — the channel is
-    //closed).
-    WakeClosedPendingSenders(slot);
+    WakeClosedWaiters(closedRecvs, closedSenders);
+    for (int id : valueWoken)
+        m_spScheduler->WakeForChanRecv(id);
     return true;
 }
 
-//K3 Task 4: close 的发送者臂——每个停泊发送者以可捕获的 closed 异常唤
-//醒（共享一个预建对象并随赋值即扎根于调度器根，同 recv 臂纪律）。
-void VmExecutor::WakeClosedPendingSenders(ChannelSlot& slot)
+//K8: close's waiter sweep — committed entries deliver through resultPtr
+//(value) or join the closed audience (armed after the release); pending
+//entries take stamps their aborting parkers self-serve. Buffered values
+//drain first (sent values precede the close signal — K3 Task 3).
+void VmExecutor::CollectClosedRecvOutcomes(ChannelSlot& slot,
+                                           std::vector<int>& valueWoken,
+                                           std::vector<int>& closedRecvs)
 {
-    int32_t closedExc = 0;
-    while (!slot.pendingSenders.empty()) {
-        const int senderId = slot.pendingSenders.front();
-        slot.pendingSenders.pop_front();
-        slot.pendingSends.pop_front();
-        ExecutionContext* parkedCtx = m_spScheduler->FindMutable(senderId);
-        if (!parkedCtx)
-            continue;   //corrupt registry — nothing to wake
-        if (closedExc == 0)
-            closedExc = BuildNlangException(m_channelClosedExcClassIdx,
-                "send on a closed channel");
-        parkedCtx->rethrowOnResume = true;
-        parkedCtx->resumeExcHeapIdx = closedExc;
-        m_spScheduler->WakeForChanSend(senderId);
+    for (auto it = slot.waiters.begin(); it != slot.waiters.end();) {
+        if (it->phase == ChannelWaiter::Phase::kCommitted) {
+            if (!slot.buffered.empty()) {
+                std::memcpy(it->resultPtr, &slot.buffered.front(),
+                            sizeof(int32_t));
+                slot.buffered.pop_front();
+                valueWoken.push_back(it->contextId);
+            } else {
+                closedRecvs.push_back(it->contextId);
+            }
+            it = slot.waiters.erase(it);
+        } else if (it->phase == ChannelWaiter::Phase::kPending) {
+            if (!slot.buffered.empty()) {
+                std::memcpy(it->resultPtr, &slot.buffered.front(),
+                            sizeof(int32_t));
+                slot.buffered.pop_front();
+                it->phase = ChannelWaiter::Phase::kValue;
+            } else {
+                it->phase = ChannelWaiter::Phase::kClosed;
+            }
+            ++it;   //stamped entries stay for their aborting parkers
+        } else {
+            ++it;   //dead mailbox of an in-flight abort
+        }
     }
 }
 
-//Slice 9 共享：解析接收者实例（callParamBase 槽 0）到侧表槽位（同
-//Mutex 形态）。
-VmExecutor::ChannelSlot& VmExecutor::ResolveChannelSlot(
-    uint16_t callParamBase, uint8_t* locals)
+//K8: close's sender sweep — committed senders join the closed audience
+//(armed after the release); pending senders get kClosed stamps. Pending
+//values are dropped (never delivered — the channel is closed).
+void VmExecutor::CollectClosedSenders(ChannelSlot& slot,
+                                      std::vector<int>& closedSenders)
 {
-    int32_t thisIdx;
-    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
-    if (thisIdx <= 0
-        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null reference in Channel call");
-    const int32_t handle =
-        m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset];
-    if (handle <= 0 || static_cast<size_t>(handle) > m_channelStore.size())
-        throw std::runtime_error(
-            "NLang VM: Channel call on an uninitialized instance");
-    return m_channelStore[static_cast<size_t>(handle) - 1];
+    for (auto it = slot.pending.begin(); it != slot.pending.end();) {
+        if (it->phase == PendingSend::Phase::kCommitted) {
+            closedSenders.push_back(it->senderId);
+            it = slot.pending.erase(it);
+        } else {
+            if (it->phase == PendingSend::Phase::kPending)
+                it->phase = PendingSend::Phase::kClosed;
+            ++it;
+        }
+    }
 }
 
-//Slice 9：分配通道侧表槽位（句柄 = 下标+1，0 保留给 null）。复用槽位
-//时整体重置——清扫回收只归还句柄，缓冲/等待者可能残留被丢弃通道的状
-//态（与互斥体同纪律）。
-int32_t VmExecutor::AllocChannelHandle() {
+//K8: the recheck half of the two-phase handshake for a parked recv.
+//Commit path: mark the entry kCommitted, then RequestPark throws out
+//of the guard — a sender/close in the mark→steal stretch delivers
+//through resultPtr and the K7 framesParked handshake enqueues us.
+//Abort path: pop the entry, undo the state migration (the frames never
+//left this carrier), report the stamp.
+VmExecutor::AbortOutcome VmExecutor::CommitOrAbortChanRecv(int32_t handle,
+                                                           int selfId)
+{
+    AbortOutcome outcome = AbortOutcome::kValue;
+    bool commit = false;
+    bool found = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        ChannelSlot* slot = SyncChannelSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: Channel call on an uninitialized instance");
+        for (auto it = slot->waiters.begin(); it != slot->waiters.end();
+             ++it) {
+            if (it->contextId != selfId)
+                continue;
+            found = true;
+            if (it->phase == ChannelWaiter::Phase::kPending) {
+                it->phase = ChannelWaiter::Phase::kCommitted;
+                commit = true;
+            } else {
+                if (it->phase == ChannelWaiter::Phase::kClosed)
+                    outcome = AbortOutcome::kClosed;
+                slot->waiters.erase(it);   //consume the stamp
+            }
+            break;
+        }
+        if (!found)
+            throw std::runtime_error(
+                "NLang VM: channel waiter entry vanished");
+    }
+    if (commit)
+        RequestPark(ParkSignal::Reason::ChanRecv);   //[[noreturn]]
+    m_spScheduler->AbortPark(selfId);
+    return outcome;
+}
+
+//K8: the recheck half for a parked send (same shape; the outcome raises
+//at the call site — kValue means recv staged the value into the
+//buffer, the send is complete).
+void VmExecutor::CommitOrAbortChanSend(int32_t handle, int selfId)
+{
+    bool commit = false;
+    bool closed = false;
+    bool found = false;
+    {
+        DomainGuard g(m_domainLocks, DomainId::Sync);
+        ChannelSlot* slot = SyncChannelSlotAt(handle);
+        if (!slot)
+            throw std::runtime_error(
+                "NLang VM: Channel call on an uninitialized instance");
+        for (auto it = slot->pending.begin(); it != slot->pending.end();
+             ++it) {
+            if (it->senderId != selfId)
+                continue;
+            found = true;
+            if (it->phase == PendingSend::Phase::kPending) {
+                it->phase = PendingSend::Phase::kCommitted;
+                commit = true;
+            } else {
+                closed = it->phase == PendingSend::Phase::kClosed;
+                slot->pending.erase(it);   //consume the stamp
+            }
+            break;
+        }
+        if (!found)
+            throw std::runtime_error(
+                "NLang VM: channel sender entry vanished");
+    }
+    if (commit)
+        RequestPark(ParkSignal::Reason::ChanSend);   //[[noreturn]]
+    m_spScheduler->AbortPark(selfId);
+    if (closed)
+        RaiseNlangException(m_channelClosedExcClassIdx,
+                            "send on a closed channel");   //[[noreturn]]
+}
+
+//K8: send's handoff — the first live waiter (kPending or kCommitted;
+//stamped entries are dead mailboxes their aborting parkers pop).
+//Writes the value through its saved destination, then either pops the
+//committed entry (reporting its context for the post-release wake) or
+//stamps kPending kValue (the aborting parker self-serves). Returns
+//false when nobody waits (send buffers or parks instead).
+bool VmExecutor::HandoffToLiveWaiter(ChannelSlot& slot, int32_t value,
+                                     int& wakeRecv)
+{
+    for (auto it = slot.waiters.begin(); it != slot.waiters.end(); ++it) {
+        if (it->phase != ChannelWaiter::Phase::kPending
+            && it->phase != ChannelWaiter::Phase::kCommitted)
+            continue;
+        std::memcpy(it->resultPtr, &value, sizeof(value));
+        if (it->phase == ChannelWaiter::Phase::kCommitted) {
+            wakeRecv = it->contextId;
+            slot.waiters.erase(it);
+        } else {
+            it->phase = ChannelWaiter::Phase::kValue;
+        }
+        return true;
+    }
+    return false;
+}
+
+//K8: a buffer slot freed — stage the head live pending value into the
+//buffer (FIFO; dead stamps skipped). A committed sender wakes (resume
+//only — the parked call is not re-executed, its value is queued); a
+//pending sender gets stamped kValue (its aborting recheck returns with
+//the send complete). Returns the sender to wake after the release, -1
+// when none.
+int VmExecutor::StagePendingSend(ChannelSlot& slot)
+{
+    for (auto it = slot.pending.begin(); it != slot.pending.end(); ++it) {
+        if (it->phase == PendingSend::Phase::kPending) {
+            slot.buffered.push_back(it->value);
+            it->phase = PendingSend::Phase::kValue;
+            return -1;
+        }
+        if (it->phase == PendingSend::Phase::kCommitted) {
+            slot.buffered.push_back(it->value);
+            const int sender = it->senderId;
+            slot.pending.erase(it);
+            return sender;
+        }
+    }
+    return -1;
+}
+
+//K8: close's exception arms — one prebuilt object per audience, armed
+//inside the wake call's scheduler critical section (a committed
+//context consumes the flag on resume; stamped parkers never see it —
+//they self-serve their stamps).
+void VmExecutor::WakeClosedWaiters(const std::vector<int>& recvs,
+                                   const std::vector<int>& senders)
+{
+    int32_t recvExc = 0;
+    for (int id : recvs) {
+        if (recvExc == 0)
+            recvExc = BuildNlangException(m_channelClosedExcClassIdx,
+                "recv on a closed and drained channel");
+        m_spScheduler->WakeForChanRecv(id, recvExc);
+    }
+    int32_t sendExc = 0;
+    for (int id : senders) {
+        if (sendExc == 0)
+            sendExc = BuildNlangException(m_channelClosedExcClassIdx,
+                "send on a closed channel");
+        m_spScheduler->WakeForChanSend(id, sendExc);
+    }
+}
+
+//K8 shared with the Mutex family (IntrinsicsThread.cpp): side-table
+//lookup under the caller's Sync guard; null defers the
+//uninitialized-instance error.
+VmExecutor::ChannelSlot* VmExecutor::SyncChannelSlotAt(int32_t handle) {
+    if (handle <= 0
+        || static_cast<size_t>(handle) > m_channelStore.size())
+        return nullptr;
+    return &m_channelStore[static_cast<size_t>(handle) - 1];
+}
+
+//Slice 9: allocate a channel side-table slot (handle = index+1, 0
+//reserved for null). Reuse resets the whole slot — the sweep only
+//returns handles; buffered/waiters/pending may carry a discarded
+//channel's state (same discipline as the mutex). K8: the allocator
+//owns the Sync-domain guard (reentrant for already-inside callers);
+//the capacity write shares the allocation section (a concurrent growth
+//reallocates the store vector).
+int32_t VmExecutor::AllocChannelHandle(int32_t capacity) {
+    DomainGuard g(m_domainLocks, DomainId::Sync);
     if (!m_channelFreeList.empty()) {
         const int32_t handle = m_channelFreeList.back();
         m_channelFreeList.pop_back();
         m_channelStore[static_cast<size_t>(handle) - 1] = ChannelSlot();
+        m_channelStore[static_cast<size_t>(handle) - 1].capacity = capacity;
         return handle;
     }
     m_channelStore.emplace_back();
+    m_channelStore.back().capacity = capacity;
     return static_cast<int32_t>(m_channelStore.size());
 }
 
-//唤醒时交付（send 直接交付与 close 全员唤醒共用）：先写值进停泊帧的
-//结果槽、再回 Runnable——被唤醒的上下文经载体出队执行，读到已写好的
-//返回值。
-void VmExecutor::DeliverToWaiter(ChannelWaiter& waiter, int32_t value)
-{
-    std::memcpy(waiter.resultPtr, &value, sizeof(value));
-    m_spScheduler->WakeForChanRecv(waiter.contextId);
-}
 } // namespace nlang

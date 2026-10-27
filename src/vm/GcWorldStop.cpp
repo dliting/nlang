@@ -1,0 +1,219 @@
+/*---
+    GcWorldStop.cpp — GC stop-the-world rendezvous (K7 thread registry)
+---*/
+#include "GcWorldStop.h"
+#include <cstdio>
+
+namespace nlang {
+//Registry self-identification (one-executor-per-thread assumption, the
+//K6 thread-local precedent: the codebase never stacks two executors'
+//RunFrames on one thread).
+thread_local GcWorldStop* GcWorldStop::t_selfStop = nullptr;
+thread_local GcWorldStop::ThreadEntry* GcWorldStop::t_selfEntry = nullptr;
+thread_local uint64_t GcWorldStop::t_selfGeneration = 0;
+
+//--- K7: thread registry + executing-bit rendezvous ---
+
+void GcWorldStop::Tripwire(const char* what)
+{
+    std::fprintf(stderr,
+        "GcWorldStop protocol violation: %s (unregistered or wrong"
+        " state) — terminating\n", what);
+    std::terminate();
+}
+
+GcThreadToken GcWorldStop::RegisterThread(std::vector<CallFrame>* evalStack)
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    ThreadEntry* self = SelfEntry();
+    if (self != nullptr && self->live.load(std::memory_order_relaxed))
+        Tripwire("RegisterThread (already registered)");
+    GcThreadToken token;
+    token.generation = m_nextGeneration++;
+    if (m_freeIndices.empty()) {
+        token.index = m_threads.size();
+        m_threads.emplace_back();   //address-stable: never relocated
+    } else {
+        token.index = m_freeIndices.back();
+        m_freeIndices.pop_back();
+    }
+    ThreadEntry& entry = m_threads[token.index];
+    entry.evalStack = evalStack;
+    entry.executing.store(false, std::memory_order_relaxed);
+    entry.live.store(true, std::memory_order_relaxed);
+    entry.generation = token.generation;
+    t_selfStop = this;
+    t_selfEntry = &entry;
+    t_selfGeneration = token.generation;
+    return token;
+}
+
+void GcWorldStop::UnregisterThread(GcThreadToken token)
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    if (token.generation == 0 || token.index >= m_threads.size())
+        return;
+    ThreadEntry& entry = m_threads[token.index];
+    if (!entry.live.load(std::memory_order_relaxed)
+        || entry.generation != token.generation)
+        return;   //stale token (Reset retire or index reuse) — no-op
+    if (entry.executing.load(std::memory_order_relaxed))
+        Tripwire("UnregisterThread (still executing)");
+    entry.live.store(false, std::memory_order_relaxed);
+    m_freeIndices.push_back(token.index);
+    if (SelfEntry() == &entry)
+        t_selfEntry = nullptr;
+}
+
+bool GcWorldStop::IsRegistered() const
+{
+    const ThreadEntry* self =
+        const_cast<GcWorldStop*>(this)->SelfEntry();
+    return self != nullptr
+        && self->live.load(std::memory_order_relaxed);
+}
+
+bool GcWorldStop::ExecutingSelf() const
+{
+    const ThreadEntry* self =
+        const_cast<GcWorldStop*>(this)->SelfEntry();
+    return self != nullptr
+        && self->live.load(std::memory_order_relaxed)
+        && self->executing.load(std::memory_order_relaxed);
+}
+
+bool GcWorldStop::BeginExecuting()
+{
+    std::unique_lock<std::mutex> lk(m_mutex);
+    ThreadEntry* self = SelfEntry();
+    if (self == nullptr)
+        Tripwire("BeginExecuting");
+    if (!EntryIsCurrent(*self))
+        return false;   //zombie (Reset retire / index reuse) — in no
+                        //denominator; nothing to wait out either
+    //Rule A: park until no stop is in flight, THEN flip on — the
+    //collector scans the published stacks of non-executing threads, so
+    //an executing flip during a stop would race the scan. The wait
+    //sleeps on the cv; the caller holds no global lock (contract).
+    m_cv.wait(lk,
+        [this] { return !m_stopActive.load(std::memory_order_relaxed); });
+    ++m_executingCount;
+    self->executing.store(true, std::memory_order_relaxed);
+    return true;
+}
+
+bool GcWorldStop::EndExecuting()
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    ThreadEntry* self = SelfEntry();
+    if (self == nullptr)
+        Tripwire("EndExecuting");
+    if (!EntryIsCurrent(*self))
+        return false;   //zombie — no arrival, nothing to wait for
+    if (!self->executing.load(std::memory_order_relaxed))
+        Tripwire("EndExecuting (not executing)");
+    self->executing.store(false, std::memory_order_relaxed);
+    --m_executingCount;
+    //Rule B: with a stop in flight, this stop-executing transition is
+    //the thread's arrival (same critical section as the flip above).
+    if (!m_stopActive.load(std::memory_order_relaxed))
+        return false;
+    ++m_arrived;
+    return m_arrived == m_expected;
+}
+
+bool GcWorldStop::InitiateAndArrive()
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    ThreadEntry* self = SelfEntry();
+    if (self == nullptr || !EntryIsCurrent(*self))
+        Tripwire("InitiateAndArrive");
+    if (!self->executing.load(std::memory_order_relaxed))
+        Tripwire("InitiateAndArrive (not executing)");
+    if (!m_stopActive.load(std::memory_order_relaxed)) {
+        //Sole initiator: advance the epoch and snapshot the executing
+        //count (self included); the self-arrival below lands in the
+        //same critical section, so no observer can see the snapshot
+        //and the arrival separately.
+        ++m_requestEpoch;
+        m_stopActive.store(true, std::memory_order_release);
+        m_expected = m_executingCount;
+        m_arrived = 0;
+    }
+    //else: dual initiation — join the in-flight stop as an arrival;
+    //a second epoch is never advanced, so the K6 single-flight
+    //terminate tripwire has no successor here.
+    self->executing.store(false, std::memory_order_relaxed);
+    --m_executingCount;
+    ++m_arrived;
+    return m_arrived == m_expected;
+}
+
+void GcWorldStop::WaitForCompletion()
+{
+    std::unique_lock<std::mutex> lk(m_mutex);
+    const uint64_t epoch = m_requestEpoch;   //observed at entry
+    m_cv.wait(lk, [this, epoch] { return m_completedEpoch >= epoch; });
+}
+
+//K8: the collector's quiescence gate (spec D3 — the constructive fact,
+//pinned by a tripwire). The elected last arriver calls this before a
+//lock-free collection: a stop must be in flight with every snapshot
+//member arrived (no window can re-open mid-collection — Rule A waits
+//out the epoch — and no store allocation can run without a window).
+//Anything else is an accounting bug: collecting without quiescence
+//would race live bytecode, so refuse loudly instead.
+void GcWorldStop::AssertAllArrived()
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    if (!m_stopActive.load(std::memory_order_relaxed)
+        || m_arrived != m_expected)
+        Tripwire("AssertAllArrived (rendezvous not quiesced)");
+}
+
+void GcWorldStop::Complete()
+{
+    {
+        std::lock_guard<std::mutex> g(m_mutex);
+        if (m_requestEpoch > m_completedEpoch)
+            m_completedEpoch = m_requestEpoch;
+        m_stopActive.store(false, std::memory_order_release);
+        m_stopCount.fetch_add(1, std::memory_order_relaxed);
+    }
+    m_cv.notify_all();
+}
+
+void GcWorldStop::Reset()
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    m_requestEpoch = 0;
+    m_completedEpoch = 0;
+    m_expected = 0;
+    m_arrived = 0;
+    m_executingCount = 0;
+    m_stopActive.store(false, std::memory_order_release);
+    m_stopCount.store(0, std::memory_order_relaxed);
+    //Retire every entry IN PLACE — the deque never shrinks, so a
+    //detached zombie carrier's t_selfEntry stays a valid pointer to an
+    //inert entry. All slots become reusable; the generation counter
+    //keeps advancing, so tokens issued before the Reset can never
+    //match a later registration (even one reusing the same index).
+    for (auto& entry : m_threads)
+        entry.live.store(false, std::memory_order_relaxed);
+    m_freeIndices.clear();
+    for (size_t i = m_threads.size(); i-- > 0; )
+        m_freeIndices.push_back(i);
+}
+
+std::vector<std::vector<CallFrame>*>
+GcWorldStop::RegisteredStacks() const
+{
+    std::lock_guard<std::mutex> g(m_mutex);
+    std::vector<std::vector<CallFrame>*> roots;
+    for (auto& entry : m_threads)
+        if (entry.live.load(std::memory_order_relaxed))
+            roots.push_back(entry.evalStack);
+    return roots;
+}
+
+} // namespace nlang

@@ -66,3 +66,4 @@ AGENTS.reference.md
 # Transient staging and auxiliary build trees (regenerated)
 _CPack_Packages/
 build-src-entry/
+build-sync/

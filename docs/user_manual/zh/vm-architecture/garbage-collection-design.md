@@ -1,6 +1,6 @@
 # 垃圾回收设计
 
-NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、按槽位句柄位图的精确扫描（带保守回退）、并行数组、迭代式标记——以及完整的标记-清扫算法、停泊上下文与在途阻塞原生的根集、数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
+NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者创建对象后无需手工释放。本页记录四个核心设计决策——安全点触发、按槽位句柄位图的精确扫描（带保守回退）、并行数组、迭代式标记——以及完整的标记-清扫算法、运行求值窗、挂起上下文与在途阻塞原生的根集、数组字段的追踪规则。读懂这些决策就能知道VM会在哪些时刻回收、哪些槽位会被视为存活。
 
 ### 设计决策
 
@@ -10,7 +10,7 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 在分配点（OP_New/OP_AllocStruct）处，tempSlot与tempSlot2可能正持有活跃堆引用（例如`a.b.c = Foo()`，此时tempSlot=a、tempSlot2=a.b）。追踪这些临时值需要CompiledFunction里配备逐指令的偏移表，复杂度不划算。
 
-安全点（函数入口、循环回边，以及调度器引入后的线程派生）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入句柄位图（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
+安全点（函数入口 + 循环回边）把回收放在边界清晰的位置：函数入口处栈帧刚刚建立；循环回边处条件即将重新求值。历史上这个选择还依赖「回边处临时槽不持有活跃引用」的论证；引入句柄位图（决策2）后，暂存槽在任何安全点都被覆盖，该论证不再承重——安全点触发保留的价值是标记工作的时机确定、成本可控。
 
 **2. 按槽位句柄位图给出精确根类别**
 
@@ -25,13 +25,13 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 
 意义所在：声明表看不见暂存槽。`f(g(), h())`中g的返回值在h入帧（安全点）时只活在调用帧的求值暂存区里。位图以每次收集更少的测试工作补上这个洞，且不依赖物理布局：只有`Dual`槽位才付双域值测试的代价。帧建立时零初始化，未写的槽值为0，两个域都不命中；GC不移动对象，因此`Dual`槽位的跨域命中只可能多标（对象暂留），绝不漏标。手工构造的内存函数记录若位图长度与帧布局不符（装载器在产物中拒绝这种形态），整带回退为双域保守扫描。
 
-停泊上下文的帧可能冻结在指令中途，暂存值同样必须存活——位图对停泊帧与运行帧一视同仁（见「停泊上下文与调度器根集」），不需要为停泊形态另建一套根集机制。
+挂起上下文的帧可能冻结在指令中途，暂存值同样必须存活——位图对挂起帧与运行帧一视同仁（见「挂起上下文与调度器根集」），不需要为挂起形态另建一套根集机制。
 
 **3. 用m_slotStructIdx并行数组识别struct类型**
 
 struct对象没有类型头（不同于class对象的slot[0] = classIdx）。MarkStruct需要structIdx才能查询字段布局、追踪引用。可选方案：
 - 给struct对象加类型头：所有针对struct的LoadField/StoreField偏移都要+1，牵动大量指令处理器
-- 并行数组：只在分配时设置——AllocStructOnHeap与DeepCopyStruct写入struct索引，数组分配向同一并行数组写入数组类型索引——既有指令逻辑零改动
+- 并行数组：只有AllocStructOnHeap/DeepCopyStruct需要设置它，既有指令逻辑零改动
 
 并行数组是更小、更安全的改动。
 
@@ -54,7 +54,7 @@ CollectGarbage():
 
 MarkPhase():
   clear all mark bits (heap and string stores)
-  for each CallFrame (running stack):
+  for each CallFrame (each carrier's evaluation stack, via the window registry):
     //parameters: declared descriptors
     for each LocalDescriptor with isParam and a reference typeKind:
       RTK_String: MarkString(value)      //handle, not heap index
@@ -72,12 +72,9 @@ MarkPhase():
       Dual:      value-test both domains
     //fallback for a bitmap whose length disagrees with the frame layout:
     //value-test both domains over the whole band
-  for each scheduler context:      //parked/queued/finished contexts (steal model)
+  for each scheduler context:      //parked/queued contexts (steal model)
     for each parked CallFrame: run the same three arms (params, result, band)
-    if threadObjHeapIdx, failExcHeapIdx or resumeExcHeapIdx valid:
-      mark, push to worklist
-    if frames empty (finished): classify resultCell by the snapshotted
-      resultKind — this keeps a Future<T> value alive between spawn and get()
+    if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
     handles minted by re-entrant callbacks: value-test both domains
@@ -85,11 +82,9 @@ MarkPhase():
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
     pop entry from worklist
-    if func: trace the captured receiver of a bound method value (slot[1])
     if class: for each field, push unmarked reference children;
       string-typed fields (RTK_String) mark their string handle instead;
-      container arms MarkListElements / MarkDictEntries / MarkChannelElements
-      (buffered List/Dict/channel values are children)
+      MarkChannelElements (buffered channel values are children)
     if struct: for each field, push unmarked reference children;
       string-typed fields mark their string handle instead
     if array: push unmarked element records whose elemKind is a reference kind;
@@ -101,12 +96,8 @@ SweepPhase():
   clear free list
   for each heap slot:
     if not free and not marked:
-      if class: recycle a List/Dict/Mutex/Channel instance's side-table
-        handle to its free list; FreeOwnedStructs (free value-owned
-        struct fields)
+      if class: FreeOwnedStructs (free value-owned struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
-      if array: FreeOwnedArrayStructElements (free value-owned struct
-        elements)
       clear slot, mark as free, add to free list
 
 SweepStrings():
@@ -123,25 +114,26 @@ SweepStrings():
 
 **字符串分支的阈值退避。**字符串仓的底层数组从不缩容（死槽原地复用），因此尺寸触发是电平触发的——首次越限后每个安全点都会触发回收，而每次回收都要标记整条存活的拼接链，追加总量退化为O(n²)（基准：5×10^4节点链6.6s、10^5节点链26.7s）。每次清扫后把阈值退避到存活数的2倍（`strThreshold = max(strThreshold, 2 * survivorCount)`），触发点随存活集合几何级推进：摊还后追加O(1)，内存上界为存活集合的2倍。
 
-### 停泊上下文与调度器根集
+### 挂起上下文与调度器根集
 
-帧栈机下，正在执行的上下文的帧就是调用栈本身；**停泊**（睡眠、等待join、`Future.get`取值、竞争互斥体、空通道接收、满通道发送、被抢占）的上下文的整条帧栈保存在调度器里，不在调用栈上。收集时二者都是根：
+每个载体拥有自己的求值栈；正在执行的上下文的帧就是其载体的栈，窗口开启期间发布到发布表（见下一节）。**挂起**（睡眠、等待join、`Future.get`取值、竞争互斥体、空通道接收、满通道发送、被抢占）的上下文的整条帧栈保存在调度器里，不在任何载体的栈上。收集时二者都是根：
 
-- 每个停泊上下文的每个帧跑与运行帧相同的三个扫描臂（参数描述符、返回值槽、帧带位图）——停泊可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
-- 上下文的`Thread`对象（`join`按其句柄识别目标）、失败上下文保留的异常对象（`join`要按原对象重抛）、以及为下次恢复预置的异常（因通道关闭而被唤醒的停泊接收方/发送方）单独作为根；
-- 已完成上下文的返回值单元按快照的返回种类分类——`Future<T>`的引用值正是在这里从派生到`get()`取值之间保持存活；
+- 每个挂起上下文的每个帧跑与运行帧相同的三个扫描臂（参数描述符、返回值槽、帧带位图）——挂起可能发生在指令中途，帧内暂存值与处理器状态都必须存活；
+- 上下文的`Thread`对象（`join`按其句柄识别目标）与失败上下文保留的异常对象（`join`要按原对象重抛）单独作为根；
 - 通道缓冲里的值经工作列表的class分支追踪（`Channel<T>`是带句柄字段的内建class，缓冲元素随对象标记）。
 
 `thread.spawn`在铸好根帧与`Thread`对象后即经过一次安全点检查，派生上下文的帧从诞生起就被根集覆盖。上下文与并发语义的总览见[并发](../language-spec/concurrency.md)与[帧机与调度器](frame-machine-and-scheduler.md)。
 
-### GIL下的回收与阻塞原生扎根
+### 停止世界会合与阻塞原生扎根
 
-堆的每一次改动——分配、标记、清扫——都持有全局解释器锁（GIL，global interpreter lock；见[并发](../language-spec/concurrency.md)）。回收在持有GIL的载体上运行，其余载体此时无法触碰堆：不需要另设停止世界的握手。
+存储保护按域加锁（域 = 数据类别，每类一把锁；见[载体与并行](../language-spec/concurrency-carriers.md)）：堆与字符串分配走每载体空闲表，容器、同步原语、流与字符串维护各持一把域锁；帧局部与字段访问的计算段在各自载体上无锁运行，同域操作互斥、跨域重叠，因此收集不能只是「在分派间隙」进行：由**停止世界会合**协调。载体在安全点观察到待收集条件时请求世界停止；每个开着求值窗的载体在它的下一个安全点到达，最后到达者内联执行收集——会合钉住了「全部成员已挂起」这一事实，标记与清扫无需再取域锁、无竞争地触碰存储（其余全员停在会合处等待），完成后唤醒等待者。
 
-- 非阻塞原生调用全程持有GIL，回收不可能与其交错，实参无需额外扎根。
-- **阻塞**原生调用使用暂存格（staged cells）：此类调用按ABI（应用二进制接口，application binary interface）第5版的注册通道声明。VM把实参拷入自有格子，释放GIL，调用原生，重新取GIL（先查停止标志），复原帧，再把结果拷回。无锁窗口内其他载体上的回收可以运行，因此暂存的实参格与返回槽在整个调用期间都是根；返回格按地址作为根——原生自己写入其中。
-- 阻塞原生内对VM的回调（构造字符串、构造列表、抛出异常）每次回调重新获取GIL。它们铸造的句柄压入执行器的本地根向量，调用返回时截断到水印；它存放在执行器而非载体的C++栈上，因为运行在另一载体上的回收器看不见那条栈。
-- 根向量的改动都在GIL下进行（释放前登记，重新获取后截断），回收读到的列表因此始终一致。
+根集随之扩展。每个载体的求值栈在窗口开启期间登记到发布表，收集者扫描发布表的每个条目：活跃窗阻塞在会合处因而稳定；为阻塞原生挂起的窗已把帧挂起（栈为空，挂起帧按调度器根扫描）；为调试冻结挂起的窗把帧留在载体栈上、载体阻塞——同样稳定。
+
+- 非阻塞原生调用不挂起、不取锁：任何收集都必须等其载体回到安全点才能推进，因此不会与其交错；实参留在求值栈上，由发布表覆盖为根，无需额外扎根。
+- **阻塞**原生调用使用暂存格（staged cells）：此类调用按ABI（应用二进制接口，application binary interface）第5版的注册通道声明。VM把实参拷入自有格子，释放锁，调用原生，重新取锁（先查停止标志），复原帧，再把结果拷回。无锁窗口内其他载体上的回收可以运行，因此暂存的实参格与返回槽在整个调用期间都是根；返回格按地址作为根——原生自己写入其中。
+- 阻塞原生内对VM的回调（构造字符串、构造列表、抛出异常）每次回调重新获取锁。它们铸造的句柄压入执行器的本地根向量，调用返回时截断到水印；它存放在执行器而非载体的C++栈上，因为运行在另一载体上的回收器看不见那条栈。
+- 根向量的改动都在锁下进行（释放前登记，重新获取后截断），回收读到的列表因此始终一致。
 
 ### 数组字段与元素追踪
 
@@ -153,14 +145,13 @@ SweepStrings():
 
 ### 空闲表集成
 
-各分配函数（AllocClassOnHeap、AllocStructOnHeap、AllocArrayOnHeap、DeepCopyStruct、函数值记录创建）先查空闲表：有空闲槽位就复用（resize到正确大小，设置m_slotKinds/m_slotStructIdx）；否则emplace_back一个新槽位。
+各分配函数（AllocClassOnHeap、AllocStructOnHeap、DeepCopyStruct）先查空闲表：有空闲槽位就复用（resize到正确大小，设置m_slotKinds/m_slotStructIdx）；否则emplace_back一个新槽位。
 
 ### GC触发流程
 
 ```text
-OP_New / OP_AllocStruct / OP_AllocArray / OP_CopyStruct → m_gcPending = true
+OP_New / OP_AllocStruct → set m_gcPending = true
 String allocation (mint / concatenation node) → set m_gcPending = true
-Function-value record creation → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
@@ -170,4 +161,4 @@ CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()
 ```
 
-安全点只在持有GIL的载体上触发；停泊中的上下文不在运行，无需配合即可被扫描。
+安全点在每个载体上都触发——无锁运行中的帧局部段同样要在下一个回边到达会合。挂起中的上下文不在运行，无需配合即可被扫描。

@@ -11,10 +11,6 @@
 namespace nlang
 {
 
-//K3 sync-primitive method shape (ThreadNamespace.h defines it; a
-//reference parameter needs no full type here).
-struct SyncMethodShape;
-
 enum FindFuncResult
 {
 	//The function name is not found.
@@ -167,6 +163,9 @@ const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 
 //Reference-only use below; definition in ScriptLocation.h.
 class ScriptLocation;
+
+//Reference-only use below; definition in ModuleRegistry.h.
+class ModuleRegistry;
 
 //Helpers shared across the ExprResolver*.cpp TUs (2026-09-25/26 splits).
 //Definitions live across those TUs; builder-internal.
@@ -476,29 +475,16 @@ private:
 		uint8_t want);
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//K1: Mutex/Channel by-name methods — runs BEFORE the stream family
-	//(close is also a stream method name and would be captured there).
-	bool TryResolveSyncPrimitiveMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//TryResolveSyncPrimitiveMethod's post-classification tail: named/out
-	//veto, caller-scope argument resolution, arity check, type wiring.
-	bool FinishSyncPrimitiveCall(SnMemberExpr &snMember,
-		SnInvokeExpr &invoke, SnFieldExpr *pInnerExpr,
-		const SyncMethodShape &shape, SyntaxNode *pSavedContext);
 	//Access's builtin by-name method families, historical dispatch order
 	//(extracted for the 50-line function budget).
 	bool TryResolveBuiltinMethodFamilies(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
-	bool TryResolveObjectProtocolMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	//0.9.10 D2.4: type-name receiver in the Object protocol arm with no
-	//same-name static — the call is an instance call with no receiver.
-	//Logs the diagnostic, restores the context, returns true.
+	//0.9.10 D2.4: type-name receiver calling an instance method with no
+	//same-name static — kept for the non-class toString family's enum
+	//type-name guard. Logs the diagnostic, restores the context, returns
+	//true.
 	bool RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
-		const std::string &name, SyntaxNode *pSavedContext);
-	bool TryResolveUserClassEqualsOrGetHashCode(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, SyntaxNode *pSavedContext);
 	bool IsNonClassToStringReceiver(SnMemberExpr &snMember);
 	bool TryResolveNonClassToString(SnMemberExpr &snMember,
@@ -520,8 +506,6 @@ private:
 	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::vector<SnField*> &typeArgs,
 		const std::string &baseName, const std::string &name);
-	bool TryResolveExceptionField(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	void ResolveInvokeArgsInCallerScope(SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
 	void FinishResolvedMember(SnMemberExpr &snMember,
@@ -1345,5 +1329,25 @@ private:
 	ExprResolveAccessor m_Accessor;
 	SyntaxNodeVisitor<ExprResolveAccessor> m_Visitor;
 };
+
+/*
+Builtin-decls source of truth: the prelude-owned root declaration of a
+builtin class name. Scans the merged root namespace for the class the
+"builtins" package owns — never a user shadow, which sits ahead of the
+prelude in the root and must not become other classes' base. Null = the
+prelude has no such class. Definition in ExprResolverTypes.cpp.
+*/
+SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
+	const std::string &name);
+
+/*
+Every class without a declared base inherits the prelude-declared
+Object — the compile-time chain mirror of the backend's implicit-
+inheritance wiring. Idempotent per class (both resolver passes call
+it); the prelude Object itself is the one class that stays rootless.
+Definition in ExprResolverTypes.cpp.
+*/
+void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
+	const ModuleRegistry &reg);
 
 } //namespace nlang

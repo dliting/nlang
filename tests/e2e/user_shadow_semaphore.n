@@ -1,0 +1,17 @@
+//Shadowing contract (builtin-decls source-of-truth spec 6.8): a user
+//class named like a prelude builtin wins at EVERY site — type position,
+//construction, and member access. Before the Semaphore cluster
+//migrates, the constructor-call site short-circuits to the synthesized
+//builtin singleton (whose ctor requires one int), so this program fails
+//to compile; after the migration it returns the user field's value.
+class Semaphore {
+    public int tag;
+    public Semaphore() {
+        tag = 7;
+    }
+}
+
+int main() {
+    Semaphore s = Semaphore();
+    return s.tag;
+}

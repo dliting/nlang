@@ -1,0 +1,7 @@
+//A static with the protocol method's exact parameter list claims the
+//dispatch slot — rejected with the same collision diagnostic family
+//(the static namespace rule; owner renders as the declared Object).
+class P {
+    static string toString() { return "s"; }
+}
+int main() { return 0; }

@@ -51,8 +51,15 @@ bool HostFunctionTable::Call(const CompiledFunction& callee,
     } catch (BadValue&) {
         throw;
     } catch (Exception& e) {
-        if (e.m_heapIdx > 0)
-            throw NLangThrow(e.m_heapIdx, e.message());
+        if (e.m_heapIdx > 0) {
+            //K8: the recorded instance may have been collected while
+            //the host held it (host memory is not scanned) — resolve
+            //through the executor: same instance if still live, else a
+            //fresh one with the same class/message.
+            const int32_t target = m_pExecutor->ExceptionRethrowTarget(
+                e.exceptionClass(), e.message(), e.m_heapIdx);
+            throw NLangThrow(target, e.message());
+        }
         m_pExecutor->RaiseHostException(e.message());
     } catch (std::exception& e) {
         m_pExecutor->RaiseHostException(e.what());

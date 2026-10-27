@@ -34,9 +34,25 @@ add_custom_command(
     COMMENT "Generating Flex lexer"
 )
 
+#The embedded prelude TU is a hard source of nlang_compiler: the build
+#generates it from stdlib/builtins.n (the declarations' source of truth),
+#so editing that file re-embeds on the next build.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(BUILTINS_SRC ${PROJECT_SOURCE_DIR}/stdlib/builtins.n)
+set(BUILTINS_EMBED ${CMAKE_CURRENT_BINARY_DIR}/generated/builtins_embedded.cpp)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+add_custom_command(
+    OUTPUT ${BUILTINS_EMBED}
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
+            ${BUILTINS_SRC} ${BUILTINS_EMBED} kBuiltinPreludeSource
+    DEPENDS ${BUILTINS_SRC} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
+    COMMENT "Embedding stdlib/builtins.n"
+)
+
 add_library(nlang_compiler
     ${GENERATED_DIR}/nlang.tab.cpp
     ${GENERATED_DIR}/nlang.lex.cpp
+    ${BUILTINS_EMBED}
     SyntaxNode.cpp
     SyntaxTree.cpp
     TranslationUnit.cpp
@@ -49,7 +65,6 @@ add_library(nlang_compiler
     ModuleBuilderImports.cpp
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
-    ModuleBuilderObjectProtocol.cpp
     ModuleBuilderStaticNamespace.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp

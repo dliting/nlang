@@ -29,12 +29,12 @@ bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
     //(yield) suspends mid-frame and resume re-enters at frame.pc, so
     //re-executing this call would loop forever.
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
     //Resume point = the instruction AFTER this call's immediates.
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }
@@ -43,6 +43,8 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
     //Static-bound handle to a free function: {funcIdx, this=0,
     //form=0}. Allocation always happens (no interning) so two
     //references to one function are distinct-but-equal records.
+    //K8: lock-free — AllocFuncRecord pops the calling carrier's
+    //shard; the function table is link-time read-only.
     uint16_t funcIdx = reader.ReadUint16();
     if (funcIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
@@ -52,6 +54,11 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
 }
 
 bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+    //K8: lock-free — the handle check is a benign heap read, and the
+    //record reference survives callee-side allocation (ChunkedArray
+    //addresses are stable across growth). Delegates never dispatch to
+    //intrinsics (both ABI arms reject them), so the call body needs no
+    //store serialization beyond what its own arms hold.
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     int32_t handleIdx;
@@ -61,12 +68,13 @@ bool VmExecutor::OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
                                callParamBase, locals, pResult, 0);
 }
 
 bool VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+    //K8: lock-free — same shape as OpCallDelegate.
     uint16_t calleeLocal = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     uint32_t outMask = reader.ReadUint32();
@@ -77,7 +85,7 @@ bool VmExecutor::OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint
         || m_slotKinds[static_cast<size_t>(handleIdx)] != RTK_Func)
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null function value in CallDelegate");
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     return ExecuteDelegateCall(m_structHeap[static_cast<size_t>(handleIdx)],
                                callParamBase, locals, pResult, outMask);
 }
@@ -88,6 +96,8 @@ void VmExecutor::OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult) {
     //reads pResult BEFORE writing the handle. A null receiver
     //throws at BIND time — a handle materialized with this==0
     //would dispatch as a free function and silently misframe.
+    //K8: lock-free — the receiver check is a benign heap read;
+    //AllocFuncRecord pops the calling carrier's shard.
     uint16_t funcIdx = reader.ReadUint16();
     int32_t thisIdx;
     std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
@@ -108,6 +118,7 @@ void VmExecutor::OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult) {
     //pool index) instead of a function index; dispatch resolves
     //the override chain on the runtime class at call time. Same
     //bind-time null-receiver guard as MakeBoundFunc.
+    //K8: lock-free — same shape as OpMakeBoundFunc.
     uint16_t nameIdx = reader.ReadUint16();
     int32_t thisIdx;
     std::memcpy(&thisIdx, pResult, sizeof(thisIdx));
@@ -144,7 +155,7 @@ bool VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t*
         throw std::runtime_error(
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, outMask, 0);
     return true;
 }
@@ -159,7 +170,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
     //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
@@ -169,7 +180,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }
@@ -197,7 +208,7 @@ bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
         throw std::runtime_error(
             "NLang VM: native function does not support out parameters: "
             + callee.name);
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     //Slot 0 is `this` on BOTH sides here (the caller's staging area
     //carries the receiver too), so user param i sits at frame slot i
     //and at callParamBase+i — the writeback is unshifted (contrast the
@@ -214,6 +225,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     //therefore shows the caller (e.g. CallGet) but not the
     //callee (e.g. Get). This is intentional — the callee never
     //ran — and matches how mainstream runtimes report NPEs.
+    //K8: lock-free — benign heap + read-only tables; intrinsic/native arms re-acquire internally.
     uint16_t methodNameIdx = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
     if (methodNameIdx >= m_currModule->stringConstants.size())
@@ -241,7 +253,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
     //re-executing the call would re-park forever (OpCallFunc invariant).
     if (callee.intrinsicId != INTR_None) {
-        m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+        EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
@@ -251,7 +263,7 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
-    m_callStack.back().pc = static_cast<uint16_t>(reader.CurrentOffset());
+    EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     PushCalleeFrame(callee, callParamBase, 0, 0);
     return true;
 }
@@ -270,23 +282,14 @@ void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_
 //AllocBoxedValue's freelist discipline; 3 slots and RTK_Func kind.
 int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
                                     int32_t form) {
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(3, 0);
-        m_slotKinds.push_back(0);
-        m_slotStructIdx.push_back(0);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     m_structHeap[static_cast<size_t>(heapIdx)][0] = target;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = thisIdx;
     m_structHeap[static_cast<size_t>(heapIdx)][2] = form;
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Func;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
-    m_gcPending = true;
+    NoteGcPressure();
     return heapIdx;
 }
 

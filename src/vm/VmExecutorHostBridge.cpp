@@ -20,11 +20,11 @@ void VmExecutor::CallByName(const std::string& qualifiedName,
     if (!m_currModule)
         throw std::runtime_error(
             "NLang VM: CallByName before InitializeForRun");
-    //K2 slice 4: the by-name entry may run on a host thread outside any
-    //carrier window — hold the GIL across the whole call (it allocates,
-    //collects, dispatches natives). Inside a window the guard nests as
-    //a no-op and the caller's holding is preserved.
-    GilEnsureGuard gil(*this);
+    //K7: pure name resolution — this body only reads the (read-only)
+    //function table; the rendezvous membership and the global lock both
+    //live one level down, in CallFunctionByIdx, so every entry shape
+    //(host-outermost, blocking-native callback re-entry, nested bridge
+    //call) is classified at the one point that runs code.
     //Scan all functions carrying the key (overloads share it); the
     //arity test is argc <= paramCount <= argc + defaults-available.
     //The adapter already disambiguated; here take the first whose
@@ -56,38 +56,55 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
         throw std::runtime_error(
             "NLang VM: intrinsic function not callable by name: "
             + callee.name);
+    //K7: both arms participate in the rendezvous through one bridge
+    //scope — the native arm arrives at scope exit (the GIL held across
+    //it blocks any concurrent collection), the bytecode arm additionally
+    //polls at its own backedges. The bridge comes BEFORE the lock:
+    //BeginExecuting's Rule A wait must be GIL-free, and the destruction
+    //order (lock releases, then the bridge dtor's arrival may collect)
+    //keeps the wait sequence lock-free too.
+    BridgeExecutingScope bridge(*this);
+    GilEnsureGuard gil(*this);
     if (callee.isNative) {
-        //Stage into our own buffer — CallNative reads the caller-frame
-        //ABI (args at base 0 of the given buffer).
-        std::vector<uint8_t> staged(
-            static_cast<size_t>(callee.paramCount) * kFrameSlotBytes, 0);
-        if (argc)
-            std::memcpy(staged.data(), argCells,
-                        static_cast<size_t>(argc) * kFrameSlotBytes);
-        FillDefaults(callee, staged.data(), argc);
-        CallNative(callee, 0, staged.data(), resultCell);
+        RunBridgeNativeCall(callee, argCells, argc, resultCell);
         return;
     }
     //Nested window: push onto the shared frame stack and run until the
     //depth captured at entry. The catch-all preserves the by-name bridge
     //contract: any escaping error carries the backtrace snapshot.
-    const size_t baseDepth = m_callStack.size();
-    uint8_t* staged = PushRootFrame(callee, resultCell);
+    const size_t baseDepth = EvalStack().size();
+    //deferSafepoint: argCells are caller-owned handles that exist
+    //nowhere else during the staging gap; the check runs below once rooted.
+    uint8_t* staged = PushRootFrame(callee, resultCell, /*deferSafepoint=*/true);
     if (argc)
         std::memcpy(staged, argCells,
                     static_cast<size_t>(argc) * kFrameSlotBytes);
     FillDefaults(callee, staged, argc);
+    CheckGCSafepoint();
     try {
-        //Nested evaluation window: suspension is impossible here (see
-        //CallToStringOverride's guard — same reasoning: the window
-        //belongs to a host-initiated call mid-instruction).
-        //K2 slice 2: the depth lives on the running carrier's slot.
+        //Suspension is impossible in this host-initiated nested window
+        //(CallToStringOverride's guard, same reasoning).
         NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
         RunFrames(baseDepth);
     } catch (...) {
+        //Under the body guard (D8's backtrace write site).
         m_lastBacktrace = FormatBacktrace();
         throw;
     }
+}
+
+//CallFunctionByIdx's native arm: stage the caller-frame ABI copy (args
+//at base 0 of our own buffer), fill defaults, invoke.
+void VmExecutor::RunBridgeNativeCall(const CompiledFunction& callee,
+                                     const uint8_t* argCells, uint32_t argc,
+                                     uint8_t* resultCell) {
+    std::vector<uint8_t> staged(
+        static_cast<size_t>(callee.paramCount) * kFrameSlotBytes, 0);
+    if (argc)
+        std::memcpy(staged.data(), argCells,
+                    static_cast<size_t>(argc) * kFrameSlotBytes);
+    FillDefaults(callee, staged.data(), argc);
+    CallNative(callee, 0, staged.data(), resultCell);
 }
 
 //Formals beyond argc fill from the declaration's Option-B default
@@ -142,12 +159,18 @@ void VmExecutor::RaiseHostException(const std::string& msg) {
 //when a reference Value is created and pops when its last shared copy
 //dies; MarkPhase reads the registry during collection.
 void VmExecutor::PushHostRoot(uint8_t kind, int32_t value) {
+    //K8: the host-root registry takes its own leaf mutex (collection
+    //reads it at rendezvous); the embed adapter calls this outside any
+    //run, and concurrent carriers can be inside natives.
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
     m_hostRoots.push_back(HostRoot{kind, value});
 }
 
 //Reverse scan erases the most recently pushed matching pair — LIFO keeps
 //nested push/pop of equal values balanced (Value copy + destroy order).
 void VmExecutor::PopHostRoot(uint8_t kind, int32_t value) {
+    //K8: same registry mutex as PushHostRoot.
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
     for (auto it = m_hostRoots.rbegin(); it != m_hostRoots.rend(); ++it) {
         if (it->kind == kind && it->value == value) {
             m_hostRoots.erase(std::next(it).base());
@@ -188,6 +211,7 @@ int32_t VmExecutor::AllocHostDict() {
 
 void VmExecutor::HostListPushBack(int32_t listHeapIdx,
                                   int32_t elemHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     auto& slot = m_structHeap[static_cast<size_t>(listHeapIdx)];
     const int32_t handle = slot[kListHandleFieldOffset];
     m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(
@@ -196,6 +220,7 @@ void VmExecutor::HostListPushBack(int32_t listHeapIdx,
 
 void VmExecutor::HostDictUpsert(int32_t dictHeapIdx, int32_t keyHeapIdx,
                                 int32_t valHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     auto& slot = m_structHeap[static_cast<size_t>(dictHeapIdx)];
     const int32_t handle = slot[kListHandleFieldOffset];
     auto& entries =
@@ -260,6 +285,7 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
 }
 
 uint32_t VmExecutor::HostListSize(int32_t heapIdx) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     return static_cast<uint32_t>(
@@ -267,6 +293,7 @@ uint32_t VmExecutor::HostListSize(int32_t heapIdx) const {
 }
 
 int32_t VmExecutor::HostListGet(int32_t heapIdx, uint32_t index) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     const auto& elements =
@@ -278,6 +305,7 @@ int32_t VmExecutor::HostListGet(int32_t heapIdx, uint32_t index) const {
 
 bool VmExecutor::HostDictEntryGet(int32_t heapIdx, uint32_t index,
                                   int32_t& keyOut, int32_t& valOut) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     const auto& entries =
@@ -290,6 +318,7 @@ bool VmExecutor::HostDictEntryGet(int32_t heapIdx, uint32_t index,
 }
 
 uint32_t VmExecutor::HostDictSize(int32_t heapIdx) const {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(heapIdx)][kListHandleFieldOffset];
     return static_cast<uint32_t>(

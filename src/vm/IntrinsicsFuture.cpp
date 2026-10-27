@@ -82,8 +82,10 @@ bool VmExecutor::IntrinsicFutureGet(uint16_t callParamBase,
         std::memcpy(pResult, &ctx.resultCell, sizeof(ctx.resultCell));
         return true;
     }
-    if (ctx.state == ContextState::Failed)
+    if (ctx.state == ContextState::Failed) {
+        m_spScheduler->MarkFailureObserved(ctx.id);
         ThrowJoinTargetFailure(ctx.failExcHeapIdx);
+    }
     //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
     //nested-window rejection must not leave a half-parked context.
     EnsureSuspensionAllowed();

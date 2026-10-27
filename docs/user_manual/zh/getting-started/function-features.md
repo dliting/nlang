@@ -21,7 +21,7 @@ int main() {
     int r = 0;
     divmod(17, 5, out q, out r);    // q=3, r=2
     io.print("17 = 5*" + q + " + " + r);
-    if (add(q) == 13 && r == 2)     // b 缺省为 10
+    if (add(q) == 13 && r == 2)     // b缺省为10
         return 13;
     return 1;
 }
@@ -29,7 +29,7 @@ int main() {
 
 输出`17 = 5*3 + 2`，退出码13。`out`参数让一次调用带回多个结果；参数可带默认值（还支持具名实参）；函数可重载，支持递归与`void`返回。
 
-详见 → [语言规格/函数](../language-spec/functions.md)。
+详见[语言规格/函数](../language-spec/functions.md)。
 
 ### 函数值
 
@@ -51,7 +51,7 @@ int main() {
 
 输出：无；退出码42。函数可以当作值传递：`func`关键字（`func<Ret, Args...>`）命名一种函数类型，自由函数或绑定方法（`c.foo`）都能绑到它上面。函数值可存进变量、字段与集合（`List<func<int, int>>`、`func<int, int>[]`）。
 
-详见 → [语言规格/函数类型与委托](../language-spec/function-types-and-delegates.md)。
+详见[语言规格/函数类型与委托](../language-spec/function-types-and-delegates.md)。
 
 ### native函数
 
@@ -60,12 +60,12 @@ int main() {
 ```nlang calc.n
 native int natAdd(int a, int b);          // 无函数体：实现由宿主提供
 
-int quad(int x) { return natAdd(x, x); }  // NLang 函数可以包装native函数
+int quad(int x) { return natAdd(x, x); }  // NLang函数可以包装native函数
 ```
 
-输出：无——本片段只展示声明侧（能通过编译；真正调用需要宿主侧实现）。`native`函数没有函数体，实现由宿主进程提供：自由函数以`<包名>.<函数名>`为键，命令行工具按包名在搜索路径上定位`nlang_<包名>.dll`，嵌入宿主则按名称注册实现。标准库的`io.print`就是这样一个native函数（`stdlib/io.n`中声明为`native void print(string)`，实现随`nlang_io.dll`分发）。调用直接分派给实现，不经过NLang栈帧；NLang侧的包装函数（如`quad`）则是普通函数。
+输出：无——本片段只展示声明侧（能通过编译；真正调用需要宿主侧实现）。`native`函数没有函数体，实现由宿主进程提供：自由函数以`<包名>.<函数名>`为键，命令行工具按包名在搜索路径上定位`nlang_<包名>.dll`，嵌入宿主则按名称注册实现。标准库的`io.print`就是这样一个native函数（`stdlib/io.n`中声明为`native void print(string)`，实现随`nlang_io.dll`分发）。调用直接交给内建实现执行，不在NLang侧产生函数调用（不占用调用栈）；NLang侧的包装函数（如`quad`）则是普通函数。
 
-详见 → [语言规格/函数](../language-spec/functions.md)。
+详见[语言规格/函数](../language-spec/functions.md)。
 
 ### 模块
 
@@ -78,8 +78,8 @@ import io;
 import utils.helper;
 
 int main() {
-    io.print(twice(21));            // 同目录 helper.n：裸调用，免 import
-    io.print(utils.helper.answer());// 子目录：import 后用模块路径限定
+    io.print(twice(21));            // 同目录helper.n：裸调用，免import
+    io.print(utils.helper.answer());// 子目录：import后用模块路径限定
     if (utils.helper.answer() == 42)
         return 42;
     return 1;
@@ -120,7 +120,7 @@ int answer() { return 42; }
 
 `import`还支持递归通配：`import utils.*;`一次性导入`utils/`及其全部嵌套子目录（调用仍写全限定`utils.helper.f()`）。重复导入、通配与精确混合都是幂等的，效果取并集。
 
-完整的可见性矩阵（谁需要import、允许什么调用形式）与import相关报错文案，见语言规格的Import Declaration一节。
+完整的可见性矩阵（谁需要import、允许什么调用形式）与全部六类报错文案，见[语言规格/声明](../language-spec/declarations.md)的「import声明」一节。
 
-详见 → [语言规格/声明](../language-spec/declarations.md)、[标准库](../language-spec/standard-library.md)。
+详见[语言规格/声明](../language-spec/declarations.md)、[标准库](../language-spec/standard-library.md)。
 

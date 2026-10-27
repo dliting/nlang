@@ -30,7 +30,7 @@ int f[100] = [7, 8];      // declaration position, partial init: rest zero-fille
   [Declarations](declarations.md).
 - Declaring without an initializer (`int[] g;`) yields a null reference —
   see the default value table in [Declarations](declarations.md).
-- The element type can be a struct (`Point[3]` materializes an independent
+- The element type can be a struct (`Point[3]` creates an independent
   value per element, see [Struct](struct.md)) or a class (references are
   stored). Arrays of arrays (jagged form) are not supported — see
   [Known Limitations](known-limitations.md).
@@ -50,8 +50,8 @@ variables pointing at the same array observe the same element writes.
   [Built-in Generic Classes](builtin-generic-classes.md) for `List<int[]>`).
 
 A struct-typed array is the exception in behavior: each element is a value
-type, so `Point[n]` materializes a fresh independent `Point` per element
-and reading an element deep-copies it. See [Struct](struct.md) "Value
+type, so `Point[n]` allocates a fresh independent `Point` per element at
+creation, and reading an element deep-copies it. See [Struct](struct.md) "Value
 semantics". The full value-vs-reference summary is on
 [Type Semantics](type-semantics.md).
 

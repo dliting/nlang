@@ -1,0 +1,35 @@
+//Concurrency example 3 of 8 — a producer/consumer pipeline.
+//The producer sends 1..10 and closes the channel; recv parks while the
+//buffer is empty, buffered values drain first after close, and the
+//then-raised ChannelClosedException is the loop's exit signal.
+import thread;
+import io;
+
+class Producer {
+    public Channel<int> feed;
+    public void run() {
+        for (int i = 1; i <= 10; i = i + 1) {
+            feed.send(i);
+        }
+        feed.close();
+        io.print("producer: sent 1..10 and closed");
+    }
+}
+
+int main() {
+    Producer p = Producer();
+    Channel<int> c = {};
+    p.feed = c;
+    Thread producer = thread.spawn(p.run);
+    int sum = 0;
+    while (true) {
+        try {
+            sum = sum + c.recv();
+        } catch (ChannelClosedException e) {
+            break;
+        }
+    }
+    thread.join(producer);
+    io.print("consumer: summed 1..10 to ${sum}");
+    return 15;
+}

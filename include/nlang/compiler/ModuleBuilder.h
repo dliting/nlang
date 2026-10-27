@@ -122,11 +122,28 @@ private:
 	//loop body): the multi-root duplicate diagnosis, otherwise inline the
 	//single match under its root. True when a TU was added.
 	bool HandleLibraryImport(const std::string &dottedName);
+	//HandleLibraryImport's match tail, shared with the prelude
+	//resolution: a match that IS a project source is already compiled in;
+	//anything else inlines under its root. True when a TU was added.
+	bool ImportLibraryMatch(
+		const std::pair<std::string, std::string>& match);
+	//The implicit prelude import (JLS §7.5.3 analogue): resolve the
+	//reserved "builtins" package once per build — first disk match wins
+	//(dev-iteration edits of the stdlib copy), the embedded copy parses
+	//as a pseudo-path unit when no search root provides it, and two
+	//roots offering the package is the duplicate-package diagnosis.
+	//Runs after ParseTransUnits, before DiscoverLibraryUnits. True when
+	//a TU joined this call.
+	bool EnsurePreludeImported();
 	//Index and fully parse one library source file as a library TU,
 	//recording the root it was found under (the package derives from
-	//that root, not from the project dir). True when newly inlined.
+	//that root, not from the project dir). pSourceText parses in-memory
+	//text instead of opening the file (the embedded prelude copy; no
+	//signature index — the package classifies through its registry
+	//entry). True when newly inlined.
 	bool ParseLibraryUnit(const std::string& path,
-		const std::string& packageRoot);
+		const std::string& packageRoot,
+		const char* pSourceText = nullptr);
 	//Build the per-TU import gates (D1: imports are file-scoped) and
 	//collect the single-segment external .ncu candidates into
 	//rExternalNames. False after logging the gate errors.
@@ -165,6 +182,12 @@ private:
 	//roots) are gone after the merge.
 	void ExpandTypeAliases();
 	//Merge the root fields in different translation units into the AST.
+	//Runs in PrepareUnits BEFORE LoadImports: the import-stub collision
+	//checks (nameExistsInRoot) must see the consumer's own declarations,
+	//or a peer image's prelude records (own in every image by design)
+	//would be minted into the root beside them. TU order (user, prelude,
+	//libraries) is the root member order — the shadowing contract (user
+	//declarations ahead of the prelude) rides it.
 	void MergeTransUnits();
 	//Tag a (unit-root or nested) namespace's direct members with the
 	//owning module index; nested namespaces recurse (they can span TUs).

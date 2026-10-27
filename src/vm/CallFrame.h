@@ -2,10 +2,13 @@
     CallFrame.h — 帧机调用帧（并发 K1，2026-10-19 从 VmExecutor.h 抽取）
     调度器（VmScheduler.h 的 ExecutionContext）需要按值持有帧栈，独立
     成头避免与 VmExecutor.h 循环包含；内容零变化。
+    K7: UnwindFrame 提升至命名空间作用域（曾是 VmExecutor 体内嵌套类）
+    ——载体槽位（VmScheduler.h）持有解退记录，嵌套类无法前向声明。
 ---*/
 #pragma once
 #include "nlang/vm/CompiledModule.h"
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace nlang {
@@ -14,7 +17,7 @@ namespace nlang {
 //set. One CallFrame per active NLang function invocation.
 struct CallFrame {
     //Locals buffer owned by the frame. A per-frame vector: when
-    //m_callStack grows, the element move steals the buffer, so every
+    //the owning stack grows, the element move steals the buffer, so every
     //frame's localsBuf.data() stays valid across pushes (raw pointers
     //into a shared buffer would dangle on reallocation).
     std::vector<uint8_t> localsBuf;
@@ -45,6 +48,17 @@ struct CallFrame {
     //frame (not executor-global) so a cross-function call cannot leak a
     //parent's catch context into the callee.
     std::vector<int32_t> handlerExcStack;
+};
+
+//Frame record captured during exception unwinding, innermost-first
+//(the innermost frame's destructor ran first). Only the uncaught path
+//yields observable text — FormatBacktrace renders it. K7: lives at
+//namespace scope (moved out of VmExecutor) so the carrier slot can own
+//the record vector.
+struct UnwindFrame {
+    std::string funcName;
+    std::string sourceFile;   //v0.8.5: the frame function's compiled translation unit
+    uint16_t currentLine;
 };
 
 } // namespace nlang

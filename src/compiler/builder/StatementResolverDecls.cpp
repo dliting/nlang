@@ -340,14 +340,25 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 //Enum declaration resolving (member values, enum-method rejections)
 //likewise lives in StatementResolverDeclEnum.cpp.
 
+//First-wins AddLocal would leave a duplicate declarator's references
+//statically bound to the earlier declaration (masked only by layout).
+static void RejectDuplicateDeclarator(BuildEnvironment &env,
+	SnParagraph &paragraph, const std::string &name, SnLocalVar *pLocal,
+	const ISourceLocation *pLoc)
+{
+	if (!paragraph.AddLocal(name, pLocal))
+		env.Log(CLL_Error, pLoc,
+			"local '%s' is already declared in this scope", name.c_str());
+}
+
+//0.10.7 D2: a size payload types only its own declarator; the
+//interned array token is that declarator's field (the statement
+//type stays the head type for every declarator).
 SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 	SnLocalDeclStmt::LocalDecl &decl, const ISourceLocation &loc,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedArrayField)
 {
-	//0.10.7 D2: a size payload types only its own declarator; the
-	//interned array token is that declarator's field (the statement
-	//type stays the head type for every declarator).
 	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
 		? pSizedArrayField : pTypeField;
 	auto *pLocal = new SnLocalVar(decl.name, pDeclField, loc);
@@ -358,7 +369,7 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 		pLocal->SetArrayType(true);
 	if (pSizedArrayField && decl.pArraySize)
 		decl.bArrayType = true;
-	paragraph.AddLocal(decl.name, pLocal);
+	RejectDuplicateDeclarator(m_Env, paragraph, decl.name, pLocal, &loc);
 	return pLocal;
 }
 

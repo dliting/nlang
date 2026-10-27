@@ -38,9 +38,8 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 
 //Binds the resolved type declaration to the new-expression. Classes keep
 //the Phase 13 func-type rejection (func values come only from function or
-//method references, never by-name construction) and the K1 Thread
-//rejection (spawn mints the handle); structs join directly (0.9.11 D2).
-//False = the diagnostic was logged, abort resolution.
+//method references, never by-name construction); structs join directly
+//(0.9.11 D2). False = the diagnostic was logged, abort resolution.
 bool ExprResolveAccessor::BindNewExprType(SnNewExpr &sn, SnField &typeField)
 {
 	if (typeField.Kind() == NK_ClassDecl)
@@ -54,15 +53,11 @@ bool ExprResolveAccessor::BindNewExprType(SnNewExpr &sn, SnField &typeField)
 				"function or method reference");
 			return false;
 		}
-		//K1: Thread instances come only from thread.spawn — the handle is
-		//minted by the scheduler, so by-name construction is meaningless.
-		//Mutex/Channel stay constructible (their handles own the resource).
-		if (pClassDecl->IsBuiltinClass() && pClassDecl->Name() == "Thread")
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"Thread objects cannot be constructed; use thread.spawn(f)");
-			return false;
-		}
+		//Thread used to gate by-name construction here as a synthesized
+		//builtin; as a declared class its empty ctor surface says it all
+		//(with-args rejects on the no-constructor arm, the zero-arg form
+		//is the legal bare-allocation shape). Mutex/Channel stay
+		//constructible (their handles own the resource).
 		sn.ClassDecl(pClassDecl);
 	}
 	else

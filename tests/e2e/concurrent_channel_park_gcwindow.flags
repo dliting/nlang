@@ -1,0 +1,5 @@
+#K8 Task 7: deliberately NO --gc-stress flag. Natural GC thresholds give
+#the wider [delivery -> resume] window; measured on the ASan build, forced
+#micro-collections (--gc-stress=8) act as scheduling barriers that narrow
+#the window (0/50 failures with the rooting fix disabled vs 17/50 without
+#the flag). The sleep-gated sender keeps the receiver provably parked.

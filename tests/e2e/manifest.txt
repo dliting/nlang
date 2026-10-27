@@ -1,13 +1,10 @@
 # NLang Phase 2 end-to-end tests
 # Format: test_name expected_exit_code
-
 # --- Basic return ---
 return_literal 42
-
 # --- Variable declaration ---
 var_decl_init 10
 var_reassign 20
-
 # --- Arithmetic ---
 arithmetic_add 30
 arithmetic_sub 7
@@ -17,14 +14,11 @@ arithmetic_mod 2
 arithmetic_mod_negative 11
 all_int_ops 1
 nested_arith 45
-
 # --- Comparison ---
 compare_ops 1
-
 # --- Logical ---
 logical_ops 1
 unary_neg 1
-
 # --- if/else ---
 if_true 1
 if_false 0
@@ -32,21 +26,17 @@ if_else_false 2
 if_else_true 2
 nested_if 1
 var_arith_if 30
-
 # --- while loop ---
 while_loop 55
 while_if_nested 9
-
 # --- do-while loop ---
 do_while 45
 do_while_break 10
 do_while_continue 25
 do_while_once 1
-
 # --- float ---
 float_arith_cmp 1
 float_div 1
-
 # --- function call ---
 func_call 7
 func_recursive 120
@@ -54,25 +44,19 @@ func_chained 20
 func_with_if 20
 func_fibonacci 8
 func_while 55
-
 # --- nested blocks ---
 nested_block_var 10
 deep_nested_block 6
-
 # --- multi-variable declaration ---
 multi_var_decl 7
-
 # --- negative values ---
 negative_value 5
-
 # --- while with locals ---
 while_with_local 15
-
 # --- type coercion ---
 cast_float_to_int 3
 cast_int_to_float 7
 implicit_float_to_int_reject compile_error Incompatible type
-
 # --- bool (0.7.5 strict) ---
 bool_basics 0 false
 bool_strict_reject compile_error condition must be bool
@@ -81,7 +65,6 @@ bool_predicates 0 false
 bool_ordering_reject compile_error bool values cannot be ordered
 bool_mixed_reject compile_error a bool value can only be compared with a bool value
 bool_box_roundtrip 0
-
 # --- integer family (0.7.5) ---
 int_family_basic 0 9007199254740993
 int_family_as_wrap 0 -128
@@ -107,21 +90,17 @@ dict_subscript_read_key 0
 dict_subscript_read_key_type_reject compile_error Incompatible type
 int_family_switch 0 hit
 int_family_cross_mod_default 0 5000000005
-
 # --- for loop ---
 for_loop 45
 for_break 10
 for_continue 25
 for_assign_init 45
 for_empty_init_fini 45
-
 # --- while + break/continue ---
 while_break 10
 while_continue 25
-
 # --- nested loops ---
 nested_loop_break 15
-
 # --- switch/case ---
 switch_basic 20
 switch_default 30
@@ -130,7 +109,6 @@ switch_no_default 0
 switch_in_loop 60
 switch_with_block 15
 switch_continue 9
-
 # --- enum ---
 enum_switch 2
 enum_explicit 10
@@ -139,7 +117,6 @@ enum_default 3
 enum_param 1
 enum_to_int 2
 enum_neg_reject compile_error non-negative
-
 # --- string ---
 string_length 5
 string_length_twice 10
@@ -155,7 +132,6 @@ string_concat_length 11
 string_reassign 3
 string_loop_concat 3
 string_var_concat 4
-
 # --- struct ---
 struct_basic 42
 struct_float 1
@@ -174,7 +150,6 @@ struct_ctor_defaults 0
 struct_ctor_this_bare_field 0
 err_struct_ctor_super compile_error 'super' is only valid inside a class constructor
 err_struct_method compile_error struct "S" may only declare fields and constructors
-
 # --- class ---
 class_basic 42
 class_method 30
@@ -209,17 +184,14 @@ class_deep_ctor 42
 class_method_chain 9
 class_override 2
 class_no_ctor 42
-
 # --- struct-class interop ---
 struct_class_field 42
 struct_class_field_copy 99
-
 # --- GC ---
 gc_loop_alloc 190
 gc_reuse 57
 gc_chain 21
 gc_stress_over_threshold 7
-
 # --- arrays ---
 array_basic 60
 array_length 7
@@ -253,14 +225,12 @@ jagged_param_reject compile_error jagged arrays
 jagged_field_reject compile_error jagged arrays
 jagged_for_reject compile_error jagged arrays
 jagged_foreach_reject compile_error jagged arrays
-
 # --- pResult accumulator refresh (string pool dedup bug fix) ---
 string_concat_inline_arith 7
 tostring_inline_arith 7
 list_add_inline_arith 3
 float_cast_inline_arith 7
 cast_float_field_to_int 3
-
 # --- interfaces ---
 interface_basic 42
 interface_param 42
@@ -278,11 +248,9 @@ interface_static_member compile_error The interface member "tick" is static but 
 interface_instance_body_member compile_error The interface instance method "hello" cannot have a body
 interface_native_member compile_error The interface member "run" cannot be native
 interface_virtual_member compile_error The interface member "val" cannot be virtual
-
 # --- debugging (backtrace) ---
 debug_backtrace_throws 1
 debug_class_method_throws 1
-
 # --- ByteStream ---
 byte_stream_rw_int 6
 byte_stream_rw_float 4
@@ -294,14 +262,12 @@ byte_stream_rw_string 1
 byte_stream_length_position 1
 byte_stream_eos 1
 byte_stream_gc_stress 42
-
 # --- FileStream ---
 file_stream_write_read 42
 file_stream_append 3
 file_stream_strings 1
 file_stream_bad_mode 1
 file_stream_missing_read_throws 1
-
 # --- Phase 8b: struct serialization ---
 bs_struct_simple 30
 bs_struct_string 1
@@ -311,12 +277,10 @@ bs_struct_float_field 4
 bs_struct_class_field 0
 bs_struct_eos 1
 fs_struct_roundtrip 30
-
 # --- array redesign B Task 5: array-field kind fix ---
 write_struct_array_field_throws 1
 write_struct_func_field_throws 1
 class_array_field_tostring 0
-
 # --- Phase 8c: class field serialization ---
 bs_struct_class_simple 42
 bs_struct_class_null 1
@@ -326,7 +290,6 @@ bs_struct_class_inherit 5
 bs_struct_class_string_field 1
 bs_struct_class_deep_chain 60
 fs_struct_class_roundtrip 42
-
 # --- Phase 8d: top-level class serialization + polymorphism ---
 bs_object_simple 42
 bs_object_null 1
@@ -336,7 +299,6 @@ bs_object_field_polymorphism 4
 bs_object_deep_hierarchy 1
 fs_object_roundtrip 42
 fs_object_polymorphism 4
-
 # --- Phase 8e-1: Object base + hashing/equality + implicit boxing ---
 object_default_equals 1
 object_default_gethashcode 1
@@ -345,7 +307,6 @@ object_gethashcode_override 1
 string_gethashcode 7
 string_equals 7
 box_primitive 0
-
 # --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---
 unbox_primitive 5
 unbox_type_mismatch_throws 1
@@ -353,7 +314,6 @@ class_downcast_valid 1
 class_downcast_invalid_throws 1
 object_equals_override 1
 unbox_float_and_string 1
-
 # --- Phase 8e-3: built-in generic List<T> ---
 list_int_basic 6
 list_string_basic 6
@@ -425,12 +385,10 @@ init_explicit_new_struct 2
 init_explicit_arg 7
 init_explicit_empty 0
 init_class_ctor_args compile_error
-
 # --- Condition typing (OP_JumpIfNot reads a single int32) ---
 cond_string_type compile_error
 cond_float_type compile_error
 cond_class_type compile_error
-
 # --- String escape sequences ---
 string_escape_backslash 3
 string_escape_tab_len 3
@@ -642,11 +600,8 @@ boxed_arg_nested 7
 many_defaults 21
 # Regression: ctor args with nested multi-arg calls (was clobbered in callParamBase).
 ctor_nested_call_args 46
-
 # --- Phase 9c cross-module import infrastructure (canary) ---
 cross_mod_basic 5
-
-
 # Option B: cross-module constant-foldable defaults
 cross_mod_default_int 12
 cross_mod_default_negative 2
@@ -676,7 +631,6 @@ cross_mod_named_dup compile_error duplicate named argument
 default_fit_cast 115
 default_nofit_float_reject compile_error out of range for 'float'
 default_double_int_reject compile_error requires an explicit conversion
-
 # --- Phase 9d: Exception handling ---
 exception_basic_throw_catch 7
 exception_message_field 5
@@ -707,7 +661,6 @@ exception_message_access 11
 exception_vm_message 1
 exception_backtrace_access 1
 exception_user_subclass_field 65
-
 # --- Phase 9d-2: finally blocks ---
 finally_basic 7
 finally_catch_path 7
@@ -721,7 +674,6 @@ finally_return_value_order 7
 finally_no_catch 7
 finally_double_exec_guard 7
 finally_control_in_body compile_error
-
 # --- Phase 9d-2: super() constructor chaining ---
 super_basic 7
 super_with_args 42
@@ -731,7 +683,6 @@ super_outside_ctor compile_error
 super_bad_arity compile_error
 super_named_arg compile_error
 super_parent_no_ctor compile_error
-
 # --- P3: ctor default parameters at construction call sites ---
 ctor_default 8
 ctor_default_formal_ref 10
@@ -748,7 +699,6 @@ ctor_default_field_reject compile_error cannot reference 'this'
 # --- 0.9.8: MaxArgs default descent for the function and method arms ---
 fn_default_bigcall 0
 method_default_bigcall 0
-
 # --- Implicit this.field (bare member access in methods) ---
 implicit_this_read 42
 implicit_this_write 42
@@ -757,7 +707,6 @@ implicit_this_inherited 42
 implicit_this_compound 43
 implicit_this_local_shadow 70
 implicit_this_default 5
-
 # --- Member access defaults and visibility (0.9.12 D7) ---
 class_prot_in_subclass 0
 class_ctor_private_factory 7
@@ -765,7 +714,6 @@ class_super_prot_ctor 0
 err_class_ctor_private compile_error constructor of class "Widget" is not accessible
 err_class_super_private_ctor compile_error constructor of class "Base" is not accessible
 err_class_initlist_private_ctor compile_error constructor of class "Box" is not accessible
-
 # --- `>>` split for nested generics (C#-style lexer generic-depth) ---
 nested_generic_list 5
 nested_generic_dict 30
@@ -777,7 +725,6 @@ deep_generic_param_desc_degrade 6
 rshift_not_generic 2
 # comparisons still work through the dedicated angle-bracket rules
 angle_bracket_compare 22
-
 # --- 0.9.9: << and >> shift operators ---
 # basics: both directions, nesting
 shift_basic 0
@@ -802,7 +749,6 @@ shift_reject_count_long compile_error count implicitly convertible to
 shift_reject_count_uint compile_error count implicitly convertible to
 # generic close `>>` still lexes apart from the shift operator
 shift_generic_regression 0
-
 # --- 0.9.10: <<= and >>= compound shift assignment ---
 # int/uint/long carriers, arithmetic vs logical >>, array/List/member/
 # this-field shapes, constant count rescue
@@ -823,7 +769,6 @@ compound_shift_reject_enum compile_error requires integer operands
 compound_shift_reject_count_long compile_error count implicitly convertible to
 compound_shift_reject_string compile_error not supported on string
 compound_shift_reject_byte_range compile_error out of range for
-
 # --- Phase 9e: out parameters ---
 out_basic 5
 out_two_params 37
@@ -852,7 +797,6 @@ out_struct_type compile_error
 out_virtual compile_error
 # out params cannot have defaults
 out_default compile_error
-
 # --- Void function support ---
 void_basic 8
 void_method 22
@@ -1091,7 +1035,6 @@ alias_multi_decl 4
 alias_struct_field 6
 alias_iface_method 5
 alias_subscript 12
-
 # --- Phase 13 Step 1: func type + free function references ---
 func_ref_basic 0
 func_ref_store 0
@@ -1188,7 +1131,6 @@ foreach_src_member_invoke_reject 60
 foreach_src_single_eval 1
 foreach_src_dict_sub_reject 30
 foreach_noncontainer_reject compile_error the foreach source must be an array, List, Dict, or string
-
 # Module import visibility (Task 10): single-file error matrix. Column 3
 # pins the exact rejection sentence from spec section 7; the project-mode
 # (.nproj) half of the matrix is gated by ctest (proj_* entries).
@@ -1196,7 +1138,6 @@ import_io_missing compile_error Package 'io' is not imported. Add 'import io;' a
 import_dotted_singlefile compile_error Module 'utils.helper' not found. Check the project Sources list or -I import path.
 import_not_found compile_error Module 'nosuch' not found. Check the project Sources list or -I import path.
 import_string_form compile_error String import is removed. Use 'import <module>;' with an identifier path.
-
 # Getting-started FAQ pins. The process exit code IS main's return value,
 # verbatim (nvm ExitProcess(UINT), 32-bit preserved): the runner compares
 # the full Windows exit code, so 300 is expected here. POSIX shells show
@@ -1246,11 +1187,9 @@ foreach_var_widen_reject compile_error does not match the element type
 generic_arg_jagged_reject compile_error jagged arrays
 alias_array_typearg 0 11
 dict_identical_content_keys 30 2
-
 # --- String object store (Task 1): backtrace boxing + content indexOf ---
 str_backtrace_get 0
 str_list_indexof_concat 0
-
 # --- String GC collection (Task 2): trace faces under --gc-stress ---
 str_gc_local 0
 str_gc_presult 0
@@ -1262,7 +1201,6 @@ str_concat_stress 0
 str_cons_deep_chain 0
 dbg_str_cons 0 concat
 str_intern_eq 0
-
 # --- 0.7.2: subscript-store element gate + int->class null-literal-only ---
 subscript_store_int_to_class_elem compile_error only the null literal
 subscript_store_struct_to_object_elem compile_error Incompatible type
@@ -1365,7 +1303,6 @@ double_neg_literal 0 -1.5
 double_cross_mod_default 0 10
 double_cross_mod_default_float 33
 double_float_fit_reject compile_error out of range
-
 # 0.7.5 char (Unicode scalar values) + string bridge: literals and
 # escapes, comparisons, casts, switch, s[i] byte indexing, code-point
 # foreach, and the extended string method table.
@@ -1386,29 +1323,24 @@ char_foreach_var_reject compile_error does not match the element type
 char_foreach_break 0
 char_foreach_nested 0
 char_switch_cross 0
-
 # 0.7.5 Task 9: 64-bit stream primitives + all-primitive printing.
 stream_long_double 0
 print_all_primitives 0 true
 stream_long_arg_char_reject compile_error expects a long argument
 stream_long_arg_ulong_reject compile_error expects a long argument
 stream_double_arg_string_reject compile_error expects a double argument
-
 # 0.7.6: source files must be UTF-8 (invalid bytes rejected with a named
 # error; a leading UTF-8 BOM is accepted and skipped).
 src_utf8_bom 5
 src_not_utf8 compile_error not valid UTF-8
-
 # 0.8.0: a method call result is not a store target. Both forms used to
 # parse and resolve cleanly, then silently emit no code.
 store_call_result_assign compile_error cannot assign to the result of a method call
 store_call_result_compound compile_error cannot assign to the result of a method call
-
 # 0.8.3: the function type is written with the func keyword.
 func_keyword_basic 42
 func_keyword_ident_reject compile_error
 func_old_spelling_reject compile_error syntax error
-
 # 0.8.4: compound assignment on bare-subscript lvalues and the
 # for update clause.
 compound_subscript_array 101
@@ -1427,7 +1359,6 @@ compound_subscript_string_base_error compile_error string does not support subsc
 compound_subscript_string_elem_op_error compile_error operator not supported on string
 compound_subscript_struct_elem_error compile_error Incompatible type
 compound_subscript_void_error compile_error cannot assign the result of void function
-
 # --- #11 L3: intrinsic-by-name chained methods ---
 intrinsic_chain_l3 8
 # --- v0.8.5: runtime backtraces carry the real compiled source file ---
@@ -1440,7 +1371,6 @@ invalid_cast_caught 42
 no_debug_info_throws 1
 # --- v0.8.5: ndb warns when the artifact has no debug anchors ---
 dbg_nodebug_warn 42 Program exited with code 42
-
 # --- 0.9.0: constructor call without `new` (expression position) ---
 expr_ctor_invoke 7
 expr_ctor_generic_hint compile_error cannot be constructed by bare name
@@ -1502,7 +1432,6 @@ err_top_const_reassign compile_error cannot assign to const local
 err_top_direct_init_member_arg compile_error syntax error
 err_top_break compile_error break statement outside
 err_top_continue compile_error continue statement outside
-
 # --- 0.9.4: override-signature / interface-contract diagnostics (ovsig) ---
 ovsig_return_mismatch compile_error claims the virtual dispatch slot
 ovsig_param_type_mismatch compile_error claims the virtual dispatch slot
@@ -1531,7 +1460,6 @@ ovsig_ok_default_params 6
 ovsig_ok_parent_later 42
 ovsig_ok_builtin_base 0
 ovsig_xm_stub_skip 30
-
 # --- 0.9.7: same-class virtual-name overload uniformity (vovld) ---
 vovld_mixed_virtual_second compile_error claims the virtual dispatch slot
 vovld_two_virtuals compile_error claims the virtual dispatch slot
@@ -1544,7 +1472,6 @@ interface_static_calls 50
 static_this_expr compile_error this is not available in a static method
 static_implicit_this compile_error this is not available in a static method
 type_name_instance_call compile_error must be called through a receiver object
-
 # --- 0.9.10: static/instance namespace separation (D2.4/D2.5) ---
 interface_static_contract 58
 ovsig_ok_static_overload 23
@@ -1567,7 +1494,6 @@ static_funcref_value_shadow 6
 static_funcref_via_object_reject compile_error the static method "f" must be called through the type name
 static_funcref_typename 10
 static_funcref_typename_instance_reject compile_error must be called through a receiver object
-
 # --- 0.9.10: interface static const constants (D3) ---
 interface_constants 206
 interface_constants_types 231
@@ -1659,7 +1585,6 @@ err_array_brace_init compile_error array initializers use '[...]'
 err_array_brace_assign compile_error array initializers use '[...]'
 err_array_brace_arg compile_error array initializers use '[...]'
 err_array_brace_empty compile_error array initializers use '[...]'
-
 # --- 0.9.12 D7: member access defaults and visibility rules ---
 struct_default_public 0
 struct_field_public_explicit 0
@@ -1713,7 +1638,6 @@ empty_array_decl 0
 empty_array_foreach 0
 empty_array_arg 0
 nested_brace 3
-
 # --- 0.9.14: static method function references (D-new-1..D-new-8) ---
 static_funcref_iface 42
 static_funcref_native_static 77
@@ -1731,7 +1655,6 @@ static_funcref_private_reject compile_error Cannot resolve the field: f
 static_funcref_bare_in_class 42
 cross_mod_static_funcref 42
 static_funcref_hof_arg_reject compile_error function reference "Util.twice" requires an expected function type.
-
 # --- 0.9.15: top-level zero-arg construction (P4) ---
 top_level_zero_arg_ctor 42
 top_level_zero_arg_def 7
@@ -1743,21 +1666,17 @@ top_level_const_zero_arg_ctor 42
 top_level_workaround 5
 err_top_level_rel_arg compile_error no constructor
 err_top_level_member_arg compile_error syntax error
-
 # --- 0.10.0: concurrency acceptance (K1 threads) ---
 threads_producer_consumer 0 consumed=50 sum=3100
 channel_closed_semantics 0 drained=1
 channel_bounded_semantics 0 Ev12
-
 # --- 0.10.3: stdlib concurrent package (K3 task 5) ---
 concurrent_waitgroup 0 sum=40
-concurrent_semaphore 0 peak=2
-
+concurrent_semaphore 0 ABC10
 # --- 0.10.7 D1: declarator continuation payload arms ---
 decl_cont_ctor_args 5
 decl_cont_ctor_empty 3
 decl_cont_brace_init 2
-
 # --- 0.10.7 D1+D2: sized continuation arms, per-declarator typing ---
 decl_cont_size 12
 decl_cont_size_pair 8
@@ -1767,28 +1686,22 @@ decl_array_head_sibling 2
 decl_cont_const_sized 5
 decl_cont_jagged_reject compile_error Multi-dimensional arrays
 decl_cont_for_init_reject compile_error not supported in a for initializer
-
 # --- 0.10.7 D3: brace form at sized declarations -> named reject ---
 decl_brace_sized_reject compile_error the brace form
 decl_brace_sized_cont_reject compile_error the brace form
 decl_sized_init_scalar_reject compile_error sized declaration initializer
-
 # --- 0.10.7 D4: interface field shape arms -> contract diagnostics ---
 iface_field_no_flags compile_error must be static const
 iface_field_no_flags_noinit compile_error must be static const
 iface_field_no_init compile_error must be a constant expression
-
 # --- 0.10.7 D5: protocol methods public regardless of access ---
 proto_default_access 3
-
 # --- 0.10.8 D4: keyed entry values accept bare brace literals ---
 infer_keyed_brace_dict 3
 infer_keyed_brace_struct 2
 infer_keyed_brace_array_field_reject compile_error array initializers use
-
 # --- 0.10.8 D3: brace-form foreach sources infer List<T> ---
 infer_foreach_brace_sum 6
-
 # --- 0.10.8 D2: target-less bracket literals infer the element type ---
 infer_bracket_receiver_length 2
 infer_bracket_receiver_subscript 2
@@ -1796,7 +1709,6 @@ infer_bracket_empty_reject compile_error cannot infer the element type
 infer_bracket_mixed_reject compile_error differing types
 infer_brace_receiver_reject compile_error syntax error
 infer_bracket_nested_reject compile_error jagged arrays
-
 # --- 0.10.8 D1: anchored generic instantiation literals ---
 infer_anchor_list_receiver 1
 infer_anchor_dict_receiver 1
@@ -1813,7 +1725,6 @@ init_dict_positional_entry_mixed_reject compile_error requires a key
 init_struct_string_key_reject compile_error field names
 init_struct_mixed_entries 3
 init_dict_element_array 1
-
 # --- 0.10.10 D1: unified initializer slot model (expression Dict keys) ---
 init_dict_var_key 7
 init_dict_call_key 5
@@ -1858,11 +1769,11 @@ import_overload_iface_static 202
 imported_enum_method_overload 103
 stdlib_tensor_creation 0
 stdlib_tensor_elementwise 0
-stdlib_tensor_length_mismatch 1
-stdlib_tensor_null_npe 1
+stdlib_tensor_length_mismatch_throws 1
+stdlib_tensor_null_npe_throws 1
 stdlib_tensor_string_reject compile_error
 stdlib_tensor_reductions 0
-stdlib_tensor_empty_max 1
+stdlib_tensor_empty_max_throws 1
 stdlib_tensor_gc_race 0
 blocking_native_roots 0
 int_min_div_wrap 0
@@ -1890,6 +1801,36 @@ stdlib_tensor_matmul_bad 0 tensor.matmul: shape mismatch
 stdlib_tensor_nd2 0
 ndarray_initlist_exprrows 0
 ndarray_initlist_mixed 0
-ndarray_initlist_rowlen 1
-ndarray_initlist_nullrow 1
+ndarray_initlist_rowlen_throws 1
+ndarray_initlist_nullrow_throws 1
 stdlib_tensor_reshape_negdim 0
+dict_init_nonstring_key_reject compile_error string keys
+#Task 4 Step 0: an empty class body (marker classes) is legal.
+grammar_empty_class 0
+#thread.spawn mints instances; with-args rejects).
+thread_decl_zeroarg 0
+thread_decl_ctorargs compile_error
+#A user class shadowing Thread does not break typed spawn —
+#the mint resolves the prelude record by bare name
+#(parity with pre-migration behavior).
+thread_spawn_shadow 7
+thread_fail_unjoined 0 main-done
+thread_fail_joined_quiet 0 caught
+thread_fail_late_join 0 late-caught
+object_baseref_dispatch 7
+object_static_protocol_reject compile_error claims the virtual dispatch slot of "Object.toString
+object_tostring_arity compile_error
+naming_reserved_prelude compile_error names a type
+alias_clash_prelude compile_error cannot be used as a type alias
+foreach_brace_source compile_error the brace form
+err_generic_anchor_brace compile_error syntax error
+err_bracket_receiver compile_error requires an explicit type
+concurrent_channel_park_gcwindow 0 churn done
+concurrent_gate_hammer 17 peak inside the section: 2 (limit 2), total: 40000
+exception_two_catches_same_var 0 AoopB7
+duplicate_local_same_scope compile_error already declared
+local_shadow_catch_var compile_error already declared
+exception_user_thrown_backtrace 0 code=7 bt=0
+user_shadow_semaphore 7
+sync_method_arity_reject compile_error
+imported_exception_subclass 49

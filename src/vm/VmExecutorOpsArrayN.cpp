@@ -3,6 +3,11 @@
     and flat element access, shape export (stage-2) and row-handle
     assembly (stage-3 dynamic initializers). Moved verbatim from
     VmExecutorOpsObjects.cpp (2026-10-27, source-size governance).
+    K8 lock classification (ported with the merge): allocation and
+    element access run lock-free under the sharing memory model —
+    record writes are benign value races on shared records,
+    allocation goes through the per-carrier shard free lists, and
+    error paths re-acquire inside RaiseNlangException.
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -29,7 +34,7 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
@@ -206,7 +211,7 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     const uint16_t shapeTypeIdx = FindScalarArrayTypeIdx(RTK_Int32, 1);
     int32_t shapeDim = rank;
     int32_t shapeIdx = AllocArrayOnHeap(shapeTypeIdx, 1, &shapeDim);
-    m_gcPending = true;
+    NoteGcPressure();
     auto& shape = m_structHeap[static_cast<size_t>(shapeIdx)];
     const int32_t base =
         static_cast<int32_t>(ArrayPayloadBase(shape));
@@ -242,7 +247,7 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     SnapshotAssembleRows(locals, elemSlotBase, rowCount, rank,
                          rowHandles, dims);
     const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
-    m_gcPending = true;
+    NoteGcPressure();
     CopyAssembleRows(heapIdx, arrayType, rowHandles);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
 }

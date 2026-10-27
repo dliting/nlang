@@ -16,7 +16,9 @@ Suggested reading order for the Language Specification:
    — operators, control flow, exceptions
 5. [Functions](../language-spec/functions.md) →
    [Function Types & Delegates](../language-spec/function-types-and-delegates.md)
-6. [Standard Library](../language-spec/standard-library.md),
+6. [Concurrency](../language-spec/concurrency.md) — spawning
+   virtual threads with `thread.spawn`, channels, mutexes, and Future
+7. [Standard Library](../language-spec/standard-library.md),
    [Memory Management](../language-spec/memory-management.md),
    [Exit Code Convention](../language-spec/exit-code-convention.md),
    [Known Limitations](../language-spec/known-limitations.md)

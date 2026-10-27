@@ -3,6 +3,10 @@
     assignment, jumps, exception dispatch (Phase 9d ops moved here
     from VmExecutorOpsObjects.cpp, 2026-10-25) and debug info.
     Extracted from VmExecutor.cpp (2026-09-26, zero behavior change).
+    K8 lock classification (ported with the merge): the throw arms
+    keep the store lock — FireOnThrow's debug checkpoint is
+    serialized only by it; ThrownMessageOf itself is a lock-free
+    heap read under the sharing model.
 ---*/
 #include "VmExecutor.h"
 #include <cstring>
@@ -16,6 +20,9 @@ void VmExecutor::OpAssertFail(BytecodeReader& reader) {
     //constant cache like OP_ConstString does.
     uint16_t msgIdx = reader.ReadUint16();
     std::string msg = "assertion failed";
+    //K8: lock-free — the constant cache is read-only after run setup,
+    //and StrVal's reference is stable across concurrent mints (chunked
+    //storage, flatten self-locks). The raise runs with no domain held.
     if (msgIdx < m_constStrCache.size()) {
         const std::string& s = StrVal(m_constStrCache[msgIdx]);
         if (!s.empty())
@@ -71,7 +78,7 @@ void VmExecutor::OpJump(BytecodeReader& reader) {
         //exhausted quota forever (zero-progress ping-pong; the fresh
         //worker root restarts at pc 0 outright). On the non-park path
         //the value is inert — normal flow seeks via the reader.
-        m_callStack.back().pc = target;
+        EvalStack().back().pc = target;
         CheckSchedulerQuota();
     }
     reader.Seek(target);
@@ -102,9 +109,9 @@ void VmExecutor::OpCase(BytecodeReader& reader) {
 
 void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
     uint16_t line = reader.ReadUint16();
-    if (!m_callStack.empty()) {
-        m_callStack.back().currentLine = line;
-        m_callStack.back().currentPc = opPc;
+    if (!EvalStack().empty()) {
+        EvalStack().back().currentLine = line;
+        EvalStack().back().currentPc = opPc;
     }
     //Debugger checkpoint: the callback runs with the program
     //frozen at this statement; returning resumes in place.
@@ -118,7 +125,7 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
         stop.pc = opPc;
         stop.line = line;
         stop.funcIdx = CurrentFuncIdx();
-        stop.depth = m_callStack.size();
+        stop.depth = EvalStack().size();
         m_pDebugHooks->OnStatement(stop, *this);
         SyncDebugFocus();
     }
@@ -212,6 +219,11 @@ std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
 }
 
 void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
+    //Throw arm keeps the store lock: FireOnThrow's debug checkpoint
+    //(OnThrow + scheduler focus) is serialized only by it (OP_DebugInfo
+    //is non-pure for the same reason); ThrownMessageOf itself is a
+    //lock-free heap read under the sharing model.
+    GilEnsureGuard g(*this);
     //Phase 9d: user `throw <expr>;` — read heap idx from src slot,
     //raise NLangThrow carrying the heap idx. Catch block above will
     //dispatch via func.tryBlocks.
@@ -226,10 +238,15 @@ void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
 }
 
 void VmExecutor::OpRethrow() {
+    //Throw arm keeps the store lock: FireOnThrow's debug checkpoint
+    //(OnThrow + scheduler focus) is serialized only by it (OP_DebugInfo
+    //is non-pure for the same reason); ThrownMessageOf itself is a
+    //lock-free heap read under the sharing model.
+    GilEnsureGuard g(*this);
     //Phase 9d: `throw;` — re-raise the currently-caught exception.
     //Pops nothing; the matching OP_PopHandler at catch-block exit
     //(normal path) handles that.
-    auto& s = m_callStack.back().handlerExcStack;
+    auto& s = EvalStack().back().handlerExcStack;
     if (s.empty())
         throw std::runtime_error(
             "NLang VM: rethrow outside catch handler");
@@ -244,7 +261,7 @@ void VmExecutor::OpPopHandler() {
     //Phase 9d: emitted at the end of every catch body. Pops the
     //exception bound on catch entry so a later throw; in a different
     //scope doesn't accidentally use this frame's exception.
-    auto& s = m_callStack.back().handlerExcStack;
+    auto& s = EvalStack().back().handlerExcStack;
     if (s.empty())
         throw std::runtime_error(
             "NLang VM: PopHandler underflow");

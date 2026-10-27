@@ -69,17 +69,8 @@ static std::string ReadStrArg(VmExecutor& ex,
 //the assign/emplace above.
 int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
 {
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(3, 0);
-        m_slotKinds.push_back(0);
-        m_slotStructIdx.push_back(0);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
     auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
     rec[0] = static_cast<int32_t>(typeTag);
     int pi = ScalarPrimIndexOfRtk(typeTag);
@@ -98,7 +89,7 @@ int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
     }
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
-    m_gcPending = true;
+    NoteGcPressure();
     return heapIdx;
 }
 
@@ -285,7 +276,9 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             pos = hit + sep.size();
         }
         //List<string> = List class instance + handle (INTR_Dict_Keys
-        //recipe); elements are boxed-string heap slots.
+        //recipe); elements are boxed-string heap slots. K8: the side
+        //table is Container-domain; mints/allocs are forward.
+        DomainGuard containerGuard(m_domainLocks, DomainId::Container);
         if (m_listClassIdx < 0)
             throw std::runtime_error(
                 "NLang VM: List class not registered");

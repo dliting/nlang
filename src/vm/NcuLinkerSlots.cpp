@@ -237,6 +237,10 @@ static void ResolveFunctionSlots(const std::vector<CompiledModule>& units,
             if (r.hits == 0)
                 problems.push_back(r.ordinalMismatch
                     ? "unit '" + u.modulePath + "': imported " + what
+                        + " [DBG ordinal=" + std::to_string(imp.ownerOrdinal)
+                        + " tgtOwn=" + std::to_string(tgt.functions.size() - tgt.functionImports.size())
+                        + " tgtFnAt=" + (imp.ownerOrdinal < tgt.functions.size()
+                            ? tgt.functions[imp.ownerOrdinal].name : "<oob>")
                         + " does not match its record in the owning unit "
                         + "(stale artifact — recompile the importing module)"
                     : FunctionMissLine(u, what, imp, r.ownerClassFound));

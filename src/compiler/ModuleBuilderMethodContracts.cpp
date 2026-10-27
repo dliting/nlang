@@ -3,9 +3,11 @@ ModuleBuilderMethodContracts.cpp - method-contract (override-
 signature/interface) checking of ModuleBuilder: the class-side
 override-signature bijection (Step 1) and the interface completeness
 walk (Step 2). Split from ModuleBuilderChecks.cpp (2026-10-17
-maintainability refactor, zero behavior change); the Object protocol
-table lives in ModuleBuilderObjectProtocol.cpp, the static-family
-name rules in ModuleBuilderStaticNamespace.cpp (0.9.10).
+maintainability refactor, zero behavior change); the static-family
+name rules live in ModuleBuilderStaticNamespace.cpp (0.9.10). The
+former Object protocol table retired with the builtin-decls
+migration — the declared Object's virtuals join the contract set
+through the ordinary chain walk.
 ---*/
 
 #include "ModuleBuilder.h"
@@ -80,10 +82,12 @@ bool SignaturesIdentical(const SnFunction &a, const SnFunction &b)
 
 //Interfaces reachable along the inheritance chain (the dispatch domain
 //walks ancestors' implements lists too — ExprResolverFuncRef), deduped
-//by pointer. Chain walks stop only at builtin base classes (Object stub,
-//ByteStream/FileStream — native-binding domain, not AST-comparable);
-//imported stubs carry the full member surface since 0.9.12 (D-new-10)
-//and are walked like own-unit classes.
+//by pointer. Chain walks stop only at the synthesized builtin base
+//classes (ByteStream/FileStream — native-binding domain, not
+//AST-comparable); the declared prelude Object is a full AST class and
+//the walks enter it like any base. Imported stubs carry the full
+//member surface since 0.9.12 (D-new-10) and are walked like own-unit
+//classes.
 //Every chain walk below guards against inheritance cycles with a seen
 //set: CheckClassCircularInheritance reports the cycle but does not stop
 //the build, so a cyclic tree reaches these checks and a bare

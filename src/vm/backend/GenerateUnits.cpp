@@ -79,32 +79,56 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
     m_currFunc = &ctx;
     m_pCurrEmitter = nullptr;
     FillNativeFunctionRecord(func, compiledFunc);
-    //K3 thread-package materialization: stdlib/thread.n's natives are
-    //implemented inside the VM, not by a host library — flip the record
-    //onto the intrinsic channel (signature metadata stays; cross-module
-    //stubs rebuild from it). Identity is the OWNING unit's module path
-    //alone, never the library flag: stdlib.nproj packs thread.n as a
-    //project unit, so a library-flag test would leave the packaged
-    //records unstamped. A thread-package name outside the intrinsic
-    //table keeps host-native dispatch (the ordinary native channel);
-    //type members never stamp — methods dispatch through their receiver,
-    //not the free-function channel.
+    StampIntrinsicChannel(func, compiledFunc);
+    m_currFunc = nullptr;
+}
+
+//StampIntrinsicChannel: the binding-table arm of the native record
+//(builtin-decls source-of-truth design §4.5). A declaration whose
+//OWNING unit's package has binding-table rows flips onto the intrinsic
+//channel — isNative=false + intrinsicId, signature metadata kept
+//(cross-module stubs rebuild from it). Identity is the owning unit's
+//module path alone, never the library flag (K3: stdlib.nproj packs
+//thread.n as a project unit). Two arms: package-level free functions
+//key "pkg.func" (the thread channel as today); type members key
+//"Class.method" / constructors "Class" — declared methods must stamp
+//so the intrinsicId dispatch sites stay live. Keys outside the table
+//keep host-native dispatch (the ordinary native channel).
+void VmBackend::StampIntrinsicChannel(SnFunction& func,
+                                      CompiledFunction& compiledFunc) {
     const SyntaxNode* pParent = func.Parent();
     const bool bTypeMember = pParent
         && (pParent->Kind() == NK_ClassDecl
             || pParent->Kind() == NK_InterfaceDecl
             || pParent->Kind() == NK_EnumDecl
             || pParent->Kind() == NK_StructDecl);
-    const uint32_t owner = m_pRegistry->OwnerOf(func);
-    if (!bTypeMember && owner != ModuleRegistry::NO_OWNER
-        && m_pRegistry->ModulePathOf(owner) == kThreadNamespaceName) {
-        const uint16_t intrinsicId = FindThreadIntrinsicId(func.Name());
-        if (intrinsicId != INTR_None) {
-            compiledFunc.isNative = false;
-            compiledFunc.intrinsicId = intrinsicId;
-        }
+    //Owner-of-CONTEXT, not the flat tag: class members carry no owner
+    //tag of their own (the IsOwnUnit contract), so a declared prelude
+    //ctor/method would read NO_OWNER here and never stamp.
+    const uint32_t owner = m_pRegistry->OwnerOfContext(func);
+    if (owner == ModuleRegistry::NO_OWNER)
+        return;
+    const std::string packagePath = m_pRegistry->ModulePathOf(owner);
+    if (!IsStampedBindingPackage(packagePath))
+        return;
+    //Constructor spelling mirrors AppendClassMemberMethods'
+    //classification (same-name non-static member), so the stamping gate
+    //and the method tables cannot drift. The four enclosing kinds are
+    //all SnField-derived; the cast is the name/flag accessor.
+    const SnField& parentField = static_cast<const SnField&>(*pParent);
+    std::string key;
+    if (!bTypeMember)
+        key = packagePath + "." + func.Name();
+    else if (func.Name() == parentField.Name()
+        && !func.ContainFlags(NF_Static))
+        key = parentField.Name();
+    else
+        key = parentField.Name() + "." + func.Name();
+    const uint16_t intrinsicId = LookupIntrinsicId(packagePath, key);
+    if (intrinsicId != INTR_None) {
+        compiledFunc.isNative = false;
+        compiledFunc.intrinsicId = intrinsicId;
     }
-    m_currFunc = nullptr;
 }
 
 //Phase 6 per-unit build (VmBackend.h contract): one image per unit, every
@@ -123,18 +147,27 @@ uint8_t VmBackend::EmitGateRankOf(const SnExpression& expr)
 
 VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     SnNamespace& root, const std::vector<uint32_t>& unitIdxs) {
-    //Archive every unit's producer function table before codegen emits
-    //cross-unit import records (Slots.cpp reads the authoritative
-    //index from these archives — same-name type overloads across
-    //units single-select through it).
-    ShadowRegisterUnits(root);
-
     //Whole-tree pre-checks, before any image is built: both concerns
     //span units, so neither is judgeable from inside the per-unit loop
     //(library TUs never reach codegen, and each unit's entry scan only
     //sees its own candidates). Either refusal logs and fails the build.
     if (RejectAmbiguousUnitEntries(root) || RejectMultiSegmentNatives(root))
         return {};
+    //Whole-tree, once: which prelude bare names a foreign declaration
+    //claims (spec §6.8) — the registration walks below consult the set.
+    //Merged-tree ordering: this must precede ShadowRegisterUnits — the
+    //shadow replays the registration sequence to archive producer
+    //function-table indices, and a set-less shadow would apply the §6.8
+    //gate differently from the real pass, drifting every archived
+    //ordinal (the replay is the cross-unit import record's selector;
+    //nlink rejects the drifted record at load).
+    ComputeShadowedPreludeNames(root);
+
+    //Archive every unit's producer function table before codegen emits
+    //cross-unit import records (Slots.cpp reads the authoritative
+    //index from these archives — same-name type overloads across
+    //units single-select through it).
+    ShadowRegisterUnits(root);
     UnitBuildResult out;
     for (uint32_t unitIdx : unitIdxs) {
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));

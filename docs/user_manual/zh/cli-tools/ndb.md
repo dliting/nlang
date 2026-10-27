@@ -20,7 +20,7 @@ ndb <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]
 | `n` | next | 单步越过 |
 | `f` | finish | 步出当前函数 |
 | `threads` | — | 列出全部上下文（状态/位置） |
-| `t <id>` | thread | 切换焦点上下文（检查与步进） |
+| `t <id>` | thread | 切换检查与单步目标上下文 |
 | `bt` | backtrace | 调用栈 |
 | `frame <n>` | — | 选择帧 |
 | `info locals` | info | 所选帧的局部变量（合成名过滤；接收者以`this`显示） |
@@ -63,7 +63,7 @@ Program exited with code 0.
 
 ## 多上下文调试
 
-`thread.spawn`派生的并发上下文同样受调试器管辖：任何上下文命中断点或throw都会全停（所有载体冻结）。`threads`每个上下文一行：焦点标记（`*`）、编号、调度状态（被执行窗口持有时带`@载体`后缀——正在执行与排队等待分派由此区分）、最内层帧位置；已结束的上下文没有帧，只显示编号与状态。`t <id>`把焦点切到指定上下文，`bt`/`frame`/`info locals`/`p`/`l`/`x`随之作用于该上下文，停泊中的帧（如等待通道接收）照常可查；所选上下文同时成为后续`s`/`n`/`f`的步进目标（停泊的上下文在被唤醒后步进）。切换上下文时帧选择复位——帧编号是按上下文的。每次停机焦点自动回到停机上下文。
+`thread.spawn`派生的并发上下文（即虚拟线程）同样受调试器管辖：任何上下文命中断点或throw都会全停——停机后不再有虚拟线程开始执行，正在执行的段跑完全部停住。`threads`每个上下文一行：焦点标记（`*`）、编号、调度状态（正被某载体——运行虚拟线程的操作系统线程——执行时带`@载体`后缀，正在执行与排队等待由此区分）、最内层帧位置；已结束的上下文没有帧，只显示编号与状态。`t <id>`把检查焦点切到指定上下文，`bt`/`frame`/`info locals`/`p`/`l`/`x`随之作用于该上下文，挂起中的帧（如等待通道接收）照常可查；带`@载体`后缀的运行中上下文其帧在该载体的调用栈上，停机时不可查——`bt`与局部变量查询对它显示无帧，等它挂起或终结后才有可查内容；切换上下文时帧选择复位——帧编号是按上下文的。每次停机焦点自动回到停机上下文。`t`同时设定单步目标（与主流集成开发环境一致）：随后的`s`/`n`/`f`作用于选中上下文——选中挂起中的上下文再单步时，其他上下文放行推进，被选上下文等到唤醒后停在它的下一语句；选中永不唤醒的挂起上下文则死锁检测照常报错。未用`t`选择时，单步保持以停机上下文为目标。
 
 ```console
 $ ndb dbg_threads.ncu
@@ -83,12 +83,12 @@ Breakpoint 1, run (dbg_threads.n:6)
 Program exited with code 9.
 ```
 
-（断点设在派生上下文执行的`run`里；命中时main停在空通道的`recv`上——`threads`把它列为`parked-chan-recv`，`run`为`runnable@0`（正被0号载体持有）。`t 0`把检查焦点切到main后，`bt`读出它的停泊帧。）
+（断点设在派生上下文执行的`run`里；命中时main停在空通道的`recv`上——`threads`把它列为`parked-chan-recv`，`run`为`runnable@0`（正被0号载体持有）。`t 0`把检查焦点切到main后，`bt`读出它的挂起帧。）
 
 ## 嵌入前端协议
 
-`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在stdin/stdout上暴露同一会话的tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。协议细节见[在nide中调试](../getting-started/debugging.md)与[调试器架构](../vm-architecture/debugging.md)。
+`ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在stdin/stdout上暴露同一会话的tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。nide图形界面的用法见[在nide中调试](../getting-started/debugging.md)，协议细节见[调试器架构](../vm-architecture/debugging.md)。
 
-交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位闭包成员与native动态库；搜索目录的拼接顺序与nvm相同：`-I` → 模块目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录 → 标准库目录（`stdlib.npkg`所在处）。
+交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位全部依赖成员与native动态库；搜索目录的拼接顺序与nvm相同：`-I` → 模块目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录 → 标准库目录（`stdlib.npkg`所在处）。
 
 `--verbose`（短写法`-v`）在会话开始前打印解析后的搜索路径（每行一个目录并括注来源层，同nvm），随后照常进行。`--machine`形态下这份列表输出到**stderr**——stdout是协议通道，不得混入非协议行。

@@ -172,5 +172,12 @@ static constexpr uint16_t INTR_Future_IsDone  = 143;
 //K3 (v0.10.3): ChannelClosedException ctor — the (this, message) shape
 //shared by the Exception family (dispatch collapses to the shared body).
 static constexpr uint16_t INTR_ChannelClosedException_Ctor = 144;
+//P2-1 (v0.10.17): native Semaphore — the receiver-dispatched family
+//shape (slot 0 = this, the Semaphore instance; the ctor's slot 1 =
+//the initial permit count).
+static constexpr uint16_t INTR_Semaphore_Ctor       = 145;
+static constexpr uint16_t INTR_Semaphore_Acquire    = 146;
+static constexpr uint16_t INTR_Semaphore_Release    = 147;
+static constexpr uint16_t INTR_Semaphore_TryAcquire = 148;
 
 }  // namespace nlang

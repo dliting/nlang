@@ -2,7 +2,7 @@
 
 NLang has exactly one library mechanism: a library is a directory on the import search path, and the standard library and third-party libraries go through the same discovery, compilation and execution path. This page is for library authors: how to organize a pure NLang library, how to write a mixed library with a native implementation, and how to distribute the result.
 
-The design rationale behind the mechanism lives in [Library Mechanism](../vm-architecture/library-mechanism.md); the `import` syntax and visibility rules live in [Packages and Modules](../language-spec/packages.md). The examples here are identical to `examples/libdemo/` in the repository and compile as-is.
+The design rationale behind the mechanism lives in [Library Mechanism](../vm-architecture/library-mechanism.md); the `import` syntax and visibility rules live in [Packages and Modules](../language-spec/packages.md); the five-layer search path is specified in [Libraries and Search Paths](../language-spec/stdlib-search-paths.md). The examples here are identical to `examples/libdemo/` in the repository and compile as-is.
 
 ## 1. What a library is
 

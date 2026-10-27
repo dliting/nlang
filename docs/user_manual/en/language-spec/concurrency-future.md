@@ -1,12 +1,23 @@
 # Future
 
-The normative rules are in [specification §11.5](../specification/11-concurrency.md).
+## When to use
+
+Reach for a `Future` when a task produces a value you need in order to
+keep computing: spawn the work, carry on with everything that does not
+depend on it, and call `get()` at the point the value is actually
+required — the wait lands exactly where the dependency is. Several
+contexts can wait on the same `Future`; all wake with the same value.
+If you only need to know that a task finished, `thread.join` is the
+lighter handle.
+
+## The handle
+
 Spawning a delegate with a return value (`func<T>`) yields a `Future<T>` — the retrieval handle for the return value:
 
 | Member | Semantics |
 |---|---|
-| `get()` | Blocking take: parks while the target runs, then delivers the return value as the declared type `T`; if the target failed, rethrows the original exception object into this context (the `join` shape) |
-| `isDone()` | Non-parking probe: `true` once the target has finished (normally or by failure), `false` otherwise |
+| `get()` | Blocking take: suspends while the target runs, then delivers the return value as the declared type `T`; if the target failed, rethrows the original exception object into this context (the `join` shape) |
+| `isDone()` | Non-suspension probe: `true` once the target has finished (normally or by failure), `false` otherwise |
 
 ```nlang
 import io;
@@ -24,4 +35,4 @@ int main() {
 }
 ```
 
-`get()` is an honest blocking wait (the "no async coloring" point in [the concurrency model](concurrency.md#the-concurrency-model-blocking-style-no-async-coloring) made concrete): the caller parks and continues in place once the value is ready — this is NLang's `await`. Several contexts may `get()` the same `Future`; all of them wake with the same value. `get()` on an already-finished target returns immediately and may be called repeatedly. A failed context has no value to take — `get()` rethrows the original exception object (type, `message`, and `backtrace` fields preserved). The spawned context itself cannot `get()` its own `Future`: the call throws immediately with a message naming the rule (`a future cannot be awaited by its own context`) — nothing could ever wake that context. The spawner `get()`ing the `Future` it spawned is the normal case (the example above).
+`get()` is an honest blocking wait (the "no async coloring" point in [the concurrency model](concurrency.md#the-concurrency-model-blocking-style-no-async-coloring) made concrete): the caller suspends and continues in place once the value is ready — this is NLang's `await`. Several contexts may `get()` the same `Future`; all of them wake with the same value. `get()` on an already-finished target returns immediately and may be called repeatedly. A failed context has no value to take — `get()` rethrows the original exception object (type, `message`, and `backtrace` fields preserved). Getting a `Future` spawned by yourself (handing the `Future` back to its spawner) is a runtime error naming the rule; nothing can ever wake that context, so the virtual machine catches it with the deadlock report (see [the main-exit policy and the deadlock report](concurrency-suspension.md#main-exit-policy-and-the-deadlock-report)).

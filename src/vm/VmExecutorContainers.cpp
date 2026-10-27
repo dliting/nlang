@@ -38,7 +38,27 @@ int32_t VmExecutor::AllocFileStreamHandle() {
 
 //Phase 8e-3: allocate a handle from the List<T> side table.
 //Handles are 1-based; __handle==0 means null (uninitialized).
+//K8: read-side snapshots for formatting faces — one Container-domain
+//critical section each; callers format the copy without holding the
+//guard (a user toString override may re-enter any domain).
+std::vector<int32_t> VmExecutor::SnapshotListElements(
+    int32_t handle) const {
+    DomainGuard g(m_domainLocks, DomainId::Container);
+    return m_listStore[static_cast<size_t>(handle) - 1].elements;
+}
+
+std::vector<std::pair<int32_t, int32_t>>
+VmExecutor::SnapshotDictEntries(int32_t handle) const {
+    DomainGuard g(m_domainLocks, DomainId::Container);
+    return m_dictStore[static_cast<size_t>(handle) - 1].entries;
+}
+
+//K8: the allocators own the Container-domain guard — the side tables
+//are plain vectors, so free-list pops and growth must be serialized
+//against element writes. Reentrant for callers already inside the
+//domain (intrinsic arms); the host bridge reaches here unguarded.
 int32_t VmExecutor::AllocListHandle() {
+    DomainGuard g(m_domainLocks, DomainId::Container);
     if (!m_listFreeList.empty()) {
         int32_t h = m_listFreeList.back();
         m_listFreeList.pop_back();
@@ -52,6 +72,7 @@ int32_t VmExecutor::AllocListHandle() {
 
 //Phase 8e-4: Dict<K,V> helpers — mirror List's shape.
 int32_t VmExecutor::AllocDictHandle() {
+    DomainGuard g(m_domainLocks, DomainId::Container);
     if (!m_dictFreeList.empty()) {
         int32_t h = m_dictFreeList.back();
         m_dictFreeList.pop_back();

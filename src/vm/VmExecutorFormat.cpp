@@ -58,6 +58,7 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
 }
 
 void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
+    //K8: lock-free — benign heap reads plus a self-locking mint.
     //Accumulator-shaped like OP_Array_to_str: the handle comes in
     //via pResult, the interned string index goes back out through
     //pResult. Direct conversion paths bypass the member-dispatch
@@ -79,6 +80,8 @@ void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
 }
 
 void VmExecutor::OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op) {
+    //K8: lock-free — heap size, slot kinds and record reads are all
+    //benign under the sharing model (chunked arrays, no slot motion).
     bool bNeg = (op == OpCode::OP_Ne_func);
     uint16_t lhs = reader.ReadUint16();
     uint16_t rhs = reader.ReadUint16();
@@ -267,8 +270,9 @@ std::string VmExecutor::FormatList(int32_t handle, int depth) {
             "NLang VM: toString depth limit exceeded");
     if (handle <= 0 || static_cast<size_t>(handle) > m_listStore.size())
         return "[]";
-    const auto& elems =
-        m_listStore[static_cast<size_t>(handle) - 1].elements;
+    //K8: snapshot under Container, format outside it (user overrides
+    //re-enter domains freely).
+    std::vector<int32_t> elems = SnapshotListElements(handle);
     if (elems.empty()) return "[]";
     std::string result = "[";
     for (size_t i = 0; i < elems.size(); ++i) {
@@ -285,8 +289,9 @@ std::string VmExecutor::FormatDict(int32_t handle, int depth) {
             "NLang VM: toString depth limit exceeded");
     if (handle <= 0 || static_cast<size_t>(handle) > m_dictStore.size())
         return "{}";
-    const auto& entries =
-        m_dictStore[static_cast<size_t>(handle) - 1].entries;
+    //K8: snapshot under Container, format outside it (see FormatList).
+    std::vector<std::pair<int32_t, int32_t>> entries
+        = SnapshotDictEntries(handle);
     if (entries.empty()) return "{}";
     std::string result = "{";
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -322,14 +327,17 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
                 m_currModule->classes[static_cast<size_t>(classIdx)].name));
     } else {
         //Nested window: push onto the shared frame stack and run until
-        //the depth captured at entry (GC keeps seeing the nested frames;
-        //an unhandled throw unwinds only this window before propagating
-        //to the caller's frame — exactly the recursive engine's shape).
-        const size_t baseDepth = m_callStack.size();
-        uint8_t* staged = PushRootFrame(callee, resultBuf);
+        //the depth captured at entry (GC keeps seeing the nested frames
+        //through the enclosing participation root; an unhandled throw
+        //unwinds only this window before propagating to the caller's
+        //frame — exactly the recursive engine's shape).
+        const size_t baseDepth = EvalStack().size();
+        //deferSafepoint: the receiver exists nowhere else during staging.
+        uint8_t* staged = PushRootFrame(callee, resultBuf, /*deferSafepoint=*/true);
         uint16_t paramBytes = callee.paramCount * kFrameSlotBytes;
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
             std::memcpy(staged, paramFrame, paramBytes);
+        CheckGCSafepoint();
         //Nested evaluation window: suspension is impossible here (the
         //window belongs to an in-flight outer instruction; a park could
         //not resume instruction-granularly). NestEvalGuard arms the

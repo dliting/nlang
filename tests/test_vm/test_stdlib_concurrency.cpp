@@ -1,8 +1,8 @@
 /*---
-    test_stdlib_concurrency.cpp — K3 Task 5：stdlib/concurrent.n（纯 NLang
-    WaitGroup/Semaphore）行为测试。真实编译＋真实执行（同 test_threads.cpp
-    harness 形态）：import concurrent 经 stdlib 目录解析，断言只用顺序与
-    终值（无墙钟）。
+    test_stdlib_concurrency.cpp — stdlib/concurrent.n（WaitGroup）与内建
+    Semaphore 句柄类（P2-1）行为测试。真实编译＋真实执行（同
+    test_threads.cpp harness 形态）：stdlib 单元经 stdlib 目录解析，内建
+    类无需 import；断言只用顺序与终值（无墙钟）。
 ---*/
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -42,11 +42,14 @@ static std::filesystem::path scratchDir()
     return dir;
 }
 
-//Compile + link + execute one source (test_threads.cpp harness shape);
-//returns main()'s value, throws std::runtime_error with diagnostics on
-//build failure — a failure here is a test bug, not behavior under test.
-static int runSourceCapturing(const std::string& tag,
-                              const std::string& source, std::string& rOut)
+//Compile + link + execute one source with an explicit carrier count
+//(test_threads.cpp harness shape); returns main()'s value, throws
+//std::runtime_error with diagnostics on build failure — a failure here
+//is a test bug, not behavior under test. The carrier count must be set
+//before Execute (the default is single-carrier).
+static int runSourceCapturingCarriers(const std::string& tag,
+                                      const std::string& source,
+                                      uint32_t carriers, std::string& rOut)
 {
     const auto dir = scratchDir();
     const auto nPath = dir / (tag + ".n");
@@ -85,9 +88,17 @@ static int runSourceCapturing(const std::string& tag,
     VmExecutor exec;
     CaptureIo io;
     exec.SetHostIo(&io);
+    exec.SetCarrierThreadCount(carriers);
     const int rc = exec.Execute(mod);
     rOut = io.m_out;
     return rc;
+}
+
+//Single-carrier default (the plain harness shape).
+static int runSourceCapturing(const std::string& tag,
+                              const std::string& source, std::string& rOut)
+{
+    return runSourceCapturingCarriers(tag, source, 1, rOut);
 }
 
 //WaitGroup：add(3) 后三个 worker 各写一字再 done()；main wait() 必须等
@@ -168,16 +179,15 @@ void test_waitgroup_add_accumulates()
     PASS();
 }
 
-//Semaphore(2)：4 个 worker acquire-记峰-release；共享 inside/peak 经 Mutex
-//保护，join 提供断言的 happens-before。峰值恰为 2（许可确实限量）且不超 2
-//（acquire 真正扣减）。yield 拉宽重叠窗口使峰值可达上限。
+//Native Semaphore(2)：4 个 worker acquire-记峰-release；共享 inside/peak
+//经 Mutex 保护，join 提供断言的 happens-before。峰值恰为 2（许可确实限
+//量）且不超 2（acquire 真正扣减）。yield 拉宽重叠窗口使峰值可达上限。
 void test_semaphore_limits_concurrency()
 {
     TEST(semaphore_limits_concurrency);
     std::string out;
     const int rc = runSourceCapturing("sem_limit",
         "import thread;\n"
-        "import concurrent;\n"
         "import io;\n"
         "class Runner {\n"
         "    public Semaphore sem;\n"
@@ -224,6 +234,345 @@ void test_semaphore_limits_concurrency()
     PASS();
 }
 
+//Native Semaphore construction: the builtin needs no import (the Mutex
+//shape) and accepts zero and positive initial counts.
+void test_semaphore_native_constructs()
+{
+    TEST(semaphore_native_constructs);
+    std::string out;
+    const int rc = runSourceCapturing("sem_ctor",
+        "import io;\n"
+        "int main() {\n"
+        "    Semaphore a = Semaphore(2);\n"
+        "    Semaphore b = Semaphore(0);\n"
+        "    io.write(\"ok\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "native ctor accepts zero and positive initial counts "
+          "(rc=" + std::to_string(rc) + ")");
+    CHECK(out == "ok", "construction completes");
+    PASS();
+}
+
+//Negative initial count raises the Exception base with a message naming
+//the rule (the Channel capacity-error shape; the caller-catch assert is
+//the mutex_unlock_without_hold_rejected form in test_threads.cpp).
+void test_semaphore_negative_initial_raises()
+{
+    TEST(semaphore_negative_initial_raises);
+    bool threw = false;
+    std::string what;
+    try {
+        std::string out;
+        runSourceCapturing("sem_ctor_neg",
+            "int main() {\n"
+            "    Semaphore s = Semaphore(-1);\n"
+            "    return 0;\n"
+            "}\n",
+            out);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "negative initial count must raise");
+    CHECK(what.find("semaphore initial permit count must be at least 0")
+          != std::string::npos,
+          "message names the rule (got: " + what + ")");
+    PASS();
+}
+
+//Zero-permit acquire parks and release wakes: the worker cannot pass
+//acquire until main releases. Completion itself is the assertion — a
+//non-parking acquire spins forever and hits the deadlock guard, a lost
+//wakeup the same.
+void test_semaphore_park_and_wake()
+{
+    TEST(semaphore_park_and_wake);
+    std::string out;
+    const int rc = runSourceCapturing("sem_park",
+        "import thread;\n"
+        "import io;\n"
+        "class Worker {\n"
+        "    public Semaphore sem;\n"
+        "    public void go() {\n"
+        "        sem.acquire();\n"
+        "        io.write(\"A\");\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(0);\n"
+        "    Worker w = Worker();\n"
+        "    w.sem = s;\n"
+        "    Thread t = thread.spawn(w.go);\n"
+        "    thread.sleep(5);\n"
+        "    s.release();\n"
+        "    io.write(\"R\");\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "park/wake program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out.find("A") != std::string::npos
+          && out.find("R") != std::string::npos,
+          "worker passes acquire after release (got: " + out + ")");
+    PASS();
+}
+
+//FIFO fairness: three workers park in arrival order (sleeps separate
+//the spawns deterministically on the single carrier); three releases
+//wake them in the same order — the wake sequence must equal the
+//arrival sequence.
+void test_semaphore_fifo_wake_order()
+{
+    TEST(semaphore_fifo_wake_order);
+    std::string out;
+    const int rc = runSourceCapturing("sem_fifo",
+        "import thread;\n"
+        "import io;\n"
+        "class Worker {\n"
+        "    public Semaphore sem;\n"
+        "    public string tag;\n"
+        "    public void go() {\n"
+        "        sem.acquire();\n"
+        "        io.write(tag);\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(0);\n"
+        "    Worker a = Worker();\n"
+        "    a.sem = s;\n"
+        "    a.tag = \"A\";\n"
+        "    Worker b = Worker();\n"
+        "    b.sem = s;\n"
+        "    b.tag = \"B\";\n"
+        "    Worker c = Worker();\n"
+        "    c.sem = s;\n"
+        "    c.tag = \"C\";\n"
+        "    Thread ta = thread.spawn(a.go);\n"
+        "    thread.sleep(5);\n"
+        "    Thread tb = thread.spawn(b.go);\n"
+        "    thread.sleep(5);\n"
+        "    Thread tc = thread.spawn(c.go);\n"
+        "    thread.sleep(5);\n"
+        "    s.release();\n"
+        "    s.release();\n"
+        "    s.release();\n"
+        "    thread.join(ta);\n"
+        "    thread.join(tb);\n"
+        "    thread.join(tc);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "fifo program completes (rc=" + std::to_string(rc) + ")");
+    CHECK(out == "ABC", "wake order equals arrival order (got: " + out + ")");
+    PASS();
+}
+
+//tryAcquire both arms: a permit present → true and taken (the second
+//probe sees zero); after a release the probe succeeds again.
+void test_semaphore_try_acquire_arms()
+{
+    TEST(semaphore_try_acquire_arms);
+    std::string out;
+    const int rc = runSourceCapturing("sem_try",
+        "import io;\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(1);\n"
+        "    if (s.tryAcquire()) { io.write(\"1\"); }\n"
+        "    if (!s.tryAcquire()) { io.write(\"0\"); }\n"
+        "    s.release();\n"
+        "    if (s.tryAcquire()) { io.write(\"2\"); }\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "tryAcquire program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "102", "take when available, miss at zero, take again "
+          "after release (got: " + out + ")");
+    PASS();
+}
+
+//Over-release is legal (no ownership precondition — the Java/Python
+//convention): two releases with no waiter bank two permits, two
+//acquires drain them, the third probe misses.
+void test_semaphore_overrelease_then_acquire()
+{
+    TEST(semaphore_overrelease_then_acquire);
+    std::string out;
+    const int rc = runSourceCapturing("sem_over",
+        "import io;\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(0);\n"
+        "    s.release();\n"
+        "    s.release();\n"
+        "    if (s.tryAcquire()) { io.write(\"a\"); }\n"
+        "    if (s.tryAcquire()) { io.write(\"b\"); }\n"
+        "    if (!s.tryAcquire()) { io.write(\"c\"); }\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "over-release program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "abc", "released permits stay countable (got: " + out + ")");
+    PASS();
+}
+
+//Zero-permit acquire inside a user toString must be rejected as a
+//suspension inside a nested evaluation: io.write of an array coerces
+//the elements through toString (the nested window; the direct class
+//argument shape in test_threads.cpp). The caller-catch assert mirrors
+//mutex_unlock_without_hold_rejected there.
+void test_semaphore_acquire_in_tostring_rejects()
+{
+    TEST(semaphore_acquire_in_tostring_rejects);
+    bool threw = false;
+    std::string what;
+    try {
+        std::string out;
+        runSourceCapturing("sem_tostring",
+            "import io;\n"
+            "class C {\n"
+            "    public string toString() {\n"
+            "        Semaphore s = Semaphore(0);\n"
+            "        s.acquire();\n"
+            "        return \"x\";\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    C c = C();\n"
+            "    C[] arr = [c];\n"
+            "    io.write(arr);\n"
+            "    return 0;\n"
+            "}\n",
+            out);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "zero-permit acquire in toString must raise");
+    CHECK(what.find("cannot suspend") != std::string::npos,
+          "message names the nested-window rule (got: " + what + ")");
+    PASS();
+}
+
+//Permit conservation across four carriers: three acquirers, six
+//releasers — after every join the banked count is exactly releases
+//minus acquires; the probe pattern pins it (no permit lost or
+//duplicated by the racing handoff/count paths).
+void test_semaphore_permits_conserved_multicarrier()
+{
+    TEST(semaphore_permits_conserved_multicarrier);
+    std::string out;
+    const int rc = runSourceCapturingCarriers("sem_conservation",
+        "import thread;\n"
+        "import io;\n"
+        "class Releaser {\n"
+        "    public Semaphore sem;\n"
+        "    public void go() { sem.release(); }\n"
+        "}\n"
+        "class Acquirer {\n"
+        "    public Semaphore sem;\n"
+        "    public void go() { sem.acquire(); }\n"
+        "}\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(0);\n"
+        "    Releaser r = Releaser();\n"
+        "    r.sem = s;\n"
+        "    Acquirer a = Acquirer();\n"
+        "    a.sem = s;\n"
+        "    Thread t1 = thread.spawn(a.go);\n"
+        "    Thread t2 = thread.spawn(a.go);\n"
+        "    Thread t3 = thread.spawn(a.go);\n"
+        "    Thread t4 = thread.spawn(r.go);\n"
+        "    Thread t5 = thread.spawn(r.go);\n"
+        "    Thread t6 = thread.spawn(r.go);\n"
+        "    Thread t7 = thread.spawn(r.go);\n"
+        "    Thread t8 = thread.spawn(r.go);\n"
+        "    Thread t9 = thread.spawn(r.go);\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    thread.join(t3);\n"
+        "    thread.join(t4);\n"
+        "    thread.join(t5);\n"
+        "    thread.join(t6);\n"
+        "    thread.join(t7);\n"
+        "    thread.join(t8);\n"
+        "    thread.join(t9);\n"
+        "    if (s.tryAcquire()) { io.write(\"1\"); }\n"
+        "    if (s.tryAcquire()) { io.write(\"1\"); }\n"
+        "    if (s.tryAcquire()) { io.write(\"1\"); }\n"
+        "    if (!s.tryAcquire()) { io.write(\"0\"); }\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0, "conservation program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "1110", "6 releases - 3 acquires leaves exactly 3 "
+          "permits (got: " + out + ")");
+    PASS();
+}
+
+//A parked acquirer's frame is a GC root across the park window: the
+//worker holds a heap-referenced local across a zero-permit acquire
+//while two churners drive natural-threshold collections (no --gc-stress
+//— it suppresses the race window), then release wakes it and the local
+//must read intact (concurrent_channel_park_gcwindow.n shape).
+void test_semaphore_park_gc_window()
+{
+    TEST(semaphore_park_gc_window);
+    std::string out;
+    const int rc = runSourceCapturing("sem_gcwindow",
+        "import thread;\n"
+        "import io;\n"
+        "class Churner {\n"
+        "    public int spins;\n"
+        "    public void churn() {\n"
+        "        int i = 0;\n"
+        "        string acc = \"s\";\n"
+        "        while (i < spins) {\n"
+        "            acc = acc + \"x\" + i.toString();\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "class Waiter {\n"
+        "    public Semaphore sem;\n"
+        "    public void go() {\n"
+        "        string token = \"secret\";\n"
+        "        sem.acquire();\n"
+        "        if (token == \"secret\") {\n"
+        "            io.write(\"ok\");\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Semaphore s = Semaphore(0);\n"
+        "    Churner c1 = Churner();\n"
+        "    c1.spins = 1500;\n"
+        "    Churner c2 = Churner();\n"
+        "    c2.spins = 1500;\n"
+        "    Waiter w = Waiter();\n"
+        "    w.sem = s;\n"
+        "    Thread t1 = thread.spawn(c1.churn);\n"
+        "    Thread t2 = thread.spawn(c2.churn);\n"
+        "    Thread t3 = thread.spawn(w.go);\n"
+        "    thread.sleep(5);\n"
+        "    s.release();\n"
+        "    thread.join(t1);\n"
+        "    thread.join(t2);\n"
+        "    thread.join(t3);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "gc-window program completes (rc="
+          + std::to_string(rc) + ")");
+    CHECK(out == "ok", "parked local survives collections across the "
+          "window (got: " + out + ")");
+    PASS();
+}
+
 //Catch per-test exceptions (build failures, deadlock-guard throws) as
 //FAIL lines instead of killing the whole binary (test_threads.cpp
 //runGuarded shape).
@@ -249,6 +598,15 @@ int main()
     runGuarded(test_waitgroup_releases_waiters);
     runGuarded(test_waitgroup_add_accumulates);
     runGuarded(test_semaphore_limits_concurrency);
+    runGuarded(test_semaphore_native_constructs);
+    runGuarded(test_semaphore_negative_initial_raises);
+    runGuarded(test_semaphore_park_and_wake);
+    runGuarded(test_semaphore_fifo_wake_order);
+    runGuarded(test_semaphore_try_acquire_arms);
+    runGuarded(test_semaphore_overrelease_then_acquire);
+    runGuarded(test_semaphore_acquire_in_tostring_rejects);
+    runGuarded(test_semaphore_permits_conserved_multicarrier);
+    runGuarded(test_semaphore_park_gc_window);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";

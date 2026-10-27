@@ -1,0 +1,17 @@
+//A spawned task that fails with nobody joining must not die silently:
+//the run-end report names the task, the exception and its message
+//(Python's "Task exception was never retrieved" analogue). Main sleeps
+//so the task has failed before the run tears down.
+import thread;
+import io;
+
+void boom() {
+    throw Exception("task exploded");
+}
+
+int main() {
+    Thread t = thread.spawn(boom);
+    thread.sleep(200);
+    io.print("main-done");
+    return 0;
+}

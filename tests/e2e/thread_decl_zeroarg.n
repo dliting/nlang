@@ -1,0 +1,7 @@
+//A bare Thread() allocation stays legal (no declared constructor — the
+//legal bare-allocation shape; thread.spawn mints real instances and
+//writes the handle).
+int main() {
+	Thread t = Thread();
+	return 0;
+}

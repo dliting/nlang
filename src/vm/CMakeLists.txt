@@ -1,12 +1,16 @@
 add_library(nlang_vm
     OpCodeTable.cpp
     VmScheduler.cpp
+    GcWorldStop.cpp
+    VmSchedulerTimer.cpp
+    VmSchedulerSync.cpp
     VmExecutor.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
+    VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp
@@ -19,6 +23,7 @@ add_library(nlang_vm
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
+    VmExecutorGCSweep.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
     VmDefaultMaterializer.cpp
@@ -27,16 +32,22 @@ add_library(nlang_vm
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
     VmExecutorNativeCallbacks.cpp
+    VmExecutorBlockingNative.cpp
+    VmExecutorFailure.cpp
     InputLineSource.cpp
     TokenView.cpp
     DebugSessionController.cpp
+    IntrinsicsContainer.cpp
     IntrinsicsString.cpp
     IntrinsicsByteStream.cpp
     IntrinsicsFileStream.cpp
     IntrinsicsThread.cpp
     IntrinsicsFuture.cpp
     IntrinsicsChannel.cpp
+    IntrinsicsMutex.cpp
+    IntrinsicsSemaphore.cpp
     backend/VmBackend.cpp
+    backend/BindingTable.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
     backend/Slots.cpp
@@ -44,6 +55,7 @@ add_library(nlang_vm
     backend/RegisterClass.cpp
     backend/RegisterInterfaces.cpp
     backend/RegisterEnums.cpp
+    backend/RegisterStructs.cpp
     backend/BuiltinClasses.cpp
     backend/Types.cpp
     backend/EmitCall.cpp

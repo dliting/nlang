@@ -33,6 +33,18 @@ namespace fs = std::filesystem;
 
 using namespace nlang;
 
+#ifdef _WIN32
+//ExitProcess skips the CRT's atexit table (that is the point — runtime
+//static destructors must not touch the exit code), so with a statically
+//linked CRT (the ASan build links one) buffered stdout is dropped on
+//the bypass — e.g. "Compiled successfully: ..." never reaches a pipe.
+//Flush first; nvm and ndb follow the same discipline.
+static void ExitProcessFlushed(UINT code) {
+    std::fflush(stdout);
+    ExitProcess(code);
+}
+#endif
+
 static void PrintUsage() {
     std::cerr << "Usage:\n"
               << "  ncc <source.n> [-o out.ncu] [-I <dir>...]  Compile and execute\n"
@@ -158,7 +170,7 @@ int main(int argc, char* argv[]) {
             mod = NcuLinker::Link(loaded.units, loaded.entryKey);
             int result = executor.Execute(mod);
 #ifdef _WIN32
-            ExitProcess(static_cast<UINT>(result));
+            ExitProcessFlushed(static_cast<UINT>(result));
 #else
             return result;
 #endif
@@ -426,7 +438,7 @@ int main(int argc, char* argv[]) {
         //On Windows, static destructors from Runtime::StaticInit() can
         //corrupt the process exit code. ExitProcess() bypasses this.
 #ifdef _WIN32
-        ExitProcess(0);
+        ExitProcessFlushed(0);
 #else
         return 0;
 #endif
@@ -471,7 +483,7 @@ int main(int argc, char* argv[]) {
         //On Windows, static destructors from Runtime::StaticInit() can
         //corrupt the process exit code. ExitProcess() bypasses this.
 #ifdef _WIN32
-        ExitProcess(static_cast<UINT>(result));
+        ExitProcessFlushed(static_cast<UINT>(result));
 #else
         return result;
 #endif

@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <utility>
@@ -54,20 +55,6 @@ namespace langservice { class SymbolIndex; struct SymbolInfo; }
 //ModuleRegistry.h) — the package/qualified-name seam KeyOf spells table
 //keys from. Pointer only, never owned.
 class ModuleRegistry;
-
-//Phase 9d: the built-in Exception family — synthetic declarations carry
-//no AST fields; the Exception row owns the two-field (message/backtrace)
-//runtime layout and every subclass sees the pair through the chain view
-//(0.9.12 v2.7 own-only records). Used by the field-offset lookup
-//(backend/FieldOffsets.cpp), which may only advance the offset on the
-//Exception row itself.
-inline bool IsBuiltinExceptionName(const std::string& name) {
-    return name == "Exception" || name == "NullPointerException"
-        || name == "DivByZeroException"
-        || name == "IndexOutOfBoundsException"
-        || name == "AssertionException" || name == "IOException"
-        || name == "InvalidCastException";
-}
 
 class VmBackend : public ICodeBackend {
 public:
@@ -228,8 +215,11 @@ private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
     //budget): signature fill via FillNativeFunctionRecord, then the
-    //thread-package intrinsic stamp (K3 materialization).
+    //binding-table intrinsic stamp.
     void EmitNativeFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
+    //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
+    void StampIntrinsicChannel(SnFunction& func,
         CompiledFunction& compiledFunc);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
@@ -244,18 +234,20 @@ private:
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
 
     //Flattened member-field offset helpers (definitions live in
-    //EmitExprMember.cpp), shared by the member-read, assign-store,
-    //and new-expression emitters across emission TUs.
+    //FieldOffsets.cpp), shared by the member-read, assign-store,
+    //and new-expression emitters across emission TUs. Non-static: the
+    //handle-class skip consults the owner via the registry, the same
+    //predicate CollectOwnClassFields inserts the hidden __handle with.
     static int FindFieldOffset(SnStructDecl& structDecl,
                                const std::string& fieldName);
-    static int FindClassFieldOffset(SnClassDecl& classDecl,
-                                    const std::string& fieldName);
+    int FindClassFieldOffset(SnClassDecl& classDecl,
+                             const std::string& fieldName);
     //FindClassFieldOffset arm: one ancestor in the root→parent walk —
     //returns the field offset when the field lives there, else -1; `off`
     //always advances past that ancestor's data fields.
-    static int ClassAncestorFieldOffset(SnClassDecl& ancestor,
-                                        const std::string& fieldName,
-                                        uint16_t& off);
+    int ClassAncestorFieldOffset(SnClassDecl& ancestor,
+                                 const std::string& fieldName,
+                                 uint16_t& off);
     //0.9.11 D2: generalized to struct fields — returns the owning type
     //decl (SnClassDecl or SnStructDecl) for a member field of either,
     //null otherwise; the caller dispatches the offset helper by the
@@ -1510,17 +1502,17 @@ private:
     //struct/class indices built from the nodes once all tables exist
     //(names alone cannot carry cross-unit provenance for the slots).
     std::vector<std::vector<SnField*>> m_structFieldTypes;
-    int16_t m_objectClassIdx = -1;  //Phase 8e-1: index of synthesized Object class (-1 until RegisterBuiltinClasses)
     int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
-    int16_t m_exceptionClassIdx = -1;   //Phase 9d: Exception base class
-    int16_t m_nullPtrExcClassIdx = -1;  //Phase 9d: NullPointerException
-    int16_t m_divZeroExcClassIdx = -1;  //Phase 9d: DivByZeroException
-    int16_t m_oobExcClassIdx = -1;      //Phase 9d: IndexOutOfBoundsException
-    int16_t m_assertExcClassIdx = -1;   //Phase 9d: AssertionException
-    int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
-    int16_t m_invalidCastExcClassIdx = -1;  //v0.8.5: InvalidCastException
-    int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
+
+    //Shadowed prelude names (builtin-decls source-of-truth design §6.8):
+    //bare names a NON-prelude top-level declaration claims. The prelude's
+    //same-name declarations retire from every registration site
+    //(innermost-wins); user declarations bind first anyway (project TUs
+    //precede the prelude TU on the root), this set keeps the VM tables
+    //from carrying the shadowed prelude records. Computed once per build
+    //in GenerateUnits, before the per-unit loop.
+    std::set<std::string> m_shadowedPreludeNames;
 
     //Borrowed library declaration index (SetLibraryIndex); null until
     //ModuleBuilder injects it. Codegen reads stdlib signatures from it.
@@ -1743,6 +1735,42 @@ private:
             return {false, 0};
         return {true, slot};
     }
+
+    //--- prelude shadowing + intrinsic binding table (definitions in
+    //VmBackend.cpp; consumed by the registration walks and the
+    //two-arm stamping gate in GenerateUnits.cpp).
+
+    //One whole-tree pass collecting the shadowed prelude names (see the
+    //m_shadowedPreludeNames member comment). Top-level members only:
+    //prelude declarations are all root-level, and method-level shadowing
+    //is per-class dispatch, not a bare-name question.
+    void ComputeShadowedPreludeNames(SnNamespace& root);
+
+    //True when THIS declaration is a prelude one whose bare name a
+    //foreign declaration claims — the registration sites skip it (the
+    //foreign declaration is the visible winner).
+    bool IsShadowedPreludeDecl(const SnField& node) const;
+
+    //True when this class declaration is a prelude builtin whose record
+    //leads with the hidden __handle field (binding-table marker, §6.4).
+    //Owner-gated: a user class sharing the name after shadowing is not
+    //the builtin. Record insertion (CollectOwnClassFields) and the
+    //FieldOffsets mirror consult the SAME predicate so the layouts
+    //cannot diverge.
+    bool IsHandleClassDecl(const SnField& decl) const;
 };
+
+//Intrinsic binding table (builtin-decls source-of-truth design §4.5):
+//package-partitioned name→id rows for declarations implemented inside
+//the VM. The two-arm stamping gate keys free functions "pkg.func",
+//methods "Class.method", constructors "Class". Only-append id
+//discipline (include/nlang/vm/Intrinsics.h); a declaration outside the
+//table keeps host-native dispatch (the ordinary native channel).
+bool IsStampedBindingPackage(const std::string& packagePath);
+uint16_t LookupIntrinsicId(const std::string& packagePath,
+    const std::string& key);
+//Handle-class marker (§6.4): true for a prelude class name whose record
+//carries the hidden __handle field. Append-only list.
+bool IsHandleClassName(const std::string& className);
 
 } // namespace nlang

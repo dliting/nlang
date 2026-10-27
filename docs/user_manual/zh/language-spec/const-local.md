@@ -12,10 +12,10 @@ const string Greeting = "hello";
 
 ```nlang
 const Foo f = Foo();
-f.x = 5;            // OK —— f 本身未被重新赋值
-f = Foo();      // 错误 —— 不能给 const 局部重新赋值
+f.x = 5;            // OK —— f本身未被重新赋值
+f = Foo();      // 错误 —— 不能给const局部重新赋值
 const Point p = q;
-p.x = 5;            // OK —— 只有 p 的绑定是 const
+p.x = 5;            // OK —— 只有p的绑定是const
 ```
 
 对class字段和数组元素而言，这意味着：`const`引用仍允许通过它写入。深/不可变风格的const不受支持。

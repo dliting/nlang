@@ -9,6 +9,39 @@
 
 namespace nlang {
 
+//K8 sharding: the calling thread's shard (carrier id, or the host
+//fallback slot past the carrier range for embed threads).
+size_t VmExecutor::CurrentShard() const {
+    const int id = m_spScheduler->CurrentCarrierId();
+    //host fallback threads (embed bridge) use the shard past the range
+    return id >= 0 ? static_cast<size_t>(id)
+                   : static_cast<size_t>(m_carrierThreadCount);
+}
+
+int32_t VmExecutor::TakeHeapSlot() {
+    const size_t shard = CurrentShard();
+    if (m_heapShards.Empty(shard)) {
+        DomainGuard g(m_domainLocks, DomainId::Growth);
+        if (m_heapShards.Empty(shard))   //double-check under the lock
+            GrowHeapShardBlockLocked(shard);
+    }
+    return m_heapShards.Pop(shard);
+}
+
+void VmExecutor::GrowHeapShardBlockLocked(size_t shard) {
+    const int32_t base = static_cast<int32_t>(m_structHeap.size());
+    for (size_t k = 0; k < m_allocQuantum; ++k) {
+        m_structHeap.Emplace();
+        m_slotKinds.Emplace(0);
+        m_slotStructIdx.Emplace(0);
+    }
+    m_heapShards.PushBlockDescending(shard, base, m_allocQuantum);
+}
+
+void VmExecutor::HeapSweepPush(int32_t idx) {
+    m_heapShards.Push(m_heapShards.SweepShardOf(idx), idx);
+}
+
 int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     if (structIdx >= m_currModule->structs.size())
         throw std::runtime_error("NLang VM: invalid struct index in AllocStruct");
@@ -17,19 +50,10 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     //cell 2i, so the record is 2*fieldCount cells.
     const size_t recordCells = static_cast<size_t>(cs.fieldCount)
         * (kHeapFieldStrideBytes / kHeapCellBytes);
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
-        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Struct;
-        m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(recordCells, 0);
-        m_slotKinds.push_back(RTK_Struct);
-        m_slotStructIdx.push_back(structIdx);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
+    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Struct;
+    m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
@@ -65,19 +89,10 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     //field — field i lives at cell 1 + 2i.
     const size_t recordCells = 1 + fields.size()
         * (kHeapFieldStrideBytes / kHeapCellBytes);
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
-        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Class;
-        m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(recordCells, 0);
-        m_slotKinds.push_back(RTK_Class);
-        m_slotStructIdx.push_back(0);
-    }
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
+    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Class;
+    m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     m_structHeap[static_cast<size_t>(heapIdx)][0] = static_cast<int32_t>(classIdx);
     for (size_t i = 0; i < fields.size(); ++i) {
         if (fields[i].kind == RTK_Struct && fields[i].structIdx != 0xFFFF) {
@@ -122,20 +137,11 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     //The one array allocation path shared by language creation and
     //native minting: raise the collector-pending flag here, so a loop
     //that only allocates through natives still reaches collection.
-    m_gcPending = true;
-    int32_t heapIdx;
-    if (!m_freeList.empty()) {
-        heapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
-        m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
-        m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
-    } else {
-        heapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.emplace_back(totalSlots, 0);
-        m_slotKinds.push_back(RTK_Array);
-        m_slotStructIdx.push_back(arrayTypeIdx);
-    }
+    NoteGcPressure();
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
+    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
+    m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
     auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
     record[0] = RTK_Array;
     record[1] = arrayTypeIdx;
@@ -164,19 +170,10 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
         throw std::runtime_error("NLang VM: invalid struct index in CopyStruct");
     const auto& cs = m_currModule->structs[structIdx];
     auto srcSlotCopy = m_structHeap[static_cast<size_t>(srcHeapIdx)];
-    int32_t newHeapIdx;
-    if (!m_freeList.empty()) {
-        newHeapIdx = m_freeList.back();
-        m_freeList.pop_back();
-        m_structHeap[static_cast<size_t>(newHeapIdx)] = srcSlotCopy;
-        m_slotKinds[static_cast<size_t>(newHeapIdx)] = RTK_Struct;
-        m_slotStructIdx[static_cast<size_t>(newHeapIdx)] = structIdx;
-    } else {
-        newHeapIdx = static_cast<int32_t>(m_structHeap.size());
-        m_structHeap.push_back(srcSlotCopy);
-        m_slotKinds.push_back(RTK_Struct);
-        m_slotStructIdx.push_back(structIdx);
-    }
+    const int32_t newHeapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(newHeapIdx)] = srcSlotCopy;
+    m_slotKinds[static_cast<size_t>(newHeapIdx)] = RTK_Struct;
+    m_slotStructIdx[static_cast<size_t>(newHeapIdx)] = structIdx;
     //Deep-copy struct-typed fields (field i at cell 2i under the uniform
     //stride). Class-typed fields are shallow-copied (reference semantics
     //— the index value is copied as-is).
@@ -191,7 +188,7 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     }
     //Task 2 gap fix: a pure deep-copy loop allocates records without ever
     //raising the pending flag — GC would never trigger on this path.
-    m_gcPending = true;
+    NoteGcPressure();
     return newHeapIdx;
 }
 

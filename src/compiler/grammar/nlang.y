@@ -1544,6 +1544,17 @@ ClassDecl:	KT_Class TT_Identifier ClassInheritOpt ImplementsOpt '{' ClassMemberL
 						for (auto *pNode : *$4)
 							pClass->AddImplementsName(pNode);
 					$$ = pClass;
+				} |
+			//Empty body (marker classes): the separate alternative is the
+			//InterfaceDecl shape — an empty ClassMemberList arm would
+			//reintroduce the epsilon-list conflict family the accepted-
+			//conflict ledger records as removed.
+KT_Class	TT_Identifier ClassInheritOpt ImplementsOpt '{' '}' {
+					auto* pClass = new SnClassDecl($2, $3, new PtrList<SnField>(), @1);
+					if ($4)
+						for (auto *pNode : *$4)
+							pClass->AddImplementsName(pNode);
+					$$ = pClass;
 				} ;
 
 ClassInheritOpt:	':' TypeName { $$ = $2; } |

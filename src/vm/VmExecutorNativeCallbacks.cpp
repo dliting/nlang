@@ -25,6 +25,12 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
                                       const char* message) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
+    //K8: keeps the store lock — FireOnThrow is a scheduler-facing
+    //checkpoint (the OpThrow family keeps its guard for the same
+    //reason); restated with the scheduler lock in Step 7.
+    //K8: keeps the store lock — FireOnThrow is a scheduler-facing
+    //checkpoint (the OpThrow family keeps its guard for the same
+    //reason); restated with the scheduler lock in Step 7.
     //v6: native kernels raise the same catchable families the language
     //runtime does. A negative class index (builtin class absent from the
     //linked module — defensive, every module registers them) falls back
@@ -52,13 +58,17 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
 
 uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: the shared engine serializes draws and reseeds on the RNG
+    //mutex (host-boundary leaf — the engine is not a store).
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
     return e->m_rng();
 }
 
 void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
     VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
+    //K8: the shared engine serializes draws and reseeds on the RNG
+    //mutex (host-boundary leaf — the engine is not a store).
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
     e->m_rng.seed(static_cast<uint32_t>(seed));
 }
 

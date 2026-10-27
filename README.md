@@ -34,7 +34,7 @@ no toolchain, no build:
    (copy them to a writable folder first — project builds write their `.npkg`
    next to the project file, and the installed folder is read-only; standalone
    `.n` files build into a per-user temp area). `examples/README.md` indexes
-   every example.
+   every example. The concurrency tour starts at `examples/conc_spawn_join.n`.
 
    Prefer a terminal one-liner? Run
    `bin\nlang -c "import io; io.print(\"hello\");"` —
@@ -224,8 +224,8 @@ is in `CHANGELOG.md`.
 six packages — sources shipped with the toolchain (`stdlib/*.n`),
 provided at run time by `stdlib.npkg` through the same mechanism as any
 library package; their qualified calls still need an explicit `import`
-(`thread` carries the virtual-thread spawn and parking primitives;
-`concurrent` adds `WaitGroup` and `Semaphore` on top of the kernel
+(`thread` carries the virtual-thread spawn and suspension primitives;
+`concurrent` adds `WaitGroup` on top of the kernel
 concurrency primitives). Strings carry built-in
 methods:
 
@@ -263,10 +263,12 @@ objects included), register `native` host functions, and redirect
 `io.print`/`io.eprint` to host callbacks. Scripts can also run straight
 from source: `runSource`/`runFile` compile and execute ad-hoc scripts
 in-process (no `main()` boilerplate), and `runScript` wraps the whole
-flow for one-shot use. Script threads run under a global interpreter
-lock; an `Interpreter` uses a single carrier by default, and a host
-embedding at the `VmExecutor` layer can opt into parallel carriers with
-`SetCarrierThreadCount` (blocking native calls release the lock).
+flow for one-shot use. Script threads' shared-store operations are
+protected by domain locks; an `Interpreter` uses a single carrier
+by default, and a host embedding at the `VmExecutor` layer can opt into
+parallel carriers with `SetCarrierThreadCount` (blocking native calls
+park and release their locks, and pure-compute segments and object
+field access overlap without locks).
 A minimal host ships in `examples/embed_host/`; the full chapter is
 `docs/user_manual/en/libraries/embedding-api.md`.
 
@@ -334,7 +336,7 @@ the layout to a scratch directory, pins Qt's search paths to it via
 ## Documentation Site
 
 The bilingual user manual (`docs/user_manual/zh/` and `docs/user_manual/en/`, one mkdocs config
-per tree, both inheriting `mkdocs.base.yml`) is rendered into a static
+per tree, both inheriting `mkdocs.base.yml` -- all three sit in `docs/`) is rendered into a static
 site by the CMake target `nlang_docs` (on by default,
 `-DNLANG_BUILD_DOCS=OFF` to skip), merged under `<build>/docs/site/{zh,en}`
 behind a language-picking landing page (`docs/site/index.html`); the
@@ -351,14 +353,14 @@ uses):
 
 ```bash
 # Iteration preview (plain mkdocs live-reload server; pick a tree)
-PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config mkdocs.zh.yml
+PYTHONPATH=tools/nlang-docs/src python -m nlang_docs serve --config docs/mkdocs.zh.yml
 
 # What the CMake target runs per tree (for BOTH mkdocs.zh.yml and
 # mkdocs.en.yml): mkdocs build --strict, the offline-search inlining and
 # the snippet audit -- the site audit is deferred until both trees are
 # built (they cross-link each other), then `check` runs once per tree
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
-    --config mkdocs.zh.yml --site-dir build/docs/site/zh \
+    --config docs/mkdocs.zh.yml --site-dir build/docs/site/zh \
     --defer-site-audit \
     --ncc build/src/tools/ncc/Release/ncc.exe \
     --nvm build/src/tools/nvm/Release/nvm.exe
@@ -366,7 +368,7 @@ PYTHONPATH=tools/nlang-docs/src python -m nlang_docs build \
 # Audit one tree of an already-generated site (also reused by
 # packaging verification)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs check \
-    --site-dir build/docs/site/zh --config mkdocs.zh.yml
+    --site-dir build/docs/site/zh --config docs/mkdocs.zh.yml
 
 # Audit one page's ```nlang snippets standalone (compile + run + exit code)
 PYTHONPATH=tools/nlang-docs/src python -m nlang_docs snippets \

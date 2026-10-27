@@ -120,6 +120,12 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
             return EnclosureMethodKey(reg, field);
         return field.Name();
     }
+    //Prelude top-level members key bare (builtin-decls source-of-truth
+    //design §6.7): the records land in every image (IsOwnUnit's prelude
+    //arm) and must spell exactly what bare user code resolves —
+    //"Exception", not "builtins.Exception".
+    if (reg.IsPreludeModule(reg.OwnerOf(field)))
+        return field.Name();
     return reg.QualifiedName(field);
 }
 
@@ -142,16 +148,8 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_funcIndexMap.clear();
     m_enumIndexMap.clear();
     m_structFieldTypes.clear();
-    m_objectClassIdx = -1;
     m_listClassIdx = -1;
     m_dictClassIdx = -1;
-    m_exceptionClassIdx = -1;
-    m_nullPtrExcClassIdx = -1;
-    m_divZeroExcClassIdx = -1;
-    m_oobExcClassIdx = -1;
-    m_assertExcClassIdx = -1;
-    m_ioExcClassIdx = -1;
-    m_invalidCastExcClassIdx = -1;
     m_defaultEmitting.clear();
 }
 
@@ -168,7 +166,12 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     //that still resolve NO_OWNER are exactly the built-ins and synthetic
     //generic instantiations: own in every unit by design.
     const uint32_t owner = m_pRegistry->OwnerOfContext(member);
-    return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER;
+    //Prelude members are own in EVERY unit image too (builtin-decls
+    //source-of-truth design §6.7): the prelude unit is a library TU and
+    //never generates, so its declared records ride each project image —
+    //the declared mirror of the ownerless-builtin semantics above.
+    return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER
+        || m_pRegistry->IsPreludeModule(owner);
 }
 
 //Phase 6 D5, per declaration: the host DLL is the first-dot segment
@@ -202,106 +205,9 @@ bool VmBackend::RejectMultiSegmentNatives(SnNamespace& root) {
     return refused;
 }
 
-void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
-    CompiledStruct cs;
-    //Same-package duplicates are stopped by the compiler's
-    //DuplicateFieldChecker before codegen runs, so the type tables keep
-    //no second gate here; a cross-module same key IS the same type (the
-    //load-time linker dedups peer images by qualified name).
-    cs.name = KeyOf(sn);
-    cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
-    std::vector<SnField*> fieldTypes;
-    for (auto& field : sn.Fields()) {
-        cs.fieldNames.push_back(field.Name());
-        auto* fieldType = field.EvalDataType();
-        //0.7.3 B: array fields bind EvalDataType to their interned
-        //array token, so RuntimeTypeKind alone files them as
-        //RTK_Array. (Pre-token, EvalDataType degraded to the element
-        //type and mis-filed `int[]` as RTK_Int32 in writeStruct.)
-        uint16_t ftk = RuntimeTypeKind(fieldType);
-        cs.fieldTypeKinds.push_back(ftk);
-        cs.fieldStructIndices.push_back(0xFFFF);
-        cs.fieldClassIndices.push_back(0xFFFF);
-        fieldTypes.push_back(fieldType);
-        //0.9.11 D4: the field initializer folds through the same
-        //ExtractDefaultValue channel as function defaults (nullptr →
-        //RTK_Void sentinel; string literals intern into the producer's
-        //pool and the import merge remaps them). The declaration-side
-        //check (FieldInitializerChecks.hpp) admits only the constant-
-        //foldable subset, so no RTK_Expr/RTK_Unfoldable tag can appear
-        //here; the vector stays dense (one entry per field). ftk is the
-        //declared carrier the materializer reads the slot back by.
-        cs.fieldDefaults.push_back(
-            ExtractDefaultValue(field.Initializer(),
-                                static_cast<uint8_t>(ftk)));
-    }
-    m_compiledModule.structs.push_back(std::move(cs));
-    m_structFieldTypes.push_back(std::move(fieldTypes));
-}
 
-void VmBackend::RegisterStructs(SnNamespace& root) {
-    ForEachDeclNode(root, [&](SnField& node) {
-        //Per-unit: foreign units' structs belong to their own images
-        //(IsOwnUnit; stubs were already skipped by IsImported).
-        if (node.Kind() == NK_StructDecl && !node.IsImported()
-            && IsOwnUnit(node))
-            RegisterStructDecl(static_cast<SnStructDecl&>(node));
-    });
-    //Resolve fieldStructIndices now that all structs are registered.
-    //fieldClassIndices are resolved later by ResolveStructClassRefs
-    //(after RegisterClasses, since classes are not yet registered here).
-    //The node lists are parallel to the OWN struct entries only, so the
-    //loop is bounded by them: slot resolution below appends placeholder
-    //entries for cross-unit field types, growing structs past the list.
-    //Element access is by fresh indexing per statement — StructSlotFor
-    //can reallocate m_compiledModule.structs, and a held element
-    //reference would dangle across it.
-    for (size_t si = 0; si < m_structFieldTypes.size(); ++si) {
-        auto& fieldTypes = m_structFieldTypes[si];
-        for (size_t i = 0; i < fieldTypes.size(); ++i) {
-            auto* ft = fieldTypes[i];
-            if (m_compiledModule.structs[si].fieldTypeKinds[i]
-                    == RTK_Struct
-                && ft && ft->Kind() == NK_StructDecl) {
-                uint16_t slot = static_cast<uint16_t>(
-                    StructSlotFor(static_cast<SnStructDecl&>(*ft)));
-                m_compiledModule.structs[si].fieldStructIndices[i] = slot;
-            }
-        }
-    }
-}
-
-
-void VmBackend::ResolveStructClassRefs() {
-    //Own-struct entries only (the node lists are parallel to them);
-    //placeholder entries have no field data of their own. Fresh per-
-    //statement indexing for the same reallocation reason as
-    //RegisterStructs (ClassSlotFor appends to classes, and a struct
-    //leaf inside BuildTypeDesc appends to structs).
-    for (size_t si = 0; si < m_structFieldTypes.size(); ++si) {
-        auto& fieldTypes = m_structFieldTypes[si];
-        for (size_t i = 0; i < fieldTypes.size(); ++i) {
-            auto* ft = fieldTypes[i];
-            if (m_compiledModule.structs[si].fieldTypeKinds[i]
-                    == RTK_Class
-                && ft && ft->Kind() == NK_ClassDecl) {
-                uint16_t slot = static_cast<uint16_t>(
-                    ClassSlotFor(static_cast<SnClassDecl&>(*ft)));
-                m_compiledModule.structs[si].fieldClassIndices[i] = slot;
-            }
-        }
-        //v1.12: field type descriptors — built here because both the
-        //struct and class tables are complete (BuildTypeDesc slots
-        //leaves through them). The desc is computed before the
-        //push_back statement: a struct leaf slots through
-        // LeafSlotResolvers, and the member call's receiver must not be
-        //a stale reference from before that append.
-        for (size_t i = 0; i < fieldTypes.size(); ++i) {
-            TypeDesc td = BuildTypeDesc(fieldTypes[i], LeafSlotResolvers());
-            m_compiledModule.structs[si].fieldTypeDescs.push_back(td);
-        }
-    }
-}
+//结构体登记族（RegisterStructDecl/RegisterStructs/ResolveStructClassRefs）
+//位于 RegisterStructs.cpp（master 合并后尺寸守卫触发的拆分，一族一 TU）。
 
 //数组类型发现与注册族（RegisterArrayType/WalkArrayType*）位于
 //RegisterArrayTypes.cpp（2026-10-02 尺寸守卫触发的拆分）。
@@ -314,26 +220,43 @@ void VmBackend::ResolveStructClassRefs() {
 
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
-    ForEachDeclNode(root, [&](SnField& node) {
-        if (node.Kind() != NK_Function)
-            return;
-        auto& func = static_cast<SnFunction&>(node);
-        //Per-unit: only this unit's functions register — cross-unit
-        //calls resolve through FunctionSlotFor placeholders. The
-        //body/native gate below already skips imported stubs.
-        if (!IsOwnUnit(func))
-            return;
-        //Phase 9f: native declarations register like normal functions
-        //(the record carries isNative + param signature); a body-less
-        //non-native declaration gets no record.
-        if (!func.Body() && !func.ContainFlags(NF_Native))
-            return;
-        CompiledFunction cf;
-        cf.name = KeyOf(func);
-        cf.sourceFile = SourceFilePathOf(func);
-        m_compiledModule.functions.push_back(std::move(cf));
-        m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
-    });
+    //Two-phase fill: the unit's own declarations first, then the
+    //prelude/builtin-owned ones. The function-table layout is a
+    //cross-process contract — a library build's npkg table and a
+    //consumer's shadow replay must interleave identically, but tree
+    //insertion order does not survive the trip (a library build parses
+    //the library unit before the prelude; a consumer inlines the
+    //prelude first, so a single tree-order pass drifts every prelude
+    //ordinal and nlink rejects the import record at load). Ownership
+    //phase is the invariant both processes agree on.
+    for (const bool preludePhase : { false, true }) {
+        ForEachDeclNode(root, [&](SnField& node) {
+            if (node.Kind() != NK_Function)
+                return;
+            auto& func = static_cast<SnFunction&>(node);
+            //Per-unit: only this unit's functions register — cross-unit
+            //calls resolve through FunctionSlotFor placeholders. The
+            //body/native gate below already skips imported stubs. A prelude
+            //declaration whose bare name a foreign declaration claims does
+            //not register (spec §6.8 — the foreign declaration is the
+            //visible winner; same rule as the class sites).
+            if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
+                return;
+            const uint32_t owner = m_pRegistry->OwnerOfContext(func);
+            if ((owner != m_currentUnitIdx) != preludePhase)
+                return;
+            //Phase 9f: native declarations register like normal functions
+            //(the record carries isNative + param signature); a body-less
+            //non-native declaration gets no record.
+            if (!func.Body() && !func.ContainFlags(NF_Native))
+                return;
+            CompiledFunction cf;
+            cf.name = KeyOf(func);
+            cf.sourceFile = SourceFilePathOf(func);
+            m_compiledModule.functions.push_back(std::move(cf));
+            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
+        });
+    }
 }
 
 //The per-unit registration sequence — table layout only. Shared by the

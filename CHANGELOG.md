@@ -277,6 +277,181 @@ All notable changes to NLang are documented here. The format follows
   comes from the final verdict's per-argument notes, which name both the
   actual and the expected type.
 
+## [0.10.20] - 2026-10-27
+
+### Fixed
+
+- **Unobserved spawned-task failures are no longer swallowed silently** —
+  a spawned task whose uncaught exception no `join`/`Future.get` ever
+  observed used to disappear without a trace: the run ended green with
+  the error gone. At run end the VM now prints one stderr line per such
+  task — `NLang VM: spawned task <id> failed with uncaught <Type>:
+  <message> (never joined)` — the Python "Task exception was never
+  retrieved" analogue. Failures a joiner observed (the eager rethrow of
+  a join on an already-failed target included) stay silent; exit codes
+  and program output are unchanged. Pinned by three e2e tests (unjoined
+  warns; eager and late joins stay quiet).
+
+## [0.10.19] - 2026-10-27
+
+### Added
+
+- **Prelude package `builtins`: built-in classes declared as ordinary
+  source** — every build automatically imports a prelude package
+  (`stdlib/builtins.n`, shipped with the toolchain; an explicit
+  `import builtins;` is legal and deduplicates) that declares the
+  compiler's non-generic built-in classes as ordinary source: the handle
+  classes `Mutex`, `Semaphore`, `Thread`, the exception family
+  (`Exception` and its seven built-in subclasses), and the hierarchy
+  root `Object`. Constructor arities and method surfaces are exactly
+  what the file declares, and the language service treats them like any
+  other declaration. The generic containers `List<T>`/`Dict<K,V>`/
+  `Channel<T>`/`Future<T>` and the streams `ByteStream`/`FileStream`
+  stay compiler built-ins for now (a follow-up stage migrates them).
+- **Empty class bodies** — `class Thread { }` (the marker-class shape)
+  is legal grammar, mirroring interfaces.
+
+### Changed
+
+- **Same-name priority unified** — a root-level user class shadowing a
+  prelude-declared name now wins at every position: type reference,
+  bare construction (`Semaphore s = Semaphore();` resolves to the user
+  class; previously the construction site still bound the synthesized
+  built-in), and member lookup. Variable naming refuses any name that
+  resolves to a visible type (unchanged behavior, now consults the real
+  visibility chain), and type aliases may no longer hijack
+  prelude-declared names (`using Semaphore = int;` previously compiled).
+- Exception constructor arity is matched against the declared
+  overloads, and the catch clause binds its class index from the
+  resolved catch type directly — diagnostics at these sites reflect the
+  declared signatures. `Thread t = Thread();` (bare allocation) stays
+  legal; `Thread t = Thread(1);` is still rejected.
+
+### Fixed
+
+- **Catch variables scoped to their catch clause** — the catch variable
+  is visible only inside its clause; declaring the same name in the
+  enclosing scope afterwards is a proper local declaration instead of a
+  silent collision.
+- **User-thrown exceptions expose a usable backtrace** — `e.backtrace`
+  on an exception built by user code is an empty list (previously a
+  runtime error on first read).
+
+### Notes
+
+- Measurement (prelude probe — concurrency, exception and container
+  mix; 7 runs): compile wall time min 11.8 ms → 13.2 ms, module size
+  8102 → 9840 bytes; program output byte-identical.
+
+## [0.10.18] - 2026-10-26
+
+### Fixed
+
+- **Mutex/Semaphore stale-wake corruption under high carrier counts** —
+  the unlock/release stamp arm (a permit or ownership handed to a waiter
+  that had registered but not yet parked) also fired a wake. The wake is
+  redundant there — the registering acquirer's recheck consumes the
+  stamp synchronously — and, because the scheduler lock is unfair, a
+  delayed one could land after that acquirer had moved on and parked on
+  another primitive, flipping the unrelated park to Runnable and
+  resuming it without its grant. Observed from three carriers up as
+  section over-admission (`Semaphore(2)` admitting three), spurious
+  `Mutex.unlock without holding the lock` errors, and lost-permit
+  deadlocks. Stamp delivery now relies solely on the recheck; only the
+  committed-park handoff wakes (the discipline the Channel family
+  already followed). Pinned by a 4-worker gate-hammer end-to-end test.
+
+## [0.10.17] - 2026-10-25
+
+### Added
+
+- **Native Semaphore handle class** — `Semaphore` becomes a built-in
+  handle class (no import), the condition-wait counterpart to `Mutex`:
+  `acquire()` at zero permits parks through a real two-phase handshake
+  and wakes in first-in-first-out order; `release()` hands the permit
+  directly to the front waiter (no ownership requirement — the count
+  may exceed the initial value, as in Java and Python); `tryAcquire()`
+  is a non-suspending probe, safe inside re-entrant evaluation. A new
+  manual page (zh+en) covers admission limiting, signal switches, and
+  the polling pattern.
+
+### Changed
+
+- The `concurrent` package drops its spin-yield `Semaphore` (the
+  builtin replaces it; `WaitGroup` is unaffected). The known-limitations
+  entry "Semaphore waits by yielding" is resolved; the concurrency
+  pages now list `acquire` among the blocking calls that hand off
+  automatically and among the suspensions rejected inside re-entrant
+  evaluation.
+
+## [0.10.16] - 2026-10-25
+
+### Changed
+
+- **Store locking split by domain** — the single store lock is replaced
+  by five domain locks: containers (List/Dict), synchronization
+  primitives (the mutex/channel side tables), streams, string
+  maintenance (concatenation flattening, constant-cache fills), and
+  allocator growth each hold their own lock, so same-domain operations
+  serialize while different domains overlap. Heap and string
+  allocation draws from per-carrier free lists without a lock, and
+  object field reads and writes take none. In the contention probe,
+  channel ping-pong gains 22–79% over the previous release and
+  allocation-heavy garbage-collection pressure no longer grows
+  per-carrier time with the carrier count.
+- **Concurrent shared-object semantics are defined** — once an object
+  is shared across carriers (through `spawn` arguments or a channel),
+  concurrent reads and writes of its fields are a data race: a
+  transitional value may be read, but memory is never corrupted;
+  coordinate shared mutable state with a `Mutex`. Containers, strings,
+  and streams stay VM-serialized.
+- **The collector runs lock-free at the rendezvous** — the
+  stop-the-world rendezvous pins the fact that every member is parked,
+  so mark and sweep touch the stores without taking any domain lock,
+  and the sweep repartitions heap shards back to the per-carrier free
+  lists.
+- **Native calls follow the ABI lock protocol** — declared-blocking
+  natives park the calling context and release its locks for the wait;
+  non-blocking natives run without locks (under ABI version 5 they must
+  not wait); host-registered callbacks always take the blocking
+  protocol; output-redirection callbacks serialize on a console mutex
+  instead of a global lock.
+
+### Fixed
+
+- **Parked channel receives stay rooted across collections** — a
+  context parked on a channel receive or join whose result cell lives
+  in registry memory could have its accumulator reclaimed in a narrow
+  window; live contexts' result cells are now conservatively rooted at
+  the scan, and frame parking completes inside the scheduler's
+  critical section.
+
+## [0.10.15] - 2026-10-24
+
+### Changed
+
+- **The global interpreter lock now covers store operations** — heap,
+  string, and container mutations still serialize on the lock, but
+  frame-local computation segments run lock-free and overlap across
+  carriers: pure-compute virtual threads now scale with the carrier
+  count instead of executing one at a time. Single-carrier behavior is
+  unchanged byte for byte; object-dense code still serializes (finer
+  locks are future work).
+- **Per-carrier evaluation stacks** — each carrier owns its evaluation
+  stack (the executor no longer keeps one shared stack); contexts still
+  move their frames into the scheduler on park and back on resume.
+- **Garbage collection stops the world across carriers** — the
+  stop-the-world rendezvous now parks every concurrently executing
+  carrier at its next safepoint (the last arriver collects), and each
+  carrier's evaluation stack is registered as a root while its window
+  is open.
+- **Debugger stops no longer hold the lock** — a stop now arms a
+  reference-counted freeze gate that blocks new dispatches (in-flight
+  segments finish and then halt), and debugger queries take the lock
+  per query, so shared state stays serialized while no bytecode runs.
+  While stopped, a context still held by a carrier reports no frames
+  until it parks or finishes.
+
 ## [0.10.14] - 2026-10-24
 
 ### Added
@@ -349,6 +524,51 @@ All notable changes to NLang are documented here. The format follows
   current semantics (focus switch plus step-target selection,
   per-context frame numbers), replacing the outdated single-focus
   description.
+
+## [0.10.12] - 2026-10-22
+
+### Changed
+
+- **Stop-the-world GC rendezvous at safepoints** — garbage collection
+  now runs a stop-the-world handshake at safepoints (function entry,
+  loop back-edges, spawn): every executing window reaches a safepoint
+  and the last one collects. With the global interpreter lock in
+  place this is observationally identical to before — single-carrier
+  output stays byte-for-byte.
+- **GC thresholds back off after every sweep** — the heap and
+  string-store thresholds rise to the larger of the store's high-water
+  size and twice the live population: small-live churn workloads no
+  longer collect at every safepoint once past the first threshold
+  crossing, and growing workloads keep their collection cadence
+  geometric (linear total cost). The heap side had no backoff at all
+  before; the string side backed off to twice the live count, which
+  could stick below the store size.
+
+### Fixed
+
+- A carrier parked in a blocking native call while its run was torn
+  down (for example a detached context outliving the join grace)
+  could corrupt the next run's GC roots and scheduler state; it now
+  exits silently through a run-generation check.
+- Concurrent blocking-native calls no longer risk truncating each
+  other's GC roots (root entries are now removed by owner identity).
+
+## [0.10.11] - 2026-10-22
+
+### Added
+
+- **Eight concurrency examples** — `examples/conc_*.n` cover spawn
+  and join, `Future`, channel pipelines, `Mutex`, `Semaphore`,
+  `WaitGroup`, close-as-broadcast, and a carrier-count demo; all
+  eight run in the example test gate.
+
+### Changed
+
+- **Concurrency chapter from the user's side** — each page now leads
+  with when-to-use guidance, and the chapter opens with a
+  task-to-tool chooser table.
+- **`nvm --carriers` documented** — the nvm page covers the flag's
+  range, its default, and the deterministic single-carrier tier.
 
 ## [0.10.10] - 2026-10-23
 
@@ -440,31 +660,59 @@ All notable changes to NLang are documented here. The format follows
   parses and reports the array-initializer form diagnostic pointing at
   `[...]` instead of a syntax error.
 
-## [0.10.5] - 2026-10-22
+## [0.10.6] - 2026-10-22
 
 ### Added
 
-- **Merged language-feature line** — this release merges the
-  0.9.10–0.9.15 language-feature series into the concurrency line, so
-  both feature sets ship in one binary: interface static methods and
-  static constants, type-name-qualified static calls, compound shift
-  assignment (`<<=` / `>>=`), constructor declarations without a
-  return type, struct constructors, field initializers, constructor
-  overload resolution, cross-module constructors and instance
-  members, inferred and empty array literals, named-argument
-  initializers, static-method function references, and top-level
-  zero-argument construction.
+- **Merged language-feature line** — the dev language-feature series
+  (0.9.10–0.9.15) joins the concurrency line in one binary: interface
+  static methods and static constants, type-name-qualified static
+  calls, compound shift assignment (`<<=` / `>>=`), constructor
+  declarations without a return type, struct constructors, field
+  initializers, constructor overload resolution, cross-module
+  constructors and instance members, inferred and empty array
+  literals, named-argument initializers, static-method function
+  references, and top-level zero-argument construction.
 
 ### Changed
 
 - **NCU format v2.8** — the merged module format carries both
   lines' record extensions (the v2.7 class/struct records plus the
-  eval-area handle mask); `.ncu` files written by either line must be
-  recompiled.
+  eval-area handle bitmap); `.ncu` files written by either line must
+  be recompiled.
 - **Class field visibility enforced** — reading a private-by-default
   class field through an instance is now rejected at compile time
   (the merged access-control rule); fields accessed from outside the
   class must be declared `public`.
+
+## [0.10.5] - 2026-10-22
+
+### Added
+
+- **Multi-context debug page in nide** — the 调试 (Debug) page now leads with
+  a context tree (context / state / location) listing every concurrent
+  context next to main, refreshed at each stop. Clicking a row selects
+  that context as both the inspection target and the step target
+  (mainstream-IDE semantics): the call stack and locals switch to it
+  (parked contexts included), and the subsequent F10/F11/Shift+F11
+  step that context — a parked selection lets the others advance and
+  stops at its next statement once woken. Every new stop redirects the
+  selection back to the stopped context.
+- **Selection-armed stepping in ndb** — `t <id>` now sets the step
+  target too: the subsequent `s`/`n`/`f` act on the selected context;
+  without a selection, stepping keeps targeting the stopped context
+  (the previous behavior).
+- **Read-only module table at run time** — the native registry is
+  pre-warmed at run initialization, so every native the merged module
+  declares is resolved before frames execute and the module table is
+  read-only while frames run. A declared native whose library is
+  unavailable keeps its exact lazy diagnostic at the first call.
+- **GIL wait-time instrumentation** — two white-box counters join the
+  scheduler's observability set: cumulative GIL wait time and the
+  number of contended acquires (another waiter already queued when the
+  acquire began). Both carrier guards and the timer thread's lock are
+  instrumented; counters reset per run. Groundwork for the upcoming
+  GIL-removal batches.
 
 ## [0.10.4] - 2026-10-21
 
@@ -1929,6 +2177,7 @@ First public release.
 - Documentation: a fully offline-capable documentation site and runnable
   `examples/`.
 - Windows packaging: portable zip and NSIS installer.
+
 
 [0.7.0]: https://github.com/dliting/nlang/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/dliting/nlang/compare/v0.6.1...v0.6.2

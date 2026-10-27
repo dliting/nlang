@@ -13,7 +13,8 @@ contain both (a hybrid library, as in Python/Java/C#).
 At compile time signatures are resolved by inlining the sources; at run
 time unit images are loaded from the compiled library packages — the
 standard library is the `stdlib.npkg` shipped with the toolchain (one
-member per library unit).
+member per library unit). For the library-author side of the story, see
+[Developing Libraries](../libraries/developing-libraries.md).
 
 The **search path** determines where the compiler looks for imported `.n`
 files and where the run time loads the `.ncu`/`.npkg` members an

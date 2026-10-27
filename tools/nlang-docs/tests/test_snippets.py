@@ -458,7 +458,7 @@ def test_real_zh_config_resolves_a_nonempty_guide(monkeypatch, capsys):
     from nlang_docs import cli
     repo = Path(__file__).resolve().parents[3]
     opts = types.SimpleNamespace(
-        config=str(repo / "mkdocs.zh.yml"), doc=None, workdir=None,
+        config=str(repo / "docs" / "mkdocs.zh.yml"), doc=None, workdir=None,
         ncc=None, nvm=None)
     monkeypatch.delenv("NLANG_NCC", raising=False)
     monkeypatch.delenv("NLANG_NVM", raising=False)

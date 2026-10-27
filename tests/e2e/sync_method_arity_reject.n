@@ -1,0 +1,9 @@
+//Arity pin for the migrated sync primitives: the method signatures come
+//from the prelude declarations, so extra arguments are rejected by the
+//ordinary overload-match rules. The diagnostic wording may differ from
+//the old by-name table's — the rejection itself must not go away.
+int main() {
+    Semaphore s = Semaphore(0);
+    s.acquire(1);
+    return 0;
+}

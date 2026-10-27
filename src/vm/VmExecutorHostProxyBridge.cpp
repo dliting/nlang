@@ -12,6 +12,7 @@ namespace nlang {
 
 void VmExecutor::HostListSet(int32_t listHeapIdx, uint32_t index,
                              int32_t elemHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(listHeapIdx)][kListHandleFieldOffset];
     auto& elements =
@@ -22,6 +23,7 @@ void VmExecutor::HostListSet(int32_t listHeapIdx, uint32_t index,
 }
 
 void VmExecutor::HostListRemoveAt(int32_t listHeapIdx, uint32_t index) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(listHeapIdx)][kListHandleFieldOffset];
     auto& elements =
@@ -32,12 +34,14 @@ void VmExecutor::HostListRemoveAt(int32_t listHeapIdx, uint32_t index) {
 }
 
 void VmExecutor::HostListClear(int32_t listHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(listHeapIdx)][kListHandleFieldOffset];
     m_listStore[static_cast<size_t>(handle) - 1].elements.clear();
 }
 
 void VmExecutor::HostDictRemove(int32_t dictHeapIdx, int32_t keyHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(dictHeapIdx)][kListHandleFieldOffset];
     auto& entries =
@@ -52,6 +56,7 @@ void VmExecutor::HostDictRemove(int32_t dictHeapIdx, int32_t keyHeapIdx) {
 }
 
 void VmExecutor::HostDictClear(int32_t dictHeapIdx) {
+    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     const int32_t handle =
         m_structHeap[static_cast<size_t>(dictHeapIdx)][kListHandleFieldOffset];
     m_dictStore[static_cast<size_t>(handle) - 1].entries.clear();

@@ -21,7 +21,7 @@ NLang有12个标量基本类型：8个整型、2个浮点型、`bool`与`char`�
 
 **浮点字面量**：无后缀小数与指数形式都是`double`（`1.5`、`2.5e-3`、`1e5`）；`float`必须带`f`后缀（`1.5f`）。
 
-**常量适配**（Java/C#同款规则）：整型**字面量**（含一元负号形式）赋给更窄的目标类型时，值在目标值域内即隐式合法——`byte b = 5;`合法，`byte b = 1000;`是编译错误`constant 1000 out of range for 'byte'`。该特例只覆盖字面量本身，不覆盖折叠表达式——`byte b = 1 + 2;`仍需显式`as byte`（`1 + 2`的类型已是`int`）。同一特例覆盖double字面量到`float`目标：`float f = 1.5;`合法，`float f = 1e50;`编译错误；整数目标不接受浮点常量（`int x = 2e5;`编译错误）。
+**常量适配**（Java/C#同款规则）：整型**字面量**（含一元负号形式）赋给更窄的目标类型时，值在目标值域内即隐式合法——`byte b = 5;`合法，`byte b = 1000;`是编译错误`constant 1000 out of range for 'byte'`。该特例只覆盖字面量本身，不覆盖常量算术表达式——`byte b = 1 + 2;`仍需显式`as byte`（`1 + 2`的类型已是`int`）。同一特例覆盖double字面量到`float`目标：`float f = 1.5;`合法，`float f = 1e50;`编译错误；整数目标不接受浮点常量（`int x = 2e5;`编译错误）。
 
 ### bool
 
@@ -29,7 +29,7 @@ NLang有12个标量基本类型：8个整型、2个浮点型、`bool`与`char`�
 
 ### char
 
-`char`持有一个Unicode标量值（码点，排除U+D800..U+DFFF代理区）。字面量用单引号：普通字符`'a'`、非美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）字符`'é'`、转义（`'\n'`、`'\r'`、`'\t'`、`'\''`、`'\\'`五个）、`\uXXXX`转义`'\u0041'`（即`'A'`）。char字面量里的代理区转义是编译错误；string字面量里相邻的代理区转义按码点组合（`"\ud83d\ude00"`即U+1F600，Java同款）。
+`char`持有一个Unicode标量值（码点，排除U+D800..U+DFFF代理区）。字面量用单引号：普通字符`'a'`、美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的字符`'é'`、转义（`'\n'`、`'\r'`、`'\t'`、`'\''`、`'\\'`五个）、`\uXXXX`转义`'\u0041'`（即`'A'`）。char字面量里的代理区转义是编译错误；string字面量里相邻的代理区转义按码点组合（`"\ud83d\ude00"`即U+1F600，Java同款）。
 
 char与数值之间**不经隐式转换**：
 
@@ -45,7 +45,7 @@ char与string的桥接（`"x" + 'y'`拼接、`foreach (char c in s)`码点迭代
 
 - **源文件必须是Unicode转换格式（UTF-8，Unicode Transformation Format）。**词法器把字符字面量的1-4字节UTF-8序列解码为一个码点（`'é'`是2个字节`C3 A9`，解码为U+00E9）。整个文件在词法前经过严格UTF-8校验：无效字节被明确拒绝（`Source file is not valid UTF-8 ... (first invalid
   byte at line N)`），UTF-16保存的文件得到专门提示——无效编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；UTF-16等其他编码得到上述专门提示。
-- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char存于4字节槽位，内容即原始码点：帧槽、char字面量的4字节立即数、装箱记录与流写入里的4字节值皆如此。模块格式用一个字节标记类型（char为kind 19），值本身端到端都是朴素码点。
+- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char占4字节，内容即原始码点：局部变量、char字面量、装箱记录（见[Object与装箱](object.md)）与流写入里的4字节值皆如此——值端到端都是朴素码点。
 - **UTF-8在string一侧**：string对象是UTF-8字节序列（见[字符串](string.md)「编码与长度」节）。char加入string时转成该形式——`"x" + 'y'`把码点编码为1-4个UTF-8字节。反方向上，`s.charAt(i)`从字节i处解码码点，`"65".toChar()`解析十进制码点。
 - **控制台收到的是UTF-8字节。**`io.print`把char以其UTF-8编码、把string以其原始字节原样写入标准输出。命令行工具启动时把所在控制台切换到UTF-8代码页，Windows默认控制台即可正常显示非ASCII输出（重定向到文件/管道时字节原样，仍是UTF-8）。
 

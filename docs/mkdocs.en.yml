@@ -5,10 +5,10 @@
 # nav parity locks again once the list empties).
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
-docs_dir: docs/user_manual/en
+docs_dir: user_manual/en
 theme:
   language: en
-  custom_dir: tools/nlang-docs/theme_override
+  custom_dir: ../tools/nlang-docs/theme_override
 nav:
   - Home: index.md
   - Getting Started:
@@ -64,9 +64,9 @@ nav:
           - Object & Boxing: language-spec/object.md
           - Type Casts: language-spec/type-casts.md
           - Type Semantics: language-spec/type-semantics.md
-          - Declarations: language-spec/declarations.md
-          - Packages: language-spec/packages.md
           - Built-in Generic Classes: language-spec/builtin-generic-classes.md
+      - Declarations: language-spec/declarations.md
+      - Packages: language-spec/packages.md
       - Expressions & Statements:
           - Expressions: language-spec/expressions.md
           - Operators: language-spec/operators.md
@@ -90,13 +90,14 @@ nav:
           - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Concurrency:
           - Concurrency: language-spec/concurrency.md
-          - The GIL and Multiple Carriers: language-spec/concurrency-gil-carriers.md
+          - Carriers and Parallelism: language-spec/concurrency-carriers.md
           - The thread Package: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
           - Mutex: language-spec/concurrency-mutex.md
+          - Semaphore: language-spec/concurrency-semaphore.md
           - Channel: language-spec/concurrency-channel.md
           - The concurrent Package: language-spec/concurrency-concurrent.md
-          - Parking and Scheduling Limits: language-spec/concurrency-parking.md
+          - Suspension and Scheduling Limits: language-spec/concurrency-suspension.md
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md

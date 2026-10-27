@@ -1,11 +1,11 @@
 # string方法——18个内建
 
-string接收者上的方法（`s.substring(1)`；字面量接收者亦可：`"abc".toUpper()`）。string方法清单如下。**字节语义**（Go/Lua模型）：length、substring与indexOf以字节偏移计；Unicode转换格式（UTF-8，Unicode Transformation Format）字节顺序等于码点序（因此关系比较良定义）；大小写转换仅美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）。按码点访问（`charAt`/`charCount`/`foreach char`）是在字节核心之上的码点层——见[字符串](string.md)「char桥接」。
+string接收者上的方法（`s.substring(1)`；字面量接收者亦可：`"abc".toUpper()`）。string方法清单如下。**字节语义**（Go/Lua模型）：length、substring与indexOf以字节偏移计；Unicode转换格式（UTF-8，Unicode Transformation Format）字节顺序等于码点序（因此关系比较有明确结果）；大小写转换仅作用于美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）。按码点访问（`charAt`/`charCount`/`foreach char`）构建在字节访问之上——见[字符串](string.md)「char桥接」。
 
 | 方法 | 签名 | 说明 |
 |---------|-----------|-------|
 | substring | (start[, end]) → string | end不含，缺省为length；越界 → IndexOutOfBoundsException |
-| indexOf | (string) → int | 首个字节偏移，无则 -1 |
+| indexOf | (string) → int | 首个字节偏移，无则-1 |
 | startsWith / endsWith / contains | (string) → bool | 谓词 |
 | toUpper / toLower | () → string | 仅ASCII |
 | trim | () → string | 去除`" \t\n\r\f\v"` |

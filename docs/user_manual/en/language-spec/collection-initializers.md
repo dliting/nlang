@@ -106,8 +106,8 @@ anchored type name to pick the kind:
 | class                | `{...}` or `ClassName{...}` | `field : value` (identifier key) |
 
 **Class init requirements:** the class must have a no-arg constructor
-(explicit or implicit). Codegen lowers `C{f1:v1, ...}` as a no-arg
-construction followed by per-field `OP_StoreField` assignments.
+(explicit or implicit). `C{f1:v1, ...}` is equivalent to a no-arg
+construction followed by per-field assignments.
 
 **Recursive nesting:** init lists may contain other init lists. Inner
 levels may use the bracket form (`List<List<int>> ll = [[1,2],[3,4]];`)

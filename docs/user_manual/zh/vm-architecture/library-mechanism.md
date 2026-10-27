@@ -38,8 +38,8 @@ mylib/
 - **命名空间限定调用编译为普通调用**：`mylib.f(...)`发射`OP_CallFunc` + 全限定名`<包名>.<函数名>`；运行时按被调函数自身性质分派——字节码体，或`isNative` → DLL。签名表调用路径与按库区分的codegen分支已不存在。
 - **函数表中命名空间限定的顶层函数使用全限定名**（含库native函数），使运行时`m_natives["<包名>.<函数名>"]`查表与DLL导出的注册名一致。
 - **库可以定义类型**：命名空间合并进根，库内class/struct/enum/
-  interface在消费方与项目类型同等解析（含继承、虚分派、enum方法）。类型位置写作`包名.Type`，解析器在被内联的库单元内查找声明并绑定（`ModuleRegistry::FindModuleType`）；未导入的命名空间会被诊断，而不是静默绑定。外部`.ncu`条目同样提供由模块序列化记录重建的桩声明——struct、class与interface桩（class桩自格式2.7起携带全部成员：字段、方法、构造器），因此`包名.Type`在其上同样绑定；enum类型没有桩，对其限定引用会被拒绝。
-- **去重**按"已完整解析的库文件"集合跟踪，与符号索引的"已索引"集合分离：标准库包在构建环境构造时就已签名索引，但仍必须内联，两者不能混用同一个判据。
+  interface在消费方与项目类型同等解析（含继承、虚分派、enum方法）。类型位置写作`包名.Type`，解析器在被内联的库单元内查找声明并绑定（`ModuleRegistry::FindModuleType`）；未导入的命名空间会被诊断，而不是静默绑定。外部`.ncu`不暴露源码级类型，因此`包名.Type`只对内联库源生效。
+- **去重**按「已完整解析的库文件」集合跟踪，与符号索引的「已索引」集合分离：标准库包在构建环境构造时就已签名索引，但仍必须内联，两者不能混用同一个判据。
 
 ### 库TU与项目TU的差别（可见性隔离）
 
@@ -80,7 +80,7 @@ DLL使用**同一个有序目录列表**——前者优先，重复目录规范�
 native实现是普通动态库，背后只有一个稳定契约（`include/nlang/vm/NativeHost.h`）：
 
 - 文件名`nlang_<包名>.dll`（`libnlang_<包名>.so`/`.dylib`），在第4节的搜索路径上定位；
-- 两个导出入口均由宏生成：`nlang_abi_version`（宿主在初始化代码运行前先校验它）与`nlang_native_init`；版本不符则加载失败并给出可读错误，缺任一导出的模块直接拒绝；
+- 仅一个导出入口`nlang_native_init`，经宏注册并同时钉住宿主ABI版本（`NLANG_HOST_ABI_VERSION`）；版本不符则加载失败并给出可读错误，无入口的模块直接拒绝；
 - native函数拿到一个小**宿主接口**：输入输出（IO，input/output）、伪随机数生成器（PRNG，pseudorandom number generator）与字符串访问的回调，而不是链接VM——第三方源码只需要这一个头文件；
 - 懒加载：首次调用某命名空间才触发模块加载，未用到的库零成本。
 
@@ -94,7 +94,7 @@ DLL里的普通C++函数可以被同一个`.n`中的NLang函数体包装组合�
 |---|---|
 | `stdlib/*.n` | 手写的权威声明——唯一的签名来源 |
 | `src/native/{math,io,fs}/` | native实现，构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll` |
-| 重复包检查（`ModuleRegistry::RegisterUnit`＋发现） | 一次构建内每个点分包名只能存在一份；错误指名两条来源路径 |
+| 重复包检查（`ModuleRegistry::RegisterUnit` + 发现） | 一次构建内每个点分包名只能存在一份；错误指名两条来源路径 |
 | `kStringMethodTable`（`include/nlang/vm/StdLib.h`） | 仅string方法——接收者分派的内建方法，仍是intrinsic；库命名空间不用这套机制 |
 | ctest `no_builtin_stdlib` | 一旦硬编码表、math/io/fs的intrinsic家族或它们的id回归，或`stdlib/*.n`被删除而非表被删除，即失败 |
 

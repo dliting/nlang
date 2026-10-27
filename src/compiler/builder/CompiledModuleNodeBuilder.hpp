@@ -43,10 +43,12 @@ namespace nlang
 class CompiledModuleNodeBuilder
 {
 public:
-	//Construct a builder for one source module.
+	//Construct a builder for one source module. registry (optional)
+	//enables the declared-prelude superclass link in LinkSuperclassStub.
 	CompiledModuleNodeBuilder(SyntaxTree &tree,
-		const std::string &moduleName) :
-		m_Tree(tree), m_moduleName(moduleName)
+		const std::string &moduleName,
+		const ModuleRegistry *registry = nullptr) :
+		m_Tree(tree), m_moduleName(moduleName), m_pRegistry(registry)
 	{
 	}
 
@@ -182,7 +184,7 @@ public:
 		}
 		for (auto &link : classStubs)
 			LinkSuperclassStub(*link.first, *link.second, cm, peerStubs,
-				TheRoot());
+				TheRoot(), m_pRegistry);
 
 		//0.9.10 D5 + 0.9.12 (v2.7): interfaces — statics, constants and
 		//bodyless instance-method stubs.
@@ -264,6 +266,7 @@ private:
 
 	SyntaxTree &m_Tree;
 	std::string m_moduleName;
+	const ModuleRegistry *m_pRegistry;  //non-owning; enables the prelude superclass link
 	std::vector<SnFunction *> m_importedFuncs;
 	std::vector<SnField *> m_importedTypes;
 	//Registered stubs that did NOT join the root (R10-1 collisions);

@@ -1,0 +1,33 @@
+//Catch variables with the same name in two catch clauses of one function
+//must each bind to their own clause's type: the var is scoped to its
+//catch body, not hoisted to the enclosing paragraph (first-wins
+//registration made the second clause's references silently resolve
+//against the first clause's type — a user subclass's own field then
+//failed to resolve, or worse, bound to the wrong layout).
+import io;
+
+class MyError : Exception {
+    public int code;
+    public MyError(string message, int c) {
+        super(message);
+        this.code = c;
+    }
+}
+
+int main() {
+    try {
+        throw IndexOutOfBoundsException("oop");
+    } catch (IndexOutOfBoundsException e) {
+        io.write("A" + e.message);
+    }
+    try {
+        throw MyError("custom", 7);
+    } catch (MyError e) {
+        //Nested block: the lookup must walk up through the clause body's
+        //paragraph to find this clause's own var.
+        {
+            io.write("B" + e.code);
+        }
+    }
+    return 0;
+}

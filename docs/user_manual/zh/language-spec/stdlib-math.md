@@ -18,7 +18,7 @@
 **PRNG确定性**：`std::mt19937`，程序启动时由`std::random_device`播种。`math.srand(n)`显式重播种——此后序列完全确定，且跨平台一致：
 
 ```text
-random()  = (double)((next() >> 8) * (1.0 / 16777216.0))   // 24 位尾数，[0,1) 内精确
+random()  = (double)((next() >> 8) * (1.0 / 16777216.0))   // 24位尾数，[0,1) 内精确
 randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // 存在小模偏差，已记录在案
 ```
 

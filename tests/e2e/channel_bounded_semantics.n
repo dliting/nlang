@@ -5,9 +5,11 @@ import thread;
 
 class Pump {
     public Channel<int> ch;
+    public Channel<int> ready;
     public void fill() {
         ch.send(1);
         ch.send(2);
+        ready.send(0);
         try {
             ch.send(3);
         } catch (ChannelClosedException e) {
@@ -16,11 +18,17 @@ class Pump {
     }
 }
 
+//A readiness channel gives close a causal edge: once ready delivers,
+//both values sit in the buffer, so the third send either parks and is
+//aborted by close or arrives at the closed channel — the same
+//catchable exception either way. A yield-based race let a slow-
+//starting sender lose to close under multi-carrier ASan builds.
 int main() {
     Pump p = Pump();
     p.ch = Channel(2);
+    p.ready = Channel(1);
     Thread t = thread.spawn(p.fill);
-    thread.yield();
+    p.ready.recv();
     p.ch.close();
     int first = p.ch.recv();
     int second = p.ch.recv();

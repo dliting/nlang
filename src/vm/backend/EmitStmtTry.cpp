@@ -98,30 +98,19 @@ void VmBackend::Access(SnTryStmt& stmt) {
 }
 
 //Catch clause's exception class index, resolved from CatchType's
-//EvalDataType (a SnClassDecl*). If unresolved (earlier resolver error),
-//0xFFFF — at runtime a catch-all, but unresolved types only occur
-//after a reported compile error.
+//EvalDataType (a SnClassDecl*): the class slot directly (own entry or
+//import placeholder). If unresolved (earlier resolver error), 0xFFFF —
+//at runtime a catch-all, but unresolved types only occur after a
+//reported compile error.
 uint16_t VmBackend::FindCatchExceptionClassIdx(SnCatchClause& pCatch) {
-    uint16_t excClassIdx = 0xFFFF;
     if (pCatch.CatchType()->IsResolved()
         && pCatch.CatchType()->Field()) {
         auto* pType = pCatch.CatchType()->Field();
-        if (pType && pType->Kind() == NK_ClassDecl) {
-            //The catch scan is a hand-rolled FindClass (invisible to the
-            //Find* grep): the key must come from KeyOf like the writer.
-            const std::string ccName = KeyOf(*pType);
-            auto found = std::find_if(
-                m_compiledModule.classes.begin(),
-                m_compiledModule.classes.end(),
-                [&](const CompiledClass& c) { return c.name == ccName; });
-            if (found != m_compiledModule.classes.end()) {
-                excClassIdx = static_cast<uint16_t>(
-                    std::distance(m_compiledModule.classes.begin(),
-                                  found));
-            }
-        }
+        if (pType && pType->Kind() == NK_ClassDecl)
+            return static_cast<uint16_t>(
+                ClassSlotFor(static_cast<SnClassDecl&>(*pType)));
     }
-    return excClassIdx;
+    return 0xFFFF;
 }
 
 //Per catch clause: register the tryBlocks entry ([tryStart, tryEnd) →

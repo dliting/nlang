@@ -7,11 +7,17 @@ The `thread` package is an ordinary standard-library package: its authoritative 
 |---|---|---|
 | `thread.spawn(f)` | zero-argument `func<void>` delegate → `Thread`; zero-argument `func<T>` delegate → `Future<T>` | Spawns a new virtual thread and returns its handle object immediately; the delegate's return type decides the handle shape |
 | `thread.join(t)` | `Thread` | Suspends until the target finishes; if the target failed, rethrows the original exception object into this context |
-| `thread.yield()` | — | Voluntary yield; the context goes to the back of the run queue |
+| `thread.yield()` | — | Voluntary handoff inside long compute loops: give other tasks a chance to run. Blocking calls (`sleep`, `recv`, `get`, `lock`, `acquire`) hand off automatically; a tight loop without `yield` is still preempted after about 1000 loop iterations — `yield` only hands off sooner |
 | `thread.id()` | → `int` | The current context's identifier; main is always 0, spawned contexts are non-zero |
-| `thread.sleep(ms)` | `int` milliseconds | Suspends until the deadline; `sleep(0)` is equivalent to a yield; a negative duration is a runtime error (after compilation) |
+| `thread.sleep(ms)` | `int` milliseconds | Suspends until the deadline — the usual way to pace a polling loop or delay a retry; `sleep(0)` is equivalent to a yield; a negative duration is a runtime error (after compilation) |
 
 ## thread.spawn
+
+The basic pattern is three steps: define a zero-argument function or
+method, `thread.spawn` it to get a handle, then wait for the result
+with `thread.join` (or `get()` on a `Future`). The shipped
+`examples/conc_spawn_join.n` and `examples/conc_future.n` show exactly
+this.
 
 The argument must be a zero-argument delegate — a free-function reference, a bound-method reference, or a variable holding a delegate all work. A delegate with no return value (`func<void>`) yields a `Thread` handle; a delegate with a return value (`func<T>`) yields a `Future<T>` handle, and the return value comes back through `get()` (see [Future](concurrency-future.md)):
 

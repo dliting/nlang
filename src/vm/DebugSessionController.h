@@ -6,15 +6,23 @@ step-depth state machine. The executor talks to IDebugHooks (this
 class); front ends (ndb CLI, machine mode, in-process tests) implement
 IDebugFrontEnd and are driven through StopInfo callbacks. Consumed via
 PRIVATE include, like IDebugHooks.h.
-Contract: single-threaded with the hosting executor. The frozen window
-runs from OnStopped until WaitUntilResume returns; resume commands and
-View() are valid only inside it (outside is a front-end programming
+Contract (K7): carriers run statement checkpoints concurrently (their
+dispatch segments are GIL-free), so every shared field — the breakpoint
+table, the step state machine, the selection — lives under m_stateMutex.
+Freezes serialize through a queue: ONE active window at a time; later
+hitting carriers park (see IVmDebugView::EnterFreezePark) and open
+theirs when the active window closes. Each window runs from its own
+carrier's OnStopped until its WaitUntilResume returns; resume commands
+and View() are valid only inside it (outside is a front-end programming
 error — std::logic_error). Breakpoint table edits are also valid before
 the first run (a front end may preset breakpoints).
 ---*/
 #pragma once
 #include "IDebugHooks.h"
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,7 +92,10 @@ public:
     //False = no breakpoint with that id.
     bool DeleteBreakpoint(int id);
     void SetBreakOnThrow(bool on);   //freeze at throw sites before unwinding
-    bool BreakOnThrow() const { return m_breakOnThrow; }
+    bool BreakOnThrow() const {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        return m_breakOnThrow;
+    }
 
     //Resume commands. Valid only inside the frozen window; elsewhere
     //they throw std::logic_error (a resume queued outside the window
@@ -142,8 +153,11 @@ public:
     void OnThrow(const DebugStopInfo& stop, IVmDebugView& view) override;
     //Exclusive-dispatch focus the executor applies after each
     //checkpoint: the step target while a Step* mode is armed (-1 when
-    //running free).
-    int DebugFocusContext() const override { return m_stepFocusContext; }
+    //running free). Read from every carrier's checkpoint — locked.
+    int DebugFocusContext() const override {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        return m_stepFocusContext;
+    }
 
 private:
     enum class RunMode
@@ -168,13 +182,21 @@ private:
     //Refuse window-bound calls made outside the frozen window.
     void RequireFrozenWindow(const char* who) const;
     //Step/initial stop decision for one statement checkpoint (K4: step
-    //modes stop only in the step focus).
+    //modes stop only in the step focus). Caller holds m_stateMutex.
     bool ShouldStepStop(const DebugStopInfo& stop) const;
-    //Announce the freeze, then block in the front end's pump.
-    void Freeze(const StopInfo& info);
+    //Announce the freeze, then block in the front end's pump. K7: the
+    //parking bracket around the window — the carrier leaves the GC
+    //denominator and hands off the global lock; a second freezer parks
+    //and queues until the active window closes.
+    void Freeze(const StopInfo& info, IVmDebugView& view);
 
     const CompiledModule& m_module;
     IDebugFrontEnd& m_frontEnd;
+    //Serialization of everything below (carrier checkpoints vs the
+    //active window's pump). Leaf mutex: never acquired under the global
+    //lock (the window's view queries take that lock — Step* releases
+    //this one across them).
+    mutable std::mutex m_stateMutex;
     IVmDebugView* m_pView = nullptr;  //valid only inside the frozen window
     RunMode m_mode = RunMode::InitialStop;
     size_t m_stepDepth = 0;     //depth captured when StepOver/Out was issued
@@ -189,6 +211,12 @@ private:
     int m_nextBreakpointId = 1;
     std::vector<Breakpoint> m_breakpoints;
     bool m_breakOnThrow = false;   //`catch on|off` (default off)
+    //K7: the freeze queue — the active window's context id (or -1) and
+    //the later hitters waiting to open theirs. Handoff on close pops
+    //the next id and notifies; each waiter re-checks its own id.
+    int m_frozenContextId = -1;
+    std::deque<int> m_freezeQueue;
+    std::condition_variable m_freezeQueueCv;
 };
 
 } // namespace nlang

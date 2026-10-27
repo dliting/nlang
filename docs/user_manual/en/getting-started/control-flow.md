@@ -90,4 +90,4 @@ Which operations raise which class is mapped on the
 [Exceptions](../language-spec/exception.md) and
 [Exception mapping](../language-spec/stdlib-exceptions.md) pages.
 
-See also: [Language Specification / Statements](../language-spec/statements.md).
+See also: [Language Specification / Exceptions](../language-spec/exception.md).

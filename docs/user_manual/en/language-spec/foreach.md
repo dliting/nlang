@@ -10,18 +10,17 @@ Supported iterables:
 
 | Iterable | Iterates | Element access |
 |----------|----------|----------------|
-| `T[N]` (array) | elements `arr[0]..arr[N-1]` | `OP_LoadElement` |
+| `T[N]` (array) | elements `arr[0]..arr[N-1]` | `arr[i]` |
 | `List<T>` | elements in insertion order | `List<T>.get(i)` |
-| `Dict<K,V>` | **keys** (Python style) | inline `dict.keys()` then `List<K>.get(i)` |
-| `string` | **code points** (`char`) | Unicode Transformation Format (UTF-8) decode advance |
+| `Dict<K,V>` | **keys** (Python style) | a `dict.keys()` snapshot, then one key per step |
+| `string` | **code points** (`char`) | Unicode Transformation Format (UTF-8) decoding, one code point per step |
 
 **Source constraint**: the source expression must be an array, `List`,
 `Dict`, or `string` — any shape works: an lvalue, a container- or
 array-valued call result (`li.get(0)` on a `List<int[]>`), member access,
 `int[n]`, a dict subscript, or a bare array literal (`[1, 2, 3]`, `[]` —
 the element type is inferred from the loop variable). The source is
-evaluated exactly once (bound
-to a hidden iteration local), so side-effecting sources run once. Any other
+evaluated exactly once, so side-effecting sources run once. Any other
 source (an `int` local, a non-container call result) is a compile error:
 "the foreach source must be an array, List, Dict, or string".
 
@@ -78,8 +77,8 @@ foreach (string name in ages) {
 // total == 55
 ```
 
-**Mutation is undefined behavior**. The element count is cached at loop entry
-(`n = iterable.length()` for List/Dict, `n = arr.length` for Array).
+**Mutation is undefined behavior**. The element count is taken once at loop entry (a single
+`iterable.length()` call).
 Structural modifications inside the body (`List.add`/`removeAt`,
 `Dict.set`/`remove`) may cause: out-of-bounds access, skipped/duplicated
 elements, or stale `keys()` snapshots. Element assignment (`arr[i] = x`)

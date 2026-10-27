@@ -1,0 +1,63 @@
+//K8 Task 7 regression: a parked channel recv's boxed payload rides in
+//the receiving context's result accumulator (&ctx->resultCell — the
+//result-cell inheritance every nested call in a root tree accumulates
+//through) from the deliverer's write until the resumed OP_Unbox. A
+//collection completing inside that parked window must not sweep the
+//boxed slot: the registry cell is conservatively rooted for the
+//context's whole lifetime (MarkSchedulerRoots). Determinism strategy:
+//the sender sleeps, so the receiver is provably parked before the
+//delivery; the churners build heap pressure so natural-threshold
+//collections fire across the window (deliberately NO --gc-stress:
+//forced micro-collections act as scheduling barriers that narrow the
+//window — measured in K8 Task 7 notes). Pre-fix symptom: "unbox target
+//is not a boxed primitive" raised at the recv (the conc_waitgroup ASan
+//flake). The corruption window is timing-dependent; it reproduces on
+//the ASan build (17/50 runs with the rooting disabled) but is too
+//short to observe on Release — see the K8 Task 7 acceptance notes.
+import concurrent;
+import io;
+import thread;
+
+class Churner {
+    public int spins;
+    public void churn() {
+        int i = 0;
+        string acc = "s";
+        while (i < spins) {
+            acc = acc + "x" + i.toString();
+            i = i + 1;
+        }
+        io.print("churn done");
+    }
+}
+
+class Sleeper {
+    public Channel<int> ch;
+    public int ms;
+    public void sendAfter() {
+        thread.sleep(ms);
+        ch.send(1);
+    }
+}
+
+int main() {
+    Channel<int> ch = Channel(0);
+    Churner c1 = Churner();
+    c1.spins = 1500;
+    Churner c2 = Churner();
+    c2.spins = 1500;
+    Sleeper s = Sleeper();
+    s.ch = ch;
+    s.ms = 60;
+    Thread t1 = thread.spawn(c1.churn);
+    Thread t2 = thread.spawn(c2.churn);
+    Thread t3 = thread.spawn(s.sendAfter);
+    int v = ch.recv();
+    thread.join(t1);
+    thread.join(t2);
+    thread.join(t3);
+    if (v == 1) {
+        return 0;
+    }
+    return 1;
+}

@@ -14,9 +14,9 @@ and the base/index of a subscript left-value are not re-evaluated —
 same object (the expansion `make().x = make().x + 5` would call `make()`
 twice and store into a different object); `arr[f()] += 1` calls `f()` once.
 
-The shift pair `<<=` / `>>=` fixes the carrier to the left value's
-declared type (no promotion to int) and admits counts exactly like the
-binary shift — see [Operators](operators.md) "Shift".
+The shift pair `<<=` / `>>=` fixes the result type to the left value's
+declared type (no promotion to int) and follows the same count-argument
+rules as the binary shift — see [Operators](operators.md) "Shift".
 
 For string elements only `+=` (concat) is legal; the other six operators
 are rejected with `operator not supported on string`. A string base is not

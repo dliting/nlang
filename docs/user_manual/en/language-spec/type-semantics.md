@@ -43,7 +43,7 @@ to the page that explains that type in detail.
   class-typed field inside the struct, which is shallow-copied (the reference
   is shared). See [Struct](struct.md).
 - **`class`** — reference type. Assignment/passing/return copy the reference
-  (heap index); both names point at the same object. A null reference throws
+  (a reference is the object's index on the heap); both names point at the same object. A null reference throws
   `NullPointerException` on member access. See [Class](class.md).
 - **`interface`** — reference type like `class`; a value of interface type
   refers to the implementing object. See [Interface](interface.md).
@@ -89,8 +89,8 @@ this conversion", not "the possible loss of the type pair".
 
 **Constant fit**: an integer **literal** assigned to a narrower target is
 implicitly legal when the value is in the target's range
-(`byte b = 5;`); it covers only the literal itself, not folded
-expressions (`byte b = 1 + 2;` still needs `as`). Double literals into a
+(`byte b = 5;`); it covers only the literal itself, not constant
+arithmetic expressions (`byte b = 1 + 2;` still needs `as`). Double literals into a
 `float` target follow the same rule. See
 [Primitives](primitives.md).
 

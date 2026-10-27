@@ -24,6 +24,19 @@ namespace nlang {
 //lives on the Exception base record (BuiltinClasses.cpp), so user
 //subclasses see it through the chain instead of a per-subclass copy.
 void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
+    //A marked prelude class's record leads with the hidden __handle —
+    //the fixed cell[1] slot the intrinsic stores and ctors write
+    //(source-of-truth design §6.4). Not an AST member: FindField misses
+    //it, so the post-registration passes keep the default (non-
+    //serialized) descriptor, and the runtime layout view (VmClassLayout)
+    //joins the slot through these very arrays.
+    if (IsHandleClassDecl(sn)) {
+        cc.fieldNames.push_back("__handle");
+        cc.fieldTypeKinds.push_back(RTK_Int32);
+        cc.fieldStructIndices.push_back(0xFFFF);
+        cc.fieldClassIndices.push_back(0xFFFF);
+        cc.fieldAccess.push_back(0);  //private / accessible via field ref
+    }
     for (auto& member : sn.Members()) {
         if (member.Kind() == NK_ClassField) {
             auto& cf = static_cast<SnClassField&>(member);
@@ -153,19 +166,22 @@ void VmBackend::ResolveClassMetadata(
     }
 }
 
-//Phase 8e-1: implicit Object inheritance. Every user class with no explicit
-//parent inherits from Object. The only class that keeps superClassIdx==-1
-//is Object itself (already registered in RegisterBuiltinClasses).
-//ByteStream/FileStream (built-in) get Object as their parent too.
+//Phase 8e-1: implicit Object inheritance. Rows still at superClassIdx==-1
+//after registration — the built-in rows and the declared Object itself —
+//point at the declared prelude Object record, found by its bare key
+//(prelude top-level members key bare: source-of-truth design §6.7).
+//Classes NAMED "Object" keep -1: a root has no parent. User classes no
+//longer pass through here — the resolver wires every baseless class to
+//the declared Object via AST SuperClass(), which RegisterClassDecl slots
+//directly (builtin-decls source-of-truth migration).
 void VmBackend::ApplyImplicitObjectInheritance() {
-    if (m_objectClassIdx >= 0) {
+    const int objectIdx = m_compiledModule.FindClass("Object");
+    if (objectIdx >= 0) {
         for (auto& cc : m_compiledModule.classes) {
-            //Bare-name comparison = builtin: the synthesized Object has no
-            //owner tag, so its key stays bare "Object"; a user `pkg.Object`
-            //is keyed with its package and correctly still gets an
-            //implicit Object parent (it is not the builtin root).
+            //Bare-name guard: the prelude root — or a shadowing user
+            //`class Object` — keys bare "Object"; neither gets a parent.
             if (cc.superClassIdx == -1 && cc.name != "Object") {
-                cc.superClassIdx = m_objectClassIdx;
+                cc.superClassIdx = static_cast<int16_t>(objectIdx);
             }
         }
     }
@@ -177,8 +193,10 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     ForEachDeclNode(root, [&](SnField& node) {
         //Per-unit: foreign units' classes belong to their own images;
         //a cross-unit reference slots as a placeholder at its use site.
+        //A shadowed prelude declaration does not register (spec §6.8 —
+        //the same-name user declaration is the visible winner).
         if (node.Kind() == NK_ClassDecl && !node.IsImported()
-            && IsOwnUnit(node))
+            && IsOwnUnit(node) && !IsShadowedPreludeDecl(node))
             RegisterClassDecl(static_cast<SnClassDecl&>(node), declMap);
     });
     ResolveClassMetadata(declMap);
@@ -230,8 +248,12 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
             return;
         //Per-unit: a class stub has no AST methods, and foreign units'
         //classes keep their own image's method table — neither
-        //contributes here.
-        if (node.IsImported() || !IsOwnUnit(node))
+        //contributes here. A shadowed prelude class skips entirely:
+        //this pass CLEAR-AND-REFILLS the tables it touches, so letting a
+        //shadowed prelude class through would replace the user class's
+        //method table with the (retired) prelude one.
+        if (node.IsImported() || !IsOwnUnit(node)
+            || IsShadowedPreludeDecl(node))
             return;
         auto& sn = static_cast<SnClassDecl&>(node);
         int ccIdx = m_compiledModule.FindClass(KeyOf(sn));

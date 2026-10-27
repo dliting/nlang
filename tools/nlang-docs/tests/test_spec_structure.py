@@ -22,7 +22,7 @@ INTERNAL_REFS = re.compile(
 
 
 def _nav_paths(config_name: str) -> list:
-    doc = yaml.load((REPO / config_name).read_text(encoding="utf-8"),
+    doc = yaml.load((REPO / "docs" / config_name).read_text(encoding="utf-8"),
                     Loader=_ConfigLoader)
     flat = []
 

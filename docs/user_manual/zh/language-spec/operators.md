@@ -22,7 +22,7 @@ a + b    a - b    a * b    a / b    a % b
 
 所以`1 + 2.5 == 2.5 + 1 == 3.5`（对称）。结果类型是提升后的类型；赋回更窄的类型需要显式`as`（常量适配特例除外）。bool与char不参与算术。完整的提升与转换规则见[类型语义](type-semantics.md)。
 
-`string + string`（仅OP_Add）是拼接；`"x" + 'y'`（char隐式转string）与`+`标量操作数同样拼接。`string - string`等是编译错误。见[字符串](string.md)。
+`string + string`是拼接；`"x" + 'y'`（char隐式转string）与`+`标量操作数同样拼接。`string - string`等是编译错误。见[字符串](string.md)。
 
 ### 位移
 
@@ -30,13 +30,13 @@ a + b    a - b    a * b    a / b    a % b
 a << b    a >> b
 ```
 
-按位左移与右移。**左操作数决定结果类型**（Java/C#规则）：窄于int的整型左操作数先单目提升为int（`byte << 2`是`int`）。右操作数（计数）按普通隐式转换规则进入结果类型（见[类型语义](type-semantics.md)）：int计数适用于int与long载体，但不适用于uint或ulong；long计数只适用于long；能装进载体的常量计数对任何载体都合法。其余情形是编译错误，诊断会点名载体与计数两者的类型（`1 << long计数`）。enum成员按其int32载体参与（`Color.Green << 1 == 2`）。float、double、bool、char、string操作数是编译错误（`operator '<<' requires integer operands`）；null操作数报`null is not a valid shift operand`。
+按位左移与右移。**左操作数决定结果类型**（Java/C#规则）：窄于int的整型左操作数先单目提升为int（`byte << 2`是`int`）。右操作数（计数）按普通隐式转换规则进入结果类型（见[类型语义](type-semantics.md)）：int计数适用于结果类型int与long，但不适用于uint或ulong；long计数只适用于long；能装进结果类型的常量计数对任何整型结果都合法。其余情形是编译错误，诊断会点名结果类型与计数两者的类型（`1 << long计数`）。enum成员按其int32底层类型参与（`Color.Green << 1 == 2`）。float、double、bool、char、string操作数是编译错误（`operator '<<' requires integer operands`）；null操作数报`null is not a valid shift operand`。
 
-有符号行`>>`是算术右移（符号扩展，`-8 >> 1 == -4`）；无符号行是逻辑右移（零填充）。`<<`按二进制补码回绕（`1 << 31`在int上是`INT_MIN`）。计数必须在`[0, 位数)`内——负数或达到类型位宽的计数抛运行期错误（与除零同类），不做C的未定义行为，也不做Java的掩码回绕。
+有符号类型`>>`是算术右移（符号扩展，`-8 >> 1 == -4`）；无符号类型是逻辑右移（零填充）。`<<`按二进制补码回绕（`1 << 31`在int上是`INT_MIN`）。计数必须在`[0, 位数)`内——负数或达到类型位宽的计数抛运行期错误（与除零同类），不做C的未定义行为，也不做Java的掩码回绕。
 
 优先级介于关系与加减之间：加法先于位移（`1 << 2 + 3`是`1 << 5`），位移先于关系（`1 << 2 < 8`比较的是`4 < 8`）。
 
-**复合形**`<<=`/`>>=`以左值的声明类型为载体存回——不做单目提升（`byte b <<= 2`仍是byte，`1 <<= 7`在有符号byte行回绕为-128）——存回与`+=`族同为隐式窄化。计数遵循上文二元形的进入规则（按普通隐式转换进入载体、常量获救、`[0, 位数)`运行期检查），所以`b <<= 200`是编译错误，负数变量计数抛具名运行期错误。支持的左值即复合赋值族（局部变量、字段、下标元素），见[复合赋值](compound-assignment.md)。
+**复合形**`<<=`/`>>=`以左值的声明类型存回——不做单目提升（`byte b <<= 2`仍是byte，`1 <<= 7`在有符号byte上回绕为-128）——存回与`+=`族同为隐式窄化。计数遵循上文二元形的进入规则（按普通隐式转换进入结果类型，常量计数只要值装得下结果类型就放行，`[0, 位数)`运行期检查），所以`b <<= 200`是编译错误，负数变量计数抛具名运行期错误。支持的左值即复合赋值族（局部变量、字段、下标元素），见[复合赋值](compound-assignment.md)。
 
 泛型实参列表内的`>>`仍是嵌套类型的收尾（`List<List<int>>`）；只有出现在表达式位置时它才是位移运算符，两者不会冲突。
 
@@ -55,7 +55,7 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 - **char只与char比较**（`'a' < 'b'`合法）；char与数值比较不经隐式转换，先`c as int`取码点（`a char value can only be compared with
   a char value`）。
 - **bool只与bool比较，且只比较相等**：`true == true`为真；对bool排序是编译错误（`bool values cannot be ordered; only == and != are supported`），bool与其他类型比较同样是编译错误（`a bool value can only be compared with a bool value`）。
-- **字符串相等**按内容比较；字符串关系序用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`(90) < `'a'`(97)）。因为字符串以Unicode转换格式（UTF-8，Unicode Transformation Format）存储且UTF-8字节序等于码点序，对非美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）文本排序也正确：`"é" > "z"`为真。见[字符串](string.md)「比较」。
+- **字符串相等**按内容比较；字符串关系序用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`（90）< `'a'`（97））。因为字符串以Unicode转换格式（UTF-8，Unicode Transformation Format）存储且UTF-8字节序等于码点序，对美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的文本排序也正确：`"é" > "z"`为真。见[字符串](string.md)「比较」。
 - **class/引用相等**（`==`、`!=`）是同一性（同一堆对象）。要按值比较，用`equals`方法并在自己的类里覆写它——`==`不受覆写影响；见[Object与装箱](object.md)「`equals`与`getHashCode`」与[类](class.md)「虚方法与覆写」。
 - **带null操作数的算术/拼接**是编译错误——null只有通过上面的比较同一性路径才有值。
 

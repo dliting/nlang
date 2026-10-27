@@ -1,6 +1,11 @@
 /*---
     VmExecutorOpsObjects.cpp — 堆对象/字段/元素/装箱/转型/异常抛出操作码
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
+    K8: the field/element/box/cast family runs lock-free under the sharing
+    memory model — field and element writes are benign value races on
+    shared records, allocation goes through the per-carrier shard free
+    lists, and error paths re-acquire inside RaiseNlangException. The
+    throw family keeps the store lock (debug checkpoint).
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -16,7 +21,7 @@ void VmExecutor::OpAllocStruct(BytecodeReader& reader, uint8_t* locals) {
     uint16_t fieldCount = reader.ReadUint16();
     int32_t heapIdx = AllocStructOnHeap(structIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpLoadField(BytecodeReader& reader, uint8_t* locals) {
@@ -63,7 +68,7 @@ void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t classIdx = reader.ReadUint16();
     int32_t heapIdx = AllocClassOnHeap(classIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-    m_gcPending = true;
+    NoteGcPressure();
 }
 
 void VmExecutor::OpNullCheck(BytecodeReader& reader, uint8_t* locals) {
@@ -151,8 +156,7 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     if (heapIdx <= 0
         || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        throw std::runtime_error(
-            "NLang VM: cast on null/invalid reference");
+        throw std::runtime_error("NLang VM: cast on null/invalid reference");
     if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
         throw std::runtime_error(
             "NLang VM: CheckCast target is not a class object");
@@ -231,10 +235,10 @@ bool VmExecutor::IsSubclassOf(uint16_t actualIdx, uint16_t declaredIdx) {
 int32_t VmExecutor::ReceiverClassIndex(int32_t heapIdx) const {
     if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed) {
         const auto& classes = m_currModule->classes;
-        //Bare-name comparison = builtin: only the ownerless synthesized
-        //Object keeps a bare "Object" key after phase 5; a user pkg.Object
-        //is keyed with its package and must not be treated as the
-        //boxed-primitive root.
+        //Bare-name scan = the prelude root: prelude top-level members key
+        //bare "Object" in every image (source-of-truth design §6.7); a
+        //user pkg.Object is keyed with its package and must not be treated
+        //as the boxed-primitive root.
         for (size_t i = 0; i < classes.size(); ++i)
             if (classes[i].name == "Object")
                 return static_cast<int32_t>(i);

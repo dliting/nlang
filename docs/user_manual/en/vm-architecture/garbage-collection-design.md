@@ -5,8 +5,9 @@ developers create objects without freeing them by hand. This page
 records the four core design decisions — safepoint triggering, a
 precise per-slot handle bitmap with a conservative fallback, the
 parallel array, iterative marking — plus the full mark-sweep algorithm,
-the root set for parked contexts and in-flight blocking natives, and
-the tracing rules for array fields. Understanding these decisions tells
+the root set for running evaluation windows, suspended contexts and
+in-flight blocking natives, and the tracing rules for array fields.
+Understanding these decisions tells
 you when the VM collects and which slots count as live.
 
 ### Design Decisions
@@ -20,8 +21,8 @@ active heap references (e.g., `a.b.c = Foo()` where tempSlot=a, tempSlot2=a.b).
 Tracking these temporaries would require per-instruction offset maps in
 CompiledFunction, adding complexity.
 
-Safepoints (function entry, loop back-edges, and — since the scheduler
-arrived — thread spawn) put collection at well-bounded positions: at function entry the frame is freshly set up, and
+Safepoints (function entry + loop back-edges) put collection at
+well-bounded positions: at function entry the frame is freshly set up, and
 at loop back-edges the condition is about to be re-evaluated. Historically
 this choice also leaned on the argument that back-edges never find active
 references in the temp slots; with the handle bitmap (decision 2) covering
@@ -75,10 +76,10 @@ hand-built in-memory function record whose bitmap length disagrees with
 its frame layout (the loader rejects that shape in artifacts) falls back
 to the conservative both-domain scan of the whole band.
 
-A parked context's frames can be frozen mid-instruction, and their staging
-values must survive exactly the same way — the bitmap serves parked frames
-and running frames alike (see "Parked contexts and the scheduler root
-set"), with no separate root machinery for the parked shape.
+A suspended context's frames can be frozen mid-instruction, and their staging
+values must survive exactly the same way — the bitmap serves suspended frames
+and running frames alike (see "Suspended contexts and the scheduler root
+set"), with no separate root machinery for the suspended shape.
 
 **3. m_slotStructIdx parallel array for struct type identification**
 
@@ -87,9 +88,8 @@ classIdx). MarkStruct needs the structIdx to look up field layout for
 reference tracing. Options:
 - Add a type header to struct objects: requires +1 offset shift in all
   LoadField/StoreField for structs, touching many instruction handlers
-- Parallel array: set at allocation time only — AllocStructOnHeap and
-  DeepCopyStruct stamp the struct index, array allocation stamps the array
-  type index into the same array — no changes to existing instruction logic
+- Parallel array: only AllocStructOnHeap/DeepCopyStruct set it, no changes
+  to existing instruction logic
 
 The parallel array is the smaller, safer change.
 
@@ -118,7 +118,7 @@ CollectGarbage():
 
 MarkPhase():
   clear all mark bits (heap and string stores)
-  for each CallFrame (running stack):
+  for each CallFrame (each carrier's evaluation stack, via the window registry):
     //parameters: declared descriptors
     for each LocalDescriptor with isParam and a reference typeKind:
       RTK_String: MarkString(value)      //handle, not heap index
@@ -136,12 +136,9 @@ MarkPhase():
       Dual:      value-test both domains
     //fallback for a bitmap whose length disagrees with the frame layout:
     //value-test both domains over the whole band
-  for each scheduler context:      //parked/queued/finished contexts (steal model)
-    for each parked CallFrame: run the same three arms (params, result, band)
-    if threadObjHeapIdx, failExcHeapIdx or resumeExcHeapIdx valid:
-      mark, push to worklist
-    if frames empty (finished): classify resultCell by the snapshotted
-      resultKind — this keeps a Future<T> value alive between spawn and get()
+  for each scheduler context:      //suspended/queued contexts (steal model)
+    for each suspended CallFrame: run the same three arms (params, result, band)
+    if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
     handles minted by re-entrant callbacks: value-test both domains
@@ -149,11 +146,9 @@ MarkPhase():
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
     pop entry from worklist
-    if func: trace the captured receiver of a bound method value (slot[1])
     if class: for each field, push unmarked reference children;
       string-typed fields (RTK_String) mark their string handle instead;
-      container arms MarkListElements / MarkDictEntries / MarkChannelElements
-      (buffered List/Dict/channel values are children)
+      MarkChannelElements (buffered channel values are children)
     if struct: for each field, push unmarked reference children;
       string-typed fields mark their string handle instead
     if array: push unmarked element records whose elemKind is a reference kind;
@@ -165,12 +160,8 @@ SweepPhase():
   clear free list
   for each heap slot:
     if not free and not marked:
-      if class: recycle a List/Dict/Mutex/Channel instance's side-table
-        handle to its free list; FreeOwnedStructs (free value-owned
-        struct fields)
+      if class: FreeOwnedStructs (free value-owned struct fields)
       if struct: FreeNestedStructs (free nested struct fields)
-      if array: FreeOwnedArrayStructElements (free value-owned struct
-        elements)
       clear slot, mark as free, add to free list
 
 SweepStrings():
@@ -203,26 +194,24 @@ after each sweep (`strThreshold = max(strThreshold, 2 * survivorCount)`)
 makes triggers advance geometrically with the live set: appends amortize to
 O(1), with memory bounded at 2x the live set.
 
-### Parked Contexts and the Scheduler Root Set
+### Suspended Contexts and the Scheduler Root Set
 
-Under the frame-stack machine, the running context's frames ARE the call
-stack; a **parked** context's whole frame stack (sleeping, waiting on a
-join or a `Future.get`, contending a mutex, parked on an empty-channel
+Each carrier owns its evaluation stack; a running context's frames ARE
+its carrier's stack, published in the window registry while the window
+is open (see the next section). A **suspended** context's whole frame stack
+(sleeping, waiting on a
+join or a `Future.get`, contending a mutex, suspended on an empty-channel
 receive or a full-channel send, preempted)
-lives in the scheduler, off the call stack. At collection time both are
-roots:
+lives in the scheduler, off every carrier's stack. At collection time
+both are roots:
 
-- every parked context's every frame runs the same three scan arms as a
-  running frame (parameter descriptors, result cell, band bitmap) — a park
+- every suspended context's every frame runs the same three scan arms as a
+  running frame (parameter descriptors, result cell, band bitmap) — a suspend
   can freeze a frame mid-instruction, and its staging values and handler
   state must all survive;
-- the context's `Thread` object (`join` identifies its target by handle),
-  a failed context's retained exception object (`join` rethrows that very
-  object), and an exception staged for the next resume (a parked receiver
-  or sender woken by a channel close) are roots in their own right;
-- a finished context's result cell is classified by the snapshotted return
-  kind — this is what keeps a `Future<T>`'s reference value alive between
-  the spawn and the `get()`;
+- the context's `Thread` object (`join` identifies its target by handle)
+  and a failed context's retained exception object (`join` rethrows that
+  very object) are roots in their own right;
 - values buffered inside a channel are traced through the worklist's class
   arm (`Channel<T>` is a builtin class with a handle field; buffered
   elements are marked with the object).
@@ -233,33 +222,54 @@ covered by the root set from birth. For the concurrency semantics, see
 [Concurrency](../language-spec/concurrency.md) and the
 [Frame Machine and Scheduler](frame-machine-and-scheduler.md) page.
 
-### GC Under the GIL and Blocking-Native Roots
+### Stop-The-World Rendezvous and Blocking-Native Roots
 
-Every mutation of the heap — allocation, marking, sweeping — happens
-while holding the global interpreter lock (GIL; see
-[Concurrency](../language-spec/concurrency.md)). A collection runs on the
-carrier that holds the GIL, and no other carrier can touch the heap
-meanwhile: there is no separate stop-the-world handshake to coordinate.
+Storage protection is split by domain (see
+[Concurrency](../language-spec/concurrency.md)): heap and string
+allocation draws from per-carrier free lists, and containers,
+synchronization primitives, streams, and string maintenance each hold
+their own domain lock; frame-local and field-access segments run
+lock-free on their own carriers, same-domain operations exclude each
+other across carriers, so a collection cannot simply run "between
+dispatches": a **stop-the-world rendezvous** coordinates it. A carrier
+at a safepoint that observes the pending condition requests a world
+stop; every carrier with an open evaluation window arrives at its next
+safepoint, and the last arriver runs the collection inline — the
+rendezvous pins the constructive fact that every member is suspended, so
+mark and sweep touch the stores without taking any domain lock
+(uncontended; everyone else waits at the rendezvous) — and completion
+wakes the waiters.
 
-- A non-blocking native call holds the GIL for its whole duration, so no
-  collection can interleave with it and its arguments need no extra
+The root set extends accordingly. Each carrier's evaluation stack is
+published in a window registry for as long as its window is open, and
+the collector scans every published entry: an active window is blocked
+at the rendezvous and therefore stable; a window suspended for a
+blocking native has suspended its frames (the stack is empty, the suspended
+frames scan as scheduler roots); a window suspended for a debugger
+freeze keeps its frames on the carrier's stack with the carrier blocked
+— stable as well.
+
+- A non-blocking native call neither suspends nor takes a lock: no
+  collection can advance until its carrier reaches a safepoint again,
+  so nothing interleaves with it; its arguments stay on the evaluation
+  stack, which the published table covers as roots, and need no extra
   rooting.
 - A **blocking** native call — declared through the version 5
   registration channel of the native application binary interface
   (ABI) — uses staged cells: the VM copies the arguments into cells it
-  owns, releases the GIL, calls the native, re-acquires the GIL (checking
+  owns, releases the lock, calls the native, re-acquires the lock (checking
   the stop flag first), restores the frame, and copies the result back.
-  During the window without the GIL, a collection on another carrier can
+  During the window without the lock, a collection on another carrier can
   run, so the staged argument cells and the return slot are roots for the
   duration of the call. The return cell is a root by address — the native
   writes it itself.
 - Callbacks into the VM made from inside a blocking native (string
   construction, list construction, raising an exception) re-acquire the
-  GIL per callback. Handles they mint are pushed onto the executor's
+  lock per callback. Handles they mint are pushed onto the executor's
   local-root vector and truncated at a watermark when the call returns;
   they live on the executor rather than on the carrier's C++ stack because
   a collector running on another carrier cannot see that stack.
-- Root-vector mutations happen under the GIL (armed before the release,
+- Root-vector mutations happen under the lock (armed before the release,
   truncated after the re-acquire), so a collection always reads a
   consistent list.
 
@@ -290,8 +300,7 @@ meanwhile: there is no separate stop-the-world handshake to coordinate.
 
 ### Free List Integration
 
-Allocation functions (AllocClassOnHeap, AllocStructOnHeap,
-AllocArrayOnHeap, DeepCopyStruct, and function-value record allocation)
+Allocation functions (AllocClassOnHeap, AllocStructOnHeap, DeepCopyStruct)
 check the free list first. If a free slot is available, it's reused
 (resize to correct size, set m_slotKinds/m_slotStructIdx). Otherwise,
 emplace_back a new slot.
@@ -299,9 +308,8 @@ emplace_back a new slot.
 ### GC Trigger Flow
 
 ```text
-OP_New / OP_AllocStruct / OP_AllocArray / OP_CopyStruct → m_gcPending = true
+OP_New / OP_AllocStruct → set m_gcPending = true
 String allocation (mint / concatenation node) → set m_gcPending = true
-Function-value record creation → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
@@ -311,5 +319,6 @@ CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()
 ```
 
-A safepoint only fires on a carrier that holds the GIL; parked contexts
+Safepoints fire on every carrier — a frame-local segment running lock-free
+must still arrive at the rendezvous at its next back-edge. Parked contexts
 are not running and need no cooperation to be scanned.

@@ -66,6 +66,12 @@ bool ModuleBuilder::PrepareUnits()
 	ParseTransUnits();
 	if (m_upEnv->HasError())
 		return false;
+	//The implicit prelude import joins every build before library
+	//discovery, so explicit `import builtins;` dedups against it and the
+	//prelude unit's own imports take part in the fixed point.
+	EnsurePreludeImported();
+	if (m_upEnv->HasError())
+		return false;
 	//Discover and fully parse import-reachable library .n sources before
 	//registration so their library TUs join the module index space too.
 	DiscoverLibraryUnits();
@@ -79,15 +85,26 @@ bool ModuleBuilder::PrepareUnits()
 	ExpandTypeAliases();
 	if (m_upEnv->HasError())
 		return false;
+	//Merge TU roots BEFORE import stubbing: a peer image carries the
+	//prelude records too (own in every image by design), and the
+	//stub-side collision checks (nameExistsInRoot) are what keep those
+	//from being minted into the root beside the consumer's own
+	//declarations. Without this, declared builtin classes clash with
+	//their own imported mirrors. TU order (user, prelude, libraries)
+	//keeps the shadowing contract — user declarations sit ahead of the
+	//prelude in the root.
+	MergeTransUnits();
+	if (m_upEnv->HasError())
+		return false;
 	//Load .ncu imports and merge stubs into the root namespace.
 	return LoadImports();
 }
 
 bool ModuleBuilder::ResolveAll()
 {
-	//Merge user TU roots (post-import) into the AST root, then run every
-	//resolution pass.
-	MergeTransUnits();
+	//TU roots merged at the end of PrepareUnits (before LoadImports —
+	//the stub-side collision checks need the consumer's own
+	//declarations). Run every resolution pass on the merged root.
 	ResolveUsingLists();
 	ResolveDataTypes();
 	//D8: a top-level statement paragraph plus an explicit main() in the same
@@ -280,9 +297,24 @@ void ModuleBuilder::ExpandTypeAliases()
 	//Errors abort the build right after this step.
 	DuplicateFieldChecker checker(*m_upEnv);
 	AliasExpander expander(*m_upEnv);
+	//The prelude unit's root is still intact (the merge clears it) — its
+	//declared names join the clash set even though the merged tree cannot
+	//answer yet (builtin-decls final sweep; TU order == module index).
+	SnNamespace *pPreludeRoot = nullptr;
+	const ModuleRegistry &registry = m_upEnv->Registry();
+	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		checker.CheckUnitAliases(*pTransUnit, TreeRoot());
+		if (registry.IsPreludeModule(moduleIndex))
+		{
+			pPreludeRoot = pTransUnit->Root();
+			break;
+		}
+		++moduleIndex;
+	}
+	for (auto pTransUnit : *m_upTransUnits)
+	{
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot);
 		expander.ProcessUnit(*pTransUnit);
 	}
 }

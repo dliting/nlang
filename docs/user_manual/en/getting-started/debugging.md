@@ -1,7 +1,8 @@
 # Debugging in nide
 
 nide has a built-in debugger: breakpoints, stepping, and inspecting the
-call stack and locals all happen inside the integrated development environment (IDE). A debug session is
+context list, call stack, and locals all happen inside the
+integrated development environment (IDE). A debug session is
 driven behind the scenes by `ndb --machine`, with the same semantics
 as the [command-line ndb](../cli-tools/ndb.md); for the engine-side
 layering see
@@ -70,20 +71,17 @@ The Debug page of the output window concentrates the session state:
   exception pauses the session (ndb's `catch on|off`) — at throw time
   the stack is not yet unwound, so the call stack and locals are still
   intact;
-- the context tree (id / state / location): one row per debug context —
-  the main program and every spawned thread; the state shows the
-  scheduler state (e.g. `runnable`, `parked-join`, `finished`) with a
-  ` @<carrier>` suffix while the context runs, and the location reads
-  `function (file:line)` (empty when frameless); clicking a row makes
-  that context the focus of inspection and stepping — the call stack,
-  the locals, and the next step commands all address it (a parked
-  context steps once it wakes); each stop resets the focus to the
-  context that just stopped;
-- the call stack tree of the focused context (# / function /
-  location): clicking a frame selects it, the editor jumps to the
-  matching line, and the locals refresh;
-- the locals tree (name / type / value): shows every local of the
-  selected frame whose declaration has been reached — a local
+- the context tree (context / state / location): one row per concurrent
+  context being debugged — the id, the scheduling state (suffixed
+  `@<carrier>` while a carrier is executing it), and the
+  innermost frame location; clicking a row selects that context, with
+  the semantics of [Multi-context debugging](#multi-context-debugging);
+- the call stack tree (# / function / location): clicking a frame
+  selects it, the editor jumps to the matching line, and the locals
+  refresh;
+- the locals tree (name / type / value): shows the locals of the
+  selected frame in the context under inspection, limited to those
+  whose declaration has been reached — a local
   joins the display once the paused statement is at or past its
   declaration line (on the declaration line itself it shows the default
   zero value until the initializer runs), and locals declared on later
@@ -117,9 +115,39 @@ following the terminal cursor.
 - Step Out (Shift+F11): runs until the current function returns and
   stops at the caller's next statement.
 
+Stepping acts on the context selected in the context tree (the stopped
+context when no selection has been made); see
+[Multi-context debugging](#multi-context-debugging).
+
 The anchor lines of `while`/`for`/`do-while` hit breakpoints and steps
 on every iteration, so even an empty loop body can be observed round by
 round.
+
+### Multi-context debugging
+
+Contexts spawned by `thread.spawn` sit next to main in the context
+tree, and a breakpoint hit or a thrown exception in any context stops
+everything. Clicking a context row selects it as both the inspection
+target and the step target (the same semantics as mainstream IDEs):
+
+- the call stack and locals switch to that context's contents at once,
+  and the editor jumps to its innermost frame location — suspended
+  contexts (a channel receive waiting for a sender, say) inspect like
+  any other;
+- the subsequent Step Over / Step Into / Step Out all act on that
+  context: with a queued context selected, stepping stops at its next
+  statement anchor; with a suspended context selected, stepping lets the
+  other contexts advance, and the selected one stops at its next
+  statement once woken by data;
+- selecting a suspended context that never wakes and then stepping still
+  trips the deadlock detector — stepping is not a way around a deadlock;
+- every new stop redirects the selection back to the stopped context,
+  so the tree marker never disagrees with where the program actually
+  stopped.
+
+In a single-context program the context tree holds only the main row,
+and clicking it changes nothing; without a selection, stepping keeps
+targeting the stopped context.
 
 ### Stripping debug info (`--no-debug-info`)
 

@@ -1,18 +1,16 @@
 // Standard library source for the "concurrent" package — pure NLang
-// concurrency utilities built on the kernel primitives (thread, Mutex,
+// concurrency utilities built on the kernel handle classes (Mutex,
 // Channel). No native backing: everything here is ordinary NLang code.
-// A library unit imports its peers through the ordinary gate, exactly
-// like a user unit (thread.yield below).
-import thread;
+// The Semaphore handle class is a builtin.
 
 // Counts outstanding units of work; wait() blocks the calling virtual
 // thread until the counter reaches zero. Contract (Go WaitGroup shape):
 // add() must happen before wait(), and every added unit calls done()
 // exactly once — a done() without a matching add() releases waiters
 // early, an add() without done()s parks them at the deadlock guard.
-// The counter is mutex-guarded like any shared mutable state (the same
-// discipline Semaphore models), so correctness does not lean on the
-// interpreter's coarse-grained GIL windows.
+// The counter is mutex-guarded like any shared mutable state, so
+// correctness does not lean on the interpreter's coarse-grained GIL
+// windows.
 class WaitGroup {
     private int m_pending;
     private Mutex m_gate;
@@ -47,39 +45,5 @@ class WaitGroup {
                 m_done.recv();
             }
         }
-    }
-}
-
-// Counting semaphore. acquire() spins with cooperative yields while the
-// count is zero (the kernel has no condition variables yet, so a parked
-// waiter cannot be woken by release()); release() returns one permit.
-class Semaphore {
-    private int m_count;
-    private Mutex m_mtx;
-
-    public Semaphore(int initial) {
-        this.m_count = initial;
-        this.m_mtx = Mutex();
-    }
-
-    public void acquire() {
-        bool granted = false;
-        while (!granted) {
-            m_mtx.lock();
-            if (m_count > 0) {
-                m_count = m_count - 1;
-                granted = true;
-            }
-            m_mtx.unlock();
-            if (!granted) {
-                thread.yield();
-            }
-        }
-    }
-
-    public void release() {
-        m_mtx.lock();
-        m_count = m_count + 1;
-        m_mtx.unlock();
     }
 }

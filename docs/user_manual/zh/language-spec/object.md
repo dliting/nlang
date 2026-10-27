@@ -2,7 +2,7 @@
 
 规范性规则见规范§4.9。
 
-`Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。Object由编译器合成——没有源码级的`class Object { ... }`声明，用户也不写`class Foo : Object`（该语法被拒绝）。
+`Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。其声明位于`stdlib/builtins.n`——预置包`builtins`，每次构建自动导入（见[标准库](standard-library.md)）；与其他预置声明一样，它是可阅读的普通源码。用户不写`class Foo : Object`——继承是隐式的，显式写法被拒绝。
 
 `Object`是唯一没有父类的class。内建class同样位于`Object`之下：`List`、`Dict`、`ByteStream`、`FileStream`、`Exception`及其全部内建子类（`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`IOException`、`InvalidCastException`、`ChannelClosedException`）与用户class共用同一个层次，因此任何class实例都可以赋给`Object`变量。不参与class层次的类型：基本类型、`string`与enum赋给`Object`时经装箱进入（enum按其整数值，见下节）；数组、struct与interface不是class，数组与struct的值也没有赋给`Object`的通道。
 
@@ -13,8 +13,8 @@
 Object提供两个带默认恒等语义的虚方法：
 
 ```nlang
-int equals(Object other);    // 恒等：同一堆引用 → 1，否则 0
-int getHashCode();           // 恒等：`this` 的堆索引（null 为 0）
+int equals(Object other);    // 恒等：同一堆引用 → 1，否则0
+int getHashCode();           // 恒等：`this` 的堆索引（null为0）
 ```
 
 **`equals`返回int（0/1），不是bool**——它是可由用户类覆写的虚方法协议，不属于严格bool迁移的比较/谓词面。因此`equals`结果进入条件需要显式比较：`if (a.equals(b) != 0)`（直接写`if (a.equals(b))`是编译错误`if condition must be bool, not "Int32"`）。string的内建`equals`同样返回int。
@@ -25,7 +25,7 @@ int getHashCode();           // 恒等：`this` 的堆索引（null 为 0）
 class Point {
     public int x;
     public int y;
-    int getHashCode() {              // 覆写 Object.getHashCode
+    int getHashCode() {              // 覆写Object.getHashCode
         return this.x * 31 + this.y;
     }
 }
@@ -56,22 +56,22 @@ Object还提供第三个虚方法`string toString()`：默认输出`类名@堆�
 标量基本类型的值（整型家族、`float`/`double`、`bool`、`char`）与`string`赋给Object类型的目标时被隐式装箱：
 
 ```nlang
-Object o = 5;            // int 装箱
-Object f = 3.14;         // double 装箱
-Object l = 5000000000;   // long 装箱
-Object b = true;         // bool 装箱
-Object c = 'é';           // char 装箱
-Object s = "hi";         // string 装箱
+Object o = 5;            // int装箱
+Object f = 3.14;         // double装箱
+Object l = 5000000000;   // long装箱
+Object b = true;         // bool装箱
+Object c = 'é';           // char装箱
+Object s = "hi";         // string装箱
 
 int TakesObject(Object o) { return o.getHashCode(); }
-int x = TakesObject(42); // 42 在调用点装箱
+int x = TakesObject(42); // 42在调用点装箱
 ```
 
 NLang没有`Integer`、`Double`这类命名包装class：装箱只在值进入`Object`位置的那一刻隐式发生，`int`局部变量与算术运算始终保持裸值。enum值赋给`Object`时按其整数值装箱，`as int`取回该整数值。
 
 运行期表示是带标签的装箱槽位（slot[0] = 类型标签，slot[1] = 值位）。装箱槽位不持有引用，垃圾回收（GC，garbage collection）标记阶段显式跳过它们。
 
-**`null`字面量的装箱保持**：字面量`0`（用作`null`）使`OP_Box`短路——不分配堆槽位，值`0`原样留在Object槽位内容里。这让`Object o = null`与`Object o = 0`都成为无操作，而不是把0包进装箱int的堆引用。
+**`null`不装箱**：`Object o = null`与`Object o = 0`都不分配堆对象——null的引用值就是0本身，而不是把0包装成装箱int。
 
 ### 拆箱与向下转换
 

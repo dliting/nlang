@@ -18,8 +18,10 @@ test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SyntaxNode.h>
+#include "builder/ModuleRegistry.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -103,9 +105,12 @@ static CompileOutcome compileOne(const char* szBody)
 }
 
 //Whole-tree walk collecting resolved generic type expressions (same
-//containment-invariant walk as test_array_property).
+//containment-invariant walk as test_array_property). Prelude-owned
+//exprs are excluded: the declared prelude classes contribute their own
+//instantiations (Exception.backtrace's List<string>) that live outside
+//the user code these tests reason about.
 static std::vector<SnGenericTypeExpr*> collectGenericTypeExprs(
-    const SnNamespace& root)
+    const SnNamespace& root, const ModuleRegistry& reg)
 {
     std::vector<SnGenericTypeExpr*> found;
     std::function<void(const SyntaxNode&)> walk =
@@ -118,6 +123,13 @@ static std::vector<SnGenericTypeExpr*> collectGenericTypeExprs(
                 walk(static_cast<const SyntaxNode&>(*it));
         };
     walk(root);
+    //Owner-of-context resolves through the ancestor chain: a prelude
+    //expr's chain lands on the prelude TU's declarations. NO_OWNER
+    //stays (not provably prelude).
+    found.erase(std::remove_if(found.begin(), found.end(),
+        [&reg](SnGenericTypeExpr* pExpr) {
+            return reg.IsPreludeModule(reg.OwnerOfContext(*pExpr));
+        }), found.end());
     return found;
 }
 
@@ -237,7 +249,7 @@ static void test_generic_array_flags_split_keys()
     CHECK(out.ok, "build failed: "
         + (out.logger ? joinErrors(*out.logger) : std::string("?")));
     const auto& root = out.builder->TreeRootView();
-    auto exprs = collectGenericTypeExprs(root);
+    auto exprs = collectGenericTypeExprs(root, out.builder->Registry());
     //0.9.0: creation is brace literals, so only the two decls carry
     //generic type exprs.
     CHECK(exprs.size() == 2, "expected 2 generic type exprs (2 decls), "
@@ -295,7 +307,7 @@ static void test_dict_keys_recast_carries_token()
     CHECK(out.ok, "build failed: "
         + (out.logger ? joinErrors(*out.logger) : std::string("?")));
     const auto& root = out.builder->TreeRootView();
-    auto exprs = collectGenericTypeExprs(root);
+    auto exprs = collectGenericTypeExprs(root, out.builder->Registry());
     //0.9.0: the creation is an empty brace literal — only the Dict decl
     //and the List decl carry generic type exprs.
     CHECK(exprs.size() == 2, "expected 2 generic type exprs (Dict decl "

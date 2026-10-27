@@ -212,9 +212,18 @@ file(MAKE_DIRECTORY ${NLANG_STDLIB_BUILD_DIR})
 # a source removal.
 file(GLOB NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/stdlib/*.n)
+#The prelude package is compile-time-inline only: the compiler embeds
+#stdlib/builtins.n at build time, so the .nproj pack list excludes it —
+#a builtins member in the package would be a member no import can
+#reach. The build-tree COPY keeps the file: the stdlib dir is the
+#FindStdLibDir hit and the disk copy is the canonical prelude source
+#for compile-time resolution (edit-and-rebuild iteration).
+set(NLANG_STDLIB_PACKAGE_SOURCES ${NLANG_STDLIB_SOURCES})
+list(REMOVE_ITEM NLANG_STDLIB_PACKAGE_SOURCES
+    ${PROJECT_SOURCE_DIR}/stdlib/builtins.n)
 set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<Project name=\"stdlib\">\n  <Sources>\n")
-foreach(src IN LISTS NLANG_STDLIB_SOURCES)
+foreach(src IN LISTS NLANG_STDLIB_PACKAGE_SOURCES)
     get_filename_component(name "${src}" NAME)
     string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")
 endforeach()
@@ -280,7 +289,7 @@ if(NLANG_BUILD_DOCS)
         COMMAND ${CMAKE_COMMAND} -E remove_directory
                 ${CMAKE_CURRENT_BINARY_DIR}/docs/site
         COMMAND ${NLANG_DOCS_RUN} build
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
                 #The 4th build stage audits the manual tree's snippets
                 #by compiling+running them with the tree's own tools,
@@ -293,23 +302,23 @@ if(NLANG_BUILD_DOCS)
                 #until after the second build (see the check commands).
                 --defer-site-audit
         COMMAND ${NLANG_DOCS_RUN} build
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
                 --ncc $<TARGET_FILE:ncc>
                 --nvm $<TARGET_FILE:nvm>
                 --defer-site-audit
         COMMAND ${NLANG_DOCS_RUN} check
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/zh
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
         COMMAND ${NLANG_DOCS_RUN} check
                 --site-dir ${CMAKE_CURRENT_BINARY_DIR}/docs/site/en
-                --config ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+                --config ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${NLANG_DOCS_DIR}/src/nlang_docs/data/landing.html
                 ${CMAKE_CURRENT_BINARY_DIR}/docs/site/index.html
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.base.yml
-                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.zh.yml
-                ${CMAKE_CURRENT_SOURCE_DIR}/mkdocs.en.yml
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.base.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.zh.yml
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/mkdocs.en.yml
                 ${NLANG_DOC_PAGES}
                 ${NLANG_DOCS_DIR}/src/nlang_docs/cli.py
                 ${NLANG_DOCS_DIR}/src/nlang_docs/linkcheck.py

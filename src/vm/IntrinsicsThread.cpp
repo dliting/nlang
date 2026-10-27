@@ -8,6 +8,8 @@
     至此全部落地；Slice 10 补 spawn 的载体在飞门（无载体窗口拒绝）。
     K3 接入 Future 族（isDone 先行，get 随任务 2）：spawn 依委托返回
     种类铸造 Thread 或 Future 句柄。
+    K8：家族在分派处拆锁——thread.* 与 Future 臂持调度器域锁，Mutex 臂
+    落 Sync 域（两阶段停泊握手），Channel 臂同形（IntrinsicsChannel.cpp）。
 ---*/
 #include "VmExecutor.h"
 #include <chrono>
@@ -19,6 +21,26 @@ namespace nlang {
 bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    //K8: the family splits at the dispatch. thread.* arms touch
+    //scheduler state and heap minting only — they keep the scheduler
+    //domain lock (whole-body; a park's suspension unwind destroys the
+    //guard first). The handle methods forward below: Future arms are
+    //scheduler-state too, while the Mutex/Channel arms own the Sync
+    //domain over the side tables and must never hold the scheduler
+    //lock across their park/wake calls (the K8 domain-lock invariant).
+    switch (intrinsicId)
+    {
+    case INTR_Thread_Yield:
+    case INTR_Thread_Id:
+    case INTR_Thread_Spawn:
+    case INTR_Thread_Join:
+    case INTR_Thread_Sleep:
+        break;
+    default:
+        return ExecuteIntrinsicHandleMethods(intrinsicId, callParamBase,
+                                             locals, pResult);
+    }
+    GilEnsureGuard g(*this);
     switch (intrinsicId)
     {
     case INTR_Thread_Yield:
@@ -39,10 +61,7 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
     case INTR_Thread_Sleep:
         return IntrinsicSleep(callParamBase, locals);
     default:
-        //Mutex/Channel/Future (the __handle builtin methods) dispatch
-        //in their own switch (50-line budget).
-        return ExecuteIntrinsicHandleMethods(intrinsicId, callParamBase,
-                                             locals, pResult);
+        return false;   //unreachable — filtered above
     }
 }
 
@@ -52,30 +71,67 @@ bool VmExecutor::ExecuteIntrinsicThread(uint16_t intrinsicId,
 bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    //K8: Future arms read registry state and park through the join path
+    //— scheduler domain, same lock discipline as thread.* above.
     switch (intrinsicId)
     {
-    case INTR_Mutex_Ctor:
-        return IntrinsicMutexCtor(callParamBase, locals);
-    case INTR_Mutex_Lock:
-        return IntrinsicMutexLock(callParamBase, locals);
-    case INTR_Mutex_Unlock:
-        return IntrinsicMutexUnlock(callParamBase, locals);
-    case INTR_Mutex_TryLock:
-        return IntrinsicMutexTryLock(callParamBase, locals, pResult);
-    case INTR_Channel_Ctor:
-        return IntrinsicChannelCtor(callParamBase, locals);
-    case INTR_Channel_Send:
-        return IntrinsicChannelSend(callParamBase, locals);
-    case INTR_Channel_Recv:
-        return IntrinsicChannelRecv(callParamBase, locals, pResult);
-    case INTR_Channel_Close:
-        return IntrinsicChannelClose(callParamBase, locals);
     case INTR_Future_IsDone:
-        return IntrinsicFutureIsDone(callParamBase, locals, pResult);
     case INTR_Future_Get:
-        return IntrinsicFutureGet(callParamBase, locals, pResult);
+    {
+        GilEnsureGuard g(*this);
+        return intrinsicId == INTR_Future_IsDone
+            ? IntrinsicFutureIsDone(callParamBase, locals, pResult)
+            : IntrinsicFutureGet(callParamBase, locals, pResult);
+    }
     default:
-        return false;
+        return ExecuteIntrinsicSync(intrinsicId, callParamBase, locals,
+                                    pResult);
+    }
+}
+
+//K8: the Mutex/Channel family entry. The arms run their structural
+//sections under the Sync domain and their scheduler calls between the
+//sections; NLang raises inside a section defer (a reverse acquisition
+//under Sync) and convert here, outside every guard.
+bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    try
+    {
+        switch (intrinsicId)
+        {
+        case INTR_Mutex_Ctor:
+            return IntrinsicMutexCtor(callParamBase, locals);
+        case INTR_Mutex_Lock:
+            return IntrinsicMutexLock(callParamBase, locals);
+        case INTR_Mutex_Unlock:
+            return IntrinsicMutexUnlock(callParamBase, locals);
+        case INTR_Mutex_TryLock:
+            return IntrinsicMutexTryLock(callParamBase, locals, pResult);
+        case INTR_Channel_Ctor:
+            return IntrinsicChannelCtor(callParamBase, locals);
+        case INTR_Channel_Send:
+            return IntrinsicChannelSend(callParamBase, locals);
+        case INTR_Channel_Recv:
+            return IntrinsicChannelRecv(callParamBase, locals, pResult);
+        case INTR_Channel_Close:
+            return IntrinsicChannelClose(callParamBase, locals);
+        case INTR_Semaphore_Ctor:
+            return IntrinsicSemaphoreCtor(callParamBase, locals);
+        case INTR_Semaphore_Acquire:
+            return IntrinsicSemaphoreAcquire(callParamBase, locals);
+        case INTR_Semaphore_Release:
+            return IntrinsicSemaphoreRelease(callParamBase, locals);
+        case INTR_Semaphore_TryAcquire:
+            return IntrinsicSemaphoreTryAcquire(callParamBase, locals,
+                                                pResult);
+        default:
+            return false;
+        }
+    }
+    catch (DeferredNlangRaise& r)
+    {
+        RaiseNlangException(r.classIdx, r.message);   //[[noreturn]]
     }
 }
 
@@ -112,7 +168,6 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     int32_t receiverIdx = 0;
     const CompiledFunction& callee = ResolveSpawnTarget(
         m_structHeap[static_cast<size_t>(handleIdx)], receiverIdx);
-
     const int ctxId = m_spScheduler->RegisterContext();
     ExecutionContext* ctx = m_spScheduler->FindMutable(ctxId);
     //K3: the GC root arm classifies a Finished context's resultCell by
@@ -129,7 +184,6 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     root.externalResult = reinterpret_cast<uint8_t*>(&ctx->resultCell);
     root.func = &callee;
     ctx->frames.push_back(std::move(root));
-
     int32_t handleObj = (callee.returnTypeKind != RTK_Void)
         ? MintFutureObject(ctxId) : MintThreadObject(ctxId);
     ctx->threadObjHeapIdx = handleObj;
@@ -204,8 +258,10 @@ bool VmExecutor::IntrinsicJoin(uint16_t callParamBase, uint8_t* locals)
         throw std::runtime_error("NLang VM: a thread cannot join itself");
     if (target->state == ContextState::Finished)
         return true;
-    if (target->state == ContextState::Failed)
+    if (target->state == ContextState::Failed) {
+        m_spScheduler->MarkFailureObserved(targetId);
         ThrowJoinTargetFailure(target->failExcHeapIdx);
+    }
     //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
     //nested-window rejection must not leave a half-parked context.
     EnsureSuspensionAllowed();
@@ -234,108 +290,6 @@ bool VmExecutor::IntrinsicSleep(uint16_t callParamBase, uint8_t* locals)
     m_spScheduler->ParkForTimer(m_spScheduler->CurrentContextId(), wakeAt);
     RequestPark(ParkSignal::Reason::Timer);   //[[noreturn]]
 }
-
-//Slice 8: Mutex() 构造——物化侧表槽位并把句柄写进 __handle（同 List
-//构造形态：接收者即 callParamBase 槽 0 的实例记录）。
-bool VmExecutor::IntrinsicMutexCtor(uint16_t callParamBase, uint8_t* locals)
-{
-    int32_t thisIdx;
-    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
-    if (thisIdx <= 0
-        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null reference in Mutex constructor");
-    m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
-        = AllocMutexHandle();
-    return true;
-}
-
-//lock()：空闲即取（ownerId 记当前上下文）；被持（含自持——不可重入）
-//则 FIFO 停泊，unlock 移交。停泊经 ParkSignal(Mutex)；恢复点由调用
-//派发分支的 pc 推进不变量保证（同 yield/join/sleep）。
-bool VmExecutor::IntrinsicMutexLock(uint16_t callParamBase, uint8_t* locals)
-{
-    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
-    const int selfId = m_spScheduler->CurrentContextId();
-    if (slot.ownerId < 0) {
-        slot.ownerId = selfId;
-        return true;
-    }
-    //Gate BEFORE mutating scheduler state (decision 2 spec (a)): the
-    //nested-window rejection must not leave a half-parked context.
-    EnsureSuspensionAllowed();
-    slot.waiters.push_back(selfId);
-    m_spScheduler->ParkForMutex(selfId);
-    RequestPark(ParkSignal::Reason::Mutex);   //[[noreturn]]
-}
-
-//tryLock()：空闲取之返 true，被持返 false——绝不停泊（唯一不挂起的探
-//测路径，可在嵌套求值窗口内安全调用）。
-bool VmExecutor::IntrinsicMutexTryLock(uint16_t callParamBase,
-                                       uint8_t* locals, uint8_t* pResult)
-{
-    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
-    const bool acquired = slot.ownerId < 0;
-    if (acquired)
-        slot.ownerId = m_spScheduler->CurrentContextId();
-    int32_t r = acquired ? 1 : 0;
-    std::memcpy(pResult, &r, sizeof(r));
-    return true;
-}
-
-//unlock()：未持有 → 基础异常；有等待者 → 所有权移交队首并唤醒（FIFO，
-//移交与唤醒原子——不存在锁看似空闲的窗口）；无等待者 → 置空闲。
-bool VmExecutor::IntrinsicMutexUnlock(uint16_t callParamBase, uint8_t* locals)
-{
-    MutexSlot& slot = ResolveMutexSlot(callParamBase, locals);
-    const int selfId = m_spScheduler->CurrentContextId();
-    if (slot.ownerId != selfId)
-        throw std::runtime_error(
-            "NLang VM: Mutex.unlock without holding the lock");
-    if (slot.waiters.empty()) {
-        slot.ownerId = -1;
-        return true;
-    }
-    const int next = slot.waiters.front();
-    slot.waiters.pop_front();
-    slot.ownerId = next;
-    m_spScheduler->WakeForMutex(next);
-    return true;
-}
-
-//Slice 8 共享：解析接收者实例（callParamBase 槽 0）到侧表槽位。句柄即
-//__handle 字段（kListHandleFieldOffset，List/Dict 同布局）。
-VmExecutor::MutexSlot& VmExecutor::ResolveMutexSlot(
-    uint16_t callParamBase, uint8_t* locals)
-{
-    int32_t thisIdx;
-    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
-    if (thisIdx <= 0
-        || static_cast<size_t>(thisIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null reference in Mutex call");
-    const int32_t handle =
-        m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset];
-    if (handle <= 0 || static_cast<size_t>(handle) > m_mutexStore.size())
-        throw std::runtime_error(
-            "NLang VM: Mutex call on an uninitialized instance");
-    return m_mutexStore[static_cast<size_t>(handle) - 1];
-}
-
-//Slice 8：分配互斥体侧表槽位（句柄 = 下标+1，0 保留给 null）。复用槽
-//位时整体重置——清扫回收只归还句柄，owner/waiters 可能残留被丢弃锁
-//（持锁时实例死亡的程序缺陷形态）的状态。
-int32_t VmExecutor::AllocMutexHandle() {
-    if (!m_mutexFreeList.empty()) {
-        const int32_t handle = m_mutexFreeList.back();
-        m_mutexFreeList.pop_back();
-        m_mutexStore[static_cast<size_t>(handle) - 1] = MutexSlot();
-        return handle;
-    }
-    m_mutexStore.emplace_back();
-    return static_cast<int32_t>(m_mutexStore.size());
-}
-
 
 //Rethrow a failed join target's exception OBJECT (same heap idx — same
 //message, same raise-time backtrace). Shared by the join intrinsic

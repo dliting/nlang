@@ -5,6 +5,7 @@
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
+#include "SnTypes.h"
 #include "SnArrayTypeToken.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
@@ -29,18 +30,20 @@ namespace nlang
 //in Access. A diagnosed failure reaches here with the callee never
 //bound, yet the resolved flag makes an enclosing member access trust
 //the chain: SnFieldExpr::IsDataExpr() dereferences the null field and
-//crashes ncc (0xC0000005) — hence the Object sentinel (its
-//NF_Type|NF_Field keeps IsDataField false, so an enclosing chain
-//degrades to a plain member-not-found).
+//crashes ncc (0xC0000005) — hence the sentinel: the AST's meta SnType
+//singleton (concrete, per-build — its NF_Type|NF_Field marks keep
+//IsDataField false), so an enclosing chain degrades to a plain
+//member-not-found. The sentinel only decorates diagnosed, never-
+//codegen'd trees; it must be fetched per use (a function-local static
+//would leak the previous build's node into the next).
 void ExprResolveAccessor::FinishConsumedMember(
 	SnMemberExpr &snMember)
 {
 	if (!snMember.m_pField)
 	{
-		auto *pObjectDecl = GetBuiltinClassDecl("Object",
-			snMember.Location());
-		snMember.m_pField = pObjectDecl;
-		snMember.EvalDataType(pObjectDecl);
+		auto *pSentinel = SnType::Instance();
+		snMember.m_pField = pSentinel;
+		snMember.EvalDataType(pSentinel);
 	}
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);

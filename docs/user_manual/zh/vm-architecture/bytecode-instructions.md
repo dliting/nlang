@@ -100,7 +100,7 @@
 | OP_Ne_func          | lhs, rhs                             | 句柄内容不等                    |
 | OP_Func_to_str      | pResult累加器                        | "func <名>" / "method <名>"；null → "<null>" |
 
-句柄布局与分派语义见[一等函数值](first-class-function-values.md#first-class-function-values)。
+句柄布局与分派语义见[一等函数值](first-class-function-values.md#一等函数值)。
 
 ### 字符串
 

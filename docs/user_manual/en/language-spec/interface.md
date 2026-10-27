@@ -67,8 +67,8 @@ with `try/catch` — see [Exceptions](exception.md).
 
 After a class declares `implements`, the compiler validates implementation
 completeness at the class declaration: every method of the interface must be
-implemented by the **dispatch-order-first** same-name method on the
-inheritance chain with an **exactly matching signature** (the same parameter
+implemented by the **most derived** same-name method on the
+inheritance chain (the one virtual dispatch selects) with an **exactly matching signature** (the same parameter
 types and count and return type — the `out` modifier must match too; any
 access level works, and non-virtual methods and implementations on the parent
 chain all count). A missing or mismatched implementation is a compile error,

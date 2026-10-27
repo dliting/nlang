@@ -36,7 +36,7 @@ put the statements in a `.n` file and run `nlang <file>`.
 | Flag | Description |
 |---|---|
 | `-c "<statements>"` | Inline statements — executed as a script; the exit code is the top-level return |
-| `-I <dir>` (or `-I<dir>` attached) | Library search path, repeatable: compile-time lookup of imported `.n` and external `.ncu`/`.npkg`, run-time lookup of closure members and native dynamic libraries |
+| `-I <dir>` (or `-I<dir>` attached) | Library search path, repeatable: compile-time lookup of imported `.n` and external `.ncu`/`.npkg`, run-time lookup of all dependency members and native dynamic libraries |
 | `--version` | Version query, effective before any initialization |
 
 The search-path layering matches ncc (`-I` > the script's own
@@ -103,8 +103,10 @@ declaration at all; `func` exists for implementations outside the file.
 Modifier-led declarations are unaffected; `native int probe();` works
 as before. A declaration alongside a definition in the same file is
 rejected by the duplicate-definition check. Inside a function body,
-`Foo f();` is the same zero-argument direct initialization it has at
-top level.
+`Foo f();` is a zero-argument direct initialization (a variable
+declaration calling the constructor with no arguments) and keeps working;
+the empty-parameter ambiguity exists only at top level (see
+[Known Limitations](../language-spec/known-limitations.md)).
 
 ## Out of Scope
 

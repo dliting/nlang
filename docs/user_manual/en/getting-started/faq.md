@@ -111,7 +111,7 @@ line per Enter, so the probe sees only what is already buffered — the
 same position C is in on a console. Console programs usually do not
 need `hasInput()`: following the C convention, treat `readLine()`'s
 empty-string return as the loop's end. In a debug session (nide)
-`hasInput()` reports only already-delivered parked lines; the
+`hasInput()` reports only already-delivered buffered lines; the
 terminal's scrollback and copy work as usual.
 
 ### Cross-module reference gives `Module '...' is not imported`?
@@ -202,10 +202,10 @@ Messages](../language-spec/common-errors.md) for the full error text.
 
 Virtual dispatch in NLang works by method name: the call site lays out
 arguments against the statically bound type's signature, and at run time the
-nearest derived same-name method is taken — signatures are not compared. If
-a subclass could add an overload with a different signature for a virtual
-method's name, it would steal the dispatch at run time and read arguments as
-wrong bits. Once a name is bound to a virtual method or an interface
+most specific subclass's same-name method is taken — signatures are not
+compared. If a subclass could add an overload with a different signature
+for a virtual method's name, the arguments would be read at the wrong
+positions and produce wrong results. Once a name is bound to a virtual method or an interface
 contract, the subclass's same-name methods must map one-to-one onto the
 contract signature. To provide a method with a different signature, use a
 different method name.
@@ -230,7 +230,7 @@ buttons to move between the documentation pages you have visited; the
 help window is rebuilt each time it is reopened (it does not remember
 the last browsing position).
 
-More known limitations →
+More known limitations:
 [Language Specification / Known
 Limitations](../language-spec/known-limitations.md),
 [VM Architecture / Known

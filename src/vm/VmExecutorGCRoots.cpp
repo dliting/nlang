@@ -3,8 +3,9 @@
     从 VmExecutorGC.cpp 拆出（2026-10-20 K2 slice 5，零行为变化）。
 ---*/
 #include "VmExecutor.h"
-#include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <exception>
 
 namespace nlang {
 
@@ -101,32 +102,107 @@ void VmExecutor::TestRootValue(int32_t val,
         PushMarked(val, worklist);
 }
 
-//Root-frame RAII (see NativeRootFrameGuard in VmExecutor.h): one
-//blocking section's registration lives and dies with this object, so
-//a sibling carrier's exit can never revoke it (the shared watermark
-//list did — stdlib_tensor_gc_race caught it).
-VmExecutor::NativeRootFrameGuard::NativeRootFrameGuard(
-    VmExecutor& executor, const uint8_t* stagedArgs,
-    uint32_t paramCount, const uint8_t* stagedRet)
-    : m_executor(executor) {
-    m_frame.reserve(static_cast<size_t>(2) + paramCount);
-    m_frame.push_back({stagedRet, 1u, 0});
-    if (paramCount)
-        m_frame.push_back({stagedArgs, paramCount, 0});
-    m_executor.m_liveNativeRootFrames.push_back(&m_frame);
-    m_callerFrame = t_currentNativeRootFrame;
-    t_currentNativeRootFrame = &m_frame;
-    ++t_blockingNativeDepth;
+
+//One context's resultCell root. K8 Task 7: for a LIVE context the
+//cell is not just a return slot — PushFrameCore's result-cell
+//inheritance makes it the accumulator every nested call in the
+//context's root tree writes through. A parked channel recv's
+//deliverer writes its boxed payload there while the owner is parked,
+//and the [delivery, resume unbox] stretch spans a whole park, so a
+//collection can complete with that handle anchored nowhere else (the
+//conc_waitgroup ASan flake: swept slot, "unbox target is not a boxed
+//primitive"). This scan runs at the quiescent rendezvous — the owner
+//is arrived or parked, never mid-write — so the K7 torn-read
+//objection (aimed at KIND-classified reads of running cells) does
+//not apply; a conservative both-domain value test is sound and
+//over-marks at worst (the same discipline as the frame band).
+//K3: once the context has finished, its return value lives only in
+//resultCell — classify it by the snapshotted return kind
+//(MarkFrameResult's same split: string handle vs heap index) so a
+//Future<T> of a reference T keeps the value alive between the spawn
+//and the get(). K7 site 10: the discriminator is the context STATE,
+//not frames.empty() — with the steal model kept intact, held and
+//queued contexts have empty registry frames too.
+void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
+                                       std::vector<int32_t>& worklist) {
+    if (ctx->state != ContextState::Finished
+            && ctx->state != ContextState::Failed) {
+        int32_t cellHalves[2];
+        std::memcpy(cellHalves, &ctx->resultCell, sizeof(cellHalves));
+        for (int32_t half : cellHalves)
+            TestRootValue(half, worklist);
+        return;
+    }
+    uint8_t retKind = ctx->resultKind;
+    int32_t val;
+    std::memcpy(&val, &ctx->resultCell, sizeof(val));
+    if (retKind == RTK_String) {
+        MarkString(val);
+    } else if (retKind == RTK_Class || retKind == RTK_Struct
+        || retKind == RTK_Array || retKind == RTK_Func) {
+        if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+            && !m_markBits[val])
+            PushMarked(val, worklist);
+    }
 }
 
-VmExecutor::NativeRootFrameGuard::~NativeRootFrameGuard() {
-    auto& frames = m_executor.m_liveNativeRootFrames;
-    const auto framePos = std::find(frames.begin(), frames.end(),
-        &m_frame);
-    if (framePos != frames.end())
-        frames.erase(framePos);
-    t_currentNativeRootFrame = m_callerFrame;
-    --t_blockingNativeDepth;
+//K8 Task 7 product tripwire (the AssertAllArrived style): at the
+//quiescent root scan, every pending delivery destination — a channel
+//recv waiter's resultPtr, a parked get()'s joinResultDst — must fall
+//on one of the scanned root surfaces: a frame buffer of either arm,
+//or a registry resultCell (a call site inside a context's root tree
+//accumulates through &ctx->resultCell — PushFrameCore's result-cell
+//inheritance; the scan roots live cells conservatively). A
+//destination escaping all of them means a frame-ownership transfer
+//or a new accumulator shape left the delivery visible to no scan
+//mid-flight — failing loudly here locates that bug at its source
+//instead of a flaky downstream unbox error (the conc_waitgroup ASan
+//flake's lesson). Cheap by construction: waiters are few and the
+//range list is already built for the two scan arms.
+void VmExecutor::AuditWaiterDestinationRanges(
+    const std::vector<std::pair<const uint8_t*, const uint8_t*>>& ranges)
+{
+    auto covered = [&ranges](const uint8_t* dst) {
+        for (const auto& r : ranges)
+            if (dst >= r.first && dst < r.second)
+                return true;
+        return false;
+    };
+    auto isRegistryCell = [this](const uint8_t* dst) {
+        for (size_t ci = 0; ci < m_spScheduler->ContextCount(); ++ci) {
+            const ExecutionContext* ctx = m_spScheduler->Find(
+                static_cast<int>(ci));
+            if (ctx && dst
+                    == reinterpret_cast<const uint8_t*>(&ctx->resultCell))
+                return true;
+        }
+        return false;
+    };
+    for (size_t h = 0; h < m_channelStore.size(); ++h) {
+        for (const auto& w : m_channelStore[h].waiters) {
+            if (!covered(w.resultPtr) && !isRegistryCell(w.resultPtr)) {
+                fprintf(stderr,
+                    "NLang VM: channel waiter ctx=%d destination %p "
+                    "escaped every GC root surface (frame transfer bug)\n",
+                    w.contextId, w.resultPtr);
+                std::terminate();
+            }
+        }
+    }
+    for (size_t ci = 0; ci < m_spScheduler->ContextCount(); ++ci) {
+        const ExecutionContext* ctx = m_spScheduler->Find(
+            static_cast<int>(ci));
+        if (!ctx || !ctx->joinResultDst)
+            continue;
+        if (!covered(ctx->joinResultDst)
+                && !isRegistryCell(ctx->joinResultDst)) {
+            fprintf(stderr,
+                "NLang VM: join result destination of ctx %d escaped "
+                "every GC root surface (frame transfer bug)\n",
+                static_cast<int>(ci));
+            std::terminate();
+        }
+    }
 }
 
 } //namespace nlang

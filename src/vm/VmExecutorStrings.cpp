@@ -15,21 +15,43 @@ traces cons children so a dropped chain is reclaimed whole.
 
 namespace nlang {
 
-//Raw slot from the free list or the back of the store. Every mint funnels
-//through here — the single place m_gcPending gets set for strings.
+//Raw slot from the calling carrier's string shard; growth is the rare
+//slow path (one block appended under the Growth domain lock). Every
+//mint funnels through here — the single place the GC pressure flag gets
+//set for strings (K7: NoteGcPressure, the release-store into the
+//atomic).
 int32_t VmExecutor::AllocStringObj() {
-    int32_t handle;
-    if (!m_strFreeList.empty()) {
-        handle = m_strFreeList.back();
-        m_strFreeList.pop_back();
-        m_stringObjs[static_cast<size_t>(handle)] = StrObj{};
-    } else {
-        handle = static_cast<int32_t>(m_stringObjs.size());
-        m_stringObjs.emplace_back();
+    const int32_t handle = TakeStringSlot();
+    m_stringObjs[static_cast<size_t>(handle)] = StrObj{};
+    NoteGcPressure();
+    return handle;
+}
+
+//K8: lock-free pop of the calling thread's own shard; on exhaustion take
+//the Growth domain lock (double-checked) and append one block. Mirrors
+//TakeHeapSlot's choreography.
+int32_t VmExecutor::TakeStringSlot() {
+    const size_t shard = CurrentShard();
+    if (m_strShards.Empty(shard)) {
+        DomainGuard g(m_domainLocks, DomainId::Growth);
+        if (m_strShards.Empty(shard))   //double-check under the lock
+            GrowStrShardBlockLocked(shard);
+    }
+    return m_strShards.Pop(shard);
+}
+
+//Caller must hold the Growth domain lock. Fresh slots stay default-Flat;
+//the sweep recycles any unpopped ones into the shards (same net state:
+//free). m_strMarkBits grows here to keep the parallel-array invariant
+//(all three sync sites: this growth arm, MarkPhase's head, SweepStrings'
+//tail).
+void VmExecutor::GrowStrShardBlockLocked(size_t shard) {
+    const int32_t base = static_cast<int32_t>(m_stringObjs.size());
+    for (size_t k = 0; k < m_allocQuantum; ++k) {
+        m_stringObjs.Emplace();
         m_strMarkBits.push_back(false);
     }
-    m_gcPending = true;
-    return handle;
+    m_strShards.PushBlockDescending(shard, base, m_allocQuantum);
 }
 
 bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
@@ -47,17 +69,26 @@ bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
 //second mint of live content always hits the table, and a hit on a dead
 //entry falls through and re-registers.
 int32_t VmExecutor::MintNewString(std::string content) {
-    if (content.size() <= kShortStringMaxBytes) {
-        auto it = m_shortStrTable.find(content);
-        if (it != m_shortStrTable.end() && IsLiveStringHandle(it->second))
-            return it->second;
+    //K8: interning mutates the shared weak table, so find + insert are
+    //one critical section under the string-maintenance domain lock. Two
+    //carriers racing the same fresh content must not both miss and mint:
+    //the second insert would orphan the first interned object and break
+    //the uniqueness invariant OP_Eq_str's handle fast path relies on.
+    //Minting inside the lock is fine — TakeStringSlot takes Growth at
+    //most, a forward acquisition (leaf under leaf, never outward).
+    if (content.size() > kShortStringMaxBytes) {
+        const int32_t handle = AllocStringObj();
+        m_stringObjs[static_cast<size_t>(handle)].str = std::move(content);
+        return handle;
     }
+    DomainGuard g(m_domainLocks, DomainId::StrMaint);
+    auto it = m_shortStrTable.find(content);
+    if (it != m_shortStrTable.end() && IsLiveStringHandle(it->second))
+        return it->second;
     int32_t handle = AllocStringObj();
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
-    if (content.size() <= kShortStringMaxBytes) {
-        so.interned = true;
-        m_shortStrTable[content] = handle;   //map keys its own copy
-    }
+    so.interned = true;
+    m_shortStrTable[content] = handle;   //map keys its own copy
     so.str = std::move(content);
     return handle;
 }
@@ -85,6 +116,10 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
 //compares content. Two StrVal calls, no minting between them — the
 //returned references stay valid (no store growth).
 bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
+    //K8: lock-free. Flag reads are benign value races; StrVal flattens
+    //under the string-maintenance domain lock internally; and ChunkedArray
+    //element addresses are stable across growth, so the two references
+    //survive any interleaved mint on another carrier.
     if (IsInternedString(hA) && IsInternedString(hB))
         return hA == hB;
     return StrVal(hA) == StrVal(hB);
@@ -139,11 +174,22 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
 //growth invalidates it — same discipline as the old ReadStrArg by-value
 //rule).
 const std::string& VmExecutor::StrVal(int32_t handle) {
+    //K8: the flat fast path is a lock-free read of immutable content,
+    //and ChunkedArray addresses are stable across growth, so the
+    //returned reference survives interleaved mints on other carriers.
+    //The cons rewrite is string-store maintenance: it runs under the
+    //string-maintenance domain lock (two carriers flattening the same
+    //handle must not interleave their moves), and str is written
+    //before form, so a racing lock-free reader that observes Flat
+    //observes the full content (sharing-model store order).
     if (!IsLiveStringHandle(handle))
         return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
     if (so.form != StrObj::Form::Cons)
         return so.str;
+    DomainGuard g(m_domainLocks, DomainId::StrMaint);
+    if (so.form != StrObj::Form::Cons)
+        return so.str;   //another carrier flattened it while we waited
     std::string flat;
     FlattenInto(flat, handle);
     so.str = std::move(flat);
@@ -197,13 +243,24 @@ void VmExecutor::MarkString(int32_t handle) {
 //(mark completed for both stores first). Immortal objects (constants)
 //never die; dead slots get the form sentinel and join the free list.
 void VmExecutor::SweepStrings() {
-    m_strFreeList.clear();
+    //K8: sweep runs quiescent at the GC rendezvous — the one writer
+    //allowed to touch every shard. ClearAll, then redistribute ALL free
+    //indices (newly dead AND residual frees) by the block mapping. The
+    //old clear-and-skip loop silently dropped residual frees at every
+    //collection (monotone growth leak).
+    m_strShards.ClearAll();
+    auto strSweepPush = [this](int32_t idx) {
+        m_strShards.Push(m_strShards.SweepShardOf(idx), idx);
+    };
     size_t liveCount = 0;
     for (size_t i = 1; i < m_stringObjs.size(); ++i) {
         StrObj& so = m_stringObjs[i];
-        if (static_cast<uint8_t>(so.form) == kStrFormDead) continue;
+        if (static_cast<uint8_t>(so.form) == kStrFormDead) {
+            strSweepPush(static_cast<int32_t>(i));   //residual free stays free
+            continue;
+        }
         if (so.immortal || m_strMarkBits[i]) {
-            ++liveCount;   //survivor — counted for the D2.2 backoff below
+            ++liveCount;   //immortals are store residents (conservative)
             continue;
         }
         //Weak-intern purification: drop the dying object's table entry so
@@ -213,31 +270,29 @@ void VmExecutor::SweepStrings() {
             m_shortStrTable.erase(so.str);
         so = StrObj{};   //release the buffer
         so.form = static_cast<StrObj::Form>(kStrFormDead);
-        m_strFreeList.push_back(static_cast<int32_t>(i));
+        strSweepPush(static_cast<int32_t>(i));
     }
     //Pin the no-stale-bits invariant at both ends: MarkPhase's head assign
-    //already guarantees a clean vector, and AllocStringObj's freelist
-    //branch never sets mark bits — clearing here makes the invariant hold
+    //already guarantees a clean vector, and slot handout (TakeStringSlot)
+    //never sets mark bits — clearing here makes the invariant hold
     //after every collection, not only before every mark.
     m_strMarkBits.assign(m_stringObjs.size(), false);
 
-    //D2.2: the store vector never shrinks (dead slots recycle in place),
-    //so the size trigger is level-triggered — past the first crossing
-    //every safepoint collects, and marking a growing live cons chain per
-    //GC costs O(chain) each time (measured O(n^2) total: 5e4 chain =
-    //6.6s, 1e5 = 26.7s). Back the threshold off to 2x the surviving
-    //population so triggers advance geometrically with live data —
-    //amortized O(1) appends, memory bounded at 2x live. The clamp from
-    //SetGcStressThresholds is a backoff START, not a cap: max() only
-    //raises it, and bounded-population assertions still hold because
-    //boundedness comes from the sweep itself, not the trigger rate.
-    m_strGcThreshold = std::max(m_strGcThreshold, 2 * liveCount);
+    //K6 D3: symmetric with SweepPhase's heap backoff — floor the trigger
+    //at the high-water size (the bare 2*live form stuck below it in
+    //small-live churn) and at twice the live population (the bare size
+    //form collects on every growth allocation once the free list
+    //empties — quadratic for monotonically growing chains). The backoff
+    //runs unconditionally — stress clamps only the initial thresholds
+    //(pre-K6 stress semantics; the deep-chain e2e pins the timing).
+    m_strGcThreshold = std::max(m_strGcThreshold,
+        std::max(m_stringObjs.size(), 2 * liveCount));
 }
 
 size_t VmExecutor::LiveStringObjectCount() const {
     size_t liveCount = 0;
-    for (const StrObj& so : m_stringObjs)
-        if (static_cast<uint8_t>(so.form) != kStrFormDead) ++liveCount;
+    for (size_t i = 0; i < m_stringObjs.size(); ++i)
+        if (static_cast<uint8_t>(m_stringObjs[i].form) != kStrFormDead) ++liveCount;
     return liveCount;
 }
 

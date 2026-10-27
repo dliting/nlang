@@ -6,6 +6,7 @@
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
+#include "BuiltinPrelude.h"
 #include "SyntaxTree.h"
 #include "TranslationUnit.h"
 #include "builder/ModuleRegistry.h"
@@ -135,7 +136,7 @@ std::pair<std::string, std::string> ModuleBuilder::FindLibrarySourceFile(
 //name is the path relative to THAT root (Step 4's RegisterUnits reads it
 //back through m_librarySourceRoots).
 bool ModuleBuilder::ParseLibraryUnit(const std::string &path,
-	const std::string &packageRoot)
+	const std::string &packageRoot, const char *pSourceText)
 {
 	std::error_code fsError;
 	const std::string absPath =
@@ -147,8 +148,11 @@ bool ModuleBuilder::ParseLibraryUnit(const std::string &path,
 
 	//Signature index (idempotent): declarations are indexed under the
 	//matched-root package, so the package resolves as a library package
-	//in gates.
-	m_upEnv->LoadLibrarySource(path, packageRoot);
+	//in gates. Disk sources only — the embedded prelude copy has no file
+	//to index, and its gate classification rides the registry entry
+	//(IsCompiledInModule) instead.
+	if (pSourceText == nullptr)
+		m_upEnv->LoadLibrarySource(path, packageRoot);
 
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 		m_upEnv->Log(CLL_Info, "Parsing library %s ...", path.c_str());
@@ -156,8 +160,47 @@ bool ModuleBuilder::ParseLibraryUnit(const std::string &path,
 	TranslationUnit *pUnit = new TranslationUnit(path);
 	m_upTransUnits->push_back(pUnit);
 	ScriptParser parser(*m_upEnv);
-	parser.ParseUnit(*pUnit, m_upEnv->ContainFlags(MBF_ParserDebug));
+	parser.ParseUnit(*pUnit, m_upEnv->ContainFlags(MBF_ParserDebug),
+		pSourceText);
 	return true;
+}
+
+//HandleLibraryImport's match tail, shared with the prelude resolution.
+bool ModuleBuilder::ImportLibraryMatch(
+	const std::pair<std::string, std::string> &match)
+{
+	//A match that IS a project source is already compiled in; inlining it
+	//again would register the same package twice.
+	std::error_code fsError;
+	const std::string absPath =
+		std::filesystem::absolute(std::filesystem::path(
+			match.first), fsError).lexically_normal().string();
+	if (m_projectSourceFiles.count(absPath) > 0)
+		return false;
+	return ParseLibraryUnit(match.first, match.second);
+}
+
+//The implicit prelude import (JLS §7.5.3 analogue). Resolution order:
+//the first disk match across the effective library dirs is the
+//canonical source (editing the stdlib copy takes effect on rebuild);
+//with no disk match the embedded copy parses as a pseudo-path unit
+//(module path "builtins" via the stem fallback). Two roots offering
+//the package is the existing duplicate-package diagnosis fired from
+//here — neither disk copy may hijack the reserved name.
+bool ModuleBuilder::EnsurePreludeImported()
+{
+	const auto matches = FindLibrarySourceMatches(kPreludePackageName);
+	if (matches.size() > 1)
+	{
+		m_upEnv->Log(CLL_Error, "Duplicate package '%s': '%s' and '%s'.",
+			kPreludePackageName, matches.front().first.c_str(),
+			matches.back().first.c_str());
+		return false;
+	}
+	if (!matches.empty())
+		return ImportLibraryMatch(matches.front());
+	return ParseLibraryUnit(kPreludePackageName, std::string(),
+		kBuiltinPreludeSource);
 }
 
 //One import's library-source handling (DiscoverLibraryUnits' inner loop
@@ -169,6 +212,12 @@ bool ModuleBuilder::ParseLibraryUnit(const std::string &path,
 //was added (drives the fixed-point iteration).
 bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 {
+	//The reserved prelude package never resolves through the disk scan
+	//alone: its registration belongs to the implicit import (embedded
+	//fallback included). An explicit `import builtins;` — whichever TU
+	//order processed it — dedups against that registration here.
+	if (dottedName == kPreludePackageName)
+		return EnsurePreludeImported();
 	const auto matches = FindLibrarySourceMatches(dottedName);
 	if (matches.size() > 1)
 	{
@@ -180,15 +229,7 @@ bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 	}
 	if (matches.empty())
 		return false;
-	//A match that IS a project source is already compiled in; inlining it
-	//again would register the same package twice.
-	std::error_code fsError;
-	const std::string absPath =
-		std::filesystem::absolute(std::filesystem::path(
-			matches.front().first), fsError).lexically_normal().string();
-	if (m_projectSourceFiles.count(absPath) > 0)
-		return false;
-	return ParseLibraryUnit(matches.front().first, matches.front().second);
+	return ImportLibraryMatch(matches.front());
 }
 
 //Discover every import-reachable library <pkg>.n source. Iterate the
@@ -299,7 +340,7 @@ bool ModuleBuilder::LoadExternalModule(const std::string &name)
 		return false;
 	}
 
-	CompiledModuleNodeBuilder builder(TheAST(), name);
+	CompiledModuleNodeBuilder builder(TheAST(), name, &m_upEnv->Registry());
 	try
 	{
 		builder.BuildFromCompiledModule(cm);

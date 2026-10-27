@@ -413,10 +413,12 @@ void test_selected_never_waking_context_keeps_deadlock_report()
     PASS();
 }
 
-//K4 time-freeze semantics (regression pin, passes by design): the freeze
-//holds the GIL, so the timer thread cannot migrate expiries while
-//stopped — a sleeper whose deadline passes during a freeze still wakes
-//after resume (no lost wake).
+//K4 time-freeze semantics (regression pin, passes by design; K7 rewrote
+//the mechanism, the observable stands): the freeze parks the carrier
+//without the global lock, so the timer thread MAY migrate expiries into
+//the run queue while stopped — but the freeze gate blocks dispatch until
+//resume, so a sleeper whose deadline passes during a freeze still wakes
+//only after resume (no lost wake).
 void test_timer_freeze_semantics()
 {
     TEST(timer_freeze_semantics);

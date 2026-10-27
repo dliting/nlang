@@ -1,0 +1,14 @@
+//A base-typed reference must dispatch virtually: the override of the
+//declared Object.toString wins even though the static type is Object
+//(parity pin — the no-AST-callee path dispatched the same way before
+//the builtin-decls migration made the chain real).
+class P {
+    string toString() { return "P!"; }
+}
+int main() {
+    P p = P();
+    Object o = p;
+    string s = o.toString();
+    if (s == "P!") return 7;
+    return 1;
+}

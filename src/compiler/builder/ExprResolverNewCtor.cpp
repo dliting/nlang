@@ -65,12 +65,12 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	}
 	if (pClassDecl->IsBuiltinClass())
 	{
-		//FileStream(this, path, mode) → 2; Exception family
-		//(this, message) → 1; Object/ByteStream → 0.
+		//FileStream(this, path, mode) → 2; Object/ByteStream/Thread → 0.
+		//Mutex/Semaphore and the Exception family left the synthesized
+		//set — declared classes overload-match their ctors like any
+		//user class.
 		const auto& clsName = pClassDecl->Name();
 		if (clsName == "FileStream") requiredArity = totalArity = 2;
-		else if (IsBuiltinExceptionClassName(clsName))
-			requiredArity = totalArity = 1;
 		return true;
 	}
 	return false;
