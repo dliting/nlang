@@ -26,7 +26,7 @@ The binary operators `+ - * / % << >> < <= > >= == != && ||` and
 the unary operators `- + !` are fixed by §2.7. This section fixes
 their operand types and results.
 
-`bool` and `char` do not enter arithmetic or ordering (§4.2). An
+`bool` and `char` do not enter arithmetic (§4.2). An
 enumeration participates in arithmetic as `int` (§4.5). For a
 binary numeric operator the two operands take a *common type*:
 
@@ -57,9 +57,10 @@ zero, for every numeric type including the floating-point types
 error is raised at the operator as a catchable exception
 (chapter 9).
 
-`<<` and `>>` shift an integer left operand: `int` or `long`, or
-a narrower integer promoted to `int`; the result has the promoted
-left operand's type. The count operand must be assignable to that
+`<<` and `>>` shift an integer left operand of any integer type
+(§4.2); a `byte`, `ubyte`, `short` or `ushort` left operand is
+promoted to `int`, and the result has the promoted left
+operand's type. The count operand must be assignable to that
 type (§4.12). A count outside `0` to one less than the width of
 the left operand is a run-time error raised as a catchable
 exception (chapter 9); the check is a run-time check, so a
@@ -137,12 +138,15 @@ conversion is one of the following:
   enumeration;
 - an explicit numeric conversion: a narrowing or sign-changing
   integer conversion, `float` or `double` to an integer, or
-  `char` to or from an integer.
+  `char` to or from an integer;
+- a function value to `string`; the conversion applies with or
+  without the operator, and §5.3 fixes the rendering.
 
 An implicit conversion that is not one of these — widening
 integers, an integer to a floating-point type, `float` to
-`double`, or any type to `string` — is a compile-time error with
-`as`: it applies without the operator (§4.12). A pair with no
+`double`, or any type but a function value to `string` — is a
+compile-time error with `as`: it applies without the operator
+(§4.12). A pair with no
 conversion path is a compile-time error; `bool` has no `as` path
 to or from any type but `Object` (§4.2): its conversion to
 `string` is implicit and takes no operator.
@@ -163,9 +167,10 @@ At run time:
 - an unboxing of `Object` to a scalar primitive or `string`
   reads the boxed value out when the box holds a value of the
   target type; otherwise it fails at the host level (chapter 9);
-  an unboxing to an enumeration reads the integer value and
-  requires it to lie within the member table of §4.5, failing at
-  the host level otherwise (chapter 9);
+  an unboxing to an enumeration reads the boxed `int` value
+  when the box holds one, failing at the host level otherwise
+  (chapter 9); the value is not checked against the member table
+  of §4.5;
 - a downcast or an unboxing of a `null` reference fails at the
   host level (chapter 9), while an upcast of a `null` reference
   yields `null`;

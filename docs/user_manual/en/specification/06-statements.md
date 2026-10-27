@@ -83,12 +83,12 @@ equality of §5.2 runs; the labels of later clauses are not
 evaluated. For a floating-point discriminant, `NaN` matches no
 label and `−0.0` matches a label of `0.0` (§5.2). A case label's
 type must belong to the same family as the discriminant's type;
-the families are the integer types with enumerations, the
-floating-point types, `char` and `string`. There is no conversion
+the families are the integer types with enumerations and `char`,
+the floating-point types, and `string`. There is no conversion
 between families: an integer label on a floating-point
 discriminant is a compile-time error. A `null` label is a
-compile-time error. A constant label
-outside the value range of the discriminant type is a
+compile-time error. A constant label outside the value range of
+the discriminant type is a
 compile-time error. Two clauses with the same constant label are a
 compile-time error; non-constant labels may repeat, and the first
 match wins.
