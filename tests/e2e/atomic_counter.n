@@ -1,0 +1,32 @@
+//Four tasks increment one AtomicInt 2500 times each across four
+//carriers — the counter must land exactly at 10000 (no lost updates).
+import thread;
+import io;
+
+class Bumper {
+    public AtomicInt counter;
+
+    public void bump() {
+        int i = 0;
+        while (i < 2500) {
+            counter.addAndGet(1);
+            if (i % 500 == 0) thread.yield();
+            i = i + 1;
+        }
+    }
+}
+
+int main() {
+    Bumper b = Bumper();
+    b.counter = AtomicInt(0);
+    Thread a = thread.spawn(b.bump);
+    Thread c = thread.spawn(b.bump);
+    Thread d = thread.spawn(b.bump);
+    Thread e = thread.spawn(b.bump);
+    thread.join(a);
+    thread.join(c);
+    thread.join(d);
+    thread.join(e);
+    io.print("total=" + b.counter.load());
+    return 0;
+}

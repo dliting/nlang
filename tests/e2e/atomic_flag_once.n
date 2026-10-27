@@ -1,0 +1,29 @@
+//CAS-as-one-shot flag: four tasks race to flip 0 → 1; exactly one
+//wins, and the winner count lands at 1.
+import thread;
+import io;
+
+class Claimer {
+    public AtomicInt flag;
+    public AtomicInt winners;
+
+    public void claim() {
+        if (flag.compareExchange(0, 1)) winners.addAndGet(1);
+    }
+}
+
+int main() {
+    Claimer c = Claimer();
+    c.flag = AtomicInt(0);
+    c.winners = AtomicInt(0);
+    Thread a = thread.spawn(c.claim);
+    Thread b = thread.spawn(c.claim);
+    Thread d = thread.spawn(c.claim);
+    Thread e = thread.spawn(c.claim);
+    thread.join(a);
+    thread.join(b);
+    thread.join(d);
+    thread.join(e);
+    io.print("winner=" + c.winners.load());
+    return 0;
+}

@@ -573,6 +573,231 @@ void test_semaphore_park_gc_window()
     PASS();
 }
 
+// --- 0.10.22: AtomicInt — lock-free single-value primitives ---
+
+//Default construction lands at 0 (the default-parameter staging path),
+//the explicit-initial constructor takes, and store/load round-trip.
+void test_atomic_ctor_load_store()
+{
+    TEST(atomic_ctor_load_store);
+    std::string out;
+    const int rc = runSourceCapturing("atomic_basic",
+        "import io;\n"
+        "int main() {\n"
+        "    AtomicInt a = AtomicInt();\n"
+        "    if (a.load() != 0) return 1;\n"
+        "    AtomicInt b = AtomicInt(5);\n"
+        "    if (b.load() != 5) return 2;\n"
+        "    b.store(9);\n"
+        "    io.write(b.load());\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "ctor/load/store program completes");
+    CHECK(out == "9", "store then load round-trips (got: " + out + ")");
+    PASS();
+}
+
+//getAndSet exchanges and returns the PREVIOUS value (Java getAndSet).
+void test_atomic_get_and_set_returns_old()
+{
+    TEST(atomic_get_and_set_returns_old);
+    std::string out;
+    const int rc = runSourceCapturing("atomic_getandset",
+        "int main() {\n"
+        "    AtomicInt a = AtomicInt(7);\n"
+        "    if (a.getAndSet(9) != 7) return 1;\n"
+        "    if (a.load() != 9) return 2;\n"
+        "    return 7;\n"
+        "}\n",
+        out);
+    CHECK(rc == 7, "getAndSet returned the old value (got rc " +
+        std::to_string(rc) + ")");
+    PASS();
+}
+
+//CAS gate both ways: a matching expect swaps and returns true; a
+//missing expect leaves the value untouched and returns false.
+void test_atomic_compare_exchange_gate()
+{
+    TEST(atomic_compare_exchange_gate);
+    std::string out;
+    const int rc = runSourceCapturing("atomic_cas",
+        "int main() {\n"
+        "    AtomicInt a = AtomicInt(5);\n"
+        "    if (!a.compareExchange(5, 9)) return 1;\n"
+        "    if (a.load() != 9) return 2;\n"
+        "    if (a.compareExchange(5, 1)) return 3;\n"
+        "    if (a.load() != 9) return 4;\n"
+        "    return 7;\n"
+        "}\n",
+        out);
+    CHECK(rc == 7, "compareExchange gated both directions (got rc " +
+        std::to_string(rc) + ")");
+    PASS();
+}
+
+//The Java naming convention: getAndX returns the PREVIOUS value,
+//xAndGet returns the NEW one — pinned across the whole add family.
+void test_atomic_add_family()
+{
+    TEST(atomic_add_family);
+    std::string out;
+    const int rc = runSourceCapturing("atomic_addfam",
+        "int main() {\n"
+        "    AtomicInt a = AtomicInt(10);\n"
+        "    if (a.getAndAdd(3) != 10) return 1;\n"
+        "    if (a.load() != 13) return 2;\n"
+        "    if (a.addAndGet(3) != 16) return 3;\n"
+        "    if (a.getAndIncrement() != 16) return 4;\n"
+        "    if (a.load() != 17) return 5;\n"
+        "    if (a.incrementAndGet() != 18) return 6;\n"
+        "    return 7;\n"
+        "}\n",
+        out);
+    CHECK(rc == 7, "add family old/new conventions pinned (got rc " +
+        std::to_string(rc) + ")");
+    PASS();
+}
+
+//Core race test: four tasks each addAndGet(1) 2500 times across four
+//carriers, with yields forcing genuine interleaving — the count must
+//land exactly at 10000 (a torn read-update-write would lose updates).
+void test_atomic_counter_race()
+{
+    TEST(atomic_counter_race);
+    std::string out;
+    const int rc = runSourceCapturingCarriers("atomic_race",
+        "import thread;\n"
+        "import io;\n"
+        "class Bumper {\n"
+        "    public AtomicInt counter;\n"
+        "    public void bump() {\n"
+        "        int i = 0;\n"
+        "        while (i < 2500) {\n"
+        "            counter.addAndGet(1);\n"
+        "            if (i % 500 == 0) thread.yield();\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Bumper b = Bumper();\n"
+        "    b.counter = AtomicInt(0);\n"
+        "    Thread a = thread.spawn(b.bump);\n"
+        "    Thread c = thread.spawn(b.bump);\n"
+        "    Thread d = thread.spawn(b.bump);\n"
+        "    Thread e = thread.spawn(b.bump);\n"
+        "    thread.join(a);\n"
+        "    thread.join(c);\n"
+        "    thread.join(d);\n"
+        "    thread.join(e);\n"
+        "    io.write(b.counter.load());\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0, "race program completes");
+    CHECK(out == "10000",
+        "four-way concurrent increments all land (got: " + out + ")");
+    PASS();
+}
+
+//CAS-as-flag: four tasks race to flip 0 → 1; exactly ONE wins, the
+//losers' retries all fail, and the winner count is pinned.
+void test_atomic_flag_pattern()
+{
+    TEST(atomic_flag_pattern);
+    std::string out;
+    const int rc = runSourceCapturingCarriers("atomic_flag",
+        "import thread;\n"
+        "import io;\n"
+        "class Claimer {\n"
+        "    public AtomicInt flag;\n"
+        "    public AtomicInt winners;\n"
+        "    public void claim() {\n"
+        "        if (flag.compareExchange(0, 1)) winners.addAndGet(1);\n"
+        "        if (flag.compareExchange(0, 1)) winners.addAndGet(100);\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Claimer c = Claimer();\n"
+        "    c.flag = AtomicInt(0);\n"
+        "    c.winners = AtomicInt(0);\n"
+        "    Thread a = thread.spawn(c.claim);\n"
+        "    Thread b = thread.spawn(c.claim);\n"
+        "    Thread d = thread.spawn(c.claim);\n"
+        "    Thread e = thread.spawn(c.claim);\n"
+        "    thread.join(a);\n"
+        "    thread.join(b);\n"
+        "    thread.join(d);\n"
+        "    thread.join(e);\n"
+        "    io.write(c.winners.load());\n"
+        "    return 0;\n"
+        "}\n",
+        4, out);
+    CHECK(rc == 0, "flag program completes");
+    CHECK(out == "1",
+        "exactly one CAS claim wins across four racers (got: " + out
+        + ")");
+    PASS();
+}
+
+//No park path: load/store inside an implicit-formatting toString (the
+//array form opens the window) run legally — the tryAcquire precedent.
+void test_atomic_nested_eval_legal()
+{
+    TEST(atomic_nested_eval_legal);
+    std::string out;
+    const int rc = runSourceCapturing("atomic_tostring",
+        "import io;\n"
+        "class Box {\n"
+        "    public AtomicInt a;\n"
+        "    public string toString() {\n"
+        "        a.store(7);\n"
+        "        if (a.load() != 7) return \"bad\";\n"
+        "        return \"ok\";\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box b = Box();\n"
+        "    b.a = AtomicInt(0);\n"
+        "    Box[] arr = [b];\n"
+        "    io.write(arr);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "nested-eval program completes");
+    CHECK(out == "ok",
+        "load/store are legal inside the window (got: " + out + ")");
+    PASS();
+}
+
+//A bare allocation (never constructed) has no side-table slot — the
+//uninitialized-instance rejection, same shape as the Mutex family.
+void test_atomic_uninit_rejected()
+{
+    TEST(atomic_uninit_rejected);
+    bool threw = false;
+    std::string what;
+    try {
+        std::string out;
+        runSourceCapturing("atomic_uninit",
+            "int main() {\n"
+            "    AtomicInt m;\n"
+            "    m.load();\n"
+            "    return 0;\n"
+            "}\n",
+            out);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "a call on a never-constructed instance must be an error");
+    CHECK(what.find("uninitialized instance") != std::string::npos,
+        "message names the rule (got: " + what + ")");
+    PASS();
+}
+
 //Catch per-test exceptions (build failures, deadlock-guard throws) as
 //FAIL lines instead of killing the whole binary (test_threads.cpp
 //runGuarded shape).
@@ -607,6 +832,14 @@ int main()
     runGuarded(test_semaphore_acquire_in_tostring_rejects);
     runGuarded(test_semaphore_permits_conserved_multicarrier);
     runGuarded(test_semaphore_park_gc_window);
+    runGuarded(test_atomic_ctor_load_store);
+    runGuarded(test_atomic_get_and_set_returns_old);
+    runGuarded(test_atomic_compare_exchange_gate);
+    runGuarded(test_atomic_add_family);
+    runGuarded(test_atomic_counter_race);
+    runGuarded(test_atomic_flag_pattern);
+    runGuarded(test_atomic_nested_eval_legal);
+    runGuarded(test_atomic_uninit_rejected);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";

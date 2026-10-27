@@ -1,0 +1,47 @@
+//AtomicInt beside the locking primitives: Mutex guards a two-field
+//invariant, AtomicInt carries the hot counter, ReentrantMutex carries
+//the composed method — the three coexist in one program.
+import thread;
+import io;
+
+class Station {
+    public Mutex pairGuard;
+    public int x;
+    public int y;
+    public AtomicInt ops;
+    public ReentrantMutex gate;
+
+    public void pairUpdate() {
+        pairGuard.lock();
+        x = x + 1;
+        y = y + 2;
+        pairGuard.unlock();
+        ops.addAndGet(1);
+    }
+
+    public void composed() {
+        gate.lock();
+        this.helper();
+        gate.unlock();
+    }
+
+    public void helper() {
+        gate.lock();
+        ops.addAndGet(100);
+        gate.unlock();
+    }
+}
+
+int main() {
+    Station s = Station();
+    s.pairGuard = Mutex();
+    s.ops = AtomicInt(0);
+    s.gate = ReentrantMutex();
+    Thread a = thread.spawn(s.pairUpdate);
+    Thread b = thread.spawn(s.composed);
+    thread.join(a);
+    thread.join(b);
+    io.print(s.ops.load() + s.x + s.y);
+    io.print("done");
+    return 0;
+}
