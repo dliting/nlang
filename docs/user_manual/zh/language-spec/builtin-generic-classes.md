@@ -18,7 +18,11 @@ List<string> names = {};
 names.add("alice");
 names.add("bob");
 int total = (names.get(0) + names.get(1)).length();    // 8
+
+List<int> seed = List();    // 与{}等价：零参构造器
 ```
+
+构造也接受裸名形式——`List<int> l = List();`调用声明的零参构造器，与用户`class C<T>`同一契约；`Channel<T>`另声明容量构造器（`Channel<int> b = Channel(2);`，见[通道](concurrency-channel.md)）。
 
 **方法**（T为元素类型）：
 

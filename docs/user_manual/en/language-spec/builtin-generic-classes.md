@@ -22,7 +22,15 @@ List<string> names = {};
 names.add("alice");
 names.add("bob");
 int total = (names.get(0) + names.get(1)).length();    // 8
+
+List<int> seed = List();    // same as {}: the zero-argument constructor
 ```
+
+Construction also accepts the bare-name form — `List<int> l = List();`
+calls the declared zero-argument constructor, the same contract as a
+user `class C<T>`; `Channel<T>` additionally declares the capacity
+constructor (`Channel<int> b = Channel(2);`, see
+[Channels](concurrency-channel.md)).
 
 **Methods** (T is the element type):
 
