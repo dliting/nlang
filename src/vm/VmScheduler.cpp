@@ -129,11 +129,21 @@ bool VmScheduler::WaitForHeldFocus(std::unique_lock<std::mutex>& gil) {
 int VmScheduler::PopAffinity() {
     const uint8_t self =
         static_cast<uint8_t>(t_carrier->carrierId);
+    //P2-4: an entry pinned to a foreign pump token is invisible to this
+    //dispatcher — its owner serves it through its own loop, never by
+    //queue race.
+    auto pinnedAway = [this](int id) {
+        const ExecutionContext* ctx = Find(id);
+        return ctx && ctx->pinnedToken != 0
+            && ctx->pinnedToken != carrierSlot().pumpToken;
+    };
     const size_t window = m_runQueue.size() < AFFINITY_SCAN_WINDOW
         ? m_runQueue.size() : AFFINITY_SCAN_WINDOW;
     auto it = m_runQueue.begin();
     for (size_t i = 0; i < window; ++i, ++it) {
         const ExecutionContext* ctx = Find(*it);
+        if (pinnedAway(*it))
+            continue;
         if (ctx->lastCarrier == 255 || ctx->lastCarrier == self) {
             const int id = *it;
             m_runQueue.erase(it);
@@ -144,10 +154,19 @@ int VmScheduler::PopAffinity() {
             return id;
         }
     }
-    ++m_affinityMisses;
-    const int id = m_runQueue.front();
-    m_runQueue.pop_front();
-    return id;
+    //Affinity window missed: fall back to the first dispatchable entry
+    //anywhere in the queue (pinned entries skipped). All-foreign-pinned
+    //means nothing popable by this dispatcher — -1, the caller's
+    //empty-queue arm handles the wait/deadlock decision.
+    for (it = m_runQueue.begin(); it != m_runQueue.end(); ++it) {
+        if (pinnedAway(*it))
+            continue;
+        const int id = *it;
+        m_runQueue.erase(it);
+        ++m_affinityMisses;
+        return id;
+    }
+    return -1;
 }
 
 //K7 契约翻转：内部自守卫（守卫持有的 unique_lock 供 cv 谓词等待——
@@ -187,22 +206,65 @@ int VmScheduler::PopNextRunnable() {
         }
         if (!m_runQueue.empty()) {
             const int id = PopAffinity();
-            DispatchedToCarrier(id);
-            return id;
+            if (id < 0) {
+                //Queue holds only foreign-pinned entries: not work for
+                //this dispatcher — fall through to the wait arm (the
+                //owners serve their own).
+            } else {
+                DispatchedToCarrier(id);
+                return id;
+            }
         }
-        if (m_stopRequested)
+        if (!WaitForWorkOrStop(gil))
             return -1;
-        if (m_timers.empty() && m_blockedNativeCount == 0
-                && m_idleCarrierCount + 1 >= m_activeCarrierCount.load()) {
-            throw std::runtime_error(
-                "NLang VM: deadlock — no runnable contexts remain");
-        }
-        ++m_idleCarrierCount;
-        m_runQueueCv.wait(gil, [this] {
-            return m_stopRequested || !m_runQueue.empty();
-        });
-        --m_idleCarrierCount;
     }
+}
+
+//P2-4: the empty-queue arm of PopNextRunnable, shared by every gate
+//fall-through (queue drained, all entries foreign-pinned, held focus).
+//Returns true when popable work may exist (the loop re-runs the gates),
+//false when the run is stopping (the caller returns -1). A pumping
+//thread — any OTHER pump than this thread's own — may still produce
+//dispatchable work, so it suppresses the deadlock report for everyone
+//else; the caller's own pump never does (its true deadlock must still
+//fire). Only carriers count in the idle accounting — a host-thread
+//pump waiting here is a waiter without being a carrier, so it neither
+//inflates m_idleCarrierCount nor adds the +1.
+bool VmScheduler::WaitForWorkOrStop(std::unique_lock<std::mutex>& gil) {
+    if (m_stopRequested)
+        return false;
+    const int64_t myToken = carrierSlot().pumpToken;
+    const int otherPumps = m_activePumpCount.load()
+        - (myToken != 0 ? 1 : 0);
+    const bool amCarrier = t_carrier != nullptr
+        && t_carrier->carrierId >= 0;
+    const int waitingMe = amCarrier ? 1 : 0;
+    if (otherPumps == 0 && m_timers.empty()
+            && m_blockedNativeCount == 0
+            && m_idleCarrierCount + waitingMe
+                >= m_activeCarrierCount.load()) {
+        throw std::runtime_error(
+            "NLang VM: deadlock — no runnable contexts remain");
+    }
+    if (amCarrier)
+        ++m_idleCarrierCount;
+    m_runQueueCv.wait(gil, [this] {
+        return m_stopRequested || HasPopableEntry();
+    });
+    if (amCarrier)
+        --m_idleCarrierCount;
+    return true;
+}
+
+//P2-4: see the header. Caller holds the GIL (wait predicate context).
+bool VmScheduler::HasPopableEntry() {
+    for (int id : m_runQueue) {
+        const ExecutionContext* ctx = Find(id);
+        if (ctx && (ctx->pinnedToken == 0
+                    || ctx->pinnedToken == carrierSlot().pumpToken))
+            return true;
+    }
+    return false;
 }
 
 //K7 site 1: 停泊过渡（见头文件声明注释）。分派期间 ctx->frames 恒空
@@ -231,6 +293,58 @@ void VmScheduler::ParkContextFrames(int id,
     //在帧已落位的本临界区内入队；停泊中则置握手标记，交由唤醒路径
     //入队。唤醒路径永不入队未完成停泊者，出队者恒见帧已就位。
     if (ctx->state == ContextState::Runnable) {
+        m_runQueue.push_back(id);
+        m_runQueueCv.notify_all();
+    } else {
+        ctx->framesParked = true;
+    }
+    ReleaseHeldIfCurrent(id);
+}
+
+//P2-4 nested-pump primitives (see the header).
+int64_t VmScheduler::AcquirePumpToken() {
+    //Static-local atomic: one mint sequence per process, 0 reserved for
+    //"unbound" so ExecutionContext::pinnedToken needs no initialization
+    //pass.
+    static std::atomic<int64_t> nextToken{0x1000};
+    const int64_t token = nextToken.fetch_add(1);
+    carrierSlot().pumpToken = token;
+    m_activePumpCount.fetch_add(1);
+    return token;
+}
+
+void VmScheduler::ReleasePumpToken() {
+    carrierSlot().pumpToken = 0;
+    //A pump leaving may have been the only prospective dispatcher for
+    //waiters that suppressed their deadlock report on its account.
+    m_activePumpCount.fetch_sub(1);
+    m_runQueueCv.notify_all();
+}
+
+void VmScheduler::PinContext(int id, int64_t token) {
+    GilEnsureGuard g(*this);
+    if (ExecutionContext* ctx = FindMutable(id))
+        ctx->pinnedToken = token;
+}
+
+//Slice variant of ParkContextFrames (see the header): frames
+//[keepBelow..end) land in ctx->frames; [0..keepBelow) stay published on
+//the caller's stack — the pinned outer frames the pump's C++ callers
+//still walk. Landing + handshake + queue decision stay one critical
+//section, exactly like the whole-stack variant above.
+void VmScheduler::ParkContextFramesSlice(int id,
+    std::vector<CallFrame>& stack, size_t keepBelow,
+    bool enqueueIfRunnable) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->frames.insert(ctx->frames.end(),
+        std::make_move_iterator(stack.begin()
+                                    + static_cast<long>(keepBelow)),
+        std::make_move_iterator(stack.end()));
+    stack.resize(keepBelow);
+    if (enqueueIfRunnable && ctx->state == ContextState::Runnable) {
         m_runQueue.push_back(id);
         m_runQueueCv.notify_all();
     } else {

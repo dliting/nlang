@@ -133,10 +133,12 @@ void VmExecutor::OpDebugInfo(BytecodeReader& reader, uint16_t opPc) {
 
 //K1 decision 5 — back-edge quota. Called only from the back-edge
 //safepoint beside CheckGCSafepoint (OpJump). Nested evaluation windows
-//are exempt: a park there is impossible (RequestPark would reject), so
-//counting their back-edges would only misattribute budget — and in a
-//multi-context run, exhaust the quota mid-instruction where preemption
-//cannot be honored. K2 slice 2: the budget is per carrier (scheduler
+//are exempt: their frames are a bounded re-entrant slice (formatting,
+//host bridge), and a window is one VM operation seen from its outer
+//context — wait points suspend the whole window (P2-4), but quota
+//preemption mid-window buys nothing, so counting their back-edges
+//would only misattribute budget — and in a multi-context run, exhaust
+//the quota mid-instruction where preemption is not honored. K2 slice 2: the budget is per carrier (scheduler
 //slot). K2 slice 3 (spec D6): yield on queued work ONLY. Every wake
 //path (timer expiry, join/mutex/channel, future blocking-native
 //completion) enqueues the woken context before notifying, so a
@@ -172,19 +174,22 @@ void VmExecutor::CheckSchedulerQuota() {
     RequestPark(ParkSignal::Reason::Preempted);
 }
 
-//O2-audit chokepoint — see VmExecutor.h. The quota path never reaches
-//here nested (CheckSchedulerQuota exempts it); the guard serves the
-//thread intrinsics from Slice 6 on (yield/sleep/join/recv called inside
-//a toString body or a host callback must fail loudly, not park).
+//O2-audit chokepoint — see VmExecutor.h. P2-4: nested windows carry a
+//pump (RunNestedWindow) — suspension parks, the pump drives the
+//scheduler, and the window resumes in place. The only surviving
+//rejection is the carrier-less embed window (thread.spawn's guard
+//documents the same shape): with no active carrier nothing can ever
+//serve the park, so failing fast with a precise message beats an
+//instant deadlock report.
 //K1 决策 2 实现规约 (a)：内在函数必须「完成或挂起」二态——禁止部分变
 //更调度器状态后再抛。会先变异状态的挂起（join/sleep 的 ParkFor* 登记）
 //必须在变异之前过本门；RequestPark 内保留同一检查作为零变异直挂路径
-//（yield）的唯一守卫与纵深防御。K2 slice 2: 嵌套深度读运行载体的槽。
+//（yield）的唯一守卫与纵深防御。
 void VmExecutor::EnsureSuspensionAllowed() const {
-    if (m_spScheduler->CarrierNestDepthRef() > 0)
+    if (m_spScheduler->ActiveCarrierCount() == 0)
         throw std::runtime_error(
-            "NLang VM: cannot suspend inside a nested evaluation "
-            "(toString or host callback)");
+            "NLang VM: cannot suspend inside a host call window with "
+            "no active carrier");
 }
 
 void VmExecutor::RequestPark(ParkSignal::Reason reason) {

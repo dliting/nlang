@@ -160,6 +160,11 @@ struct ExecutionContext {
     //搬帧的同一临界区内补做（帧先落位、队列项后出现——出队者恒见帧
     //已就位，消除「无帧弹出＝全新入口重跑」竞争）。恢复取回帧时清零。
     bool framesParked = false;
+    //P2-4 nested pump: 0 = dispatchable by anyone; nonzero = only the
+    //pump holding this token may dispatch (PopAffinity skips it for
+    //every other dispatcher — its owner serves it by id, never by
+    //queue race).
+    int64_t pinnedToken = 0;
     int32_t threadObjHeapIdx = 0;   //Slice 6：句柄对象（K1 Thread / K3
                                     //Future，GC 根 + join 入口）
     int32_t failExcHeapIdx = 0;     //Slice 6：失败重抛的异常对象
@@ -291,6 +296,16 @@ public:
     //唤醒，不构成死锁。焦点被持等待臂不做死锁检测：焦点 Runnable 即
     //存在工作，持有者的窗口必然结束并通知。
     int PopNextRunnable();
+    //P2-4: PopNextRunnable's empty-queue arm — stop check, deadlock
+    //report (foreign pumps suppress it; the caller's own never does),
+    //and the cv wait. True = work may exist (loop continues), false =
+    //stopping (caller returns -1).
+    bool WaitForWorkOrStop(std::unique_lock<std::mutex>& gil);
+    //P2-4: true when the queue holds at least one entry THIS thread may
+    //dispatch (unpinned, or pinned to this thread's pump token). The
+    //empty-queue cv wait uses it as its wake predicate — a foreign-
+    //pinned-only queue is not dispatchable work.
+    bool HasPopableEntry();
 
     //K7 site 1: 停泊过渡——把调用线程整条求值栈搬入上下文的停泊帧
     //（载体停泊臂）。形参为右值引用而非值传递：值参数的移动构造发生
@@ -306,6 +321,25 @@ public:
     //展开途中已被唤醒）则搬帧后入队；停泊中则置 framesParked 交由唤
     //醒路径入队（握手见 ExecutionContext::framesParked）。
     void ParkContextFrames(int id, std::vector<CallFrame>&& frames);
+
+    //P2-4 nested-pump primitives. AcquirePumpToken mints a fresh token
+    //for this thread's slot (0 is reserved = unbound); PinContext marks
+    //a parked context as dispatchable only through that token.
+    int64_t AcquirePumpToken();
+    void ReleasePumpToken();
+    void PinContext(int id, int64_t token);
+    //Slice variant of ParkContextFrames for the nested pump: frames
+    //[keepBelow..end) belong to the parked nested window and move into
+    //ctx->frames; [0..keepBelow) STAY on the caller's stack (the outer
+    //frames — and the live C++ stack above them — are pinned on this
+    //thread). Same critical-section contract: landing, handshake and
+    //queue decision are one indivisible state change. enqueueIfRunnable
+    //mirrors ParkContextFrames' Runnable arm (quota-preempt / woken
+    //mid-unwind); the pump slices its own window with it too — the
+    //re-enqueued context re-enters dispatch THROUGH the queue, so the
+    //queue entry is consumed exactly once.
+    void ParkContextFramesSlice(int id, std::vector<CallFrame>& stack,
+                                size_t keepBelow, bool enqueueIfRunnable);
 
     //队列中仍有待运行上下文（配额抢占的门槛：载体当前上下文已出队，
     //队列成员全部是「另外的」上下文）。自守卫读取——回边配额分支在
@@ -489,6 +523,12 @@ public:
         int currentContextId = -1;  //本载体正在执行的上下文
         int carrierId = -1;         //K4：本载体编号（主=0、辅助=1..N）
         int nestDepth = 0;          //本载体上的嵌套求值深度
+        //P2-4: token of the nested pump running on this thread
+        //(0 = none). PopAffinity skips contexts pinned to foreign tokens
+        //— the pin pairs with this per-thread token, so multiple host
+        //threads pumping simultaneously never serve each other's
+        //pinned contexts.
+        int64_t pumpToken = 0;
         //本载体当前窗口的回边预算。仅属主载体线程读写（分派时重装、
         //回边递减——K7 核证：他线程永不触及他人槽），故无须 GIL——
         //该前提被破坏时须先改为原子或加锁。
@@ -519,6 +559,7 @@ public:
         t_carrier->carrierId = carrierId;
         t_carrier->nestDepth = 0;
         t_carrier->schedTripBudget = 0;
+        t_carrier->pumpToken = 0;
         t_carrier->runGeneration =
             m_runGeneration.load(std::memory_order_relaxed);
         t_carrier->evalStack.clear();
@@ -757,6 +798,11 @@ private:
     //排除项——阻塞原生的完成是潜在唤醒源）。
     int m_blockedNativeCount = 0;
     std::atomic<int> m_activeCarrierCount{0};  //在飞载体（spawn 门）
+    //P2-4: nested pumps in flight (carrier OR host threads). The
+    //deadlock predicate subtracts the caller's own pump — a pumping
+    //thread suppresses OTHER dispatchers' deadlock reports (it may
+    //still serve work), never its own true deadlock.
+    std::atomic<int> m_activePumpCount{0};
     std::atomic<int> m_gilWaiters{0};          //GIL 竞争者（让渡规则）
     std::atomic<int> m_gilWaitersPeak{0};      //竞争峰值（白盒观测）
     std::atomic<uint64_t> m_gilWaitNanosTotal{0};  //等待累计纳秒（白盒）

@@ -338,14 +338,12 @@ std::string VmExecutor::CallToStringOverride(const CompiledFunction& callee,
         if (paramBytes > 0 && paramBytes <= callee.localsSize)
             std::memcpy(staged, paramFrame, paramBytes);
         CheckGCSafepoint();
-        //Nested evaluation window: suspension is impossible here (the
-        //window belongs to an in-flight outer instruction; a park could
-        //not resume instruction-granularly). NestEvalGuard arms the
-        //depth that RequestPark checks — the quota already skips
-        //nested windows; Slice 6+ intrinsics route through the guard.
-        //K2 slice 2: the depth lives on the running carrier's slot.
-        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
-        RunFrames(baseDepth);
+        //Nested evaluation window (P2-4): suspension parks through the
+        //pump — other contexts run on this thread, the window resumes
+        //in place, and the C++ frames between here and the outer opcode
+        //never unwind. The guard lives inside RunNestedWindow now (it
+        //covers only the fast-path frames).
+        RunNestedWindow(baseDepth);
     }
     int32_t strIdx;
     std::memcpy(&strIdx, resultBuf, sizeof(strIdx));

@@ -82,10 +82,10 @@ void VmExecutor::CallFunctionByIdx(uint16_t funcIndex,
     FillDefaults(callee, staged, argc);
     CheckGCSafepoint();
     try {
-        //Suspension is impossible in this host-initiated nested window
-        //(CallToStringOverride's guard, same reasoning).
-        NestEvalGuard nestedWindow(m_spScheduler->CarrierNestDepthRef());
-        RunFrames(baseDepth);
+        //P2-4: suspension parks through the nested pump — other
+        //contexts run on this thread while the bridge window waits;
+        //the window resumes in place (CallToStringOverride's twin).
+        RunNestedWindow(baseDepth);
     } catch (...) {
         //Under the body guard (D8's backtrace write site).
         m_lastBacktrace = FormatBacktrace();

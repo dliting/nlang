@@ -42,6 +42,11 @@ void VmExecutor::RunPrimaryCarrier(const CompiledFunction& mainFunc) {
     //get theirs at spawn time).
     m_spScheduler->FindMutable(VmScheduler::kMainThreadId)->resultKind
         = mainFunc.returnTypeKind;
+    //P2-4: nested pumps serve contexts through RunContextWindow's tail,
+    //whose signature carries the entry function. Written here — the
+    //single-threaded moment before the pool launches — so no concurrent
+    //write ever races the pump's reads.
+    m_pumpMainFunc = &mainFunc;
     LaunchAuxiliaryCarriers(mainFunc);
     try {
         CarrierLoop(mainFunc);

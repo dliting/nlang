@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.10] - 2026-10-28
+
+### 变更
+
+- **重入求值内的挂起**——集合格式化时调用的`toString`覆写、运行中触发的宿主回调，现在可以使用任何等待点：`yield`、`sleep`、`join`、`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、满通道`send`都会停泊窗口，等待期间其他上下文在同载体上运行，窗口原地恢复并照常返回值；窗口内`thread.spawn`立即可调度。从窗口内触达的死锁与普通死锁同样报告。唯一仍拒绝的形态是嵌入宿主在run之外经`call()`发起、没有在飞载体的窗口——当场快速失败，消息为"cannot suspend inside a host call window with no active carrier"。手册的挂起、互斥、已知限制与嵌入页相应改写。
+
 ## [0.11.9] - 2026-10-28
 
 ### 新增

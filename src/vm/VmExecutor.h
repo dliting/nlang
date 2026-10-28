@@ -260,6 +260,10 @@ public:
     //from test threads (deterministic contention for the telemetry
     //contract). Production code never calls this.
     DomainLockSet& DomainLocksForTests() { return m_domainLocks; }
+    //P2-4 white-box seam: tests inject RequestStop from a foreign
+    //thread while a nested pump waits (the shutdown translation test —
+    //no production stop surface exists on the executor by design).
+    VmScheduler& SchedulerForTests() { return *m_spScheduler; }
     //K8 Task 5 white-box knob: make the NEXT collection throw once at
     //its entry — proves the collector's completion guard releases the
     //rendezvous waiters instead of stranding them on the epoch.
@@ -896,7 +900,18 @@ private:
     //carriers); the host reads it after the run. May throw anything
     //RunFrames throws.
     void RunContextWindow(int ctx, ExecutionContext* info,
-                          const CompiledFunction& mainFunc);
+                          const CompiledFunction& mainFunc,
+                          size_t baseDepth);
+
+    //P2-4 nested pump (VmExecutorPump.cpp): the window's suspension
+    //entry and its helpers. RunNestedWindow runs the frames above
+    //baseDepth; on a park it slices them into the context, pins it to
+    //this thread's pump token and drives the scheduler until the
+    //window's own frames complete.
+    void RunNestedWindow(size_t baseDepth);
+    void PumpServeOne(int ctx, ExecutionContext* info, size_t baseDepth);
+    void ResumePinnedWindow(int ctx, size_t baseDepth);
+    void PumpUntilWindowDone(int selfId, size_t baseDepth);
 
     //K1 Slice 6: arm ResumeThrowExcIdxRef() when this context was woken
     //over a FAILED join target (rethrowOnResume). Refuses loudly on a
@@ -937,6 +952,56 @@ private:
         }
     private:
         VmExecutor& m_rExec;
+    };
+
+    //P2-4: serving another context inside a nested pump keeps GC
+    //safepoints live. The poll gate compares nestDepth <=
+    //gcPollRootDepth; the served frames run at nest depth 0 (the window
+    //guard unwound with the caught ParkSignal), so raising the root is
+    //belt-and-braces for the nested-pump-inside-pump case where an
+    //outer window's guard is still held on this thread. Same shape as
+    //BridgeExecutingScope's root bump for bridge windows.
+    class PumpServeScope {
+    public:
+        explicit PumpServeScope(VmExecutor& exec) : m_rExec(exec),
+            m_rRoot(exec.m_spScheduler->CarrierGcPollRootDepthRef()),
+            m_saved(m_rRoot) {
+            m_rRoot = exec.m_spScheduler->CarrierNestDepthRef();
+        }
+        PumpServeScope(const PumpServeScope&) = delete;
+        PumpServeScope& operator=(const PumpServeScope&) = delete;
+        ~PumpServeScope() { m_rRoot = m_saved; }
+    private:
+        VmExecutor& m_rExec;
+        int& m_rRoot;
+        int m_saved;
+    };
+
+    //P2-4: token + pin RAII for the pump loop — every exit path (window
+    //completion, exception, shutdown translation) releases the pin, the
+    //slot token and the central pump count. The deadlock predicate
+    //subtracts the caller's own pump: a pumping thread suppresses OTHER
+    //dispatchers' deadlock reports (it may still serve work), never its
+    //own true deadlock. The pin lands BEFORE the caller's slice —
+    //between them a foreign carrier could pop the parked context (the
+    //pin is what PopAffinity skips on).
+    class PumpPinScope {
+    public:
+        PumpPinScope(VmExecutor& exec, int ctxId) : m_rExec(exec),
+            m_ctxId(ctxId),
+            m_token(exec.m_spScheduler->AcquirePumpToken()) {
+            exec.m_spScheduler->PinContext(ctxId, m_token);
+        }
+        PumpPinScope(const PumpPinScope&) = delete;
+        PumpPinScope& operator=(const PumpPinScope&) = delete;
+        ~PumpPinScope() {
+            m_rExec.m_spScheduler->PinContext(m_ctxId, 0);
+            m_rExec.m_spScheduler->ReleasePumpToken();
+        }
+    private:
+        VmExecutor& m_rExec;
+        int m_ctxId;
+        int64_t m_token;
     };
 
     //K7 site 2: release the global lock across a whole rendezvous
@@ -1786,8 +1851,15 @@ private:
     //(_several carriers are in flight at once — a single member would
     //serialize them wrongly_), reset per dispatch; fire/skip counters
     //feed the white-box tests. Nested evaluation windows skip the quota
-    //entirely (a park there is impossible — see RequestPark).
+    //entirely (bounded re-entrant slice; see the quota comment in
+    //VmExecutorOpsControl.cpp).
     int m_schedTripLimit = DEFAULT_SCHEDULER_TRIP_BACKEDGES;
+    //P2-4: the entry function of the current run, stashed by
+    //CarrierLoop so a nested pump's served contexts can go through
+    //RunContextWindow's uniform tail (their fresh-root arm is
+    //unreachable — spawned contexts always resume — but the signature
+    //requires the reference). Null outside a carrier dispatch.
+    const CompiledFunction* m_pumpMainFunc = nullptr;
     //K7: incremented on the back-edge fast path outside the GIL.
     std::atomic<int> m_quotaFires{0};
     std::atomic<int> m_preemptSkips{0};

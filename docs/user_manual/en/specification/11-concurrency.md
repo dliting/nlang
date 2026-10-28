@@ -65,12 +65,14 @@ freeze the context's full state: frames, locals, handler state
 (§9.2) and instruction position. A `throw` after a parked `try`
 body still reaches that body's `catch`; a `finally` still runs
 exactly once; a rethrow after a parked `catch` still rethrows
-(§9.1). Inside a nested evaluation window — a `toString`
-evaluation, or a host `call()` window — none of these operations
-may suspend: each is rejected there as a *host-level* run-time
-error (§9.1). `thread.spawn` likewise requires a carrier in
-flight: in a host `call()` window, where none runs, it is
-rejected the same way.
+(§9.1). These rules hold inside a nested evaluation window too —
+a `toString` evaluation, or a host callback firing mid-run: the
+window suspends, other contexts run while it waits, and it
+resumes in place. The one exception is a host `call()` window
+with no carrier in flight (outside a run): there the suspending
+operations are rejected as *host-level* run-time errors (§9.1),
+and `thread.spawn` is rejected the same way — no carrier exists
+to schedule anything while the window waits.
 
 ## 11.2 Mutex
 

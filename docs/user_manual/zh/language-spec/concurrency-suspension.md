@@ -22,6 +22,10 @@
 
 消息点出的是条件，不是元凶：它不列出谁在等什么。要找那条缺唤醒路径的等待，把程序放到ndb下，在最后一条等待形成之前停住——在派生或等待位置附近设断点或单步——再跑`threads`：每行给出一个上下文的状态（`parked-chan-recv`、`parked-join`、`parked-mutex`、`parked-sem`等——`parked`即挂起中），挂起行连起来就是谁在等谁（死锁错误本身会终结调试会话，所以要在停机点查，而不是等报告出来再查）。修法几乎总在唤醒一侧：每个`recv`配一个`send`或`close`，每个`lock`配一个`unlock`，每个`acquire`配一个`release`，每个未清偿的`add`配一个`done`。
 
-## 重入求值内的限制
+## 重入求值内的挂起
 
-虚拟机有时会在操作中途重新进入你的代码——把对象转成字符串时调用你的`toString`覆写、嵌入宿主经`call()`执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部不能挂起：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、缓冲已满的有界通道`send`一律以运行期错误拒绝（消息含`cannot suspend`），`thread.spawn`同样拒绝。字符串拼接表达式（`"x" + obj`）对类操作数的隐式`toString`调用编译为普通方法调用，不在重入求值之列。见[嵌入NLang](../libraries/embedding-api.md)。
+虚拟机有时会在操作中途重新进入你的代码——集合格式化输出时调用你的`toString`覆写、宿主回调执行脚本函数。这样的**重入求值**（re-entrant evaluation）内部，等待点表现与别处完全一致：`thread.yield`、`thread.sleep`、未完成目标的`thread.join`、未完成目标的`Future.get`、竞争中的`lock`、零许可`acquire`、空通道`recv`、缓冲已满的有界通道`send`都正常挂起。窗口冻结在原地，等待期间其他上下文在同载体上运行，等待完成后`toString`覆写（或回调）原地恢复、照常返回值——被它服务的格式化操作像无事发生一样继续。窗口内`thread.spawn`同样合法：新任务立即可调度。
+
+仍拒绝挂起的只有一种形态：嵌入宿主在**run之外**发起的`call()`窗口。没有在飞的调度载体，窗口等待期间没有任何东西能运行其他上下文，因此各等待点——以及永远无人调度的`thread.spawn`——当场以可捕获的运行期错误拒绝（消息含`cannot suspend`），见[嵌入NLang](../libraries/embedding-api.md)。run进行期间触发的宿主回调则与普通等待一样正常挂起。字符串拼接表达式（`"x" + obj`）对类操作数的隐式`toString`调用编译为普通方法调用，本就不属于重入求值。
+
+从窗口内触达的死锁与普通死锁同样报告（消息含`deadlock`）——例如`toString`覆写里的`join`目标反过来又在等这个joiner。

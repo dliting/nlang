@@ -6,6 +6,25 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.10] - 2026-10-28
+
+### Changed
+
+- **Suspension inside re-entrant evaluation** — a `toString` override
+  called while a collection is formatted for output, or a host
+  callback firing mid-run, may now use the wait points anywhere else
+  can: `yield`, `sleep`, `join`, `Future.get`, a contended `lock`, a
+  zero-permit `acquire`, an empty-channel `recv` and a full bounded
+  `send` all park the window, other contexts run on the same carrier
+  while it waits, and the window resumes in place and returns its
+  value; `thread.spawn` inside such a window schedules at once. A
+  deadlock reached from a window is reported like any other deadlock.
+  The one surviving rejection is an embedding host's `call()` window
+  with no active carrier (outside a run), which fails fast with
+  "cannot suspend inside a host call window with no active carrier".
+  The manual's suspension, mutex, limitations and embedding pages were
+  rewritten accordingly.
+
 ## [0.11.9] - 2026-10-28
 
 ### Added

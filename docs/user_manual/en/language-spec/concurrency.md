@@ -46,4 +46,4 @@ Start from the task you have, not from the tool list. The shipped
 - [Semaphore](concurrency-semaphore.md) — a counting semaphore
 - [Channel](concurrency-channel.md) — message passing and closing semantics
 - [The concurrent package](concurrency-concurrent.md) — `WaitGroup`
-- [Suspension and scheduling limits](concurrency-suspension.md) — suspension versus blocking, exceptions across suspension, the main-exit policy, the deadlock report, restrictions inside re-entrant evaluation
+- [Suspension and scheduling limits](concurrency-suspension.md) — suspension versus blocking, exceptions across suspension, the main-exit policy, the deadlock report, suspension inside re-entrant evaluation

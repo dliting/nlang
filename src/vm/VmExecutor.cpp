@@ -34,6 +34,7 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
     //and counters reset.
     m_spScheduler->Reset();
     m_quotaFires = 0;
+    m_pumpMainFunc = nullptr;   //P2-4: re-armed by the next CarrierLoop
     m_gcCollections = 0;   //K6 D7: per-run collection count
     //K7: rendezvous bookkeeping resets with the run — the pressure flag
     //re-arms at the next allocation, and the parks counter is per-run
@@ -250,7 +251,7 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
                 //unwinding destroys the scope BEFORE the catch arms run,
                 //so throws complete their arrival with frames on-stack.
                 ExecutingScope executing(*this);
-                RunContextWindow(ctx, info, mainFunc);
+                RunContextWindow(ctx, info, mainFunc, /*baseDepth=*/0);
             } catch (ParkSignal&) {
                 //Not an error: steal the whole frame stack into the
                 //context (the steal model) in one critical section that
@@ -297,7 +298,7 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 //run. The fresh main root points its frame's result cell at the same
 //registry slot (deque stability), so the pointer survives every steal.
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
-    const CompiledFunction& mainFunc) {
+    const CompiledFunction& mainFunc, size_t baseDepth) {
     bool resumed;
     {
         //K7: the resume decision, the steal-back, the handshake-flag
@@ -308,17 +309,37 @@ void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
         GilEnsureGuard gil(*this);
         resumed = !info->frames.empty();
         if (resumed) {
-            EvalStack() = std::move(info->frames);
+            if (baseDepth == 0) {
+                //Carrier dispatch: the context owns the whole stack.
+                EvalStack() = std::move(info->frames);
+            } else {
+                //Nested-pump serve (P2-4): splice ABOVE the outer frames
+                //pinned below baseDepth — the served context runs on top
+                //of them and the stack shrinks back to baseDepth.
+                EvalStack().insert(EvalStack().end(),
+                    std::make_move_iterator(info->frames.begin()),
+                    std::make_move_iterator(info->frames.end()));
+            }
             info->frames.clear();
             info->framesParked = false;
             ArmResumeRethrow(info);
         }
     }
+    //Dispatch drain depth == splice boundary, always: the window ends
+    //exactly where the splice began. A drain of 0 under a serve would
+    //fall through into the pinned outer frames and re-dispatch the
+    //suspended context mid-window (double dispatch — P2-4 review).
     if (resumed)
-        RunFrames(0);
-    else
+        RunFrames(baseDepth);
+    else if (baseDepth == 0)
         RunRootWindow(mainFunc,
                       reinterpret_cast<uint8_t*>(&info->resultCell));
+    else
+        //Unreachable by construction (every queued context parks with
+        //frames); a fresh root under a serve would build MAIN's frame
+        //into the served context — refuse instead.
+        throw std::runtime_error(
+            "NLang VM: queued context has no frames to resume");
     m_spScheduler->MarkFinished(ctx, info->resultCell);
     //K3: fill get()-waiters' destinations BEFORE waking them — a parked
     //call is not re-executed on resume (the pc-advance invariant), so the

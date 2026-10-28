@@ -98,11 +98,12 @@ Re-entering one `Interpreter` instance is not allowed: calling its `run()`/`call
 
 Host functions registered through `registerHostFunction` always run through the blocking-native protocol: the VM stages their arguments, suspends the calling context and releases its locks for the duration of the callback, and reacquires before resuming. The staged arguments and the return value stay registered as garbage collection (GC) roots across that gap, so a collection on another carrier cannot reclaim handles in flight; VM callbacks made from inside such a call re-acquire the lock per callback.
 
-`call()` is a host-initiated re-entrant evaluation without a carrier turn of its own:
+`call()` outside a run is a host-initiated re-entrant evaluation with no scheduler carrier in flight:
 
-- Intrinsics that would suspend are rejected with a `std::runtime_error` (message contains `cannot suspend`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, `Future.get` on an unfinished target, a contended `Mutex.lock`, `Channel.recv` on an empty open channel, and `send` on a full bounded channel.
+- Intrinsics that would suspend are rejected with a `std::runtime_error` (message contains `cannot suspend inside a host call window with no active carrier`): `thread.yield`, `thread.sleep`, `thread.join` on an unfinished target, `Future.get` on an unfinished target, a contended `Mutex.lock`, `Channel.recv` on an empty open channel, and `send` on a full bounded channel.
 - `thread.spawn` is likewise rejected (message contains `spawn`) — no carrier exists to schedule the new context; host flows that need concurrency should enter through `run()`.
 - Non-suspension forms work as usual: `Mutex.tryLock`, `Future.isDone`, `send` on a non-full channel, a buffered `recv`, `join` on a finished target, and `Future.get` on a finished target.
+- A `call()` (or other host callback) that fires **during** a run is a different shape: a carrier is in flight, so its suspending operations park normally and other contexts run while the callback waits.
 
 ## 5. Host functions
 

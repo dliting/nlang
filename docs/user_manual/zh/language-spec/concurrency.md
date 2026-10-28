@@ -45,4 +45,4 @@ NLang属于**虚拟线程**一族（同Go、Java虚拟线程）：写并发代�
 - [Semaphore](concurrency-semaphore.md)——计数信号量
 - [Channel](concurrency-channel.md)——消息传递与关闭语义
 - [标准库同步工具](concurrency-concurrent.md)——`WaitGroup`
-- [挂起与调度限制](concurrency-suspension.md)——挂起与阻塞、跨挂起的异常、主退出策略、死锁报告、重入求值内的限制
+- [挂起与调度限制](concurrency-suspension.md)——挂起与阻塞、跨挂起的异常、主退出策略、死锁报告、重入求值内的挂起

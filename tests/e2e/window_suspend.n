@@ -1,0 +1,27 @@
+//P2-4: suspension inside a re-entrant evaluation window (implicit
+//array formatting calling toString). yield parks the window; the
+//scheduler pump serves the already-queued worker, then the window
+//resumes in place and completes — join pins "w" before the final
+//write.
+import thread;
+import io;
+
+class Slow {
+    public string toString() {
+        thread.yield();
+        return "slow-ok";
+    }
+}
+
+void worker() {
+    io.write("w");
+}
+
+int main() {
+    Thread t = thread.spawn(worker);
+    Slow[] arr = [Slow()];
+    io.write(arr);
+    thread.join(t);
+    io.write("|done");
+    return 0;
+}

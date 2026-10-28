@@ -254,10 +254,13 @@ This page collects the language-level limitations visible to user programs, with
   [ReentrantMutex](concurrency-reentrant-mutex.md). See
   [Mutex](concurrency-mutex.md).
 
-- **Concurrency: no suspension inside re-entrant evaluation**: inside
-  re-entrant evaluation — your `toString` override called while an
-  object is converted to a string, a script function executed for the
-  host through `call()` —
+- **Concurrency: suspension inside carrier-less host windows**: inside
+  re-entrant evaluation that runs **during a run** — your `toString`
+  override called while a collection is formatted for output, a host
+  callback firing mid-run — the wait points suspend normally, exactly
+  like anywhere else. Only an embedding host's `call()` window
+  **outside a run** has no scheduler carrier to serve the wait, so
+  there
   `yield`/`sleep`/`join` on an unfinished target/`Future.get` on an
   unfinished target/`lock` on a contended mutex/`acquire` on a
   zero-permit semaphore/`recv` on an empty

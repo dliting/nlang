@@ -28,9 +28,9 @@ exempts only same-context re-acquisition, never a missing release.
 Handoff matches `Mutex`: at zero the ownership moves to the front
 waiter, and the new owner starts from a fresh count of 1 — a hold count
 never crosses contexts. A contended `lock()` parks through the same
-handshake as `Mutex` and is likewise rejected inside a re-entrant
-evaluation (`cannot suspend`); `tryLock()` never parks and stays legal
-there.
+handshake as `Mutex` and suspends normally inside re-entrant
+evaluation (a carrier-less host `call()` window is the one shape that
+still rejects it, `cannot suspend`); `tryLock()` never parks at all.
 
 ## Composed methods
 

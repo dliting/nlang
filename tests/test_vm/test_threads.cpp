@@ -552,36 +552,36 @@ void test_thread_ns_yield_single_context()
     PASS();
 }
 
-//toString 嵌套求值窗内 yield：可捕获的拒绝（不能在嵌套窗内挂起）。
-//形态与 Slice 4 的嵌套窗测试相同（数组协变触发运行期元素格式化）。
-void test_thread_ns_yield_in_tostring_rejected()
+//P2-4：toString 嵌套求值窗内 yield 合法——窗口停泊经泵调度，先入队
+//的 worker 被服务（join 保证其先行完成），窗口恢复后求值照常。输出序
+//列钉死挂起语义：worker 的 "w" 严格先于最终串。
+void test_thread_ns_yield_in_tostring_suspends()
 {
-    TEST(thread_ns_yield_in_tostring_rejected);
-    bool threw = false;
-    std::string what;
-    try {
-        runSource("thread_yield_ts",
-            "import thread;\n"
-            "class Box {\n"
-            "    public string toString() {\n"
-            "        thread.yield();\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    string t = arr;\n"
-            "    return t.length();\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        threw = true;
-        what = e.what();
-    }
-    CHECK(threw, "yield inside a nested evaluation window throws");
-    CHECK(what.find("cannot suspend inside a nested evaluation")
-              != std::string::npos,
-          "rejection names the nested-evaluation rule");
+    TEST(thread_ns_yield_in_tostring_suspends);
+    std::string out;
+    const int rc = runSourceCapturing("thread_yield_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        thread.yield();\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread u = thread.spawn(worker);\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    thread.join(u);\n"
+        "    io.write(\"|\" + t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "yield inside the window suspends and completes");
+    CHECK(out == "w|[b]",
+        "worker served before the joined final write (got: " + out + ")");
     PASS();
 }
 
@@ -1267,88 +1267,87 @@ void test_sleep_rejects_negative_duration()
     PASS();
 }
 
-//Slice 7 审查发现（决策 2 规约 (a)）：join/sleep 在变异调度器状态后、
-//RequestPark 前可能被嵌套窗口拒绝——镜像既有 yield 拒绝测试，钉死两个
-//新内在函数在同一窗口的拒绝面（拒绝消息一致；规约：完成或挂起二态，
-//不得半停泊）。规约本身的黑盒红灯在 Slice 10 嵌入「干净报错后执行器可
-//复用」落地时才可构造。
-void test_thread_ns_sleep_join_in_tostring_rejected()
+//P2-4：sleep/join/future.get 在嵌套求值窗内全部合法——窗口停泊经泵调
+//度，配对的 worker 被服务、唤醒配对完成后窗口恢复。三个子形态的输出
+//序列均由 join/get 的先行关系钉死，与时序无关。
+void test_thread_ns_sleep_join_in_tostring_suspend()
 {
-    TEST(thread_ns_sleep_join_in_tostring_rejected);
-    bool sleepThrew = false, joinThrew = false, getThrew = false;
-    std::string sleepWhat, joinWhat, getWhat;
-    try {
-        runSource("thread_sleep_ts",
-            "import thread;\n"
-            "class Box {\n"
-            "    public string toString() {\n"
-            "        thread.sleep(1);\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    string t = arr;\n"
-            "    return t.length();\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        sleepThrew = true;
-        sleepWhat = e.what();
-    }
-    try {
-        runSource("thread_join_ts",
-            "import thread;\n"
-            "class Box {\n"
-            "    public string toString() {\n"
-            "        Thread u = thread.spawn(worker);\n"
-            "        thread.join(u);\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "void worker() { }\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    string t = arr;\n"
-            "    return t.length();\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        joinThrew = true;
-        joinWhat = e.what();
-    }
-    try {
-        runSource("future_get_ts",
-            "import thread;\n"
-            "class Box {\n"
-            "    public string toString() {\n"
-            "        Future<int> f = thread.spawn(producer);\n"
-            "        f.get();\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "int producer() { return 1; }\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    string t = arr;\n"
-            "    return t.length();\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        getThrew = true;
-        getWhat = e.what();
-    }
-    CHECK(sleepThrew && joinThrew && getThrew,
-        "sleep, join and future.get inside a nested evaluation window "
-        "all throw");
-    CHECK(sleepWhat.find("cannot suspend inside a nested evaluation")
-              != std::string::npos
-          && joinWhat.find("cannot suspend inside a nested evaluation")
-              != std::string::npos
-          && getWhat.find("cannot suspend inside a nested evaluation")
-              != std::string::npos,
-        "all rejections name the nested-evaluation rule (sleep: "
-        + sleepWhat + "; join: " + joinWhat + "; get: " + getWhat + ")");
+    TEST(thread_ns_sleep_join_in_tostring_suspend);
+    //sleep：worker 在窗口停泊期间被泵服务（或先行），join 保证
+    //"w" 严格先于最终串。
+    std::string out;
+    int rc = runSourceCapturing("thread_sleep_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        thread.sleep(1);\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread u = thread.spawn(worker);\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    thread.join(u);\n"
+        "    io.write(\"|\" + t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "sleep inside the window suspends and completes");
+    CHECK(out == "w|[b]",
+        "worker served before the joined final write (got: " + out + ")");
+    //join：toString 窗口内部 spawn+join——join 停泊窗口，泵服务 inner，
+    //inner 完成唤醒 joiner，窗口恢复。
+    rc = runSourceCapturing("thread_join_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        Thread v = thread.spawn(inner);\n"
+        "        thread.join(v);\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "void inner() { io.write(\"u\"); }\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    io.write(\"|\" + t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "join inside the window suspends and completes");
+    CHECK(out == "u|[b]",
+        "inner thread served during the window park (got: " + out + ")");
+    //future.get：生产者在窗口停泊期间被泵服务，get 唤醒后取到值。
+    rc = runSourceCapturing("future_get_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public string toString() {\n"
+        "        Future<int> f = thread.spawn(producer);\n"
+        "        int g = f.get();\n"
+        "        io.write(\"\" + g);\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "int producer() { io.write(\"p\"); return 1; }\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    string t = arr;\n"
+        "    io.write(\"|\" + t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "future.get inside the window suspends and completes");
+    CHECK(out == "p1|[b]",
+        "producer ran and the value crossed the window (got: " + out
+            + ")");
     PASS();
 }
 
@@ -1852,7 +1851,7 @@ void test_rmutex_fifo_handoff()
         "        m.unlock();\n"
         "    }\n"
         "    public void third() {\n"
-        "        thread.sleep(80);\n"
+        "        thread.sleep(200);\n"
         "        if (m.tryLock()) { io.write(\"3\"); m.unlock(); }\n"
         "    }\n"
         "}\n"
@@ -1939,56 +1938,59 @@ void test_rmutex_slot_reuse_clean()
 
 //Nested evaluation: a contested lock() inside an implicit-formatting
 //toString (array → string, the documented mid-instruction window)
-//rejects with the cannot-suspend rule; a non-parking tryLock() in the
-//same window is legal and reports the held state. (The concat shape
-//`"x" + b` compiles to an ORDINARY call_method — instruction-granular,
-//suspension-legal — so it must not be used to pin the window rule.)
-void test_rmutex_nested_eval_reject()
+//suspends through the pump — the holder's unlock hands the lock to the
+//parked window, which then acquires, releases and completes. "h" is
+//written BEFORE the unlock, so it strictly precedes the window's
+//completion. A non-parking tryLock() in the same window stays legal
+//and reports the held state. (The concat shape `"x" + b` compiles to an
+//ORDINARY call_method — instruction-granular, suspension-legal — so it
+//must not be used to pin the window rule.)
+void test_rmutex_nested_eval_suspends()
 {
-    TEST(rmutex_nested_eval_reject);
-    bool threw = false;
-    std::string what;
-    try {
-        runSource("rm_lock_ts",
-            "import thread;\n"
-            "class Box {\n"
-            "    public ReentrantMutex m;\n"
-            "    public string toString() {\n"
-            "        m.lock();\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "class Holder {\n"
-            "    public ReentrantMutex m;\n"
-            "    public void hold() {\n"
-            "        m.lock();\n"
-            "        thread.sleep(80);\n"
-            "        m.unlock();\n"
-            "    }\n"
-            "}\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    arr[0].m = ReentrantMutex();\n"
-            "    Holder h = Holder();\n"
-            "    h.m = arr[0].m;\n"
-            "    Thread t = thread.spawn(h.hold);\n"
-            "    thread.sleep(10);\n"
-            "    string s = arr;\n"
-            "    thread.join(t);\n"
-            "    return 0;\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        threw = true;
-        what = e.what();
-    }
-    CHECK(threw, "a contested lock inside toString must reject");
-    CHECK(what.find("cannot suspend inside a nested evaluation")
-              != std::string::npos,
-        "message names the nested-evaluation rule (got: " + what + ")");
-
+    TEST(rmutex_nested_eval_suspends);
     std::string out;
-    const int rc = runSourceCapturing("rm_trylock_ts",
+    int rc = runSourceCapturing("rm_lock_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public ReentrantMutex m;\n"
+        "    public string toString() {\n"
+        "        m.lock();\n"
+        "        m.unlock();\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "class Holder {\n"
+        "    public ReentrantMutex m;\n"
+        "    public void hold() {\n"
+        "        m.lock();\n"
+        "        thread.sleep(80);\n"
+        "        io.write(\"h\");\n"
+        "        m.unlock();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    arr[0].m = ReentrantMutex();\n"
+        "    Holder h = Holder();\n"
+        "    h.m = arr[0].m;\n"
+        "    Thread t = thread.spawn(h.hold);\n"
+        "    thread.sleep(10);\n"
+        "    string s = arr;\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0,
+        "contested lock inside the window suspends and completes");
+    CHECK(out == "h[b]",
+        "holder's unlock lands before the window completes (got: "
+        + out + ")");
+
+    out.clear();
+    rc = runSourceCapturing("rm_trylock_ts",
         "import thread;\n"
         "import io;\n"
         "class Box {\n"
@@ -2342,37 +2344,46 @@ void test_channel_nonempty_init_rejected()
     PASS();
 }
 
-//Slice 9：嵌套求值窗口内的空通道接收——停泊门先于等待者登记（规约
-//(a)：拒绝必须可捕获且不留半停泊状态），同 sleep/join/lock 形态。
-void test_channel_recv_in_tostring_rejected()
+//P2-4：嵌套求值窗口内的空通道接收合法——recv 停泊窗口，泵服务发送方
+//（sleep 20ms 后 send），唤醒取值后窗口恢复。"7b" 钉死取值发生在窗口
+//恢复之前、toString 返回值照常落到外层。
+void test_channel_recv_in_tostring_suspends()
 {
-    TEST(channel_recv_in_tostring_rejected);
-    bool threw = false;
-    std::string what;
-    try {
-        runSource("ch_recv_ts",
-            "class Box {\n"
-            "    public Channel<int> ch;\n"
-            "    public string toString() {\n"
-            "        ch.recv();\n"
-            "        return \"b\";\n"
-            "    }\n"
-            "}\n"
-            "int main() {\n"
-            "    Box[] arr = Box[1];\n"
-            "    arr[0] = Box();\n"
-            "    arr[0].ch = {};\n"
-            "    string t = arr;\n"
-            "    return t.length();\n"
-            "}\n");
-    } catch (const std::exception& e) {
-        threw = true;
-        what = e.what();
-    }
-    CHECK(threw, "an empty recv inside toString must be rejected");
-    CHECK(what.find("cannot suspend inside a nested evaluation")
-              != std::string::npos,
-          "rejection names the nested-evaluation rule (got: " + what + ")");
+    TEST(channel_recv_in_tostring_suspends);
+    std::string out;
+    const int rc = runSourceCapturing("ch_recv_ts",
+        "import thread;\n"
+        "import io;\n"
+        "class Box {\n"
+        "    public Channel<int> ch;\n"
+        "    public string toString() {\n"
+        "        int v = ch.recv();\n"
+        "        io.write(\"\" + v);\n"
+        "        return \"b\";\n"
+        "    }\n"
+        "}\n"
+        "class Send {\n"
+        "    public Channel<int> ch;\n"
+        "    public void go() {\n"
+        "        thread.sleep(20);\n"
+        "        ch.send(7);\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Box[] arr = Box[1];\n"
+        "    arr[0] = Box();\n"
+        "    arr[0].ch = {};\n"
+        "    Send s = Send();\n"
+        "    s.ch = arr[0].ch;\n"
+        "    Thread t = thread.spawn(s.go);\n"
+        "    string x = arr;\n"
+        "    thread.join(t);\n"
+        "    return x.length();\n"
+        "}\n",
+        out);
+    CHECK(rc == 3, "recv inside the window suspends and completes");
+    CHECK(out == "7",
+        "the sent value crossed the suspended window (got: " + out + ")");
     PASS();
 }
 
@@ -2381,6 +2392,213 @@ void test_channel_recv_in_tostring_rejected()
 //main 恢复后写 m 并 throw——处理器搜索按 tryBlocks pc 区间，恢复点仍在
 //try 体内，catch 必须接住。停泊若扰动处理器状态（合成 unwind/错位 pc），
 //本测试以未捕获异常失败。
+//P2-4 边界1：互join环＋窗口内join——队列空、无定时器、无阻塞原生、
+//其余载体闲、等待本泵的上下文≥活跃载体：既有死锁探测器必须在泵内触
+//发（可捕获的 deadlock 错误，绝非挂死）。
+void test_window_join_mutual_deadlock()
+{
+    TEST(window_join_mutual_deadlock);
+    bool threw = false;
+    std::string what;
+    try {
+        std::string out;
+        runSourceCapturing("win_deadlock",
+            "import thread;\n"
+            "import io;\n"
+            "class Slow {\n"
+            "    public Thread t;\n"
+            "    public string toString() {\n"
+            "        thread.join(t);\n"
+            "        return \"x\";\n"
+            "    }\n"
+            "}\n"
+            "class WA {\n"
+            "    public Thread other;\n"
+            "    public void run() { thread.join(other); }\n"
+            "}\n"
+            "class WB {\n"
+            "    public Thread other;\n"
+            "    public void run() { thread.join(other); }\n"
+            "}\n"
+            "int main() {\n"
+            "    WA wa = WA();\n"
+            "    WB wb = WB();\n"
+            "    Thread tA = thread.spawn(wa.run);\n"
+            "    Thread tB = thread.spawn(wb.run);\n"
+            "    wa.other = tB;\n"
+            "    wb.other = tA;\n"
+            "    Slow s = Slow();\n"
+            "    s.t = tA;\n"
+            "    Slow[] arr = [s];\n"
+            "    io.write(arr);\n"
+            "    return 0;\n"
+            "}\n",
+            out);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "mutual join observed from a window must report");
+    CHECK(what.find("deadlock") != std::string::npos,
+        "the deadlock detector fires inside the pump (got: " + what
+            + ")");
+    PASS();
+}
+
+//P2-4 边界2：窗口内spawn的任务即时可调度——toString 窗口在 sleep 停泊
+//期间被泵服务，flat 先于窗口完成输出；join 后窗口恢复返回。
+void test_window_spawn_prompt()
+{
+    TEST(window_spawn_prompt);
+    std::string out;
+    const int rc = runSourceCapturing("win_spawn",
+        "import thread;\n"
+        "import io;\n"
+        "class W {\n"
+        "    public string toString() {\n"
+        "        Thread t = thread.spawn(flat);\n"
+        "        thread.sleep(80);\n"
+        "        thread.join(t);\n"
+        "        return \"joined\";\n"
+        "    }\n"
+        "}\n"
+        "void flat() { io.write(\"flat-ran;\"); }\n"
+        "int main() {\n"
+        "    W w = W();\n"
+        "    W[] arr = [w];\n"
+        "    io.write(arr);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "window spawn/sleep/join completes");
+    CHECK(out == "flat-ran;[joined]",
+        "spawned task runs during the window sleep (got: " + out + ")");
+    PASS();
+}
+
+//P2-4 边界3：窗口套窗口——外层 toString 体内 io.write 触发内层窗口（数
+//组元素 toString 再yield），两层切片各归其位；泵在等待 worker 定时器
+//期间唤醒序即输出序。
+void test_window_nested_window()
+{
+    TEST(window_nested_window);
+    std::string out;
+    const int rc = runSourceCapturing("win_nested",
+        "import thread;\n"
+        "import io;\n"
+        "class Inner {\n"
+        "    public string toString() {\n"
+        "        thread.yield();\n"
+        "        return \"i\";\n"
+        "    }\n"
+        "}\n"
+        "class Outer {\n"
+        "    public string toString() {\n"
+        "        Inner[] a = [Inner()];\n"
+        "        io.write(a);\n"
+        "        return \"o\";\n"
+        "    }\n"
+        "}\n"
+        "void worker() { thread.sleep(10); io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    Outer[] arr = [Outer()];\n"
+        "    io.write(arr);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "nested windows complete");
+    //Happens-before: the inner window's "[i]" strictly precedes the
+    //outer's "[o]" (the outer returns only after the inner write);
+    //"w" has no ordering relation with either (it parks on a timer).
+    const size_t innerAt = out.find("[i]");
+    const size_t outerAt = out.find("[o]");
+    CHECK(innerAt != std::string::npos && outerAt != std::string::npos
+              && out.find('w') != std::string::npos
+              && innerAt < outerAt,
+        "both windows complete, inner strictly before outer (got: "
+        + out + ")");
+    PASS();
+}
+
+//P2-4 边界4：窗口停泊等待期间外部请求关停——泵必须把 -1 翻译成可捕获
+//错误返回宿主（绝不挂死；C++调用帧不退栈语义下的唯一安全出口）。
+void test_window_shutdown_translates()
+{
+    TEST(window_shutdown_translates);
+    CompiledModule mod = buildLinkedModule("win_stop",
+        "import thread;\n"
+        "import io;\n"
+        "class Slow {\n"
+        "    public string toString() {\n"
+        "        thread.sleep(5000);\n"
+        "        return \"x\";\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    Slow[] arr = [Slow()];\n"
+        "    io.write(arr);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    std::thread stopper([&exec] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        exec.SchedulerForTests().RequestStop();
+    });
+    bool threw = false;
+    std::string what;
+    try {
+        (void)exec.Execute(mod);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    stopper.join();
+    CHECK(threw, "stop during a suspended window surfaces as an error");
+    CHECK(what.find("run stopped while a nested window was suspended")
+              != std::string::npos,
+        "the pump translates the stop request (got: " + what + ")");
+    PASS();
+}
+
+//P2-4 边界5：窗口挂起全家桶在自然GC（无旗标）下重复执行——停泊值跨
+//安全点存活依赖保守扫描覆盖活上下文 resultCell/frames，三次重跑无
+//flake、输出恒定。
+void test_window_suspension_natural_gc_repeat()
+{
+    TEST(window_suspension_natural_gc_repeat);
+    for (int i = 0; i < 3; ++i) {
+        std::string out;
+        const int rc = runSourceCapturing("win_gc" + std::to_string(i),
+            "import thread;\n"
+            "import io;\n"
+            "class Slow {\n"
+            "    public string toString() {\n"
+            "        thread.yield();\n"
+            "        return \"slow-ok\";\n"
+            "    }\n"
+            "}\n"
+            "void worker() { io.write(\"w\"); }\n"
+            "int main() {\n"
+            "    Thread t = thread.spawn(worker);\n"
+            "    Slow[] arr = [Slow()];\n"
+            "    io.write(arr);\n"
+            "    thread.join(t);\n"
+            "    io.write(\"|done\");\n"
+            "    return 0;\n"
+            "}\n",
+            out);
+        CHECK(rc == 0, "natural-GC repeat run " + std::to_string(i)
+            + " completes");
+        CHECK(out == "w[slow-ok]|done", "repeat run "
+            + std::to_string(i) + " output stable (got: " + out + ")");
+    }
+    PASS();
+}
+
 void test_park_in_try_throw_after_resume_caught()
 {
     TEST(park_in_try_throw_after_resume_caught);
@@ -5000,7 +5218,7 @@ int main()
         test_scheduler_quota_skips_nested_windows();
         test_thread_ns_id_main();
         test_thread_ns_yield_single_context();
-        test_thread_ns_yield_in_tostring_rejected();
+        test_thread_ns_yield_in_tostring_suspends();
         test_thread_ns_unknown_member();
         test_thread_ns_spawn_arg_not_func();
         test_thread_ns_spawn_arg_nonvoid();
@@ -5027,7 +5245,7 @@ int main()
         runGuarded(test_sleep_zero_yields);
         runGuarded(test_sleep_wakes_by_deadline);
         runGuarded(test_sleep_rejects_negative_duration);
-        runGuarded(test_thread_ns_sleep_join_in_tostring_rejected);
+        runGuarded(test_thread_ns_sleep_join_in_tostring_suspend);
         runGuarded(test_mutex_serializes_critical_section);
         runGuarded(test_mutex_wakes_waiters_fifo);
         runGuarded(test_mutex_trylock_reports_held_state);
@@ -5041,7 +5259,7 @@ int main()
         runGuarded(test_rmutex_trylock_reentrant);
         runGuarded(test_rmutex_fifo_handoff);
         runGuarded(test_rmutex_slot_reuse_clean);
-        runGuarded(test_rmutex_nested_eval_reject);
+        runGuarded(test_rmutex_nested_eval_suspends);
         runGuarded(test_channel_fifo_buffer_order);
         runGuarded(test_channel_recv_parks_until_send);
         runGuarded(test_channel_closed_semantics);
@@ -5053,7 +5271,12 @@ int main()
         runGuarded(test_channel_buffered_survives_gc_storm);
         runGuarded(test_channel_bare_name_rejected);
         runGuarded(test_channel_nonempty_init_rejected);
-        runGuarded(test_channel_recv_in_tostring_rejected);
+        runGuarded(test_channel_recv_in_tostring_suspends);
+        runGuarded(test_window_join_mutual_deadlock);
+        runGuarded(test_window_spawn_prompt);
+        runGuarded(test_window_nested_window);
+        runGuarded(test_window_shutdown_translates);
+        runGuarded(test_window_suspension_natural_gc_repeat);
         runGuarded(test_park_in_try_throw_after_resume_caught);
         runGuarded(test_worker_recv_park_throw_cross_frame_caught);
         runGuarded(test_finally_runs_after_timer_park);

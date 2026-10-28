@@ -675,8 +675,10 @@ static void TestCallRejectsSuspension() {
     } catch (const std::runtime_error& e) {
         threw = true;
         const std::string msg(e.what());
-        CHECK(msg.find("cannot suspend") != std::string::npos,
-            "message names the suspension rule (got: " + msg + ")");
+        CHECK(msg.find("cannot suspend inside a host call window with "
+                       "no active carrier") != std::string::npos,
+            "message names the carrier-less window rule (got: " + msg
+                + ")");
     }
     CHECK(threw, "yield inside call() -> catchable rejection");
     PASS();

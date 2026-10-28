@@ -6,6 +6,7 @@ add_library(nlang_vm
     VmSchedulerSync.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
+    VmExecutorPump.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
     VmExecutorHostProxyBridge.cpp

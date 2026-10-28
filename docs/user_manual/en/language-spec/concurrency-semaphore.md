@@ -144,8 +144,9 @@ int main() {
 
 `tryAcquire()` never suspends, so it is safe inside re-entrant
 evaluation (a `toString` override, for example); a zero-permit
-`acquire` is rejected there like a contended `lock` (see [Restrictions
-inside re-entrant evaluation](concurrency-suspension.md#restrictions-inside-re-entrant-evaluation)).
+`acquire` suspends there normally, like a contended `lock` — the
+window freezes until a permit appears (see [Suspension inside
+re-entrant evaluation](concurrency-suspension.md#suspension-inside-re-entrant-evaluation)).
 
 ## Semaphore versus Channel
 

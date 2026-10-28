@@ -105,6 +105,41 @@ static int runSourceCapturing(const std::string& tag,
 //WaitGroup：add(3) 后三个 worker 各写一字再 done()；main wait() 必须等
 //全部 done 才继续——输出恰为 "xxxD"（单载体 FIFO 下全序确定）。杀
 //"wait 不阻塞"突变（D 会抢在某个 x 前）与"done 不投递"突变（死锁守卫）。
+//P2-4: suspension inside a re-entrant evaluation window (implicit
+//array formatting calling toString). yield parks MAIN's context (the
+//window owner); the pump serves the already-queued worker, then the
+//window resumes in place and completes — join pins "w" before the
+//final write.
+void test_window_yield_suspends()
+{
+    TEST(window_yield_suspends);
+    std::string out;
+    const int rc = runSourceCapturing("win_join",
+        "import thread;\n"
+        "import io;\n"
+        "class Slow {\n"
+        "    public string toString() {\n"
+        "        thread.yield();\n"
+        "        return \"slow-ok\";\n"
+        "    }\n"
+        "}\n"
+        "void worker() { io.write(\"w\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(worker);\n"
+        "    Slow[] arr = [Slow()];\n"
+        "    io.write(arr);\n"
+        "    thread.join(t);\n"
+        "    io.write(\"|done\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "window join program completes");
+    CHECK(out == "w[slow-ok]|done",
+        "worker output lands before the joined final write (got: "
+        + out + ")");
+    PASS();
+}
+
 void test_waitgroup_releases_waiters()
 {
     TEST(waitgroup_releases_waiters);
@@ -425,36 +460,48 @@ void test_semaphore_overrelease_then_acquire()
 //the elements through toString (the nested window; the direct class
 //argument shape in test_threads.cpp). The caller-catch assert mirrors
 //mutex_unlock_without_hold_rejected there.
-void test_semaphore_acquire_in_tostring_rejects()
+//P2-4: the window suspends — acquire parks MAIN's context (the window
+//owner) until the worker's release wakes it through the pump; the
+//formatting then completes normally. Race-immune: a release landing
+//before acquire takes the permit without parking, same output.
+void test_semaphore_acquire_in_tostring_suspends()
 {
-    TEST(semaphore_acquire_in_tostring_rejects);
-    bool threw = false;
-    std::string what;
-    try {
-        std::string out;
-        runSourceCapturing("sem_tostring",
-            "import io;\n"
-            "class C {\n"
-            "    public string toString() {\n"
-            "        Semaphore s = Semaphore(0);\n"
-            "        s.acquire();\n"
-            "        return \"x\";\n"
-            "    }\n"
-            "}\n"
-            "int main() {\n"
-            "    C c = C();\n"
-            "    C[] arr = [c];\n"
-            "    io.write(arr);\n"
-            "    return 0;\n"
-            "}\n",
-            out);
-    } catch (const std::exception& e) {
-        threw = true;
-        what = e.what();
-    }
-    CHECK(threw, "zero-permit acquire in toString must raise");
-    CHECK(what.find("cannot suspend") != std::string::npos,
-          "message names the nested-window rule (got: " + what + ")");
+    TEST(semaphore_acquire_in_tostring_suspends);
+    std::string out;
+    const int rc = runSourceCapturing("sem_tostring",
+        "import thread;\n"
+        "import io;\n"
+        "class C {\n"
+        "    public Semaphore s;\n"
+        "    public string toString() {\n"
+        "        s.acquire();\n"
+        "        return \"x\";\n"
+        "    }\n"
+        "}\n"
+        "class Rel {\n"
+        "    public Semaphore s;\n"
+        "    public void go() {\n"
+        "        thread.sleep(20);\n"
+        "        s.release();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    C c = C();\n"
+        "    c.s = Semaphore(0);\n"
+        "    Rel r = Rel();\n"
+        "    r.s = c.s;\n"
+        "    Thread t = thread.spawn(r.go);\n"
+        "    C[] arr = [c];\n"
+        "    io.write(arr);\n"
+        "    thread.join(t);\n"
+        "    io.write(\"|done\");\n"
+        "    return 0;\n"
+        "}\n",
+        out);
+    CHECK(rc == 0, "window acquire suspends and completes");
+    CHECK(out == "[x]|done",
+        "worker's release lands before the window completes (got: "
+        + out + ")");
     PASS();
 }
 
@@ -998,6 +1045,7 @@ int main()
     //diagnostics (test_stdlib.cpp same shape).
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();
+    runGuarded(test_window_yield_suspends);
     runGuarded(test_waitgroup_releases_waiters);
     runGuarded(test_waitgroup_add_accumulates);
     runGuarded(test_semaphore_limits_concurrency);
@@ -1007,7 +1055,7 @@ int main()
     runGuarded(test_semaphore_fifo_wake_order);
     runGuarded(test_semaphore_try_acquire_arms);
     runGuarded(test_semaphore_overrelease_then_acquire);
-    runGuarded(test_semaphore_acquire_in_tostring_rejects);
+    runGuarded(test_semaphore_acquire_in_tostring_suspends);
     runGuarded(test_semaphore_permits_conserved_multicarrier);
     runGuarded(test_semaphore_park_gc_window);
     runGuarded(test_atomic_ctor_load_store);
