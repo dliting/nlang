@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10): the whole declared surface of the four
+// builtin-decls phase 2 (0.11.11): the whole declared surface of the four
 // generic prelude classes, exercising every method, both Channel ctors,
 // boxing across int/double/long/string element kinds, subscript sugar,
 // foreach, init lists, nested generics, and the string form of toString.

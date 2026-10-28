@@ -6,6 +6,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.11] - 2026-10-28
+
+### 新增
+
+- **声明式内建泛型类**——List、Dict、Channel、Future现在是标准库预置包（stdlib/builtins.n）中的真实模板声明，不再由编译器铸造合成类。程序可感知的后果：
+  - 保留类型名：`Channel`与`Future`加入`List`、`Dict`、`func`的行列——同名变量声明是编译错误（"names a type"）。
+  - 容器方法支持具名实参：`l.add(item = 5)`、`d.set(key = "a", value = 1)`。
+  - Object继承面：`equals`、`getHashCode`、`toString`自`Object`继承，实例与用户类一样可上转到`Object`。
+  - 裸名构造形式：`List<int> l = List();`——与用户`class C<T>`同一契约。
+
+### 变更
+
+- 泛型类的构造器诊断改为普通重载匹配文本（`no constructor of class "Channel" matches the argument list`）。
+- 更早版本编译的模块与标准库包须重编译：预置包声明形态改变了编译产物，不向下兼容。
+
 ## [0.11.9] - 2026-10-28
 
 ### 新增

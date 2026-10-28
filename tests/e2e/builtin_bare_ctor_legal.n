@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10) delta 5: the generic prelude classes are
+// builtin-decls phase 2 (0.11.11) delta 5: the generic prelude classes are
 // DECLARED now, so the bare-name constructor form is legal for them —
 // same contract as every user `class C<T>` (Promise precedent).
 int main() {

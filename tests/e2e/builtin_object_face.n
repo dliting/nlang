@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10) delta 4: the four generic prelude
+// builtin-decls phase 2 (0.11.11) delta 4: the four generic prelude
 // classes carry the Object face — upcast to Object is legal, toString
 // dispatches virtually to the instance's declared toString, and the
 // inherited identity equals distinguishes distinct instances.

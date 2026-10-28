@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10) delta 2: container methods are DECLARED
+// builtin-decls phase 2 (0.11.11) delta 2: container methods are DECLARED
 // members now, so named arguments bind by formal name (the by-name
 // dispatch reject retired with the special arm).
 int main() {

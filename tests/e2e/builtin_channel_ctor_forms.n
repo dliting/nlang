@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10): Channel declares TWO ctor overloads —
+// builtin-decls phase 2 (0.11.11): Channel declares TWO ctor overloads —
 // unbounded (zero-formal) and bounded (capacity). The three user-visible
 // construction forms must route to the right intrinsic: the zero-arg
 // intrinsic never reads the unstaged capacity slot. (`new ...` spellings

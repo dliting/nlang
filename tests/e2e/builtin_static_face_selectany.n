@@ -1,4 +1,4 @@
-// builtin-decls phase 2 (0.11.10): Future.selectAny keeps working after
+// builtin-decls phase 2 (0.11.11): Future.selectAny keeps working after
 // Future became a declared template — the static face must still own
 // `Future.selectAny(...)` chains (prelude-owned type hits are not user
 // shadows). One promise completes before the call so the winner index is
