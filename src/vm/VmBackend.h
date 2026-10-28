@@ -55,6 +55,9 @@ namespace langservice { class SymbolIndex; struct SymbolInfo; }
 //ModuleRegistry.h) — the package/qualified-name seam KeyOf spells table
 //keys from. Pointer only, never owned.
 class ModuleRegistry;
+//Compile-time generic instance bookkeeping (the declared templates'
+//placeholder and instance tables; nlang/compiler/GenericInstanceRegistry.h).
+class GenericInstanceRegistry;
 
 class VmBackend : public ICodeBackend {
 public:
@@ -371,22 +374,9 @@ private:
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
-    //Phase 8e-4 boxing plans for built-in generic method calls.
+    //Phase 8e-4 boxing plan for generic method calls, derived
+    //from the declared template signatures (phase-2 D6).
     void PlanGenericMethodBoxing(SnClassDecl& classDecl,
-                                 const std::string& methodName,
-                                 std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                 bool& returnsBoxed, uint8_t& returnTag);
-    void PlanListMethodBoxing(const std::vector<SnField*>& typeArgs,
-                              const std::string& methodName,
-                              std::map<uint16_t, ArgBoxPlan>& argPlans,
-                              bool& returnsBoxed, uint8_t& returnTag);
-    void PlanDictMethodBoxing(const std::vector<SnField*>& typeArgs,
-                              const std::string& methodName,
-                              std::map<uint16_t, ArgBoxPlan>& argPlans,
-                              bool& returnsBoxed, uint8_t& returnTag);
-    //K1 Slice 9: Channel<T> (send boxes the value, recv unboxes the
-    //return).
-    void PlanChannelMethodBoxing(const std::vector<SnField*>& typeArgs,
                                  const std::string& methodName,
                                  std::map<uint16_t, ArgBoxPlan>& argPlans,
                                  bool& returnsBoxed, uint8_t& returnTag);
@@ -1177,6 +1167,11 @@ private:
     //Literal arm: the same kind set ExtractLiteralDefault folds.
     bool EncodeLiteralDesc(SnLiteralExpr& lit, std::vector<uint8_t>& out);
     static BoxingTagResult BoxingTagFor(SnField* pT);
+    //The boxing tag for one placeholder-typed signature slot (formal or
+    //return); the type argument the placeholder binds to decides it.
+    static BoxingTagResult PlaceholderBoxingTag(
+        const GenericInstanceRegistry& declaredGenerics,
+        SnField* pPlaceholder, const std::vector<SnField*>& typeArgs);
     //Emit one operand into its claim slot, boxing it in place when
     //the plan says primitive (the OP_Box sequence needs a pResult
     //refresh first). Used by the container subscript SET sugar path;
