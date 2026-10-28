@@ -6,6 +6,30 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-10-28
+
+This version starts the 0.12 line, which focuses on completing the
+declaration truth-sourcing (class-based array and string entering the
+prelude) and user-defined generics.
+
+### Added
+
+- The manual's built-in generic classes page documents the bare-name
+  constructor form (`List<int> l = List();`) beside the brace
+  initializer, and points at the Channel capacity constructor.
+
+### Changed
+
+- The VM derives generic method boxing plans under the same
+  overload-intersection rule the compiler's resolver applies: a
+  position boxes only when every same-name template method puts the
+  same type parameter there. The stdlib templates declare no method
+  overloads, so compiled output is unchanged from 0.11.11 — modules
+  compiled by either version are interchangeable.
+- The roadmap now tracks the 0.12.x series direction and the queued
+  scanner closing-bracket pairing fix (the nested-generic `>>`
+  limitation the regression probe pins today).
+
 ## [0.11.11] - 2026-10-28
 
 ### Added
