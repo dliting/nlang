@@ -254,7 +254,7 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 //passes). A jagged loop var (T[]) would mint a token-of-token target:
 //keep the existing jagged diagnostic instead.
 static void SupplyForeachInitListTarget(BuildEnvironment &env,
-	SnForeachStmt &sn, SnField *pVarField)
+	ExprResolver &resolver, SnForeachStmt &sn, SnField *pVarField)
 {
 	auto *pInitList = UntypedInitListOf(*sn.Iterable());
 	if (!pInitList || !pVarField)
@@ -265,13 +265,13 @@ static void SupplyForeachInitListTarget(BuildEnvironment &env,
 			"jagged arrays (T[][]) are not supported");
 		return;
 	}
-	//0.10.8 D3: the brace form iterates a List<T> minted from the
+	//0.10.8 D3: the brace form iterates a List<T> instantiated from the
 	//loop-var type (an array target would hit the array-form gate);
 	//the bracket form keeps the interned array token.
 	if (!pInitList->IsArrayForm())
 	{
-		auto *pListDecl = GetGenericClassDecl(env.Registry(),
-			kBuiltinListTypeName, {pVarField}, {}, pInitList->Location());
+		auto *pListDecl = resolver.FindDeclaredGenericInstance(
+			*sn.Parent(), kBuiltinListTypeName, {pVarField});
 		if (pListDecl)
 			pInitList->InferredTarget(pListDecl);
 		return;
@@ -310,7 +310,7 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 
 	//2. Resolve iterable (EvalDataType gets populated for codegen to use).
 	//0.9.13 D-new-2: supplied its target from the loop-var type first.
-	SupplyForeachInitListTarget(m_Env, sn, pVarField);
+	SupplyForeachInitListTarget(m_Env, m_ExprResolver, sn, pVarField);
 	sn.Iterable()->Accept(*m_pVisitor);
 	CheckForeachSource(sn);
 

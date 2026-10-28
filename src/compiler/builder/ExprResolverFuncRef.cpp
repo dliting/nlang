@@ -402,4 +402,36 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr)
 	return true;
 }
 
+//Init-list entry slots: a pending function reference in a container
+//literal ([dbl]) binds against the slot's element type here — the
+//entry positions have no overload set to score them against. Moved
+//from ExprResolverInitList.cpp (source-size budget; the predicates
+//and binders live in this file).
+static void BindEntrySlotFuncRef(BuildEnvironment &env,
+    SnExpression *pExpr, SnField *pSlotType)
+{
+    if (!pExpr || !pSlotType)
+        return;
+    if (IsUnboundFuncRef(*pExpr))
+    {
+        BindFuncRefToExpected(env,
+            *static_cast<SnIdentifierExpr*>(pExpr), pSlotType);
+    }
+    else if (IsUnboundMemberFuncRef(*pExpr))
+    {
+        BindMemberFuncRefToExpected(env,
+            *static_cast<SnMemberExpr*>(pExpr), pSlotType);
+    }
+}
+
+void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
+    const InitListSlotTypes &slots)
+{
+    for (auto &entry : sn.Entries())
+    {
+        BindEntrySlotFuncRef(m_Env, entry.pKey, slots.pKeyType);
+        BindEntrySlotFuncRef(m_Env, entry.pValue, slots.pValueType);
+    }
+}
+
 } //namespace nlang

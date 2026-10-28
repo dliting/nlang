@@ -155,6 +155,23 @@ public:
 		m_bPendingGenericOpen = false;
 		return bPending;
 	}
+
+	//One-shot flag: the previous token was the "class" keyword. Taken
+	//(and cleared) by the identifier rule — the class NAME position does
+	//not arm the generic-open flag, so the generic-parameter brackets of
+	//a prelude declaration (`class List<T>`) lex as plain '<'/'>' while
+	//every other occurrence of the name keeps the OT_TypeLt reading.
+	void MarkClassDeclHead()
+	{
+		m_bPendingClassDeclName = true;
+	}
+
+	bool TakePendingClassDeclName()
+	{
+		bool bPending = m_bPendingClassDeclName;
+		m_bPendingClassDeclName = false;
+		return bPending;
+	}
 private:
 	void InitScanInfo();
 
@@ -186,6 +203,9 @@ private:
 
 	//previous token was "List"/"Dict" (see PendingGenericOpen()).
 	bool m_bPendingGenericOpen;
+
+	//previous token was "class" (see MarkClassDeclHead()).
+	bool m_bPendingClassDeclName;
 };
 
 } //namespace nlang

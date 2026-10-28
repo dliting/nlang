@@ -210,6 +210,25 @@ bool ModuleRegistry::IsPreludeModule(uint32_t moduleIndex) const
 		&& m_modules[moduleIndex].path == kPreludePackageName;
 }
 
+void ModuleRegistry::ForEachOwnGenericInstance(uint32_t unitIdx,
+	const std::function<void(SnClassDecl&)>& visitor) const
+{
+	//Placeholder-argument instantiations are template-body type
+	//surfaces, never emittable classes: their members' substituted
+	//leaves are placeholders, which no unit class table can resolve.
+	//The concrete instances (minted at use sites with real arguments)
+	//are what the emission walks register.
+	const auto emittable = [this, &visitor](SnClassDecl& inst) {
+		if (!m_upDeclaredGenerics->HasPlaceholderArg(inst))
+			visitor(inst);
+	};
+	m_upDeclaredGenerics->ForEachInstance(unitIdx, emittable);
+	m_upDeclaredGenerics->ForEachInstance(NO_OWNER, emittable);
+	for (uint32_t i = 0; i < m_modules.size(); ++i)
+		if (IsPreludeModule(i))
+			m_upDeclaredGenerics->ForEachInstance(i, emittable);
+}
+
 bool ModuleRegistry::IsCompiledInModule(const std::string& dottedPath) const
 {
 	//Project modules and inline library TUs alike (no isExternal, no

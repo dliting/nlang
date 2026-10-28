@@ -146,7 +146,10 @@ static const char* const kSurfaceProbe = R"NLANG(int main() {
 static const char* const kChannelProbe = R"NLANG(int main() {
     Channel<int> c = Channel(2);
     c.close();
-    Channel<int> u = new Channel<int>();
+    //Zero-arg construction: the bare invoke (the `new ...()` spelling is
+    //not a NLang form — `new` has been an ordinary identifier since
+    //0.9.0 D8; the init-list `= {}` twin is exercised by the e2e probe).
+    Channel<int> u = Channel();
     u.close();
     return 0;
 }
@@ -239,7 +242,7 @@ void test_unbounded_ctor_does_not_read_capacity()
     std::string out;
     const int rc = executeSource("binding_unbounded",
         "int main() {\n"
-        "    Channel<int> c = new Channel<int>();\n"
+        "    Channel<int> c = Channel();\n"
         "    c.send(5);\n"
         "    if (c.recv() != 5) { return 1; }\n"
         "    return 0;\n"

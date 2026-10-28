@@ -41,6 +41,22 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr)
 //would resolve the list but leave the target slot unstaged (the
 //pre-0.9.0 `[1]` hole). Shared with the bare-brace argument admission
 //(AdmitsInitListArg in ExprResolverBinding.cpp).
+//Phase-2 builtin-decls: a List/Dict instantiation target lowers its
+//entries element-wise (add/set with entry-slot casts), never as field
+//stores — the shared predicate for the target-shape arm below and the
+//class-form contract gate in PrepareInitListShape.
+bool IsContainerInitTarget(SnField *pType)
+{
+    if (pType->Kind() != NK_ClassDecl)
+        return false;
+    auto *pClass = static_cast<SnClassDecl *>(pType);
+    if (!pClass->IsGenericInstantiation())
+        return false;
+    const auto &baseName = pClass->BaseName();
+    return baseName == kBuiltinListTypeName
+        || baseName == kBuiltinDictTypeName;
+}
+
 bool IsInitListTargetShape(SnField *pType)
 {
     if (!pType)
@@ -59,12 +75,19 @@ bool IsInitListTargetShape(SnField *pType)
     if (IsFuncTypeDecl(pType))
         return false;
     if (pClass->IsGenericInstantiation())
-        return pClass->BaseName() == kBuiltinListTypeName
-            || pClass->BaseName() == kBuiltinDictTypeName
-            //K1 Slice 9: `Channel<T> c = {};` constructs an empty
-            //channel (the only legal entry count — see the reject
-            //gate in Access(SnInitListExpr&)).
-            || pClass->BaseName() == kBuiltinChannelTypeName;
+    {
+        //List/Dict lower entry-wise through their slot types; func has
+        //no instances. Every other instantiation is a declared template
+        //instance (phase-2 builtin-decls: List/Dict/Channel/Future like
+        //Promise and user generics) — the ordinary class contract
+        //decides: Channel's zero-formal ctor binds in
+        //CheckClassCtorForInitList, a ctor-less template (Future)
+        //stays rejected there.
+        if (IsContainerInitTarget(pType))
+            return true;
+        if (pClass->BaseName() == kBuiltinFuncTypeName)
+            return false;
+    }
     return !pClass->IsBuiltinClass();
 }
 
@@ -146,32 +169,6 @@ InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
 //type (both the bare and the receiver-bound member form). 0.10.10: the
 //key slot is covered symmetrically; its branch stays unreachable until
 //`Func<...>` is a legal generic type argument.
-static void BindEntrySlotFuncRef(BuildEnvironment &env,
-    SnExpression *pExpr, SnField *pSlotType)
-{
-    if (!pExpr || !pSlotType)
-        return;
-    if (IsUnboundFuncRef(*pExpr))
-    {
-        BindFuncRefToExpected(env,
-            *static_cast<SnIdentifierExpr*>(pExpr), pSlotType);
-    }
-    else if (IsUnboundMemberFuncRef(*pExpr))
-    {
-        BindMemberFuncRefToExpected(env,
-            *static_cast<SnMemberExpr*>(pExpr), pSlotType);
-    }
-}
-
-void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
-    const InitListSlotTypes &slots)
-{
-    for (auto &entry : sn.Entries())
-    {
-        BindEntrySlotFuncRef(m_Env, entry.pKey, slots.pKeyType);
-        BindEntrySlotFuncRef(m_Env, entry.pValue, slots.pValueType);
-    }
-}
 
 //0.7.3 B / 0.7.5 / 0.10.10: every entry slot must cross at its
 //declared width. The array/container lowerings read the staged value
@@ -438,7 +435,12 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
         : pTargetField);
     sn.AddFlags(NF_Resolved);
 
-    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl)
+    //List/Dict targets never take the class-form contract: their
+    //entries are element writes (add/set lowering with entry-slot
+    //casts), not field stores — the contract's field:value gate and
+    //no-arg ctor check govern field-store targets only.
+    if (!bIsArray && pTargetField->Kind() == NK_ClassDecl
+            && !IsContainerInitTarget(pTargetField))
         CheckClassInitListForm(sn,
             static_cast<SnClassDecl*>(pTargetField));
     return false;

@@ -8,6 +8,6 @@ int main() {
     Object o = l;
     if (o.toString() != "[7]") { return 1; }
     Object p = ch;
-    if (p.equals(l) || !p.equals(ch)) { return 2; }
+    if (p.equals(l) == 1 || p.equals(ch) == 0) { return 2; }
     return 0;
 }

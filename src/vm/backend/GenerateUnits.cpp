@@ -19,7 +19,7 @@ void VmBackend::GenerateAllBytecode(SnNamespace& root) {
     //RegisterFunctions; their emission (native record fill, signature
     //descriptors) runs here with the same body-or-native filter the
     //tree walk applies.
-    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
         [this](SnClassDecl& inst) {
             for (auto& member : inst.Members())
             {

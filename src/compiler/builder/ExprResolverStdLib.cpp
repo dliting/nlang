@@ -388,6 +388,20 @@ bool ExprResolveAccessor::ProbeNonFunctionField(const std::string &name)
 		&& m_Env.Registry().IsLibraryModule(
 			m_Env.Registry().OwnerOf(*pField)))
 		return false;
+	//m12 semantics: a USER declaration shadows the built-in surfaces.
+	//A prelude-owned declaration is not a user shadow — the declared
+	//generic classes (Future, Channel, ...) are prelude members every
+	//scope probe can see, and treating them as shadows would retire
+	//the static faces (Future.selectAny) and every name-keyed arm that
+	//shares this probe.
+	if (pField)
+	{
+		auto &registry = m_Env.Registry();
+		const uint32_t owner = registry.OwnerOf(*pField);
+		if (owner != ModuleRegistry::NO_OWNER
+			&& registry.IsPreludeModule(owner))
+			return false;
+	}
 	return pField != nullptr;
 }
 

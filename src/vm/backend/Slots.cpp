@@ -1,3 +1,4 @@
+#include <cstdio>
 /*---
     Slots.cpp — phase 6 per-unit symbol slot resolution family:
     SlotFor family (own table lookup vs. cross-unit placeholder slot),
@@ -141,10 +142,11 @@ VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
 uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {
     if (IsOwnUnit(decl)) {
         int idx = m_compiledModule.FindClass(KeyOf(decl));
-        if (idx < 0)
+        if (idx < 0) {
             throw std::runtime_error(
                 "NLang backend: own class missing from the unit table: "
                 + KeyOf(decl));
+        }
         return static_cast<uint32_t>(idx);
     }
     return ClassSymbolSlot(m_compiledModule,

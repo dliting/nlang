@@ -116,6 +116,17 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	std::vector<uint8> outFlags;
 	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
 		return false;
+	//Phase 13 Step 2: Dict keyed by a func type — DictKeysEqual is
+	//identity for func records (no interning), so two references to the
+	//same function would store as two entries. Lives on the DECLARED
+	//path since the D4 routing split (the synthetic arm only sees func).
+	if (baseName == kBuiltinDictTypeName && !typeArgs.empty()
+		&& IsFuncTypeDecl(typeArgs[0]))
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"function types cannot be used as Dict keys.");
+		return false;
+	}
 	auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs,
 		m_Env.Registry().OwnerOfContext(genType));
 	if (!pInstance)
@@ -132,7 +143,11 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	auto *pBase = genType.Base();
 	assert(pBase);
 	std::string baseName = pBase->ToString();
-	if (!IsBuiltinGenericTypeName(baseName))
+	//D4 routing split: only func mints synthetically now — the four
+	//generic prelude names resolve through their declared templates
+	//(Promise precedent). IsBuiltinGenericTypeName remains the
+	//SCANNER's flag set only.
+	if (baseName != kBuiltinFuncTypeName)
 	{
 		TryResolveDeclaredGenericInstance(genType, baseName);
 		return;
@@ -142,19 +157,6 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	std::vector<uint8> outFlags;
 	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
 		return;
-
-	//Phase 13 Step 2: Dict keyed by a func type — DictKeysEqual is
-	//identity for func records (no interning), so two references to the
-	//same function would store as two entries. Reject at the single
-	//instantiation point; both declaration types and new-expression
-	//types flow through here.
-	if (baseName == kBuiltinDictTypeName && !typeArgs.empty()
-		&& IsFuncTypeDecl(typeArgs[0]))
-	{
-		m_Env.Log(CLL_Error, genType.Location(),
-			"function types cannot be used as Dict keys.");
-		return;
-	}
 
 	auto *pSynClass =
 		GetGenericClassDecl(m_Env.Registry(), baseName,

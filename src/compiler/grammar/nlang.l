@@ -223,7 +223,15 @@ LineComment	\/\/[^\n]*
 "case"      { return KT_Case; }
 "catch"     { return KT_Catch; }
 "char"      { return KT_Char; }
-"class"     { return KT_Class; }
+"class"     {
+                /* The class NAME follows: the identifier rule must not
+                 * arm the generic-open flag there, or a prelude
+                 * declaration like `class List<T>` would lex its
+                 * parameter brackets as the OT_TypeLt type-argument
+                 * opener. See MarkClassDeclHead(). */
+                scanner.MarkClassDeclHead();
+                return KT_Class;
+            }
 "const"     { return KT_Const; }
 "continue"  { return KT_Continue; }
 "do"        { return KT_Do; }
@@ -374,7 +382,11 @@ LineComment	\/\/[^\n]*
                  * opens a type-argument list (see the '<' rule); the
                  * declared generics (Promise, user classes) are
                  * deliberately not here — their use sites parse on the
-                 * grammar's plain-'<' type arms. Every identifier
+                 * grammar's plain-'<' type arms. Since the phase-2
+                 * source-of-truth migration the prelude DECLares these
+                 * names, so the class-head one-shot flag suppresses the
+                 * arming in the class-name position (`class List<T>`
+                 * parses its parameter brackets plain). Every identifier
                  * rewrites this flag, so it can only reach a '<' across
                  * blanks/comments — a comparison `List < 3` against a
                  * variable shadowing the type name is misread
@@ -383,7 +395,8 @@ LineComment	\/\/[^\n]*
                  *predicate is qualified with nlang:: (it lives in the
                  *runtime namespace). */
                 scanner.PendingGenericOpen(
-                    nlang::IsBuiltinGenericTypeName(yytext));
+                    !scanner.TakePendingClassDeclName()
+                    && nlang::IsBuiltinGenericTypeName(yytext));
                 return TT_Identifier;
             }
 

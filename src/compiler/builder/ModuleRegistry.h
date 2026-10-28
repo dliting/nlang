@@ -213,6 +213,19 @@ public:
 		return *m_upDeclaredGenerics;
 	}
 
+	//Unit-image walk over declared-generic instantiations: the unit's
+	//own bucket plus the SHARED buckets (NO_OWNER and every prelude
+	//module). Prelude-owned instances are own in EVERY unit image
+	//(builtin-decls source-of-truth design §6.7) — the declared mirror
+	//of IsOwnUnit's prelude arm; without the shared buckets an
+	//instantiation minted while resolving prelude signatures
+	//(Exception's List<string> backtrace field) would land in no unit's
+	//image and its class slot would miss. An adopted instance sits in
+	//exactly one bucket, so buckets never overlap; callers dedup
+	//against their own class tables (declMap / FindClass).
+	void ForEachOwnGenericInstance(uint32_t unitIdx,
+		const std::function<void(SnClassDecl&)>& visitor) const;
+
 	//Synthetic builtin declarations minted on demand for this build
 	//(builtin generic instantiations, ByteStream/FileStream
 	//singletons, static-face qualifiers). Same per-build scope and

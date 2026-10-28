@@ -49,34 +49,43 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
 //first same-name member). With no zero-formal candidate the text
 //names the first non-zero-formal one's arity (declaration order);
 //with no candidates at all the implicit/table shape stays legal.
-void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
-    SnClassDecl *pClassDecl)
+//0.9.11 T6 scan: the caller-reachable ctor candidates — the
+//zero-formal one the init list calls through, the first candidate for
+//the arity diagnostic (0.9.10 D2.4: a same-name static is not the
+//constructor), and whether any exist but are inaccessible
+//(0.9.12 D-new-5).
+static void FindCtorCandidates(SnClassDecl &classDecl,
+    const SnField &accessor, SnFunction *&rpNoArgCtor,
+    SnFunction *&rpFirstCtor, bool &rbAnyInaccessible)
 {
-    //0.9.12 D-new-5: only caller-reachable ctors are candidates; with
-    //none reachable but some existing, report the accessibility failure.
-    SnFunction *pNoArgCtor = nullptr;
-    SnFunction *pFirstCtor = nullptr;
-    bool bAnyInaccessible = false;
-    for (auto& field : pClassDecl->Members())
+    for (auto& field : classDecl.Members())
     {
-        //0.9.10 D2.4: a same-name static is not the constructor — skip it
-        //and keep looking (declaration order must not matter).
         if (field.Kind() == NK_Function
-            && field.Name() == pClassDecl->Name()
+            && field.Name() == classDecl.Name()
             && !field.ContainFlags(NF_Static))
         {
             auto &ctor = static_cast<SnFunction&>(field);
-            if (!ctor.AllowAccess(*m_pAccessor))
+            if (!ctor.AllowAccess(accessor))
             {
-                bAnyInaccessible = true;
+                rbAnyInaccessible = true;
                 continue;
             }
-            if (!pFirstCtor)
-                pFirstCtor = &ctor;
-            if (!pNoArgCtor && ctor.Params().size() == 0)
-                pNoArgCtor = &ctor;
+            if (!rpFirstCtor)
+                rpFirstCtor = &ctor;
+            if (!rpNoArgCtor && ctor.Params().size() == 0)
+                rpNoArgCtor = &ctor;
         }
     }
+}
+
+void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
+    SnClassDecl *pClassDecl)
+{
+    SnFunction *pNoArgCtor = nullptr;
+    SnFunction *pFirstCtor = nullptr;
+    bool bAnyInaccessible = false;
+    FindCtorCandidates(*pClassDecl, *m_pAccessor, pNoArgCtor, pFirstCtor,
+        bAnyInaccessible);
     if (pNoArgCtor)
     {
         sn.CtorFunction(pNoArgCtor);
@@ -96,6 +105,15 @@ void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
     {
         m_Env.Log(CLL_Error, sn.Location(),
             "constructor of class \"%s\" is not accessible",
+            pClassDecl->Name().c_str());
+    }
+    else if (pClassDecl->IsGenericInstantiation())
+    {
+        //Declared-template instances mint no implicit ctor: a
+        //constructor-less template (Future) is not constructible from
+        //{} — the same verdict as new Future<...>().
+        m_Env.Log(CLL_Error, sn.Location(),
+            "class \"%s\" has no constructor; {} cannot construct it",
             pClassDecl->Name().c_str());
     }
 }
