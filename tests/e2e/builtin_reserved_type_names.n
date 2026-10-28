@@ -1,0 +1,10 @@
+// builtin-decls phase 2 (0.11.11) delta 1: Channel and Future join List/
+// Dict as reserved type names — a local variable may not take them
+// (NamesVisibleType covers the whole prelude class surface now).
+class C {
+}
+int main() {
+    int Channel = 1;
+    int Future = 2;
+    return Channel + Future;
+}

@@ -1303,6 +1303,9 @@ private:
     struct ChannelWaiter;  //defined beside the side-table members below
     struct ChannelSlot;    //same
     bool IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals);
+    bool IntrinsicChannelCtorAlloc(int32_t thisIdx, int32_t capacity);
+    bool IntrinsicChannelCtorUnbounded(uint16_t callParamBase,
+                                       uint8_t* locals);
     bool IntrinsicChannelSend(uint16_t callParamBase, uint8_t* locals);
     bool IntrinsicChannelRecv(uint16_t callParamBase, uint8_t* locals,
                               uint8_t* pResult);

@@ -28,6 +28,30 @@ namespace nlang
 //stage from slot 0 (the binding row's noReceiver ABI). True = consumed
 //(bound or diagnosed); false = declined — the chain is not a face
 //shape, and the ordinary paths keep it untouched.
+//TryResolveBuiltinStaticFace's m12 probe: a user local/field named
+//like the face's type wins (ProbeNonFunctionField), and so does a
+//user TYPE declaration (FindTypeNameInAncestor) — the ordinary member
+//path then owns the chain. A PRELUDE type hit is not a user shadow:
+//since the generic four became declared templates the probe finds
+//Future/Channel on every face call, so prelude-owned hits keep the
+//face arm's priority.
+bool ExprResolveAccessor::UserDeclarationShadowsFace(
+	const std::string &typeName)
+{
+	if (ProbeNonFunctionField(typeName))
+		return true;
+	if (!m_pContext)
+		return false;
+	auto *pFound = FindTypeNameInAncestor(typeName, *m_pContext,
+		*m_pAccessor, false);
+	if (!pFound)
+		return false;
+	auto &registry = m_Env.Registry();
+	const uint32_t owner = registry.OwnerOf(*pFound);
+	return owner == ModuleRegistry::NO_OWNER
+		|| !registry.IsPreludeModule(owner);
+}
+
 bool ExprResolveAccessor::TryResolveBuiltinStaticFace(
 	SnMemberExpr &snMember)
 {
@@ -42,15 +66,8 @@ bool ExprResolveAccessor::TryResolveBuiltinStaticFace(
 		pathSegs.front(), invoke.CalleeName());
 	if (!pFace)
 		return false;
-	//m12 priority: a user local/field named like the face's type wins
-	//(ProbeNonFunctionField), and so does a user TYPE declaration
-	//(FindTypeNameInAncestor — the builtin generics are minted, never
-	//declared, so only a user spelling can hit). The ordinary member
-	//path then owns the chain.
-	if (ProbeNonFunctionField(pathSegs.front()))
-		return false;
-	if (m_pContext && FindTypeNameInAncestor(pathSegs.front(),
-		*m_pContext, *m_pAccessor, false))
+	//m12 priority (the shared probe's owner gate decides).
+	if (UserDeclarationShadowsFace(pathSegs.front()))
 		return false;
 	//The by-name dispatch reject of the container method family: the
 	//no-receiver intrinsic reads positional slots only.

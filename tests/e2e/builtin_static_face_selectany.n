@@ -1,0 +1,16 @@
+// builtin-decls phase 2 (0.11.11): Future.selectAny keeps working after
+// Future became a declared template — the static face must still own
+// `Future.selectAny(...)` chains (prelude-owned type hits are not user
+// shadows). One promise completes before the call so the winner index is
+// deterministic on a single carrier (selectany_decided.n shape).
+int main() {
+    Promise<int> pa = Promise();
+    Promise<int> pb = Promise();
+    Future<int> fa = pa.future();
+    Future<int> fb = pb.future();
+    pa.complete(1);
+    Future<int>[] arr = [fa, fb];
+    int winner = Future.selectAny(arr);
+    if (winner != 0) { return 1; }
+    return 0;
+}

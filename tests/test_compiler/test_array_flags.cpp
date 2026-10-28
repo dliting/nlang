@@ -285,9 +285,11 @@ static void test_generic_array_flags_split_keys()
     CHECK(pPlain->GenericTypeArgs().size() == 1
         && pPlain->GenericTypeArgs()[0]->Kind() == NK_Int32,
         "plain variant's type arg is the int field");
-    //Display name renders the token ("Int32[]") — diagnostic readability.
-    CHECK(pArrayOf->Name().find("Int32[]") != std::string::npos,
-        "display name renders the array token, got: " + pArrayOf->Name());
+    //builtin-decls phase 2 erasure naming: the instance shares the
+    //template's bare name ("List") — array-ness lives in the type-arg
+    //token (asserted above), so the name no longer renders it.
+    CHECK(pArrayOf->Name() == "List",
+        "instance shares the template's bare name, got: " + pArrayOf->Name());
     PASS();
 }
 

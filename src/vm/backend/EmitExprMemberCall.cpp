@@ -3,6 +3,8 @@
     从 EmitExprMember.cpp 拆出；字符串/toString 族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "builder/ModuleRegistry.h"
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -269,101 +271,95 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                              outSpills, emitter, resultOffset);
 }
 
-//Phase 8e-4: per-method boxing plan for built-in generic
-//classes (List<T>, Dict<K,V>). For primitive type arguments,
-//the corresponding param slots must be boxed (OP_Box) before
-//OP_CallMethod, and Get()/index returns must be unboxed
-//(OP_Unbox) after. argPlans maps paramIdx → {tag,needsBox};
-//returnsBoxed/returnTag handle the return-side unbox.
-//For class/struct type args, BoxingTagFor returns 0 → no
-//boxing; values pass as heap idxs directly.
+//The template's unique non-static method of this name — the declared
+//templates declare no method overloads, so the first hit is the method.
+static SnFunction* TemplateMethodOf(SnClassDecl& tmpl,
+                                    const std::string& methodName)
+{
+    for (auto& member : tmpl.Members())
+        if (member.Kind() == NK_Function
+            && member.Name() == methodName
+            && !member.ContainFlags(NF_Static))
+            return static_cast<SnFunction*>(&member);
+    return nullptr;
+}
+
+//The boxing tag for one placeholder-typed slot: the type argument the
+//placeholder binds to decides the tag. Anything else (a non-placeholder
+//binding, a malformed arg index, a class/struct or array-typed
+//argument) reports not-primitive and never boxes.
+VmBackend::BoxingTagResult VmBackend::PlaceholderBoxingTag(
+    const GenericInstanceRegistry& declaredGenerics, SnField* pPlaceholder,
+    const std::vector<SnField*>& typeArgs)
+{
+    if (!pPlaceholder || !declaredGenerics.IsPlaceholder(pPlaceholder))
+        return {0, false};
+    const size_t argIdx = declaredGenerics.PlaceholderIndex(pPlaceholder);
+    if (argIdx >= typeArgs.size())
+        return {0, false};
+    return BoxingTagFor(typeArgs[argIdx]);
+}
+
+//Boxed-element generic names (intrinsic ABI property): List, Dict and
+//Channel store every element in erased side tables, so a primitive
+//type argument must ride OP_Box across the call boundary. Future and
+//Promise are absent — their values ride the context result slot raw.
+static const char* const kBoxedElementGenericNames[] = {
+    kBuiltinListTypeName, kBuiltinDictTypeName, kBuiltinChannelTypeName,
+};
+
+//Phase-2 D6: the boxing plan reads the DECLARED signatures. The
+//template method's placeholder-typed formals decide which argument
+//slots are element storage; the instance's type arguments decide each
+//slot's tag (add/indexOf/contains at slot 1, set's value at slot 2,
+//get/recv on the return side — the same plan the three retired
+//(baseName, method) tables encoded, now expressed by
+//stdlib/builtins.n). Class/struct type arguments never box:
+//BoxingTagFor returns isPrimitive=false and the raw heap handle
+//passes through, as do array-typed slots (the interned token is not
+//a primitive).
 void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
                                         const std::string& methodName,
                                         std::map<uint16_t, ArgBoxPlan>& argPlans,
                                         bool& returnsBoxed,
                                         uint8_t& returnTag) {
-    const auto& typeArgs = classDecl.GenericTypeArgs();
     const auto& baseName = classDecl.BaseName();
-    //0.7.3 B: an array-typed slot IS the interned token —
-    //BoxingTagFor's default ({0,false}, not primitive)
-    //already flows it as a raw handle, class-style, so
-    //boxing stays reserved for true primitives.
-    if (baseName == kBuiltinListTypeName) {
-        PlanListMethodBoxing(typeArgs, methodName, argPlans,
-                             returnsBoxed, returnTag);
-    } else if (baseName == kBuiltinDictTypeName) {
-        PlanDictMethodBoxing(typeArgs, methodName, argPlans,
-                             returnsBoxed, returnTag);
-    } else if (baseName == kBuiltinChannelTypeName) {
-        PlanChannelMethodBoxing(typeArgs, methodName, argPlans,
-                                returnsBoxed, returnTag);
-    }
-}
-
-//List<T> method signatures:
-//  Add(T)         — T at paramIdx 1
-//  Set(int, T)    — T at paramIdx 2
-//  IndexOf(T)     — T at paramIdx 1
-//  Contains(T)    — T at paramIdx 1
-//  Get(int) → T   — return unboxed
-void VmBackend::PlanListMethodBoxing(const std::vector<SnField*>& typeArgs,
-                                     const std::string& methodName,
-                                     std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                     bool& returnsBoxed,
-                                     uint8_t& returnTag) {
-    auto t = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
-    if (t.isPrimitive) {
-        if (methodName == "add"
-            || methodName == "indexOf"
-            || methodName == "contains") {
-            argPlans[1] = {t.tag, true};
-        } else if (methodName == "set") {
-            argPlans[2] = {t.tag, true};
-        } else if (methodName == "get") {
-            returnsBoxed = true; returnTag = t.tag;
-        }
-    }
-}
-
-//Dict<K,V> boxing plan: set/get box K and V (when primitive); get's
-//return side unboxes V.
-void VmBackend::PlanDictMethodBoxing(const std::vector<SnField*>& typeArgs,
-                                     const std::string& methodName,
-                                     std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                     bool& returnsBoxed,
-                                     uint8_t& returnTag) {
-    auto k = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
-    auto v = (typeArgs.size() > 1)
-        ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
-    if (methodName == "set") {
-        if (k.isPrimitive) argPlans[1] = {k.tag, true};
-        if (v.isPrimitive) argPlans[2] = {v.tag, true};
-    } else if (methodName == "get") {
-        if (k.isPrimitive) argPlans[1] = {k.tag, true};
-        if (v.isPrimitive) { returnsBoxed = true; returnTag = v.tag; }
-    } else if (methodName == "containsKey"
-        || methodName == "remove") {
-        if (k.isPrimitive) argPlans[1] = {k.tag, true};
-    }
-}
-
-//Channel<T> boxing plan (K1 Slice 9): send(T) boxes T at paramIdx 1;
-//recv() → T unboxes on the return side. close takes nothing. Mirrors
-//the List plan — at runtime every element is a heap idx (boxed
-//primitive record or class reference).
-void VmBackend::PlanChannelMethodBoxing(
-                                     const std::vector<SnField*>& typeArgs,
-                                     const std::string& methodName,
-                                     std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                     bool& returnsBoxed,
-                                     uint8_t& returnTag) {
-    auto t = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
-    if (!t.isPrimitive)
+    bool bBoxedElementGeneric = false;
+    for (const char* szName : kBoxedElementGenericNames)
+        if (baseName == szName) { bBoxedElementGeneric = true; break; }
+    if (!bBoxedElementGeneric || !m_pRegistry)
         return;
-    if (methodName == "send") {
-        argPlans[1] = {t.tag, true};
-    } else if (methodName == "recv") {
-        returnsBoxed = true; returnTag = t.tag;
+    auto& declaredGenerics = m_pRegistry->DeclaredGenerics();
+    SnClassDecl* pTemplate = declaredGenerics.InstanceOf(&classDecl);
+    if (!pTemplate)
+        return;
+    SnFunction* pTemplateMethod = TemplateMethodOf(*pTemplate,
+                                                    methodName);
+    if (!pTemplateMethod)
+        return;
+    const auto& typeArgs = classDecl.GenericTypeArgs();
+    //Slot 0 stages the receiver; the formals start at slot 1.
+    uint16_t paramIdx = 1;
+    for (auto& param : pTemplateMethod->Params())
+    {
+        if (param.Type())
+        {
+            BoxingTagResult tag = PlaceholderBoxingTag(declaredGenerics,
+                param.Type()->Field(), typeArgs);
+            if (tag.isPrimitive)
+                argPlans[paramIdx] = {tag.tag, true};
+        }
+        ++paramIdx;
+    }
+    if (pTemplateMethod->ReturnType())
+    {
+        BoxingTagResult tag = PlaceholderBoxingTag(declaredGenerics,
+            pTemplateMethod->ReturnType()->Field(), typeArgs);
+        if (tag.isPrimitive)
+        {
+            returnsBoxed = true;
+            returnTag = tag.tag;
+        }
     }
 }
 

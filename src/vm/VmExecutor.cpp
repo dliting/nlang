@@ -79,9 +79,9 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
 
 //Phase 9d: cache Exception hierarchy class indices. These are required
 //by RaiseNlangException to allocate the right subclass instance.
-//All FindClass calls here use bare names deliberately: the builtin
-//List/Dict/Exception family carries no owner tag, so its table keys
-//stay bare even after phase 5 qualified user keys.
+//All FindClass calls here use bare names deliberately: the prelude
+//declarations keep bare table keys (the declared erasure records too),
+//so the lookup survives every source-of-truth migration phase.
 void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     auto cacheExcClass = [&](const char* name, int16_t* out) {
         int idx = module.FindClass(name);

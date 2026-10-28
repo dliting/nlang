@@ -1,0 +1,13 @@
+//R2 pin (builtin-decls phase 2): a nested declared-generic argument
+//writes Box<Box<int>>, but the scanner still lexes ">>" as the shift
+//operator, so the nesting is a syntax error today. This probe pins
+//the current behavior; the scanner fix batch (collection closing
+//bracket pairing, phase 8e-6 leftover) flips it to a positive example.
+class Box<T> {
+    public native Box();
+    public native T get();
+}
+int main() {
+    Box<Box<int>> b = Box();
+    return 0;
+}

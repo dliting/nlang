@@ -38,13 +38,16 @@ bool ExprResolveAccessor::RejectNonPositionalCtorArg(SnExpression &arg)
 	return false;
 }
 
-//0.9.11 T6 (D10): the intrinsic ctor arity table of the builtin and
-//generic classes — their ctors are stubs registered by
+//0.9.11 T6 (D10): the intrinsic ctor arity table of the builtin
+//classes — their ctors are stubs registered by
 //VmBackend::RegisterBuiltinClasses (arity excludes `this`) and live only
 //in the CompiledClass, so a call against them is arity-checked, never
 //overload-matched; requiredArity and totalArity stay equal where
 //defaults cannot exist. User classes and structs answer false: their
-//ctors are AST candidates for MatchCtorAgainst. False = no constructor.
+//ctors are AST candidates for MatchCtorAgainst. Declared generic
+//instances answer false too — their ctor members are AST candidates;
+//synthetic func instances carry the builtin marker and arity 0.
+//False = no constructor.
 bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	size_t &requiredArity, size_t &totalArity)
 {
@@ -53,16 +56,6 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 	if (pTypeDecl->Kind() != NK_ClassDecl)
 		return false;  //struct ctors are always AST candidates
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
-	if (IsGenericClassDecl(pClassDecl))
-	{
-		//K3 task 4: Channel's ctor stub is (this, capacity) — exactly
-		//one positional int (builtin invokes stage exact arity; the
-		//unbounded default is the `{}` init-list form).
-		//List/Dict ctor stubs take only `this`.
-		if (pClassDecl->BaseName() == kBuiltinChannelTypeName)
-			requiredArity = totalArity = 1;
-		return true;
-	}
 	if (pClassDecl->IsBuiltinClass())
 	{
 		//FileStream(this, path, mode) → 2; Object/ByteStream/Thread → 0.
@@ -78,9 +71,10 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 
 //0.9.11 T6 (D10): the overload candidate set of one constructible type,
 //in declaration order. Structs answer every Ctors() entry; user classes
-//every same-name non-static member (a same-name static lives in the
-//static namespace, 0.9.10 D2.4). Builtin and generic classes answer the
-//empty set — FindCtorParamRange arity-checks calls against them instead.
+//and declared generic instances every same-name non-static member (a
+//same-name static lives in the static namespace, 0.9.10 D2.4). Builtin
+//classes answer the empty set — FindCtorParamRange arity-checks calls
+//against them instead.
 //0.9.11 v2.6: imported class/struct stubs carry rebuilt ctor members
 //(CreateClassStub/CreateStructStub), so cross-module calls match like
 //source peers. A ctor with no implementation (body-less, non-native,
@@ -118,7 +112,12 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
 		return candidates;
 	}
 	auto *pClassDecl = static_cast<SnClassDecl*>(pTypeDecl);
-	if (IsGenericClassDecl(pClassDecl) || pClassDecl->IsBuiltinClass())
+	//Phase-2 D5: declared generic instances fall through — their ctor
+	//members are real AST members matched by the loop below (erasure
+	//naming makes the instance's Name() the ctor member's name). Only
+	//synthetic minted singletons (func) stay candidate-free — they carry
+	//the builtin marker and arity-gate in FindCtorParamRange.
+	if (pClassDecl->IsBuiltinClass())
 		return candidates;
 	for (auto &member : pClassDecl->Members())
 	{

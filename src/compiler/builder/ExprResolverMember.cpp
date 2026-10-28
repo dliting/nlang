@@ -261,8 +261,7 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 		return true;
 	if (TryResolveNonClassToString(snMember, pInnerExpr, pSavedContext))
 		return true;
-	if (TryResolveGenericContainerMethod(snMember, pInnerExpr,
-		pSavedContext))
+	if (TryResolveFuncHandleMethod(snMember, pInnerExpr, pSavedContext))
 		return true;
 	return false;
 }
@@ -297,6 +296,12 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 		return;
 
 	ResolveInvokeArgsInCallerScope(pInnerExpr, pSavedContext);
+
+	//Element-typed actuals (an int into List<Object>.add) wrap against
+	//the type argument before the ordinary binding — the strict type
+	//distance would reject them; the wrap admits the Same/Box/Auto
+	//casts the retired synthetic arm granted.
+	WrapGenericElemArgs(pInnerExpr);
 
 	pInnerExpr->Accept(*m_pVisitor);
 	if (pInnerExpr->IsResolved())

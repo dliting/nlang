@@ -53,6 +53,35 @@ class AtomicInt {
     public native int getAndIncrement();
 }
 
+//Resizing sequence of elements of one type. Elements are boxed at the
+//runtime boundary for primitive type arguments (erasure); class and
+//struct elements travel as references. Indexing sugar: lst[i].
+class List<T> {
+    public native List();
+    public native void add(T item);
+    public native T get(int index);
+    public native void set(int index, T value);
+    public native int length();
+    public native void removeAt(int index);
+    public native int indexOf(T item);
+    public native bool contains(T item);
+    public native void clear();
+    public native string toString();
+}
+
+//Key-value map with insertion-ordered keys. Indexing sugar: dict[k].
+class Dict<K, V> {
+    public native Dict();
+    public native void set(K key, V value);
+    public native V get(K key);
+    public native bool containsKey(K key);
+    public native int remove(K key);
+    public native void clear();
+    public native int count();
+    public native List<K> keys();
+    public native string toString();
+}
+
 //Base class of every catchable runtime failure. message carries the
 //diagnostic text; backtrace is the call chain at the throw point,
 //innermost first.
@@ -89,6 +118,26 @@ class InvalidCastException : Exception {
 //Raised by Channel receive/send after the channel is closed.
 class ChannelClosedException : Exception {
     public native ChannelClosedException(string message);
+}
+
+//Synchronous rendezvous channel of one element type; capacity 0 is
+//unbounded. send parks when full, recv parks when empty; operations on
+//a closed channel raise ChannelClosedException.
+class Channel<T> {
+    public native Channel();
+    public native Channel(int capacity);
+    public native void send(T item);
+    public native T recv();
+    public native void close();
+}
+
+//Read handle of a spawned or promised computation: promise.future() and
+//thread.spawn mint instances (no user-callable constructor). get()
+//parks until the outcome is decided and returns the value (or re-raises
+//the failure); isDone() peeks without parking.
+class Future<T> {
+    public native T get();
+    public native bool isDone();
 }
 
 //Handle of a spawned virtual thread: the runtime context id lives in

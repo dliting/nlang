@@ -211,7 +211,7 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
     //every instantiation of a template shares the erased CompiledClass
     //(identical layout, name-keyed method dispatch), so the first
     //instantiation per key registers and the rest dedup silently.
-    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
         [&](SnClassDecl& inst) {
         if (declMap.count(KeyOf(inst)))
             return;
@@ -294,7 +294,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
     //Instantiation method tables: the signature copies own function
     //records (registered by RegisterFunctions), so the erased record
     //refills from the instantiation's members.
-    m_pRegistry->DeclaredGenerics().ForEachInstance(m_currentUnitIdx,
+    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
         [&](SnClassDecl& inst) {
         int ccIdx = m_compiledModule.FindClass(KeyOf(inst));
         if (ccIdx < 0) return;

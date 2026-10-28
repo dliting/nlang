@@ -188,21 +188,16 @@ SnField *ExprResolveAccessor::ProbeCtorType(const std::string &name,
 }
 
 //TryResolveCtorInvoke's no-class arm: the probe found no declaration —
-//a bare generic name is rejected with the fix-naming diagnostic (0.9.0:
-//List/Dict exist only as typed instantiations; the probe runs first so
-//a user class named List is legal and must construct). K3 task 4:
-//`Channel<int> c = Channel(n);` — the assign resolver published the
-//declared LHS type; a Channel target binds the invoke as the
-//bounded-capacity ctor call. List/Dict keep the reject: their bare
-//names read as element lists, a different contract. True = consumed.
+//a bare generic name is rejected with the fix-naming diagnostic. Since
+//the phase-2 source-of-truth migration List/Dict/Channel/Future are
+//declared templates the probe resolves (a user class of the same name
+//shadows them and constructs too) — only func still reaches here (no
+//declaration can ever exist). True = consumed.
 bool ExprResolveAccessor::RejectBareGenericCtorInvoke(
 	SnInvokeExpr &snInvoke)
 {
 	if (!IsBuiltinGenericTypeName(snInvoke.CalleeName()))
 		return false;
-	if (snInvoke.CalleeName() == kBuiltinChannelTypeName
-		&& TryBindChannelCtorInvoke(snInvoke))
-		return true;
 	m_Env.Log(CLL_Error, snInvoke.Location(),
 		"generic class \"%s\" cannot be constructed by bare name; "
 		"use [] or {} with a typed declaration",
@@ -277,54 +272,6 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 		actuals.push_back(&param);
 	snInvoke.CtorFunction(SelectCtorForArgs(pTypeDecl, actuals,
 		snInvoke.Location()));
-	return true;
-}
-
-//K3 task 4: bind a bare `Channel(n)` invoke as the bounded-capacity ctor
-//call when the assignment target is a Channel<T> instantiation. The hint
-//is consumed unconditionally (null outside an assignment's RHS — the
-//reject below is unreachable there). Returns true = consumed (bound, or
-//rejected with a named diagnostic); false = no usable Channel target.
-//Capacity contract: exactly one int argument (builtin invokes stage
-//exact arity — an unstaged capacity slot would read evalArea garbage);
-//0 = unbounded, n >= 1 = bounded, n < 0 rejected at run time. The
-//unbounded default keeps the `{}` init-list form.
-bool ExprResolveAccessor::TryBindChannelCtorInvoke(SnInvokeExpr &snInvoke)
-{
-	auto *pTarget = m_pCtorInvokeTarget;
-	m_pCtorInvokeTarget = nullptr;
-	auto *pChannelType = pTarget ? pTarget->EvalDataType() : nullptr;
-	auto *pChannel = (pChannelType && pChannelType->Kind() == NK_ClassDecl)
-		? static_cast<SnClassDecl *>(pChannelType) : nullptr;
-	if (!pChannel || !pChannel->IsGenericInstantiation()
-		|| pChannel->BaseName() != kBuiltinChannelTypeName)
-		return false;
-	SnExpression *pCapacityArg = nullptr;
-	size_t positionalCount = 0;
-	for (auto &arg : snInvoke.Params())
-	{
-		if (RejectNonPositionalCtorArg(arg))
-			continue;
-		if (!pCapacityArg)
-			pCapacityArg = &arg;
-		++positionalCount;
-	}
-	if (positionalCount != 1)
-	{
-		m_Env.Log(CLL_Error, snInvoke.Location(),
-			"channel constructor takes one capacity argument "
-			"(0 = unbounded); use \"{}\" for the unbounded default");
-		return true;
-	}
-	auto *pArgType = pCapacityArg->EvalDataType();
-	if (!pArgType || pArgType->Kind() != NK_Int32)
-	{
-		m_Env.Log(CLL_Error, pCapacityArg->Location(),
-			"channel capacity must be an int");
-		return true;
-	}
-	ResolveFieldExprAs(snInvoke, pChannel);
-	snInvoke.CtorClass(pChannel);
 	return true;
 }
 

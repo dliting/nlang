@@ -48,6 +48,17 @@ public:
 	//Is this field one of the interned type-parameter placeholders?
 	bool IsPlaceholder(const SnField* pField) const;
 
+	//True when any type argument (transitively — a nested
+	//instantiation's arguments count) is a template placeholder. Such
+	//an instance was minted while resolving a template's OWN signature
+	//(Dict.keys(): List<K>): it exists only as a compile-time type
+	//surface — its substituted members still carry placeholder leaves,
+	//and no runtime path binds or mints it. Concrete-argument
+	//instances minted at use sites are the emittable form; emission
+	//walks skip placeholder forms (ModuleRegistry::
+	//ForEachOwnGenericInstance).
+	bool HasPlaceholderArg(const SnClassDecl& inst) const;
+
 	//The parameter position a placeholder stands for (an index into the
 	//template's TypeParamNames()). Precondition: IsPlaceholder.
 	size_t PlaceholderIndex(const SnField* pPlaceholder) const;

@@ -24,7 +24,8 @@ namespace nlang
 ScriptScanner::ScriptScanner(ContextType ct):
 	m_ContextType(ct), m_nStartState(0), m_pTransUnit(nullptr),
 	m_pScanInfo(nullptr), m_pBuffer(nullptr), m_bDeferEof(false),
-	m_nGenericDepth(0), m_bPendingGenericOpen(false)
+	m_nGenericDepth(0), m_bPendingGenericOpen(false),
+	m_bPendingClassDeclName(false)
 {
 }
 
@@ -127,6 +128,7 @@ void ScriptScanner::InitScanInfo()
 	assert(!m_pScanInfo);
 	m_nGenericDepth = 0;
 	m_bPendingGenericOpen = false;
+	m_bPendingClassDeclName = false;
 	if(yylex_init_extra(this, &m_pScanInfo))
 		throw std::logic_error("yylex_init_extra() failed");
 }

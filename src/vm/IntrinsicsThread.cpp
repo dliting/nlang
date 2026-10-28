@@ -153,6 +153,8 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
                                                   pResult);
         case INTR_Channel_Ctor:
             return IntrinsicChannelCtor(callParamBase, locals);
+        case INTR_Channel_CtorUnbounded:
+            return IntrinsicChannelCtorUnbounded(callParamBase, locals);
         case INTR_Channel_Send:
             return IntrinsicChannelSend(callParamBase, locals);
         case INTR_Channel_Recv:

@@ -894,6 +894,32 @@ target_compile_definitions(test_stdlib_concurrency
 
 add_test(NAME stdlib_concurrency_tests COMMAND test_stdlib_concurrency)
 
+# builtin-decls phase 2: binding-table consistency guard for the declared
+# generic prelude classes (List/Dict/Channel/Future) — stamped intrinsic
+# records, the two-ctor Channel surface, the ctor-less Future, and the
+# unbounded channel ctor contract.
+add_executable(test_builtin_binding
+    test_vm/test_builtin_binding.cpp
+)
+target_include_directories(test_builtin_binding
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_builtin_binding
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+nlang_stdlib_test(test_builtin_binding)
+target_compile_definitions(test_builtin_binding
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME builtin_binding_tests COMMAND test_builtin_binding)
+
 # ndb debugger unit tests: .ncu v1.9 sourceFile, B.1 imported locals,
 # debug hooks, read-only view, DebugSessionController session semantics,
 # ndb CLI adapter formats, machine-mode line protocol. DebugSession.cpp,

@@ -146,8 +146,8 @@ void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
 }
 
 //K3 task 4: when the RHS is a bare invoke, hand the resolved LHS field
-//to the ctor-invoke arm (TryBindChannelCtorInvoke consumes it for
-//`Channel(n)`).
+//to the ctor-invoke arm (ResolveDeclaredGenericCtorTarget consumes it
+//for `Channel<int> c = Channel(4);`-shaped declared-generic calls).
 void StatementResolveAccessor::PropagateCtorInvokeTarget(SnAssignStmt &sn)
 {
 	if (sn.Right()->Kind() != NK_InvokeExpr)

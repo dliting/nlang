@@ -40,20 +40,15 @@ inline constexpr const char* kBuiltinFutureTypeName = "Future";
 inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 
 //Returns true if name is a recognized built-in generic type name.
-//Phase 8e-3: List (arity 1). Phase 8e-4: Dict (arity 2). Phase 13:
-//func (variadic, at least the return type); 0.8.3 renamed the func form
-//to the lowercase keyword spelling. K1 Slice 9: Channel (arity 1 — the
-//element type decides send's boxing and recv's unboxing, so a bare
-//Channel is not a type). K3: Future (arity 1 — the type argument is the
-//spawned function's return type, delivered by Future.get).
-//
-//This set is also the scanner's generic-open flag set: a '<' directly
-//after one of these names is a type-argument opener. Declared generics
-//— the stdlib's Promise and every user-declared `class C<T>` — are
-//deliberately NOT here: no lex-time set can know a module's class
-//declarations, so their use sites parse on the grammar's plain-'<' type
-//arms instead (0.11 merge). The resolver routes on this set alone to
-//separate synthetic-minting from declared-template instantiation.
+//The set is the SCANNER's generic-open flag set only: a '<' directly
+//after one of these names is a type-argument opener, and it keeps the
+//">>" split depth counting working for the four names. Since the
+//phase-2 source-of-truth migration the resolver routes ONLY func to
+//synthetic minting — List/Dict/Channel/Future resolve through their
+//declared templates in stdlib/builtins.n, exactly like Promise and
+//every user `class C<T>` (no lex-time set can know a module's class
+//declarations, so declared use sites parse on the grammar's plain-'<'
+//type arms).
 inline bool IsBuiltinGenericTypeName(const std::string& name)
 {
 	return name == kBuiltinListTypeName || name == kBuiltinDictTypeName

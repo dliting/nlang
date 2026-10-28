@@ -500,23 +500,11 @@ private:
 	bool IsNonClassToStringReceiver(SnMemberExpr &snMember);
 	bool TryResolveNonClassToString(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	bool TryResolveGenericContainerMethod(SnMemberExpr &snMember,
+	//Phase-2 D5: the func<...> handle face (toString only) — the last
+	//by-name-dispatched synthetic family. The container four left with
+	//their declared templates (ExprResolverMemberFunc.cpp).
+	bool TryResolveFuncHandleMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	bool CheckContainerMethodArity(SnInvokeExpr &invoke,
-		const std::string &baseName, const std::string &name);
-	bool BindContainerMethodArgs(SnInvokeExpr &invoke, SnClassDecl *pGenClass,
-		const std::string &baseName, const std::string &name);
-	bool BindContainerArgPositions(SnInvokeExpr &invoke,
-		const std::vector<SnField*> &typeArgs,
-		const std::string &baseName, const std::string &name,
-		int elemSlot, size_t valArg,
-		SnExpression *&rpWrapValue, SnExpression *&rpWrapKey);
-	void WrapContainerElemArgs(SnInvokeExpr &invoke,
-		const std::vector<SnField*> &typeArgs, int elemSlot,
-		SnExpression *pWrapKey, SnExpression *pWrapValue);
-	SnField *ComputeContainerMethodResult(SnMemberExpr &snMember,
-		SnInvokeExpr &invoke, const std::vector<SnField*> &typeArgs,
-		const std::string &baseName, const std::string &name);
 	void ResolveInvokeArgsInCallerScope(SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);
 	void FinishResolvedMember(SnMemberExpr &snMember,
@@ -1000,21 +988,17 @@ private:
 		SnInvokeExpr &invoke, const std::string &modulePath);
 	SnField *ProbeCtorType(const std::string &name,
 		const ISourceLocation *pLoc);
-	//K3 task 4: `Channel<int> c = Channel(n);` — the assign resolver
-	//publishes the declared LHS type here before resolving the RHS, and
-	//this arm binds the bare-name Channel invoke as the bounded-capacity
-	//ctor call against that instantiation. False = no usable Channel
-	//target (the caller keeps its generic reject).
-	bool TryBindChannelCtorInvoke(SnInvokeExpr &snInvoke);
-	//TryResolveCtorInvoke's arms: the bare-generic reject (0.9.0/K3) and
-	//the declared-generic target resolution (template → assign-published
+	//TryResolveCtorInvoke's arms: the bare-generic reject (0.9.0; func
+	//only since the phase-2 source-of-truth migration) and the
+	//declared-generic target resolution (template → assign-published
 	//instance). True/null = consumed (diagnostic logged).
 	bool RejectBareGenericCtorInvoke(SnInvokeExpr &snInvoke);
 	SnClassDecl *ResolveDeclaredGenericCtorTarget(SnInvokeExpr &snInvoke,
 		SnClassDecl &tmpl);
-	//K3 task 4: the LHS declared type published by the assign resolver
-	//for the arm above; null outside an assignment's RHS resolution.
-	//Consumed (cleared) by TryBindChannelCtorInvoke.
+	//The LHS declared type published by the assign resolver for
+	//`Channel<int> c = Channel(4);`-shaped calls (the declared-generic
+	//ctor arm reads it); null outside an assignment's RHS resolution.
+	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget.
 	SnField *m_pCtorInvokeTarget = nullptr;
 
 	//Declared-generic machinery (`class Name<T, ...>`, registry in
@@ -1024,6 +1008,12 @@ private:
 	//instantiation registers into.
 	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, uint32_t ownerUnit);
+	//Element-typed actuals of a member invoke on a declared-generic
+	//receiver wrap against the type argument (Same/Box/Auto casts; the
+	//template's placeholder-typed formals name the positions). Runs in
+	//Access(SnMemberExpr) before the ordinary invoke binding — the
+	//strict type distance would otherwise reject them.
+	void WrapGenericElemArgs(SnFieldExpr *pInnerExpr);
 	//GetDeclaredGenericClassDecl's member-copy loop (accumulates before
 	//the instance ctor adopts the list). Null = a member shape the
 	//instantiation cannot carry (diagnostic logged, copies released).
@@ -1163,6 +1153,12 @@ private:
 	//arity check, instantiation mint-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
 		const std::string &baseName);
+	//D7 helper: probe the scope chain for a DECLARED generic template by
+	//bare name and instantiate it with the given type arguments. Null =
+	//no matching generic declaration in scope (silent — probe semantics
+	//for the infer-site minters).
+	SnClassDecl *FindDeclaredGenericInstance(const std::string &baseName,
+		const std::vector<SnField*> &typeArgs);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
 		uint32_t curModule);
 	//The value-position bare lookup of Access(SnIdentifierExpr&): the
@@ -1206,6 +1202,11 @@ private:
 	//qualifier name (m12 — a user local/field/type wins)
 	//(ExprResolverStaticFace.cpp). True = consumed; false = declined.
 	bool TryResolveBuiltinStaticFace(SnMemberExpr &snMember);
+	//TryResolveBuiltinStaticFace's m12 probe: true when a user
+	//local/field/type shadows the face's qualifier name — prelude-owned
+	//type hits do not shadow (the declared generic templates are
+	//prelude members every probe finds).
+	bool UserDeclarationShadowsFace(const std::string &typeName);
 	//TryResolveBuiltinStaticFace's bind tail (split for the 50-line
 	//budget): caller-scope args, the wait-set shape check, then the
 	//binding (outer → qualifier singleton, invoke resolved callee-less,
@@ -1377,8 +1378,8 @@ public:
 	Types only — namespaces are deliberately excluded (the stdlib package
 	names io/math/fs are common variable names; a local shadowing a
 	namespace keeps working through the type-position guard). Mirrors the
-	type-position predicate (FindTypeNameInAncestor + builtin class names
-	+ builtin generic class names) so "spellable as a type here" and
+	type-position predicate (FindTypeNameInAncestor + the builtin class
+	names) so "spellable as a type here" and
 	"usable as a variable name here" are exact complements. Shared with
 	StatementResolver's variable-declaration gates.
 	*/
@@ -1386,10 +1387,22 @@ public:
 		const SnField &accessor)
 	{
 		return IsBuiltinClassName(name)
-			|| name == kBuiltinListTypeName
-			|| name == kBuiltinDictTypeName
 			|| m_Accessor.FindTypeNameInAncestor(name, scope, accessor,
 				/*bIncludeNamespaces=*/false) != nullptr;
+	}
+	//D7 wrapper for the non-accessor resolvers (StatementResolverFlow's
+	//foreach lowering): borrows the accessor's context slot for the
+	//scope probe, then restores it.
+	SnClassDecl *FindDeclaredGenericInstance(SyntaxNode &context,
+		const std::string &baseName,
+		const std::vector<SnField*> &typeArgs)
+	{
+		SyntaxNode *pSaved = m_Accessor.m_pContext;
+		m_Accessor.m_pContext = &context;
+		SnClassDecl *pInstance = m_Accessor.FindDeclaredGenericInstance(
+			baseName, typeArgs);
+		m_Accessor.m_pContext = pSaved;
+		return pInstance;
 	}
 private:
 

@@ -6,6 +6,33 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.11] - 2026-10-28
+
+### Added
+
+- **Declared generic prelude classes** — List, Dict, Channel and
+  Future are real template declarations in the stdlib prelude
+  (stdlib/builtins.n) instead of compiler-minted synthetic classes.
+  What this makes possible in programs:
+  - Reserved type names: `Channel` and `Future` join `List`, `Dict`
+    and `func` — declaring a variable of the same name is a compile
+    error ("names a type").
+  - Named arguments on container methods: `l.add(item = 5)`,
+    `d.set(key = "a", value = 1)`.
+  - The Object inheritance face: `equals`, `getHashCode` and
+    `toString` are inherited from `Object`, and instances upcast to
+    `Object` like every user class.
+  - The bare-name constructor form: `List<int> l = List();` — the
+    same contract as a user `class C<T>`.
+
+### Changed
+
+- Constructor diagnostics for the generic classes read as ordinary
+  overload matching now (`no constructor of class "Channel" matches
+  the argument list`).
+- Modules and stdlib packages compiled by earlier versions must be
+  recompiled: the declared prelude shape changes the compiled
+  artifacts. There is no backward compatibility.
 ## [0.11.10] - 2026-10-28
 
 ### Changed
@@ -24,7 +51,6 @@ All notable changes to NLang are documented here. The format follows
   "cannot suspend inside a host call window with no active carrier".
   The manual's suspension, mutex, limitations and embedding pages were
   rewritten accordingly.
-
 ## [0.11.9] - 2026-10-28
 
 ### Added

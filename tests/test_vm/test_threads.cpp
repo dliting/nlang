@@ -3229,23 +3229,12 @@ void test_channel_negative_capacity_throws()
     PASS();
 }
 
-//K3 Task 4：0 实参裸构造拒绝——内建 ctor invoke 是精确 arity 契约（无
-//默认参数机制），漏摆容量槽会读到 evalArea 残留垃圾；无界缺省走 {}。
-void test_channel_bare_ctor_no_args_rejected()
-{
-    TEST(channel_bare_ctor_no_args_rejected);
-    CHECK(buildFailsWith("chan_no_args",
-        "int main() {\n"
-        "    Channel<int> c = Channel();\n"
-        "    return 0;\n"
-        "}\n",
-        "one capacity argument"),
-        "zero-arg bare channel constructor is rejected (exact staging)");
-    PASS();
-}
-
-//K3 Task 4：容量实参类型门——唯一可选实参必须是 int（容量槽 4 字节
-//读，其余形态编译期拒绝）。
+//K3 Task 4，builtin-decls phase 2 后契约更新：Channel 声明了零参（无
+//界）ctor，零参裸构造合法——原「0 实参裸构造拒绝」用例随之退役（未
+//摆容量槽的顾虑由 test_builtin_binding 的 unbounded_ctor_does_not_read_
+// capacity 与 e2e builtin_channel_ctor_forms 三形态探针接管）。
+//容量实参类型门保留：非 int 实参经常规重载匹配拒绝（诊断文本随
+// TryBindChannelCtorInvoke 特臂退役变为通用构造器匹配文本）。
 void test_channel_capacity_non_int_rejected()
 {
     TEST(channel_capacity_non_int_rejected);
@@ -3254,7 +3243,7 @@ void test_channel_capacity_non_int_rejected()
         "    Channel<int> c = Channel(\"x\");\n"
         "    return 0;\n"
         "}\n",
-        "capacity must be an int"),
+        "no constructor of class \"Channel\" matches the argument list"),
         "non-int capacity argument is rejected at compile time");
     PASS();
 }
@@ -5296,7 +5285,6 @@ int main()
         runGuarded(test_channel_default_ctor_smallest_call_shape);
         runGuarded(test_channel_negative_capacity_throws);
         runGuarded(test_channel_capacity_non_int_rejected);
-        runGuarded(test_channel_bare_ctor_no_args_rejected);
         runGuarded(test_channel_bounded_pending_survives_gc);
         runGuarded(test_eval_stack_routes_to_fallback_slot);
         runGuarded(test_k8_close_abort_recv_storm);

@@ -89,10 +89,11 @@ add_library(nlang_compiler
     builder/ExprResolverMemberBuiltins.cpp
     builder/ExprResolverStreamBuiltins.cpp
     builder/ExprResolverMemberProtocol.cpp
-    builder/ExprResolverMemberContainer.cpp
+    builder/ExprResolverMemberFunc.cpp
     builder/ExprResolverMemberFields.cpp
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
+    builder/ExprResolverGenericMint.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverStaticFace.cpp
     builder/ExprResolverThreadNs.cpp

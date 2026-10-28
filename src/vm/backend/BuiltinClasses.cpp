@@ -1,12 +1,13 @@
 /*---
-    BuiltinClasses.cpp — 内建类注册表：流族/List/Dict 的数据表与单一登记循环。
-    RegisterBuiltinClasses 表驱动化（2026-09-26 可维护性重构，零行为变化：
-    行序即注册序，类/函数索引由它派生，golden 对拍覆盖）。
-    Object 随内建类真源化退役：协议方法由 stdlib/builtins.n 的声明类
-    提供，隐式继承在 ApplyImplicitObjectInheritance 里按裸键解析。
+    BuiltinClasses.cpp — 内建类注册表：流族（ByteStream/FileStream）的
+    数据表与单一登记循环。RegisterBuiltinClasses 表驱动化（2026-09-26
+    可维护性重构，零行为变化：行序即注册序，类/函数索引由它派生，
+    golden 对拍覆盖）。
+    Object 与异常族随内建类真源化退役：由 stdlib/builtins.n 的声明类
+    提供；List/Dict/Channel/Future 随真源化阶段 2 退役——其记录来自
+    声明发射＋绑定表盖章（backend/BindingTable.cpp）。
 ---*/
 #include "VmBackend.h"
-#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <iterator>
 #include <utility>
@@ -41,19 +42,10 @@ struct BuiltinField {
 //Superclass source. BSR_ImplicitObject writes -1, which
 //ApplyImplicitObjectInheritance later resolves to the declared prelude
 //Object record (its name guard keeps classes NAMED "Object" at -1).
-//The declared Exception family and Object live in stdlib/builtins.n —
-//their records arrive through the normal declared-class emission, not
-//this table.
+//Every other declared class lives in stdlib/builtins.n — its records
+//arrive through the normal declared-class emission, not this table.
 enum BuiltinSuperRef : int8_t {
     BSR_ImplicitObject,
-};
-
-//Which VmBackend index member captures this class's CompiledClass index
-//(the tail switch in RegisterBuiltinClasses). BIDX_None captures nothing.
-//The Exception family and Object left the table — declared in
-//stdlib/builtins.n.
-enum BuiltinIdxMember : uint8_t {
-    BIDX_None, BIDX_List, BIDX_Dict,
 };
 
 struct BuiltinClassDecl {
@@ -61,12 +53,11 @@ struct BuiltinClassDecl {
     BuiltinSuperRef superRef;
     const BuiltinField* fields;
     size_t fieldCount;
-    bool hasCtor;             //no ctor stub when false (Future)
+    bool hasCtor;             //no ctor stub when false
     uint16_t ctorIntrinsicId;
     uint16_t ctorParamCount;  //includes the `this` slot
     const BuiltinMethod* methods;
     size_t methodCount;
-    BuiltinIdxMember idxMember;
 };
 
 //Hidden __handle field shared by the stream/container builtins (index
@@ -123,84 +114,25 @@ const BuiltinMethod s_FileStreamMethods[] = {
     {"close",       INTR_FS_Close,       1, RTK_Void},
 };
 
-//List<T>/Dict<K,V> — erasure-style generics: all instantiations share
-//this single CompiledClass; per-T boxing is decided at call sites from
-//the outer's generic type args (stored on the synthetic SnClassDecl).
-const BuiltinMethod s_ListMethods[] = {
-    {"add",      INTR_List_Add,      2, RTK_Void},
-    {"get",      INTR_List_Get,      2, RTK_Int32},  //returns T, codegen unboxes
-    {"set",      INTR_List_Set,      3, RTK_Void},
-    {"length",   INTR_List_Length,   1, RTK_Int32},
-    {"removeAt", INTR_List_RemoveAt, 2, RTK_Void},
-    {"indexOf",  INTR_List_IndexOf,  2, RTK_Int32},
-    {"contains", INTR_List_Contains, 2, RTK_Int32},
-    {"clear",    INTR_List_Clear,    1, RTK_Void},
-    {"toString", INTR_List_toString, 1, RTK_String},
-};
-
-const BuiltinMethod s_DictMethods[] = {
-    {"set",         INTR_Dict_Set,         3, RTK_Void},
-    {"get",         INTR_Dict_Get,         2, RTK_Int32},  //returns V, codegen unboxes
-    {"containsKey", INTR_Dict_ContainsKey, 2, RTK_Int32},
-    {"remove",      INTR_Dict_Remove,      2, RTK_Int32},
-    {"clear",       INTR_Dict_Clear,       1, RTK_Void},
-    {"count",       INTR_Dict_Count,       1, RTK_Int32},
-    {"keys",        INTR_Dict_Keys,        1, RTK_Class},  //fresh List<K> heap ref
-    {"toString",    INTR_Dict_toString,    1, RTK_String},
-};
-
-//K1 concurrency builtins. Channel takes the __handle shape as the
-//containers (index into the VM-side sync stores). Channel's methods are
-//generic-container surface (the element type is erased at runtime — every
-//element is a heap idx; recv's RTK_Int32 is the placeholder return kind,
-//the call site's boxing plan unboxes per T).
-//Mutex/Semaphore and Thread left the table: their classes are declared
-//in stdlib/builtins.n, their intrinsic stubs come from the declared
-//records stamped by the binding table (backend/BindingTable.cpp).
-const BuiltinMethod s_ChannelMethods[] = {
-    {"send",  INTR_Channel_Send,  2, RTK_Void},   //this + boxed value
-    {"recv",  INTR_Channel_Recv,  1, RTK_Int32},  //this; returns T
-    {"close", INTR_Channel_Close, 1, RTK_Void},
-};
-
-//K3: Future<T> — the typed-spawn result handle. __handle = context id
-//(the declared Thread takes the same hidden slot); no ctor —
-//thread.spawn mints instances. get's RTK_Int32 is the placeholder
-//return kind (the call site's boxing plan unboxes per T, like recv).
-const BuiltinMethod s_FutureMethods[] = {
-    {"get",     INTR_Future_Get,    1, RTK_Int32},  //this; returns T
-    {"isDone",  INTR_Future_IsDone, 1, RTK_Bool},
-};
-
 //The builtin class registration table. Row order IS registration order —
 //class and function indices derive from it, so any reorder changes the
 //serialized .ncu (golden compare guards this).
 const BuiltinClassDecl s_BuiltinClassDecls[] = {
     {"ByteStream", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         true, INTR_BS_Ctor, 1,
-        s_ByteStreamMethods, std::size(s_ByteStreamMethods), BIDX_None},
+        s_ByteStreamMethods, std::size(s_ByteStreamMethods)},
     {"FileStream", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
         true, INTR_FS_Ctor, 3,
-        s_FileStreamMethods, std::size(s_FileStreamMethods), BIDX_None},
-    {kBuiltinListTypeName, BSR_ImplicitObject,
-        s_HandleFields, std::size(s_HandleFields),
-        true, INTR_List_Ctor, 1,
-        s_ListMethods, std::size(s_ListMethods), BIDX_List},
-    {kBuiltinDictTypeName, BSR_ImplicitObject,
-        s_HandleFields, std::size(s_HandleFields),
-        true, INTR_Dict_Ctor, 1,
-        s_DictMethods, std::size(s_DictMethods), BIDX_Dict},
-    //K1 concurrency builtins — appended at the END (existing indices are
-    //stable; a reorder changes the serialized .ncu).
-    {"Channel", BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        //K3 task 4: ctor is (this, capacity) — capacity 0 = unbounded;
-        //the init-list arm stages the 0 explicitly.
-        true, INTR_Channel_Ctor, 2,
-        s_ChannelMethods, std::size(s_ChannelMethods), BIDX_None},
-    {"Future",  BSR_ImplicitObject, s_HandleFields, std::size(s_HandleFields),
-        false, 0, 0,
-        s_FutureMethods, std::size(s_FutureMethods), BIDX_None},
+        s_FileStreamMethods, std::size(s_FileStreamMethods)},
 };
+
+//Phase 2 of the builtin-decls source-of-truth migration: the generic
+//four (List/Dict/Channel/Future) left for stdlib/builtins.n — their
+//records come from the declared emission + binding-table stamping.
+static_assert(std::size(s_BuiltinClassDecls) == 2,
+    "the builtin registry retired to ByteStream/FileStream only; a new "
+    "row means a new prelude class the source-of-truth design did not "
+    "cover");
 
 //One BuiltinField row → the CompiledClass field arrays. Every surviving
 //row's fields are plain int handles — no class-typed builtin fields
@@ -266,18 +198,12 @@ CompiledClass BuildBuiltinClass(CompiledModule& module,
 } //namespace
 
 void VmBackend::RegisterBuiltinClasses() {
-    //Every row expands to one CompiledClass plus a ctor stub (ctor-less
-    //rows: Future) and method stubs, each with intrinsicId set so
-    //OP_CallMethod{,Direct} short-circuits to ExecuteIntrinsic.
+    //Every row expands to one CompiledClass plus a ctor stub and method
+    //stubs, each with intrinsicId set so OP_CallMethod{,Direct}
+    //short-circuits to ExecuteIntrinsic.
     for (const BuiltinClassDecl& decl : s_BuiltinClassDecls) {
-        auto classIdx = static_cast<uint16_t>(m_compiledModule.classes.size());
         m_compiledModule.classes.push_back(BuildBuiltinClass(
             m_compiledModule, decl));
-        switch (decl.idxMember) {
-            case BIDX_List:       m_listClassIdx       = static_cast<int16_t>(classIdx); break;
-            case BIDX_Dict:       m_dictClassIdx       = static_cast<int16_t>(classIdx); break;
-            default: break;  //BIDX_None — ByteStream/FileStream/Channel/Future
-        }
     }
 }
 

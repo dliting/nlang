@@ -1,0 +1,11 @@
+// builtin-decls phase 2 (0.11.11) delta 5: the generic prelude classes are
+// DECLARED now, so the bare-name constructor form is legal for them —
+// same contract as every user `class C<T>` (Promise precedent).
+int main() {
+    List<int> l = List();
+    l.add(5);
+    Dict<string, int> d = Dict();
+    d.set("k", 6);
+    if (l.get(0) + d.get("k") != 11) { return 1; }
+    return 0;
+}

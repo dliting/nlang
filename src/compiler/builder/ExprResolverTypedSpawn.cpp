@@ -66,9 +66,8 @@ bool ExprResolveAccessor::TryBindTypedSpawn(SnMemberExpr &snMember,
 	}
 	else
 	{
-		pRetDecl = GetGenericClassDecl(m_Env.Registry(),
-			kBuiltinFutureTypeName, {pT}, {},
-			snMember.Location());
+		pRetDecl = FindDeclaredGenericInstance(kBuiltinFutureTypeName,
+			{pT});
 	}
 	if (!pRetDecl)
 		return false;
