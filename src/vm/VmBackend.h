@@ -1515,7 +1515,10 @@ private:
     //struct/class indices built from the nodes once all tables exist
     //(names alone cannot carry cross-unit provenance for the slots).
     std::vector<std::vector<SnField*>> m_structFieldTypes;
-    int16_t m_listClassIdx = -1;    //Phase 8e-3: index of List<T> built-in class (-1 until RegisterBuiltinClasses)
+    //Runtime minters (INTR_Dict_Keys, INTR_String_Split) allocate List
+    //instances through this index; since phase 2 the declared erasure
+    //record is resolved by name in CacheBuiltinClassIndexes.
+    int16_t m_listClassIdx = -1;
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
 
     //Shadowed prelude names (builtin-decls source-of-truth design §6.8):

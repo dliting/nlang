@@ -48,12 +48,13 @@ static const BindingRow s_LiteralRows[] = {
     {"thread", "thread.failure",  INTR_Thread_Failure},
     //Cluster 1 (Mutex/Semaphore): declared in stdlib/builtins.n. The
     //type-member stamping arm binds the declared native records onto
-    //the intrinsic channel; the constructor key is the bare class name.
+    //the intrinsic channel; ctor keys are arity-aware (zero-formal =
+    //bare name, N-formal = "Class/N").
     {"builtins", "Mutex",                INTR_Mutex_Ctor},
     {"builtins", "Mutex.lock",           INTR_Mutex_Lock},
     {"builtins", "Mutex.unlock",         INTR_Mutex_Unlock},
     {"builtins", "Mutex.tryLock",        INTR_Mutex_TryLock},
-    {"builtins", "Semaphore",            INTR_Semaphore_Ctor},
+    {"builtins", "Semaphore/1",          INTR_Semaphore_Ctor},
     {"builtins", "Semaphore.acquire",    INTR_Semaphore_Acquire},
     {"builtins", "Semaphore.release",    INTR_Semaphore_Release},
     {"builtins", "Semaphore.tryAcquire", INTR_Semaphore_TryAcquire},
@@ -63,8 +64,9 @@ static const BindingRow s_LiteralRows[] = {
     {"builtins", "ReentrantMutex.unlock",  INTR_ReentrantMutex_Unlock},
     {"builtins", "ReentrantMutex.tryLock", INTR_ReentrantMutex_TryLock},
     //0.10.22: AtomicInt — the declared atomic-integer family. One ctor
-    //id: the declaration's default parameter stages the omitted arg.
-    {"builtins", "AtomicInt",                   INTR_AtomicInt_Ctor},
+    //id: the declaration's default parameter stages the omitted arg (the
+    ///1 key follows the arity-aware ctor rule).
+    {"builtins", "AtomicInt/1",                 INTR_AtomicInt_Ctor},
     {"builtins", "AtomicInt.load",              INTR_AtomicInt_Load},
     {"builtins", "AtomicInt.store",             INTR_AtomicInt_Store},
     {"builtins", "AtomicInt.getAndSet",         INTR_AtomicInt_GetAndSet},
@@ -76,14 +78,14 @@ static const BindingRow s_LiteralRows[] = {
     //Cluster 2 (Exception family): declared in stdlib/builtins.n, one
     //ctor row each. The VM raise paths keep their by-name class caches;
     //only the ctor call channel is stamped here.
-    {"builtins", "Exception",                 INTR_Exception_Ctor},
-    {"builtins", "NullPointerException",      INTR_NullPointerException_Ctor},
-    {"builtins", "DivByZeroException",        INTR_DivByZeroException_Ctor},
-    {"builtins", "IndexOutOfBoundsException", INTR_IndexOutOfBoundsException_Ctor},
-    {"builtins", "AssertionException",        INTR_AssertionException_Ctor},
-    {"builtins", "IOException",               INTR_IOException_Ctor},
-    {"builtins", "InvalidCastException",      INTR_InvalidCastException_Ctor},
-    {"builtins", "ChannelClosedException",    INTR_ChannelClosedException_Ctor},
+    {"builtins", "Exception/1",                 INTR_Exception_Ctor},
+    {"builtins", "NullPointerException/1",      INTR_NullPointerException_Ctor},
+    {"builtins", "DivByZeroException/1",        INTR_DivByZeroException_Ctor},
+    {"builtins", "IndexOutOfBoundsException/1", INTR_IndexOutOfBoundsException_Ctor},
+    {"builtins", "AssertionException/1",        INTR_AssertionException_Ctor},
+    {"builtins", "IOException/1",               INTR_IOException_Ctor},
+    {"builtins", "InvalidCastException/1",      INTR_InvalidCastException_Ctor},
+    {"builtins", "ChannelClosedException/1",    INTR_ChannelClosedException_Ctor},
     //Cluster 4 (Object): the three protocol methods. Declared virtual so
     //override propagation marks user overrides and call sites dispatch by
     //name; no ctor row (Object is never constructed by user code).
@@ -98,6 +100,37 @@ static const BindingRow s_LiteralRows[] = {
     {"builtins", "Promise.complete", INTR_Promise_Complete},
     {"builtins", "Promise.completeExceptionally",
                                INTR_Promise_CompleteExceptionally},
+    //Cluster 6 (generic containers + futures): declared generic
+    //templates in stdlib/builtins.n (phase 2). Method keys are
+    //"Class.method"; ctor keys follow the arity-aware rule. Erasure
+    //naming keys the instances bare ("List"/"List.add" — same shape as
+    //Promise).
+    {"builtins", "List",            INTR_List_Ctor},
+    {"builtins", "List.add",        INTR_List_Add},
+    {"builtins", "List.get",        INTR_List_Get},
+    {"builtins", "List.set",        INTR_List_Set},
+    {"builtins", "List.length",     INTR_List_Length},
+    {"builtins", "List.removeAt",   INTR_List_RemoveAt},
+    {"builtins", "List.indexOf",    INTR_List_IndexOf},
+    {"builtins", "List.contains",   INTR_List_Contains},
+    {"builtins", "List.clear",      INTR_List_Clear},
+    {"builtins", "List.toString",   INTR_List_toString},
+    {"builtins", "Dict",            INTR_Dict_Ctor},
+    {"builtins", "Dict.set",        INTR_Dict_Set},
+    {"builtins", "Dict.get",        INTR_Dict_Get},
+    {"builtins", "Dict.containsKey", INTR_Dict_ContainsKey},
+    {"builtins", "Dict.remove",     INTR_Dict_Remove},
+    {"builtins", "Dict.clear",      INTR_Dict_Clear},
+    {"builtins", "Dict.count",      INTR_Dict_Count},
+    {"builtins", "Dict.keys",       INTR_Dict_Keys},
+    {"builtins", "Dict.toString",   INTR_Dict_toString},
+    {"builtins", "Channel",         INTR_Channel_CtorUnbounded},
+    {"builtins", "Channel/1",       INTR_Channel_Ctor},
+    {"builtins", "Channel.send",    INTR_Channel_Send},
+    {"builtins", "Channel.recv",    INTR_Channel_Recv},
+    {"builtins", "Channel.close",   INTR_Channel_Close},
+    {"builtins", "Future.get",      INTR_Future_Get},
+    {"builtins", "Future.isDone",   INTR_Future_IsDone},
 };
 
 //The literal rows plus the DERIVED static-face rows. A face's row comes

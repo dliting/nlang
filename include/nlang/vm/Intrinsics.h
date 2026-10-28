@@ -216,5 +216,9 @@ static constexpr uint16_t INTR_Future_SelectAny = 166;
 //functions (slot 0 = the Thread argument, same shape as join).
 static constexpr uint16_t INTR_Thread_IsFailed = 167;
 static constexpr uint16_t INTR_Thread_Failure  = 168;
+//Phase-2 declared Channel: the zero-arg ctor shape. The dispatch
+//signature carries no arity, so the two overloads map to two ids —
+//this one never reads the unstaged capacity slot (scratch garbage).
+static constexpr uint16_t INTR_Channel_CtorUnbounded = 169;
 
 }  // namespace nlang

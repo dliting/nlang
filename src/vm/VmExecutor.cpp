@@ -78,9 +78,9 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
 
 //Phase 9d: cache Exception hierarchy class indices. These are required
 //by RaiseNlangException to allocate the right subclass instance.
-//All FindClass calls here use bare names deliberately: the builtin
-//List/Dict/Exception family carries no owner tag, so its table keys
-//stay bare even after phase 5 qualified user keys.
+//All FindClass calls here use bare names deliberately: the prelude
+//declarations keep bare table keys (the declared erasure records too),
+//so the lookup survives every source-of-truth migration phase.
 void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     auto cacheExcClass = [&](const char* name, int16_t* out) {
         int idx = module.FindClass(name);
@@ -101,6 +101,11 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     //K3: same for the Future face of typed spawn.
     int futureIdx = module.FindClass("Future");
     m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
+    //Phase-2: List left the builtin registry for the declared prelude —
+    //the erasure record keeps the bare key, so the two runtime minters
+    //(INTR_Dict_Keys, INTR_String_Split) resolve it the phase-1 way.
+    int listIdx = module.FindClass("List");
+    m_listClassIdx = (listIdx >= 0) ? static_cast<int16_t>(listIdx) : -1;
 }
 
 //String objectization: eagerly materialize every module string constant

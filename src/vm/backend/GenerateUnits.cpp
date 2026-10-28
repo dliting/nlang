@@ -164,7 +164,16 @@ void VmBackend::StampIntrinsicChannel(SnFunction& func,
         key = packagePath + "." + func.Name();
     else if (func.Name() == parentField.Name()
         && !func.ContainFlags(NF_Static))
-        key = parentField.Name();
+    {
+        //Arity-aware ctor key: a zero-formal ctor keys bare (the shape
+        //every single-ctor prelude class relied on), an N-formal ctor
+        //keys "Class/N" — two same-named ctor overloads need two
+        //distinct binding keys (Channel's unbounded/bounded pair).
+        key = func.Params().size() == 0
+            ? parentField.Name()
+            : parentField.Name() + "/"
+              + std::to_string(func.Params().size());
+    }
     else
         key = parentField.Name() + "." + func.Name();
     const uint16_t intrinsicId = LookupIntrinsicId(packagePath, key);

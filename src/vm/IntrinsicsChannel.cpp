@@ -27,20 +27,15 @@ namespace nlang {
 
 //Slice 9: Channel() construction — materialize the side-table slot and
 //write the handle into __handle (the Mutex shape: the receiver is the
-//instance record at callParamBase slot 0). K3 Task 4: slot 1 = capacity
-//(both emit sites stage the value explicitly; 0 = unbounded); negative
-//raises the catchable capacity error.
-bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
+//instance record at callParamBase slot 0). Phase-2: the two declared
+//ctor overloads share this tail; the zero-arg intrinsic passes the
+//unbounded constant and never reads the unstaged slot 1.
+bool VmExecutor::IntrinsicChannelCtorAlloc(int32_t thisIdx, int32_t capacity)
 {
-    int32_t thisIdx;
-    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
     if (thisIdx <= 0
         || static_cast<size_t>(thisIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null reference in Channel constructor");
-    int32_t capacity;
-    std::memcpy(&capacity, locals + callParamBase + kFrameSlotBytes,
-                sizeof(capacity));
     if (capacity < kChannelUnboundedCapacity)
         RaiseNlangException(m_exceptionClassIdx,
             "channel capacity must be 0 (unbounded) or at least 1");
@@ -52,6 +47,29 @@ bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
     m_structHeap[static_cast<size_t>(thisIdx)][kListHandleFieldOffset]
         = handle;
     return true;
+}
+
+//The declared `Channel(int capacity)` overload: slot 1 = capacity
+//(0 = unbounded); negative raises the catchable capacity error.
+bool VmExecutor::IntrinsicChannelCtor(uint16_t callParamBase, uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    int32_t capacity;
+    std::memcpy(&capacity, locals + callParamBase + kFrameSlotBytes,
+                sizeof(capacity));
+    return IntrinsicChannelCtorAlloc(thisIdx, capacity);
+}
+
+//The declared `Channel()` overload (capacity 0 = unbounded). A zero-arg
+//call stages nothing into slot 1 — the scratch there holds the previous
+//eval's garbage, so the capacity must be the constant here.
+bool VmExecutor::IntrinsicChannelCtorUnbounded(uint16_t callParamBase,
+                                               uint8_t* locals)
+{
+    int32_t thisIdx;
+    std::memcpy(&thisIdx, locals + callParamBase, sizeof(thisIdx));
+    return IntrinsicChannelCtorAlloc(thisIdx, kChannelUnboundedCapacity);
 }
 
 //send(v): closed → the catchable ChannelClosedException (deferred — a
