@@ -17,6 +17,7 @@
 #include <nlang/langservice/SymbolIndex.h>
 #include <cassert>
 #include <map>
+#include <vector>
 #include <unordered_set>
 
 namespace nlang {
@@ -271,23 +272,68 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                              outSpills, emitter, resultOffset);
 }
 
-//The template's unique non-static method of this name — the declared
-//templates declare no method overloads, so the first hit is the method.
-static SnFunction* TemplateMethodOf(SnClassDecl& tmpl,
-                                    const std::string& methodName)
+//The template's non-static methods of this name (the declared
+//templates declare no method overloads today; the boxing derivation
+//below stays correct for a future overload set by intersecting).
+static void CollectTemplateMethods(SnClassDecl& tmpl,
+                                   const std::string& methodName,
+                                   std::vector<SnFunction*>& out)
 {
     for (auto& member : tmpl.Members())
         if (member.Kind() == NK_Function
             && member.Name() == methodName
             && !member.ContainFlags(NF_Static))
-            return static_cast<SnFunction*>(&member);
-    return nullptr;
+            out.push_back(static_cast<SnFunction*>(&member));
+}
+
+//The placeholder every same-name method puts at one formal position —
+//null on any absence or disagreement (the resolver's overload-
+//intersection rule: a mixed position is not element-typed). ParamList
+//is iterable but not indexable, so the position walks each list.
+static SnField* UnanimousFormalPlaceholder(
+    const std::vector<SnFunction*>& methods, size_t iParam,
+    const GenericInstanceRegistry& generics)
+{
+    SnField* pUnanimous = nullptr;
+    for (auto* pFn : methods)
+    {
+        SnFieldExpr* pType = nullptr;
+        size_t i = 0;
+        for (auto& param : pFn->Params())
+            if (i++ == iParam) { pType = param.Type(); break; }
+        SnField* pHere = pType ? pType->Field() : nullptr;
+        if (!pHere || !generics.IsPlaceholder(pHere)
+            || (pUnanimous && pUnanimous != pHere))
+            return nullptr;
+        pUnanimous = pHere;
+    }
+    return pUnanimous;
+}
+
+//The placeholder every same-name method returns — null on any
+//disagreement (the same unanimity the formal side requires).
+static SnField* UnanimousReturnPlaceholder(
+    const std::vector<SnFunction*>& methods,
+    const GenericInstanceRegistry& generics)
+{
+    SnFieldExpr* pFirst = methods.front()->ReturnType();
+    SnField* pLeaf = pFirst ? pFirst->Field() : nullptr;
+    if (!pLeaf || !generics.IsPlaceholder(pLeaf))
+        return nullptr;
+    for (size_t i = 1; i < methods.size(); ++i)
+    {
+        SnFieldExpr* pOther = methods[i]->ReturnType();
+        if (!pOther || pOther->Field() != pLeaf)
+            return nullptr;
+    }
+    return pLeaf;
 }
 
 //The boxing tag for one placeholder-typed slot: the type argument the
-//placeholder binds to decides the tag. Anything else (a non-placeholder
-//binding, a malformed arg index, a class/struct or array-typed
-//argument) reports not-primitive and never boxes.
+//placeholder binds to decides the tag. Anything else (a null leaf —
+//overload disagreement or absence, a non-placeholder binding, a
+//malformed arg index, a class/struct or array-typed argument) reports
+//not-primitive and never boxes.
 VmBackend::BoxingTagResult VmBackend::PlaceholderBoxingTag(
     const GenericInstanceRegistry& declaredGenerics, SnField* pPlaceholder,
     const std::vector<SnField*>& typeArgs)
@@ -333,33 +379,30 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
     SnClassDecl* pTemplate = declaredGenerics.InstanceOf(&classDecl);
     if (!pTemplate)
         return;
-    SnFunction* pTemplateMethod = TemplateMethodOf(*pTemplate,
-                                                    methodName);
-    if (!pTemplateMethod)
+    std::vector<SnFunction*> methods;
+    CollectTemplateMethods(*pTemplate, methodName, methods);
+    if (methods.empty())
         return;
     const auto& typeArgs = classDecl.GenericTypeArgs();
-    //Slot 0 stages the receiver; the formals start at slot 1.
-    uint16_t paramIdx = 1;
-    for (auto& param : pTemplateMethod->Params())
-    {
-        if (param.Type())
-        {
-            BoxingTagResult tag = PlaceholderBoxingTag(declaredGenerics,
-                param.Type()->Field(), typeArgs);
-            if (tag.isPrimitive)
-                argPlans[paramIdx] = {tag.tag, true};
-        }
-        ++paramIdx;
-    }
-    if (pTemplateMethod->ReturnType())
+    //Slot 0 stages the receiver; formal position i boxes slot i+1.
+    size_t maxParams = 0;
+    for (auto* pFn : methods)
+        if (pFn->Params().size() > maxParams)
+            maxParams = pFn->Params().size();
+    for (size_t iParam = 0; iParam < maxParams; ++iParam)
     {
         BoxingTagResult tag = PlaceholderBoxingTag(declaredGenerics,
-            pTemplateMethod->ReturnType()->Field(), typeArgs);
+            UnanimousFormalPlaceholder(methods, iParam, declaredGenerics),
+            typeArgs);
         if (tag.isPrimitive)
-        {
-            returnsBoxed = true;
-            returnTag = tag.tag;
-        }
+            argPlans[static_cast<uint16_t>(iParam + 1)] = {tag.tag, true};
+    }
+    BoxingTagResult retTag = PlaceholderBoxingTag(declaredGenerics,
+        UnanimousReturnPlaceholder(methods, declaredGenerics), typeArgs);
+    if (retTag.isPrimitive)
+    {
+        returnsBoxed = true;
+        returnTag = retTag.tag;
     }
 }
 
