@@ -1,0 +1,53 @@
+// builtin-decls phase 2 (0.11.10): the whole declared surface of the four
+// generic prelude classes, exercising every method, both Channel ctors,
+// boxing across int/double/long/string element kinds, subscript sugar,
+// foreach, init lists, nested generics, and the string form of toString.
+// Nested containers are populated through typed locals (the established
+// idiom — an init list as a generic-typed call argument is a separate,
+// pre-existing limitation, not part of this migration).
+int main() {
+    List<int> li = [1, 2, 3];
+    li.add(4);
+    li.set(0, 10);
+    li.removeAt(1);
+    if (li.indexOf(10) != 0 || !li.contains(3) || li.length() != 3) { return 1; }
+    if (li[0] != 10) { return 2; }
+    int total = 0;
+    foreach (int x in li) { total += x; }
+    if (total != 17) { return 3; }
+    List<double> ld = [1.5];
+    ld.add(2.5);
+    if (ld.get(1) != 2.5) { return 4; }
+    List<long> ll = [70];
+    if (ll.get(0) != 70) { return 5; }
+    Dict<string, int> d = {};
+    d.set("a", 1);
+    d.set("b", 2);
+    if (!d.containsKey("a") || d.count() != 2) { return 6; }
+    if (d.remove("a") != 1 || d.containsKey("a")) { return 7; }
+    List<string> keys = d.keys();
+    if (keys.get(0) != "b") { return 8; }
+    Dict<string, List<int>> nested = {};
+    List<int> row = [1, 2];
+    nested.set("row", row);
+    if (nested.get("row").get(1) != 2) { return 9; }
+    List<List<int>> grid = {};
+    List<int> g0 = [1];
+    List<int> g1 = [2, 3];
+    grid.add(g0);
+    grid.add(g1);
+    if (grid.get(1).get(1) != 3) { return 10; }
+    Channel<int> ch = Channel(1);
+    ch.send(9);
+    if (ch.recv() != 9) { return 11; }
+    ch.close();
+    Promise<int> p = Promise();
+    p.complete(12);
+    Future<int> f = p.future();
+    if (f.get() != 12 || !f.isDone()) { return 13; }
+    Object o = li;
+    o.toString();
+    string s = li.toString();
+    if (s != "[10, 3, 4]") { return 14; }
+    return 0;
+}

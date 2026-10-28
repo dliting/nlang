@@ -1,6 +1,10 @@
-// 0.9.0: List/Dict exist only as typed instantiations — the bare
-// generic name gets the named reject, not the function-not-found text.
+// 0.9.0: the bare generic name gets the named reject, not the
+// function-not-found text.
+// 0.11.10 (builtin-decls phase 2): List/Dict accept the bare-name
+// constructor with a typed target; a bare-name constructor without one
+// keeps the named reject (Promise here — user generics do not exist
+// yet, so the prelude template is the negative-case carrier).
 int main() {
-    List<int> l = List();
+    Object o = Promise();
     return 0;
 }

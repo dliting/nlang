@@ -1866,3 +1866,10 @@ selectany_selfref 1
 selectany_dup 0 0 7
 selectany_late_failure 0 0 5
 selectany_wake_late_failure 0 0 6
+builtin_channel_ctor_forms 0
+builtin_bare_ctor_legal 0
+builtin_reserved_type_names compile_error
+builtin_named_args 0
+builtin_object_face 0
+builtin_static_face_selectany 0
+builtin_full_surface_smoke 0

@@ -1,0 +1,17 @@
+// builtin-decls phase 2 (0.11.10): Channel declares TWO ctor overloads —
+// unbounded (zero-formal) and bounded (capacity). All four user-visible
+// construction forms must route to the right intrinsic: the zero-arg
+// intrinsic never reads the unstaged capacity slot.
+int main() {
+    Channel<int> a = {};
+    a.send(11);
+    Channel<int> b = Channel(2);
+    b.send(21);
+    Channel<int> c = new Channel<int>(4);
+    c.send(31);
+    Channel<int> d = new Channel<int>();
+    d.send(41);
+    int sum = a.recv() + b.recv() + c.recv() + d.recv();
+    if (sum != 104) { return 1; }
+    return 0;
+}
