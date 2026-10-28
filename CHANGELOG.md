@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.1] - 2026-10-29
+
+### Fixed
+
+- The glued closer inside a declared generic's type arguments now
+  splits: nested instantiations such as `Box<Box<int>>` parse in every
+  type position (local declarations, parameters, fields). The split
+  rule already covered the built-in generic names, whose openers are
+  scan-time known; the parser now feeds the declared-generic openers
+  into the same nesting depth.
+
+### Changed
+
+- Statement-level syntax-error recovery clears the type-argument
+  nesting depth, so a malformed declaration no longer leaves a later
+  `>>` in the same file mis-split.
+
 ## [0.12.0] - 2026-10-28
 
 This version starts the 0.12 line, which focuses on completing the
