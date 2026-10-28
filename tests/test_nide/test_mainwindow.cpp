@@ -149,6 +149,12 @@ const char* const kLoopSource =
     "    return 42;\n"                //11
     "}\n";                            //12
 
+//A bare nvm run of the 100M-iteration loop above takes ~19s on a
+//mid-load desktop and the debugged session needs more; the loop-stop
+//QTRY ceiling must leave room for background load or the gate flakes
+//on busy machines (needed 34s at 44% load).
+constexpr int kLoopStopTimeoutMs = 90000;
+
 //The embedded help's mkdocs-material search needs the page-side retry
 //loop to report (its bundle binds the input handler asynchronously),
 //so the test polls the reported flag at this interval and gives up
@@ -3583,7 +3589,7 @@ private slots:
 
         //The loop ends, the line-10 prelude stop lands, the queue
         //replays: the line-2 breakpoint binds (dot goes filled).
-        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, kLoopStopTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(
             code->boundBreakpointLines().contains(2), 10000);
 
@@ -3629,7 +3635,7 @@ private slots:
 
         //The stop replays the add; its receipt arrives after the undo
         //lookup, so the receipt handler must delete the materialized bp.
-        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, kLoopStopTimeoutMs);
         act(window, "actStartDebug")->trigger();  // Continue
         QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
         QVERIFY(status != nullptr);
@@ -3671,7 +3677,7 @@ private slots:
         QCOMPARE(code->breakpointLines(), QSet<int>({2, 10}));
 
         //The stop coalesces the queue; the single breakpoint binds.
-        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, kLoopStopTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(
             code->boundBreakpointLines().contains(2), 10000);
 
@@ -3752,7 +3758,7 @@ private slots:
 
         //The line-10 stop replays the remove; resuming must NOT hit the
         //removed touch breakpoint.
-        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(code->stoppedLine() == 10, kLoopStopTimeoutMs);
         act(window, "actStartDebug")->trigger();  // Continue
         QLabel* status = window.findChild<QLabel*>("lblDebugStatus");
         QVERIFY(status != nullptr);
