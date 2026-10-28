@@ -102,10 +102,11 @@ refs.
 **`foreach`**: the `foreach (Type var in iterable)` construct is
 supported. See [Foreach](foreach.md).
 
-**Nested generics** (`List<List<int>>`): supported. Inside a generic
-context a `>>` splits into two `>` tokens (same as C#), so
-`List<List<int>>` and `Dict<string, List<int>>` parse. Outside generic
-context `>>` remains a single token — the right-shift operator
+**Nested generics** (`List<List<int>>`): supported. Inside a
+type-argument list a `>>` splits into two `>` tokens (same as C#), so
+`List<List<int>>`, `Dict<string, List<int>>` and a declared generic's
+`Box<Box<int>>` parse. Outside a type-argument list `>>` remains a
+single token — the right-shift operator
 (see [Operators](operators.md) "Shift").
 
 **Cross-module**: container generic signatures cross `.ncu` import

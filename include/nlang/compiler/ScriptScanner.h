@@ -141,6 +141,15 @@ public:
 			--m_nGenericDepth;
 	}
 
+	//Resets the type-argument depth to zero. Called from the grammar's
+	//statement-level error recovery: a syntax error inside an unclosed
+	//type-argument list would otherwise leave the depth armed and
+	//mis-split a later ">>" in the same translation unit.
+	void ClearGenericDepth()
+	{
+		m_nGenericDepth = 0;
+	}
+
 	//True when the previous token was the identifier "List"/"Dict" or
 	//the func keyword. Consumed (and cleared) by the '<' rule; set by
 	//the identifier rule and the func keyword rule.

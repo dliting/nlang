@@ -1,0 +1,11 @@
+//Three levels of declared-generic nesting close on a glued ">>>" (the
+//split rule re-matches, the third bracket closes through the
+//single-'>' rule).
+class Box<T> {
+    public native Box();
+    public native T get();
+}
+int main() {
+    Box<Box<Box<int>>> t;
+    return 7;
+}

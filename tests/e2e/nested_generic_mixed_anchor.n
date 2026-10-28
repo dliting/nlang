@@ -1,0 +1,11 @@
+//Mixed opener sources in one type: the anchored List (scan-time
+//OT_TypeLt) and the parser-fed Box spellings feed the same nesting
+//depth, so the glued ">>>" splits into three closers.
+class Box<T> {
+    public native Box();
+    public native T get();
+}
+int main() {
+    List<Box<Box<int>>> m = List();
+    return m.length();
+}

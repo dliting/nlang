@@ -1,13 +1,16 @@
-//R2 pin (builtin-decls phase 2): a nested declared-generic argument
-//writes Box<Box<int>>, but the scanner still lexes ">>" as the shift
-//operator, so the nesting is a syntax error today. This probe pins
-//the current behavior; the scanner fix batch (collection closing
-//bracket pairing, phase 8e-6 leftover) flips it to a positive example.
+//Flipped (v0.12.1): the scanner now splits the glued ">>" into two
+//closing brackets, so the nested declared-generic instantiation
+//parses at a statement head. The construction spelling rides a dead
+//branch: a declared generic's methods are native signatures with no
+//registered implementation, so the call itself can never execute.
 class Box<T> {
     public native Box();
     public native T get();
 }
 int main() {
-    Box<Box<int>> b = Box();
+    Box<Box<int>> b;
+    if (1 == 2) {
+        Box<Box<int>> c = Box();
+    }
     return 0;
 }

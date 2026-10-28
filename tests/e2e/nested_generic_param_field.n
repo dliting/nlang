@@ -1,0 +1,16 @@
+//Nested declared-generic instantiation in unambiguous type positions:
+//a field type and a parameter type.
+class Box<T> {
+    public native Box();
+    public native T get();
+}
+class Holder {
+    public Box<Box<int>> m_nested;
+}
+int probe(Box<Box<int>> p) {
+    return 0;
+}
+int main() {
+    Holder h;
+    return 0;
+}

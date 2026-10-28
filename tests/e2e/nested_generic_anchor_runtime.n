@@ -1,0 +1,8 @@
+//Anchored nested containers keep the split path correct at runtime
+//(regression guard for the v0.12.1 closer-pairing change).
+int main() {
+    List<List<int>> m = List();
+    List<int> inner = List();
+    m.add(inner);
+    return m.length() * 10 + m.get(0).length();
+}

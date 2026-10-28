@@ -66,7 +66,7 @@ int main() {
 
 **`foreach`**：支持`foreach (Type var in iterable)`构造。见[foreach语句](foreach.md)。
 
-**嵌套泛型**（`List<List<int>>`）：支持。嵌套泛型里的`>>`会拆成两个`>`（与C#相同），因此`List<List<int>>`与`Dict<string, List<int>>`都能解析；泛型上下文之外的`>>`仍是单个记号——右移运算符（见[运算符](operators.md)「位移」）。
+**嵌套泛型**（`List<List<int>>`）：支持。类型实参表内的`>>`会拆成两个`>`（与C#相同），因此`List<List<int>>`、`Dict<string, List<int>>`与声明泛型的`Box<Box<int>>`都能解析；类型实参表之外的`>>`仍是单个记号——右移运算符（见[运算符](operators.md)「位移」）。
 
 **跨模块**：容器泛型签名可以跨越`.ncu`导入边界——被导入函数递归携带真实的形参与返回类型（`List<int[]>`、`Dict`实例化、嵌套数组），调用点类型检查与同模块调用一致。函数（`func`）签名仍在描述符文法之外（见「已知限制」）。
 

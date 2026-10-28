@@ -1873,5 +1873,12 @@ builtin_named_args 0
 builtin_object_face 0
 builtin_static_face_selectany 0
 builtin_full_surface_smoke 0
-declared_generic_nested_shift_pin compile_error syntax error
+declared_generic_nested_shift_pin 0
+nested_generic_stmt_head 0
+nested_generic_param_field 0
+nested_generic_triple 7
+nested_generic_anchor_runtime 10
+nested_generic_mixed_anchor 0
+nested_closer_shift_regression 4
+nested_closer_chain_stmthead_err compile_error not a built-in generic
 window_suspend 0 w[slow-ok]|done

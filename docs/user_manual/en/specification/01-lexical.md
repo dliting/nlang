@@ -159,10 +159,13 @@ Type-argument brackets: a `<` that follows one of the built-in
 generic names `List`, `Dict`, `Channel`, `Future` or the keyword
 `func` — with only whitespace or comments in between — MUST be
 read as opening a type-argument list rather than as the comparison
-operator. Inside an open type-argument list, `>>` and `>>=` close
-one nesting level each and the remainder is rescanned, so
-`List<List<int>>` and `List<List<int>>=` parse. Any other `<` is
-the comparison operator.
+operator. A declared generic's type-argument use (`Box<int>`)
+opens a type-argument list as well; the parser recognizes those
+openers and feeds the same nesting depth. Inside an open
+type-argument list, `>>` and `>>=` close one nesting level each
+and the remainder is rescanned, so `List<List<int>>`,
+`Box<Box<int>>` and `List<List<int>>=` parse. A `<` in any other
+position is the comparison operator.
 
 Array type suffixes: `[]` denotes a one-dimensional array type, and
 `[`, one or more commas, `]` denotes a rectangular array type of

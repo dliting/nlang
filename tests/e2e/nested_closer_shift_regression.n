@@ -1,0 +1,16 @@
+//Shift and comparison spellings stay intact after closer pairing: the
+//single-'<' comparison forms never arm the type-argument depth.
+int main() {
+    int r = 1 << 4 >> 2;
+    int a = 1;
+    int b = 2;
+    int c = 1;
+    int d = 4;
+    if (a < b >> c) {
+        r = r + 100;
+    }
+    if ((a < b) == (c > d)) {
+        r = r + 10;
+    }
+    return r;
+}

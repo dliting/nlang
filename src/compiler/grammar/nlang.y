@@ -846,6 +846,7 @@ Statement:	';' {
 				error ';'
 				{
 					parser.Log(CLL_Error, @1, "Invalid statement.");
+					parser.Scanner().ClearGenericDepth();
 					$$ = nullptr;
 				} ;
 
@@ -1851,7 +1852,10 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //conflicts down to none, as the re-measure below shows. Removed in the
 //Phase 10 audit; do not re-add without a real use.
 //Accepted-conflict ledger (re-measured 2026-10-28, bison 3.8.2, on the
-//0.11 merge grammar): 30 shift/reduce, 3 reduce/reduce. History: dev's
+//0.11 merge grammar): 30 shift/reduce, 3 reduce/reduce. Re-measured
+//unchanged 2026-10-29 (v0.12.1, bison 3.8.2): the Type arm's mid-rule
+//depth marker adds one state and renumbers only the ClassMember family
+//(677→678); every other state number holds. History: dev's
 //line measured 27/3 with every generic opener on the 0.10.8 D1
 //OT_TypeLt token; master's declared-generics line re-adopted the
 //plain-'<' family because a user-declared generic class name cannot
@@ -1910,7 +1914,8 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.
-//- state 677 (16): ClassMember's NodeFlag-singular vs
+//- state 678 (16, renumbered from 677 in v0.12.1): ClassMember's
+//  NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
@@ -1928,10 +1933,14 @@ NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 //plain '<' for user-declared generics, whose names cannot live in a
 //scan-time set. The openers are distinct tokens, so the sister
 //productions never compete over one lookahead.
+//v0.12.1: the plain-'<' arm carries a mid-rule depth increment — the
+//scanner's glued-closer split (">>" as two '>') reads the nesting
+//depth, and only the parser can know a declared generic's '<' opened
+//a type-argument list.
 Type:	NameExpr		{ $$ = $1; } |
 				QualifiedType	{ $$ = $1; } |
 				IdentifierExpr OT_TypeLt TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1); } |
-				IdentifierExpr '<' TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1); } |
+				IdentifierExpr '<' { parser.Scanner().IncGenericDepth(); } TypeList '>'	{ $$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $4, @1); } |
 				//Phase 13: void in the first type-arg slot (func's return
 				//slot). KT_Void never derives Type, so the void spellings
 				//need their own sister productions; the void node must be a

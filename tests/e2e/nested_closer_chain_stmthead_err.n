@@ -1,0 +1,15 @@
+//Stable pin (v0.12.1): a chained '<' comparison at a statement head
+//still never compiles. The head '<' rides the type-argument reading
+//(shift wins in the head states), the second '<' arms the nesting
+//depth, the ">>" splits, and the statement parses as a declaration --
+//the name resolver then rejects it: "a" is not a built-in generic
+//type. Chained comparisons are also semantically illegal (bool
+//comparisons are strict), so the shape has no legal spelling.
+int main() {
+    int a = 1;
+    int b = 2;
+    int c = 3;
+    int d = 4;
+    a < b < c >> d;
+    return 0;
+}

@@ -1,0 +1,10 @@
+//Nested declared-generic instantiation at a statement head: the glued
+//">>" now splits into two closing brackets (v0.12.1 closer pairing).
+class Box<T> {
+    public native Box();
+    public native T get();
+}
+int main() {
+    Box<Box<int>> b;
+    return 0;
+}
