@@ -220,41 +220,38 @@ bool ExprResolveAccessor::TryResolveArrayLengthMethod(
 	return false;
 }
 
-//The array-builtin invoke arm (length/rank/shape) of
-//TryResolveArrayLengthMethod: a zero-argument call on an
-//array-valued receiver resolves; per-name arity message and verdict
-//(rank: int, shape: int[] minted over the int builtin at rank 1 —
-//the same intern channel as every array type). Parallel blocks
-//preempted each other once already; new array builtins extend the
-//name dispatch here, they do not get a copied block.
+//The array method face, declaration-driven (v0.12.2): the prelude
+//class Array owns the signatures (length/rank/shape — all zero-formal);
+//this bridge validates the call and binds the DECLARED returns through
+//the shared face tail (shape's int[] re-interned in the caller's TU).
+//toString is deliberately absent here: its plain-lvalue shape
+//restriction is an emission-side constraint, and the NonClassToString
+//exemption arm owns it — two arms silently claiming one name is the
+//"parallel blocks preempted each other" hazard this codebase has hit.
 bool ExprResolveAccessor::TryResolveArrayBuiltinInvoke(
 	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
 	SnInvokeExpr &invoke, SyntaxNode *pSavedContext)
 {
-	const bool isRank = invoke.CalleeName() == "rank";
-	const bool isShape = invoke.CalleeName() == "shape";
-	if (invoke.CalleeName() != "length" && !isRank && !isShape)
+	if (invoke.CalleeName() == "toString")
 		return false;
-	if (invoke.Params().begin() != invoke.Params().end())
+	SnClassDecl* pFace = FindPreludeClassDecl(m_Env.Registry(), "Array");
+	if (!pFace)
+		return false;
+	SnFunction* pOtherArity = nullptr;
+	SnFunction* pMatch = MatchFaceMethod(*pFace, invoke.CalleeName(),
+		ArgCountOf(invoke), &pOtherArity);
+	if (!pMatch)
 	{
+		if (!pOtherArity)
+			return false;   //not an Array face method — the reject
+                            //gate has already spoken for arrays
 		m_Env.Log(CLL_Error, invoke.Location(),
-			isRank ? "array.rank() takes no arguments."
-			: isShape ? "array.shape() takes no arguments."
-			: "array.length() takes no arguments.");
+			"array.%s() takes no arguments.",
+			invoke.CalleeName().c_str());
 		m_pContext = pSavedContext;
 		return true;
 	}
-	//Mirror of the string length/getHashCode arm: same flag set,
-	//plus the m_pField bind so a chained member
-	//(a.length().toString(), a.shape()[0]) survives IsDataExpr().
-	pInnerExpr->AddFlags(NF_Resolved);
-	auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
-	SnField* pResultType = pInt;
-	if (isShape)
-		pResultType = static_cast<SnField*>(
-			m_Env.InternArrayTypeToken(pInt, 1));
-	snMember.EvalDataType(pResultType);
-	snMember.m_pField = pResultType;
+	BindFaceMethodResult(snMember, pInnerExpr, *pMatch);
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 	m_pContext = pSavedContext;

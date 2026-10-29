@@ -1888,3 +1888,4 @@ string_substring_3args_reject compile_error
 string_toupper_spelling_reject compile_error
 string_null_arg_semantics 0
 string_face_shadow_nonhijack 0
+array_face_shape_crossmod 0

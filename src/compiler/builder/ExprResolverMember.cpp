@@ -125,18 +125,40 @@ void ExprResolveAccessor::SwitchContextToReceiver(SnMemberExpr &snMember)
 	}
 }
 
+//Face membership decides the array exemption (v0.12.2): length/rank/
+//shape are declared on the prelude Array class. Prelude identity — a
+//user class named Array never widens the array face. The fast path
+//keeps the three historical names working even if the prelude is
+//corrupt.
+static bool IsArrayFaceMethodName(const ModuleRegistry &reg,
+	const std::string &name)
+{
+	if (name == "length" || name == "rank" || name == "shape")
+		return true;
+	auto* pFace = FindPreludeClassDecl(reg, "Array");
+	if (!pFace)
+		return false;
+	for (auto& child : pFace->Members())
+		if (child.Kind() == NK_Function
+			&& static_cast<SnFunction&>(child).Name() == name)
+			return true;
+	return false;
+}
+
 //Array-valued receivers expose no user methods — the gate gives the
 //named, actionable rejection ("index an element first") instead of
 //the generic resolution failure a token-typed receiver produces.
-//Two builtin exemptions fall through below (see the inline checks):
-//length() — the array's one builtin method, any arity (the builtin
-//dispatch owns the arity error) — and toString for lvalue receivers
-//(identifier / member field): the non-class toString dispatch below
-//detects exactly those shapes via the IsArrayType() field check.
-//Call-result array values (l.get(0), obj.mk(), l[0], delegate calls)
-//route nowhere in that dispatch — their string conversion is the cast
-//table's array→string coercion in expression positions, not a method
-//call.
+//The builtin exemption is face membership (v0.12.2): the methods
+//declared on the prelude Array class (length/rank/shape) always fall
+//through to the builtin dispatch in Access(), which owns the arity
+//error (a dedicated "takes no arguments" message). toString is
+//declared on the face too but keeps its plain-lvalue shape
+//restriction (identifier / member field): the non-class toString
+//dispatch below detects exactly those shapes via the IsArrayType()
+//field check. Call-result array values (l.get(0), obj.mk(), l[0],
+//delegate calls) route nowhere in that dispatch — their string
+//conversion is the cast table's array→string coercion in expression
+//positions, not a method call.
 //(Pre-token this was worse: the element masquerade bound the
 //ELEMENT type's method table — string[] receivers entered the
 //string-builtin block, enum/class receivers bound user methods —
@@ -152,25 +174,25 @@ bool ExprResolveAccessor::RejectArrayReceiverMethodCall(
 		&& pOuterExpr->IsArrayValued())
 	{
 		auto& invoke = static_cast<SnInvokeExpr&>(*pInnerForGate);
-		//length() is the array's one builtin method — it always falls
-		//through to the builtin dispatch in Access(), which owns the
-		//arity check (a dedicated "takes no arguments" message) instead
-		//of this generic reject.
-		if (invoke.CalleeName() == "length"
-			|| invoke.CalleeName() == "rank"
-			|| invoke.CalleeName() == "shape")
-			return false;
-		if (invoke.CalleeName() != "toString"
-			|| !(pOuterExpr->IsArrayValued()
-				&& IsPlainLvalueShape(*pOuterExpr)))
+		if (invoke.CalleeName() == "toString")
 		{
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"methods cannot be called on an array; index an element "
-				"first (e.g. a[i].%s(...)).",
-				invoke.CalleeName().c_str());
-			m_pContext = pSavedContext;
-			return true;
+			//Plain-lvalue receivers fall through to the non-class
+			//toString dispatch; every other shape takes the
+			//actionable rejection below.
+			if (IsPlainLvalueShape(*pOuterExpr))
+				return false;
 		}
+		else if (IsArrayFaceMethodName(m_Env.Registry(),
+			invoke.CalleeName()))
+		{
+			return false;
+		}
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"methods cannot be called on an array; index an element "
+			"first (e.g. a[i].%s(...)).",
+			invoke.CalleeName().c_str());
+		m_pContext = pSavedContext;
+		return true;
 	}
 	return false;
 }
