@@ -182,7 +182,14 @@ void VmBackend::ApplyImplicitObjectInheritance() {
         for (auto& cc : m_compiledModule.classes) {
             //Bare-name guard: the prelude root — or a shadowing user
             //`class Object` — keys bare "Object"; neither gets a parent.
-            if (cc.superClassIdx == -1 && cc.name != "Object") {
+            //String/Array are the prelude face classes (v0.12.2 spec D10):
+            //rootless by design. The bare name is safe here because only
+            //the prelude's own rows can arrive baseless under it — a user
+            //shadow keeps the prelude row out (IsShadowedPreludeDecl skips
+            //registration) and the user's class carries the resolver's
+            //implicit Object (superClassIdx != -1, never this branch).
+            if (cc.superClassIdx == -1 && cc.name != "Object"
+                && cc.name != "String" && cc.name != "Array") {
                 cc.superClassIdx = static_cast<int16_t>(objectIdx);
             }
         }

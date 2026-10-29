@@ -165,3 +165,48 @@ class Object {
     public virtual native int getHashCode();
     public virtual native string toString();
 }
+
+//String's method face — the declaration-level source of truth for the
+//string keyword type (C# alias model: `string` is the user spelling,
+//String is the declared face class). Instances are the pooled string
+//objects themselves; this class cannot be instantiated or extended,
+//and it stays out of the class hierarchy (no implicit Object base),
+//so its methods are never virtual overrides.
+//substring(start) with one argument means "through the end".
+class String {
+    public native int length();
+    public native int getHashCode();
+    public native int equals(string other);
+    public native string toString();
+    public native string substring(int start);
+    public native string substring(int start, int end);
+    public native int indexOf(string sub);
+    public native bool startsWith(string prefix);
+    public native bool endsWith(string suffix);
+    public native bool contains(string sub);
+    public native string toUpper();
+    public native string toLower();
+    public native string trim();
+    public native List<string> split(string sep);
+    public native string replace(string old, string new_);
+    public native int toInt();
+    public native float toFloat();
+    public native char charAt(int byteIdx);
+    public native int charCount();
+    public native char toChar();
+    public native long toLong();
+    public native double toDouble();
+    public native bool toBool();
+}
+
+//Array's method face — declaration-level source of truth for every
+//array type (int[], string[,], …; rank rides the array type itself).
+//length() is the element count (total elements for rank > 1), rank()
+//the static rank, shape() the per-dimension sizes as int[rank]. Face
+//holder only: not instantiable, not extendable, no Object base.
+class Array {
+    public native int length();
+    public native int rank();
+    public native int[] shape();
+    public native string toString();
+}

@@ -1144,6 +1144,39 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(generic_decl_tests test_generic_decl)
 
+    # Prelude String/Array face declarations (v0.12.2 Task 1): in-process
+    # ModuleBuilder coverage of the two declaration classes — member
+    # counts, Object-chain exclusion (spec D10), and intrinsic-channel
+    # stamping of the declared records (same internal-header reach as
+    # test_generic_decl, plus builder/ExprResolver.h for
+    # FindPreludeClassDecl).
+    add_executable(test_prelude_faces
+        test_compiler/test_prelude_faces.cpp
+    )
+    target_include_directories(test_prelude_faces
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_prelude_faces
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_prelude_faces)
+    target_compile_definitions(test_prelude_faces
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_prelude_faces POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_prelude_faces>)
+    endif()
+    nlang_add_qtest(prelude_faces_tests test_prelude_faces)
+
     # Module registry unit tests (module import visibility Task 2):
     # per-TU module path computation relative to the project root, the
     # single-file stem fallback and the reserved segment gate, driven

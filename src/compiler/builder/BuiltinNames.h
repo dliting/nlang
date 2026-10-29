@@ -37,6 +37,15 @@ inline bool IsBuiltinClassName(const std::string& name)
 	return name == "ByteStream" || name == "FileStream";
 }
 
+//v0.12.2 face classes (spec D2/D10): String/Array hold the method faces
+//of the string keyword and the array types. Shared by the resolver gates,
+//the implicit-Object early-out, and the root mirror name-yield pass
+//(ImportedNodeBuilder) — one set, no drift.
+inline bool IsPreludeFaceClassName(const std::string& name)
+{
+	return name == "String" || name == "Array";
+}
+
 //Static faces on builtin generic TYPE NAMES — the type name as a call
 //qualifier (`Future.selectAny(futures)`), no receiver instance: the
 //intrinsic's arguments start at slot 0 (the binding row's noReceiver

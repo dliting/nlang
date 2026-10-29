@@ -131,7 +131,42 @@ static const BindingRow s_LiteralRows[] = {
     {"builtins", "Channel.close",   INTR_Channel_Close},
     {"builtins", "Future.get",      INTR_Future_Get},
     {"builtins", "Future.isDone",   INTR_Future_IsDone},
+    //v0.12.2: String face — declared native methods stamp onto the
+    //existing frozen intrinsic ids. 20 rows = the 18 table methods
+    //(INTR_String_Substring..INTR_String_ToBool) + equals +
+    //getHashCode; String.length (OP_StrLen) and String.toString
+    //(identity fold) carry no id, so they have no row. Both substring
+    //overloads key the one "String.substring" row. Array's four
+    //methods are compile-time-static emissions with no intrinsic id —
+    //zero rows (kStringFaceBindingRows below pins this block's size).
+    {"builtins", "String.equals",      INTR_String_Equals},
+    {"builtins", "String.getHashCode", INTR_String_GetHashCode},
+    {"builtins", "String.substring",   INTR_String_Substring},
+    {"builtins", "String.indexOf",     INTR_String_IndexOf},
+    {"builtins", "String.startsWith",  INTR_String_StartsWith},
+    {"builtins", "String.endsWith",    INTR_String_EndsWith},
+    {"builtins", "String.contains",    INTR_String_Contains},
+    {"builtins", "String.toUpper",     INTR_String_ToUpper},
+    {"builtins", "String.toLower",     INTR_String_ToLower},
+    {"builtins", "String.trim",        INTR_String_Trim},
+    {"builtins", "String.split",       INTR_String_Split},
+    {"builtins", "String.replace",     INTR_String_Replace},
+    {"builtins", "String.toInt",       INTR_String_ToInt},
+    {"builtins", "String.toFloat",     INTR_String_ToFloat},
+    {"builtins", "String.charAt",      INTR_String_CharAt},
+    {"builtins", "String.charCount",   INTR_String_CharCount},
+    {"builtins", "String.toChar",      INTR_String_ToChar},
+    {"builtins", "String.toLong",      INTR_String_ToLong},
+    {"builtins", "String.toDouble",    INTR_String_ToDouble},
+    {"builtins", "String.toBool",      INTR_String_ToBool},
 };
+
+//Pins the String face block above independently of unrelated packages'
+//rows: 18 table methods + equals + getHashCode. Keep in sync with the
+//comment block when a face row changes (the face itself is frozen).
+constexpr size_t kStringFaceBindingRows = 20;
+static_assert(kStringFaceBindingRows == 18 + 2,
+    "String face rows = 18 table methods + equals + getHashCode");
 
 //The literal rows plus the DERIVED static-face rows. A face's row comes
 //from the face table (BuiltinNames.h) — the single hand-maintained

@@ -81,10 +81,30 @@ SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
 	return nullptr;
 }
 
+//Face-holder classes (v0.12.2, spec D10): String/Array declare the
+//method faces of the string keyword and array types. They have no
+//instances and no virtual dispatch shapes, so they stay out of the
+//class hierarchy — no implicit Object base. This also keeps their
+//equals/getHashCode/toString out of the virtual-contract bijection:
+//PropagateVirtualOverrides matches by name + param COUNT, so a based
+//String would collide with Object.equals(Object) (the
+//ovsig_equals_mismatch probe pins that rejection for user classes).
+//The bare-name predicate is inline in BuiltinNames.h (shared with the
+//mirror name-yield pass).
+bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
+{
+	return IsPreludeFaceClassName(sn.Name())
+		&& &sn == FindPreludeClassDecl(reg, sn.Name());
+}
+
 void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
 	const ModuleRegistry &reg)
 {
 	if (sn.SuperName() || sn.SuperClass())
+		return;
+	//Face classes stay rootless (spec D10) — identity check, so a user
+	//class named String still gets Object like any other class.
+	if (IsPreludeFaceClass(reg, sn))
 		return;
 	SnClassDecl *pObject = FindPreludeClassDecl(reg, "Object");
 	if (!pObject || pObject == &sn)

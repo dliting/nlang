@@ -1418,7 +1418,7 @@ Builtin-decls source of truth: the prelude-owned root declaration of a
 builtin class name. Scans the merged root namespace for the class the
 "builtins" package owns — never a user shadow, which sits ahead of the
 prelude in the root and must not become other classes' base. Null = the
-prelude has no such class. Definition in ExprResolverTypes.cpp.
+prelude has no such class. Definition in ExprResolverBuiltinClasses.cpp.
 */
 SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
 	const std::string &name);
@@ -1428,9 +1428,21 @@ Every class without a declared base inherits the prelude-declared
 Object — the compile-time chain mirror of the backend's implicit-
 inheritance wiring. Idempotent per class (both resolver passes call
 it); the prelude Object itself is the one class that stays rootless.
-Definition in ExprResolverTypes.cpp.
+Definition in ExprResolverBuiltinClasses.cpp.
 */
 void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
 	const ModuleRegistry &reg);
+
+/*
+Face-holder classes (v0.12.2, spec D10): String/Array declare the
+method faces of the string keyword and the array types. They have no
+instances and no dispatch shapes, so they stay out of the class
+hierarchy — no implicit Object base, not usable as a type or a base.
+Identity, never bare name: a user's own same-name class is an ordinary
+class and keeps the normal Object chain. The bare-name predicate lives
+in BuiltinNames.h (shared with the mirror name-yield pass); this pair
+needs registry identity. Definitions in ExprResolverBuiltinClasses.cpp.
+*/
+bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn);
 
 } //namespace nlang

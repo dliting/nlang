@@ -984,21 +984,24 @@ static void TestUserObjectDispatch() {
 }
 
 //Phase 6 section 2 ruling (enum-method keys): enum methods carry
-//ENCLOSURE-QUALIFIED function-table keys ("alib.Color.rank"). Enum
+//ENCLOSURE-QUALIFIED function-table keys ("alib.Color.standing"). Enum
 //methods never dispatch by name — direct calls go through table
-//indices — so a bare "rank" cannot disambiguate two same-named methods
-//of different enums in one unit. The qualified key resolves cross-unit
-//enum-method imports by construction, not by bare-name luck.
+//indices — so a bare "standing" cannot disambiguate two same-named
+//methods of different enums in one unit. The qualified key resolves
+//cross-unit enum-method imports by construction, not by bare-name luck.
+//(v0.12.2: the method name avoids prelude face names — Array.rank and
+//friends ride every image as bare records by design, so a bare "rank"
+//would exist regardless of the enum keying.)
 const char* kEnumKeyLibSource =
     "enum Color {\n"
     "  Red,\n"
     "  Green;\n"
-    "  public int rank() { return 7; }\n"
+    "  public int standing() { return 7; }\n"
     "}\n"
     "enum Shape {\n"
     "  Circle,\n"
     "  Square;\n"
-    "  public int rank() { return 9; }\n"
+    "  public int standing() { return 9; }\n"
     "}\n";
 
 const char* kEnumKeyProgram =
@@ -1006,7 +1009,7 @@ const char* kEnumKeyProgram =
     "int main() {\n"
     "  alib.Color c = alib.Color.Red;\n"
     "  alib.Shape s = alib.Shape.Circle;\n"
-    "  return c.rank() * 10 + s.rank();\n"
+    "  return c.standing() * 10 + s.standing();\n"
     "}\n";   //7*10 + 9 = 79
 
 void TestEnumMethodQualifiedKeys() {
@@ -1018,20 +1021,21 @@ void TestEnumMethodQualifiedKeys() {
     CHECK(compileRun(dir, cap) == 79,
           "both same-named enum methods run (7*10+9)");
     //The enum methods are compiled into the LIBRARY unit: its function
-    //table carries the qualified keys, and no bare "rank" record may
-    //survive them. (The consumer artifact references them through
+    //table carries the qualified keys, and no bare "standing" record
+    //may survive them. (The consumer artifact references them through
     //import slots instead.)
     try {
         CompiledModule mod = ModuleLoader::Load(
             (dir / "alib.ncu").string());
-        CHECK(mod.FindFunction("alib.Color.rank") >= 0,
-              "Color.rank keyed by its enclosure path");
-        CHECK(mod.FindFunction("alib.Shape.rank") >= 0,
-              "Shape.rank keyed by its enclosure path");
+        CHECK(mod.FindFunction("alib.Color.standing") >= 0,
+              "Color.standing keyed by its enclosure path");
+        CHECK(mod.FindFunction("alib.Shape.standing") >= 0,
+              "Shape.standing keyed by its enclosure path");
         bool bareRemains = false;
         for (const auto& fn : mod.functions)
-            if (fn.name == "rank") bareRemains = true;
-        CHECK(!bareRemains, "no bare 'rank' function record remains");
+            if (fn.name == "standing") bareRemains = true;
+        CHECK(!bareRemains,
+              "no bare 'standing' function record remains");
     } catch (const std::exception& e) {
         std::fprintf(stderr, "internal error: %s\n", e.what());
         CHECK(false, "loading the enum-key scenario module");

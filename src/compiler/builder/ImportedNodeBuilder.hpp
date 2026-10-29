@@ -1,6 +1,7 @@
 #pragma once
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
+#include "BuiltinNames.h"
 #include <nlang/runtime/RuntimeNodeVisitor.h>
 #include <nlang/runtime/Runtime.h>
 
@@ -108,6 +109,14 @@ public:
 		SyntaxNode *pParentNode = ParentNodeOf(rn);
 		assert(pParentNode == m_Tree.Root());
 		m_Tree.Root()->Members().push_back(pNode);
+		//v0.12.2 face-name yield: a face-named builtin mirror (String)
+		//keeps its node attached — registry identity for InstanceOf,
+		//tree ownership, walks — but gives up the bare name, so the
+		//prelude's declared face class is the name's sole owner and
+		//DuplicateFieldChecker never sees the pair. Other builtin names
+		//keep their spellings (zero semantic change).
+		if (IsPreludeFaceClassName(pNode->Name()))
+			m_Tree.Root()->Members().unindex_field(pNode);
 		RegNode(rn, *pNode);
 	}
 

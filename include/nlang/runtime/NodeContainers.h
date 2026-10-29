@@ -380,6 +380,22 @@ public:
 	}
 
 	/*
+	Remove one already-indexed child from the name map, the inverse of
+	index_field: a name changing owner while the node stays attached
+	(face classes take over the builtin mirrors' bare names this way).
+	*/
+	void unindex_field(FieldType *pField)
+	{
+		auto range = m_NameMap.equal_range(pField->Name());
+		for (auto it = range.first; it != range.second; ++it)
+			if (it->second == pField) {
+				m_NameMap.erase(it);
+				return;
+			}
+		assert(false && "unindex_field: node is not indexed");
+	}
+
+	/*
 	Add a field and take the ownership of it.
 	Precondition: pField != nullptr.
 	The field will be added before the location pointed by iPos.
