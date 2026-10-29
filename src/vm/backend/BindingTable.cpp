@@ -162,8 +162,8 @@ static const BindingRow s_LiteralRows[] = {
 };
 
 //Pins the String face block above independently of unrelated packages'
-//rows: 18 table methods + equals + getHashCode. Keep in sync with the
-//comment block when a face row changes (the face itself is frozen).
+//rows: the 18 string methods + equals + getHashCode. Keep in sync with
+//the comment block when a face row changes (the face itself is frozen).
 constexpr size_t kStringFaceBindingRows = 20;
 static_assert(kStringFaceBindingRows == 18 + 2,
     "String face rows = 18 table methods + equals + getHashCode");
