@@ -6,6 +6,25 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.2] - 2026-10-29
+
+### Changed
+
+- String and array method faces are now declared in the prelude
+  (`builtins.n` classes `String` and `Array`); member resolution
+  validates against those declarations. No runtime or representation
+  change.
+- `string.equals` now type-checks its argument (a `string` or null;
+  previously any single argument compiled).
+- A null argument now matches string formals and reads as the empty
+  string (consistent with the null-string model); previously it was a
+  compile error on the table methods.
+
+### Added
+
+- Clear diagnostics for using the face-holder classes `String`/`Array`
+  in type positions.
+
 ## [0.12.1] - 2026-10-29
 
 ### Fixed

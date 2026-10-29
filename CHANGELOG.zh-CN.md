@@ -6,6 +6,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.2] - 2026-10-29
+
+### 变更
+
+- string与数组的方法面现在声明在预置包中（`builtins.n`的`String`与`Array`类）；成员解析按这些声明校验。运行期与表示形式不变。
+- `string.equals`现在对实参做类型检查（`string`或null；此前任意单个实参都能编译）。
+- null实参现在匹配string形参并按空字符串读出（与null字符串模型一致）；此前在方法族上是编译错误。
+
+### 新增
+
+- 声明持有类`String`/`Array`出现在类型位时给出清晰诊断。
+
 ## [0.12.1] - 2026-10-29
 
 ### 修复

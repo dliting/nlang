@@ -33,7 +33,7 @@ struct类型的数组在行为上是例外：每个元素是值类型，所以`P
 
 ### 长度
 
-`a.length()`是方法（无参数、返回`int`），与`string.length()`、`List.length()`形态一致。见[字符串](string.md)。
+`a.length()`是方法（无参数、返回`int`），与`string.length()`、`List.length()`形态一致。见[字符串](string.md)。数组成员方法（`length`、`rank`、`shape`、`toString`）由预置类`Array`（`stdlib/builtins.n`）声明——与`String`一样，这个类只为持有声明而存在：不能实例化、不能继承、也不能用作类型；数组类型用方括号语法书写（`int[]`）。
 
 ### 下标读写
 

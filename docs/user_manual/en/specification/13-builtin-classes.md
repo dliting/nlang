@@ -14,8 +14,15 @@ Method surfaces defined elsewhere: the concurrency handle classes
 handle classes (`ByteStream`, `FileStream`) in chapter 15, and the
 exception classes in §9.3.
 
-Every method in this chapter is built in: it is declared in no
-package, and a program cannot replace it.
+Every method in this chapter is built in: its declaration lives in the
+prelude package `builtins` (§12.4), imported by every build, and a
+program cannot replace it — a user class with the same name is an
+ordinary class and never takes over the built-in receivers. Two of the
+prelude classes, `String` and `Array`, are declaration holders only:
+they declare the method surfaces of the `string` keyword and the array
+types, cannot be instantiated, extended, or used as types, and stay
+outside the class hierarchy — `string` and the bracket array syntax are
+the value spellings.
 
 ## 13.2 The Object Protocol
 
@@ -94,7 +101,9 @@ decodes Unicode Transformation Format (UTF-8) over the byte core.
 | `charCount()` | → `int` | the code-point count; an invalid byte sequence raises `Exception` |
 
 A `string` receiver also answers `length()` — the byte count
-(§4.4) — and `equals`, `getHashCode` and `toString` (§13.2). The
+(§4.4) — and `equals`, `getHashCode` and `toString` (§13.2). `equals`
+takes a `string` argument; wherever a parameter takes `string`, a null
+argument is accepted and reads as the empty string. The
 subscript `s[i]` reads byte `i` as a `ubyte` (§5.7).
 
 ## 13.4 List and Dict Methods

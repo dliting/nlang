@@ -3,7 +3,11 @@
 The normative rules are in [specification §13.2–§13.3](../specification/13-builtin-classes.md).
 
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
-`"abc".toUpper()`). The string method list is as follows. **Byte
+`"abc".toUpper()`). Every string method is declared by the prelude class
+`String` (`stdlib/builtins.n`). That class exists only to hold the
+declarations: it cannot be instantiated, extended, or used as a type —
+the value type is written with the `string` keyword. The string method
+list is as follows. **Byte
 semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; Unicode Transformation Format (UTF-8) byte order equals code point order (so
 relational comparison has a definite result); case conversion covers the American Standard Code for Information Interchange (ASCII) only.
@@ -26,11 +30,14 @@ byte access — see [String](string.md) "The char bridge".
 | charAt | (int byteIndex) → char | the code point **starting at** that byte offset; out of range → IndexOutOfBoundsException, continuation byte → Exception |
 | charCount | () → int | code-point count (contrast `length()`, bytes); invalid sequence → Exception |
 
-Beyond the 18 table methods, a string receiver also answers `length()`
+Alongside the 18 methods, a string receiver also answers `length()`
 (byte count — see [String](string.md)), `equals(other)` (content equality,
-the same relation as `==`; yields int `1`/`0`), `getHashCode()` (content
+the same relation as `==`; yields int `1`/`0`; the argument must be a
+`string` or null), `getHashCode()` (content
 hash as int — equal strings hash equal) and `toString()` (identity —
-returns the string itself).
+returns the string itself). A null argument is accepted wherever a
+parameter takes `string` and reads as the empty string — the null-string
+model.
 
 String subscripting (`s[i]`) returns byte i as a `ubyte` (out of range →
 IndexOutOfBoundsException) — byte access goes through the subscript,

@@ -59,6 +59,11 @@ semantics". The full value-vs-reference summary is on
 
 `a.length()` is a **method** (no arguments, returns `int`), consistent with
 `string.length()` and the built-in containers. See [String](string.md).
+The array member methods (`length`, `rank`, `shape`, `toString`) are
+declared by the prelude class `Array` (`stdlib/builtins.n`) — like
+`String`, that class only holds the declarations: it cannot be
+instantiated, extended, or used as a type; array types are written with
+the bracket syntax (`int[]`).
 
 ### Subscript read/write
 

@@ -17,17 +17,19 @@ declaration, so it carries a `CompiledFunction` record like any user
 function.
 
 **What reaches `OP_CallIntrinsic`**: the string-method family
-(`s.substring(1)`, `s.split(d)`, …), resolved through `kStringMethodTable`
-in `include/nlang/vm/StdLib.h` — the resolver intercepts the member call
-against that table and `src/vm/backend/EmitExprMemberString.cpp` emits the
-call. An intrinsic's identifier (ID) is module-local — the linker's operand
+(`s.substring(1)`, `s.split(d)`, …). The signatures are declared by the
+prelude face class `String` (`stdlib/builtins.n`) — the resolver validates
+the member call against that declaration, and emission reads the intrinsic
+identifier (ID) from the binding table (`src/vm/backend/BindingTable.cpp`,
+key `String.<method>`) in `src/vm/backend/EmitExprMemberString.cpp`. An
+intrinsic's ID is module-local — the linker's operand
 remap (`NcuRemapBytecodeOperands`, `src/vm/NcuLinkerRemap.cpp`) never
 rewrites it — so cross-module imports have no ID problems.
 
 **Argument application binary interface (ABI)**: the receiver occupies `callParamBase[0]` and arguments
 start at slot 1, the `string.equals` shape. `OP_CallIntrinsic` carries no
-argument count, so a call shorter than a table entry allows stages the
-missing trailing value synthetically (`StringTrailingDefault`).
+argument count, so the one call form that omits a trailing parameter —
+`substring(start)` — stages `end` synthetically as the receiver's length.
 
 **VM dispatch chain**: `ExecuteIntrinsic` (VmExecutorIntrinsics.cpp)
 delegates to one member function per family translation unit (TU); each returns `false` when
@@ -37,11 +39,11 @@ FileStream → the thread-family arm (`IntrinsicsThread.cpp`, IDs 129-143)
 unknown-ID throw. Each family is independently extensible in its own TU.
 
 **Intrinsic ID allocation** (`include/nlang/vm/Intrinsics.h`). Blocks are
-contiguous. The string-method block is statically bound to the
-`kStringMethodTable` on both sides — the block bounds live in
-`Intrinsics.h`, the per-entry ID check and the entry-count check in
-`StdLib.h`, and a mismatch is a compile error, not a runtime "unknown
-intrinsic" hole; the other families have no source table to bind against:
+contiguous. The string-method block is statically bound on both sides —
+the block bounds live in `Intrinsics.h`, and the binding table carries
+one row per method with a compile-time row-count check against the block,
+so a mismatch is a compile error, not a runtime "unknown intrinsic" hole;
+the other families have no source table to bind against:
 
 | IDs | Prefix | Family |
 |-----|--------|--------|

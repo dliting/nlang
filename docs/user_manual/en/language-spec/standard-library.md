@@ -9,8 +9,13 @@ automatically, so its declarations are visible without any import
 statement (an explicit `import builtins;` is legal and deduplicates).
 It declares the compiler's non-generic built-in classes as ordinary
 source — the handle classes `Mutex`, `Semaphore`, `Thread`, the
-exception family (`Exception` and its seven built-in subclasses), and
-the hierarchy root `Object`. Their signatures (constructor arity,
+exception family (`Exception` and its seven built-in subclasses), the
+hierarchy root `Object`, and the two declaration-holder classes
+`String` and `Array`: they declare the method surfaces of the `string`
+keyword and the array types and nothing else — they cannot be
+instantiated, extended, or used as a type, and a user class with the
+same name is an ordinary class that never takes over the keyword or
+array receivers. Their signatures (constructor arity,
 method surface) are exactly what the file declares, and the language
 service treats them like any other declaration. The generic containers
 `List<T>`/`Dict<T>`/`Channel<T>`/`Future<T>` and the streams
@@ -41,8 +46,9 @@ service's symbol index. The shape is the one a third-party library uses:
 exception: its `native` declarations are implemented inside the virtual
 machine itself and dispatched on the intrinsic channel). A qualified
 call type-checks against the declaration and goes through the normal
-function-call path; the built-in string methods are receiver-dispatched
-directly into their built-in implementations. See [Libraries and search paths](stdlib-search-paths.md)
+function-call path; the built-in string and array member methods are
+type-checked against their prelude declarations and dispatched directly
+into their built-in implementations. See [Libraries and search paths](stdlib-search-paths.md)
 for the directory rules.
 
 **Parameter types**: each argument is checked against the declared

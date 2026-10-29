@@ -8,7 +8,7 @@
 
 在其他处定义的方法面：并发句柄类（`Mutex`、`Channel`、`Future`、`Thread`）在第11章，流句柄类（`ByteStream`、`FileStream`）在第15章，异常类在§9.3。
 
-本章每个方法都是内建的：它不声明在任何包中，程序也不能替换它。
+本章每个方法都是内建的：其声明位于预置包`builtins`（§12.4）——每次构建都自动导入——程序不能替换它；同名用户类是普通类，不会接管内建接收者。预置类中的`String`与`Array`只作声明持有：它们声明`string`关键字与数组类型的方法面，不能实例化、不能继承、也不能用作类型，且不在类层次之内——`string`与方括号数组语法才是值类型的写法。
 
 ## 13.2 Object协议
 
@@ -61,7 +61,7 @@
 | `charAt(byteIndex)` | → `char` | 从该字节偏移开始的码点；越界抛出`IndexOutOfBoundsException`，延续字节抛出`Exception` |
 | `charCount()` | → `int` | 码点数；无效字节序列抛出`Exception` |
 
-`string`接收者也响应`length()`——字节数（§4.4）——以及`equals`、`getHashCode`与`toString`（§13.2）。下标`s[i]`把字节`i`以`ubyte`读出（§5.7）。
+`string`接收者也响应`length()`——字节数（§4.4）——以及`equals`、`getHashCode`与`toString`（§13.2）。`equals`取`string`实参；凡形参取`string`的位置都接受null实参，按空字符串读出。下标`s[i]`把字节`i`以`ubyte`读出（§5.7）。
 
 ## 13.4 List与Dict方法
 
