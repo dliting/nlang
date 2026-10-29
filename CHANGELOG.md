@@ -23,7 +23,8 @@ All notable changes to NLang are documented here. The format follows
 ### Added
 
 - Clear diagnostics for using the face-holder classes `String`/`Array`
-  in type positions.
+  in type positions: declarations, array elements, base classes,
+  constructors, `as`-cast targets, and generic type arguments.
 
 ## [0.12.1] - 2026-10-29
 
