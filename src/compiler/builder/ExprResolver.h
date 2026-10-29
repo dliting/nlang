@@ -1433,4 +1433,14 @@ needs registry identity. Definitions in ExprResolverBuiltinClasses.cpp.
 */
 bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn);
 
+/*
+The face-misuse gate shared by every type-position throat (declarations,
+locals, loop vars, array elements, bases, construction). szWhat completes
+"it cannot be …" ("used as a type", "extended", "constructed"). True =
+the field is a prelude face class and the error was logged; the caller
+then keeps the construct out of its bind.
+*/
+bool RejectPreludeFaceUse(class BuildEnvironment &env, SnField *pField,
+	const ISourceLocation *pLoc, const char *szWhat);
+
 } //namespace nlang

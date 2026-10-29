@@ -8,6 +8,7 @@
 #include "SnMisc.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
+#include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
@@ -95,6 +96,34 @@ bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
 {
 	return IsPreludeFaceClassName(sn.Name())
 		&& &sn == FindPreludeClassDecl(reg, sn.Name());
+}
+
+//Usage hint completing "Use the … instead." for the face diagnostics.
+static const char *FaceUsageHint(const std::string &faceName)
+{
+	return faceName == "String" ? "string keyword"
+		: "array syntax (e.g. int[])";
+}
+
+//v0.12.2 face-misuse gate: one diagnostic shape for every position a
+//prelude face class (String/Array) must not occupy — szWhat completes
+//"it cannot be …" ("used as a type", "extended", "constructed").
+//Prelude identity only: a user's own same-name class is a legal type
+//and never trips this gate. True = the field is a face class and the
+//error was logged (the caller keeps the construct out of the bind).
+bool RejectPreludeFaceUse(BuildEnvironment &env, SnField *pField,
+	const ISourceLocation *pLoc, const char *szWhat)
+{
+	if (!pField || pField->Kind() != NK_ClassDecl)
+		return false;
+	auto &clazz = static_cast<SnClassDecl &>(*pField);
+	if (!IsPreludeFaceClass(env.Registry(), clazz))
+		return false;
+	env.Log(CLL_Error, pLoc,
+		"\"%s\" is a builtin face class; it cannot be %s. Use the %s "
+		"instead.", clazz.Name().c_str(), szWhat,
+		FaceUsageHint(clazz.Name()));
+	return true;
 }
 
 void EnsureImplicitObjectSuperclass(SnClassDecl &sn,

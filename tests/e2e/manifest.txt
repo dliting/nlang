@@ -1889,3 +1889,7 @@ string_toupper_spelling_reject compile_error
 string_null_arg_semantics 0
 string_face_shadow_nonhijack 0
 array_face_shape_crossmod 0
+face_type_string_reject compile_error
+face_type_array_reject compile_error
+face_extend_reject compile_error
+face_newctor_reject compile_error

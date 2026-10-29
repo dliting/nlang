@@ -29,6 +29,11 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 	pElemType->Accept(*m_pVisitor);
 	if (!pElemType->IsResolved())
 		return;
+	//v0.12.2: the element is a type position too — a face-class elem
+	//(String[]) is rejected before any token is interned over it.
+	if (RejectPreludeFaceUse(m_Env, pElemType->Field(),
+		pElemType->Location(), "used as a type"))
+		return;
 
 	//0.7.3 B: intern the array type token and bind the expression to
 	//it — Field() and EvalDataType() become the token together
@@ -412,7 +417,15 @@ void ExprResolveAccessor::Access(SnClassDecl &sn)
 		if (sn.SuperName()->IsResolved())
 		{
 			auto pSuperField = sn.SuperName()->Field();
-			if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
+			if (pSuperField && pSuperField->Kind() == NK_ClassDecl
+				&& RejectPreludeFaceUse(m_Env, pSuperField,
+					sn.SuperName()->Location(), "extended"))
+			{
+				//v0.12.2: face bases are rejected — the class stays
+				//baseless (faces own no instances or dispatch shapes
+				//to inherit).
+			}
+			else if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
 				sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
 			else
 				m_Env.Log(CLL_Error, sn.SuperName()->Location(),

@@ -1,0 +1,4 @@
+int main() {
+    String s = "x";   //compile error: use the string keyword
+    return 0;
+}

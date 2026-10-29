@@ -72,6 +72,10 @@ void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 			"jagged arrays (T[][]) are not supported");
 	if (!decl.Type()->IsResolved())
 		return;
+	//v0.12.2 face gate (mirror of Access(SnLocalDeclStmt&)).
+	if (RejectPreludeFaceUse(m_Env, decl.Type()->Field(),
+		decl.Type()->Location(), "used as a type"))
+		return;
 	auto *pTypeField = decl.Type()->Field();
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 	auto bIsArray = decl.Type()->IsArrayType();
@@ -292,24 +296,25 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 
 	//1. Resolve declared var type. Route through ExprResolver, not
-	//the StatementResolver visitor — its Access(SnArrayTypeExpr&) is
-	//empty, so an array-typed loop var (foreach (int[] row in ...))
-	//would never resolve and body references die with "Cannot
-	//resolve the field" (same trap as SnLocalDeclStmt above).
+	//the StatementResolver visitor (its Access(SnArrayTypeExpr&) is
+	//empty — an array-typed loop var would never resolve and body
+	//references die; same trap as SnLocalDeclStmt above).
 	m_ExprResolver.Resolve(*sn.VarType(), *sn.Parent(), *m_pCurrType,
 		ERF_None);
-	//Array redesign B: reject jagged loop vars (foreach (int[][] x in
-	//...)); ArrayTypeDepth is shape-based (Kind chain) and works
-	//whether or not the type resolved.
+	//Array redesign B: reject jagged loop vars; ArrayTypeDepth is
+	//shape-based and works whether or not the type resolved.
 	if (ArrayTypeDepth(sn.VarType()) >= 2)
 		m_Env.Log(CLL_Error, sn.VarType()->Location(),
 			"jagged arrays (T[][]) are not supported");
 	SnField *pVarField = nullptr;
 	if (sn.VarType()->IsResolved())
 		pVarField = sn.VarType()->Field();
+	//v0.12.2 face gate (mirror of Access(SnLocalDeclStmt&)).
+	if (pVarField && RejectPreludeFaceUse(m_Env, pVarField,
+		sn.VarType()->Location(), "used as a type"))
+		return;
 
-	//2. Resolve iterable (EvalDataType gets populated for codegen to use).
-	//0.9.13 D-new-2: supplied its target from the loop-var type first.
+	//2. Resolve iterable; 0.9.13 D-new-2 supplies its target first.
 	SupplyForeachInitListTarget(m_Env, m_ExprResolver, sn, pVarField);
 	sn.Iterable()->Accept(*m_pVisitor);
 	CheckForeachSource(sn);

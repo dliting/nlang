@@ -1,0 +1,4 @@
+int main() {
+    String s = String();   //compile error: face class cannot be
+    return 0;              //constructed (bare-name ctor form)
+}

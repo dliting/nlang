@@ -244,6 +244,11 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 		snInvoke.Location());
 	if (!pTypeDecl)
 		return RejectBareGenericCtorInvoke(snInvoke);
+	//v0.12.2: face classes cannot be constructed — consume with the
+	//error so codegen never sees a face-typed allocation.
+	if (RejectPreludeFaceUse(m_Env, pTypeDecl, snInvoke.Location(),
+		"constructed"))
+		return true;
 	//Declared-generic construction: swap the template for the
 	//assign-published instance; the ordinary ctor tail binds it.
 	if (pTypeDecl->Kind() == NK_ClassDecl

@@ -1,0 +1,4 @@
+int main() {
+    Array a;          //compile error: use array syntax (int[] etc.)
+    return 0;
+}

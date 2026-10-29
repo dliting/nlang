@@ -208,6 +208,11 @@ bool ExprResolver::ResolveDataType(SnFieldExpr &typeExpr, SnField &outerType)
 		typeExpr.AddFlags(NF_Invalid);
 		return false;
 	}
+	//v0.12.2: declaration-side type positions (fields, formals,
+	//returns) reject the prelude face classes — they declare method
+	//faces, not usable types.
+	RejectPreludeFaceUse(m_Accessor.m_Env, typeExpr.Field(),
+		typeExpr.Location(), "used as a type");
 	return true;
 }
 

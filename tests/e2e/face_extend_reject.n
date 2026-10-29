@@ -1,0 +1,3 @@
+class C : String {   //compile error: face class cannot be extended
+}
+int main() { return 0; }

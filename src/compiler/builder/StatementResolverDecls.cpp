@@ -430,6 +430,10 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 	m_ExprResolver.Resolve(*sn.Type(), *sn.Parent(), *m_pCurrType, ERF_None);
 	if (!sn.Type()->IsResolved())
 		return;
+	//v0.12.2 face gate: face classes are not usable types.
+	if (RejectPreludeFaceUse(m_Env, sn.Type()->Field(),
+		sn.Type()->Location(), "used as a type"))
+		return;
 
 	//Array redesign B: jagged declarations (T[][]) have no VM
 	//layout and used to degrade silently — reject here.

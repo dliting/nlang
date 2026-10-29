@@ -80,7 +80,15 @@ void StatementResolveAccessor::ResolveClassBases(SnClassDecl &sn)
 		if (sn.SuperName()->IsResolved())
 		{
 			auto pSuperField = sn.SuperName()->Field();
-			if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
+			if (pSuperField && pSuperField->Kind() == NK_ClassDecl
+				&& RejectPreludeFaceUse(m_Env, pSuperField,
+					sn.SuperName()->Location(), "extended"))
+			{
+				//v0.12.2: face bases are rejected — the class stays
+				//baseless (faces own no instances or dispatch shapes
+				//to inherit).
+			}
+			else if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
 				sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
 			else
 				m_Env.Log(CLL_Error, sn.SuperName()->Location(),
