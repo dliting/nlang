@@ -1783,9 +1783,9 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 //carries the hidden __handle field. Append-only list.
 bool IsHandleClassName(const std::string& className);
 
-//v0.12.2 (the string-method signature table is retired): argument
-//slots a string-method
-//call must stage. The one synthetic case is substring's 1-arg form —
+//v0.12.2 (the string-method signature table is retired): the number of
+//argument slots a string-method call must stage. The one synthetic case
+//is substring's 1-arg form —
 //OP_CallIntrinsic carries no argument count, so the missing end slot
 //is filled with receiver.length() (emitted as OP_StrLen; the declared
 //overloads are the interface, the intrinsic still reads both slots).
