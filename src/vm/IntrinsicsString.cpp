@@ -4,10 +4,10 @@ IntrinsicsString.cpp — built-in string method intrinsics.
 Two families live here:
   ids 42/43   String.Equals / String.GetHashCode (Phase 8e-1, migrated
               from VmExecutor.cpp unchanged — ids and semantics frozen)
-  ids 95-112  the 18 table methods (Phase 11 Step 3 laid down 12; the
-              0.7.5 char bridge appended the 6 code-point/parse methods
-              — kStringMethodTable in StdLib.h is the resolver/codegen
-              counterpart)
+  ids 95-112  the 18 binding-table methods (Phase 11 Step 3 laid down
+              12; the 0.7.5 char bridge appended the 6 code-point/parse
+              methods; v0.12.2: signatures are declared in
+              stdlib/builtins.n, ids served by the binding table)
 
 ABI (mirror of string.equals): receiver string handle at callParamBase
 slot 0, arguments from slot 1 upward.
@@ -163,8 +163,9 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         std::memcpy(&end, locals + callParamBase + 2 * kFrameSlotBytes,
             sizeof(end));
         //Both offsets always staged by codegen: the 1-arg form is
-        //lowered with end = receiver.length() (STD_ReceiverLength in
-        //kStringMethodTable), so no absent-argument sentinel exists.
+        //lowered with end = receiver.length() (the
+        //StringMethodStagedArgCount predicate), so no absent-argument
+        //sentinel exists.
         if (start < 0 || static_cast<size_t>(start) > s.size()
             || end < start || static_cast<size_t>(end) > s.size())
             RaiseNlangException(m_oobExcClassIdx,

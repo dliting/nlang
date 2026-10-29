@@ -13,7 +13,7 @@
 #include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/StdLib.h"
+#include "nlang/vm/Intrinsics.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
@@ -401,67 +401,58 @@ void test_stdlib_void_arg_rejected()
 
 // --- Phase 11 Step 3: string methods ---
 
+//v0.12.2: the retired string-method table walk lives on as this local
+//probe list — signatures are declared in stdlib/builtins.n and the
+//binding table serves the ids; each row pins one method's compile+run
+//path end to end (name, call arguments, result declaration keyword).
+static const struct { const char* name; const char* args;
+    const char* resultDecl; } kStringMethodProbes[] = {
+    {"substring", "1, 2", "string"},
+    {"indexOf", "\"x\"", "int"},
+    {"startsWith", "\"x\"", "bool"},
+    {"endsWith", "\"x\"", "bool"},
+    {"contains", "\"x\"", "bool"},
+    {"toUpper", "", "string"},
+    {"toLower", "", "string"},
+    {"trim", "", "string"},
+    {"split", "\"x\"", "List<string>"},
+    {"replace", "\"x\", \"y\"", "string"},
+    {"toInt", "", "int"},
+    {"toFloat", "", "float"},
+    {"charAt", "1", "char"},
+    {"charCount", "", "int"},
+    {"toChar", "", "char"},
+    {"toLong", "", "long"},
+    {"toDouble", "", "double"},
+    {"toBool", "", "bool"},
+};
+
 void test_string_table_full_dispatch()
 {
     TEST(string_table_full_dispatch);
     //Same binding guard as the math walk: compile AND run one real
-    //program per kStringMethodTable entry. Receiver "12" survives every
-    //method (toInt/toFloat parse it; substring/indexOf/etc are total).
-    //substring is called with maxArgs here; the 1-arg synthetic-end path
-    //(STD_ReceiverLength) is pinned by the e2e suite.
+    //program per probe row. Receiver "12" survives every method
+    //(toInt/toFloat parse it; substring/indexOf/etc are total).
+    //substring is called with both args here; the 1-arg synthetic-end
+    //path is pinned by the e2e suite.
     int checked = 0;
-    for (const auto& entry : kStringMethodTable)
+    for (const auto& probe : kStringMethodProbes)
     {
-        std::string args;
-        for (int i = 0; i < entry.maxArgs; ++i)
-            args += (i ? ", " : "")
-                + std::string(entry.paramKinds[i] == RTK_Int32
-                    ? "1" : "\"x\"");
         //toBool needs a parseable receiver — the walk's default "12"
         //would raise at run time (strict "true"/"false" parse).
-        const std::string recv = (std::string(entry.name) == "toBool")
+        const std::string recv = (std::string(probe.name) == "toBool")
             ? "\"true\"" : "\"12\"";
-        std::string call = recv + "." + entry.name
-            + "(" + args + ")";
-        std::string src;
-        switch ((StdLibReturnType)entry.returnType)
-        {
-        case SLRT_String:
-            src = "int main() { string r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Int32:
-            src = "int main() { int r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Float:
-            src = "int main() { float r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Bool:   //0.7.5: startsWith/endsWith/contains
-            src = "int main() { bool r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Char:   //0.7.5 Task 8: charAt/toChar
-            src = "int main() { char r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Long:   //0.7.5 Task 8: toLong
-            src = "int main() { long r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_Double: //0.7.5 Task 8: toDouble
-            src = "int main() { double r = " + call + "; return 0; }\n";
-            break;
-        case SLRT_ListString:
-            src = "int main() { List<string> r = " + call
-                + "; return 0; }\n";
-            break;
-        case SLRT_Void:
-            src = "int main() { " + call + "; return 0; }\n";
-            break;
-        }
-        const int rc = runSource(std::string("strtbl_") + entry.name, src);
+        std::string call = recv + "." + probe.name
+            + "(" + probe.args + ")";
+        std::string src = "int main() { " + std::string(probe.resultDecl)
+            + " r = " + call + "; return 0; }\n";
+        const int rc = runSource(std::string("strtbl_") + probe.name, src);
         CHECK(rc == 0, (std::string("dispatch failed for ") + call
             + " (rc=" + std::to_string(rc) + ")").c_str());
         ++checked;
     }
     CHECK(checked == kStringMethodIntrinsicCount,
-        "every string-method table entry must be exercised by this walk");
+        "every string-method binding row must be exercised by this walk");
     PASS();
 }
 

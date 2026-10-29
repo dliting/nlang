@@ -11,7 +11,6 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
 #include <algorithm>
 #include <map>
 #include <set>

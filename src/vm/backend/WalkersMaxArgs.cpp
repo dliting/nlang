@@ -235,19 +235,17 @@ void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs)
 }
 
 //Extra claim slots for a built-in string method with a staged trailing
-//argument (the 1-arg substring form): such a call bulk-copies 1+maxArgs slots
-//into callParamBase — reserve the same count from the same table field
-//ExprPeakDepth/codegen consume, or the i=2 write lands on evalArea
-//slot 0 and clobbers a live parked operand (`a + s.substring(1)`
-//compared garbage). Name-based overreserve for a free function sharing
-//the name is the safe direction (frame bytes only).
+//argument (the 1-arg substring form): such a call bulk-copies 1+staged
+//slots into callParamBase — reserve the same count from the same shared
+//predicate ExprPeakDepth/codegen consume, or the i=2 write lands on
+//evalArea slot 0 and clobbers a live parked operand (`a +
+//s.substring(1)` compared garbage). Name-based overreserve for a free
+//function sharing the name is the safe direction (frame bytes only).
 static uint16_t StringMethodTrailingReserve(const SnInvokeExpr& invoke,
                                             size_t formalCount) {
-    const StringMethodEntry* pm = FindStringMethod(invoke.CalleeName());
-    if (pm && pm->trailingDefault == STD_ReceiverLength
-        && formalCount < pm->maxArgs)
-        return static_cast<uint16_t>(pm->maxArgs - formalCount);
-    return 0;
+    const uint16_t staged = StringMethodStagedArgCount(
+        invoke.CalleeName(), static_cast<uint16_t>(formalCount));
+    return static_cast<uint16_t>(staged - formalCount);
 }
 
 //MaxArgs walker, NK_InvokeExpr arm.

@@ -1,5 +1,5 @@
 /*---
-    EmitExprMemberString.cpp — 成员表达式字符串族发射：非 class 接收者 toString 分派、string 内建方法（内建表驱动）与字符串方法尾部分派。
+    EmitExprMemberString.cpp — 成员表达式字符串族发射：非 class 接收者 toString 分派、string 内建方法（绑定表取id）与字符串方法尾部分派。
     从 EmitExprMemberCall.cpp 拆出（2026-09-25 可维护性重构，零行为变化；源出 EmitExprMember.cpp，再上溯 VmBackend.cpp）。
 ---*/
 #include "VmBackend.h"
@@ -290,38 +290,29 @@ void VmBackend::EmitMemberStringEquals(SnInvokeExpr& invoke,
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-//OP_CallIntrinsic carries no argument count: a call
-//shorter than maxArgs must stage the missing trailing
-//argument synthetically or the intrinsic reads stale
-//memory (substring's end = receiver.length(), filled
-//via OP_StrLen on the receiver copy in claim slot 0).
-static uint16_t StagedArgCountForStringMethod(const StringMethodEntry& method,
-                                              uint16_t argCount) {
-    uint16_t stagedArgs = argCount;
-    if (method.trailingDefault == STD_ReceiverLength
-        && argCount < method.maxArgs)
-        stagedArgs = method.maxArgs;
-    return stagedArgs;
-}
-
-//Phase 11 Step 3: table-driven string methods — the exact
-//equals shape above (receiver to resultOffset first, then
-//the {this, args...} claim, bulk copy, intrinsic, assign
-//back). All 12 return a value, so OP_Assign is always
-//emitted. The walker mirrors the claim size (incl. the
-//synthesized trailing arg) via the same table — see the
-//ExprPeakDepth MemberExpr branch.
-//Returns true when the method was found and emitted.
+//v0.12.2: the 18 binding-table string methods (the retired
+//string-method signature table). The id comes from the binding table — the resolver already
+//validated the call against the prelude String face, so every reachable
+//name has a row; an id miss means the name is not a bound face method.
+//The shape mirrors equals above (receiver to resultOffset first, then
+//the {this, args...} claim, bulk copy, intrinsic, assign back). All
+//return a value, so OP_Assign is always emitted. The walkers mirror the
+//claim size (incl. the synthesized trailing arg) via the SAME
+//StringMethodStagedArgCount predicate — see the ExprPeakDepth
+//MemberExpr branch.
+//Returns true when the method has a binding row and was emitted.
 bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
                                             SnMemberExpr& member,
                                             BytecodeEmitter& emitter,
                                             uint16_t resultOffset) {
-    const StringMethodEntry* pMethod = FindStringMethod(invoke.CalleeName());
-    if (!pMethod)
+    const uint16_t intrinsicId = LookupIntrinsicId("builtins",
+        "String." + invoke.CalleeName());
+    if (intrinsicId == INTR_None)
         return false;
     uint16_t argCount = 0;
     for (auto& p : invoke.Params()) ++argCount;
-    uint16_t stagedArgs = StagedArgCountForStringMethod(*pMethod, argCount);
+    uint16_t stagedArgs = StringMethodStagedArgCount(
+        invoke.CalleeName(), argCount);
     uint16_t n = static_cast<uint16_t>(1 + stagedArgs);
     EmitExpression(*member.Outer(), emitter, resultOffset);
     EvalAreaClaim claim(*this, n);
@@ -345,7 +336,7 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
     }
     CopyClaimToCallParams(claimBase, n, emitter);
     emitter.Emit(OpCode::OP_CallIntrinsic);
-    emitter.EmitUint16(pMethod->intrinsicId);
+    emitter.EmitUint16(intrinsicId);
     emitter.EmitUint16(m_currFunc->callParamBase);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);

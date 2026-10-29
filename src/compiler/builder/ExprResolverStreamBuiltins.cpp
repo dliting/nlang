@@ -11,7 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
+#include <nlang/vm/CompiledModule.h>  //RTK_* kind constants
 #include <algorithm>
 #include <map>
 #include <set>

@@ -261,20 +261,16 @@ uint16_t VmBackend::MemberExprPeakDepth(SnExpression& expr,
     //Phase 11 Step 3 symmetry: a built-in string method stages
     //synthetic trailing args (substring's end via OP_StrLen) on top
     //of the actual ones — reserve those slots here from the SAME
-    //table field codegen consumes, or a 1-arg substring call would
+    //predicate codegen consumes, or a 1-arg substring call would
     //clobber a slot above the walker-shaped frame. Overreserving for
     //a user method that happens to share the name is safe (finalize
     //only asserts observed <= walker).
     if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr) {
         auto& inv = static_cast<SnInvokeExpr&>(*member.Inner());
-        const StringMethodEntry* pm = FindStringMethod(inv.CalleeName());
-        if (pm && pm->trailingDefault == STD_ReceiverLength) {
-            size_t actual = 0;
-            for (auto& p : inv.Params()) ++actual;
-            if (actual < pm->maxArgs)
-                id = static_cast<uint16_t>(
-                    id + (pm->maxArgs - actual));
-        }
+        uint16_t actual = 0;
+        for (auto& p : inv.Params()) ++actual;
+        id = static_cast<uint16_t>(id + (StringMethodStagedArgCount(
+            inv.CalleeName(), actual) - actual));
     }
     return d > id ? d : id;
 }

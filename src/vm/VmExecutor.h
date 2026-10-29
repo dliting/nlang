@@ -1129,7 +1129,7 @@ private:
         uint8_t* locals, uint8_t* pResult);
 
     //Phase 11: the surviving stdlib intrinsic family. The string methods live
-    //in their own TU (IntrinsicsString.cpp) with their table in vm/StdLib.h,
+    //in their own TU (IntrinsicsString.cpp; ids served by the binding table)
     //and return false when the id is not ours — ExecuteIntrinsic then reaches
     //the unknown-id throw. Receiver-dispatched: the receiver string handle is
     //at callParamBase[0] and the arguments start at slot 1 (the string.equals
