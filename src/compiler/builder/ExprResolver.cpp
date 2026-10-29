@@ -84,21 +84,6 @@ std::vector<std::string> OuterIdentifierChain(
 	return chain;
 }
 
-//Phase 11: printable language name of a stdlib param kind (RTK_*). Only
-//the kinds StringMethodEntry::paramKinds may carry are covered — adding
-//a kind to the string-method table means extending this switch too.
-const char* StdLibKindName(uint8_t rtk)
-{
-	switch (rtk)
-	{
-	case RTK_Int32:  return "int";
-	case RTK_Float:  return "float";
-	case RTK_Double: return "double";
-	case RTK_String: return "string";
-	default:         return "<unknown>";
-	}
-}
-
 //Phase 13: true when the field is a synthetic func<...> instantiation.
 bool IsFuncTypeDecl(SnField *pType)
 {

@@ -185,7 +185,6 @@ bool HasOutArgument(SnInvokeExpr& invoke);
 std::string JoinDots(const std::vector<std::string>& segs);
 std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
-const char* StdLibKindName(uint8_t rtk);
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
@@ -235,10 +234,6 @@ bool IsTypeOrNamespaceBinding(const SnField *pField);
 SnClassDecl* GetBuiltinClassDecl(ModuleRegistry& reg,
 	const std::string& name, const ISourceLocation* pLoc);
 bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl);
-
-//String built-in method table entry (defined in vm/StdLib.h); the member
-//phase declarations below hand around pointers into it.
-struct StringMethodEntry;
 
 //Library declaration symbol (nlang_langservice); the stdlib-call
 //resolution reads signatures (param/return types, arity) from it.
@@ -442,22 +437,15 @@ private:
 		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
 	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
-	bool BindIntrinsicStringResult(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, NodeKind resultKind,
-		SyntaxNode *pSavedContext);
-	bool ResolveStringEqualsMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
-		SyntaxNode *pSavedContext);
-	bool TryResolveTableStringMethod(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
-		const std::string &name, SyntaxNode *pSavedContext);
-	bool CheckTableStringMethodCall(SnInvokeExpr &invoke,
-		const StringMethodEntry *pMethod);
-	void CheckTableStringArgKinds(SnInvokeExpr &invoke,
-		const StringMethodEntry *pMethod);
-	void BindTableStringMethodResult(SnMemberExpr &snMember,
-		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
-		const StringMethodEntry *pMethod);
+	//v0.12.2 face bridges (String here, Array in Task 3): per-argument
+	//kind policy from the DECLARED formals, and the resolve tail binding
+	//the declared return type. Shared shape — the emitter keeps its
+	//name-keyed fast paths (declarations are the interface, opcodes the
+	//implementation).
+	void CheckFaceArgKinds(SnInvokeExpr &invoke, SnFunction &fn,
+		const char *ownerName);
+	void BindFaceMethodResult(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SnFunction &fn);
 	bool TryResolveArrayLengthMethod(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SnFieldExpr *pInnerExpr,
 		SyntaxNode *pSavedContext);

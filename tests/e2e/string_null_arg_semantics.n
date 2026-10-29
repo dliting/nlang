@@ -1,0 +1,11 @@
+//null string reads as "" (the language model); null now matches
+//string formals (spec D3 amendment).
+int main() {
+    string s = "ab";
+    string e = null;
+    if (!s.contains(null)) { return 1; }      //contains("") == true
+    if (s.equals(null) == 1) { return 2; }    //"ab" != "" (equals returns int)
+    if (e.equals(null) == 0) { return 3; }    //"" == ""
+    if (e.length() != 0) { return 4; }
+    return 0;
+}

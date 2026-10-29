@@ -1882,3 +1882,9 @@ nested_generic_mixed_anchor 0
 nested_closer_shift_regression 4
 nested_closer_chain_stmthead_err compile_error not a built-in generic
 window_suspend 0 w[slow-ok]|done
+string_substring_two_args 0
+string_equals_int_reject compile_error
+string_substring_3args_reject compile_error
+string_toupper_spelling_reject compile_error
+string_null_arg_semantics 0
+string_face_shadow_nonhijack 0

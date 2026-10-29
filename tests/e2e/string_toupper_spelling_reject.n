@@ -1,0 +1,4 @@
+int main() {
+    string s = "ab";
+    return s.toUpperCase().length();   //compile error: spelled toUpper
+}

@@ -11,16 +11,60 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/StdLib.h>
-#include <algorithm>
-#include <map>
-#include <set>
-#include <vector>
 
 namespace nlang
 {
 
-//Builtin string methods: s.length(), s.GetHashCode(), s.Equals(other).
+//Formal count of a declared face method. Overloads are separate
+//members (substring declares twice), so callers match by count.
+static size_t FormalCountOf(const SnFunction &fn)
+{
+	size_t count = 0;
+	for (auto& param : fn.Params())
+		++count;
+	return count;
+}
+
+//Resolved type of the i-th formal. The ResolveDataTypes pre-pass
+//resolves the prelude signatures before any function body, so the
+//Field() link is live by the time a face bridge reads it.
+static SnField *FormalTypeAt(const SnFunction &fn, size_t index)
+{
+	size_t i = 0;
+	for (auto& param : fn.Params())
+		if (i++ == index)
+			return param.Type()->Field();
+	return nullptr;
+}
+
+//Match a face method by name and exact formal count. Overloads are
+//separate members (substring declares twice); *ppOtherArity receives
+//the first same-name candidate with a different count, for the arity
+//error. Null with *ppOtherArity null = no same-name member at all.
+static SnFunction *MatchFaceMethod(SnClassDecl &face,
+	const std::string &name, size_t argCount, SnFunction **ppOtherArity)
+{
+	*ppOtherArity = nullptr;
+	for (auto& child : face.Members())
+	{
+		if (child.Kind() != NK_Function)
+			continue;
+		auto& fn = static_cast<SnFunction&>(child);
+		if (fn.Name() != name)
+			continue;
+		if (FormalCountOf(fn) == argCount)
+			return &fn;
+		if (!*ppOtherArity)
+			*ppOtherArity = &fn;
+	}
+	return nullptr;
+}
+
+//String method face, declaration-driven (v0.12.2): the prelude class
+//String owns every signature; this bridge validates against those
+//declarations and binds result types from the declared returns. The
+//emitter keeps its name-keyed fast paths — the javac model:
+//declarations are the interface, opcodes/intrinsics the implementation.
 bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
 	SyntaxNode *pSavedContext)
@@ -30,116 +74,55 @@ bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 		return false;
 	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 	const auto& name = invoke.CalleeName();
-	//Phase 8e-1: string.length()/getHashCode() — value semantics,
-	//intrinsified in VmBackend; both are zero-argument int returns
-	//(identical resolution, one arm).
-	if ((name == "length" || name == "getHashCode")
-		&& invoke.Params().begin() == invoke.Params().end())
-		return BindIntrinsicStringResult(snMember, pInnerExpr, NK_Int32,
-			pSavedContext);
-	if (name == "equals")
-		return ResolveStringEqualsMethod(snMember, pInnerExpr, invoke,
-			pSavedContext);
-	if (const StringMethodEntry* pMethod = FindStringMethod(name))
-		return TryResolveTableStringMethod(snMember, pInnerExpr, invoke,
-			name, pSavedContext);
-	//Phase 8e-9b: string.toString() — identity. Codegen emits nothing and
-	//the inner string idx flows through unchanged (VmBackend detects a
-	//string receiver + toString name and emits nothing for the fold).
-	if (name == "toString" && invoke.Params().begin() == invoke.Params().end())
-		return BindIntrinsicStringResult(snMember, pInnerExpr, NK_String,
-			pSavedContext);
-	//Not consumed: m_pContext stays on the receiver context — the next
-	//phases' guards read it (an early restore here would misdispatch them).
-	return false;
-}
-
-//Shared resolve tail for the intrinsified zero-argument string arms
-//(length/getHashCode, toString): bind the built-in result type as BOTH
-//EvalDataType and m_pField so a chained member (a.length().toString(),
-//s.substring(1).toUpper()) survives IsDataExpr() — see
-//BindTableStringMethodResult.
-bool ExprResolveAccessor::BindIntrinsicStringResult(
-	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr, NodeKind resultKind,
-	SyntaxNode *pSavedContext)
-{
-	pInnerExpr->AddFlags(NF_Resolved);
-	auto* pResult = SnBuiltinDataType::InstanceOf(resultKind);
-	snMember.EvalDataType(pResult);
-	snMember.m_pField = pResult;
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
-	m_pContext = pSavedContext;
-	return true;
-}
-
-//string.Equals(other) — value semantics, args resolve in the caller's scope.
-bool ExprResolveAccessor::ResolveStringEqualsMethod(SnMemberExpr &snMember,
-	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke, SyntaxNode *pSavedContext)
-{
+	//Anchor is prelude IDENTITY, never the bare name: a user shadow of
+	//String never hijacks keyword-typed receivers.
+	SnClassDecl* pFace = FindPreludeClassDecl(m_Env.Registry(), "String");
+	if (!pFace)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"internal: prelude String face class is missing.");
+		m_pContext = pSavedContext;
+		return true;
+	}
+	SnFunction* pOtherArity = nullptr;
+	SnFunction* pMatch = MatchFaceMethod(*pFace, name, ArgCountOf(invoke),
+		&pOtherArity);
+	if (!pMatch)
+	{
+		if (!pOtherArity)
+			return false;   //not a face method — generic diagnostics
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"string.%s expects %d argument(s).", name.c_str(),
+			(int)FormalCountOf(*pOtherArity));
+		m_pContext = pSavedContext;
+		return true;
+	}
 	if (RejectNamedOrOutArguments(invoke))
 	{
 		m_pContext = pSavedContext;
 		return true;
 	}
-	if (ArgCountOf(invoke) != 1)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"string.equals requires exactly 1 argument.");
-		m_pContext = pSavedContext;
-		return true;
-	}
-	//Round-11: args must resolve in the CALLER's scope — same recipe
-	//as the user-class equals path below. Without this the argument
-	//stayed unresolved and codegen's silent fallbacks (ConstZero /
-	//skipped call) made t.equals(t) compare against stale memory.
+	//Args resolve in the caller's scope (the equals recipe: restore the
+	//context and drop the parent-only search first, or the argument
+	//stays unresolved and codegen silently compares stale memory).
 	m_pContext = pSavedContext;
 	RemoveFlags(ERF_SearchInParentOnly);
 	ResolveExpressionList(invoke.Params());
-	pInnerExpr->AddFlags(NF_Resolved);
-	//Bind m_pField (not just EvalDataType) so a chained member survives
-	//IsDataExpr() — see BindTableStringMethodResult.
-	auto* pInt = SnBuiltinDataType::InstanceOf(NK_Int32);
-	snMember.EvalDataType(pInt);
-	snMember.m_pField = pInt;
+	CheckFaceArgKinds(invoke, *pMatch, "string");
+	BindFaceMethodResult(snMember, pInnerExpr, *pMatch);
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);
 	m_pContext = pSavedContext;
 	return true;
 }
 
-//Table-driven string method call shape check: shared by-name rejection plus
-//the arity window. Logs on invalid; returns true when the call is valid.
-bool ExprResolveAccessor::CheckTableStringMethodCall(SnInvokeExpr &invoke,
-	const StringMethodEntry *pMethod)
-{
-	if (RejectNamedOrOutArguments(invoke))
-		return false;
-	const size_t argCount = ArgCountOf(invoke);
-	if (argCount < pMethod->minArgs || argCount > pMethod->maxArgs)
-	{
-		if (pMethod->minArgs == pMethod->maxArgs)
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"string.%s expects %d argument(s).",
-				pMethod->name, (int)pMethod->minArgs);
-		else
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"string.%s expects %d to %d argument(s).",
-				pMethod->name, (int)pMethod->minArgs,
-				(int)pMethod->maxArgs);
-		return false;
-	}
-	return true;
-}
-
-//Per-arg policy: exact kind match vs paramKinds, no widening
-//(substring offsets are int; a float offset is a compile
-//error). Array-valued args carry the interned array token
-//whose Kind matches no scalar paramKind — the kind match
-//below rejects them with the generic diagnostic. Same shape
-//as the namespace-call path: a void call has no value.
-void ExprResolveAccessor::CheckTableStringArgKinds(SnInvokeExpr &invoke,
-	const StringMethodEntry *pMethod)
+//Per-arg policy from the DECLARED formals (v0.12.2): exact kind match,
+//no widening — substring offsets are int; a float offset is a compile
+//error. Null matches a string formal: null strings read as "" in this
+//language, so a null argument is the empty-string argument. Array
+//tokens carry their own Kind and match no scalar formal.
+void ExprResolveAccessor::CheckFaceArgKinds(SnInvokeExpr &invoke,
+	SnFunction &fn, const char *ownerName)
 {
 	auto& children = invoke.Children();
 	size_t paramIdx = 0;
@@ -152,101 +135,58 @@ void ExprResolveAccessor::CheckTableStringArgKinds(SnInvokeExpr &invoke,
 		{
 			if (arg.IsResolved())
 				m_Env.Log(CLL_Error, arg.Location(),
-					"Argument %d of string.%s has no value: a void "
+					"Argument %d of %s.%s has no value: a void "
 					"function result cannot be used as an argument.",
-					(int)paramIdx + 1, pMethod->name);
+					(int)paramIdx + 1, ownerName,
+					fn.Name().c_str());
 			continue;
 		}
-		const uint8_t want = pMethod->paramKinds[paramIdx];
-		const bool ok =
-			(pArgType->Kind() == NK_Int32 && want == RTK_Int32)
-			|| (pArgType->Kind() == NK_String && want == RTK_String);
+		auto* pFormalType = FormalTypeAt(fn, paramIdx);
+		if (!pFormalType)
+			continue;
+		//The null literal is an Int32-typed node flagged NF_NullLiteral
+		//— detection is the flag (the same test every other resolver
+		//site uses), never a kind compare.
+		const bool ok = pArgType->Kind() == pFormalType->Kind()
+			|| (arg.ContainFlags(NF_NullLiteral)
+				&& pFormalType->Kind() == NK_String);
 		if (!ok)
-		{
 			m_Env.Log(CLL_Error, arg.Location(),
-				"Argument %d of string.%s has type \"%s\"; \"%s\" "
-				"expected.",
-				(int)paramIdx + 1, pMethod->name,
-				pArgType->ToString().c_str(), StdLibKindName(want));
-			continue;
-		}
+				"Argument %d of %s.%s has type \"%s\"; \"%s\" "
+				"expected.", (int)paramIdx + 1, ownerName,
+				fn.Name().c_str(), pArgType->ToString().c_str(),
+				pFormalType->ToString().c_str());
 	}
 }
 
-//Resolve tail of a table-driven string method: resolved flag, return type,
-//and the m_pField bind that lets chained access survive IsDataExpr().
-void ExprResolveAccessor::BindTableStringMethodResult(SnMemberExpr &snMember,
-	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
-	const StringMethodEntry *pMethod)
+//Resolve tail shared by the face bridges: resolved flag, the DECLARED
+//return type bound as EvalDataType + m_pField so a chained member
+//(s.substring(1).toUpper()) survives IsDataExpr(). An array-typed
+//return is re-interned in the CALLER's TU — token identity is
+//per-TU pointer equality, a prelude TU's token must not leak.
+void ExprResolveAccessor::BindFaceMethodResult(SnMemberExpr &snMember,
+	SnFieldExpr *pInnerExpr, SnFunction &fn)
 {
 	pInnerExpr->AddFlags(NF_Resolved);
-	SnField* pResultField = nullptr;
-	switch ((StdLibReturnType)pMethod->returnType)
+	//fn.ReturnType() is the declared return EXPRESSION; its resolved
+	//field rides the Field() link. Every face method declares a return
+	//type and the pre-pass resolves prelude signatures before any body
+	//— a null here means the prelude itself is corrupt.
+	SnField* pReturnType = fn.ReturnType()
+		? fn.ReturnType()->Field() : nullptr;
+	assert(fn.ReturnType() && pReturnType);
+	if (pReturnType && pReturnType->Kind() == NK_ArrayTypeToken)
 	{
-	case SLRT_Int32:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Int32);
-		break;
-	case SLRT_Bool:   //0.7.5: predicates
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Bool);
-		break;
-	case SLRT_Char:   //0.7.5 Task 8: charAt/toChar
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Char); break;
-	case SLRT_Long:   //s.toLong
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Long); break;
-	case SLRT_Double: //s.toDouble
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Double); break;
-	case SLRT_Float:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_Float);
-		break;
-	case SLRT_String:
-		pResultField = SnBuiltinDataType::InstanceOf(NK_String);
-		break;
-	case SLRT_ListString:
+		//Re-intern in the caller's environment (per-TU identity).
+		auto* pToken = static_cast<SnArrayTypeToken*>(pReturnType);
+		pReturnType = m_Env.InternArrayTypeToken(
+			pToken->ElemTypeOf(), pToken->Rank());
+	}
+	if (pReturnType)
 	{
-		std::vector<SnField*> listArgs{
-			SnBuiltinDataType::InstanceOf(NK_String) };
-		pResultField = FindDeclaredGenericInstance(kBuiltinListTypeName,
-			listArgs);
-		break;
+		snMember.EvalDataType(pReturnType);
+		snMember.m_pField = pReturnType;
 	}
-	case SLRT_Void:
-		break;
-	}
-	if (pResultField)
-	{
-		snMember.EvalDataType(pResultField);
-		//m_pField directly (not via ResolveFieldExprAs) so chained
-		//access (s.substring(1).toUpper()) survives IsDataExpr().
-		snMember.m_pField = pResultField;
-	}
-}
-
-//Phase 11 Step 3: table-driven built-in string methods (12 new;
-//equals/getHashCode above keep their 8e-1 ids). The method surface
-//is frozen as the future string class's methods (user decision #6).
-bool ExprResolveAccessor::TryResolveTableStringMethod(SnMemberExpr &snMember,
-	SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke, const std::string &name,
-	SyntaxNode *pSavedContext)
-{
-	const StringMethodEntry* pMethod = FindStringMethod(name);
-	if (!pMethod)
-		return false;
-	if (!CheckTableStringMethodCall(invoke, pMethod))
-	{
-		m_pContext = pSavedContext;
-		return true;
-	}
-	//Args resolve in the caller's scope (equals recipe: restore the
-	//context and drop the parent-only search first).
-	m_pContext = pSavedContext;
-	RemoveFlags(ERF_SearchInParentOnly);
-	ResolveExpressionList(invoke.Params());
-	CheckTableStringArgKinds(invoke, pMethod);
-	BindTableStringMethodResult(snMember, pInnerExpr, invoke, pMethod);
-	snMember.AddFlags(NF_Resolved);
-	BindArrayTypeToken(snMember);
-	m_pContext = pSavedContext;
-	return true;
 }
 
 //Builtin array length() method. The receiver check widens from
