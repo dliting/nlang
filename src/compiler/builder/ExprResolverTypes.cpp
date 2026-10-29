@@ -75,6 +75,13 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		}
 		if (RejectInvalidTypeArg(m_Env, pTA, baseName, typeArgs.empty()))
 			return false;
+		//v0.12.2 face gate: a type argument is a type position too —
+		//face classes (`List<String>`) have no element layout. One
+		//throat for every arm: the built-in generics, the declared
+		//templates, and the Func mint all resolve through here.
+		if (RejectPreludeFaceUse(m_Env, pField, pTA->Location(),
+			"used as a type"))
+			return false;
 		//0.7.3 B: the resolved field above IS the type identity — an
 		//array-typed argument carries the interned SnArrayTypeToken
 		//(same intern channel as declarations), so the key, the display

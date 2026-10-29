@@ -1,0 +1,11 @@
+//The must-error half of shadow non-hijack: a user shadow of the name
+//String does not import its methods onto keyword receivers either —
+//methods the prelude face does not declare stay missing.
+class String {
+    public native int foo();
+}
+int main() {
+    string s = "ab";
+    int n = s.foo();   //compile error: no foo on the prelude face
+    return n;
+}

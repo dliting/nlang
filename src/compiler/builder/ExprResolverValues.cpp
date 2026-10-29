@@ -185,19 +185,17 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 	if (!sn.Operand()->IsResolved())
 		return;
 
-	//Resolve target type name (its Field() will be the target SnField*).
-	sn.TargetType()->Accept(*m_pVisitor);
-	if (!sn.TargetType()->IsResolved())
-		return;
-
 	auto *pSrcType = sn.Operand()->EvalDataType();
-	auto *pTgtType = sn.TargetType()->Field();
-	if (!pSrcType || !pTgtType)
+	if (!pSrcType)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
 			"Cannot resolve types for `as` expression.");
 		return;
 	}
+
+	auto *pTgtType = ResolveAsCastTarget(sn);
+	if (!pTgtType)
+		return;
 
 	if (RejectAsArrayOperand(sn))
 		return;
@@ -221,6 +219,30 @@ void ExprResolveAccessor::Access(SnAsExpr &sn)
 	//is a flat bit test — wrapper nodes do not inherit child flags.
 	if (sn.Operand()->ContainFlags(NF_NullLiteral))
 		sn.AddFlags(NF_NullLiteral);
+}
+
+//2026-10-29 decomposition of Access(SnAsExpr&): the target side —
+//resolve the target type name, then its type-position gate. Returns the
+//target field, or nullptr when unresolved or rejected (diagnostic
+//logged for the resolved-and-rejected case).
+SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
+{
+	sn.TargetType()->Accept(*m_pVisitor);
+	if (!sn.TargetType()->IsResolved())
+		return nullptr;
+	auto *pTgtType = sn.TargetType()->Field();
+	if (!pTgtType)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"Cannot resolve types for `as` expression.");
+		return nullptr;
+	}
+	//v0.12.2 face gate: a face class (`o as Array`) has no runtime
+	//shape to cast to.
+	if (RejectPreludeFaceUse(m_Env, pTgtType, sn.TargetType()->Location(),
+		"used as a type"))
+		return nullptr;
+	return pTgtType;
 }
 
 //2026-09-26 decomposition of Access(SnAsExpr&): the 0.7.2 array-operand

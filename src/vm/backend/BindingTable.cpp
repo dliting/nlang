@@ -132,7 +132,7 @@ static const BindingRow s_LiteralRows[] = {
     {"builtins", "Future.get",      INTR_Future_Get},
     {"builtins", "Future.isDone",   INTR_Future_IsDone},
     //v0.12.2: String face — declared native methods stamp onto the
-    //existing frozen intrinsic ids. 20 rows = the 18 table methods
+    //existing frozen intrinsic ids. 20 rows = the 18 string methods
     //(INTR_String_Substring..INTR_String_ToBool) + equals +
     //getHashCode; String.length (OP_StrLen) and String.toString
     //(identity fold) carry no id, so they have no row. Both substring
@@ -162,11 +162,12 @@ static const BindingRow s_LiteralRows[] = {
 };
 
 //Pins the String face block above independently of unrelated packages'
-//rows: the 18 string methods + equals + getHashCode. Keep in sync with
-//the comment block when a face row changes (the face itself is frozen).
+//rows: the 18 string methods + equals + getHashCode. The tie to
+//kStringMethodIntrinsicCount breaks the build when the intrinsic block
+//grows without matching rows (the face itself is frozen).
 constexpr size_t kStringFaceBindingRows = 20;
-static_assert(kStringFaceBindingRows == 18 + 2,
-    "String face rows = 18 table methods + equals + getHashCode");
+static_assert(kStringFaceBindingRows == kStringMethodIntrinsicCount + 2,
+    "String face rows = string-method intrinsics + equals + getHashCode");
 
 //The literal rows plus the DERIVED static-face rows. A face's row comes
 //from the face table (BuiltinNames.h) — the single hand-maintained

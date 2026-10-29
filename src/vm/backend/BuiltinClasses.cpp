@@ -70,7 +70,8 @@ const BuiltinField s_HandleFields[] = {
 //stream method: the old name-inference tested capital-W/R "Write"/"Read"
 //prefixes against the camelCase names, so its "takes an argument" branch
 //never fired, and the value argument travels via callParamBase anyway
-//(intrinsic ABI per StdLib.h reads slots directly). Return kinds: readInt/
+//(intrinsics read their argument slots directly, not through declared
+//parameters). Return kinds: readInt/
 //readStruct/readObject/length/position → int, readFloat → float,
 //readLong → long, readDouble → double, readString → string, the rest void.
 const BuiltinMethod s_ByteStreamMethods[] = {

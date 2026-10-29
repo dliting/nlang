@@ -1,0 +1,6 @@
+class Point { public int x; }
+int main() {
+    Object o = Point();
+    Object a = o as Array;   //compile error: face class cast target
+    return 0;
+}

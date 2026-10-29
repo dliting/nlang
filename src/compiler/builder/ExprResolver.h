@@ -368,6 +368,13 @@ private:
 	bool ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		SnField *pTgtType, TypeCastKind kind);
 
+	//2026-10-29 decomposition of Access(SnAsExpr&): resolve the cast
+	//target and run its type-position gate (the v0.12.2 face gate — a
+	//face class target has no runtime shape to cast to). Returns the
+	//target field, or nullptr when unresolved/rejected (diagnostic
+	//logged).
+	SnField* ResolveAsCastTarget(SnAsExpr &sn);
+
 	/*
 	Module import visibility (spec §6.2 rule 5): resolve a dotted call
 	chain (utils.helper.help(), lib.add(2,3)) against the module registry
