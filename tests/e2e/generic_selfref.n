@@ -1,0 +1,12 @@
+//The canonical fixed-key self-reference: `Node<T> next` re-enters the
+//mint for the very key being minted, and the two-phase construction
+//serves the in-flight shell from the instance cache so the reference
+//binds to the instance itself. Terminates at depth one; exit 0.
+class Node<T> {
+    public T value;
+    public Node<T> next;
+}
+
+int main() {
+    return 0;
+}

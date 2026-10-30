@@ -1,0 +1,8 @@
+//A self-referential template grows a fresh instantiation on every
+//member substitution (A<int> needs A<A<int>> needs A<A<A<int>>>...),
+//so the chain has no natural stop. The depth guard turns the
+//unbounded recursion into a diagnostic naming the cap.
+class A<T> {
+    public A<A<T>> next;
+}
+int main() { return 0; }

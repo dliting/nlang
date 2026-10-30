@@ -23,6 +23,30 @@
 namespace nlang
 {
 
+namespace
+{
+//Scoped increment of the concurrent-mint depth around the mint window:
+//nested instantiations fire synchronously inside BOTH phases — template
+//completion resolves the template's own member types (a member type
+//like A<A<T>> resolves through Access back into
+//GetDeclaredGenericClassDecl), and member cloning substitutes them into
+//the instance — each nested mint through a freshly constructed
+//resolver, so the chain counter lives on the registry, shared across
+//resolver instances, and the guard reads it at the mint entry.
+class MintDepthClaim
+{
+public:
+	explicit MintDepthClaim(GenericInstanceRegistry& registry)
+		: m_rRegistry(registry)
+		{ m_rRegistry.EnterMintDepth(); }
+	~MintDepthClaim() { m_rRegistry.LeaveMintDepth(); }
+	MintDepthClaim(const MintDepthClaim&) = delete;
+	MintDepthClaim& operator=(const MintDepthClaim&) = delete;
+private:
+	GenericInstanceRegistry& m_rRegistry;
+};
+}
+
 //==================== declared-generic machinery ====================
 //
 //`class Name<T, ...>` declarations (signature surfaces only) resolve
@@ -30,101 +54,10 @@ namespace nlang
 //`Name<Arg...>` use mints a synthetic instantiation whose members are
 //signature deep-copies with placeholders substituted. Everything here
 //is a compile-time artifact; the VM side reads the registry through
-//GenericInstanceRegistry.h. The registry instance is owned by
-//ModuleRegistry — one per BUILD (process-global maps would be keyed
-//by per-build pointers and unit indices; see that header).
-
-GenericInstanceRegistry::~GenericInstanceRegistry()
-{
-	//The registry owns every node it minted. Instances and placeholders
-	//are detached from any tree, so nothing else frees them.
-	for (auto& kv : m_instances)
-		delete kv.second;
-	for (auto& kv : m_placeholders)
-		delete kv.second;
-}
-
-SnField* GenericInstanceRegistry::PlaceholderFor(SnClassDecl& tmpl,
-	const std::string& name, size_t position)
-{
-	const PlaceholderKey key{&tmpl, name};
-	auto it = m_placeholders.find(key);
-	if (it != m_placeholders.end())
-		return it->second;
-	//An opaque class-typed node: every type-binding site accepts it and
-	//nothing dereferences into it (members never reference placeholders).
-	auto* pName = new std::string(name);
-	auto* pPlaceholder = new SnClassDecl(pName, nullptr,
-		new PtrList<SnField>(), *tmpl.Location());
-	m_placeholders[key] = pPlaceholder;
-	m_placeholderIndex[pPlaceholder] = position;
-	return pPlaceholder;
-}
-
-bool GenericInstanceRegistry::IsPlaceholder(const SnField* pField) const
-{
-	return pField && m_placeholderIndex.count(pField) > 0;
-}
-
-size_t GenericInstanceRegistry::PlaceholderIndex(
-	const SnField* pPlaceholder) const
-{
-	auto it = m_placeholderIndex.find(pPlaceholder);
-	assert(it != m_placeholderIndex.end());
-	return it->second;
-}
-
-bool GenericInstanceRegistry::HasPlaceholderArg(
-	const SnClassDecl& inst) const
-{
-	for (const SnField* pArg : inst.GenericTypeArgs()) {
-		if (IsPlaceholder(pArg))
-			return true;
-		if (pArg->Kind() == NK_ClassDecl) {
-			const auto& argInst = static_cast<const SnClassDecl&>(*pArg);
-			if (argInst.IsGenericInstantiation()
-					&& HasPlaceholderArg(argInst))
-				return true;
-		}
-	}
-	return false;
-}
-
-SnClassDecl* GenericInstanceRegistry::InstanceOf(
-	const SnClassDecl* pInstance) const
-{
-	auto it = m_instanceTemplate.find(pInstance);
-	return it != m_instanceTemplate.end()
-		? const_cast<SnClassDecl*>(it->second) : nullptr;
-}
-
-void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
-	const SnClassDecl* pTemplate,
-	const std::vector<const SnField*>& typeArgs, uint32_t ownerUnit)
-{
-	InstanceKey key{pTemplate, typeArgs};
-	m_instances[key] = pInstance;
-	m_instanceTemplate[pInstance] = pTemplate;
-	m_instancesByUnit[ownerUnit].push_back(pInstance);
-}
-
-SnClassDecl* GenericInstanceRegistry::FindInstance(
-	const SnClassDecl* pTemplate,
-	const std::vector<const SnField*>& typeArgs) const
-{
-	auto it = m_instances.find(InstanceKey{pTemplate, typeArgs});
-	return it != m_instances.end() ? it->second : nullptr;
-}
-
-void GenericInstanceRegistry::ForEachInstance(uint32_t ownerUnit,
-	const std::function<void(SnClassDecl&)>& visitor) const
-{
-	auto it = m_instancesByUnit.find(ownerUnit);
-	if (it == m_instancesByUnit.end())
-		return;
-	for (auto* pInstance : it->second)
-		visitor(*pInstance);
-}
+//GenericInstanceRegistry.h (implementation in its own TU). The
+//registry instance is owned by ModuleRegistry — one per BUILD
+//(process-global maps would be keyed by per-build pointers and unit
+//indices; see that header).
 
 //One template member's signature deep-copy: the copy is the metadata
 //surface only — return type and formal parameters with their constant
@@ -162,15 +95,15 @@ SnField* CloneGenericMember(SnField& src,
 	return nullptr;
 }
 
-//GetDeclaredGenericClassDecl's member-copy loop: each member copy
-//substitutes its type expressions before joining the instance. The
-//copies accumulate BEFORE the SnClassDecl ctor runs — the ctor adopts
-//the list through a by-value UniquePtrList and deletes the shell, so
-//the returned list pointer must not be touched again after adoption.
-PtrList<SnField>* ExprResolveAccessor::CloneInstanceMembers(
-	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs)
+//GetDeclaredGenericClassDecl's member-fill loop: each member copy has
+//its type expressions substituted before joining the shell. Copies
+//pushed into Members() are owned by the instance from the push; a
+//member shape the instantiation cannot carry logs its diagnostic and
+//stops the fill — earlier copies stay owned (the build already
+//carries the error).
+bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
+	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
 {
-	auto* pMembers = new PtrList<SnField>();
 	for (auto& member : tmpl.Members())
 	{
 		//v0.12.3 window rule (flips at Task 5): the instance surface
@@ -194,34 +127,30 @@ PtrList<SnField>* ExprResolveAccessor::CloneInstanceMembers(
 			{ return CloneConstantDefaultExpr(pSrcDefault); });
 		if (!pCopy)
 		{
-			//The ctor has not adopted the copies yet — they are plain
-			//raw news here; release them before bailing out.
-			for (auto* pPartial : *pMembers)
-				delete pPartial;
-			delete pMembers;
 			m_Env.Log(CLL_Error, member.Location(),
 				"The class \"%s\" is a generic declaration: the member "
 				"\"%s\" has a shape instantiations cannot carry.",
 				tmpl.Name().c_str(), member.Name().c_str());
-			return nullptr;
+			return false;
 		}
-		pMembers->push_back(pCopy);
+		inst.Members().push_back(pCopy);
 	}
-	return pMembers;
+	return true;
 }
 
-//The mint itself: a detached class decl carrying the substituted
-//member copies under erasure naming — the instantiation shares the
-//template's bare name, the same way every List<T> shares the backing
-//"List" class (the VM keys the CompiledClass, the intrinsic channel
-//and the ctor classification off the bare name, so no consumer needs
-//a display-name special case; distinct instantiations stay distinct
-//compile-time types through node identity).
-static SnClassDecl *MintInstanceOf(const SnClassDecl &tmpl,
-	const std::vector<SnField*> &typeArgs, PtrList<SnField> *pMembers)
+//The mint's first phase: a detached class shell carrying the erasure
+//identity — the instantiation shares the template's bare name, the
+//same way every List<T> shares the backing "List" class (the VM keys
+//the CompiledClass, the intrinsic channel and the ctor classification
+//off the bare name, so no consumer needs a display-name special case;
+//distinct instantiations stay distinct compile-time types through node
+//identity). The shell starts memberless; FillInstanceMembers completes
+//it after the cache publishes it.
+static SnClassDecl *MintInstanceShell(const SnClassDecl &tmpl,
+	const std::vector<SnField*> &typeArgs)
 {
 	auto* pInstance = new SnClassDecl(new std::string(tmpl.Name()),
-		nullptr, pMembers, *tmpl.Location());
+		nullptr, new PtrList<SnField>(), *tmpl.Location());
 	pInstance->SuperClass(tmpl.SuperClass());
 	pInstance->SetGenericInstantiation();
 	pInstance->SetBaseName(tmpl.Name());
@@ -249,6 +178,106 @@ static uint32_t InstanceOwnerUnit(const ModuleRegistry &registry,
 	return ownerUnit;
 }
 
+//Invariant: clone SIGNATURE-COMPLETE templates only. The mint can
+//fire from the declaration pass (a class field of declared-generic
+//type) before the template's own signatures resolved — cloning then
+//copies unresolved type expressions and the cache would serve a
+//broken instance to every later phase. Completing the template HERE,
+//at the single chokepoint every consumer reaches the mint through,
+//makes instantiation order-independent (the same machinery the
+//ordinary pre-pass runs; per-member flags make the later pass a
+//no-op). ResolveDataTypes is idempotent and flag-guarded. The
+//implicit-root link is completed at the same chokepoint: the merged
+//root walks user code ahead of the prelude, so the mint can fire
+//before the template's own class pass applies the implicit Object
+//chain — a cached instance would keep the null super forever and
+//every inheritance-distance check (an equals(Object) argument
+//binding) would reject it.
+void ExprResolveAccessor::CompleteTemplateForMint(SnClassDecl& tmpl)
+{
+	ExprResolver templateCompleter(m_Env);
+	templateCompleter.ResolveDataTypes(tmpl, tmpl);
+	EnsureImplicitObjectSuperclass(tmpl, m_Env.Registry());
+}
+
+//The mint entry's depth guard: true when this entry must refuse —
+//the concurrent-instantiation chain ran past the cap. Checked AFTER
+//the instance cache: a re-reference to an instantiation — adopted or
+//in flight — terminates a chain through the cache (two-phase
+//construction publishes the shell before the recursive window), but a
+//member type whose argument EMBEDS the instance itself (A<A<T>>
+//inside A<T>) grows a genuinely fresh key per link and would recurse
+//until the stack overflowed. The diagnostic is deduped per template
+//per build: every later trip of the same family is the same defect.
+bool ExprResolveAccessor::MintDepthLimitReached(const SnClassDecl& tmpl)
+{
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	if (generics.GenericMintDepth() < kMaxGenericInstantiationDepth)
+		return false;
+	if (generics.MarkDepthLimitReported(&tmpl))
+		m_Env.Log(CLL_Error, tmpl.Location(),
+			"The generic instantiation depth exceeds the limit of %d "
+			"nested instantiations.", kMaxGenericInstantiationDepth);
+	return true;
+}
+
+//The mint entry's owner normalization (see m_activeMintOwnerUnit): the
+//substituted type-expression copies resolved inside a member fill are
+//detached from the tree, so their mint context degrades to NO_OWNER —
+//the nested instantiation (Q<int> minted inside P<int>'s fill) would
+//file into the ownerless bucket while its enclosing instantiation
+//files into the user unit's, splitting one template family across unit
+//buckets. The per-unit registration walks then throw: one unit image
+//registers an instance row whose field type's row lives only in
+//another image. Nested mints inherit the active fill's owner.
+uint32_t ExprResolveAccessor::EffectiveMintOwner(uint32_t ownerUnit)
+	const
+{
+	static_assert(kNoActiveMintOwner == ModuleRegistry::NO_OWNER,
+		"kNoActiveMintOwner must equal ModuleRegistry::NO_OWNER");
+	if (ownerUnit == ModuleRegistry::NO_OWNER
+			&& m_activeMintOwnerUnit != kNoActiveMintOwner)
+		return m_activeMintOwnerUnit;
+	return ownerUnit;
+}
+
+//The mint's second phase — the fill window: complete the template,
+//refresh the shell's snapshot of its superclass, and clone the member
+//signatures in, with the family's bucket owner published to nested
+//mints on this resolver for the duration (restored after — the
+//resolver serves other unit contexts once the mint returns).
+//Re-entrant lookups during the window see the shell with partial
+//members: every reader in the window binds the node as a type and none
+//reads its members (the same incomplete-during-construction contract
+//Clang holds for class instantiation; Task-5 flip-list entry).
+void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
+	const std::vector<SnField*>& typeArgs, SnClassDecl& inst,
+	uint32_t bucketOwner)
+{
+	const uint32_t prevMintOwner = m_activeMintOwnerUnit;
+	//A NO_OWNER fill window (every prelude-template instantiation)
+	//publishes the sentinel itself, which reads as "inheritance off" in
+	//EffectiveMintOwner — correct and load-bearing: nested mints inside
+	//a prelude fill are prelude templates that map to NO_OWNER anyway.
+	//The raw assignment (not a scope guard) is deliberate: the log-based
+	//error model's only throw is bad_alloc-class, which ends the build
+	//without reusing this accessor.
+	m_activeMintOwnerUnit = bucketOwner;
+	CompleteTemplateForMint(tmpl);
+	//The shell snapshotted tmpl.SuperClass() before completion: the
+	//mint can fire ahead of the template's own class pass, when the
+	//implicit Object chain is not linked yet, and a published instance
+	//keeps whatever it snapshotted forever. Refresh from the completed
+	//template so inheritance-distance checks (an equals(Object)
+	//argument binding) see the chain.
+	inst.SuperClass(tmpl.SuperClass());
+	//A member the instantiation cannot carry already logged its
+	//diagnostic; the partially filled shell is still served so later
+	//phases maximize diagnostics instead of failing on a null type.
+	FillInstanceMembers(tmpl, typeArgs, inst);
+	m_activeMintOwnerUnit = prevMintOwner;
+}
+
 SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs,
 	uint32_t ownerUnit)
@@ -258,34 +287,31 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	if (auto* pCached = generics.FindInstance(&tmpl, keyArgs))
 		return pCached;
 
-	//Invariant: clone SIGNATURE-COMPLETE templates only. The mint can
-	//fire from the declaration pass (a class field of declared-generic
-	//type) before the template's own signatures resolved — cloning then
-	//copies unresolved type expressions and the cache would serve a
-	//broken instance to every later phase. Completing the template HERE,
-	//at the single chokepoint every consumer reaches the mint through,
-	//makes instantiation order-independent (the same machinery the
-	//ordinary pre-pass runs; per-member flags make the later pass a
-	//no-op). ResolveDataTypes is idempotent and flag-guarded.
-	ExprResolver templateCompleter(m_Env);
-	templateCompleter.ResolveDataTypes(tmpl, tmpl);
-	//Implicit-root invariant, order-independent: the merged root walks
-	//user code ahead of the prelude, so the mint can fire before the
-	//template's own class pass applies the implicit Object chain — a
-	//cached instance would keep the null super forever and every
-	//inheritance-distance check (an equals(Object) argument binding)
-	//would reject it. Complete the link at the same chokepoint as the
-	//signatures, mirroring the visibility rule below.
-	EnsureImplicitObjectSuperclass(tmpl, m_Env.Registry());
-
-	//Signatures in, placeholders out (CloneInstanceMembers).
-	auto* pMembers = CloneInstanceMembers(tmpl, typeArgs);
-	if (!pMembers)
+	//Depth guard (rationale on MintDepthLimitReached).
+	if (MintDepthLimitReached(tmpl))
 		return nullptr;
+	//The claim spans EVERYTHING below the guard, not just the member
+	//cloning: completing the template below resolves its member types,
+	//and a self-referential member type re-enters the mint from there —
+	//the recursion point the guard exists to cut.
+	MintDepthClaim depthClaim(generics);
 
-	auto* pInstance = MintInstanceOf(tmpl, typeArgs, pMembers);
-	generics.AdoptInstance(pInstance, &tmpl, keyArgs,
-		InstanceOwnerUnit(m_Env.Registry(), tmpl, ownerUnit));
+	//Two-phase construction (Clang's InstantiatingSpecializations
+	//technique): the shell — name, erasure markers, type arguments — is
+	//published in the cache BEFORE the recursive window. A fixed-key
+	//self-reference (Node<T> inside Node<T>) re-enters the mint for the
+	//same key while this frame is still filling its shell; the cache
+	//hit binds the member to the very instance being minted and the
+	//recursion terminates at depth one. Publishing after the window —
+	//the previous shape — left every re-entry minting a fresh instance:
+	//the stack overflow, the fixed-key rejection and the exponential
+	//diagnostic cascade were all that one defect.
+	ownerUnit = EffectiveMintOwner(ownerUnit);
+	auto* pInstance = MintInstanceShell(tmpl, typeArgs);
+	const uint32_t bucketOwner =
+		InstanceOwnerUnit(m_Env.Registry(), tmpl, ownerUnit);
+	generics.AdoptInstance(pInstance, &tmpl, keyArgs, bucketOwner);
+	FillInstanceWindow(tmpl, typeArgs, *pInstance, bucketOwner);
 	return pInstance;
 }
 

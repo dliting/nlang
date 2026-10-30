@@ -1906,3 +1906,7 @@ generic_sized_type_param_array compile_error Arrays of the type parameter
 generic_method_value_binding compile_error Cannot resolve the field
 generic_invoke_default_degrade compile_error not compatible with the declaration
 generic_field_init_window 0
+generic_depth_limit compile_error instantiation depth
+# --- v0.12.3 Task 2: two-phase mint — fixed-key self-reference compiles (growing key stays rejected above) ---
+generic_selfref 0
+generic_mutual_pair 0

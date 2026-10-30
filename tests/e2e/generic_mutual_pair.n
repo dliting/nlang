@@ -1,0 +1,19 @@
+//A mutual pair of fixed keys: P<T> holds Q<T> and Q<T> holds P<T>.
+//Each template's completion references the other's in-flight shell;
+//both chains terminate through the instance cache. The main function
+//instantiates BOTH templates concretely: the nested instantiation
+//inherits the enclosing mint's unit owner, so the whole family
+//registers into one unit image; exit 0.
+class P<T> {
+    public Q<T> peer;
+}
+
+class Q<T> {
+    public P<T> back;
+}
+
+int main() {
+    P<int> p;
+    Q<int> q;
+    return 0;
+}

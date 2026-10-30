@@ -97,6 +97,18 @@ bool anyErrorMentions(const std::vector<std::string>& errors,
     return false;
 }
 
+int countErrorsMentioning(const std::vector<std::string>& errors,
+    const char* szNeedle)
+{
+    int hits = 0;
+    for (const auto& error : errors)
+    {
+        if (error.find(szNeedle) != std::string::npos)
+            ++hits;
+    }
+    return hits;
+}
+
 } //namespace
 
 class TestGenericDecl : public QObject
@@ -825,6 +837,171 @@ private slots:
             "the cloned this expression must keep its resolved type "
             "channel (a null channel makes the member ladder decline "
             "and the field read emits nothing)");
+    }
+
+    //The instantiation depth cap, boundary pair. A template family
+    //where each member's field names the next template chains one
+    //nested mint per link (G1<int> clones a G2<int> member type, whose
+    //mint clones G3<int>...) — the concurrent mint depth equals the
+    //chain length, so a 16-link family builds inside the cap and a
+    //17-link family is rejected with the depth diagnostic. The
+    //self-referential shape (A<A<T>> inside A<T>) is additionally the
+    //e2e pin (generic_depth_limit) for the exit-code/text contract.
+    void mintDepthSixteenPasses()
+    {
+        std::string src;
+        for (int i = 1; i < 16; ++i)
+            src += "class G" + std::to_string(i) + "<T> { public G"
+                + std::to_string(i + 1) + "<T> link; }\n";
+        src += "class G16<T> { public int leaf; }\n"
+            "int main() {\n"
+            "    G1<int> g = G1();\n"
+            "    return 0;\n"
+            "}\n";
+        const auto path = writeTempSource("generic_depth16.n", src.c_str());
+        const auto outcome = compileSource("generic_depth16", path);
+        QVERIFY2(outcome.first,
+            "a 16-link instantiation chain must build inside the depth "
+            "cap");
+    }
+
+    void mintDepthSeventeenRejected()
+    {
+        std::string src;
+        for (int i = 1; i < 17; ++i)
+            src += "class G" + std::to_string(i) + "<T> { public G"
+                + std::to_string(i + 1) + "<T> link; }\n";
+        src += "class G17<T> { public int leaf; }\n"
+            "int main() {\n"
+            "    G1<int> g = G1();\n"
+            "    return 0;\n"
+            "}\n";
+        const auto path = writeTempSource("generic_depth17.n", src.c_str());
+        const auto outcome = compileSource("generic_depth17", path);
+        QVERIFY2(!outcome.first,
+            "a 17-link instantiation chain must be rejected");
+        QVERIFY2(anyErrorMentions(outcome.second, "instantiation depth"),
+            "the rejection must name the instantiation depth");
+    }
+
+    //The depth rejection must diagnose once, not cascade: every
+    //in-flight frame retries the chain through two resolution arms
+    //(template completion and member-clone substitution), and without
+    //per-template dedup each unwinding retry re-mints the chain from
+    //scratch — measured as 131071 depth guard trips for this six-line
+    //program. The diagnostic latches per template: the first guard
+    //trip reports and every later trip of the same family stays
+    //silent, so exactly one depth diagnostic is emitted however many
+    //arms retry.
+    void mintDepthRejectionDiagnosedOnce()
+    {
+        const auto path = writeTempSource("generic_depth_once.n",
+            "class A<T> {\n"
+            "    public A<A<T>> next;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_depth_once", path);
+        QVERIFY2(!outcome.first,
+            "the self-referential shape must be rejected");
+        QCOMPARE(countErrorsMentioning(outcome.second,
+            "instantiation depth"), 1);
+    }
+
+    //A fixed-key self-reference — the canonical linked-list shape —
+    //must COMPILE: the member `Node<T> next` re-enters the mint for
+    //the very key being minted, and two-phase construction serves the
+    //in-flight shell from the cache so the reference binds to the
+    //instance itself (the same incomplete-during-construction contract
+    //Clang holds). Publishing only after the recursive window rejected
+    //this shape as a depth overflow — the defect the two-phase mint
+    //removes.
+    void mintSelfReferenceCompiles()
+    {
+        const auto path = writeTempSource("generic_selfref_unit.n",
+            "class Node<T> {\n"
+            "    public T value;\n"
+            "    public Node<T> next;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_selfref_unit", path);
+        QVERIFY2(outcome.first,
+            "the fixed-key self-reference must build inside the depth "
+            "cap");
+        QVERIFY2(!anyErrorMentions(outcome.second, "instantiation depth"),
+            "a terminating self-reference must never trip the depth "
+            "guard");
+    }
+
+    //The self-reference's CONCRETE instantiation: the declaration-only
+    //pin above never reaches the registration/emit path, and this shape
+    //was depth-rejected before the two-phase fix (RED-equivalent
+    //observed on the real ncc in the round-1 review).
+    void mintSelfReferenceInstantiatesConcretely()
+    {
+        const auto path = writeTempSource("generic_selfref_inst.n",
+            "class Node<T> {\n"
+            "    public T value;\n"
+            "    public Node<T> next;\n"
+            "}\n"
+            "int main() {\n"
+            "    Node<int> n;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_selfref_inst", path);
+        QVERIFY2(outcome.first,
+            "a concrete self-referential instantiation must build and "
+            "register in one unit image");
+    }
+
+    //A mutual pair (P<T> holds Q<T>, Q<T> holds P<T>): two fixed keys
+    //each referencing the other's in-flight shell. Both chains
+    //terminate through the cache, and neither template's completion
+    //may observe the other's shell in a memberless state beyond the
+    //fill window.
+    void mintMutualPairCompiles()
+    {
+        const auto path = writeTempSource("generic_mutual_unit.n",
+            "class P<T> {\n"
+            "    public Q<T> peer;\n"
+            "}\n"
+            "class Q<T> {\n"
+            "    public P<T> peer;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("generic_mutual_unit", path);
+        QVERIFY2(outcome.first,
+            "the mutual pair must build inside the depth cap");
+        QVERIFY2(!anyErrorMentions(outcome.second, "instantiation depth"),
+            "a terminating mutual pair must never trip the depth guard");
+    }
+
+    //The mutual pair CONCRETELY instantiated: the nested instantiation
+    //(Q<int> minted inside P<int>'s member substitution) must inherit
+    //the enclosing mint's unit owner. The substituted type-expression
+    //copy is detached from the tree, so its owner-of-context lookup
+    //degrades to NO_OWNER — without the inheritance the same template
+    //family's instances split across unit buckets, and the backend's
+    //per-unit registration walks throw "own class missing from the
+    //unit table" (the prelude image registers one instance's row
+    //while its field type's row lives only in the user image).
+    void mintMutualPairInstantiatesConcretely()
+    {
+        const auto path = writeTempSource("generic_mutual_inst.n",
+            "class P<T> {\n"
+            "    public Q<T> peer;\n"
+            "}\n"
+            "class Q<T> {\n"
+            "    public P<T> back;\n"
+            "}\n"
+            "int main() {\n"
+            "    P<int> p;\n"
+            "    Q<int> q;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("generic_mutual_inst", path);
+        QVERIFY2(outcome.first,
+            "a concrete mutual-pair instantiation must build and "
+            "register in one unit image");
     }
 
     //Two in-process builds with different synthetic-generic shapes. The

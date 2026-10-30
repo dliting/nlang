@@ -25,6 +25,7 @@ them when the build ends.
 
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,31 @@ public:
 	void ForEachInstance(uint32_t ownerUnit,
 		const std::function<void(SnClassDecl&)>& visitor) const;
 
+	//Concurrent-mint depth, the live instantiation chain: nested mints
+	//fire synchronously inside BOTH phases of the mint window — the
+	//template-completion preamble resolves member types and the member
+	//cloning substitutes them — each nested mint through a freshly
+	//constructed resolver, so the chain depth is registry state rather
+	//than resolver state. Enter/Leave pair is called by the resolver's
+	//RAII claim around the window; the depth guard at the mint entry
+	//reads the value.
+	int GenericMintDepth() const { return m_iGenericMintDepth; }
+	void EnterMintDepth() { ++m_iGenericMintDepth; }
+	void LeaveMintDepth() { --m_iGenericMintDepth; }
+
+	//Depth-limit diagnostic bookkeeping: true on the FIRST guard trip
+	//for this template — the caller logs the depth diagnostic then;
+	//later trips of the same template family stay silent. One defect,
+	//one diagnostic: the unwinding resolution arms retry the chain
+	//(measured at 131071 guard trips for one six-line program), and
+	//every retry of an already-reported family repeats the same
+	//message. Presentation-only dedup — never gates a mint. Per-build
+	//state.
+	bool MarkDepthLimitReported(const SnClassDecl* pTemplate)
+	{
+		return m_depthLimitReportedTmpls.insert(pTemplate).second;
+	}
+
 private:
 	//Pointer-identity key: the template node plus the interned type-
 	//argument fields (interned tokens keep identity per element type).
@@ -121,6 +147,8 @@ private:
 	std::map<InstanceKey, SnClassDecl*> m_instances;
 	std::map<const SnClassDecl*, const SnClassDecl*> m_instanceTemplate;
 	std::map<uint32_t, std::vector<SnClassDecl*>> m_instancesByUnit;
+	int m_iGenericMintDepth = 0;
+	std::set<const SnClassDecl*> m_depthLimitReportedTmpls;
 };
 
 } //namespace nlang

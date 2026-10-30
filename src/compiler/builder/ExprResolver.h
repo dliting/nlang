@@ -244,6 +244,14 @@ namespace langservice { struct SymbolInfo; }
 class SnFunctionParentField;
 class SnEnumDecl;
 
+//The maximum number of concurrently-nested generic instantiations (a
+//template family where each member names the next template chains one
+//mint per link). C++-template-depth magnitude: deep enough for real
+//container layering, low enough that a runaway self-referential chain
+//(A<A<T>> inside A<T>) dies with a diagnostic instead of a stack
+//overflow.
+constexpr int kMaxGenericInstantiationDepth = 16;
+
 
 /*
 The syntax node accessor for expression resolving.
@@ -996,24 +1004,62 @@ private:
 	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget.
 	SnField *m_pCtorInvokeTarget = nullptr;
 
+	//Mint-owner inheritance: the owner unit of the instantiation whose
+	//member fill is running on THIS resolver, or kNoActiveMintOwner.
+	//Substituted type-expression copies are detached from the tree, so
+	//a nested instantiation inside a member fill would otherwise file
+	//into the ownerless bucket and split the template family across
+	//unit buckets (the backend's per-unit registration walks throw on
+	//the split). Same value as ModuleRegistry::NO_OWNER — the registry
+	//type is only forward-declared here; the mint TU static_asserts
+	//the equivalence.
+	static constexpr uint32_t kNoActiveMintOwner = 0xFFFFFFFFu;
+	uint32_t m_activeMintOwnerUnit = kNoActiveMintOwner;
+
 	//Declared-generic machinery (`class Name<T, ...>`, registry in
 	//GenericInstanceRegistry.h): mint-or-fetch the synthetic
 	//instantiation of tmpl for typeArgs, member signatures deep-copied
 	//with placeholders substituted. ownerUnit selects the unit image the
-	//instantiation registers into.
+	//instantiation registers into. Two-phase construction: the shell is
+	//published in the instance cache BEFORE the recursive
+	//completion/fill window, so a fixed-key self-reference (Node<T>
+	//inside Node<T>) binds to the instance being minted; the mint entry
+	//carries the instantiation-depth guard
+	//(kMaxGenericInstantiationDepth) for genuinely growing keys.
 	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, uint32_t ownerUnit);
+	//GetDeclaredGenericClassDecl's depth guard: true when the entry
+	//must refuse (diagnostic logged once per template per build).
+	bool MintDepthLimitReached(const SnClassDecl& tmpl);
+	//GetDeclaredGenericClassDecl's owner normalization: nested mints
+	//reached through detached substitution copies inherit the active
+	//fill's owner (see m_activeMintOwnerUnit for the bucket-split
+	//rationale).
+	uint32_t EffectiveMintOwner(uint32_t ownerUnit) const;
+	//GetDeclaredGenericClassDecl's fill window (the mint's second
+	//phase): template completion, superclass refresh and member-clone
+	//fill, with the family's bucket owner published to nested mints.
+	void FillInstanceWindow(SnClassDecl& tmpl,
+		const std::vector<SnField*>& typeArgs, SnClassDecl& inst,
+		uint32_t bucketOwner);
+	//Template-completion preamble of the mint: signatures resolved and
+	//the implicit Object superclass linked before any cloning (the
+	//depth claim must span this — completing a self-referential
+	//template re-enters the mint from here).
+	void CompleteTemplateForMint(SnClassDecl& tmpl);
 	//Element-typed actuals of a member invoke on a declared-generic
 	//receiver wrap against the type argument (Same/Box/Auto casts; the
 	//template's placeholder-typed formals name the positions). Runs in
 	//Access(SnMemberExpr) before the ordinary invoke binding — the
 	//strict type distance would otherwise reject them.
 	void WrapGenericElemArgs(SnFieldExpr *pInnerExpr);
-	//GetDeclaredGenericClassDecl's member-copy loop (accumulates before
-	//the instance ctor adopts the list). Null = a member shape the
-	//instantiation cannot carry (diagnostic logged, copies released).
-	PtrList<SnField>* CloneInstanceMembers(SnClassDecl& tmpl,
-		const std::vector<SnField*>& typeArgs);
+	//GetDeclaredGenericClassDecl's member-fill loop: each member copy is
+	//substituted then pushed into the early-published shell's member
+	//list (owned by the instance from the push). False = a member shape
+	//the instantiation cannot carry (diagnostic logged, fill stopped,
+	//earlier copies stay owned by the shell).
+	bool FillInstanceMembers(SnClassDecl& tmpl,
+		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
 	//Deep-copy one resolved type expression from a template signature,
 	//rebinding type-parameter placeholders to the instantiation's type
 	//arguments. Null = a shape the substitution does not carry (the
