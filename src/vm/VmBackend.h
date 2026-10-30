@@ -90,6 +90,12 @@ public:
     //(task 2) reject rank >= 2 until task 4 lands the ND emission.
     static uint8_t EmitGateRankOf(const SnExpression& expr);
 
+    //Declared runtime kind for a type field — the one source local
+    //descriptors, field kinds and signature leaves classify through.
+    //v0.12.3: placeholder types classify as RTK_TypeParam (T slots;
+    //see Types.cpp). Public for unit tests, same as EmitGateRankOf.
+    static uint8_t RuntimeTypeKind(SnField* pType);
+
     //Own-unit test for the per-unit walks (Register.cpp).
     bool IsOwnUnit(const SnField& member) const;
     //Same-build cross-unit callee support: ShadowRegisterUnits runs
@@ -1127,7 +1133,6 @@ private:
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
     uint16_t RegisterArrayType(SnField* pElemType, uint8_t rank = 1);
 
-    static uint8_t RuntimeTypeKind(SnField* pType);
     //Return-type kind for .ncu serialization; array-ness is read from the
     //return TYPE EXPRESSION, not from Field() (which resolves to the
     //element field and would degrade `int[]` to RTK_Int32).

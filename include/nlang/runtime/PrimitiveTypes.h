@@ -73,7 +73,8 @@ struct ScalarPrimInfo
 //RTK codes for scalar primitives — the serialization kind AND the
 //instruction kind immediate. Defined here (runtime layer) so compiler
 //and VM share one numbering; CompiledModule.h keeps the non-scalar
-//RTK_* constants (String/Struct/Class/Array/Boxed/Func), and
+//RTK_* constants (String/Struct/Class/Array/Boxed/Func, plus
+//RTK_TypeParam = 20 for declared type-parameter slots), and
 //TypeDesc.h's descriptor-only RTK_List/RTK_Dict keep 8/9 — new scalars
 //start at 10 to stay clear of both (2026-09-27 review finding).
 static constexpr uint8_t RTK_Int32  = 0;   // legacy wire values, do not renumber

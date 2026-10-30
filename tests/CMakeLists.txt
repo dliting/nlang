@@ -1163,6 +1163,27 @@ if(NLANG_BUILD_IDE)
     )
     nlang_add_qtest(generic_descriptor_tests test_generic_descriptor)
 
+    # Type-parameter slot-kind unit tests (v0.12.3 Task 4): the RTK_TypeParam
+    # label, the placeholder node predicate and the compile-time kind
+    # emission + the .ncu byte round-trip. Links the compiler for the
+    # registry/AST mint and the vm for VmBackend::RuntimeTypeKind (same
+    # three-lib shape as test_generic_decl).
+    add_executable(test_generic_typeparam_gc
+        test_vm/test_generic_typeparam_gc.cpp
+    )
+    target_include_directories(test_generic_typeparam_gc
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/vm
+    )
+    target_link_libraries(test_generic_typeparam_gc
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_add_qtest(generic_typeparam_gc_tests test_generic_typeparam_gc)
+
     # Prelude String/Array face declarations (v0.12.2 Task 1): in-process
     # ModuleBuilder coverage of the two declaration classes — member
     # counts, Object-chain exclusion (spec D10), and intrinsic-channel

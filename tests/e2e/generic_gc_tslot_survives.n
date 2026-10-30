@@ -1,0 +1,35 @@
+// v0.12.3 Task 4 GC pin — SHELVED until Task 5 (bodied generic members
+// compile there); activate by adding to manifest.txt. Not manifest-
+// driven yet, so the runner ignores this file today.
+//
+// Natural-GC form (no --gc-stress flag: it suppresses the race window)
+// with a churner widening it. Covers all three RTK_TypeParam scan
+// paths: the T field (MarkClassFields), the T param (MarkFrameLocals)
+// and the named T local (frame band, EvalSlotClassOfKind -> Dual).
+class Holder<T> {
+    public T item;
+    public Holder(T v) { item = v; }
+    public T get() { return item; }
+    public T echo(T v) {
+        T local = v;
+        return local;
+    }
+}
+int main() {
+    int alive = 0;
+    string churn = "";
+    Holder<string> keep = Holder("anchor");
+    int i = 0;
+    while (i < 200000) {
+        churn = churn + "x";
+        if (churn.length() > 64) { churn = ""; }
+        Holder<string> tmp = Holder("t");
+        if (tmp.echo("u") == "u") { alive = alive + 1; }
+        i = i + 1;
+    }
+    if (keep.get() == "anchor") {
+        if (alive > 0) { return 0; }
+        return 1;
+    }
+    return 2;
+}

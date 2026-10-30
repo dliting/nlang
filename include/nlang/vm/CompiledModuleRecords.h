@@ -26,6 +26,13 @@ static constexpr uint8_t RTK_Class  = 4;
 static constexpr uint8_t RTK_Array  = 5;
 static constexpr uint8_t RTK_Boxed  = 6;  //boxed primitive (slot[0]=tag, slots[1..2]=value; 8-byte family uses both cells)
 static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
+//v0.12.3: declared kind of a type-parameter (T) slot — the template row's
+//one-implementation layout. A T slot holds one value slot whatever the
+//instantiation binds, and its runtime representation depends on the type
+//argument (string store handle / heap index / inline scalar), so every
+//consumer routes it conservatively (GC tests both domains). First kind
+//above the scalar block (10..19), keeping the two ranges disjoint.
+static constexpr uint8_t RTK_TypeParam = 20;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)

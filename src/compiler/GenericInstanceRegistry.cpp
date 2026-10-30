@@ -32,9 +32,13 @@ SnField* GenericInstanceRegistry::PlaceholderFor(SnClassDecl& tmpl,
 		return it->second;
 	//An opaque class-typed node: every type-binding site accepts it and
 	//nothing dereferences into it (members never reference placeholders).
+	//The node flag marks it for the backend's context-free kind
+	//classification (RTK_TypeParam); the index map below remains the
+	//substitution-side position lookup.
 	auto* pName = new std::string(name);
 	auto* pPlaceholder = new SnClassDecl(pName, nullptr,
 		new PtrList<SnField>(), *tmpl.Location());
+	pPlaceholder->SetTypeParamPlaceholder();
 	m_placeholders[key] = pPlaceholder;
 	m_placeholderIndex[pPlaceholder] = position;
 	return pPlaceholder;

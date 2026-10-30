@@ -369,6 +369,15 @@ public:
 	bool IsFuncType() const
 	{ return m_bIsGenericInst && m_baseName == kBuiltinFuncTypeName; }
 
+	//v0.12.3: true for the interned placeholder node a declared
+	//template's type parameter resolves to (minted by
+	//GenericInstanceRegistry::PlaceholderFor). On the node — not the
+	//registry — for the same reason as IsFuncType: the backend's static
+	//kind classification (RuntimeTypeKind) reads it with no registry
+	//handle and emits RTK_TypeParam for T-typed slots.
+	bool IsTypeParamPlaceholder() const { return m_bIsTypeParamPlaceholder; }
+	void SetTypeParamPlaceholder() { m_bIsTypeParamPlaceholder = true; }
+
 	//Generic class declaration: the type parameter names written on the
 	//declaration (`class Box<T, U>`). Empty for ordinary classes. A
 	//declared generic carries signature surfaces only (all members
@@ -387,6 +396,7 @@ private:
 	std::vector<SnInterfaceDecl*> m_implements;
 	bool m_bIsBuiltinClass = false;
 	bool m_bIsGenericInst = false;
+	bool m_bIsTypeParamPlaceholder = false;
 	std::vector<SnField*> m_genericTypeArgs;
 	std::vector<uint8_t> m_genericOutFlags;  //func<...> out markers
 	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances

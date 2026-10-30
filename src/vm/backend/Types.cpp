@@ -32,6 +32,12 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
         //fallthrough to RTK_Class must not swallow them.
         if (static_cast<SnClassDecl*>(pType)->IsFuncType())
             return RTK_Func;
+        //v0.12.3: a type parameter's interned placeholder classifies as
+        //RTK_TypeParam — the declared kind of every T slot (locals, T
+        //fields, signature leaves). Consumers route conservatively on it:
+        //the runtime representation depends on the instantiation.
+        if (static_cast<SnClassDecl*>(pType)->IsTypeParamPlaceholder())
+            return RTK_TypeParam;
         return RTK_Class;
     }
     //Builtin data types: NK_* and RTK_* are independent numberings since

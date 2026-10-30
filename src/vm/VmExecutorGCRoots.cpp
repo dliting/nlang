@@ -22,7 +22,7 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
             continue;
         if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
             && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
-            && ld.typeKind != RTK_String)
+            && ld.typeKind != RTK_String && ld.typeKind != RTK_TypeParam)
             continue;
         int32_t val;
         std::memcpy(&val, frame.localsBuf.data() + ld.offset, sizeof(val));
@@ -32,6 +32,13 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
         //validation (0 = null, out-of-range skipped).
         if (ld.typeKind == RTK_String) {
             MarkString(val);
+            continue;
+        }
+        //A T param's representation depends on the instantiation (store
+        //handle, heap index or inline scalar) — test both domains; see
+        //MarkFrameBand for the over-mark-only argument.
+        if (ld.typeKind == RTK_TypeParam) {
+            TestRootValue(val, worklist);
             continue;
         }
         if (val <= 0 || static_cast<size_t>(val) >= m_slotKinds.size())

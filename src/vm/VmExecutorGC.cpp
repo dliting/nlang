@@ -377,6 +377,14 @@ void VmExecutor::MarkClassFields(int32_t idx,
             MarkString(refIdx);
             continue;
         }
+        //A T field's representation depends on the instantiation (store
+        //handle, heap index or inline scalar) — test both domains, the
+        //same conservative routing the param scan and the frame band
+        //apply to RTK_TypeParam slots.
+        if (fields[i].kind == RTK_TypeParam) {
+            TestRootValue(refIdx, worklist);
+            continue;
+        }
         if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
             continue;
         //Array redesign B: field kinds come from the declared type,

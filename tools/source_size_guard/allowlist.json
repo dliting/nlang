@@ -8,6 +8,10 @@
     "reason": "one grammar category's syntax-node class declarations; the macro-generated Visit surface ties the family to one header"
   },
   {
+    "path": "include/nlang/compiler/SnMisc.h",
+    "reason": "one grammar category's syntax-node class declarations (the misc family: class/interface/namespace nodes); the macro-generated Visit surface ties the family to one header"
+  },
+  {
     "path": "src/compiler/builder/ExprResolver.h",
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },
