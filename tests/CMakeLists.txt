@@ -1144,6 +1144,25 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(generic_decl_tests test_generic_decl)
 
+    # Generic instantiation descriptor unit tests (v0.12.3 Task 3): pure
+    # C++ coverage of GenericInstDescriptor — canonical spelling, intern
+    # identity, nested/array arguments. No compilation, so no stdlib
+    # deployment needed.
+    add_executable(test_generic_descriptor
+        test_vm/test_generic_descriptor.cpp
+    )
+    target_include_directories(test_generic_descriptor
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/vm
+    )
+    target_link_libraries(test_generic_descriptor
+        PRIVATE
+            nlang_vm
+            nlang_runtime
+            Qt5::Test
+    )
+    nlang_add_qtest(generic_descriptor_tests test_generic_descriptor)
+
     # Prelude String/Array face declarations (v0.12.2 Task 1): in-process
     # ModuleBuilder coverage of the two declaration classes — member
     # counts, Object-chain exclusion (spec D10), and intrinsic-channel

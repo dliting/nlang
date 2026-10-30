@@ -50,6 +50,7 @@ add_library(nlang_vm
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
+    GenericInstDescriptor.cpp
     backend/VmBackend.cpp
     backend/BindingTable.cpp
     backend/GenerateUnits.cpp
