@@ -1,0 +1,16 @@
+// v0.12.3 Task 1: invoke-shaped defaults (n = C.g()) are outside the
+// instance clone's constant-default surface — a function call is not a
+// constant expression the clone can carry, so reliance on it degrades
+// to the arity diagnostic. Ordinary classes keep the shape; instance
+// execution (Task 5) revisits the invoke surface.
+class C {
+    public static int g() { return 3; }
+}
+class Box<T> {
+    public native Box();
+    public native int f(int n = C.g());
+}
+int main() {
+    Box<int> b = Box();
+    return b.f();
+}

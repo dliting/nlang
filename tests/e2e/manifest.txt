@@ -1896,3 +1896,13 @@ face_extend_reject compile_error
 face_newctor_reject compile_error
 face_ascast_reject compile_error
 face_generic_arg_reject compile_error
+# --- v0.12.3 Task 1: mixed-member generic template compiles (declaration face) ---
+generic_mixed_members_compile 0
+# --- v0.12.3 Task 1 fix round: transient window gates until instance execution lands ---
+generic_type_param_array compile_error Arrays of the type parameter
+generic_body_method_call compile_error does not exist or is not accessible
+generic_bodied_ctor_args compile_error has no constructor
+generic_sized_type_param_array compile_error Arrays of the type parameter
+generic_method_value_binding compile_error Cannot resolve the field
+generic_invoke_default_degrade compile_error not compatible with the declaration
+generic_field_init_window 0

@@ -1,0 +1,11 @@
+// v0.12.3: an array of a type parameter has no representable element
+// kind in the template's shared row — rejected at the type position,
+// not as a backend internal error. Type positions (field, param,
+// return, body local) intern through the type-expression guard; sized
+// declarators intern on the declaration channel and guard there
+// (generic_sized_type_param_array.n). Transient window gate until
+// instance execution lands (Task 5 makes T[] a legal handle position).
+class Box<T> {
+    public T[] items;
+}
+int main() { return 0; }

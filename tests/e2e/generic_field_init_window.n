@@ -1,0 +1,13 @@
+// v0.12.3 Task 1 window pin: instance construction does not run field
+// initializers yet (no instance-execution story until Task 5) — the
+// concrete initializer compiles into the template row and the instance
+// field reads its zero value. Flips to exit 5 when instance
+// construction lands; this pin makes that flip visible.
+class Box<T> {
+    public int count = 5;
+    public T item;
+}
+int main() {
+    Box<int> b = Box();
+    return b.count;
+}

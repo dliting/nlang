@@ -1,0 +1,13 @@
+//v0.12.3 Task 1 fix round: a bound method reference to a bodied
+//template member resolves through the identifier binding (the value
+//channel), not the invoke collector — the signature-only clone must
+//stay off that surface too. Transient window gate until instance
+//execution lands (Task 5).
+class Box<T> {
+    public int get() { return 1; }
+}
+int main() {
+    Box<int> b = Box();
+    func<int> f = b.get;
+    return f();
+}

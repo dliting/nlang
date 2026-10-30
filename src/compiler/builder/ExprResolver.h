@@ -1024,12 +1024,32 @@ private:
 	//`List<T>`): substitute base and arguments, then resolve the copy.
 	SnFieldExpr* SubstituteGenericTypeExpr(SnGenericTypeExpr& gen,
 		const std::vector<SnField*>& typeArgs);
+	//Deep-copy one constant-expression default for a member clone
+	//(definition family in ExprResolverGenericDefaults.cpp).
+	//Accessor member: the operator arm stamps EvalDataType and the
+	//reference arms rebind through ResolveFieldExprAs — both need the
+	//SnExpression friendship. Null = a shape the copy does not carry
+	//(the call site reports the arity mismatch, as before defaults
+	//carried over).
+	SnExpression* CloneConstantDefaultExpr(SnExpression* pSrc);
+	//Operator-tree arm: structural copy that keeps the source's
+	//resolved type channel (the emit-time scalar cast keys off it).
+	SnExpression* CloneOperatorDefault(SnBinaryExpr& src);
+	//Constant-reference arm (an enum member, a formal, a field): copy
+	//the name shape and transfer the binding — every default binding
+	//names a template-row declaration node that lives through codegen.
+	//Definition in ExprResolverGenericDefaults.cpp.
+	SnExpression* CloneConstantReferenceDefault(SnFieldExpr& src);
+	//Member arm of the reference arm (`Color.Red`, `p.x`): inner keeps
+	//its own binding, outer is a recursive constant copy, and the
+	//member expression itself carries the value binding.
+	SnMemberExpr* CloneMemberReferenceDefault(SnMemberExpr& src);
 	//Type-parameter placeholder binder for TryResolveBuiltinNameFallback:
 	//walks the identifier's ancestors for an enclosing generic
-	//declaration declaring this name as a type parameter. Rejected = the
-	//name is a type parameter referenced from a field member (fields
-	//share the VM layout across instantiations and cannot be generic).
-	enum class TypeParamBindResult { NotApplicable, Bound, Rejected };
+	//declaration declaring this name as a type parameter; inside that
+	//declaration's scope every reference to the parameter (field, param,
+	//return, body) binds to the placeholder alike.
+	enum class TypeParamBindResult { NotApplicable, Bound };
 	TypeParamBindResult BindTypeParamPlaceholderIfAny(
 		SnIdentifierExpr& idExpr);
 

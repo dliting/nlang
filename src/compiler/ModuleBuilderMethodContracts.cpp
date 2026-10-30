@@ -401,9 +401,8 @@ static void CheckOverrideSignatures(SnClassDecl &cls,
 			rejectedNames);
 }
 
-//Generic-declaration "signatures only" contract
-//(CheckGenericDeclNativeOnly) lives in GenericDeclContracts.cpp
-//(2026-10-27 size-guard split).
+//Generic-declaration contract (CheckGenericDeclContract) lives in
+//GenericDeclContracts.cpp (2026-10-27 size-guard split).
 
 //Step 2 — interface completeness (upgrade of the former name-only
 //CheckInterfaceImplementation): every method of every interface along
@@ -483,7 +482,7 @@ void ModuleBuilder::CheckMethodContracts()
 				: std::set<std::string>();
 		CheckOverrideSignatures(*pCls, *m_upEnv, rejected);
 		CheckInterfaceContracts(*pCls, *m_upEnv, rejected);
-		CheckGenericDeclNativeOnly(*pCls, *m_upEnv);
+		CheckGenericDeclContract(*pCls, *m_upEnv);
 		rejectedByClass[pCls] = std::move(rejected);
 	};
 	for (auto *pClass : classes)

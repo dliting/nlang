@@ -13,6 +13,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/compiler/GenericInstanceRegistry.h>
+#include <nlang/runtime/RnTypes.h>
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -125,12 +126,13 @@ void GenericInstanceRegistry::ForEachInstance(uint32_t ownerUnit,
 		visitor(*pInstance);
 }
 
-//One template member's signature deep-copy: native members carry no
-//bodies, so the copy is the metadata surface only — return type, formal
-//parameters (no default values; the declaration checker rejects those).
+//One template member's signature deep-copy: the copy is the metadata
+//surface only — return type and formal parameters with their constant
+//defaults (bodies and native bindings stay with the template row).
 SnField* CloneGenericMember(SnField& src,
 	const std::vector<SnField*>& typeArgs,
-	const std::function<SnFieldExpr*(SnFieldExpr&)>& substitute)
+	const std::function<SnFieldExpr*(SnFieldExpr&)>& substitute,
+	const std::function<SnExpression*(SnExpression*)>& cloneDefault)
 {
 	if (src.Kind() == NK_Function)
 	{
@@ -143,7 +145,8 @@ SnField* CloneGenericMember(SnField& src,
 			auto* pTypeCopy = param.Type()
 				? substitute(*param.Type()) : nullptr;
 			pParams->push_back(new SnFormalParam(param.Flags(), pTypeCopy,
-				new std::string(param.Name()), nullptr, *param.Location()));
+				new std::string(param.Name()),
+				cloneDefault(param.Value()), *param.Location()));
 		}
 		return new SnFunction(fn.AccessType(), fn.Flags(), pRetCopy,
 			new std::string(fn.Name()), pParams, *fn.Location());
@@ -170,9 +173,25 @@ PtrList<SnField>* ExprResolveAccessor::CloneInstanceMembers(
 	auto* pMembers = new PtrList<SnField>();
 	for (auto& member : tmpl.Members())
 	{
+		//v0.12.3 window rule (flips at Task 5): the instance surface
+		//carries members with an execution story only. The copy below
+		//is a signature surface — it never carries a body — so its only
+		//execution story today is the native binding carried through
+		//the flags. Minting a bodied member's signature-only copy would
+		//force every consumer channel (the invoke collector, a bound
+		//method reference, the constructor candidates) to filter it
+		//separately or reach the backend unregistered; not minting it
+		//gives every channel the natural unknown-member diagnostic.
+		//Instance execution (Task 5) mints members together with their
+		//execution story.
+		if (member.Kind() == NK_Function
+				&& !static_cast<SnFunction&>(member).ContainFlags(NF_Native))
+			continue;
 		auto* pCopy = CloneGenericMember(member, typeArgs,
 			[this, &typeArgs](SnFieldExpr& srcType)
-			{ return SubstituteTypeExpr(srcType, typeArgs); });
+			{ return SubstituteTypeExpr(srcType, typeArgs); },
+			[this](SnExpression* pSrcDefault)
+			{ return CloneConstantDefaultExpr(pSrcDefault); });
 		if (!pCopy)
 		{
 			//The ctor has not adopted the copies yet — they are plain
@@ -346,7 +365,6 @@ ExprResolveAccessor::TypeParamBindResult
 ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 {
 	const std::string& name = idExpr.Name();
-	SyntaxNode* pMember = nullptr;
 	for (SyntaxNode* p = idExpr.Parent(); p; p = p->Parent())
 	{
 		const auto kind = p->Kind();
@@ -360,28 +378,16 @@ ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 				name);
 			if (paramIt == params.end())
 				return TypeParamBindResult::NotApplicable;
-			//Fields share the VM layout across instantiations; a generic
-			//field type would give Box<int> and Box<string> different
-			//layouts, so the reference is a declaration error.
-			if (pMember && pMember->Kind() == NK_ClassField)
-			{
-				auto& field = static_cast<const SnField&>(*pMember);
-				m_Env.Log(CLL_Error, idExpr.Location(),
-					"The field \"%s\" of generic class \"%s\" cannot "
-					"reference the type parameter \"%s\" (fields must "
-					"keep the same layout in every instantiation).",
-					field.Name().c_str(), cls.Name().c_str(),
-					name.c_str());
-				return TypeParamBindResult::Rejected;
-			}
+			//Every T-typed member is one value slot (scalars inline in
+			//the low half, heap kinds as handles), so the single shared
+			//template layout holds for every instantiation — T fields
+			//bind to the placeholder like any other T reference.
 			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
 				.PlaceholderFor(cls, name,
 					static_cast<size_t>(paramIt - params.begin()));
 			ResolveFieldExprAs(idExpr, pPlaceholder);
 			return TypeParamBindResult::Bound;
 		}
-		if (!pMember && (kind == NK_Function || kind == NK_ClassField))
-			pMember = p;
 	}
 	return TypeParamBindResult::NotApplicable;
 }

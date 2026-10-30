@@ -335,6 +335,103 @@ void TestInputPromptSilentOnRedirectedStdout() {
     CHECK(captured == "out\n", "redirected stdout stays byte-exact");
 }
 
+//v0.12.3 Task 1: a generic instance's cloned default must EMIT, not
+//merely bind — a member-expr default (`n = p.x`) references the formal
+//p and Payload.x; the clone carries both as transferred bindings, and
+//the caller-side staging evaluates p.x through the name-keyed formal
+//override. The native returns the staged default (arg index 2),
+//so a clone that silently emits nothing stages scratch garbage and the
+//run result drifts off 11. The bodied ctor keeps the receiver a real
+//allocated object (zero-arg construction bare-allocates in this
+//window), so the native call itself runs.
+//Method-native arg layout is [this, param1, param2, ...] — index 2 is
+//the second declared parameter, the one the cloned default fills.
+void HsReflectArg2(NativeHost*, uint8_t* ret, const uint8_t* args, int) {
+    native::ReturnInt(ret, native::ArgInt(args, 2));
+}
+
+void TestGenericMemberDefault() {
+    const std::string source =
+        "class Payload {\n"
+        "    public int x;\n"
+        "    public Payload() { x = 11; }\n"
+        "}\n"
+        "class Box<T> {\n"
+        "    public Box() { }\n"
+        "    public native int f(Payload p, int n = p.x);\n"
+        "}\n"
+        "int main() {\n"
+        "    Box<int> b = Box();\n"
+        "    Payload p = Payload();\n"
+        "    return b.f(p);\n"
+        "}\n";
+    int rc = runSource("host_generic_default", source, [](VmExecutor& e) {
+        e.RegisterNative("f", &HsReflectArg2);
+    });
+    CHECK(rc == 11, "generic clone stages the member-expr default (p.x)");
+}
+
+//v0.12.3 Task 1 rounds 4-5: two emit-value pins for the cloned-default
+//family. A unary default (`n = -p.x`) shares the operator arm — unary
+//trees are SnBinaryExpr with a null right operand — so this pins that
+//path end to end (expect -11). A this-receiver operand inside an
+//operator default (`n = this.count + p.x`) pins the this-expression
+//rebuild with its type channel: the field read goes through the
+//caller-side receiver. VALUE LIMITATION of this window: instance
+//fields stay zero until Task 5 lands initializers and ctor bodies, so
+//the correct path stages 0 + Payload.x — a null type channel (the
+//field read silently emitting nothing, staging an unwritten cell)
+//yields the same sum while frames come up zeroed. The DISCRIMINATING
+//pin for that failure is the structural one
+//(declGenericCloneDefaultKeepsThisType); strengthen this value pin to
+//a nonzero count (e.g. count = 7 expecting 18) when Task 5 flips
+//initializers on.
+void TestGenericUnaryAndThisDefaults() {
+    const std::string unary =
+        "class Payload {\n"
+        "    public int x;\n"
+        "    public Payload() { x = 11; }\n"
+        "}\n"
+        "class Box<T> {\n"
+        "    public Box() { }\n"
+        "    public native int f(Payload p, int n = -p.x);\n"
+        "}\n"
+        "int main() {\n"
+        "    Box<int> b = Box();\n"
+        "    Payload p = Payload();\n"
+        "    return b.f(p);\n"
+        "}\n";
+    int rcUnary = runSource("host_generic_unary", unary,
+                            [](VmExecutor& e) {
+                                e.RegisterNative("f", &HsReflectArg2);
+                            });
+    CHECK(rcUnary == -11,
+          "generic clone stages the unary default (-p.x)");
+
+    const std::string thisForm =
+        "class Payload {\n"
+        "    public int x;\n"
+        "    public Payload() { x = 11; }\n"
+        "}\n"
+        "class Box<T> {\n"
+        "    public Box() { }\n"
+        "    public int count;\n"
+        "    public native int f(Payload p, int n = this.count + p.x);\n"
+        "}\n"
+        "int main() {\n"
+        "    Box<int> b = Box();\n"
+        "    Payload p = Payload();\n"
+        "    return b.f(p);\n"
+        "}\n";
+    int rcThis = runSource("host_generic_this", thisForm,
+                           [](VmExecutor& e) {
+                               e.RegisterNative("f", &HsReflectArg2);
+                           });
+    CHECK(rcThis == 11,
+          "generic clone stages the this-receiver operand "
+          "(this.count + p.x)");
+}
+
 } // namespace
 
 int main() {
@@ -347,6 +444,8 @@ int main() {
     TestInputReadersOverStdin();
     TestReadCharScalars();
     TestInputPromptSilentOnRedirectedStdout();
+    TestGenericMemberDefault();
+    TestGenericUnaryAndThisDefaults();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

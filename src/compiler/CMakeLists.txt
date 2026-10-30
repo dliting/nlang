@@ -94,6 +94,7 @@ add_library(nlang_compiler
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
     builder/ExprResolverGenericMint.cpp
+    builder/ExprResolverGenericDefaults.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverStaticFace.cpp
     builder/ExprResolverThreadNs.cpp
@@ -113,6 +114,7 @@ add_library(nlang_compiler
     builder/ExprResolverInvoke.cpp
     builder/ExprResolverInvokeDiag.cpp
     builder/ExprResolverInvokeMatch.cpp
+    builder/ExprResolverInvokeReceiver.cpp
     builder/ExprResolverDelegate.cpp
     builder/ExprResolverCast.cpp
     builder/ExprResolverBinding.cpp

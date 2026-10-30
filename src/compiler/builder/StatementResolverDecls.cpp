@@ -4,6 +4,7 @@
 ---*/
 #include "StatementResolver.h"
 #include "ExprResolverCastFit.hpp"
+#include "ModuleBuilderChecks.h"
 #include <vector>
 
 namespace nlang
@@ -377,12 +378,16 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedElemField)
 {
-	//Insert every decomposed AssignStmt before the ORIGINAL
-	//successor of sn. Recomputing find(&sn) + 1 inside the
-	//declarator loop would treat the assign just inserted as the
-	//successor and place each later assign BEFORE the earlier
-	//ones, reversing declarator order (int a = 2, b = a * 3
-	//gave b = 0). std::list insertion keeps this iterator valid.
+	//v0.12.3 Task 5 window gate, twin of the type-position guard in
+	//ExprResolveAccessor (flips with instance execution, Task 5).
+	if (pSizedElemField && RejectTypeParamArrayElement(pSizedElemField,
+			m_Env, sn.Location()))
+		return;
+
+	//Insert every decomposed AssignStmt before the ORIGINAL successor
+	//of sn — recomputing find(&sn) + 1 inside the loop would reverse
+	//declarator order (int a = 2, b = a * 3 gave b = 0). std::list
+	//insertion keeps this iterator valid.
 	auto iInsert = paragraph.Children().find(&sn);
 	++iInsert;
 	//0.10.7 D2: the interned array token types every sized

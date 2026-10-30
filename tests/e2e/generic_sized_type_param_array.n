@@ -1,0 +1,13 @@
+//v0.12.3 Task 1 fix round: a sized array of a type parameter via the
+//C-style trailing declarator interns over the placeholder on the
+//declaration channel (StatementResolveAccessor's local-declaration
+//intern) — the twin of the type-position guard. Transient window gate
+//until instance execution lands (Task 5 makes T[] a legal handle
+//position).
+class Box<T> {
+    public int get() {
+        T a[3];
+        return 1;
+    }
+}
+int main() { return 0; }

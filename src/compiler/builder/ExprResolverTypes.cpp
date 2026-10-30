@@ -8,6 +8,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include "ModuleBuilderChecks.h"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -35,13 +36,27 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 		pElemType->Location(), "used as a type"))
 		return;
 
+	//v0.12.3 Task 5 window gate: arrays of a type parameter are not
+	//representable in the shared template row — the token would intern
+	//over the placeholder and the registration walk would then look
+	//for a class named like the parameter (a backend internal error).
+	//This is the TYPE-EXPRESSION intern entry point (field, param,
+	//return and body-local type positions all resolve through here);
+	//the sized-declarator intern guards through the same contract
+	//helper in StatementResolveAccessor. Both gates flip with instance
+	//execution (T[] becomes a legal handle position).
+	if (RejectTypeParamArrayElement(pElemType->Field(), m_Env,
+			arrTypeExpr.Location()))
+		return;
+
 	//0.7.3 B: intern the array type token and bind the expression to
 	//it — Field() and EvalDataType() become the token together
 	//(ResolveFieldExprAs writes both channels). Declaration sites and
 	//value sites then share one interned token per element type, and
-	//the element masquerade is gone. This is the single intern site:
-	//field/param/return types arrive through ResolveDataTypes, and
-	//local/for/foreach type expressions through ExprResolver::Resolve.
+	//the element masquerade is gone. Field/param/return types arrive
+	//through ResolveDataTypes, and local/for/foreach type expressions
+	//through ExprResolver::Resolve; sized declarators intern on the
+	//declaration channel (RegisterLocalDeclarators).
 	ResolveFieldExprAs(arrTypeExpr,
 		m_Env.InternArrayTypeToken(pElemType->Field(), arrTypeExpr.Rank()));
 }
@@ -266,14 +281,11 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 	}
 
 	//Declared-generic machinery: a type parameter name inside its own
-	//template binds to the interned placeholder (Rejected = the
-	//diagnostic is already logged, e.g. a field referencing T).
+	//template binds to the interned placeholder.
 	switch (BindTypeParamPlaceholderIfAny(idExpr))
 	{
 	case TypeParamBindResult::Bound:
 		return true;
-	case TypeParamBindResult::Rejected:
-		return false;
 	case TypeParamBindResult::NotApplicable:
 		break;
 	}
