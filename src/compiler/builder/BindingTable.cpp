@@ -212,9 +212,10 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 //a "Name." method-prefix cluster, and the free-function qualified form
 //("thread.spawn" answers "spawn" -> "thread"). Method segments alone
 //("lock") never match: the note fires on the class/function name the
-//user wrote.
+//user wrote. outIsFreeFuncForm marks a last-form match so the note can
+//name the qualified spelling.
 bool BindingPackageForName(const std::string& name,
-	std::string& outPackage)
+	std::string& outPackage, bool* outIsFreeFuncForm)
 {
 	const std::string ctorArity = name + "/1";
 	const std::string methodPrefix = name + ".";
@@ -228,6 +229,8 @@ bool BindingPackageForName(const std::string& name,
 			|| freeFuncForm)
 		{
 			outPackage = row.packagePath;
+			if (outIsFreeFuncForm)
+				*outIsFreeFuncForm = freeFuncForm;
 			return true;
 		}
 	}

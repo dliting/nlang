@@ -1,0 +1,9 @@
+//An alias may not take an indexed library package's root name. The
+//clash check consults the library index; concurrent declares only
+//classes (no function-shaped symbols), so the package's presence —
+//not its symbol yield — must reserve the name.
+using concurrent = int;
+
+int main() {
+    return 0;
+}

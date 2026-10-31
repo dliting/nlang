@@ -1,6 +1,11 @@
 //Library unit: Mutex/Channel workflows exported through the package.
 import concurrent;
 
+struct Point {
+    int x;
+    int y;
+}
+
 int pipeSum(int a, int b)
 {
     //Capacity-1 channel: alternate send/recv (two sends before any
@@ -10,6 +15,22 @@ int pipeSum(int a, int b)
     int first = c.recv();
     c.send(b);
     return first + c.recv();
+}
+
+//Struct elements ride the same pipeline with snapshot semantics: the
+//receiver reads the value as of the send (mutating the sender's copy
+//afterwards changes nothing).
+int pipePoint()
+{
+    Channel<Point> c = Channel(1);
+    Point p;
+    p.x = 3;
+    p.y = 4;
+    c.send(p);
+    p.x = 30;
+    Point q = c.recv();
+    if (q.x != 3 || q.y != 4) { return -1; }
+    return q.x * 100 + q.y;
 }
 
 int guardedTwice(int v)

@@ -326,8 +326,14 @@ static void test_binding_package_for_name()
         "the Promise ctor row must resolve to thread");
     CHECK(!BindingPackageForName("Thread", pkg),
         "Thread is minted by spawn with no ctor row - no package answer");
-    CHECK(BindingPackageForName("spawn", pkg) && pkg == "thread",
-        "qualified free-function form must resolve");
+    bool freeFuncForm = true;
+    CHECK(BindingPackageForName("Mutex", pkg, &freeFuncForm)
+        && pkg == "concurrent" && !freeFuncForm,
+        "class key forms must not report the free-function form");
+    CHECK(BindingPackageForName("spawn", pkg, &freeFuncForm)
+        && pkg == "thread" && freeFuncForm,
+        "qualified free-function form must resolve and report the form "
+        "(the note names the qualified spelling, not just the import)");
     CHECK(!BindingPackageForName("lock", pkg),
         "a bare method segment must NOT resolve (precision: the note "
         "fires on the class name the user wrote, not on method names)");
@@ -359,6 +365,19 @@ static void test_moved_handle_slots()
         CHECK(!cls->fieldNames.empty()
             && cls->fieldNames[0] == "__handle",
             "concurrent.Mutex must lead with the __handle slot");
+        //D8 runtime-cache pin: the container side tables and the
+        //exception cache resolve these names bare-or-unique-suffix at
+        //run start — every concurrent handle name must answer in the
+        //real linked image (a -1 sentinel would defer the break to the
+        //first use, past every compile gate).
+        for (const char* name :
+            {"Mutex", "Channel", "Semaphore", "ReentrantMutex",
+             "AtomicInt", "ChannelClosedException"})
+        {
+            CHECK(mod.FindClassBareOrUniqueSuffix(name) >= 0,
+                std::string(name)
+                    + " must resolve bare-or-unique-suffix after the move");
+        }
     }
     {
         CompiledModule mod = compileAndLink("moved_thread_slots",
@@ -381,6 +400,13 @@ static void test_moved_handle_slots()
         CHECK(!fut->fieldNames.empty()
             && fut->fieldNames[0] == "__handle",
             "Future must lead with the __handle slot");
+        //D8 runtime-cache pin, thread side: Thread lives under the
+        //package-qualified key, Future under the bare template key —
+        //the one lookup must answer both.
+        for (const char* name : {"Thread", "Future"})
+            CHECK(mod.FindClassBareOrUniqueSuffix(name) >= 0,
+                std::string(name)
+                    + " must resolve bare-or-unique-suffix after the move");
     }
     PASS();
 }

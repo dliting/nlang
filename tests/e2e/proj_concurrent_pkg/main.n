@@ -8,8 +8,10 @@ int main()
     //exit code).
     int s = sync.pipeSum(3, 4);
     int g = sync.guardedTwice(10);
+    int pt = sync.pipePoint();
     if (s != 7) { return 9; }
     if (g != 20) { return 9; }
+    if (pt != 304) { return 9; }
     io.print(s);
     return 0;
 }

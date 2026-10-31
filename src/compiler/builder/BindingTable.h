@@ -45,9 +45,12 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 //D10 (concurrency import redesign): reverse lookup for the unimported-
 //use diagnostic — which stamped package declares this bare name? Four
 //key forms: exact ctor, "/1" ctor, "Name." method prefix, and the
-//free-function "pkg.name" qualified form.
+//free-function "pkg.name" qualified form. outIsFreeFuncForm (optional)
+//reports whether the match came from that last form — the note for a
+//package function must name the qualified spelling, not just the
+//import (package functions stay qualified-only even when imported).
 bool BindingPackageForName(const std::string& name,
-	std::string& outPackage);
+	std::string& outPackage, bool* outIsFreeFuncForm = nullptr);
 
 //Handle-class marker (§6.4): true for a prelude class name whose
 //record carries the hidden __handle field. Append-only list.

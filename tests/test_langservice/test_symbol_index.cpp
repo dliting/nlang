@@ -160,6 +160,27 @@ static void TestPackageComesFromFilePath() {
     fs::remove_all(tmp);
 }
 
+static void TestClassOnlyPackageHasPackage() {
+    // HasPackage feeds the type-alias clash check's "indexed library
+    // package" arm (and the module-path qualification routing). A
+    // package file that declares only classes extracts no
+    // function-shaped symbols, but its root name is still a reserved
+    // package name — stdlib/concurrent.n is exactly this shape.
+    fs::path tmp = fs::temp_directory_path() / "nlang_ls_classonly";
+    fs::remove_all(tmp);
+    fs::create_directories(tmp);
+    std::ofstream(tmp / "concurrent.n")
+        << "class Mutex {\n"
+        << "    public native void lock();\n"
+        << "}\n";
+
+    SymbolIndex index;
+    index.LoadFile((tmp / "concurrent.n").string());
+    CHECK(index.Resolve("concurrent", "lock") == nullptr);
+    CHECK(index.HasPackage("concurrent"));
+    fs::remove_all(tmp);
+}
+
 static void TestClassBodyMethodsSkipped() {
     // A class body at file top level is a scope the scanner must skip:
     // a method is not a package function. Project sources flow through
@@ -459,6 +480,7 @@ int main() {
     TestCompletion();
     TestNlangFunctionIsNotNative();
     TestPackageComesFromFilePath();
+    TestClassOnlyPackageHasPackage();
     TestClassBodyMethodsSkipped();
     TestBlockCommentBraces();
     TestFindStdLibDir();

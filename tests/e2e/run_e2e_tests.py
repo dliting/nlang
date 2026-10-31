@@ -9,7 +9,10 @@ substring]), compiles each <name>.n, runs the .ncu, and reports results.
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
-the stderr of the module compile that failed).
+the stderr of the module compile that failed). Several expectations may be
+listed, separated by ';'; a leading '!' negates one (the diagnostics must
+NOT contain it) — the same '!' semantics as the .stderr sidecar files, and
+the only way to pin that a diagnostic stays absent.
 A <name>.stderr file next to the source asserts on the compile-phase
 stderr of a SUCCESSFULLY compiled single-file test (warning-behavior
 tests): the file's content is a substring ncc's diagnostics must
@@ -199,6 +202,33 @@ def _matchable_stdout(name, raw_stdout):
     return text
 
 
+def _rejection_expectations(expected):
+    """Manifest column 3 for compile_error rows, parsed into
+    (negate, substring) pairs: expectations separated by ';', each
+    optionally negated by a leading '!' (the diagnostics must NOT
+    contain it) — the same '!' semantics as the .stderr sidecar files.
+    Negation is how a rejection pins an ABSENT diagnostic (e.g. the
+    package note on a name with no binding rows)."""
+    out = []
+    for part in expected.split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        negate = part.startswith('!')
+        want = part.lstrip('!').strip() if negate else part
+        out.append((negate, want))
+    return out
+
+
+def _rejection_violation(expected, stderr):
+    """First column-3 expectation the reject stderr violates, as a
+    (negate, substring) pair; None when every expectation holds."""
+    for negate, want in _rejection_expectations(expected):
+        if (want in stderr) == negate:
+            return negate, want
+    return None
+
+
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
@@ -357,12 +387,18 @@ def main():
                     if expected == "compile_error":
                         #Column 3 (rejection reason pinning) — mirrors the
                         #single-file path below against the failing module's
-                        #diagnostics.
-                        if expected_stdout and expected_stdout not in reject_stderr:
+                        #diagnostics. ';' separates expectations; a leading
+                        #'!' negates one (must NOT appear).
+                        bad = _rejection_violation(expected_stdout,
+                                                   reject_stderr)
+                        if bad:
+                            negate, want = bad
                             print(f"FAIL {name} (diagnostic mismatch)")
                             failed += 1
-                            errors.append(f"  {name}: expected diagnostic "
-                                f"{expected_stdout!r}; stderr: "
+                            errors.append(
+                                f"  {name}: expected diagnostic "
+                                f"{'NOT containing' if negate else 'containing'} "
+                                f"{want!r}; stderr: "
                                 f"{reject_stderr[:300]}")
                             continue
                         print(f"PASS {name} (compile error as expected)")
@@ -495,16 +531,22 @@ def main():
                     #For compile_error tests an optional column 3 is the
                     #substring ncc's diagnostics (stderr) must contain —
                     #it pins the rejection reason, not just the failure.
+                    #';' separates expectations; a leading '!' negates one
+                    #(must NOT appear).
                     if expected_stdout:
                         stderr_text = (compile_result.stderr.decode(
                             'utf-8', errors='replace')
                             if compile_result.stderr else '')
-                        if expected_stdout not in stderr_text:
+                        bad = _rejection_violation(expected_stdout,
+                                                   stderr_text)
+                        if bad:
+                            negate, want = bad
                             print(f"FAIL {name} (diagnostic mismatch)")
                             failed += 1
                             errors.append(
-                                f"  {name}: expected diagnostic containing "
-                                f"{expected_stdout!r}; stderr: "
+                                f"  {name}: expected diagnostic "
+                                f"{'NOT containing' if negate else 'containing'} "
+                                f"{want!r}; stderr: "
                                 f"{stderr_text[:300]}")
                             continue
                     print(f"PASS {name} (compile error as expected)")

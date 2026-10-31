@@ -803,6 +803,24 @@ void test_typed_spawn_requires_import()
     PASS();
 }
 
+//包真实化准入（自由函数裸名）：无 import 的裸 spawn(work) 调用在
+//"does not exist" 主诊断外还带 D10 note——包函数即便补了 import 也
+//必须限定调用，自由函数形态的 note 直接给出限定拼写，而不是只建议
+//补 import（类形态的 note 保持"add import"不变）。
+void test_spawn_bare_names_qualified_spelling()
+{
+    TEST(spawn_bare_names_qualified_spelling);
+    CHECK(buildFailsWith("thread_spawn_bare",
+        "int work() { return 1; }\n"
+        "int main() {\n"
+        "    spawn(work);\n"
+        "    return 0;\n"
+        "}\n",
+        "call it as 'thread.spawn' after 'import thread';"),
+        "bare spawn without import names the qualified spelling");
+    PASS();
+}
+
 //m12 遮蔽优先级：用户局部名 thread 胜过内建命名空间——thread.spawn 在
 //遮蔽下按普通成员链解析（对 int 报 spawn 不存在），内建面不劫持该链。
 //与模块限定回退同一探针（ProbeNonFunctionField）。
@@ -5264,6 +5282,7 @@ int main()
         test_thread_package_name_duplicate();
         test_thread_requires_import();
         test_typed_spawn_requires_import();
+        test_spawn_bare_names_qualified_spelling();
         test_thread_ns_user_name_shadows();
         test_thread_ns_cross_module();
         runGuarded(test_spawn_join_runs_worker);

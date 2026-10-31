@@ -51,7 +51,7 @@ bool ExprResolveAccessor::TryBindTypedSpawn(SnMemberExpr &snMember,
 		return true;
 
 	//Result decl: Thread for a void delegate, Future<T> otherwise. The
-	//void arm reads the declared Thread class (stdlib/builtins.n) off
+	//void arm reads the declared Thread class (stdlib/thread.n) off
 	//the scope chain — the same lookup any type name takes; the
 	//synthesized singleton retired with the builtin-decls migration. A
 	//miss (name shadowed by a non-type) declines to the fixed path's

@@ -30,7 +30,7 @@ inline constexpr const char* kBuiltinDictTypeName = "Dict";
 inline constexpr const char* kBuiltinFuncTypeName = "func";
 inline constexpr const char* kBuiltinChannelTypeName = "Channel";
 inline constexpr const char* kBuiltinFutureTypeName = "Future";
-//Promise is a DECLARED generic (stdlib/builtins.n template + hidden
+//Promise is a DECLARED generic (stdlib/thread.n template + hidden
 //__handle slot + intrinsics), NOT a member of the synthetic-minting
 //whitelist below: every consumer of IsBuiltinGenericTypeName routes on
 //it between the synthetic and the declared-template resolution paths,
@@ -45,7 +45,9 @@ inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 //">>" split depth counting working for the four names. Since the
 //phase-2 source-of-truth migration the resolver routes ONLY func to
 //synthetic minting — List/Dict/Channel/Future resolve through their
-//declared templates in stdlib/builtins.n, exactly like Promise and
+//declared templates (List/Dict in the stdlib/builtins.n prelude,
+//Channel in stdlib/concurrent.n, Future in stdlib/thread.n — the
+//v0.12.3 import boundary), exactly like Promise and
 //every user `class C<T>` (no lex-time set can know a module's class
 //declarations, so declared use sites parse on the grammar's plain-'<'
 //type arms).

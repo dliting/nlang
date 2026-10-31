@@ -131,6 +131,10 @@ void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
 	m_Env.Log(CLL_Error, invoke.Location(),
 		"The function \"%s\" does not exist or is not accessible.",
 		invoke.CalleeName().c_str());
+	//D10: a stamped package may declare this free function — the bare
+	//call missed because package functions are qualified-only
+	//(thread.spawn), so the note names the package and the spelling.
+	MaybeLogPackageHint(invoke.CalleeName());
 }
 
 //Two-gate implicit-binding test; see the header note for why both the

@@ -4,9 +4,12 @@
 built-in classes (ByteStream, FileStream). ExprResolver
 owns the synthesis sites; DuplicateFieldChecker consults the same
 predicates for the Phase 13 type-alias clash check, so both must agree on
-one name set. The Exception family, Mutex/Semaphore, Thread and Object
-left the synthesized set — declared in stdlib/builtins.n (builtin-decls
-source of truth), resolving through the scope chain like any class.
+one name set. The Exception family and Object left the synthesized set —
+declared in stdlib/builtins.n (builtin-decls source of truth), resolving
+through the scope chain like any class. The concurrency handles moved on
+to stdlib/thread.n and stdlib/concurrent.n (v0.12.3 import boundary):
+same declared shape, but they enter a translation unit only through its
+import.
 -----------------------------------------------------------------------------*/
 #pragma once
 #include <cstdint>
@@ -29,9 +32,11 @@ struct SnInvokeExpr;
 //K1 Slice 9: Channel is generic-only (Channel<T>); the element type
 //decides boxing, so the bare name is not a type. The builtin-decls
 //source-of-truth migration removed Semaphore/Mutex (cluster 1), Thread
-//(cluster 3) and Object (cluster 4) — their classes are declared in
-//stdlib/builtins.n and resolve through the scope chain like any
-//imported class.
+//(cluster 3) and Object (cluster 4); the v0.12.3 import boundary then
+//moved Semaphore/Mutex and Thread to the concurrency packages
+//(stdlib/concurrent.n, stdlib/thread.n). Object stayed in the
+//stdlib/builtins.n prelude; all of them resolve through the scope
+//chain like any declared class.
 inline bool IsBuiltinClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream";

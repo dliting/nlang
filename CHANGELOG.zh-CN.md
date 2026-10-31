@@ -12,6 +12,10 @@
 
 - **破坏性变更**：并发类移到包导入之后。`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`与`WaitGroup`由`concurrent`包声明（`stdlib/concurrent.n`）；`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数由`thread`声明（`stdlib/thread.n`）。预置包只保留语言核心与基础容器——`Object`、异常家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——以及仍免导入的流类`ByteStream`/`FileStream`。使用并发名字的代码现在需要`import thread;`/`import concurrent;`，未导入就使用时诊断会指明声明所在的包。
 - 并发分工进入规范：第11章新增两包分工导语、原生句柄形态的Semaphore、`ReentrantMutex`、`AtomicInt`与`Promise`/`selectAny`各节；§12.4写明一句话规则（语言核心与基础容器恒可见，其余皆导入）；第13、17、19章随之更新。
+- 裸调用包自由函数时新增说明，直接给出限定拼写（`spawn(work)`→"call it as 'thread.spawn'"）：包函数即便导入也必须限定调用，仅建议补import并不能修好这个调用。
+- 类型别名撞名规则现在保留已索引的库包名：`using concurrent = int;`是编译错误；只声明类的包（索引扫描提取不到函数符号）同样保留其名。
+- 根级用户类与导入包的类声明同名时现在是重定义错误，不再静默遮蔽（`class Thread`伴随`import thread;`）——显式导入的名字不再像预置名那样让位于用户声明。
+- 已废弃的`"X" is not a built-in generic type.`诊断（由声明模板解析取代）从编译器消息集中移除。
 
 ## [0.12.2] - 2026-10-29
 

@@ -1840,6 +1840,7 @@ object_static_protocol_reject compile_error claims the virtual dispatch slot of 
 object_tostring_arity compile_error
 naming_reserved_prelude compile_error names a type
 alias_clash_prelude compile_error cannot be used as a type alias
+alias_clash_package_root compile_error cannot be used as a type alias
 concurrent_channel_park_gcwindow 0 churn done
 concurrent_gate_hammer 17 peak inside the section: 2 (limit 2), total: 40000
 exception_two_catches_same_var 0 AoopB7
@@ -1925,7 +1926,8 @@ generic_mutual_pair 0
 # --- concurrency import redesign: unimported-use anchors (flip turns these green) ---
 err_no_import_mutex compile_error provided by package 'concurrent'
 err_no_import_channel compile_error provided by package 'concurrent'
-err_no_import_thread_class compile_error Cannot resolve
+err_no_import_thread_class compile_error Cannot resolve the field: Thread; !provided by package
+err_no_import_spawn compile_error call it as 'thread.spawn'
 
 # --- concurrency import redesign: imported-surface e2e (Task 5 Step 7) ---
 concurrent_pkg_smoke 0

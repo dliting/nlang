@@ -354,6 +354,12 @@ std::vector<std::string> SymbolIndex::Packages() const {
 }
 
 bool SymbolIndex::HasPackage(const std::string& ns) const {
+    //File-based truth first: a loaded package file owns its root name
+    //even when the scan extracted no function-shaped symbols from it
+    //(a class-only package such as stdlib/concurrent.n). The symbol
+    //walk stays for symbol sources that never registered a file.
+    if (m_packageFiles.count(ns))
+        return true;
     for (const SymbolInfo& s : m_symbols)
         if (s.pkg == ns)
             return true;

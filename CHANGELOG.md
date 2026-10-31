@@ -26,6 +26,22 @@ All notable changes to NLang are documented here. The format follows
   `AtomicInt` and `Promise`/`selectAny` sections; §12.4 states the
   one-sentence rule (language core and base containers always visible,
   everything else imported); chapters 13, 17 and 19 follow.
+- A bare call to a package free function now gets a note naming the
+  qualified spelling (`spawn(work)` → "call it as 'thread.spawn'"):
+  package functions stay qualified-only even once imported, so the
+  "add import" advice alone would not fix the call.
+- The type-alias clash rule reserves the indexed library package roots:
+  `using concurrent = int;` is a compile error, including for a package
+  whose file declares only classes (the library index reserves the name
+  even when the scan extracts no function symbols from it).
+- A root-level user class sharing a name with an imported package's
+  class declaration is now a redefinition error instead of a silent
+  shadow (`class Thread` next to `import thread;`) — explicitly
+  imported names no longer yield to user declarations the way prelude
+  names do.
+- The retired `"X" is not a built-in generic type.` diagnostic
+  (superseded by declared-template resolution) is gone from the
+  compiler's message set.
 
 ## [0.12.2] - 2026-10-29
 

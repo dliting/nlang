@@ -419,19 +419,30 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 }
 
 //D10 (concurrency import redesign): a bare-name miss where a stamped
-//package declares the name — name the package and the import fix (the
-//binding table is the package->symbol map for these classes). True =
+//package declares the name — name the package and the fix (the
+//binding table is the package->symbol map for these classes). The two
+//forms carry different fixes: a class becomes visible through the
+//import alone, while a package function stays qualified-only even
+//after the import, so its note names the qualified spelling. True =
 //note logged (the caller suppresses the generic visibility/module-path
 //guesses).
 bool ExprResolveAccessor::MaybeLogPackageHint(const std::string &name)
 {
 	std::string package;
-	if (!BindingPackageForName(name, package))
+	bool freeFuncForm = false;
+	if (!BindingPackageForName(name, package, &freeFuncForm))
 		return false;
-	m_Env.Log(CLL_Error,
-		"(note: \"%s\" is provided by package '%s'; "
-		"add 'import %s';)",
-		name.c_str(), package.c_str(), package.c_str());
+	if (freeFuncForm)
+		m_Env.Log(CLL_Error,
+			"(note: \"%s\" is provided by package '%s'; "
+			"call it as '%s.%s' after 'import %s';)",
+			name.c_str(), package.c_str(), package.c_str(),
+			name.c_str(), package.c_str());
+	else
+		m_Env.Log(CLL_Error,
+			"(note: \"%s\" is provided by package '%s'; "
+			"add 'import %s';)",
+			name.c_str(), package.c_str(), package.c_str());
 	return true;
 }
 

@@ -26,8 +26,10 @@ namespace nlang
 //past the tree they were minted against). Channel needs no stand-in:
 //it exists only as Channel<T>, a generic instantiation minted by
 //GetGenericClassDecl. Mutex/Semaphore, Thread and Object lost their
-//stand-ins to the builtin-decls migration — declared in
-//stdlib/builtins.n now.
+//stand-ins to the builtin-decls migration — Object is declared in the
+//stdlib/builtins.n prelude, Mutex/Semaphore and Thread in the
+//concurrency packages (stdlib/concurrent.n, stdlib/thread.n since the
+//v0.12.3 import boundary).
 
 //On-demand minted decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
