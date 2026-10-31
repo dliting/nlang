@@ -84,6 +84,9 @@ exception_cause_chain_build 7
 # --- v0.12.4 const marker over the wire (D10, NCU v2.12) ---
 const_crossmod_api 7
 const_crossmod_write_reject compile_error is immutable
+# --- v0.12.4 cause-chain failure reports (D8) ---
+exception_caused_by_output 1
+exception_caused_by_join 0
 # --- bool (0.7.5 strict) ---
 bool_basics 0 false
 bool_strict_reject compile_error condition must be bool

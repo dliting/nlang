@@ -438,7 +438,10 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     //Debugger checkpoint at the throw site, before unwinding starts
     //(the full NLang stack is still alive).
     FireOnThrow();
-    throw NLangThrow(heapIdx, msg);
+    //v0.12.4 D8: route the report through ThrownMessageOf so VM-raised
+    //failures print the same "<Type>: <message>" top line as user
+    //throws (the old raw msg lost the type name).
+    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, msg.c_str()));
 }
 
 //K2 slice 4: the building half of RaiseNlangException, split out so

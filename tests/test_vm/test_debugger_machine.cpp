@@ -62,8 +62,9 @@ void test_hostio_readline_rejected()
     }
     CHECK(raised, "readLine must raise IOException when input is unavailable");
     //Identity pin: the raise must come from the io.readLine site itself,
-    //not some other channel that happens to throw.
-    CHECK(raiseText.rfind("io.readLine", 0) == 0,
+    //not some other channel that happens to throw. v0.12.4 D8 prefixes the
+    //report with the exception type: "IOException: io.readLine: ...".
+    CHECK(raiseText.rfind("IOException: io.readLine", 0) == 0,
         "raise must originate at io.readLine, got: " + raiseText);
     PASS();
 }

@@ -1929,7 +1929,21 @@ private:
     //back to the class leaf name (a bare `throw Exception()`-shaped
     //object still names itself). Anything unreadable (non-class object,
     //stale handle) keeps the caller's legacy text.
+    //v0.12.4 D8: the returned text is the full chain — a
+    //"<Type>: <message>" top line plus one "Caused by:" hop per cause
+    //link (FormatExceptionChain).
     std::string ThrownMessageOf(int32_t heapIdx, const char* fallback) const;
+
+    //v0.12.4 D8: the failure-report rendering of one exception object —
+    //"<Type>: <message>" (bare "<Type>" when the message is empty) plus
+    //one "\nCaused by: <Type>: <message>" line per cause hop. Cause
+    //links live at cell[5] (D7 layout); cycles are impossible by
+    //construction (a cause argument is evaluated before the wrapping
+    //object exists), so the walk needs only per-hop bounds checks.
+    //FormatCauseChainTail is the hops-only suffix, shared by this and
+    //the unobserved-failure report (which composes its own top line).
+    std::string FormatExceptionChain(int32_t excHeapIdx) const;
+    std::string FormatCauseChainTail(int32_t excHeapIdx) const;
 
     //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
     //BASE Exception (no dedicated argument-exception subclass exists).

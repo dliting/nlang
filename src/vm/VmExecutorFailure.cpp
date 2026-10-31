@@ -58,7 +58,7 @@ void VmExecutor::ReportUnobservedSpawnedFailures() {
         if (excIdx < static_cast<int32_t>(m_structHeap.size())
             && m_structHeap[static_cast<size_t>(excIdx)].size() >= 2) {
             try {
-                typeName = HostClassName(excIdx);
+                typeName = LeafNameOfKey(HostClassName(excIdx));
             } catch (const std::exception&) {
                 //defensive: a malformed record still reports the task
             }
@@ -67,7 +67,8 @@ void VmExecutor::ReportUnobservedSpawnedFailures() {
         }
         std::cerr << "NLang VM: spawned task " << ctx->id
                   << " failed with uncaught " << typeName << ": "
-                  << message << " (never joined)\n";
+                  << message << " (never joined)"
+                  << FormatCauseChainTail(excIdx) << "\n";
     }
 }
 
