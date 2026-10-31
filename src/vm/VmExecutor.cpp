@@ -20,7 +20,10 @@ static void ResetContainerSideTable(Store& store,
                                     const char* className, int16_t* cachedIdx) {
     store.clear();
     freeList.clear();
-    int idx = module.FindClass(className);
+    //D8: bare first, then a unique package-qualified suffix — the
+    //container classes leave the prelude's bare-key world in the
+    //concurrency import redesign.
+    int idx = module.FindClassBareOrUniqueSuffix(className);
     *cachedIdx = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
 }
 
@@ -79,12 +82,13 @@ void VmExecutor::ResetPerRunState(const CompiledModule& module) {
 
 //Phase 9d: cache Exception hierarchy class indices. These are required
 //by RaiseNlangException to allocate the right subclass instance.
-//All FindClass calls here use bare names deliberately: the prelude
-//declarations keep bare table keys (the declared erasure records too),
-//so the lookup survives every source-of-truth migration phase.
+//D8: lookups go bare-or-unique-suffix — the Exception family stays
+//prelude-owned (bare keys), ChannelClosedException leaves with the
+//concurrency packages (package-qualified key), and one helper carries
+//both worlds.
 void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     auto cacheExcClass = [&](const char* name, int16_t* out) {
-        int idx = module.FindClass(name);
+        int idx = module.FindClassBareOrUniqueSuffix(name);
         *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
     };
     cacheExcClass("Exception",                &m_exceptionClassIdx);
@@ -97,10 +101,10 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
     //K1 Slice 6: cache the Thread class index (spawn mints instances).
-    int threadIdx = module.FindClass("Thread");
+    int threadIdx = module.FindClassBareOrUniqueSuffix("Thread");
     m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
     //K3: same for the Future face of typed spawn.
-    int futureIdx = module.FindClass("Future");
+    int futureIdx = module.FindClassBareOrUniqueSuffix("Future");
     m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
 }
 

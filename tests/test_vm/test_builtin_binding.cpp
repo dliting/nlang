@@ -279,6 +279,31 @@ static void test_builtin_handle_decl_predicate()
     PASS();
 }
 
+//D8: bare-or-unique-suffix class lookup. A package-qualified row
+//("pkg.Thing") must answer to the bare name exactly once; two such
+//rows must refuse (-1) rather than pick one. Synthetic module — the
+//lookup is pure table walking, no compiler involved.
+static void test_find_class_bare_or_unique_suffix()
+{
+    TEST(test_find_class_bare_or_unique_suffix);
+    CompiledModule m;
+    m.classes.push_back({"Thread"});        //exact bare hit wins first
+    m.classes.push_back({"concurrent.Mutex"});
+    m.classes.push_back({"main.Box"});
+    CHECK(m.FindClassBareOrUniqueSuffix("Thread") == 0,
+        "exact bare key must win");
+    CHECK(m.FindClassBareOrUniqueSuffix("Mutex") == 1,
+        "unique package-qualified suffix must hit");
+    CHECK(m.FindClassBareOrUniqueSuffix("Box") == 2,
+        "main-package suffix must hit");
+    CHECK(m.FindClassBareOrUniqueSuffix("Nope") == -1,
+        "zero hits must miss");
+    m.classes.push_back({"other.Mutex"});
+    CHECK(m.FindClassBareOrUniqueSuffix("Mutex") == -1,
+        "two suffix hits must refuse");
+    PASS();
+}
+
 int main()
 {
     //In-process ModuleBuilder host: the interned IdString tables must
@@ -291,6 +316,7 @@ int main()
     runGuarded(test_future_has_no_ctor);
     runGuarded(test_unbounded_ctor_does_not_read_capacity);
     runGuarded(test_builtin_handle_decl_predicate);
+    runGuarded(test_find_class_bare_or_unique_suffix);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";

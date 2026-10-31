@@ -308,6 +308,31 @@ struct CompiledModule {
         return -1;
     }
 
+    //D8 (concurrency import redesign): runtime by-name caches look
+    //classes up bare, but plain classes outside the prelude key
+    //package-qualified ("thread.Thread"). Bare hit first; otherwise a
+    //UNIQUE ".name" suffix hit across the module's class table; zero
+    //or ambiguous -> -1 (no silent pick between same-named classes).
+    int FindClassBareOrUniqueSuffix(const std::string& name) const {
+        if (int idx = FindClass(name); idx >= 0)
+            return idx;
+        const std::string suffix = "." + name;
+        int found = -1;
+        for (size_t i = 0; i < classes.size(); ++i)
+        {
+            if (classes[i].name.size() > suffix.size()
+                && classes[i].name.compare(
+                       classes[i].name.size() - suffix.size(),
+                       suffix.size(), suffix) == 0)
+            {
+                if (found >= 0)
+                    return -1;   //ambiguous: two packages declare it
+                found = static_cast<int>(i);
+            }
+        }
+        return found;
+    }
+
     int FindEnum(const std::string& enumKey) const {
         for (int i = 0; i < static_cast<int>(enumKeys.size()); ++i)
             if (enumKeys[i] == enumKey)
