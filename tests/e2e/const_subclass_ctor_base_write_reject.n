@@ -1,0 +1,12 @@
+//v0.12.4 D3: the construction exemption belongs to the DECLARING
+//type's constructors only. A subclass constructor writing an inherited
+//field is not exempt — its parent is the subclass, not the declaring
+//class, so the seal holds across the inheritance chain.
+const class Base {
+    public string tag;
+    public Base(string t) { tag = t; }
+}
+const class Sub : Base {
+    public Sub(string t) { tag = t; }
+}
+int main() { return 0; }

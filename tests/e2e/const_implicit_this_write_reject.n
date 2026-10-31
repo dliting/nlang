@@ -1,0 +1,16 @@
+//v0.12.4 D4: the identifier arm of the store gate — a bare field name
+//inside a method is an implicit-this store, and a non-constructor
+//method is past the construction window. The seal must hold on this
+//path too, not only on explicit member stores.
+const class C {
+    public int n;
+    public C() { n = 1; }
+    public void broken() {
+        n = 2;
+    }
+}
+int main() {
+    C c = C();
+    c.broken();
+    return 0;
+}

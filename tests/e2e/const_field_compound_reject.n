@@ -1,0 +1,10 @@
+//v0.12.4 D4: the seal covers the compound-assign path too (`p.x += 1`)
+//— the store gate is shared by both statement forms.
+const struct P {
+    int x;
+}
+int main() {
+    P p = P();
+    p.x += 1;
+    return 0;
+}

@@ -8,11 +8,81 @@
 namespace nlang
 {
 
+//v0.12.4 D1/D4: the sealed-store verdict for a field target. True when
+//the field is declared by a const class/struct and the write is not
+//inside that declaration's own constructor. Locals and parameters are
+//never sealed here — the variable slot itself stays mutable (a const
+//struct local may be rebound to a fresh value; only its fields are
+//sealed through the member arm).
+//D3: the construction exemption is scoped to the type that DECLARES the
+//field — its own constructors may seed it (injected field initializers
+//become ctor statements, so they ride the same exemption). A subclass
+//constructor writing an inherited field stays rejected: the subclass
+//never owns that slot, and per the D1 inheritance ruling the subclass
+//is const itself, so allowing the write would bypass the base's seeding
+//discipline. The first NK_Function up the parent chain is the enclosing
+//function (NLang has no nested functions).
+bool StatementResolveAccessor::IsSealedFieldWrite(SnExpression &left,
+	SnField &field)
+{
+	auto *pOwner = field.Parent();
+	if (!pOwner)
+		return false;
+	bool bConstOwner;
+	if (pOwner->Kind() == NK_ClassDecl)
+		bConstOwner = static_cast<SnClassDecl *>(pOwner)
+			->IsConstAggregate();
+	else if (pOwner->Kind() == NK_StructDecl)
+		bConstOwner = static_cast<SnStructDecl *>(pOwner)
+			->IsConstAggregate();
+	else
+		return false;
+	if (!bConstOwner)
+		return false;
+	for (SyntaxNode *pScope = left.Parent(); pScope;
+		pScope = pScope->Parent())
+	{
+		if (pScope->Kind() != NK_Function)
+			continue;
+		auto &fn = static_cast<SnFunction &>(*pScope);
+		if (!IsConstructorFunction(fn))
+			return true;
+		return fn.Parent() != field.Parent();
+	}
+	return true;
+}
+
+//v0.12.4 D4: the shared diagnostic of the sealed-field store gates.
+void StatementResolveAccessor::RejectSealedFieldStore(SnField &field,
+	const ISourceLocation *pLoc)
+{
+	auto *pOwner = field.Parent();
+	if (pOwner->Kind() == NK_StructDecl)
+		m_Env.Log(CLL_Error, pLoc,
+			"The field \"%s\" is immutable: it belongs to the const "
+			"struct \"%s\" and only that struct's constructors may "
+			"write it.",
+			field.Name().c_str(),
+			static_cast<SnStructDecl *>(pOwner)->Name().c_str());
+	else
+		m_Env.Log(CLL_Error, pLoc,
+			"The field \"%s\" is immutable: it belongs to the const "
+			"class \"%s\" and only that class's constructors may "
+			"write it.",
+			field.Name().c_str(),
+			static_cast<SnClassDecl *>(pOwner)->Name().c_str());
+}
+
 //Phase 9a: reject assignment to a const local (identifier targets only;
 //the const-init decomposition sets NF_Const AFTER resolving the
 //initializer AssignStmt, so initializer writes correctly pass).
 //0.9.10 D3.5: interface constants are folded values with no location —
 //a member-expression store targeting one is rejected here too.
+//v0.12.4 D4: stores into the fields of a const class/struct are
+//rejected on both arms — member targets (`c.n = v`, `this.n = v`,
+//chained `h.in.n = v`) and implicit-this identifier targets (`n = v`
+//inside a method). The only legal writer is the declaring type's own
+//constructor (D3).
 void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 	const ISourceLocation *pLoc)
 {
@@ -23,6 +93,8 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 			m_Env.Log(CLL_Error, pLoc,
 				"\"%s\" is a constant and cannot be assigned.",
 				pMemberField->Name().c_str());
+		else if (pMemberField && IsSealedFieldWrite(left, *pMemberField))
+			RejectSealedFieldStore(*pMemberField, pLoc);
 		return;
 	}
 	if (left.Kind() != NK_IdentifierExpr)
@@ -32,6 +104,8 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 		m_Env.Log(CLL_Error, pLoc,
 			"cannot assign to const local \"%s\".",
 			pLeftField->Name().c_str());
+	else if (pLeftField && IsSealedFieldWrite(left, *pLeftField))
+		RejectSealedFieldStore(*pLeftField, pLoc);
 }
 
 //A method call LHS (`obj.f() = v`, `obj.f() += v`) parses as a store

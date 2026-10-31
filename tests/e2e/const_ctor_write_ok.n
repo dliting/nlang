@@ -1,0 +1,24 @@
+//v0.12.4 D3: the legal construction surface — the declaring ctor
+//writes its own fields (explicit this, implicit-this bare name), a
+//field initializer injects an exempt store, and a whole-value rebind
+//of a const struct local stays legal (the binding is const-adjacent,
+//the struct value is new). Reads back and exits 7.
+const struct P {
+    int x;
+    P(int xv) { x = xv; }
+}
+const class C {
+    public int a = 3;
+    public int b;
+    public C(int bv) {
+        this.b = bv;
+    }
+}
+int main() {
+    C c = C(9);
+    P p = P(1);
+    p = P(2);
+    if (c.a + c.b != 12) { return 1; }
+    if (p.x != 2) { return 1; }
+    return 7;
+}
