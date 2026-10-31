@@ -1439,6 +1439,13 @@ Struct type declaration.
 */
 StructDecl:	KT_Struct TT_Identifier '{' StructMemberList '}' {
 					$$ = new SnStructDecl($2, $4, @1);
+				} |
+			//v0.12.4 D1: const-aggregate prefix (const struct) — a
+			//declaration-level marker bit, no member-level semantics.
+			KT_Const KT_Struct TT_Identifier '{' StructMemberList '}' {
+					auto* pStruct = new SnStructDecl($3, $5, @2);
+					pStruct->SetConstAggregate();
+					$$ = pStruct;
 				} ;
 
 StructMemberList:	StructMemberList StructMember {
@@ -1563,6 +1570,31 @@ KT_Class	TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' '}' {
 					if ($3)
 						pClass->SetTypeParamNames(std::move(*$3));
 					delete $3;
+					$$ = pClass;
+				} |
+			//v0.12.4 D1: const-aggregate prefix (const class) — same two
+			//body shapes with a leading KT_Const; the marker bit lands on
+			//the declaration node (inheritance propagates it at query time).
+			KT_Const KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
+					auto* pClass = new SnClassDecl($3, $5, $8, @2);
+					if ($6)
+						for (auto *pNode : *$6)
+							pClass->AddImplementsName(pNode);
+					if ($4)
+						pClass->SetTypeParamNames(std::move(*$4));
+					delete $4;
+					pClass->SetConstAggregate();
+					$$ = pClass;
+				} |
+			KT_Const KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' '}' {
+					auto* pClass = new SnClassDecl($3, $5, new PtrList<SnField>(), @2);
+					if ($6)
+						for (auto *pNode : *$6)
+							pClass->AddImplementsName(pNode);
+					if ($4)
+						pClass->SetTypeParamNames(std::move(*$4));
+					delete $4;
+					pClass->SetConstAggregate();
 					$$ = pClass;
 				} ;
 

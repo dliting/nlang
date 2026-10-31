@@ -237,6 +237,11 @@ public:
 
 	size_t FieldCount() const { return m_upFields->size(); }
 
+	//v0.12.4 D1: const-aggregate marker ("const struct"). Structs have
+	//no inheritance, so the query reads the own bit only.
+	bool IsConstAggregate() const { return m_bIsConstAggregate; }
+	void SetConstAggregate() { m_bIsConstAggregate = true; }
+
 	//Struct type IS the type — returns itself.
 	SnField *EvalDataType() const override;
 	//Fields first, then constructors: a field/constructor name clash is a
@@ -249,6 +254,7 @@ private:
 	std::unique_ptr<MemberList> m_upMembers;
 	std::unique_ptr<FieldList> m_upFields;
 	std::unique_ptr<CtorList> m_upCtors;
+	bool m_bIsConstAggregate = false;
 };
 
 //A class field declaration (e.g. "int x" in class Point { int x; int y; }).
@@ -340,6 +346,20 @@ public:
 	bool IsBuiltinClass() const { return m_bIsBuiltinClass; }
 	void SetBuiltinClass() { m_bIsBuiltinClass = true; }
 
+	//v0.12.4 D1: const-aggregate marker ("const class"). The query
+	//walks the SuperClass() chain — inheritance propagates the seal,
+	//so a subclass of a const class is sealed too. ResolveClassBases
+	//links the chain before any consumer query (field surface checks,
+	//store gates) runs.
+	bool IsConstAggregate() const
+	{
+		for (const SnClassDecl* p = this; p; p = p->SuperClass())
+			if (p->m_bIsConstAggregate)
+				return true;
+		return false;
+	}
+	void SetConstAggregate() { m_bIsConstAggregate = true; }
+
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
 	//Set by ExprResolver when minting a synthetic SnClassDecl for a
 	//built-in generic type. m_genericTypeArgs carries the resolved type
@@ -395,6 +415,7 @@ private:
 	std::vector<SnFieldExpr*> m_implementsNames;
 	std::vector<SnInterfaceDecl*> m_implements;
 	bool m_bIsBuiltinClass = false;
+	bool m_bIsConstAggregate = false;
 	bool m_bIsGenericInst = false;
 	bool m_bIsTypeParamPlaceholder = false;
 	std::vector<SnField*> m_genericTypeArgs;

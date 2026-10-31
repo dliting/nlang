@@ -1162,6 +1162,32 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(generic_decl_tests test_generic_decl)
 
+    # Const-aggregate declaration marker tests (v0.12.4 Task 1): the
+    # `const class` / `const struct` prefix, marker propagation through
+    # inheritance. Same in-process shape as test_generic_decl.
+    add_executable(test_const_decl
+        test_compiler/test_const_decl.cpp
+    )
+    target_link_libraries(test_const_decl
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_const_decl)
+    target_compile_definitions(test_const_decl
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_const_decl POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_const_decl>)
+    endif()
+    nlang_add_qtest(const_decl_tests test_const_decl)
+
     # Generic instantiation descriptor unit tests (v0.12.3 Task 3): pure
     # C++ coverage of GenericInstDescriptor — canonical spelling, intern
     # identity, nested/array arguments. No compilation, so no stdlib
