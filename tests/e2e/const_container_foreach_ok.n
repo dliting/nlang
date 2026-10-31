@@ -1,0 +1,18 @@
+//v0.12.4 D5 guard: foreach over a container field of a const aggregate
+//iterates a copy of every element — iteration order and completeness
+//are unchanged by the copy-on-read emission in source position.
+const class Box {
+    public List<int> xs;
+    public Box() {
+        List<int> seed = [1, 2];
+        xs = seed;
+    }
+}
+int main() {
+    Box b = Box();
+    int sum = 0;
+    foreach (int v in b.xs) {
+        sum = sum + v;
+    }
+    return sum;
+}

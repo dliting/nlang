@@ -207,6 +207,8 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+        //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
+        EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
     } else {
         throw std::runtime_error(
             "NLang backend: identifier has no codegen binding: "
