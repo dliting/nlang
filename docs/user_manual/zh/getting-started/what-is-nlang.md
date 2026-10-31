@@ -10,7 +10,7 @@ NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是
 - **面向对象**——`class`/继承/接口/虚分派，另有struct（值类型）与enum；
 - **内建泛型集合**——`List<T>`/`Dict<K,V>`，带初始化器语法；
 - **垃圾回收**——没有`delete`，对象在不可达后自动回收，无需手动释放内存（见[内存管理](../language-spec/memory-management.md)）；
-- **并发**——`thread.spawn`把函数放到自己的线程上运行，返回`Future<T>`承载结果；`Mutex`、`Channel`与`concurrent`包（`WaitGroup`、`Semaphore`）构成同步层；
+- **并发**——`thread.spawn`把函数放到自己的线程上运行，返回`Future<T>`承载结果；`concurrent`包（`Mutex`、`Channel`、`Semaphore`、`WaitGroup`）构成同步层；
 - **现代脚本语言标配**——异常处理、字符串插值、`out`参数、默认参数、`math`/`io`/`fs`/`thread`/`concurrent`标准库。
 
 随包分发的六个工具：

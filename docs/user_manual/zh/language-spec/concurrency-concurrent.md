@@ -4,11 +4,11 @@
 
 ## 何时使用
 
-`WaitGroup`等一批派生任务全部完成：派生前先`add`好单位数，每个任务收尾时`done`一次，`wait`在整批完成时返回——不需要持有任何`Thread`句柄。限制并发数的`Semaphore`是内建句柄类，见[Semaphore](concurrency-semaphore.md)。
+`WaitGroup`等一批派生任务全部完成：派生前先`add`好单位数，每个任务收尾时`done`一次，`wait`在整批完成时返回——不需要持有任何`Thread`句柄。限制并发数的`Semaphore`是同一个包的句柄类，见[Semaphore](concurrency-semaphore.md)。
 
 ## 工具
 
-内核原语之上，`concurrent`标准库包提供`WaitGroup`（`import concurrent;`后可用）：计数屏障（Go同形）——`add(n)`累计待完成数，每个任务`done()`一次，`wait()`挂起到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会挂起到死锁报告。
+一句`import concurrent;`把整个配合侧带入作用域：句柄类`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`与`Channel<T>`，异常子类`ChannelClosedException`，以及`WaitGroup`——该包唯一的普通NLang类，计数屏障（Go同形）——`add(n)`累计待完成数，每个任务`done()`一次，`wait()`挂起到计数归零。契约：`add`先于`wait`，`done`与`add`配对——多出的`done`提前放行`wait`，缺失的`done`会挂起到死锁报告。各句柄类有各自的页面（总览见[并发](concurrency.md)）。
 
 ```nlang
 import concurrent;

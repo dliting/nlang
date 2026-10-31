@@ -107,12 +107,26 @@ directory. Both directories are system-default search entries
 (§12.2), so an ordinary build finds the standard library without
 configuration.
 
-Standard library packages are imported like any other (§3.3);
-chapters 14–18 describe the units they hold. The classes the
-implementation provides itself — the built-in value, container
-and handle classes of chapters 4, 8 and 11 — need no import.
+One rule decides what is visible without an import: the language
+core and the base containers are always in scope, everything
+else is a package the importing unit names (§3.3). The
+always-visible names are declared by the builtins preset package
+— `Object`, the `Exception` family of §9.3, `String`, `Array`,
+`List<T>` and `Dict<K,V>` — and are the whole set; a program
+that uses any other standard-library name imports its package.
+The stream handle classes `ByteStream` and `FileStream` (§15.1)
+are also import-free today — the one remaining asymmetry,
+retained until their declaration source migrates.
 
-> Implementation note. The built-in classes are registered by
-> the implementation today; the planned direction is to declare
-> them in `.n` declaration files shipped as a builtins preset
-> package, making those declarations the source of truth.
+The concurrency names split by what they answer:
+
+| Package | Provides |
+| --- | --- |
+| `thread` | who runs and where the result is fetched: `Thread`, `Future<T>`, `Promise<T>`, and the `thread.*` functions (§11.1, §11.5) |
+| `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§11.2–§11.4, §11.6) |
+
+Standard library packages are imported like any other (§3.3);
+chapters 14–18 describe the units they hold. The declarations in
+the `.n` sources are the source of truth for every package,
+prelude included; the implementation binds the declared native
+members to its built-in implementations.

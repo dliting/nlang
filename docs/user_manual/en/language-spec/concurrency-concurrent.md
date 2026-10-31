@@ -9,17 +9,22 @@ and [§17.2](../specification/17-concurrency-library.md).
 spawning the tasks, each task calls `done` once as it finishes, and
 `wait` returns when the batch is complete — without holding any
 `Thread` handles. `Semaphore`, which caps how many tasks run a section
-at once, is a built-in handle class; see [Semaphore](concurrency-semaphore.md).
+at once, is a handle class of this same package; see
+[Semaphore](concurrency-semaphore.md).
 
 ## The tools
 
-On top of the kernel primitives, the `concurrent` standard-library
-package provides `WaitGroup` (available after
-`import concurrent;`): a counting barrier (Go-shaped) — `add(n)`
+One import, `import concurrent;`, brings the whole coordination side
+into scope: the handle classes `Mutex`, `ReentrantMutex`, `Semaphore`,
+`AtomicInt` and `Channel<T>`, the exception subclass
+`ChannelClosedException`, and `WaitGroup` — the package's one ordinary
+NLang class, a counting barrier (Go-shaped): `add(n)`
 accumulates outstanding units, each unit calls `done()` once, and
 `wait()` suspends until the count reaches zero. Contract: `add` before
 `wait`, and `done` paired with `add` — an unmatched `done` releases
 `wait` early, a missing `done` suspends it until the deadlock report.
+Each handle class has its own page (see
+[Concurrency](concurrency.md) for the map).
 
 ```nlang
 import concurrent;

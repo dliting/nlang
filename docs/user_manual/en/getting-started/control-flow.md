@@ -84,7 +84,8 @@ int main() {
 Output `finally always runs` and `boom`; exit code 5. The built-in
 exception classes `NullPointerException`, `DivByZeroException`,
 `IndexOutOfBoundsException`, `AssertionException`, `InvalidCastException`,
-`IOException`, and `ChannelClosedException` all extend `Exception`; user
+and `IOException` all extend `Exception`, and so does the `concurrent`
+package's `ChannelClosedException`; user
 classes can inherit from `Exception` too (`class MyException : Exception`).
 Which operations raise which class is mapped on the
 [Exceptions](../language-spec/exception.md) and

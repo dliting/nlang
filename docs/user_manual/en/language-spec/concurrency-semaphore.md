@@ -14,9 +14,8 @@ counting goes through a semaphore.
 
 ## Permits
 
-`Semaphore` is declared in the prelude package `builtins`
-(`stdlib/builtins.n`), which every build imports automatically, so it
-needs no import statement. The
+`Semaphore` is declared by the `concurrent` package
+(`stdlib/concurrent.n`), so it arrives with `import concurrent;`. The
 constructor `Semaphore(n)` sets the initial permit count `n`: a
 negative value is a runtime error, and `0` is legal — the
 signal-switch shape, where waiters suspend on a zero-permit semaphore

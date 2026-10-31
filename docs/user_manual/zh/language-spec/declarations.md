@@ -119,7 +119,7 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 - 作用域是**翻译单元**——同一程序的不同模块里，同一别名可以映射到不同类型。
 - 右侧可以**前向引用**文件中后声明的类型（与直接写出该类型相同）。
 - 别名可以引用**另一个别名**，但后者必须在文件中**更早**声明（文本顺序）；前向的别名引用是编译错误。
-- 别名不得与同一翻译单元内的class、函数、其他别名、内建类型名（`List`、`Dict`、`func`、`int`、……）、预置包声明的类名（`Mutex`、`Semaphore`、`Thread`、异常家、`Object`、……）或已索引的库包名（标准库`math`/`io`/`fs`/`thread`/`concurrent`，以及搜索路径上发现的第三方库包）撞名。
+- 别名不得与同一翻译单元内的class、函数、其他别名、内建类型名（`List`、`Dict`、`func`、`int`、……）、预置包声明的类名（`Object`、异常家族、`String`、`Array`、……）或已索引的库包名（标准库`math`/`io`/`fs`/`thread`/`concurrent`，以及搜索路径上发现的第三方库包）撞名。
 - 打开作用域的`using Foo;`形式（无`=`）是另一条指令：它必须指明一个包，而当前实现下这样的指令一律被拒绝（规范§3.4）。
 
 **限制：**
@@ -129,21 +129,20 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 
 ### 预置包`builtins`与同名优先级
 
-每次构建自动导入预置包`builtins`（`stdlib/builtins.n`，随工具链发布）。包内把句柄类`Mutex`、`Semaphore`、`Thread`、异常家与层次根`Object`声明为普通class——构造器元数与方法面就是文件里声明的样子。见[标准库](standard-library.md)。
+每次构建自动导入预置包`builtins`（`stdlib/builtins.n`，随工具链发布）。包内把基础容器`List<T>`与`Dict<K,V>`、异常家族、层次根`Object`以及声明持有类`String`与`Array`声明为普通class——构造器元数与方法面就是文件里声明的样子。见[标准库](standard-library.md)。
 
 自己的代码在根级别声明同名class会**遮蔽**预置声明——任何位置都是最内层声明获胜（类型引用、构造调用、成员查找）：
 
 ```nlang
-import concurrent;
-class Semaphore { }          // 合法：遮蔽预置的Semaphore
+class Exception { }          // 合法：遮蔽预置的Exception
 
-Semaphore s = Semaphore();   // 解析到你自己的class
+Exception e = Exception();   // 解析到你自己的class
 ```
 
 同名规则是统一的：
 
 - **类型位置与构造调用**都绑定到最内层声明。
-- **变量命名**：变量不能取任何在该处可见的类型名。即使有上面的遮蔽，`int Semaphore = 1;`仍是编译错误——该名字仍然解析到一个类型。
-- **类型别名**不能取预置包声明的名字（`using Semaphore = int;`是编译错误），无论是否遮蔽。
+- **变量命名**：变量不能取任何在该处可见的类型名。即使有上面的遮蔽，`int Exception = 1;`仍是编译错误——该名字仍然解析到一个类型。
+- **类型别名**不能取预置包声明的名字（`using Exception = int;`是编译错误），无论是否遮蔽。
 
 自己包内的声明（包`alib`里的`alib.Object`）不遮蔽任何东西——只有根级别声明才遮蔽；限定名`alib.Object`与预置类两者互不干扰。

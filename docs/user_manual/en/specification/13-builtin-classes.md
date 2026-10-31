@@ -2,17 +2,20 @@
 
 ## 13.1 Scope
 
-The implementation provides the built-in classes itself; they need
-no import (§12.4). This chapter defines the method surface of the
-built-in value and container classes — the `Object` protocol
+The prelude names are always visible, no import (§12.4):
+`Object`, the `Exception` family (§9.3), `String`, `Array`,
+`List<T>` and `Dict<K,V>` — the whole set. This chapter defines
+the method surface of the built-in value and container classes — the `Object` protocol
 (§13.2), the `string` methods (§13.3) and the `List` and `Dict`
 methods (§13.4) — and the conventions the standard library follows
 (§13.5).
 
 Method surfaces defined elsewhere: the concurrency handle classes
-(`Mutex`, `Channel`, `Future`, `Thread`) in chapter 11, the stream
-handle classes (`ByteStream`, `FileStream`) in chapter 15, and the
-exception classes in §9.3.
+(`Mutex`, `Semaphore`, `AtomicInt`, `Channel`, `Thread`,
+`Future`), package classes of `concurrent` and `thread`
+(chapter 11, chapter 17), the stream handle classes
+(`ByteStream`, `FileStream`) in chapter 15, and the exception
+classes in §9.3.
 
 Every method in this chapter is built in: its declaration lives in the
 prelude package `builtins` (§12.4), imported by every build, and a
@@ -157,12 +160,8 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §9.3; the library declares no exception classes of its own.
-  Chapter 19 maps each library operation to the class it raises.
+  of §9.3, plus the one package-declared class, `concurrent`'s
+  `ChannelClosedException` (§9.3). Chapter 19 maps each library
+  operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §13.2);
   the argument surface of the console functions is chapter 15.
-
-> Implementation note. The built-in classes are registered by the
-> implementation; the planned direction is to declare them in `.n`
-> declaration files shipped as a builtins preset package, making
-> those declarations the source of truth (§12.4).

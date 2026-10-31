@@ -4,7 +4,7 @@
 
 ### `List<T>`
 
-`List<T>`是可增长、有序、可按索引访问的集合。它是**内建泛型类**——编译器直接内建的泛型还有`Dict<K,V>`、`Channel<T>`、`Future<T>`；泛型类声明目前仅签名面（全native成员），见[已知限制](known-limitations.md)。
+`List<T>`是可增长、有序、可按索引访问的集合。它是**内建泛型类**——同属此列的还有`Dict<K,V>`（`List`与`Dict`是预置名字，无需导入即可见）、`Channel<T>`（`concurrent`包）与`Future<T>`（`thread`包）；泛型类声明目前仅签名面（全native成员），见[已知限制](known-limitations.md)。
 
 ```nlang
 List<int> nums = {};
@@ -72,7 +72,7 @@ int main() {
 
 ### `Dict<K,V>`
 
-`Dict<K,V>`是把`K`类型的键映射到`V`类型值的关联数组。与`List<T>`一样，它是**内建泛型类**——编译器直接内建的泛型还有`Channel<T>`、`Future<T>`；泛型类声明目前仅签名面（全native成员），见[已知限制](known-limitations.md)。
+`Dict<K,V>`是把`K`类型的键映射到`V`类型值的关联数组。与`List<T>`一样，它是**内建泛型类**——同属此列的还有`Channel<T>`（`concurrent`包）与`Future<T>`（`thread`包）；泛型类声明目前仅签名面（全native成员），见[已知限制](known-limitations.md)。
 
 ```nlang
 Dict<string,int> scores = {};

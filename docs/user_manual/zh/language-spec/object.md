@@ -4,7 +4,7 @@
 
 `Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。其声明位于`stdlib/builtins.n`——预置包`builtins`，每次构建自动导入（见[标准库](standard-library.md)）；与其他预置声明一样，它是可阅读的普通源码。用户不写`class Foo : Object`——继承是隐式的，显式写法被拒绝。
 
-`Object`是唯一没有父类的class。内建class同样位于`Object`之下：`List`、`Dict`、`ByteStream`、`FileStream`、`Exception`及其全部内建子类（`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`IOException`、`InvalidCastException`、`ChannelClosedException`）与用户class共用同一个层次，因此任何class实例都可以赋给`Object`变量。不参与class层次的类型：基本类型、`string`与enum赋给`Object`时经装箱进入（enum按其整数值，见下节）；数组、struct与interface不是class，数组与struct的值也没有赋给`Object`的通道。
+`Object`是唯一没有父类的class。内建class同样位于`Object`之下：`List`、`Dict`、`ByteStream`、`FileStream`、`Exception`及其全部内建子类（`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`IOException`、`InvalidCastException`），加上包声明的`ChannelClosedException`（`concurrent`包），与用户class共用同一个层次，因此任何class实例都可以赋给`Object`变量。不参与class层次的类型：基本类型、`string`与enum赋给`Object`时经装箱进入（enum按其整数值，见下节）；数组、struct与interface不是class，数组与struct的值也没有赋给`Object`的通道。
 
 `Object`是**引用类型**：`Object`类型的值是一个引用，可指向class对象*或*装箱基本类型。赋值与传参拷贝引用。只声明不初始化（`Object o;`）得到null——与所有class类型一致（见[声明](declarations.md)的默认值表）。见[类型语义](type-semantics.md)。
 

@@ -6,7 +6,7 @@
 
 ## 许可
 
-`Semaphore`声明于预置包`builtins`（`stdlib/builtins.n`），每次构建自动导入，无需import语句。构造`Semaphore(n)`设定初始许可数`n`：负数是运行期错误，`0`合法——「信号开关」形态，先造一个零许可信号量，等将来某个事件`release`一声，等待者才放行。
+`Semaphore`声明于`concurrent`包（`stdlib/concurrent.n`），随`import concurrent;`进入作用域。构造`Semaphore(n)`设定初始许可数`n`：负数是运行期错误，`0`合法——「信号开关」形态，先造一个零许可信号量，等将来某个事件`release`一声，等待者才放行。
 
 | 成员 | 语义 |
 |---|---|

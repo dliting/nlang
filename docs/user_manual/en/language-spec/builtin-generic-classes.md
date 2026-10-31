@@ -5,9 +5,10 @@ The normative rules are in [specification §4.10](../specification/04-types.md).
 ### `List<T>`
 
 `List<T>` is a growable, ordered, index-addressable collection. It is
-a **built-in generic class** — the compiler's built-in generics also
-include `Dict<K,V>`, `Channel<T>`, and `Future<T>`; generic class
-declarations are signature-only for now (see
+a **built-in generic class** — the set also includes `Dict<K,V>`
+(`List` and `Dict` are prelude names, visible without an import),
+`Channel<T>` (package `concurrent`), and `Future<T>` (package
+`thread`); generic class declarations are signature-only for now (see
 [Known Limitations](known-limitations.md)).
 
 ```nlang
@@ -120,8 +121,8 @@ descriptor grammar (see Known Limitations).
 
 `Dict<K,V>` is an associative array mapping keys of type `K` to values
 of type `V`. Like `List<T>`, it is a **built-in generic class** — the
-compiler's built-in generics also include `Channel<T>` and `Future<T>`;
-generic class declarations are signature-only for now (see
+set also includes `Channel<T>` (`concurrent`) and `Future<T>`
+(`thread`); generic class declarations are signature-only for now (see
 [Known Limitations](known-limitations.md)).
 
 ```nlang

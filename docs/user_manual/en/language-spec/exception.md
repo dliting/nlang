@@ -15,7 +15,7 @@ hierarchy. All exceptions are instances of `Exception` or its subclasses.
 | `AssertionException` | `Exception` | `assert(false)` |
 | `InvalidCastException` | `Exception` | A failed `as` downcast (the actual type is not on the target's super-chain) |
 | `IOException` | `Exception` | File I/O failure |
-| `ChannelClosedException` | `Exception` | `send`/`recv` on a closed channel (see [Channels](concurrency-channel.md)) |
+| `ChannelClosedException` | `Exception` | `send`/`recv` on a closed channel; declared by the `concurrent` package, so it arrives with `import concurrent;` (see [Channels](concurrency-channel.md)) |
 
 ### `try` / `catch`
 

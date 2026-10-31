@@ -36,7 +36,7 @@
 
 ## 9.3 内建异常
 
-`Exception`扩展`Object`（§4.9）。内建异常类是`Exception`及其七个直接子类：
+`Exception`扩展`Object`（§4.9）。内建异常类是`Exception`及其六个直接子类：
 
 | 类 | 由谁抛出 |
 | --- | --- |
@@ -47,7 +47,8 @@
 | `AssertionException` | 失败的`assert`（§6.5） |
 | `InvalidCastException` | 失败的`as`向下转型（§5.5） |
 | `IOException` | 失败的`io`或`fs`操作（第15章、第16章） |
-| `ChannelClosedException` | 对已关闭通道的操作（§11.4） |
+
+`concurrent`包（§12.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§11.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。
 
 每个异常实例携带两个字段，从`Exception`继承：
 

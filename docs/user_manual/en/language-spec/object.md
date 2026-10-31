@@ -14,7 +14,8 @@ spelling is rejected.
 it as well: `List`, `Dict`, `ByteStream`, `FileStream`, `Exception` and all
 of its built-in subclasses (`NullPointerException`, `DivByZeroException`,
 `IndexOutOfBoundsException`, `AssertionException`, `IOException`,
-`InvalidCastException`, `ChannelClosedException`) share the
+`InvalidCastException`), plus the package-declared `ChannelClosedException`
+(`concurrent`), share the
 one hierarchy with user classes, so any class instance can be assigned to
 an `Object` variable. Types outside the class hierarchy: primitives,
 `string` and enums enter `Object` through boxing (an enum by its integer

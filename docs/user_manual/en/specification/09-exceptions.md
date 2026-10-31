@@ -87,7 +87,7 @@ flow in flight.
 ## 9.3 Built-in Exceptions
 
 `Exception` extends `Object` (§4.9). The built-in exception
-classes are `Exception` and its seven direct subclasses:
+classes are `Exception` and its six direct subclasses:
 
 | Class | Raised by |
 | --- | --- |
@@ -98,7 +98,12 @@ classes are `Exception` and its seven direct subclasses:
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
 | `IOException` | a failed `io` or `fs` operation (chapter 15, chapter 16) |
-| `ChannelClosedException` | an operation on a closed channel (§11.4) |
+
+The `concurrent` package (§12.4) declares one further direct
+subclass, `ChannelClosedException`, raised by operations on a
+closed channel (§11.4); it reaches scope through
+`import concurrent;` like any package class, and `catch` treats
+it like every other subclass.
 
 Every exception instance carries two fields, inherited from
 `Exception`:

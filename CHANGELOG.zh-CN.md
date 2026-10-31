@@ -6,6 +6,13 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.3] - 2026-10-31
+
+### 变更
+
+- **破坏性变更**：并发类移到包导入之后。`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`与`WaitGroup`由`concurrent`包声明（`stdlib/concurrent.n`）；`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数由`thread`声明（`stdlib/thread.n`）。预置包只保留语言核心与基础容器——`Object`、异常家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——以及仍免导入的流类`ByteStream`/`FileStream`。使用并发名字的代码现在需要`import thread;`/`import concurrent;`，未导入就使用时诊断会指明声明所在的包。
+- 并发分工进入规范：第11章新增两包分工导语、原生句柄形态的Semaphore、`ReentrantMutex`、`AtomicInt`与`Promise`/`selectAny`各节；§12.4写明一句话规则（语言核心与基础容器恒可见，其余皆导入）；第13、17、19章随之更新。
+
 ## [0.12.2] - 2026-10-29
 
 ### 变更

@@ -14,7 +14,7 @@ NLang支持带Java/C#风格类层次的结构化异常处理。所有异常都�
 | `AssertionException`          | `Exception` | `assert(false)` |
 | `InvalidCastException`        | `Exception` | `as`强转失败（实际类型不在目标类型的超类链上） |
 | `IOException`                 | `Exception` | 文件读写失败 |
-| `ChannelClosedException`      | `Exception` | 对已关闭通道的`send`/`recv`（见[通道](concurrency-channel.md)） |
+| `ChannelClosedException`      | `Exception` | 对已关闭通道的`send`/`recv`；由`concurrent`包声明，随`import concurrent;`进入作用域（见[通道](concurrency-channel.md)） |
 
 ### `try` / `catch`
 

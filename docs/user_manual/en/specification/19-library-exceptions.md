@@ -20,8 +20,8 @@ operation; this chapter adds no failure behavior of its own.
 | `io` (§15.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §13.3) |
 | streams (§15.5) | `NullPointerException` | a method call through a null stream handle |
 | `fs` (§16.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
-| `Channel` (§11.4) | `ChannelClosedException` | a send or receive on a closed channel |
-| `Channel` (§11.4) | `Exception` | construction with a negative capacity |
+| `concurrent` (§11.4) | `ChannelClosedException` | a send or receive on a closed channel |
+| `concurrent` (§11.4) | `Exception` | construction with a negative capacity |
 | `tensor` (§18.5) | `NullPointerException` | a null array argument |
 | `tensor` (§18.5) | `IndexOutOfBoundsException` | a creation length past the bound of §4.3; a negative `reshape` dimension |
 | `tensor` (§18.5) | `DivByZeroException` | integer `div` by zero |
@@ -33,9 +33,11 @@ only the sites the defining chapters call out besides it.
 
 ## 19.2 Conventions
 
-- The library declares no exception classes of its own
-  (§13.5): every library failure that raises raises a class
-  of §9.3. User code may declare its own classes (§9.4).
+- The library declares one exception class of its own:
+  `ChannelClosedException`, a direct subclass of `Exception`,
+  declared by the `concurrent` package (§9.3). Every other
+  library failure raises a class of §9.3. User code may declare
+  its own classes (§9.4).
 - The base `Exception` is the class for argument, range and
   parse errors that have no class of their own; there is no
   `IllegalArgumentException` or peer class.

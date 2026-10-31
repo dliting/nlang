@@ -181,8 +181,8 @@ int apply(BinOp f) { ... }   // parameters and returns
   a compile error.
 - An alias name must not collide with classes, functions, other
   aliases, built-in type names (`List`, `Dict`, `func`, `int`, ...),
-  prelude-declared names (`Mutex`, `Semaphore`, `Thread`, the
-  exception family, `Object`, ...), or an indexed library package
+  prelude-declared names (`Object`, the
+  exception family, `String`, `Array`, ...), or an indexed library package
   name (`math`, `io`, `fs`, `thread`, `concurrent`, or a third-party
   package found on the search path) in the same translation unit.
 - The scope-opening form `using Foo;` (no `=`) is a different
@@ -206,9 +206,10 @@ int apply(BinOp f) { ... }   // parameters and returns
 ### The `builtins` Prelude Package and Same-Name Priority
 
 Every build imports the prelude package `builtins` (`stdlib/builtins.n`,
-shipped with the toolchain) automatically. It declares the handle
-classes `Mutex`, `Semaphore`, `Thread`, the exception family, and the
-hierarchy root `Object` as ordinary class declarations — constructor
+shipped with the toolchain) automatically. It declares the base
+containers `List<T>` and `Dict<K,V>`, the exception family, the
+hierarchy root `Object`, and the declaration holders `String` and
+`Array` as ordinary class declarations — constructor
 arity and method surface are exactly what the file declares. See
 [Standard Library](standard-library.md).
 
@@ -217,10 +218,9 @@ the prelude declaration — the innermost declaration wins in every
 position (type references, constructor calls, member lookup):
 
 ```nlang
-import concurrent;
-class Semaphore { }          // legal: shadows the prelude Semaphore
+class Exception { }          // legal: shadows the prelude Exception
 
-Semaphore s = Semaphore();   // resolves to YOUR class
+Exception e = Exception();   // resolves to YOUR class
 ```
 
 The same-name rules are uniform:
@@ -228,10 +228,10 @@ The same-name rules are uniform:
 - **Type positions and constructor calls** bind to the innermost
   declaration.
 - **Variable names**: a variable cannot take the name of any type
-  visible at that point. `int Semaphore = 1;` stays a compile error
+  visible at that point. `int Exception = 1;` stays a compile error
   even under the shadow above — the name still resolves to a type.
 - **Type aliases** cannot take a prelude-declared name
-  (`using Semaphore = int;` is a compile error), shadow or not.
+  (`using Exception = int;` is a compile error), shadow or not.
 
 A declaration inside a package of your own (`alib.Object` in package
 `alib`) does not shadow anything — only a root-level declaration does;

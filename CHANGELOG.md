@@ -6,6 +6,27 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.3] - 2026-10-31
+
+### Changed
+
+- **Breaking**: the concurrency classes now sit behind their package
+  imports. `Mutex`, `ReentrantMutex`, `Semaphore`, `AtomicInt`,
+  `Channel<T>`, `ChannelClosedException` and `WaitGroup` are declared
+  by the `concurrent` package (`stdlib/concurrent.n`); `Thread`,
+  `Future<T>`, `Promise<T>` and the `thread.*` functions by `thread`
+  (`stdlib/thread.n`). The prelude keeps the language core and the
+  base containers only — `Object`, the exception family, `String`,
+  `Array`, `List<T>`, `Dict<K,V>` — plus the still import-free
+  streams `ByteStream`/`FileStream`. Code using a concurrency name
+  now needs `import thread;` / `import concurrent;`, and an unimported
+  use names the declaring package in the diagnostic.
+- The concurrency split is documented normatively: chapter 11 gains
+  the two-package opening, the native-handle Semaphore, `ReentrantMutex`,
+  `AtomicInt` and `Promise`/`selectAny` sections; §12.4 states the
+  one-sentence rule (language core and base containers always visible,
+  everything else imported); chapters 13, 17 and 19 follow.
+
 ## [0.12.2] - 2026-10-29
 
 ### Changed
