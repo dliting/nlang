@@ -165,6 +165,25 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         m_listStore[handle - 1].elements.clear();
         return true;
     }
+    //INTR_List_Copy (v0.12.4 D9): shallow copy — allocate a fresh List
+    //object + side slot (the Dict_Keys allocation shape), then copy the
+    //element vector by value. Element handles ride along, so nested
+    //objects stay shared.
+    if (intrinsicId == INTR_List_Copy) {
+        int32_t srcHandle = ReadListHandle(callParamBase, locals, "copy");
+        if (m_listClassIdx < 0)
+            throw std::runtime_error("NLang VM: List class not registered");
+        int32_t listHeapIdx = AllocClassOnHeap(
+            static_cast<uint16_t>(m_listClassIdx));
+        int32_t listHandle  = AllocListHandle();
+        m_structHeap[static_cast<size_t>(listHeapIdx)]
+            [kListHandleFieldOffset] = listHandle;
+        m_listStore[listHandle - 1].elements =
+            m_listStore[srcHandle - 1].elements;
+        std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
+        NoteGcPressure();
+        return true;
+    }
 
     //Phase 8e-4: Dict<K,V> built-in generic (erasure-style, 7 intrinsics).
     //Keys and values are uniformly heap idxs (boxed primitives via OP_Box at
@@ -280,6 +299,24 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
             dst.push_back(kv.first);
 
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
+        NoteGcPressure();
+        return true;
+    }
+    //INTR_Dict_Copy (v0.12.4 D9): shallow copy — the Dict twin of
+    //INTR_List_Copy: fresh Dict object + side slot, entry vector copied
+    //by value (key/value handles ride along).
+    if (intrinsicId == INTR_Dict_Copy) {
+        int32_t srcHandle = ReadDictHandle(callParamBase, locals, "copy");
+        if (m_dictClassIdx < 0)
+            throw std::runtime_error("NLang VM: Dict class not registered");
+        int32_t dictHeapIdx = AllocClassOnHeap(
+            static_cast<uint16_t>(m_dictClassIdx));
+        int32_t dictHandle  = AllocDictHandle();
+        m_structHeap[static_cast<size_t>(dictHeapIdx)]
+            [kListHandleFieldOffset] = dictHandle;
+        m_dictStore[dictHandle - 1].entries =
+            m_dictStore[srcHandle - 1].entries;
+        std::memcpy(pResult, &dictHeapIdx, sizeof(dictHeapIdx));
         NoteGcPressure();
         return true;
     }

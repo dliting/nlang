@@ -1,0 +1,10 @@
+//v0.12.4 D9: copy() returns an independent shallow copy — inserting
+//into the copy leaves the source entries untouched.
+int main() {
+    Dict<string, int> a = {"one": 1, "two": 2};
+    Dict<string, int> b = a.copy();
+    b.set("three", 3);
+    //2 source entries + 3 copy entries: a shared map inserts into the
+    //source too and yields 33.
+    return a.count() * 10 + b.count();
+}

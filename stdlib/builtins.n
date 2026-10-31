@@ -22,6 +22,7 @@ class List<T> {
     public native int indexOf(T item);
     public native bool contains(T item);
     public native void clear();
+    public native List<T> copy();
     public native string toString();
 }
 
@@ -35,6 +36,7 @@ class Dict<K, V> {
     public native void clear();
     public native int count();
     public native List<K> keys();
+    public native Dict<K, V> copy();
     public native string toString();
 }
 
