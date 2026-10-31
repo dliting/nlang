@@ -36,4 +36,4 @@ and how it behaves in expressions and statements.
 - **How values convert between types** (implicit widening, explicit `as`,
   coercion to string) — [Type Casts](type-casts.md).
 - **Declaring non-type things** (import, variables, type aliases) —
-  [Declarations](declarations.md).
+  [Declarations](../specification/03-program-structure/declarations.md).

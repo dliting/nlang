@@ -1,11 +1,13 @@
-# Declarations
+# 3.8 Declarations
 
-The normative rules are in [specification §3.3–§3.5](../specification/03-program-structure.md).
+The normative rules for import directives, using directives and
+scopes are §3.3–§3.5.
 
 Type declarations — `enum`, `struct`, `class`, `interface` — each live on their
-own page: [Enum](enum.md), [Struct](struct.md), [Class](class.md),
-[Interface](interface.md). This page covers the remaining declarations:
-imports, variables, and type aliases.
+own page: [Enum](../../language-spec/enum.md), [Struct](../../language-spec/struct.md),
+[Class](../../language-spec/class.md),
+[Interface](../../language-spec/interface.md). This section covers the remaining
+declarations: imports, variables, and type aliases.
 
 ### Import Declaration
 
@@ -64,10 +66,10 @@ Visibility:
 - An external module's code does not enter the artifact: the consumer
   image only records import references, and the loader relocates the module
   at run time along the same search path (the mechanism is in
-  [Command-line Tools / ncc](../cli-tools/ncc.md), "Artifacts and
+  [Command-line Tools / ncc](../../cli-tools/ncc.md), "Artifacts and
   load-time linking").
 
-Diagnostics (examples):
+*Informative:* diagnostics (examples):
 
 ```
 Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.
@@ -144,14 +146,14 @@ the value without a null check — calling a method, accessing a member,
 indexing, taking the length — raises a `null reference error` with a
 backtrace at run time. `string` is the one exception: a null handle
 reads as the empty string, so `.length()` is 0 and concatenation treats
-it as `""` (see [String](string.md)). An enum's default is the underlying
+it as `""` (see [String](../../language-spec/string.md)). An enum's default is the underlying
 int value 0: with auto-incremented members that is exactly the first member —
 after `Color c;`, `c == Color.Red` holds; an enum with explicitly
 assigned non-zero values may default to 0, which lands on no member.
 
 The type-specific declaration forms and their semantics
-are on each type's page: [Enum](enum.md), [Struct](struct.md),
-[Class](class.md), [Interface](interface.md).
+are on each type's page: [Enum](../../language-spec/enum.md), [Struct](../../language-spec/struct.md),
+[Class](../../language-spec/class.md), [Interface](../../language-spec/interface.md).
 
 ### Type Aliases
 
@@ -187,8 +189,7 @@ int apply(BinOp f) { ... }   // parameters and returns
   package found on the search path) in the same translation unit.
 - The scope-opening form `using Foo;` (no `=`) is a different
   directive: it must name a package, and today every such directive
-  is rejected — see
-  [specification §3.4](../specification/03-program-structure.md).
+  is rejected — see §3.4.
 
 **Restrictions:**
 - The right-hand side must be a **type**: a **primitive type name**
@@ -200,7 +201,7 @@ int apply(BinOp f) { ... }   // parameters and returns
   fails to resolve.
 - Aliases are type-position only; a value expression can never resolve
   to an alias.
-- Diagnostics anchored at a use site sometimes point at the `using` line
+- *Informative:* diagnostics anchored at a use site sometimes point at the `using` line
   (the expansion clone prefers the alias target's location).
 
 ### The `builtins` Prelude Package and Same-Name Priority
@@ -211,7 +212,7 @@ containers `List<T>` and `Dict<K,V>`, the exception family, the
 hierarchy root `Object`, and the declaration holders `String` and
 `Array` as ordinary class declarations — constructor
 arity and method surface are exactly what the file declares. See
-[Standard Library](standard-library.md).
+[Standard Library](../../language-spec/standard-library.md).
 
 A root-level declaration of the same name in your own code **shadows**
 the prelude declaration — the innermost declaration wins in every

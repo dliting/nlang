@@ -1,7 +1,7 @@
 # 20. The `.ncu` Unit Image
 
 A *unit image* is the compiled artifact of one package: `ncc`
-writes it, and the loader of every tool reads it back (§12.3).
+writes it, and the loader of every tool reads it back (§3.9.3).
 This chapter fixes the image byte layout — the container, the
 record tables, the type descriptors, the default values and the
 import slots — and the validation a loader performs before an
@@ -58,9 +58,9 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
 | version minor | u16 | `11` |
-| module path | u16 length + bytes | the package path of the unit (§12.1) |
+| module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
-| entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§10.3); empty for a library image (§12.1) |
+| entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§10.3); empty for a library image (§3.9.1) |
 
 **Sections.** The header is followed by eleven sections in a
 fixed order. Each section is a u32 entry count followed by that
@@ -83,8 +83,8 @@ many records:
 **Names.** Every function, class, struct, interface and
 enumeration is recorded under its qualified key
 `<package>.<name>`, where `<package>` is the header's module
-path (§3.6, §12.3). An external artifact is found under a
-single-segment package path (§12.2), so its images carry
+path (§3.6, §3.9.3). An external artifact is found under a
+single-segment package path (§3.9.2), so its images carry
 single-segment module paths.
 
 **String constants.** The pool holds the unit's string
@@ -332,7 +332,7 @@ Every entry:
 
 | Field | Width | Content |
 |---|---|---|
-| module path | u16 length + bytes | the target package path (§12.1) |
+| module path | u16 length + bytes | the target package path (§3.9.1) |
 | name | u16 length + bytes | the qualified key (§3.6); a bare name when the owner key is set |
 | parameter count | u32 | the target's formal count; meaningful for function slots |
 
@@ -348,7 +348,7 @@ The function section adds:
 Overloaded members share a name and a parameter count, so the
 owner ordinal single-selects the target. The loader binds each
 slot by loading the target package and locating the member
-(§12.3).
+(§3.9.3).
 
 ## 20.8 Loading and Validation
 
@@ -388,4 +388,4 @@ rejected image never runs in part. The rejection sites:
   image is rejected.
 
 A rejected image surfaces as a load-time error of the loading
-tool (§12.3); the language defines no recovery.
+tool (§3.9.3); the language defines no recovery.

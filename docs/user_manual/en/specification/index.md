@@ -25,7 +25,9 @@ before they land here.
 - [0. Introduction](00-introduction.md)
 - [1. Lexical Structure](01-lexical.md)
 - [2. Syntax](02-grammar.md)
-- [3. Program Structure and Name Resolution](03-program-structure.md)
+- [3. Program Structure and Name Resolution](03-program-structure/index.md)
+  - [3.8 Declarations](03-program-structure/declarations.md)
+  - [3.9 Packages and Import Search](03-program-structure/packages.md)
 - [4. Types](04-types.md)
 - [5. Expressions](05-expressions.md)
 - [6. Statements](06-statements.md)
@@ -34,7 +36,6 @@ before they land here.
 - [9. Exceptions](09-exceptions.md)
 - [10. Execution Model and Memory Semantics](10-execution-model.md)
 - [11. Concurrency](11-concurrency.md)
-- [12. Packages and Import Search](12-packages.md)
 
 ### Part II — The Standard Library
 

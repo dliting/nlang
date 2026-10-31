@@ -52,7 +52,7 @@ from later uses.
 
 *Compilation unit*: one `.n` source file as processed by the
 compiler, together with the declarations it imports (defined in
-chapter 12).
+§3.9).
 
 *Normative*: binding on implementations. The English text of this
 specification is normative; translations are informative.

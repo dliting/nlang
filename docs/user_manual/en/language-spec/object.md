@@ -26,7 +26,7 @@ classes, and array and struct values have no path into an `Object` target.
 may point at a class object *or* a boxed primitive. Assignment and passing
 copy the reference. Declaring without an initializer (`Object o;`) yields
 null — like every class type (see the default-value table in
-[Declarations](declarations.md)). See [Type Semantics](type-semantics.md).
+[Declarations](../specification/03-program-structure/declarations.md)). See [Type Semantics](type-semantics.md).
 
 ### `equals` and `getHashCode`
 

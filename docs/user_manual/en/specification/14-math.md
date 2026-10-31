@@ -2,7 +2,7 @@
 
 ## 14.1 Package Form
 
-`math` is a standard library package (§12.4): `import math;`
+`math` is a standard library package (§3.9.4): `import math;`
 brings it into scope and every function is called through the
 package qualifier (`math.sqrt(2)`). The package name is
 single-segment (§3.3). Its declarations are the standard

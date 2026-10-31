@@ -209,7 +209,7 @@ An unimported reference fails with a pointed diagnostic, e.g.
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
-(`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
+(`docs/user_manual/en/specification/03-program-structure/declarations.md`, Import Declaration).
 
 Compiled units use a versioned binary format, currently v2.8 (import
 slots and per-unit module paths — the load-time linking model). The

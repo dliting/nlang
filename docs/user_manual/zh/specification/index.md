@@ -15,7 +15,9 @@
 - [0. 引言](00-introduction.md)
 - [1. 词法结构](01-lexical.md)
 - [2. 语法](02-grammar.md)
-- [3. 程序结构与名称解析](03-program-structure.md)
+- [3. 程序结构与名称解析](03-program-structure/index.md)
+  - [3.8. 声明](03-program-structure/declarations.md)
+  - [3.9. 包与导入查找](03-program-structure/packages.md)
 - [4. 类型](04-types.md)
 - [5. 表达式](05-expressions.md)
 - [6. 语句](06-statements.md)
@@ -24,7 +26,6 @@
 - [9. 异常](09-exceptions.md)
 - [10. 执行模型与内存语义](10-execution-model.md)
 - [11. 并发](11-concurrency.md)
-- [12. 包与导入查找](12-packages.md)
 
 ### 第二部分 — 标准库
 

@@ -30,4 +30,4 @@ NLang是静态类型语言：每个变量、字段、形参与返回值都有声
   [类型语义](type-semantics.md)，完整的逐类型摘要。
 - **值如何在类型之间转换**（隐式加宽、显式`as`、向string的强制转换）——
   [类型强制转换](type-casts.md)。
-- **非类型事物的声明**（import、变量、类型别名）—— [声明](declarations.md)。
+- **非类型事物的声明**（import、变量、类型别名）—— [声明](../specification/03-program-structure/declarations.md)。

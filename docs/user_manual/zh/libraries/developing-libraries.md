@@ -2,7 +2,7 @@
 
 NLang的库机制只有一套：一个库就是导入搜索路径上的一个目录，标准库与第三方库走完全相同的发现、编译与执行路径。本页面向库作者，讲三件事：纯NLang库怎么组织、带native实现的混合库怎么写、写好之后怎么分发。
 
-机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../language-spec/packages.md)，五层搜索路径的完整机制见[库与搜索路径](../language-spec/stdlib-search-paths.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
+机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../specification/03-program-structure/packages.md)，五层搜索路径的完整机制见[包与导入查找](../specification/03-program-structure/packages.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
 
 ## 1. 库的形态
 

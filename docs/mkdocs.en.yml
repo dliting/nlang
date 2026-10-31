@@ -39,7 +39,10 @@ nav:
       - Introduction: specification/00-introduction.md
       - Lexical Structure: specification/01-lexical.md
       - Grammar: specification/02-grammar.md
-      - Program Structure: specification/03-program-structure.md
+      - Program Structure:
+          - Overview: specification/03-program-structure/index.md
+          - Declarations: specification/03-program-structure/declarations.md
+          - Packages and Import Search: specification/03-program-structure/packages.md
       - Types: specification/04-types.md
       - Expressions: specification/05-expressions.md
       - Statements: specification/06-statements.md
@@ -48,7 +51,6 @@ nav:
       - Exceptions: specification/09-exceptions.md
       - Execution Model: specification/10-execution-model.md
       - Concurrency: specification/11-concurrency.md
-      - Packages: specification/12-packages.md
       - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
       - The math Package: specification/14-math.md
       - The io Package and Streams: specification/15-io-streams.md
@@ -75,8 +77,6 @@ nav:
           - Type Casts: language-spec/type-casts.md
           - Type Semantics: language-spec/type-semantics.md
           - Built-in Generic Classes: language-spec/builtin-generic-classes.md
-      - Declarations: language-spec/declarations.md
-      - Packages: language-spec/packages.md
       - Expressions & Statements:
           - Expressions: language-spec/expressions.md
           - Operators: language-spec/operators.md
@@ -119,7 +119,6 @@ nav:
           - fs: language-spec/stdlib-fs.md
           - string methods: language-spec/stdlib-string.md
           - Streams: language-spec/stdlib-streams.md
-          - Libraries and search paths: language-spec/stdlib-search-paths.md
           - Exception mapping: language-spec/stdlib-exceptions.md
       - Runtime:
           - Memory Management: language-spec/memory-management.md

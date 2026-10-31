@@ -23,7 +23,7 @@ Color e;                   // 不初始化：底层int值0（自增enum即首个
 - 声明时用**限定成员名**`Color.Green`。
 - int到enum也隐式允许（`Color d = 1;`），显式形式是`1 as Color`。底座值是否落在成员上**编译期不检查**——`toString()`在运行期才暴露：超出名字表的值抛错，被显式编号跳过的值转成空串（见下文「输出」）。
 - enum到int隐式取底座值（见[类型语义](type-semantics.md)）。
-- 只声明不初始化（`Color e;`）得到底座值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](declarations.md)的默认值表）。
+- 只声明不初始化（`Color e;`）得到底座值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](../specification/03-program-structure/declarations.md)的默认值表）。
 - 打印enum变量须先`.toString()`——`io.print`不直接接收enum变量实参；成员常量例外，`io.print(Color.Red)`直接打印成员名`Red`（见[标准库](standard-library.md)的打印支持面）。
 
 ### 值语义
@@ -71,7 +71,7 @@ enum Color {
 
 ### 跨模块枚举
 
-`enum`是完整的模块成员：导入包后，其类型、枚举值、成员方法与`toString`都能经包名使用（见[包](packages.md)）。
+`enum`是完整的模块成员：导入包后，其类型、枚举值、成员方法与`toString`都能经包名使用（见[包](../specification/03-program-structure/packages.md)）。
 
 ```nlang lib.n
 enum Color {

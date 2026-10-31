@@ -15,7 +15,7 @@ are accepted and have no effect — they govern class members
 (chapter 8). Within its own unit every top-level function is
 visible bare. Across units, bare visibility follows §3.6, and the
 qualified name reaches the function through the import gate
-(§3.6, chapter 12); neither path consults the modifiers. Only
+(§3.6, §3.9); neither path consults the modifiers. Only
 `native` carries meaning at top level (§7.5).
 
 A body written `;` declares a function without a body: a native
@@ -111,7 +111,7 @@ named and `out` arguments are not accepted (§7.2).
 Overloads of an imported function resolve at the call site against
 the imported signatures, exactly as within a unit; the linker
 connects the selected overload to its record in the producing unit
-(chapter 12).
+(§3.9).
 
 ## 7.4 Function Values and Delegates
 
@@ -165,7 +165,7 @@ function: default arguments are filled at the call site before
 dispatch (§7.2), including across module boundaries.
 
 A free native function is keyed by `<package>.<name>`, where
-`<package>` is the module path of the declaring unit (chapter 12)
+`<package>` is the module path of the declaring unit (§3.9)
 and `<name>` is its name. A class-member native keeps its bare
 name; for an instance method the receiver is the first host
 argument. On the first call the host loads the implementation for

@@ -12,7 +12,7 @@ error model.
 
 ## 18.1 Package Form
 
-`tensor` is a standard library package (§12.4): `import tensor;`
+`tensor` is a standard library package (§3.9.4): `import tensor;`
 brings it into scope and every function is called through the
 package qualifier (`tensor.add(a, b)`). The package name is
 single-segment (§3.3). Its declarations are the standard

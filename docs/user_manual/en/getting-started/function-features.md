@@ -151,8 +151,8 @@ semantics.
 
 For the complete visibility matrix (who needs an import, which call
 forms are allowed) and all six error messages, see the [Import
-Declaration](../language-spec/declarations.md#import-declaration) section
-of the Language Specification.
+Declaration](../specification/03-program-structure/declarations.md#import-declaration) section
+of the Specification.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md),
+See also: [Specification / Declarations](../specification/03-program-structure/declarations.md),
 [Standard Library](../language-spec/standard-library.md).

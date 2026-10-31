@@ -1,8 +1,10 @@
-# 声明
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
 
-规范性规则见规范§3.3–§3.5。
+# 3.8 声明
 
-类型声明——`enum`、`struct`、`class`、`interface`——各有独立页面：[枚举](enum.md)、[结构体](struct.md)、[类](class.md)、[接口](interface.md)。本页覆盖其余声明：import、变量、类型别名。
+import指令、using指令与作用域的规范性规则见§3.3–§3.5。
+
+类型声明——`enum`、`struct`、`class`、`interface`——各有独立页面：[枚举](../../language-spec/enum.md)、[结构体](../../language-spec/struct.md)、[类](../../language-spec/class.md)、[接口](../../language-spec/interface.md)。本节覆盖其余声明：import、变量、类型别名。
 
 ### import声明
 
@@ -37,9 +39,9 @@ import utils.*;            // 递归通配符
 - 重复导入是幂等的；精确导入与通配符重叠时取并集；导入自身模块路径或同目录文件是无害的冗余。
 - 导入目标的解析顺序：编译进本次构建的模块（项目文件，或搜索根上的库源——标准库与第三方源码库同一机制）→ 外部模块（`.ncu`/`.npkg`，经`-I`）。没有隐式回退。
 - 同一次构建内两个单元解析出同一个点分包名是编译错误，诊断会指名两条来源路径。名为`io`/`math`/`fs`的项目目录就是普通目录；每个包名只能存在一份。带点导入会按匹配到的搜索根解析库源（`-I <根>` + `<根>/a/b/c.n`即可寻址`import a.b.c;`）；预编译的带点包目前仍按末段主干搜索。
-- 外部模块的代码不进产物：消费方映像只记录导入引用，运行期由加载器沿同一搜索路径重新定位它（机制见[命令行工具/ncc](../cli-tools/ncc.md)的「产物与加载期链接」）。
+- 外部模块的代码不进产物：消费方映像只记录导入引用，运行期由加载器沿同一搜索路径重新定位它（机制见[命令行工具/ncc](../../cli-tools/ncc.md)的「产物与加载期链接」）。
 
-诊断信息（示例）：
+*资料性：*诊断信息（示例）：
 
 ```
 Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.
@@ -96,9 +98,9 @@ int p[3], q;                // p是int数组，q是普通int
 | 数组、`List`、`Dict` | null |
 | `func` | null |
 
-引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](string.md)）。enum的默认值是底层int值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
+引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](../../language-spec/string.md)）。enum的默认值是底层int值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
 
-类型特定的声明形式及其语义在各类型页：[枚举](enum.md)、[结构体](struct.md)、[类](class.md)、[接口](interface.md)。
+类型特定的声明形式及其语义在各类型页：[枚举](../../language-spec/enum.md)、[结构体](../../language-spec/struct.md)、[类](../../language-spec/class.md)、[接口](../../language-spec/interface.md)。
 
 ### 类型别名
 
@@ -120,16 +122,16 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 - 右侧可以**前向引用**文件中后声明的类型（与直接写出该类型相同）。
 - 别名可以引用**另一个别名**，但后者必须在文件中**更早**声明（文本顺序）；前向的别名引用是编译错误。
 - 别名不得与同一翻译单元内的class、函数、其他别名、内建类型名（`List`、`Dict`、`func`、`int`、……）、预置包声明的类名（`Object`、异常家族、`String`、`Array`、……）或已索引的库包名（标准库`math`/`io`/`fs`/`thread`/`concurrent`，以及搜索路径上发现的第三方库包）撞名。
-- 打开作用域的`using Foo;`形式（无`=`）是另一条指令：它必须指明一个包，而当前实现下这样的指令一律被拒绝（规范§3.4）。
+- 打开作用域的`using Foo;`形式（无`=`）是另一条指令：它必须指明一个包，而当前实现下这样的指令一律被拒绝（§3.4）。
 
 **限制：**
 - 右侧必须是一个**类型**：**基本类型名**（`int`、`float`、`string`等）、**class/struct/enum类型名**（`using X = Counter;`）、**数组类型**（`int[]`）、**泛型实例化**（`List<int>`）或**函数类型**（`func<int, int>`）。**成员路径**（`using X = ns.Inner;`）不支持——声明本身能通过语法检查，但每个使用点都无法解析出类型。
 - 别名只能出现在类型位置；值表达式永远不会解析到别名。
-- 锚定在使用点的诊断有时会指向`using`行（展开克隆优先采用别名目标的位置）。
+- *资料性：*锚定在使用点的诊断有时会指向`using`行（展开克隆优先采用别名目标的位置）。
 
 ### 预置包`builtins`与同名优先级
 
-每次构建自动导入预置包`builtins`（`stdlib/builtins.n`，随工具链发布）。包内把基础容器`List<T>`与`Dict<K,V>`、异常家族、层次根`Object`以及声明持有类`String`与`Array`声明为普通class——构造器元数与方法面就是文件里声明的样子。见[标准库](standard-library.md)。
+每次构建自动导入预置包`builtins`（`stdlib/builtins.n`，随工具链发布）。包内把基础容器`List<T>`与`Dict<K,V>`、异常家族、层次根`Object`以及声明持有类`String`与`Array`声明为普通class——构造器元数与方法面就是文件里声明的样子。见[标准库](../../language-spec/standard-library.md)。
 
 自己的代码在根级别声明同名class会**遮蔽**预置声明——任何位置都是最内层声明获胜（类型引用、构造调用、成员查找）：
 

@@ -68,8 +68,8 @@ Program exited with code 0.
 ```
 
 (Function names are qualified by module path — `b utils.addBoth`; the
-spelling rules are in [Packages](../language-spec/packages.md) in the
-language specification.)
+spelling rules are in [Packages](../specification/03-program-structure/packages.md) in the
+specification.)
 
 When the program finishes, ndb prints `Program exited with code N.` and
 exits with that same code; `q` or stdin EOF kills the program and exits

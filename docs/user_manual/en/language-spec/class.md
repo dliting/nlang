@@ -80,9 +80,9 @@ Node c;                   // declaration only: c is null
   Initializers](collection-initializers.md).
 - The declaration-site forms work on **every** declarator of a
   comma-separated list: `Node a(1), b(42);` and `Node arr[3];` are both
-  legal — see the declarator forms in [Declarations](declarations.md).
+  legal — see the declarator forms in [Declarations](../specification/03-program-structure/declarations.md).
 - A declaration without an initializer (`Node c;`) yields null — see the
-  default value table in [Declarations](declarations.md) and Null check
+  default value table in [Declarations](../specification/03-program-structure/declarations.md) and Null check
   below.
 
 ### Inheritance layout

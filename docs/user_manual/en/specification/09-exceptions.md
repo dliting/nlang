@@ -99,7 +99,7 @@ classes are `Exception` and its six direct subclasses:
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
 | `IOException` | a failed `io` or `fs` operation (chapter 15, chapter 16) |
 
-The `concurrent` package (§12.4) declares one further direct
+The `concurrent` package (§3.9.4) declares one further direct
 subclass, `ChannelClosedException`, raised by operations on a
 closed channel (§11.4); it reaches scope through
 `import concurrent;` like any package class, and `catch` treats

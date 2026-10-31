@@ -87,4 +87,4 @@ directory)`、`(NLANG_PATH)`、`(system)`）。
 </Project>
 ```
 
-完整的五层顺序、`native`库以及在nide中的图形配置，见[库与搜索路径](../language-spec/stdlib-search-paths.md)。
+完整的五层顺序、`native`库以及在nide中的图形配置，见[包与导入查找](../specification/03-program-structure/packages.md)。

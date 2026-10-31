@@ -10,7 +10,7 @@ classes; §15.6 fixes the byte-level encoding of stream values.
 
 ## 15.1 Package Form
 
-`io` is a standard library package (§12.4): `import io;` brings
+`io` is a standard library package (§3.9.4): `import io;` brings
 it into scope and every function is called through the package
 qualifier (`io.print(s)`). The package name is single-segment
 (§3.3). Its declarations are the standard library's `.n`

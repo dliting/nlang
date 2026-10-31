@@ -61,7 +61,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 unimported standard library package (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
 `io.print` without `import io;` reports `Package 'io' is not imported.
-Add 'import io;' at the top of this file.`. See [Declarations](declarations.md) "Import Declaration".
+Add 'import io;' at the top of this file.`. See [Declarations](../specification/03-program-structure/declarations.md) "Import Declaration".
 
 ### Default expressions on imported functions
 
@@ -109,7 +109,7 @@ module's `.ncu` is left stale, the recorded position no longer names the
 same function. The linker refuses to guess and reports this rather than
 silently binding the call to the wrong record. Recompile the importing
 module against the current producer artifact. See →
-[Packages](packages.md).
+[Packages](../specification/03-program-structure/packages.md).
 
 ### Declarations and control flow
 
@@ -488,7 +488,7 @@ Error: The type alias "A" is defined more than once in this translation unit.
 ```
 
 The same alias name may not be defined twice in one translation unit; a
-circular alias (`using A = B; using B = A;`) is rejected. See [Declarations](declarations.md) "Type Aliases".
+circular alias (`using A = B; using B = A;`) is rejected. See [Declarations](../specification/03-program-structure/declarations.md) "Type Aliases".
 
 ### Source file encoding
 

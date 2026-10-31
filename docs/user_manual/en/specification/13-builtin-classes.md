@@ -2,7 +2,7 @@
 
 ## 13.1 Scope
 
-The prelude names are always visible, no import (§12.4):
+The prelude names are always visible, no import (§3.9.4):
 `Object`, the `Exception` family (§9.3), `String`, `Array`,
 `List<T>` and `Dict<K,V>` — the whole set. This chapter defines
 the method surface of the built-in value and container classes — the `Object` protocol
@@ -18,7 +18,7 @@ Method surfaces defined elsewhere: the concurrency handle classes
 classes in §9.3.
 
 Every method in this chapter is built in: its declaration lives in the
-prelude package `builtins` (§12.4), imported by every build, and a
+prelude package `builtins` (§3.9.4), imported by every build, and a
 program cannot replace it — a user class with the same name is an
 ordinary class and never takes over the built-in receivers. Two of the
 prelude classes, `String` and `Array`, are declaration holders only:

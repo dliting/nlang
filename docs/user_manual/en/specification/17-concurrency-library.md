@@ -10,7 +10,7 @@ form and the signature surface.
 
 ## 17.1 The thread Package
 
-`thread` is a standard library package (§12.4): `import thread;`
+`thread` is a standard library package (§3.9.4): `import thread;`
 brings it into scope and every function is called through the
 package qualifier (`thread.spawn(f)`). The package name is
 single-segment (§3.3). Its declarations are the standard
@@ -38,7 +38,7 @@ failed target, the host-level errors — is §11.1.
 
 ## 17.2 The concurrent Package
 
-`concurrent` is a standard library package (§12.4):
+`concurrent` is a standard library package (§3.9.4):
 `import concurrent;` brings it into scope. Its handle classes —
 `Mutex`, `ReentrantMutex`, `Semaphore`, `AtomicInt`,
 `Channel<T>` — and the exception subclass

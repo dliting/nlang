@@ -48,7 +48,7 @@
 | `InvalidCastException` | 失败的`as`向下转型（§5.5） |
 | `IOException` | 失败的`io`或`fs`操作（第15章、第16章） |
 
-`concurrent`包（§12.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§11.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。
+`concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§11.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。
 
 每个异常实例携带两个字段，从`Exception`继承：
 

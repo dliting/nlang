@@ -4,7 +4,7 @@
 
 A program is compiled from one or more `.n` source files. Each file
 is one compilation unit (§0.4): the file itself together with the
-library units its imports pull in (chapter 12). All units of one
+library units its imports pull in (§3.9). All units of one
 compilation — the project's own sources and the library sources
 inlined through the library search path — are merged into a single
 program scope: every top-level declaration joins one namespace
@@ -47,7 +47,7 @@ function returning `int`.
 A build has at most one entry function. If several units of one
 build each supply an entry — an explicit `main()` or a script body —
 it is a compile-time error. A build whose units supply no entry
-produces a library module with no entry function (chapter 12).
+produces a library module with no entry function (§3.9).
 
 Execution of a program begins by calling its entry function; the
 value the entry returns becomes the process exit status
@@ -57,8 +57,8 @@ value the entry returns becomes the process exit status
 
 An import directive names a *package path*: a dotted name denoting
 a module of the program being compiled, a standard library package,
-or an external compiled module (chapter 12). The grammar is §2.2;
-the two forms are:
+or an external compiled module (§3.9). The grammar is §2.2; the two
+forms are:
 
 ```nlang
 import utils.helper;      // one module or package
@@ -82,7 +82,7 @@ compile-time error if the wildcard matches no project unit, and a
 compile-time error if `p` names a library package — a library
 package is a single unit, so `import p;` is its only meaningful
 form. The wildcard never reaches external compiled modules, whose
-names are single-segment (chapter 12).
+names are single-segment (§3.9).
 
 An import of a path that resolves to neither a project unit, a
 library package nor an external module is a compile-time error.
@@ -176,7 +176,7 @@ A *qualified name* `p.m` reaches the members of the module or
 package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
-`p` does not continue into outer scopes. Chapter 12 defines module
+`p` does not continue into outer scopes. §3.9 defines module
 naming, path resolution and the gate in full.
 
 Overload selection among same-named functions is defined in
@@ -199,6 +199,6 @@ follows §3.5.
   whose top-level functions it sees bare (§3.6).
 - The same function name or the same type name in different bare
   pools is accepted: the declarations keep separate identities
-  under their qualified paths (chapter 12). A function name and a
+  under their qualified paths (§3.9). A function name and a
   type name that collide anywhere in the program conflict,
   whatever pools they live in.

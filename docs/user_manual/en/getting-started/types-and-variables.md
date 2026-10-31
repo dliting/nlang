@@ -35,7 +35,7 @@ sections below and in the declarations chapter.
 
 See also: [Language Specification / Types](../language-spec/types.md),
 [Type Semantics](../language-spec/type-semantics.md),
-[Declarations](../language-spec/declarations.md).
+[Declarations](../specification/03-program-structure/declarations.md).
 
 ### Enum
 
@@ -121,7 +121,7 @@ name; the alias expands textually at each use site, so `Ints xs = ...` is
 exactly `int[] xs = ...`. Aliases work over primitive, array, generic, and
 `func<...>` type forms.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Specification / Declarations](../specification/03-program-structure/declarations.md).
 
 ### Strings
 

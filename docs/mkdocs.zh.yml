@@ -40,7 +40,10 @@ nav:
       - 引言: specification/00-introduction.md
       - 词法结构: specification/01-lexical.md
       - 语法: specification/02-grammar.md
-      - 程序结构与名称解析: specification/03-program-structure.md
+      - 程序结构与名称解析:
+          - 概览: specification/03-program-structure/index.md
+          - 声明: specification/03-program-structure/declarations.md
+          - 包与导入查找: specification/03-program-structure/packages.md
       - 类型: specification/04-types.md
       - 表达式: specification/05-expressions.md
       - 语句: specification/06-statements.md
@@ -49,7 +52,6 @@ nav:
       - 异常: specification/09-exceptions.md
       - 执行模型与内存语义: specification/10-execution-model.md
       - 并发: specification/11-concurrency.md
-      - 包与导入查找: specification/12-packages.md
       - 内建类与库约定: specification/13-builtin-classes.md
       - math包: specification/14-math.md
       - io包与流: specification/15-io-streams.md
@@ -76,8 +78,6 @@ nav:
           - 类型强制转换: language-spec/type-casts.md
           - 类型语义: language-spec/type-semantics.md
           - 内建泛型类: language-spec/builtin-generic-classes.md
-      - 声明: language-spec/declarations.md
-      - 包: language-spec/packages.md
       - 表达式与语句:
           - 表达式: language-spec/expressions.md
           - 运算符: language-spec/operators.md
@@ -120,7 +120,6 @@ nav:
           - fs: language-spec/stdlib-fs.md
           - string方法: language-spec/stdlib-string.md
           - 流: language-spec/stdlib-streams.md
-          - 库与搜索路径: language-spec/stdlib-search-paths.md
           - 异常映射: language-spec/stdlib-exceptions.md
       - 运行时:
           - 内存管理: language-spec/memory-management.md

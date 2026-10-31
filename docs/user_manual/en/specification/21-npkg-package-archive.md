@@ -2,10 +2,10 @@
 
 A *package archive* is the distribution form of a build: it
 packs one *member* — a unit image of chapter 20 — per package
-of the build, each member named by its package path (§12.1). A
+of the build, each member named by its package path (§3.9.1). A
 program archive carries an *entry record*; a library archive
 omits one, and the standard library ships as `stdlib.npkg`
-(§12.4). §21.1 sets the scope and the format version; §21.2
+(§3.9.4). §21.1 sets the scope and the format version; §21.2
 fixes the container; §21.3 defines the entry record and the
 member identity; §21.4 fixes the member checksums; §21.5
 states the reading and consumption contract.
@@ -26,7 +26,7 @@ entry record and member identity (§21.3), the member checksums
 
 **What it does not fix.** The unit image stored inside each
 member — chapter 20 — and the link-closure semantics that
-consume the extracted images (§12.3).
+consume the extracted images (§3.9.3).
 
 **Determinism.** Packing the same set of members twice
 produces byte-identical archives: members are sorted by module
@@ -58,7 +58,7 @@ member, in ascending byte-wise module-path order:
 
 | Field | Width | Content |
 |---|---|---|
-| module path | u16 length + bytes | the package path of the member (§12.1) |
+| module path | u16 length + bytes | the package path of the member (§3.9.1) |
 | offset | u64 | the absolute file offset of the member's image bytes |
 | length | u64 | the image byte count |
 | checksum | u64 | §21.4 |
@@ -110,7 +110,7 @@ Extraction of a member verifies its checksum (§21.4); a module
 path that is not a member of the archive is an error.
 
 At compile time, importing an archive as an external artifact
-(§12.2) takes the member that supplies the declarations: the
+(§3.9.2) takes the member that supplies the declarations: the
 entry-record member for a program archive, or the sole member
 for a library archive. An archive with several members and no
 entry record is refused rather than silently reduced to one
@@ -118,4 +118,4 @@ member — the consumer would compile against part of the
 surface and miss the rest only at run time.
 
 At run time, the loader extracts member images by module path
-as the import closure demands them (§12.3).
+as the import closure demands them (§3.9.3).

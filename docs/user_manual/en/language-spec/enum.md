@@ -37,7 +37,7 @@ Color e;                   // no initializer: underlying value 0
   value 0 — for an auto-incremented enum that is exactly the first
   member; an enum with explicitly assigned non-zero values may default
   to 0, which lands on no member (see the default value table in
-  [Declarations](declarations.md)).
+  [Declarations](../specification/03-program-structure/declarations.md)).
 - Printing an enum variable requires `.toString()` first — `io.print`
   does not accept an enum variable argument directly; a member constant
   is the exception: `io.print(Color.Red)` prints the member name `Red`
@@ -117,7 +117,7 @@ converts to the empty string. See [Type Casts](type-casts.md) for the full
 
 An `enum` is a full module member: importing the package makes its type,
 values, member methods, and `toString` reachable through the package name
-(see [Packages](packages.md)).
+(see [Packages](../specification/03-program-structure/packages.md)).
 
 ```nlang lib.n
 enum Color {

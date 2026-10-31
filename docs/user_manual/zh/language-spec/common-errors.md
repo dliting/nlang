@@ -46,7 +46,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 ```
 
 `import`只开放限定名。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this
-file.`。详见[声明](declarations.md)「import声明」。
+file.`。详见[声明](../specification/03-program-structure/declarations.md)「import声明」。
 
 ### 被导入函数的默认表达式
 
@@ -78,7 +78,7 @@ Runtime error: nlink failed:
   unit 'main': imported function 'score' (paramCount 1) from module 'lib' does not match its record in the owning unit (stale artifact — recompile the importing module)
 ```
 
-跨模块调用记录被调函数在生产方单元函数表中的位置。若生产方重新编译后该位置发生移动（增删重载、函数重排），而导入方的`.ncu`仍是旧产物，记录的位置就不再指向同一个函数。链接器不猜测，直接报此错，而不是把调用悄悄连到错误的记录。请对照当前的生产方产物重新编译导入方。详见[包](packages.md)。
+跨模块调用记录被调函数在生产方单元函数表中的位置。若生产方重新编译后该位置发生移动（增删重载、函数重排），而导入方的`.ncu`仍是旧产物，记录的位置就不再指向同一个函数。链接器不猜测，直接报此错，而不是把调用悄悄连到错误的记录。请对照当前的生产方产物重新编译导入方。详见[包](../specification/03-program-structure/packages.md)。
 
 ### 声明与控制流
 
@@ -383,7 +383,7 @@ using A = float;
 Error: The type alias "A" is defined more than once in this translation unit.
 ```
 
-同一翻译单元内别名名不可重复；循环别名（`using A = B; using B = A;`）被拒。详见[声明](declarations.md)「类型别名」。
+同一翻译单元内别名名不可重复；循环别名（`using A = B; using B = A;`）被拒。详见[声明](../specification/03-program-structure/declarations.md)「类型别名」。
 
 ### 源文件编码
 

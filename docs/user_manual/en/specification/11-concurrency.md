@@ -13,7 +13,7 @@ context runs a bounded number of back edges before another may be
 dispatched.
 
 The concurrency names live in two standard-library packages
-(chapter 17), each imported by name (§12.4): `thread` answers who
+(chapter 17), each imported by name (§3.9.4): `thread` answers who
 runs and where the result is fetched; `concurrent` answers how
 running computations coordinate. Their declarations live in the
 standard library and their implementations are built into the
@@ -92,7 +92,7 @@ A `Mutex` is a non-reentrant mutual-exclusion lock. It is a
 *handle class*: a class whose instances wrap an
 implementation-managed object and whose constructors and methods
 are built into the virtual machine. The concurrency handle
-classes are declared by their packages (§12.4) — `Mutex` by
+classes are declared by their packages (§3.9.4) — `Mutex` by
 `concurrent`, `Thread` and `Future<T>` by `thread` — so their
 names reach scope through the package import, like any other
 package class.
@@ -126,7 +126,7 @@ that shape takes the plain `Mutex`.
 A `Semaphore` admits at most N contexts into a section: a mutex
 admits one, a semaphore admits N. It is a handle class of the
 `concurrent` standard-library package (chapter 17; import
-required, §12.4):
+required, §3.9.4):
 
 - `Semaphore(n)` sets the initial permit count. A negative `n`
   is a *host-level* run-time error (§9.1). `0` is legal — the

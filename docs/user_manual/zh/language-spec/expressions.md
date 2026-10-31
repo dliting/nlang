@@ -37,4 +37,4 @@ obj.method(args)   // 方法调用
 | interface | 上转型`IShape s = sq;`——接口值总是指向实现类对象 | [接口](interface.md) |
 | List/Dict | 字面量`[1, 2]`、`{"k": 1}`；空集合`{}` | [集合初始化器](collection-initializers.md) |
 
-构造调用`Node(42)`是表达式：在堆上分配对象、按实参运行构造函数，返回引用（见[类](class.md)「构造函数」）。struct构造调用`Point(1, 4)`同样是表达式；花括号条目`Point{...}`不运行构造器、直接按字段填值（见[结构体](struct.md)「创建与初始化」）。声明位形态（`T name(args);`、`T name[n];`、`T name[n] = [...]`）在多声明符声明的每个声明符上都允许，见[声明](declarations.md)。
+构造调用`Node(42)`是表达式：在堆上分配对象、按实参运行构造函数，返回引用（见[类](class.md)「构造函数」）。struct构造调用`Point(1, 4)`同样是表达式；花括号条目`Point{...}`不运行构造器、直接按字段填值（见[结构体](struct.md)「创建与初始化」）。声明位形态（`T name(args);`、`T name[n];`、`T name[n] = [...]`）在多声明符声明的每个声明符上都允许，见[声明](../specification/03-program-structure/declarations.md)。

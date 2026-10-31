@@ -118,8 +118,8 @@ terminal's scrollback and copy work as usual.
 
 `import` only opens **qualified names** — after `import lib;` you must
 write `lib.f()`; the bare name `f()` does not resolve. The visibility
-rules for each reference form are on the [Language Specification /
-Declarations](../language-spec/declarations.md) "Import Declaration"
+rules for each reference form are on the [Specification /
+Declarations](../specification/03-program-structure/declarations.md) "Import Declaration"
 section. See [Common Error Messages](../language-spec/common-errors.md)
 for the full error text.
 
@@ -143,8 +143,8 @@ structs zero-initialize every field, and string plus the
 other reference types (class, interface, arrays, containers, `func`)
 are null. A null default compares directly with `== null`; using it
 without the check throws a `null reference error` at run time. The full
-table is in [Language Specification /
-Declarations](../language-spec/declarations.md), "Default values".
+table is in [Specification /
+Declarations](../specification/03-program-structure/declarations.md), "Default values".
 
 ### Why does `Point(2, 3)` report "has no constructor"?
 

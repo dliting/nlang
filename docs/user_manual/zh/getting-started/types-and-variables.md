@@ -25,7 +25,7 @@ int main() {
 
 输出`demo: 30 / 1.5`、`A true 5000000000`。标量基本类型共12个：整型家族（`byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong`）、`float`/`double`、`bool`与`char`（Unicode码点）；`string`是第13个基本类型（Unicode转换格式（UTF-8，Unicode Transformation Format）字节串，引用语义）。复合类型enum、struct、class在下面的章节与声明章节中有介绍。
 
-详见[语言规格/类型](../language-spec/types.md)、[类型语义](../language-spec/type-semantics.md)、[声明](../language-spec/declarations.md)。
+详见[语言规格/类型](../language-spec/types.md)、[类型语义](../language-spec/type-semantics.md)、[声明](../specification/03-program-structure/declarations.md)。
 
 ### 枚举
 
@@ -96,7 +96,7 @@ int main() {
 
 输出`13`，退出码13。`using Name = Type;`给一个类型起第二个名字；别名在每个使用点按文本展开，因此`Ints xs = ...`就是`int[] xs = ...`。别名可用于基本类型、数组、泛型与`func<...>`类型形式。
 
-详见[语言规格/声明](../language-spec/declarations.md)。
+详见[规范/声明](../specification/03-program-structure/declarations.md)。
 
 ### 字符串
 

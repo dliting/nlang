@@ -57,7 +57,7 @@ a = 40
 Program exited with code 0.
 ```
 
-（函数名按模块路径限定——`b utils.addBoth`；拼写规则见语言规格的[包](../language-spec/packages.md)。）
+（函数名按模块路径限定——`b utils.addBoth`；拼写规则见规范的[包](../specification/03-program-structure/packages.md)。）
 
 程序跑完时ndb打印`Program exited with code N.`并以同一个退出码退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
 

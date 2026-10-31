@@ -41,7 +41,7 @@ environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory → the standard-library directory (where
 `stdlib.npkg` lives); earlier dirs win and duplicates keep only the
 first. See
-["Libraries and search paths"](../language-spec/stdlib-search-paths.md)
+["Packages and Import Search"](../specification/03-program-structure/packages.md)
 for the full rules.
 
 ## Concurrency and carriers

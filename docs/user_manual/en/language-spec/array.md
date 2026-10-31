@@ -27,9 +27,9 @@ int f[100] = [7, 8];      // declaration position, partial init: rest zero-fille
   declarator of a comma-separated list may carry its own `[n]` size
   (`int a, b[3];` is legal); how each declarator's type combines the head
   type with its own brackets is covered in
-  [Declarations](declarations.md).
+  [Declarations](../specification/03-program-structure/declarations.md).
 - Declaring without an initializer (`int[] g;`) yields a null reference —
-  see the default value table in [Declarations](declarations.md).
+  see the default value table in [Declarations](../specification/03-program-structure/declarations.md).
 - The element type can be a struct (`Point[3]` creates an independent
   value per element, see [Struct](struct.md)) or a class (references are
   stored). Arrays of arrays (jagged form) are not supported — see

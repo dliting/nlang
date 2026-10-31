@@ -50,7 +50,7 @@ machine itself and dispatched on the intrinsic channel). A qualified
 call type-checks against the declaration and goes through the normal
 function-call path; the built-in string and array member methods are
 type-checked against their prelude declarations and dispatched directly
-into their built-in implementations. See [Libraries and search paths](stdlib-search-paths.md)
+into their built-in implementations. See [Packages and Import Search](../specification/03-program-structure/packages.md)
 for the directory rules.
 
 **Parameter types**: each argument is checked against the declared
@@ -76,5 +76,5 @@ The detailed reference is one page per topic:
 - [Concurrency — virtual threads, Mutex, Channel, Future, and synchronization tools](concurrency.md)
 - [string methods — 18 built-ins](stdlib-string.md)
 - [Streams — ByteStream and FileStream](stdlib-streams.md)
-- [Libraries and search paths](stdlib-search-paths.md) (nide configuration and the third-party library shape included)
+- [Packages and Import Search](../specification/03-program-structure/packages.md) (nide configuration and the third-party library shape included)
 - [Exception mapping](stdlib-exceptions.md)
