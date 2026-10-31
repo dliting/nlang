@@ -3,16 +3,16 @@
 //silently drops the args (the message never reached the object) — the call
 //is now a compile error, so the subclass declares an explicit ctor that
 //forwards to the parent via super(...), the same shape super()-chaining
-//tests already use.
-class MyException : Exception {
+//tests already use. v0.12.4: Exception is const, so code travels through
+//the constructor instead of a post-construction field write.
+const class MyException : Exception {
     public int code;
-    public MyException(string msg) { super(msg); }
+    public MyException(string msg, int c) { super(msg); this.code = c; }
 }
 
 int main() {
     try {
-        MyException e = MyException("hello");
-        e.code = 42;
+        MyException e = MyException("hello", 42);
         throw e;
     } catch (MyException e) {
         return e.code;

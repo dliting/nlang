@@ -40,37 +40,40 @@ class Dict<K, V> {
     public native string toString();
 }
 
-//Base class of every catchable runtime failure. message carries the
-//diagnostic text; backtrace is the call chain at the throw point,
-//innermost first.
-class Exception {
+//Immutable event record (v0.12.4): message/backtrace/cause are sealed
+//after construction; backtrace reads return a copy; cause chains are
+//built by the (message, cause) constructor — no initCause equivalent.
+//message carries the diagnostic text; backtrace is the call chain at
+//the throw point, innermost first; cause links the wrapped failure.
+const class Exception {
     public string message;
     public List<string> backtrace;
-    public native Exception(string message);
+    public Exception cause;
+    public native Exception(string message, Exception cause = null);
 }
 
-class NullPointerException : Exception {
-    public native NullPointerException(string message);
+const class NullPointerException : Exception {
+    public native NullPointerException(string message, Exception cause = null);
 }
 
-class DivByZeroException : Exception {
-    public native DivByZeroException(string message);
+const class DivByZeroException : Exception {
+    public native DivByZeroException(string message, Exception cause = null);
 }
 
-class IndexOutOfBoundsException : Exception {
-    public native IndexOutOfBoundsException(string message);
+const class IndexOutOfBoundsException : Exception {
+    public native IndexOutOfBoundsException(string message, Exception cause = null);
 }
 
-class AssertionException : Exception {
-    public native AssertionException(string message);
+const class AssertionException : Exception {
+    public native AssertionException(string message, Exception cause = null);
 }
 
-class IOException : Exception {
-    public native IOException(string message);
+const class IOException : Exception {
+    public native IOException(string message, Exception cause = null);
 }
 
-class InvalidCastException : Exception {
-    public native InvalidCastException(string message);
+const class InvalidCastException : Exception {
+    public native InvalidCastException(string message, Exception cause = null);
 }
 
 //Root of the class hierarchy: every class without a declared base

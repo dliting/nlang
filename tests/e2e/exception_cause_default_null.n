@@ -1,0 +1,8 @@
+//v0.12.4 D7: the (message, cause = null) constructor leaves cause null
+//when the second argument is omitted — no initCause-style post-hoc
+//chaining exists.
+int main() {
+    Exception e = Exception("only");
+    if (e.cause != null) { return 1; }
+    return 7;
+}

@@ -52,8 +52,8 @@ class AtomicInt {
 }
 
 // Raised by Channel receive/send after the channel is closed.
-class ChannelClosedException : Exception {
-    public native ChannelClosedException(string message);
+const class ChannelClosedException : Exception {
+    public native ChannelClosedException(string message, Exception cause = null);
 }
 
 // Synchronous rendezvous channel of one element type; capacity 0 is

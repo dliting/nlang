@@ -7,7 +7,7 @@
 //a real side-table slot).
 import io;
 
-class MyError : Exception {
+const class MyError : Exception {
     public int code;
     public MyError(string message, int c) {
         super(message);

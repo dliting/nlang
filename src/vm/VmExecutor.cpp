@@ -461,6 +461,10 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
     int32_t msgHandle = MintNewString(msg);
     m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
 
+    //cell[5] = cause (v0.12.4 D7): VM-raised exceptions wrap nothing,
+    //so the field is explicitly null — never rely on allocation zeroing.
+    m_structHeap[static_cast<size_t>(heapIdx)][5] = 0;
+
     //cell[3] = backtrace (field 1 under the uniform 2-cell stride).
     //Allocate a List<string> and push one entry per active call frame,
     //innermost-first.

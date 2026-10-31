@@ -78,6 +78,9 @@ dict_copy_independent 23
 const_container_copy_on_read 2
 const_container_subscript_copy 1
 const_container_foreach_ok 3
+# --- v0.12.4 cause-chain constructor (D7) ---
+exception_cause_default_null 7
+exception_cause_chain_build 7
 # --- bool (0.7.5 strict) ---
 bool_basics 0 false
 bool_strict_reject compile_error condition must be bool

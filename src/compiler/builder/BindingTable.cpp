@@ -70,15 +70,18 @@ static const BindingRow s_LiteralRows[] = {
 	//ctor row each — except ChannelClosedException, which moved to
 	//stdlib/concurrent.n with the channel (concurrency import
 	//redesign). The VM raise paths keep their by-name class caches;
-	//only the ctor call channel is stamped here.
-	{"builtins", "Exception/1",                 INTR_Exception_Ctor},
-	{"builtins", "NullPointerException/1",      INTR_NullPointerException_Ctor},
-	{"builtins", "DivByZeroException/1",        INTR_DivByZeroException_Ctor},
-	{"builtins", "IndexOutOfBoundsException/1", INTR_IndexOutOfBoundsException_Ctor},
-	{"builtins", "AssertionException/1",        INTR_AssertionException_Ctor},
-	{"builtins", "IOException/1",               INTR_IOException_Ctor},
-	{"builtins", "InvalidCastException/1",      INTR_InvalidCastException_Ctor},
-	{"concurrent", "ChannelClosedException/1", INTR_ChannelClosedException_Ctor},
+	//only the ctor call channel is stamped here. v0.12.4 D7: every ctor
+	//declares (message, cause = null), so the arity-aware key is /2 —
+	//one-argument calls ride the default-parameter staging onto the
+	//same row (the AtomicInt/1 rule).
+	{"builtins", "Exception/2",                 INTR_Exception_Ctor},
+	{"builtins", "NullPointerException/2",      INTR_NullPointerException_Ctor},
+	{"builtins", "DivByZeroException/2",        INTR_DivByZeroException_Ctor},
+	{"builtins", "IndexOutOfBoundsException/2", INTR_IndexOutOfBoundsException_Ctor},
+	{"builtins", "AssertionException/2",        INTR_AssertionException_Ctor},
+	{"builtins", "IOException/2",               INTR_IOException_Ctor},
+	{"builtins", "InvalidCastException/2",      INTR_InvalidCastException_Ctor},
+	{"concurrent", "ChannelClosedException/2", INTR_ChannelClosedException_Ctor},
 	//Cluster 4 (Object): the three protocol methods. Declared virtual so
 	//override propagation marks user overrides and call sites dispatch by
 	//name; no ctor row (Object is never constructed by user code).
