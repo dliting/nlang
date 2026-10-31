@@ -148,12 +148,18 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 
 	m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
 		idExpr.Name().c_str());
-	//Module import visibility (F20): the name may only exist as a
-	//function outside this TU's bare pool — name the owning module.
-	MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location(), curModule);
-	//spec §6.2 last line: a module path sharing the name turns a bare
-	//mystery into a named fix (import + qualification).
-	MaybeLogModuleHint(idExpr.Name());
+	//D10: a stamped stdlib class/function lives behind an import; a
+	//package hit is the specific answer, so the generic function/
+	//module-path guesses stay quiet.
+	if (!MaybeLogPackageHint(idExpr.Name()))
+	{
+		//Module import visibility (F20): the name may only exist as a
+		//function outside this TU's bare pool — name the owning module.
+		MaybeLogVisibilityHint(idExpr.Name(), idExpr.Location(), curModule);
+		//spec §6.2 last line: a module path sharing the name turns a bare
+		//mystery into a named fix (import + qualification).
+		MaybeLogModuleHint(idExpr.Name());
+	}
 	return false;
 }
 

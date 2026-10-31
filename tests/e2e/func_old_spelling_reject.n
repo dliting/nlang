@@ -1,7 +1,8 @@
 //compile_error: the old capitalized spelling is no longer a type —
-//Func is a plain identifier now (free for user type names). Since
-//0.10.8 D1 the generic opener is reserved for built-in generic
-//names, so the statement is a syntax error.
+//Func is a plain identifier now (free for user type names), so the
+//name resolver rejects the generic use: cannot resolve the type
+//"Func" (a package note may follow when a stamped package declares
+//the name).
 int main() {
     Func<int, int> f = null;
     return 0;

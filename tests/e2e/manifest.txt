@@ -1356,7 +1356,7 @@ store_call_result_compound compile_error cannot assign to the result of a method
 # 0.8.3: the function type is written with the func keyword.
 func_keyword_basic 42
 func_keyword_ident_reject compile_error
-func_old_spelling_reject compile_error is not a built-in generic type
+func_old_spelling_reject compile_error Cannot resolve the type
 # 0.8.4: compound assignment on bare-subscript lvalues and the
 # for update clause.
 compound_subscript_array 101
@@ -1880,7 +1880,7 @@ nested_generic_triple 7
 nested_generic_anchor_runtime 10
 nested_generic_mixed_anchor 0
 nested_closer_shift_regression 4
-nested_closer_chain_stmthead_err compile_error not a built-in generic
+nested_closer_chain_stmthead_err compile_error Cannot resolve the type
 window_suspend 0 w[slow-ok]|done
 string_substring_two_args 0
 string_equals_int_reject compile_error

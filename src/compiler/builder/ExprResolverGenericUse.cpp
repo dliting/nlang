@@ -142,8 +142,12 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	}
 	if (!pTemplate)
 	{
+		//D10: "not a built-in generic type" misled once the miss was
+		//merely an unimported package class — state the miss plainly,
+		//then let the package note name the fix when one exists.
 		m_Env.Log(CLL_Error, genType.Location(),
-			"\"%s\" is not a built-in generic type.", baseName.c_str());
+			"Cannot resolve the type: \"%s\".", baseName.c_str());
+		MaybeLogPackageHint(baseName);
 		return false;
 	}
 	const size_t expected = pTemplate->TypeParamNames().size();

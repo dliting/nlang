@@ -211,6 +211,34 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
     return INTR_None;
 }
 
+//D10 (concurrency import redesign): reverse lookup for the unimported-
+//use note — which stamped package declares this bare name? The four key
+//forms the table spells: exact zero-arg ctor key, "/1" arity ctor key,
+//a "Name." method-prefix cluster, and the free-function qualified form
+//("thread.spawn" answers "spawn" -> "thread"). Method segments alone
+//("lock") never match: the note fires on the class/function name the
+//user wrote.
+bool BindingPackageForName(const std::string& name,
+    std::string& outPackage)
+{
+    const std::string ctorArity = name + "/1";
+    const std::string methodPrefix = name + ".";
+    for (const auto& row : BindingRows())
+    {
+        const bool methodForm = row.key.compare(0, methodPrefix.size(),
+            methodPrefix) == 0;
+        const bool freeFuncForm = row.key == row.packagePath + "."
+            + name;
+        if (row.key == name || row.key == ctorArity || methodForm
+            || freeFuncForm)
+        {
+            outPackage = row.packagePath;
+            return true;
+        }
+    }
+    return false;
+}
+
 //Handle-class marker (builtin-decls source-of-truth design §6.4): the
 //prelude classes whose CompiledClass record leads with the hidden
 //__handle field — the one by-name C++-side list that survives the

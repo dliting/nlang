@@ -418,4 +418,21 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 		"requires an import and qualification)", name.c_str());
 }
 
+//D10 (concurrency import redesign): a bare-name miss where a stamped
+//package declares the name — name the package and the import fix (the
+//binding table is the package->symbol map for these classes). True =
+//note logged (the caller suppresses the generic visibility/module-path
+//guesses).
+bool ExprResolveAccessor::MaybeLogPackageHint(const std::string &name)
+{
+	std::string package;
+	if (!BindingPackageForName(name, package))
+		return false;
+	m_Env.Log(CLL_Error,
+		"(note: \"%s\" is provided by package '%s'; "
+		"add 'import %s';)",
+		name.c_str(), package.c_str(), package.c_str());
+	return true;
+}
+
 } //namespace nlang

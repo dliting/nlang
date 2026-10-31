@@ -1784,6 +1784,12 @@ private:
 bool IsStampedBindingPackage(const std::string& packagePath);
 uint16_t LookupIntrinsicId(const std::string& packagePath,
     const std::string& key);
+//D10 (concurrency import redesign): reverse lookup for the unimported-
+//use diagnostic — which stamped package declares this bare name? Four
+//key forms: exact ctor, "/1" ctor, "Name." method prefix, and the
+//free-function "pkg.name" qualified form.
+bool BindingPackageForName(const std::string& name,
+    std::string& outPackage);
 //Handle-class marker (§6.4): true for a prelude class name whose record
 //carries the hidden __handle field. Append-only list.
 bool IsHandleClassName(const std::string& className);

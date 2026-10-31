@@ -405,6 +405,12 @@ private:
 	//module path sharing the name (silent when none does).
 	void MaybeLogModuleHint(const std::string &name);
 
+	//D10 (concurrency import redesign): a bare-name miss where a stamped
+	//package declares the name — note the package and the import fix.
+	//True = note logged (the caller suppresses the generic visibility /
+	//module-path guesses: a package hit is the specific answer).
+	bool MaybeLogPackageHint(const std::string &name);
+
 	//0.9.10: nearest enclosing function of the current resolution context —
 	//the static-method gates (this / implicit this) inspect its NF_Static
 	//flag. Null at namespace/module scope.

@@ -4,7 +4,7 @@
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/runtime/Module.h>
 #include <nlang/runtime/Runtime.h>
-#include <nlang/langservice/SymbolIndex.h>
+#include <nlang/langservice/SymbolIndex.h>  //langservice::FindStdLibDir
 #include "VmExecutor.h"
 #include "NativeLibraryLoader.h"
 #include "NcuLoader.h"

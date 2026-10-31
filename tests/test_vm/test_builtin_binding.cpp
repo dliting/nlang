@@ -304,6 +304,27 @@ static void test_find_class_bare_or_unique_suffix()
     PASS();
 }
 
+//D10: reverse lookup over the binding rows — which stamped package
+//declares this bare name? Pre-move truth (these expectations flip to
+//concurrent/thread in the move task).
+static void test_binding_package_for_name()
+{
+    TEST(test_binding_package_for_name);
+    std::string pkg;
+    CHECK(BindingPackageForName("Mutex", pkg) && pkg == "builtins",
+        "Mutex ctor row must resolve (pre-move package)");
+    CHECK(BindingPackageForName("Semaphore", pkg) && pkg == "builtins",
+        "the /1 ctor-key form must resolve");
+    CHECK(BindingPackageForName("spawn", pkg) && pkg == "thread",
+        "qualified free-function form must resolve");
+    CHECK(!BindingPackageForName("lock", pkg),
+        "a bare method segment must NOT resolve (precision: the note "
+        "fires on the class name the user wrote, not on method names)");
+    CHECK(!BindingPackageForName("NotAClass", pkg),
+        "unknown name must not resolve");
+    PASS();
+}
+
 int main()
 {
     //In-process ModuleBuilder host: the interned IdString tables must
@@ -317,6 +338,7 @@ int main()
     runGuarded(test_unbounded_ctor_does_not_read_capacity);
     runGuarded(test_builtin_handle_decl_predicate);
     runGuarded(test_find_class_bare_or_unique_suffix);
+    runGuarded(test_binding_package_for_name);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";
