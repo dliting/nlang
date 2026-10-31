@@ -60,6 +60,10 @@ bool IsHandleClassName(const std::string& className);
 //the builtin one" predicate — prelude ownership, or a stamped binding
 //package owning a handle-class name. Thread/Future have no class
 //binding rows, so this is a name-list arm, not a row-presence test.
+//The prelude arm certifies ANY prelude-owned name, not only handle
+//classes — deliberate: every call site gates by name where the arm's
+//breadth would matter, and tightening it here would silently break
+//the shadow probes (user_shadow_promise / user_shadow_semaphore).
 bool IsBuiltinHandleDeclName(const ModuleRegistry& registry,
 	uint32_t ownerUnit, const std::string& className);
 

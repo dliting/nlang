@@ -11,7 +11,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include "ModuleBuilderChecks.h"
-#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11); transitively builder/BindingTable.h
+#include "BindingTable.h"   //IsBuiltinHandleDeclName (D11)
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <vector>
 
