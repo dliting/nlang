@@ -186,33 +186,34 @@ void test_parked_context_enumeration_and_locals()
     //takes zero-argument funcs; the test_threads channel family uses
     //this shape).
     BuildOutcome b = buildSource("mc_parked_view",
-        "import thread;\n"                          //1
-        "class Receiver {\n"                        //2
-        "    public Channel<int> ch;\n"             //3
-        "    public void run() {\n"                 //4
-        "        int k = 7;\n"                      //5
-        "        int v = ch.recv();\n"              //6  <- parks (empty)
-        "    }\n"                                   //7
-        "}\n"                                       //8
-        "int main() {\n"                            //9
-        "    Receiver r = Receiver();\n"            //10
-        "    r.ch = {};\n"                          //11
-        "    Thread t = thread.spawn(r.run);\n"     //12
-        "    int spin = 0;\n"                       //13
-        "    while (spin < 50) {\n"                 //14
-        "        spin = spin + 1;\n"                //15
-        "    }\n"                                   //16
-        "    int after = 1;\n"                      //17  <- breakpoint
-        "    r.ch.send(42);\n"                      //18
-        "    thread.join(t);\n"                     //19
-        "    return 0;\n"                           //20
+        "import concurrent;\n"                      //1
+        "import thread;\n"                          //2
+        "class Receiver {\n"                        //3
+        "    public Channel<int> ch;\n"             //4
+        "    public void run() {\n"                 //5
+        "        int k = 7;\n"                      //6
+        "        int v = ch.recv();\n"              //7  <- parks (empty)
+        "    }\n"                                   //8
+        "}\n"                                       //9
+        "int main() {\n"                            //10
+        "    Receiver r = Receiver();\n"            //11
+        "    r.ch = {};\n"                          //12
+        "    Thread t = thread.spawn(r.run);\n"     //13
+        "    int spin = 0;\n"                       //14
+        "    while (spin < 50) {\n"                 //15
+        "        spin = spin + 1;\n"                //16
+        "    }\n"                                   //17
+        "    int after = 1;\n"                      //18  <- breakpoint
+        "    r.ch.send(42);\n"                      //19
+        "    thread.join(t);\n"                     //20
+        "    return 0;\n"                           //21
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadLinked("mc_parked_view");
     MultiFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    REQUIRE(controller.AddBreakpoint("mc_parked_view.n", 17) != 0);
+    REQUIRE(controller.AddBreakpoint("mc_parked_view.n", 18) != 0);
     bool inspected = false;
     fe.onStopped = [&](DebugSessionController& c) {
         if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
@@ -255,34 +256,35 @@ void test_selected_parked_context_steps_on_wake()
 {
     TEST(selected_parked_context_steps_on_wake);
     BuildOutcome b = buildSource("mc_sel_parked",
-        "import thread;\n"                          //1
-        "class Receiver {\n"                        //2
-        "    public Channel<int> ch;\n"             //3
-        "    public void run() {\n"                 //4
-        "        int k = 0;\n"                      //5
-        "        while (k < 50) {\n"                //6
-        "            k = k + 1;\n"                  //7
-        "        }\n"                               //8
-        "        int ready = 1;\n"                  //9  <- bp
-        "        ch.send(99);\n"                    //10 wakes main
-        "        int after = 2;\n"                  //11
-        "    }\n"                                   //12
-        "}\n"                                       //13
-        "int main() {\n"                            //14
-        "    Receiver r = Receiver();\n"            //15
-        "    r.ch = {};\n"                          //16
-        "    Thread t = thread.spawn(r.run);\n"     //17
-        "    int v = r.ch.recv();\n"                //18 <- parks
-        "    int done = v + 1;\n"                   //19 <- step lands
-        "    thread.join(t);\n"                     //20
-        "    return 0;\n"                           //21
+        "import concurrent;\n"                      //1
+        "import thread;\n"                          //2
+        "class Receiver {\n"                        //3
+        "    public Channel<int> ch;\n"             //4
+        "    public void run() {\n"                 //5
+        "        int k = 0;\n"                      //6
+        "        while (k < 50) {\n"                //7
+        "            k = k + 1;\n"                  //8
+        "        }\n"                               //9
+        "        int ready = 1;\n"                  //10  <- bp
+        "        ch.send(99);\n"                    //11 wakes main
+        "        int after = 2;\n"                  //12
+        "    }\n"                                   //13
+        "}\n"                                       //14
+        "int main() {\n"                            //15
+        "    Receiver r = Receiver();\n"            //16
+        "    r.ch = {};\n"                          //17
+        "    Thread t = thread.spawn(r.run);\n"     //18
+        "    int v = r.ch.recv();\n"                //19 <- parks
+        "    int done = v + 1;\n"                   //20 <- step lands
+        "    thread.join(t);\n"                     //21
+        "    return 0;\n"                           //22
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadLinked("mc_sel_parked");
     MultiFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    REQUIRE(controller.AddBreakpoint("mc_sel_parked.n", 9) != 0);
+    REQUIRE(controller.AddBreakpoint("mc_sel_parked.n", 10) != 0);
     std::string mainStateAtBp;
     fe.onStopped = [&](DebugSessionController& c) {
         if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
@@ -302,7 +304,7 @@ void test_selected_parked_context_steps_on_wake()
     CHECK(fe.stops[2].reason == StopInfo::Reason::Step
         && fe.stops[2].contextId == 0,
         "the step stops in the SELECTED parked context after it wakes");
-    CHECK(fe.stops[2].line == 19,
+    CHECK(fe.stops[2].line == 20,
         "the step lands on the statement after the parking recv");
     PASS();
 }
@@ -361,31 +363,32 @@ void test_selected_never_waking_context_keeps_deadlock_report()
 {
     TEST(selected_never_waking_context_keeps_deadlock_report);
     BuildOutcome b = buildSource("mc_sel_deadlock",
-        "import thread;\n"                          //1
-        "class Receiver {\n"                        //2
-        "    public Channel<int> ch;\n"             //3
-        "    public void run() {\n"                 //4
-        "        int k = 0;\n"                      //5
-        "        while (k < 50) {\n"                //6
-        "            k = k + 1;\n"                  //7
-        "        }\n"                               //8
-        "        int ready = 1;\n"                  //9  <- bp
-        "    }\n"                                   //10
-        "}\n"                                       //11
-        "int main() {\n"                            //12
-        "    Receiver r = Receiver();\n"            //13
-        "    r.ch = {};\n"                          //14
-        "    Thread t = thread.spawn(r.run);\n"     //15
-        "    int v = r.ch.recv();\n"                //16 <- parks forever
-        "    thread.join(t);\n"                     //17
-        "    return 0;\n"                           //18
+        "import concurrent;\n"                      //1
+        "import thread;\n"                          //2
+        "class Receiver {\n"                        //3
+        "    public Channel<int> ch;\n"             //4
+        "    public void run() {\n"                 //5
+        "        int k = 0;\n"                      //6
+        "        while (k < 50) {\n"                //7
+        "            k = k + 1;\n"                  //8
+        "        }\n"                               //9
+        "        int ready = 1;\n"                  //10  <- bp
+        "    }\n"                                   //11
+        "}\n"                                       //12
+        "int main() {\n"                            //13
+        "    Receiver r = Receiver();\n"            //14
+        "    r.ch = {};\n"                          //15
+        "    Thread t = thread.spawn(r.run);\n"     //16
+        "    int v = r.ch.recv();\n"                //17 <- parks forever
+        "    thread.join(t);\n"                     //18
+        "    return 0;\n"                           //19
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadLinked("mc_sel_deadlock");
     MultiFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    REQUIRE(controller.AddBreakpoint("mc_sel_deadlock.n", 9) != 0);
+    REQUIRE(controller.AddBreakpoint("mc_sel_deadlock.n", 10) != 0);
     fe.onStopped = [&](DebugSessionController& c) {
         if (fe.stops.back().reason != StopInfo::Reason::Breakpoint)
             return;

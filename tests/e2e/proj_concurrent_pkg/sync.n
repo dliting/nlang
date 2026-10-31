@@ -1,0 +1,22 @@
+//Library unit: Mutex/Channel workflows exported through the package.
+import concurrent;
+
+int pipeSum(int a, int b)
+{
+    //Capacity-1 channel: alternate send/recv (two sends before any
+    //recv would park on a full channel with no drainer left).
+    Channel<int> c = Channel(1);
+    c.send(a);
+    int first = c.recv();
+    c.send(b);
+    return first + c.recv();
+}
+
+int guardedTwice(int v)
+{
+    Mutex m = Mutex();
+    m.lock();
+    int r = v + v;
+    m.unlock();
+    return r;
+}

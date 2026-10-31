@@ -1,6 +1,7 @@
 //AtomicInt beside the locking primitives: Mutex guards a two-field
 //invariant, AtomicInt carries the hot counter, ReentrantMutex carries
 //the composed method — the three coexist in one program.
+import concurrent;
 import thread;
 import io;
 

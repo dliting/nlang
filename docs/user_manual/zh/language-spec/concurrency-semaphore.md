@@ -21,6 +21,7 @@
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Worker {
     public Semaphore slots;
@@ -65,6 +66,7 @@ int main() {
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Starter {
     public Semaphore gate;
@@ -93,6 +95,7 @@ int main() {
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Taster {
     public Semaphore pool;

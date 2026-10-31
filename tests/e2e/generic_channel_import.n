@@ -1,0 +1,11 @@
+//e2e-③: generic native class instantiates through the import.
+import concurrent;
+
+int main() {
+    Channel<int> ci = Channel(1);
+    ci.send(3);
+    Channel<string> cs = Channel(1);
+    cs.send("x");
+    if (ci.recv() == 3 && cs.recv().length() == 1) { return 0; }
+    return 9;
+}

@@ -18,7 +18,7 @@
 #include "BuiltinNames.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include "ModuleRegistry.h"
-#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11 shared predicate)
+#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11); transitively builder/BindingTable.h
 #include <vector>
 
 namespace nlang

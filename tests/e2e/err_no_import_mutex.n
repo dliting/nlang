@@ -1,0 +1,6 @@
+//e2e-①: unimported use of a moved class is a compile error that names
+//the package (spec D10).
+int main() {
+    Mutex m = Mutex();
+    return 0;
+}

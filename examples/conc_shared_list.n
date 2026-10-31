@@ -6,6 +6,7 @@
 //through a Mutex, which makes each add atomic; the multiset of values
 //is then fully determined (each of 1..5 exactly twice) even though the
 //interleaved order is not.
+import concurrent;
 import thread;
 import io;
 

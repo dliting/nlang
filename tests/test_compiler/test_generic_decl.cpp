@@ -272,6 +272,7 @@ private slots:
     void declGenericFieldMintResolvesMembers()
     {
         const auto path = writeTempSource("generic_field_mint.n",
+            "import thread;\n"
             "class C {\n"
             "    public Promise<int> p;\n"
             "}\n"
@@ -1009,6 +1010,7 @@ private slots:
             "    return 0;\n"
             "}\n");
         const auto pathC = writeTempSource("syn_two_c.n",
+            "import thread;\n"
             "int main() {\n"
             "    Promise<int> pa = Promise();\n"
             "    Future<int> a = pa.future();\n"

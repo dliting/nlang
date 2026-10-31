@@ -1,0 +1,25 @@
+//e2e-④: the static face survives the move (S3 turned permanent).
+//Race shape mirrors selectany_race.n: the fast future (index 1) wins.
+import thread;
+
+int slow()
+{
+    thread.sleep(50);
+    return 1;
+}
+
+int fast()
+{
+    thread.sleep(5);
+    return 2;
+}
+
+int main()
+{
+    Future<int> a = thread.spawn(slow);
+    Future<int> b = thread.spawn(fast);
+    Future<int>[] arr = [a, b];
+    int winner = Future.selectAny(arr);
+    if (winner == 1) { return 0; }
+    return 1;
+}

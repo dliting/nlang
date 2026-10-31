@@ -118,7 +118,9 @@ static const CompiledClass* findClass(const CompiledModule& mod,
 
 //Instantiates all four classes and calls at least one member of each —
 //instantiation is what registers the declared records into the module.
-static const char* const kSurfaceProbe = R"NLANG(int main() {
+static const char* const kSurfaceProbe = R"NLANG(import concurrent;
+import thread;
+int main() {
     List<int> l = [1, 2];
     l.add(3);
     if (l.get(2) != 3 || l.length() != 3 || l.indexOf(2) != 1
@@ -145,7 +147,8 @@ static const char* const kSurfaceProbe = R"NLANG(int main() {
 }
 )NLANG";
 
-static const char* const kChannelProbe = R"NLANG(int main() {
+static const char* const kChannelProbe = R"NLANG(import concurrent;
+int main() {
     Channel<int> c = Channel(2);
     c.close();
     //Zero-arg construction: the bare invoke (the `new ...()` spelling is
@@ -157,7 +160,8 @@ static const char* const kChannelProbe = R"NLANG(int main() {
 }
 )NLANG";
 
-static const char* const kFutureProbe = R"NLANG(int main() {
+static const char* const kFutureProbe = R"NLANG(import thread;
+int main() {
     Promise<int> p = Promise();
     p.complete(1);
     Future<int> f = p.future();
@@ -243,6 +247,7 @@ void test_unbounded_ctor_does_not_read_capacity()
     TEST(unbounded_ctor_does_not_read_capacity);
     std::string out;
     const int rc = executeSource("binding_unbounded",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = Channel();\n"
         "    c.send(5);\n"
@@ -311,10 +316,16 @@ static void test_binding_package_for_name()
 {
     TEST(test_binding_package_for_name);
     std::string pkg;
-    CHECK(BindingPackageForName("Mutex", pkg) && pkg == "builtins",
-        "Mutex ctor row must resolve (pre-move package)");
-    CHECK(BindingPackageForName("Semaphore", pkg) && pkg == "builtins",
-        "the /1 ctor-key form must resolve");
+    CHECK(BindingPackageForName("Mutex", pkg) && pkg == "concurrent",
+        "Mutex ctor row must resolve to the moved package");
+    CHECK(BindingPackageForName("Semaphore", pkg) && pkg == "concurrent",
+        "the /1 ctor-key form must resolve to the moved package");
+    CHECK(BindingPackageForName("Channel", pkg) && pkg == "concurrent",
+        "the zero-formal ctor key must resolve too");
+    CHECK(BindingPackageForName("Promise", pkg) && pkg == "thread",
+        "the Promise ctor row must resolve to thread");
+    CHECK(!BindingPackageForName("Thread", pkg),
+        "Thread is minted by spawn with no ctor row - no package answer");
     CHECK(BindingPackageForName("spawn", pkg) && pkg == "thread",
         "qualified free-function form must resolve");
     CHECK(!BindingPackageForName("lock", pkg),
@@ -325,6 +336,55 @@ static void test_binding_package_for_name()
     PASS();
 }
 
+//Post-flip: a consumer of the moved classes links the package units,
+//and the merged image must carry the handle classes with their hidden
+//__handle slot first (the runtime writes slot 1 of the row — a missing
+//slot is an out-of-bounds write). Plain classes carry package-qualified
+//row names; the generic template rows (Channel/Future) stay bare.
+static void test_moved_handle_slots()
+{
+    TEST(test_moved_handle_slots);
+    {
+        CompiledModule mod = compileAndLink("moved_conc_slots",
+            "import concurrent;\n"
+            "int main() {\n"
+            "    Mutex m = Mutex();\n"
+            "    m.lock();\n"
+            "    m.unlock();\n"
+            "    return 0;\n"
+            "}\n");
+        const CompiledClass* cls = findClass(mod, "concurrent.Mutex");
+        CHECK(cls != nullptr,
+            "concurrent.Mutex must be in the linked image");
+        CHECK(!cls->fieldNames.empty()
+            && cls->fieldNames[0] == "__handle",
+            "concurrent.Mutex must lead with the __handle slot");
+    }
+    {
+        CompiledModule mod = compileAndLink("moved_thread_slots",
+            "import thread;\n"
+            "void job() { }\n"
+            "int main() {\n"
+            "    Thread t = thread.spawn(job);\n"
+            "    thread.join(t);\n"
+            "    return 0;\n"
+            "}\n");
+        const CompiledClass* cls = findClass(mod, "thread.Thread");
+        CHECK(cls != nullptr,
+            "thread.Thread must be in the linked image");
+        CHECK(!cls->fieldNames.empty()
+            && cls->fieldNames[0] == "__handle",
+            "thread.Thread must lead with the __handle slot");
+        const CompiledClass* fut = findClass(mod, "Future");
+        CHECK(fut != nullptr,
+            "Future is a generic template row under a bare key");
+        CHECK(!fut->fieldNames.empty()
+            && fut->fieldNames[0] == "__handle",
+            "Future must lead with the __handle slot");
+    }
+    PASS();
+}
+
 int main()
 {
     //In-process ModuleBuilder host: the interned IdString tables must
@@ -332,6 +392,7 @@ int main()
     //must be anchored too (test_stdlib_concurrency.cpp same shape).
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();
+    runGuarded(test_moved_handle_slots);
     runGuarded(test_declared_members_all_stamped);
     runGuarded(test_channel_has_two_ctors);
     runGuarded(test_future_has_no_ctor);

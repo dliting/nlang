@@ -2,6 +2,7 @@
 //composition through the ReentrantMutex completes while the plain
 //Mutex keeps its non-reentrant rules (self-relock of the Mutex would
 //still deadlock — not exercised here).
+import concurrent;
 import thread;
 import io;
 

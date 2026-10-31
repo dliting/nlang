@@ -95,7 +95,7 @@ DLL里的普通C++函数可以被同一个`.n`中的NLang函数体包装组合�
 | `stdlib/*.n` | 手写的权威声明——唯一的签名来源 |
 | `src/native/{math,io,fs}/` | native实现，构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll` |
 | 重复包检查（`ModuleRegistry::RegisterUnit` + 发现） | 一次构建内每个点分包名只能存在一份；错误指名两条来源路径 |
-| `String`/`Array`面声明（`stdlib/builtins.n`）＋绑定表（`src/vm/backend/BindingTable.cpp`） | string与数组的成员方法——声明在预置包里，以intrinsic分派；库命名空间不用这套机制 |
+| `String`/`Array`面声明（`stdlib/builtins.n`）＋绑定表（`src/compiler/builder/BindingTable.cpp`） | string与数组的成员方法——声明在预置包里，以intrinsic分派；库命名空间不用这套机制 |
 | ctest `no_builtin_stdlib` | 一旦硬编码表、math/io/fs的intrinsic家族或它们的id回归，或`stdlib/*.n`被删除而非表被删除，即失败 |
 
 `io.print`即`native void print(string)`：int/float/array经通用string形参隐式转换，class/enum/func要求显式`.toString()`。没有`TypeKind::Any`，也没有print专属的实参转string codegen。

@@ -3,6 +3,10 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/TypeDesc.h"
 #include "BytecodeEmitter.h"
+//Intrinsic binding table + package/name projections (compile-time
+//declaration metadata; moved compiler-side with the concurrency import
+//redesign so pure-compiler link targets resolve).
+#include "builder/BindingTable.h"
 //Macro-generated per-node-kind Visit methods; VmBackend doubles as the
 //accessor (Access overloads below) for emission dispatch.
 #include <nlang/compiler/SyntaxNodeVisitor.h>
@@ -1751,9 +1755,10 @@ private:
         return {true, slot};
     }
 
-    //--- prelude shadowing + intrinsic binding table (definitions in
-    //VmBackend.cpp; consumed by the registration walks and the
-    //two-arm stamping gate in GenerateUnits.cpp).
+    //--- prelude shadowing + handle-class certification (definitions in
+    //backend/DeclPredicates.cpp; consumed by the registration walks and
+    //the FieldOffsets mirror. The intrinsic binding table itself lives
+    //compiler-side — builder/BindingTable.h).
 
     //One whole-tree pass collecting the shadowed prelude names (see the
     //m_shadowedPreludeNames member comment). Top-level members only:
@@ -1777,28 +1782,9 @@ private:
 
 //Intrinsic binding table (builtin-decls source-of-truth design §4.5):
 //package-partitioned name→id rows for declarations implemented inside
-//the VM. The two-arm stamping gate keys free functions "pkg.func",
-//methods "Class.method", constructors "Class". Only-append id
-//discipline (include/nlang/vm/Intrinsics.h); a declaration outside the
-//table keeps host-native dispatch (the ordinary native channel).
-bool IsStampedBindingPackage(const std::string& packagePath);
-uint16_t LookupIntrinsicId(const std::string& packagePath,
-    const std::string& key);
-//D10 (concurrency import redesign): reverse lookup for the unimported-
-//use diagnostic — which stamped package declares this bare name? Four
-//key forms: exact ctor, "/1" ctor, "Name." method prefix, and the
-//free-function "pkg.name" qualified form.
-bool BindingPackageForName(const std::string& name,
-    std::string& outPackage);
-//Handle-class marker (§6.4): true for a prelude class name whose record
-//carries the hidden __handle field. Append-only list.
-bool IsHandleClassName(const std::string& className);
-//D11 (concurrency import redesign): the successor "this declaration IS
-//the builtin one" predicate — prelude ownership, or a stamped binding
-//package owning a handle-class name. Thread/Future have no class binding
-//rows, so this is a name-list arm, not a row-presence test (spec §3 D11).
-bool IsBuiltinHandleDeclName(const ModuleRegistry& registry,
-    uint32_t ownerUnit, const std::string& className);
+//the VM — declared in builder/BindingTable.h since the concurrency
+//import redesign moved the table to the compiler (it is compile-time
+//declaration metadata; the runtime never reads it).
 
 //v0.12.2 (the string-method signature table is retired): the number of
 //argument slots a string-method call must stage. The one synthetic case

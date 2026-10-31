@@ -9,6 +9,7 @@
 `Channel<T>`是消息通道，元素类型参数不可省略（裸`Channel`是编译错误——元素类型决定值的装箱与接收方拆箱）。两种构造形态：
 
 ```nlang
+import concurrent;
 Channel<int> a = {};        //无界：缓冲没有上限，send永不挂起
 Channel<int> b = Channel(2); //有界：容量2，缓冲满时send挂起
 ```
@@ -26,6 +27,7 @@ Channel<int> b = Channel(2); //有界：容量2，缓冲满时send挂起
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Reader {
     public Channel<int> ch;
@@ -62,6 +64,7 @@ int main() {
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Peer {
     public Channel<string> ch;

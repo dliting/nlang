@@ -1,5 +1,6 @@
 // Every target already decided at the call: the minimal index wins,
 // regardless of the order the completions happened in.
+import thread;
 import io;
 int main() {
     Promise<int> pa = Promise();

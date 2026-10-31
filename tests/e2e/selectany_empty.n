@@ -1,4 +1,5 @@
 // An empty wait set can never decide — rejected at the call.
+import thread;
 import io;
 int main() {
     Future<int> arr[0];

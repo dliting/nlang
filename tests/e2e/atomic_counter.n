@@ -1,5 +1,6 @@
 //Four tasks increment one AtomicInt 2500 times each across four
 //carriers — the counter must land exactly at 10000 (no lost updates).
+import concurrent;
 import thread;
 import io;
 

@@ -30,6 +30,7 @@ admission you cap → [Semaphore](concurrency-semaphore.md).
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Counter {
     public Mutex gate;

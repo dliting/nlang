@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
@@ -290,6 +291,35 @@ SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
 	return pMain;
 }
 
+//Resolve one unit's import specs against the parsed unit roots: exact
+//dotted paths, plus wildcard prefixes ('concurrent.*' reaches nested
+//paths too). Unresolved names are the import gate's diagnostics, not
+//the alias check's business.
+static std::vector<SnNamespace*> ImportedRootsOf(
+	const TranslationUnit& unit,
+	const std::map<std::string, SnNamespace*>& unitRootByPath)
+{
+	std::vector<SnNamespace*> importedRoots;
+	for (const auto &spec : unit.Imports())
+	{
+		if (spec.wildcard)
+		{
+			const std::string prefix = spec.DottedName() + ".";
+			for (const auto &entry : unitRootByPath)
+				if (!entry.first.empty()
+					&& entry.first.compare(0, prefix.size(), prefix) == 0)
+					importedRoots.push_back(entry.second);
+		}
+		else
+		{
+			auto it = unitRootByPath.find(spec.DottedName());
+			if (it != unitRootByPath.end())
+				importedRoots.push_back(it->second);
+		}
+	}
+	return importedRoots;
+}
+
 void ModuleBuilder::ExpandTypeAliases()
 {
 	//Per unit: clash check first (needs the unit root and the built-in
@@ -302,19 +332,25 @@ void ModuleBuilder::ExpandTypeAliases()
 	//answer yet (builtin-decls final sweep; TU order == module index).
 	SnNamespace *pPreludeRoot = nullptr;
 	const ModuleRegistry &registry = m_upEnv->Registry();
+	//Concurrency import redesign: the roots of the units each TU IMPORTS
+	//join its alias clash set — a package class is as hijackable by an
+	//alias as a prelude one (DiscoverLibraryUnits has parsed every
+	//import-reachable library TU already, so roots are available by
+	//path here; TU order == module index).
+	std::map<std::string, SnNamespace*> unitRootByPath;
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (registry.IsPreludeModule(moduleIndex))
-		{
 			pPreludeRoot = pTransUnit->Root();
-			break;
-		}
+		unitRootByPath[registry.ModulePathOf(moduleIndex)]
+			= pTransUnit->Root();
 		++moduleIndex;
 	}
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot);
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot,
+			ImportedRootsOf(*pTransUnit, unitRootByPath));
 		expander.ProcessUnit(*pTransUnit);
 	}
 }

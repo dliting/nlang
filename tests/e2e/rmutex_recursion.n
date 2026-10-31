@@ -1,6 +1,7 @@
 //Recursive acquisition: walk() locks at every recursion level and
 //releases on unwind — depth 8 must balance to exactly zero (the
 //third-party probe takes the lock afterwards).
+import concurrent;
 import thread;
 import io;
 

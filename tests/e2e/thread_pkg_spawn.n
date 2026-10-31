@@ -1,0 +1,22 @@
+//e2e-⑤: the spawn workflow on import thread alone.
+import io;
+import thread;
+
+void job() {
+}
+
+int compute() {
+    return 5;
+}
+
+int main() {
+    Thread t = thread.spawn(job);
+    thread.join(t);
+    Future<int> f = thread.spawn(compute);
+    Promise<int> p = Promise();
+    p.complete(1);
+    int r = f.get() + p.future().get();
+    io.print(r);
+    if (r == 6) { return 0; }
+    return 9;
+}

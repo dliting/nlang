@@ -1,0 +1,15 @@
+import io;
+import sync;
+
+int main()
+{
+    //Self-check before printing so a wrong value exits 9 with empty
+    //stdout and the ctest regex cannot match (the match overrides the
+    //exit code).
+    int s = sync.pipeSum(3, 4);
+    int g = sync.guardedTwice(10);
+    if (s != 7) { return 9; }
+    if (g != 20) { return 9; }
+    io.print(s);
+    return 0;
+}

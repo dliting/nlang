@@ -641,9 +641,11 @@ static void TestRunSourceSpawnJoinSharesWork() {
 static void TestRunSourceDeadlockIsCatchable() {
     TEST(TestRunSourceDeadlockIsCatchable);
     Interpreter itp;
+    itp.addImportDir(EMBED_DEPLOY_DIR);
     bool threw = false;
     try {
         (void)itp.runSource(
+            "import concurrent;\n"
             "int main() {\n"
             "    Channel<int> c = {};\n"
             "    int v = c.recv();\n"

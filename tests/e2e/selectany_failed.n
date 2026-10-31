@@ -1,5 +1,6 @@
 // A failed future counts as decided: selectAny returns its index and
 // the failure stays observable through get() (original object rethrown).
+import thread;
 import io;
 int main() {
     Promise<int> pa = Promise();

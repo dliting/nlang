@@ -93,33 +93,34 @@ const char* const kDebugSource =
 
 //K5 multi-context debug fixture (deterministic under ndb's pinned single
 //carrier): main spawns the receiver and parks in the empty-channel recv
-//(line 18) after ~5 statements, while the worker needs its whole 50-trip
-//loop to reach the line-9 breakpoint -- so the stop always lands on the
-//worker (context 1) with main parked-chan-recv at line 18. Stepping the
-//SELECTED parked main lands on line 19 (the statement after recv).
+//(line 19) after ~5 statements, while the worker needs its whole 50-trip
+//loop to reach the line-10 breakpoint -- so the stop always lands on the
+//worker (context 1) with main parked-chan-recv at line 19. Stepping the
+//SELECTED parked main lands on line 20 (the statement after recv).
 const char* const kDebugConcurrencySource =
-    "import thread;\n"                       //1
-    "class Receiver {\n"                     //2
-    "    public Channel<int> ch;\n"          //3
-    "    public void run() {\n"              //4
-    "        int k = 0;\n"                   //5
-    "        while (k < 50) {\n"             //6
-    "            k = k + 1;\n"               //7
-    "        }\n"                            //8
-    "        int ready = 1;\n"               //9  <- breakpoint
-    "        ch.send(99);\n"                 //10 wakes main
-    "        int after = 2;\n"               //11
-    "    }\n"                                //12
-    "}\n"                                    //13
-    "public int main() {\n"                  //14
-    "    Receiver r = Receiver();\n"         //15
-    "    r.ch = {};\n"                       //16
-    "    Thread t = thread.spawn(r.run);\n"  //17
-    "    int v = r.ch.recv();\n"             //18 <- parks (empty)
-    "    int done = v + 1;\n"                //19 <- selected step lands
-    "    thread.join(t);\n"                  //20
-    "    return 42;\n"                       //21
-    "}\n";                                   //22
+    "import concurrent;\n"                   //1
+    "import thread;\n"                       //2
+    "class Receiver {\n"                     //3
+    "    public Channel<int> ch;\n"          //4
+    "    public void run() {\n"              //5
+    "        int k = 0;\n"                   //6
+    "        while (k < 50) {\n"             //7
+    "            k = k + 1;\n"               //8
+    "        }\n"                            //9
+    "        int ready = 1;\n"               //10 <- breakpoint
+    "        ch.send(99);\n"                 //11 wakes main
+    "        int after = 2;\n"               //12
+    "    }\n"                                //13
+    "}\n"                                    //14
+    "public int main() {\n"                  //15
+    "    Receiver r = Receiver();\n"         //16
+    "    r.ch = {};\n"                       //17
+    "    Thread t = thread.spawn(r.run);\n"  //18
+    "    int v = r.ch.recv();\n"             //19 <- parks (empty)
+    "    int done = v + 1;\n"                //20 <- selected step lands
+    "    thread.join(t);\n"                  //21
+    "    return 42;\n"                       //22
+    "}\n";                                   //23
 
 //A program that never returns: the stop/teardown tests need a session
 //that stays alive until killed.
@@ -3356,7 +3357,7 @@ private slots:
         act(window, "actOpenFile")->trigger();
         CodeEditor* code = currentCode(window);
         QVERIFY(code != nullptr);
-        moveCursorToLine(code, 9);
+        moveCursorToLine(code, 10);
         act(window, "actToggleBreakpoint")->trigger();
         act(window, "actStartDebug")->trigger();  // synchronous build
 
@@ -3419,7 +3420,7 @@ private slots:
         act(window, "actOpenFile")->trigger();
         CodeEditor* code = currentCode(window);
         QVERIFY(code != nullptr);
-        moveCursorToLine(code, 9);
+        moveCursorToLine(code, 10);
         act(window, "actToggleBreakpoint")->trigger();
         act(window, "actStartDebug")->trigger();  // synchronous build
 
@@ -3453,8 +3454,8 @@ private slots:
             return false;
         };
         QTRY_VERIFY_WITH_TIMEOUT(hasLocal("v", "0"), 10000);
-        //The editor jumped to main's parked statement (line 18).
-        QCOMPARE(currentCode(window)->textCursor().blockNumber(), 17);
+        //The editor jumped to main's parked statement (line 19).
+        QCOMPARE(currentCode(window)->textCursor().blockNumber(), 18);
         //The status names the inspected context.
         QVERIFY(window.findChild<QLabel*>("lblDebugStatus")->text()
                     .contains(QLatin1String("Context 0")));
@@ -3471,12 +3472,12 @@ private slots:
             10000);
 
         //F10 steps the selected parked context: the worker runs on and
-        //finishes, main wakes from recv and stops at line 19 -- the
+        //finishes, main wakes from recv and stops at line 20 -- the
         //statement after the parked call -- and the marker follows the
         //new stop back to context 0.
         act(window, "actStepOver")->trigger();
         QTRY_VERIFY_WITH_TIMEOUT(
-            currentCode(window)->stoppedLine() == 19, 30000);
+            currentCode(window)->stoppedLine() == 20, 30000);
         QTRY_VERIFY_WITH_TIMEOUT(
             contexts->currentItem() != nullptr
                 && contexts->currentItem()->text(0) == QString("0"),

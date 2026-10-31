@@ -1,0 +1,13 @@
+//Library unit: spawn/Future workflows exported through the package.
+import thread;
+
+int jobValue()
+{
+    return 21;
+}
+
+int spawnSum()
+{
+    Future<int> f = thread.spawn(jobValue);
+    return f.get() * 2;
+}

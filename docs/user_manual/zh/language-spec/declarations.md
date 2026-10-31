@@ -134,6 +134,7 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 自己的代码在根级别声明同名class会**遮蔽**预置声明——任何位置都是最内层声明获胜（类型引用、构造调用、成员查找）：
 
 ```nlang
+import concurrent;
 class Semaphore { }          // 合法：遮蔽预置的Semaphore
 
 Semaphore s = Semaphore();   // 解析到你自己的class

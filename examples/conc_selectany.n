@@ -3,6 +3,7 @@
 //by side: selectAny directly, and the pre-selectAny channel-converge
 //workaround (one spawned waiter per source reporting through a shared
 //channel). Both pick the same winner and print the same line.
+import concurrent;
 import thread;
 import io;
 

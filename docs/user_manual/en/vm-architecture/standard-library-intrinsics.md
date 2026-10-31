@@ -20,7 +20,7 @@ function.
 (`s.substring(1)`, `s.split(d)`, …). The signatures are declared by the
 prelude face class `String` (`stdlib/builtins.n`) — the resolver validates
 the member call against that declaration, and emission reads the intrinsic
-identifier (ID) from the binding table (`src/vm/backend/BindingTable.cpp`,
+identifier (ID) from the binding table (`src/compiler/builder/BindingTable.cpp`,
 key `String.<method>`) in `src/vm/backend/EmitExprMemberString.cpp`. An
 intrinsic's ID is module-local — the linker's operand
 remap (`NcuRemapBytecodeOperands`, `src/vm/NcuLinkerRemap.cpp`) never

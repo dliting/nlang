@@ -4,6 +4,8 @@
 // legal for them — but a bare-name constructor with no typed target
 // still has no type arguments to instantiate from (Promise shown here;
 // the same reject covers every generic type name).
+import concurrent;
+import thread;
 int main() {
     Object o = Promise();
     return 0;

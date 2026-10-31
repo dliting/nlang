@@ -2,7 +2,7 @@
 
 内建函数（intrinsic）是VM直接以C++实现的操作：它们没有NLang函数体。只有字符串方法家族经`OP_CallIntrinsic`调用、不占模块的函数表；其余家族——字节流与文件流、`List<T>`/`Dict<K,V>`、Object协议、异常构造函数与并发操作——都搭载一条盖有内建函数ID的桩`CompiledFunction`记录，经普通的方法或函数调用指令分派。标准库横跨这几套机制：`math`、`io`、`fs`是普通的库源码，其native成员由`nlang_<包名>.dll`提供；`thread`的native声明由虚拟机本体以内建桩实现；`concurrent`是纯NLang实现——设计见[库机制](library-mechanism.md)。形如`math.sin(x)`的调用编译为`OP_CallFunc`，指向内联进来的库声明，因此和用户函数一样带有一条`CompiledFunction`记录。
 
-**哪些调用走到`OP_CallIntrinsic`**：字符串方法家族（`s.substring(1)`、`s.split(d)`……）。签名由预置面类`String`（`stdlib/builtins.n`）声明——resolver按该声明校验成员调用，发射时由`src/vm/backend/EmitExprMemberString.cpp`从绑定表（`src/vm/backend/BindingTable.cpp`，键`String.<方法名>`）读取内建函数标识符（ID，identifier）。内建函数ID是模块局部的——链接器的操作数重映射（`NcuRemapBytecodeOperands`，`src/vm/NcuLinkerRemap.cpp`）从不改写它——因此跨模块导入不存在ID问题。
+**哪些调用走到`OP_CallIntrinsic`**：字符串方法家族（`s.substring(1)`、`s.split(d)`……）。签名由预置面类`String`（`stdlib/builtins.n`）声明——resolver按该声明校验成员调用，发射时由`src/vm/backend/EmitExprMemberString.cpp`从绑定表（`src/compiler/builder/BindingTable.cpp`，键`String.<方法名>`）读取内建函数标识符（ID，identifier）。内建函数ID是模块局部的——链接器的操作数重映射（`NcuRemapBytecodeOperands`，`src/vm/NcuLinkerRemap.cpp`）从不改写它——因此跨模块导入不存在ID问题。
 
 **实参应用二进制接口（ABI，application binary interface）**：接收者占据`callParamBase[0]`，实参从槽1起，即`string.equals`的形状。`OP_CallIntrinsic`不带实参个数，因此唯一省略尾部实参的调用形态——`substring(start)`——会合成`end`，取接收者的长度。
 

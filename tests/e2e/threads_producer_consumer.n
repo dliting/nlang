@@ -5,6 +5,7 @@
 //into one shared totals object under a single mutex; joins establish
 //happens-before. The final totals are order-independent: 50 consumed,
 //checksum = sum(0..24) + sum(100..124) = 300 + 2800 = 3100.
+import concurrent;
 import io;
 import thread;
 

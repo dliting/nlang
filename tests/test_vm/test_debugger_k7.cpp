@@ -82,44 +82,45 @@ void test_freeze_releases_inflight_segment()
 {
     TEST(freeze_releases_inflight_segment);
     BuildOutcome b = buildSource("k7_freeze_release",
-        "import thread;\n"                        //1
-        "import io;\n"                            //2
-        "class Runner {\n"                        //3
-        "    public Channel<int> ch2;\n"          //4
-        "    public int go = 0;\n"                //5
-        "    public void run() {\n"               //6
-        "        go = 1;\n"                       //7
-        "        int i = 0;\n"                    //8
-        "        while (i < 2000000) {\n"         //9
-        "            i = i + 1;\n"                //10
-        "        }\n"                             //11
-        "        io.write(\"b1\");\n"             //12
-        "        int v = ch2.recv();\n"           //13
-        "        io.write(\"b2\");\n"             //14
-        "    }\n"                                 //15
-        "    public void tail() {\n"              //16
-        "        io.write(\"c1\");\n"             //17
-        "    }\n"                                 //18
-        "}\n"                                     //19
-        "int main() {\n"                          //20
-        "    Runner r = Runner();\n"              //21
-        "    r.ch2 = {};\n"                       //22
-        "    Thread t1 = thread.spawn(r.run);\n"  //23
-        "    int spin = 0;\n"                     //24
-        "    while (r.go == 0) { spin = spin + 1; }\n"  //25
-        "    Thread t2 = thread.spawn(r.tail);\n" //26
-        "    r.ch2.send(9);\n"                    //27  <- breakpoint
-        "    thread.join(t1);\n"                  //28
-        "    thread.join(t2);\n"                  //29
-        "    return 0;\n"                         //30
-        "}\n");                                   //31
+        "import concurrent;\n"                    //1
+        "import thread;\n"                        //2
+        "import io;\n"                            //3
+        "class Runner {\n"                        //4
+        "    public Channel<int> ch2;\n"          //5
+        "    public int go = 0;\n"                //6
+        "    public void run() {\n"               //7
+        "        go = 1;\n"                       //8
+        "        int i = 0;\n"                    //9
+        "        while (i < 2000000) {\n"         //10
+        "            i = i + 1;\n"                //11
+        "        }\n"                             //12
+        "        io.write(\"b1\");\n"             //13
+        "        int v = ch2.recv();\n"           //14
+        "        io.write(\"b2\");\n"             //15
+        "    }\n"                                 //16
+        "    public void tail() {\n"              //17
+        "        io.write(\"c1\");\n"             //18
+        "    }\n"                                 //19
+        "}\n"                                     //20
+        "int main() {\n"                          //21
+        "    Runner r = Runner();\n"              //22
+        "    r.ch2 = {};\n"                       //23
+        "    Thread t1 = thread.spawn(r.run);\n"  //24
+        "    int spin = 0;\n"                     //25
+        "    while (r.go == 0) { spin = spin + 1; }\n"  //26
+        "    Thread t2 = thread.spawn(r.tail);\n" //27
+        "    r.ch2.send(9);\n"                    //28  <- breakpoint
+        "    thread.join(t1);\n"                  //29
+        "    thread.join(t2);\n"                  //30
+        "    return 0;\n"                         //31
+        "}\n");                                   //32
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadLinked("k7_freeze_release");
     MutexIo io;
     MultiFrontEnd fe;
     DebugSessionController controller(mod, fe);
     fe.controller = &controller;
-    REQUIRE(controller.AddBreakpoint("k7_freeze_release.n", 27) != 0);
+    REQUIRE(controller.AddBreakpoint("k7_freeze_release.n", 28) != 0);
     bool sawB1 = false;
     bool sawC1DuringFreeze = false;
     std::string workerState;

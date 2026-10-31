@@ -39,6 +39,7 @@ overlapping peak is always `2` (the shipped
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Worker {
     public Semaphore slots;
@@ -84,6 +85,7 @@ and the event side lets them through with `release()`:
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Starter {
     public Semaphore gate;
@@ -116,6 +118,7 @@ retry once per interval:
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Taster {
     public Semaphore pool;

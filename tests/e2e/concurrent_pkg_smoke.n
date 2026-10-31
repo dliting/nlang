@@ -1,0 +1,15 @@
+//e2e-②: the moved classes work through the import.
+import concurrent;
+
+int main() {
+    Mutex m = Mutex();
+    m.lock();
+    m.unlock();
+    Semaphore s = Semaphore(1);
+    s.acquire();
+    s.release();
+    AtomicInt a = AtomicInt();
+    a.incrementAndGet();
+    if (a.load() == 1) { return 0; }
+    return 9;
+}

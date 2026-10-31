@@ -5,6 +5,8 @@
 // Nested containers are populated through typed locals (the established
 // idiom — an init list as a generic-typed call argument is a separate,
 // pre-existing limitation, not part of this migration).
+import concurrent;
+import thread;
 int main() {
     List<int> li = [1, 2, 3];
     li.add(4);

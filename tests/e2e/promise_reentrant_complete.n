@@ -2,6 +2,7 @@
 // through the implicit string-conversion evaluation window. complete()
 // only transitions scheduler state and wakes waiters — it never parks,
 // so the nested window is legal (no "cannot suspend" rejection).
+import thread;
 import io;
 
 class Reentrant {

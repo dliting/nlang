@@ -1,5 +1,6 @@
 //CAS-as-one-shot flag: four tasks race to flip 0 → 1; exactly one
 //wins, and the winner count lands at 1.
+import concurrent;
 import thread;
 import io;
 

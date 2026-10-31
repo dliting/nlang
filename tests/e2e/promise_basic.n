@@ -2,6 +2,7 @@
 // one decision state; an undecided promise at main's end exits silently
 // (join exit semantics — no deadlock warning, no unobserved-failure
 // report). Prints "false" twice; exit 0 pins every gate.
+import thread;
 import io;
 int main() {
     Promise<int> p = Promise();

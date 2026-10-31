@@ -2,6 +2,7 @@
 //The producer sends 1..10 and closes the channel; recv parks while the
 //buffer is empty, buffered values drain first after close, and the
 //then-raised ChannelClosedException is the loop's exit signal.
+import concurrent;
 import thread;
 import io;
 

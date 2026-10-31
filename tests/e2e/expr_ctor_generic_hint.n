@@ -4,6 +4,7 @@
 // constructor with a typed target; a bare-name constructor without one
 // keeps the named reject (Promise here — user generics do not exist
 // yet, so the prelude template is the negative-case carrier).
+import thread;
 int main() {
     Object o = Promise();
     return 0;

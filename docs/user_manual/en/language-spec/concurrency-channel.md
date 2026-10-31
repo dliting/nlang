@@ -16,6 +16,7 @@ state you share → `Mutex`.
 `Channel<T>` is a message channel. The element type argument is not optional (a bare `Channel` is a compile error — the element type drives value boxing and receiver-side unboxing). Two construction forms:
 
 ```nlang
+import concurrent;
 Channel<int> a = {};         // unbounded: no buffer limit, send never suspends
 Channel<int> b = Channel(2); // bounded: capacity 2, a full buffer suspends send
 ```
@@ -33,6 +34,7 @@ Closing semantics are drawn by the catchable `ChannelClosedException`: after `cl
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Reader {
     public Channel<int> ch;
@@ -69,6 +71,7 @@ When the sender arrives first, `recv` takes straight from the buffer; when the r
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Peer {
     public Channel<string> ch;

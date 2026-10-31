@@ -1829,7 +1829,7 @@ thread_decl_ctorargs compile_error
 #A user class shadowing Thread does not break typed spawn —
 #the mint resolves the prelude record by bare name
 #(parity with pre-migration behavior).
-thread_spawn_shadow 7
+thread_spawn_shadow compile_error is conflicted with a exist field definition
 thread_fail_unjoined 0 main-done
 thread_fail_joined_quiet 0 caught
 thread_fail_late_join 0 late-caught
@@ -1921,3 +1921,15 @@ generic_depth_limit compile_error instantiation depth
 # --- v0.12.3 Task 2: two-phase mint — fixed-key self-reference compiles (growing key stays rejected above) ---
 generic_selfref 0
 generic_mutual_pair 0
+
+# --- concurrency import redesign: unimported-use anchors (flip turns these green) ---
+err_no_import_mutex compile_error provided by package 'concurrent'
+err_no_import_channel compile_error provided by package 'concurrent'
+err_no_import_thread_class compile_error Cannot resolve
+
+# --- concurrency import redesign: imported-surface e2e (Task 5 Step 7) ---
+concurrent_pkg_smoke 0
+generic_channel_import 0
+future_selectany_import 0
+thread_pkg_spawn 0
+concurrent_churn_gc 0

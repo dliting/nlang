@@ -3,6 +3,7 @@
 //waiters first, then wakes every remaining receiver with
 //ChannelClosedException — one close stops the whole group, and each
 //receiver catches it and finishes its own way.
+import concurrent;
 import thread;
 import io;
 

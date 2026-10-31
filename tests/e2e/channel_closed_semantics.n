@@ -1,5 +1,6 @@
 //K3: closed-channel semantics — buffered values drain first, then both
 //recv and send raise the catchable ChannelClosedException.
+import concurrent;
 import io;
 
 int main() {

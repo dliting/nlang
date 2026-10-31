@@ -492,22 +492,23 @@ void test_machine_contexts_and_focus()
 {
     TEST(machine_contexts_and_focus);
     BuildOutcome b = buildSource("mach_ctx",
-        "import thread;\n"                       //1
-        "class Peer {\n"                          //2
-        "    public Channel<int> ch;\n"           //3
-        "    public void run() {\n"               //4
-        "        int k = 7;\n"                    //5  <- breakpoint
-        "        ch.send(9);\n"                   //6
-        "    }\n"                                 //7
-        "}\n"                                     //8
-        "int main() {\n"                          //9
-        "    Peer p = Peer();\n"                  //10
-        "    p.ch = {};\n"                        //11
-        "    Thread t = thread.spawn(p.run);\n"   //12
-        "    int x = p.ch.recv();\n"              //13 <- parks (empty)
-        "    thread.join(t);\n"                   //14
-        "    return x;\n"                         //15
-        "}\n");                                   //16
+        "import concurrent;\n"                   //1
+        "import thread;\n"                       //2
+        "class Peer {\n"                          //3
+        "    public Channel<int> ch;\n"           //4
+        "    public void run() {\n"               //5
+        "        int k = 7;\n"                    //6  <- breakpoint
+        "        ch.send(9);\n"                   //7
+        "    }\n"                                 //8
+        "}\n"                                     //9
+        "int main() {\n"                          //10
+        "    Peer p = Peer();\n"                  //11
+        "    p.ch = {};\n"                        //12
+        "    Thread t = thread.spawn(p.run);\n"   //13
+        "    int x = p.ch.recv();\n"              //14 <- parks (empty)
+        "    thread.join(t);\n"                   //15
+        "    return x;\n"                         //16
+        "}\n");                                   //17
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     //thread joins the closure at load time (stdlib.npkg via STDLIB_DIR).
     CompiledModule mod = loadLinked("mach_ctx");
@@ -515,7 +516,7 @@ void test_machine_contexts_and_focus()
     const std::string escaped = protocol::EncodeField(src);
     std::ostringstream events;
     std::istringstream in(
-        "b mach_ctx.n 5\n"   //binds worker's first statement
+        "b mach_ctx.n 6\n"   //binds worker's first statement
         "run\n"              //initial stop at main's first statement
         "c\n"                //main parks in recv; worker hits the bp
         "contexts\n"         //enumerate: parked main + held worker
@@ -534,27 +535,27 @@ void test_machine_contexts_and_focus()
     const std::string wire = events.str();
     CHECK(wire.find("hello\t2\n") == 0,
         "hello announces protocol version 2 (multi-context epoch)");
-    CHECK(wire.find("bp\t1\tmach_ctx.n\t5\tbound\n") != std::string::npos,
+    CHECK(wire.find("bp\t1\tmach_ctx.n\t6\tbound\n") != std::string::npos,
         "the worker breakpoint binds");
     CHECK(wire.find("stopped\tinitial\t0\tmach_ctx.main\t" + escaped
-            + "\t10\t1\t1\t0\n") != std::string::npos,
+            + "\t11\t1\t1\t0\n") != std::string::npos,
         "stopped carries the contextId as its last field (initial: main "
         "is context 0)");
     CHECK(wire.find("stopped\tbreakpoint\t1\trun\t" + escaped
-            + "\t5\t1\t1\t1\n") != std::string::npos,
+            + "\t6\t1\t1\t1\n") != std::string::npos,
         "the bp stop identifies the worker as context 1 (methods report "
         "their bare name)");
     CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_ctx.main\t"
-            + escaped + "\t13\n") != std::string::npos,
+            + escaped + "\t14\n") != std::string::npos,
         "contexts lists the parked main (no carrier holds it)");
     CHECK(wire.find("context\t1\trunnable\t0\trun\t" + escaped
-            + "\t5\n") != std::string::npos,
+            + "\t6\n") != std::string::npos,
         "contexts lists the held worker (runnable on carrier 0)");
     CHECK(wire.find("done\tcontexts\n") != std::string::npos,
         "contexts terminates with done");
     CHECK(wire.find("done\tcontext\n") != std::string::npos,
         "context selection confirms with done");
-    CHECK(wire.find("frame\t0\tmach_ctx.main\t" + escaped + "\t13\t0\n")
+    CHECK(wire.find("frame\t0\tmach_ctx.main\t" + escaped + "\t14\t0\n")
             != std::string::npos,
         "bt of the parked context enumerates its frame, tagged with the "
         "selected contextId");
@@ -575,27 +576,28 @@ void test_machine_context_selection_steps_target()
 {
     TEST(machine_context_selection_steps_target);
     BuildOutcome b = buildSource("mach_sel",
-        "import thread;\n"                          //1
-        "class Receiver {\n"                        //2
-        "    public Channel<int> ch;\n"             //3
-        "    public void run() {\n"                 //4
-        "        int k = 0;\n"                      //5
-        "        while (k < 50) {\n"                //6
-        "            k = k + 1;\n"                  //7
-        "        }\n"                               //8
-        "        int ready = 1;\n"                  //9  <- bp
-        "        ch.send(99);\n"                    //10 wakes main
-        "        int after = 2;\n"                  //11
-        "    }\n"                                   //12
-        "}\n"                                       //13
-        "int main() {\n"                            //14
-        "    Receiver r = Receiver();\n"            //15
-        "    r.ch = {};\n"                          //16
-        "    Thread t = thread.spawn(r.run);\n"     //17
-        "    int v = r.ch.recv();\n"                //18 <- parks
-        "    int done = v + 1;\n"                   //19 <- step lands
-        "    thread.join(t);\n"                     //20
-        "    return 0;\n"                           //21
+        "import concurrent;\n"                      //1
+        "import thread;\n"                          //2
+        "class Receiver {\n"                        //3
+        "    public Channel<int> ch;\n"             //4
+        "    public void run() {\n"                 //5
+        "        int k = 0;\n"                      //6
+        "        while (k < 50) {\n"                //7
+        "            k = k + 1;\n"                  //8
+        "        }\n"                               //9
+        "        int ready = 1;\n"                  //10  <- bp
+        "        ch.send(99);\n"                    //11 wakes main
+        "        int after = 2;\n"                  //12
+        "    }\n"                                   //13
+        "}\n"                                       //14
+        "int main() {\n"                            //15
+        "    Receiver r = Receiver();\n"            //16
+        "    r.ch = {};\n"                          //17
+        "    Thread t = thread.spawn(r.run);\n"     //18
+        "    int v = r.ch.recv();\n"                //19 <- parks
+        "    int done = v + 1;\n"                   //20 <- step lands
+        "    thread.join(t);\n"                     //21
+        "    return 0;\n"                           //22
         "}\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     CompiledModule mod = loadLinked("mach_sel");
@@ -603,7 +605,7 @@ void test_machine_context_selection_steps_target()
     const std::string escaped = protocol::EncodeField(src);
     std::ostringstream events;
     std::istringstream in(
-        "b mach_sel.n 9\n"   //worker's post-loop statement
+        "b mach_sel.n 10\n"   //worker's post-loop statement
         "run\n"              //initial stop at main's first statement
         "c\n"                //main parks in recv; worker reaches the bp
         "contexts\n"         //precondition: main parked, worker held
@@ -620,10 +622,10 @@ void test_machine_context_selection_steps_target()
 
     const std::string wire = events.str();
     CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_sel.main\t"
-            + escaped + "\t18\n") != std::string::npos,
+            + escaped + "\t19\n") != std::string::npos,
         "precondition: the freeze shows main parked in recv");
     CHECK(wire.find("stopped\tstep\t0\tmach_sel.main\t" + escaped
-            + "\t19\t1\t1\t0\n") != std::string::npos,
+            + "\t20\t1\t1\t0\n") != std::string::npos,
         "the step after selecting the parked main stops in main, on the "
         "statement after the recv");
     CHECK(wire.find("exited\t0\n") != std::string::npos,

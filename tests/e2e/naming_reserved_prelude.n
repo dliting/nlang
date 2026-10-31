@@ -2,6 +2,7 @@
 //a prelude-declared class name is spellable as a type, so a variable
 //of the same name is refused (declared-era shape — the synthesized
 //builtins carried their own IsBuiltinClassName guard once).
+import concurrent;
 int main() {
     int Semaphore = 1;
     return Semaphore;

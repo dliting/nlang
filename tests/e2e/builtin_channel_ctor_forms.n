@@ -3,6 +3,7 @@
 // construction forms must route to the right intrinsic: the zero-arg
 // intrinsic never reads the unstaged capacity slot. (`new ...` spellings
 // are not NLang — new is an ordinary identifier since 0.9.0 D8.)
+import concurrent;
 int main() {
     Channel<int> a = {};
     a.send(11);

@@ -1,4 +1,5 @@
 //e2e dbg_threads: threads listing + context focus switch (CLI).
+import concurrent;
 import thread;
 class Peer {
     public Channel<int> ch;

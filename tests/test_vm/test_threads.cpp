@@ -687,6 +687,7 @@ void test_thread_mutex_channel_compile_ok()
     std::string diag;
     try {
         buildLinkedModule("thread_mc_ok",
+            "import concurrent;\n"
             "int main() {\n"
             "    Mutex m = Mutex();\n"
             "    m.lock();\n"
@@ -785,8 +786,9 @@ void test_thread_requires_import()
 }
 
 //包真实化准入（typed spawn 窄臂）：无 import 的 thread.spawn(produce) 同样
-//报包导入诊断——窄臂在绑定前先施与包路径相同的 import 准入判定，杜绝
-//"typed spawn 静默成功而 yield 报错"的同一包两套准入行为。
+//报缺 import 诊断——首错为类型 Future 未解析，note 指明该名字由包 thread
+//提供并建议 import thread，杜绝"typed spawn 静默成功而 yield 报错"的同一
+//包两套准入行为。
 void test_typed_spawn_requires_import()
 {
     TEST(typed_spawn_requires_import);
@@ -796,7 +798,7 @@ void test_typed_spawn_requires_import()
         "    Future<int> h = thread.spawn(produce);\n"
         "    return 0;\n"
         "}\n",
-        "Package 'thread' is not imported. Add 'import thread;'"),
+        "is provided by package 'thread'; add 'import thread'"),
         "typed spawn without import names the missing import");
     PASS();
 }
@@ -1359,6 +1361,7 @@ void test_mutex_serializes_critical_section()
     TEST(mutex_serializes_critical_section);
     std::string out;
     const int rc = runSourceCapturing("mx_serial",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Counter {\n"
@@ -1397,6 +1400,7 @@ void test_mutex_wakes_waiters_fifo()
     TEST(mutex_wakes_waiters_fifo);
     std::string out;
     const int rc = runSourceCapturing("mx_fifo",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Gate {\n"
@@ -1446,6 +1450,7 @@ void test_mutex_trylock_reports_held_state()
     TEST(mutex_trylock_reports_held_state);
     std::string out;
     const int rc = runSourceCapturing("mx_trylock",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Holder {\n"
@@ -1481,6 +1486,7 @@ void test_mutex_unlock_without_hold_rejected()
     std::string what;
     try {
         runSource("mx_unlock_bare",
+            "import concurrent;\n"
             "int main() {\n"
             "    Mutex m = Mutex();\n"
             "    m.unlock();\n"
@@ -1507,6 +1513,7 @@ void test_gc_keeps_mutex_parked_roots()
 {
     TEST(gc_keeps_mutex_parked_roots);
     CompiledModule mod = buildLinkedModule("mx_gc_storm",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
@@ -1560,6 +1567,7 @@ void test_mutex_relock_deadlock_surfaces()
     std::string what;
     try {
         runSource("mx_relock",
+            "import concurrent;\n"
             "import thread;\n"
             "class Gate {\n"
             "    public Mutex m;\n"
@@ -1596,6 +1604,7 @@ void test_rmutex_reentrant_balance()
     TEST(rmutex_reentrant_balance);
     std::string out;
     const int rc = runSourceCapturing("rm_balance",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Outer {\n"
@@ -1637,6 +1646,7 @@ void test_rmutex_recursion_holds()
 {
     TEST(rmutex_recursion_holds);
     const int rc = runSource("rm_recursion",
+        "import concurrent;\n"
         "import thread;\n"
         "class Walker {\n"
         "    public ReentrantMutex m;\n"
@@ -1670,6 +1680,7 @@ void test_rmutex_serializes_cross_context()
     TEST(rmutex_serializes_cross_context);
     std::string out;
     const int rc = runSourceCapturing("rm_cross",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Gate {\n"
@@ -1719,6 +1730,7 @@ void test_rmutex_unlock_owner_only()
     std::string what;
     try {
         runSource("rm_unlock_free",
+            "import concurrent;\n"
             "int main() {\n"
             "    ReentrantMutex m = ReentrantMutex();\n"
             "    m.unlock();\n"
@@ -1735,6 +1747,7 @@ void test_rmutex_unlock_owner_only()
     threw = false;
     try {
         runSource("rm_unlock_over",
+            "import concurrent;\n"
             "int main() {\n"
             "    ReentrantMutex m = ReentrantMutex();\n"
             "    m.lock();\n"
@@ -1752,6 +1765,7 @@ void test_rmutex_unlock_owner_only()
 
     std::string out;
     const int rc = runSourceCapturing("rm_unlock_balance",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Gate {\n"
@@ -1789,6 +1803,7 @@ void test_rmutex_trylock_reentrant()
     TEST(rmutex_trylock_reentrant);
     std::string out;
     const int rc = runSourceCapturing("rm_trylock",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Gate {\n"
@@ -1831,6 +1846,7 @@ void test_rmutex_fifo_handoff()
     TEST(rmutex_fifo_handoff);
     std::string out;
     const int rc = runSourceCapturing("rm_fifo",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Gate {\n"
@@ -1883,6 +1899,7 @@ void test_rmutex_slot_reuse_clean()
 {
     TEST(rmutex_slot_reuse_clean);
     CompiledModule mod = buildLinkedModule("rm_reuse",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Holder {\n"
@@ -1950,6 +1967,7 @@ void test_rmutex_nested_eval_suspends()
     TEST(rmutex_nested_eval_suspends);
     std::string out;
     int rc = runSourceCapturing("rm_lock_ts",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Box {\n"
@@ -1991,6 +2009,7 @@ void test_rmutex_nested_eval_suspends()
 
     out.clear();
     rc = runSourceCapturing("rm_trylock_ts",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Box {\n"
@@ -2036,6 +2055,7 @@ void test_channel_fifo_buffer_order()
     TEST(channel_fifo_buffer_order);
     std::string out;
     const int rc = runSourceCapturing("ch_fifo",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Sender {\n"
@@ -2069,6 +2089,7 @@ void test_channel_recv_parks_until_send()
     TEST(channel_recv_parks_until_send);
     std::string out;
     const int rc = runSourceCapturing("ch_recv_park",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Peer {\n"
@@ -2098,6 +2119,7 @@ void test_channel_closed_semantics()
 {
     TEST(channel_closed_semantics);
     CompiledModule mod = buildLinkedModule("k3_chan_closed",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = {};\n"
         "    c.send(1);\n"
@@ -2127,6 +2149,7 @@ void test_channel_closed_drain_fifo()
 {
     TEST(channel_closed_drain_fifo);
     CompiledModule mod = buildLinkedModule("k3_chan_drain",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = {};\n"
         "    int i = 0;\n"
@@ -2160,6 +2183,7 @@ void test_channel_close_drains_then_closed_throws()
     TEST(channel_close_drains_then_closed_throws);
     std::string out;
     const int rc = runSourceCapturing("ch_close",
+        "import concurrent;\n"
         "import io;\n"
         "class Box {\n"
         "    public string tag;\n"
@@ -2193,6 +2217,7 @@ void test_channel_send_after_close_catchable()
 {
     TEST(channel_send_after_close_catchable);
     const int rc = runSource("ch_send_closed",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = {};\n"
         "    c.close();\n"
@@ -2216,6 +2241,7 @@ void test_channel_close_wakes_parked_recv_with_throw()
     TEST(channel_close_wakes_parked_recv_with_throw);
     std::string out;
     const int rc = runSourceCapturing("ch_close_wake",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Slack {\n"
@@ -2253,6 +2279,7 @@ void test_channel_typed_roundtrip()
     TEST(channel_typed_roundtrip);
     std::string out;
     const int rc = runSourceCapturing("ch_roundtrip",
+        "import concurrent;\n"
         "import io;\n"
         "int main() {\n"
         "    Channel<int> ci = {};\n"
@@ -2282,6 +2309,7 @@ void test_channel_buffered_survives_gc_storm()
 {
     TEST(channel_buffered_survives_gc_storm);
     CompiledModule mod = buildLinkedModule("ch_gc_storm",
+        "import concurrent;\n"
         "import io;\n"
         "struct Cell {\n"
         "    public int v;\n"
@@ -2320,6 +2348,7 @@ void test_channel_bare_name_rejected()
 {
     TEST(channel_bare_name_rejected);
     CHECK(buildFailsWith("ch_bare",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel c = Channel();\n"
         "    return 0;\n"
@@ -2335,6 +2364,7 @@ void test_channel_nonempty_init_rejected()
 {
     TEST(channel_nonempty_init_rejected);
     CHECK(buildFailsWith("ch_init_nonempty",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = {1};\n"
         "    return 0;\n"
@@ -2352,6 +2382,7 @@ void test_channel_recv_in_tostring_suspends()
     TEST(channel_recv_in_tostring_suspends);
     std::string out;
     const int rc = runSourceCapturing("ch_recv_ts",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Box {\n"
@@ -2636,6 +2667,7 @@ void test_worker_recv_park_throw_cross_frame_caught()
     TEST(worker_recv_park_throw_cross_frame_caught);
     std::string out;
     const int rc = runSourceCapturing("s11_xframe_park",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Peer {\n"
@@ -2710,6 +2742,7 @@ void test_worker_finally_after_recv_park()
     TEST(worker_finally_after_recv_park);
     std::string out;
     const int rc = runSourceCapturing("s11_worker_finally",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Peer {\n"
@@ -2785,6 +2818,7 @@ void test_mixed_storm_channels_mutex_gc()
 {
     TEST(mixed_storm_channels_mutex_gc);
     CompiledModule mod = buildLinkedModule("s11_storm",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
@@ -3071,6 +3105,7 @@ void test_channel_bounded_ctor_capacity()
 {
     TEST(channel_bounded_ctor_capacity);
     const int rc = runSource("chan_bounded_ctor",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = Channel(2);\n"
         "    c.send(1);\n"
@@ -3092,6 +3127,7 @@ void test_channel_bounded_send_parks_fifo()
     TEST(channel_bounded_send_parks_fifo);
     std::string out;
     const int rc = runSourceCapturing("chan_bounded_fifo",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Pump {\n"
@@ -3134,6 +3170,7 @@ void test_channel_bounded_close_wakes_sender()
     TEST(channel_bounded_close_wakes_sender);
     std::string out;
     const int rc = runSourceCapturing("chan_bounded_close",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Late {\n"
@@ -3173,6 +3210,7 @@ void test_channel_capacity_zero_unbounded()
 {
     TEST(channel_capacity_zero_unbounded);
     const int rc = runSource("chan_cap_zero",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<string> c = Channel(0);\n"
         "    c.send(\"a\");\n"
@@ -3193,6 +3231,7 @@ void test_channel_default_ctor_smallest_call_shape()
 {
     TEST(channel_default_ctor_smallest_call_shape);
     const int rc = runSource("chan_default_minimal",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = {};\n"
         "    c.close();\n"
@@ -3215,6 +3254,7 @@ void test_channel_negative_capacity_throws()
 {
     TEST(channel_negative_capacity_throws);
     const int rc = runSource("chan_cap_negative",
+        "import concurrent;\n"
         "int main() {\n"
         "    try {\n"
         "        Channel<int> c = Channel(-1);\n"
@@ -3239,6 +3279,7 @@ void test_channel_capacity_non_int_rejected()
 {
     TEST(channel_capacity_non_int_rejected);
     CHECK(buildFailsWith("chan_cap_type",
+        "import concurrent;\n"
         "int main() {\n"
         "    Channel<int> c = Channel(\"x\");\n"
         "    return 0;\n"
@@ -3255,6 +3296,7 @@ void test_channel_bounded_pending_survives_gc()
 {
     TEST(channel_bounded_pending_survives_gc);
     CompiledModule mod = buildLinkedModule("chan_bounded_gc",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "struct Cell {\n"
@@ -3980,6 +4022,7 @@ static void test_aux_carrier_error_confluence()
 {
     TEST(aux_carrier_error_confluence);
     const char* src =
+        "import concurrent;\n"
         "import thread;\n"
         "class Gate {\n"
         "    public Mutex m;\n"
@@ -4908,6 +4951,7 @@ static void test_k8_close_abort_recv_storm()
     TEST(k8_close_abort_recv_storm);
     std::string out;
     const int rc = runParallelCarriers("k8_close_abort",
+        "import concurrent;\n"
         "import thread;\n"
         "class RecvCloser {\n"
         "    public Channel<int> c;\n"
@@ -4956,6 +5000,7 @@ static void test_k8_mutex_handoff_storm()
     TEST(k8_mutex_handoff_storm);
     std::string out;
     const int rc = runParallelCarriers("k8_mutex_storm",
+        "import concurrent;\n"
         "import thread;\n"
         "class Shared {\n"
         "    public Mutex gate;\n"
@@ -5000,6 +5045,7 @@ static void test_k8_bounded_pingpong_storm()
     TEST(k8_bounded_pingpong_storm);
     std::string out;
     const int rc = runParallelCarriers("k8_pingpong",
+        "import concurrent;\n"
         "import thread;\n"
         "class Pong {\n"
         "    public Channel<int> req;\n"

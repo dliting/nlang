@@ -12,7 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11 shared predicate)
+#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11); transitively builder/BindingTable.h
 #include <nlang/langservice/SymbolIndex.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include "CastInfo.h"

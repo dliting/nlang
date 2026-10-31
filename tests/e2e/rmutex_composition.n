@@ -2,6 +2,7 @@
 //the exact pattern that self-deadlocks a plain Mutex. The hold count
 //carries through both pairs; the section over-admission check confirms
 //mutual exclusion still works against other contexts.
+import concurrent;
 import thread;
 import io;
 

@@ -1,0 +1,20 @@
+//F8 regression: fresh heap rows (not recycled slack) for the moved
+//handle classes across GC collections. A missing reserved __handle
+//slot is an out-of-bounds write that luck can hide.
+import concurrent;
+
+int main() {
+    int acc = 0;
+    int i = 0;
+    while (i < 2000) {
+        Mutex m = Mutex();
+        m.lock();
+        m.unlock();
+        Channel<int> c = Channel(1);
+        c.send(i);
+        acc = acc + c.recv();
+        i = i + 1;
+    }
+    if (acc == 1999000) { return 0; }
+    return 9;
+}

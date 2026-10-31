@@ -1,5 +1,6 @@
 // Standard library source for the "thread" package — authoritative
-// declarations for the virtual-thread primitives. Native package: the
+// declarations for the virtual-thread primitives and the handle classes
+// they mint (Thread, Future, Promise). Native package: the
 // implementations are built into the VM itself (not nlang_<ns>.dll), so
 // the wire shape is the intrinsic channel, not the host ABI. Needs an
 // explicit `import thread;`. spawn's typed form (func<T> delegate →
@@ -33,3 +34,29 @@ native int id();
 // Parks until the deadline; sleep(0) equals yield; negative is a
 // runtime error.
 native void sleep(int ms);
+
+// Handle of a spawned virtual thread: the runtime context id lives in
+// the hidden native slot. Instances are minted by thread.spawn — there
+// is no user-callable constructor.
+class Thread {
+}
+
+// Read handle of a spawned or promised computation: promise.future() and
+// thread.spawn mint instances (no user-callable constructor). get()
+// parks until the outcome is decided and returns the value (or re-raises
+// the failure); isDone() peeks without parking.
+class Future<T> {
+    public native T get();
+    public native bool isDone();
+}
+
+// Completion source: a user-constructed counterpart of spawn-minted
+// futures. complete()/completeExceptionally() decide the outcome exactly
+// once (first call wins, later calls return false); future() mints a
+// reader handle that can be passed anywhere and awaited with get().
+class Promise<T> {
+    public native Promise();
+    public native Future<T> future();
+    public native bool complete(T value);
+    public native bool completeExceptionally(Exception reason);
+}

@@ -1,0 +1,5 @@
+//e2e-①: the generic form of the same rule.
+int main() {
+    Channel<int> c = Channel(1);
+    return 0;
+}

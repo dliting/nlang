@@ -5,6 +5,7 @@
 //arrival order (A, B, C in the deque); each release is joined to the
 //waiter it must wake before the next release, so the printed order
 //holds under any carrier count (assert-after-synchronize).
+import concurrent;
 import thread;
 import io;
 

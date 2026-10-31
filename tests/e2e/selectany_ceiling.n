@@ -1,5 +1,6 @@
 // The wait set is bounded (DEFAULT_SELECT_ANY_MAX = 64); 65 entries
 // is a runaway set, not a wait.
+import thread;
 import io;
 int main() {
     Promise<int> p = Promise();

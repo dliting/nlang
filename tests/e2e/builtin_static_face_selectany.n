@@ -3,6 +3,7 @@
 // `Future.selectAny(...)` chains (prelude-owned type hits are not user
 // shadows). One promise completes before the call so the winner index is
 // deterministic on a single carrier (selectany_decided.n shape).
+import thread;
 int main() {
     Promise<int> pa = Promise();
     Promise<int> pb = Promise();

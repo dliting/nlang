@@ -37,6 +37,7 @@ still rejects it, `cannot suspend`); `tryLock()` never parks at all.
 ```nlang
 import io;
 import thread;
+import concurrent;
 
 class Service {
     public ReentrantMutex gate;

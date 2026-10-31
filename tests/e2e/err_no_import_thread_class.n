@@ -1,0 +1,7 @@
+//e2e-①: Thread has no class binding rows, so the package note is
+//absent — the known gap is pinned as an exact shape, not left to
+//drift.
+int main() {
+    Thread t = null;
+    return 0;
+}

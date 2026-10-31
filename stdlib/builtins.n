@@ -1,57 +1,13 @@
-//Standard library source for the "builtins" package — authoritative
-//declarations for the builtin classes. Implicitly imported into every
-//compilation unit (JLS §7.5.3 analogue): the names are visible without
-//an import statement, and user declarations shadow them by the
-//ordinary innermost-wins rule. Native class: the implementations live
-//in the VM (intrinsic channel), so class members are declared native.
+//Standard library source for the "builtins" prelude package — the
+//language core and the base containers only (D1: everything else
+//needs an import). Implicitly imported into every compilation unit
+//(JLS §7.5.3 analogue): the names are visible without an import
+//statement, and user declarations shadow them by the ordinary
+//innermost-wins rule. Native class: the implementations live in the
+//VM (intrinsic channel), so class members are declared native.
 //Compile-time inline only: the stdlib.npkg pack list excludes this
 //file; the build-tree stdlib copy keeps it for disk-first development.
-
-//Mutual exclusion: lock() parks the caller while the mutex is held;
-//unlock() hands ownership to the front waiter (FIFO handoff).
-//tryLock() takes the mutex only if it is free; never parks.
-class Mutex {
-    public native Mutex();
-    public native void lock();
-    public native void unlock();
-    public native bool tryLock();
-}
-
-//Counting semaphore with FIFO handoff: acquire() parks at zero permits
-//and release() hands the permit directly to the front waiter.
-//tryAcquire() never parks; over-release is legal.
-class Semaphore {
-    public native Semaphore(int initial);
-    public native void acquire();
-    public native void release();
-    public native bool tryAcquire();
-}
-
-//Reentrant lock: the owning context may lock() again without parking
-//(a per-owner hold count); unlock() must be called once per lock() and
-//releases only when the count reaches zero. The plain Mutex stays
-//non-reentrant — pick ReentrantMutex when methods compose or recurse.
-class ReentrantMutex {
-    public native ReentrantMutex();
-    public native void lock();
-    public native void unlock();
-    public native bool tryLock();
-}
-
-//Atomic integer: lock-free single-value primitives for cross-carrier
-//shared state — counters, flags. All operations are atomic; getAndX
-//returns the previous value, xAndGet the new one.
-class AtomicInt {
-    public native AtomicInt(int initial = 0);
-    public native int load();
-    public native void store(int v);
-    public native int getAndSet(int v);
-    public native bool compareExchange(int expect, int v);
-    public native int getAndAdd(int delta);
-    public native int addAndGet(int delta);
-    public native int incrementAndGet();
-    public native int getAndIncrement();
-}
+//Concurrency: import thread; / import concurrent;
 
 //Resizing sequence of elements of one type. Elements are boxed at the
 //runtime boundary for primitive type arguments (erasure); class and
@@ -113,48 +69,6 @@ class IOException : Exception {
 
 class InvalidCastException : Exception {
     public native InvalidCastException(string message);
-}
-
-//Raised by Channel receive/send after the channel is closed.
-class ChannelClosedException : Exception {
-    public native ChannelClosedException(string message);
-}
-
-//Synchronous rendezvous channel of one element type; capacity 0 is
-//unbounded. send parks when full, recv parks when empty; operations on
-//a closed channel raise ChannelClosedException.
-class Channel<T> {
-    public native Channel();
-    public native Channel(int capacity);
-    public native void send(T item);
-    public native T recv();
-    public native void close();
-}
-
-//Read handle of a spawned or promised computation: promise.future() and
-//thread.spawn mint instances (no user-callable constructor). get()
-//parks until the outcome is decided and returns the value (or re-raises
-//the failure); isDone() peeks without parking.
-class Future<T> {
-    public native T get();
-    public native bool isDone();
-}
-
-//Handle of a spawned virtual thread: the runtime context id lives in
-//the hidden native slot. Instances are minted by thread.spawn — there
-//is no user-callable constructor.
-class Thread {
-}
-
-//Completion source: a user-constructed counterpart of spawn-minted
-//futures. complete()/completeExceptionally() decide the outcome exactly
-//once (first call wins, later calls return false); future() mints a
-//reader handle that can be passed anywhere and awaited with get().
-class Promise<T> {
-    public native Promise();
-    public native Future<T> future();
-    public native bool complete(T value);
-    public native bool completeExceptionally(Exception reason);
 }
 
 //Root of the class hierarchy: every class without a declared base

@@ -205,7 +205,7 @@ carries no standard-library knowledge.
 | `stdlib/*.n` | hand-written authoritative declarations — the only signature source |
 | `src/native/{math,io,fs}/` | the native implementations, built as `nlang_math.dll`, `nlang_io.dll`, `nlang_fs.dll` |
 | duplicate-package check (`ModuleRegistry::RegisterUnit` + discovery) | one build may contain only one package of each dotted name; the error names both source paths |
-| `String`/`Array` face declarations (`stdlib/builtins.n`) + the binding table (`src/vm/backend/BindingTable.cpp`) | the string and array member methods — declared in the prelude, dispatched as intrinsics; a library package is not implemented this way |
+| `String`/`Array` face declarations (`stdlib/builtins.n`) + the binding table (`src/compiler/builder/BindingTable.cpp`) | the string and array member methods — declared in the prelude, dispatched as intrinsics; a library package is not implemented this way |
 | ctest `no_builtin_stdlib` | fails if a hardcoded table, a math/io/fs intrinsic family or their ids return, or if `stdlib/*.n` is deleted while the table remains |
 
 `io.print` is `native void print(string)`: int/float/array coerce through

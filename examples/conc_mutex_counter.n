@@ -2,6 +2,7 @@
 //Four tasks each increment a shared counter ten times. The mutex makes
 //every read-modify-write atomic, so the final value can only be 40;
 //without it, an interleaving could lose updates.
+import concurrent;
 import thread;
 import io;
 

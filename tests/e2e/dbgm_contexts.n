@@ -1,4 +1,5 @@
 //e2e dbgm_contexts: machine protocol contexts + focus (K4).
+import concurrent;
 import thread;
 class Peer {
     public Channel<int> ch;

@@ -217,6 +217,7 @@ the prelude declaration — the innermost declaration wins in every
 position (type references, constructor calls, member lookup):
 
 ```nlang
+import concurrent;
 class Semaphore { }          // legal: shadows the prelude Semaphore
 
 Semaphore s = Semaphore();   // resolves to YOUR class

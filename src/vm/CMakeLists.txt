@@ -52,7 +52,7 @@ add_library(nlang_vm
     IntrinsicsAtomic.cpp
     GenericInstDescriptor.cpp
     backend/VmBackend.cpp
-    backend/BindingTable.cpp
+    backend/DeclPredicates.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
     backend/RegisterStructs.cpp

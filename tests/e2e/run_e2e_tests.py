@@ -55,6 +55,69 @@ EXAMPLES_DIR = os.path.normpath(
 EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
 
 
+def _fail_on_stale_tools(ncc, nvm, ndb):
+    """Refuse to run against tool binaries older than any source file.
+
+    A targeted build refreshes only its own targets, so a changed VM
+    source can leave one of ncc/nvm/ndb stale while its siblings look
+    fresh; dbg_/dbgm tests then fail on runtime lookups in ways that
+    read as test-content bugs (the 2026-10-31 "Thread class not
+    registered" session: ndb predated the suffix-lookup commit). The
+    check over-approximates by design — ANY newer file under src/ or
+    stdlib/ demands a rebuild of the tools; a false alarm costs one
+    build, a miss costs a misdiagnosed gate.
+    """
+    repo_root = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
+    newest_src = 0.0
+    newest_name = ''
+    for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
+                    'include/**/*.h', 'include/**/*.hpp', 'stdlib/*.n'):
+        for path in glob.glob(os.path.join(repo_root, pattern),
+                              recursive=True):
+            mtime = os.path.getmtime(path)
+            if mtime > newest_src:
+                newest_src = mtime
+                newest_name = os.path.relpath(path, repo_root)
+    for tool in (ncc, nvm, ndb):
+        if not os.path.isfile(tool):
+            print(f"ERROR: tool not found: {tool}")
+            sys.exit(2)
+        if os.path.getmtime(tool) < newest_src:
+            print(f"ERROR: {os.path.relpath(tool, repo_root)} is older "
+                  f"than {newest_name} - rebuild the tools before "
+                  f"running the suite (stale-binary results are "
+                  f"meaningless)")
+            sys.exit(2)
+    #Load-time closure hazard: any .npkg in the tests directory is on
+    #the module-local search path and shadows the system stdlib package
+    #for every module run from here (an experiment leftover here once
+    #made manual runs pass while the harness failed).
+    for pkg in glob.glob(os.path.join(SCRIPT_DIR, '*.npkg')):
+        print(f"ERROR: {pkg} shadows the system stdlib for modules run "
+              f"from tests/e2e; remove it")
+        sys.exit(2)
+    #Stale-package hazard: stdlib.npkg is compiled by ncc (the
+    #nlang_stdlib_package step), so a package older than ncc was built
+    #by a superseded compiler — e2e then passes against a stdlib image
+    #no current build produces (the 2026-10-31 redesign ran green
+    #against a pre-flip npkg for a full task before anyone noticed).
+    #Derived from the ncc path (<build>/src/tools/ncc/<cfg>/ncc.exe);
+    #skipped when no npkg sits at that layout (an installed tool tree
+    #ships its package beside the binaries, not under a build root).
+    #Comparing against ncc alone is sufficient: the tool loop above
+    #already forces ncc to be at least as new as every stdlib source,
+    #so npkg >= ncc transitively covers the sources.
+    build_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.dirname(ncc)))))
+    npkg = os.path.join(build_root, 'stdlib', 'stdlib.npkg')
+    if os.path.isfile(npkg) and os.path.getmtime(npkg) < os.path.getmtime(ncc):
+        print(f"ERROR: {os.path.relpath(npkg, repo_root)} is older "
+              f"than {os.path.relpath(ncc, repo_root)} - rebuild the "
+              f"nlang_stdlib_package target before running the suite "
+              f"(stale-package results are meaningless)")
+        sys.exit(2)
+
+
 def _manifest_configs():
     """(manifest, sources_dir, out_dir) triples to run in order."""
     configs = [(MANIFEST, SCRIPT_DIR, SCRIPT_DIR)]
@@ -144,6 +207,7 @@ def main():
     #over from the nvm binary (build-tree layout), not next to it.
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
     ndb = os.path.join(tools_dir, 'ndb', 'Release', 'ndb.exe')
+    _fail_on_stale_tools(ncc, nvm, ndb)
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")

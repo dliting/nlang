@@ -1175,6 +1175,11 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_generic_typeparam_gc
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
+            #VmBackend.h includes builder/BindingTable.h (the intrinsic
+            #binding table lives compiler-side since the concurrency
+            #import redesign) — same internal-header reach as
+            #test_builtin_binding.
+            ${PROJECT_SOURCE_DIR}/src/compiler
     )
     target_link_libraries(test_generic_typeparam_gc
         PRIVATE
@@ -1935,6 +1940,30 @@ add_test(NAME proj_channel_initlist_run
 set_tests_properties(proj_channel_initlist_run PROPERTIES
     DEPENDS proj_channel_initlist_compile
     PASS_REGULAR_EXPRESSION "7")
+
+#Concurrency import redesign: project-mode consumption of the moved
+#classes through library units (import concurrent / import thread inside
+#the unit, package-qualified free-function calls from main). Self-check
+#before printing (the regex overrides the exit code).
+add_test(NAME proj_concurrent_pkg_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_concurrent_pkg/proj_concurrent_pkg.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_concurrent_pkg.npkg)
+add_test(NAME proj_concurrent_pkg_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_concurrent_pkg.npkg)
+set_tests_properties(proj_concurrent_pkg_run PROPERTIES
+    DEPENDS proj_concurrent_pkg_compile
+    PASS_REGULAR_EXPRESSION "7")
+
+add_test(NAME proj_thread_pkg_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_thread_pkg/proj_thread_pkg.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_thread_pkg.npkg)
+add_test(NAME proj_thread_pkg_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_thread_pkg.npkg)
+set_tests_properties(proj_thread_pkg_run PROPERTIES
+    DEPENDS proj_thread_pkg_compile
+    PASS_REGULAR_EXPRESSION "42")
 
 #0.9.0 review follow-up: a diagnosed module-qualified failure (the
 #generic-name hint, function-not-found) marks the member resolved; an

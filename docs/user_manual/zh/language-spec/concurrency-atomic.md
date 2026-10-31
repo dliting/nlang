@@ -29,6 +29,7 @@
 ```nlang
 import thread;
 import io;
+import concurrent;
 
 class Bumper {
     public AtomicInt counter;

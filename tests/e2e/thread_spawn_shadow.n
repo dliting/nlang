@@ -1,21 +1,14 @@
-//A user class shadowing the Thread name does not break typed spawn:
-//the handle classes register under bare names in the prelude package's
-//own image, and the runtime mint resolves its record by that bare name
-//— the user declaration only wins compile-time name resolution. Parity
-//with the pre-migration behavior (0.10.12 differential, same exit).
+//Concurrency import redesign: `import thread;` makes the package's
+//Thread declaration visible in this TU, and a same-name user class now
+//collides with it (the duplicate-field check) instead of silently
+//shadowing as it did when Thread was prelude-owned — implicit prelude
+//names yield to user declarations, explicitly imported ones do not
+//(the Java single-type-import rule). compile_error pins the collision.
 import thread;
 
 class Thread {
 }
 
-class W {
-    public void run() {
-    }
-}
-
 int main() {
-    W w = W();
-    Thread t = thread.spawn(w.run);
-    thread.join(t);
-    return 7;
+    return 0;
 }

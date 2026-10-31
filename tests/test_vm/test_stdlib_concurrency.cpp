@@ -1,8 +1,9 @@
 /*---
     test_stdlib_concurrency.cpp — stdlib/concurrent.n（WaitGroup）与内建
     Semaphore 句柄类（P2-1）行为测试。真实编译＋真实执行（同
-    test_threads.cpp harness 形态）：stdlib 单元经 stdlib 目录解析，内建
-    类无需 import；断言只用顺序与终值（无墙钟）。
+    test_threads.cpp harness 形态）：stdlib 单元经 stdlib 目录解析，并发
+    类属 thread/concurrent 包，嵌入源须显式 import；断言只用顺序与终值
+    （无墙钟）。
 ---*/
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -145,8 +146,8 @@ void test_waitgroup_releases_waiters()
     TEST(waitgroup_releases_waiters);
     std::string out;
     const int rc = runSourceCapturing("wg_wait",
-        "import thread;\n"
         "import concurrent;\n"
+        "import thread;\n"
         "import io;\n"
         "class Worker {\n"
         "    public WaitGroup wg;\n"
@@ -184,8 +185,8 @@ void test_waitgroup_add_accumulates()
     TEST(waitgroup_add_accumulates);
     std::string out;
     const int rc = runSourceCapturing("wg_add",
-        "import thread;\n"
         "import concurrent;\n"
+        "import thread;\n"
         "import io;\n"
         "class Worker {\n"
         "    public WaitGroup wg;\n"
@@ -223,6 +224,7 @@ void test_semaphore_limits_concurrency()
     TEST(semaphore_limits_concurrency);
     std::string out;
     const int rc = runSourceCapturing("sem_limit",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Runner {\n"
@@ -270,13 +272,14 @@ void test_semaphore_limits_concurrency()
     PASS();
 }
 
-//Native Semaphore construction: the builtin needs no import (the Mutex
-//shape) and accepts zero and positive initial counts.
+//Native Semaphore construction: the class lives in package concurrent, so
+//the source imports it; the ctor accepts zero and positive initial counts.
 void test_semaphore_native_constructs()
 {
     TEST(semaphore_native_constructs);
     std::string out;
     const int rc = runSourceCapturing("sem_ctor",
+        "import concurrent;\n"
         "import io;\n"
         "int main() {\n"
         "    Semaphore a = Semaphore(2);\n"
@@ -302,6 +305,7 @@ void test_semaphore_negative_initial_raises()
     try {
         std::string out;
         runSourceCapturing("sem_ctor_neg",
+            "import concurrent;\n"
             "int main() {\n"
             "    Semaphore s = Semaphore(-1);\n"
             "    return 0;\n"
@@ -327,6 +331,7 @@ void test_semaphore_park_and_wake()
     TEST(semaphore_park_and_wake);
     std::string out;
     const int rc = runSourceCapturing("sem_park",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Worker {\n"
@@ -365,6 +370,7 @@ void test_semaphore_fifo_wake_order()
     TEST(semaphore_fifo_wake_order);
     std::string out;
     const int rc = runSourceCapturing("sem_fifo",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Worker {\n"
@@ -413,6 +419,7 @@ void test_semaphore_try_acquire_arms()
     TEST(semaphore_try_acquire_arms);
     std::string out;
     const int rc = runSourceCapturing("sem_try",
+        "import concurrent;\n"
         "import io;\n"
         "int main() {\n"
         "    Semaphore s = Semaphore(1);\n"
@@ -438,6 +445,7 @@ void test_semaphore_overrelease_then_acquire()
     TEST(semaphore_overrelease_then_acquire);
     std::string out;
     const int rc = runSourceCapturing("sem_over",
+        "import concurrent;\n"
         "import io;\n"
         "int main() {\n"
         "    Semaphore s = Semaphore(0);\n"
@@ -469,6 +477,7 @@ void test_semaphore_acquire_in_tostring_suspends()
     TEST(semaphore_acquire_in_tostring_suspends);
     std::string out;
     const int rc = runSourceCapturing("sem_tostring",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class C {\n"
@@ -514,6 +523,7 @@ void test_semaphore_permits_conserved_multicarrier()
     TEST(semaphore_permits_conserved_multicarrier);
     std::string out;
     const int rc = runSourceCapturingCarriers("sem_conservation",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Releaser {\n"
@@ -572,6 +582,7 @@ void test_semaphore_park_gc_window()
     TEST(semaphore_park_gc_window);
     std::string out;
     const int rc = runSourceCapturing("sem_gcwindow",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Churner {\n"
@@ -630,6 +641,7 @@ void test_atomic_ctor_load_store()
     TEST(atomic_ctor_load_store);
     std::string out;
     const int rc = runSourceCapturing("atomic_basic",
+        "import concurrent;\n"
         "import io;\n"
         "int main() {\n"
         "    AtomicInt a = AtomicInt();\n"
@@ -652,6 +664,7 @@ void test_atomic_get_and_set_returns_old()
     TEST(atomic_get_and_set_returns_old);
     std::string out;
     const int rc = runSourceCapturing("atomic_getandset",
+        "import concurrent;\n"
         "int main() {\n"
         "    AtomicInt a = AtomicInt(7);\n"
         "    if (a.getAndSet(9) != 7) return 1;\n"
@@ -671,6 +684,7 @@ void test_atomic_compare_exchange_gate()
     TEST(atomic_compare_exchange_gate);
     std::string out;
     const int rc = runSourceCapturing("atomic_cas",
+        "import concurrent;\n"
         "int main() {\n"
         "    AtomicInt a = AtomicInt(5);\n"
         "    if (!a.compareExchange(5, 9)) return 1;\n"
@@ -692,6 +706,7 @@ void test_atomic_add_family()
     TEST(atomic_add_family);
     std::string out;
     const int rc = runSourceCapturing("atomic_addfam",
+        "import concurrent;\n"
         "int main() {\n"
         "    AtomicInt a = AtomicInt(10);\n"
         "    if (a.getAndAdd(3) != 10) return 1;\n"
@@ -716,6 +731,7 @@ void test_atomic_counter_race()
     TEST(atomic_counter_race);
     std::string out;
     const int rc = runSourceCapturingCarriers("atomic_race",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Bumper {\n"
@@ -757,6 +773,7 @@ void test_atomic_flag_pattern()
     TEST(atomic_flag_pattern);
     std::string out;
     const int rc = runSourceCapturingCarriers("atomic_flag",
+        "import concurrent;\n"
         "import thread;\n"
         "import io;\n"
         "class Claimer {\n"
@@ -797,6 +814,7 @@ void test_atomic_nested_eval_legal()
     TEST(atomic_nested_eval_legal);
     std::string out;
     const int rc = runSourceCapturing("atomic_tostring",
+        "import concurrent;\n"
         "import io;\n"
         "class Box {\n"
         "    public AtomicInt a;\n"
@@ -831,6 +849,7 @@ void test_atomic_uninit_rejected()
     try {
         std::string out;
         runSourceCapturing("atomic_uninit",
+            "import concurrent;\n"
             "int main() {\n"
             "    AtomicInt m;\n"
             "    m.load();\n"

@@ -89,28 +89,29 @@ const char kEchoSource[] =
     "}\n";                                  //8
 
 //spawn.n: main spawns the worker, then parks on the empty channel's
-//recv; the worker runs into the line-5 breakpoint. On the single-carrier
+//recv; the worker runs into the line-6 breakpoint. On the single-carrier
 //ndb this is deterministic AT the stop: the worker is the stopped
 //context (held by carrier 0) and main is parked (carrier -1). The
 //reverse construction (bp in main, worker parked) is not deterministic
 //-- the worker may still sit in the runnable queue.
 const char kSpawnSource[] =
-    "import thread;\n"                      //1
-    "class Worker {\n"                      //2
-    "    public Channel<int> ch;\n"         //3
-    "    public void run() {\n"             //4
-    "        int k = 7;\n"                  //5
-    "        ch.send(9);\n"                 //6
-    "    }\n"                               //7
-    "}\n"                                   //8
-    "int main() {\n"                        //9
-    "    Worker w = Worker();\n"            //10
-    "    w.ch = {};\n"                      //11
-    "    Thread t = thread.spawn(w.run);\n" //12
-    "    int x = w.ch.recv();\n"            //13
-    "    thread.join(t);\n"                 //14
-    "    return x;\n"                       //15
-    "}\n";                                  //16
+    "import concurrent;\n"                  //1
+    "import thread;\n"                      //2
+    "class Worker {\n"                      //3
+    "    public Channel<int> ch;\n"         //4
+    "    public void run() {\n"             //5
+    "        int k = 7;\n"                  //6
+    "        ch.send(9);\n"                 //7
+    "    }\n"                               //8
+    "}\n"                                   //9
+    "int main() {\n"                        //10
+    "    Worker w = Worker();\n"            //11
+    "    w.ch = {};\n"                      //12
+    "    Thread t = thread.spawn(w.run);\n" //13
+    "    int x = w.ch.recv();\n"            //14
+    "    thread.join(t);\n"                 //15
+    "    return x;\n"                       //16
+    "}\n";                                  //17
 
 } // namespace
 
@@ -589,7 +590,7 @@ void TestDebugClient::contextsListAndSelectSwitchInspection() {
     QSignalSpy failed(&client, &DebugClient::commandFailed);
 
     QVERIFY(client.launch(m_spawnNmod));
-    QVERIFY(client.addBreakpoint(m_spawnSource, 5));   //run() body
+    QVERIFY(client.addBreakpoint(m_spawnSource, 6));   //run() body
     QVERIFY(client.run());
     QTRY_COMPARE_WITH_TIMEOUT(
         client.state(), DebugClient::State::Stopped, kSessionTimeoutMs);
@@ -597,7 +598,7 @@ void TestDebugClient::contextsListAndSelectSwitchInspection() {
     //The worker is the stopped context; main is context 0.
     const QList<QVariant> stop = stoppedSpy.first();
     QCOMPARE(stop.at(2).toString(), QStringLiteral("run"));
-    QCOMPARE(stop.at(4).toInt(), 5);
+    QCOMPARE(stop.at(4).toInt(), 6);
     QCOMPARE(stop.at(7).toInt(), 1);
 
     //The frozen run lists both contexts, registry order (id ascending).
@@ -611,12 +612,12 @@ void TestDebugClient::contextsListAndSelectSwitchInspection() {
     QCOMPARE(mainRow.at(2).toInt(), -1);   //parked: no window holds it
     QCOMPARE(mainRow.at(3).toString(), QStringLiteral("spawn.main"));
     QVERIFY(mainRow.at(4).toString().endsWith(QLatin1String("spawn.n")));
-    QCOMPARE(mainRow.at(5).toInt(), 13);   //the recv park line
+    QCOMPARE(mainRow.at(5).toInt(), 14);   //the recv park line
     QCOMPARE(workerRow.at(0).toInt(), 1);
     QCOMPARE(workerRow.at(1).toString(), QStringLiteral("runnable"));
     QCOMPARE(workerRow.at(2).toInt(), 0);  //carrier 0 holds the stop
     QCOMPARE(workerRow.at(3).toString(), QStringLiteral("run"));
-    QCOMPARE(workerRow.at(5).toInt(), 5);
+    QCOMPARE(workerRow.at(5).toInt(), 6);
 
     //Frames pass their contextId through (arg 4 of the signal): bt
     //addresses the stopped worker, whose stack is exactly run().

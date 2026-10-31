@@ -1,11 +1,15 @@
 /*---
-    BuiltinClasses.cpp — 内建类注册表：流族（ByteStream/FileStream）的
-    数据表与单一登记循环。RegisterBuiltinClasses 表驱动化（2026-09-26
-    可维护性重构，零行为变化：行序即注册序，类/函数索引由它派生，
-    golden 对拍覆盖）。
-    Object 与异常族随内建类真源化退役：由 stdlib/builtins.n 的声明类
-    提供；List/Dict/Channel/Future 随真源化阶段 2 退役——其记录来自
-    声明发射＋绑定表盖章（backend/BindingTable.cpp）。
+    BuiltinClasses.cpp — the builtin class registry: the stream family
+    (ByteStream/FileStream) data table and its single registration
+    loop. RegisterBuiltinClasses made table-driven (2026-09-26
+    maintainability refactor, zero behavior change: row order is the
+    registration order; class/function indexes derive from it, golden
+    comparison covered).
+    Object and the Exception family retired with the builtin-decls
+    source-of-truth migration: stdlib/builtins.n declares them.
+    List/Dict/Channel/Future retired with phase 2 — their records come
+    from declaration emission + binding-table stamping
+    (compiler/builder/BindingTable.cpp).
 ---*/
 #include "VmBackend.h"
 #include <nlang/runtime/NodeConsts.h>

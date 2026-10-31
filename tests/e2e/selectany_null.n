@@ -1,5 +1,6 @@
 // A null element has no context to wait on — rejected before any
 // registration touches the scheduler.
+import thread;
 import io;
 int main() {
     Promise<int> p = Promise();
