@@ -11,6 +11,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include "ModuleBuilderChecks.h"
+#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11 shared predicate)
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <vector>
 
@@ -74,8 +75,13 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 	const std::string &baseName, const ISourceLocation *pLoc)
 {
 	const uint32_t templateOwner = env.Registry().OwnerOf(tmpl);
+	//D11: the builtin templates are exempt wherever they are declared —
+	//prelude-owned, or a stamped package's handle class after the
+	//concurrency classes leave the prelude (Channel boxes multi-slot
+	//element values inside its storage either way).
 	if (templateOwner == ModuleRegistry::NO_OWNER
-			|| env.Registry().IsPreludeModule(templateOwner))
+			|| IsBuiltinHandleDeclName(env.Registry(), templateOwner,
+				tmpl.Name()))
 		return false;
 	for (auto* pArg : typeArgs)
 	{

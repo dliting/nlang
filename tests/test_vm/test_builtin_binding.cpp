@@ -15,6 +15,8 @@
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/Intrinsics.h"
+#include "VmBackend.h"
+#include "builder/ModuleRegistry.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"
@@ -262,6 +264,21 @@ static void runGuarded(void (*fn)())
     }
 }
 
+//D11: the successor "is the builtin declaration" predicate. While the
+//classes still live in the prelude both arms read through arm 1; the
+//NO_OWNER shape must read false today and after the move. (Prelude-
+//owned and stamped-package shapes are pinned in the flip task via
+//compileAndLink sources — a fresh registry has no modules, so
+//ModulePathOf bounds are not exercised here.)
+static void test_builtin_handle_decl_predicate()
+{
+    TEST(test_builtin_handle_decl_predicate);
+    ModuleRegistry registry;   //fresh registry: no units, no prelude
+    CHECK(!IsBuiltinHandleDeclName(registry, ModuleRegistry::NO_OWNER,
+        "Mutex"), "NO_OWNER must not certify");
+    PASS();
+}
+
 int main()
 {
     //In-process ModuleBuilder host: the interned IdString tables must
@@ -273,6 +290,7 @@ int main()
     runGuarded(test_channel_has_two_ctors);
     runGuarded(test_future_has_no_ctor);
     runGuarded(test_unbounded_ctor_does_not_read_capacity);
+    runGuarded(test_builtin_handle_decl_predicate);
 
     std::cerr << "\n=== Results: " << g_pass << " passed, "
               << g_fail << " failed ===\n";

@@ -1787,6 +1787,12 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 //Handle-class marker (§6.4): true for a prelude class name whose record
 //carries the hidden __handle field. Append-only list.
 bool IsHandleClassName(const std::string& className);
+//D11 (concurrency import redesign): the successor "this declaration IS
+//the builtin one" predicate — prelude ownership, or a stamped binding
+//package owning a handle-class name. Thread/Future have no class binding
+//rows, so this is a name-list arm, not a row-presence test (spec §3 D11).
+bool IsBuiltinHandleDeclName(const ModuleRegistry& registry,
+    uint32_t ownerUnit, const std::string& className);
 
 //v0.12.2 (the string-method signature table is retired): the number of
 //argument slots a string-method call must stage. The one synthetic case

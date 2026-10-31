@@ -231,6 +231,23 @@ bool IsHandleClassName(const std::string& className)
     return false;
 }
 
+//D11 (concurrency import redesign): prelude ownership alone stops being
+//the "this declaration IS the builtin one" test once the concurrency
+//classes leave the prelude. The second arm keeps them certified: a
+//stamped binding package (thread/concurrent/...) owning a handle-class
+//name. Thread/Future have no class binding rows, so this is a name-list
+//arm, not a row-presence test (spec §3 D11).
+bool IsBuiltinHandleDeclName(const ModuleRegistry& registry,
+    uint32_t ownerUnit, const std::string& className)
+{
+    if (ownerUnit == ModuleRegistry::NO_OWNER)
+        return false;
+    if (registry.IsPreludeModule(ownerUnit))
+        return true;
+    return IsStampedBindingPackage(registry.ModulePathOf(ownerUnit))
+        && IsHandleClassName(className);
+}
+
 //Owner-gated marker check (record insertion and the FieldOffsets mirror
 //must consult the SAME predicate or the layouts diverge): a user class
 //that merely shares the name after shadowing is not the builtin, so
@@ -254,8 +271,7 @@ bool VmBackend::IsHandleClassDecl(const SnField& decl) const
         }
     }
     const uint32_t owner = m_pRegistry->OwnerOf(*pOwnerDecl);
-    return owner != ModuleRegistry::NO_OWNER
-        && m_pRegistry->IsPreludeModule(owner);
+    return IsBuiltinHandleDeclName(*m_pRegistry, owner, decl.Name());
 }
 
 //--- prelude shadowing ------------------------------------------------------

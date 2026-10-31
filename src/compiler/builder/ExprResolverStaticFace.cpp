@@ -18,6 +18,7 @@
 #include "BuiltinNames.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include "ModuleRegistry.h"
+#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11 shared predicate)
 #include <vector>
 
 namespace nlang
@@ -48,8 +49,11 @@ bool ExprResolveAccessor::UserDeclarationShadowsFace(
 		return false;
 	auto &registry = m_Env.Registry();
 	const uint32_t owner = registry.OwnerOf(*pFound);
+	//D11: the builtin declaration itself keeps the face arm's priority;
+	//prelude ownership alone would stop certifying once the concurrency
+	//classes leave the prelude.
 	return owner == ModuleRegistry::NO_OWNER
-		|| !registry.IsPreludeModule(owner);
+		|| !IsBuiltinHandleDeclName(registry, owner, typeName);
 }
 
 bool ExprResolveAccessor::TryResolveBuiltinStaticFace(

@@ -12,6 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include "VmBackend.h"   //IsBuiltinHandleDeclName (D11 shared predicate)
 #include <nlang/langservice/SymbolIndex.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include "CastInfo.h"
@@ -389,17 +390,19 @@ bool ExprResolveAccessor::ProbeNonFunctionField(const std::string &name)
 			m_Env.Registry().OwnerOf(*pField)))
 		return false;
 	//m12 semantics: a USER declaration shadows the built-in surfaces.
-	//A prelude-owned declaration is not a user shadow — the declared
+	//The builtin declaration itself is not a user shadow — the declared
 	//generic classes (Future, Channel, ...) are prelude members every
 	//scope probe can see, and treating them as shadows would retire
 	//the static faces (Future.selectAny) and every name-keyed arm that
-	//shares this probe.
+	//shares this probe. D11: the builtin test is the shared predicate,
+	//so a stamped package's handle classes stay exempt after the
+	//concurrency classes leave the prelude.
 	if (pField)
 	{
 		auto &registry = m_Env.Registry();
 		const uint32_t owner = registry.OwnerOf(*pField);
 		if (owner != ModuleRegistry::NO_OWNER
-			&& registry.IsPreludeModule(owner))
+			&& IsBuiltinHandleDeclName(registry, owner, name))
 			return false;
 	}
 	return pField != nullptr;

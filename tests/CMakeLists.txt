@@ -904,6 +904,7 @@ add_executable(test_builtin_binding
 target_include_directories(test_builtin_binding
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_builtin_binding
