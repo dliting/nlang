@@ -163,15 +163,16 @@ private slots:
             "the const prefix must set the struct marker");
     }
 
-    //Inheritance propagates the seal: D : B where B is const reads as
-    //const too (the query walks the SuperClass chain).
+    //Inheritance keeps the seal closed: a const subclass of a const
+    //base reads as const (own marker; the chain walk is the defensive
+    //query behind it).
     void markerPropagatesThroughInheritance()
     {
         auto outcome = compileSource("const_inherit",
             "const class B {\n"
             "    public int b;\n"
             "}\n"
-            "class D : B {\n"
+            "const class D : B {\n"
             "    public int d;\n"
             "}\n"
             "int main() { return 0; }\n");
@@ -180,7 +181,26 @@ private slots:
         QVERIFY2(pD != nullptr && pD->Kind() == NK_ClassDecl,
             "the D declaration must be found");
         QVERIFY2(static_cast<const SnClassDecl*>(pD)->IsConstAggregate(),
-            "a subclass of a const class must read as const");
+            "a const subclass must read as const");
+    }
+
+    //User ruling (2026-10-31): a const class may only be extended by a
+    //const class — mixed hierarchies (sealed base, mutable subclass)
+    //are a declaration error.
+    void mixedInheritanceRejected()
+    {
+        auto outcome = compileSource("const_inherit_mixed",
+            "const class B {\n"
+            "    public int b;\n"
+            "}\n"
+            "class D : B {\n"
+            "    public int d;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY2(!outcome.built,
+            "a mutable subclass of a const class must be rejected");
+        QVERIFY2(anyErrorMentions(outcome.errors, "must be const"),
+            "the diagnostic must name the const-subclass rule");
     }
 
     //Plain declarations carry no marker (the negative control for both

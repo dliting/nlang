@@ -64,6 +64,7 @@ const_class_container_elem_reject compile_error immutable container elements
 const_struct_array_field_reject compile_error cannot hold an array field
 const_class_surface_ok 7
 # --- v0.12.4 const-aggregate store gate (D3/D4) ---
+const_base_mutable_subclass_reject compile_error must be const
 const_field_write_reject compile_error is immutable
 const_field_compound_reject compile_error is immutable
 const_via_field_write_reject compile_error is immutable

@@ -185,7 +185,23 @@ void StatementResolveAccessor::ResolveClassBases(SnClassDecl &sn)
 				//to inherit).
 			}
 			else if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
-				sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
+			{
+				auto *pSuperDecl = static_cast<SnClassDecl*>(pSuperField);
+				//v0.12.4 D1 (user ruling 2026-10-31): const classes are
+				//extended by const classes only — a mixed hierarchy
+				//(sealed base, mutable subclass) would need per-subclass
+				//seal bookkeeping later. PreResolveClassBases re-runs this
+				//binding in order, so the diagnostic fires on the first
+				//binding only (SuperClass is still unbound then).
+				if (pSuperDecl->IsConstAggregate()
+					&& !sn.IsDeclaredConstAggregate()
+					&& sn.SuperClass() != pSuperDecl)
+					m_Env.Log(CLL_Error, sn.SuperName()->Location(),
+						"The class \"%s\" extends the const class \"%s\": "
+						"subclasses of a const class must be const too.",
+						sn.Name().c_str(), pSuperDecl->Name().c_str());
+				sn.SuperClass(pSuperDecl);
+			}
 			else
 				m_Env.Log(CLL_Error, sn.SuperName()->Location(),
 					"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
