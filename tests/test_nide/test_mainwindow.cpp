@@ -23,6 +23,7 @@
 #include <QDockWidget>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QDateTime>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
@@ -596,6 +597,25 @@ private slots:
         //A build-output test that fails mid-way leaves the key behind
         //(QVERIFY returns early): start every run from the unset state.
         QSettings().remove("ide/buildOutputDir");
+    }
+
+    //Hang diagnosability: QTest's -o log is exclusively locked for the
+    //whole run, so an outside watcher cannot tail it. This sidecar
+    //appends one line per finished function (own open/close, so the
+    //file is readable between writes); tools/qtest_progress.py tails
+    //it to report live per-function timing. Invoked reflectively by
+    //the QtTest framework (slots, not virtual overrides). A missing
+    //directory (a direct run from elsewhere) simply skips the log.
+    void cleanup() {
+        QFile log(QStringLiteral("qtest_logs/test_mainwindow.live.txt"));
+        if (QDir().mkpath(QStringLiteral("qtest_logs"))
+            && log.open(QIODevice::Append | QIODevice::Text)) {
+            log.write(QByteArray(QTest::currentTestFunction())
+                      + ' '
+                      + QByteArray::number(
+                          QDateTime::currentMSecsSinceEpoch())
+                      + '\n');
+        }
     }
 
     //--- initial state ---

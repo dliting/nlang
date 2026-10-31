@@ -1080,10 +1080,27 @@ if(NLANG_BUILD_IDE)
     # read that file after any failure.
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs)
     function(nlang_add_qtest name target)
-        add_test(NAME ${name} COMMAND ${target}
-            -o ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.txt,txt)
-        # House rule: every test stays under a 3-minute ceiling.
-        set_tests_properties(${name} PROPERTIES TIMEOUT 180)
+        #Optional third argument: the per-entry ceiling in seconds
+        #(default is the house 3-minute rule).
+        set(ceiling 180)
+        if(ARGC GREATER 2)
+            set(ceiling ${ARGV2})
+        endif()
+        math(EXPR wrapper_ceiling "${ceiling} - 10")
+        #Run through tools/qtest_progress.py: it mirrors the -o result
+        #log with a timestamp per completed test function, so a hung
+        #run shows exactly which function was in flight. The wrapper
+        #kills the child tree just under the ctest ceiling (a stuck
+        #nvm/ndb debug child cannot outlive the suite) and exits 124.
+        add_test(NAME ${name}
+            COMMAND ${Python3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
+                --qtest-log ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.txt
+                --progress-log
+                    ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.progress.log
+                --timeout ${wrapper_ceiling}
+                -- $<TARGET_FILE:${target}>)
+        set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
     endfunction()
 
     # Import syntax unit tests (module import visibility): grammar-level
@@ -1626,15 +1643,20 @@ if(NLANG_BUILD_IDE)
         #the test exe's directory (see nide's POST_BUILD note).
         nlang_copy_qtwebengine_runtime(test_mainwindow)
     endif()
-    nlang_add_qtest(mainwindow_tests test_mainwindow)
+    # House rule is a 3-minute ceiling, but this suite is the one
+    # entry that drives dozens of real ncc/nvm/ndb child sessions;
+    # on a loaded machine (e.g. right after a full rebuild, when
+    # every child spawn is AV-rescanned) it needs well over 3
+    # minutes. The ceiling's only job is to sit above the slowest
+    # legitimate run (a true hang never exits, so any ceiling
+    # catches it, and the progress wrapper reports per-function
+    # timing live, so a long ceiling hides nothing). Measured
+    # 2026-10-31: 341s solo; under machine load three QTRY-heavy
+    # debug tests each took 88-119s and the suite blew past 470s —
+    # 15 minutes leaves honest headroom for the loaded case.
+    nlang_add_qtest(mainwindow_tests test_mainwindow 900)
     set_tests_properties(mainwindow_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}"
-        # House rule is a 3-minute ceiling, but this suite is the one
-        # entry that drives dozens of real ncc/nvm/ndb child sessions;
-        # on a loaded machine (e.g. right after a full rebuild, when
-        # every child spawn is AV-rescanned) it needs well over 3
-        # minutes. 5 minutes still catches a hang.
-        TIMEOUT 300)
+        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
 
     # Deployment self-containment check (Phase 10 Step 9). Runs a
     # curated five-test probe subset from a scratch copy of the nide
