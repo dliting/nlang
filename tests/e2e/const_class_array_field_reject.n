@@ -1,0 +1,7 @@
+//v0.12.4 D6: a const class cannot hold an array field — arrays have no
+//cheap shallow-copy channel, so the mutable-handle escape cannot be
+//sealed. The diagnostic suggests a List instead.
+const class C {
+    public int[] coords;
+}
+int main() { return 0; }

@@ -1,0 +1,10 @@
+//v0.12.4 D6: container element types obey the same rule — a List of a
+//mutable class leaks writes through `c.xs.get(0).x = 1` even with
+//copy-on-read container fields.
+class Mutable {
+    public int x;
+}
+const class C {
+    public List<Mutable> xs;
+}
+int main() { return 0; }

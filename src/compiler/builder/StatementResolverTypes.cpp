@@ -5,9 +5,102 @@
 #include "StatementResolver.h"
 #include "FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnExpressions.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
 
 namespace nlang
 {
+
+namespace
+{
+
+//v0.12.4 D6: the field-type surface of a const aggregate. Arrays have
+//no shallow-copy channel and their element slots stay writable through
+//subscript, so array fields are rejected outright (a List field with
+//copy-on-read is the sealed shape). Mutable class/struct field types
+//break the seal through the shared handle (`c.f.x = 1`), and mutable
+//container ELEMENT types break it through the elements
+//(`c.xs.get(0).x = 1`) — the same rule, applied to the type arguments.
+//Legal face: primitives, string, enums, interfaces, func types,
+//type-parameter placeholders, const aggregates, compliant containers.
+void CheckConstAggregateFieldSurface(BuildEnvironment &env,
+	SnField &owner, const char *szKindWord, SnField &field)
+{
+	if (field.IsArrayType())
+	{
+		env.Log(CLL_Error, field.Location(),
+			"The const %s \"%s\" cannot hold an array field \"%s\": "
+			"use a List<T> field instead.",
+			szKindWord, owner.Name().c_str(), field.Name().c_str());
+		return;
+	}
+	SnField *pType = field.EvalDataType();
+	if (pType == nullptr)
+		return;	//the type expression already failed to resolve
+	if (pType->Kind() == NK_StructDecl)
+	{
+		if (!static_cast<SnStructDecl *>(pType)->IsConstAggregate())
+			env.Log(CLL_Error, field.Location(),
+				"The field \"%s\" of const %s \"%s\" must be a const "
+				"struct type (\"%s\" is mutable).",
+				field.Name().c_str(), szKindWord, owner.Name().c_str(),
+				pType->Name().c_str());
+		return;
+	}
+	if (pType->Kind() != NK_ClassDecl)
+		return;	//primitives, string, enums, interfaces: nothing to seal
+	auto *pClass = static_cast<SnClassDecl *>(pType);
+	//T binds at instantiation (instantiation-time args are the mint's
+	//surface, not the template's); func values are read-only handles.
+	if (pClass->IsTypeParamPlaceholder() || pClass->IsFuncType())
+		return;
+	if (pClass->IsGenericInstantiation()
+		&& (pClass->BaseName() == kBuiltinListTypeName
+			|| pClass->BaseName() == kBuiltinDictTypeName))
+	{
+		for (SnField *pArg : pClass->GenericTypeArgs())
+		{
+			if (pArg->IsArrayType())
+			{
+				env.Log(CLL_Error, field.Location(),
+					"The field \"%s\" of const %s \"%s\" must hold "
+					"immutable container elements (\"%s\" is a mutable "
+					"array).",
+					field.Name().c_str(), szKindWord,
+					owner.Name().c_str(), pArg->ToString().c_str());
+				return;
+			}
+			if (pArg->Kind() == NK_ClassDecl
+				&& !static_cast<SnClassDecl *>(pArg)->IsConstAggregate())
+			{
+				env.Log(CLL_Error, field.Location(),
+					"The field \"%s\" of const %s \"%s\" must hold "
+					"immutable container elements (\"%s\" is mutable).",
+					field.Name().c_str(), szKindWord,
+					owner.Name().c_str(), pArg->Name().c_str());
+				return;
+			}
+			if (pArg->Kind() == NK_StructDecl
+				&& !static_cast<SnStructDecl *>(pArg)->IsConstAggregate())
+			{
+				env.Log(CLL_Error, field.Location(),
+					"The field \"%s\" of const %s \"%s\" must hold "
+					"immutable container elements (\"%s\" is mutable).",
+					field.Name().c_str(), szKindWord,
+					owner.Name().c_str(), pArg->Name().c_str());
+				return;
+			}
+		}
+		return;
+	}
+	if (!pClass->IsConstAggregate())
+		env.Log(CLL_Error, field.Location(),
+			"The field \"%s\" of const %s \"%s\" must be a const class "
+			"type (\"%s\" is mutable).",
+			field.Name().c_str(), szKindWord, owner.Name().c_str(),
+			pClass->Name().c_str());
+}
+
+} //namespace
 
 //0.9.0 semantic restriction gate: a variable-style declaration — local,
 //formal parameter, catch parameter, loop variable, or class/struct
@@ -50,6 +143,9 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 		//fields; the struct default itself is applied at allocation,
 		//not by constructor injection).
 		CheckFieldInitializer(m_Env, field);
+		//v0.12.4 D6: the sealed surface of a const struct.
+		if (sn.IsConstAggregate())
+			CheckConstAggregateFieldSurface(m_Env, sn, "struct", field);
 	}
 	//0.9.11 D2: struct constructors. The member contract rejects plain
 	//function members; the flag contract is shared with class through
@@ -162,6 +258,10 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 			RejectTypeNameVariable(field.Name(), sn, sn,
 				field.Location());
 			field.Accept(*m_pVisitor);
+			//v0.12.4 D6: the sealed surface of a const class. Runs after
+			//the field's type resolved (Access(SnClassField&) above).
+			if (sn.IsConstAggregate())
+				CheckConstAggregateFieldSurface(m_Env, sn, "class", field);
 		}
 	}
 	//Resolve method bodies. Phase 9d-2: track the enclosing class so
