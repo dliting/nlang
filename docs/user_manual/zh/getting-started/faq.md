@@ -63,11 +63,11 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### `Point(2, 3)`为什么报「没有构造器」？
 
-未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../language-spec/struct.md)「创建与初始化」。
+未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../specification/04-types/struct.md)「创建与初始化」。
 
 ### 数组和`List`用哪个？
 
-尺寸固定、元素按值使用，用数组（`int[] sizes = [10, 20, 30];`，创建后长度不变）；要动态增删，用`List<T>`（`add`/`removeAt`，可增长）。速览见[速览：容器](containers.md)，完整语义见[语言规格/数组](../language-spec/array.md)与[语言规格/内建泛型类](../language-spec/builtin-generic-classes.md)。
+尺寸固定、元素按值使用，用数组（`int[] sizes = [10, 20, 30];`，创建后长度不变）；要动态增删，用`List<T>`（`add`/`removeAt`，可增长）。速览见[速览：容器](containers.md)，完整语义见[规范/数组](../specification/04-types/array.md)与[规范/泛型](../specification/04-types/generics.md)。
 
 ### `.ncu`版本过时，提示重新编译？
 
@@ -83,7 +83,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布局实参，运行期取最具体的子类的同名方法——不比对签名。如果允许子类为虚方法名添加不同签名的重载，实参会按错误的位置被解读，得到错误结果。因此名字一旦绑定虚方法或接口契约，子类的同名方法必须与契约签名一一对应。想提供不同签名的方法，请使用不同的方法名。
 
-详见[语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
+详见[规范/类](../specification/04-types/class.md)的「虚方法与重写」。
 
 ### 帮助窗口提示「文档未找到」？
 

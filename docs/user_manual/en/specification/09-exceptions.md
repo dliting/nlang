@@ -122,12 +122,12 @@ Every exception instance carries two fields, inherited from
 
 ## 9.4 User Exception Classes
 
-A user class may extend `Exception` (§8.1) to carry additional
+A user class may extend `Exception` (§4.8.5) to carry additional
 state. Its constructor forwards the message with `super(msg)`
-(§8.1); with no declared constructor, the synthesized
+(§4.8.6); with no declared constructor, the synthesized
 zero-argument constructor leaves the inherited fields at their
-defaults (§8.1). The class's own fields follow the inherited ones
-in the object layout (§8.1).
+defaults (§4.8.3, §4.8.6). The class's own fields follow the inherited ones
+in the object layout (§4.8.5).
 
 A user exception is raised and handled exactly like a built-in
 one: `catch (MyException e)` matches `MyException` and its

@@ -25,7 +25,7 @@ Output `7` and `24`; exit code 17. `List<T>` grows, `Dict<K,V>` stores
 and retrieves by key; both support subscript sugar and `foreach`
 iteration.
 
-See also: [Language Specification / Built-in Generic Classes](../language-spec/builtin-generic-classes.md).
+See also: [Specification / Generics](../specification/04-types/generics.md).
 
 ### Arrays
 
@@ -46,4 +46,4 @@ are read and written by subscript. `int[3]` is the other fixed-length
 creation form (create first, fill after). In one sentence: fixed
 size with value elements — use an array; dynamic growth — use `List<T>`.
 
-See also: [Language Specification / Array](../language-spec/array.md).
+See also: [Specification / Array](../specification/04-types/array.md).

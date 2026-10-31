@@ -35,10 +35,9 @@ before the double.
 `"w"` (create/truncate), `"a"` (create/append) or `"r"` (read-only; a
 missing file throws a runtime error). An invalid mode throws a runtime
 error. Direct-init declarations work too: `FileStream fs("data.bin", "w");`
-(see [Class](class.md) "Creating instances"). An unassigned stream
+(see [Class](../specification/04-types/class.md) "Instance creation"). An unassigned stream
 reference is null; calling a method on it throws a `null reference error`
-at run time (same semantics as the containers in [Built-in Generic
-Classes](builtin-generic-classes.md)).
+at run time (same semantics as the containers in [Generics](../specification/04-types/generics.md)).
 
 **Argument types**: the scalar write methods check each argument per the
 conversion rules — narrower integer and `float` arguments implicitly widen

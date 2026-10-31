@@ -132,7 +132,7 @@ a char is in the source file, after compilation, and on the console:
 - **After compilation a char is its 32-bit code point — neither UTF-8
   nor UTF-16.** Every char occupies 4 bytes holding the raw code
   point: local variables, char literals, boxed records (see
-  [Object and Boxing](../../language-spec/object.md)), and stream writes all store the same
+  [Object and Boxing](object.md)), and stream writes all store the same
   4-byte value, and it stays the plain code point end to end.
 - **Strings are where UTF-8 lives**: a string object is a UTF-8 byte
   sequence (see [String](string.md) "Encoding and length"). A char

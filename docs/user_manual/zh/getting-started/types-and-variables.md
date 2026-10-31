@@ -49,7 +49,7 @@ int main() {
 
 输出`Blue`、`2`，退出码3。枚举值是由编译器赋值的`int`常量（未显式指定时从0起自动递增）；值可直接转成`int`，`toString()`返回成员名，枚举也是合法的`switch`判别式。
 
-详见[语言规格/枚举](../language-spec/enum.md)。
+详见[规范/枚举](../specification/04-types/enum.md)。
 
 ### 结构体
 
@@ -76,7 +76,7 @@ int main() {
 
 输出`7`，退出码34。结构体是值类型：声明一个变量会把所有字段零初始化，拷贝它（`Point q = p;`）会按值复制整个结构体——包括嵌套结构体字段——因此两份拷贝相互独立。除裸声明外，结构体还可以用花括号条目创建——按声明序的`Point{3, 4}`或按名字的`Point{x: 3, y: 4}`——并能声明构造器（`public Point(int a, int b) { x = a; y = b; }`）；与class不同，它没有其他方法。值语义与引用语义的分界见[规范/类型](../specification/04-types/index.md)。
 
-详见[语言规格/结构体](../language-spec/struct.md)。
+详见[规范/结构体](../specification/04-types/struct.md)。
 
 ### 类型别名
 

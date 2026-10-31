@@ -55,7 +55,7 @@ class MyException : Exception {
 }
 ```
 
-用户类可以扩展`Exception`以携带额外字段。若没有用户构造函数，则使用默认构造函数，继承的字段零初始化；用户构造函数通常经`super(msg)`转发消息（见[类](class.md)「super() —— 构造函数链」）。
+用户类可以扩展`Exception`以携带额外字段。若没有用户构造函数，则使用默认构造函数，继承的字段零初始化；用户构造函数通常经`super(msg)`转发消息（见[类](../specification/04-types/class.md)「构造器与super()」）。
 
 ### 异常字段
 

@@ -31,8 +31,8 @@ the value spellings.
 
 Every class inherits three protocol methods from `Object` (§4.11):
 `int equals(Object other);`, `int getHashCode();` and
-`string toString();`. Chapter 8 defines their virtuality and
-overriding (§8.2). The defaults compare object identity: `equals`
+`string toString();`. §4.8.9 defines their virtuality and
+overriding. The defaults compare object identity: `equals`
 yields `1` when receiver and argument denote the same object and
 `0` otherwise, and `getHashCode` yields an `int` equal for equal
 objects. Neither is reachable through a `null` receiver: a member

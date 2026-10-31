@@ -61,7 +61,7 @@ compiler assigns (auto-increment from 0 unless you give them explicit
 values); a value converts to `int` directly, `toString()` returns the
 member name, and an enum is a valid `switch` discriminant.
 
-See also: [Language Specification / Enum](../language-spec/enum.md).
+See also: [Specification / Enum](../specification/04-types/enum.md).
 
 ### Struct
 
@@ -96,7 +96,7 @@ y: 4}` by name — and may declare constructors
 has no other methods. The line between value and reference semantics is
 drawn in [Specification / Types](../specification/04-types/index.md).
 
-See also: [Language Specification / Struct](../language-spec/struct.md).
+See also: [Specification / Struct](../specification/04-types/struct.md).
 
 ### Type alias
 

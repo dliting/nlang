@@ -14,6 +14,6 @@ int foo(int a, int b = 0, int c) { return c; }     // 默认值不在末尾
 - 默认表达式在调用点求值（不是在声明处）
 - 默认表达式与形参类型不匹配是编译错误
 
-注意：enum方法**不**支持默认参数（见[枚举](enum.md)「枚举方法」）。
+注意：enum方法**不**支持默认参数（见[枚举](../specification/04-types/enum.md)「枚举方法」）。
 
-class或struct构造函数的形参默认值不能引用`this`——显式`this.a`与裸字段名的隐式形式都是编译错误，因为默认表达式在构造调用点求值，此时被构造的对象尚不存在（见[类](class.md)「构造函数」与[结构体](struct.md)「创建与初始化」）。
+class或struct构造函数的形参默认值不能引用`this`——显式`this.a`与裸字段名的隐式形式都是编译错误，因为默认表达式在构造调用点求值，此时被构造的对象尚不存在（见[类](../specification/04-types/class.md)「构造器与super()」与[结构体](../specification/04-types/struct.md)「创建与初始化」）。

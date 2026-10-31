@@ -227,7 +227,7 @@ Object ids are assigned in write order, counting from 0, one
 id per tag-`1` record. `readObject(name)` re-creates the
 graph: a tag-`1` record's name must name a class the program
 declares, and that class must be the named type or a subclass
-of it (§8.1); the instance is registered under the next id
+of it (§4.8.5); the instance is registered under the next id
 before its fields are read, so a cycle resolves to the same
 instance. A tag other than `0`, `1` or `2`, an object id not
 yet read, a name the program does not declare, and a class

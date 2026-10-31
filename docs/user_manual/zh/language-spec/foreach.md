@@ -56,6 +56,6 @@ foreach (string name in ages) {
 
 **变更是未定义行为**。元素计数在循环入口一次取定（调用一次`iterable.length()`）。语句体内的结构修改（`List.add`/`removeAt`、`Dict.set`/`remove`）可能导致：越界访问、跳过/重复元素、或过期的`keys()`快照。对Array foreach语句体内的元素赋值（`arr[i] = x`）没问题（无结构变更）。
 
-**struct元素被拷贝进循环变量**（值语义）：`foreach (Point p in arr) { p.x = 99; }`不修改`arr`的元素——`p`每轮都是新深拷贝（与C#一致，对值类型元素做foreach也产生拷贝）。见[结构体](struct.md)。
+**struct元素被拷贝进循环变量**（值语义）：`foreach (Point p in arr) { p.x = 99; }`不修改`arr`的元素——`p`每轮都是新深拷贝（与C#一致，对值类型元素做foreach也产生拷贝）。见[结构体](../specification/04-types/struct.md)。
 
 **null迭代源**在第一次`length()`调用时抛空指针异常（NPE，null pointer exception）——与所有其他class类型调用一致。见[异常](exception.md)。

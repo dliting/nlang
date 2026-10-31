@@ -68,7 +68,7 @@ redundant — plain `int x = b;` works. The implicit matrix is in
   conversion rule).
 
 The Object side of unboxing/downcasting is on
-[Object & Boxing](../../language-spec/object.md).
+[Object and Boxing](object.md).
 
 ### Primitive → string coercion
 
@@ -103,7 +103,7 @@ All class instances inherit `string toString()` from `Object`. The default
 implementation returns a `ClassName@<heap position>` form (e.g.
 `"Point@7"`, `"Point@ff"`). User classes override it by declaring `string toString()
 { ... }` — dispatched by name, like `equals`/`getHashCode`. See
-[Object & Boxing](../../language-spec/object.md).
+[Object and Boxing](object.md).
 
 ```nlang
 class Point {
@@ -127,13 +127,13 @@ Conversion table:
 as in Java/C#. This applies to class, enum, and all scalar receivers.
 struct receivers are **permanently excluded** — `"x" + structInstance`
 is a compile error (struct is NLang's plain-data type; use class for
-object semantics). See [Struct](../../language-spec/struct.md).
+object semantics). See [Struct](struct.md).
 
 **Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`).
 The compiler embeds one name table per enum; the VM looks the member name
 up by value with `OP_Enum_to_str`. A value beyond the table throws at run
 time; a value skipped by explicit member numbering converts to the empty
-string. See [Enum](../../language-spec/enum.md).
+string. See [Enum](enum.md).
 
 **String identity**: `"hello".toString()` returns `"hello"` — the
 compiler treats it as an identity — no conversion happens.

@@ -49,10 +49,16 @@ nav:
           - 基本类型: specification/04-types/primitives.md
           - 字符串: specification/04-types/string.md
           - 类型强制转换: specification/04-types/casts.md
+          - 枚举: specification/04-types/enum.md
+          - 结构体: specification/04-types/struct.md
+          - 类: specification/04-types/class.md
+          - 接口: specification/04-types/interface.md
+          - 数组: specification/04-types/array.md
+          - Object与装箱: specification/04-types/object.md
+          - 泛型: specification/04-types/generics.md
       - 表达式: specification/05-expressions.md
       - 语句: specification/06-statements.md
       - 函数与方法: specification/07-functions.md
-      - 面向对象: specification/08-object-orientation.md
       - 异常: specification/09-exceptions.md
       - 执行模型与内存语义: specification/10-execution-model.md
       - 并发: specification/11-concurrency.md
@@ -69,14 +75,6 @@ nav:
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
-      - 类型:
-          - 枚举: language-spec/enum.md
-          - 结构体: language-spec/struct.md
-          - 类: language-spec/class.md
-          - 接口: language-spec/interface.md
-          - 数组: language-spec/array.md
-          - Object与装箱: language-spec/object.md
-          - 内建泛型类: language-spec/builtin-generic-classes.md
       - 表达式与语句:
           - 表达式: language-spec/expressions.md
           - 运算符: language-spec/operators.md

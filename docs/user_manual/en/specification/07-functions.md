@@ -6,13 +6,13 @@ The syntax of a function or method declaration is §2.2 at top
 level and §2.4 for class, struct, enum and interface members. A
 declaration gives a return type or `void`, a name, zero or more
 formal parameters, and a body. A method declaration with no return
-type names a constructor (chapter 8).
+type names a constructor (§4.8.6).
 
 A top-level function is *bare* when it carries no access modifier
 and no flags (§2.2). The distinction is grammatical only: at top
 level the access modifiers and the `static` and `virtual` flags
 are accepted and have no effect — they govern class members
-(chapter 8). Within its own unit every top-level function is
+(§4.8). Within its own unit every top-level function is
 visible bare. Across units, bare visibility follows §3.6, and the
 qualified name reaches the function through the import gate
 (§3.6, §3.9); neither path consults the modifiers. Only
@@ -20,7 +20,7 @@ qualified name reaches the function through the import gate
 
 A body written `;` declares a function without a body: a native
 function (§7.5) at top level, or an interface member with no
-default implementation (chapter 8).
+default implementation (§4.9.2).
 
 A `void` function returns no value. `return;` exits it early
 (§6.6); a call to it is used only as a statement — assigning its
@@ -84,7 +84,7 @@ or on a native function (§7.5). `out` is a reserved keyword
 
 Top-level functions of one bare pool may overload: same name,
 different parameter lists (§3.7). Class and struct members overload
-their methods and constructors the same way (chapter 8).
+their methods and constructors the same way (§4.7, §4.8).
 
 At a call site the compiler selects among the candidates whose
 parameter count can match the argument list, with defaults filling
@@ -135,7 +135,7 @@ referenced (§7.2).
 A bound reference captures its receiver when the value is formed;
 state changes made through the reference persist in the receiver
 object. A virtual or interface reference dispatches against the
-receiver's runtime class at each call (§5.9, chapter 8).
+receiver's runtime class at each call (§5.9, §4.8.9, §4.9.4).
 
 A function value is called with `v(a1, ..., an)` (§5.6); a
 function-typed field is called as `obj.cb(a1, ..., an)`. A
@@ -150,7 +150,7 @@ Two function values compare equal under `==` when they denote the
 same function and, for a bound reference, carry equal receivers;
 `!=` is the complement, and `== null` is allowed. Ordering
 comparisons are compile-time errors. A function value renders
-through `toString` (§5.3, chapter 8).
+through `toString` (§5.3, §4.11.2).
 
 A function value does not enter `Object` (§4.13). It cannot be a
 `Dict` key, a `switch` discriminant, or the target of the

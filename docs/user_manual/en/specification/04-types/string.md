@@ -31,7 +31,7 @@ String is a **value type** in the type system: assignment, parameter
 passing, and return copy the handle, and `==` compares **content**, not
 identity. The object behind the handle is immutable, so sharing a handle is
 harmless — two names to the same string can never diverge. (Contrast with
-`class`, a reference type: see [Class](../../language-spec/class.md) and
+`class`, a reference type: see [Class](class.md) and
 §4.1.)
 
 ### Encoding and length
@@ -182,7 +182,7 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
 A string variable may hold the null handle (0). Unlike a null class reference
 (which throws on member access), a null string **reads as the empty string**
 `""` — calling `s.length()` on a null string returns 0. See
-[Class](../../language-spec/class.md) for the contrasting class null semantics.
+[Class](class.md) for the contrasting class null semantics.
 
 ### String methods
 

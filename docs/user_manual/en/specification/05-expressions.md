@@ -107,7 +107,7 @@ The conversion of a value to `string` renders it as text:
   (§4.6).
 
 A class, array or function value renders through its `toString`
-(chapter 8).
+(§4.11.2).
 
 ## 5.4 String Interpolation
 
@@ -190,7 +190,7 @@ chapter 7.
 ## 5.7 Member Access and Subscript
 
 `x.m` selects the member `m` of the value of `x`; member lookup
-and dispatch are defined in chapter 8. Accessing a member or
+and dispatch are defined in §4.8 and §4.9. Accessing a member or
 calling a method through a `null` class or interface reference is
 a catchable run-time error (§4.8, chapter 9).
 
@@ -240,7 +240,7 @@ A struct brace initializer `T{...}` fills the fields of a new
 struct value by name (`T{f: v, ...}`) or by position (`T{v, ...}`)
 in declaration order; omitted fields keep their defaults (§4.7).
 A class is created by `T(args)`: the call allocates a new instance
-and runs the constructor (chapter 8). A `List` or `Dict` is
+and runs the constructor (§4.8.4). A `List` or `Dict` is
 created by a brace initializer as defined in §2.6 — positional
 entries append to a `List`, `key: value` entries store into a
 `Dict` — and the entries are evaluated left to right (§5.1).
@@ -256,7 +256,7 @@ value (§4.13):
   `expr`: the receiver is captured when the function value is
   formed;
 - a bound reference to a virtual or interface method dispatches
-  against the receiver's runtime class at each call (chapter 8).
+  against the receiver's runtime class at each call (§4.8.9, §4.9.4).
 
 The type of the value is `func<R, P1, ..., Pn>`, matching the
 signature of the denoted function exactly (§4.13). A function

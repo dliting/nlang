@@ -23,7 +23,7 @@ the `thread.*` functions; `concurrent` (`stdlib/concurrent.n`)
 declares `Mutex`, `ReentrantMutex`, `Semaphore`, `AtomicInt`,
 `Channel<T>`, `ChannelClosedException` and `WaitGroup` — each package
 needs its import (see [Concurrency](concurrency.md) and
-[Built-in generic classes](builtin-generic-classes.md)). The streams
+[Generics](../specification/04-types/generics.md)). The streams
 `ByteStream`/`FileStream` remain import-free (see
 [Streams](stdlib-streams.md)). A package is
 identified by its file's path — `stdlib/io.n` is the package `io` — and

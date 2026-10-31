@@ -87,7 +87,7 @@ inside an Array foreach body is fine (no structural change).
 **Struct elements are copied into the loop variable** (value semantics):
 `foreach (Point p in arr) { p.x = 99; }` does not modify `arr`'s elements —
 `p` is a fresh deep copy per iteration (consistent with C#, where foreach
-over value-type elements also yields copies). See [Struct](struct.md).
+over value-type elements also yields copies). See [Struct](../specification/04-types/struct.md).
 
 **Null iterable** throws null pointer exception (NPE) on the first
 `length()` call — consistent with all other class-typed calls. See

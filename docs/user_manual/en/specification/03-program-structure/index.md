@@ -19,7 +19,7 @@ syntax error.
 The top-level members are:
 
 - type declarations: `enum`, `struct`, `class` and `interface`
-  (chapter 4 and chapter 8);
+  (chapter 4);
 - top-level functions, bare or modifier-led (§2.2, chapter 7);
 - top-level statements (§3.2).
 

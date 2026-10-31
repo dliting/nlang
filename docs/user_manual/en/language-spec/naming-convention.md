@@ -30,4 +30,4 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 - Predicates do not use `isXxx` / `hasXxx` prefixes — `contains` and
   `startsWith` are clear on their own. (Exception: `equals` follows the
   Object virtual method protocol and returns int 0/1 — see
-  [Object & Boxing](object.md).)
+  [Object and Boxing](../specification/04-types/object.md).)

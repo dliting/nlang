@@ -80,7 +80,7 @@ int main() {
 - **返回位置的`out`**（`func<out int, ...>`）——报出明确的编译错误"out is only allowed on func<...> parameters."并拒绝。
 - **`func<...>(...)`**——不支持以名称构造；请绑定引用。
 - **`Dict<func<...>, V>`**——`func`作Dict键（见上文恒等说明）。
-- **装箱成`Object`**（`Object o = f`，装箱见[Object与装箱](object.md)）——经泛型的不兼容类型诊断拒绝。
+- **装箱成`Object`**（`Object o = f`，装箱见[Object与装箱](../specification/04-types/object.md)）——经泛型的不兼容类型诊断拒绝。
 - **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
 - 函数值不能穿过序列化应用程序编程接口（API，application programming interface）——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误。

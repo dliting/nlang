@@ -12,7 +12,7 @@
 
 ## 13.2 Object协议
 
-每个类都从`Object`继承三个协议方法（§4.11）：`int equals(Object other);`、`int getHashCode();`与`string toString();`。它们的虚属性与重写由第8章定义（§8.2）。默认实现比较对象身份：接收者与实参指代同一对象时`equals`产出`1`，否则产出`0`；`getHashCode`对相等的对象产出相等的`int`。两者都不可经由`null`接收者到达：经由`null`的成员访问抛出`NullPointerException`（§9.3）。
+每个类都从`Object`继承三个协议方法（§4.11）：`int equals(Object other);`、`int getHashCode();`与`string toString();`。它们的虚属性与重写由§4.8.9定义。默认实现比较对象身份：接收者与实参指代同一对象时`equals`产出`1`，否则产出`0`；`getHashCode`对相等的对象产出相等的`int`。两者都不可经由`null`接收者到达：经由`null`的成员访问抛出`NullPointerException`（§9.3）。
 
 `string`把这一对重写为按内容：当且仅当两侧持有相同字节时`equals`产出`1`——与`==`相同的关系（§4.3）——而`getHashCode`对字节做哈希，因此相等的字符串哈希相等。
 

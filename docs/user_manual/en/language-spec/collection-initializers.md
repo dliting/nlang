@@ -117,14 +117,14 @@ Keyed entries accept bare brace values too (`{"a": {1, 2}}` for a
 field); array-typed fields keep the bracket form (`{items: [1, 2]}`).
 Nested generic element types
 (`List<List<int>>`, `Dict<K, List<V>>`) are supported (see
-Nested generics under `List<T>` in
-[Built-in Generic Classes](builtin-generic-classes.md)).
+[Generics](../specification/04-types/generics.md), "Nesting and
+recursive references").
 
 **Empty collections:** the empty literal is `{}` for `List<T>` and
 `Dict<K,V>` targets — `List<int> l = {};`, `Dict<K,V> d = {};`. An
 array target takes no brace form (`int[] a = {};` is rejected — array
 initializers use the bracket form); an empty array is `int[] a = [];`
-(see [Array](array.md)). The empty bracket literal also works as a
+(see [Array](../specification/04-types/array.md)). The empty bracket literal also works as a
 `foreach` source and as a function argument. At a target-less position
 the empty bracket literal has no element type to infer (`[].length()`
 is rejected); give it a typed target.

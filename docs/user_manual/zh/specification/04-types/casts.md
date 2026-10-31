@@ -27,7 +27,7 @@ expr as TypeName
 - `bool`与任何数值类型之间的互转：bool经强制转换到`string`（下文`"ok=" + true`示例）、经装箱到`Object`（见§4.11），但与任何数值类型都不互转。
 - 数组操作数被直接拒绝（`ia as int`、`ia as Object`——"the cast operand is an array"）：数组值在每个位置的合法转换是其自身数组类型与string目标——绝不用`as`（完整的数组值转换规则见[已知限制](../../language-spec/known-limitations.md)）。
 
-unbox/向下强转的Object侧见[Object与装箱](../../language-spec/object.md)。
+unbox/向下强转的Object侧见[Object与装箱](object.md)。
 
 ### 基本类型 → string强制转换
 
@@ -47,7 +47,7 @@ string s7 = "a" + 1 + "b" + 2.5 + "c";  // "a1b2.5c"
 
 ### Object.toString()协议
 
-所有class实例从`Object`继承`string toString()`。默认实现返回「类名@堆位置」形式（例如`"Point@7"`、`"Point@ff"`）。用户类通过声明`string toString() { ... }`覆写它——按方法名虚分派，与`equals`/`getHashCode`相同。见[Object与装箱](../../language-spec/object.md)。
+所有class实例从`Object`继承`string toString()`。默认实现返回「类名@堆位置」形式（例如`"Point@7"`、`"Point@ff"`）。用户类通过声明`string toString() { ... }`覆写它——按方法名虚分派，与`equals`/`getHashCode`相同。见[Object与装箱](object.md)。
 
 ```nlang
 class Point {
@@ -67,9 +67,9 @@ class Point {
 | 全部标量基本类型        | 与 →string强制转换相同的格式化  | 否       |
 | string                | 自身（恒等）                    | 否       |
 
-**隐式强制转换**：`"x" + obj`自动调用`obj.toString()`，与Java/C#相同。适用于class、enum与全部标量接收者。struct接收者被**永久排除**——`"x" + structInstance`是编译错误（struct是NLang的纯数据类型；要对象语义请用class）。见[结构体](../../language-spec/struct.md)。
+**隐式强制转换**：`"x" + obj`自动调用`obj.toString()`，与Java/C#相同。适用于class、enum与全部标量接收者。struct接收者被**永久排除**——`"x" + structInstance`是编译错误（struct是NLang的纯数据类型；要对象语义请用class）。见[结构体](struct.md)。
 
-**enum名输出**：`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每张enum名表；VM用`OP_Enum_to_str`按值查找成员名。超出名字表的值在运行期抛出；被显式编号跳过的值转成空串。见[枚举](../../language-spec/enum.md)。
+**enum名输出**：`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每张enum名表；VM用`OP_Enum_to_str`按值查找成员名。超出名字表的值在运行期抛出；被显式编号跳过的值转成空串。见[枚举](enum.md)。
 
 **字符串恒等**：`"hello".toString()`返回`"hello"`——编译器直接按恒等处理，不产生任何转换。
 

@@ -15,7 +15,7 @@ int add(int a, int b) {
   (deep copy), class passed by reference — see [Types](../specification/04-types/index.md).
 - Return type: any type — structs return by deep copy, classes by
   reference, everything else by value; arrays and containers work as return
-  types too (see [Array](array.md) and [Collection
+  types too (see [Array](../specification/04-types/array.md) and [Collection
   initializers](collection-initializers.md)).
 - Recursion: supported, with a depth limit of 1000.
 

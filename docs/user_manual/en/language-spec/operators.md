@@ -122,9 +122,9 @@ Comparison results are always **`bool`** (`true` / `false`).
   American Standard Code for Information Interchange (ASCII): `"é" > "z"` is true. See [String](../specification/04-types/string.md) "Comparison".
 - **Class/reference equality** (`==`, `!=`) is identity (same heap
   object). For value comparison, use the `equals` method and override it in
-  your own classes — `==` is unaffected by the override; see [Object &
-  Boxing](object.md) "`equals` and `getHashCode`" and [Class](class.md)
-  "Virtual methods and overrides".
+  your own classes — `==` is unaffected by the override; see [Object and Boxing](../specification/04-types/object.md)
+  "Protocol methods" and [Class](../specification/04-types/class.md)
+  "Virtual methods and overriding".
 - **Arithmetic/concatenation with a null operand** is a compile error —
   null only has a value through the comparison-identity path above.
 

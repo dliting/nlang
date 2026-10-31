@@ -4,7 +4,7 @@
 
 import指令、using指令与作用域的规范性规则见§3.3–§3.5。
 
-类型声明——`enum`、`struct`、`class`、`interface`——各有独立页面：[枚举](../../language-spec/enum.md)、[结构体](../../language-spec/struct.md)、[类](../../language-spec/class.md)、[接口](../../language-spec/interface.md)。本节覆盖其余声明：import、变量、类型别名。
+类型声明——`enum`、`struct`、`class`、`interface`——各有独立页面：[枚举](../04-types/enum.md)、[结构体](../04-types/struct.md)、[类](../04-types/class.md)、[接口](../04-types/interface.md)。本节覆盖其余声明：import、变量、类型别名。
 
 ### import声明
 
@@ -100,7 +100,7 @@ int p[3], q;                // p是int数组，q是普通int
 
 引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](../../specification/04-types/string.md)）。enum的默认值是底层int值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
 
-类型特定的声明形式及其语义在各类型页：[枚举](../../language-spec/enum.md)、[结构体](../../language-spec/struct.md)、[类](../../language-spec/class.md)、[接口](../../language-spec/interface.md)。
+类型特定的声明形式及其语义在各类型页：[枚举](../04-types/enum.md)、[结构体](../04-types/struct.md)、[类](../04-types/class.md)、[接口](../04-types/interface.md)。
 
 ### 类型别名
 

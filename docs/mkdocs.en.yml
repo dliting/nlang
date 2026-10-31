@@ -48,10 +48,16 @@ nav:
           - Primitive Types: specification/04-types/primitives.md
           - String: specification/04-types/string.md
           - Type Casts: specification/04-types/casts.md
+          - Enum: specification/04-types/enum.md
+          - Struct: specification/04-types/struct.md
+          - Class: specification/04-types/class.md
+          - Interface: specification/04-types/interface.md
+          - Array: specification/04-types/array.md
+          - Object and Boxing: specification/04-types/object.md
+          - Generics: specification/04-types/generics.md
       - Expressions: specification/05-expressions.md
       - Statements: specification/06-statements.md
       - Functions: specification/07-functions.md
-      - Object Orientation: specification/08-object-orientation.md
       - Exceptions: specification/09-exceptions.md
       - Execution Model: specification/10-execution-model.md
       - Concurrency: specification/11-concurrency.md
@@ -68,14 +74,6 @@ nav:
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
-      - Types:
-          - Enum: language-spec/enum.md
-          - Struct: language-spec/struct.md
-          - Class: language-spec/class.md
-          - Interface: language-spec/interface.md
-          - Array: language-spec/array.md
-          - Object & Boxing: language-spec/object.md
-          - Built-in Generic Classes: language-spec/builtin-generic-classes.md
       - Expressions & Statements:
           - Expressions: language-spec/expressions.md
           - Operators: language-spec/operators.md

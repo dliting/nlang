@@ -100,11 +100,11 @@ constructor of the unit, in registration order. Each record:
 |---|---|---|
 | name | u32 length + bytes | the qualified key (§3.6) |
 | frame size | u16 | the frame size in bytes, eight bytes per slot: parameters (the receiver included), locals and scratch (§10.2) |
-| parameter count | u16 | the formal count, including the implicit receiver slot of a method or constructor (§8.1) |
+| parameter count | u16 | the formal count, including the implicit receiver slot of a method or constructor (§4.8.7) |
 | return kind | u16 | the type-kind code of the return type (§20.5); `0xFE` for `void` |
 | intrinsic id | u16 | `0xFFFF` for an ordinary function; otherwise an engine-internal identifier of a built-in intrinsic |
 | native flag | u8 | `1` for a body-less `native` declaration (§7.5) |
-| static flag | u8 | `1` for a static member (§8.1) |
+| static flag | u8 | `1` for a static member (§4.8.8) |
 | default count | u16 | followed by that many default value records (§20.6) |
 | bytecode size | u32 | followed by that many instruction bytes |
 | try block count | u16 | followed by five u16 values per entry |
@@ -154,7 +154,7 @@ writes size `0`.
 ## 20.4 Type Records
 
 **Access bytes.** A member's declared access is one byte: `0`
-default, `1` `private`, `2` `protected`, `3` `public` (§8.1).
+default, `1` `private`, `2` `protected`, `3` `public` (§4.8.2).
 
 **Structs.** One record per struct, in declaration order:
 
@@ -173,7 +173,7 @@ default, `1` `private`, `2` `protected`, `3` `public` (§8.1).
 
 A field default of *no default* (§20.6) leaves the field at
 its type's zero value; the others are applied at every
-allocation (§8.5).
+allocation (§4.7.2).
 
 **Classes.** One record per class, in declaration order:
 
@@ -190,13 +190,13 @@ allocation (§8.5).
 | field access | u8 each | |
 | method count | u16 | followed by that many u16 function-table indices: every member this class declares, static and instance, declaration order |
 | method access | u8 each | |
-| method virtual flags | u8 each | `1` for a `virtual` method (§8.2) |
+| method virtual flags | u8 each | `1` for a `virtual` method (§4.8.9) |
 | constructor count | u16 | followed by that many u16 function-table indices |
 | constructor access | u8 each | |
 
 The field list carries only the fields this class declares:
 the full instance layout is derived at load time by walking the
-superclass chain base-first (§8.1). Constructors also appear
+superclass chain base-first (§4.8.5). Constructors also appear
 in the method list; the constructor table selects them.
 
 **Interfaces.** One record per interface, in declaration order:
@@ -208,11 +208,11 @@ in the method list; the constructor table selects them.
 | constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor and a default value record (§20.6) |
 | signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
 
-Interface constants are scalar or string (§8.3); their default
+Interface constants are scalar or string (§4.9.3); their default
 value record carries the folded initializer. Instance-method
 signatures let a consumer resolve calls on an imported
 interface-typed receiver and check the `implements` contract
-across the package border (§8.3). The return descriptor is
+across the package border (§4.9.1). The return descriptor is
 always present: `void` is the `0xFE` kind byte. Interface
 members are implicitly public and non-virtual, so no access or
 virtual bytes are recorded.
@@ -228,7 +228,7 @@ values: a u32 count followed by each value name (u32 length +
 bytes). Then the qualified keys: one per enumeration (u16
 length + bytes), no separate count. Then the member methods: a
 u32 count followed by, per method, a u16 function-table index
-and an access byte (§8.4).
+and an access byte (§4.6.2).
 
 ## 20.5 Type Descriptors
 
@@ -298,7 +298,7 @@ field's default (§20.4) and an interface constant's value
 | `0xFC` | a default outside the expressible subset: a consumer that must materialize it reports an error |
 
 Struct field defaults and interface constants carry only
-foldable tags — never `0xFB` or `0xFC` (§4.7, §8.3).
+foldable tags — never `0xFB` or `0xFC` (§4.7.2, §4.9.3).
 
 **Default expressions.** A default outside the foldable subset
 rides a small expression tree; each node begins with a tag

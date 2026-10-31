@@ -4,9 +4,9 @@ The normative rules for import directives, using directives and
 scopes are §3.3–§3.5.
 
 Type declarations — `enum`, `struct`, `class`, `interface` — each live on their
-own page: [Enum](../../language-spec/enum.md), [Struct](../../language-spec/struct.md),
-[Class](../../language-spec/class.md),
-[Interface](../../language-spec/interface.md). This section covers the remaining
+own page: [Enum](../04-types/enum.md), [Struct](../04-types/struct.md),
+[Class](../04-types/class.md),
+[Interface](../04-types/interface.md). This section covers the remaining
 declarations: imports, variables, and type aliases.
 
 ### Import Declaration
@@ -152,8 +152,8 @@ after `Color c;`, `c == Color.Red` holds; an enum with explicitly
 assigned non-zero values may default to 0, which lands on no member.
 
 The type-specific declaration forms and their semantics
-are on each type's page: [Enum](../../language-spec/enum.md), [Struct](../../language-spec/struct.md),
-[Class](../../language-spec/class.md), [Interface](../../language-spec/interface.md).
+are on each type's page: [Enum](../04-types/enum.md), [Struct](../04-types/struct.md),
+[Class](../04-types/class.md), [Interface](../04-types/interface.md).
 
 ### Type Aliases
 

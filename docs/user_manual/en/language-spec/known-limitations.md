@@ -74,7 +74,7 @@ This page collects the language-level limitations visible to user programs, with
 - **Direct-init parenthesized form on the first declarator only**:
   `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
   this page stands for a type-with-constructor example; see
-  [Class](class.md) and [Struct](struct.md)).
+  [Class](../specification/04-types/class.md) and [Struct](../specification/04-types/struct.md)).
 
 - **Mixed declarators take the array type**: in `int a[3], b;` the
   sibling `b` is a null `int[]` (array-typed), not an int.

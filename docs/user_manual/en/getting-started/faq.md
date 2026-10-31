@@ -157,17 +157,16 @@ cannot take arguments`. Create such a struct with a bare declaration
 it. See the "A struct without a constructor cannot take arguments"
 entry in [Language Specification / Common Error
 Messages](../language-spec/common-errors.md) and
-[Struct](../language-spec/struct.md) "Creating and initializing".
+[Struct](../specification/04-types/struct.md) "Creation and initialization".
 
 ### Array or `List` — which one?
 
 Fixed size with value elements — use an array
 (`int[] sizes = [10, 20, 30];`, length fixed after creation); dynamic
 growth — use `List<T>` (`add`/`removeAt`, grows as needed). Quick tour
-in [Containers](containers.md); full semantics in [Language
-Specification / Array](../language-spec/array.md) and [Language
-Specification / Built-in Generic
-Classes](../language-spec/builtin-generic-classes.md).
+in [Containers](containers.md); full semantics in [Specification /
+Array](../specification/04-types/array.md) and [Specification /
+Generics](../specification/04-types/generics.md).
 
 ### `.ncu` version outdated, telling you to recompile?
 
@@ -210,8 +209,8 @@ contract, the subclass's same-name methods must map one-to-one onto the
 contract signature. To provide a method with a different signature, use a
 different method name.
 
-See also: [Language Specification / Class](../language-spec/class.md),
-"Virtual methods and overrides".
+See also: [Specification / Class](../specification/04-types/class.md),
+"Virtual methods and overriding".
 
 ### The help window says "document not found"?
 

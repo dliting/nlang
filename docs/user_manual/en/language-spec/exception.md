@@ -62,7 +62,7 @@ class MyException : Exception {
 User classes can extend `Exception` to carry additional fields. Without a
 user constructor, the default constructor is used and inherited fields are
 zero-initialized; a user ctor typically forwards the message via `super(msg)`
-(see [Class](class.md) "super() — constructor chaining").
+(see [Class](../specification/04-types/class.md) "Constructors and super()").
 
 ### Exception fields
 

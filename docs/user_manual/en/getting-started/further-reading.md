@@ -8,7 +8,7 @@ Suggested reading order for the Language Specification:
    naming rules for types/methods/variables
 3. [Types](../specification/04-types/index.md) →
    [Declarations](../specification/03-program-structure/declarations.md) →
-   [Built-in Generic Classes](../language-spec/builtin-generic-classes.md)
+   [Generics](../specification/04-types/generics.md)
    — the type system, declarations, and List/Dict
 4. [Expressions](../language-spec/expressions.md) →
    [Statements](../language-spec/statements.md)

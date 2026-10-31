@@ -205,7 +205,7 @@ pointing at the contract, and the class declaration adds a
 `required by its inheritance contract` line; when the contract is an
 interface method the anchor reads `"IF.val(Int32): Int32"` (next entry).
 Make the signature match the contract exactly (an override), or rename the
-method. See [Class](class.md), "Virtual methods and overrides".
+method. See [Class](../specification/04-types/class.md), "Virtual methods and overriding".
 
 ### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
 
@@ -235,8 +235,8 @@ drop `virtual` from the whole family — fully non-virtual families
 overload normally. The rendered signatures use the internal type names
 (`Int32`, `String`, `Float`), and a `static` member mixed with an
 instance `virtual` member is rejected the same way (`static` counts as
-a signature difference). See [Class](class.md), "Virtual methods and
-overrides".
+a signature difference). See [Class](../specification/04-types/class.md), "Virtual methods and
+overriding".
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
@@ -286,7 +286,7 @@ in the class), the variant
 `The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`
 is reported instead. Provide an implementation with the exact signature
 in the class (or one of its parents); note that a same-name method must
-not coexist as an overload of an interface contract. See [Interface](interface.md), "Implementation contract".
+not coexist as an overload of an interface contract. See [Interface](../specification/04-types/interface.md), "Declaration and implementation contract".
 
 ### switch and enum
 
@@ -473,7 +473,7 @@ A struct that declares no constructor can only be created with a bare
 declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
 `Point{2, 3}`) — it cannot be called with arguments. Declare a constructor
 to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
-run it (see [Struct](struct.md) "Creating and initializing" and
+run it (see [Struct](../specification/04-types/struct.md) "Creation and initialization" and
 [Collection Initializers](collection-initializers.md)).
 
 ### Type aliases

@@ -153,7 +153,7 @@ Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" wi
 Error: The class "B" does not implement the method "f(Int32): Int32" required by its inheritance contract.
 ```
 
-子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会错读实参的位模式。不符的声明处报主消息（末句即修正提示）并附一行`See also the declaration of ...`指向契约声明，类声明处再跟一条`required by its inheritance contract`；契约是接口方法时锚点写作`"IF.val(Int32): Int32"`（见下一条）。修正签名与契约完全一致（覆写），或给方法改名。详见[类](class.md)「虚方法与覆写」。
+子类方法与祖先虚方法或接口契约同名但签名不同。虚分派按名进行，签名不一致会错读实参的位模式。不符的声明处报主消息（末句即修正提示）并附一行`See also the declaration of ...`指向契约声明，类声明处再跟一条`required by its inheritance contract`；契约是接口方法时锚点写作`"IF.val(Int32): Int32"`（见下一条）。修正签名与契约完全一致（覆写），或给方法改名。详见[类](../specification/04-types/class.md)「虚方法与重写」。
 
 ### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
 
@@ -173,7 +173,7 @@ Error: The method "f" claims the virtual dispatch slot of "A.f(Int32): Int32" wi
 	See also the declaration of "A.f(Int32): Int32".
 ```
 
-**同一个类体**内一个方法名的两个重载，其中至少一个带`virtual`。虚分派在运行期按方法名选择实现：一个名字在一个类内只能对应一个实现，第二个签名永远不会被调用（调用点按第一个签名布置实参，错配的签名只会错读实参的位模式）。给各签名改出独立的名字，或让整个族都去掉`virtual`——完全非虚的族可正常重载。渲染签名用内部类型名（`Int32`、`String`、`Float`）；`static`成员与实例`virtual`成员混名同样被拒（`static`计入签名差异）。详见[类](class.md)「虚方法与覆写」。
+**同一个类体**内一个方法名的两个重载，其中至少一个带`virtual`。虚分派在运行期按方法名选择实现：一个名字在一个类内只能对应一个实现，第二个签名永远不会被调用（调用点按第一个签名布置实参，错配的签名只会错读实参的位模式）。给各签名改出独立的名字，或让整个族都去掉`virtual`——完全非虚的族可正常重载。渲染签名用内部类型名（`Int32`、`String`、`Float`）；`static`成员与实例`virtual`成员混名同样被拒（`static`计入签名差异）。详见[类](../specification/04-types/class.md)「虚方法与重写」。
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
 
@@ -213,7 +213,7 @@ Error: The method "val" claims the virtual dispatch slot of "IF.val(Int32): Int3
 Error: The class "F" does not implement the method "val(Int32): Int32" required by its inheritance contract.
 ```
 
-类经`implements`声明实现的接口方法缺失或签名不符。缺失时类声明处报接口锚定的消息；实现存在但签名不符时，报`claims the virtual dispatch slot`族（同上一条，锚点为接口方法）；不符的实现继承自父类（类内未重声明）时改为报`The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`。在类（或其父类）中提供完全一致签名的实现；注意同名方法不得与接口契约重载并存。详见[接口](interface.md)「实现契约」。
+类经`implements`声明实现的接口方法缺失或签名不符。缺失时类声明处报接口锚定的消息；实现存在但签名不符时，报`claims the virtual dispatch slot`族（同上一条，锚点为接口方法）；不符的实现继承自父类（类内未重声明）时改为报`The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`。在类（或其父类）中提供完全一致签名的实现；注意同名方法不得与接口契约重载并存。详见[接口](../specification/04-types/interface.md)「声明与实现契约」。
 
 ### switch与enum
 
@@ -370,7 +370,7 @@ int main() {
 Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
-未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
+未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](../specification/04-types/struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
 
 ### 类型别名
 

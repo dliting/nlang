@@ -21,4 +21,4 @@ NLang方法采用**camelCase**、类型采用**PascalCase**——Java风格大�
 - 覆盖Java + JS + C++约定（最大公约数）。
 - `main`例外保留了C/C++/Java通用的入口函数约定。
 - 访问器保留`getXxx` / `setXxx`前缀（C#风格）：目前只有`getHashCode`使用这一形式；其他访问器（`length`、`count`、`position`、`keys`）用裸camelCase。
-- 谓词不用`isXxx` / `hasXxx`前缀——`contains`与`startsWith`本身已足够清晰。（例外：`equals`沿用Object虚方法协议，返回int 0/1——见[Object与装箱](object.md)。）
+- 谓词不用`isXxx` / `hasXxx`前缀——`contains`与`startsWith`本身已足够清晰。（例外：`equals`沿用Object虚方法协议，返回int 0/1——见[Object与装箱](../specification/04-types/object.md)。）

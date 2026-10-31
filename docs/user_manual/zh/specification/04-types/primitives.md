@@ -71,7 +71,7 @@ char与string的桥接（`"x" + 'y'`拼接、`foreach (char c in s)`码点迭代
 *资料性：*一个表示问题贯穿整条链路——char在源文件里、编译后、控制台上各是什么形式：
 
 - **源文件必须是Unicode转换格式（UTF-8，Unicode Transformation Format）。**词法器把字符字面量的1-4字节UTF-8序列解码为一个码点（`'é'`是2个字节`C3 A9`，解码为U+00E9）。整个文件在词法前经过严格UTF-8校验：无效字节被明确拒绝（`Source file is not valid UTF-8 ... (first invalid byte at line N)`），UTF-16保存的文件得到专门提示——无效编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；UTF-16等其他编码得到上述专门提示。
-- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char占4字节，内容即原始码点：局部变量、char字面量、装箱记录（见[Object与装箱](../../language-spec/object.md)）与流写入里的4字节值皆如此——值端到端都是朴素码点。
+- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char占4字节，内容即原始码点：局部变量、char字面量、装箱记录（见[Object与装箱](object.md)）与流写入里的4字节值皆如此——值端到端都是朴素码点。
 - **UTF-8在string一侧**：string对象是UTF-8字节序列（见[字符串](string.md)「编码与长度」节）。char加入string时转成该形式——`"x" + 'y'`把码点编码为1-4个UTF-8字节。反方向上，`s.charAt(i)`从字节i处解码码点，`"65".toChar()`解析十进制码点。
 - **控制台收到的是UTF-8字节。**`io.print`把char以其UTF-8编码、把string以其原始字节原样写入标准输出。命令行工具启动时把所在控制台切换到UTF-8代码页，Windows默认控制台即可正常显示非ASCII输出（重定向到文件/管道时字节原样，仍是UTF-8）。
 
