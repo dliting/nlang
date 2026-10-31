@@ -15,7 +15,6 @@
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/compiler/TranslationUnit.h>
 #include <nlang/compiler/Logger.h>
-#include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/runtime/NodeConsts.h>
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
@@ -107,7 +106,13 @@ static std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& 
 static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
     if (field.Kind() == NK_ClassDecl) {
         auto& cls = static_cast<const SnClassDecl&>(field);
-        if (cls.IsGenericInstantiation())
+        //v0.12.3 dictionary model: the erasure key is the BARE name for
+        //the template row and every instantiation alike — the template
+        //registers the one shared CompiledClass and ClassSlotFor looks
+        //it up by the bare name from both node shapes. A package
+        //prefix would split the two spellings (the instantiation keys
+        //BaseName, the template would key package-qualified).
+        if (cls.IsGenericInstantiation() || cls.IsGenericDeclaration())
             return cls.BaseName();
     }
     if (IsTypeMember(field)) {
@@ -164,8 +169,10 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     //method would fall to the NO_OWNER fallback below and ghost-register
     //— fully bytecode-compile — into every unit image, silently bypassing
     //the nlink import path for methods and constructors. The contexts
-    //that still resolve NO_OWNER are exactly the built-ins and synthetic
-    //generic instantiations: own in every unit by design.
+    //that still resolve NO_OWNER are the built-ins: own in every unit by
+    //design. (v0.12.3 dictionary-model instantiations never reach this
+    //classification — the slot throats resolve them to their template
+    //rows first, and the registration walks never see detached nodes.)
     const uint32_t owner = m_pRegistry->OwnerOfContext(member);
     //Prelude members are own in EVERY unit image too (builtin-decls
     //source-of-truth design §6.7): the prelude unit is a library TU and
@@ -219,18 +226,6 @@ bool VmBackend::RejectMultiSegmentNatives(SnNamespace& root) {
 //v1.9 (debugger): the source-file spelling lives in SourceFilePathOf
 //(anonymous namespace, top of file) — shared with the entry-point scan.
 
-//True when func is a member of a generic class declaration (the
-//signature-surface template, not an instantiation). Under erasure naming
-//the template member and the instance member share one key, so a template
-//record would both collide with the instance's and drag its placeholder-
-//typed signature into signature-descriptor emission (whose leaf resolvers
-//expect registered classes) — only instantiations' member copies register.
-static bool IsGenericTemplateMember(const SnFunction& func) {
-    const SyntaxNode* pParent = func.Parent();
-    return pParent && pParent->Kind() == NK_ClassDecl
-        && static_cast<const SnClassDecl*>(pParent)->IsGenericDeclaration();
-}
-
 void VmBackend::RegisterFunctions(SnNamespace& root) {
     m_funcIndexMap.clear();
     //Two-phase fill: the unit's own declarations first, then the
@@ -258,8 +253,10 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             const uint32_t owner = m_pRegistry->OwnerOfContext(func);
             if ((owner != m_currentUnitIdx) != preludePhase)
                 return;
-            if (IsGenericTemplateMember(func))
-                return;
+            //v0.12.3 dictionary model: a generic template's members ARE
+            //the records — the template row is the one implementation
+            //every instantiation shares (erasure naming keeps one key;
+            //the instantiation copies never register).
             //Phase 9f: native declarations register like normal functions
             //(the record carries isNative + param signature); a body-less
             //non-native declaration gets no record.
@@ -272,30 +269,6 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         });
     }
-    RegisterDeclaredGenericInstanceMembers();
-}
-
-//Declared-generic instantiation members: the signature copies register
-//like any native member so the method tables and direct call sites can
-//index them. Each instantiation mints once, so the records are unique
-//per unit image.
-void VmBackend::RegisterDeclaredGenericInstanceMembers() {
-    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
-        [&](SnClassDecl& inst) {
-        for (auto& member : inst.Members())
-        {
-            if (member.Kind() != NK_Function)
-                continue;
-            auto& func = static_cast<SnFunction&>(member);
-            if (!func.Body() && !func.ContainFlags(NF_Native))
-                continue;
-            CompiledFunction cf;
-            cf.name = KeyOf(func);
-            cf.sourceFile = SourceFilePathOf(func);
-            m_compiledModule.functions.push_back(std::move(cf));
-            m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
-        }
-    });
 }
 
 //The per-unit registration sequence — table layout only. Shared by the

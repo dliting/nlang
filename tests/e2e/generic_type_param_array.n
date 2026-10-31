@@ -1,10 +1,9 @@
-// v0.12.3: an array of a type parameter has no representable element
-// kind in the template's shared row — rejected at the type position,
-// not as a backend internal error. Type positions (field, param,
-// return, body local) intern through the type-expression guard; sized
-// declarators intern on the declaration channel and guard there
-// (generic_sized_type_param_array.n). Transient window gate until
-// instance execution lands (Task 5 makes T[] a legal handle position).
+// v0.12.3 dictionary model: T[] in a type position is a legal HANDLE
+// position — the token interns over the type-parameter placeholder and
+// the field is one slot whatever the instantiation binds (arrays enter
+// from outside, e.g. through a constructor; see generic_arg_domain.n).
+// Only array CREATION over T stays rejected (the sized declarator's
+// gate, generic_sized_type_param_array.n).
 class Box<T> {
     public T[] items;
 }

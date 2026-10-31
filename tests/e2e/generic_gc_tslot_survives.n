@@ -1,6 +1,5 @@
-// v0.12.3 Task 4 GC pin — SHELVED until Task 5 (bodied generic members
-// compile there); activate by adding to manifest.txt. Not manifest-
-// driven yet, so the runner ignores this file today.
+// v0.12.3 Task 4 GC pin, live since Task 5 (bodied generic members
+// compile and instance construction executes through the template row).
 //
 // Natural-GC form (no --gc-stress flag: it suppresses the race window)
 // with a churner widening it. Covers all three RTK_TypeParam scan

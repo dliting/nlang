@@ -1,8 +1,7 @@
-// v0.12.3 Task 1 window pin: instance construction does not run field
-// initializers yet (no instance-execution story until Task 5) — the
-// concrete initializer compiles into the template row and the instance
-// field reads its zero value. Flips to exit 5 when instance
-// construction lands; this pin makes that flip visible.
+// v0.12.3 Task 1 window pin, flipped by Task 5's registration topology:
+// instance construction now executes through the template row, so the
+// concrete-typed field initializer runs and count reads 5 (a T-typed
+// initializer stays rejected by the declaration contract).
 class Box<T> {
     public int count = 5;
     public T item;

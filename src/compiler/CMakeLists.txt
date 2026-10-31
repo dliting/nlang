@@ -68,6 +68,7 @@ add_library(nlang_compiler
     GenericDeclContracts.cpp
     GenericInstanceRegistry.cpp
     builder/ExprResolverTypeArgs.cpp
+    builder/ExprResolverGenericUse.cpp
     ModuleBuilderStaticNamespace.cpp
     ModuleBuilderUnits.cpp
     Logger.cpp

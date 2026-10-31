@@ -153,10 +153,14 @@ public:
 	//resolver's constructor-candidate filter (ExprResolverNew.cpp) calls
 	//it, so the two layers never diverge — a divergent filter splits the
 	//frame-walker claim from the codegen claim (see VmBackend.h).
-	bool HasImplementation() const
-	{
-		return IsImported() || Body() || ContainFlags(NF_Native);
-	}
+	//v0.12.3 dictionary model: a generic instantiation's member is a
+	//signature copy of its template member — the implementation lives on
+	//the template row, so the copy counts as implemented (the only
+	//readers that can see copies are candidate collectors; every binder
+	//rebinds to the record-owning template member afterwards).
+	//Out-of-line: the instantiation parentage test needs SnClassDecl,
+	//declared in SnMisc.h (SnData.h only forward-sees syntax nodes).
+	bool HasImplementation() const;
 
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Function *MetaFunc() const;

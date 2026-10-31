@@ -1903,6 +1903,22 @@ set_tests_properties(proj_qualified_ctor_run PROPERTIES
     DEPENDS proj_qualified_ctor_compile
     PASS_REGULAR_EXPRESSION "6")
 
+#v0.12.3 dictionary model: a user template declared in one unit of a
+#project and instantiated from another. The template row registers in
+#its owning unit's image; the consumer's references are cross-unit
+#import slots resolved by the load-time linker — one implementation
+#serves both Box<int> and Box<string>. Self-check before printing (the
+#regex overrides the exit code).
+add_test(NAME proj_generic_cross_unit_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_generic_cross_unit/proj_generic_cross_unit.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_cross_unit.npkg)
+add_test(NAME proj_generic_cross_unit_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_cross_unit.npkg)
+set_tests_properties(proj_generic_cross_unit_run PROPERTIES
+    DEPENDS proj_generic_cross_unit_compile
+    PASS_REGULAR_EXPRESSION "4")
+
 #0.9.0 review follow-up: a diagnosed module-qualified failure (the
 #generic-name hint, function-not-found) marks the member resolved; an
 #enclosing member access must degrade to a clean compile failure, not

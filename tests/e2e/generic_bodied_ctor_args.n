@@ -1,7 +1,7 @@
-// v0.12.3 Task 1 window: a bodied constructor's clone carries no body,
-// so it is not an implementation-bearing candidate — a constructing
-// call with arguments reports the missing constructor cleanly (the
-// zero-argument form stays the legal bare-allocation shape).
+// v0.12.3 dictionary model: a bodied constructor call with arguments
+// executes through the template row's compiled record (the clone is
+// the signature surface the call type-checks against; the slot throat
+// resolves the record). Exit 0.
 class Box<T> {
     public T item;
     public Box(T v) { item = v; }

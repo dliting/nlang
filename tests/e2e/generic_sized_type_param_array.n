@@ -1,9 +1,8 @@
-//v0.12.3 Task 1 fix round: a sized array of a type parameter via the
-//C-style trailing declarator interns over the placeholder on the
-//declaration channel (StatementResolveAccessor's local-declaration
-//intern) — the twin of the type-position guard. Transient window gate
-//until instance execution lands (Task 5 makes T[] a legal handle
-//position).
+//v0.12.3 dictionary model: a sized array of a type parameter via the
+//C-style trailing declarator is array CREATION — the statement form of
+//new T[3], whose element kind is not known until the instantiation
+//(the same rejection family as new T[n] in bodies, spec D2). T[] type
+//positions stay legal (generic_type_param_array.n).
 class Box<T> {
     public int get() {
         T a[3];

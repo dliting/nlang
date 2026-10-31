@@ -106,20 +106,12 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 {
 	for (auto& member : tmpl.Members())
 	{
-		//v0.12.3 window rule (flips at Task 5): the instance surface
-		//carries members with an execution story only. The copy below
-		//is a signature surface — it never carries a body — so its only
-		//execution story today is the native binding carried through
-		//the flags. Minting a bodied member's signature-only copy would
-		//force every consumer channel (the invoke collector, a bound
-		//method reference, the constructor candidates) to filter it
-		//separately or reach the backend unregistered; not minting it
-		//gives every channel the natural unknown-member diagnostic.
-		//Instance execution (Task 5) mints members together with their
-		//execution story.
-		if (member.Kind() == NK_Function
-				&& !static_cast<SnFunction&>(member).ContainFlags(NF_Native))
-			continue;
+		//v0.12.3 dictionary model: every template member clones — the
+		//copies are the resolver's substituted SIGNATURE surface (the
+		//one channel type-checking ever reads members through). The
+		//compiled records stay with the template row; the backend's
+		//slot throats resolve record reads back to it
+		//(AdoptMemberClone below).
 		auto* pCopy = CloneGenericMember(member, typeArgs,
 			[this, &typeArgs](SnFieldExpr& srcType)
 			{ return SubstituteTypeExpr(srcType, typeArgs); },
@@ -134,9 +126,23 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 			return false;
 		}
 		inst.Members().push_back(pCopy);
+		//The clone-to-record-owner pair is recorded HERE, where the copy
+		//and its source are in hand: the backend's slot throats resolve
+		//every record read through this map (AdoptMemberClone), and a
+		//fill-time recording keeps the mapping immune to later member-
+		//list mutation on either side.
+		m_Env.Registry().DeclaredGenerics()
+			.AdoptMemberClone(pCopy, &member);
 	}
 	return true;
 }
+
+//The clone-to-record-owner mapping (an instantiation member's compiled
+//record lives on the template row) is GenericInstanceRegistry::
+//RecordOwnerOfMember — the registry owns the instantiation topology.
+//The resolver never rebinds: every type read wants the substituted
+//clone surface, and the backend's FunctionSlotFor falls back to the
+//record owner at its single lookup throat.
 
 //The mint's first phase: a detached class shell carrying the erasure
 //identity — the instantiation shares the template's bare name, the
@@ -156,26 +162,6 @@ static SnClassDecl *MintInstanceShell(const SnClassDecl &tmpl,
 	pInstance->SetBaseName(tmpl.Name());
 	pInstance->SetGenericTypeArgs(typeArgs);
 	return pInstance;
-}
-
-//Visibility rule: a prelude (or ownerless) template's instantiation
-//is visible in every unit image — prelude declarations register in
-//every image and untagged instances resolve through ClassSlotFor's
-//own arm, so the erased row must exist wherever a reference can
-//land. The mint context's unit is timing-dependent (whichever unit
-//resolves a shape first would claim it), so the bucket cannot carry
-//this visibility: file such instances ownerless — the NO_OWNER
-//bucket is visited by every per-unit walk. A user-unit template's
-//instances keep the resolving unit's bucket, where the use sites'
-//image lives.
-static uint32_t InstanceOwnerUnit(const ModuleRegistry &registry,
-	const SnClassDecl &tmpl, uint32_t ownerUnit)
-{
-	const uint32_t tmplOwner = registry.OwnerOf(tmpl);
-	if (tmplOwner == ModuleRegistry::NO_OWNER
-			|| registry.IsPreludeModule(tmplOwner))
-		return ModuleRegistry::NO_OWNER;
-	return ownerUnit;
 }
 
 //Invariant: clone SIGNATURE-COMPLETE templates only. The mint can
@@ -221,48 +207,16 @@ bool ExprResolveAccessor::MintDepthLimitReached(const SnClassDecl& tmpl)
 	return true;
 }
 
-//The mint entry's owner normalization (see m_activeMintOwnerUnit): the
-//substituted type-expression copies resolved inside a member fill are
-//detached from the tree, so their mint context degrades to NO_OWNER —
-//the nested instantiation (Q<int> minted inside P<int>'s fill) would
-//file into the ownerless bucket while its enclosing instantiation
-//files into the user unit's, splitting one template family across unit
-//buckets. The per-unit registration walks then throw: one unit image
-//registers an instance row whose field type's row lives only in
-//another image. Nested mints inherit the active fill's owner.
-uint32_t ExprResolveAccessor::EffectiveMintOwner(uint32_t ownerUnit)
-	const
-{
-	static_assert(kNoActiveMintOwner == ModuleRegistry::NO_OWNER,
-		"kNoActiveMintOwner must equal ModuleRegistry::NO_OWNER");
-	if (ownerUnit == ModuleRegistry::NO_OWNER
-			&& m_activeMintOwnerUnit != kNoActiveMintOwner)
-		return m_activeMintOwnerUnit;
-	return ownerUnit;
-}
-
 //The mint's second phase — the fill window: complete the template,
 //refresh the shell's snapshot of its superclass, and clone the member
-//signatures in, with the family's bucket owner published to nested
-//mints on this resolver for the duration (restored after — the
-//resolver serves other unit contexts once the mint returns).
-//Re-entrant lookups during the window see the shell with partial
-//members: every reader in the window binds the node as a type and none
-//reads its members (the same incomplete-during-construction contract
-//Clang holds for class instantiation; Task-5 flip-list entry).
+//signatures in. Re-entrant lookups during the window see the shell
+//with partial members: every reader in the window binds the node as a
+//type and none reads its members (the same incomplete-during-
+//construction contract Clang holds for class instantiation; Task-5
+//flip-list entry).
 void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
-	const std::vector<SnField*>& typeArgs, SnClassDecl& inst,
-	uint32_t bucketOwner)
+	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
 {
-	const uint32_t prevMintOwner = m_activeMintOwnerUnit;
-	//A NO_OWNER fill window (every prelude-template instantiation)
-	//publishes the sentinel itself, which reads as "inheritance off" in
-	//EffectiveMintOwner — correct and load-bearing: nested mints inside
-	//a prelude fill are prelude templates that map to NO_OWNER anyway.
-	//The raw assignment (not a scope guard) is deliberate: the log-based
-	//error model's only throw is bad_alloc-class, which ends the build
-	//without reusing this accessor.
-	m_activeMintOwnerUnit = bucketOwner;
 	CompleteTemplateForMint(tmpl);
 	//The shell snapshotted tmpl.SuperClass() before completion: the
 	//mint can fire ahead of the template's own class pass, when the
@@ -275,12 +229,10 @@ void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
 	//diagnostic; the partially filled shell is still served so later
 	//phases maximize diagnostics instead of failing on a null type.
 	FillInstanceMembers(tmpl, typeArgs, inst);
-	m_activeMintOwnerUnit = prevMintOwner;
 }
 
 SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
-	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs,
-	uint32_t ownerUnit)
+	SnClassDecl& tmpl, const std::vector<SnField*>& typeArgs)
 {
 	auto& generics = m_Env.Registry().DeclaredGenerics();
 	std::vector<const SnField*> keyArgs(typeArgs.begin(), typeArgs.end());
@@ -306,12 +258,9 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	//the previous shape — left every re-entry minting a fresh instance:
 	//the stack overflow, the fixed-key rejection and the exponential
 	//diagnostic cascade were all that one defect.
-	ownerUnit = EffectiveMintOwner(ownerUnit);
 	auto* pInstance = MintInstanceShell(tmpl, typeArgs);
-	const uint32_t bucketOwner =
-		InstanceOwnerUnit(m_Env.Registry(), tmpl, ownerUnit);
-	generics.AdoptInstance(pInstance, &tmpl, keyArgs, bucketOwner);
-	FillInstanceWindow(tmpl, typeArgs, *pInstance, bucketOwner);
+	generics.AdoptInstance(pInstance, &tmpl, keyArgs);
+	FillInstanceWindow(tmpl, typeArgs, *pInstance);
 	return pInstance;
 }
 
@@ -319,7 +268,7 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 	SnFieldExpr& srcType, const std::vector<SnField*>& typeArgs)
 {
 	//Name leaf: transfer the source binding; a placeholder leaf binds to
-	//the actual argument instead. Unresolved leaves stay unresolved (the
+	//the actual argument instead (unresolved leaves stay unresolved — the
 	//template member's own diagnostic already fired).
 	if (srcType.Kind() == NK_NameExpr)
 	{
@@ -340,26 +289,26 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		}
 		return pCopy;
 	}
-	//Array: substitute the element, then re-intern the array token from
-	//the substituted element (the source token encodes the placeholder).
+	//Array: substitute the element, then re-intern the token over it —
+	//ResolveFieldExprAs exactly like Access(SnArrayTypeExpr), because a
+	//formal's type is read via Type()->Field() (the token binding).
 	if (srcType.Kind() == NK_ArrayTypeExpr)
 	{
 		auto& arr = static_cast<SnArrayTypeExpr&>(srcType);
 		auto* pElemCopy = SubstituteTypeExpr(*arr.ElementType(), typeArgs);
 		if (!pElemCopy)
 			return nullptr;
-		auto* pCopy = new SnArrayTypeExpr(pElemCopy, *srcType.Location());
+		auto* pCopy = new SnArrayTypeExpr(pElemCopy, *srcType.Location(),
+			arr.Rank());
 		if (arr.IsResolved())
 		{
-			pCopy->EvalDataType(pElemCopy->Field());
-			pCopy->AddFlags(NF_Resolved);
-			BindArrayTypeToken(*pCopy);
+			ResolveFieldExprAs(*pCopy, m_Env.InternArrayTypeToken(
+				pElemCopy->Field(), arr.Rank()));
 		}
 		return pCopy;
 	}
 	//Nested instantiation (`Future<T>`, `List<T>`): substitute base and
-	//arguments, then resolve the copy — the instantiation cache mints
-	//the instantiation for the ACTUAL arguments.
+	//arguments, then resolve — the cache mints the ACTUAL instantiation.
 	if (srcType.Kind() == NK_GenericTypeExpr)
 		return SubstituteGenericTypeExpr(
 			static_cast<SnGenericTypeExpr&>(srcType), typeArgs);

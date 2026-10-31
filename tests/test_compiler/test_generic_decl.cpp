@@ -414,12 +414,11 @@ private slots:
             "diagnostic must name the type parameter rule");
     }
 
-    //An array of a type parameter has no representable element kind in
-    //the shared template row — rejected at the type position with a
-    //rule diagnostic, not a backend internal error (the array token
-    //would intern over the placeholder and the registration walk fails
-    //to find a class named like the parameter).
-    void declGenericRejectsTypeParamArrayField()
+    //v0.12.3 dictionary model: T[] in a type position is a legal HANDLE
+    //slot — the token interns over the placeholder and the row registers
+    //the element as the type-parameter label. Only array CREATION over
+    //T stays rejected (the sized-declarator rule below).
+    void declGenericAcceptsTypeParamArrayField()
     {
         const auto path = writeTempSource("generic_t_array.n",
             "class Box<T> {\n"
@@ -427,18 +426,14 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         const auto outcome = compileSource("generic_t_array", path);
-        QVERIFY2(!outcome.first,
-            "a T[] field must be rejected");
-        QVERIFY2(anyErrorMentions(outcome.second, "type parameter"),
-            "diagnostic must name the type-parameter array rule");
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "a T[] field is a legal handle slot");
     }
 
-    //Until instance execution lands, a bodied member is not on an
-    //instantiation's call surface: the clone carries the signature
-    //only, and a call bound to it would reach the backend
-    //unregistered. The call must fail resolution with the ordinary
-    //unknown-member diagnostic, not an internal error.
-    void declGenericRejectsBodyMemberCall()
+    //v0.12.3 registration flip: a bodied member's compiled record lives
+    //on the template row and the call site reaches it through the
+    //record-owner throat — the call resolves and emits normally now.
+    void declGenericAcceptsBodyMemberCall()
     {
         const auto path = writeTempSource("generic_body_call.n",
             "class Box<T> {\n"
@@ -450,12 +445,8 @@ private slots:
             "    return x;\n"
             "}\n");
         const auto outcome = compileSource("generic_body_call", path);
-        QVERIFY2(!outcome.first,
-            "a bodied-member call on an instantiation must be rejected");
-        QVERIFY2(anyErrorMentions(outcome.second,
-                "does not exist or is not accessible"),
-            "diagnostic must be the unknown-member text, not an "
-            "internal error");
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "a bodied-member call on an instantiation must build clean");
     }
 
     //Concrete parameter defaults survive instantiation: the member
@@ -507,12 +498,10 @@ private slots:
             "internal error");
     }
 
-    //The value channel of the signature-only member gate: a bound
-    //method reference (func<...> f = b.get) resolves through the
-    //identifier binding, not the invoke collector — the clone must
-    //stay off that surface too, with the ordinary unknown-member
-    //diagnostic instead of a backend internal error.
-    void declGenericRejectsMethodValueBinding()
+    //v0.12.3 registration flip, value channel: a bound method reference
+    //(func<...> f = b.get) binds the bodied member's record through the
+    //same template-row throat the invoke path uses.
+    void declGenericAcceptsMethodValueBinding()
     {
         const auto path = writeTempSource("generic_method_ref.n",
             "class Box<T> {\n"
@@ -524,12 +513,8 @@ private slots:
             "    return f();\n"
             "}\n");
         const auto outcome = compileSource("generic_method_ref", path);
-        QVERIFY2(!outcome.first,
-            "a method reference to a bodied member must be rejected");
-        QVERIFY2(anyErrorMentions(outcome.second,
-                "Cannot resolve the field"),
-            "diagnostic must be the unknown-member text, not an "
-            "internal error");
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "a method reference to a bodied member must build clean");
     }
 
     //Constant REFERENCE defaults survive instantiation: an enum-member
@@ -615,8 +600,8 @@ private slots:
         const GenericInstanceRegistry& generics =
             builder.Registry().DeclaredGenerics();
         SnExpression* pCloneDefault = nullptr;
-        auto collect = [&generics, &pCloneDefault](uint32_t ownerUnit) {
-            generics.ForEachInstance(ownerUnit,
+        auto collect = [&generics, &pCloneDefault]() {
+            generics.ForEachInstance(
                 [&pCloneDefault](SnClassDecl& inst) {
                     if (pCloneDefault || inst.Name() != "Box")
                         return;
@@ -629,13 +614,7 @@ private slots:
                                     pCloneDefault = param.Value();
                 });
         };
-        //The owning unit index is not exposed through the registry
-        //surface this test can reach, so the sweep scans the unit
-        //range small builds occupy (0..16) plus the detached NO_OWNER
-        //pool — cheap and complete for single-TU builds.
-        for (uint32_t unit = 0; unit <= 16; ++unit)
-            collect(unit);
-        collect(ModuleRegistry::NO_OWNER);
+        collect();
         QVERIFY2(pCloneDefault != nullptr,
             "the Box instantiation must carry the f clone");
         QVERIFY2(pCloneDefault->Kind() == NK_BinaryExpr,
@@ -804,8 +783,8 @@ private slots:
         const GenericInstanceRegistry& generics =
             builder.Registry().DeclaredGenerics();
         SnExpression* pCloneDefault = nullptr;
-        auto collect = [&generics, &pCloneDefault](uint32_t ownerUnit) {
-            generics.ForEachInstance(ownerUnit,
+        auto collect = [&generics, &pCloneDefault]() {
+            generics.ForEachInstance(
                 [&pCloneDefault](SnClassDecl& inst) {
                     if (pCloneDefault || inst.Name() != "Box")
                         return;
@@ -818,13 +797,7 @@ private slots:
                                     pCloneDefault = param.Value();
                 });
         };
-        //The owning unit index is not exposed through the registry
-        //surface this test can reach, so the sweep scans the unit
-        //range small builds occupy (0..16) plus the detached NO_OWNER
-        //pool — cheap and complete for single-TU builds.
-        for (uint32_t unit = 0; unit <= 16; ++unit)
-            collect(unit);
-        collect(ModuleRegistry::NO_OWNER);
+        collect();
         QVERIFY2(pCloneDefault != nullptr,
             "the Box instantiation must carry the f clone");
         QVERIFY2(pCloneDefault->Kind() == NK_MemberExpr,
@@ -1089,7 +1062,7 @@ private slots:
         std::unique_ptr<SnClassDecl> upTemplate(makeDecl());
         SnClassDecl* pInstance = makeDecl();
         reg.DeclaredGenerics().AdoptInstance(pInstance, upTemplate.get(),
-            {}, 0);
+            {});
         QCOMPARE(reg.SyntheticBuiltins().MintedCount(), size_t(2));
         QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance)
             == upTemplate.get());
@@ -1101,6 +1074,56 @@ private slots:
         //VALUE is compared here (map lookup, no dereference).
         QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance) == nullptr);
     }
+
+    //v0.12.3 Task 5 signature substitution: a nested argument's clone
+    //signature resolves the outer T to the INNER instantiation node (a
+    //template reference, not a bare name) — the chained get().get() at
+    //the use site type-checks through that substitution. The inner box
+    //enters through a typed local: a bare Box(3) inside the argument
+    //list has no declared target to route the construction.
+    void mintSubstitutesNestedArgSignatures()
+    {
+        const auto path = writeTempSource("sig_nested.n",
+            "class Box<T> {\n"
+            "    public T item;\n"
+            "    public Box(T v) { item = v; }\n"
+            "    public T get() { return item; }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box<int> core = Box(3);\n"
+            "    Box<Box<int>> b = Box(core);\n"
+            "    if (b.get().get() != 3) { return 1; }\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("sig_nested", path);
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "nested-argument substitution must build clean");
+    }
+
+    //v0.12.3 Task 5 signature substitution: an array argument keeps its
+    //array-ness through the clone (the substituted field is an array
+    //handle, not the element kind).
+    void mintSubstitutesArrayArgSignatures()
+    {
+        const auto path = writeTempSource("sig_array.n",
+            "class Vec<T> {\n"
+            "    public T cells;\n"
+            "    public Vec(T src) { cells = src; }\n"
+            "    public T source() { return cells; }\n"
+            "}\n"
+            "class Holder {\n"
+            "    public Vec<int[]> data;\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("sig_array", path);
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "array-argument substitution must build clean");
+    }
+
+    //Base-class type arguments (class D<T> : Box<T>, class D : Box<int>)
+    //are the construction-shape matrix task's surface — the superclass
+    //clause accepts no type arguments in the grammar yet, so nothing
+    //here pins them ahead of that task.
 };
 
 QTEST_GUILESS_MAIN(TestGenericDecl)

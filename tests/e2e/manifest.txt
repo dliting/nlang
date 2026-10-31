@@ -1898,14 +1898,25 @@ face_ascast_reject compile_error
 face_generic_arg_reject compile_error
 # --- v0.12.3 Task 1: mixed-member generic template compiles (declaration face) ---
 generic_mixed_members_compile 0
-# --- v0.12.3 Task 1 fix round: transient window gates until instance execution lands ---
-generic_type_param_array compile_error Arrays of the type parameter
-generic_body_method_call compile_error does not exist or is not accessible
-generic_bodied_ctor_args compile_error has no constructor
-generic_sized_type_param_array compile_error Arrays of the type parameter
-generic_method_value_binding compile_error Cannot resolve the field
+# --- v0.12.3 Task 5: the registration flip — bodied members execute ---
+generic_mixed_members_run 1
+generic_two_instantiations 0
+generic_nested_instantiation 0
+generic_arg_domain 0
+generic_struct_arg compile_error multi-slot
+generic_func_arg compile_error multi-slot
+generic_gc_tslot_survives 0
+# Task 1's transient window gates flip with instance execution:
+generic_body_method_call 1
+generic_bodied_ctor_args 0
+generic_type_param_array 0
+# Sized T declarator = array creation (new T[3] family): stays rejected.
+generic_sized_type_param_array compile_error Cannot create an array of the type parameter
+generic_method_value_binding 1
 generic_invoke_default_degrade compile_error not compatible with the declaration
-generic_field_init_window 0
+# Concrete-typed field initializers now execute with instance construction
+# (T-typed ones stay rejected by the declaration contract).
+generic_field_init_window 5
 generic_depth_limit compile_error instantiation depth
 # --- v0.12.3 Task 2: two-phase mint — fixed-key self-reference compiles (growing key stays rejected above) ---
 generic_selfref 0

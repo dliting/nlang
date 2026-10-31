@@ -1,8 +1,7 @@
-//v0.12.3 Task 1 fix round: a bound method reference to a bodied
+//v0.12.3 dictionary model: a bound method reference to a bodied
 //template member resolves through the identifier binding (the value
-//channel), not the invoke collector — the signature-only clone must
-//stay off that surface too. Transient window gate until instance
-//execution lands (Task 5).
+//channel, not the invoke collector) and executes against the template
+//row's record. Exit = f() = 1.
 class Box<T> {
     public int get() { return 1; }
 }

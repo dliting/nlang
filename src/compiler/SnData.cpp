@@ -1,5 +1,6 @@
 #include "SnData.h"
 #include "SyntaxNodeVisitor.h"
+#include "SnMisc.h"
 #include <sstream>
 
 #ifdef NLANG_ENABLE_LLVM
@@ -235,6 +236,19 @@ SnField *SnFunction::FindField(const std::string& sName) const
 		return m_pBody->FindLocal(sName);
 	}
 	return nullptr;
+}
+
+//v0.12.3 dictionary model (see SnData.h): a generic instantiation's
+//member is a signature copy — its implementation lives on the template
+//row, so the copy counts as implemented for candidate collection.
+bool SnFunction::HasImplementation() const
+{
+	if (IsImported() || Body() || ContainFlags(NF_Native))
+		return true;
+	const SyntaxNode* pParent = Parent();
+	return pParent && pParent->Kind() == NK_ClassDecl
+		&& static_cast<const SnClassDecl*>(pParent)
+			->IsGenericInstantiation();
 }
 
 SnField *SnFunction::EvalDataType() const

@@ -62,13 +62,13 @@ const std::string *BareTypeParamName(const SnFieldExpr *pType,
 }
 } //namespace
 
-//v0.12.3: arrays of a type parameter have no representable element
-//kind in the template's shared row — an array token interned over the
-//placeholder makes the registration walk look for a class named like
-//the parameter (a backend internal error). Both intern entry points
-//reject here: type positions (ExprResolveAccessor's
-//Access(SnArrayTypeExpr&)) and sized declarators
-//(StatementResolveAccessor's local-declaration intern).
+//v0.12.3 dictionary model: a T[] TYPE position is a legal handle
+//position (the token interns over the placeholder, one slot whatever
+//the instantiation binds), but array CREATION over T has no element
+//kind until the instantiation — `T a[3]` is the sized-declarator form
+//of new T[3], the same rejection family as new T[n] in bodies (spec
+//D2). The sized-declarator intern (StatementResolveAccessor's
+//local-declaration path) is the one remaining caller.
 bool RejectTypeParamArrayElement(SnField *pElemField,
 	BuildEnvironment &env, const ISourceLocation *pLoc)
 {
@@ -76,8 +76,9 @@ bool RejectTypeParamArrayElement(SnField *pElemField,
 			|| !env.Registry().DeclaredGenerics().IsPlaceholder(pElemField))
 		return false;
 	env.Log(CLL_Error, pLoc,
-		"Arrays of the type parameter \"%s\" are not supported in "
-		"generic declarations.", pElemField->Name().c_str());
+		"Cannot create an array of the type parameter \"%s\": the "
+		"element kind is not known until the instantiation.",
+		pElemField->Name().c_str());
 	return true;
 }
 

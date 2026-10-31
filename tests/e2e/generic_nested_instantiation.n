@@ -1,0 +1,21 @@
+// v0.12.3 Task 5: nested instantiation — Box<Box<int>> and
+// Box<Box<string>> exercise the recursive signature substitution (the
+// outer clone's T resolves to the inner instantiation node, not a bare
+// name) and the chained member-call result types at the use sites. The
+// inner boxes enter through typed locals: a bare Box(3) inside the
+// argument list has no declared target to route the generic
+// construction (the same rule as every bare generic ctor call).
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public T get() { return item; }
+}
+int main() {
+    Box<int> core = Box(3);
+    Box<Box<int>> inner = Box(core);
+    if (inner.get().get() != 3) { return 1; }
+    Box<string> seed = Box("deep");
+    Box<Box<string>> outer = Box(seed);
+    if (outer.get().get() != "deep") { return 2; }
+    return 0;
+}

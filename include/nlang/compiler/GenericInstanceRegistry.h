@@ -7,9 +7,11 @@ template resolves its member signatures against interned placeholder
 types (one per type parameter), and each `Name<Arg...>` use mints a
 synthetic instantiation whose members are signature deep-copies with
 placeholders substituted. All artifacts are compile-time only: the
-instantiations never enter the syntax tree; the VM backend reads them
-through the accessors below (per-unit registration and method-table
-population).
+instantiations never enter the syntax tree. The dictionary model keeps
+one implementation per template — the compiled records stay with the
+template row in its owning unit, and the backend's slot throats resolve
+instantiation references to those records (same unit: table hit;
+another unit: the standard import-slot path).
 
 The registry is owned by ModuleRegistry — one instance per BUILD. A
 process-global cache would be keyed by per-build values (raw tree
@@ -49,17 +51,6 @@ public:
 	//Is this field one of the interned type-parameter placeholders?
 	bool IsPlaceholder(const SnField* pField) const;
 
-	//True when any type argument (transitively — a nested
-	//instantiation's arguments count) is a template placeholder. Such
-	//an instance was minted while resolving a template's OWN signature
-	//(Dict.keys(): List<K>): it exists only as a compile-time type
-	//surface — its substituted members still carry placeholder leaves,
-	//and no runtime path binds or mints it. Concrete-argument
-	//instances minted at use sites are the emittable form; emission
-	//walks skip placeholder forms (ModuleRegistry::
-	//ForEachOwnGenericInstance).
-	bool HasPlaceholderArg(const SnClassDecl& inst) const;
-
 	//The parameter position a placeholder stands for (an index into the
 	//template's TypeParamNames()). Precondition: IsPlaceholder.
 	size_t PlaceholderIndex(const SnField* pPlaceholder) const;
@@ -68,22 +59,36 @@ public:
 	//the field is not a declared-generic instantiation.
 	SnClassDecl* InstanceOf(const SnClassDecl* pInstance) const;
 
+	//v0.12.3 dictionary model: the record-owning TEMPLATE member for an
+	//instantiation's signature copy, recorded by the member fill at
+	//clone time (the pair is known exactly there — a later mutation of
+	//either member list cannot drift the mapping). Returns null for
+	//anything that is not an instantiation member (plain classes own
+	//their records). One authority for the clone-to-owner mapping: the
+	//resolver keeps clones bound (every type read wants the substituted
+	//surface) and the backend's slot throats resolve to the owner here
+	//(every record read wants the template row).
+	SnField* RecordOwnerOfMember(const SnField* pMember) const;
+
 	//Record a freshly minted instantiation. GetDeclaredGenericClassDecl
-	//is the only minting site; this call publishes the instance for the
-	//registration walks below.
+	//is the only minting site; this call publishes the instance in the
+	//cache and links it to its template.
 	void AdoptInstance(SnClassDecl* pInstance, const SnClassDecl* pTemplate,
-		const std::vector<const SnField*>& typeArgs, uint32_t ownerUnit);
+		const std::vector<const SnField*>& typeArgs);
+
+	//Record the clone-to-record-owner pair for one instantiation member
+	//(called by the member fill right after the copy joins the shell).
+	void AdoptMemberClone(SnField* pClone, const SnField* pSource);
 
 	//The minted instance for (template, type arguments), or null when
 	//this combination has not been minted yet.
 	SnClassDecl* FindInstance(const SnClassDecl* pTemplate,
 		const std::vector<const SnField*>& typeArgs) const;
 
-	//Iterate the declared instantiations minted while resolving
-	//`ownerUnit`, in mint order. The VM backend calls this per unit
-	//image to register the instantiation classes and their member
-	//records.
-	void ForEachInstance(uint32_t ownerUnit,
+	//Iterate every declared instantiation, in mint order. Compile-time
+	//surfaces (diagnostics, tests) enumerate through this; the runtime
+	//records never do — they live on the template rows.
+	void ForEachInstance(
 		const std::function<void(SnClassDecl&)>& visitor) const;
 
 	//Concurrent-mint depth, the live instantiation chain: nested mints
@@ -146,7 +151,7 @@ private:
 	std::map<const SnField*, size_t> m_placeholderIndex;
 	std::map<InstanceKey, SnClassDecl*> m_instances;
 	std::map<const SnClassDecl*, const SnClassDecl*> m_instanceTemplate;
-	std::map<uint32_t, std::vector<SnClassDecl*>> m_instancesByUnit;
+	std::map<const SnField*, const SnField*> m_memberRecordOwner;
 	int m_iGenericMintDepth = 0;
 	std::set<const SnClassDecl*> m_depthLimitReportedTmpls;
 };

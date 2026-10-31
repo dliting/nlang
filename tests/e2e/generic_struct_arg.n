@@ -1,0 +1,16 @@
+// v0.12.3 Task 5: a struct type argument is rejected — a struct is a
+// multi-slot value type and breaks the one-slot layout invariant every
+// instantiation shares (spec D2; the diagnostic names the limitation).
+struct Point {
+    int x;
+    int y;
+}
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public T get() { return item; }
+}
+class Holder {
+    public Box<Point> boxed;
+}
+int main() { return 0; }

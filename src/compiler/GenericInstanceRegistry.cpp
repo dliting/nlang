@@ -57,22 +57,6 @@ size_t GenericInstanceRegistry::PlaceholderIndex(
 	return it->second;
 }
 
-bool GenericInstanceRegistry::HasPlaceholderArg(
-	const SnClassDecl& inst) const
-{
-	for (const SnField* pArg : inst.GenericTypeArgs()) {
-		if (IsPlaceholder(pArg))
-			return true;
-		if (pArg->Kind() == NK_ClassDecl) {
-			const auto& argInst = static_cast<const SnClassDecl&>(*pArg);
-			if (argInst.IsGenericInstantiation()
-					&& HasPlaceholderArg(argInst))
-				return true;
-		}
-	}
-	return false;
-}
-
 SnClassDecl* GenericInstanceRegistry::InstanceOf(
 	const SnClassDecl* pInstance) const
 {
@@ -81,14 +65,32 @@ SnClassDecl* GenericInstanceRegistry::InstanceOf(
 		? const_cast<SnClassDecl*>(it->second) : nullptr;
 }
 
+SnField* GenericInstanceRegistry::RecordOwnerOfMember(
+	const SnField* pMember) const
+{
+	//Fill-time map lookup (AdoptMemberClone): the pair was recorded
+	//when the copy joined the shell, so later member-list mutations on
+	//either side cannot drift the mapping. Non-const like InstanceOf:
+	//the registry mints and owns these nodes, and record consumers
+	//need the owning pointer.
+	auto it = m_memberRecordOwner.find(pMember);
+	return it != m_memberRecordOwner.end()
+		? const_cast<SnField*>(it->second) : nullptr;
+}
+
 void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
 	const SnClassDecl* pTemplate,
-	const std::vector<const SnField*>& typeArgs, uint32_t ownerUnit)
+	const std::vector<const SnField*>& typeArgs)
 {
 	InstanceKey key{pTemplate, typeArgs};
 	m_instances[key] = pInstance;
 	m_instanceTemplate[pInstance] = pTemplate;
-	m_instancesByUnit[ownerUnit].push_back(pInstance);
+}
+
+void GenericInstanceRegistry::AdoptMemberClone(SnField* pClone,
+	const SnField* pSource)
+{
+	m_memberRecordOwner[pClone] = pSource;
 }
 
 SnClassDecl* GenericInstanceRegistry::FindInstance(
@@ -99,14 +101,11 @@ SnClassDecl* GenericInstanceRegistry::FindInstance(
 	return it != m_instances.end() ? it->second : nullptr;
 }
 
-void GenericInstanceRegistry::ForEachInstance(uint32_t ownerUnit,
+void GenericInstanceRegistry::ForEachInstance(
 	const std::function<void(SnClassDecl&)>& visitor) const
 {
-	auto it = m_instancesByUnit.find(ownerUnit);
-	if (it == m_instancesByUnit.end())
-		return;
-	for (auto* pInstance : it->second)
-		visitor(*pInstance);
+	for (const auto& kv : m_instances)
+		visitor(*kv.second);
 }
 
 } //namespace nlang

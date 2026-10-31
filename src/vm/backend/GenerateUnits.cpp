@@ -8,31 +8,15 @@
 #include "builder/ThreadNamespace.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
-#include <nlang/compiler/GenericInstanceRegistry.h>
 
 namespace nlang {
 
 void VmBackend::GenerateAllBytecode(SnNamespace& root) {
+    //v0.12.3 dictionary model: a generic template's members ARE the
+    //emitted records — they sit in the syntax tree, so the plain
+    //recursive walk emits them like any other member. Instantiation
+    //copies are compile-time types and never reach emission.
     GenerateBytecodeRecursive(root);
-    //Declared-generic instantiations are detached nodes — the tree walk
-    //above never reaches them. Their member records register through
-    //RegisterFunctions; their emission (native record fill, signature
-    //descriptors) runs here with the same body-or-native filter the
-    //tree walk applies.
-    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
-        [this](SnClassDecl& inst) {
-            for (auto& member : inst.Members())
-            {
-                if (member.Kind() != NK_Function)
-                    continue;
-                auto& func = static_cast<SnFunction&>(member);
-                if (!func.Body() && !func.ContainFlags(NF_Native))
-                    continue;
-                auto it = m_funcIndexMap.find(&func);
-                if (it != m_funcIndexMap.end())
-                    GenerateFunction(func, it->second);
-            }
-        });
     //Phase 5: entryPoint write-side close-out (definition in Register.cpp).
     ResolveEntryPoint(root);
 }
@@ -106,27 +90,12 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //The intrinsic-channel owner of a native declaration. Owner-of-CONTEXT,
 //not the flat tag: class members carry no owner tag of their own (the
 //IsOwnUnit contract), so a declared prelude ctor/method would read
-//NO_OWNER from the flat tag and never stamp. Declared-generic instance
-//copies are detached (they never entered the syntax tree), so even the
-//context walk finds no tagged ancestor — the template's owner speaks
-//for them (the copies substitute into the template's signatures: same
-//package, same intrinsic channel).
+//NO_OWNER from the flat tag and never stamp. A generic template's
+//native members sit in the tree under their owning unit, so the context
+//walk resolves them like every other member.
 uint32_t VmBackend::IntrinsicChannelOwnerOf(const SnFunction& func) const
 {
-    uint32_t owner = m_pRegistry->OwnerOfContext(func);
-    if (owner != ModuleRegistry::NO_OWNER)
-        return owner;
-    const SyntaxNode* pParent = func.Parent();
-    if (!pParent || pParent->Kind() != NK_ClassDecl)
-        return ModuleRegistry::NO_OWNER;
-    auto* pInstance = static_cast<const SnClassDecl*>(pParent);
-    if (!pInstance->IsGenericInstantiation())
-        return ModuleRegistry::NO_OWNER;
-    const SnClassDecl* pTemplate
-        = m_pRegistry->DeclaredGenerics().InstanceOf(pInstance);
-    if (!pTemplate)
-        return ModuleRegistry::NO_OWNER;
-    return m_pRegistry->OwnerOf(*pTemplate);
+    return m_pRegistry->OwnerOfContext(func);
 }
 
 //StampIntrinsicChannel: the binding-table arm of the native record

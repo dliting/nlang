@@ -378,8 +378,9 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedElemField)
 {
-	//v0.12.3 Task 5 window gate, twin of the type-position guard in
-	//ExprResolveAccessor (flips with instance execution, Task 5).
+	//v0.12.3: a sized T declarator is array CREATION (the statement form
+	//of new T[3]) — the spec D2 creation family rejects it; T[] TYPE
+	//positions stay legal (handle slots).
 	if (pSizedElemField && RejectTypeParamArrayElement(pSizedElemField,
 			m_Env, sn.Location()))
 		return;
@@ -390,9 +391,8 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	//insertion keeps this iterator valid.
 	auto iInsert = paragraph.Children().find(&sn);
 	++iInsert;
-	//0.10.7 D2: the interned array token types every sized
-	//declarator (CreateDeclaratorLocal); the statement type stays
-	//the head type for every declarator.
+	//0.10.7 D2: the interned array token types every sized declarator
+	//(CreateDeclaratorLocal); the statement type stays the head type.
 	SnField *pSizedArrayField = pSizedElemField
 		? m_Env.InternArrayTypeToken(pSizedElemField) : nullptr;
 	for (auto &decl : sn.Decls())

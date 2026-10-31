@@ -13,7 +13,6 @@
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/compiler/TranslationUnit.h>
-#include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/runtime/NodeConsts.h>
 
 namespace nlang {
@@ -207,22 +206,12 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
         if (node.Kind() != NK_ClassDecl || node.IsImported()
             || !IsOwnUnit(node) || IsShadowedPreludeDecl(node))
             return;
-        //A generic declaration is a signature-surface template: it
-        //registers no CompiledClass of its own — its instantiations do.
-        auto& cls = static_cast<SnClassDecl&>(node);
-        if (cls.IsGenericDeclaration())
-            return;
-        RegisterClassDecl(cls, declMap);
-    });
-    //Declared-generic instantiations minted while resolving this unit:
-    //every instantiation of a template shares the erased CompiledClass
-    //(identical layout, name-keyed method dispatch), so the first
-    //instantiation per key registers and the rest dedup silently.
-    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
-        [&](SnClassDecl& inst) {
-        if (declMap.count(KeyOf(inst)))
-            return;
-        RegisterClassDecl(inst, declMap);
+        //v0.12.3 dictionary model: a generic declaration registers ITS
+        //OWN row (the bare-name erasure key) — the one implementation
+        //every instantiation shares. T-typed fields classify through the
+        //type-parameter label (one value slot whatever binds); the
+        //instantiation copies are compile-time types and never register.
+        RegisterClassDecl(static_cast<SnClassDecl&>(node), declMap);
     });
     ResolveClassMetadata(declMap);
     ApplyImplicitObjectInheritance();
@@ -281,13 +270,6 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
             || IsShadowedPreludeDecl(node))
             return;
         auto& sn = static_cast<SnClassDecl&>(node);
-        //A generic declaration is a signature-surface template; its
-        //instantiations carry the method tables. Letting the template
-        //through would clear-and-refill the shared erased record
-        //(FindClass matches its bare name) with members that own no
-        //function records.
-        if (sn.IsGenericDeclaration())
-            return;
         int ccIdx = m_compiledModule.FindClass(KeyOf(sn));
         if (ccIdx < 0) return;
         auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
@@ -297,21 +279,6 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
         cc.constructorIndices.clear();
         cc.constructorAccess.clear();
         AppendClassMemberMethods(sn, cc);
-    });
-    //Instantiation method tables: the signature copies own function
-    //records (registered by RegisterFunctions), so the erased record
-    //refills from the instantiation's members.
-    m_pRegistry->ForEachOwnGenericInstance(m_currentUnitIdx,
-        [&](SnClassDecl& inst) {
-        int ccIdx = m_compiledModule.FindClass(KeyOf(inst));
-        if (ccIdx < 0) return;
-        auto& cc = m_compiledModule.classes[static_cast<size_t>(ccIdx)];
-        cc.methodIndices.clear();
-        cc.methodAccess.clear();
-        cc.methodVirtual.clear();
-        cc.constructorIndices.clear();
-        cc.constructorAccess.clear();
-        AppendClassMemberMethods(inst, cc);
     });
 }
 

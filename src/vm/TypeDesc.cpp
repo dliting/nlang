@@ -99,6 +99,19 @@ void ParseArrayBody(TypeDesc& td, const uint8_t* pData, size_t size,
 			"Invalid module: array descriptor rank out of range");
 }
 
+//RTK_Struct/RTK_Class body: the little-endian u16 type-table index.
+static uint16_t ParseTypeIndex(const uint8_t* pData, size_t size,
+	size_t& pos)
+{
+	if (size - pos < 2)
+		throw std::runtime_error(
+			"Invalid module: truncated type descriptor");
+	const uint16_t idx = static_cast<uint16_t>(pData[pos])
+		| (static_cast<uint16_t>(pData[pos + 1]) << 8);
+	pos += 2;
+	return idx;
+}
+
 TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth)
 {
@@ -112,12 +125,7 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	{
 		case RTK_Struct:
 		case RTK_Class:
-			if (size - pos < 2)
-				throw std::runtime_error(
-					"Invalid module: truncated type descriptor");
-			td.typeIdx = static_cast<uint16_t>(pData[pos])
-				| (static_cast<uint16_t>(pData[pos + 1]) << 8);
-			pos += 2;
+			td.typeIdx = ParseTypeIndex(pData, size, pos);
 			break;
 		case RTK_Array:
 			ParseArrayBody(td, pData, size, pos, depth);
@@ -134,6 +142,10 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			break;
 		case RTK_String:
 		case RTK_Boxed:
+		//v0.12.3 dictionary model: a template row's parameterized leaf —
+		//one value slot whatever the instantiation binds (see
+		//BuildTypeDesc's placeholder arm).
+		case RTK_TypeParam:
 		//Void leaf: legal only as an RTK_Func return slot — a top-level
 		//one degrades to the int32 placeholder on the consumer side.
 		case RTK_Void:
@@ -288,6 +300,17 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					args[0]->Kind() == NK_Void
 						? TypeDesc{RTK_Void}
 						: BuildTypeDesc(args[0], slots, depth + 1));
+				return td;
+			}
+			if (pClass->IsTypeParamPlaceholder())
+			{
+				//v0.12.3 dictionary model: a template signature's
+				//parameterized leaf — one value slot whatever the
+				//instantiation binds (the unified 8-byte value
+				//representation). The runtime type argument descriptors
+				//carry the per-instantiation representation; the wire
+				//kind is the label itself.
+				td.kind = RTK_TypeParam;
 				return td;
 			}
 			if (pClass->IsGenericInstantiation())

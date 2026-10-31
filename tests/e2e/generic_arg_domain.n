@@ -1,0 +1,60 @@
+// v0.12.3 Task 5 argument-domain acceptance (spec ninth-round M1/M2):
+// an interface type argument (polymorphic store/retrieve through the
+// use site's static type), the scalar sweep (char/long), a T[] handle
+// field (array created outside, passed through the constructor — no
+// new T[n] inside a body), and the zero-slot defaults of uninitialized
+// T fields (int reads 0, string reads null). One shape per early exit.
+interface IShape {
+    public int area();
+}
+class Square implements IShape {
+    public int side;
+    public Square(int s) { side = s; }
+    public int area() { return side * side; }
+}
+class Rect implements IShape {
+    public int w;
+    public int h;
+    public Rect(int a, int b) { w = a; h = b; }
+    public int area() { return w * h; }
+}
+class Bag<T> {
+    public T first;
+    public T second;
+    public Bag(T a, T b) { first = a; second = b; }
+    public T pick(int which) {
+        if (which == 1) { return first; }
+        return second;
+    }
+}
+class Cell<T> {
+    public T value;
+    public Cell() { }
+    public void store(T v) { value = v; }
+    public T load() { return value; }
+}
+class Vec<T> {
+    public T[] cells;
+    public Vec(T[] src) { cells = src; }
+    public int length() { return cells.length(); }
+}
+int main() {
+    Bag<IShape> bag = Bag(Square(3), Rect(2, 5));
+    IShape a = bag.pick(1);
+    IShape b = bag.pick(2);
+    if (a.area() != 9) { return 1; }
+    if (b.area() != 10) { return 2; }
+    Cell<char> cc = Cell();
+    cc.store('中');
+    if (cc.load() != '中') { return 3; }
+    Cell<long> cl = Cell();
+    cl.store(4294967295);
+    if (cl.load() != 4294967295) { return 4; }
+    Cell<int> ci = Cell();
+    if (ci.load() != 0) { return 5; }
+    Cell<string> cs = Cell();
+    if (!(cs.load() == null)) { return 6; }
+    Vec<long> v = Vec(long[2]);
+    if (v.length() != 2) { return 7; }
+    return 0;
+}

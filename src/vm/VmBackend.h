@@ -114,6 +114,9 @@ public:
     //existing lookups, cross-unit ones via placeholder records + import
     //entries.
     uint32_t FunctionSlotFor(SnFunction& callee);
+    //FunctionSlotFor's own-unit arm: table lookup with the dictionary-
+    //model clone-to-owner fallback (see Slots.cpp).
+    uint32_t OwnFunctionSlotFor(SnFunction& callee);
     uint32_t ClassSlotFor(SnClassDecl& decl);
     uint32_t StructSlotFor(SnStructDecl& decl);
     uint32_t EnumSlotFor(SnEnumDecl& decl);
@@ -1063,9 +1066,6 @@ private:
     void WalkArrayTypeNode(SnField& n);
     void RegisterEnums(SnNamespace& root);
     void RegisterFunctions(SnNamespace& root);
-    //RegisterFunctions tail: the detached declared-generic instantiation
-    //members (the tree walk above never reaches them).
-    void RegisterDeclaredGenericInstanceMembers();
     void PopulateClassMethods(SnNamespace& root);
     //PopulateClassMethods worker: one class's method/ctor tables from its
     //AST members in declaration order (keys on m_funcIndexMap).

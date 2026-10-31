@@ -189,8 +189,7 @@ SnClassDecl *ExprResolveAccessor::FindDeclaredGenericInstance(
 	auto &tmpl = *static_cast<SnClassDecl*>(pProbed);
 	if (typeArgs.size() != tmpl.TypeParamNames().size())
 		return nullptr;
-	return GetDeclaredGenericClassDecl(tmpl, typeArgs,
-		m_Env.Registry().OwnerOfContext(*m_pContext));
+	return GetDeclaredGenericClassDecl(tmpl, typeArgs);
 }
 
 //Phase-2 builtin-decls: element-typed actuals of a member invoke on a

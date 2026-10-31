@@ -25,15 +25,31 @@ namespace nlang {
 //EnumSlotFor's placeholder-slot branch (the own-miss throw only fires
 //for own declarations), so the cross-unit EnumSymbolSlot channel —
 //dead until the enum stub landed — is the live path.
+//v0.12.3 dictionary model: an instantiation carries no compiled
+//records — the template row in its owning unit does. FunctionSlotFor
+//and ClassSlotFor resolve that compile-time alias to the record owner
+//at their entry, so every downstream decision (own-table hit in the
+//template's unit, import slot everywhere else) reads an ordinary
+//tree-attached declaration with a real owner tag.
+uint32_t VmBackend::OwnFunctionSlotFor(SnFunction& callee) {
+    auto it = m_funcIndexMap.find(&callee);
+    if (it == m_funcIndexMap.end())
+        throw std::runtime_error(
+            "NLang backend: own function missing from the unit table: "
+            + KeyOf(callee));
+    return static_cast<uint32_t>(it->second);
+}
+
 uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
-    if (IsOwnUnit(callee)) {
-        auto it = m_funcIndexMap.find(&callee);
-        if (it == m_funcIndexMap.end())
-            throw std::runtime_error(
-                "NLang backend: own function missing from the unit table: "
-                + KeyOf(callee));
-        return static_cast<uint32_t>(it->second);
-    }
+    //An instantiation member's record lives on the template member
+    //(RecordOwnerOfMember, recorded at clone time). Recursing once
+    //here puts the whole own/cross-unit classification on the record
+    //owner; the map holds clones only, so the recursion bottoms out.
+    if (SnField* pOwner = m_pRegistry->DeclaredGenerics()
+            .RecordOwnerOfMember(&callee))
+        return FunctionSlotFor(*static_cast<SnFunction*>(pOwner));
+    if (IsOwnUnit(callee))
+        return OwnFunctionSlotFor(callee);
     //Cross-unit methods/constructors carry the owner metadata computed
     //below in the slot record. Arity follows the TABLE convention
     //(formals + this for class, struct, and enum instance methods,
@@ -140,6 +156,17 @@ VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
 }
 
 uint32_t VmBackend::ClassSlotFor(SnClassDecl& decl) {
+    //An instantiation rides the template's class row (same bare key —
+    //the erasure identity). Recursing once puts the classification on
+    //the record owner: own-table hit in the template's unit, the
+    //standard import slot (template's module path + bare key) in every
+    //other unit of the build. Template rows are not instantiations, so
+    //the recursion bottoms out.
+    if (decl.IsGenericInstantiation()) {
+        if (auto* pTemplate = m_pRegistry->DeclaredGenerics()
+                .InstanceOf(&decl))
+            return ClassSlotFor(*pTemplate);
+    }
     if (IsOwnUnit(decl)) {
         int idx = m_compiledModule.FindClass(KeyOf(decl));
         if (idx < 0) {

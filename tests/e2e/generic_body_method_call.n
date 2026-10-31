@@ -1,7 +1,7 @@
-// v0.12.3 Task 1 window: a bodied member's clone on an instantiation
-// is a signature surface only (no body, not native) — a call bound to
-// it would reach the backend unregistered. Until instance execution
-// lands, the member is not on the instantiation's call surface.
+// v0.12.3 dictionary model: a bodied member call on an instantiation
+// rides the template row's compiled record — the clone is the
+// signature surface type-checking reads, and the slot throat resolves
+// the call to the template member. Exit = get() = 1.
 class Box<T> {
     public int get() { return 1; }
 }

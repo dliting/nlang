@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="proj_generic_cross_unit">
+  <Sources>
+    <File path="boxlib.n"/>
+    <File path="main.n"/>
+  </Sources>
+</Project>
