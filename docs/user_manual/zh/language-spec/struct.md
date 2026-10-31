@@ -73,6 +73,24 @@ struct Point {
 
 与class不同，struct默认值**不注入到构造器**——它在每次分配时应用。裸声明、数组元素、嵌套字段、部分初始化列表都会先填入默认值（初始化列表条目会覆盖它们）。深拷贝复制存储值，不重新应用默认值。默认值保存在`.ncu`的struct记录里，因此`import`之后依然可见——见[模块序列化](../vm-architecture/module-serialization.md)。
 
+### const struct
+
+`const struct`把类型级不可变语义带给结构体（完整规则见[类](class.md)「const类与const结构体」）：字段只在自身构造器体与字段初始化器里可写，其余位置的写入是编译错误；`List`/`Dict`字段读取返回副本；字段类型面同样受约束。struct无继承，const性各自密封。
+
+```nlang
+const struct Size {
+    int w;
+    int h;
+}
+
+int main() {
+    Size s = Size{3, 4};   // 初始化列表在分配时填值，合法
+    int area = s.w * s.h;  // 读取正常
+    // s.w = 5;            // 编译错误："w" is immutable
+    return area;
+}
+```
+
 ### struct可以包含
 
 - 基本类型字段（int、float、string等）

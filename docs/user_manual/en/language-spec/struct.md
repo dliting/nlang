@@ -117,6 +117,29 @@ does not re-apply them. The defaults are stored in the `.ncu` struct record, so 
 stay visible after an `import` — see [Module
 Serialization](../vm-architecture/module-serialization.md).
 
+### Const struct
+
+A `const struct` brings type-level immutability to structs (full rules in
+[Class](class.md) "const classes and const structs"): fields are writable
+only inside the struct's own constructor body and its field initializers,
+writes anywhere else are compile errors; `List`/`Dict` field reads return
+copies; the field type surface is constrained the same way. Structs have no
+inheritance, so each declaration is sealed on its own.
+
+```nlang
+const struct Size {
+    int w;
+    int h;
+}
+
+int main() {
+    Size s = Size{3, 4};   // init list fills at allocation time — legal
+    int area = s.w * s.h;  // reads are normal
+    // s.w = 5;            // compile error: "w" is immutable
+    return area;
+}
+```
+
 ### What a struct can contain
 
 - Primitive fields (int, float, string, etc.)

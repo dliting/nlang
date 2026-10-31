@@ -35,6 +35,7 @@ List<int> seed = List();    // 与{}等价：零参构造器
 | `removeAt`          | `void removeAt(int i)` | —   | 擦除；后继元素前移  |
 | `indexOf`           | `int indexOf(T item)` | int | `item`的首个索引，无则-1       |
 | `contains`          | `bool contains(T item)` | bool | 存在为true，否则false               |
+| `copy`              | `List<T> copy()`   | List&lt;T&gt; | 浅拷贝：新列表＋元素句柄照抄（const聚合容器字段的读取即此语义） |
 | `clear`             | `void clear()`     | —       | 移除全部元素                |
 
 **类型检查**：编译器把`List<int>`、`List<string>`、`List<Point>`等识别为彼此不同的静态类型。实参类型按替换后的签名检查——`nums : List<int>`时`nums.add("wrong")`是编译错误。
@@ -99,6 +100,7 @@ int removed = squares.remove(4);        // 1
 | `containsKey`    | `bool containsKey(K key)`  | bool    | 存在为true，否则false                      |
 | `remove`         | `int remove(K key)`        | int     | 删除为1，键未找到为0               |
 | `clear`          | `void clear()`             | —       | 移除全部条目                             |
+| `copy`           | `Dict<K,V> copy()`         | Dict&lt;K,V&gt; | 浅拷贝：新字典＋条目句柄照抄      |
 | `count`          | `int count()`              | int     | 当前条目数                            |
 
 **类型检查**：编译器把`Dict<int,int>`、`Dict<string,Point>`等识别为彼此不同的静态类型。实参类型按替换后的签名检查——`d : Dict<string,int>`时`d.set("x", "y")`是编译错误。

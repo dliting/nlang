@@ -6,6 +6,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.4] - 2026-11-01
+
+### 新增
+
+- `const class`/`const struct`声明：类型级不可变。实例字段只在声明类型自己的构造函数与字段初始化器里可写，其余位置（方法体、其他类、跨模块）写入都是点名属主的编译错误；const类只能被const类继承。字段类型面受约束（拒绝数组与非const类字段，容器元素类型同样须不可变），可变句柄无法穿透密封；const聚合的`List`/`Dict`字段读取返回浅拷贝。
+- `Exception`新增原因链：构造函数为`Exception(string message, Exception cause = null)`（全部内建子类同形），只读`cause`字段携带被包装异常；不设`initCause`式事后设置，链不可能成环。
+- `List<T>`与`Dict<K,V>`新增`copy()`——浅拷贝（新容器＋元素句柄照抄）。
+- 失败报告沿原因链输出：未捕获异常打印`<Type>: <message>`顶层行后逐环追加`Caused by:`行；spawned任务未观察的失败在运行结束时同样报告整条链。
+
+### 变更
+
+- **破坏性变更**：内建异常家族改为const类——构造后写字段（如`e.message = "x"`）不再编译，用户异常子类必须声明`const class MyError : Exception`；额外数据在子类构造函数里赋值，经`super(msg)`/`super(msg, cause)`转发。
+- 未捕获异常输出顶层行带上类型前缀（`Runtime error: Exception: boom`而非`Runtime error: boom`）；异常自身的`message`字段不变。
+- `.ncu`格式升至v2.12：类与结构记录携带const标记字节，消费方模块对导入const聚合的写入在编译期拒绝；v2.11及更早镜像拒绝加载。
+
 ## [0.12.3] - 2026-10-31
 
 ### 变更

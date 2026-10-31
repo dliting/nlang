@@ -19,3 +19,5 @@ p.x = 5;            // OK —— 只有p的绑定是const
 ```
 
 对class字段和数组元素而言，这意味着：`const`引用仍允许通过它写入。深/不可变风格的const不受支持。
+
+要整个聚合不可变，用**类型级**const——`const class` / `const struct`声明（见[类](class.md)「const类与const结构体」、[结构体](struct.md)「const struct」）：实例字段构造后只读，容器字段读取返回副本。两者正交：const类型的变量本身仍可重新绑定，而本页的const局部不可以。字段声明位上的`const`（如`const int x;`作为字段）始终是语法错误——不可变性由类型级标记整体授予，不做「半个类不可变」。

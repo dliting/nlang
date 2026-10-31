@@ -44,6 +44,7 @@ constructor (`Channel<int> b = Channel(2);`, see
 | `removeAt`          | `void removeAt(int i)` | —   | Erase; shifts later elements down  |
 | `indexOf`           | `int indexOf(T item)` | int | First index of `item`, or -1       |
 | `contains`          | `bool contains(T item)` | bool | true if present, else false     |
+| `copy`              | `List<T> copy()`   | List&lt;T&gt; | Shallow copy: fresh list, element handles carried over (this is exactly what reading a container field of a const aggregate yields) |
 | `clear`             | `void clear()`     | —       | Remove all elements                |
 
 **Type checking**: the compiler recognizes `List<int>`, `List<string>`,
@@ -150,6 +151,7 @@ int removed = squares.remove(4);        // 1
 | `containsKey`    | `bool containsKey(K key)`  | bool    | true if present, else false                   |
 | `remove`         | `int remove(K key)`        | int     | 1 if removed, 0 if key not found               |
 | `clear`          | `void clear()`             | —       | Remove all entries                             |
+| `copy`           | `Dict<K,V> copy()`         | Dict&lt;K,V&gt; | Shallow copy: fresh dict, entry handles carried over     |
 | `count`          | `int count()`              | int     | Current entry count                            |
 
 **Type checking**: the compiler recognizes `Dict<int,int>`,

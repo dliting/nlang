@@ -135,7 +135,55 @@ class Cfg {
 - A `native` or bodyless constructor cannot carry field defaults (compile
   error).
 
-### Static methods
+### Const classes and const structs
+
+`const class` and `const struct` declare **type-level immutable**
+aggregates: the bindings of all instance fields are read-only after
+construction.
+
+```nlang
+const class Note {
+    public string text;
+    public Note(string t) { text = t; }   // writable inside the ctor
+}
+const struct Vec {
+    int x;
+    int y;
+}
+```
+
+- **The writable window is the field-declaring type's own constructor body
+  plus its field initializers** (defaults are injected at construction time
+  as usual). Writes anywhere else — method bodies, other classes, across
+  modules — are compile errors naming the field and its owner (the
+  `"text" is immutable: it belongs to the const class "Note"` shape). A
+  subclass constructor must **not** rewrite inherited fields; pass
+  supplements forward through `super(...)` (see "super() — constructor
+  chaining" below).
+- **The marker does not freeze variable bindings**: `Note n = a; n = b;` is
+  legal — type-level const and the local `const` (binding-level, see
+  [Const Local](const-local.md)) are different things. `static` members are
+  unaffected.
+- **Inheritance restriction**: a const class can only be extended by another
+  const class — in `class D : B`, a const `B` with a non-const `D` is a
+  compile error, and a const subclass of a plain base is rejected the same
+  way; structs have no inheritance and are each sealed on their own. The
+  const marker is carried in the `.ncu` record, so writes to an imported
+  const aggregate are rejected on the consumer side too.
+- **Container field reads return copies**: a member read of a `List`/`Dict`
+  field on a const aggregate is rewritten to a shallow copy (the built-in
+  `copy()`, see [Builtin Generic Classes](builtin-generic-classes.md)) —
+  callers get a snapshot, and mutating the copy never touches the aggregate;
+  two reads yield distinct copies, so comparing them with `==` is
+  meaningless. String fields (like `Exception.message`) are immutable by
+  themselves and are simply read-only.
+- **The field type surface is constrained** (sealing completeness, checked
+  at declaration): a field cannot be an array or a non-const class type — a
+  mutable handle would pierce the seal; the element types of `List`/`Dict`
+  fields must be immutable-faced as well. The legal surface is primitives,
+  string, enums, const classes/const structs, element-compliant containers,
+  and func types. The built-in `Exception` family is entirely const, which
+  is what makes the self-referential `Exception cause` field legal.
 
 ```nlang
 class Util {
@@ -244,7 +292,9 @@ class Kid : Base {
   requires `super(...)` to be the first statement (see [Field
   initializers](#field-initializers) below).
 - Argument count must match the parent ctor's parameter count. For parents in
-  the built-in Exception family the ctor takes exactly one `message` argument.
+  the built-in Exception family the ctor is
+  `Exception(string message, Exception cause = null)` — both `super(msg)` and
+  `super(msg, cause)` work.
 - Named arguments (`super(x = 1)`) are not supported (compile error).
 - `super()` with no arguments against a parent with no constructor is a legal
   no-op; passing arguments in that case is a compile error.
