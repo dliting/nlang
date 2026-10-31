@@ -5,14 +5,14 @@
 The two value categories of §4.1 govern every boundary at which a
 value moves: assignment and initialization (§4.1), argument
 passing (§7.2), the return value (§6.6), a subscript read or
-write (§5.7), a field read or write (§4.6, §8.1), and a container
+write (§5.7), a field read or write (§4.7, §8.1), and a container
 store or retrieval (chapter 13).
 
 At a boundary, a value of a value type is copied: after the move,
 source and target are independent, and a later change to one is
 invisible through the other. A struct copy copies every field; a
 field of a reference type copies its reference, so the two struct
-values then share that one object (§4.6).
+values then share that one object (§4.7).
 
 At a boundary, a value of a reference type copies the reference:
 source and target denote the same object, and a change made
@@ -23,9 +23,9 @@ copy.
 
 A `string` value is a handle to immutable text: a boundary copies
 the handle, and immutability makes the sharing unobservable
-(§4.4). A scalar primitive, `string` or enumeration value entering
+(§4.3). A scalar primitive, `string` or enumeration value entering
 an `Object` position is boxed there — wrapped in a heap object
-(§4.9) — and unboxing reads the value back out (§5.5).
+(§4.11) — and unboxing reads the value back out (§5.5).
 
 Two operations move values differently:
 

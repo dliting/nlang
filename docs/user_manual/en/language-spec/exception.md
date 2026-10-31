@@ -116,7 +116,7 @@ try {
 
 A failed `as` class downcast likewise raises `InvalidCastException` —
 catchable with `catch`, its `message` carrying the expected/actual
-class leaf names (see [Type Casts](type-casts.md)).
+class leaf names (see [Type Casts](../specification/04-types/casts.md)).
 
 **Uncaught exceptions** propagate up the call stack. If no handler is found,
 the program terminates with exit code 1.

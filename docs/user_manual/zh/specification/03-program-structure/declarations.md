@@ -98,7 +98,7 @@ int p[3], q;                // p是int数组，q是普通int
 | 数组、`List`、`Dict` | null |
 | `func` | null |
 
-引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](../../language-spec/string.md)）。enum的默认值是底层int值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
+引用类型的默认值是null：`== null`可以直接判断；不判空就使用——调用方法、取成员、取下标、取长度——会在运行期抛出`null reference error`并附回溯。string是唯一的例外：null句柄读作空字符串，`.length()`得0、拼接时如同`""`（见[字符串](../../specification/04-types/string.md)）。enum的默认值是底层int值0：成员自动递增（从0起）时恰好是首个成员——`Color c;`之后`c == Color.Red`成立；显式赋非零值的enum，默认0可能不落在任何成员上。
 
 类型特定的声明形式及其语义在各类型页：[枚举](../../language-spec/enum.md)、[结构体](../../language-spec/struct.md)、[类](../../language-spec/class.md)、[接口](../../language-spec/interface.md)。
 

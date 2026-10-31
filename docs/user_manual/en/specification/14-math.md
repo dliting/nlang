@@ -15,7 +15,7 @@ the package.
 Every floating-point function in the package runs at `double`
 precision: parameters and results are `double` (§4.2). Integer
 and `float` arguments enter through the implicit widening of
-§4.12, so `math.sqrt(4)` and `math.sin(1.5f)` both compile. A
+§4.4, so `math.sqrt(4)` and `math.sin(1.5f)` both compile. A
 `double` result reaches a `float` target only through an
 explicit `as` conversion (§5.5).
 

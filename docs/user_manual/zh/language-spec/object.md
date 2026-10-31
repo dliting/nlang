@@ -1,12 +1,12 @@
 # Object与装箱
 
-规范性规则见规范§4.9。
+规范性规则见规范§4.11。
 
 `Object`是class层次结构的隐式根。凡未显式继承其他类的class都隐式继承`Object`。其声明位于`stdlib/builtins.n`——预置包`builtins`，每次构建自动导入（见[标准库](standard-library.md)）；与其他预置声明一样，它是可阅读的普通源码。用户不写`class Foo : Object`——继承是隐式的，显式写法被拒绝。
 
 `Object`是唯一没有父类的class。内建class同样位于`Object`之下：`List`、`Dict`、`ByteStream`、`FileStream`、`Exception`及其全部内建子类（`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`IOException`、`InvalidCastException`），加上包声明的`ChannelClosedException`（`concurrent`包），与用户class共用同一个层次，因此任何class实例都可以赋给`Object`变量。不参与class层次的类型：基本类型、`string`与enum赋给`Object`时经装箱进入（enum按其整数值，见下节）；数组、struct与interface不是class，数组与struct的值也没有赋给`Object`的通道。
 
-`Object`是**引用类型**：`Object`类型的值是一个引用，可指向class对象*或*装箱基本类型。赋值与传参拷贝引用。只声明不初始化（`Object o;`）得到null——与所有class类型一致（见[声明](../specification/03-program-structure/declarations.md)的默认值表）。见[类型语义](type-semantics.md)。
+`Object`是**引用类型**：`Object`类型的值是一个引用，可指向class对象*或*装箱基本类型。赋值与传参拷贝引用。只声明不初始化（`Object o;`）得到null——与所有class类型一致（见[声明](../specification/03-program-structure/declarations.md)的默认值表）。见[类型](../specification/04-types/index.md)。
 
 ### `equals`与`getHashCode`
 
@@ -31,7 +31,7 @@ class Point {
 }
 ```
 
-Object还提供第三个虚方法`string toString()`：默认输出`类名@堆位置`（如`Point@1a`），用户类按与`equals`/`getHashCode`相同的方式同名覆写；`as string`转换与字符串位置（拼接、string形参）的隐式转换都调用它。见[类型强制转换](type-casts.md)。
+Object还提供第三个虚方法`string toString()`：默认输出`类名@堆位置`（如`Point@1a`），用户类按与`equals`/`getHashCode`相同的方式同名覆写；`as string`转换与字符串位置（拼接、string形参）的隐式转换都调用它。见[类型强制转换](../specification/04-types/casts.md)。
 
 协议方法的规范签名（覆写必须与之完全一致）：
 
@@ -41,7 +41,7 @@ Object还提供第三个虚方法`string toString()`：默认输出`类名@堆�
 | getHashCode | `getHashCode(): int` |
 | toString | `toString(): string` |
 
-**string的值语义**：string虽是基本类型，但`string.getHashCode()`与`string.equals(string)`调用被内建化为*值*语义（哈希用`std::hash`，equals用内容比较）。这使string无需包装类即可用作`Dict`键。见[字符串](string.md)。
+**string的值语义**：string虽是基本类型，但`string.getHashCode()`与`string.equals(string)`调用被内建化为*值*语义（哈希用`std::hash`，equals用内容比较）。这使string无需包装类即可用作`Dict`键。见[字符串](../specification/04-types/string.md)。
 
 **协议方法不受访问修饰符限制，始终公开**：名字与签名匹配Object协议成员
 （`equals(Object): int`、`getHashCode(): int`、`toString(): string`）的
@@ -75,4 +75,4 @@ NLang没有`Integer`、`Double`这类命名包装class：装箱只在值进入`O
 
 ### 拆箱与向下转换
 
-用`as`运算符把基本类型从`Object`拆箱出来，或把`Object`向下转换为class类型。完整`as`规则（拆箱、class向下转换、`Object`向上转换特例、哪些转换是编译错误）见[类型强制转换](type-casts.md)「运行期检查的转换（`as`）」。
+用`as`运算符把基本类型从`Object`拆箱出来，或把`Object`向下转换为class类型。完整`as`规则（拆箱、class向下转换、`Object`向上转换特例、哪些转换是编译错误）见[类型强制转换](../specification/04-types/casts.md)「运行期检查的转换（`as`）」。

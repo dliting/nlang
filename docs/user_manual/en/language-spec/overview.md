@@ -15,7 +15,7 @@ Key design goals:
 
 ### How to read this specification
 
-- [Types](types.md) — the type system at a glance; enum, struct, class, interface, array, and the rest each have their own page
+- [Types](../specification/04-types/index.md) — the type system at a glance; enum, struct, class, interface, array, and the rest each have their own page
 - [Declarations](../specification/03-program-structure/declarations.md) and [Packages](../specification/03-program-structure/packages.md) — imports, variables, type aliases, and module visibility
 - [Expressions & Statements](expressions.md), [Functions](functions.md)
 - [Concurrency](concurrency.md) — virtual threads, channels, mutexes, semaphores, and futures

@@ -27,7 +27,7 @@ source (an `int` local, a non-container call result) is a compile error:
 **String sources**: the loop variable must be `char`, and each iteration
 binds one complete code point (multi-byte characters are never split) — this
 is the string's code-point iteration path, in contrast with the byte
-subscript `s[i]` (see [String](string.md) "The char bridge"):
+subscript `s[i]` (see [String](../specification/04-types/string.md) "The char bridge"):
 
 ```nlang
 string s = "héllo";

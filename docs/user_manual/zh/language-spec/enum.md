@@ -1,6 +1,6 @@
 # 枚举
 
-规范性规则见规范§4.5与§8.4。
+规范性规则见规范§4.6与§8.4。
 
 `enum`声明一组具名整数常量。枚举值在运行期是`int32`。
 
@@ -22,7 +22,7 @@ Color e;                   // 不初始化：底层int值0（自增enum即首个
 
 - 声明时用**限定成员名**`Color.Green`。
 - int到enum也隐式允许（`Color d = 1;`），显式形式是`1 as Color`。底座值是否落在成员上**编译期不检查**——`toString()`在运行期才暴露：超出名字表的值抛错，被显式编号跳过的值转成空串（见下文「输出」）。
-- enum到int隐式取底座值（见[类型语义](type-semantics.md)）。
+- enum到int隐式取底座值（见[类型](../specification/04-types/index.md)）。
 - 只声明不初始化（`Color e;`）得到底座值0——自动递增的enum恰好是首个成员；显式赋非零值的enum默认0可能不落在任何成员上（见[声明](../specification/03-program-structure/declarations.md)的默认值表）。
 - 打印enum变量须先`.toString()`——`io.print`不直接接收enum变量实参；成员常量例外，`io.print(Color.Red)`直接打印成员名`Red`（见[标准库](standard-library.md)的打印支持面）。
 
@@ -67,7 +67,7 @@ enum Color {
 
 ### 输出
 
-`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每个枚举一张名字表；VM用`OP_Enum_to_str`按值查成员名。超出名字表的值在`toString()`处抛宿主级运行期错误——不是可捕获的nlang异常；在表内但没有成员承载的值（显式成员值跳过的编号）转成空串。完整`toString`协议见[类型强制转换](type-casts.md)。
+`Color.Red.toString()`返回`"Red"`（不是`"0"`）。编译器内嵌每个枚举一张名字表；VM用`OP_Enum_to_str`按值查成员名。超出名字表的值在`toString()`处抛宿主级运行期错误——不是可捕获的nlang异常；在表内但没有成员承载的值（显式成员值跳过的编号）转成空串。完整`toString`协议见[类型强制转换](../specification/04-types/casts.md)。
 
 ### 跨模块枚举
 

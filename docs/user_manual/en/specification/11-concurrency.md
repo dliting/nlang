@@ -155,7 +155,7 @@ and `Channel`.
 
 A `Channel<T>` passes values between contexts. The element type
 argument is required: it drives the boxing on send and the
-unboxing on receive, by the same mechanism as `List<T>` (§4.10);
+unboxing on receive, by the same mechanism as `List<T>` (§4.12);
 reference elements pass through directly. A channel is a handle
 class of `concurrent` (§11.2).
 

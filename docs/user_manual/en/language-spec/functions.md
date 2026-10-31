@@ -12,7 +12,7 @@ int add(int a, int b) {
 ```
 
 - Parameters: int/float/string/enum passed by value, struct passed by value
-  (deep copy), class passed by reference — see [Type Semantics](type-semantics.md).
+  (deep copy), class passed by reference — see [Types](../specification/04-types/index.md).
 - Return type: any type — structs return by deep copy, classes by
   reference, everything else by value; arrays and containers work as return
   types too (see [Array](array.md) and [Collection

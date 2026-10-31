@@ -352,8 +352,8 @@ target's range (a constant-fit special case — `byte b = 5` is legal);
 unsuffixed decimal and exponent forms are `double` literals, and integer
 targets never accept float constants (`int x = 2e5` likewise reports
 Incompatible type); string interpolation only supports `${name}` named
-variables, not expressions. See [Primitives](primitives.md) "Numeric
-literals" and [String](string.md) "String interpolation".
+variables, not expressions. See [Primitive Types](../specification/04-types/primitives.md) "Numeric
+literals" and [String](../specification/04-types/string.md) "String interpolation".
 
 ### Numeric type mixing
 
@@ -401,7 +401,7 @@ with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
 suppresses this warning family; an explicit `as` never warns). See →
-[Type Semantics](type-semantics.md) "Numeric conversion matrix" and
+[Types](../specification/04-types/index.md) "Numeric conversion matrix" and
 [Operators](operators.md) "Arithmetic".
 
 ### `as` casts
@@ -434,7 +434,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 writing `as` for a widening that is already implicitly legal is
 redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
-`toDouble()` method family. See [Type Casts](type-casts.md).
+`toDouble()` method family. See [Type Casts](../specification/04-types/casts.md).
 
 ### Dict initializer key type mismatch
 
@@ -516,4 +516,4 @@ file's logical content; the diagnostic comes from the bytes actually
 stored on disk, so the same source compiles fine once re-saved as
 UTF-8. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
-[Primitives](primitives.md) "Representation: from source to console".
+[Primitive Types](../specification/04-types/primitives.md) "Representation: from source to console".

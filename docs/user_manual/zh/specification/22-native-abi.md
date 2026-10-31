@@ -133,7 +133,7 @@ void fn(NativeHost* host, uint8_t* ret,
 
 **随机。**`nextRandom`抽取下一个值，`seedRandom`为生成器播种；状态属于宿主，并被本次运行中的每个原生函数共享。
 
-**数组。**`newArray`铸造一个一维数组，`newArrayShaped`铸造一个给定秩的数组（§4.3），两者都零初始化，并返回句柄。元素种类是四个码之一，与§20.5的类型种类码一致：
+**数组。**`newArray`铸造一个一维数组，`newArrayShaped`铸造一个给定秩的数组（§4.10），两者都零初始化，并返回句柄。元素种类是四个码之一，与§20.5的类型种类码一致：
 
 | 码 | 元素类型 |
 |---|---|
@@ -142,7 +142,7 @@ void fn(NativeHost* host, uint8_t* ret,
 | `15` | `long` |
 | `17` | `double` |
 
-这四个之外的种类抛出基类`Exception`。负的长度或维度，以及超过分配守卫的任何请求，抛出`IndexOutOfBoundsException`——与语言侧负尺寸创建的结果相同（§4.3、§9.3）。`1`到`64`之外的秩抛出基类`Exception`（§4.3）。铸造出的句柄由宿主保持存活，直到原生函数把它写进`ret`（§22.7）。
+这四个之外的种类抛出基类`Exception`。负的长度或维度，以及超过分配守卫的任何请求，抛出`IndexOutOfBoundsException`——与语言侧负尺寸创建的结果相同（§4.10、§9.3）。`1`到`64`之外的秩抛出基类`Exception`（§4.10）。铸造出的句柄由宿主保持存活，直到原生函数把它写进`ret`（§22.7）。
 
 `getArrayView`用`handle`背后数组的§22.6固定视图填好`*out`并返回`1`；为null或越界的句柄抛出`NullPointerException`，非数组值的句柄抛出基类`Exception`——不存在不抛出的失败路径。
 
@@ -152,7 +152,7 @@ void fn(NativeHost* host, uint8_t* ret,
 
 | 字段 | 类型 | 内容 |
 |---|---|---|
-| `rank` | `int32_t` | 数组的秩（§4.3） |
+| `rank` | `int32_t` | 数组的秩（§4.10） |
 | `dims` | `const int32_t*` | 各维长度；指向数组记录内部 |
 | `strides` | `const int32_t*` | 以元素计的行主序步幅；指向视图自身内部 |
 | `elemCount` | `int64_t` | 元素总数 |

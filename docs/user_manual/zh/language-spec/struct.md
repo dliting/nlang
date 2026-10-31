@@ -1,6 +1,6 @@
 # 结构体
 
-规范性规则见规范§4.6与§8.5。
+规范性规则见规范§4.7与§8.5。
 
 `struct`是值类型聚合，由字段组成。它持有数据加上可选构造器——没有一般方法体。需要行为请用`class`。
 
@@ -108,4 +108,4 @@ int sum = v.x + v.y;        // 读导入字段
 
 ### 输出
 
-struct没有`toString`，且**永久排除**于字符串强制转换——`"x" + structInstance`是编译错误（struct在NLang中是纯数据类型）。见[类型强制转换](type-casts.md)「Object.toString()协议」。
+struct没有`toString`，且**永久排除**于字符串强制转换——`"x" + structInstance`是编译错误（struct在NLang中是纯数据类型）。见[类型强制转换](../specification/04-types/casts.md)「Object.toString()协议」。

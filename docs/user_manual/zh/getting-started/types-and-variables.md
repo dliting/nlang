@@ -25,7 +25,7 @@ int main() {
 
 输出`demo: 30 / 1.5`、`A true 5000000000`。标量基本类型共12个：整型家族（`byte` `ubyte` `short` `ushort` `int` `uint` `long` `ulong`）、`float`/`double`、`bool`与`char`（Unicode码点）；`string`是第13个基本类型（Unicode转换格式（UTF-8，Unicode Transformation Format）字节串，引用语义）。复合类型enum、struct、class在下面的章节与声明章节中有介绍。
 
-详见[语言规格/类型](../language-spec/types.md)、[类型语义](../language-spec/type-semantics.md)、[声明](../specification/03-program-structure/declarations.md)。
+详见[规范/类型](../specification/04-types/index.md)、[声明](../specification/03-program-structure/declarations.md)。
 
 ### 枚举
 
@@ -74,7 +74,7 @@ int main() {
 }
 ```
 
-输出`7`，退出码34。结构体是值类型：声明一个变量会把所有字段零初始化，拷贝它（`Point q = p;`）会按值复制整个结构体——包括嵌套结构体字段——因此两份拷贝相互独立。除裸声明外，结构体还可以用花括号条目创建——按声明序的`Point{3, 4}`或按名字的`Point{x: 3, y: 4}`——并能声明构造器（`public Point(int a, int b) { x = a; y = b; }`）；与class不同，它没有其他方法。值语义与引用语义的分界见[语言规格/类型语义](../language-spec/type-semantics.md)。
+输出`7`，退出码34。结构体是值类型：声明一个变量会把所有字段零初始化，拷贝它（`Point q = p;`）会按值复制整个结构体——包括嵌套结构体字段——因此两份拷贝相互独立。除裸声明外，结构体还可以用花括号条目创建——按声明序的`Point{3, 4}`或按名字的`Point{x: 3, y: 4}`——并能声明构造器（`public Point(int a, int b) { x = a; y = b; }`）；与class不同，它没有其他方法。值语义与引用语义的分界见[规范/类型](../specification/04-types/index.md)。
 
 详见[语言规格/结构体](../language-spec/struct.md)。
 
@@ -114,7 +114,7 @@ int main() {
 }
 ```
 
-输出`hello, NLang`、`year: 2026`，退出码9。字符串是UTF-8字节序列，`length()`/`substring()`/`indexOf()`都按字节计；按码点访问（`charAt`、`charCount`、`foreach (char c in s)`）见[string与char](../language-spec/string.md)的「char桥接」。
+输出`hello, NLang`、`year: 2026`，退出码9。字符串是UTF-8字节序列，`length()`/`substring()`/`indexOf()`都按字节计；按码点访问（`charAt`、`charCount`、`foreach (char c in s)`）见[string与char](../specification/04-types/string.md)的「char桥接」。
 
-详见[语言规格/类型](../language-spec/types.md)、[标准库](../language-spec/standard-library.md)。
+详见[规范/类型](../specification/04-types/index.md)、[标准库](../language-spec/standard-library.md)。
 

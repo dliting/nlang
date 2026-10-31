@@ -1,6 +1,6 @@
 # 数组
 
-规范性规则见规范§4.3。
+规范性规则见规范§4.10。
 
 数组是定长、可按索引寻址的序列。语法为`T[]`。
 
@@ -29,11 +29,11 @@ int f[100] = [7, 8];      // 声明位部分初始化：余位零填充
 - **返回值**：返回引用。
 - **作为字段/元素**：以引用存储（见[结构体](struct.md)、[类](class.md)、[内建泛型类](builtin-generic-classes.md)的`List<int[]>`）。
 
-struct类型的数组在行为上是例外：每个元素是值类型，所以`Point[n]`在创建时为每个元素分配一份独立的`Point`，读取元素时深拷贝。见[结构体](struct.md)「值语义」。完整的值vs引用摘要见[类型语义](type-semantics.md)。
+struct类型的数组在行为上是例外：每个元素是值类型，所以`Point[n]`在创建时为每个元素分配一份独立的`Point`，读取元素时深拷贝。见[结构体](struct.md)「值语义」。完整的值vs引用摘要见[类型](../specification/04-types/index.md)。
 
 ### 长度
 
-`a.length()`是方法（无参数、返回`int`），与`string.length()`、`List.length()`形态一致。见[字符串](string.md)。数组成员方法（`length`、`rank`、`shape`、`toString`）由预置类`Array`（`stdlib/builtins.n`）声明——与`String`一样，这个类只为持有声明而存在：不能实例化、不能继承、也不能用作类型；数组类型用方括号语法书写（`int[]`）。
+`a.length()`是方法（无参数、返回`int`），与`string.length()`、`List.length()`形态一致。见[字符串](../specification/04-types/string.md)。数组成员方法（`length`、`rank`、`shape`、`toString`）由预置类`Array`（`stdlib/builtins.n`）声明——与`String`一样，这个类只为持有声明而存在：不能实例化、不能继承、也不能用作类型；数组类型用方括号语法书写（`int[]`）。
 
 ### 下标读写
 

@@ -4,7 +4,7 @@
 
 1. [概览](../language-spec/overview.md)——语言定位与整体结构
 2. [命名约定](../language-spec/naming-convention.md)——类型/方法/变量的命名规则
-3. [类型](../language-spec/types.md) → [类型语义](../language-spec/type-semantics.md) →
+3. [类型](../specification/04-types/index.md) →
    [声明](../specification/03-program-structure/declarations.md) →
    [内建泛型类](../language-spec/builtin-generic-classes.md)
    ——类型系统、声明与List/Dict

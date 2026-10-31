@@ -242,7 +242,7 @@ seeds the generator; the state belongs to the host and is
 shared by every native in the run.
 
 **Arrays.** `newArray` mints a one-dimensional array and
-`newArrayShaped` an array of the given rank (§4.3), both
+`newArrayShaped` an array of the given rank (§4.10), both
 zero-initialized, and return the handle. The element kind is
 one of four codes, which mirror the type-kind codes of §20.5:
 
@@ -257,8 +257,8 @@ A kind outside these four raises the base `Exception`. A
 negative length or dimension, and any request past the
 allocation guard, raises `IndexOutOfBoundsException` — the
 same outcome as a negative sized creation on the language side
-(§4.3, §9.3). A rank outside `1` to `64` raises the base
-`Exception` (§4.3). The minted handle is kept alive by the
+(§4.10, §9.3). A rank outside `1` to `64` raises the base
+`Exception` (§4.10). The minted handle is kept alive by the
 host until the native writes it into `ret` (§22.7).
 
 `getArrayView` fills `*out` with the pinned view of §22.6 of
@@ -274,7 +274,7 @@ payload:
 
 | Field | Type | Content |
 |---|---|---|
-| `rank` | `int32_t` | the array's rank (§4.3) |
+| `rank` | `int32_t` | the array's rank (§4.10) |
 | `dims` | `const int32_t*` | the dimension lengths; points into the array record |
 | `strides` | `const int32_t*` | the row-major strides in elements; points into the view itself |
 | `elemCount` | `int64_t` | the total element count |

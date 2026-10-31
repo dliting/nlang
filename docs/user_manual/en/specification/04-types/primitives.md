@@ -1,10 +1,42 @@
-# Primitives
+# 4.2 Primitive Types
 
-The normative rules are in [specification §4.2](../specification/04-types.md).
+NLang has 12 scalar primitive types: 8 integers, 2 floating-point
+types, `bool`, and `char`. A 13th primitive, `string`, is an
+immutable object with its own page: [String](string.md).
 
-NLang has 12 scalar primitive types: 8 integers, 2 floating-point types,
-`bool`, and `char`. A 13th primitive, `string`, is an immutable object with
-its own page: [String](string.md).
+The scalar primitives and their value domains:
+
+| Type | Values | Default |
+|---|---|---|
+| `byte` | −128 to 127 | 0 |
+| `ubyte` | 0 to 255 | 0 |
+| `short` | −32768 to 32767 | 0 |
+| `ushort` | 0 to 65535 | 0 |
+| `int` | −2147483648 to 2147483647 | 0 |
+| `uint` | 0 to 4294967295 | 0 |
+| `long` | −9223372036854775808 to 9223372036854775807 | 0 |
+| `ulong` | 0 to 18446744073709551615 | 0 |
+| `float` | the IEEE 754 binary32 values | 0 |
+| `double` | the IEEE 754 binary64 values | 0 |
+| `bool` | `true` and `false` | `false` |
+| `char` | the Unicode scalar values | code point 0 |
+
+A Unicode scalar value is a code point in the range U+0000 to
+U+10FFFF other than the surrogate range U+D800 to U+DFFF. A
+character literal is checked at compile time (§1.5.3); converting
+a numeric value to `char` is checked at run time (chapter 5).
+
+Integer arithmetic wraps around modulo the width of the operand
+type; overflow is not an error (chapter 5).
+
+The type of a literal is fixed by §1.5.1 and §1.5.2: an integer
+literal takes `int`, `long` or `ulong` by its value, and a
+floating-point literal takes `float` only with the `f` suffix.
+
+`bool` converts implicitly only to `string` and `Object`, and no
+type converts implicitly to `bool` (§4.4).
+
+*Informative:* the storage sizes and the literal spellings:
 
 | Type | Size | Semantics | Literals |
 |------|------|-----------|----------|
@@ -53,8 +85,10 @@ comparison operators (`==` `!=` `<` `>` `<=` `>=`), the logical operators
 the five condition positions — the conditions of `if`/`while`/
 `do-while`/`for` and the argument of `assert` — plus the operands of
 `&&`/`||`/`!` — all accept **bool only**; writing `if (1)` is a compile
-error (`if condition must be bool, not "Int32"`). bool converts to and
-from no other type and takes no part in arithmetic.
+error (`if condition must be bool, not "Int32"`). bool converts
+implicitly only to `string` (coercion) and `Object` (boxing) — §4.4;
+no type converts implicitly to bool, and bool takes no part in
+arithmetic.
 
 ### char
 
@@ -82,8 +116,8 @@ code-point iteration, the `charAt`/`charCount` methods) is on
 
 ### Representation: from source to console
 
-One representation question spans the whole chain — what a char is in
-the source file, after compilation, and on the console:
+*Informative:* one representation question spans the whole chain — what
+a char is in the source file, after compilation, and on the console:
 
 - **Source files must be Unicode Transformation Format (UTF-8).** The scanner decodes a character
   literal's 1-4 byte UTF-8 span into one code point (`'é'` is the 2
@@ -98,7 +132,7 @@ the source file, after compilation, and on the console:
 - **After compilation a char is its 32-bit code point — neither UTF-8
   nor UTF-16.** Every char occupies 4 bytes holding the raw code
   point: local variables, char literals, boxed records (see
-  [Object and Boxing](object.md)), and stream writes all store the same
+  [Object and Boxing](../../language-spec/object.md)), and stream writes all store the same
   4-byte value, and it stays the plain code point end to end.
 - **Strings are where UTF-8 lives**: a string object is a UTF-8 byte
   sequence (see [String](string.md) "Encoding and length"). A char
@@ -157,10 +191,10 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 symmetric promotion as arithmetic: `-2 < -1.5` promotes to double and is
 true; `1 == 1.0` is true. char compares only with char. The complete
 comparison rules for all types (string, class, null) are on
-[Operators](operators.md) "Comparison".
+[Operators](../../language-spec/operators.md) "Comparison".
 
 ### Casts
 
 The conversion matrix between the integer family, floating point, `bool`,
 and `char` — which conversions are implicit, which require an explicit
-`as`, which are forbidden — is on [Type Casts](type-casts.md).
+`as`, which are forbidden — is in §4.4 and on [Type Casts](casts.md).

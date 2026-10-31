@@ -43,7 +43,11 @@ nav:
           - Overview: specification/03-program-structure/index.md
           - Declarations: specification/03-program-structure/declarations.md
           - Packages and Import Search: specification/03-program-structure/packages.md
-      - Types: specification/04-types.md
+      - Types:
+          - Overview: specification/04-types/index.md
+          - Primitive Types: specification/04-types/primitives.md
+          - String: specification/04-types/string.md
+          - Type Casts: specification/04-types/casts.md
       - Expressions: specification/05-expressions.md
       - Statements: specification/06-statements.md
       - Functions: specification/07-functions.md
@@ -65,17 +69,12 @@ nav:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
       - Types:
-          - Types: language-spec/types.md
-          - Primitives: language-spec/primitives.md
-          - String: language-spec/string.md
           - Enum: language-spec/enum.md
           - Struct: language-spec/struct.md
           - Class: language-spec/class.md
           - Interface: language-spec/interface.md
           - Array: language-spec/array.md
           - Object & Boxing: language-spec/object.md
-          - Type Casts: language-spec/type-casts.md
-          - Type Semantics: language-spec/type-semantics.md
           - Built-in Generic Classes: language-spec/builtin-generic-classes.md
       - Expressions & Statements:
           - Expressions: language-spec/expressions.md

@@ -1,8 +1,35 @@
-# 基本类型
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
 
-规范性规则见规范§4.2。
+# 4.2 基本类型
 
 NLang有12个标量基本类型：8个整型、2个浮点型、`bool`与`char`。第13个基本类型`string`是不可变对象，有独立页面：[字符串](string.md)。
+
+标量基本类型及其值域：
+
+| 类型 | 值 | 默认值 |
+|---|---|---|
+| `byte` | −128到127 | 0 |
+| `ubyte` | 0到255 | 0 |
+| `short` | −32768到32767 | 0 |
+| `ushort` | 0到65535 | 0 |
+| `int` | −2147483648到2147483647 | 0 |
+| `uint` | 0到4294967295 | 0 |
+| `long` | −9223372036854775808到9223372036854775807 | 0 |
+| `ulong` | 0到18446744073709551615 | 0 |
+| `float` | IEEE 754 binary32值 | 0 |
+| `double` | IEEE 754 binary64值 | 0 |
+| `bool` | `true`与`false` | `false` |
+| `char` | Unicode标量值 | 码点0 |
+
+Unicode标量值是U+0000到U+10FFFF范围内、除代理区U+D800到U+DFFF之外的码点。字符字面量在编译期检查（§1.5.3）；把数值转换为`char`在执行期检查（第5章）。
+
+整数算术按操作数类型的宽度取模回绕；溢出不是错误（第5章）。
+
+字面量的类型由§1.5.1与§1.5.2固定：整数字面量按其值取`int`、`long`或`ulong`，浮点字面量仅带`f`后缀时取`float`。
+
+`bool`只隐式转换到`string`与`Object`，且没有类型隐式转换到`bool`（§4.4）。
+
+*资料性：*存储大小与字面量写法：
 
 | 类型 | 大小 | 语义 | 字面量 |
 |------|------|------|--------|
@@ -25,7 +52,7 @@ NLang有12个标量基本类型：8个整型、2个浮点型、`bool`与`char`�
 
 ### bool
 
-`bool`只有`true` / `false`两个值。**生产者**：全部比较运算（`==` `!=` `<` `>` `<=` `>=`）、逻辑运算`&&`/`||`/`!`、标准库全部谓词（`fs.exists`、`s.startsWith`、`List.contains`、`Dict.containsKey`等）。**消费者**：五处条件位置——`if`/`while`/`do-while`/`for`的条件与`assert`的实参——以及`&&`/`||`/`!`的操作数，都**只接受bool**；写`if (1)`是编译错误（`if condition must be bool, not "Int32"`）。bool不与任何其他类型相互转换，也不参与算术。
+`bool`只有`true` / `false`两个值。**生产者**：全部比较运算（`==` `!=` `<` `>` `<=` `>=`）、逻辑运算`&&`/`||`/`!`、标准库全部谓词（`fs.exists`、`s.startsWith`、`List.contains`、`Dict.containsKey`等）。**消费者**：五处条件位置——`if`/`while`/`do-while`/`for`的条件与`assert`的实参——以及`&&`/`||`/`!`的操作数，都**只接受bool**；写`if (1)`是编译错误（`if condition must be bool, not "Int32"`）。bool只隐式转换到`string`（强制转换）与`Object`（装箱）——见§4.4；没有类型隐式转换到`bool`，bool也不参与算术。
 
 ### char
 
@@ -41,11 +68,10 @@ char与string的桥接（`"x" + 'y'`拼接、`foreach (char c in s)`码点迭代
 
 ### 表示链：从源码到控制台
 
-一个表示问题贯穿整条链路——char在源文件里、编译后、控制台上各是什么形式：
+*资料性：*一个表示问题贯穿整条链路——char在源文件里、编译后、控制台上各是什么形式：
 
-- **源文件必须是Unicode转换格式（UTF-8，Unicode Transformation Format）。**词法器把字符字面量的1-4字节UTF-8序列解码为一个码点（`'é'`是2个字节`C3 A9`，解码为U+00E9）。整个文件在词法前经过严格UTF-8校验：无效字节被明确拒绝（`Source file is not valid UTF-8 ... (first invalid
-  byte at line N)`），UTF-16保存的文件得到专门提示——无效编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；UTF-16等其他编码得到上述专门提示。
-- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char占4字节，内容即原始码点：局部变量、char字面量、装箱记录（见[Object与装箱](object.md)）与流写入里的4字节值皆如此——值端到端都是朴素码点。
+- **源文件必须是Unicode转换格式（UTF-8，Unicode Transformation Format）。**词法器把字符字面量的1-4字节UTF-8序列解码为一个码点（`'é'`是2个字节`C3 A9`，解码为U+00E9）。整个文件在词法前经过严格UTF-8校验：无效字节被明确拒绝（`Source file is not valid UTF-8 ... (first invalid byte at line N)`），UTF-16保存的文件得到专门提示——无效编码字节不会混入字符串常量。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过（编辑器的「UTF-8 with BOM」保存形式可用）；UTF-16等其他编码得到上述专门提示。
+- **编译后char就是它的32位码点——既不是UTF-8也不是UTF-16。**每个char占4字节，内容即原始码点：局部变量、char字面量、装箱记录（见[Object与装箱](../../language-spec/object.md)）与流写入里的4字节值皆如此——值端到端都是朴素码点。
 - **UTF-8在string一侧**：string对象是UTF-8字节序列（见[字符串](string.md)「编码与长度」节）。char加入string时转成该形式——`"x" + 'y'`把码点编码为1-4个UTF-8字节。反方向上，`s.charAt(i)`从字节i处解码码点，`"65".toChar()`解析十进制码点。
 - **控制台收到的是UTF-8字节。**`io.print`把char以其UTF-8编码、把string以其原始字节原样写入标准输出。命令行工具启动时把所在控制台切换到UTF-8代码页，Windows默认控制台即可正常显示非ASCII输出（重定向到文件/管道时字节原样，仍是UTF-8）。
 
@@ -75,8 +101,8 @@ a + b    a - b    a * b    a / b    a % b
 a == b   a != b   a < b   a > b   a <= b   a >= b
 ```
 
-**比较结果一律是`bool`。**数值操作数适用与算术相同的提升规则：`-2 < -1.5`提升为double且为真；`1 == 1.0`为真。char只与char比较。所有类型（string、class、null）的完整比较规则在[运算符](operators.md)「比较」节。
+**比较结果一律是`bool`。**数值操作数适用与算术相同的提升规则：`-2 < -1.5`提升为double且为真；`1 == 1.0`为真。char只与char比较。所有类型（string、class、null）的完整比较规则在[运算符](../../language-spec/operators.md)「比较」节。
 
 ### 强制转换
 
-整型家族、浮点、bool、char之间的转换矩阵——哪些隐式、哪些必须显式`as`、哪些禁止——见[类型强制转换](type-casts.md)。
+整型家族、浮点、bool、char之间的转换矩阵——哪些隐式、哪些必须显式`as`、哪些禁止——见§4.4与[类型强制转换](casts.md)。

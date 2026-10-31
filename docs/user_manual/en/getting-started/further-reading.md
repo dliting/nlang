@@ -6,8 +6,7 @@ Suggested reading order for the Language Specification:
    how it is organized
 2. [Naming Convention](../language-spec/naming-convention.md) — the
    naming rules for types/methods/variables
-3. [Types](../language-spec/types.md) →
-   [Type Semantics](../language-spec/type-semantics.md) →
+3. [Types](../specification/04-types/index.md) →
    [Declarations](../specification/03-program-structure/declarations.md) →
    [Built-in Generic Classes](../language-spec/builtin-generic-classes.md)
    — the type system, declarations, and List/Dict

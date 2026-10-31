@@ -21,10 +21,10 @@ conversion methods (§13.3).
 
 **Argument admission.** A call to a package function binds each
 argument against the declared formal type (§7.3); the implicit
-conversion to `string` of §4.12 does not apply to package
+conversion to `string` of §4.4 does not apply to package
 arguments. A `string` formal of a package function accepts only
 a `string` argument; any other type is a compile-time error. A
-call to a user-declared function keeps the §4.12 relation:
+call to a user-declared function keeps the §4.4 relation:
 `emit(42)` compiles where `emit` declares a `string` parameter,
 but `io.writeFile(42, "x")` does not.
 
@@ -97,7 +97,7 @@ the call waits.
 ## 15.4 File Content IO
 
 - `io.readFile(path)` returns the whole content of the file at
-  `path` as a `string` of bytes (§4.4). It raises `IOException`
+  `path` as a `string` of bytes (§4.3). It raises `IOException`
   (§9.3) when the file cannot be opened, its size cannot be
   determined, the size exceeds 16 MiB, or the read fails
   partway.
@@ -149,7 +149,7 @@ The method surface is identical except where noted:
 | `close()` | releases the buffer or the file handle; the handle becomes invalid |
 
 The scalar write methods admit arguments by width. The 8-byte
-writers take any value §4.12 assigns implicitly to their slot
+writers take any value §4.4 assigns implicitly to their slot
 type: an `int` enters `writeLong`, and a `float` or an integer
 enters `writeDouble`, the conversion applied at the call site.
 The 4-byte writers are exact: `writeInt` takes an integer of at
@@ -192,7 +192,7 @@ the `long` value 42.
 
 **Strings.** `writeString(s)` appends a 4-byte signed length —
 the byte count of `s` — followed by exactly those bytes. The
-bytes are whatever the string holds (§4.4); the encoding
+bytes are whatever the string holds (§4.3); the encoding
 imposes no text form on them. `readString` treats a negative
 length, a length above 16 MiB, and a length that runs past the
 end of the stream alike: each is a host-level run-time error

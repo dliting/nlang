@@ -1,6 +1,6 @@
 # Enum
 
-The normative rules are in [specification §4.5](../specification/04-types.md) and [§8.4](../specification/08-object-orientation.md).
+The normative rules are in [specification §4.6](../specification/04-types/index.md) and [§8.4](../specification/08-object-orientation.md).
 
 An `enum` declares a set of named integer constants. Enum values are `int32`
 at runtime.
@@ -32,7 +32,7 @@ Color e;                   // no initializer: underlying value 0
   explicit member numbering converts to the empty string (see Output
   below).
 - enum-to-int yields the underlying value implicitly (see
-  [Type Semantics](type-semantics.md)).
+  [Types](../specification/04-types/index.md)).
 - A declaration without an initializer (`Color e;`) gets the underlying
   value 0 — for an auto-incremented enum that is exactly the first
   member; an enum with explicitly assigned non-zero values may default
@@ -110,7 +110,7 @@ per-enum name table; the VM uses `OP_Enum_to_str` to look up the member name
 by value. A value beyond the table throws a host-level runtime error at
 `toString()` — not a catchable nlang exception; a value inside the table
 that no member carries (a number skipped by explicit member values)
-converts to the empty string. See [Type Casts](type-casts.md) for the full
+converts to the empty string. See [Type Casts](../specification/04-types/casts.md) for the full
 `toString` protocol.
 
 ### Enums across modules

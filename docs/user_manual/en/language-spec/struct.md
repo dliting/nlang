@@ -1,6 +1,6 @@
 # Struct
 
-The normative rules are in [specification §4.6](../specification/04-types.md) and [§8.5](../specification/08-object-orientation.md).
+The normative rules are in [specification §4.7](../specification/04-types/index.md) and [§8.5](../specification/08-object-orientation.md).
 
 A `struct` is a value-typed aggregate of fields. It holds data plus
 optional constructors — no general method bodies. Use a `class` for
@@ -163,4 +163,4 @@ int sum = v.x + v.y;        // read an imported field
 
 A struct has no `toString` and is **permanently excluded** from string
 coercion — `"x" + structInstance` is a compile error (struct is a pure-data
-type in NLang). See [Type Casts](type-casts.md) "Object.toString() Protocol".
+type in NLang). See [Type Casts](../specification/04-types/casts.md) "Object.toString() Protocol".

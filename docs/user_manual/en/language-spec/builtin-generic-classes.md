@@ -1,6 +1,6 @@
 # Built-in Generic Classes
 
-The normative rules are in [specification §4.10](../specification/04-types.md).
+The normative rules are in [specification §4.12](../specification/04-types/index.md).
 
 ### `List<T>`
 

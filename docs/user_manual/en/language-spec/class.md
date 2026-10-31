@@ -1,6 +1,6 @@
 # Class
 
-The normative rules are in [specification §4.7](../specification/04-types.md) and [chapter 8](../specification/08-object-orientation.md).
+The normative rules are in [specification §4.8](../specification/04-types/index.md) and [chapter 8](../specification/08-object-orientation.md).
 
 A `class` is a reference-typed object: it lives on the heap and is accessed
 through a reference (a reference is the object's index on the heap). It carries fields, constructors, methods,
@@ -37,7 +37,7 @@ A class follows **reference semantics** throughout the language:
 - **As a struct field**: the struct stores the reference (heap index); a
   struct copy shallow-copies this reference. See [Struct](struct.md).
 
-The full value-vs-reference summary is on [Type Semantics](type-semantics.md).
+The full value-vs-reference summary is on [Types](../specification/04-types/index.md).
 
 ### Fields and access modifiers
 
@@ -299,4 +299,4 @@ A class-typed variable can be null (represented as heap index 0). Accessing a
 field or method on a null class reference throws a `NullPointerException`,
 which can be caught by a `try/catch` block. If uncaught, the program
 terminates with exit code 1. See [Exceptions](exception.md). A string handle
-reads null as the empty string instead — see [String](string.md).
+reads null as the empty string instead — see [String](../specification/04-types/string.md).

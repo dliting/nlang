@@ -1,6 +1,6 @@
 # Interface
 
-The normative rules are in [specification §4.8](../specification/04-types.md) and [§8.3](../specification/08-object-orientation.md).
+The normative rules are in [specification §4.9](../specification/04-types/index.md) and [§8.3](../specification/08-object-orientation.md).
 
 An `interface` declares a set of instance method signatures with no
 fields and no implementation. A class declares conformance with the
@@ -9,7 +9,7 @@ itself may also carry `public static` members — methods with bodies and
 constants — which belong to the interface type rather than to any
 implementing class (see "Static members" below). An interface-typed
 value is a **reference** to the implementing object (reference
-semantics, like a class — see [Type Semantics](type-semantics.md)).
+semantics, like a class — see [Types](../specification/04-types/index.md)).
 
 ```nlang
 interface IShape {

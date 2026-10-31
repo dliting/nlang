@@ -2,9 +2,9 @@
 
 The `tensor` package provides numeric kernels over arrays of the
 four scalar element kinds `int`, `long`, `float` and `double`.
-Tensor values are ordinary arrays (§4.3): the package introduces
+Tensor values are ordinary arrays (§4.10): the package introduces
 no new type, elements are read and written with the subscripts
-of §5, and the array members of §4.3 apply unchanged. §18.1
+of §5, and the array members of §4.10 apply unchanged. §18.1
 fixes the package form; §18.2 defines construction and shape
 operations; §18.3 defines the elementwise kernels and
 reductions; §18.4 defines the matrix product; §18.5 fixes the
@@ -42,13 +42,13 @@ documented surface.
   `stop`; the element type is the common type of the three
   arguments.
 - A zero-filled array needs no kernel: sized creation `T[n]`
-  is zero-initialized (§4.3).
+  is zero-initialized (§4.10).
 - `reshape1`–`reshape8` return the flat source array `a`
   reshaped to the rank carried by the name, filled in row-major
   order. The `int[]` `shape` must have exactly that many
   dimensions and their product must equal the element count of
   `a`. The declared surface covers target ranks 1–8; the global
-  rank bound of §4.3 is 64.
+  rank bound of §4.10 is 64.
 - `flatten(a)` returns the rank-2 array `a` as a rank-1 array
   in row-major order.
 - `transpose(a)` returns the rank-2 array `a` as `[cols, rows]`
@@ -91,7 +91,7 @@ language-wide rules (§4.2): `int` and `long` wrap around,
 Every tensor failure is a catchable value of the `Exception`
 family (§9.3). A `null` array argument raises
 `NullPointerException`. A negative creation length, or an
-element count past the creation bound of §4.3, raises
+element count past the creation bound of §4.10, raises
 `IndexOutOfBoundsException` at the creation site; a negative
 `reshape` dimension raises the same class. `arange` checks its
 element count before minting and raises `Exception` when the

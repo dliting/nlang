@@ -10,7 +10,7 @@ follows the sharing rule of §3.5.
 A local declaration `T x;` binds `x` to the default value of `T`
 (§4). A declaration with an initializer `T x = e;`
 evaluates `e` and stores the value into `x`; the value must be
-assignable to `T` (§4.12). Binding and evaluation happen at the
+assignable to `T` (§4.4). Binding and evaluation happen at the
 declaration statement, in statement order (§3.5). A declaration
 with several declarators declares each name in turn; the
 evaluation order of the initializers is unspecified (§0.4).
@@ -32,15 +32,15 @@ not a statement: only a call may stand alone as a statement
 ## 6.2 Assignment
 
 The target of an assignment — the lvalue — is a local variable or
-parameter, a field selected by a member expression (§4.6, §4.7),
+parameter, a field selected by a member expression (§4.7, §4.8),
 an array subscript, or a `List` or `Dict` subscript (§5.7).
 Parameters are assignable like local variables.
 
 Simple assignment `x = e;` evaluates `e` and stores the value into
 the lvalue; the value must be assignable to the type of the lvalue
-(§4.12). The store follows the value model of chapter 4: an lvalue
-of struct type stores a copy (§4.6), while an array-typed, class or
-interface lvalue stores a reference (§4.3, §4.7).
+(§4.4). The store follows the value model of chapter 4: an lvalue
+of struct type stores a copy (§4.7), while an array-typed, class or
+interface lvalue stores a reference (§4.10, §4.8).
 
 Compound assignment `x op= e;` with `op` one of `+ - * / % << >>`
 (§2.5) is equivalent to `x = x op e;` (§5.2, §5.3) except that the
@@ -55,7 +55,7 @@ operator:
 
 A compound assignment whose lvalue is a `Dict` subscript raises a
 catchable run-time error at the read of the current value when the
-key is absent (§4.10, chapter 9).
+key is absent (§4.12, chapter 9).
 
 Compound assignment is a statement, not an expression: it has no
 value, and `(x += 1)` in an expression is a syntax error.
@@ -72,7 +72,7 @@ paragraph (§6.1).
 
 `switch` evaluates its discriminant once. The discriminant type
 must be an integer type, a floating-point type, `char`, `string`,
-or an enumeration (§4.2, §4.4, §4.5); a `bool`, class, struct,
+or an enumeration (§4.2, §4.3, §4.6); a `bool`, class, struct,
 array, or `null` discriminant is a compile-time error.
 
 The syntax of `switch` is §2.5: case clauses first, then an
@@ -124,11 +124,11 @@ jumps to the condition test of the innermost enclosing loop; in a
 errors.
 
 `foreach (T x in src) body` iterates the elements of `src`. The
-source must be an array, a `List`, a `Dict` or a `string` (§4.3,
-§4.4, §4.10): any other type is a compile-time error. The source
+source must be an array, a `List`, a `Dict` or a `string` (§4.10,
+§4.3, §4.12): any other type is a compile-time error. The source
 is evaluated exactly once, before the first iteration. The
 declared type of the loop variable must match the element type of
-the source exactly, including array dimensions (§4.3). The
+the source exactly, including array dimensions (§4.10). The
 iteration order is:
 
 - an array: its elements in index order;
@@ -142,10 +142,10 @@ The loop variable is a local declaration in the enclosing scope
 (§6.1): it is visible after the loop, holding the value of the
 last element stored, or the default value of its type when the
 body never ran. An element of struct type is copied into the
-variable at each iteration (§4.6). Mutating the source container
+variable at each iteration (§4.7). Mutating the source container
 while iterating it is unspecified: the element count is captured
 at loop entry (§0.4). A `null` source raises a catchable
-null-dereference error (§4.7, chapter 9).
+null-dereference error (§4.8, chapter 9).
 
 ## 6.5 Assertions
 
@@ -159,7 +159,7 @@ with exit code 1 (chapter 10).
 ## 6.6 Return
 
 `return e;` ends the function and yields `e`; `e` must be
-assignable to the return type (§4.12). The brace form
+assignable to the return type (§4.4). The brace form
 `return { ... };` is an initializer whose target is the return
 type (§5.8). `return;` is defined only for a `void` function: a
 value in a `void` function, and a missing value in a function with

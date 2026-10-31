@@ -270,7 +270,7 @@ int main() {
 Error: invalid identifier "123" in ${...}: only ${name} supported (no expressions).
 ```
 
-整型**字面量**赋给更窄目标时值必须在目标值域内（常量适配特例，`byte b = 5`合法）；无后缀小数与指数形式是`double`字面量，整数目标不接受浮点常量（`int x = 2e5`同样报Incompatible type）；字符串插值只支持`${name}`具名变量，不支持表达式。详见[基本类型](primitives.md)「数字字面量」与[字符串](string.md)「字符串插值」。
+整型**字面量**赋给更窄目标时值必须在目标值域内（常量适配特例，`byte b = 5`合法）；无后缀小数与指数形式是`double`字面量，整数目标不接受浮点常量（`int x = 2e5`同样报Incompatible type）；字符串插值只支持`${name}`具名变量，不支持表达式。详见[基本类型](../specification/04-types/primitives.md)「数字字面量」与[字符串](../specification/04-types/string.md)「字符串插值」。
 
 ### 数值类型混合
 
@@ -311,7 +311,7 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型语义](type-semantics.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型](../specification/04-types/index.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
 
 ### `as`转换
 
@@ -339,7 +339,7 @@ int main() {
 Error: Invalid cast: `String as Int32` is not allowed.
 ```
 
-`as`只用于转换矩阵不放行的对——对已经隐式合法的加宽写`as`是冗余（`ubyte→int`直接`int i = b;`）；string→数值的`as`被禁止——用`s.toInt()`/`toLong()`/`toDouble()`方法族。详见[类型强制转换](type-casts.md)。
+`as`只用于转换矩阵不放行的对——对已经隐式合法的加宽写`as`是冗余（`ubyte→int`直接`int i = b;`）；string→数值的`as`被禁止——用`s.toInt()`/`toLong()`/`toDouble()`方法族。详见[类型强制转换](../specification/04-types/casts.md)。
 
 ### 字典初始化器键类型不符
 
@@ -400,4 +400,4 @@ Error: Source file src_not_utf8.n is not valid UTF-8 (first invalid byte at line
 Compilation failed.
 ```
 
-`.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](primitives.md)「表示链：从源码到控制台」。
+`.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](../specification/04-types/primitives.md)「表示链：从源码到控制台」。

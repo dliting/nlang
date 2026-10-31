@@ -1,6 +1,6 @@
 # 类
 
-规范性规则见规范§4.7与第8章。
+规范性规则见规范§4.8与第8章。
 
 `class`是引用类型对象：它住在堆上，经引用访问（引用即对象在堆上的编号）。它携带字段、构造函数、方法，以及单条继承线。
 
@@ -32,7 +32,7 @@ class在整个语言中遵循**引用语义**：
 - **返回值**：返回引用，不做拷贝。
 - **作为struct字段**：struct存的是引用（堆索引）；struct拷贝会浅拷贝该引用。见[结构体](struct.md)。
 
-完整的值vs引用摘要见[类型语义](type-semantics.md)。
+完整的值vs引用摘要见[类型](../specification/04-types/index.md)。
 
 ### 字段与访问修饰符
 
@@ -180,4 +180,4 @@ class B {
 
 ### Null检查
 
-class类型变量可为null（表示为堆索引0）。对null class引用访问字段或方法会抛出`NullPointerException`，可被`try/catch`块捕获。未捕获时程序以退出码1终止。见[异常](exception.md)。string句柄的null读作空串而非抛错——见[字符串](string.md)。
+class类型变量可为null（表示为堆索引0）。对null class引用访问字段或方法会抛出`NullPointerException`，可被`try/catch`块捕获。未捕获时程序以退出码1终止。见[异常](exception.md)。string句柄的null读作空串而非抛错——见[字符串](../specification/04-types/string.md)。

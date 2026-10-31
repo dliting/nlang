@@ -39,8 +39,7 @@ int main() {
 Output `dog has 4 legs`, exit code 4. Classes are reference types; once
 `toString()` is overridden, an object participates in string
 concatenation directly. The line between reference and value semantics
-is drawn in [Language Specification /
-Type Semantics](../language-spec/type-semantics.md).
+is drawn in [Specification / Types](../specification/04-types/index.md).
 
 See also: [Language Specification / Class](../language-spec/class.md).
 

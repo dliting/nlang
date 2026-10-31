@@ -32,12 +32,12 @@ So `1 + 2.5 == 2.5 + 1 == 3.5` (symmetric). The result type is the
 promoted type; assigning back to a narrower type requires an explicit
 `as` (constant fit excepted). bool and char take no part in arithmetic.
 The complete promotion and conversion rules are on
-[Type Semantics](type-semantics.md).
+[Types](../specification/04-types/index.md).
 
 `string + string` is concatenation; `"x" + 'y'` (char
 implicitly converts to string) and `+` with a scalar operand concatenate
 the same way. `string - string` and the other arithmetic forms are
-compile errors. See [String](string.md).
+compile errors. See [String](../specification/04-types/string.md).
 
 ### Shift
 
@@ -49,7 +49,7 @@ Bitwise left and right shift. **The left operand decides the result
 type** (the Java/C# rule): integer left operands narrower than int are
 promoted unarily to int (`byte << 2` is an `int`). The count (right
 operand) follows the ordinary implicit-conversion rule into the result
-type (the [Type Semantics](type-semantics.md) table): an int count works
+type (the [Types](../specification/04-types/index.md) table): an int count works
 on int and long result types but not on uint or ulong, a long count only on
 long, and a constant count that fits the result type works on any integer
 result. Anything else is a compile error naming both the result type and
@@ -105,7 +105,7 @@ Comparison results are always **`bool`** (`true` / `false`).
   Hence `"" == null` compares equal; any non-empty string does not.
 - **Numeric pairs** get the same symmetric promotion as arithmetic:
   `-2 < -1.5` promotes to double and is true; `1 == 1.0` is true. See
-  [Primitives](primitives.md).
+  [Primitive Types](../specification/04-types/primitives.md).
 - **char compares only with char** (`'a' < 'b'` is legal); comparing a
   char against a number goes through no implicit conversion — take the
   code point first with `c as int` (`a char value can only be compared
@@ -119,7 +119,7 @@ Comparison results are always **`bool`** (`true` / `false`).
   C `strcmp`-style byte-wise comparison (e.g. `"Z" < "a"` is true because
   `'Z'`(90) < `'a'`(97)). Since strings are stored in the Unicode Transformation Format (UTF-8) and UTF-8 byte order
   equals code-point order, the ordering is also correct for text beyond the
-  American Standard Code for Information Interchange (ASCII): `"é" > "z"` is true. See [String](string.md) "Comparison".
+  American Standard Code for Information Interchange (ASCII): `"é" > "z"` is true. See [String](../specification/04-types/string.md) "Comparison".
 - **Class/reference equality** (`==`, `!=`) is identity (same heap
   object). For value comparison, use the `equals` method and override it in
   your own classes — `==` is unaffected by the override; see [Object &

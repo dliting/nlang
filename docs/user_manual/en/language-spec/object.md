@@ -26,7 +26,7 @@ classes, and array and struct values have no path into an `Object` target.
 may point at a class object *or* a boxed primitive. Assignment and passing
 copy the reference. Declaring without an initializer (`Object o;`) yields
 null — like every class type (see the default-value table in
-[Declarations](../specification/03-program-structure/declarations.md)). See [Type Semantics](type-semantics.md).
+[Declarations](../specification/03-program-structure/declarations.md)). See [Types](../specification/04-types/index.md).
 
 ### `equals` and `getHashCode`
 
@@ -64,7 +64,7 @@ default form renders `ClassName@heapLocation` (e.g. `Point@1a`), user
 classes override it by name exactly like `equals`/`getHashCode`, and both
 the `as string` conversion and the implicit conversion at string positions
 (concatenation, string parameters) call it. See
-[Type Casts](type-casts.md).
+[Type Casts](../specification/04-types/casts.md).
 
 The canonical signatures of the protocol methods (an override must match
 them exactly):
@@ -79,7 +79,7 @@ them exactly):
 `string.getHashCode()` and `string.equals(string)` are intrinsified to use
 *value* semantics (`std::hash` for hash, content comparison for `equals`).
 This makes strings usable as `Dict` keys without a wrapper class. See
-[String](string.md).
+[String](../specification/04-types/string.md).
 
 **`==` is unaffected by `equals`**: `Object.equals` is an opt-in method. The
 `==` operator on class references compares heap indices directly. The reason
@@ -119,6 +119,6 @@ wrapping 0.
 ### Unboxing and downcasting
 
 Use the `as` operator to unbox a primitive back out of `Object`, or downcast
-an `Object` to a class type. See [Type Casts](type-casts.md) "Runtime-checked
+an `Object` to a class type. See [Type Casts](../specification/04-types/casts.md) "Runtime-checked
 Cast (`as`)" for the full `as` rules (unbox, class downcast, `Object` upcast
 special-casing, and which conversions are compile errors).

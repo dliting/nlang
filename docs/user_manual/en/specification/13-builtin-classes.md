@@ -29,7 +29,7 @@ the value spellings.
 
 ## 13.2 The Object Protocol
 
-Every class inherits three protocol methods from `Object` (§4.9):
+Every class inherits three protocol methods from `Object` (§4.11):
 `int equals(Object other);`, `int getHashCode();` and
 `string toString();`. Chapter 8 defines their virtuality and
 overriding (§8.2). The defaults compare object identity: `equals`
@@ -40,7 +40,7 @@ access through `null` raises `NullPointerException` (§9.3).
 
 `string` overrides the pair to content: `equals` yields `1`
 exactly when both sides hold the same bytes — the same relation as
-`==` (§4.4) — and `getHashCode` hashes the bytes, so equal strings
+`==` (§4.3) — and `getHashCode` hashes the bytes, so equal strings
 hash equal.
 
 ### Default rendering
@@ -59,10 +59,10 @@ function values also answer `toString()` as a method:
 | `string` | the string itself |
 | `List` | `[e1, e2, ...]` — elements rendered by the rules below |
 | `Dict` | `{k1: v1, k2: v2, ...}` — entries rendered by the rules below, in insertion order (§6.4) |
-| array | `[...]`, nested per dimension (§4.3, §5.3) |
-| enumeration | the member name (§4.5) |
-| function value | `func name` or `method name` (§4.11) |
-| `Object` holding a boxed value | the value rendered as its type (§4.9) |
+| array | `[...]`, nested per dimension (§4.10, §5.3) |
+| enumeration | the member name (§4.6) |
+| function value | `func name` or `method name` (§4.13) |
+| `Object` holding a boxed value | the value rendered as its type (§4.11) |
 
 Inside a container rendering:
 
@@ -71,7 +71,7 @@ Inside a container rendering:
   `\t`;
 - a `null` element appears as `<null>`;
 - a `struct` element appears as `<struct>` (structs carry no
-  `toString`, §4.6);
+  `toString`, §4.7);
 - a nested container, array, boxed value or function value renders
   by its own rules.
 
@@ -81,7 +81,7 @@ run-time error at the `toString` site (§9.1).
 
 ## 13.3 string Methods
 
-The `string` methods operate on bytes (§4.4): offsets are byte
+The `string` methods operate on bytes (§4.3): offsets are byte
 offsets, and case conversion touches
 American Standard Code for Information Interchange (ASCII)
 letters only. The code-point layer — `charAt` and `charCount` —
@@ -104,14 +104,14 @@ decodes Unicode Transformation Format (UTF-8) over the byte core.
 | `charCount()` | → `int` | the code-point count; an invalid byte sequence raises `Exception` |
 
 A `string` receiver also answers `length()` — the byte count
-(§4.4) — and `equals`, `getHashCode` and `toString` (§13.2). `equals`
+(§4.3) — and `equals`, `getHashCode` and `toString` (§13.2). `equals`
 takes a `string` argument; wherever a parameter takes `string`, a null
 argument is accepted and reads as the empty string. The
 subscript `s[i]` reads byte `i` as a `ubyte` (§5.7).
 
 ## 13.4 List and Dict Methods
 
-A `List<T>` (§4.10) is a growable sequence:
+A `List<T>` (§4.12) is a growable sequence:
 
 | Method | Effect | Failure behavior |
 | --- | --- | --- |
@@ -126,10 +126,10 @@ A `List<T>` (§4.10) is a growable sequence:
 | `toString()` | `[e1, e2, ...]` (§13.2) | — |
 
 `indexOf` and `contains` match by the kind-aware equality of
-§4.10: primitive elements by value, `string` elements by content,
+§4.12: primitive elements by value, `string` elements by content,
 other reference elements by identity.
 
-A `Dict<K, V>` (§4.10) maps keys to values:
+A `Dict<K, V>` (§4.12) maps keys to values:
 
 | Method | Effect | Failure behavior |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ A `Dict<K, V>` (§4.10) maps keys to values:
 | `keys()` | a fresh `List<K>` of the keys in insertion order (§6.4) | — |
 | `toString()` | `{k1: v1, k2: v2, ...}` in insertion order (§13.2) | — |
 
-Key matching is the kind-aware equality of §4.10. The subscript
+Key matching is the kind-aware equality of §4.12. The subscript
 sugar `li[i]` and `d[k]` maps to `get` and `set` (§5.7); a
 container store or retrieval moves values by the categories of
 §10.1.

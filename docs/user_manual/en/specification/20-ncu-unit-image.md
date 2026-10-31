@@ -220,7 +220,7 @@ virtual bytes are recorded.
 **Array types.** One record per distinct array type the unit
 uses: the element kind (u8, §20.5), the element type index
 (u16; `0xFFFF` for a primitive element), and the rank (u8,
-§4.3).
+§4.10).
 
 **Enums.** The enum section is three tables in parallel, one
 row per enumeration, in declaration order. First the member
@@ -251,11 +251,11 @@ The descriptor bytes are a kind code followed by a payload:
 | `2` | `string` | none |
 | `3` | a struct | u16 struct-table index |
 | `4` | a class | u16 class-table index |
-| `5` | an array | one nested element descriptor, then a rank byte (§4.3) |
-| `6` | a boxed primitive | none (§4.9) |
-| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`) (§4.11) |
-| `8` | `List` | one nested element descriptor (§4.10) |
-| `9` | `Dict` | two nested descriptors: the key type, then the value type (§4.10) |
+| `5` | an array | one nested element descriptor, then a rank byte (§4.10) |
+| `6` | a boxed primitive | none (§4.11) |
+| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`) (§4.13) |
+| `8` | `List` | one nested element descriptor (§4.12) |
+| `9` | `Dict` | two nested descriptors: the key type, then the value type (§4.12) |
 | `10`–`19` | `byte` `ubyte` `short` `ushort` `uint` `long` `ulong` `double` `bool` `char` | none |
 | `0xFB` | not serializable | none |
 | `0xFE` | `void` | none |
@@ -298,7 +298,7 @@ field's default (§20.4) and an interface constant's value
 | `0xFC` | a default outside the expressible subset: a consumer that must materialize it reports an error |
 
 Struct field defaults and interface constants carry only
-foldable tags — never `0xFB` or `0xFC` (§4.6, §8.3).
+foldable tags — never `0xFB` or `0xFC` (§4.7, §8.3).
 
 **Default expressions.** A default outside the foldable subset
 rides a small expression tree; each node begins with a tag

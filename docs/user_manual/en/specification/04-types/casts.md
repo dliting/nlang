@@ -1,13 +1,14 @@
-# Type Casts
+# 4.5 Type Casts
 
-The normative rules are in [specification §5.5](../specification/05-expressions.md).
+The normative rules for cast expressions are §5.5; the implicit
+conversion rules are §4.4.
 
 There are two ways to convert a value between types: the explicit `as`
 operator (scalar narrowing, numeric↔char, unboxing, class downcast), and
 implicit coercion to `string`. Which conversions between scalar-family
 members are implicitly legal (widening, range containment, integer→float)
 is decided by the conversion matrix — see
-[Type Semantics](type-semantics.md).
+§4.4.
 
 ### Explicit cast (`as`)
 
@@ -16,10 +17,10 @@ expr as TypeName
 ```
 
 `as` is NLang's only explicit conversion form (there is no C-style
-`(T)expr` prefix cast — a prefix form cannot be told apart from a
-parenthesized expression reliably; the parser cannot distinguish
-`(foo) + bar` from `(foo + bar)`. The keyword operator has no such
-ambiguity, matching C#, TypeScript, and Kotlin). Four classes of
+`(T)expr` prefix cast). *Informative:* a prefix form cannot be told
+apart from a parenthesized expression reliably — the parser cannot
+distinguish `(foo) + bar` from `(foo + bar)`; the keyword operator has
+no such ambiguity, matching C#, TypeScript, and Kotlin. Four classes of
 conversion are supported:
 
 - **Scalar narrowing and cross-sign** (bit-truncating, the C# unchecked
@@ -48,24 +49,26 @@ conversion are supported:
 conversion that is **already implicit** is also a compile error
 (`` `as` cannot perform implicit conversion `UByte` → `Int32` ``):
 `ubyte`→`int` is implicit widening anyway; writing `b as int` is
-redundant — plain `int x = b;` works. The implicit matrix is on
-[Type Semantics](type-semantics.md).
+redundant — plain `int x = b;` works. The implicit matrix is in
+§4.4.
 
 **Forbidden `as`**:
 
 - `string → numeric`: `"5" as int` is a compile error (`` Invalid cast:
   `String as Int32` is not allowed ``) — use the standard library's
   `s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()` family (see
-  [string methods](stdlib-string.md)).
-- `bool ↔ anything`: bool takes part in no conversion.
+  [string methods](../../language-spec/stdlib-string.md)).
+- `bool` to or from any numeric type: bool reaches `string` by coercion
+  (the `"ok=" + true` example below) and `Object` by boxing (§4.11), but
+  converts to and from no numeric type.
 - Array operands are rejected outright (`ia as int`, `ia as Object` —
   "the cast operand is an array"): an array value's legal conversions are
   its own array type and string targets — never `as` (see
-  [Known Limitations](known-limitations.md) for the full array-value
+  [Known Limitations](../../language-spec/known-limitations.md) for the full array-value
   conversion rule).
 
 The Object side of unboxing/downcasting is on
-[Object & Boxing](object.md).
+[Object & Boxing](../../language-spec/object.md).
 
 ### Primitive → string coercion
 
@@ -74,7 +77,7 @@ expected, NLang automatically coerces it to its string form. Most common
 in concatenation, but it also fires on direct assignment, field storage
 and arguments of functions declared in your own code. **Package (library)
 calls are the exception** — a library `string` parameter takes `string`
-only (see [Standard Library](standard-library.md)).
+only (see [Standard Library](../../language-spec/standard-library.md)).
 
 ```nlang
 string s1 = "x" + 5;       // "x5" — int coerced to "5"
@@ -100,7 +103,7 @@ All class instances inherit `string toString()` from `Object`. The default
 implementation returns a `ClassName@<heap position>` form (e.g.
 `"Point@7"`, `"Point@ff"`). User classes override it by declaring `string toString()
 { ... }` — dispatched by name, like `equals`/`getHashCode`. See
-[Object & Boxing](object.md).
+[Object & Boxing](../../language-spec/object.md).
 
 ```nlang
 class Point {
@@ -124,13 +127,13 @@ Conversion table:
 as in Java/C#. This applies to class, enum, and all scalar receivers.
 struct receivers are **permanently excluded** — `"x" + structInstance`
 is a compile error (struct is NLang's plain-data type; use class for
-object semantics). See [Struct](struct.md).
+object semantics). See [Struct](../../language-spec/struct.md).
 
 **Enum name output**: `Color.Red.toString()` returns `"Red"` (not `"0"`).
 The compiler embeds one name table per enum; the VM looks the member name
 up by value with `OP_Enum_to_str`. A value beyond the table throws at run
 time; a value skipped by explicit member numbering converts to the empty
-string. See [Enum](enum.md).
+string. See [Enum](../../language-spec/enum.md).
 
 **String identity**: `"hello".toString()` returns `"hello"` — the
 compiler treats it as an identity — no conversion happens.

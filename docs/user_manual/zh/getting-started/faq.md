@@ -29,7 +29,7 @@ nide侧由输出位置优先级决定（详见[三种运行方式](running.md#�
 
 源文件与`.nproj`项目文件必须保存为UTF-8：ncc在词法前对整个文件做严格校验，无效字节得到明确报错（`Source file is not
 valid UTF-8 ... (first invalid byte at line N). Save the file as
-UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见[语言规格/基本类型](../language-spec/primitives.md)。
+UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见[规范/基本类型](../specification/04-types/primitives.md)。
 
 ### 帮助文档与搜索在哪？
 

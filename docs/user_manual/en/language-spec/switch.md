@@ -12,7 +12,7 @@ switch (value) {
 The discriminant must be an integer type, a floating-point type, `char`,
 `string`, or an enum-typed value (enums compare as their int values).
 Class, struct, array, `bool`, and `null` discriminants are rejected at
-compile time — see [Type Semantics](type-semantics.md) for what each type
+compile time — see [Types](../specification/04-types/index.md) for what each type
 can be.
 
 **Typed equality.** Comparison uses the equality operator of the discriminant's

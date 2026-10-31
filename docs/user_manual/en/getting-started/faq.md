@@ -68,7 +68,7 @@ stops legacy encoding bytes from slipping silently into string
 constants. nide's build invokes ncc, so the same validation applies
 there. A leading UTF-8 byte order mark (BOM) is accepted and skipped — the editor
 "UTF-8 with BOM" save form needs no handling. See also:
-[Language Specification / Primitives](../language-spec/primitives.md).
+[Specification / Primitive Types](../specification/04-types/primitives.md).
 
 ### Where are the docs and search?
 

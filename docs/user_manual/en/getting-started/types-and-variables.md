@@ -33,8 +33,7 @@ code point); `string` is the 13th primitive (Unicode Transformation Format (UTF-
 semantics). The compound types enum, struct, and class are covered in the
 sections below and in the declarations chapter.
 
-See also: [Language Specification / Types](../language-spec/types.md),
-[Type Semantics](../language-spec/type-semantics.md),
+See also: [Specification / Types](../specification/04-types/index.md),
 [Declarations](../specification/03-program-structure/declarations.md).
 
 ### Enum
@@ -95,8 +94,7 @@ braced entries — `Point{3, 4}` in declaration order or `Point{x: 3,
 y: 4}` by name — and may declare constructors
 (`public Point(int a, int b) { x = a; y = b; }`); unlike a class, it
 has no other methods. The line between value and reference semantics is
-drawn in [Language Specification /
-Type Semantics](../language-spec/type-semantics.md).
+drawn in [Specification / Types](../specification/04-types/index.md).
 
 See also: [Language Specification / Struct](../language-spec/struct.md).
 
@@ -142,7 +140,7 @@ int main() {
 Output `hello, NLang` and `year: 2026`; exit code 9. Strings are UTF-8
 byte sequences, and `length()`/`substring()`/`indexOf()` all count
 bytes; code-point access (`charAt`, `charCount`, `foreach (char c in s)`)
-is covered by [strings and char](../language-spec/string.md) under "The char bridge".
+is covered by [strings and char](../specification/04-types/string.md) under "The char bridge".
 
-See also: [Language Specification / Types](../language-spec/types.md),
+See also: [Specification / Types](../specification/04-types/index.md),
 [Standard Library](../language-spec/standard-library.md).

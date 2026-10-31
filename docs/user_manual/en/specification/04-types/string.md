@@ -1,11 +1,28 @@
-# String
+# 4.3 String
 
-The normative rules are in [specification §4.4](../specification/04-types.md).
+`string` is a primitive type whose value is an immutable sequence
+of bytes holding text in the Unicode Transformation Format (UTF-8).
+No operation modifies a string value in place.
 
-`string` is a primitive, but unlike the scalar types (integers, floats,
-`bool`, `char`) it is an **immutable object** referenced by a handle. This
-page covers the string type end to end: what it is, its memory semantics,
-how to build and compare them, and escape sequences and interpolation
+A string value is a handle, and the handle may be null. A null
+handle reads as the empty string in every position: its
+`length()` is 0, concatenation treats it as `""`, and a comparison
+with `""` holds.
+
+Two string values compare by content: `==` holds exactly when both
+sides denote the same byte sequence, with a null side read as the
+empty string. The ordering operators compare the UTF-8 bytes,
+which is also code point order.
+
+`length()` returns the number of bytes; `charCount()` returns the
+number of code points. The string methods are defined in
+chapter 13.
+
+*Informative:* `string` is a primitive, but unlike the scalar
+types (integers, floats, `bool`, `char`) it is an **immutable
+object** referenced by a handle. The sections below cover the
+string type end to end: what it is, its memory semantics, how to
+build and compare them, and escape sequences and interpolation
 inside literals.
 
 ### Value semantics
@@ -14,8 +31,8 @@ String is a **value type** in the type system: assignment, parameter
 passing, and return copy the handle, and `==` compares **content**, not
 identity. The object behind the handle is immutable, so sharing a handle is
 harmless — two names to the same string can never diverge. (Contrast with
-`class`, a reference type: see [Class](class.md) and
-[Type Semantics](type-semantics.md).)
+`class`, a reference type: see [Class](../../language-spec/class.md) and
+§4.1.)
 
 ### Encoding and length
 
@@ -31,7 +48,7 @@ source to console".
 
 ### Memory semantics
 
-Strings are **immutable objects** at run time: concatenation and substring
+*Informative:* strings are **immutable objects** at run time: concatenation and substring
 extraction produce new content, and an existing object's content never
 changes. A string variable holds a handle (a reference) to its string object;
 handle 0 means null and **reads as the empty string** `""`.
@@ -52,15 +69,14 @@ handle 0 means null and **reads as the empty string** `""`.
 ### Building strings
 
 - **Concatenation**: `string + string` and `string + scalar primitive` (the
-  scalar is coerced — see [Type Casts](type-casts.md) "Primitive → String
-  Coercion"; a char concatenates as its UTF-8 encoding, so `"x" + 'y'` is
+  scalar is coerced — see [Type Casts](casts.md) "Primitive → string coercion"; a char concatenates as its UTF-8 encoding, so `"x" + 'y'` is
   `"xy"`). `string - string` and the other arithmetic forms are compile
   errors.
 - **Interpolation**: `${identifier}` inside a literal — see below.
 - **Escape sequences**: see below.
 - **Explicit construction from a primitive**: a scalar primitive's
   `.toString()` / the primitive → string coercion — see
-  [Type Casts](type-casts.md).
+  [Type Casts](casts.md).
 
 ### Comparison
 
@@ -71,7 +87,7 @@ equals code-point order, ordering is also correct for text beyond the American S
 `"é" > "z"` is true. Mixed string/non-string comparison is a compile error
 except against the null literal — `s == null` reads the null side as the empty
 string, so `"" == null` is true and any non-empty string compares unequal. The
-full comparison rules are on [Operators](operators.md) "Comparison".
+full comparison rules are on [Operators](../../language-spec/operators.md) "Comparison".
 
 ### Escape sequences
 
@@ -104,7 +120,7 @@ string s = "Hello ${name}!";   // "Hello world!"
 
 NLang supports `${identifier}` interpolation inside double-quoted string
 literals — the named variable's value is rendered via the same coercion paths
-as primitive → string and collection `toString()` (see [Type Casts](type-casts.md)).
+as primitive → string and collection `toString()` (see [Type Casts](casts.md)).
 Interpolation is rewritten at compile time into an equivalent string
 concatenation — its semantics are exactly those of the handwritten
 concatenation.
@@ -151,7 +167,7 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
   throws the runtime error `string index out of range`).
 - **Code-point iteration**: `foreach (char c in s)` binds each complete
   code point to `c` (UTF-8 decoding advances — multi-byte characters are
-  never split) — see [Foreach](foreach.md).
+  never split) — see [Foreach](../../language-spec/foreach.md).
 - **Code-point access**: `s.charAt(i)` returns the code point starting at
   byte i (a `char`); out of range or an invalid sequence throws a runtime
   error.
@@ -166,9 +182,9 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
 A string variable may hold the null handle (0). Unlike a null class reference
 (which throws on member access), a null string **reads as the empty string**
 `""` — calling `s.length()` on a null string returns 0. See
-[Class](class.md) for the contrasting class null semantics.
+[Class](../../language-spec/class.md) for the contrasting class null semantics.
 
 ### String methods
 
 The standard library provides string methods (substring, search, case,
-splitting, `toInt`/`toFloat`, …). See [string methods](stdlib-string.md).
+splitting, `toInt`/`toFloat`, …). See [string methods](../../language-spec/stdlib-string.md).

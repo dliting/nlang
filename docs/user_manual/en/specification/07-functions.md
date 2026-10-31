@@ -40,17 +40,17 @@ and no `catch` clause handles it (chapter 9).
 A formal parameter belongs to the function scope (§3.5) and is
 initialized from the corresponding argument at each call. The
 initialization follows the value model of chapter 4: a struct
-formal receives a copy (§4.6), while a class, interface, array or
-function formal refers to the same object as the argument (§4.3,
-§4.7, §4.11). The argument must be assignable to the parameter
-type (§4.12). Parameters are assignable like local variables
+formal receives a copy (§4.7), while a class, interface, array or
+function formal refers to the same object as the argument (§4.10,
+§4.8, §4.13). The argument must be assignable to the parameter
+type (§4.4). Parameters are assignable like local variables
 (§6.2).
 
 A formal may declare a default value `T p = e` at any position
 (§2.4). The default expression is resolved in the scope of the
 declaration and evaluated at the call site, at each call that
 omits the argument; it may reference earlier formals of the same
-declaration. The value must be assignable to `T` (§4.12). Defaults
+declaration. The value must be assignable to `T` (§4.4). Defaults
 belong to the declaration: a call through a module import fills
 them the same way, including defaults that reference earlier
 formals or functions of the declaring unit.
@@ -90,7 +90,7 @@ At a call site the compiler selects among the candidates whose
 parameter count can match the argument list, with defaults filling
 the unbound formals (§7.2). A candidate is viable when every
 argument is assignable to its parameter by an implicit conversion
-(§4.12); an argument that would need a narrowing conversion makes
+(§4.4); an argument that would need a narrowing conversion makes
 the candidate not viable. Each viable candidate scores the sum of
 the conversion distances of its arguments: an exact match
 contributes zero, and each implicit conversion step contributes one
@@ -116,7 +116,7 @@ connects the selected overload to its record in the producing unit
 ## 7.4 Function Values and Delegates
 
 The function type `func<R, P1, ..., Pn>` and its identity rule are
-§4.11; the reference forms — a free function, a static method
+§4.13; the reference forms — a free function, a static method
 through its type name, an instance method bound to a receiver, and
 a virtual or interface method late-bound at each call — are §5.9.
 
@@ -125,7 +125,7 @@ expected: in a local declaration, an initializer, an assignment, a
 return, an argument, an array element or a brace entry (§5.8).
 With no expected type the reference is a compile-time error. The
 denoted signature must match the expected function type exactly
-(§4.11): no variance, no conversion of the parameters or the
+(§4.13): no variance, no conversion of the parameters or the
 result. A function whose parameters carry defaults cannot be
 referenced: defaults are filled only at a direct call (§7.2). Enum
 methods and native instance methods cannot be referenced, and a
@@ -152,7 +152,7 @@ same function and, for a bound reference, carry equal receivers;
 comparisons are compile-time errors. A function value renders
 through `toString` (§5.3, chapter 8).
 
-A function value does not enter `Object` (§4.11). It cannot be a
+A function value does not enter `Object` (§4.13). It cannot be a
 `Dict` key, a `switch` discriminant, or the target of the
 serialization methods (chapter 15).
 

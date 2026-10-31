@@ -12,7 +12,7 @@ semantics** (Go/Lua model): length, substring
 and indexOf are byte offsets; Unicode Transformation Format (UTF-8) byte order equals code point order (so
 relational comparison has a definite result); case conversion covers the American Standard Code for Information Interchange (ASCII) only.
 Code-point access (`charAt`/`charCount`/`foreach char`) is built on top of
-byte access — see [String](string.md) "The char bridge".
+byte access — see [String](../specification/04-types/string.md) "The char bridge".
 
 | Method | Signature | Notes |
 |---------|-----------|-------|
@@ -31,7 +31,7 @@ byte access — see [String](string.md) "The char bridge".
 | charCount | () → int | code-point count (contrast `length()`, bytes); invalid sequence → Exception |
 
 Alongside the 18 methods, a string receiver also answers `length()`
-(byte count — see [String](string.md)), `equals(other)` (content equality,
+(byte count — see [String](../specification/04-types/string.md)), `equals(other)` (content equality,
 the same relation as `==`; yields int `1`/`0`; the argument must be a
 `string` or null), `getHashCode()` (content
 hash as int — equal strings hash equal) and `toString()` (identity —

@@ -3,8 +3,8 @@
 ## 8.1 Classes and Inheritance
 
 The syntax of a class declaration is §2.4. A class is a reference
-type (§4.7). A class without an explicit base implicitly extends
-`Object` (§4.9); the base of a class is given by `: Base`, and
+type (§4.8). A class without an explicit base implicitly extends
+`Object` (§4.11); the base of a class is given by `: Base`, and
 inheritance is single: one base class, no multiple class
 inheritance. A class may implement any number of interfaces,
 `implements I1, I2` (§8.3).
@@ -85,7 +85,7 @@ subclass: the same-name methods must map one-to-one onto the
 contract. Within one class, a name with a `virtual` member cannot
 be overloaded at all; make the whole family non-virtual to overload
 it. The `Object` protocol methods are virtual and follow the same
-rule (§4.9): `int equals(Object other);`, `int getHashCode();` and
+rule (§4.11): `int equals(Object other);`, `int getHashCode();` and
 `string toString();`. The default `equals` and `getHashCode`
 compare object identity; `equals` yields `int` 0 or 1, not `bool`.
 
@@ -99,7 +99,7 @@ constructors; there is no `super.method(...)` form.
 The syntax of an interface declaration is §2.4. An interface
 declares instance method signatures and carries no instance fields
 and no instance implementation. An interface type is a reference
-type (§4.8).
+type (§4.9).
 
 An interface instance member is a public abstract signature: the
 access modifier defaults to `public`, and spelling `public` is
@@ -127,9 +127,9 @@ method or a parent's method counts as the implementation. A
 missing or mismatched implementation is a compile-time error.
 
 A value of interface type refers to an implementing object; the
-conversion from the class to the interface type is implicit (§4.8,
-§4.12). An interface reference may be `null`; calling through a
-`null` interface reference is a catchable run-time error (§4.7,
+conversion from the class to the interface type is implicit (§4.9,
+§4.4). An interface reference may be `null`; calling through a
+`null` interface reference is a catchable run-time error (§4.8,
 chapter 9). A call through an interface reference dispatches
 dynamically against the object's runtime class, by the same
 mechanism as class virtual dispatch (§8.2).
@@ -137,7 +137,7 @@ mechanism as class virtual dispatch (§8.2).
 ## 8.4 Enumerations
 
 The type face of an enumeration — its values, conversions and
-default value — is §4.5. The member face is this section.
+default value — is §4.6. The member face is this section.
 
 The syntax of an enumeration declaration is §2.4. Methods follow
 the member list, separated from it by `;`; a trailing `;` with no
@@ -152,7 +152,7 @@ compile-time error. Methods are dispatched statically: enumerations
 have no inheritance and no virtual dispatch. Enumeration methods
 take no default arguments and no `out` parameters (§7.2). The
 built-in `toString` is reserved: a user method cannot shadow it
-(§4.5). Inside a method, `this.M` for a member `M` denotes the
+(§4.6). Inside a method, `this.M` for a member `M` denotes the
 constant value of `M`, not a comparison with the receiver. A member
 name and a method name may not collide. Methods default to
 `public`; `private` and `protected` follow the visibility rules of
@@ -161,7 +161,7 @@ name and a method name may not collide. Methods default to
 ## 8.5 Structs
 
 The value face of a struct — deep-copy semantics, defaults and
-aggregates — is §4.6. The member face is this section.
+aggregates — is §4.7. The member face is this section.
 
 The syntax of a struct declaration is §2.4. A struct holds fields
 and constructors and has no methods. Struct members are always
@@ -175,11 +175,11 @@ default is applied at every allocation rather than injected into a
 constructor: a bare declaration, an array element, a nested struct
 field and a partial initializer list all materialize the defaults,
 and an initializer entry stores over them; a copy copies the stored
-values and does not re-apply them (§4.6).
+values and does not re-apply them (§4.7).
 
 A struct constructor is declared with the syntax of a class
 constructor (§8.1) and may overload (§7.3). A constructor runs only
 on explicit construction — a constructor call or a direct-init
 declaration; a bare declaration and an initializer list do not run
-it, and their fields take their defaults (§4.6). Struct
+it, and their fields take their defaults (§4.7). Struct
 constructor calls take positional arguments only (§7.2).

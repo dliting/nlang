@@ -21,7 +21,7 @@ specific statement has its own page.
 
 `if`/`while`/`do-while`/`for`/`assert` conditions must be **`bool`** —
 comparisons and predicates already produce bool (see
-[Operators](operators.md), [Primitives](primitives.md)). int, string,
+[Operators](operators.md), [Primitive Types](../specification/04-types/primitives.md)). int, string,
 float, char, class, struct, and array conditions are compile errors
 (`if condition must be bool, not "Int32"`). NLang is a strict-bool
 language with no C-style "non-zero is true": `if (1)` and `if (count)`

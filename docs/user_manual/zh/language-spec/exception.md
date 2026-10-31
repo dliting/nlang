@@ -102,7 +102,7 @@ try {
 }
 ```
 
-非法的`as`类向下强转同样抛`InvalidCastException`，可被`catch`捕获，`message`含期望/实际类叶名（见[类型强制转换](type-casts.md)）。
+非法的`as`类向下强转同样抛`InvalidCastException`，可被`catch`捕获，`message`含期望/实际类叶名（见[类型强制转换](../specification/04-types/casts.md)）。
 
 **未捕获异常**沿调用栈向上传播。若找不到处理器，程序以退出码1终止。
 

@@ -9,10 +9,10 @@
 | 表达式                                          | 页面 |
 |---------------------------------------------------|------|
 | 运算符（`+ - * / %`、比较、逻辑）              | [运算符](operators.md) |
-| 强制转换（`as`、向string强制转换）            | [类型强制转换](type-casts.md) |
+| 强制转换（`as`、向string强制转换）            | [类型强制转换](../specification/04-types/casts.md) |
 | 集合初始化器（`[...]`、`Type{...}`）        | [集合初始化器](collection-initializers.md) |
 
-字符串插值（`${...}`）、转义序列、字符串比较是字符串字面量特性：见[字符串](string.md)。char字面量（`'a'`、`'A'`）与类型语义见[基本类型](primitives.md)。
+字符串插值（`${...}`）、转义序列、字符串比较是字符串字面量特性：见[字符串](../specification/04-types/string.md)。char字面量（`'a'`、`'A'`）与类型语义见[基本类型](../specification/04-types/primitives.md)。
 
 ### 成员访问
 

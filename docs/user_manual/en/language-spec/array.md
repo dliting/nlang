@@ -1,6 +1,6 @@
 # Array
 
-The normative rules are in [specification §4.3](../specification/04-types.md).
+The normative rules are in [specification §4.10](../specification/04-types/index.md).
 
 Arrays are fixed-length, index-addressable sequences. The syntax is `T[]`.
 
@@ -53,12 +53,12 @@ A struct-typed array is the exception in behavior: each element is a value
 type, so `Point[n]` allocates a fresh independent `Point` per element at
 creation, and reading an element deep-copies it. See [Struct](struct.md) "Value
 semantics". The full value-vs-reference summary is on
-[Type Semantics](type-semantics.md).
+[Types](../specification/04-types/index.md).
 
 ### Length
 
 `a.length()` is a **method** (no arguments, returns `int`), consistent with
-`string.length()` and the built-in containers. See [String](string.md).
+`string.length()` and the built-in containers. See [String](../specification/04-types/string.md).
 The array member methods (`length`, `rank`, `shape`, `toString`) are
 declared by the prelude class `Array` (`stdlib/builtins.n`) — like
 `String`, that class only holds the declarations: it cannot be
