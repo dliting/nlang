@@ -20,6 +20,9 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     //load-time linker dedups peer images by qualified name).
     cs.name = KeyOf(sn);
     cs.fieldCount = static_cast<uint16_t>(sn.FieldCount());
+    //v2.12 (v0.12.4): the const-struct marker rides the record — the
+    //consumer stub rebuilds SetConstAggregate() from it.
+    cs.isConstAggregate = sn.IsConstAggregate();
     std::vector<SnField*> fieldTypes;
     for (auto& field : sn.Fields()) {
         cs.fieldNames.push_back(field.Name());

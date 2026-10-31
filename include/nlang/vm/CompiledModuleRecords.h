@@ -103,6 +103,10 @@ struct DefaultValueDesc {
 struct CompiledStruct {
     std::string name;
     uint16_t fieldCount = 0;
+    //v2.12 (v0.12.4 D10): declared const-struct marker — one wire byte
+    //after fieldCount. The consumer stub rebuilds SetConstAggregate()
+    //from it, so a lost byte silently unseals imported const structs.
+    bool isConstAggregate = false;
     std::vector<std::string> fieldNames;
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
@@ -210,6 +214,12 @@ struct CompiledClass {
     std::string name;
     uint16_t fieldCount = 0;
     int16_t superClassIdx = -1;
+    //v2.12 (v0.12.4 D10): declared const-class marker (own bit — the
+    //chain is derivable from superClassIdx). One wire byte after
+    //superClassIdx; the consumer stub rebuilds SetConstAggregate() from
+    //it, keeping the store gate and copy-on-read seal working against
+    //imported const classes.
+    bool isConstAggregate = false;
     std::vector<std::string> fieldNames;
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct

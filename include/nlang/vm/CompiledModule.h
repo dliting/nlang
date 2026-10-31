@@ -140,7 +140,11 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //(int[,] formals/returns round-trip; the rank-less rebuild degraded
 //them to rank-1 and broke consumer indexing). Minor bump: every .ncu
 //recompiles with the current ncc (the loader's hard floor, unchanged).
-inline constexpr uint16_t NCU_FORMAT_MINOR = 11;
+//v2.12 (v0.12.4): every class and struct record carries a const-
+//aggregate marker byte (after superClassIdx / fieldCount). A v2.11
+//module has no byte and misparses every record after the leading
+//scalars; refuse v2.11 and older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 12;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

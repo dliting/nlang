@@ -1,0 +1,7 @@
+import lib;
+
+int main() {
+    Note n = Note("x");
+    n.s = "y";
+    return 0;
+}

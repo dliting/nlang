@@ -258,6 +258,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         fs.write(reinterpret_cast<const char*>(&st.fieldCount),
                  sizeof(st.fieldCount));
 
+        //v2.12 (v0.12.4): const-aggregate marker (see CompiledStruct).
+        fs.write(reinterpret_cast<const char*>(&st.isConstAggregate),
+                 sizeof(st.isConstAggregate));
+
         //Field names
         for (size_t i = 0; i < st.fieldCount; ++i) {
             uint32_t fnLen = static_cast<uint32_t>(st.fieldNames[i].size());
@@ -328,6 +332,10 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                  sizeof(cc.fieldCount));
         fs.write(reinterpret_cast<const char*>(&cc.superClassIdx),
                  sizeof(cc.superClassIdx));
+
+        //v2.12 (v0.12.4): const-aggregate marker (see CompiledClass).
+        fs.write(reinterpret_cast<const char*>(&cc.isConstAggregate),
+                 sizeof(cc.isConstAggregate));
 
         //Field names
         for (size_t i = 0; i < cc.fieldCount; ++i) {

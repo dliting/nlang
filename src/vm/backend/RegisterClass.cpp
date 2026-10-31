@@ -66,6 +66,9 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
+    //v2.12 (v0.12.4): the declared own bit rides the record — the
+    //chain query derives from superClassIdx at the consumer.
+    cc.isConstAggregate = sn.IsDeclaredConstAggregate();
     CollectOwnClassFields(sn, cc);
     cc.fieldCount = static_cast<uint16_t>(cc.fieldNames.size());
     declMap[cc.name] = &sn;   //key = the qualified name just written

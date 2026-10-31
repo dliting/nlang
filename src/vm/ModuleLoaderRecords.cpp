@@ -253,6 +253,10 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
         fs.read(reinterpret_cast<char*>(&st.fieldCount),
                 sizeof(st.fieldCount));
 
+        //v2.12 (v0.12.4): const-aggregate marker (see CompiledStruct).
+        fs.read(reinterpret_cast<char*>(&st.isConstAggregate),
+                sizeof(st.isConstAggregate));
+
         st.fieldNames.resize(st.fieldCount);
         for (uint16_t j = 0; j < st.fieldCount; ++j) {
             uint32_t fnLen;

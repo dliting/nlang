@@ -1,0 +1,8 @@
+import lib;
+
+int main() {
+    if (lib.noteText() != "sealed") { return 1; }
+    Note n = Note("consumer");
+    if (n.s != "consumer") { return 2; }
+    return 7;
+}

@@ -451,7 +451,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 12);  //one above the v2.11 current
+    PatchMinorVersion(dir / "old.ncu", 13);  //one above the v2.12 current
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -466,7 +466,7 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 11, "format minor is 11 (v2.11)");
+    CHECK(NCU_FORMAT_MINOR == 12, "format minor is 12 (v2.12)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");
@@ -490,6 +490,41 @@ void TestEnumMethodTablesRoundTrip() {
     CHECK(loaded.enumMethodAccess[0][1] == 1, "private access byte");
     CHECK(loaded.enumMethodIndices[1].empty(), "Empty enum: no indices");
     CHECK(loaded.enumMethodAccess[1].empty(), "Empty enum: no access");
+}
+
+// --- v2.12 (v0.12.4 D10): the const-aggregate marker rides every class
+// --- and struct record — one byte after the leading scalars. A const
+// --- record round-trips true, a plain record stays false (the consumer
+// --- stub rebuilds SetConstAggregate() from it, so a lost byte silently
+// --- unseals every imported const class).
+
+void TestConstAggregateMarkerRoundTrip() {
+    const auto dir = scenarioDir("const_marker");
+    CompiledModule cm = MakeUnit("constmod");
+    CompiledClass cc;
+    cc.name = "constmod.Note";
+    cc.isConstAggregate = true;
+    cm.classes.push_back(std::move(cc));
+    CompiledClass plain;
+    plain.name = "constmod.Plain";
+    cm.classes.push_back(std::move(plain));
+    CompiledStruct st;
+    st.name = "constmod.Point";
+    st.isConstAggregate = true;
+    cm.structs.push_back(std::move(st));
+    WriteUnit(dir, cm);
+
+    std::string entryKey;
+    CompiledModule loaded = ModuleLoader::Load(
+        (dir / "constmod.ncu").string(), &entryKey);
+    CHECK(loaded.classes.size() == 2, "two class records loaded");
+    CHECK(loaded.classes[0].isConstAggregate,
+          "class const marker round-trips");
+    CHECK(!loaded.classes[1].isConstAggregate,
+          "plain class stays mutable");
+    CHECK(loaded.structs.size() == 1, "one struct record loaded");
+    CHECK(loaded.structs[0].isConstAggregate,
+          "struct const marker round-trips");
 }
 
 // --- shape 10: a unit file found for module X whose header names Y is
@@ -661,6 +696,7 @@ int main() {
     TestMinorBelowFloorRejected();
     TestMinorAboveFloorRejected();
     TestEnumMethodTablesRoundTrip();
+    TestConstAggregateMarkerRoundTrip();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();
     TestUnreadablePackageNamed();

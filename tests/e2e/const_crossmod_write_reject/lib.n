@@ -1,0 +1,7 @@
+//v0.12.4 D10 (NCU v2.12): the write rejection is enforced against the
+//consumer's rebuilt stub — the const marker must survive the wire or
+//this store compiles at the consumer and the seal is lost.
+const class Note {
+    public string s;
+    public Note(string v) { s = v; }
+}
