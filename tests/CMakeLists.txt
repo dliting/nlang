@@ -1920,6 +1920,22 @@ set_tests_properties(proj_generic_cross_unit_run PROPERTIES
     DEPENDS proj_generic_cross_unit_compile
     PASS_REGULAR_EXPRESSION "4")
 
+#Concurrency import redesign F11: the Channel init-list arm must find
+#the template row through the alias (ClassSlotFor), not the current
+#unit's image — in a .nproj build the row lives in the owning unit's
+#image (post-redesign: concurrent's). Declaration-position
+#`Channel<int> pipe = [];` inside a library unit, consumed from main.
+#Self-check before printing (the regex overrides the exit code).
+add_test(NAME proj_channel_initlist_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_channel_initlist/proj_channel_initlist.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_channel_initlist.npkg)
+add_test(NAME proj_channel_initlist_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_channel_initlist.npkg)
+set_tests_properties(proj_channel_initlist_run PROPERTIES
+    DEPENDS proj_channel_initlist_compile
+    PASS_REGULAR_EXPRESSION "7")
+
 #0.9.0 review follow-up: a diagnosed module-qualified failure (the
 #generic-name hint, function-not-found) marks the member resolved; an
 #enclosing member access must degrade to a clean compile failure, not

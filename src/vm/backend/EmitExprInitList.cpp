@@ -354,18 +354,16 @@ void VmBackend::EmitInitListChannelForm(SnInitListExpr& initList,
                                         BytecodeEmitter& emitter,
                                         uint16_t resultOffset) {
     (void)initList;
-    int classIdx = m_compiledModule.FindClass(kBuiltinChannelTypeName);
-    if (classIdx < 0) {
-        //Round-12 shape: Channel is a built-in class — always registered
-        //(the bare literal is the erasure key).
-        throw std::runtime_error(
-            "NLang backend: Channel class not registered in module");
-    }
+    //F11 (concurrency import redesign): the current image holds the row
+    //only while Channel is prelude-owned; multi-unit projects keep the
+    //template row in the owning unit's image (concurrent's). Resolve
+    //through the alias — same ClassSlotFor channel the class form uses.
+    const uint16_t classIdx = static_cast<uint16_t>(ClassSlotFor(classDecl));
     //Built-in target: the resolver's IsBuiltinClass early-return keeps
     //CtorFunction() null, so the table path (CtorSlotFor) is the ctor
     //source — pass a null selected-ctor to take it (0.9.11 T6 merge).
     EmitNewObjectAndNoArgCtor(classDecl, /*pCtorFn=*/nullptr,
-                              static_cast<uint16_t>(classIdx),
+                              classIdx,
                               emitter, resultOffset,
                               //K3 task 4: the ctor stub is (this, capacity)
                               //— stage the unbounded default explicitly.

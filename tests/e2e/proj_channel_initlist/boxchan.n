@@ -1,0 +1,14 @@
+//The channel initializer form inside a library unit: the template row
+//lives in this unit's image (post-import-redesign: concurrent's), so a
+//current-image FindClass from elsewhere misses — exactly the F11 shape.
+//The declaration-position `Channel<int> pipe = [];` is the documented
+//empty-initializer construction (values enter through send()).
+import concurrent;
+
+class Boxchan {
+    public int poke() {
+        Channel<int> pipe = [];
+        pipe.send(7);
+        return pipe.recv();
+    }
+}
