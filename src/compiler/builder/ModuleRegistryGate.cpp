@@ -10,6 +10,7 @@ query helpers still live there.
 #include "TranslationUnit.h"
 #include <algorithm>
 #include <cassert>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -132,7 +133,7 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	std::vector<std::string>& outErrors,
 	const LibraryNamespacePredicate& isLibraryNamespace)
 {
-	assert(moduleIndex < m_modules.size()
+	NLANG_ASSERT(moduleIndex < m_modules.size()
 		&& !m_modules[moduleIndex].isExternal);
 
 	ImportGate gate;

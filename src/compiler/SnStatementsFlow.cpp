@@ -11,6 +11,7 @@
 #include <sstream>
 #include <iostream>
 #include "SyntaxNodeVisitor.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -21,8 +22,8 @@ SnIfStmt::SnIfStmt(SnExpression *pCond, SnStatement *pThen,
 	SnStatement *pElse, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pCond(pCond), m_pThen(pThen), m_pElse(pElse)
 {
-	assert(m_pCond);
-	assert(m_pThen);
+	NLANG_ASSERT(m_pCond);
+	NLANG_ASSERT(m_pThen);
 	AddChild(m_pCond);
 	AddChild(m_pThen);
 	if (m_pElse)
@@ -54,8 +55,8 @@ SnWhileStmt::SnWhileStmt(SnExpression *pCond, SnStatement *pBody,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pCond(pCond), m_pBody(pBody)
 {
-	assert(m_pCond);
-	assert(m_pBody);
+	NLANG_ASSERT(m_pCond);
+	NLANG_ASSERT(m_pBody);
 	AddChild(m_pCond);
 	AddChild(m_pBody);
 }
@@ -81,8 +82,8 @@ SnDoStmt::SnDoStmt(SnExpression *pCond, SnStatement *pBody,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pCond(pCond), m_pBody(pBody)
 {
-	assert(m_pCond);
-	assert(m_pBody);
+	NLANG_ASSERT(m_pCond);
+	NLANG_ASSERT(m_pBody);
 	AddChild(m_pCond);
 	AddChild(m_pBody);
 }
@@ -111,8 +112,8 @@ SnForStmt::SnForStmt(SnStatement *pInit, SnExpression *pCond,
 	Super_(s_Kind, loc), m_pInit(pInit), m_pCond(pCond),
 	m_pFini(pFini), m_pBody(pBody)
 {
-	assert(m_pCond);
-	assert(m_pBody);
+	NLANG_ASSERT(m_pCond);
+	NLANG_ASSERT(m_pBody);
 	if (m_pInit)
 		AddChild(m_pInit);
 	AddChild(m_pCond);
@@ -159,9 +160,9 @@ SnForeachStmt::SnForeachStmt(SnFieldExpr *pVarType, const std::string& varName,
 	Super_(s_Kind, loc), m_pVarType(pVarType), m_varName(varName),
 	m_pIterable(pIterable), m_pBody(pBody)
 {
-	assert(m_pVarType);
-	assert(m_pIterable);
-	assert(m_pBody);
+	NLANG_ASSERT(m_pVarType);
+	NLANG_ASSERT(m_pIterable);
+	NLANG_ASSERT(m_pBody);
 	AddChild(m_pVarType);
 	AddChild(m_pIterable);
 	AddChild(m_pBody);
@@ -255,7 +256,7 @@ SnCaseClause::SnCaseClause(PtrList<SnExpression> *pLabels,
 	m_pBody(new SnParagraph(UniquePtrList<SnStatement>(pStmts), loc)),
 	m_upChildren(new ImmutableNodeList())
 {
-	assert(!m_upLabels->empty());  //grammar guarantees ≥1 label
+	NLANG_ASSERT(!m_upLabels->empty());  //grammar guarantees ≥1 label
 	delete pLabels;
 	for (auto* pLabel : *m_upLabels)
 		AddChild(pLabel);
@@ -295,7 +296,7 @@ SnSwitchStmt::SnSwitchStmt(SnExpression *pCond,
 	Super_(s_Kind, loc), m_pCond(pCond),
 	m_upCases(pCases), m_pDefault(pDefault)
 {
-	assert(m_pCond);
+	NLANG_ASSERT(m_pCond);
 	AddChild(m_pCond);
 	for (auto* pCase : *m_upCases)
 		AddChild(pCase);
@@ -339,7 +340,7 @@ SnCatchClause::SnCatchClause(SnFieldExpr *pType, const std::string& varName,
 	Super_(s_Kind, FA_Public, s_DefaultFlags, loc), m_pType(pType),
 	m_sVarName(varName), m_pBody(pBody), m_upChildren(new ImmutableNodeList())
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
 	if (m_pBody)
 		AddChild(m_pBody);

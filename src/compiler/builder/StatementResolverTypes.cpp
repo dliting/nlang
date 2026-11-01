@@ -7,6 +7,7 @@
 #include "ConstAggregateSurface.hpp"
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -65,7 +66,7 @@ void StatementResolveAccessor::RejectTypeNameVariable(
 
 void StatementResolveAccessor::Access(SnStructDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	for (auto &field : sn.Fields())
 	{
 		//0.9.12 D7 (D-new-2): a struct is a public data record — every
@@ -195,7 +196,7 @@ void StatementResolveAccessor::PropagateVirtualOverrides(SnClassDecl &sn)
 
 void StatementResolveAccessor::Access(SnClassDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//Builtin-decls source of truth: the implicit Object chain must be
 	//live before PropagateVirtualOverrides walks the ancestors.
 	EnsureImplicitObjectSuperclass(sn, m_Env.Registry());
@@ -230,7 +231,7 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 
 void StatementResolveAccessor::Access(SnClassField &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	if (sn.Type())
 		sn.Type()->Accept(*m_pVisitor);
 	//0.9.11 D4: the field's type expression resolved in the earlier

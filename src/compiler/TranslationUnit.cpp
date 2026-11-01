@@ -6,6 +6,7 @@ compiler.
 
 #include "TranslationUnit.h"
 #include "SnExtraTypes.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -26,7 +27,7 @@ TranslationUnit::~TranslationUnit()
 void TranslationUnit::Init(PtrList<SnUsing>* pUsings,
 	PtrList<SnField>* pFields, const ISourceLocation &loc)
 {
-	assert(!m_pRoot && !m_upUsings);
+	NLANG_ASSERT(!m_pRoot && !m_upUsings);
 	m_upUsings = std::make_unique<UsingList>(pUsings);
 	auto pName = new std::string(GLOBAL_NAMESPACE_NAME);
 	m_pRoot = new SnNamespace(pName, pFields, loc);
@@ -34,7 +35,7 @@ void TranslationUnit::Init(PtrList<SnUsing>* pUsings,
 
 void TranslationUnit::SetScriptParagraph(SnParagraph *pScript)
 {
-	assert(!m_pScriptParagraph);
+	NLANG_ASSERT(!m_pScriptParagraph);
 	m_pScriptParagraph = pScript;
 }
 

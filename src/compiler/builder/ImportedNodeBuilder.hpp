@@ -4,6 +4,7 @@
 #include "BuiltinNames.h"
 #include <nlang/runtime/RuntimeNodeVisitor.h>
 #include <nlang/runtime/Runtime.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -68,13 +69,13 @@ public:
 		SnNamespace *pNode = new SnNamespace(rn);
 		if (pParentNode)
 		{
-			assert(dynamic_cast<SnNamespace*>(pParentNode));
+			NLANG_ASSERT(dynamic_cast<SnNamespace*>(pParentNode));
 			auto pParentNamespace = static_cast<SnNamespace*>(pParentNode);
 			pParentNamespace->Members().push_back(pNode);
 		}
 		else
 		{
-			assert(rn.Name() == Runtime::GlobalNamespaceName());
+			NLANG_ASSERT(rn.Name() == Runtime::GlobalNamespaceName());
 			m_Tree.m_pRoot = pNode;
 		}
 		RegNode(rn, *pNode);
@@ -84,7 +85,7 @@ public:
 	{
 		SyntaxNode *pParentNode = ParentNodeOf(rn);
 		//TODO: parent class
-		assert(dynamic_cast<SnNamespace*>(pParentNode));
+		NLANG_ASSERT(dynamic_cast<SnNamespace*>(pParentNode));
 		auto pParentType = static_cast<SnNamespace*>(pParentNode);
 		SnFunction *pNode = new SnFunction(rn);
 		pParentType->Members().push_back(pNode);
@@ -103,11 +104,11 @@ public:
 			BUILTIN_TYPE_NODE_DECL(MACRO_IMPL)
 #undef MACRO_IMPL
 		default:
-			assert(false && "invalid primitive type kind");
+			NLANG_ASSERT(false && "invalid primitive type kind");
 			pNode = nullptr;
 		}
 		SyntaxNode *pParentNode = ParentNodeOf(rn);
-		assert(pParentNode == m_Tree.Root());
+		NLANG_ASSERT(pParentNode == m_Tree.Root());
 		m_Tree.Root()->Members().push_back(pNode);
 		//v0.12.2 face-name yield: a face-named builtin mirror (String)
 		//keeps its node attached — registry identity for InstanceOf,
@@ -123,7 +124,7 @@ public:
 	void Access(RnFormalParam &rn)
 	{
 		SyntaxNode *pParentNode = ParentNodeOf(rn);
-		assert(pParentNode && pParentNode->Kind() == NK_Function);
+		NLANG_ASSERT(pParentNode && pParentNode->Kind() == NK_Function);
 		SnFormalParam *pNode = new SnFormalParam(rn);
 		SnFunction *pParentFunc = static_cast<SnFunction*>(pParentNode);
 		pParentFunc->Params().push_back(pNode);
@@ -142,7 +143,7 @@ private:
 
 	void RegNode(RnField &rn, SnField &sn)
 	{
-		assert(!m_Tree.FindNode(rn));
+		NLANG_ASSERT(!m_Tree.FindNode(rn));
 		m_Tree.RegNode(rn, sn);
 	}
 

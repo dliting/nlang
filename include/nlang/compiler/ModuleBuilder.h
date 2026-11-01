@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -78,14 +79,14 @@ public:
 	//internal passes use TreeRoot()).
 	const SnNamespace& TreeRootView() const
 	{
-		assert(TheAST().Root());
+		NLANG_ASSERT(TheAST().Root());
 		return *TheAST().Root();
 	}
 private:
 	//Get the root of the syntax tree.
 	SnNamespace &TreeRoot()
 	{
-		assert(TheAST().Root());
+		NLANG_ASSERT(TheAST().Root());
 		return *TheAST().Root();
 	}
 

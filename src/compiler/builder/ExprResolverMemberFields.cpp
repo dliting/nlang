@@ -15,13 +15,15 @@
 #include <map>
 #include <set>
 #include <vector>
+//NLANG_ASSERT (diagnostic assert with stack dump) for the invariant below.
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
 
 void ExprResolveAccessor::ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 {
-	assert(pField && !expr.IsResolved());
+	NLANG_ASSERT(pField && !expr.IsResolved());
 
 	expr.m_pField = pField;
 	if (!expr.PostResolveCheck(m_Env))
@@ -141,7 +143,7 @@ SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName,
 		if (!pUsing->IsResolved())
 			continue;
 		auto pNamespace = pUsing->Namespace();
-		assert(pNamespace);
+		NLANG_ASSERT(pNamespace);
 		auto pField = FindFieldInAncestor(sName, *pNamespace, accessor,
 			ERF_SearchInParentOnly);
 		if (pField)
@@ -189,7 +191,7 @@ bool ExprResolveAccessor::MaybeLogVisibilityHint(const std::string &name,
 	auto *pRoot = m_pContext;
 	while (pRoot->Parent())
 		pRoot = pRoot->Parent();
-	assert(IsBarePoolScope(*pRoot));
+	NLANG_ASSERT(IsBarePoolScope(*pRoot));
 	auto *pForeign = FindOwnedFunctionElsewhere(
 		static_cast<SnNamespace &>(*pRoot), name,
 		[this, curModule](SnFunction &func)

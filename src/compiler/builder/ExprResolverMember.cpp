@@ -15,6 +15,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -290,10 +291,10 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 
 void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 {
-	assert(!snMember.IsResolved());
+	NLANG_ASSERT(!snMember.IsResolved());
 
 	auto pOuterExpr = snMember.Outer();
-	assert(pOuterExpr);
+	NLANG_ASSERT(pOuterExpr);
 
 	if (TryResolveMemberHead(snMember, pOuterExpr))
 		return;
@@ -309,7 +310,7 @@ void ExprResolveAccessor::Access(SnMemberExpr &snMember)
 	SCOPED_FLAG_RESETER(*this);
 	AddFlags(ERF_SearchInParentOnly);
 	auto pInnerExpr = snMember.Inner();
-	assert(pInnerExpr);
+	NLANG_ASSERT(pInnerExpr);
 
 	//Builtin by-name method families, in the historical dispatch order
 	//(each family logs its own rejections).

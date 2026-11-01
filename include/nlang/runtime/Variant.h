@@ -1,6 +1,7 @@
 #pragma once
 #include "TypeDef.h"
 #include <string>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -57,7 +58,7 @@ public:
 	template<typename T>
 	T Get() const
 	{
-		assert(&typeid(T) == m_pType->CppTypeId());
+		NLANG_ASSERT(&typeid(T) == m_pType->CppTypeId());
 		return static_cast<T>(m_Data.m_Memory);
 	}
 

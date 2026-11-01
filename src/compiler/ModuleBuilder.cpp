@@ -29,13 +29,13 @@
 #include <unordered_set>
 #include <functional>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 static const char *BAR_STR =
 	"--------------------------------------------------------------------";
 
 namespace nlang
 {
-
 
 ModuleBuilder::ModuleBuilder(const BuildParams &params,
 	CompileLogger &logger):
@@ -283,7 +283,7 @@ SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
 		pEntryLoc = stmt.Location();
 		break;
 	}
-	assert(pEntryLoc);
+	NLANG_ASSERT(pEntryLoc);
 	SnNameExpr* pRet = new SnNameExpr(
 		new SnIdentifierExpr(NK_Int32, *pEntryLoc), *pEntryLoc);
 	SnFunction* pMain = new SnFunction(FA_Default, NF_ScriptEntry, pRet,
@@ -365,7 +365,7 @@ void ModuleBuilder::MergeTransUnits()
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		assert(pTransUnit->Root());
+		NLANG_ASSERT(pTransUnit->Root());
 		//Tag this unit's top-level members (and namespace members,
 		//recursively — namespaces can span TUs) BEFORE the merge moves
 		//them: after MergeFrom the unit boundary is gone.
@@ -419,7 +419,7 @@ void ModuleBuilder::ResolveUsingLists()
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		auto pUsings = pTransUnit->Usings();
-		assert(pUsings);
+		NLANG_ASSERT(pUsings);
 		for (auto pUsing : *pUsings)
 		{
 			//Phase 13: alias-form usings are consumed by the alias
@@ -427,9 +427,9 @@ void ModuleBuilder::ResolveUsingLists()
 			//not a namespace path, and must not be resolved here.
 			if (pUsing->IsAlias())
 				continue;
-			assert(!pUsing->IsResolved());
+			NLANG_ASSERT(!pUsing->IsResolved());
 			SnFieldExpr *pPath = pUsing->Path();
-			assert(pPath);
+			NLANG_ASSERT(pPath);
 			if (!resolver.Resolve(*pPath, root, root, ERF_IgnoreUsings))
 			{
 				pUsing->AddFlags(NF_Invalid);

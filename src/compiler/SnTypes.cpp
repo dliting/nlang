@@ -7,6 +7,7 @@ AST.
 #include "SnTypes.h"
 #include "SyntaxNodeVisitor.h"
 #include "SyntaxTree.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -31,9 +32,9 @@ std::string SnBuiltinDataType::ToString() const
 
 SnBuiltinDataType * SnBuiltinDataType::InstanceOf(NodeKind builtinKind)
 {
-	assert(IsBuiltinType(builtinKind));
+	NLANG_ASSERT(IsBuiltinType(builtinKind));
 	auto pRTTI = RnBuiltinDataType::InstanceOf(builtinKind);
-	assert(pRTTI);
+	NLANG_ASSERT(pRTTI);
 	return static_cast<SnBuiltinDataType *>(TheAST().FindNode(*pRTTI));
 }
 

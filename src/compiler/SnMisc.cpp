@@ -7,6 +7,7 @@ This file define the implementation of miscellaneous syntax node types.
 #include "SyntaxNodeVisitor.h"
 #include "BuildEnvironment.h"
 #include <nlang/compiler/SnTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -17,13 +18,13 @@ SnFunctionParentField::SnFunctionParentField(NodeKind k, FieldAccessType at,
 	Super_(k, at, flags, pName, loc),
 	m_upMembers(CreateChildFields(upMembers, this))
 {
-	assert(CanBeFuncParentEx(k));
+	NLANG_ASSERT(CanBeFuncParentEx(k));
 }
 
 SnFunctionParentField::SnFunctionParentField(RnCompoundField &rn) :
 	Super_(rn), m_upMembers(new MemberList(this))
 {
-	assert(CanBeFuncParentEx(rn.Kind()));
+	NLANG_ASSERT(CanBeFuncParentEx(rn.Kind()));
 }
 
 SnFunctionParentField::~SnFunctionParentField()
@@ -63,7 +64,7 @@ void SnNamespace::MergeFrom(SnNamespace &other, BuildEnvironment &env)
 			Members().push_back(pOther);
 			continue;
 		case MAK_Merge:
-			assert(pOther->Kind() == NK_Namespace && pExisted);
+			NLANG_ASSERT(pOther->Kind() == NK_Namespace && pExisted);
 			static_cast<SnNamespace *>(pExisted)->MergeFrom(
 				static_cast<SnNamespace &>(*pOther), env);
 			break;
@@ -73,7 +74,7 @@ void SnNamespace::MergeFrom(SnNamespace &other, BuildEnvironment &env)
 				pOther->TypedName().c_str(), this->TypedName().c_str());
 			break;
 		default:
-			assert(mak == MAK_Conflicted && pExisted);
+			NLANG_ASSERT(mak == MAK_Conflicted && pExisted);
 			env.Log(CLL_Error, pOther->Location(),
 				"The package member \"%s\" has already been defined.",
 				pOther->Name().c_str());
@@ -184,7 +185,7 @@ SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 		[](SnFieldExpr& path, BuildEnvironment& env)->bool
 	{
 		auto pField = path.Field();
-		assert(pField);
+		NLANG_ASSERT(pField);
 		if (pField->Kind() == NK_Namespace)
 			return true;
 		env.Log(CLL_Error, path.Location(),
@@ -196,7 +197,7 @@ SnUsing::SnUsing(SnFieldExpr *pPath, const ISourceLocation &loc) :
 		return false;
 	};
 
-	assert(m_pPath);
+	NLANG_ASSERT(m_pPath);
 	m_pPath->Checker(&pathChecker);
 	AddChild(m_pPath);
 }
@@ -210,8 +211,8 @@ SnUsing::SnUsing(SnFieldExpr *pPath, SnFieldExpr *pAliasType,
 	//Alias form: the path is the alias name, never resolved as a
 	//namespace — no path checker is installed and ModuleBuilder's
 	//ResolveUsingLists skips alias-form usings entirely.
-	assert(m_pPath);
-	assert(m_pAliasType);
+	NLANG_ASSERT(m_pPath);
+	NLANG_ASSERT(m_pAliasType);
 	AddChild(m_pPath);
 	AddChild(m_pAliasType);
 }
@@ -223,10 +224,10 @@ SnUsing::~SnUsing()
 
 std::string SnUsing::AliasName() const
 {
-	assert(IsAlias());
-	assert(m_pPath->Kind() == NK_NameExpr);
+	NLANG_ASSERT(IsAlias());
+	NLANG_ASSERT(m_pPath->Kind() == NK_NameExpr);
 	auto pExpr = static_cast<SnNameExpr *>(m_pPath)->Expr();
-	assert(pExpr && pExpr->Kind() == NK_IdentifierExpr);
+	NLANG_ASSERT(pExpr && pExpr->Kind() == NK_IdentifierExpr);
 	return static_cast<SnIdentifierExpr *>(pExpr)->Name();
 }
 

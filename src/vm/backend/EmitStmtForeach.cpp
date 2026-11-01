@@ -17,6 +17,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -121,7 +122,7 @@ void VmBackend::Access(SnForeachStmt& stmt) {
         //Phase C: Array + List. Phase D: Dict (the Keys() prelude
         //materializes a List<K> into iterSlot, then the rest mirrors
         //the List path).
-        assert((iter.isArray || iter.isList || iter.isDict)
+        NLANG_ASSERT((iter.isArray || iter.isList || iter.isDict)
             && "foreach iterable must be Array, List<T>, Dict<K,V>, or string");
         //0.7.3 B: an array-typed element (List<int[]> / Dict<K[],V> key
         //iteration) IS the interned token, and RuntimeTypeKind maps the

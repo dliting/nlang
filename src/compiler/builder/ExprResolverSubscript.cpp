@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -196,7 +197,7 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	//Resolve array expression (the 0.9.0 alias splice included).
 	if (!ResolveArrayBase(sn))

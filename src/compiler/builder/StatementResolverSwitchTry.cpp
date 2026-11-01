@@ -7,6 +7,7 @@
 #include "ExprResolverCastFit.hpp"
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -242,7 +243,7 @@ void StatementResolveAccessor::CheckSwitchLabelFitsDiscriminant(
 
 void StatementResolveAccessor::Access(SnSwitchStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	//D1 family gate. An unresolved cond already reported its own
 	//error — skip the family check to avoid cascades. The null
@@ -275,7 +276,7 @@ void StatementResolveAccessor::Access(SnSwitchStmt &sn)
 
 void StatementResolveAccessor::Access(SnCaseClause &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//D2: every label must belong to the discriminant's family. The
 	//cond's resolved type is read back through the parent switch
 	//(zero new AST state); an unresolved cond skips the check.
@@ -320,7 +321,7 @@ void StatementResolveAccessor::Access(SnTryStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	if (sn.Catches().empty() && !sn.FinallyBody()) {
 		m_Env.Log(CLL_Error, sn.Location(),
 			"try statement must have at least one catch clause or a finally block");
@@ -387,7 +388,7 @@ void StatementResolveAccessor::Access(SnThrowStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	if (m_inFinallyBody) {
 		m_Env.Log(CLL_Error, sn.Location(),
 			"throw is not allowed inside a finally block");

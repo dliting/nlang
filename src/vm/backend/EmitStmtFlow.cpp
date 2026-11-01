@@ -15,6 +15,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -299,7 +300,7 @@ void VmBackend::Access(SnBreakStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         if (m_loopStack.empty()) {
             //This should be caught by an earlier validation pass.
-            assert(!"break statement not in loop or switch");
+            NLANG_ASSERT(!"break statement not in loop or switch");
             return;
         }
         //Phase 9d follow-up: if break exits a loop/switch that sits
@@ -336,7 +337,7 @@ void VmBackend::Access(SnContinueStmt& stmt) {
             ++it;
         if (it == m_loopStack.rend()) {
             //This should be caught by an earlier validation pass.
-            assert(!"continue statement not in loop");
+            NLANG_ASSERT(!"continue statement not in loop");
             return;
         }
         //Phase 9d follow-up: same handler-balancing as break — see above.

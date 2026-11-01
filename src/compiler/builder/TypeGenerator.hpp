@@ -9,6 +9,7 @@ This file define a LLVM type builder for the AST.
 #include "SyntaxTree.h"
 #include "VisitorBuilder.h"
 #include <llvm/IR/DerivedTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -27,7 +28,7 @@ public:
 
 	void Access(SnNamespace &sn)
 	{
-		assert(m_pVisitor);
+		NLANG_ASSERT(m_pVisitor);
 		for (auto &member : sn.Members())
 			if (member.IsTypeField())
 				member.Accept(*m_pVisitor);
@@ -57,7 +58,7 @@ public:
 	//Default action.
 	void Access(SyntaxNode &sn)
 	{
-		assert(false && "Require implementation.");
+		NLANG_ASSERT(false && "Require implementation.");
 	}
 
 	void Access(SnArrayTypeExpr &) {}

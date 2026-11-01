@@ -11,6 +11,7 @@
 #include "CastInfo.h"
 #include <string>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -101,7 +102,7 @@ void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
 	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported,
 	const std::vector<SnFunction*> &candidates)
 {
-	assert((res == FFR_Incompatible || res == FFR_FuncNameNotFound)
+	NLANG_ASSERT((res == FFR_Incompatible || res == FFR_FuncNameNotFound)
 		&& "failure logging takes failure results only");
 
 	if (res == FFR_Incompatible)
@@ -127,7 +128,7 @@ void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
 		return;
 	}
 
-	assert(res == FFR_FuncNameNotFound);
+	NLANG_ASSERT(res == FFR_FuncNameNotFound);
 	m_Env.Log(CLL_Error, invoke.Location(),
 		"The function \"%s\" does not exist or is not accessible.",
 		invoke.CalleeName().c_str());

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <cmath>
 #include <type_traits>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -85,7 +86,7 @@ void RnInt32::Accept(IRuntimeNodeVisitor &v)
 std::string RnInt32::ValueToString(const void *pValue) const
 {
 	char szBuf[12];
-	assert(pValue);
+	NLANG_ASSERT(pValue);
 	const CppType v = *static_cast<const CppType*>(pValue);
 	sprintf(szBuf, "%d", v);
 	//itoa(v, szBuf, 10);
@@ -147,7 +148,7 @@ std::string FormatFloatShortest(double v, bool isFloat)
 
 std::string RnFloat::ValueToString(const void *pValue) const
 {
-	assert(pValue);
+	NLANG_ASSERT(pValue);
 	const CppType v = *static_cast<const CppType*>(pValue);
 	return FormatFloatShortest(v, true);
 }
@@ -160,7 +161,7 @@ void RnString::Accept(IRuntimeNodeVisitor &v)
 std::string RnString::ValueToString(const void *pValue) const
 {
 	const CppType *p = static_cast<const CppType*>(pValue);
-	assert(p && *p);
+	NLANG_ASSERT(p && *p);
 	return **p;
 }
 
@@ -168,7 +169,7 @@ void RnString::InitValue(void *pDst, const void *pSrc) const
 {
 	const CppType	*ppSrc = static_cast<const CppType*>(pSrc);
 	CppType			*ppDst = static_cast<CppType*>(pDst);
-	assert(ppDst && ppSrc);
+	NLANG_ASSERT(ppDst && ppSrc);
 	*ppDst = *ppSrc;
 }
 
@@ -176,14 +177,14 @@ void RnString::CopyValue(void *pDst, const void *pSrc) const
 {
 	const CppType	*ppSrc = static_cast<const CppType*>(pSrc);
 	CppType			*ppDst = static_cast<CppType*>(pDst);
-	assert(ppDst && ppSrc && *ppDst && *ppSrc);
+	NLANG_ASSERT(ppDst && ppSrc && *ppDst && *ppSrc);
 	**ppDst = **ppSrc;
 }
 
 void RnString::DestroyValue(void *pValue) const
 {
 	CppType *ppStr = static_cast<CppType*>(pValue);
-	assert(ppStr);
+	NLANG_ASSERT(ppStr);
 	delete *ppStr;
 	*ppStr = nullptr;
 }
@@ -202,7 +203,7 @@ void Rn##CLASS::Accept(IRuntimeNodeVisitor &v)                               \
 }                                                                            \
 std::string Rn##CLASS::ValueToString(const void *pValue) const               \
 {                                                                            \
-	assert(pValue);                                                          \
+	NLANG_ASSERT(pValue);                                                          \
 	if constexpr (CAT == PC_Bool)                                             \
 		return *static_cast<const int32*>(pValue) ? "true" : "false";         \
 	else if constexpr (CAT == PC_Char)                                        \
@@ -241,7 +242,7 @@ void RnType::Accept(IRuntimeNodeVisitor &v)
 
 std::string RnType::ValueToString(const void *pValue) const
 {
-	assert(pValue);
+	NLANG_ASSERT(pValue);
 	const CppType v = *static_cast<const CppType*>(pValue);
 	return v->ToString();
 }
@@ -259,7 +260,7 @@ void RnVoid::InitValue(void *pDst, const void *pSrc) const
 void RnVoid::CopyValue(void *pDst, const void *pSrc) const
 {
 	//No value of this type can exist; reachable only via type confusion.
-	assert(false && "RnVoid::CopyValue must not be called.");
+	NLANG_ASSERT(false && "RnVoid::CopyValue must not be called.");
 }
 
 void RnVoid::Accept(IRuntimeNodeVisitor &v)

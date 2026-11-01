@@ -19,6 +19,7 @@ node types in an nlang AST.
 #include <llvm/IR/Value.h>
 #endif
 #include <sstream>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -70,7 +71,7 @@ SyntaxNode::~SyntaxNode()
 
 const NodeTraits &SyntaxNode::TraitsOf(NodeKind k)
 {
-	assert(k < NK_CP_END);
+	NLANG_ASSERT(k < NK_CP_END);
 	return k < NK_RT_END ? RuntimeNode::TraitsOf(k) : GetCompileTraits_(k);
 }
 
@@ -82,8 +83,8 @@ const UsingList *SyntaxNode::Usings() const
 
 bool SyntaxNode::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 {
-	assert(pOld && pOld->Parent() == this);
-	assert(!pNew || !pNew->Parent());
+	NLANG_ASSERT(pOld && pOld->Parent() == this);
+	NLANG_ASSERT(!pNew || !pNew->Parent());
 
 	auto &children = Children();
 	auto iRemove = children.find(pOld);
@@ -118,13 +119,13 @@ void SyntaxNode::Dump(std::ostream &os) const
 
 SyntaxNode *SyntaxNode::DoResetChild(SyntaxNode *pOld, SyntaxNode *pNew)
 {
-	assert(!pOld || pOld->Parent() == this);
-	assert(!pNew || !pNew->Parent());
+	NLANG_ASSERT(!pOld || pOld->Parent() == this);
+	NLANG_ASSERT(!pNew || !pNew->Parent());
 
 	if (pOld)
 	{
 		auto iRemove = Children().find(pOld);
-		assert(iRemove != Children().end());
+		NLANG_ASSERT(iRemove != Children().end());
 		auto iInsert = RemoveChild(iRemove);
 		delete pOld;
 		if (pNew)
@@ -146,7 +147,7 @@ SnField::SnField(NodeKind k, FieldAccessType at, NodeBits flags,
 	, m_pMetaType(nullptr), m_pMetaValue(nullptr)
 #endif
 {
-	assert(pName);
+	NLANG_ASSERT(pName);
 }
 
 SnField::SnField(RnField &rn) :
@@ -190,7 +191,7 @@ bool SnField::AllowAccess(const SnField &accessor) const
 	case FA_Protected:
 		return AllowProtectedAccess(accessor);
 	default:
-		assert(AccessType() == FA_Private);
+		NLANG_ASSERT(AccessType() == FA_Private);
 		return AllowPrivateAccess(accessor);
 	}
 }
@@ -261,7 +262,7 @@ void SnField::OnAddedToParent(Node& parent)
 
 bool SnField::ConflictedWith(const SnField &other) const
 {
-	assert(&other != this);
+	NLANG_ASSERT(&other != this);
 	return other.Name() == Name();
 }
 

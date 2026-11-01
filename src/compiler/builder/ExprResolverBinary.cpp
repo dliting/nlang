@@ -16,6 +16,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -419,7 +420,7 @@ bool ExprResolveAccessor::AdmitShiftCount(NodeIterator &iCount,
 
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	sn.Left()->Accept(*m_pVisitor);
 	if (!sn.Left()->IsResolved())

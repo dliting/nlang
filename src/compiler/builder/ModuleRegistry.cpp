@@ -8,6 +8,7 @@ ModuleRegistry.cpp - compile-time module registry of the NLang compiler.
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -120,7 +121,7 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 {
 	//Registration order is the module index space shared with
 	//AddExternalModule; a drift here would silently mis-own symbols.
-	assert(moduleIndex == m_modules.size());
+	NLANG_ASSERT(moduleIndex == m_modules.size());
 
 	const std::filesystem::path filePath =
 		std::filesystem::path(tu.FilePath()).lexically_normal();
@@ -260,7 +261,7 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 {
 	//Stubs can only belong to an external entry — same defensive
 	//contract as BuildGate's moduleIndex preconditions.
-	assert(moduleIndex < m_modules.size()
+	NLANG_ASSERT(moduleIndex < m_modules.size()
 		&& m_modules[moduleIndex].isExternal);
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }

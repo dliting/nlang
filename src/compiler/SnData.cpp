@@ -5,6 +5,7 @@
 
 #ifdef NLANG_ENABLE_LLVM
 #include <llvm/IR/Function.h>
+#include <nlang/runtime/StackDump.h>
 #endif
 
 namespace nlang
@@ -36,7 +37,7 @@ SnDataField::~SnDataField()
 
 void SnDataField::Init()
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	m_pType->Checker(&SnFieldExpr::DataTypeChecker());
 	AddChild(m_pType);
 	if (m_pValue)
@@ -47,7 +48,7 @@ SnField *SnDataField::EvalDataType() const
 {
 	if (!m_pType || !m_pType->Field())
 		return nullptr;
-	assert(m_pType->Field()->IsTypeField());
+	NLANG_ASSERT(m_pType->Field()->IsTypeField());
 	return static_cast<SnField *>(m_pType->Field());
 }
 
@@ -125,7 +126,7 @@ SnFunction::SnFunction(RnFunction &rn):
 {
 	if (rn.ReturnType())
 	{
-		assert(rn.ReturnType());
+		NLANG_ASSERT(rn.ReturnType());
 		m_pReturnType = new SnNameExpr(*rn.ReturnType());
 		AddChild(m_pReturnType);
 	}
@@ -260,7 +261,7 @@ SnField *SnFunction::EvalDataType() const
 #ifdef NLANG_ENABLE_LLVM
 llvm::Function * SnFunction::MetaFunc() const
 {
-	assert(!MetaValue() || llvm::isa<llvm::Function>(MetaValue()));
+	NLANG_ASSERT(!MetaValue() || llvm::isa<llvm::Function>(MetaValue()));
 	return static_cast<llvm::Function *>(MetaValue());
 }
 #endif

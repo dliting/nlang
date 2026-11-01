@@ -6,14 +6,15 @@
 ---*/
 #include "StatementResolver.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
 
 void StatementResolveAccessor::Access(SnReturnStmt &sn)
 {
-	assert(m_pVisitor);
-	assert(m_pCurrType && m_pCurrType->Kind() == NK_Function);
+	NLANG_ASSERT(m_pVisitor);
+	NLANG_ASSERT(m_pCurrType && m_pCurrType->Kind() == NK_Function);
 	if (m_inFinallyBody) {
 		m_Env.Log(CLL_Error, sn.Location(),
 			"return is not allowed inside a finally block");
@@ -86,7 +87,7 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Left()->Accept(*m_pVisitor);
 
 	//Phase 9a: reject assignment to a const local.
@@ -186,7 +187,7 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pCurrType);
+	NLANG_ASSERT(m_pCurrType);
 	if (sn.Array() && !sn.Array()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
 	for (auto *pIndex : sn.Indices())

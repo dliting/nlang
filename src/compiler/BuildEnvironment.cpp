@@ -15,6 +15,7 @@
 #ifdef NLANG_ENABLE_LLVM
 #include <llvm/IR/Module.h>
 #include <llvm/IR/LLVMContext.h>
+#include <nlang/runtime/StackDump.h>
 #endif
 
 namespace nlang
@@ -66,7 +67,7 @@ void BuildEnvironment::LoadLibrarySource(const std::string& path,
 SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType,
 	uint8_t rank)
 {
-	assert(pElemType);
+	NLANG_ASSERT(pElemType);
 	auto key = std::make_pair(pElemType, rank);
 	auto iFound = m_InternedArrayTokens.find(key);
 	if (iFound != m_InternedArrayTokens.end())

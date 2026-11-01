@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -26,7 +27,7 @@ void ExprResolveAccessor::Access(SnArrayTypeExpr &arrTypeExpr)
 		return;
 
 	auto *pElemType = arrTypeExpr.ElementType();
-	assert(pElemType);
+	NLANG_ASSERT(pElemType);
 	pElemType->Accept(*m_pVisitor);
 	if (!pElemType->IsResolved())
 		return;
@@ -210,7 +211,7 @@ SnField *ExprResolveAccessor::FindBareValueField(SnIdentifierExpr &idExpr,
 		*m_pAccessor, Flags(), bareFuncFilter);
 	if (!pField && ContainFlags(ERF_IgnoreUsings))
 	{
-		assert(idExpr.Usings());
+		NLANG_ASSERT(idExpr.Usings());
 		pField = FindFieldInUsings(idExpr.Name(), *idExpr.Usings(),
 			*m_pAccessor);
 	}

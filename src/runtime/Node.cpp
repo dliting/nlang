@@ -5,6 +5,7 @@ This file define the implementation of basic node classes in nlang.
 
 #include "Node.h"
 #include "NodeContainers.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -44,7 +45,7 @@ void Node::Parent(Node *pParent)
 
 void Node::AddChild(Node *pNode)
 {
-	assert(pNode && !pNode->Parent());
+	NLANG_ASSERT(pNode && !pNode->Parent());
 	Children().push_back(pNode);
 	pNode->m_pParent = this;
 	pNode->OnAddedToParent(*this);
@@ -52,7 +53,7 @@ void Node::AddChild(Node *pNode)
 
 NodeIterator Node::InsertChild(const NodeIterator& iPos, Node *pNode)
 {
-	assert(pNode && !pNode->Parent());
+	NLANG_ASSERT(pNode && !pNode->Parent());
 	pNode->m_pParent = this;
 	auto it = Children().insert(iPos, pNode);
 	pNode->OnAddedToParent(*this);
@@ -61,14 +62,14 @@ NodeIterator Node::InsertChild(const NodeIterator& iPos, Node *pNode)
 
 NodeIterator Node::RemoveChild(const NodeIterator& iPos)
 {
-	assert(iPos != Children().end() && iPos->Parent() == this);
+	NLANG_ASSERT(iPos != Children().end() && iPos->Parent() == this);
 	iPos->m_pParent = nullptr;
 	return Children().erase(iPos);
 }
 
 NodeIterator Node::RemoveChild(Node *pNode)
 {
-	assert(pNode && pNode->Parent() == this);
+	NLANG_ASSERT(pNode && pNode->Parent() == this);
 	auto iRemove = Children().find(pNode); //TODO: optimize it
 	return RemoveChild(iRemove);
 }

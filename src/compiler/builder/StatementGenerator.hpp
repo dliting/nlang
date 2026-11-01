@@ -14,6 +14,7 @@ for statements in an nlang AST.
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/IR/Constants.h>
 #include <stdexcept>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -51,7 +52,7 @@ public:
 
 	void Access(SnNamespace &sn)
 	{
-		assert(m_pVisitor);
+		NLANG_ASSERT(m_pVisitor);
 		for (auto &member : sn.Members())
 			if (CanBeFuncParent(member.Kind()) || member.Kind() == NK_Function)
 				member.Accept(*m_pVisitor);
@@ -62,14 +63,14 @@ public:
 		if (sn.IsImported())
 			return;
 
-		assert(!sn.IsExternal()); //TODO
+		NLANG_ASSERT(!sn.IsExternal()); //TODO
 
 		m_pCurrFunc = &sn;
 		ON_EXIT_SCOPE([this]{ m_pCurrFunc = nullptr; });
 
 		using namespace llvm;
 		auto pMetaFunc = sn.MetaFunc();
-		assert(pMetaFunc && sn.Body());
+		NLANG_ASSERT(pMetaFunc && sn.Body());
 		BasicBlock *pBB = 
 			BasicBlock::Create(m_Env.MetaContext(), "entry", pMetaFunc);
 		m_IRBuilder.SetInsertPoint(pBB);
@@ -80,17 +81,17 @@ public:
 
 	void Access(SnReturnStmt &sn)
 	{
-		assert(m_pCurrFunc);
+		NLANG_ASSERT(m_pCurrFunc);
 		auto pResult = sn.Result();
 		if (!pResult)
 		{
-			assert(!m_pCurrFunc->ReturnType());
+			NLANG_ASSERT(!m_pCurrFunc->ReturnType());
 			m_IRBuilder.CreateRetVoid();
 			return;
 		}
 
-		assert(m_pCurrFunc->ReturnType());
-		assert(m_pCurrFunc->ReturnType()->Field() == pResult->EvalDataType());
+		NLANG_ASSERT(m_pCurrFunc->ReturnType());
+		NLANG_ASSERT(m_pCurrFunc->ReturnType()->Field() == pResult->EvalDataType());
 		pResult->Accept(*m_pVisitor);
 		m_IRBuilder.CreateRet(pResult->MetaValue());
 	}
@@ -105,7 +106,7 @@ public:
 	{
 		auto pOuterExpr	= sn.Outer();
 		auto pInnerExpr	= sn.Inner();
-		assert(pOuterExpr && pInnerExpr);
+		NLANG_ASSERT(pOuterExpr && pInnerExpr);
 		//TODO: generate member access code.
 		pOuterExpr->Accept(*m_pVisitor);
 		pInnerExpr->Accept(*m_pVisitor);
@@ -125,14 +126,14 @@ public:
 			}
 			break;
 		default:
-			assert(false); //TODO: string, etc.
+			NLANG_ASSERT(false); //TODO: string, etc.
 			break;
 		}
 	}
 
 	void Access(SnIdentifierExpr &sn)
 	{
-		assert(sn.Field());
+		NLANG_ASSERT(sn.Field());
 		sn.m_pMetaValue = sn.Field()->MetaValue();
 	}
 
@@ -146,7 +147,7 @@ public:
 		if (!pCallee)
 			throw std::runtime_error(
 				"NLang LLVM backend: delegate invokes are not supported.");
-		assert(pCallee->MetaValue());
+		NLANG_ASSERT(pCallee->MetaValue());
 
 		std::vector<llvm::Value*> metaParams;
 		for (auto &param : sn.Params()) 
@@ -172,7 +173,7 @@ public:
 	//Default action.
 	void Access(SyntaxNode &sn)
 	{
-		assert(false && "invalid node type");
+		NLANG_ASSERT(false && "invalid node type");
 	}
 
 	void Access(SnArrayTypeExpr &) {}

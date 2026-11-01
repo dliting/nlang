@@ -7,6 +7,7 @@
 #include <nlang/runtime/Flagable.h>
 #include <functional>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -331,7 +332,7 @@ public:
 	//Default action.
 	void Access(SyntaxNode &)
 	{
-		assert(false && "invalid expression.");
+		NLANG_ASSERT(false && "invalid expression.");
 	}
 private:
 	explicit ExprResolveAccessor(BuildEnvironment &env) : m_Env(env),

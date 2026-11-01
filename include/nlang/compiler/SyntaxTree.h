@@ -9,6 +9,7 @@
 #include "SnTypes.h"
 #include <map>
 #include <memory>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -43,13 +44,13 @@ public:
 	FIELD_T *FindNodeT(const RuntimeNode &rtti) const
 	{
 		SyntaxNode *pNode = FindNode(rtti);
-		assert(dynamic_cast<FIELD_T*>(pNode));
+		NLANG_ASSERT(dynamic_cast<FIELD_T*>(pNode));
 		return static_cast<FIELD_T*>(pNode);
 	}
 
 	void RegNode(const RuntimeNode &rtti, SyntaxNode &node)
 	{
-		assert(m_upNodeMap->find(&rtti) == m_upNodeMap->cend());
+		NLANG_ASSERT(m_upNodeMap->find(&rtti) == m_upNodeMap->cend());
 		m_upNodeMap->emplace(std::make_pair(&rtti, &node));
 	}
 	

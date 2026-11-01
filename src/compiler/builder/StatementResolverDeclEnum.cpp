@@ -4,6 +4,7 @@
 ---*/
 #include "StatementResolver.h"
 #include "ExprResolverCastFit.hpp"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -51,7 +52,7 @@ void StatementResolveAccessor::RejectIllegalEnumMethod(SnFunction &method)
 
 void StatementResolveAccessor::Access(SnEnumDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//Unconditional: the flag is NOT a reliable "values assigned" signal
 	//here — ResolveDataTypes flags enum decls early without assigning
 	//values (Step 1 finding), and the pre-pass already ran, so this is
@@ -124,7 +125,7 @@ bool StatementResolveAccessor::TryAssignExplicitEnumValue(
 //that would double-resolve them once Access runs.
 void StatementResolveAccessor::AssignEnumMemberValues(SnEnumDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//0.10.14: an imported enum stub already carries the producer's
 	//member values (wire table indices — sparse explicit-value gaps
 	//included); re-assigning would collapse them to sequential 0..N.

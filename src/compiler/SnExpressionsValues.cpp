@@ -14,6 +14,7 @@
 #include <iosfwd>
 #include <iterator>
 #include <sstream>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -23,7 +24,7 @@ SnCastExpr::SnCastExpr(SnExpression *pSource, TypeCastInfo &ci,
 	Super_(s_Kind, loc), m_pSource(pSource), m_pTarget(ci.Target()),
 	m_pTargetName(nullptr), m_CastKind(ci.Kind())
 {
-	assert(pSource);
+	NLANG_ASSERT(pSource);
 	AddChild(m_pSource);
 	AddFlags(NF_Resolved);
 }
@@ -40,7 +41,7 @@ void SnCastExpr::Accept(nlang::ISyntaxNodeVisitor &v)
 
 std::string SnCastExpr::ToString() const
 {
-	assert(m_pSource);
+	NLANG_ASSERT(m_pSource);
 	std::stringstream ss;
 	ss << "cast<" << (m_pTarget ? m_pTarget->ToString() : "unknown type");
 	ss << ">(" << m_pSource << ")";
@@ -89,8 +90,8 @@ SnBinaryExpr::SnBinaryExpr(Operator op, SnExpression *pLeft,
 	SnExpression *pRight, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_op(op), m_pLeft(pLeft), m_pRight(pRight)
 {
-	assert(m_pLeft);
-	assert(m_pRight);
+	NLANG_ASSERT(m_pLeft);
+	NLANG_ASSERT(m_pRight);
 	AddChild(m_pLeft);
 	AddChild(m_pRight);
 }
@@ -99,7 +100,7 @@ SnBinaryExpr::SnBinaryExpr(Operator op, SnExpression *pLeft,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_op(op), m_pLeft(pLeft), m_pRight(nullptr)
 {
-	assert(m_pLeft);
+	NLANG_ASSERT(m_pLeft);
 	AddChild(m_pLeft);
 }
 
@@ -141,7 +142,7 @@ SnNewExpr::SnNewExpr(SnFieldExpr *pClassName, UniquePtrList<SnExpression> upArgs
 	Super_(s_Kind, loc), m_pClassName(pClassName),
 	m_pArgs(CreateChildNodes(upArgs, this)), m_pClassDecl(nullptr)
 {
-	assert(m_pClassName);
+	NLANG_ASSERT(m_pClassName);
 	AddChild(m_pClassName);
 }
 
@@ -217,14 +218,14 @@ SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray,
 	AddChild(m_pArray);
 	for (auto *pIndex : upIndices)
 	{
-		assert(pIndex);
+		NLANG_ASSERT(pIndex);
 		m_pIndices.push_back(pIndex);
 		AddChild(pIndex);
 	}
 	//Ownership transferred to this node's children — release the
 	//source list so it does not double-delete at scope exit.
 	upIndices.Release();
-	assert(!m_pIndices.empty());
+	NLANG_ASSERT(!m_pIndices.empty());
 }
 
 void SnSubscriptExpr::Accept(ISyntaxNodeVisitor &v)

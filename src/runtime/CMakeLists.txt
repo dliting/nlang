@@ -12,6 +12,7 @@ add_library(nlang_runtime
     PrimitiveTypes.cpp
     Log.cpp
     Utils.cpp
+    StackDump.cpp
 )
 
 target_include_directories(nlang_runtime

@@ -7,6 +7,7 @@
 #include "SyntaxNode.h"
 #include <nlang/runtime/Flagable.h>
 #include <nlang/runtime/RnTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -53,7 +54,7 @@ public:
 protected:
 	SnBuiltinDataTypeT() : Super_(*ImportInfo::Instance())
 	{
-		assert(s_pInstance == nullptr);
+		NLANG_ASSERT(s_pInstance == nullptr);
 		s_pInstance = static_cast<FIELD_T *>(this);
 	}
 private:

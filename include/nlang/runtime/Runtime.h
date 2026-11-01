@@ -7,6 +7,7 @@
 #include "IdString.h"
 #include "RnMisc.h"
 #include <cassert>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -27,7 +28,7 @@ public:
 	//Get the global namespace.
 	static RnNamespace &GlobalNamespace()
 	{
-		assert(s_pGlobalNamespace);
+		NLANG_ASSERT(s_pGlobalNamespace);
 		return *s_pGlobalNamespace;
 	}
 private:

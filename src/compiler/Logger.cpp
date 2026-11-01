@@ -10,6 +10,7 @@
 #include <sstream>
 #include <cstdarg>
 #include <cstdio>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -72,7 +73,7 @@ void CompileLogger::Log(CompileLogLevel level,
 void CompileLogger::VLog(CompileLogLevel level, 
 	const ISourceLocation* pLocation, const char* szFormat, va_list& ap)
 {
-	assert(szFormat);
+	NLANG_ASSERT(szFormat);
 	static const size_t MAX_MSG_LENGTH = 1024;
 	char szMessage[MAX_MSG_LENGTH];
 	vsnprintf(szMessage, MAX_MSG_LENGTH, szFormat, ap);
@@ -102,7 +103,7 @@ CompileLogItem::~CompileLogItem()
 
 std::string CompileLogItem::FullMessage() const
 {
-	assert(m_Level < CLL_COUNT);
+	NLANG_ASSERT(m_Level < CLL_COUNT);
 	std::stringstream ss;
 	ss << MakeLogHeader(m_Level, m_pLocation) << *m_upMessage;
 	return ss.str();

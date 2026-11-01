@@ -1,6 +1,7 @@
 #include "CastInfo.h"
 #include "SnMisc.h"
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -98,7 +99,7 @@ void TypeCastInfo::StaticInit()
 	for (size_t i = 0; i < NK_DT_COUNT; ++i)
 		for (size_t j = 0; j < NK_DT_COUNT; ++j)
 		{
-			assert(s_CastTable[i][j] != 0 &&
+			NLANG_ASSERT(s_CastTable[i][j] != 0 &&
 				"The cast table is not initialized properly");
 		}
 #endif

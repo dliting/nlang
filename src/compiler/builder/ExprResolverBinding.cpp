@@ -15,6 +15,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -81,7 +82,7 @@ int ExprResolveAccessor::ComputeBindingDistance(
 	{
 		if (b.kind == FormalBinding::B_Default)
 			continue;
-		assert(b.pCallerExpr && b.pFormal);
+		NLANG_ASSERT(b.pCallerExpr && b.pFormal);
 		if (IsUnboundFuncRef(*b.pCallerExpr)
 			|| IsUnboundMemberFuncRef(*b.pCallerExpr))
 		{

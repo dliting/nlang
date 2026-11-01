@@ -12,6 +12,7 @@ compiler.
 #include <cassert>
 #include <fstream>
 #include <iterator>
+#include <nlang/runtime/StackDump.h>
 
 //Flex entry point with the bison-bridge signature (defined in the
 //generated nlang.lex.cpp; declared here at global scope -- an extern
@@ -31,7 +32,7 @@ ScriptScanner::ScriptScanner(ContextType ct):
 
 ScriptScanner::~ScriptScanner()
 {
-	assert(!m_pScanInfo);
+	NLANG_ASSERT(!m_pScanInfo);
 }
 
 //Line endings normalize to LF. CRLF pairs fold exactly like the old
@@ -91,7 +92,7 @@ bool ScriptScanner::OpenFile(const std::string& sFilePath)
 	InitScanInfo();
 	m_pBuffer = yy_scan_bytes(normalized.data(),
 		static_cast<int>(normalized.size()), m_pScanInfo);
-	assert(m_pBuffer);
+	NLANG_ASSERT(m_pBuffer);
 	//Bytes buffers need the same explicit line/column init as string
 	//buffers (flex initializes them only for FILE buffers).
 	ResetCol();
@@ -110,7 +111,7 @@ void ScriptScanner::OpenString(const char* szInput)
 {
 	InitScanInfo();
 	m_pBuffer = yy_scan_string(szInput, m_pScanInfo);
-	assert(m_pBuffer);
+	NLANG_ASSERT(m_pBuffer);
 	//Start a new line/column for each input string. flex initializes
 	//line/column only for FILE buffers (yy_init_buffer); string buffers
 	//come back with an uninitialized yy_bs_lineno, so set both here.
@@ -125,7 +126,7 @@ void ScriptScanner::CloseString()
 
 void ScriptScanner::InitScanInfo()
 {
-	assert(!m_pScanInfo);
+	NLANG_ASSERT(!m_pScanInfo);
 	m_nGenericDepth = 0;
 	m_bPendingGenericOpen = false;
 	m_bPendingClassDeclName = false;

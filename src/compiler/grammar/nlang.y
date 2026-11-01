@@ -49,6 +49,7 @@ struct ImportSpec;
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnData.h>
 #include <nlang/runtime/Config.h>
+#include <nlang/runtime/StackDump.h>
 using namespace nlang;
 
 //Rank cap at the single production point: compare the full comma
@@ -2399,7 +2400,7 @@ void yyerror(YYLTYPE *pLoc, nlang::ScriptParser &parser, yyscan_t, char *szFmt, 
 {
     va_list ap;
     va_start(ap, szFmt);
-	assert(pLoc);
+	NLANG_ASSERT(pLoc);
     parser.Env().VLog(CLL_Error, *pLoc, szFmt, ap);
     va_end(ap);
 }

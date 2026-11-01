@@ -16,6 +16,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -65,7 +66,7 @@ void VmBackend::Access(SnInitListExpr& expr) {
     }
 
     //Unknown target kind — no codegen path yet.
-    assert(false && "NK_InitListExpr: unsupported target kind");
+    NLANG_ASSERT(false && "NK_InitListExpr: unsupported target kind");
     return;
 }
 

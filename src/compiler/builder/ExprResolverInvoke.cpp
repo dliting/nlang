@@ -17,6 +17,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -221,7 +222,7 @@ bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 
 void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 {
-	assert(!snInvoke.IsResolved());
+	NLANG_ASSERT(!snInvoke.IsResolved());
 
 	std::vector<SnExpression*> deferredBraceArgs;
 	if (!ResolveInvokeArguments(snInvoke, deferredBraceArgs))

@@ -4,6 +4,7 @@
 ---*/
 #include "StatementResolver.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -29,7 +30,7 @@ void StatementResolveAccessor::CheckBoolCondition(SnExpression &cond, const char
 
 void StatementResolveAccessor::Access(SnIfStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "if");
 	sn.ThenStmt()->Accept(*m_pVisitor);
@@ -39,7 +40,7 @@ void StatementResolveAccessor::Access(SnIfStmt &sn)
 
 void StatementResolveAccessor::Access(SnWhileStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "while");
 	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
@@ -48,7 +49,7 @@ void StatementResolveAccessor::Access(SnWhileStmt &sn)
 
 void StatementResolveAccessor::Access(SnDoStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
@@ -154,7 +155,7 @@ SnAssignStmt *StatementResolveAccessor::BuildForInitAssign(
 
 void StatementResolveAccessor::Access(SnForStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 
 	if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt)
 		ResolveForInitDecl(sn);
@@ -290,7 +291,7 @@ static void SupplyForeachInitListTarget(BuildEnvironment &env,
 //EvalDataType; the resolver does not need to compute it.
 void StatementResolveAccessor::Access(SnForeachStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 
 	//Find enclosing Paragraph for loop-var registration (mirror for-loop).
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());

@@ -9,6 +9,7 @@
 #include "ScriptLocation.h"
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <cassert>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -53,7 +54,7 @@ size_t GenericInstanceRegistry::PlaceholderIndex(
 	const SnField* pPlaceholder) const
 {
 	auto it = m_placeholderIndex.find(pPlaceholder);
-	assert(it != m_placeholderIndex.end());
+	NLANG_ASSERT(it != m_placeholderIndex.end());
 	return it->second;
 }
 

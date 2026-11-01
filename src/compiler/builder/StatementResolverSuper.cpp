@@ -6,6 +6,7 @@
     super 调用点开始应用形参默认值）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -113,7 +114,7 @@ void StatementResolveAccessor::Access(SnSuperCallStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.AddFlags(NF_Resolved);
 
 	//1. Must be inside a constructor of a user class. 0.9.11 D2: this

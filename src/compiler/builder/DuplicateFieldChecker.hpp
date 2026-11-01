@@ -8,6 +8,7 @@
 #include "ModuleRegistry.h"
 #include <set>
 #include <string>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -141,7 +142,7 @@ private:
 			if (sPrevName == pCurrField->Name())
 			{
 				//Find the first field conflicted with the current one.
-				assert(iFirstPrev != iEnd);
+				NLANG_ASSERT(iFirstPrev != iEnd);
 				auto iPrev = iFirstPrev;
 				do
 				{

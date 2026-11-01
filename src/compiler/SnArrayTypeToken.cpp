@@ -5,6 +5,7 @@
 
 #include "SnArrayTypeToken.h"
 #include "SyntaxNodeVisitor.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -16,8 +17,8 @@ SnArrayTypeToken::SnArrayTypeToken(SnField *pElemType,
 	Super_(s_Kind, FA_Public, s_DefaultFlags, new std::string(), loc),
 	m_pElemType(pElemType), m_Rank(rank)
 {
-	assert(pElemType);
-	assert(m_Rank >= 1);
+	NLANG_ASSERT(pElemType);
+	NLANG_ASSERT(m_Rank >= 1);
 }
 
 void SnArrayTypeToken::Accept(ISyntaxNodeVisitor &v)

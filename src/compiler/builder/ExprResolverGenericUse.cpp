@@ -14,6 +14,7 @@
 #include "BindingTable.h"   //IsBuiltinHandleDeclName (D11)
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -181,7 +182,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 		return;
 
 	auto *pBase = genType.Base();
-	assert(pBase);
+	NLANG_ASSERT(pBase);
 	std::string baseName = pBase->ToString();
 	//D4 routing split: only func mints synthetically now — the four
 	//generic prelude names resolve through their declared templates

@@ -21,6 +21,7 @@
 #include "BuildEnvironment.h"
 #include <cassert>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 namespace {
@@ -139,7 +140,7 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
 //tables goes through here, so the spelling cannot drift from what the
 //resolver reports. Requires the registry injected by ModuleBuilder.
 std::string VmBackend::KeyOf(const SnField& field) const {
-    assert(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
+    NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
     return QualifiedName(*m_pRegistry, field);
 }
 

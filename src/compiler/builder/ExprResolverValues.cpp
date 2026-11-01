@@ -16,13 +16,14 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
 
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 {
-	assert(sn.IsResolved());
+	NLANG_ASSERT(sn.IsResolved());
 }
 
 //Access(SnNameExpr&)'s bare-generic guard: a generic declaration used
@@ -51,7 +52,7 @@ void ExprResolveAccessor::Access(SnNameExpr &nameExpr)
 	}
 
 	auto pFieldExpr = nameExpr.Expr();
-	assert(pFieldExpr);
+	NLANG_ASSERT(pFieldExpr);
 	pFieldExpr->Accept(*m_pVisitor);
 
 	//Builtin class names: ByteStream, FileStream (the synthesized
@@ -124,9 +125,9 @@ bool ExprResolveAccessor::TryRebindShadowedTypeName(SnNameExpr &nameExpr,
 //type-check the binding.
 void ExprResolveAccessor::Access(SnNamedArgExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 	auto *pInner = sn.Inner();
-	assert(pInner);
+	NLANG_ASSERT(pInner);
 	pInner->Accept(*m_pVisitor);
 	if (!pInner->IsResolved())
 		return;
@@ -142,9 +143,9 @@ void ExprResolveAccessor::Access(SnNamedArgExpr &sn)
 //the callee's out slot to a frame offset only.
 void ExprResolveAccessor::Access(SnOutArgExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 	auto *pInner = sn.Inner();
-	assert(pInner);
+	NLANG_ASSERT(pInner);
 	if (pInner->Kind() != NK_IdentifierExpr)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
@@ -178,7 +179,7 @@ void ExprResolveAccessor::Access(SnCastExpr &sn)
 //compile error.
 void ExprResolveAccessor::Access(SnAsExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	//Resolve operand first (its EvalDataType is needed for cast computation).
 	sn.Operand()->Accept(*m_pVisitor);
@@ -325,7 +326,7 @@ SnFunction *ExprResolveAccessor::EnclosingFunction() const
 
 void ExprResolveAccessor::Access(SnThisExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	//0.9.10: a static method has no receiver — `this` (and the bare-field
 	//implicit form gated in Access(SnIdentifierExpr)) is meaningless there.
