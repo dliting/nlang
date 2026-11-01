@@ -812,6 +812,7 @@ void test_module_v27_corrupt_rejection() {
     const char* kCls = "corrupt.C";
     size_t o = FindUnique(base, MarkerU32(9, kCls)) + 4 + std::strlen(kCls);
     const size_t superOff = o + 2;    o += 4;   //fieldCount u16 + super i16
+    o += 1;                                       //v2.12 const-aggregate marker
     o += 4 + 1;                                   //field name len + "a"
     o += 2 + 2 + 2;                               //kind, structIdx, classIdx
     const size_t tdLenOff = o;        o += 2 + 1; //field TypeDesc len + kind byte

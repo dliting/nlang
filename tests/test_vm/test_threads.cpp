@@ -1028,7 +1028,7 @@ void test_join_failed_target_rethrows_original()
     const int rc = runSourceCapturing("sp_join_fail",
         "import thread;\n"
         "import io;\n"
-        "class Boom : Exception {\n"
+        "const class Boom : Exception {\n"
         "    public Boom(string m) {\n"
         "        super(m);\n"
         "    }\n"
@@ -3091,7 +3091,7 @@ void test_future_get_rethrows_target_failure()
     TEST(future_get_rethrows_target_failure);
     const int rc = runSource("future_get_fail",
         "import thread;\n"
-        "class Boom : Exception {\n"
+        "const class Boom : Exception {\n"
         "    public Boom(string m) {\n"
         "        super(m);\n"
         "    }\n"
