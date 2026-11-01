@@ -203,14 +203,15 @@ int apply(BinOp f) { ... }   // parameters and returns
 - Diagnostics anchored at a use site sometimes point at the `using` line
   (the expansion clone prefers the alias target's location).
 
-### The `builtins` Prelude Package and Same-Name Priority
+### The Prelude Packages and Same-Name Priority
 
-Every build imports the prelude package `builtins` (`stdlib/builtins.n`,
-shipped with the toolchain) automatically. It declares the base
-containers `List<T>` and `Dict<K,V>`, the exception family, the
-hierarchy root `Object`, and the declaration holders `String` and
-`Array` as ordinary class declarations — constructor
-arity and method surface are exactly what the file declares. See
+Every build automatically imports the two prelude packages, both
+shipped with the toolchain: `lang` (`stdlib/lang.n`) declares the
+exception family, the hierarchy root `Object`, and the declaration
+holders `String` and `Array`; `containers` (`stdlib/containers.n`)
+declares the base containers `List<T>` and `Dict<K,V>`. All of them
+are ordinary class declarations — constructor arity and method
+surface are exactly what the files declare. See
 [Standard Library](standard-library.md).
 
 A root-level declaration of the same name in your own code **shadows**

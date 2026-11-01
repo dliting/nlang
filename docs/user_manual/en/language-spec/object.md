@@ -3,8 +3,8 @@
 
 `Object` is the implicit root of the class hierarchy. Every class that does not
 explicitly inherit from another class implicitly inherits from `Object`.
-Its declaration lives in `stdlib/builtins.n` — the prelude package
-`builtins`, which every build imports automatically (see
+Its declaration lives in `stdlib/lang.n` — the prelude package
+`lang`, which every build imports automatically (see
 [Standard Library](standard-library.md)); like every prelude
 declaration it is ordinary source you can read. Users do not write
 `class Foo : Object` — the inheritance is implicit, and the explicit

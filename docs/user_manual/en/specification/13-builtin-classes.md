@@ -17,8 +17,9 @@ Method surfaces defined elsewhere: the concurrency handle classes
 (`ByteStream`, `FileStream`) in chapter 15, and the exception
 classes in §9.3.
 
-Every method in this chapter is built in: its declaration lives in the
-prelude package `builtins` (§12.4), imported by every build, and a
+Every method in this chapter is built in: its declaration lives in
+the prelude packages `lang` and `containers` (§12.4), imported by
+every build, and a
 program cannot replace it — a user class with the same name is an
 ordinary class and never takes over the built-in receivers. Two of the
 prelude classes, `String` and `Array`, are declaration holders only:

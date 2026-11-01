@@ -4,7 +4,7 @@ The normative rules are in [specification §13.2–§13.3](../specification/13-b
 
 Methods on the string receiver (`s.substring(1)`; literal receivers work:
 `"abc".toUpper()`). Every string method is declared by the prelude class
-`String` (`stdlib/builtins.n`). That class exists only to hold the
+`String` (`stdlib/lang.n`). That class exists only to hold the
 declarations: it cannot be instantiated, extended, or used as a type —
 the value type is written with the `string` keyword. The string method
 list is as follows. **Byte

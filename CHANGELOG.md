@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.5] - 2026-11-01
+
+### Changed
+
+- The prelude is two packages now. The language core lives in `lang`
+  (`stdlib/lang.n`) — the exception family, the hierarchy root
+  `Object`, and the `String`/`Array` declaration faces — and the base
+  containers live in `containers` (`stdlib/containers.n`) — `List<T>`
+  and `Dict<K,V>`. Every build imports both automatically, exactly as
+  the single `builtins.n` was imported before: the names stay visible
+  without an import statement, and an explicit `import lang;` or
+  `import containers;` deduplicates. The `builtins.n` file is retired;
+  `import builtins;` is an unknown package now, and a project source
+  named `lang.n` or `containers.n` serves as that package's copy for
+  the build. Internal reorganization otherwise — no user-facing
+  behavior change beyond the package names.
+
 ## [0.12.4] - 2026-11-01
 
 ### Added

@@ -3,20 +3,24 @@
 
 The standard library consists of six packages — `math`, `io`, `fs`,
 `thread`, `concurrent`, `tensor` (package-qualified free functions) — plus string
-methods (receiver-dispatched). The **prelude package** `builtins`
-(`stdlib/builtins.n`) sits beside them: every build imports it
-automatically, so its declarations are visible without any import
-statement (an explicit `import builtins;` is legal and deduplicates).
-It declares the always-visible names as ordinary source — the base
-containers `List<T>` and `Dict<K,V>`, the exception family (`Exception`
-and its six built-in subclasses), the hierarchy root `Object`, and the
-two declaration-holder classes `String` and `Array`: they declare the
-method surfaces of the `string` keyword and the array types and nothing
-else — they cannot be instantiated, extended, or used as a type, and a
-user class with the same name is an ordinary class that never takes
-over the keyword or array receivers. Their signatures (constructor
-arity, method surface) are exactly what the file declares, and the
-language service treats them like any other declaration. The
+methods (receiver-dispatched). The **prelude packages** sit beside
+them: `lang` (`stdlib/lang.n`) and
+`containers` (`stdlib/containers.n`). Every build imports both
+automatically, so
+their declarations are visible without any import statement (an
+explicit `import lang;` or `import containers;` is legal and
+deduplicates). They declare the always-visible names as ordinary
+source — `lang` the exception family (`Exception` and its six
+built-in subclasses), the hierarchy root `Object`, and the two
+declaration-holder classes `String` and `Array`; `containers` the
+base containers `List<T>` and `Dict<K,V>`. The declaration holders
+exist only to declare the method surfaces of the `string` keyword and
+the array types — they cannot be instantiated, extended, or used as a
+type, and a user class with the same name is an ordinary class that
+never takes over the keyword or array receivers. Their signatures
+(constructor arity, method surface) are exactly what the files
+declare, and the language service treats them like any other
+declaration. The
 concurrency classes are ordinary package classes: `thread`
 (`stdlib/thread.n`) declares `Thread`, `Future<T>`, `Promise<T>` and
 the `thread.*` functions; `concurrent` (`stdlib/concurrent.n`)

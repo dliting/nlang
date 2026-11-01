@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.5] - 2026-11-01
+
+### 变更
+
+- 预置包一分为二。语言核心进`lang`（`stdlib/lang.n`）——异常家族、层次根`Object`与`String`/`Array`声明持有类；基础容器进`containers`（`stdlib/containers.n`）——`List<T>`与`Dict<K,V>`。每次构建自动导入两者，与此前单体`builtins.n`的导入方式一致：名字无需import语句即可见，显式写`import lang;`或`import containers;`会自动去重。`builtins.n`文件退役；`import builtins;`现在是未知包，名为`lang.n`或`containers.n`的项目源文件即该包在本次构建中的副本。此外是内部重组——除包名外用户可见行为不变。
+
 ## [0.12.4] - 2026-11-01
 
 ### 新增

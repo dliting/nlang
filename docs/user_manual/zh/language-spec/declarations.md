@@ -127,9 +127,9 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 - 别名只能出现在类型位置；值表达式永远不会解析到别名。
 - 锚定在使用点的诊断有时会指向`using`行（展开克隆优先采用别名目标的位置）。
 
-### 预置包`builtins`与同名优先级
+### 预置包与同名优先级
 
-每次构建自动导入预置包`builtins`（`stdlib/builtins.n`，随工具链发布）。包内把基础容器`List<T>`与`Dict<K,V>`、异常家族、层次根`Object`以及声明持有类`String`与`Array`声明为普通class——构造器元数与方法面就是文件里声明的样子。见[标准库](standard-library.md)。
+每次构建自动导入两个预置包（随工具链发布）：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`与声明持有类`String`与`Array`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。包内一律是普通class声明——构造器元数与方法面就是文件里声明的样子。见[标准库](standard-library.md)。
 
 自己的代码在根级别声明同名class会**遮蔽**预置声明——任何位置都是最内层声明获胜（类型引用、构造调用、成员查找）：
 
