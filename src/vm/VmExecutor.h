@@ -270,6 +270,15 @@ public:
     void SetThrowOnceInCollectForTests() {
         m_gcThrowOnceForTests.store(true, std::memory_order_relaxed);
     }
+    //White-box knob: run one real collection in RunContextWindow's
+    //escape catch — after the handler search popped every frame, while
+    //the escaping exception is rooted only by the early failExcHeapIdx
+    //publish and the carrier is still in the GC rendezvous set. Proves
+    //the in-flight exception object survives a collection there.
+    void SetCollectInFailureCatchForTests() {
+        m_gcCollectInFailureCatchForTests.store(true,
+                                                std::memory_order_relaxed);
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
@@ -902,6 +911,18 @@ private:
     void RunContextWindow(int ctx, ExecutionContext* info,
                           const CompiledFunction& mainFunc,
                           size_t baseDepth);
+
+    //RunContextWindow's resume head (VmExecutorFrames.cpp): moves a
+    //parked context's frames back onto the carrier's evaluation stack
+    //(splice above baseDepth under a nested-pump serve) and arms the
+    //rethrow. Returns false when the context has no parked frames
+    //(fresh root).
+    bool SpliceResumedFrames(ExecutionContext* info, size_t baseDepth);
+
+    //RunContextWindow's escape catch (VmExecutorFailure.cpp): roots an
+    //exception that is leaving the window as the context's failure
+    //handle before the dispatch scope's ExecutingScope retires.
+    void RootEscapingException(ExecutionContext* info, int32_t heapIdx);
 
     //P2-4 nested pump (VmExecutorPump.cpp): the window's suspension
     //entry and its helpers. RunNestedWindow runs the frames above
@@ -1816,6 +1837,7 @@ private:
     std::atomic<bool> m_gcPressure{false};
     std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
     std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
+    std::atomic<bool> m_gcCollectInFailureCatchForTests{false};
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 

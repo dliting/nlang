@@ -5201,6 +5201,54 @@ static void test_k8_gc_collect_exception_releases_waiters()
     PASS();
 }
 
+//An exception escaping a spawned task transits a GC-invisible region:
+//the handler search has already popped the frames that held the object,
+//and the carrier leaves the GC denominator when its dispatch scope
+//retires with the unwind — the failure root (ctx->failExcHeapIdx) is
+//published only afterwards. A collection completing inside that window
+//must not sweep the in-flight exception object. The knob forces exactly
+//that collection; the probe reads (isFailed/failure + .message) then
+//verify the object survives with its message intact.
+static void test_gc_escaping_exception_survives_failure_window()
+{
+    TEST(gc_escaping_exception_survives_failure_window);
+    const std::string src =
+        "import io;\n"
+        "import thread;\n"
+        "void fragile() { throw Exception(\"disk full\"); }\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(fragile);\n"
+        "    while (!thread.isFailed(t)) { thread.yield(); }\n"
+        "    Exception e = thread.failure(t);\n"
+        "    io.write(e.message);\n"
+        "    return 0;\n"
+        "}\n";
+    CompiledModule mod = buildLinkedModule(
+        "gc_escape_window", src);
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(1);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.SetCollectInFailureCatchForTests();
+    bool threw = false;
+    std::string what;
+    int rc = -1;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(!threw,
+          "no VM error reading the failed task's exception through the "
+          "collection window (got: " + what + ")");
+    CHECK(rc == 0, "main returns 0 (rc=" + std::to_string(rc) + ")");
+    CHECK(io.m_out.find("disk full") != std::string::npos,
+          "the exception object's message survives the window (out=\""
+          + io.m_out + "\")");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -5357,6 +5405,7 @@ int main()
         runGuarded(test_k8_bounded_pingpong_storm);
         runGuarded(test_k8_gc_host_root_churn_under_collection);
         runGuarded(test_k8_gc_collect_exception_releases_waiters);
+        runGuarded(test_gc_escaping_exception_survives_failure_window);
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

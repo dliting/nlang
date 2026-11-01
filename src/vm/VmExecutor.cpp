@@ -303,47 +303,27 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 //registry slot (deque stability), so the pointer survives every steal.
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
     const CompiledFunction& mainFunc, size_t baseDepth) {
-    bool resumed;
-    {
-        //K7: the resume decision, the steal-back, the handshake-flag
-        //clear, and the rethrow arming write scheduler state the
-        //collector's scheduler-root scan reads — one lock scope covers
-        //the transition; RunFrames itself executes GIL-free and stays
-        //outside it.
-        GilEnsureGuard gil(*this);
-        resumed = !info->frames.empty();
-        if (resumed) {
-            if (baseDepth == 0) {
-                //Carrier dispatch: the context owns the whole stack.
-                EvalStack() = std::move(info->frames);
-            } else {
-                //Nested-pump serve (P2-4): splice ABOVE the outer frames
-                //pinned below baseDepth — the served context runs on top
-                //of them and the stack shrinks back to baseDepth.
-                EvalStack().insert(EvalStack().end(),
-                    std::make_move_iterator(info->frames.begin()),
-                    std::make_move_iterator(info->frames.end()));
-            }
-            info->frames.clear();
-            info->framesParked = false;
-            ArmResumeRethrow(info);
-        }
-    }
+    bool resumed = SpliceResumedFrames(info, baseDepth);
     //Dispatch drain depth == splice boundary, always: the window ends
     //exactly where the splice began. A drain of 0 under a serve would
     //fall through into the pinned outer frames and re-dispatch the
     //suspended context mid-window (double dispatch — P2-4 review).
-    if (resumed)
-        RunFrames(baseDepth);
-    else if (baseDepth == 0)
-        RunRootWindow(mainFunc,
-                      reinterpret_cast<uint8_t*>(&info->resultCell));
-    else
-        //Unreachable by construction (every queued context parks with
-        //frames); a fresh root under a serve would build MAIN's frame
-        //into the served context — refuse instead.
-        throw std::runtime_error(
-            "NLang VM: queued context has no frames to resume");
+    try {
+        if (resumed)
+            RunFrames(baseDepth);
+        else if (baseDepth == 0)
+            RunRootWindow(mainFunc,
+                          reinterpret_cast<uint8_t*>(&info->resultCell));
+        else
+            //Unreachable by construction (every queued context parks
+            //with frames); a fresh root under a serve would build MAIN's
+            //frame into the served context — refuse instead.
+            throw std::runtime_error(
+                "NLang VM: queued context has no frames to resume");
+    } catch (NLangThrow& ex) {
+        RootEscapingException(info, ex.heapIdx);
+        throw;
+    }
     m_spScheduler->MarkFinished(ctx, info->resultCell);
     //K3: fill get()-waiters' destinations BEFORE waking them — a parked
     //call is not re-executed on resume (the pc-advance invariant), so the
