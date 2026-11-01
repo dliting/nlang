@@ -8,6 +8,29 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking**: the user manual's two reference trees are merged into
+  one. The `language-spec/` tree is retired; its content (type
+  semantics, grammar, GC behavior) now lives in the `specification/`
+  tree — the single numbered language reference, 61 pages per
+  language, covering the language, the standard library, the binary
+  formats and the reference pages, with § clause numbers. nide's
+  Help entry and the packaged docs site follow the new tree.
+- The specification now documents user-defined generics in full:
+  multi-parameter declaration (`class Pair<K, V>`), nesting,
+  self- and mutual recursion, members with bodies, and use across
+  compilation units — replacing the old "signature-only" note.
+- Six specification/implementation drifts were adjudicated with the
+  implementation and its tests as the source of truth, and the text
+  rewritten to match: the concurrency execution model (category
+  locks, no global lock), `Dict.keys()` ordering, exception
+  backtrace format, `bool` conversions, user generic classes, and
+  the `is`/`has` predicate naming rule for package functions versus
+  built-in class methods.
+- Assertion failures in debug builds of the compiler and VM print a
+  stack dump before aborting; release builds are unchanged.
+
 ### Fixed
 
 - Fixed a garbage-collection root gap for escaping exceptions. Between
@@ -25,11 +48,6 @@ All notable changes to NLang are documented here. The format follows
   handed the same expression to the field resolver twice. Re-binding
   the same field is now an idempotent no-op at the resolution
   chokepoint.
-
-### Changed
-
-- Assertion failures in debug builds of the compiler and VM print a
-  stack dump before aborting; release builds are unchanged.
 
 ## [0.12.5] - 2026-11-01
 

@@ -11,7 +11,7 @@ nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N] [--carrie
 ```
 
 Runs a compiled program; the process exit code is `main`'s return value
-(conventions on the [exit code page](../language-spec/exit-code-convention.md)).
+(conventions on the [exit code page](../specification/09-execution-model/exit-codes.md)).
 An artifact file that cannot be opened reports
 `Runtime error: nloader failed:` (the diagnostic body lists the problems
 one per line, e.g. `'<path>': Failed to open module file: <path>`).
@@ -22,7 +22,7 @@ use. The flag may appear before or after the program path.
 `--carriers=N` sets the scheduler's carrier-thread count (1..64): `nvm`
 defaults to at most four (capped by the machine's parallelism), and
 `--carriers=1` pins a single carrier for deterministic interleaving
-(see [the GIL and multiple carriers](../language-spec/concurrency-carriers.md)).
+(see [the GIL and multiple carriers](../specification/10-concurrency/carriers.md)).
 A value outside the range is rejected before the program starts.
 
 The artifact itself carries no library code: the loader first discovers
@@ -41,7 +41,7 @@ environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory → the standard-library directory (where
 `stdlib.npkg` lives); earlier dirs win and duplicates keep only the
 first. See
-["Libraries and search paths"](../language-spec/stdlib-search-paths.md)
+["Packages and Import Search"](../specification/03-program-structure/packages.md)
 for the full rules.
 
 ## Concurrency and carriers
@@ -63,7 +63,7 @@ nvm --carriers=8 program.ncu    # same results, different interleaving
 ```
 
 See [Carriers and
-Parallelism](../language-spec/concurrency-carriers.md) for what
+Parallelism](../specification/10-concurrency/carriers.md) for what
 multiple carriers actually parallelize; the shipped `examples/conc_*.n`
 demonstrate the flag.
 

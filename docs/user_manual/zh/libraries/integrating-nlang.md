@@ -51,7 +51,7 @@ int main()
 
 ## 5. 子进程驱动细节
 
-- 退出码：程序`main`的返回值按32位原样透传，宿主直接以子进程退出码判定结果，约定见[退出码约定](../language-spec/exit-code-convention.md)。
+- 退出码：程序`main`的返回值按32位原样透传，宿主直接以子进程退出码判定结果，约定见[程序的进入与退出](../specification/09-execution-model/exit-codes.md)。
 - 标准输入：向`nvm`的stdin写行即可驱动`io.readLine`交互；程序输出按Unicode转换格式（UTF-8，Unicode Transformation Format）字节写入stdout，`io.eprint`走stderr。
 - 编译与运行可以合并为一次`ncc <file>`调用，也可以分开`ncc build` + `nvm`。
 

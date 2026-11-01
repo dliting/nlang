@@ -3,7 +3,7 @@
 Every snippet below really compiles and runs (`ncc build` + `nvm`) —
 copy any of them into nide or a `.n` file to try it. Each section states
 the actual output and exit code, and ends with links to the matching
-Language Specification chapters.
+language specification chapters.
 
 ### Variables and Types
 
@@ -33,9 +33,8 @@ code point); `string` is the 13th primitive (Unicode Transformation Format (UTF-
 semantics). The compound types enum, struct, and class are covered in the
 sections below and in the declarations chapter.
 
-See also: [Language Specification / Types](../language-spec/types.md),
-[Type Semantics](../language-spec/type-semantics.md),
-[Declarations](../language-spec/declarations.md).
+See also: [Specification / Types](../specification/04-types/index.md),
+[Declarations](../specification/03-program-structure/declarations.md).
 
 ### Enum
 
@@ -62,7 +61,7 @@ compiler assigns (auto-increment from 0 unless you give them explicit
 values); a value converts to `int` directly, `toString()` returns the
 member name, and an enum is a valid `switch` discriminant.
 
-See also: [Language Specification / Enum](../language-spec/enum.md).
+See also: [Specification / Enum](../specification/04-types/enum.md).
 
 ### Struct
 
@@ -95,10 +94,9 @@ braced entries — `Point{3, 4}` in declaration order or `Point{x: 3,
 y: 4}` by name — and may declare constructors
 (`public Point(int a, int b) { x = a; y = b; }`); unlike a class, it
 has no other methods. The line between value and reference semantics is
-drawn in [Language Specification /
-Type Semantics](../language-spec/type-semantics.md).
+drawn in [Specification / Types](../specification/04-types/index.md).
 
-See also: [Language Specification / Struct](../language-spec/struct.md).
+See also: [Specification / Struct](../specification/04-types/struct.md).
 
 ### Type alias
 
@@ -121,7 +119,7 @@ name; the alias expands textually at each use site, so `Ints xs = ...` is
 exactly `int[] xs = ...`. Aliases work over primitive, array, generic, and
 `func<...>` type forms.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md).
+See also: [Specification / Declarations](../specification/03-program-structure/declarations.md).
 
 ### Strings
 
@@ -142,7 +140,7 @@ int main() {
 Output `hello, NLang` and `year: 2026`; exit code 9. Strings are UTF-8
 byte sequences, and `length()`/`substring()`/`indexOf()` all count
 bytes; code-point access (`charAt`, `charCount`, `foreach (char c in s)`)
-is covered by [strings and char](../language-spec/string.md) under "The char bridge".
+is covered by [strings and char](../specification/04-types/string.md) under "The char bridge".
 
-See also: [Language Specification / Types](../language-spec/types.md),
-[Standard Library](../language-spec/standard-library.md).
+See also: [Specification / Types](../specification/04-types/index.md),
+[Library Conventions](../specification/library/11-conventions.md).

@@ -95,7 +95,7 @@ DOC_FILES = [
     'docs/site/zh/search/search_index.js',
     'docs/site/zh/stylesheets/two-column-layout.css',
     'docs/site/en/index.html',
-    'docs/site/en/language-spec/overview.html',
+    'docs/site/en/specification/index.html',
     'docs/site/en/vm-architecture/overview.html',
     'docs/site/en/search/search_index.json',
     'docs/site/en/search/search_index.js',

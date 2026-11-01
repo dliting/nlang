@@ -40,7 +40,7 @@ Python/cmd/PowerShell and as 44 in bash (300 mod 256). When writing
 tests or scripts, keep expected exit codes within 0–255 so every
 observer sees the same value.
 
-See also: [Language Specification / Exit Code Convention](../language-spec/exit-code-convention.md).
+See also: [Specification / Program Entry and Exit](../specification/09-execution-model/exit-codes.md).
 
 ### Garbled output in the console?
 
@@ -55,7 +55,7 @@ bytes — an editor opening it with a non-UTF-8 encoding still shows
 mojibake. The console switch outlives the tool: a program emitting a
 legacy encoding in the same window afterwards may show as mojibake.
 
-See also: [Language Specification / Standard Library](../language-spec/standard-library.md).
+See also: [Specification / Library Conventions](../specification/library/11-conventions.md).
 
 ### Compile says `not valid UTF-8`?
 
@@ -68,7 +68,7 @@ stops legacy encoding bytes from slipping silently into string
 constants. nide's build invokes ncc, so the same validation applies
 there. A leading UTF-8 byte order mark (BOM) is accepted and skipped — the editor
 "UTF-8 with BOM" save form needs no handling. See also:
-[Language Specification / Primitives](../language-spec/primitives.md).
+[Specification / Primitive Types](../specification/04-types/primitives.md).
 
 ### Where are the docs and search?
 
@@ -88,7 +88,7 @@ is read as `v`, `--`, `1` and fails as a statement (`syntax error`,
 (`v - -1`) or parenthesize the unary operand (`v - (-1)`). Plain `v+1`
 and `v+-1` are fine — `+-` is not a token.
 
-See also: [Language Specification / Expressions](../language-spec/expressions.md).
+See also: [Specification / Expressions](../specification/05-expressions/index.md).
 
 ### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
@@ -118,9 +118,9 @@ terminal's scrollback and copy work as usual.
 
 `import` only opens **qualified names** — after `import lib;` you must
 write `lib.f()`; the bare name `f()` does not resolve. The visibility
-rules for each reference form are on the [Language Specification /
-Declarations](../language-spec/declarations.md) "Import Declaration"
-section. See [Common Error Messages](../language-spec/common-errors.md)
+rules for each reference form are on the [Specification /
+Declarations](../specification/03-program-structure/declarations.md) "Import Declaration"
+section. See [Common Error Messages](../specification/reference/common-errors.md)
 for the full error text.
 
 ### Assigning an array value to another type gives `Incompatible type`?
@@ -129,10 +129,10 @@ An array value has only two legal destinations — its own array type
 and every `string` target (`toString`, etc.); every other scalar
 context is rejected at compile time with an explicit error
 (`Incompatible type "a"`).
-The full rule is on [Language Specification / Known
-Limitations](../language-spec/known-limitations.md), the "Array values
+The full rule is on [Language Reference / Known
+Limitations](../specification/reference/known-limitations.md), the "Array values
 in scalar contexts" item. See [Common Error
-Messages](../language-spec/common-errors.md) for the full error text.
+Messages](../specification/reference/common-errors.md) for the full error text.
 
 ### What happens to an uninitialized variable?
 
@@ -143,8 +143,8 @@ structs zero-initialize every field, and string plus the
 other reference types (class, interface, arrays, containers, `func`)
 are null. A null default compares directly with `== null`; using it
 without the check throws a `null reference error` at run time. The full
-table is in [Language Specification /
-Declarations](../language-spec/declarations.md), "Default values".
+table is in [Specification /
+Declarations](../specification/03-program-structure/declarations.md), "Default values".
 
 ### Why does `Point(2, 3)` report "has no constructor"?
 
@@ -155,19 +155,18 @@ cannot take arguments`. Create such a struct with a bare declaration
 `Point{2, 3}` in declaration order. Declare a constructor
 (`public Point(int a, int b) { x = a; y = b; }`) and `Point(2, 3)` runs
 it. See the "A struct without a constructor cannot take arguments"
-entry in [Language Specification / Common Error
-Messages](../language-spec/common-errors.md) and
-[Struct](../language-spec/struct.md) "Creating and initializing".
+entry in [Language Reference / Common Error
+Messages](../specification/reference/common-errors.md) and
+[Struct](../specification/04-types/struct.md) "Creation and initialization".
 
 ### Array or `List` — which one?
 
 Fixed size with value elements — use an array
 (`int[] sizes = [10, 20, 30];`, length fixed after creation); dynamic
 growth — use `List<T>` (`add`/`removeAt`, grows as needed). Quick tour
-in [Containers](containers.md); full semantics in [Language
-Specification / Array](../language-spec/array.md) and [Language
-Specification / Built-in Generic
-Classes](../language-spec/builtin-generic-classes.md).
+in [Containers](containers.md); full semantics in [Specification /
+Array](../specification/04-types/array.md) and [Specification /
+Generics](../specification/04-types/generics.md).
 
 ### `.ncu` version outdated, telling you to recompile?
 
@@ -192,11 +191,11 @@ rejected at compile time with explicit errors
 should be written `if (count != 0)`. Separately, the parameter count
 of a function is capped at 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
-typing is on [Language Specification / Statements](../language-spec/statements.md)
+typing is on [Specification / Statements](../specification/06-statements/index.md)
 ("Condition typing"); the parameter ceiling is on [Language
-Specification / Known Limitations](../language-spec/known-limitations.md)
+Reference / Known Limitations](../specification/reference/known-limitations.md)
 ("Parameter count ceiling" item). See [Common Error
-Messages](../language-spec/common-errors.md) for the full error text.
+Messages](../specification/reference/common-errors.md) for the full error text.
 
 ### Why can't a subclass overload a parent virtual method like Java/C++?
 
@@ -210,8 +209,8 @@ contract, the subclass's same-name methods must map one-to-one onto the
 contract signature. To provide a method with a different signature, use a
 different method name.
 
-See also: [Language Specification / Class](../language-spec/class.md),
-"Virtual methods and overrides".
+See also: [Specification / Class](../specification/04-types/class.md),
+"Virtual methods and overriding".
 
 ### The help window says "document not found"?
 
@@ -231,7 +230,7 @@ help window is rebuilt each time it is reopened (it does not remember
 the last browsing position).
 
 More known limitations:
-[Language Specification / Known
-Limitations](../language-spec/known-limitations.md),
+[Language Reference / Known
+Limitations](../specification/reference/known-limitations.md),
 [VM Architecture / Known
 Limitations](../vm-architecture/known-limitations.md).

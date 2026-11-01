@@ -101,7 +101,7 @@ void MainWindow::on_actHelpGettingStarted_triggered() {
 }
 
 void MainWindow::on_actHelpLanguageSpec_triggered() {
-    openHelpDocument(QStringLiteral("language-spec/overview"));
+    openHelpDocument(QStringLiteral("specification/index"));
 }
 
 void MainWindow::on_actHelpVmArch_triggered() {

@@ -194,7 +194,7 @@ import来源共用一种语法：
 未导入的引用以精确诊断失败，例如
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
-（`docs/user_manual/zh/language-spec/declarations.md`，Import Declaration）。
+（`docs/user_manual/zh/specification/03-program-structure/declarations.md`，Import Declaration）。
 
 编译单元使用带版本的二进制格式，当前为v2.8（导入槽与逐单元模块
 路径——加载期链接模型）。加载器强制兼容性
@@ -226,7 +226,7 @@ int main() {
 ```
 
 完整细节——参数类型政策、异常映射、字节语义、确定性
-PRNG——见标准库章（`docs/user_manual/zh/language-spec/standard-library.md`）；
+PRNG——见规范的标准库部分（`docs/user_manual/zh/specification/index.md`）；
 示例的可运行副本在`examples/stdlib_*.n`。
 
 初次接触NLang？`docs/user_manual/zh/getting-started/`章节按主题逐页讲解

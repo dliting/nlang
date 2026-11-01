@@ -35,99 +35,80 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
-  - 规范:
+  - 语言参考:
       - 概览: specification/index.md
       - 引言: specification/00-introduction.md
       - 词法结构: specification/01-lexical.md
       - 语法: specification/02-grammar.md
-      - 程序结构与名称解析: specification/03-program-structure.md
-      - 类型: specification/04-types.md
-      - 表达式: specification/05-expressions.md
-      - 语句: specification/06-statements.md
-      - 函数与方法: specification/07-functions.md
-      - 面向对象: specification/08-object-orientation.md
-      - 异常: specification/09-exceptions.md
-      - 执行模型与内存语义: specification/10-execution-model.md
-      - 并发: specification/11-concurrency.md
-      - 包与导入查找: specification/12-packages.md
-      - 内建类与库约定: specification/13-builtin-classes.md
-      - math包: specification/14-math.md
-      - io包与流: specification/15-io-streams.md
-      - fs包: specification/16-fs.md
-      - 并发库: specification/17-concurrency-library.md
-      - tensor包: specification/18-tensor.md
-      - 库异常: specification/19-library-exceptions.md
-      - .ncu单元映像: specification/20-ncu-unit-image.md
-      - .npkg包档案: specification/21-npkg-package-archive.md
-      - 原生应用二进制接口: specification/22-native-abi.md
-  - 语言规格:
-      - 概览: language-spec/overview.md
-      - 命名约定: language-spec/naming-convention.md
+      - 程序结构与名称解析:
+          - 概览: specification/03-program-structure/index.md
+          - 声明: specification/03-program-structure/declarations.md
+          - 包与导入查找: specification/03-program-structure/packages.md
       - 类型:
-          - 类型: language-spec/types.md
-          - 基本类型: language-spec/primitives.md
-          - 字符串: language-spec/string.md
-          - 枚举: language-spec/enum.md
-          - 结构体: language-spec/struct.md
-          - 类: language-spec/class.md
-          - 接口: language-spec/interface.md
-          - 数组: language-spec/array.md
-          - Object与装箱: language-spec/object.md
-          - 类型强制转换: language-spec/type-casts.md
-          - 类型语义: language-spec/type-semantics.md
-          - 内建泛型类: language-spec/builtin-generic-classes.md
-      - 声明: language-spec/declarations.md
-      - 包: language-spec/packages.md
-      - 表达式与语句:
-          - 表达式: language-spec/expressions.md
-          - 运算符: language-spec/operators.md
-          - 集合初始化器: language-spec/collection-initializers.md
-          - 语句: language-spec/statements.md
-          - If: language-spec/if.md
-          - 循环: language-spec/loops.md
-          - Foreach: language-spec/foreach.md
-          - Switch: language-spec/switch.md
-          - 异常: language-spec/exception.md
-          - Assert: language-spec/assert.md
-          - 复合赋值: language-spec/compound-assignment.md
-          - Const局部: language-spec/const-local.md
+          - 概览: specification/04-types/index.md
+          - 基本类型: specification/04-types/primitives.md
+          - 字符串: specification/04-types/string.md
+          - 类型强制转换: specification/04-types/casts.md
+          - 枚举: specification/04-types/enum.md
+          - 结构体: specification/04-types/struct.md
+          - 类: specification/04-types/class.md
+          - 接口: specification/04-types/interface.md
+          - 数组: specification/04-types/array.md
+          - Object与装箱: specification/04-types/object.md
+          - 泛型: specification/04-types/generics.md
+      - 表达式:
+          - 概览: specification/05-expressions/index.md
+          - 运算符: specification/05-expressions/operators.md
+          - 集合初始化器: specification/05-expressions/initializers.md
+      - 语句:
+          - 概览: specification/06-statements/index.md
+          - 控制流: specification/06-statements/control-flow.md
+          - 循环: specification/06-statements/loops.md
       - 函数:
-          - 函数: language-spec/functions.md
-          - 默认参数: language-spec/default-parameters.md
-          - 命名实参: language-spec/named-arguments.md
-          - 重载解析: language-spec/overload-resolution.md
-          - out参数: language-spec/out-parameters.md
-          - native函数: language-spec/native-functions.md
-          - 函数类型与委托: language-spec/function-types-and-delegates.md
+          - 概览: specification/07-functions/index.md
+          - 参数与实参: specification/07-functions/parameters.md
+          - 重载解析: specification/07-functions/overloads.md
+          - 函数值与委托: specification/07-functions/function-values.md
+          - 原生函数: specification/07-functions/native.md
+      - 异常: specification/08-exceptions/index.md
+      - 执行模型:
+          - 概览: specification/09-execution-model/index.md
+          - 生命周期与垃圾回收: specification/09-execution-model/memory.md
+          - 程序的进入与退出: specification/09-execution-model/exit-codes.md
       - 并发:
-          - 并发: language-spec/concurrency.md
-          - 载体与并行: language-spec/concurrency-carriers.md
-          - thread包: language-spec/concurrency-thread.md
-          - Future: language-spec/concurrency-future.md
-          - Promise: language-spec/concurrency-promise.md
-          - Mutex: language-spec/concurrency-mutex.md
-          - Semaphore: language-spec/concurrency-semaphore.md
-          - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
-          - AtomicInt: language-spec/concurrency-atomic.md
-          - Channel: language-spec/concurrency-channel.md
-          - 标准库同步工具: language-spec/concurrency-concurrent.md
-          - 挂起与调度限制: language-spec/concurrency-suspension.md
+          - 概览: specification/10-concurrency/index.md
+          - 载体与并行: specification/10-concurrency/carriers.md
+          - 挂起与调度限制: specification/10-concurrency/suspension.md
       - 标准库:
-          - 标准库: language-spec/standard-library.md
-          - math: language-spec/stdlib-math.md
-          - tensor: language-spec/stdlib-tensor.md
-          - io: language-spec/stdlib-io.md
-          - fs: language-spec/stdlib-fs.md
-          - string方法: language-spec/stdlib-string.md
-          - 流: language-spec/stdlib-streams.md
-          - 库与搜索路径: language-spec/stdlib-search-paths.md
-          - 异常映射: language-spec/stdlib-exceptions.md
-      - 运行时:
-          - 内存管理: language-spec/memory-management.md
-          - 退出码约定: language-spec/exit-code-convention.md
+          - 库约定: specification/library/11-conventions.md
+          - 集合: specification/library/12-collections.md
+          - math包: specification/library/13-math.md
+          - io包与流:
+              - 概览: specification/library/14-io/index.md
+              - ByteStream与FileStream: specification/library/14-io/streams.md
+          - fs包: specification/library/15-fs.md
+          - string方法: specification/library/16-string-methods.md
+          - 并发类:
+              - 概览: specification/library/17-concurrency-classes/index.md
+              - thread包: specification/library/17-concurrency-classes/thread.md
+              - Future: specification/library/17-concurrency-classes/future.md
+              - Promise: specification/library/17-concurrency-classes/promise.md
+              - Mutex: specification/library/17-concurrency-classes/mutex.md
+              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
+              - Channel: specification/library/17-concurrency-classes/channel.md
+              - concurrent包: specification/library/17-concurrency-classes/concurrent.md
+          - tensor包: specification/library/18-tensor.md
+          - 库异常: specification/library/19-library-exceptions.md
+      - 二进制格式:
+          - .ncu单元映像: specification/formats/20-ncu.md
+          - .npkg包档案: specification/formats/21-npkg.md
+          - 原生应用二进制接口: specification/formats/22-abi.md
       - 参考:
-          - 已知限制: language-spec/known-limitations.md
-          - 常见错误消息: language-spec/common-errors.md
+          - 已知限制: specification/reference/known-limitations.md
+          - 常见错误消息: specification/reference/common-errors.md
+          - 命名约定: specification/reference/naming-convention.md
   - 库与集成:
       - 开发第三方库: libraries/developing-libraries.md
       - 集成NLang: libraries/integrating-nlang.md

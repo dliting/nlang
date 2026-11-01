@@ -1,8 +1,9 @@
-# English tree. INHERIT pulls every shared setting from the base; the
-# manual trees are fully translated and the specification tree is being
-# seeded in batches, so docs/user_manual/translation-pending.txt is
-# non-empty and the tree-parity pytest runs in pending mode (strict
-# nav parity locks again once the list empties).
+# English tree. INHERIT pulls every shared setting from the base; both
+# the manual trees and the specification tree are fully translated, so
+# docs/user_manual/translation-pending.txt is empty and the tree-parity
+# pytest runs in strict mode (the two navs must list identical page
+# paths; a page missing from one nav fails the gate even when
+# translated).
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: user_manual/en
@@ -34,99 +35,80 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
-  - Specification:
+  - Language Reference:
       - Overview: specification/index.md
       - Introduction: specification/00-introduction.md
       - Lexical Structure: specification/01-lexical.md
       - Grammar: specification/02-grammar.md
-      - Program Structure: specification/03-program-structure.md
-      - Types: specification/04-types.md
-      - Expressions: specification/05-expressions.md
-      - Statements: specification/06-statements.md
-      - Functions: specification/07-functions.md
-      - Object Orientation: specification/08-object-orientation.md
-      - Exceptions: specification/09-exceptions.md
-      - Execution Model: specification/10-execution-model.md
-      - Concurrency: specification/11-concurrency.md
-      - Packages: specification/12-packages.md
-      - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
-      - The math Package: specification/14-math.md
-      - The io Package and Streams: specification/15-io-streams.md
-      - The fs Package: specification/16-fs.md
-      - The Concurrency Library: specification/17-concurrency-library.md
-      - The tensor Package: specification/18-tensor.md
-      - Library Exceptions: specification/19-library-exceptions.md
-      - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
-      - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
-      - The Native Application Binary Interface (ABI): specification/22-native-abi.md
-  - Language Specification:
-      - Overview: language-spec/overview.md
-      - Naming Convention: language-spec/naming-convention.md
+      - Program Structure:
+          - Overview: specification/03-program-structure/index.md
+          - Declarations: specification/03-program-structure/declarations.md
+          - Packages and Import Search: specification/03-program-structure/packages.md
       - Types:
-          - Types: language-spec/types.md
-          - Primitives: language-spec/primitives.md
-          - String: language-spec/string.md
-          - Enum: language-spec/enum.md
-          - Struct: language-spec/struct.md
-          - Class: language-spec/class.md
-          - Interface: language-spec/interface.md
-          - Array: language-spec/array.md
-          - Object & Boxing: language-spec/object.md
-          - Type Casts: language-spec/type-casts.md
-          - Type Semantics: language-spec/type-semantics.md
-          - Built-in Generic Classes: language-spec/builtin-generic-classes.md
-      - Declarations: language-spec/declarations.md
-      - Packages: language-spec/packages.md
-      - Expressions & Statements:
-          - Expressions: language-spec/expressions.md
-          - Operators: language-spec/operators.md
-          - Collection Initializers: language-spec/collection-initializers.md
-          - Statements: language-spec/statements.md
-          - If: language-spec/if.md
-          - Loops: language-spec/loops.md
-          - Foreach: language-spec/foreach.md
-          - Switch: language-spec/switch.md
-          - Exceptions: language-spec/exception.md
-          - Assert: language-spec/assert.md
-          - Compound Assignment: language-spec/compound-assignment.md
-          - Const Local: language-spec/const-local.md
+          - Overview: specification/04-types/index.md
+          - Primitive Types: specification/04-types/primitives.md
+          - String: specification/04-types/string.md
+          - Type Casts: specification/04-types/casts.md
+          - Enum: specification/04-types/enum.md
+          - Struct: specification/04-types/struct.md
+          - Class: specification/04-types/class.md
+          - Interface: specification/04-types/interface.md
+          - Array: specification/04-types/array.md
+          - Object and Boxing: specification/04-types/object.md
+          - Generics: specification/04-types/generics.md
+      - Expressions:
+          - Overview: specification/05-expressions/index.md
+          - Operators: specification/05-expressions/operators.md
+          - Collection Initializers: specification/05-expressions/initializers.md
+      - Statements:
+          - Overview: specification/06-statements/index.md
+          - Control Flow: specification/06-statements/control-flow.md
+          - Loops: specification/06-statements/loops.md
       - Functions:
-          - Functions: language-spec/functions.md
-          - Default Parameters: language-spec/default-parameters.md
-          - Named Arguments: language-spec/named-arguments.md
-          - Overload Resolution: language-spec/overload-resolution.md
-          - Out Parameters: language-spec/out-parameters.md
-          - Native Functions: language-spec/native-functions.md
-          - Function Types & Delegates: language-spec/function-types-and-delegates.md
+          - Overview: specification/07-functions/index.md
+          - Parameters and Arguments: specification/07-functions/parameters.md
+          - Overload Resolution: specification/07-functions/overloads.md
+          - Function Values and Delegates: specification/07-functions/function-values.md
+          - Native Functions: specification/07-functions/native.md
+      - Exceptions: specification/08-exceptions/index.md
+      - Execution Model:
+          - Overview: specification/09-execution-model/index.md
+          - Lifetime and Garbage Collection: specification/09-execution-model/memory.md
+          - Program Entry and Exit: specification/09-execution-model/exit-codes.md
       - Concurrency:
-          - Concurrency: language-spec/concurrency.md
-          - Carriers and Parallelism: language-spec/concurrency-carriers.md
-          - The thread Package: language-spec/concurrency-thread.md
-          - Future: language-spec/concurrency-future.md
-          - Promise: language-spec/concurrency-promise.md
-          - Mutex: language-spec/concurrency-mutex.md
-          - Semaphore: language-spec/concurrency-semaphore.md
-          - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
-          - AtomicInt: language-spec/concurrency-atomic.md
-          - Channel: language-spec/concurrency-channel.md
-          - The concurrent Package: language-spec/concurrency-concurrent.md
-          - Suspension and Scheduling Limits: language-spec/concurrency-suspension.md
+          - Overview: specification/10-concurrency/index.md
+          - Carriers and Parallelism: specification/10-concurrency/carriers.md
+          - Suspension and Scheduling Limits: specification/10-concurrency/suspension.md
       - Standard Library:
-          - Standard Library: language-spec/standard-library.md
-          - math: language-spec/stdlib-math.md
-          - tensor: language-spec/stdlib-tensor.md
-          - io: language-spec/stdlib-io.md
-          - fs: language-spec/stdlib-fs.md
-          - string methods: language-spec/stdlib-string.md
-          - Streams: language-spec/stdlib-streams.md
-          - Libraries and search paths: language-spec/stdlib-search-paths.md
-          - Exception mapping: language-spec/stdlib-exceptions.md
-      - Runtime:
-          - Memory Management: language-spec/memory-management.md
-          - Exit Code Convention: language-spec/exit-code-convention.md
+          - Library Conventions: specification/library/11-conventions.md
+          - Collections: specification/library/12-collections.md
+          - The math Package: specification/library/13-math.md
+          - The io Package and Streams:
+              - Overview: specification/library/14-io/index.md
+              - ByteStream and FileStream: specification/library/14-io/streams.md
+          - The fs Package: specification/library/15-fs.md
+          - string Methods: specification/library/16-string-methods.md
+          - Concurrency Classes:
+              - Overview: specification/library/17-concurrency-classes/index.md
+              - thread Package: specification/library/17-concurrency-classes/thread.md
+              - Future: specification/library/17-concurrency-classes/future.md
+              - Promise: specification/library/17-concurrency-classes/promise.md
+              - Mutex: specification/library/17-concurrency-classes/mutex.md
+              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
+              - Channel: specification/library/17-concurrency-classes/channel.md
+              - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
+          - The tensor Package: specification/library/18-tensor.md
+          - Library Exceptions: specification/library/19-library-exceptions.md
+      - Binary Formats:
+          - The `.ncu` Unit Image: specification/formats/20-ncu.md
+          - The `.npkg` Package Archive: specification/formats/21-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/22-abi.md
       - Reference:
-          - Known Limitations: language-spec/known-limitations.md
-          - Common Error Messages: language-spec/common-errors.md
+          - Known Limitations: specification/reference/known-limitations.md
+          - Common Error Messages: specification/reference/common-errors.md
+          - Naming Convention: specification/reference/naming-convention.md
   - Libraries and Integration:
       - Developing Libraries: libraries/developing-libraries.md
       - Integrating NLang: libraries/integrating-nlang.md

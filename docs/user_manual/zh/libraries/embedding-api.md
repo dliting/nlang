@@ -75,7 +75,7 @@ opts.importDirs.push_back("path/to/stdlib");
 int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 ```
 
-`runScript`/`runScriptFile`内部新建解释器、执行、销毁，不保留状态；需要宿主函数或跑后`call`时请用完整的`Interpreter`流程。顶层`return`建议取0-255：进程退出码按32位原值传递，POSIX shell只观察低8位（见[退出码约定](../language-spec/exit-code-convention.md)）。
+`runScript`/`runScriptFile`内部新建解释器、执行、销毁，不保留状态；需要宿主函数或跑后`call`时请用完整的`Interpreter`流程。顶层`return`建议取0-255：进程退出码按32位原值传递，POSIX shell只观察低8位（见[程序的进入与退出](../specification/09-execution-model/exit-codes.md)）。
 
 ## 4. 生命周期
 
@@ -94,7 +94,7 @@ int rc = nlang::runScript("import io; io.print(\"hi\");", opts);
 
 `run()`经调度器的载体（carrier，承载虚拟线程运行的操作系统线程）执行：脚本里的`thread.sleep`按截止时刻唤醒、`thread.spawn`派生的上下文得到调度、`thread.join`挂起等待——与`nvm`命令行运行完全一致。`main`挂起且再无可运行上下文时（例如空通道`recv`无发送者），`run()`抛可捕获的`std::runtime_error`（消息含`deadlock`），不会挂死。
 
-`run()`以单载体默认执行：`Interpreter`用一条载体驱动调度器（库默认值），任意时刻只有一个虚拟线程在解释字节码，上下文只在挂起点之间推进。存储操作按数据类别分组加锁（见[载体与并行](../language-spec/concurrency-carriers.md)）；在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体——纯计算段与对象字段访问跨载体并行，按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用挂起当前上下文并放锁，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取调度器锁，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
+`run()`以单载体默认执行：`Interpreter`用一条载体驱动调度器（库默认值），任意时刻只有一个虚拟线程在解释字节码，上下文只在挂起点之间推进。存储操作按数据类别分组加锁（见[载体与并行](../specification/10-concurrency/carriers.md)）；在`VmExecutor`层嵌入的宿主可在`Execute`前调`SetCarrierThreadCount(n)`显式选入多载体——纯计算段与对象字段访问跨载体并行，按ABI（应用二进制接口，application binary interface）第5版声明为阻塞的原生调用挂起当前上下文并放锁，其窗口内其余载体执行其他虚拟线程。宿主回调因此可能与其他载体上的字节码以及彼此之间并发运行，共享状态须自行同步。同一执行器仍同时至多运行一次`Execute`；多个宿主线程并发`CallByName`时各自取调度器锁，因而依次执行。同一个`Interpreter`实例一次只由一个宿主线程驱动——它的重入守卫是误用检查，不是并发原语。
 
 经`registerHostFunction`注册的宿主函数一律走阻塞原生协议：VM暂存其实参，挂起当前上下文并放锁，回调执行期间不占用载体，返回后取锁续行。暂存的实参与返回值在该窗口内登记为垃圾回收（GC，garbage collection）根，其他载体上的回收不会回收在途句柄；此类调用内发起的NativeHost回调每次重新取锁。
 

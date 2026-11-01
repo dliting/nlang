@@ -110,7 +110,7 @@ FormalParam     = [ NodeFlags ]
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
-`class`体要求至少一个成员；`interface`体可以为空。不带返回类型的方法声明命名一个构造器（第8章）。`out`参数不接受默认值。
+`class`体要求至少一个成员；`interface`体可以为空。不带返回类型的方法声明命名一个构造器（§4.8.6）。`out`参数不接受默认值。
 
 ## 2.5 语句
 

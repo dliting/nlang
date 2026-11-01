@@ -1,6 +1,6 @@
 # 速览：类与继承
 
-本页用可运行片段速览类与继承；每节正文给出实际输出与退出码，末尾链接语言规格对应章节。
+本页用可运行片段速览类与继承；每节正文给出实际输出与退出码，末尾链接规范对应章节。
 
 ### 类与构造器
 
@@ -36,9 +36,9 @@ int main() {
 }
 ```
 
-输出`dog has 4 legs`，退出码4。类是引用类型；`toString()`覆写后，对象可直接参与字符串拼接。引用语义与值语义的分界见[语言规格/类型语义](../language-spec/type-semantics.md)。
+输出`dog has 4 legs`，退出码4。类是引用类型；`toString()`覆写后，对象可直接参与字符串拼接。引用语义与值语义的分界见[规范/类型](../specification/04-types/index.md)。
 
-详见[语言规格/类](../language-spec/class.md)。
+详见[规范/类](../specification/04-types/class.md)。
 
 ### 接口
 
@@ -71,5 +71,5 @@ int main() {
 
 输出`16`，退出码16。接口声明实例方法签名（没有实例字段、没有实例方法体），接口类型自身还可携带带方法体的`public static`方法与`static const`常量。类用`class X implements IShape`声明实现；接口类型的变量可持有任意实现对象，调用会虚分派到运行时类。接口实例成员的默认访问级别是`public`（与类成员的`private`默认相反）；其余修饰符（`private`、`virtual`等）会被拒绝。
 
-详见[语言规格/接口](../language-spec/interface.md)。
+详见[规范/接口](../specification/04-types/interface.md)。
 

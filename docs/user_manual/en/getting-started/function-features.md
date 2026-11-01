@@ -32,7 +32,7 @@ back several results; parameters can carry default values (named
 arguments are supported too); functions can be overloaded, recurse, and
 return `void`.
 
-See also: [Language Specification / Functions](../language-spec/functions.md).
+See also: [Specification / Functions](../specification/07-functions/index.md).
 
 ### Function values
 
@@ -58,7 +58,7 @@ free function or a bound method (`c.foo`) binds to it. Function values
 are stored in variables, fields, and collections (`List<func<int, int>>`,
 `func<int, int>[]`).
 
-See also: [Language Specification / Function Types and Delegates](../language-spec/function-types-and-delegates.md).
+See also: [Specification / Function Values and Delegates](../specification/07-functions/function-values.md).
 
 ### Native functions
 
@@ -81,7 +81,7 @@ The standard library's `io.print` is exactly such a native (declared
 `nlang_io.dll`). The call goes straight to the built-in implementation without a
 function call on the NLang side (no call-stack entry); NLang-side wrappers like `quad` are ordinary functions.
 
-See also: [Language Specification / Functions](../language-spec/functions.md).
+See also: [Specification / Functions](../specification/07-functions/index.md).
 
 ### Modules
 
@@ -151,8 +151,8 @@ semantics.
 
 For the complete visibility matrix (who needs an import, which call
 forms are allowed) and all six error messages, see the [Import
-Declaration](../language-spec/declarations.md#import-declaration) section
-of the Language Specification.
+Declaration](../specification/03-program-structure/declarations.md#import-declaration) section
+of the Specification.
 
-See also: [Language Specification / Declarations](../language-spec/declarations.md),
-[Standard Library](../language-spec/standard-library.md).
+See also: [Specification / Declarations](../specification/03-program-structure/declarations.md),
+[Library Conventions](../specification/library/11-conventions.md).

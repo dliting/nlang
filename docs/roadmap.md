@@ -2,7 +2,7 @@
 
 ## 项目背景
 
-NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配有字节码编译器和虚拟机，并作为探索 AI 友好语言特性的试验台演进。
+NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字节码编译器和虚拟机，并作为探索 AI 友好语言特性的试验台演进。
 
 > 各阶段的实施细节（commit 号、opcode 清单、陷阱记录）归档于 git 历史；本文件只保留阶段成果摘要。
 
@@ -122,16 +122,16 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
-- 文档子系统延后项：①片段审计扩展到 language-spec/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
+- 文档子系统延后项：①片段审计扩展到 specification/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
 
 ---
 
 ## 当前状态
 
-- **1066 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，manifest 1046 项 + 20 个示例）；ctest 74 项（build-dev 树）
+- **1704 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 32 个示例）；ctest 137 项（build-dev 树）
 - 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 `.ncu` v2.1（加载期链接布局：导入槽＋逐单元模块路径；1.13/1.14 语义变更——标量 kind 扩表与局部声明作用域——并入 2.x 线，旧 1.x 与合并前 2.0 映像一律拒绝）＋ `.npkg` v1.0 程序包（成员校验和）；`.nmod` 已退役
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ 泛型容器（类型实参允许 `T[]`）+ 异常 + 原生绑定 + 标准库与第三方库统一包机制（显式 import、限定路径调用）+ 一等函数值（Func/委托）+ 类型别名 + 一等数组类型令牌 + 12 标量基元家族（严格 bool、double 默认、char 码点桥）
+- 模块格式 `.ncu` v2.12（加载期链接布局：导入槽＋逐单元模块路径；2.12 新增 const 聚合标记字节，早于 2.12 的映像一律拒绝）＋ `.npkg` v1.0 程序包（成员校验和）；`.nmod` 已退役
+- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ `const class`/`const struct` 类型级不可变 + 泛型容器（类型实参允许 `T[]`）+ 异常（Exception 家族不可变＋cause 原因链，失败报告沿链输出）+ 原生绑定 + 标准库与第三方库统一包机制（显式 import、限定路径调用）+ 一等函数值（Func/委托）+ 类型别名 + 一等数组类型令牌 + 12 标量基元家族（严格 bool、double 默认、char 码点桥）
 - 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持、共享命名空间跨目录三形式不可达（v1 例外）
 
 ## 实施优先级
@@ -144,5 +144,5 @@ NLang 是一门面向嵌入与自动化场景的静态类型脚本语言，配�
 
 | 文档 | 说明 |
 |------|------|
-| docs/user_manual/{zh,en}/language-spec/ | NLang 语言规范（类型语义、语法、GC 行为），一章一页 16 篇，中英双树 |
-| docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 15 篇，中英双树 |
+| docs/user_manual/{zh,en}/specification/ | NLang 语言规范（语言、标准库、二进制格式、参考页），带 § 条款编号，中英双树 61 页 |
+| docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 16 篇，中英双树 |

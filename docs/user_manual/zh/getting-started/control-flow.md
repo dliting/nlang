@@ -1,6 +1,6 @@
 # 速览：控制流
 
-本页用可运行片段速览控制流；每节正文给出实际输出与退出码，末尾链接语言规格对应章节。
+本页用可运行片段速览控制流；每节正文给出实际输出与退出码，末尾链接规范对应章节。
 
 ### 控制流
 
@@ -38,7 +38,7 @@ int main() {
 
 输出`200`，退出码25。`switch`支持多值标签，判别式可以是整型家族（含char）、`float`/`double`、`string`或enum，case体不穿透——无需`break`收尾（Java/C#语义）；`foreach`可遍历数组、`List<T>`、`Dict`的键与string的码点。条件位置只接受`bool`——比较与谓词已经产生bool，写`if (count)`不合法（用`if (count != 0)`）。`if`/`for`/`while`/`do-while`的具体语义（各子句求值时机、循环头声明变量的作用域、块作用域）在语句页详解。
 
-详见[语言规格/语句](../language-spec/statements.md)。
+详见[规范/语句](../specification/06-statements/index.md)。
 
 ### 异常
 
@@ -71,7 +71,7 @@ int main() {
 }
 ```
 
-输出`finally always runs`、`boom`，退出码5。内建异常类有`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`InvalidCastException`、`IOException`，都继承自`Exception`，`concurrent`包的`ChannelClosedException`同样继承自`Exception`；用户类也可继承`Exception`（`class MyException : Exception`）。哪个操作抛哪个类，见[异常](../language-spec/exception.md)与[异常映射](../language-spec/stdlib-exceptions.md)两页。
+输出`finally always runs`、`boom`，退出码5。内建异常类有`NullPointerException`、`DivByZeroException`、`IndexOutOfBoundsException`、`AssertionException`、`InvalidCastException`、`IOException`，都继承自`Exception`，`concurrent`包的`ChannelClosedException`同样继承自`Exception`；用户类也可继承`Exception`（`class MyException : Exception`）。哪个操作抛哪个类，见[异常](../specification/08-exceptions/index.md)与[库异常](../specification/library/19-library-exceptions.md)两页。
 
-详见[语言规格/异常](../language-spec/exception.md)。
+详见[规范/异常](../specification/08-exceptions/index.md)。
 

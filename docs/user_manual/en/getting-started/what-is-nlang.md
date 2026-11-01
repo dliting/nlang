@@ -1,7 +1,7 @@
 # What is NLang?
 
-NLang is a statically-typed scripting language for embedding and
-automation — and a testbed for exploring artificial intelligence (AI)-friendly language features.
+NLang is a type-safe, C-like language for embedding
+and automation — and a testbed for exploring artificial intelligence (AI)-friendly language features.
 It ships with its own compiler (ncc), bytecode VM (nvm — it executes the bytecode ncc emits, the instruction form the compiler produces), and integrated development environment nide (IDE),
 developed as an open-source teaching/research project.
 
@@ -26,12 +26,12 @@ runtime module. The language itself:
   initializer syntax;
 - **Garbage-collected** — no `delete`; objects are reclaimed
   automatically once unreachable, so you never free memory by hand (see
-  [Memory Management](../language-spec/memory-management.md));
+  [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md));
 - **Concurrent** — `thread.spawn` runs a function on its own thread and
   yields a `Future<T>` for its result; the `concurrent` package
   (`Mutex`, `Channel`, `Semaphore`, `WaitGroup`) provides the
   synchronization layer;
-- **Modern scripting staples** — exception handling, string
+- **Modern language staples** — exception handling, string
   interpolation, `out` parameters, default parameters, and the
   `math`/`io`/`fs`/`thread`/`concurrent` standard libraries.
 
@@ -49,4 +49,6 @@ The six tools shipped with the package:
 For the complete usage of the six tools, see the
 [Command-line Tools](../cli-tools/overview.md) chapter; for nide's
 graphical interface, see [Three Ways to Run](running.md) and
-[Debugging in nide](debugging.md).
+[Debugging in nide](debugging.md). The clause-numbered definition of
+everything this page summarizes is in the
+[Specification](../specification/index.md).

@@ -51,7 +51,7 @@ The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the prog
 
 ## 5. Subprocess details
 
-- Exit codes: the program's `main` return value passes through as a 32-bit process exit code, so the host can judge results directly; conventions in [Exit Code Convention](../language-spec/exit-code-convention.md).
+- Exit codes: the program's `main` return value passes through as a 32-bit process exit code, so the host can judge results directly; conventions in [Program Entry and Exit](../specification/09-execution-model/exit-codes.md).
 - Standard input: write lines to `nvm`'s stdin to drive `io.readLine` interactions; program output is Unicode Transformation Format (UTF-8) bytes on stdout, `io.eprint` goes to stderr.
 - Compile and run can be one `ncc <file>` invocation, or split into `ncc build` plus `nvm`.
 

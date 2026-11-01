@@ -1,27 +1,29 @@
 # Further Reading
 
-Suggested reading order for the Language Specification:
+Suggested reading order through the
+[Specification](../specification/index.md):
 
-1. [Overview](../language-spec/overview.md) — what the language is and
-   how it is organized
-2. [Naming Convention](../language-spec/naming-convention.md) — the
-   naming rules for types/methods/variables
-3. [Types](../language-spec/types.md) →
-   [Type Semantics](../language-spec/type-semantics.md) →
-   [Declarations](../language-spec/declarations.md) →
-   [Built-in Generic Classes](../language-spec/builtin-generic-classes.md)
+1. [Types](../specification/04-types/index.md) →
+   [Declarations](../specification/03-program-structure/declarations.md) →
+   [Generics](../specification/04-types/generics.md)
    — the type system, declarations, and List/Dict
-4. [Expressions](../language-spec/expressions.md) →
-   [Statements](../language-spec/statements.md)
+2. [Expressions](../specification/05-expressions/index.md) →
+   [Statements](../specification/06-statements/index.md)
    — operators, control flow, exceptions
-5. [Functions](../language-spec/functions.md) →
-   [Function Types & Delegates](../language-spec/function-types-and-delegates.md)
-6. [Concurrency](../language-spec/concurrency.md) — spawning
+3. [Functions](../specification/07-functions/index.md) →
+   [Function Values and Delegates](../specification/07-functions/function-values.md)
+4. [Concurrency](../specification/10-concurrency/index.md) — spawning
    virtual threads with `thread.spawn`, channels, mutexes, and Future
-7. [Standard Library](../language-spec/standard-library.md),
-   [Memory Management](../language-spec/memory-management.md),
-   [Exit Code Convention](../language-spec/exit-code-convention.md),
-   [Known Limitations](../language-spec/known-limitations.md)
+5. [Library Conventions](../specification/library/11-conventions.md)
+   — the standard library at a glance, followed by the package chapters
+6. [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md)
+   and [Program Entry and Exit](../specification/09-execution-model/exit-codes.md)
+
+The reference pages at the end of the specification — [Naming
+Convention](../specification/reference/naming-convention.md), [Known
+Limitations](../specification/reference/known-limitations.md), and
+[Common Error Messages](../specification/reference/common-errors.md) —
+are informative companions to the numbered chapters.
 
 For the execution engine: start with
 [VM Architecture / Overview](../vm-architecture/overview.md), then read

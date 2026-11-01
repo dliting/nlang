@@ -17,19 +17,19 @@ nide侧由输出位置优先级决定（详见[三种运行方式](running.md#�
 
 进程退出码就是`main`的返回值，Windows保留32位原值；但POSIX shell（bash、Git-Bash、持续集成（CI，continuous integration）的bash步骤）按惯例只保留低8位——`return 300`在Python/cmd/PowerShell里看到300，在bash里看到44（对256取模）。写测试或脚本时，让预期退出码落在0–255，各观察者看到的结果才一致。
 
-详见[语言规格/退出码约定](../language-spec/exit-code-convention.md)。
+详见[规范/程序的进入与退出](../specification/09-execution-model/exit-codes.md)。
 
 ### 中文输出乱码？
 
 程序输出是Unicode转换格式（UTF-8，Unicode Transformation Format）字节。工具链把进程活动代码页设为UTF-8（工具内嵌清单声明，Windows 10 1903及以上生效），并在启动时把所在控制台切换到UTF-8代码页，默认控制台即可正常显示中文输出，无需手动`chcp 65001`。`fs`与`io`的路径、文件名支持美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的字符，同样按UTF-8往返。重定向到文件的输出字节不受影响——用非UTF-8编码打开它的编辑器仍会显示乱码。该代码页切换在工具退出后仍对同一控制台窗口生效，之后其中按旧编码输出的程序可能显示为乱码。
 
-详见[语言规格/标准库](../language-spec/standard-library.md)。
+详见[规范/库约定](../specification/library/11-conventions.md)。
 
 ### 编译报`not valid UTF-8`？
 
 源文件与`.nproj`项目文件必须保存为UTF-8：ncc在词法前对整个文件做严格校验，无效字节得到明确报错（`Source file is not
 valid UTF-8 ... (first invalid byte at line N). Save the file as
-UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见[语言规格/基本类型](../language-spec/primitives.md)。
+UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存即可）。这能拦住旧编码字节静默混入字符串常量的隐含错误。nide的构建经由ncc，执行同样的校验。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过，编辑器的「UTF-8 with BOM」保存形式无需处理。详见[规范/基本类型](../specification/04-types/primitives.md)。
 
 ### 帮助文档与搜索在哪？
 
@@ -39,7 +39,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 词法层把`--`与`++`识别为单个词法单元（为文法尚未使用的自增/自减运算符预留），`v--1`被读成`v`、`--`、`1`，不构成合法语句，于是报`syntax error`（`Invalid statement.`）。两个运算符之间加空格（`v - -1`）或给单目操作数加括号（`v - (-1)`）即可。普通的`v+1`、`v+-1`没有问题——`+-`不是词法单元。
 
-详见[语言规格/表达式](../language-spec/expressions.md)。
+详见[规范/表达式](../specification/05-expressions/index.md)。
 
 ### 调试时怎么给`io.readLine`输入 / 停止后`finally`不执行 / 断点错位？
 
@@ -51,23 +51,23 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 跨模块引用报`Module '...' is not imported`？
 
-`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[语言规格/声明](../language-spec/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 数组值赋给其他类型报`Incompatible type`？
 
-数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言规格/已知限制](../language-spec/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言参考/已知限制](../specification/reference/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 变量不初始化会怎样？
 
-合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[语言规格/声明](../language-spec/declarations.md)的「默认值」。
+合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[规范/声明](../specification/03-program-structure/declarations.md)的「默认值」。
 
 ### `Point(2, 3)`为什么报「没有构造器」？
 
-未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../language-spec/struct.md)「创建与初始化」。
+未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言参考/常见错误消息](../specification/reference/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../specification/04-types/struct.md)「创建与初始化」。
 
 ### 数组和`List`用哪个？
 
-尺寸固定、元素按值使用，用数组（`int[] sizes = [10, 20, 30];`，创建后长度不变）；要动态增删，用`List<T>`（`add`/`removeAt`，可增长）。速览见[速览：容器](containers.md)，完整语义见[语言规格/数组](../language-spec/array.md)与[语言规格/内建泛型类](../language-spec/builtin-generic-classes.md)。
+尺寸固定、元素按值使用，用数组（`int[] sizes = [10, 20, 30];`，创建后长度不变）；要动态增删，用`List<T>`（`add`/`removeAt`，可增长）。速览见[速览：容器](containers.md)，完整语义见[规范/数组](../specification/04-types/array.md)与[规范/泛型](../specification/04-types/generics.md)。
 
 ### `.ncu`版本过时，提示重新编译？
 
@@ -77,13 +77,13 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 `if` / `while` / `do-while` / `for` / `assert`的条件与`&&` / `||` /
 `!`的操作数都必须是`bool`（比较与谓词已经产生bool——没有C式的「非零即真」）；int、string、float、char、class、struct、array都会在编译期报错（`if condition must be bool, not
-"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[语言规格/语句](../language-spec/statements.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[规范/语句](../specification/06-statements/index.md)的「条件类型」，参数数上限见[语言参考/已知限制](../specification/reference/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 为什么不能像Java/C++那样在子类重载父类虚方法？
 
 NLang的虚分派按方法名进行：调用点按静态绑定类型的签名布局实参，运行期取最具体的子类的同名方法——不比对签名。如果允许子类为虚方法名添加不同签名的重载，实参会按错误的位置被解读，得到错误结果。因此名字一旦绑定虚方法或接口契约，子类的同名方法必须与契约签名一一对应。想提供不同签名的方法，请使用不同的方法名。
 
-详见[语言规格/类](../language-spec/class.md)的「虚方法与覆写」。
+详见[规范/类](../specification/04-types/class.md)的「虚方法与重写」。
 
 ### 帮助窗口提示「文档未找到」？
 
@@ -95,5 +95,5 @@ installation.」。多因文档站未随包部署到`docs\site\`，或安装目�
 内嵌帮助窗口顶栏有Back / Forward导航按钮，可在已访问的文档页之间前进后退；帮助窗口关闭后每次重新打开都会重建（不保留上次的浏览位置）。
 
 更多已知限制：
-[语言规格/已知限制](../language-spec/known-limitations.md)、[VM架构/已知限制](../vm-architecture/known-limitations.md)。
+[语言参考/已知限制](../specification/reference/known-limitations.md)、[VM架构/已知限制](../vm-architecture/known-limitations.md)。
 

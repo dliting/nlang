@@ -2,7 +2,7 @@
 
 NLang的库机制只有一套：一个库就是导入搜索路径上的一个目录，标准库与第三方库走完全相同的发现、编译与执行路径。本页面向库作者，讲三件事：纯NLang库怎么组织、带native实现的混合库怎么写、写好之后怎么分发。
 
-机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../language-spec/packages.md)，五层搜索路径的完整机制见[库与搜索路径](../language-spec/stdlib-search-paths.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
+机制内部的设计依据见[库机制](../vm-architecture/library-mechanism.md)，import语法与可见性规则见[包与模块](../specification/03-program-structure/packages.md)，五层搜索路径的完整机制见[包与导入查找](../specification/03-program-structure/packages.md)。本页示例与仓库中的`examples/libdemo/`完全一致，可直接编译运行。
 
 ## 1. 库的形态
 
@@ -119,12 +119,12 @@ NLANG_DEFINE_NATIVE_INIT
 |---|---|
 | DLL名 | `nlang_<命名空间>.dll`，如`nlang_num.dll` |
 | 导出 | 两个入口，均由`NLANG_DEFINE_NATIVE_INIT`宏生成：版本探针`nlang_abi_version`与初始化入口`nlang_native_init` |
-| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放全局锁 |
+| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放其持有的锁 |
 | ABI版本 | 初始化代码运行前先经`nlang_abi_version`探测；版本不符或缺探针即拒载 |
 | 头文件 | 随源码仓库提供（`include/nlang/vm/NativeHost.h`），无需链接VM库 |
 | 参数助手 | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString`等 |
 
-用任意C++编译器把实现编成`nlang_num.dll`（头文件路径指向仓库`include/`），与`num.n`放在同一目录。分发时库单元与DLL一起交付（见下节）。`native`声明的类型规则见[native函数](../language-spec/native-functions.md)。
+用任意C++编译器把实现编成`nlang_num.dll`（头文件路径指向仓库`include/`），与`num.n`放在同一目录。分发时库单元与DLL一起交付（见下节）。`native`声明的类型规则见[原生函数](../specification/07-functions/native.md)。
 
 ## 4. 分发
 

@@ -2,7 +2,7 @@
 
 # 规范
 
-本树是NLang编程语言的规范，具有规范性：它覆盖核心语言、标准库，以及实现产生与消费的二进制格式，并定义符合本规范的实现必须做什么。[用户手册](../index.md)讲解如何使用该语言，属资料性；两者在语义问题上分歧时，以本规范为权威。英文文本是规范性的。
+本树是NLang编程语言的规范，具有规范性：它覆盖核心语言、标准库，以及实现产生与消费的二进制格式，并定义符合本规范的实现必须做什么；各章在规范性规则之外配有示例与错误说明。语言的系统入门见[NLang入门](../getting-started/what-is-nlang.md)，它属资料性，并把所摘要的规则链接到本规范的对应条款。英文文本是规范性的。
 
 本规范描述NLang 0.12.5。它是一份活文档：始终描述当前语言，版本历史就是仓库历史——标签（如`v0.11.5`）把整棵树固定在语言演化的某一个时点上。
 
@@ -15,29 +15,69 @@
 - [0. 引言](00-introduction.md)
 - [1. 词法结构](01-lexical.md)
 - [2. 语法](02-grammar.md)
-- [3. 程序结构与名称解析](03-program-structure.md)
-- [4. 类型](04-types.md)
-- [5. 表达式](05-expressions.md)
-- [6. 语句](06-statements.md)
-- [7. 函数与方法](07-functions.md)
-- [8. 面向对象](08-object-orientation.md)
-- [9. 异常](09-exceptions.md)
-- [10. 执行模型与内存语义](10-execution-model.md)
-- [11. 并发](11-concurrency.md)
-- [12. 包与导入查找](12-packages.md)
+- [3. 程序结构与名称解析](03-program-structure/index.md)
+  - [3.8. 声明](03-program-structure/declarations.md)
+  - [3.9. 包与导入查找](03-program-structure/packages.md)
+- [4. 类型](04-types/index.md)
+  - [4.2. 基本类型](04-types/primitives.md)
+  - [4.3. 字符串](04-types/string.md)
+  - [4.5. 类型强制转换](04-types/casts.md)
+  - [4.6. 枚举](04-types/enum.md)
+  - [4.7. 结构体](04-types/struct.md)
+  - [4.8. 类](04-types/class.md)
+  - [4.9. 接口](04-types/interface.md)
+  - [4.10. 数组](04-types/array.md)
+  - [4.11. Object与装箱](04-types/object.md)
+  - [4.12. 泛型](04-types/generics.md)
+- [5. 表达式](05-expressions/index.md)
+  - [5.10. 运算符](05-expressions/operators.md)
+  - [5.11. 集合初始化器](05-expressions/initializers.md)
+- [6. 语句](06-statements/index.md)
+  - [6.7. 控制流](06-statements/control-flow.md)
+  - [6.8. 循环](06-statements/loops.md)
+- [7. 函数](07-functions/index.md)
+  - [7.2. 参数与实参](07-functions/parameters.md)
+  - [7.3. 重载解析](07-functions/overloads.md)
+  - [7.4. 函数值与委托](07-functions/function-values.md)
+  - [7.5. 原生函数](07-functions/native.md)
+- [8. 异常](08-exceptions/index.md)
+- [9. 执行模型](09-execution-model/index.md)
+  - [9.2. 生命周期与垃圾回收](09-execution-model/memory.md)
+  - [9.3. 程序的进入与退出](09-execution-model/exit-codes.md)
+- [10. 并发](10-concurrency/index.md)
+  - [10.8. 载体与并行](10-concurrency/carriers.md)
+  - [10.9. 挂起与调度限制](10-concurrency/suspension.md)
 
 ### 第二部分 — 标准库
 
-- [13. 内建类与库约定](13-builtin-classes.md)
-- [14. math包](14-math.md)
-- [15. io包与流](15-io-streams.md)
-- [16. fs包](16-fs.md)
-- [17. 并发库](17-concurrency-library.md)
-- [18. tensor包](18-tensor.md)
-- [19. 库异常](19-library-exceptions.md)
+- [11. 库约定](library/11-conventions.md)
+- [12. 集合](library/12-collections.md)
+- [13. math包](library/13-math.md)
+- [14. io包与流](library/14-io/index.md)
+  - [14.5. ByteStream与FileStream](library/14-io/streams.md)
+- [15. fs包](library/15-fs.md)
+- [16. string方法](library/16-string-methods.md)
+- [17. 并发类](library/17-concurrency-classes/index.md)
+  - [17.3. thread包](library/17-concurrency-classes/thread.md)
+  - [17.4. Future](library/17-concurrency-classes/future.md)
+  - [17.5. Promise](library/17-concurrency-classes/promise.md)
+  - [17.6. Mutex](library/17-concurrency-classes/mutex.md)
+  - [17.7. Semaphore](library/17-concurrency-classes/semaphore.md)
+  - [17.8. ReentrantMutex](library/17-concurrency-classes/reentrant-mutex.md)
+  - [17.9. AtomicInt](library/17-concurrency-classes/atomic.md)
+  - [17.10. Channel](library/17-concurrency-classes/channel.md)
+  - [17.11. concurrent包](library/17-concurrency-classes/concurrent.md)
+- [18. tensor包](library/18-tensor.md)
+- [19. 库异常](library/19-library-exceptions.md)
 
 ### 第三部分 — 二进制格式
 
-- [20. `.ncu`单元映像](20-ncu-unit-image.md)
-- [21. `.npkg`包档案](21-npkg-package-archive.md)
-- [22. 原生应用二进制接口（ABI）](22-native-abi.md)
+- [20. `.ncu`单元映像](formats/20-ncu.md)
+- [21. `.npkg`包档案](formats/21-npkg.md)
+- [22. 原生应用二进制接口（ABI）](formats/22-abi.md)
+
+### 参考
+
+- [已知限制](reference/known-limitations.md)
+- [常见错误消息](reference/common-errors.md)
+- [命名约定](reference/naming-convention.md)

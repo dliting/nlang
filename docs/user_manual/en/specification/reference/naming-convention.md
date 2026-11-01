@@ -1,0 +1,35 @@
+# Naming Convention
+
+
+NLang adopts **camelCase** for methods and **PascalCase** for types — a hybrid
+of Java-style casing and C#-style accessor naming. This combination provides
+visual distinction between types and methods (`MyClass.myMethod()` reads
+unambiguously) and aligns with the largest developer audience (Java + JS + C++).
+
+| Category | Style | Examples |
+|----------|-------|----------|
+| Types (class / struct / enum / interface) | PascalCase | `MyClass`, `List<T>`, `Color` |
+| Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
+| Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` |
+| Methods — predicate (returns `bool`) | camelCase, bare word | `contains(x)`, `startsWith(s)`, `fs.exists(p)` |
+| Free functions | camelCase | `io.print(s)`, `fs.isFile(p)`, `computeTotal()` |
+| Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
+| Entry-point function `main` | lowercase (sole exception) | `int main()` |
+| Enum values | PascalCase | `Color.Red`, `Day.Monday` |
+| Generic type parameters | single uppercase letter | `T`, `K`, `V` |
+| Private fields | camelCase, no prefix | `class Foo { int count; }` |
+
+**Rationale**:
+- PascalCase types + camelCase methods → `MyClass.myMethod()` makes the
+  type-vs-method distinction immediate; `MyClass.MyMethod()` is ambiguous.
+- Covers Java + JS + C++ conventions (the largest common denominator).
+- `main` exception preserves the universal C/C++/Java entry-point convention.
+- `getXxx` / `setXxx` prefix retained on accessors (C# style): only
+  `getHashCode` currently uses this form; other accessors (`length`,
+  `count`, `position`, `keys`) use bare camelCase.
+- Predicates on built-in class methods use bare names — `contains` and
+  `startsWith` are clear on their own. Package (free) functions may take
+  an `is` / `has` prefix when the bare name would be too vague:
+  `fs.isFile`, `fs.isDirectory`, `io.hasInput`. (Exception: `equals`
+  follows the Object virtual method protocol and returns int 0/1 — see
+  [Object and Boxing](../04-types/object.md).)

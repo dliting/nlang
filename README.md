@@ -209,7 +209,7 @@ An unimported reference fails with a pointed diagnostic, e.g.
 `Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import utils.*;') at the top of this file.`
 Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
-(`docs/user_manual/en/language-spec/declarations.md`, Import Declaration).
+(`docs/user_manual/en/specification/03-program-structure/declarations.md`, Import Declaration).
 
 Compiled units use a versioned binary format, currently v2.8 (import
 slots and per-unit module paths — the load-time linking model). The
@@ -246,8 +246,8 @@ int main() {
 ```
 
 Full details — parameter type policy, exception mapping, byte semantics,
-deterministic PRNG — are in the Standard Library chapter
-(`docs/user_manual/en/language-spec/standard-library.md`); runnable copies of the example
+deterministic PRNG — are in the standard-library part of the specification
+(`docs/user_manual/en/specification/index.md`); runnable copies of the example
 live in `examples/stdlib_*.n`.
 
 New to NLang? The `docs/user_manual/en/getting-started/` chapters walk the language, the

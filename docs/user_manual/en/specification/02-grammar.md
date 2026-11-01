@@ -131,7 +131,7 @@ FunctionBodyOrSemi = Paragraph | ";" ;
 
 A `class` body requires at least one member; an `interface` body may
 be empty. A method declaration with no return type names a
-constructor (chapter 8). An `out` parameter takes no default value.
+constructor (§4.8.6). An `out` parameter takes no default value.
 
 ## 2.5 Statements
 
