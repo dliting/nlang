@@ -13,6 +13,9 @@ namespace nlang {
 //0.9.10 D3: exported-constants block of one interface — u16 count, then
 //per constant a u16 name, a length-prefixed TypeDesc and a
 //DefaultValueDesc record (the reader is ReadInterfaceConstants).
+//v2.13 (v0.12.6): each constant gains a u16 slotIdx after the value —
+//0xFFFF = compile-time-folded (value carries it), anything else indexes
+//the module's static slot table (D11's runtime-initialized arm).
 static void WriteInterfaceConstants(std::ostream& fs,
                                     const CompiledInterface& ci)
 {
@@ -26,6 +29,8 @@ static void WriteInterfaceConstants(std::ostream& fs,
         fs.write(constant.name.c_str(), cnameLen);
         WriteLenPrefixedTypeDesc(fs, constant.type);
         WriteDefaultValueDesc(fs, constant.value);
+        fs.write(reinterpret_cast<const char*>(&constant.slotIdx),
+                 sizeof(constant.slotIdx));
     }
 }
 
@@ -90,6 +95,10 @@ void WriteInterfaceRecords(std::ostream& fs, const CompiledModule& mod)
             fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
         WriteInterfaceConstants(fs, ci);
         WriteInterfaceSignatures(fs, ci);
+        //v2.13 (v0.12.6): the interface's lazy static-initializer
+        //function, the record's trailing field (0xFFFF = none).
+        fs.write(reinterpret_cast<const char*>(&ci.staticInitFuncIdx),
+                 sizeof(ci.staticInitFuncIdx));
     }
 }
 

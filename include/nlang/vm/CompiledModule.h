@@ -144,7 +144,14 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //aggregate marker byte (after superClassIdx / fieldCount). A v2.11
 //module has no byte and misparses every record after the leading
 //scalars; refuse v2.11 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 12;
+//v2.13 (v0.12.6): the static-slot section — a module-level
+//staticSlots table between the enum and import sections, a
+//staticFields block plus staticInitFuncIdx at each class-record tail,
+//slotIdx per interface constant and staticInitFuncIdx per interface
+//record, and a fifth import section (staticSlotImports). A v2.12
+//module lacks the class/interface tail bytes and misparses every
+//record after the first class; refuse v2.12 and older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 13;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -243,6 +250,11 @@ struct CompiledModule {
     //mirroring the class methodAccess gate on the consumer side.
     std::vector<std::vector<uint16_t>> enumMethodIndices;
     std::vector<std::vector<uint8_t>> enumMethodAccess;
+    //v2.13 (v0.12.6): the module's static slot table — one entry per
+    //runtime-addressed static (mutable class statics, runtime-const
+    //fields, static locals), in allocation order. Bytecode addresses
+    //slots by index into this table.
+    std::vector<CompiledStaticSlot> staticSlots;
 
     //v2.0 phase 6: cross-unit reference slots. Each unit's tables hold its
     //OWN declarations first (indices 0..n-1); slots n..n+m are PLACEHOLDER
@@ -285,6 +297,12 @@ struct CompiledModule {
     std::vector<SymbolImport> classImports;      //slots after own classes
     std::vector<SymbolImport> structImports;     //slots after own structs
     std::vector<SymbolImport> enumImports;       //slots after own enum tables
+    //v2.13 (v0.12.6): cross-unit static-slot placeholder tail. ownerKind
+    //here has its OWN table-local encoding — 0 = class owner, 1 =
+    //interface owner — deliberately unrelated to functionImports'
+    //0=namespace/1=class-member/2=struct-member domain (this table is
+    //never dispatched that way).
+    std::vector<SymbolImport> staticSlotImports; //slots after own staticSlots
 
     //Runtime only (never serialized): set by nlink after linking — the
     //global function index of this module's main(), or the entry the tool

@@ -451,7 +451,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 13);  //one above the v2.12 current
+    PatchMinorVersion(dir / "old.ncu", 14);  //one above the v2.13 current
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -466,7 +466,7 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 12, "format minor is 12 (v2.12)");
+    CHECK(NCU_FORMAT_MINOR == 13, "format minor is 13 (v2.13)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");
@@ -680,6 +680,123 @@ void TestMalformedModulePathRefused() {
           "malformed-path diagnostic present");
 }
 
+// --- shape 15 (v2.13): the static-slot section round-trips — module
+// --- staticSlots, the class staticFields block + staticInitFuncIdx,
+// --- interface constant slotIdx + staticInitFuncIdx, and the fifth
+// --- import section; a minor below the floor is still refused.
+
+void TestStaticSlotRoundTripAndVersionFloor() {
+    const auto dir = scenarioDir("static_slots");
+    CompiledModule cm = MakeUnit("statmod");
+    AddFunc(cm, "statmod.$Counter$staticInit", 0);
+    AddFunc(cm, "statmod.$IFace$staticInit", 0);
+
+    CompiledClass cc;
+    cc.name = "statmod.Counter";
+    CompiledStaticField folded;
+    folded.name = "Limit";
+    folded.type = TypeDesc{RTK_Int32};
+    folded.access = FA_Public;
+    folded.isConst = true;
+    folded.slotIdx = 0xFFFF;               //compile-time-folded
+    folded.foldedValue.tag = RTK_Int32;
+    folded.foldedValue.intValue = 42;
+    cc.staticFields.push_back(folded);
+    CompiledStaticField mutableField;
+    mutableField.name = "total";
+    mutableField.type = TypeDesc{RTK_Int32};
+    mutableField.access = FA_Public;
+    mutableField.slotIdx = 0;              //first module slot
+    cc.staticFields.push_back(mutableField);
+    cc.staticInitFuncIdx = 0;
+    cm.classes.push_back(std::move(cc));
+
+    CompiledStaticSlot slot;
+    slot.name = "total";
+    slot.ownerKey = "statmod.Counter";
+    slot.ownerKind = 0;                    //class
+    slot.hasInitializer = 1;
+    slot.type = TypeDesc{RTK_Int32};
+    cm.staticSlots.push_back(slot);
+    CompiledStaticSlot constSlot;
+    constSlot.name = "K";
+    constSlot.ownerKey = "statmod.IFace";
+    constSlot.ownerKind = 1;               //interface
+    constSlot.isRuntimeConst = 1;          //D11's runtime-initialized arm
+    constSlot.hasInitializer = 1;
+    constSlot.type = TypeDesc{RTK_Int32};
+    cm.staticSlots.push_back(constSlot);
+
+    CompiledInterface iface;
+    iface.name = "statmod.IFace";
+    CompiledInterfaceConstant constant;
+    constant.name = "K";
+    constant.type = TypeDesc{RTK_Int32};
+    constant.value.tag = RTK_Int32;
+    constant.value.intValue = 7;
+    constant.slotIdx = 1;                  //runtime-initialized static const
+    iface.constants.push_back(constant);
+    iface.staticInitFuncIdx = 1;
+    cm.interfaces.push_back(std::move(iface));
+
+    cm.staticSlotImports.push_back({"othermod", "count",
+                                    0, "othermod.Counter"});
+    WriteUnit(dir, cm);
+
+    std::string entryKey;
+    CompiledModule loaded = ModuleLoader::Load(
+        (dir / "statmod.ncu").string(), &entryKey);
+    CHECK(loaded.classes.size() == 1, "one class record loaded");
+    CHECK(loaded.classes[0].staticFields.size() == 2,
+          "both static fields round-trip");
+    const auto& lf = loaded.classes[0].staticFields[0];
+    CHECK(lf.name == "Limit" && lf.isConst && lf.slotIdx == 0xFFFF,
+          "folded constant field round-trips");
+    CHECK(lf.foldedValue.tag == RTK_Int32
+          && lf.foldedValue.intValue == 42,
+          "folded value payload round-trips");
+    CHECK(lf.type.kind == RTK_Int32 && lf.access == FA_Public,
+          "folded field type and access round-trip");
+    const auto& lm = loaded.classes[0].staticFields[1];
+    CHECK(lm.name == "total" && !lm.isConst && lm.slotIdx == 0,
+          "slotted mutable field round-trips");
+    CHECK(loaded.classes[0].staticInitFuncIdx == 0,
+          "class static-init function index round-trips");
+    CHECK(loaded.staticSlots.size() == 2, "both static slots loaded");
+    CHECK(loaded.staticSlots[0].name == "total"
+          && loaded.staticSlots[0].ownerKey == "statmod.Counter"
+          && loaded.staticSlots[0].ownerKind == 0
+          && loaded.staticSlots[0].isRuntimeConst == 0
+          && loaded.staticSlots[0].hasInitializer == 1
+          && loaded.staticSlots[0].type.kind == RTK_Int32,
+          "static slot record round-trips");
+    CHECK(loaded.staticSlots[1].name == "K"
+          && loaded.staticSlots[1].ownerKind == 1
+          && loaded.staticSlots[1].isRuntimeConst == 1,
+          "interface-owned runtime-const slot round-trips");
+    CHECK(loaded.interfaces.size() == 1, "one interface record loaded");
+    CHECK(loaded.interfaces[0].constants.size() == 1,
+          "interface constant round-trips");
+    CHECK(loaded.interfaces[0].constants[0].slotIdx == 1,
+          "interface constant slot index round-trips");
+    CHECK(loaded.interfaces[0].constants[0].value.intValue == 7,
+          "interface constant value round-trips");
+    CHECK(loaded.interfaces[0].staticInitFuncIdx == 1,
+          "interface static-init function index round-trips");
+    CHECK(loaded.staticSlotImports.size() == 1,
+          "static-slot import round-trips");
+    CHECK(loaded.staticSlotImports[0].modulePath == "othermod"
+          && loaded.staticSlotImports[0].name == "count"
+          && loaded.staticSlotImports[0].ownerClassKey == "othermod.Counter",
+          "static-slot import fields round-trip");
+
+    //Version floor: the same image with a decremented minor is refused.
+    PatchMinorVersion(dir / "statmod.ncu", NCU_FORMAT_MINOR - 1);
+    const FailResult fr = MustFail((dir / "statmod.ncu").string(), {});
+    CHECK(fr.failed, "patched-down minor version is refused");
+    CHECK(Contains(fr.msg, "outdated"), "floor diagnostic names the cause");
+}
+
 } // namespace
 
 int main() {
@@ -697,6 +814,7 @@ int main() {
     TestMinorAboveFloorRejected();
     TestEnumMethodTablesRoundTrip();
     TestConstAggregateMarkerRoundTrip();
+    TestStaticSlotRoundTripAndVersionFloor();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();
     TestUnreadablePackageNamed();

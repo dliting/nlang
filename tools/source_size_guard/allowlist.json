@@ -103,6 +103,11 @@
     "reason": "sequential field-group writer in on-disk-format order"
   },
   {
+    "path": "src/vm/ModuleSaverRecordsClasses.cpp",
+    "function": "WriteClassRecords",
+    "reason": "field-by-field wire-format record writer in on-disk order; the layout is the spec"
+  },
+  {
     "path": "src/vm/TypeDesc.cpp",
     "function": "BuildTypeDesc",
     "reason": "recursive type-descriptor builder over declaration forms"

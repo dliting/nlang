@@ -99,6 +99,7 @@ add_library(nlang_vm
     ModuleLoaderRecordsInterfaces.cpp
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsClasses.cpp
     ModuleSaverRecordsInterfaces.cpp
     ModuleSaverRecordsEnums.cpp
     NcuPackage.cpp
