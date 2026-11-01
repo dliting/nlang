@@ -154,6 +154,10 @@ enum class OpCode : uint8_t {
     OP_Shr,             // u8 kind, u16 dst, u16 src — same, arithmetic on
                         // signed rows and logical on unsigned rows
 
+    // === 0.12.6: static slots (module-wide table, spec §6.2) ===
+    OP_LoadStatic,      // uint16 dst, uint16 slotIdx — frame[dst] = slots[slotIdx]
+    OP_StoreStatic,     // uint16 slotIdx, uint16 src — slots[slotIdx] = frame[src]
+
     OP_Count
 };
 
@@ -197,7 +201,8 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
-    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape};
+    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
+    OpCode::OP_LoadStatic, OpCode::OP_StoreStatic};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};

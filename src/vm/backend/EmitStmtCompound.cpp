@@ -52,6 +52,10 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
         EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
         EmitCompoundOp(op, emitter, target.localOffset,
             m_currFunc->tempSlot2, field->EvalDataType());
+    } else if (target.kind == BareIdTarget::StaticSlot) {
+        //v0.12.6: bare static field read-modify-write.
+        EmitCompoundAssignStaticField(ca, target.slotIdx,
+            field->EvalDataType(), op, emitter);
     } else if (target.kind == BareIdTarget::ThisField) {
         EmitCompoundAssignThisField(ca, field, target.fieldOff, op,
             emitter);
@@ -98,8 +102,42 @@ void VmBackend::EmitCompoundAssignThisField(SnCompoundAssignStmt& ca,
 //path: PickTempSlot falls back to tempSlot for non-temp exclude
 //slots, so a receiver parked in any temp is clobberable by a nested
 //RHS.
+//v0.12.6 D3: static read-modify-write — slot load, RHS, compound op,
+//slot store. Shared by the bare form (inside the class) and the
+//class-qualified form; old value and RHS park in an exclusive
+//EvalAreaClaim(2) across the RHS emission (same discipline as the
+//this-field paths).
+void VmBackend::EmitCompoundAssignStaticField(SnCompoundAssignStmt& ca,
+        uint16_t slotIdx, SnField* lhsType, int op,
+        BytecodeEmitter& emitter) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t oldValSlot = claim.base();
+    uint16_t rhsSlot = claim.base() + kFrameSlotBytes;
+    emitter.Emit(OpCode::OP_LoadStatic);
+    emitter.EmitUint16(oldValSlot);
+    emitter.EmitUint16(slotIdx);
+    EmitExpression(*ca.Right(), emitter, rhsSlot);
+    EmitCompoundOp(op, emitter, oldValSlot, rhsSlot, lhsType);
+    emitter.Emit(OpCode::OP_StoreStatic);
+    emitter.EmitUint16(slotIdx);
+    emitter.EmitUint16(oldValSlot);
+}
+
 void VmBackend::EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
         SnMemberExpr& memberExpr, int op, BytecodeEmitter& emitter) {
+    //v0.12.6 D3: static read-modify-write through the class name —
+    //keyed on the bound field (the receiver names a type; its
+    //EvalDataType is null here, which is why this arm precedes the
+    //outerType read below).
+    if (auto* lhsField = memberExpr.Field(); lhsField
+        && lhsField->Kind() == NK_ClassField
+        && lhsField->ContainFlags(NF_Static)
+        && !IsInterfaceConstantField(*lhsField)) {
+        EmitCompoundAssignStaticField(ca,
+            StaticSlotIndexOf(static_cast<const SnClassField&>(*lhsField)),
+            memberExpr.EvalDataType(), op, emitter);
+        return;
+    }
     auto* outerType = memberExpr.Outer()->EvalDataType();
     if (!outerType) return;
     auto* inner = memberExpr.Inner();

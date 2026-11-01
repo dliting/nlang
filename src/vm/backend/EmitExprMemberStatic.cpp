@@ -7,6 +7,7 @@
 #include "VmBackend.h"
 #include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnExtraTypes.h>
 #include <vector>
@@ -91,6 +92,33 @@ bool VmBackend::EmitMemberStaticFaceCall(SnMemberExpr& member,
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     emitter.Emit(OpCode::OP_ParaEnd);
+    return true;
+}
+
+//v0.12.6: type-name-qualified static field read (Counter.total). The
+//resolver's namespace filter guarantees the only member shape that
+//reaches codegen with an NF_Static class field is the type-name form
+//(a value receiver is rejected there, D3) — so the receiver is never
+//emitted and the read is a plain module-slot load. The bound field is
+//the DECLARING class's node for inherited statics (D4): the slot index
+//follows the field, not the spelling.
+bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
+                                          SnField* field,
+                                          BytecodeEmitter& emitter,
+                                          uint16_t resultOffset) {
+    if (!(field && field->Kind() == NK_ClassField
+          && field->ContainFlags(NF_Static)
+          //Interface constants are compile-time literals consumed by
+          //the constant-read phase; they never load a slot here.
+          && !IsInterfaceConstantField(*field)))
+        return false;
+    auto* inner = member.Inner();
+    if (!(inner && inner->Kind() == NK_IdentifierExpr))
+        return false;   //invoke shapes belong to the call arms
+    emitter.Emit(OpCode::OP_LoadStatic);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(StaticSlotIndexOf(
+        static_cast<const SnClassField&>(*field)));
     return true;
 }
 

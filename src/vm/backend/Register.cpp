@@ -153,6 +153,8 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_compiledModule.name = modulePath;
     m_entryKey.clear();
     m_funcIndexMap.clear();
+    //0.12.6: per-unit slot map (mirrors staticSlots' own reset above).
+    m_staticSlotByField.clear();
     m_enumIndexMap.clear();
     m_structFieldTypes.clear();
     m_listClassIdx = -1;

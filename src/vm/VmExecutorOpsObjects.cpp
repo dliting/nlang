@@ -63,6 +63,22 @@ void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
                 locals + src, kHeapFieldStrideBytes);
 }
 
+void VmExecutor::OpLoadStatic(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t slotIdx = reader.ReadUint16();
+    //Plain 8-byte cell copy (same uniform-slot semantics as OpLoadField:
+    //narrow kinds read the low half, upper bytes ride along harmlessly).
+    std::memcpy(locals + dst, m_staticSlots.Cell(slotIdx),
+                kHeapFieldStrideBytes);
+}
+
+void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t slotIdx = reader.ReadUint16();
+    uint16_t src = reader.ReadUint16();
+    std::memcpy(m_staticSlots.Cell(slotIdx), locals + src,
+                kHeapFieldStrideBytes);
+}
+
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t classIdx = reader.ReadUint16();

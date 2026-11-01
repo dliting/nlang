@@ -1,0 +1,16 @@
+//Inherited static fields resolve through the parent chain (D4):
+//qualified via the subclass name and bare inside subclass methods.
+//The slot addressed is always the DECLARING class's (Base's).
+class Base {
+    public static int tag;
+}
+class Derived : Base {
+    public int probe() {
+        return tag;   //bare inherited name
+    }
+}
+int main() {
+    Derived.tag = 6;
+    Derived d = Derived();
+    return d.probe() * 10 + Derived.tag;   //66
+}

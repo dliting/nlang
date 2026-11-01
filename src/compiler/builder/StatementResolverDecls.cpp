@@ -375,6 +375,19 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 	return pLocal;
 }
 
+//Post-init flag marking for one declarator local: const lands only
+//AFTER the init AssignStmt resolved (marking earlier trips the
+//"cannot assign to const" check in Access(SnAssignStmt&)); v0.12.6
+//static locals carry the flag onto the descriptor (the backend rejects
+//uses until slot-backed storage lands with the static-local tasks).
+static void MarkLocalDeclFlags(const SnLocalDeclStmt &sn, SnField &local)
+{
+	if (sn.IsConst())
+		local.AddFlags(NF_Const);
+	if (sn.NodeFlags() & NF_Static)
+		local.AddFlags(NF_Static);
+}
+
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
 	SnField *pSizedElemField)
@@ -418,11 +431,7 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 			pAssign->Accept(*m_pVisitor);
 			decl.pInitExpr = nullptr;
 		}
-		//Phase 9a: mark const AFTER init is resolved, so the
-		//init AssignStmt doesn't trigger the "cannot assign to
-		//const" check in Access(SnAssignStmt&).
-		if (sn.IsConst())
-			pLocal->AddFlags(NF_Const);
+		MarkLocalDeclFlags(sn, *pLocal);
 	}
 }
 

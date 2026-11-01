@@ -1,0 +1,8 @@
+//Static members belong to the class, not to instances (D3).
+class Counter {
+    public static int total;
+}
+int main() {
+    Counter c = Counter();
+    return c.total;   //compile error
+}

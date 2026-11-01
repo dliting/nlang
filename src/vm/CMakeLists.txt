@@ -28,6 +28,7 @@ add_library(nlang_vm
     VmExecutorGCSweep.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
+    VmStaticSlots.cpp
     VmDefaultMaterializer.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp
@@ -59,6 +60,7 @@ add_library(nlang_vm
     backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
+    backend/ResolveBareIdentifier.cpp
     backend/RegisterInterfaces.cpp
     backend/RegisterEnums.cpp
     backend/RegisterStructs.cpp

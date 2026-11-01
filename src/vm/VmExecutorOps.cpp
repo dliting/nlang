@@ -367,6 +367,14 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpStoreField(reader, locals);
             break;
 
+        case OpCode::OP_LoadStatic:
+            OpLoadStatic(reader, locals);
+            break;
+
+        case OpCode::OP_StoreStatic:
+            OpStoreStatic(reader, locals);
+            break;
+
         case OpCode::OP_New:
             OpNew(reader, locals);
             break;

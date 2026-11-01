@@ -151,6 +151,7 @@ void VmExecutor::InitializeForRun(const CompiledModule& module) {
     //or backtrace from a previous run.
     m_currModule = &module;
     m_classLayout.Build(module.classes);
+    m_staticSlots.Build(module.staticSlots.size());
     ResetPerRunState(module);
     InitStringStore(module);
     InitStructHeap();

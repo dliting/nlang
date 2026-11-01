@@ -8,6 +8,7 @@
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
 #include "VmClassLayout.h"
+#include "VmStaticSlots.h"
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
@@ -606,6 +607,10 @@ private:
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
     void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    //0.12.6: static slot cell copies against the module's VmStaticSlots
+    //table (lock-free like the field family — benign value races, K8).
+    void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreStatic(BytecodeReader& reader, uint8_t* locals);
     void OpNew(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
@@ -1622,6 +1627,9 @@ private:
     //InitializeForRun binds a new module; consumers read class fields
     //through it instead of the CompiledClass parallel arrays.
     VmClassLayout m_classLayout;
+    //0.12.6: static slot storage for the bound module — one zeroed
+    //8-byte cell per staticSlots record, rebuilt with the layout view.
+    VmStaticSlots m_staticSlots;
     //String objectization: runtime strings are GC-managed immutable objects.
     //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
     //uninitialized, reads as "" — same fallback shape the old pool-index-0

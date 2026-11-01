@@ -431,33 +431,8 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
     throw std::runtime_error("NLang backend: local variable not found: " + name);
 }
 
-VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
-    BareIdTarget t;
-    if (!field)
-        return t;
-    auto it = m_currFunc->localOffsets.find(field->Name());
-    if (it != m_currFunc->localOffsets.end()) {
-        t.kind = BareIdTarget::Local;
-        t.localOffset = it->second;
-        return t;
-    }
-    if (auto* pOwner = OwningTypeOfMemberField(field)) {
-        //0.9.11 D2: struct fields flatten through the struct helper (the
-        //class helper walks the inheritance chain, which structs lack).
-        int off = (field->Kind() == NK_StructField)
-            ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
-                              field->Name())
-            : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
-                                   field->Name());
-        if (off >= 0) {
-            t.kind = BareIdTarget::ThisField;
-            t.owner = pOwner;
-            t.fieldOff = off;
-            return t;
-        }
-    }
-    return t;
-}
+//ResolveBareIdentifier/StaticSlotIndexOf live in ResolveBareIdentifier.cpp
+//(bare-name target classification, shared by three emitter families).
 
 bool VmBackend::WriteModuleArtifact(BuildEnvironment& env,
                                     const CompiledModule& module,

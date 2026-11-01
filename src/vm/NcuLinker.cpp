@@ -28,6 +28,7 @@ struct UnitPushes
 	std::vector<uint32_t> functions;
 	std::vector<uint32_t> interfaces;
 	std::vector<uint32_t> enums;
+	std::vector<uint32_t> slots;
 };
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
@@ -87,6 +88,8 @@ static void ValidateClosure(const std::vector<CompiledModule>& units) {
         checkTable("class", u.classImports.size(), u.classes.size());
         checkTable("struct", u.structImports.size(), u.structs.size());
         checkTable("enum", u.enumImports.size(), u.enumNames.size());
+        checkTable("staticSlot", u.staticSlotImports.size(),
+            u.staticSlots.size());
     }
 }
 
@@ -177,6 +180,20 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
+//v2.13 (v0.12.6): static slots are STORAGE, not symbols — no name dedup.
+//Each unit's own entries append in unit order (import tail entries get
+//their mapping from slot resolution, not here); the provider unit owns
+//the metadata remap of what it pushed.
+static void MergeStaticSlots(const CompiledModule& u, CompiledModule& merged,
+                             NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.staticSlots.size() - u.staticSlotImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        m.slots[i] = static_cast<uint32_t>(merged.staticSlots.size());
+        merged.staticSlots.push_back(u.staticSlots[i]);
+        p.slots.push_back(m.slots[i]);
+    }
+}
+
 static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
                            NcuOperandMaps& m, UnitPushes& p,
                            BuiltinStubIndex& builtinStubs) {
@@ -234,6 +251,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
         MergeStructs(units[ui], merged, maps[ui], pushes[ui]);
         MergeEnums(units[ui], merged, maps[ui], pushes[ui]);
+        MergeStaticSlots(units[ui], merged, maps[ui], pushes[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
         MergeInterfaces(units[ui], merged, pushes[ui]);
@@ -286,7 +304,24 @@ static void RemapClassMetadata(CompiledModule& merged,
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cc.fieldTypeDescs)
             RemapTypeDesc(td, m.structs, m.classes);
+        //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
+        //merged storage table, the type descriptor the merged type tables.
+        for (auto& sf : cc.staticFields) {
+            if (sf.slotIdx != 0xFFFF)
+                sf.slotIdx = static_cast<uint16_t>(
+                    Lookup(m.slots, sf.slotIdx));
+            RemapTypeDesc(sf.type, m.structs, m.classes);
+        }
     }
+}
+
+//v2.13 (v0.12.6): the static slot records the unit pushed carry
+//unit-local type descriptors — remap them like the field descriptors.
+static void RemapStaticSlotMetadata(CompiledModule& merged,
+                                    const NcuOperandMaps& m,
+                                    const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed)
+        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes);
 }
 
 //默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
@@ -371,6 +406,7 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         RemapClassMetadata(merged, maps[ui], pushes[ui].classes);
         RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
         RemapEnumMethodIndices(merged, maps[ui], pushes[ui].enums);
+        RemapStaticSlotMetadata(merged, maps[ui], pushes[ui].slots);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
         //0.9.10 v2.4: interface static indices are function-table

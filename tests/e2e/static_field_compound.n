@@ -1,0 +1,12 @@
+//Compound assignment on static fields: bare and class-qualified forms.
+class Counter {
+    public static int total;
+    public static void bump() {
+        total += 3;             //bare read-modify-write
+        Counter.total *= 2;     //class-qualified read-modify-write
+    }
+}
+int main() {
+    Counter.bump();   //((0 + 3) * 2) = 6
+    return Counter.total;
+}

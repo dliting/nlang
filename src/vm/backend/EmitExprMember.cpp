@@ -67,6 +67,12 @@ void VmBackend::Access(SnMemberExpr& expr) {
     //throw), no null check, args stage from slot 0.
     if (EmitMemberStaticCall(member, emitter, resultOffset))
         return;
+    //v0.12.6: type-name-qualified static field read (Counter.total; the
+    //D4 inherited Derived.tag binds the DECLARING class's field). Same
+    //reasoning as the static call above: the receiver names a type and
+    //has no value to emit.
+    if (EmitMemberStaticFieldRead(member, field, emitter, resultOffset))
+        return;
     //Static faces on builtin generic type names (Future.selectAny):
     //detection is the qualifier singleton's pointer identity — must
     //run before the typed-receiver dispatch reads the outer's type

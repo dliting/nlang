@@ -24,6 +24,10 @@ struct NcuOperandMaps
 	std::unordered_map<uint32_t, uint32_t> structs;
 	std::unordered_map<uint32_t, uint32_t> arrayTypes;
 	std::unordered_map<uint32_t, uint32_t> enums;
+	//v2.13 (v0.12.6): static slot indices are unit-local in bytecode
+	//operands — each unit's own slots append to the merged storage table,
+	//never deduped (a slot is storage identity, not a symbol).
+	std::unordered_map<uint32_t, uint32_t> slots;
 };
 
 //原地改写全部表索引操作数（11 个重映射相关操作码族）。onUnmapped(

@@ -1,0 +1,70 @@
+/*---
+    ResolveBareIdentifier.cpp — bare identifier target classification.
+    The single source for what a bare name addresses (local / static
+    slot / implicit this-field), consumed by the identifier read, plain
+    assignment and compound assignment emitters. Split out of
+    VmBackend.cpp (2026-11-02 source-size guard).
+---*/
+#include "VmBackend.h"
+#include <nlang/compiler/SnData.h>
+
+#include <stdexcept>
+
+namespace nlang {
+
+VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
+    BareIdTarget t;
+    if (!field)
+        return t;
+    //v0.12.6: static locals resolve as plain locals until their slot
+    //machinery lands (Task 7) — per-call semantics would be silently
+    //wrong, so any use fails loudly instead. Temporary; removed with
+    //the static-local tasks. (SnLocalVar shares NK_FormalParam as its
+    //kind — only locals ever carry NF_Static on that kind.)
+    if (field->Kind() == NK_FormalParam && field->ContainFlags(NF_Static))
+        throw std::runtime_error(
+            "NLang backend: static locals are not yet supported: "
+            + field->Name());
+    auto it = m_currFunc->localOffsets.find(field->Name());
+    if (it != m_currFunc->localOffsets.end()) {
+        t.kind = BareIdTarget::Local;
+        t.localOffset = it->second;
+        return t;
+    }
+    //0.12.6 D1/D3: a static class field is module-slot-backed — no
+    //instance involved, so this precedes the this-field walk (whose
+    //offset solver skips statics anyway). Locals above keep shadowing.
+    if (field->Kind() == NK_ClassField
+        && field->ContainFlags(NF_Static)) {
+        t.kind = BareIdTarget::StaticSlot;
+        t.slotIdx = StaticSlotIndexOf(
+            static_cast<const SnClassField&>(*field));
+        return t;
+    }
+    if (auto* pOwner = OwningTypeOfMemberField(field)) {
+        //0.9.11 D2: struct fields flatten through the struct helper (the
+        //class helper walks the inheritance chain, which structs lack).
+        int off = (field->Kind() == NK_StructField)
+            ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
+                              field->Name())
+            : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
+                                   field->Name());
+        if (off >= 0) {
+            t.kind = BareIdTarget::ThisField;
+            t.owner = pOwner;
+            t.fieldOff = off;
+            return t;
+        }
+    }
+    return t;
+}
+
+uint16_t VmBackend::StaticSlotIndexOf(const SnClassField& field) const {
+    auto it = m_staticSlotByField.find(const_cast<SnClassField*>(&field));
+    if (it == m_staticSlotByField.end())
+        throw std::runtime_error(
+            "NLang backend: static field without a slot: " + field.Name());
+    return it->second;
+}
+
+} //namespace nlang

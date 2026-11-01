@@ -184,8 +184,9 @@ void VmBackend::EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
-//Identifier arm: resolved-field tail — local frame read or the implicit
-//this.<field> member read; no codegen binding is an internal error.
+//Identifier arm: resolved-field tail — local frame read, module static
+//slot load, or the implicit this.<field> member read; no codegen
+//binding is an internal error.
 void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                         uint16_t resultOffset,
                                         SnField* field) {
@@ -195,6 +196,13 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         emitter.EmitUint16(target.localOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
+    } else if (target.kind == BareIdTarget::StaticSlot) {
+        //Bare static-field read inside the class (D3's qualified-only
+        //rule for outsiders is a resolver concern; the bare form is the
+        //in-class spelling). No receiver, no null check.
+        emitter.Emit(OpCode::OP_LoadStatic);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(target.slotIdx);
     } else if (target.kind == BareIdTarget::ThisField) {
         //Implicit this.<field> (bare member read inside a method).
         //Same opcode shape as the MemberExpr class-field read.

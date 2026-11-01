@@ -31,6 +31,10 @@ int VmBackend::FindFieldOffset(SnStructDecl& structDecl, const std::string& fiel
 //Object layout: [classIdx, root_ancestor_fields..., parent_fields..., own_fields...]
 //Cell[0] = classIdx (1 cell, used for runtime virtual dispatch via OP_CallMethod).
 //Data fields occupy cells 1, 3, 5, ... (2 cells each).
+//v0.12.6 D1: static fields are module-slot-backed and never enter the
+//instance layout — both walks skip NF_Static members, mirroring
+//CollectOwnClassFields (a static field reads here as "not an instance
+//field", which ResolveBareIdentifier's StaticSlot arm answers instead).
 int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& fieldName) {
     //Collect ancestor chain from root to direct parent
     std::vector<SnClassDecl*> ancestors;
@@ -53,10 +57,11 @@ int VmBackend::FindClassFieldOffset(SnClassDecl& classDecl, const std::string& f
     if (IsHandleClassDecl(classDecl))
         off += kHeapFieldStrideBytes;
     for (auto& member : classDecl.Members()) {
-        if (member.Kind() == NK_ClassField && member.Name() == fieldName)
+        if (member.Kind() != NK_ClassField || member.ContainFlags(NF_Static))
+            continue;
+        if (member.Name() == fieldName)
             return off;
-        if (member.Kind() == NK_ClassField)
-            off += kHeapFieldStrideBytes;
+        off += kHeapFieldStrideBytes;
     }
     return -1;
 }
@@ -73,10 +78,11 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
     if (IsHandleClassDecl(ancestor))
         off += kHeapFieldStrideBytes;
     for (auto& member : ancestor.Members()) {
-        if (member.Kind() == NK_ClassField && member.Name() == fieldName)
+        if (member.Kind() != NK_ClassField || member.ContainFlags(NF_Static))
+            continue;
+        if (member.Name() == fieldName)
             return off;
-        if (member.Kind() == NK_ClassField)
-            off += kHeapFieldStrideBytes;
+        off += kHeapFieldStrideBytes;
     }
     return -1;
 }

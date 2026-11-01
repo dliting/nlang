@@ -78,6 +78,8 @@ static const char* s_OpCodeNames[] = {
     "str_foreach_step",
     "shl",
     "shr",
+    "load_static",
+    "store_static",
 };
 
 const char* OpCodeName(OpCode op) {

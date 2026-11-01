@@ -37,13 +37,24 @@ void VmBackend::Access(SnAssignStmt& stmt) {
 }
 
 //Bare-identifier lvalue: local slot write (struct deep-copy variant
-//included) or implicit this.<field> write inside a method.
+//included), bare static-field slot store inside the class, or implicit
+//this.<field> write inside a method.
 void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         SnField* field, BytecodeEmitter& emitter) {
     auto target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
         EmitAssignToLocal(assign, target.localOffset,
             field->EvalDataType(), emitter);
+    } else if (target.kind == BareIdTarget::StaticSlot) {
+        //v0.12.6: bare static-field store — same stage-then-store shape
+        //as the local write (the destination is written only after the
+        //whole RHS evaluated).
+        EvalAreaClaim claim(*this, 1);
+        uint16_t valueSlot = claim.base();
+        EmitExpression(*assign.Right(), emitter, valueSlot);
+        emitter.Emit(OpCode::OP_StoreStatic);
+        emitter.EmitUint16(target.slotIdx);
+        emitter.EmitUint16(valueSlot);
     } else if (target.kind == BareIdTarget::ThisField) {
         EmitAssignToThisField(assign, target.fieldOff, emitter);
     }
@@ -99,12 +110,29 @@ void VmBackend::EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
 }
 
 //Member lvalue: arr[i].field / li[i].field subscripted-element stores
-//first (they fully consume the statement), then plain class/struct
-//field stores.
+//first (they fully consume the statement), then the type-qualified
+//static-field store (v0.12.6), then plain class/struct field stores.
 void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, BytecodeEmitter& emitter) {
     if (EmitAssignSubscriptElementStore(assign, memberExpr, emitter))
         return;
+    //v0.12.6 D3: static store through the class name. Keyed on the
+    //bound field, not the receiver's type — the outer names a type and
+    //has no value shape (a value receiver never reaches codegen; the
+    //resolver's namespace filter rejects it).
+    if (auto* field = memberExpr.Field(); field
+        && field->Kind() == NK_ClassField
+        && field->ContainFlags(NF_Static)
+        && !IsInterfaceConstantField(*field)) {
+        EvalAreaClaim claim(*this, 1);
+        uint16_t valueSlot = claim.base();
+        EmitExpression(*assign.Right(), emitter, valueSlot);
+        emitter.Emit(OpCode::OP_StoreStatic);
+        emitter.EmitUint16(StaticSlotIndexOf(
+            static_cast<const SnClassField&>(*field)));
+        emitter.EmitUint16(valueSlot);
+        return;
+    }
     auto* outerType = memberExpr.Outer()->EvalDataType();
     if (outerType && outerType->Kind() == NK_ClassDecl) {
         EmitAssignClassField(assign, memberExpr,

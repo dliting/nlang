@@ -32,17 +32,17 @@ void PatchOperand(std::vector<uint8_t>& bc, size_t off,
 
 } //namespace
 
-//Per-opcode operand rewrite: dispatch the 11 remap-relevant operand
-//kinds. Other operands (local offsets, jump targets, intrinsic IDs,
-//type tags, debug line numbers) are unit-local and do not need
-//remapping.
-static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
+//Name-channel operands (string pool / function table). Other operands
+//(local offsets, jump targets, intrinsic IDs, type tags, debug line
+//numbers) are unit-local and do not need remapping.
+static void PatchNameOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
     switch (op) {
         case OpCode::OP_ConstString:
         case OpCode::OP_AssertFail:
         case OpCode::OP_CallMethod:
+        case OpCode::OP_MakeVFunc:
             PatchOperand(bc, pos + 1, maps.strings, "string", onUnmapped);
             break;
         case OpCode::OP_CallFunc:
@@ -53,9 +53,18 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_MakeBoundFunc:
             PatchOperand(bc, pos + 1, maps.functions, "function", onUnmapped);
             break;
-        case OpCode::OP_MakeVFunc:
-            PatchOperand(bc, pos + 1, maps.strings, "string", onUnmapped);
+        default:
             break;
+    }
+}
+
+//Type- and slot-channel operands (class/struct/array/enum/static-slot
+//tables). SECOND-operand entries note the offset — OP_New family
+//shapes lead with a dst frame offset.
+static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
+    const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    switch (op) {
         case OpCode::OP_New:
             // dst, classIdx — the table operand is the SECOND uint16
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
@@ -81,6 +90,14 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_Enum_to_str:
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;
+        case OpCode::OP_LoadStatic:
+            // dst, slotIdx — the table operand is the SECOND uint16
+            PatchOperand(bc, pos + 3, maps.slots, "static slot", onUnmapped);
+            break;
+        case OpCode::OP_StoreStatic:
+            // slotIdx, src — the table operand is the FIRST uint16
+            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+            break;
         default:
             break;
     }
@@ -92,7 +109,8 @@ void NcuRemapBytecodeOperands(std::vector<uint8_t>& bytecode,
     size_t pos = 0;
     while (pos < bytecode.size()) {
         OpCode op = static_cast<OpCode>(bytecode[pos]);
-        PatchTableOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchNameOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchTypeOperands(op, bytecode, pos, maps, onUnmapped);
         pos += InstructionStride(op);
     }
 }

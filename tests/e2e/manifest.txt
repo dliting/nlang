@@ -1983,3 +1983,8 @@ err_static_local_toplevel compile_error top-level statements cannot be combined 
 err_static_local_generic_method compile_error cannot be declared inside a generic class
 err_static_const_no_init compile_error must have an initializer
 static_field_decl_only 0
+static_field_share 2
+static_field_bare_name 42
+static_field_inherited 66
+static_field_compound 6
+err_static_instance_access compile_error must be accessed through its class

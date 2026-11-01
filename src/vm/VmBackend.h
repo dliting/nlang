@@ -307,6 +307,12 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //0.12.6: type-name-qualified static field read (Counter.total, the
+    //D4 inherited Derived.tag). Keyed on the bound field, never the
+    //receiver — the receiver names a type and has no value to emit.
+    bool EmitMemberStaticFieldRead(SnMemberExpr& member, SnField* field,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
     //Static face on a builtin generic type name (Future.selectAny):
     //no receiver — args stage from claim slot 0 and dispatch straight
     //to OP_CallIntrinsic (the face table's row carries the id).
@@ -686,6 +692,12 @@ private:
         SnField* field, int fieldOff, int op, BytecodeEmitter& emitter);
     void EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
         SnMemberExpr& memberExpr, int op, BytecodeEmitter& emitter);
+    //v0.12.6 D3: static read-modify-write (bare or class-qualified) —
+    //slot load, RHS, compound op, slot store; old value and RHS park in
+    //an exclusive claim across the RHS emission.
+    void EmitCompoundAssignStaticField(SnCompoundAssignStmt& ca,
+        uint16_t slotIdx, SnField* lhsType, int op,
+        BytecodeEmitter& emitter);
     //0.8.4: bare-subscript LHS (arr[i] += v, li[i] -= v, d[k] *= v) —
     //read-modify-write with base and index each evaluated exactly once
     //(JLS 15.26.1), parked in an EvalAreaClaim(4) [base, index, old, rhs].
@@ -1063,6 +1075,11 @@ private:
     //helpers re-index per statement.
     void ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx);
     void BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx);
+    //0.12.6 D1: static-field slot allocation (module declaration order)
+    //and the deferred type-descriptor fill for those slots — descriptors
+    //wait for the all-classes-registered phase, like the sibling above.
+    void AllocateStaticFieldSlot(SnClassField& cf, CompiledClass& cc);
+    void BuildStaticFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx);
     //TypeLeafSlots wiring for BuildTypeDesc: leaves slot through
     //StructSlotFor/ClassSlotFor (own entry or import placeholder).
     TypeLeafSlots LeafSlotResolvers();
@@ -1470,13 +1487,16 @@ private:
     //     caller via LookupOverride() before calling here
     //  2. local frame (params + user locals) — localOffsets
     //  3. implicit this.<classField> — bare member access inside a method
-    //  4. NotFound — resolver/codegen model divergence (internal error)
+    //  4. static class field — module slot (0.12.6 D1/D3: no instance
+    //     involved; locals keep shadowing per the bare-pool precedence)
+    //  5. NotFound — resolver/codegen model divergence (internal error)
     //Single source of truth shared by the IdentifierExpr read, AssignStmt
     //write, and CompoundAssignStmt paths so the three stay in lockstep.
     struct BareIdTarget {
-        enum Kind { Local, ThisField, NotFound };
+        enum Kind { Local, ThisField, StaticSlot, NotFound };
         Kind kind = NotFound;
         uint16_t localOffset = 0;   //Local
+        uint16_t slotIdx = 0;       //StaticSlot: module slot index
         //ThisField: owning type decl (SnClassDecl or SnStructDecl —
         //0.9.11 D2). Consumers read fieldOff only; the owner exists to
         //keep the binding auditable.
@@ -1484,6 +1504,10 @@ private:
         int fieldOff = -1;          //ThisField: flattened field offset
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
+    //0.12.6: the module slot a static class field owns (declaration
+    //order, assigned at class registration). Throws on a static field
+    //the registration walk never saw — an internal invariant break.
+    uint16_t StaticSlotIndexOf(const SnClassField& field) const;
 
     //Receiver slot for implicit this.<field> access: local 0 (`this` in a
     //method body), or the caller-side this-override slot when emitting a
@@ -1506,6 +1530,10 @@ private:
     std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    //0.12.6 D1: static class field -> its module slot index (assigned
+    //in declaration order at class registration; the emit-side mirror
+    //of CompiledModule::staticSlots for OP_LoadStatic/OP_StoreStatic).
+    std::unordered_map<SnClassField*, uint16_t> m_staticSlotByField;
     //Archived per-unit function tables (indexed by module idx), the
     //producer-index source for cross-unit import records. Filled by
     //ShadowRegisterUnits.
