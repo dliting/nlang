@@ -12,7 +12,7 @@ states the loading contract.
 ## 20.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.11**, recorded in the header as major `2`, minor `11`
+**2.12**, recorded in the header as major `2`, minor `12`
 (§20.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ descriptors (§20.5), the default values and default expressions
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.11
-image carries the instruction set of the 2.11 toolchain — but
+string here. It is pinned to the same format version — a 2.12
+image carries the instruction set of the 2.12 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §22.4; the
 archive that packs images is chapter 21.
@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `11` |
+| version minor | u16 | `12` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
@@ -162,6 +162,7 @@ default, `1` `private`, `2` `protected`, `3` `public` (§4.8.2).
 |---|---|---|
 | name | u32 length + bytes | the qualified key (§3.6) |
 | field count | u16 | |
+| const marker | u8 | `1` for a const struct (§4.8.12), `0` otherwise |
 | field names | u32 length + bytes each | declaration order |
 | field kinds | u16 each | the field type's kind code (§20.5) |
 | field struct indices | u16 each | the struct-table index for a struct-typed field; `0xFFFF` otherwise |
@@ -182,6 +183,7 @@ allocation (§4.7.2).
 | name | u32 length + bytes | the qualified key (§3.6) |
 | field count | u16 | the fields this class declares |
 | super index | i16 | the class-table index of the superclass; `-1` for none |
+| const marker | u8 | `1` for a const class (§4.8.12), `0` otherwise |
 | field names | u32 length + bytes each | |
 | field kinds | u16 each | |
 | field struct indices | u16 each | |
@@ -357,8 +359,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.11 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.11 → reject with an
+- **version.** Below 2.12 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.12 → reject with an
   "upgrade the toolchain" diagnostic (§20.1).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string

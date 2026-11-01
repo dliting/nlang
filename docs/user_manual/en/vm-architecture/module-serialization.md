@@ -13,7 +13,7 @@ Compiled unit images are saved as `.ncu` files with this layout:
 ```text
 "NLANGCU "    magic (8 bytes, NUL-padded)
 uint16 majorVer = 2
-uint16 minorVer = 7
+uint16 minorVer = 12
 string modulePath        v2.0: this unit's dotted module path (package identity)
 string moduleName
 string entryKey          v2.0: the entry function's qualified name; empty = no entry
@@ -41,7 +41,7 @@ uniformly, and no opcode distinction is needed. The entry is no longer
 serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
-minimum format version only rises with the toolchain (currently 2.8;
+minimum format version only rises with the toolchain (currently 2.12;
 from 2.2 the type descriptors carry `func` signatures, from 2.3
 default-value expressions serialize with the image — imported stubs
 bind the formal names the function records always carried, from 2.4
@@ -54,20 +54,27 @@ their own declared fields only plus per-method access and virtuality
 bytes and per-constructor access (the exported public-static method
 index block is removed — staticness rides the function record's static
 flag), struct records gain per-constructor access, and interface
-records gain an instance-method signature block, and from 2.8 every
+records gain an instance-method signature block, from 2.8 every
 function record gains a trailing eval-area handle bitmap (packed 2-bit
-garbage-collection root classes covering the frame band): the loader
-refuses any image
+garbage-collection root classes covering the frame band), from 2.9 the
+enum tables gain per-enum member-method index and access segments,
+from 2.10 array type records carry a rank byte, from 2.11 the array arm
+of the type descriptors carries a rank byte, and from 2.12 every struct
+and class record carries a const-aggregate marker byte (after
+fieldCount in struct records, after superClassIdx in class records):
+the loader refuses any image
 below the current version, so older modules must be recompiled.
 
-Each struct includes: name, fieldCount, fieldNames[], fieldTypeKinds[],
+Each struct includes: name, fieldCount, isConstAggregate (one byte,
+v2.12), fieldNames[], fieldTypeKinds[],
 fieldStructIndices[], fieldClassIndices[], fieldTypeDescs[],
 constructorIndices (declaration order; empty = no constructor),
 fieldDefaults (one DefaultValueDesc per field, RTK_Void = no default),
 constructorAccess (one access byte per constructor, parallel to
 constructorIndices).
 
-Each class includes: name, fieldCount, superClassIdx, fieldNames[],
+Each class includes: name, fieldCount, superClassIdx, isConstAggregate
+(one byte, v2.12), fieldNames[],
 fieldTypeKinds[], fieldStructIndices[], fieldClassIndices[],
 fieldTypeDescs[], fieldAccess[], methodIndices[], methodAccess[] and
 methodVirtual[] (one byte per method, parallel to methodIndices),
