@@ -1,8 +1,9 @@
 # 19. Library Exceptions
 
 This chapter maps the failures of library operations — the
-built-in classes of chapters 11 and 12 and the packages of
-chapters 13–18 — to the built-in exception classes of §8.3. §19.1 is
+built-in classes and methods of chapters 11, 12 and 16 and the
+packages of chapters 13–15, 17 and 18 — to the built-in exception
+classes of §8.3. §19.1 is
 the map; §19.2 fixes the conventions it rests on. The
 semantics of every site live in the chapter that defines the
 operation; this chapter adds no failure behavior of its own.
@@ -11,15 +12,15 @@ operation; this chapter adds no failure behavior of its own.
 
 | Unit | Class | Sites |
 | --- | --- | --- |
-| `string` (§11.3) | `IndexOutOfBoundsException` | `substring` range errors; `charAt` out of range |
-| `string` (§11.3) | `Exception` | `split` or `replace` with an empty argument; `toInt`, `toLong`, `toFloat`, `toDouble`, `toBool` or `toChar` on a malformed string; `charAt` on a continuation byte; `charCount` on an invalid Unicode Transformation Format (UTF-8) sequence |
+| `string` (§16.2) | `IndexOutOfBoundsException` | `substring` range errors; `charAt` out of range |
+| `string` (§16.2) | `Exception` | `split` or `replace` with an empty argument; `toInt`, `toLong`, `toFloat`, `toDouble`, `toBool` or `toChar` on a malformed string; `charAt` on a continuation byte; `charCount` on an invalid Unicode Transformation Format (UTF-8) sequence |
 | `List` (§12.1) | `IndexOutOfBoundsException` | `get`, `set` or `removeAt` out of range |
 | `Dict` (§12.2) | `Exception` | `get` with no entry for the key |
 | `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range |
-| `io` (§15.3, §15.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no channel; the typed readers at end of input; `readFile`, `writeFile` or `appendFile` failure |
-| `io` (§15.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §11.3) |
-| streams (§15.5) | `NullPointerException` | a method call through a null stream handle |
-| `fs` (§16.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
+| `io` (§14.3, §14.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no channel; the typed readers at end of input; `readFile`, `writeFile` or `appendFile` failure |
+| `io` (§14.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §16.2) |
+| streams (§14.5) | `NullPointerException` | a method call through a null stream handle |
+| `fs` (§15.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
 | `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
 | `concurrent` (§10.4) | `Exception` | construction with a negative capacity |
 | `tensor` (§18.5) | `NullPointerException` | a null array argument |
@@ -43,8 +44,8 @@ only the sites the defining chapters call out besides it.
   `IllegalArgumentException` or peer class.
 - Raising is not the only failure channel. Predicates and
   queries report by return value: the `fs` predicates and
-  `remove` on a missing path (§16.3), `io.hasInput` (§15.3),
+  `remove` on a missing path (§15.3), `io.hasInput` (§14.3),
   and the domain errors of the `math` transcendental family,
   which yield a NaN (§13.4). Stream failures beyond a null
-  handle are *host-level* run-time errors (§15.5, §8.1): no
+  handle are *host-level* run-time errors (§14.5, §8.1): no
   `catch` clause handles them.

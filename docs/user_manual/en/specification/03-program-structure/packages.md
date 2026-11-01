@@ -234,7 +234,7 @@ always-visible names are declared by the builtins preset package
 — `Object`, the `Exception` family of §8.3, `String`, `Array`,
 `List<T>` and `Dict<K,V>` — and are the whole set; a program
 that uses any other standard-library name imports its package.
-The stream handle classes `ByteStream` and `FileStream` (§15.1)
+The stream handle classes `ByteStream` and `FileStream` (§14.5)
 are also import-free today — the one remaining asymmetry,
 retained until their declaration source migrates.
 

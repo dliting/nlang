@@ -160,7 +160,7 @@ semantics.
 A value is *assignable* to a type when one of the following
 rules applies. The relation governs variable initialization,
 assignment, argument passing and return-value conversion;
-§15.1 restricts argument passing at package function calls.
+§14.1 restricts argument passing at package function calls.
 
 - The value's type is the same type (§4.1).
 - The value's type is a class and the target is that class, an

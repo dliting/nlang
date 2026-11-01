@@ -7,7 +7,7 @@
 - **泛型类声明仅签名面（全native成员）**：`class Box<T> { ... }`声明被接受，但只承载签名——成员必须是native方法，泛型体内的nlang方法体、字段初始化器、参数默认值一律在编译期被拒绝；无宿主绑定的native成员能编译通过，运行期才报`native function not registered`。日常泛型请用内建容器（`List<T>`、`Dict<K,V>`、`Channel<T>`、`Future<T>`）与预置`Promise<T>`。
 
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
-  `toChar`，见[string方法](stdlib-string.md)）；本条是有意的规格缩窄，不是缺陷。
+  `toChar`，见[string方法](../specification/library/16-string-methods.md)）；本条是有意的规格缩窄，不是缺陷。
 
 - **标量上下文中的数组值**：数组值只有两类合法去向——自身数组类型（元素类型必须完全一致），与**全部**位置上的`string`目标；`null`恒可转换到数组目标；比较恒为恒等比较；其余用法一律在编译期被明确拒绝。
 

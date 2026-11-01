@@ -20,7 +20,7 @@
 
 两个函数值在`==`下相等，当它们指代同一个函数，且对绑定引用而言携带相等的接收者；`!=`是补集，`== null`是允许的。排序比较是编译期错误。函数值经由`toString`渲染（§5.3，§4.11.2）。
 
-函数值不进入`Object`。它不能作`Dict`的键、`switch`的判别式，也不能作序列化方法的目标（第15章）。
+函数值不进入`Object`。它不能作`Dict`的键、`switch`的判别式，也不能作序列化方法的目标（第14章）。
 
 ### 函数类型语法
 
@@ -107,4 +107,4 @@ int main() {
 - **装箱成`Object`**（`Object o = f`，见[Object与装箱](../04-types/object.md)）——经泛型的不兼容类型诊断拒绝。
 - **`func`之外的`void`或`out`类型实参**（`List<void>`、`List<out int>`）。
 - 函数值作`switch`判别式（没有case家族能匹配）。
-- 函数值不能穿过序列化方法——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误（第15章）。
+- 函数值不能穿过序列化方法——对持有`func`字段的struct/class调`writeStruct` / `writeObject`是运行期错误（第14章）。

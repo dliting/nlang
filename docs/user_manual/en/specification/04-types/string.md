@@ -16,7 +16,7 @@ which is also code point order.
 
 `length()` returns the number of bytes; `charCount()` returns the
 number of code points. The string methods are defined in
-§11.3.
+§16.2.
 
 *Informative:* `string` is a primitive, but unlike the scalar
 types (integers, floats, `bool`, `char`) it is an **immutable
@@ -187,4 +187,4 @@ A string variable may hold the null handle (0). Unlike a null class reference
 ### String methods
 
 The standard library provides string methods (substring, search, case,
-splitting, `toInt`/`toFloat`, …). See [string methods](../../language-spec/stdlib-string.md).
+splitting, `toInt`/`toFloat`, …). See [string methods](../library/16-string-methods.md).

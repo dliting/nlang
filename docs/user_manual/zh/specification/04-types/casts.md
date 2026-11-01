@@ -23,7 +23,7 @@ expr as TypeName
 
 **禁止的`as`**：
 
-- `string → 数值`：`"5" as int`是编译错误（`` Invalid cast: `String as Int32` is not allowed ``）——请用标准库的`s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()`家族（见[string方法](../../language-spec/stdlib-string.md)）。
+- `string → 数值`：`"5" as int`是编译错误（`` Invalid cast: `String as Int32` is not allowed ``）——请用标准库的`s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()`家族（见[string方法](../library/16-string-methods.md)）。
 - `bool`与任何数值类型之间的互转：bool经强制转换到`string`（下文`"ok=" + true`示例）、经装箱到`Object`（见§4.11），但与任何数值类型都不互转。
 - 数组操作数被直接拒绝（`ia as int`、`ia as Object`——"the cast operand is an array"）：数组值在每个位置的合法转换是其自身数组类型与string目标——绝不用`as`（完整的数组值转换规则见[已知限制](../../language-spec/known-limitations.md)）。
 

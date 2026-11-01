@@ -60,7 +60,7 @@ through `toString` (§5.3, §4.11.2).
 
 A function value does not enter `Object`. It cannot be a `Dict`
 key, a `switch` discriminant, or the target of the serialization
-methods (chapter 15).
+methods (chapter 14).
 
 ### Function type syntax
 
@@ -198,4 +198,4 @@ comparisons with non-`func` operands are compile errors.
 - Function values as `switch` discriminants (no case family matches).
 - Function values cannot cross the serialization methods — `writeStruct`
   / `writeObject` on a struct/class holding a `func` field is a run-time
-  error (chapter 15).
+  error (chapter 14).

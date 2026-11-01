@@ -23,11 +23,11 @@ extended, or used as types, and stay outside the class hierarchy —
 `string` and the bracket array syntax are the value spellings.
 
 The method surfaces are defined across the specification: the
-`string` methods in §11.3, the `List` and `Dict` methods in
+`string` methods in chapter 16, the `List` and `Dict` methods in
 chapter 12, the default rendering of every value in §11.2, the
 concurrency handle classes and the package classes of `thread` and
 `concurrent` in chapter 10 and chapter 17, the stream handle
-classes in chapter 15, and the exception classes in §8.3.
+classes in chapter 14, and the exception classes in §8.3.
 
 A package is identified by its file's path — `stdlib/io.n` is the
 package `io` — and one build may contain only one package of each
@@ -93,33 +93,7 @@ run-time error at the `toString` site (§8.1).
 
 ## 11.3 string Methods
 
-The `string` methods operate on bytes (§4.3): offsets are byte
-offsets, and case conversion touches
-American Standard Code for Information Interchange (ASCII)
-letters only. The code-point layer — `charAt` and `charCount` —
-decodes Unicode Transformation Format (UTF-8) over the byte core.
-
-| Method | Signature | Failure behavior |
-| --- | --- | --- |
-| `substring(start[, end])` | → `string` | the bytes `[start, end)`; `end` defaults to `length()`; `start` or `end` outside `[0, length()]`, or `end < start`, raises `IndexOutOfBoundsException` |
-| `indexOf(t)` | → `int` | the first byte offset of `t`, `-1` if absent; an empty `t` yields `0` |
-| `startsWith(t)` / `endsWith(t)` / `contains(t)` | → `bool` | — |
-| `toUpper()` / `toLower()` | → `string` | ASCII letters only |
-| `trim()` | → `string` | strips leading and trailing space, tab, newline, carriage return, form feed and vertical tab |
-| `split(sep)` | → `List<string>` | an empty `sep` raises `Exception` |
-| `replace(old, repl)` | → `string` | every non-overlapping occurrence, left to right; an empty `old` raises `Exception` |
-| `toInt()` / `toLong()` | → `int` / `long` | strict whole-string parse; a malformed string raises `Exception` |
-| `toFloat()` / `toDouble()` | → `float` / `double` | strict whole-string parse; a malformed string raises `Exception` |
-| `toBool()` | → `bool` | exactly `"true"` or `"false"`; anything else raises `Exception` |
-| `toChar()` | → `char` | a decimal code-point number; a value outside the Unicode scalar values raises `Exception` |
-| `charAt(byteIndex)` | → `char` | the code point starting at that byte offset; out of range raises `IndexOutOfBoundsException`, a continuation byte raises `Exception` |
-| `charCount()` | → `int` | the code-point count; an invalid byte sequence raises `Exception` |
-
-A `string` receiver also answers `length()` — the byte count
-(§4.3) — and `equals`, `getHashCode` and `toString` (§11.2). `equals`
-takes a `string` argument; wherever a parameter takes `string`, a null
-argument is accepted and reads as the empty string. The
-subscript `s[i]` reads byte `i` as a `ubyte` (§5.7).
+The `string` method surface is defined in chapter 16.
 
 ## 11.4 Library Conventions
 
@@ -138,7 +112,7 @@ The standard library follows one surface convention.
   `ChannelClosedException` (§8.3). Chapter 19 maps each library
   operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
-  the argument surface of the console functions is chapter 15.
+  the argument surface of the console functions is chapter 14.
 - Arguments of a library call are checked against the declared
   parameter type per the conversion rules: same-type arguments
   pass as-is, rules-allowed implicit widening is applied
@@ -148,4 +122,4 @@ The standard library follows one surface convention.
   coercion of §4.5 does not fire at a package call: a library
   `string` parameter takes `string` only. The three coercing `io`
   functions (`write`, `print`, `eprint`) are the one exception
-  (§15.2).
+  (§14.2).

@@ -83,8 +83,11 @@ nav:
           - 库约定: specification/library/11-conventions.md
           - 集合: specification/library/12-collections.md
           - math包: specification/library/13-math.md
-      - io包与流: specification/15-io-streams.md
-      - fs包: specification/16-fs.md
+          - io包与流:
+              - 概览: specification/library/14-io/index.md
+              - ByteStream与FileStream: specification/library/14-io/streams.md
+          - fs包: specification/library/15-fs.md
+          - string方法: specification/library/16-string-methods.md
       - 并发库: specification/17-concurrency-library.md
       - tensor包: specification/18-tensor.md
       - 库异常: specification/19-library-exceptions.md
@@ -105,10 +108,6 @@ nav:
           - 标准库同步工具: language-spec/concurrency-concurrent.md
       - 标准库:
           - tensor: language-spec/stdlib-tensor.md
-          - io: language-spec/stdlib-io.md
-          - fs: language-spec/stdlib-fs.md
-          - string方法: language-spec/stdlib-string.md
-          - 流: language-spec/stdlib-streams.md
           - 异常映射: language-spec/stdlib-exceptions.md
       - 参考:
           - 已知限制: language-spec/known-limitations.md

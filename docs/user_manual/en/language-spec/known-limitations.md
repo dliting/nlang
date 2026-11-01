@@ -18,7 +18,7 @@ This page collects the language-level limitations visible to user programs, with
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
-  [string methods](stdlib-string.md)); this is a deliberate scope
+  [string methods](../specification/library/16-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
 - **Array values in scalar contexts**: an array value has exactly two

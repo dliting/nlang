@@ -82,8 +82,11 @@ nav:
           - Library Conventions: specification/library/11-conventions.md
           - Collections: specification/library/12-collections.md
           - The math Package: specification/library/13-math.md
-      - The io Package and Streams: specification/15-io-streams.md
-      - The fs Package: specification/16-fs.md
+          - The io Package and Streams:
+              - Overview: specification/library/14-io/index.md
+              - ByteStream and FileStream: specification/library/14-io/streams.md
+          - The fs Package: specification/library/15-fs.md
+          - string Methods: specification/library/16-string-methods.md
       - The Concurrency Library: specification/17-concurrency-library.md
       - The tensor Package: specification/18-tensor.md
       - Library Exceptions: specification/19-library-exceptions.md
@@ -104,10 +107,6 @@ nav:
           - The concurrent Package: language-spec/concurrency-concurrent.md
       - Standard Library:
           - tensor: language-spec/stdlib-tensor.md
-          - io: language-spec/stdlib-io.md
-          - fs: language-spec/stdlib-fs.md
-          - string methods: language-spec/stdlib-string.md
-          - Streams: language-spec/stdlib-streams.md
           - Exception mapping: language-spec/stdlib-exceptions.md
       - Reference:
           - Known Limitations: language-spec/known-limitations.md

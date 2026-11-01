@@ -41,7 +41,7 @@ define host-level failures name their sites — the call-depth
 bound (§7.1), a missing native function (§7.5), the unboxing and
 `null`-downcast failures of §5.5, an enumeration `toString()`
 beyond its member table (§4.6), the `toString` nesting bound of
-§11.2, the stream failures of §15.5, and the concurrency
+§11.2, the stream failures of §14.5, and the concurrency
 failures of chapter 10.
 
 ```nlang
@@ -143,10 +143,10 @@ classes are `Exception` and its six direct subclasses:
 | `Exception` | a user `throw` of `Exception` itself; a `Dict` read for an absent key (§4.12); VM sites with no class of their own: an out-of-range shift count (§5.2), a `char` conversion outside the Unicode scalar values (§5.5), a `Channel` constructed with a negative capacity (§10.4) |
 | `NullPointerException` | a member access, method call or call through a `null` class, interface or function reference (§4.8, §5.6, §5.7) |
 | `DivByZeroException` | division or remainder by zero, at any numeric width (§5.2) |
-| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7); a sized array creation with a negative length or an element count past the bound (§4.10); a `string` `substring` or `charAt` out of range (§11.3) |
+| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7); a sized array creation with a negative length or an element count past the bound (§4.10); a `string` `substring` or `charAt` out of range (§16.2) |
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
-| `IOException` | a failed `io` or `fs` operation (chapter 15, chapter 16) |
+| `IOException` | a failed `io` or `fs` operation (chapter 14, chapter 15) |
 
 The `concurrent` package (§3.9.4) declares one further direct
 subclass, `ChannelClosedException`, raised by operations on a

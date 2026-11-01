@@ -57,7 +57,7 @@ redundant — plain `int x = b;` works. The implicit matrix is in
 - `string → numeric`: `"5" as int` is a compile error (`` Invalid cast:
   `String as Int32` is not allowed ``) — use the standard library's
   `s.toInt()` / `s.toFloat()` / `s.toLong()` / `s.toDouble()` family (see
-  [string methods](../../language-spec/stdlib-string.md)).
+  [string methods](../library/16-string-methods.md)).
 - `bool` to or from any numeric type: bool reaches `string` by coercion
   (the `"ok=" + true` example below) and `Object` by boxing (§4.11), but
   converts to and from no numeric type.

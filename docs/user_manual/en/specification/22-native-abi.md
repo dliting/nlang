@@ -205,20 +205,20 @@ call. The buffer `getString` returns is valid only until the
 next host callback — the native copies it immediately.
 
 **Console.** `writeOutput` writes text verbatim to standard
-output (§15.2); `writeError` writes it to the diagnostic
+output (§14.2); `writeError` writes it to the diagnostic
 channel — standard error, or the session's single merged
-output view when an embedding host owns the streams (§15.2).
+output view when an embedding host owns the streams (§14.2).
 `readLine` returns one input line with the trailing newline
 stripped, or null at end of input; an empty line is `""`
-(§15.3). `readToken` skips whitespace across lines and
+(§14.3). `readToken` skips whitespace across lines and
 returns the next token; at end of input the host raises
-before returning, so a null result is defensive only (§15.3).
+before returning, so a null result is defensive only (§14.3).
 `readChar` decodes one full UTF-8 scalar into `outChar` and
 returns `0`; at end of input the host raises before returning,
-so the `1` result is defensive only (§15.3). Text that is not
-valid UTF-8 raises the base `Exception` (§15.3). `hasInput`
+so the `1` result is defensive only (§14.3). Text that is not
+valid UTF-8 raises the base `Exception` (§14.3). `hasInput`
 returns `1` when a `readLine` would still produce a line and
-never raises (§15.3). The buffers the
+never raises (§14.3). The buffers the
 input callbacks return are valid only until the next host
 callback.
 

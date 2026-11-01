@@ -21,7 +21,7 @@ library's `.n` source; the kernels are `native` functions
 toolchain. Every kernel is a blocking native function: it
 declares a blocking section (§10.1), so the calling context
 parks and the carrier lock is released while the kernel runs.
-Argument admission is the package rule of §15.1.
+Argument admission is the package rule of §14.1.
 
 Every family uses same-name overloads: the compiler selects the
 declaration by argument type, so the element kind comes from
