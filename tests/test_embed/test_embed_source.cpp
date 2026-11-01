@@ -796,6 +796,37 @@ static void TestPreludeReservedNameEnforced() {
     PASS();
 }
 
+//Case 4b — the same duplicate-package enforcement for `containers`
+//(spec acceptance #3 names both packages): two roots offering
+//containers.n are diagnosed identically to the lang pair above.
+static void TestPreludeDuplicateContainersRejected() {
+    TEST(TestPreludeDuplicateContainersRejected);
+    Interpreter itp;
+    ScratchDir scratchA;
+    ScratchDir scratchB;
+    {
+        std::ofstream f(scratchA.path / "containers.n");
+        f << "//first contested copy\n";
+        std::ofstream g(scratchB.path / "containers.n");
+        g << "//second contested copy\n";
+    }
+    itp.addImportDir(scratchA.path.string());
+    itp.addImportDir(scratchB.path.string());
+    bool threw = false;
+    try {
+        (void)itp.runSource("import containers;\nint main() { return 0; }");
+    } catch (const LoadError& e) {
+        threw = true;
+        const std::string text = e.what();
+        CHECK(text.find("Duplicate package") != std::string::npos,
+            "duplicate-package diagnostic fires");
+        CHECK(text.find("'containers'") != std::string::npos,
+            "diagnostic names the reserved package");
+    }
+    CHECK(threw, "two roots offering containers.n are diagnosed");
+    PASS();
+}
+
 //Case 5 — dir-less host + explicit `import lang;`/`import containers;`:
 //the import short-circuit resolves both prelude packages via the
 //embedded copies (no disk).
@@ -846,6 +877,7 @@ int main() {
     TestPreludeAlongsideStdlibImports();
     TestPreludeExplicitImportIdempotent();
     TestPreludeReservedNameEnforced();
+    TestPreludeDuplicateContainersRejected();
     TestPreludeExplicitImportDirless();
     TestConveniencePartialChannels();   //置尾：本测试动过 fd 1
     std::cerr << g_pass << " passed, " << g_fail << " failed\n";

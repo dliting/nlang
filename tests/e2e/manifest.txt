@@ -75,8 +75,6 @@ const_via_field_write_reject compile_error is immutable
 const_subclass_ctor_base_write_reject compile_error is immutable
 const_implicit_this_write_reject compile_error is immutable
 const_ctor_write_ok 7
-# --- v0.12.5 prelude split: both packages' names stay bare-visible ---
-prelude_split_faces 7
 # --- v0.12.4 container shallow copy (D9) ---
 list_copy_independent 34
 dict_copy_independent 23
@@ -93,6 +91,8 @@ const_crossmod_write_reject compile_error is immutable
 # --- v0.12.4 cause-chain failure reports (D8) ---
 exception_caused_by_output 1
 exception_caused_by_join 0
+# --- v0.12.5 prelude split: both packages' names stay bare-visible ---
+prelude_split_faces 7
 # --- bool (0.7.5 strict) ---
 bool_basics 0 false
 bool_strict_reject compile_error condition must be bool
