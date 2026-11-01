@@ -121,7 +121,7 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
 - 安装包组件化（tools-only / IDE-only）与捆绑 VC++ 运行库（/MT 或 vc_redist）
-- 文档子系统延后项：①片段审计扩展到 language-spec/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
+- 文档子系统延后项：①片段审计扩展到 specification/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
 
 ---
 
@@ -143,5 +143,5 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 
 | 文档 | 说明 |
 |------|------|
-| docs/user_manual/{zh,en}/language-spec/ | NLang 语言规范（类型语义、语法、GC 行为），一章一页 16 篇，中英双树 |
+| docs/user_manual/{zh,en}/specification/ | NLang 语言规范（语言、标准库、二进制格式、参考页），带 § 条款编号，中英双树 61 页 |
 | docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 15 篇，中英双树 |

@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Created:** 2026-10-26
 **Spec-Sections:** §0
+**Updated:** 2026-10-31 (the separate `language-spec/` reference tree was merged into this specification tree; see `CHANGELOG.md`)
 
 Record the decision to maintain a normative language specification
 alongside the tutorial manual, and the rules under which it evolves.

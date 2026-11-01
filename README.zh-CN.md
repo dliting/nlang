@@ -226,7 +226,7 @@ int main() {
 ```
 
 完整细节——参数类型政策、异常映射、字节语义、确定性
-PRNG——见库约定章（`docs/user_manual/zh/specification/library/11-conventions.md`）；
+PRNG——见规范的标准库部分（`docs/user_manual/zh/specification/index.md`）；
 示例的可运行副本在`examples/stdlib_*.n`。
 
 初次接触NLang？`docs/user_manual/zh/getting-started/`章节按主题逐页讲解
