@@ -8,7 +8,7 @@
    [声明](../specification/03-program-structure/declarations.md) →
    [泛型](../specification/04-types/generics.md)
    ——类型系统、声明与List/Dict
-4. [表达式](../language-spec/expressions.md) → [语句](../language-spec/statements.md)
+4. [表达式](../specification/05-expressions/index.md) → [语句](../specification/06-statements/index.md)
    ——运算符、控制流、异常
 5. [函数](../language-spec/functions.md) →
    [函数类型与委托](../language-spec/function-types-and-delegates.md)

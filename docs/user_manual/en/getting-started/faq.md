@@ -88,7 +88,7 @@ is read as `v`, `--`, `1` and fails as a statement (`syntax error`,
 (`v - -1`) or parenthesize the unary operand (`v - (-1)`). Plain `v+1`
 and `v+-1` are fine — `+-` is not a token.
 
-See also: [Language Specification / Expressions](../language-spec/expressions.md).
+See also: [Specification / Expressions](../specification/05-expressions/index.md).
 
 ### Debugging: how do I feed `io.readLine` / `finally` doesn't run on stop / breakpoints drift?
 
@@ -191,7 +191,7 @@ rejected at compile time with explicit errors
 should be written `if (count != 0)`. Separately, the parameter count
 of a function is capped at 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
-typing is on [Language Specification / Statements](../language-spec/statements.md)
+typing is on [Specification / Statements](../specification/06-statements/index.md)
 ("Condition typing"); the parameter ceiling is on [Language
 Specification / Known Limitations](../language-spec/known-limitations.md)
 ("Parameter count ceiling" item). See [Common Error

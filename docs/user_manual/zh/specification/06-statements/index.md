@@ -2,6 +2,8 @@
 
 # 6. 语句
 
+NLang的控制流语句共享本章固定的规则。`if`、`switch`与`assert`的用法细节见[控制流](control-flow.md)，循环形式——`for`、`while`、`do-while`与`foreach`——见[循环](loops.md)，`try`/`catch`/`throw`/`finally`见[异常](../../language-spec/exception.md)。
+
 ## 6.1 块与局部声明
 
 语句的语法见§2.5。段`{ ... }`是一条其声明具有块作用域的语句（§3.5）；段只约束可见性，被重新声明的名字的存储遵循§3.5的共享规则。
@@ -11,6 +13,27 @@
 `const T x = e;`要求初始化器。声明之后`x`不能再被简单赋值或复合赋值（§6.2）：否则是编译期错误。该约束是浅层的——向`const`数组的元素存储，或经由`const`类引用写字段——都是允许的。`const`适用于局部声明与形式参数；参数从实参取值，不声明初始化器。在字段上写`const`是语法错误。
 
 单独的`;`是空语句：它什么都不做，实现SHOULD警告它被忽略。表达式不是语句：只有调用可以独立成句（§2.5），所以`5;`是语法错误。
+
+### Const局部
+
+```nlang
+const int X = 5;
+const string Greeting = "hello";
+```
+
+标记为`const`的局部变量必须在声明时初始化，之后不能再被赋值或复合赋值。形参也可以标记`const`（被调方不能对其重新赋值）；class/struct字段上的`const`是语法错误。一般形式见[变量声明](../03-program-structure/declarations.md)。
+
+**const是浅的（Java-`final`风格）**：`const`防止重新绑定*名字*，但不冻结被引用对象的状态。通过const局部做成员变更是允许的：
+
+```nlang
+const Foo f = Foo();
+f.x = 5;            // OK —— f本身未被重新赋值
+f = Foo();      // 错误 —— 不能给const局部重新赋值
+const Point p = q;
+p.x = 5;            // OK —— 只有p的绑定是const
+```
+
+对class字段和数组元素而言，这意味着：`const`引用仍允许通过它写入。深/不可变风格的const不受支持。
 
 ## 6.2 赋值
 
@@ -27,6 +50,18 @@
 
 复合赋值是语句而非表达式：它没有值，表达式中的`(x += 1)`是语法错误。对`const`局部赋值是编译期错误（§6.1）。
 
+### 复合赋值
+
+```nlang
+x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
+```
+
+`x = x op y`的读-改-写简写。支持的左值：局部变量、class字段（`this.f += y`）、struct字段（`pt.x += y`）、下标元素（`arr[i] += y`、`li[i] += y`、`d[k] += y`）。左值只求值**一次**：成员左值的接收者与下标左值的基/索引都不重算——`make().x += 5`只调用一次`make()`，读与写落在同一个对象上（按`make().x = make().x + 5`展开则会调用两次`make()`，写进另一个对象）；`arr[f()] += 1`只调用一次`f()`。
+
+位移对`<<=`/`>>=`把结果类型固定为左值的声明类型（不提升为int），计数实参规则与二元位移一致——见[运算符](../05-expressions/operators.md)「位移」。
+
+元素为string时仅`+=`（拼接）合法，其余六个操作报`operator not supported on string`。string基不支持（`string does not support subscript access`，见[常见错误](../../language-spec/common-errors.md)「赋值目标」）。`d[k] += v`在键缺失时抛异常（与读`d[k]`相同）。
+
 ## 6.3 选择
 
 `if`的条件是`bool`表达式（§5.1）。`if`的`else`绑定到最近的、尚无`else`的外层`if`（§2.7）；`else if`链是嵌套的`if`，没有`elseif`关键字。局部声明作为控制流语句的不带花括号的体是编译期错误：用段包裹它（§6.1）。
@@ -36,6 +71,14 @@
 `switch`的语法见§2.5：case子句在前，然后是可选的、位于最后的`default`子句；`default`子句在任何其他位置都是语法错误。一个case子句携带一个或多个以逗号分隔的标号；每个标号是一个表达式。在执行期，标号按子句顺序从上到下、子句内从左到右求值；第一个在§5.2的相等意义下等于判别式的标号执行其子句，该子句剩余的标号与后续子句的标号不再求值。对浮点判别式，`NaN`不匹配任何标号，`−0.0`匹配标号`0.0`（§5.2）。case标号的类型必须与判别式的类型属于同一家族；家族是：整数类型连同枚举与`char`、浮点类型、`string`。家族之间没有转换：浮点判别式上的整数标号是编译期错误。`null`标号是编译期错误。落在判别式类型取值范围之外的常量标号是编译期错误。常量值相同的两个标号——同在一个子句或分在不同子句——是编译期错误；非常量标号可以重复，首个匹配胜出。
 
 当一个子句的语句列表执行完毕，控制传到`switch`的末尾：执行绝不从一个子句落到下一个。子句体中的`break`立即退出`switch`（§6.4）；子句体中的`continue`作用于最内层所在循环，没有所在循环时是编译期错误。
+
+### 条件类型
+
+`if`/`while`/`do-while`/`for`/`assert`的条件必须是**`bool`**——比较与谓词已经产生bool（见[运算符](../05-expressions/operators.md)、[基本类型](../04-types/primitives.md)）。int、string、float、char、class、struct、数组条件都是编译错误（`if condition must be bool, not "Int32"`）。NLang是严格bool语言，没有C式的「非零即真」：`if (1)`与`if (count)`都不合法，请写`if (count != 0)`；`if (s != "")`、`if (obj != null)`同理。
+
+### 无大括号的裸语句体
+
+控制流语句的无大括号（裸）语句体不能是变量声明——`if (c) int x = 1;`会报`a local declaration cannot be the unbraced body of a control-flow statement`。请改用带大括号的语句体。
 
 ## 6.4 迭代
 

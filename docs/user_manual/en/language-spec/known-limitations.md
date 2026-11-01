@@ -61,7 +61,7 @@ This page collects the language-level limitations visible to user programs, with
   a typed target; as a receiver (`{}.length()`) there is none, so it
   stays rejected — bind a typed local first. Named arguments do infer
   (`count(items = {1, 2})`). See
-  [Collection Initializers](collection-initializers.md).
+  [Collection Initializers](../specification/05-expressions/initializers.md).
 
 - **Empty array literal**: the empty literal is `{}` for `List<T>` and
   `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array

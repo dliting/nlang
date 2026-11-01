@@ -33,7 +33,7 @@ Error: if condition must be bool, not "String".
 ```
 
 `if`/`while`/`do-while`/`for`/`assert`的条件与`&&`/`||`/`!`的运算数都必须是`bool`（比较与谓词已经产生bool）——int、string、float、char、class、struct、array都会被明确拒绝（`if condition must be bool, not
-"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。请改写为显式比较：`if (s != "")`、`if (count != 0)`。详见[语句](statements.md)「条件类型」与[运算符](operators.md)「逻辑」。
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。请改写为显式比较：`if (s != "")`、`if (count != 0)`。详见[语句](../specification/06-statements/index.md)「条件类型」与[运算符](../specification/05-expressions/operators.md)「逻辑」。
 
 ### import与可见性
 
@@ -94,7 +94,7 @@ int main() {
 Error: a local declaration cannot be the unbraced body of a control-flow statement; use braces
 ```
 
-控制流语句的裸体（无花括号）不能是声明——请改用花括号体。调用带`out`形参的函数时，调用点须带`out`标记，否则报`The function invoke "foo(y)" is not compatible with the declaration.`。详见[语句](statements.md)「无大括号的裸语句体」与[out参数](out-parameters.md)。
+控制流语句的裸体（无花括号）不能是声明——请改用花括号体。调用带`out`形参的函数时，调用点须带`out`标记，否则报`The function invoke "foo(y)" is not compatible with the declaration.`。详见[语句](../specification/06-statements/index.md)「无大括号的裸语句体」与[out参数](out-parameters.md)。
 
 ### 顶层直接初始化的首实参被当作类型解析
 
@@ -130,7 +130,7 @@ int main() {
 Error: cannot assign to the result of a method call.
 ```
 
-方法调用结果是值，不是存储位置——`c.step() = v`与`c.step() += v`都报此错。要写字段，左值写`c.n`；支持的全部左值形态见[复合赋值](compound-assignment.md)。
+方法调用结果是值，不是存储位置——`c.step() = v`与`c.step() += v`都报此错。要写字段，左值写`c.n`；支持的全部左值形态见[复合赋值](../specification/06-statements/index.md)。
 
 ### The method "f" claims the virtual dispatch slot of ...
 
@@ -233,7 +233,7 @@ int main() {
 Error: switch discriminant must be int, float, string, or enum
 ```
 
-switch判别式可以是整型家族（含char）、`float`/`double`、`string`或enum；bool、class、struct、`List`、`Dict`以及数组值被拒——class值用`if`/`else` + `equals()`代替，bool判别请展开为`if`/`else`。详见[switch](switch.md)。
+switch判别式可以是整型家族（含char）、`float`/`double`、`string`或enum；bool、class、struct、`List`、`Dict`以及数组值被拒——class值用`if`/`else` + `equals()`代替，bool判别请展开为`if`/`else`。详见[switch](../specification/06-statements/control-flow.md)。
 
 ### 字面量与常量适配
 
@@ -311,7 +311,7 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型](../specification/04-types/index.md)「数值转换矩阵」与[运算符](operators.md)「算术」。
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型](../specification/04-types/index.md)「数值转换矩阵」与[运算符](../specification/05-expressions/operators.md)「算术」。
 
 ### `as`转换
 
@@ -354,7 +354,7 @@ int main() {
 Error: Incompatible type "1".
 ```
 
-字典初始化器的键是表达式，按与值相同的转换规则对照声明的键类型K检查——`Dict<int, int>`里的string键过不了该检查。写声明的键类型的键（`{1: 2}`），或把K声明为`string`。详见[集合初始化器](collection-initializers.md)。
+字典初始化器的键是表达式，按与值相同的转换规则对照声明的键类型K检查——`Dict<int, int>`里的string键过不了该检查。写声明的键类型的键（`{1: 2}`），或把K声明为`string`。详见[集合初始化器](../specification/05-expressions/initializers.md)。
 
 ### 未声明构造器的struct不能带实参
 
@@ -370,7 +370,7 @@ int main() {
 Error: struct "Point" has no constructor; Point() cannot take arguments
 ```
 
-未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](../specification/04-types/struct.md)「创建与初始化」与[集合初始化器](collection-initializers.md)）。
+未声明构造器的struct只能用裸声明（`Point p;`）或花括号条目列表（`Point{x: 2, y: 3}` / `Point{2, 3}`）创建——不能带实参调用它。声明一个构造器即可调用它：`public Point(int a, int b) { x = a; y = b; }`让`Point(2, 3)`运行它（见[结构体](../specification/04-types/struct.md)「创建与初始化」与[集合初始化器](../specification/05-expressions/initializers.md)）。
 
 ### 类型别名
 

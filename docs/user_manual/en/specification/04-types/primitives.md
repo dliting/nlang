@@ -191,7 +191,7 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 symmetric promotion as arithmetic: `-2 < -1.5` promotes to double and is
 true; `1 == 1.0` is true. char compares only with char. The complete
 comparison rules for all types (string, class, null) are on
-[Operators](../../language-spec/operators.md) "Comparison".
+[Operators](../05-expressions/operators.md) "Comparison".
 
 ### Casts
 

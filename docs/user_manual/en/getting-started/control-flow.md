@@ -48,7 +48,7 @@ semantics of `if`/`for`/`while`/`do-while`
 (clause evaluation order, loop-header variable scope, block scope)
 are detailed on the Statements page.
 
-See also: [Language Specification / Statements](../language-spec/statements.md).
+See also: [Specification / Statements](../specification/06-statements/index.md).
 
 ### Exceptions
 

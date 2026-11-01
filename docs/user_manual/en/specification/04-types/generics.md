@@ -100,7 +100,7 @@ The containers also construct through the initializer forms:
 `List<int> nums = {};` and `List<int> seed = List();` are
 equivalent, and the bracket literal `[1, 2, 3]` fills a list from a
 literal (see [Collection
-Initializers](../../language-spec/collection-initializers.md)).
+Initializers](../05-expressions/initializers.md)).
 
 ## 4.12.4 Nesting and recursive references
 

@@ -39,7 +39,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 词法层把`--`与`++`识别为单个词法单元（为文法尚未使用的自增/自减运算符预留），`v--1`被读成`v`、`--`、`1`，不构成合法语句，于是报`syntax error`（`Invalid statement.`）。两个运算符之间加空格（`v - -1`）或给单目操作数加括号（`v - (-1)`）即可。普通的`v+1`、`v+-1`没有问题——`+-`不是词法单元。
 
-详见[语言规格/表达式](../language-spec/expressions.md)。
+详见[规范/表达式](../specification/05-expressions/index.md)。
 
 ### 调试时怎么给`io.readLine`输入 / 停止后`finally`不执行 / 断点错位？
 
@@ -77,7 +77,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 `if` / `while` / `do-while` / `for` / `assert`的条件与`&&` / `||` /
 `!`的操作数都必须是`bool`（比较与谓词已经产生bool——没有C式的「非零即真」）；int、string、float、char、class、struct、array都会在编译期报错（`if condition must be bool, not
-"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[语言规格/语句](../language-spec/statements.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[规范/语句](../specification/06-statements/index.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
 
 ### 为什么不能像Java/C++那样在子类重载父类虚方法？
 

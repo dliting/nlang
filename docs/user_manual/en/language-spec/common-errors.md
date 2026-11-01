@@ -44,8 +44,8 @@ of `&&`/`||`/`!` must all be `bool` (comparisons and predicates already
 produce bool) — int, string, float, char, class, struct, and array are
 all rejected with explicit errors (`if condition must be bool, not "Int32"`,
 `operator '&&' requires bool operands, got "Int32"`). Rewrite as an
-explicit comparison: `if (s != "")`, `if (count != 0)`. See [Statements](statements.md) "Condition typing" and
-[Operators](operators.md) "Logical".
+explicit comparison: `if (s != "")`, `if (count != 0)`. See [Statements](../specification/06-statements/index.md) "Condition typing" and
+[Operators](../specification/05-expressions/operators.md) "Logical".
 
 ### import and visibility
 
@@ -129,7 +129,7 @@ A control-flow statement's unbraced (bare) body cannot be a declaration
 — use a braced body. When calling a function with an `out` parameter,
 the call site must carry the `out` marker, otherwise you get `The
 function invoke "foo(y)" is not compatible with the declaration.`. See
-[Statements](statements.md) "Unbraced body" and
+[Statements](../specification/06-statements/index.md) "Unbraced body" and
 [Out Parameters](out-parameters.md).
 
 ### First direct-init argument parsed as a type at top level
@@ -173,7 +173,7 @@ Error: cannot assign to the result of a method call.
 A method call yields a value, not a location — both `c.step() = v` and
 `c.step() += v` are rejected with this error. To write a field, use `c.n`
 as the left value; the full set of supported left values is in
-[Compound Assignment](compound-assignment.md).
+[Compound Assignment](../specification/06-statements/index.md).
 
 ### The method "f" claims the virtual dispatch slot of ...
 
@@ -310,7 +310,7 @@ A switch discriminant may be an integer-family value (including char),
 `float`/`double`, `string`, or enum; bool, class, struct, `List`,
 `Dict`, and array values are rejected — use `if`/`else` + `equals()`
 for class values, and expand a bool discriminant into `if`/`else`. See
-[Switch](switch.md).
+[Switch](../specification/06-statements/control-flow.md).
 
 ### Literal and constant fit
 
@@ -402,7 +402,7 @@ assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
 suppresses this warning family; an explicit `as` never warns). See →
 [Types](../specification/04-types/index.md) "Numeric conversion matrix" and
-[Operators](operators.md) "Arithmetic".
+[Operators](../specification/05-expressions/operators.md) "Arithmetic".
 
 ### `as` casts
 
@@ -453,7 +453,7 @@ Dict initializer keys are expressions checked against the declared key
 type K by the same conversion rule as values — a string key in a
 `Dict<int, int>` fails that check. Write a key of the declared key type
 (`{1: 2}`), or declare `K` as `string`. See →
-[Collection Initializers](collection-initializers.md).
+[Collection Initializers](../specification/05-expressions/initializers.md).
 
 ### A struct without a constructor cannot take arguments
 
@@ -474,7 +474,7 @@ declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
 `Point{2, 3}`) — it cannot be called with arguments. Declare a constructor
 to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
 run it (see [Struct](../specification/04-types/struct.md) "Creation and initialization" and
-[Collection Initializers](collection-initializers.md)).
+[Collection Initializers](../specification/05-expressions/initializers.md)).
 
 ### Type aliases
 

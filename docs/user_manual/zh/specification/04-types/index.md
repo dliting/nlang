@@ -158,7 +158,7 @@
 
 **禁止**：`bool`与任何数值类型互转——bool只到`string`（强制转换）与`Object`（装箱），别无他处——以及`string→数值`的`as`（用`toInt()`家族）。
 
-**算术提升**：窄于int的整型操作数先提升到int；结果类型是能同时隐式接收两个操作数的最小类型（`int + uint` → `long`；`int`/`long`与`ulong`混合是编译错误）；浮点参与取较大浮秩。bool与char不参与算术。见[运算符](../../language-spec/operators.md)。
+**算术提升**：窄于int的整型操作数先提升到int；结果类型是能同时隐式接收两个操作数的最小类型（`int + uint` → `long`；`int`/`long`与`ulong`混合是编译错误）；浮点参与取较大浮秩。bool与char不参与算术。见[运算符](../05-expressions/operators.md)。
 
 ## 4.13 函数类型
 

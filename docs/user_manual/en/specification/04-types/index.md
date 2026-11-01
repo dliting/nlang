@@ -269,7 +269,7 @@ promoted to int; the result type is the smallest type that can implicitly
 receive both operands (`int + uint` → `long`; mixing `int`/`long` with
 `ulong` is a compile error); when floating point participates, the larger
 float rank wins. bool and char take no part in arithmetic. See
-[Operators](../../language-spec/operators.md).
+[Operators](../05-expressions/operators.md).
 
 ## 4.13 Function Types
 

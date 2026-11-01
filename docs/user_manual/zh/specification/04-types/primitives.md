@@ -101,7 +101,7 @@ a + b    a - b    a * b    a / b    a % b
 a == b   a != b   a < b   a > b   a <= b   a >= b
 ```
 
-**比较结果一律是`bool`。**数值操作数适用与算术相同的提升规则：`-2 < -1.5`提升为double且为真；`1 == 1.0`为真。char只与char比较。所有类型（string、class、null）的完整比较规则在[运算符](../../language-spec/operators.md)「比较」节。
+**比较结果一律是`bool`。**数值操作数适用与算术相同的提升规则：`-2 < -1.5`提升为double且为真；`1 == 1.0`为真。char只与char比较。所有类型（string、class、null）的完整比较规则在[运算符](../05-expressions/operators.md)「比较」节。
 
 ### 强制转换
 

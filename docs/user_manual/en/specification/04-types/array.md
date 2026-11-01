@@ -182,4 +182,4 @@ The brace form `{...}` is not accepted for an array target.
 
 *Informative:* the full initializer-list rules, including the
 shapes a literal may target, are in [Collection
-Initializers](../../language-spec/collection-initializers.md).
+Initializers](../05-expressions/initializers.md).

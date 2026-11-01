@@ -126,7 +126,7 @@ A field is read or written through the member expression `p.x`; a
 constructor may use `this` to name a field (§4.8.7). The full
 initializer-list rules, including the shapes a list may target,
 are in chapter 5 and [Collection
-Initializers](../../language-spec/collection-initializers.md).
+Initializers](../05-expressions/initializers.md).
 
 ## 4.7.6 Structs across modules
 

@@ -1,5 +1,19 @@
 # 5. Expressions
 
+An expression produces a value. NLang is statically typed: every expression
+has a type, and the compiler checks each operation against it.
+
+| Expression                                     | Page |
+|------------------------------------------------|------|
+| operators (`+ - * / %`, comparison, logical)   | [Operators](operators.md) |
+| casts (`as`, coercion to string)               | [Type Casts](../04-types/casts.md) |
+| collection initializers (`[...]`, `Type{...}`) | [Collection Initializers](initializers.md) |
+
+String interpolation (`${...}`) is §5.4; escape sequences and string
+comparison are string-literal features: see
+[String](../04-types/string.md). Char literals (`'a'`,
+`'A'`) and type semantics are on [Primitive Types](../04-types/primitives.md).
+
 ## 5.1 Evaluation Order
 
 The grammar of expressions is §2.6, and §2.7 fixes the operator
@@ -216,6 +230,20 @@ at position `i` with the same bounds error, and `d[k]` reads and
 writes the value stored under key `k` — reading a key the map
 does not hold is a catchable run-time error (§4.12, chapter 9).
 
+### Member access
+
+```nlang
+obj.field          // field read
+obj.field = value  // field write
+obj.method(args)   // method call
+```
+
+For class objects, `obj` must be non-null (runtime null check — see
+[Class](../04-types/class.md) "Identity, equality and null"). A struct has no general methods — only
+constructors (see [Struct](../04-types/struct.md)); a field is read or written through
+the member expression. Enum members are constants, not members of a value
+(see [Enum](../04-types/enum.md)).
+
 ## 5.8 Initializers and Creation Expressions
 
 An array creation `T[n]` or `T[n1, ..., nk]` gives one length per
@@ -244,6 +272,19 @@ and runs the constructor (§4.8.4). A `List` or `Dict` is
 created by a brace initializer as defined in §2.6 — positional
 entries append to a `List`, `key: value` entries store into a
 `Dict` — and the entries are evaluated left to right (§5.1).
+
+### Creation and initialization quick reference
+
+| Type | Creation forms | Details |
+|---|---|---|
+| class | constructor call `Node(42)`; direct-init declaration `Node n(42);`; braced anchor `P{value: 42}` | [Class](../04-types/class.md) "Instance creation" |
+| struct | constructor call `Point(1, 4)`; direct-init declaration `Point p(2, 3);`; named entries `Point{x: 1, y: 2}`; positional entries `Point{3, 7}`; bare declaration zero-initializes `Point p;` | [Struct](../04-types/struct.md) "Creation and initialization" |
+| enum | qualified member `Color.Red`; implicit int conversion `Color c = 1;` | [Enum](../04-types/enum.md) |
+| arrays | expression position `int[3]`, `[1, 2, 3]`; declaration position `int a[3];`, `int b[100] = [7, 8];` | [Array](../04-types/array.md) |
+| interface | upcast `IShape s = sq;` — an interface value always refers to an implementing object | [Interface](../04-types/interface.md) |
+| List/Dict | literals `[1, 2]`, `{"k": 1}`; empty `{}` | [Collection initializers](initializers.md) |
+
+A constructor call `Node(42)` is an expression: it allocates on the heap, runs the constructor with the arguments, and returns a reference (see [Class](../04-types/class.md) "Constructors and super()"). A struct constructor call `Point(1, 4)` is an expression too; braced entries `Point{...}` fill fields directly without running a constructor (see [Struct](../04-types/struct.md) "Creation and initialization"). Declaration-position forms (`T name(args);`, `T name[n];`, `T name[n] = [...]`) are allowed on every declarator of a multi-declarator declaration (see [Declarations](../03-program-structure/declarations.md)).
 
 ## 5.9 Function Value Expressions
 

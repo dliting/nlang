@@ -87,7 +87,7 @@ equals code-point order, ordering is also correct for text beyond the American S
 `"é" > "z"` is true. Mixed string/non-string comparison is a compile error
 except against the null literal — `s == null` reads the null side as the empty
 string, so `"" == null` is true and any non-empty string compares unequal. The
-full comparison rules are on [Operators](../../language-spec/operators.md) "Comparison".
+full comparison rules are on [Operators](../05-expressions/operators.md) "Comparison".
 
 ### Escape sequences
 
@@ -167,7 +167,7 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
   throws the runtime error `string index out of range`).
 - **Code-point iteration**: `foreach (char c in s)` binds each complete
   code point to `c` (UTF-8 decoding advances — multi-byte characters are
-  never split) — see [Foreach](../../language-spec/foreach.md).
+  never split) — see [Foreach](../06-statements/loops.md).
 - **Code-point access**: `s.charAt(i)` returns the code point starting at
   byte i (a `char`); out of range or an invalid sequence throws a runtime
   error.

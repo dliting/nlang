@@ -53,7 +53,7 @@ int main() {
 
 裸名本身不携带类型实参：实例化从声明的目标——被初始化的声明、赋值目标或形参类型——读出。没有声明目标的裸名构造器调用是编译期错误（`generic class "Box" cannot be constructed by bare name`）。没有声明构造器的泛型类同样接受零参形态：`Cell<char> cc = Cell();`。
 
-容器还经初始化器形态构造：`List<int> nums = {};`与`List<int> seed = List();`等价，方括号字面量`[1, 2, 3]`按字面量装满列表（见[集合初始化器](../../language-spec/collection-initializers.md)）。
+容器还经初始化器形态构造：`List<int> nums = {};`与`List<int> seed = List();`等价，方括号字面量`[1, 2, 3]`按字面量装满列表（见[集合初始化器](../05-expressions/initializers.md)）。
 
 ## 4.12.4 嵌套与自引用
 

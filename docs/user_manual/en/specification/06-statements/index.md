@@ -1,5 +1,12 @@
 # 6. Statements
 
+NLang's control-flow statements share the rules this chapter fixes. The
+usage detail of `if`, `switch` and `assert` is on
+[Control Flow](control-flow.md), the loop forms — `for`, `while`,
+`do-while` and `foreach` — are on [Loops](loops.md), and
+`try`/`catch`/`throw`/`finally` is on
+[Exceptions](../../language-spec/exception.md).
+
 ## 6.1 Blocks and Local Declarations
 
 The syntax of statements is §2.5. A paragraph `{ ... }` is a
@@ -28,6 +35,34 @@ A lone `;` is the empty statement: it does nothing, and an
 implementation SHOULD warn that it is ignored. An expression is
 not a statement: only a call may stand alone as a statement
 (§2.5), so `5;` is a syntax error.
+
+### Const local
+
+```nlang
+const int X = 5;
+const string Greeting = "hello";
+```
+
+Local variables marked `const` must be initialized at declaration and cannot
+subsequently be assigned or compound-assigned. Function parameters may
+carry `const` too (the callee may not reassign them); `const` on a
+class/struct field is a syntax error. See
+[Variable Declaration](../03-program-structure/declarations.md) for the general form.
+
+**Const is shallow (Java-`final`-style)**: `const` prevents rebinding the *name*
+but does not freeze the referenced object's state. Member mutation through a
+const local is allowed:
+
+```nlang
+const Foo f = Foo();
+f.x = 5;            // OK — f itself is not reassigned
+f = Foo();      // ERROR — cannot reassign const local
+const Point p = q;
+p.x = 5;            // OK — only p's binding is const
+```
+
+For class fields and array elements this means: a `const` reference still
+permits writing through it. Deep/immutability-style const is not supported.
 
 ## 6.2 Assignment
 
@@ -60,6 +95,31 @@ key is absent (§4.12, chapter 9).
 Compound assignment is a statement, not an expression: it has no
 value, and `(x += 1)` in an expression is a syntax error.
 Assignment to a `const` local is a compile-time error (§6.1).
+
+### Compound assignment
+
+```nlang
+x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
+```
+
+Read-modify-write shorthand for `x = x op y`. Supported left-values: local
+variables, class fields (`this.f += y`), struct fields (`pt.x += y`), and
+subscript elements (`arr[i] += y`, `li[i] += y`, `d[k] += y`). The
+left-value is evaluated **only once**: the receiver of a member left-value
+and the base/index of a subscript left-value are not re-evaluated —
+`make().x += 5` calls `make()` once, and the read and the write land on the
+same object (the expansion `make().x = make().x + 5` would call `make()`
+twice and store into a different object); `arr[f()] += 1` calls `f()` once.
+
+The shift pair `<<=` / `>>=` fixes the result type to the left value's
+declared type (no promotion to int) and follows the same count-argument
+rules as the binary shift — see [Operators](../05-expressions/operators.md) "Shift".
+
+For string elements only `+=` (concat) is legal; the other six operators
+are rejected with `operator not supported on string`. A string base is not
+supported (`string does not support subscript access`, see [Common
+Errors](../../language-spec/common-errors.md) "Assignment targets"). `d[k] += v` throws when
+the key is missing (same as reading `d[k]`).
 
 ## 6.3 Selection
 
@@ -102,6 +162,23 @@ clause to the next. A `break` in a clause body exits the `switch`
 immediately (§6.4); a `continue` in a clause body applies to the
 innermost enclosing loop and is a compile-time error when there is
 none.
+
+### Condition typing
+
+`if`/`while`/`do-while`/`for`/`assert` conditions must be **`bool`** —
+comparisons and predicates already produce bool (see
+[Operators](../05-expressions/operators.md), [Primitive Types](../04-types/primitives.md)). int, string,
+float, char, class, struct, and array conditions are compile errors
+(`if condition must be bool, not "Int32"`). NLang is a strict-bool
+language with no C-style "non-zero is true": `if (1)` and `if (count)`
+are both illegal — write `if (count != 0)`; likewise `if (s != "")`,
+`if (obj != null)`.
+
+### Unbraced body
+
+A control-flow statement's unbraced (bare) body cannot be a variable
+declaration — `if (c) int x = 1;` reports `a local declaration cannot be the
+unbraced body of a control-flow statement`. Use a braced body instead.
 
 ## 6.4 Iteration
 

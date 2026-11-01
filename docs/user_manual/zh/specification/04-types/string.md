@@ -38,7 +38,7 @@ string在类型系统中是**值类型**：赋值、参数传递、返回都拷�
 
 ### 比较
 
-`==` / `!=`比较**内容**。关系排序（`<`、`>`、`<=`、`>=`）用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`（90）< `'a'`（97））。字符串是UTF-8，而UTF-8字节顺序等于码点序，因此对美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的文本排序同样正确：`"é" > "z"`为真。string与非string混用比较是编译错误，唯一例外是对null字面量——`s == null`把null一侧读作空串，因此`"" == null`为真，任何非空串与null不等。完整比较规则在[运算符](../../language-spec/operators.md)「比较」节。
+`==` / `!=`比较**内容**。关系排序（`<`、`>`、`<=`、`>=`）用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`（90）< `'a'`（97））。字符串是UTF-8，而UTF-8字节顺序等于码点序，因此对美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的文本排序同样正确：`"é" > "z"`为真。string与非string混用比较是编译错误，唯一例外是对null字面量——`s == null`把null一侧读作空串，因此`"" == null`为真，任何非空串与null不等。完整比较规则在[运算符](../05-expressions/operators.md)「比较」节。
 
 ### 转义序列
 
@@ -93,7 +93,7 @@ string c = "$$100";     // 字面"$100"
 string是UTF-8 **字节串**，char是单个Unicode标量值（见[基本类型](primitives.md)）。两者之间的桥接：
 
 - **按字节读**：`s[i]`返回第i个字节的`ubyte`（越界抛运行期错误`string index out of range`）。
-- **按码点迭代**：`foreach (char c in s)`每次`c`是一个完整码点（UTF-8解码推进，多字节字符不会被拆开）——见[Foreach](../../language-spec/foreach.md)。
+- **按码点迭代**：`foreach (char c in s)`每次`c`是一个完整码点（UTF-8解码推进，多字节字符不会被拆开）——见[Foreach](../06-statements/loops.md)。
 - **按码点定位**：`s.charAt(i)`返回第i字节处开始的码点（`char`）；越界或非法序列抛运行期错误。
 - **计数**：`s.charCount()`返回码点数（对比`s.length()`字节数）。
 - **解析与构造**：`"65".toChar()`严格十进制码点解析为`char`；`"x" + 'y'`拼接时char按其UTF-8编码进入字符串。

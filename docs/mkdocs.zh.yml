@@ -56,8 +56,14 @@ nav:
           - 数组: specification/04-types/array.md
           - Object与装箱: specification/04-types/object.md
           - 泛型: specification/04-types/generics.md
-      - 表达式: specification/05-expressions.md
-      - 语句: specification/06-statements.md
+      - 表达式:
+          - 概览: specification/05-expressions/index.md
+          - 运算符: specification/05-expressions/operators.md
+          - 集合初始化器: specification/05-expressions/initializers.md
+      - 语句:
+          - 概览: specification/06-statements/index.md
+          - 控制流: specification/06-statements/control-flow.md
+          - 循环: specification/06-statements/loops.md
       - 函数与方法: specification/07-functions.md
       - 异常: specification/09-exceptions.md
       - 执行模型与内存语义: specification/10-execution-model.md
@@ -76,18 +82,7 @@ nav:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
       - 表达式与语句:
-          - 表达式: language-spec/expressions.md
-          - 运算符: language-spec/operators.md
-          - 集合初始化器: language-spec/collection-initializers.md
-          - 语句: language-spec/statements.md
-          - If: language-spec/if.md
-          - 循环: language-spec/loops.md
-          - Foreach: language-spec/foreach.md
-          - Switch: language-spec/switch.md
           - 异常: language-spec/exception.md
-          - Assert: language-spec/assert.md
-          - 复合赋值: language-spec/compound-assignment.md
-          - Const局部: language-spec/const-local.md
       - 函数:
           - 函数: language-spec/functions.md
           - 默认参数: language-spec/default-parameters.md

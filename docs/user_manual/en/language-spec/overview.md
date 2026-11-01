@@ -17,7 +17,7 @@ Key design goals:
 
 - [Types](../specification/04-types/index.md) — the type system at a glance; enum, struct, class, interface, array, and the rest each have their own page
 - [Declarations](../specification/03-program-structure/declarations.md) and [Packages](../specification/03-program-structure/packages.md) — imports, variables, type aliases, and module visibility
-- [Expressions & Statements](expressions.md), [Functions](functions.md)
+- [Expressions](../specification/05-expressions/index.md), [Statements](../specification/06-statements/index.md), [Functions](functions.md)
 - [Concurrency](concurrency.md) — virtual threads, channels, mutexes, semaphores, and futures
 - [Standard Library](standard-library.md)
 - Runtime: [Memory Management](memory-management.md) and the [Exit Code Convention](exit-code-convention.md)

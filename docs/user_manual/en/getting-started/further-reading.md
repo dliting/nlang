@@ -10,8 +10,8 @@ Suggested reading order for the Language Specification:
    [Declarations](../specification/03-program-structure/declarations.md) →
    [Generics](../specification/04-types/generics.md)
    — the type system, declarations, and List/Dict
-4. [Expressions](../language-spec/expressions.md) →
-   [Statements](../language-spec/statements.md)
+4. [Expressions](../specification/05-expressions/index.md) →
+   [Statements](../specification/06-statements/index.md)
    — operators, control flow, exceptions
 5. [Functions](../language-spec/functions.md) →
    [Function Types & Delegates](../language-spec/function-types-and-delegates.md)
