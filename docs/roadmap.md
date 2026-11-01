@@ -144,4 +144,4 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 | 文档 | 说明 |
 |------|------|
 | docs/user_manual/{zh,en}/specification/ | NLang 语言规范（语言、标准库、二进制格式、参考页），带 § 条款编号，中英双树 61 页 |
-| docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 15 篇，中英双树 |
+| docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 16 篇，中英双树 |
