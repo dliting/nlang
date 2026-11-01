@@ -25,7 +25,17 @@ nearest enclosing `try` statement with a matching `catch` clause,
 in the caller and further up the call chain (§8.2); the `finally`
 bodies along the path run as §8.2 defines. If no handler matches,
 the host reports the uncaught exception and the program terminates
-with exit code 1 (chapter 9).
+with exit code 1 (chapter 9). The report walks the cause chain one
+link per line: a top line naming the exception's class and
+message, followed by one `Caused by:` line per cause link (§8.3).
+
+```
+Runtime error: Exception: save failed
+Caused by: Exception: disk full
+```
+
+An unobserved failure in a spawned task is reported the same way
+at run end (§10.9).
 
 The language, the standard library and the VM raise the built-in
 exceptions of §8.3 for the errors they report, and those are
@@ -154,14 +164,25 @@ closed channel (§10.4); it reaches scope through
 `import concurrent;` like any package class, and `catch` treats
 it like every other subclass.
 
-Every exception instance carries two fields, inherited from
-`Exception`:
+Every built-in exception class is a const class (§4.8.12), and
+every constructor has the same shape:
+`XxxException(string message, Exception cause = null)` — the
+second argument is optional and wraps the causing exception.
+
+Every exception instance carries three read-only fields,
+inherited from `Exception`; the classes are const, so a write
+outside a constructor is a compile-time error (§4.8.12):
 
 - `message` (`string`) — set by the constructor call that creates
   the instance, or by the site that raises a VM exception. Where a
   section fixes the text (§6.5), that text is normative;
   otherwise the message describes the error in words chosen by the
-  implementation. User code may read and assign the field.
+  implementation. User code may read the field.
+- `cause` (`Exception`) — the wrapped causing exception, passed
+  through the second constructor argument; `null` when nothing is
+  wrapped. Each link points to the previous one at construction
+  time only, so the chain can never form a cycle; there is no
+  after-the-fact setter.
 - `backtrace` (`List<string>`, §4.12) — for an exception raised by
   the VM, a snapshot of the call stack taken at the raise: one
   entry per frame, innermost first, each entry
@@ -171,37 +192,41 @@ Every exception instance carries two fields, inherited from
   compiled; a frame whose line is unknown renders `?`, and a
   module with no recorded source path renders its module name with
   a `.n` suffix. An exception created by user code starts with an
-  empty backtrace. User code may read and assign the field.
+  empty backtrace. Reading the field returns a copy (§4.8.12):
+  `add` or subscript writes on the copy never touch the exception,
+  and two reads yield distinct copies.
 
-*Informative:* both fields are ordinary readable and writable
-fields:
+*Informative:* the fields are read-only outside the constructors:
 
 ```nlang
 try {
     int x = 0;
     int y = 1 / x;
 } catch (DivByZeroException e) {
-    int n = e.message.length();       // > 0 — VM sets the message
+    int n = e.message.length();        // > 0 — VM sets the message
     int frames = e.backtrace.length(); // >= 1 — VM snapshots the stack
 }
 
-// User subclasses inherit both fields; own fields land after them.
-class MyException : Exception {
-    int code;
+// Cause chain: wrap the underlying failure in a higher-level exception.
+Exception root = Exception("disk full");
+Exception wrap = Exception("save failed", root);
+if (wrap.cause != null) {
+    string rootMsg = wrap.cause.message;   // "disk full"
 }
-MyException e = MyException();
-e.message = "custom";   // writable
-e.code = 42;
 ```
 
 ## 8.4 User Exception Classes
 
 A user class may extend `Exception` (§4.8.5) to carry additional
-state. Its constructor forwards the message with `super(msg)`
+state. The Exception family is const, so a user exception class
+must be declared `const class`: a const class can only be
+extended by another const class (§4.8.12). Its constructor
+forwards the message with `super(msg)` or `super(msg, cause)`
 (§4.8.6); with no declared constructor, the synthesized
 zero-argument constructor leaves the inherited fields at their
 defaults (§4.8.3, §4.8.6). The class's own fields follow the
-inherited ones in the object layout (§4.8.5).
+inherited ones in the object layout (§4.8.5) and may be assigned
+only inside the subclass's own constructor (§4.8.12).
 
 A user exception is raised and handled exactly like a built-in
 one: `catch (MyException e)` matches `MyException` and its
@@ -209,11 +234,11 @@ subclasses under the rule of §8.2, and `catch (Exception e)`
 matches it as well.
 
 ```nlang
-class MyException : Exception {
+const class MyException : Exception {
     int code;
-    public MyException(string msg) {
-        super(msg);          // forward to Exception(message) ctor
-        this.code = 42;
+    public MyException(string msg, int c) {
+        super(msg);          // forward to Exception(message, cause = null)
+        this.code = c;       // own fields are assigned in the ctor
     }
 }
 ```

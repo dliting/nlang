@@ -10,7 +10,14 @@
 
 `throw;`重新抛出当前正在处理的异常。它只在`catch`子句体的词法内部有效；其他任何地方都是编译期错误。重新抛出传播同一个异常对象：它的类、它的`message`与它的`backtrace`都不变（§8.3）。
 
-一次抛出把控制传出正在运行的函数，传到调用方及调用链更上方、最近的带匹配`catch`子句的外层`try`语句（§8.2）；路径上的各`finally`体按§8.2的规定运行。若没有处理者匹配，宿主报告未捕获的异常，程序以退出码1终止（第9章）。
+一次抛出把控制传出正在运行的函数，传到调用方及调用链更上方、最近的带匹配`catch`子句的外层`try`语句（§8.2）；路径上的各`finally`体按§8.2的规定运行。若没有处理者匹配，宿主报告未捕获的异常，程序以退出码1终止（第9章）。报告逐环打印原因链：首行点明异常的类与消息，随后每个原因环节一行`Caused by:`（§8.3）。
+
+```
+Runtime error: Exception: save failed
+Caused by: Exception: disk full
+```
+
+派生任务里未被观察的失败在运行结束时以同一格式报告（§10.9）。
 
 语言、标准库与VM对其所报告的错误抛出§8.3的内建异常，且这些异常可捕获：经由`null`引用的访问（§4.8、§5.6、§5.7）、除以零或取余零以及越界的移位计数（§5.2）、越界的下标（§5.7）、失败的断言（§6.5）、失败的`as`向下转型（§5.5），以及第19章的库错误。
 
@@ -95,43 +102,45 @@ try {
 
 `concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。
 
-每个异常实例携带两个字段，从`Exception`继承：
+每个内建异常类都是const类（§4.8.12），且每个构造器都有相同的形状：`XxxException(string message, Exception cause = null)`——第二个实参可选，用于包装致因异常。
 
-- `message`（`string`）——由创建该实例的构造器调用设置，或由抛出VM异常的位点设置。某节固定了文本时（§6.5），该文本是规范性的；否则消息以实现选定的措辞描述错误。用户代码可以读取并赋值该字段。
-- `backtrace`（`List<string>`，§4.12）——对VM抛出的异常，是抛出时拍摄的调用栈快照：每帧一个条目，最内层在前，每个条目形如`funcName (file:line)`。自由函数以模块限定名命名；方法以裸方法名命名。`file`是模块编译时记录的源码路径；行号未知的帧渲染为`?`；没有记录源码路径的模块渲染其模块名并带`.n`后缀。用户代码创建的异常以空backtrace开始。用户代码可以读取并赋值该字段。
+每个异常实例携带三个只读字段，从`Exception`继承；各类都是const类，因此构造器之外的写入是编译期错误（§4.8.12）：
 
-*资料性：*两个字段都是普通的可读可写字段：
+- `message`（`string`）——由创建该实例的构造器调用设置，或由抛出VM异常的位点设置。某节固定了文本时（§6.5），该文本是规范性的；否则消息以实现选定的措辞描述错误。用户代码可以读取该字段。
+- `cause`（`Exception`）——被包装的致因异常，经构造器的第二个实参传入；未包装任何异常时为`null`。每个环节只在构造时指向前一个，因此原因链永不成环；也不存在事后改写该字段的途径。
+- `backtrace`（`List<string>`，§4.12）——对VM抛出的异常，是抛出时拍摄的调用栈快照：每帧一个条目，最内层在前，每个条目形如`funcName (file:line)`。自由函数以模块限定名命名；方法以裸方法名命名。`file`是模块编译时记录的源码路径；行号未知的帧渲染为`?`；没有记录源码路径的模块渲染其模块名并带`.n`后缀。用户代码创建的异常以空backtrace开始。读取该字段返回一个副本（§4.8.12）：对副本做`add`或下标写入永远不会触及异常本身，且两次读取得到不同的副本。
+
+*资料性：*各字段在构造器之外只读：
 
 ```nlang
 try {
     int x = 0;
     int y = 1 / x;
 } catch (DivByZeroException e) {
-    int n = e.message.length();       // > 0 —— VM设置了消息
+    int n = e.message.length();        // > 0 —— VM设置了消息
     int frames = e.backtrace.length(); // >= 1 —— VM快照了栈
 }
 
-// User子类继承这两个字段；自身字段排在它们之后。
-class MyException : Exception {
-    int code;
+// 原因链：把底层失败包装进更高层的异常。
+Exception root = Exception("disk full");
+Exception wrap = Exception("save failed", root);
+if (wrap.cause != null) {
+    string rootMsg = wrap.cause.message;   // "disk full"
 }
-MyException e = MyException();
-e.message = "custom";   // 可写
-e.code = 42;
 ```
 
 ## 8.4 用户异常类
 
-用户可以定义类扩展`Exception`（§4.8.5）以携带额外状态。其构造器用`super(msg)`转发消息（§4.8.6）；没有声明构造器时，合成的零参构造器让继承的字段保持其默认值（§4.8.3，§4.8.6）。类自身的字段在对象布局中排在继承字段之后（§4.8.5）。
+用户可以定义类扩展`Exception`（§4.8.5）以携带额外状态。`Exception`家族是const的，因此用户异常类必须声明为`const class`：const类只能被另一个const类继承（§4.8.12）。其构造器用`super(msg)`或`super(msg, cause)`转发消息（§4.8.6）；没有声明构造器时，合成的零参构造器让继承的字段保持其默认值（§4.8.3，§4.8.6）。类自身的字段在对象布局中排在继承字段之后（§4.8.5），且只能在子类自己的构造器内赋值（§4.8.12）。
 
 用户异常的抛出与处理和内建异常完全一样：`catch (MyException e)`在§8.2的规则下匹配`MyException`及其子类，而`catch (Exception e)`同样匹配它。
 
 ```nlang
-class MyException : Exception {
+const class MyException : Exception {
     int code;
-    public MyException(string msg) {
-        super(msg);          // 转发到Exception(message)构造
-        this.code = 42;
+    public MyException(string msg, int c) {
+        super(msg);          // 转发到Exception(message, cause = null)构造
+        this.code = c;       // 自身字段在构造器内赋值
     }
 }
 ```

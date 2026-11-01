@@ -107,3 +107,21 @@ int sum = v.x + v.y;        // 读导入字段
 ## 4.7.7 输出
 
 结构体没有`toString`，也不参与字符串强制转换：`"x" + 结构体值`是编译期错误。`toString`协议见[类型强制转换](casts.md)。
+
+## 4.7.8 const结构体
+
+`const struct`把类型级不可变语义带给结构体；完整规则见§4.8.12。字段只在自身构造器体与字段初始化器里可写，其余位置的写入是编译期错误。`List`或`Dict`字段读取返回副本（§12.1、§12.2），字段类型面同样受约束。struct没有继承，各自密封。
+
+```nlang
+const struct Size {
+    int w;
+    int h;
+}
+
+int main() {
+    Size s = Size{3, 4};   // 初始化列表在分配时填值，合法
+    int area = s.w * s.h;  // 读取正常
+    // s.w = 5;            // 编译错误："w" is immutable
+    return area;
+}
+```

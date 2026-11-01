@@ -163,3 +163,27 @@ just as within the defining module (§4.7.2).
 A struct has no `toString` and takes no part in string coercion:
 `"x" + structValue` is a compile-time error. See
 [Type Casts](casts.md) for the `toString` protocol.
+
+## 4.7.8 Const Struct
+
+A `const struct` brings type-level immutability to structs; the
+full rules are §4.8.12. Fields are writable only inside the
+struct's own constructor body and its field initializers; writes
+anywhere else are compile-time errors. A `List` or `Dict` field
+read returns a copy (§12.1, §12.2), and the field type surface is
+constrained the same way. Structs have no inheritance, so each
+declaration is sealed on its own.
+
+```nlang
+const struct Size {
+    int w;
+    int h;
+}
+
+int main() {
+    Size s = Size{3, 4};   // init list fills at allocation time — legal
+    int area = s.w * s.h;  // reads are normal
+    // s.w = 5;            // compile error: "w" is immutable
+    return area;
+}
+```

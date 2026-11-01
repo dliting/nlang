@@ -2,7 +2,7 @@
 
 # 12. 集合
 
-`List<T>`与`Dict<K, V>`是两个内建容器类：预置包声明的泛型类（§4.12.1、§4.12.6）。本章定义它们的方法面——每个方法的签名、效果与失败行为——元素与键如何匹配，以及以`Object`实例化时容器如何混装不同类型的值。类型参数规则、构造与下标语法糖留在泛型一章（§4.12.2–§4.12.5、§4.12.7）。
+`List<T>`与`Dict<K, V>`是两个内建容器类：`containers`预置包声明的泛型类（§4.12.1、§4.12.6）。本章定义它们的方法面——每个方法的签名、效果与失败行为——元素与键如何匹配，以及以`Object`实例化时容器如何混装不同类型的值。类型参数规则、构造与下标语法糖留在泛型一章（§4.12.2–§4.12.5、§4.12.7）。
 
 经由`null`容器引用调用任何方法，抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference error`——与其他类引用一致（§4.8.10、§8.3）。容器的存入或取出按§9.1的类别移动值。下标形式`li[i]`与`d[k]`是`get`与`set`的语法糖（§5.7、§4.12.7），容器方法按通常规则接受具名实参（§7.2）。
 
@@ -19,6 +19,7 @@
 | `removeAt(i)` | `void removeAt(int i)` | 移除`i`处的元素，后续元素下移 | 越界抛出`IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | 匹配`value`的首个位置，没有则为`-1` | — |
 | `contains(value)` | `bool contains(T value)` | 是否有某个位置匹配`value` | — |
+| `copy()` | `List<T> copy()` | 新列表，元素句柄照抄（浅拷贝；const聚合容器字段的读取即返回此副本，§4.8.12） | — |
 | `clear()` | `void clear()` | 移除所有元素 | — |
 | `toString()` | `string toString()` | `[e1, e2, ...]`（§11.2） | — |
 
@@ -56,6 +57,7 @@ int main() {
 | `containsKey(key)` | `bool containsKey(K key)` | `key`的条目是否存在 | — |
 | `remove(key)` | `int remove(K key)` | 移除`key`的条目；移除了产出`1`，键未找到产出`0` | — |
 | `clear()` | `void clear()` | 移除所有条目 | — |
+| `copy()` | `Dict<K, V> copy()` | 新字典，条目句柄照抄（浅拷贝；const聚合容器字段的读取即返回此副本，§4.8.12） | — |
 | `count()` | `int count()` | 条目数 | — |
 | `keys()` | `List<K> keys()` | 一个新的`List<K>`，含按插入序的各键 | — |
 | `toString()` | `string toString()` | `{k1: v1, k2: v2, ...}`，按插入序（§11.2） | — |

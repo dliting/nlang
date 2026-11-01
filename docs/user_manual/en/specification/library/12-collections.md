@@ -1,7 +1,8 @@
 # 12. Collections
 
 `List<T>` and `Dict<K, V>` are the two built-in container classes:
-generic classes declared in the prelude package (§4.12.1, §4.12.6).
+generic classes declared in the `containers` prelude package
+(§4.12.1, §4.12.6).
 This chapter defines their method surface — every method with its
 signature, effect and failure behavior — how elements and keys are
 matched, and how a container instantiated with `Object` mixes value
@@ -31,6 +32,7 @@ sequence of elements of type `T`.
 | `removeAt(i)` | `void removeAt(int i)` | removes the element at `i`, shifting later elements down | out of range raises `IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | the first position matching `value`, `-1` if none | — |
 | `contains(value)` | `bool contains(T value)` | whether some position matches `value` | — |
+| `copy()` | `List<T> copy()` | a fresh list carrying the same element handles (shallow copy; reading a container field of a const aggregate yields this copy, §4.8.12) | — |
 | `clear()` | `void clear()` | removes every element | — |
 | `toString()` | `string toString()` | `[e1, e2, ...]` (§11.2) | — |
 
@@ -75,6 +77,7 @@ A `Dict<K, V>` (§4.12) maps keys of type `K` to values of type `V`.
 | `containsKey(key)` | `bool containsKey(K key)` | whether an entry for `key` exists | — |
 | `remove(key)` | `int remove(K key)` | removes the entry for `key`; yields `1` if one was removed, `0` if the key was not found | — |
 | `clear()` | `void clear()` | removes every entry | — |
+| `copy()` | `Dict<K, V> copy()` | a fresh dict carrying the same entry handles (shallow copy; reading a container field of a const aggregate yields this copy, §4.8.12) | — |
 | `count()` | `int count()` | the entry count | — |
 | `keys()` | `List<K> keys()` | a fresh `List<K>` of the keys in insertion order | — |
 | `toString()` | `string toString()` | `{k1: v1, k2: v2, ...}`, in insertion order (§11.2) | — |

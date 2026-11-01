@@ -133,9 +133,10 @@ default values.
 constructor on the same object; it is valid only in a constructor
 of a class with a parent, takes positional arguments only (§7.2),
 and its argument list must match one parent constructor. For a
-parent in the built-in Exception family, the parent constructor
-takes exactly one `message` argument. `super()` against a parent
-with no constructor is a legal no-op; arguments
+parent in the built-in Exception family, the parent constructor is
+`Exception(string message, Exception cause = null)` — both
+`super(msg)` and `super(msg, cause)` work (§8.3). `super()`
+against a parent with no constructor is a legal no-op; arguments
 in that case are a compile-time error.
 
 ```nlang
@@ -297,3 +298,64 @@ everywhere: only `public` members of an imported class are
 reachable, `protected` members are reachable inside a subclass
 body, and a non-`public` constructor cannot be called across the
 boundary (§4.8.2).
+
+## 4.8.12 Const Classes and Const Structs
+
+`const class` and `const struct` declare type-level immutable
+aggregates: the bindings of all instance fields are read-only
+after construction.
+
+```nlang
+const class Note {
+    public string text;
+    public Note(string t) { text = t; }   // writable inside the ctor
+}
+const struct Vec {
+    int x;
+    int y;
+}
+```
+
+- The writable window is the field-declaring type's own
+  constructor body plus its field initializers: field defaults
+  are injected at construction time as usual (§4.8.3). A write
+  anywhere else — a method body, another class, another module —
+  is a compile-time error naming the field and its owner. A
+  subclass constructor must not rewrite inherited fields;
+  supplements ride `super(...)` (§4.8.6).
+- The marker does not freeze variable bindings: `Note n = a;
+  n = b;` is legal — type-level const and a `const` local
+  (binding-level, §6.1) are different things. `static` members
+  are unaffected.
+- Inheritance is sealed in both directions: a const class can
+  only be extended by another const class — in `class D : B`, a
+  const `B` with a non-const `D` is a compile-time error, and a
+  const subclass of a plain base is rejected the same way (the
+  root `Object` is exempt: it declares no fields, §4.11).
+  Structs have no inheritance and are each sealed on their own
+  (§4.7). The const marker rides the type record of the compiled
+  module (§20.4), so writes to an imported const aggregate are
+  rejected on the consumer side too (§4.8.11).
+- A member read of a `List` or `Dict` field of a const aggregate
+  is rewritten to a shallow copy — the built-in `copy()` (§12.1,
+  §12.2): callers get a snapshot, and mutating the copy never
+  touches the aggregate. Two reads yield distinct copies, so
+  comparing them with `==` is meaningless. `string` fields (like
+  `Exception.message`, §8.3) are immutable by themselves and are
+  simply read-only.
+- The field type surface is constrained, checked at declaration
+  so the seal cannot be pierced: a field cannot be an array, a
+  non-const class type or an interface type — a mutable handle
+  would pierce the seal, and an interface reference may be backed
+  by a mutable implementor — and the element types of `List` and
+  `Dict` fields must be immutable-faced as well. The legal
+  surface is primitives, `string`, enumerations, const classes
+  and const structs, element-compliant containers, and `func`
+  types. The built-in `Exception` family is entirely const
+  (§8.3), which is what makes the self-referential `Exception
+  cause` field legal.
+
+*Informative:* the sealed-write diagnostic names the field and
+its owner, for instance `The field "text" is immutable: it
+belongs to the const class "Note" and only that class's
+constructors may write it.`

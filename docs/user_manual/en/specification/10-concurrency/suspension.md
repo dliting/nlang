@@ -34,7 +34,8 @@ host nor main: the context is marked failed and its call stack is dropped
 `Future.get` rethrow the task's original exception object — so put the
 `try`/`catch` where you wait, not where you spawn. A failure nobody ever
 waited for is not silently lost: at run end the VM prints one stderr
-warning per such task (task id, exception type and message).
+warning per such task (task id, exception type and message, followed
+by one `Caused by:` line per cause link, §8.1).
 
 ### Main-exit policy and the deadlock report
 

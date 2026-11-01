@@ -82,7 +82,7 @@ Node c;                   // 只声明：c是null
 
 构造器是不带返回类型声明的成员（§2.4），以类的名字命名。构造器是可选的，可以重载（§7.3）。祖先的构造器不会自动调用：没有显式`super(...)`时，继承的字段保持其默认值。
 
-构造器内的`super(args);`在同一对象上调用直接父类的构造器；它只在有父类的类的构造器中有效，只接受按位置的实参（§7.2），且其实参表必须匹配某个父构造器。父类属于内建`Exception`家族时，其构造器只接受一个`message`实参。对没有构造器的父类使用`super()`是合法的空操作；这种情况下带实参是编译期错误。
+构造器内的`super(args);`在同一对象上调用直接父类的构造器；它只在有父类的类的构造器中有效，只接受按位置的实参（§7.2），且其实参表必须匹配某个父构造器。父类属于内建`Exception`家族时，其构造器是`Exception(string message, Exception cause = null)`——`super(msg)`与`super(msg, cause)`皆可（§8.3）。对没有构造器的父类使用`super()`是合法的空操作；这种情况下带实参是编译期错误。
 
 ```nlang
 class Base {
@@ -178,3 +178,26 @@ class B {
 ```
 
 `class D : lib.B`继承导入的基类，`class C implements lib.I`实现导入的接口；重写与`implements`约定跨模块边界的强制与同单元完全一致。可见性到哪都是同一套规则：导入类只有`public`成员对导入方可达，`protected`成员在子类体内可达，非`public`构造器不能跨边界调用（§4.8.2）。
+
+## 4.8.12 const类与const结构体
+
+`const class`与`const struct`声明类型级不可变的聚合：实例字段的绑定在构造期之后只读。
+
+```nlang
+const class Note {
+    public string text;
+    public Note(string t) { text = t; }   // 构造器内可写
+}
+const struct Vec {
+    int x;
+    int y;
+}
+```
+
+- 可写窗口是声明该字段的类型自己的构造器体加上字段初始化器：字段默认值在构造期注入时照常应用（§4.8.3）。任何其他位置的写入——方法体、别的类、别的模块——都是编译期错误，诊断点名字段与其属主。子类构造器不能改写继承来的字段；补充数据经`super(...)`转发（§4.8.6）。
+- 标记不冻结变量绑定：`Note n = a; n = b;`合法——类型级const与`const`局部（绑定级，§6.1）是两回事。`static`成员不受影响。
+- 继承双向密封：const类只能被const类继承——`class D : B`中基类`B`为const而`D`未标const是编译期错误，const子类继承普通基类同样被拒绝（根类`Object`豁免：它不声明字段，§4.11）。struct没有继承，各自密封（§4.7）。const标记随编译模块的类型记录携带（§20.4），因此导入方对导入的const聚合的写入同样被拒绝（§4.8.11）。
+- const聚合上`List`或`Dict`字段的成员读取被重写为一次浅拷贝——内建`copy()`（§12.1、§12.2）：外界拿到的是快照，改动副本永远不影响聚合自身。两次读取得到不同的副本，副本之间的`==`比较没有意义。`string`字段（如`Exception.message`，§8.3）本身不可变，直接只读。
+- 字段类型面受约束，且在声明期检查，以保证密封无法穿透：字段不能是数组、非const的class类型或接口类型——可变句柄会穿透密封，接口引用也可能由可变实现类支撑——`List`与`Dict`字段的元素类型同样必须是不可变面。合法面是基元、`string`、枚举、const类与const结构体、元素合规的容器以及`func`类型。内建`Exception`家族全部是const类（§8.3），这正是自引用的`Exception cause`字段合法的原因。
+
+*资料性：*密封写入的诊断点名字段与属主，例如`The field "text" is immutable: it belongs to the const class "Note" and only that class's constructors may write it.`
