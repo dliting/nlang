@@ -38,7 +38,7 @@ inline QString locateHelpPage(const QString& documentPagePath) {
         QDir dir = QCoreApplication::applicationDirPath();
         for (int hop = 0; hop < MAX_DOC_SITE_HOPS; ++hop) {
             //use_directory_urls:false output: flat .html files under
-            //the tree root (e.g. "zh/language-spec/overview.html").
+            //the tree root (e.g. "zh/specification/index.html").
             const QString candidate = dir.absoluteFilePath(
                 QStringLiteral("docs/site/") + tree
                 + QLatin1Char('/') + documentPagePath

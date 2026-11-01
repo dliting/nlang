@@ -4016,21 +4016,21 @@ private slots:
         // trees two hops up. The language setting picks the primary
         // tree; the other language is the fallback for pages whose
         // translation has not landed yet (pending-list state).
-        if (locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         QSettings settings;
         settings.setValue("ide/language", "zh");
         QVERIFY(locateHelpPage("getting-started/what-is-nlang")
                      .endsWith("/zh/getting-started/what-is-nlang.html"));
-        QVERIFY(locateHelpPage("language-spec/overview")
-                     .endsWith("/zh/language-spec/overview.html"));
+        QVERIFY(locateHelpPage("specification/index")
+                     .endsWith("/zh/specification/index.html"));
         QVERIFY(locateHelpPage("vm-architecture/overview")
                      .endsWith("/zh/vm-architecture/overview.html"));
         QVERIFY(locateHelpPage("cli-tools/overview")
                      .endsWith("/zh/cli-tools/overview.html"));
         settings.setValue("ide/language", "en");
-        QVERIFY(locateHelpPage("language-spec/overview")
-                     .endsWith("/en/language-spec/overview.html"));
+        QVERIFY(locateHelpPage("specification/index")
+                     .endsWith("/en/specification/index.html"));
         QVERIFY(locateHelpPage("cli-tools/overview")
                      .endsWith("/en/cli-tools/overview.html"));
         QVERIFY(locateHelpPage("getting-started/what-is-nlang")
@@ -4040,7 +4040,7 @@ private slots:
     }
 
     void testHelpOpensEmbeddedBrowser() {
-        const QString page = locateHelpPage("language-spec/overview");
+        const QString page = locateHelpPage("specification/index");
         if (page.isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -4054,7 +4054,7 @@ private slots:
         QWebEngineView* view =
             browser->findChild<QWebEngineView*>("helpWebView");
         QVERIFY(view != nullptr);
-        QVERIFY(page.endsWith("/language-spec/overview.html"));
+        QVERIFY(page.endsWith("/specification/index.html"));
         //Loading is asynchronous Chromium work; the view's url flips
         //once the load starts, which is all this asserts.
         QTRY_COMPARE(view->url(), QUrl::fromLocalFile(page));
@@ -4079,7 +4079,7 @@ private slots:
         //which the docs pipeline must therefore generate (the mkdocs
         //search plugin emits only the .json). A real query must surface
         //real results, covering index load and the search run in one go.
-        if (locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
         act(window, "actHelpLanguageSpec")->trigger();
@@ -4146,7 +4146,7 @@ private slots:
     void testHelpLinksNavigateToHtmlPages() {
         //Regression for the directory-listing bug: every internal link in
         //the site must land on a .html page, never a directory index.
-        if (locateHelpPage("language-spec/overview").isEmpty())
+        if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
         act(window, "actHelpLanguageSpec")->trigger();
