@@ -17,7 +17,7 @@ operation; this chapter adds no failure behavior of its own.
 | `List` (§12.1) | `IndexOutOfBoundsException` | `get`, `set` or `removeAt` out of range |
 | `Dict` (§12.2) | `Exception` | `get` with no entry for the key |
 | `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range |
-| `io` (§14.3, §14.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no channel; the typed readers at end of input; `readFile`, `writeFile` or `appendFile` failure |
+| `io` (§14.3, §14.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no input channel (a session without stdin); the typed readers at end of input or with no input channel; `readFile`, `writeFile` or `appendFile` failure |
 | `io` (§14.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §16.2) |
 | streams (§14.5) | `NullPointerException` | a method call through a null stream handle |
 | `fs` (§15.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
@@ -37,8 +37,8 @@ only the sites the defining chapters call out besides it.
 - The library declares one exception class of its own:
   `ChannelClosedException`, a direct subclass of `Exception`,
   declared by the `concurrent` package (§8.3). Every other
-  library failure raises a class of §8.3. User code may declare
-  its own classes (§8.4).
+  library failure raises a class of §8.3 (§11.4). User code may
+  declare its own classes (§8.4).
 - The base `Exception` is the class for argument, range and
   parse errors that have no class of their own; there is no
   `IllegalArgumentException` or peer class.

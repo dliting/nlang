@@ -67,8 +67,8 @@
   - [17.9. AtomicInt](library/17-concurrency-classes/atomic.md)
   - [17.10. Channel](library/17-concurrency-classes/channel.md)
   - [17.11. concurrent包](library/17-concurrency-classes/concurrent.md)
-- [18. tensor包](18-tensor.md)
-- [19. 库异常](19-library-exceptions.md)
+- [18. tensor包](library/18-tensor.md)
+- [19. 库异常](library/19-library-exceptions.md)
 
 ### 第三部分 — 二进制格式
 

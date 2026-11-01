@@ -28,7 +28,7 @@
 - `io.readLine()`返回不含行终止符的下一行；尾随的回车被剥去。在输入结束时它返回`""`：空行与输入结束无法由返回值区分，`hasInput()`把两者分开。没有输入通道时它抛出`IOException`（§8.3）。
 - `io.readToken()`返回下一个以空白分隔的记号，跨行跳过空白。在输入结束时它抛出`IOException`；没有输入通道时同样。
 - `io.readChar()`返回下一个非空白码点，从输入的Unicode转换格式（UTF-8）字节解码而来；前导空白被跳过，与`readToken`相同。它返回字面字符——输入`x`得`'x'`——与`toChar`的数值解析（§16.2，`"120"`得`'x'`）有意不同。在输入结束时它抛出`IOException`；没有输入通道时同样。不是有效UTF-8的字节序列抛出`Exception`（§8.3），而非`IOException`。
-- `io.readInt()`、`io.readLong()`、`io.readFloat()`、`io.readDouble()`与`io.readBool()`读取下一个记号，并用对应的字符串方法转换它（§16.2）：输入结束抛出`IOException`（来自`readToken`），格式不当的记号以与该字符串方法完全相同的方式失败。
+- `io.readInt()`、`io.readLong()`、`io.readFloat()`、`io.readDouble()`与`io.readBool()`读取下一个记号，并用对应的字符串方法转换它（§16.2）：输入结束抛出`IOException`（来自`readToken`），没有输入通道时同样，格式不当的记号以与该字符串方法完全相同的方式失败。
 
 混合读取遵循C++里`cin >>`与`getline`的组合语义：取词读取只消费到词尾，随后的`readLine()`返回该行剩余部分（含前导空白），当前行耗尽后才取下一行。输入`"10 20\n30\n"`时：`readInt()`得10，`readInt()`得20，`readLine()`得`""`（行剩余为空），`readLine()`得`"30"`，再读返回`""`（输入结束）。
 

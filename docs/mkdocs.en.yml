@@ -98,16 +98,13 @@ nav:
               - AtomicInt: specification/library/17-concurrency-classes/atomic.md
               - Channel: specification/library/17-concurrency-classes/channel.md
               - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
-      - The tensor Package: specification/18-tensor.md
-      - Library Exceptions: specification/19-library-exceptions.md
+          - The tensor Package: specification/library/18-tensor.md
+          - Library Exceptions: specification/library/19-library-exceptions.md
       - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
       - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
       - The Native Application Binary Interface (ABI): specification/22-native-abi.md
   - Language Specification:
       - Naming Convention: language-spec/naming-convention.md
-      - Standard Library:
-          - tensor: language-spec/stdlib-tensor.md
-          - Exception mapping: language-spec/stdlib-exceptions.md
       - Reference:
           - Known Limitations: language-spec/known-limitations.md
           - Common Error Messages: language-spec/common-errors.md

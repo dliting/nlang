@@ -79,8 +79,8 @@ before they land here.
   - [17.9 AtomicInt](library/17-concurrency-classes/atomic.md)
   - [17.10 Channel](library/17-concurrency-classes/channel.md)
   - [17.11 The concurrent Package](library/17-concurrency-classes/concurrent.md)
-- [18. The tensor Package](18-tensor.md)
-- [19. Library Exceptions](19-library-exceptions.md)
+- [18. The tensor Package](library/18-tensor.md)
+- [19. Library Exceptions](library/19-library-exceptions.md)
 
 ### Part III — Binary Formats
 

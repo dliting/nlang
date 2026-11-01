@@ -13,7 +13,7 @@
 | `List`（§12.1） | `IndexOutOfBoundsException` | `get`、`set`或`removeAt`越界 |
 | `Dict`（§12.2） | `Exception` | `get`没有该键的条目 |
 | `math`（§13.4） | `Exception` | 对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；对NaN或落在`long`值域之外的值调用`floor`、`ceil`或`round` |
-| `io`（§14.3，§14.4） | `IOException` | 没有输入通道的`readLine`；输入结束时或没有通道的`readToken`或`readChar`；输入结束时的带类型读取器；`readFile`、`writeFile`或`appendFile`失败 |
+| `io`（§14.3，§14.4） | `IOException` | 没有输入通道的`readLine`；输入结束时或没有输入通道（会话没有stdin）的`readToken`或`readChar`；输入结束时或没有输入通道的带类型读取器；`readFile`、`writeFile`或`appendFile`失败 |
 | `io`（§14.3） | `Exception` | `readChar`落在不是有效Unicode转换格式（UTF-8）的字节序列上；带类型读取器落在格式不当的记号上（即该字符串方法的失败，§16.2） |
 | 流（§14.5） | `NullPointerException` | 经由null流句柄的方法调用 |
 | `fs`（§15.3） | `IOException` | `size`、`listFiles`、`makeDirs`或`remove`失败 |

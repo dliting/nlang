@@ -99,8 +99,9 @@ the call waits.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
   convert it with the matching string method (§16.2): end of
-  input raises `IOException` (from `readToken`), and a
-  malformed token fails exactly as that string method fails.
+  input raises `IOException` (from `readToken`), with no input
+  channel likewise, and a malformed token fails exactly as that
+  string method fails.
 
 Mixed reads follow the C++ `cin >>` and `getline` combination:
 a token read consumes up to the token's end, and the following
