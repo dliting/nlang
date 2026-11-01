@@ -1,6 +1,6 @@
 # NLang是什么
 
-NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是探索人工智能（AI，artificial intelligence）友好语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm，执行ncc输出的字节码——编译器产出的指令形式）与集成开发环境nide（IDE，integrated development environment），作为教学/研究开源项目开发。
+NLang是一门类C语法、面向嵌入与自动化场景的静态类型脚本语言，也是探索人工智能（AI，artificial intelligence）友好语言特性的试验台，自带编译器（ncc）、字节码虚拟机（nvm，执行ncc输出的字节码——编译器产出的指令形式）与集成开发环境nide（IDE，integrated development environment），作为教学/研究开源项目开发。
 
 上手路线：[安装与布局](install-layout.md)装好工具链，[五分钟上手](first-program.md)跑通第一个程序，再从[速览：类型与变量](types-and-variables.md)开始用可运行的片段过一遍语言核心特性。本文也是nide帮助菜单「NLang入门」的落地页。
 
@@ -24,5 +24,5 @@ NLang是一门面向嵌入与自动化场景的静态类型脚本语言，也是
 | ndisasm | 字节码反汇编器：查看`.ncu`/`.npkg`里的指令 |
 | nide | IDE：编辑、构建、运行，内嵌本帮助站 |
 
-六个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；nide的图形界面用法见[三种运行方式](running.md)与[在nide中调试](debugging.md)。
+六个工具的完整用法见[命令行工具](../cli-tools/overview.md)一章；nide的图形界面用法见[三种运行方式](running.md)与[在nide中调试](debugging.md)。本页摘要内容的逐条款规范定义见[语言规范](../specification/index.md)。
 

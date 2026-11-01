@@ -2,10 +2,12 @@
 
 This tree is the normative specification of the NLang programming
 language: its core language, its standard library, and its binary
-formats. It defines what a conforming implementation must do. The
-[user manual](../index.md) teaches how to use the language and is
-informative; where the two disagree about a semantic question, this
-specification is the authority. The English text is normative.
+formats. It defines what a conforming implementation must do, and
+each chapter pairs the normative rules with worked examples and
+error guidance. For a guided introduction to the language, see
+[Getting Started](../getting-started/what-is-nlang.md); it is
+informative and links here for the rules it summarizes. The English
+text is normative.
 
 The specification describes NLang 0.12.3. It is a living document:
 it always describes the current language, and its version history is
@@ -73,3 +75,9 @@ before they land here.
 - [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
 - [21. The `.npkg` Package Archive](21-npkg-package-archive.md)
 - [22. The Native Application Binary Interface (ABI)](22-native-abi.md)
+
+### Reference
+
+- [Known Limitations](../language-spec/known-limitations.md)
+- [Common Error Messages](../language-spec/common-errors.md)
+- [Naming Convention](../language-spec/naming-convention.md)

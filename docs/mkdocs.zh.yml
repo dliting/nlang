@@ -90,7 +90,6 @@ nav:
       - .npkg包档案: specification/21-npkg-package-archive.md
       - 原生应用二进制接口: specification/22-native-abi.md
   - 语言规格:
-      - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
       - 并发:
           - thread包: language-spec/concurrency-thread.md

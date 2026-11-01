@@ -1,26 +1,28 @@
 # Further Reading
 
-Suggested reading order for the Language Specification:
+Suggested reading order through the
+[Specification](../specification/index.md):
 
-1. [Overview](../language-spec/overview.md) — what the language is and
-   how it is organized
-2. [Naming Convention](../language-spec/naming-convention.md) — the
-   naming rules for types/methods/variables
-3. [Types](../specification/04-types/index.md) →
+1. [Types](../specification/04-types/index.md) →
    [Declarations](../specification/03-program-structure/declarations.md) →
    [Generics](../specification/04-types/generics.md)
    — the type system, declarations, and List/Dict
-4. [Expressions](../specification/05-expressions/index.md) →
+2. [Expressions](../specification/05-expressions/index.md) →
    [Statements](../specification/06-statements/index.md)
    — operators, control flow, exceptions
-5. [Functions](../specification/07-functions/index.md) →
+3. [Functions](../specification/07-functions/index.md) →
    [Function Values and Delegates](../specification/07-functions/function-values.md)
-6. [Concurrency](../specification/10-concurrency/index.md) — spawning
+4. [Concurrency](../specification/10-concurrency/index.md) — spawning
    virtual threads with `thread.spawn`, channels, mutexes, and Future
-7. [Standard Library](../language-spec/standard-library.md),
-   [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md),
-   [Program Entry and Exit](../specification/09-execution-model/exit-codes.md),
-   [Known Limitations](../language-spec/known-limitations.md)
+5. [Built-in Classes and Library Conventions](../specification/13-builtin-classes.md)
+   — the standard library at a glance, followed by the package chapters
+6. [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md)
+   and [Program Entry and Exit](../specification/09-execution-model/exit-codes.md)
+
+The reference pages — [Naming Convention](../language-spec/naming-convention.md),
+[Known Limitations](../language-spec/known-limitations.md), and
+[Common Error Messages](../language-spec/common-errors.md) — are
+informative companions to the specification.
 
 For the execution engine: start with
 [VM Architecture / Overview](../vm-architecture/overview.md), then read

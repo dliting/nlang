@@ -17,8 +17,9 @@ Enhancement Proposal (NLEP); clarifications and corrections to the
 text may be made directly.
 
 This specification is the authority for semantic questions. The
-user manual is a tutorial and is informative; it links here for the
-rules it summarizes.
+[Getting Started](../getting-started/what-is-nlang.md) section
+teaches the language by example; it is informative and links here
+for the rules it summarizes.
 
 ## 0.2 Normative Language
 
@@ -39,11 +40,14 @@ exception is thrown when one is thrown.
 
 Every numbered heading in this specification is a clause, cited as
 `§n`, `§n.k` or `§n.k.m`. Clause numbers are unique across the
-tree, dense within a chapter, and stable: automated guards reject
-gaps, duplicates and dangling references. Citing a clause by number
-is valid from the user manual, from changelog entries and from
-NLEPs; those citations name the clause by number only, never by a
-path into this repository.
+tree, dense within a chapter, and stable within one version
+snapshot: automated guards reject gaps, duplicates and dangling
+references. Because the specification is a living document (§0.1),
+renumbering across versions is legal — a tag pins the whole tree,
+and a historical citation is read against the tag it was written
+under. Citing a clause by number is valid from the user manual,
+from changelog entries and from NLEPs; those citations name the
+clause by number only, never by a path into this repository.
 
 ## 0.4 Terms and Definitions
 
