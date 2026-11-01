@@ -19,6 +19,7 @@ on every merged TU member (top-level and container members).
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
+#include "builder/BindingTable.h"
 #include "BuiltinPrelude.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/CompiledModuleStubMembers.hpp"
@@ -26,6 +27,7 @@ on every merged TU member (top-level and container members).
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
 #include <nlang/vm/CompiledModule.h>
+#include <nlang/vm/Intrinsics.h>
 #include "ModuleLoader.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
@@ -2141,6 +2143,25 @@ private slots:
             {(dir / "main.n").string(), (dir / "lang.n").string()},
             dir.string());
         QVERIFY2(outcome.ok, "project lang.n must dedup, not collide");
+    }
+
+    //v0.12.5 binding rows moved to their declaring packages: a row that
+    //stayed under "builtins" compiles fine (the miss degrades to
+    //CallNative) and dies only at run time, so pin the table directly.
+    void exceptionBindingStaysBare()
+    {
+        QVERIFY2(LookupIntrinsicId("lang", "Exception/2") != INTR_None,
+                 "Exception ctor must bind through the lang package");
+        QVERIFY2(LookupIntrinsicId("lang", "Object.toString") != INTR_None,
+                 "Object methods must bind through the lang package");
+        QVERIFY2(LookupIntrinsicId("lang", "String.substring") != INTR_None,
+                 "String methods must bind through the lang package");
+        QVERIFY2(LookupIntrinsicId("containers", "List.add") != INTR_None,
+                 "List methods must bind through the containers package");
+        QVERIFY2(LookupIntrinsicId("containers", "Dict.get") != INTR_None,
+                 "Dict methods must bind through the containers package");
+        QCOMPARE(LookupIntrinsicId("builtins", "Exception/2"), INTR_None);
+        QCOMPARE(LookupIntrinsicId("builtins", "List.add"), INTR_None);
     }
 };
 
