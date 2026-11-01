@@ -9,6 +9,7 @@
 #include "SyntaxNodeVisitor.h"
 #include "BuildEnvironment.h"
 #include <nlang/compiler/SnTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -99,7 +100,7 @@ SnStructField::SnStructField(SnFieldExpr *pType, std::string *pName,
 	m_pType(pType), m_pInitializer(pInitializer),
 	m_upChildren(new ImmutableNodeList())
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
 	if (m_pInitializer)
 		AddChild(m_pInitializer);
@@ -221,7 +222,7 @@ SnClassField::SnClassField(SnFieldExpr *pType, std::string *pName,
 	m_pType(pType), m_pInitializer(pInitializer),
 	m_upChildren(new ImmutableNodeList())
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
 	if (m_pInitializer)
 		AddChild(m_pInitializer);

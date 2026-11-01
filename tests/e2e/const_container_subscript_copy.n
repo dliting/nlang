@@ -1,0 +1,14 @@
+//v0.12.4 D5: a subscript store through a container field read lands on
+//the copy — the field's own element stays untouched.
+const class Box {
+    public List<int> xs;
+    public Box() {
+        List<int> seed = [1, 2];
+        xs = seed;
+    }
+}
+int main() {
+    Box b = Box();
+    b.xs[0] = 7;
+    return b.xs[0];
+}

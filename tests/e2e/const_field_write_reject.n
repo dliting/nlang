@@ -1,0 +1,10 @@
+//v0.12.4 D3/D4: a const struct's fields are sealed outside the
+//declaring type's own constructors — a plain member store is rejected.
+const struct P {
+    int x;
+}
+int main() {
+    P p = P();
+    p.x = 5;
+    return 0;
+}

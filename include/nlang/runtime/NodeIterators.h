@@ -4,6 +4,7 @@
 #include <list>
 #include <algorithm>
 #include <cassert>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -66,7 +67,7 @@ public:
 
 	reference operator*() const
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		return **m_Iter;
 	}
 
@@ -77,21 +78,21 @@ public:
 
 	iterator &operator++()
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		++m_Iter;
 		return *this;
 	}
 
 	iterator &operator++(int)
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		m_Iter++;
 		return *this;
 	}
 
 	pointer get() const
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		return *m_Iter;
 	}
 protected:
@@ -139,7 +140,7 @@ public:
 
 	const_reference operator*() const
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		return **m_Iter;
 	}
 
@@ -150,21 +151,21 @@ public:
 
 	const_iterator &operator++()
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		++m_Iter;
 		return *this;
 	}
 
 	const_iterator &operator++(int)
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		m_Iter++;
 		return *this;
 	}
 
 	const_pointer get() const
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		return *m_Iter;
 	}
 protected:
@@ -196,7 +197,7 @@ public:
 
 	iterator & operator++()
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		++m_Iter;
 		GotoFilerted();
 		return *this;
@@ -204,7 +205,7 @@ public:
 
 	iterator &operator++(int)
 	{
-		assert(m_Iter != m_Items.end());
+		NLANG_ASSERT(m_Iter != m_Items.end());
 		m_Iter++;
 		GotoFilerted();
 		return *this;
@@ -252,7 +253,7 @@ public:
 
 	const_iterator &operator++()
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		++m_Iter;
 		GotoFilerted();
 		return *this;
@@ -260,7 +261,7 @@ public:
 
 	const_iterator &operator++(int)
 	{
-		assert(m_Iter != m_pItems->end());
+		NLANG_ASSERT(m_Iter != m_pItems->end());
 		m_Iter++;
 		GotoFilerted();
 		return *this;

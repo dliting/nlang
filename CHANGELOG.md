@@ -28,6 +28,86 @@ All notable changes to NLang are documented here. The format follows
   backtrace format, `bool` conversions, user generic classes, and
   the `is`/`has` predicate naming rule for package functions versus
   built-in class methods.
+- Assertion failures in debug builds of the compiler and VM print a
+  stack dump before aborting; release builds are unchanged.
+
+### Fixed
+
+- Fixed a garbage-collection root gap for escaping exceptions. Between
+  the unwinding of a failed task's frames and the publication of its
+  failure state, the in-flight exception object was invisible to the
+  collector; a collection in that window reclaimed it while it was
+  still reachable, and reading it afterwards (for example
+  `thread.failure(t).message`) failed with a field access error. The
+  exception is now rooted as the context's failure handle at the moment
+  it leaves the execution window, closing the gap for every escape
+  path.
+- Fixed a compiler crash on debug builds when a declared generic's
+  member type is resolved inside its own completion window: a
+  fixed-key self-reference such as `List<T> copy()` inside `List<T>`
+  handed the same expression to the field resolver twice. Re-binding
+  the same field is now an idempotent no-op at the resolution
+  chokepoint.
+
+## [0.12.5] - 2026-11-01
+
+### Changed
+
+- The prelude is two packages now. The language core lives in `lang`
+  (`stdlib/lang.n`) — the exception family, the hierarchy root
+  `Object`, and the `String`/`Array` declaration faces — and the base
+  containers live in `containers` (`stdlib/containers.n`) — `List<T>`
+  and `Dict<K,V>`. Every build imports both automatically, exactly as
+  the single `builtins.n` was imported before: the names stay visible
+  without an import statement, and an explicit `import lang;` or
+  `import containers;` deduplicates. The `builtins.n` file is retired;
+  `import builtins;` is an unknown package now, and a project source
+  named `lang.n` or `containers.n` serves as that package's copy for
+  the build. Internal reorganization otherwise — no user-facing
+  behavior change beyond the package names.
+
+## [0.12.4] - 2026-11-01
+
+### Added
+
+- `const class` / `const struct` declarations: type-level immutability.
+  Instance fields are writable only inside the declaring type's own
+  constructors and field initializers; writes anywhere else — method
+  bodies, other classes, across modules — are compile errors naming the
+  field and its owner. A const class can only be extended by another
+  const class — both directions: a mutable subclass of a const base and
+  a const subclass of a mutable base are compile errors (the root
+  `Object` is exempt). The field type surface is constrained (no arrays,
+  no non-const class or interface fields, container element types
+  immutable-faced too) so a mutable handle cannot pierce the seal, and
+  reading a `List`/
+  `Dict` field of a const aggregate returns a shallow copy.
+- `Exception` gained a cause chain: the constructor is now
+  `Exception(string message, Exception cause = null)` — the same shape
+  for every built-in subclass — and a read-only `cause` field carries
+  the wrapped exception. There is no `initCause`-style after-the-fact
+  setter, and the chain cannot form a cycle.
+- `List<T>` and `Dict<K,V>` gained `copy()` — a shallow copy (fresh
+  container, element handles carried over).
+- Failure reports walk the cause chain: an uncaught exception prints a
+  `<Type>: <message>` top line followed by one
+  `Caused by: <Type>: <message>` line per link, and an unobserved
+  spawned-task failure reports the same chain at run end.
+
+### Changed
+
+- **Breaking**: the built-in exception family is now `const class` —
+  writes to exception fields after construction (e.g. `e.message = "x"`)
+  no longer compile, and user exception subclasses must be declared
+  `const class MyError : Exception`. Set extra data in the subclass
+  constructor and forward through `super(msg)` / `super(msg, cause)`.
+- Uncaught-exception output gained the type prefix on the top line
+  (`Runtime error: Exception: boom` instead of `Runtime error: boom`);
+  the exception's own `message` field is unchanged.
+- The `.ncu` format is v2.12: class and struct records carry a
+  const-aggregate marker byte so consumer modules reject writes to
+  imported const aggregates at compile time; v2.11 and older images are
+  refused.
 
 ## [0.12.3] - 2026-10-31
 

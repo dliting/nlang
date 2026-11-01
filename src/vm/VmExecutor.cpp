@@ -303,47 +303,27 @@ void VmExecutor::CarrierLoop(const CompiledFunction& mainFunc) {
 //registry slot (deque stability), so the pointer survives every steal.
 void VmExecutor::RunContextWindow(int ctx, ExecutionContext* info,
     const CompiledFunction& mainFunc, size_t baseDepth) {
-    bool resumed;
-    {
-        //K7: the resume decision, the steal-back, the handshake-flag
-        //clear, and the rethrow arming write scheduler state the
-        //collector's scheduler-root scan reads — one lock scope covers
-        //the transition; RunFrames itself executes GIL-free and stays
-        //outside it.
-        GilEnsureGuard gil(*this);
-        resumed = !info->frames.empty();
-        if (resumed) {
-            if (baseDepth == 0) {
-                //Carrier dispatch: the context owns the whole stack.
-                EvalStack() = std::move(info->frames);
-            } else {
-                //Nested-pump serve (P2-4): splice ABOVE the outer frames
-                //pinned below baseDepth — the served context runs on top
-                //of them and the stack shrinks back to baseDepth.
-                EvalStack().insert(EvalStack().end(),
-                    std::make_move_iterator(info->frames.begin()),
-                    std::make_move_iterator(info->frames.end()));
-            }
-            info->frames.clear();
-            info->framesParked = false;
-            ArmResumeRethrow(info);
-        }
-    }
+    bool resumed = SpliceResumedFrames(info, baseDepth);
     //Dispatch drain depth == splice boundary, always: the window ends
     //exactly where the splice began. A drain of 0 under a serve would
     //fall through into the pinned outer frames and re-dispatch the
     //suspended context mid-window (double dispatch — P2-4 review).
-    if (resumed)
-        RunFrames(baseDepth);
-    else if (baseDepth == 0)
-        RunRootWindow(mainFunc,
-                      reinterpret_cast<uint8_t*>(&info->resultCell));
-    else
-        //Unreachable by construction (every queued context parks with
-        //frames); a fresh root under a serve would build MAIN's frame
-        //into the served context — refuse instead.
-        throw std::runtime_error(
-            "NLang VM: queued context has no frames to resume");
+    try {
+        if (resumed)
+            RunFrames(baseDepth);
+        else if (baseDepth == 0)
+            RunRootWindow(mainFunc,
+                          reinterpret_cast<uint8_t*>(&info->resultCell));
+        else
+            //Unreachable by construction (every queued context parks
+            //with frames); a fresh root under a serve would build MAIN's
+            //frame into the served context — refuse instead.
+            throw std::runtime_error(
+                "NLang VM: queued context has no frames to resume");
+    } catch (NLangThrow& ex) {
+        RootEscapingException(info, ex.heapIdx);
+        throw;
+    }
     m_spScheduler->MarkFinished(ctx, info->resultCell);
     //K3: fill get()-waiters' destinations BEFORE waking them — a parked
     //call is not re-executed on resume (the pc-advance invariant), so the
@@ -438,7 +418,10 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     //Debugger checkpoint at the throw site, before unwinding starts
     //(the full NLang stack is still alive).
     FireOnThrow();
-    throw NLangThrow(heapIdx, msg);
+    //v0.12.4 D8: route the report through ThrownMessageOf so VM-raised
+    //failures print the same "<Type>: <message>" top line as user
+    //throws (the old raw msg lost the type name).
+    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, msg.c_str()));
 }
 
 //K2 slice 4: the building half of RaiseNlangException, split out so
@@ -461,35 +444,15 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
     int32_t msgHandle = MintNewString(msg);
     m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
 
-    //cell[3] = backtrace (field 1 under the uniform 2-cell stride).
-    //Allocate a List<string> and push one entry per active call frame,
-    //innermost-first.
-    int32_t listHeapIdx = -1;
-    if (m_listClassIdx >= 0) {
-        listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
-        //Initialize List.__handle by allocating a fresh side-table slot.
-        m_listStore.emplace_back();  //new empty ListSlot
-        int32_t handle = static_cast<int32_t>(m_listStore.size());
-        //__handle is the first field of List (slot[1]).
-        m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
-        //Populate the backtrace: walk the evaluation stack innermost-first.
-        std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-        for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
-            //v0.8.5: real per-frame source file (same helper/format as
-            //FormatBacktrace — the two surfaces must not drift). The
-            //mint/box/store tail is the existing code, unchanged.
-            const std::string frame = FormatBacktraceFrame(
-                it->func ? it->func->name : std::string("<unknown>"),
-                it->func ? it->func->sourceFile : std::string(),
-                it->currentLine, moduleName);
-            //Box the string so the List element is a real RTK_Boxed
-            //record — the old raw pool index made e.backtrace.get(i)
-            //raise "unbox on null/invalid reference".
-            int32_t frameHandle = MintNewString(frame);
-            int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
-            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
-        }
-    }
+    //cell[5] = cause (v0.12.4 D7): VM-raised exceptions wrap nothing,
+    //so the field is explicitly null — never rely on allocation zeroing.
+    m_structHeap[static_cast<size_t>(heapIdx)][5] = 0;
+
+    //cell[3] = backtrace (field 1 under the uniform 2-cell stride):
+    //one boxed frame string per active call entry, innermost-first
+    //(MintBacktraceList lives with the exception-formatting family in
+    //VmExecutorOpsControl.cpp).
+    int32_t listHeapIdx = MintBacktraceList();
     //Now write listHeapIdx to cell[3] of the Exception. Safe because no
     //further allocations happen before the throw.
     if (listHeapIdx > 0)

@@ -5,7 +5,7 @@ built-in classes (ByteStream, FileStream). ExprResolver
 owns the synthesis sites; DuplicateFieldChecker consults the same
 predicates for the Phase 13 type-alias clash check, so both must agree on
 one name set. The Exception family and Object left the synthesized set —
-declared in stdlib/builtins.n (builtin-decls source of truth), resolving
+declared in stdlib/lang.n (builtin-decls source of truth), resolving
 through the scope chain like any class. The concurrency handles moved on
 to stdlib/thread.n and stdlib/concurrent.n (v0.12.3 import boundary):
 same declared shape, but they enter a translation unit only through its
@@ -35,7 +35,7 @@ struct SnInvokeExpr;
 //(cluster 3) and Object (cluster 4); the v0.12.3 import boundary then
 //moved Semaphore/Mutex and Thread to the concurrency packages
 //(stdlib/concurrent.n, stdlib/thread.n). Object stayed in the
-//stdlib/builtins.n prelude; all of them resolve through the scope
+//stdlib/lang.n prelude; all of them resolve through the scope
 //chain like any declared class.
 inline bool IsBuiltinClassName(const std::string& name)
 {
@@ -59,6 +59,7 @@ inline bool IsPreludeFaceClassName(const std::string& name)
 //row and never evaluates the qualifier.
 struct BuiltinStaticFace
 {
+	const char* package;      //declaring package (binding-row key)
 	const char* typeName;
 	const char* methodName;
 	uint16_t intrinsicId;

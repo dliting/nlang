@@ -1,0 +1,19 @@
+//v0.12.4 D8: an unobserved spawned failure reports the full cause
+//chain at run end — the same "Caused by:" hops as the uncaught report.
+import thread;
+
+void boomer() {
+    throw Exception("task-wrap", Exception("task-root"));
+}
+
+int main() {
+    Thread t = thread.spawn(boomer);
+    int spins = 0;
+    while (!thread.isFailed(t) && spins < 10000) {
+        spins = spins + 1;
+        thread.yield();
+    }
+    //Deliberately never observed: no thread.failure(), no join — the
+    //run-end report must carry the chain.
+    return 0;
+}

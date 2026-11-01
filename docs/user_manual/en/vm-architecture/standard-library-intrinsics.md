@@ -18,7 +18,7 @@ function.
 
 **What reaches `OP_CallIntrinsic`**: the string-method family
 (`s.substring(1)`, `s.split(d)`, …). The signatures are declared by the
-prelude face class `String` (`stdlib/builtins.n`) — the resolver validates
+prelude face class `String` (`stdlib/lang.n`) — the resolver validates
 the member call against that declaration, and emission reads the intrinsic
 identifier (ID) from the binding table (`src/compiler/builder/BindingTable.cpp`,
 key `String.<method>`) in `src/vm/backend/EmitExprMemberString.cpp`. An

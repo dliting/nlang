@@ -9,6 +9,7 @@ compiler.
 #include "BuildEnvironment.h"
 #include <cassert>
 #include <stdarg.h>
+#include <nlang/runtime/StackDump.h>
 
 extern int yyparse(nlang::ScriptParser&, void* yyscanner);
 extern int yydebug;
@@ -24,7 +25,7 @@ ScriptParser::ScriptParser(BuildEnvironment &env):
 bool ScriptParser::ParseUnit(TranslationUnit &unit,
 	bool bEnableDebug /*= false*/, const char* pSourceText /*= nullptr*/)
 {
-	assert(m_Env.CurrModule());
+	NLANG_ASSERT(m_Env.CurrModule());
 	if (pSourceText == nullptr)
 	{
 		if (!m_Scanner.OpenFile(unit.FilePath()))

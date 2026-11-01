@@ -77,6 +77,7 @@ add_library(nlang_vm
     backend/EmitExprInitList.cpp
     backend/EmitExprInitListND.cpp
     backend/EmitExprMember.cpp
+    backend/EmitExprMemberFieldLoad.cpp
     backend/FieldOffsets.cpp
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberStatic.cpp

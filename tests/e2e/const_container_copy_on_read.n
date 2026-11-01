@@ -1,0 +1,17 @@
+//v0.12.4 D5: reading a container field of a const aggregate yields a
+//fresh copy — a method call on the read mutates the copy, not the
+//field state. Seeding inside the declaring ctor uses the
+//build-a-local-then-assign idiom: reads copy everywhere (the D3
+//exemption covers stores only), so in-ctor add() would hit a copy.
+const class Box {
+    public List<int> xs;
+    public Box() {
+        List<int> seed = [1, 2];
+        xs = seed;
+    }
+}
+int main() {
+    Box b = Box();
+    b.xs.add(99);
+    return b.xs.length();
+}

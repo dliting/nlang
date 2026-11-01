@@ -1,7 +1,7 @@
 //Phase 9d-2: super(msg) forwards the message to the built-in Exception
 //parent ctor (previously a Phase 9d workaround assigned fields after
 //construction with a default ctor).
-class MyException : Exception {
+const class MyException : Exception {
     public int code;
     public MyException(string msg) {
         super(msg);

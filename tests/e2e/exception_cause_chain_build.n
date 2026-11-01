@@ -1,0 +1,9 @@
+//v0.12.4 D7: cause chains — the second constructor argument links the
+//wrapped exception, readable through the cause field.
+int main() {
+    Exception root = Exception("root");
+    Exception wrap = Exception("wrap", root);
+    if (wrap.cause == null) { return 1; }
+    if (wrap.cause.message != "root") { return 2; }
+    return 7;
+}

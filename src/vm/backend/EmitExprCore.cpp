@@ -15,6 +15,7 @@
 #include <cassert>
 #include <map>
 #include <unordered_set>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -24,7 +25,7 @@ uint16_t VmBackend::AddStringConstant(const std::string& s) {
         if (pool[i] == s)
             return i;
     }
-    assert(pool.size() < UINT16_MAX && "string constant pool overflow");
+    NLANG_ASSERT(pool.size() < UINT16_MAX && "string constant pool overflow");
     pool.push_back(s);
     return static_cast<uint16_t>(pool.size() - 1);
 }
@@ -207,6 +208,8 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+        //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
+        EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
     } else {
         throw std::runtime_error(
             "NLang backend: identifier has no codegen binding: "

@@ -1,0 +1,17 @@
+//v0.12.4 D4: the rejection point is the write THROUGH the reference —
+//storing a const-class instance into a mutable holder's field is legal
+//(the holder is not sealed); writing the instance's field via that
+//stored handle is not.
+const class Inner {
+    public string msg;
+    public Inner(string m) { msg = m; }
+}
+class Holder {
+    public Inner cce;
+}
+int main() {
+    Holder h = Holder();
+    h.cce = Inner("boom");
+    h.cce.msg = "x";
+    return 0;
+}

@@ -13,6 +13,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <nlang/runtime/StackDump.h>
 
 #ifdef NLANG_ENABLE_LLVM
 namespace llvm
@@ -159,7 +160,7 @@ public:
 	*/
 	bool PostResolveCheck(BuildEnvironment &env)
 	{
-		assert(m_pField);
+		NLANG_ASSERT(m_pField);
 		if (!m_pChecker)  //Needn't to be checked.
 			return true;
 		return (*m_pChecker)(*this, env);
@@ -253,7 +254,7 @@ public:
 	SnLiteralExpr(NodeKind valueKind, CPP_T value, const ISourceLocation &loc) :
 		Super_(s_Kind, loc), m_Value(valueKind, value)
 	{
-		assert(m_Value->Type());
+		NLANG_ASSERT(m_Value->Type());
 	}
 
 	SnLiteralExpr(RnDataType &, void *pValue);
@@ -310,7 +311,7 @@ public:
 
 	std::string Name() const
 	{
-		assert(m_upName || Field());
+		NLANG_ASSERT(m_upName || Field());
 		return m_upName ? *m_upName : Field()->Name();
 	}
 
@@ -723,8 +724,8 @@ public:
 		: Super_(s_Kind, loc), m_pOperand(pOperand), m_pTargetType(pTargetType),
 		  m_pResolvedTarget(nullptr), m_CastKind(TCK_None)
 	{
-		assert(pOperand);
-		assert(pTargetType);
+		NLANG_ASSERT(pOperand);
+		NLANG_ASSERT(pTargetType);
 		AddChild(m_pOperand);
 		AddChild(m_pTargetType);
 	}
@@ -1030,8 +1031,8 @@ public:
 		const ISourceLocation &loc)
 		: Super_(s_Kind, loc), m_pInner(pInner)
 	{
-		assert(pName);
-		assert(pInner);
+		NLANG_ASSERT(pName);
+		NLANG_ASSERT(pInner);
 		m_upName.reset(pName);
 		AddChild(m_pInner);
 	}
@@ -1063,7 +1064,7 @@ public:
 	SnOutArgExpr(SnExpression *pInner, const ISourceLocation &loc)
 		: Super_(s_Kind, loc), m_pInner(pInner)
 	{
-		assert(pInner);
+		NLANG_ASSERT(pInner);
 		AddChild(m_pInner);
 	}
 

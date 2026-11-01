@@ -18,6 +18,7 @@
 #include <functional>
 #include <map>
 #include <unordered_set>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -391,7 +392,7 @@ void VmBackend::Access(SyntaxNode& sn) {
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
                                 uint8_t typeKind, bool isParam) {
-    assert(m_currFunc);
+    NLANG_ASSERT(m_currFunc);
     auto it = m_currFunc->localOffsets.find(name);
     if (it != m_currFunc->localOffsets.end())
         return it->second;  // reuse existing slot (flat frame, no block scoping)
@@ -423,7 +424,7 @@ uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
 }
 
 uint16_t VmBackend::FindLocal(const std::string& name) const {
-    assert(m_currFunc);
+    NLANG_ASSERT(m_currFunc);
     auto it = m_currFunc->localOffsets.find(name);
     if (it != m_currFunc->localOffsets.end())
         return it->second;

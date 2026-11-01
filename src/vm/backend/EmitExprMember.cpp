@@ -12,6 +12,7 @@
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <cassert>
 #include <map>
 #include <unordered_set>
@@ -369,44 +370,6 @@ bool VmBackend::EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
         return true;
     }
     return false;
-}
-
-//Struct field read tail: OP_LoadField of `fieldName` into resultOffset
-//(the receiver heap index is already emitted).
-void VmBackend::EmitStructFieldLoad(SnStructDecl& structDecl,
-                                    const std::string& fieldName,
-                                    BytecodeEmitter& emitter,
-                                    uint16_t resultOffset) {
-    int off = FindFieldOffset(structDecl, fieldName);
-    if (off < 0) {
-        //Round-12: field offset not found — internal error after
-        //type resolution should have caught this.
-        throw std::runtime_error(
-            "NLang backend: struct field offset not found: "
-            + fieldName);
-    }
-    emitter.Emit(OpCode::OP_LoadField);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(static_cast<uint16_t>(off));
-}
-
-//Class field read tail: flattened OP_LoadField of `fieldName` into
-//resultOffset (the receiver heap index is already emitted).
-void VmBackend::EmitClassFieldLoad(SnClassDecl& classDecl,
-                                   const std::string& fieldName,
-                                   BytecodeEmitter& emitter,
-                                   uint16_t resultOffset) {
-    int off = FindClassFieldOffset(classDecl, fieldName);
-    if (off < 0) {
-        throw std::runtime_error(
-            "NLang backend: class field offset not found: "
-            + fieldName);
-    }
-    emitter.Emit(OpCode::OP_LoadField);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(static_cast<uint16_t>(off));
 }
 
 //Array element field access: arr[i].field for struct/class element types.

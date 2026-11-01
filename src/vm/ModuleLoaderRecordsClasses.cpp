@@ -35,6 +35,10 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
         fs.read(reinterpret_cast<char*>(&cc.superClassIdx),
                 sizeof(cc.superClassIdx));
 
+        //v2.12 (v0.12.4): const-aggregate marker (see CompiledClass).
+        fs.read(reinterpret_cast<char*>(&cc.isConstAggregate),
+                sizeof(cc.isConstAggregate));
+
         cc.fieldNames.resize(cc.fieldCount);
         for (uint16_t j = 0; j < cc.fieldCount; ++j) {
             uint32_t fnLen;

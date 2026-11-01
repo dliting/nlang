@@ -1,0 +1,10 @@
+//v0.12.4 D1 (user ruling 2026-10-31): a const class may only be
+//extended by a const class — a sealed base with a mutable subclass is
+//a mixed hierarchy and a declaration error.
+const class Base {
+    public int b;
+}
+class Leaky : Base {
+    public void mutate() { b = 1; }
+}
+int main() { return 0; }

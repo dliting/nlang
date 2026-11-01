@@ -8,6 +8,7 @@
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/langservice/SymbolIndex.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -110,7 +111,7 @@ void VmBackend::EmitDefaultBinding(const FormalBinding* pBindings,
                                      uint16_t thisSlot)
 {
     const auto& b = pBindings[bindingIdx];
-    assert(b.pFormal && b.pFormal->Value());
+    NLANG_ASSERT(b.pFormal && b.pFormal->Value());
     OverrideScope scope(*this);
     for (size_t j = 0; j < bindingIdx; ++j) {
         scope.Add(pBindings[j].pFormal->Name(),
@@ -145,7 +146,7 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
         EmitDefaultBinding(pBindings, bindingIdx, slotIdx, slotBase, base,
                            paramOffset, emitter, thisSlot);
     } else {
-        assert(b.pCallerExpr);
+        NLANG_ASSERT(b.pCallerExpr);
         EmitExpression(*b.pCallerExpr, emitter, paramOffset);
     }
 
@@ -305,7 +306,7 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
         const std::function<void(uint16_t)>& applyBox) {
     const auto& bindings = invoke.Bindings();
     if (bindings.size() + slotBase > kMaxFuncParams) {
-        assert(false && "function parameters exceed kMaxFuncParams sanity ceiling");
+        NLANG_ASSERT(false && "function parameters exceed kMaxFuncParams sanity ceiling");
         return true;
     }
 

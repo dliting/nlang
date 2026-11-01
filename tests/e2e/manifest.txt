@@ -57,6 +57,42 @@ while_with_local 15
 cast_float_to_int 3
 cast_int_to_float 7
 implicit_float_to_int_reject compile_error Incompatible type
+# --- v0.12.4 const-aggregate field surface (D6) ---
+const_class_array_field_reject compile_error cannot hold an array field
+const_class_mutable_class_field_reject compile_error must be a const class type
+const_class_container_elem_reject compile_error immutable container elements
+const_class_interface_field_reject compile_error cannot be an interface type
+const_class_interface_elem_reject compile_error is an interface
+const_struct_array_field_reject compile_error cannot hold an array field
+const_class_surface_ok 7
+# --- v0.12.4 const-aggregate store gate (D3/D4) ---
+const_base_mutable_subclass_reject compile_error must be const
+const_mutable_base_subclass_reject compile_error may extend const classes only
+const_explicit_object_base_ok 7
+const_field_write_reject compile_error is immutable
+const_field_compound_reject compile_error is immutable
+const_via_field_write_reject compile_error is immutable
+const_subclass_ctor_base_write_reject compile_error is immutable
+const_implicit_this_write_reject compile_error is immutable
+const_ctor_write_ok 7
+# --- v0.12.4 container shallow copy (D9) ---
+list_copy_independent 34
+dict_copy_independent 23
+# --- v0.12.4 copy-on-read seal (D5) ---
+const_container_copy_on_read 2
+const_container_subscript_copy 1
+const_container_foreach_ok 3
+# --- v0.12.4 cause-chain constructor (D7) ---
+exception_cause_default_null 7
+exception_cause_chain_build 7
+# --- v0.12.4 const marker over the wire (D10, NCU v2.12) ---
+const_crossmod_api 7
+const_crossmod_write_reject compile_error is immutable
+# --- v0.12.4 cause-chain failure reports (D8) ---
+exception_caused_by_output 1
+exception_caused_by_join 0
+# --- v0.12.5 prelude split: both packages' names stay bare-visible ---
+prelude_split_faces 7
 # --- bool (0.7.5 strict) ---
 bool_basics 0 false
 bool_strict_reject compile_error condition must be bool
@@ -1840,6 +1876,7 @@ object_static_protocol_reject compile_error claims the virtual dispatch slot of 
 object_tostring_arity compile_error
 naming_reserved_prelude compile_error names a type
 alias_clash_prelude compile_error cannot be used as a type alias
+alias_clash_prelude_lang compile_error cannot be used as a type alias
 alias_clash_package_root compile_error cannot be used as a type alias
 concurrent_channel_park_gcwindow 0 churn done
 concurrent_gate_hammer 17 peak inside the section: 2 (limit 2), total: 40000

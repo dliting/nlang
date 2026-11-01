@@ -1,6 +1,6 @@
 //Phase 9d-2: user Exception subclass ctor forwards the message to the
 //built-in Exception parent ctor via super(msg).
-class MyException : Exception {
+const class MyException : Exception {
     public int code;
     public MyException(string msg) {
         super(msg);

@@ -1,0 +1,10 @@
+//v0.12.4 D9: copy() returns an independent shallow copy — mutating the
+//copy leaves the source container untouched.
+int main() {
+    List<int> a = [1, 2, 3];
+    List<int> b = a.copy();
+    b.add(99);
+    //3 source elements + 4 copy elements: a shared backing store
+    //resizes the source too and yields 44.
+    return a.length() * 10 + b.length();
+}

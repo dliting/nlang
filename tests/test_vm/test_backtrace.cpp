@@ -59,6 +59,8 @@ static void TestBacktraceCarriesRealSourceFile() {
 }
 
 //未捕获用户 throw 的顶层消息＝异常自身 message（旧实现恒 "user throw"）。
+//v0.12.4 D8: 顶层报告统一为 "<Type>: <message>" 链式格式（与 VM 抛出的
+//异常一致），消息仍来自异常自身。
 static void TestThrowMessagePassthrough() {
     TEST(TestThrowMessagePassthrough);
     {
@@ -75,7 +77,8 @@ static void TestThrowMessagePassthrough() {
         } catch (const std::exception& e) {
             what = e.what();
         }
-        CHECK(what == "boom", "top-level message is the exception's own");
+        CHECK(what == "Exception: boom",
+              "top-level report is the D8 \"<Type>: <message>\" line");
     }
     PASS();
 }
@@ -123,7 +126,8 @@ static void TestRethrowKeepsMessage() {
         } catch (const std::exception& e) {
             what = e.what();
         }
-        CHECK(what == "rethrown", "rethrow keeps the original message");
+        CHECK(what == "Exception: rethrown",
+              "rethrow keeps the original message (D8 top line)");
     }
     PASS();
 }
@@ -182,7 +186,8 @@ static void TestUserConstructedInvalidCast() {
         } catch (const std::exception& e) {
             what = e.what();
         }
-        CHECK(what == "custom", "user-constructed InvalidCastException throws");
+        CHECK(what == "InvalidCastException: custom",
+              "user-constructed InvalidCastException throws (D8 top line)");
     }
     PASS();
 }
@@ -263,7 +268,7 @@ static void TestUncaughtBacktraceTextByteExact() {
         } catch (const std::exception& e) {
             what = e.what();
         }
-        REQUIRE(what == "deep");
+        REQUIRE(what == "Exception: deep");   //D8 top line, then the frames
         const std::string file = (scratchDir() / "bt_pin_uncaught.n").string();
         const std::string want =
             "  at bt_pin_uncaught.inner (" + file + ":2)\n"

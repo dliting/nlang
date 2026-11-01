@@ -15,6 +15,9 @@
 //    producing a second fault and process death with no output.
 //  - All formatting uses stack buffers (snprintf into char[]) — no heap
 //    allocation inside the filter.
+//  - Frame symbolization itself lives once in
+//    <nlang/runtime/StackDump.h> (DumpStackTrace/PrintBacktrace), shared
+//    with NLANG_ASSERT.
 
 #ifdef _WIN32
 

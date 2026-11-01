@@ -185,6 +185,10 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	auto pName = new std::string(LeafNameOfKey(cs.name));
 	auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.12 (v0.12.4): the const marker survived the wire — rebuild it so
+	//the store gate and ctor exemption hold against imported structs.
+	if (cs.isConstAggregate)
+		pDecl->SetConstAggregate();
 	return pDecl;
 }
 
@@ -272,6 +276,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.12 (v0.12.4): the const marker survived the wire — rebuild the
+	//own bit so the store gate, ctor exemption, and copy-on-read seal
+	//hold against imported classes (the chain query re-derives from the
+	//superclass stub link).
+	if (cc.isConstAggregate)
+		pDecl->SetConstAggregate();
 	return pDecl;
 }
 

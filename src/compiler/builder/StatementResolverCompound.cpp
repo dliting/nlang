@@ -4,6 +4,7 @@
 ---*/
 #include "StatementResolver.h"
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -12,7 +13,7 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Left()->Accept(*m_pVisitor);
 	//Phase 9a: reject compound assignment to a const local.
 	RejectConstStoreTarget(*sn.Left(), sn.Location());

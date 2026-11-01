@@ -9,6 +9,7 @@ AST.
 #include <sstream>
 #include <iostream>
 #include "SyntaxNodeVisitor.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -74,7 +75,7 @@ SnField * SnParagraph::FindField(const std::string& sName) const
 
 bool SnParagraph::AddLocal(const std::string &sName, SnField *pField)
 {
-	assert(pField);
+	NLANG_ASSERT(pField);
 	auto it = m_Locals.find(sName);
 	if (it != m_Locals.end())
 		return false;  //duplicate
@@ -121,7 +122,7 @@ SnField * SnReturnStmt::FindField(const std::string& sName) const
 SnInvokeStmt::SnInvokeStmt(SnMemberExpr* pExpr, const ISourceLocation& loc) :
 	Super_(s_Kind, loc), m_pExpr(pExpr)
 {
-	assert(m_pExpr);
+	NLANG_ASSERT(m_pExpr);
 	m_pExpr->Checker(&SnMemberExpr::InvokeExprChecker());
 	AddChild(m_pExpr);
 }
@@ -129,7 +130,7 @@ SnInvokeStmt::SnInvokeStmt(SnMemberExpr* pExpr, const ISourceLocation& loc) :
 SnInvokeStmt::SnInvokeStmt(SnInvokeExpr *pExpr, const ISourceLocation& loc) :
 	Super_(s_Kind, loc), m_pExpr(pExpr)
 {
-	assert(m_pExpr);
+	NLANG_ASSERT(m_pExpr);
 	AddChild(m_pExpr);
 }
 
@@ -156,7 +157,7 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	std::vector<LocalDecl> *pDecls, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls)
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
 	//Phase 13 Step 0.5 container unification: init expressions are
 	//regular children. Ownership lives with the children list until the
@@ -184,7 +185,7 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls), m_isConst(isConst)
 {
-	assert(m_pType);
+	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
 	for (auto &decl : *m_upDecls)
 		if (decl.pInitExpr)
@@ -270,8 +271,8 @@ SnAssignStmt::SnAssignStmt(SnExpression *pLeft, SnExpression *pRight,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pLeft(pLeft), m_pRight(pRight)
 {
-	assert(m_pLeft);
-	assert(m_pRight);
+	NLANG_ASSERT(m_pLeft);
+	NLANG_ASSERT(m_pRight);
 	AddChild(m_pLeft);
 	AddChild(m_pRight);
 }
@@ -298,8 +299,8 @@ SnCompoundAssignStmt::SnCompoundAssignStmt(SnBinaryExpr::Operator op,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_op(op), m_pLeft(pLeft), m_pRight(pRight)
 {
-	assert(m_pLeft);
-	assert(m_pRight);
+	NLANG_ASSERT(m_pLeft);
+	NLANG_ASSERT(m_pRight);
 	AddChild(m_pLeft);
 	AddChild(m_pRight);
 }
@@ -332,13 +333,13 @@ SnField *SnCompoundAssignStmt::FindField(const std::string& sName) const
 SnAssertStmt::SnAssertStmt(SnExpression *pCond, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pCond(pCond)
 {
-	assert(m_pCond);
+	NLANG_ASSERT(m_pCond);
 	AddChild(m_pCond);
 }
 
 std::string SnAssertStmt::ToString() const
 {
-	return "assert(" + m_pCond->ToString() + ");\n";
+	return "NLANG_ASSERT(" + m_pCond->ToString() + ");\n";
 }
 
 void SnAssertStmt::Accept(nlang::ISyntaxNodeVisitor &v)
@@ -357,9 +358,9 @@ SnSubscriptAssignStmt::SnSubscriptAssignStmt(SnExpression *pArray,
 	SnExpression *pIndex, SnExpression *pValue, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pArray(pArray), m_pValue(pValue)
 {
-	assert(m_pArray);
-	assert(pIndex);
-	assert(m_pValue);
+	NLANG_ASSERT(m_pArray);
+	NLANG_ASSERT(pIndex);
+	NLANG_ASSERT(m_pValue);
 	AddChild(m_pArray);
 	m_pIndices.push_back(pIndex);
 	AddChild(pIndex);
@@ -371,19 +372,19 @@ SnSubscriptAssignStmt::SnSubscriptAssignStmt(SnExpression *pArray,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pArray(pArray), m_pValue(pValue)
 {
-	assert(m_pArray);
-	assert(m_pValue);
+	NLANG_ASSERT(m_pArray);
+	NLANG_ASSERT(m_pValue);
 	AddChild(m_pArray);
 	for (auto *pIndex : upIndices)
 	{
-		assert(pIndex);
+		NLANG_ASSERT(pIndex);
 		m_pIndices.push_back(pIndex);
 		AddChild(pIndex);
 	}
 	//Ownership transferred to this node's children — release the
 	//source list so it does not double-delete at scope exit.
 	upIndices.Release();
-	assert(!m_pIndices.empty());
+	NLANG_ASSERT(!m_pIndices.empty());
 	AddChild(m_pValue);
 }
 

@@ -9,6 +9,7 @@
 #include "BuildEnvironment.h"
 #include "builder/ImportedNodeBuilder.hpp"
 #include "builder/ExprResolver.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -55,7 +56,7 @@ void SyntaxTree::Clear()
 void SyntaxTree::CreateNodesFromRuntime()
 {
 
-	assert(m_pRoot == nullptr);
+	NLANG_ASSERT(m_pRoot == nullptr);
 	//Build type information except type name references from imported node.
 	ImportedNodeBuilder builder(*this);
 	RuntimeNodeVisitor<ImportedNodeBuilder> visitor(builder);
@@ -70,11 +71,11 @@ void SyntaxTree::ResolveNamesFromRuntime(BuildEnvironment &env)
 		auto pNode = pair.second;
 		if (pNode->Kind() != NK_NameExpr)
 			continue;
-		assert(!pNode->IsResolved() && pNode->IsImported());
+		NLANG_ASSERT(!pNode->IsResolved() && pNode->IsImported());
 		auto pNameExpr = static_cast<SnNameExpr*>(pNode);
-		assert(pNameExpr->ImportedField());
+		NLANG_ASSERT(pNameExpr->ImportedField());
 		SyntaxNode *pType = FindNode(*pNameExpr->ImportedField());
-		assert(pType && pType->IsField());
+		NLANG_ASSERT(pType && pType->IsField());
 		resolver.ResolveFieldExprAs(*pNameExpr, static_cast<SnField*>(pType));
 	}
 }

@@ -1,0 +1,12 @@
+//v0.12.4 D10 (NCU v2.12): a const class crosses the module border —
+//the marker rides the class record, so the consumer's stub enforces
+//the same seal as the producer's declaration.
+const class Note {
+    public string s;
+    public Note(string v) { s = v; }
+}
+
+string noteText() {
+    Note n = Note("sealed");
+    return n.s;
+}

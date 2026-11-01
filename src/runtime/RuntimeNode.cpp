@@ -9,6 +9,7 @@ This file define the implementation of basic runtime node classes in nlang.
 #include "RuntimeNodeVisitor.h"
 #include "Utils.h"
 #include <regex>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -47,7 +48,7 @@ void RuntimeNode::Dump(std::ostream &os) const
 RnField::RnField(NodeKind k, FieldAccessType at, const IdString &name) :
 	Super_(k, at), m_Name(name)
 {
-	assert(RnField::IsValidName(name));
+	NLANG_ASSERT(RnField::IsValidName(name));
 }
 
 bool RnField::IsValidName(const IdString &name)
@@ -58,7 +59,7 @@ bool RnField::IsValidName(const IdString &name)
 
 bool RnField::ConflictedWith(const RnField &other) const
 {
-	assert(Parent() && !other.Parent());
+	NLANG_ASSERT(Parent() && !other.Parent());
 	return m_Name == other.m_Name;
 }
 

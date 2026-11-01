@@ -5,6 +5,7 @@
 
 #include "IdString.h"
 #include <mutex>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -47,7 +48,7 @@ IdString::IdString(const char* szValue)
 void IdString::Init(const std::string& sValue)
 {
 	std::lock_guard<std::mutex> guard(g_internMutex);
-	assert(s_pIndexes && s_pIndexMap);
+	NLANG_ASSERT(s_pIndexes && s_pIndexMap);
 	const auto item = s_pIndexMap->find(sValue);
 	if (item != s_pIndexMap->cend())
 	{
@@ -59,7 +60,7 @@ void IdString::Init(const std::string& sValue)
 	{
 		//Expand the indexes list.
 		const uint32 u4NewSize = s_u4LastIndex + IdString::INIT_INDEX_COUNT;
-		assert(u4NewSize <= s_pIndexes->max_size());
+		NLANG_ASSERT(u4NewSize <= s_pIndexes->max_size());
 		s_pIndexes->resize(u4NewSize);
 	}
 

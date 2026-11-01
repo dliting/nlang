@@ -360,7 +360,7 @@ static const char* const kBoxedElementGenericNames[] = {
 //slot's tag (add/indexOf/contains at slot 1, set's value at slot 2,
 //get/recv on the return side — the same plan the three retired
 //(baseName, method) tables encoded, now expressed by
-//stdlib/builtins.n). Class/struct type arguments never box:
+//stdlib/containers.n). Class/struct type arguments never box:
 //BoxingTagFor returns isPrimitive=false and the raw heap handle
 //passes through, as do array-typed slots (the interned token is not
 //a primitive).

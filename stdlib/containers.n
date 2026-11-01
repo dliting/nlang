@@ -1,0 +1,37 @@
+//Standard library source for the "containers" prelude package — the
+//base containers (§12.4 rule: language core and base containers stay
+//import-free; everything else needs an import). Implicitly imported
+//into every compilation unit. Native classes: implementations live in
+//the VM (intrinsic channel). Compile-time inline only: stdlib.npkg
+//excludes this file.
+
+//Resizing sequence of elements of one type. Elements are boxed at the
+//runtime boundary for primitive type arguments (erasure); class and
+//struct elements travel as references. Indexing sugar: lst[i].
+class List<T> {
+    public native List();
+    public native void add(T item);
+    public native T get(int index);
+    public native void set(int index, T value);
+    public native int length();
+    public native void removeAt(int index);
+    public native int indexOf(T item);
+    public native bool contains(T item);
+    public native void clear();
+    public native List<T> copy();
+    public native string toString();
+}
+
+//Key-value map with insertion-ordered keys. Indexing sugar: dict[k].
+class Dict<K, V> {
+    public native Dict();
+    public native void set(K key, V value);
+    public native V get(K key);
+    public native bool containsKey(K key);
+    public native int remove(K key);
+    public native void clear();
+    public native int count();
+    public native List<K> keys();
+    public native Dict<K, V> copy();
+    public native string toString();
+}

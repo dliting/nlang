@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -26,6 +27,9 @@ class SnParagraph;
 //Internal stub-minting type (src/compiler/builder/
 // CompiledModuleNodeBuilder.hpp); reference use below only.
 class CompiledModuleNodeBuilder;
+//Reserved prelude package record (src/compiler/BuiltinPrelude.h);
+//reference use below only.
+struct PreludePackage;
 
 //A tool for compiling some nlang source files to a binary module.
 class NLANG_COMPILER_API ModuleBuilder
@@ -75,14 +79,14 @@ public:
 	//internal passes use TreeRoot()).
 	const SnNamespace& TreeRootView() const
 	{
-		assert(TheAST().Root());
+		NLANG_ASSERT(TheAST().Root());
 		return *TheAST().Root();
 	}
 private:
 	//Get the root of the syntax tree.
 	SnNamespace &TreeRoot()
 	{
-		assert(TheAST().Root());
+		NLANG_ASSERT(TheAST().Root());
 		return *TheAST().Root();
 	}
 
@@ -127,13 +131,16 @@ private:
 	//anything else inlines under its root. True when a TU was added.
 	bool ImportLibraryMatch(
 		const std::pair<std::string, std::string>& match);
-	//The implicit prelude import (JLS §7.5.3 analogue): resolve the
-	//reserved "builtins" package once per build — first disk match wins
-	//(dev-iteration edits of the stdlib copy), the embedded copy parses
-	//as a pseudo-path unit when no search root provides it, and two
-	//roots offering the package is the duplicate-package diagnosis.
-	//Runs after ParseTransUnits, before DiscoverLibraryUnits. True when
-	//a TU joined this call.
+	//One reserved prelude package's implicit-import resolution: first
+	//disk match wins (dev-iteration edits of the stdlib copy), the
+	//embedded copy parses as a pseudo-path unit when no search root
+	//provides it, and two roots offering the package is the
+	//duplicate-package diagnosis. Shared by the implicit loop below and
+	//an explicit import of a reserved name.
+	bool EnsurePreludePackageImported(const PreludePackage& pkg);
+	//The implicit prelude import (JLS §7.5.3 analogue): every reserved
+	//prelude package (kPreludePackages), table order. Runs after
+	//ParseTransUnits, before DiscoverLibraryUnits.
 	bool EnsurePreludeImported();
 	//Index and fully parse one library source file as a library TU,
 	//recording the root it was found under (the package derives from

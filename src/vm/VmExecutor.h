@@ -270,6 +270,15 @@ public:
     void SetThrowOnceInCollectForTests() {
         m_gcThrowOnceForTests.store(true, std::memory_order_relaxed);
     }
+    //White-box knob: run one real collection in RunContextWindow's
+    //escape catch — after the handler search popped every frame, while
+    //the escaping exception is rooted only by the early failExcHeapIdx
+    //publish and the carrier is still in the GC rendezvous set. Proves
+    //the in-flight exception object survives a collection there.
+    void SetCollectInFailureCatchForTests() {
+        m_gcCollectInFailureCatchForTests.store(true,
+                                                std::memory_order_relaxed);
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
@@ -902,6 +911,18 @@ private:
     void RunContextWindow(int ctx, ExecutionContext* info,
                           const CompiledFunction& mainFunc,
                           size_t baseDepth);
+
+    //RunContextWindow's resume head (VmExecutorFrames.cpp): moves a
+    //parked context's frames back onto the carrier's evaluation stack
+    //(splice above baseDepth under a nested-pump serve) and arms the
+    //rethrow. Returns false when the context has no parked frames
+    //(fresh root).
+    bool SpliceResumedFrames(ExecutionContext* info, size_t baseDepth);
+
+    //RunContextWindow's escape catch (VmExecutorFailure.cpp): roots an
+    //exception that is leaving the window as the context's failure
+    //handle before the dispatch scope's ExecutingScope retires.
+    void RootEscapingException(ExecutionContext* info, int32_t heapIdx);
 
     //P2-4 nested pump (VmExecutorPump.cpp): the window's suspension
     //entry and its helpers. RunNestedWindow runs the frames above
@@ -1816,6 +1837,7 @@ private:
     std::atomic<bool> m_gcPressure{false};
     std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
     std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
+    std::atomic<bool> m_gcCollectInFailureCatchForTests{false};
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 
@@ -1922,6 +1944,11 @@ private:
     //raiseException callback roots the fresh object before throwing it
     //across the blocking-native GIL gap.
     int32_t BuildNlangException(int16_t classIdx, const std::string& msg);
+    //v0.12.4 backtrace half of BuildNlangException: mint the List<string>
+    //cell[3] value with one boxed entry per active call frame,
+    //innermost-first. Returns the list's heap idx (-1 when the List
+    //class is not registered).
+    int32_t MintBacktraceList();
 
     //v0.8.5: the message an NLangThrow carries for a thrown exception
     //object. cell[1] holds the message string handle (the ctor intrinsic
@@ -1929,7 +1956,21 @@ private:
     //back to the class leaf name (a bare `throw Exception()`-shaped
     //object still names itself). Anything unreadable (non-class object,
     //stale handle) keeps the caller's legacy text.
+    //v0.12.4 D8: the returned text is the full chain — a
+    //"<Type>: <message>" top line plus one "Caused by:" hop per cause
+    //link (FormatExceptionChain).
     std::string ThrownMessageOf(int32_t heapIdx, const char* fallback) const;
+
+    //v0.12.4 D8: the failure-report rendering of one exception object —
+    //"<Type>: <message>" (bare "<Type>" when the message is empty) plus
+    //one "\nCaused by: <Type>: <message>" line per cause hop. Cause
+    //links live at cell[5] (D7 layout); cycles are impossible by
+    //construction (a cause argument is evaluated before the wrapping
+    //object exists), so the walk needs only per-hop bounds checks.
+    //FormatCauseChainTail is the hops-only suffix, shared by this and
+    //the unobserved-failure report (which composes its own top line).
+    std::string FormatExceptionChain(int32_t excHeapIdx) const;
+    std::string FormatCauseChainTail(int32_t excHeapIdx) const;
 
     //Phase 11: argument/range/parse errors of stdlib intrinsics raise the
     //BASE Exception (no dedicated argument-exception subclass exists).

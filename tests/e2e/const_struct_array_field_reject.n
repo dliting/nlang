@@ -1,0 +1,6 @@
+//v0.12.4 D6: the same field-type surface applies to const structs —
+//the struct form shares the check with const classes.
+const struct Q {
+    int[] cells;
+}
+int main() { return 0; }

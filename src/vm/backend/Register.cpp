@@ -21,6 +21,7 @@
 #include "BuildEnvironment.h"
 #include <cassert>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 namespace {
@@ -129,7 +130,7 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
     //Prelude top-level members key bare (builtin-decls source-of-truth
     //design §6.7): the records land in every image (IsOwnUnit's prelude
     //arm) and must spell exactly what bare user code resolves —
-    //"Exception", not "builtins.Exception".
+    //"Exception", not "lang.Exception".
     if (reg.IsPreludeModule(reg.OwnerOf(field)))
         return field.Name();
     return reg.QualifiedName(field);
@@ -139,7 +140,7 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
 //tables goes through here, so the spelling cannot drift from what the
 //resolver reports. Requires the registry injected by ModuleBuilder.
 std::string VmBackend::KeyOf(const SnField& field) const {
-    assert(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
+    NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
     return QualifiedName(*m_pRegistry, field);
 }
 
@@ -175,9 +176,10 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     //rows first, and the registration walks never see detached nodes.)
     const uint32_t owner = m_pRegistry->OwnerOfContext(member);
     //Prelude members are own in EVERY unit image too (builtin-decls
-    //source-of-truth design §6.7): the prelude unit is a library TU and
-    //never generates, so its declared records ride each project image —
-    //the declared mirror of the ownerless-builtin semantics above.
+    //source-of-truth design §6.7): each prelude unit is a library TU
+    //and never generates, so its declared records ride each project
+    //image — the declared mirror of the ownerless-builtin semantics
+    //above.
     return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER
         || m_pRegistry->IsPreludeModule(owner);
 }

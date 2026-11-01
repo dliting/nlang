@@ -1,0 +1,10 @@
+//v0.12.4 D6 (review fix): container element types obey the same rule
+//as the field itself — an interface element argument can hold mutable
+//implementors, so it is rejected like a mutable class element.
+interface IVal {
+    int get();
+}
+const class Holder {
+    public List<IVal> xs;
+}
+int main() { return 0; }

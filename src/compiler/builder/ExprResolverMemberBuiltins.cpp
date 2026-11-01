@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -174,7 +175,7 @@ void ExprResolveAccessor::BindFaceMethodResult(SnMemberExpr &snMember,
 	//— a null here means the prelude itself is corrupt.
 	SnField* pReturnType = fn.ReturnType()
 		? fn.ReturnType()->Field() : nullptr;
-	assert(fn.ReturnType() && pReturnType);
+	NLANG_ASSERT(fn.ReturnType() && pReturnType);
 	if (pReturnType && pReturnType->Kind() == NK_ArrayTypeToken)
 	{
 		//Re-intern in the caller's environment (per-TU identity).

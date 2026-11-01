@@ -1,0 +1,10 @@
+//v0.12.4 D6: a const class cannot hold a mutable class field — the
+//field handle would let `c.f.x = 1` mutate shared state through the
+//seal. The field's type must itself be a const aggregate.
+class Mutable {
+    public int x;
+}
+const class C {
+    public Mutable m;
+}
+int main() { return 0; }

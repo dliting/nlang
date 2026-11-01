@@ -8,6 +8,7 @@
 #include <nlang/runtime/NodeContainers.h>
 #include <iosfwd>
 #include <sstream>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -50,7 +51,7 @@ SnField * SnExpression::OwnerType() const
 			return TheAST().Root();
 		pParent = pParent->Parent();
 	}
-	assert(false && "An expression has not outer type");
+	NLANG_ASSERT(false && "An expression has not outer type");
 	return nullptr;
 }
 
@@ -95,7 +96,7 @@ SnFieldExpr::FieldChecker& SnFieldExpr::DataTypeChecker()
 		[](SnFieldExpr& path, BuildEnvironment& env)->bool
 	{
 		auto pField = path.Field();
-		assert(pField);
+		NLANG_ASSERT(pField);
 		if (pField->IsTypeField())
 			return true;
 		env.Log(CLL_Error, path.Location(),
@@ -111,7 +112,7 @@ SnFieldExpr::FieldChecker& SnFieldExpr::DataTypeChecker()
 
 bool SnFieldExpr::IsDataExpr() const
 {
-	assert(m_pField);
+	NLANG_ASSERT(m_pField);
 	return m_pField->IsDataField();
 }
 
@@ -160,7 +161,7 @@ SnLiteralExpr::~SnLiteralExpr()
 void SnLiteralExpr::EvalByRTTI(RnDataType &rtti)
 {
 	auto pTypeNode = TheAST().FindNode(rtti);
-	assert(pTypeNode && pTypeNode->IsTypeField());
+	NLANG_ASSERT(pTypeNode && pTypeNode->IsTypeField());
 	EvalDataType(static_cast<SnField*>(pTypeNode));
 	AddFlags(NF_Resolved);
 }
@@ -174,7 +175,7 @@ SnIdentifierExpr::SnIdentifierExpr(NodeKind builtinKind,
 	const ISourceLocation &loc) : 
 	Super_(s_Kind, loc)
 {
-	assert(IsBuiltinType(builtinKind));
+	NLANG_ASSERT(IsBuiltinType(builtinKind));
 	m_pField = SnBuiltinDataType::InstanceOf(builtinKind);
 	EvalDataType(SnType::Instance());
 	AddFlags(NF_Resolved);
@@ -184,7 +185,7 @@ SnIdentifierExpr::SnIdentifierExpr(std::string *pName,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_upName(pName)
 {
-	assert(m_upName);
+	NLANG_ASSERT(m_upName);
 }
 
 SnIdentifierExpr::~SnIdentifierExpr()
@@ -207,7 +208,7 @@ SnInvokeExpr::SnInvokeExpr(std::string *pCalleeName,
 	Super_(NK_InvokeExpr, loc), m_upCalleeName(pCalleeName),
 	m_pParams(CreateChildNodes(upParams, this))
 {
-	assert(m_pParams && pCalleeName);
+	NLANG_ASSERT(m_pParams && pCalleeName);
 }
 
 SnInvokeExpr::~SnInvokeExpr()
@@ -254,7 +255,7 @@ SnMemberExpr::SnMemberExpr(SnExpression *pOuter, SnInvokeExpr *pInner,
 
 void SnMemberExpr::Init()
 {
-	assert(m_pOuter && m_pInner);
+	NLANG_ASSERT(m_pOuter && m_pInner);
 	AddChild(m_pOuter);
 	AddChild(m_pInner);
 }
@@ -291,7 +292,7 @@ SnFieldExpr::FieldChecker& SnMemberExpr::NameExprChecker()
 	static FieldChecker checker =
 		[](SnFieldExpr& sn, BuildEnvironment& env)->bool
 	{
-		assert(sn.Kind() == NK_MemberExpr);
+		NLANG_ASSERT(sn.Kind() == NK_MemberExpr);
 		auto& memberExpr = static_cast<SnMemberExpr &>(sn);
 		if (!memberExpr.IsNameExpr())
 		{
@@ -309,9 +310,9 @@ SnFieldExpr::FieldChecker &SnMemberExpr::InvokeExprChecker()
 	static FieldChecker checker =
 		[](SnFieldExpr& sn, BuildEnvironment& env)->bool
 	{
-		assert(sn.Kind() == NK_MemberExpr);
+		NLANG_ASSERT(sn.Kind() == NK_MemberExpr);
 		auto& memberExpr = static_cast<SnMemberExpr &>(sn);
-		assert(memberExpr.Inner());
+		NLANG_ASSERT(memberExpr.Inner());
 		if (memberExpr.Inner()->Kind() != NK_InvokeExpr)
 		{
 			env.Log(CLL_Error, sn.Location(), "Invalid invoke expression: %s.",
@@ -332,7 +333,7 @@ SnNameExpr::SnNameExpr(RnField &rn) :
 SnNameExpr::SnNameExpr(SnMemberExpr* pExpr, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pExpr(pExpr), m_pImportedField(nullptr)
 {
-	assert(pExpr);
+	NLANG_ASSERT(pExpr);
 	pExpr->Checker(&SnMemberExpr::NameExprChecker());
 	AddChild(m_pExpr);
 }
@@ -340,7 +341,7 @@ SnNameExpr::SnNameExpr(SnMemberExpr* pExpr, const ISourceLocation &loc) :
 SnNameExpr::SnNameExpr(SnIdentifierExpr* pExpr, const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pExpr(pExpr), m_pImportedField(nullptr)
 {
-	assert(m_pExpr);
+	NLANG_ASSERT(m_pExpr);
 	AddChild(m_pExpr);
 }
 
@@ -362,8 +363,8 @@ SnArrayTypeExpr::SnArrayTypeExpr(SnFieldExpr *pElemType,
 	const ISourceLocation &loc, uint8_t rank) :
 	Super_(s_Kind, loc), m_pElementType(pElemType), m_Rank(rank)
 {
-	assert(pElemType);
-	assert(m_Rank >= 1);
+	NLANG_ASSERT(pElemType);
+	NLANG_ASSERT(m_Rank >= 1);
 	AddChild(pElemType);
 }
 
@@ -392,12 +393,12 @@ SnGenericTypeExpr::SnGenericTypeExpr(SnFieldExpr *pBase,
 	Super_(s_Kind, loc), m_pBase(pBase),
 	m_upTypeArgs(pTypeArgs)
 {
-	assert(pBase);
-	assert(pTypeArgs);
+	NLANG_ASSERT(pBase);
+	NLANG_ASSERT(pTypeArgs);
 	AddChild(pBase);
 	for (auto *pTA : *pTypeArgs)
 	{
-		assert(pTA);
+		NLANG_ASSERT(pTA);
 		AddChild(pTA);
 	}
 }
@@ -459,7 +460,7 @@ void SnQualifiedTypeExpr::AppendSegment(const std::string &seg)
 
 const std::string &SnQualifiedTypeExpr::TypeName() const
 {
-	assert(!m_segments.empty());
+	NLANG_ASSERT(!m_segments.empty());
 	return m_segments.back();
 }
 

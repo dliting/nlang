@@ -3,6 +3,7 @@
     从 StatementResolver.hpp 抽取（2026-09-26 后续轮次重构，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -20,7 +21,7 @@ void StatementResolveAccessor::Visitor(ISyntaxNodeVisitor *pVisitor)
 
 void StatementResolveAccessor::Access(SnNamespace &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	for (auto& field : sn.Members())
 	{
 		if (CanBeFuncParentEx(field.Kind()) || field.Kind() == NK_Function || field.Kind() == NK_EnumDecl || field.Kind() == NK_StructDecl || field.Kind() == NK_ClassDecl)
@@ -37,14 +38,14 @@ void StatementResolveAccessor::Access(SnExpression &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pCurrType);
-	assert(sn.Parent());
+	NLANG_ASSERT(m_pCurrType);
+	NLANG_ASSERT(sn.Parent());
 	m_ExprResolver.Resolve(sn, *sn.Parent(), *m_pCurrType, ERF_None);
 }
 
 void StatementResolveAccessor::Access(SnParagraph &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	for (auto &stmt : sn.Statements())
 	{
 		stmt.Accept(*m_pVisitor);
@@ -58,7 +59,7 @@ void StatementResolveAccessor::Access(SnNewExpr &sn)
 
 void StatementResolveAccessor::Access(SnInvokeStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Expr()->Accept(*m_pVisitor);
 }
 
@@ -66,7 +67,7 @@ void StatementResolveAccessor::Access(SnAssertStmt &sn)
 {
 	if (sn.IsResolved())
 		return;
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	sn.Cond()->Accept(*m_pVisitor);
 	CheckBoolCondition(*sn.Cond(), "assert");
 	sn.AddFlags(NF_Resolved);

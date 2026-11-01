@@ -18,6 +18,7 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang {
 
@@ -39,11 +40,11 @@ public:
     size_t size() const { return m_size.load(std::memory_order_acquire); }
 
     T& At(size_t idx) {
-        assert(idx < size());
+        NLANG_ASSERT(idx < size());
         return *Slot(idx);
     }
     const T& At(size_t idx) const {
-        assert(idx < size());
+        NLANG_ASSERT(idx < size());
         return *Slot(idx);
     }
     T& operator[](size_t idx) { return At(idx); }

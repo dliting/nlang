@@ -1,0 +1,13 @@
+//An alias may not hijack the lang package's declared names (Object,
+//the exception family, the String/Array faces). The clash check runs
+//before the units merge, so it consults every prelude unit's own root
+//— with the two-package prelude a single-root view dropped the lang
+//names (v0.12.5 fix).
+using Object = int;
+using Exception = int;
+using String = int;
+using Array = int;
+
+int main() {
+    return 0;
+}

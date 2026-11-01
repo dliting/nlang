@@ -16,7 +16,7 @@ int risky(int mode) {
     }
 }
 
-class AppError : Exception {
+const class AppError : Exception {
     public int code;
 
     public AppError(string msg, int code) {

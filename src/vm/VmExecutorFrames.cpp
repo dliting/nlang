@@ -179,4 +179,32 @@ uint8_t* VmExecutor::FrameResultCell(const CallFrame& frame)
         .localsBuf.data() + frame.resultDstOff;
 }
 
+//RunContextWindow's resume head: move a parked context's frames back
+//onto the carrier's evaluation stack and arm the rethrow. K7: the
+//resume decision, the steal-back, the handshake-flag clear, and the
+//rethrow arming write scheduler state the collector's scheduler-root
+//scan reads — one lock scope covers the transition; RunFrames itself
+//executes GIL-free and stays outside it.
+bool VmExecutor::SpliceResumedFrames(ExecutionContext* info,
+                                     size_t baseDepth) {
+    GilEnsureGuard gil(*this);
+    if (info->frames.empty())
+        return false;
+    if (baseDepth == 0) {
+        //Carrier dispatch: the context owns the whole stack.
+        EvalStack() = std::move(info->frames);
+    } else {
+        //Nested-pump serve (P2-4): splice ABOVE the outer frames
+        //pinned below baseDepth — the served context runs on top of
+        //them and the stack shrinks back to baseDepth.
+        EvalStack().insert(EvalStack().end(),
+            std::make_move_iterator(info->frames.begin()),
+            std::make_move_iterator(info->frames.end()));
+    }
+    info->frames.clear();
+    info->framesParked = false;
+    ArmResumeRethrow(info);
+    return true;
+}
+
 } // namespace nlang

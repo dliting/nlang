@@ -15,6 +15,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -103,7 +104,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	SnField *pExpected)
 {
 	auto *pFunc = static_cast<SnFunction*>(idExpr.Field());
-	assert(pFunc && pFunc->Kind() == NK_Function);
+	NLANG_ASSERT(pFunc && pFunc->Kind() == NK_Function);
 	if (RejectFuncRefTarget(env, idExpr, pFunc, pExpected))
 		return false;
 	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
@@ -289,7 +290,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 {
 	auto &inner = static_cast<SnIdentifierExpr&>(*snMember.Inner());
 	auto *pMethod = static_cast<SnFunction*>(inner.Field());
-	assert(pMethod && pMethod->Kind() == NK_Function);
+	NLANG_ASSERT(pMethod && pMethod->Kind() == NK_Function);
 	auto *pOwner = pMethod->Parent();
 	//Handle form mirrors the direct-call codegen decision exactly:
 	//virtual methods and interface declarations dispatch by name at

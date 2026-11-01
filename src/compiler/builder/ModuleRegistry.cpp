@@ -8,6 +8,7 @@ ModuleRegistry.cpp - compile-time module registry of the NLang compiler.
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -43,9 +44,13 @@ bool ContainsValue(const std::vector<std::string>& list,
 	return std::find(list.begin(), list.end(), value) != list.end();
 }
 
+} //namespace
+
 //Module path = the source path made relative to the project root and
 //dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
-//root at all) the path degenerates to the file stem.
+//root at all) the path degenerates to the file stem. Declared in
+//ModuleRegistry.h (the prelude resolution shares it for the
+//project-source dedup).
 std::string DeriveModulePath(const std::filesystem::path &filePath,
 	const std::string &projectDir)
 {
@@ -64,8 +69,6 @@ std::string DeriveModulePath(const std::filesystem::path &filePath,
 		modulePath = filePath.stem().string();
 	return modulePath;
 }
-
-} //namespace
 
 std::string ModuleNotFoundText(const std::string& moduleName)
 {
@@ -118,7 +121,7 @@ bool ModuleRegistry::RegisterUnit(uint32_t moduleIndex,
 {
 	//Registration order is the module index space shared with
 	//AddExternalModule; a drift here would silently mis-own symbols.
-	assert(moduleIndex == m_modules.size());
+	NLANG_ASSERT(moduleIndex == m_modules.size());
 
 	const std::filesystem::path filePath =
 		std::filesystem::path(tu.FilePath()).lexically_normal();
@@ -205,9 +208,10 @@ bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 
 bool ModuleRegistry::IsPreludeModule(uint32_t moduleIndex) const
 {
-	//The size guard rules out NO_OWNER with it (0xFFFFFFFF >= size).
+	//Any reserved prelude package path ("lang", "containers"). The size
+	//guard rules out NO_OWNER with it (0xFFFFFFFF >= size).
 	return moduleIndex < m_modules.size()
-		&& m_modules[moduleIndex].path == kPreludePackageName;
+		&& IsPreludePackageName(m_modules[moduleIndex].path);
 }
 
 bool ModuleRegistry::IsCompiledInModule(const std::string& dottedPath) const
@@ -257,7 +261,7 @@ void ModuleRegistry::SetExternalStubs(uint32_t moduleIndex,
 {
 	//Stubs can only belong to an external entry — same defensive
 	//contract as BuildGate's moduleIndex preconditions.
-	assert(moduleIndex < m_modules.size()
+	NLANG_ASSERT(moduleIndex < m_modules.size()
 		&& m_modules[moduleIndex].isExternal);
 	m_externalStubs[moduleIndex] = std::move(stubs);
 }

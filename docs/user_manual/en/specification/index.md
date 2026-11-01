@@ -9,7 +9,7 @@ error guidance. For a guided introduction to the language, see
 informative and links here for the rules it summarizes. The English
 text is normative.
 
-The specification describes NLang 0.12.3. It is a living document:
+The specification describes NLang 0.12.5. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.

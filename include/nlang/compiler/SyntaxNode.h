@@ -13,6 +13,7 @@ node types in an nlang AST.
 #include <nlang/runtime/CommonIterators.h>
 #include <nlang/runtime/NodeContainers.h>
 #include <memory>
+#include <nlang/runtime/StackDump.h>
 
 //Forward declarations.
 #ifdef NLANG_ENABLE_LLVM
@@ -53,7 +54,7 @@ public:
 	//Get the parent.
 	SyntaxNode *Parent() const
 	{
-		assert(!Super_::Parent() ||
+		NLANG_ASSERT(!Super_::Parent() ||
 			dynamic_cast<SyntaxNode*>(Super_::Parent()));
 		return static_cast<SyntaxNode*>(Super_::Parent());
 	}
@@ -208,7 +209,7 @@ public:
 	//Get the name.
 	const std::string &Name() const
 	{
-		assert(m_upName || RuntimeType());
+		NLANG_ASSERT(m_upName || RuntimeType());
 		return m_upName ? *m_upName :
 			static_cast<RnField*>(RuntimeType())->Name().ToString();
 	}
@@ -226,7 +227,7 @@ public:
 	//Get the imported runtime node of its parent.
 	RnField *ParentRuntimeType() const
 	{
-		assert(!Parent() || Parent()->IsField());
+		NLANG_ASSERT(!Parent() || Parent()->IsField());
 		return Parent() ? static_cast<SnField *>(Parent())->RuntimeType() : nullptr;
 	}
 
@@ -285,7 +286,7 @@ public:
 protected:
 	void Name(const std::string &sName)
 	{
-		assert(!RuntimeType());
+		NLANG_ASSERT(!RuntimeType());
 		*m_upName = sName;
 	}
 
@@ -345,7 +346,7 @@ template <class LIST_T>
 LIST_T *CreateChildList(UniquePtrList<typename LIST_T::NodeType> &upSrcNodes,
 	Node *pParent)
 {
-	assert(pParent);
+	NLANG_ASSERT(pParent);
 	auto pFields = new LIST_T(pParent);
 	for (auto pNode : upSrcNodes)
 		pFields->push_back(pNode);

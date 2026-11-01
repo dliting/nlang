@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -39,7 +40,7 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 		//variable-slot identity the writeback relies on.
 		if (b.bIsOut)
 			continue;
-		assert(b.pCallerExpr && b.pFormal);
+		NLANG_ASSERT(b.pCallerExpr && b.pFormal);
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)
@@ -338,7 +339,7 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	if (castInfo.Kind() == TCK_Same)
 		return false;
 
-	assert(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
+	NLANG_ASSERT(static_cast<SyntaxNode &>(*iSrcExpr).IsExpression());
 	auto &srcExpr = static_cast<SnExpression &>(*iSrcExpr);
 
 	if (RejectIncompatibleCast(srcExpr, castInfo))
@@ -364,10 +365,10 @@ bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,
 	}
 
 	auto pSrcParent = srcExpr.Parent();
-	assert(pSrcParent);
+	NLANG_ASSERT(pSrcParent);
 
 	auto iInsertPos = RemoveChildFrom(iSrcExpr, *pSrcParent);
-	assert(srcExpr.Location());
+	NLANG_ASSERT(srcExpr.Location());
 	auto pCastExpr =
 		new SnCastExpr(&srcExpr, castInfo, *srcExpr.Location());
 	//Phase 8e-8: propagate target type to the cast expr's EvalDataType so

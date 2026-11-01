@@ -7,7 +7,7 @@ Two families live here:
   ids 95-112  the 18 binding-table methods (Phase 11 Step 3 laid down
               12; the 0.7.5 char bridge appended the 6 code-point/parse
               methods; v0.12.2: signatures are declared in
-              stdlib/builtins.n, ids served by the binding table)
+              stdlib/lang.n, ids served by the binding table)
 
 ABI (mirror of string.equals): receiver string handle at callParamBase
 slot 0, arguments from slot 1 upward.

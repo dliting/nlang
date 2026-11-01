@@ -359,6 +359,10 @@ public:
 		return false;
 	}
 	void SetConstAggregate() { m_bIsConstAggregate = true; }
+	//Own declaration marker, without the inheritance walk (user ruling
+	//2026-10-31): the subclass-must-be-const declaration check compares
+	//it against the base's effective seal.
+	bool IsDeclaredConstAggregate() const { return m_bIsConstAggregate; }
 
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
 	//Set by ExprResolver when minting a synthetic SnClassDecl for a

@@ -202,6 +202,17 @@ def _matchable_stdout(name, raw_stdout):
     return text
 
 
+def _matchable_stderr(raw_stderr):
+    """Run-phase stderr decoded for comparison. The MSVC CRT opens
+    stderr in text mode on Windows, so every newline the VM prints
+    lands as \\r\\n when captured; sidecars are written with plain \\n
+    (the platform-neutral spelling — multi-line .run.stderr pins like
+    the v0.12.4 cause-chain reports need it). Fold \\r\\n before any
+    substring comparison."""
+    text = raw_stderr.decode('utf-8', errors='replace') if raw_stderr else ''
+    return text.replace('\r\n', '\n')
+
+
 def _rejection_expectations(expected):
     """Manifest column 3 for compile_error rows, parsed into
     (negate, substring) pairs: expectations separated by ';', each
@@ -432,7 +443,7 @@ def main():
                         capture_output=True, timeout=TIMEOUT_SEC,
                         input=stdin_bytes)
                     actual = result.returncode
-                    stderr_text = result.stderr.decode('utf-8', errors='replace')
+                    stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
                     print(f"FAIL {name} (runtime error: {e})")
                     failed += 1
@@ -624,7 +635,7 @@ def main():
                     capture_output=True, timeout=TIMEOUT_SEC,
                     cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode
-                stderr_text = result.stderr.decode('utf-8', errors='replace')
+                stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
                 print(f"FAIL {name} (runtime error: {e})")
                 failed += 1

@@ -220,5 +220,12 @@ static constexpr uint16_t INTR_Thread_Failure  = 168;
 //signature carries no arity, so the two overloads map to two ids —
 //this one never reads the unstaged capacity slot (scratch garbage).
 static constexpr uint16_t INTR_Channel_CtorUnbounded = 169;
+//v0.12.4 D9: shallow copy of List/Dict — receiver-dispatched (slot 0 =
+//this, the source container). A new container object + side slot is
+//allocated and the element vector / entry table copied by value (heap
+//handles ride along, so nested containers stay shared — copy-on-read
+//in the compiler seals that aliasing for const aggregates).
+static constexpr uint16_t INTR_List_Copy = 170;
+static constexpr uint16_t INTR_Dict_Copy = 171;
 
 }  // namespace nlang

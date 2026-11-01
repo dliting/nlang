@@ -3,6 +3,7 @@
 #include <map>
 #include <algorithm>
 #include <memory>
+#include "StackDump.h"
 namespace nlang
 {
 
@@ -14,7 +15,7 @@ struct DefaultFieldFilter
 
 	bool operator()(const Node *pNode) const
 	{
-		assert(pNode);
+		NLANG_ASSERT(pNode);
 		return pNode->IsField();
 	}
 };
@@ -35,7 +36,7 @@ struct KindFieldFilter
 
 	bool operator()(const Node *pNode) const
 	{
-		assert(pNode);
+		NLANG_ASSERT(pNode);
 		return pNode->Kind() == K;
 	}
 };
@@ -63,7 +64,6 @@ protected:
 	{
 		return parent.InsertChild(iPos, pChild);
 	}
-
 
 	static NodeIterator RemoveChildFrom(NodeIterator iPos, Node& parent)
 	{
@@ -99,14 +99,14 @@ public:
 
 	iterator find(Node* pNode)
 	{
-		assert(pNode);
+		NLANG_ASSERT(pNode);
 		return iterator(*m_upItems, 
 			std::find(m_upItems->begin(), m_upItems->end(), pNode));
 	}
 
 	const_iterator find(const Node* pNode) const
 	{
-		assert(pNode);
+		NLANG_ASSERT(pNode);
 		return const_iterator(*m_upItems,
 			std::find(m_upItems->begin(), m_upItems->end(), pNode));
 	}
@@ -143,8 +143,8 @@ protected:
 	*/
 	void push_back(Node *pNode)
 	{
-		assert(this != NullList());
-		assert(pNode != nullptr);
+		NLANG_ASSERT(this != NullList());
+		NLANG_ASSERT(pNode != nullptr);
 		m_upItems->push_back(pNode);
 	}
 
@@ -156,8 +156,8 @@ protected:
 	*/
 	iterator insert(const iterator& iPos, Node *pNode)
 	{
-		assert(this != NullList());
-		assert(&iPos.m_Items == m_upItems.get() && pNode != nullptr);
+		NLANG_ASSERT(this != NullList());
+		NLANG_ASSERT(&iPos.m_Items == m_upItems.get() && pNode != nullptr);
 		auto iter = m_upItems->insert(iPos.m_Iter, pNode);
 		return iterator(*m_upItems, iter);
 	}
@@ -170,8 +170,8 @@ protected:
 	*/
 	iterator erase(const iterator& iPos)
 	{
-		assert(this != NullList());
-		assert(&iPos.m_Items == m_upItems.get() && iPos != end());
+		NLANG_ASSERT(this != NullList());
+		NLANG_ASSERT(&iPos.m_Items == m_upItems.get() && iPos != end());
 		auto iter = m_upItems->erase(iPos.m_Iter);
 		return iterator(*m_upItems, iter);
 	}
@@ -196,7 +196,7 @@ public:
 public:
 	explicit TypedNodeListBase(Node *pParent) : m_pParent(pParent)
 	{
-		assert(m_pParent);
+		NLANG_ASSERT(m_pParent);
 	}
 
 	iterator begin()
@@ -238,8 +238,8 @@ protected:
 	*/
 	void push_back(NodeType *pNode)
 	{
-		assert(pNode != nullptr);
-		assert(FILTER_T()(pNode));
+		NLANG_ASSERT(pNode != nullptr);
+		NLANG_ASSERT(FILTER_T()(pNode));
 		AddChildTo(pNode, *m_pParent);
 	}
 
@@ -251,8 +251,8 @@ protected:
 	*/
 	iterator insert(iterator iPos, NodeType *pNode)
 	{
-		assert(pNode != nullptr);
-		assert(FILTER_T()(pNode));
+		NLANG_ASSERT(pNode != nullptr);
+		NLANG_ASSERT(FILTER_T()(pNode));
 		auto iNode = InsertChildInto(iPos.NodeIterator(), pNode, *m_pParent);
 		return iterator(iNode);
 	}
@@ -265,7 +265,7 @@ protected:
 	*/
 	iterator erase(iterator iPos)
 	{
-		assert(iPos != end() && iPos->Parent() == m_pParent);
+		NLANG_ASSERT(iPos != end() && iPos->Parent() == m_pParent);
 		auto iNode = RemoveChildFrom(iPos.Source(), *m_pParent);
 		return iterator(iNode);
 	}
@@ -358,7 +358,7 @@ public:
 	*/
 	void push_back(FieldType *pField)
 	{
-		assert(pField);
+		NLANG_ASSERT(pField);
 		Super_::push_back(pField);
 		m_NameMap.emplace(pField->Name(), pField);
 	}
@@ -375,7 +375,7 @@ public:
 	*/
 	void index_field(FieldType *pField)
 	{
-		assert(pField && FILTER_T()(pField));
+		NLANG_ASSERT(pField && FILTER_T()(pField));
 		m_NameMap.emplace(pField->Name(), pField);
 	}
 
@@ -392,7 +392,7 @@ public:
 				m_NameMap.erase(it);
 				return;
 			}
-		assert(false && "unindex_field: node is not indexed");
+		NLANG_ASSERT(false && "unindex_field: node is not indexed");
 	}
 
 	/*
@@ -403,7 +403,7 @@ public:
 	*/
 	iterator insert(iterator iPos, FieldType *pField)
 	{
-		assert(pField);
+		NLANG_ASSERT(pField);
 		auto iNode = Super_::insert(iPos, pField);
 		m_NameMap.emplace(pField->Name(), pField);
 		return iNode;

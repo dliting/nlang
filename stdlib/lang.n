@@ -1,0 +1,98 @@
+//Standard library source for the "lang" prelude package — the language
+//core: the class-hierarchy root, the exception family (throw/catch is
+//language syntax), and the String/Array declaration faces of the
+//keyword types. Implicitly imported into every compilation unit
+//(JLS §7.5.3 analogue): names are visible without an import statement,
+//and user declarations shadow them by the ordinary innermost-wins rule.
+//Native classes: implementations live in the VM (intrinsic channel).
+//Compile-time inline only: stdlib.npkg excludes this file.
+
+//Immutable event record (v0.12.4): message/backtrace/cause are sealed
+//after construction; backtrace reads return a copy; cause chains are
+//built by the (message, cause) constructor — no initCause equivalent.
+//message carries the diagnostic text; backtrace is the call chain at
+//the throw point, innermost first; cause links the wrapped failure.
+const class Exception {
+    public string message;
+    public List<string> backtrace;
+    public Exception cause;
+    public native Exception(string message, Exception cause = null);
+}
+
+const class NullPointerException : Exception {
+    public native NullPointerException(string message, Exception cause = null);
+}
+
+const class DivByZeroException : Exception {
+    public native DivByZeroException(string message, Exception cause = null);
+}
+
+const class IndexOutOfBoundsException : Exception {
+    public native IndexOutOfBoundsException(string message, Exception cause = null);
+}
+
+const class AssertionException : Exception {
+    public native AssertionException(string message, Exception cause = null);
+}
+
+const class IOException : Exception {
+    public native IOException(string message, Exception cause = null);
+}
+
+const class InvalidCastException : Exception {
+    public native InvalidCastException(string message, Exception cause = null);
+}
+
+//Root of the class hierarchy: every class without a declared base
+//inherits these three protocol methods. Override them with the exact
+//signatures to customize per-class behavior.
+class Object {
+    public virtual native int equals(Object other);
+    public virtual native int getHashCode();
+    public virtual native string toString();
+}
+
+//String's method face — the declaration-level source of truth for the
+//string keyword type (C# alias model: `string` is the user spelling,
+//String is the declared face class). Instances are the pooled string
+//objects themselves; this class cannot be instantiated or extended,
+//and it stays out of the class hierarchy (no implicit Object base),
+//so its methods are never virtual overrides.
+//substring(start) with one argument means "through the end".
+class String {
+    public native int length();
+    public native int getHashCode();
+    public native int equals(string other);
+    public native string toString();
+    public native string substring(int start);
+    public native string substring(int start, int end);
+    public native int indexOf(string sub);
+    public native bool startsWith(string prefix);
+    public native bool endsWith(string suffix);
+    public native bool contains(string sub);
+    public native string toUpper();
+    public native string toLower();
+    public native string trim();
+    public native List<string> split(string sep);
+    public native string replace(string old, string new_);
+    public native int toInt();
+    public native float toFloat();
+    public native char charAt(int byteIdx);
+    public native int charCount();
+    public native char toChar();
+    public native long toLong();
+    public native double toDouble();
+    public native bool toBool();
+}
+
+//Array's method face — declaration-level source of truth for every
+//array type (int[], string[,], …; rank rides the array type itself).
+//length() is the element count (total elements for rank > 1), rank()
+//the static rank, shape() the per-dimension sizes as int[rank]. Face
+//holder only: not instantiable, not extendable, no Object base.
+class Array {
+    public native int length();
+    public native int rank();
+    public native int[] shape();
+    public native string toString();
+}

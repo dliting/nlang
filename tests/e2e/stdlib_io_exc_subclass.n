@@ -1,15 +1,15 @@
 // stdlib_io_exc_subclass — IOException supports user subclassing: the
-// flattened message/backtrace layout comes from the RegisterClasses
+// flattened message/backtrace/cause layout comes from the RegisterClasses
 // ancestor-injection site, own fields append after it, and catch matches
-// the subclass type.
-class MyIoErr : IOException {
+// the subclass type. v0.12.4: IOException is const, so the subclass is
+// const too and its fields are set through the declaring constructor.
+const class MyIoErr : IOException {
     public int code;
+    public MyIoErr(int c, string m) { super(m); this.code = c; }
 }
 
 int main() {
-    MyIoErr e = MyIoErr();
-    e.code = 5;
-    e.message = "disk full";
+    MyIoErr e = MyIoErr(5, "disk full");
     try {
         throw e;
     } catch (MyIoErr e2) {

@@ -2,7 +2,7 @@
 //the consumer's stub of MyErr must link its superclass to the declared
 //prelude Exception so field offsets and catch-chain matching survive
 //the declared-class migration.
-class MyErr : Exception {
+const class MyErr : Exception {
     public int code;
     public MyErr(string m, int c) {
         super(m);

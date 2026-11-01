@@ -28,13 +28,14 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <vector>
+#include <nlang/runtime/StackDump.h>
 
 static const char *BAR_STR =
 	"--------------------------------------------------------------------";
 
 namespace nlang
 {
-
 
 ModuleBuilder::ModuleBuilder(const BuildParams &params,
 	CompileLogger &logger):
@@ -68,7 +69,8 @@ bool ModuleBuilder::PrepareUnits()
 	if (m_upEnv->HasError())
 		return false;
 	//The implicit prelude import joins every build before library
-	//discovery, so explicit `import builtins;` dedups against it and the
+	//discovery, so an explicit `import lang;`/`import containers;`
+	//dedups against it and each
 	//prelude unit's own imports take part in the fixed point.
 	EnsurePreludeImported();
 	if (m_upEnv->HasError())
@@ -281,7 +283,7 @@ SnFunction* ModuleBuilder::BuildScriptEntry(SnParagraph* pScript)
 		pEntryLoc = stmt.Location();
 		break;
 	}
-	assert(pEntryLoc);
+	NLANG_ASSERT(pEntryLoc);
 	SnNameExpr* pRet = new SnNameExpr(
 		new SnIdentifierExpr(NK_Int32, *pEntryLoc), *pEntryLoc);
 	SnFunction* pMain = new SnFunction(FA_Default, NF_ScriptEntry, pRet,
@@ -327,10 +329,11 @@ void ModuleBuilder::ExpandTypeAliases()
 	//Errors abort the build right after this step.
 	DuplicateFieldChecker checker(*m_upEnv);
 	AliasExpander expander(*m_upEnv);
-	//The prelude unit's root is still intact (the merge clears it) — its
-	//declared names join the clash set even though the merged tree cannot
-	//answer yet (builtin-decls final sweep; TU order == module index).
-	SnNamespace *pPreludeRoot = nullptr;
+	//The prelude units' roots are still intact (the merge clears them):
+	//EVERY prelude package's declared names join the clash set (the
+	//merged tree cannot answer yet; TU order == module index) — one
+	//last-wins pointer would drop the other package's names.
+	std::vector<SnNamespace*> preludeRoots;
 	const ModuleRegistry &registry = m_upEnv->Registry();
 	//Concurrency import redesign: the roots of the units each TU IMPORTS
 	//join its alias clash set — a package class is as hijackable by an
@@ -342,14 +345,14 @@ void ModuleBuilder::ExpandTypeAliases()
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (registry.IsPreludeModule(moduleIndex))
-			pPreludeRoot = pTransUnit->Root();
+			preludeRoots.push_back(pTransUnit->Root());
 		unitRootByPath[registry.ModulePathOf(moduleIndex)]
 			= pTransUnit->Root();
 		++moduleIndex;
 	}
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot,
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), preludeRoots,
 			ImportedRootsOf(*pTransUnit, unitRootByPath));
 		expander.ProcessUnit(*pTransUnit);
 	}
@@ -362,7 +365,7 @@ void ModuleBuilder::MergeTransUnits()
 	uint32_t moduleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		assert(pTransUnit->Root());
+		NLANG_ASSERT(pTransUnit->Root());
 		//Tag this unit's top-level members (and namespace members,
 		//recursively — namespaces can span TUs) BEFORE the merge moves
 		//them: after MergeFrom the unit boundary is gone.
@@ -416,7 +419,7 @@ void ModuleBuilder::ResolveUsingLists()
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		auto pUsings = pTransUnit->Usings();
-		assert(pUsings);
+		NLANG_ASSERT(pUsings);
 		for (auto pUsing : *pUsings)
 		{
 			//Phase 13: alias-form usings are consumed by the alias
@@ -424,9 +427,9 @@ void ModuleBuilder::ResolveUsingLists()
 			//not a namespace path, and must not be resolved here.
 			if (pUsing->IsAlias())
 				continue;
-			assert(!pUsing->IsResolved());
+			NLANG_ASSERT(!pUsing->IsResolved());
 			SnFieldExpr *pPath = pUsing->Path();
-			assert(pPath);
+			NLANG_ASSERT(pPath);
 			if (!resolver.Resolve(*pPath, root, root, ERF_IgnoreUsings))
 			{
 				pUsing->AddFlags(NF_Invalid);

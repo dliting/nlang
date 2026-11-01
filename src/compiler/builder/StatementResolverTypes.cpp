@@ -4,10 +4,46 @@
 ---*/
 #include "StatementResolver.h"
 #include "FieldInitializerChecks.hpp"
+#include "ConstAggregateSurface.hpp"
 #include <nlang/compiler/SnExpressions.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
+
+namespace
+{
+
+//v0.12.4 D1 (user ruling 2026-10-31), both directions: const classes
+//are extended by const classes only. A sealed base with a mutable
+//subclass would need per-subclass seal bookkeeping; a const subclass
+//of a mutable base is sealed in name only — the base's own
+//constructors and methods keep writing the inherited fields. Object
+//is the exempt hierarchy root: it declares no fields, and every const
+//class reaches it. Fires on the first binding only (PreResolveClassBases
+//re-runs with SuperClass still unbound; the != guard holds either way).
+void CheckConstInheritance(BuildEnvironment &env, SnClassDecl &sn,
+	SnClassDecl &super)
+{
+	if (super.IsConstAggregate()
+		&& !sn.IsDeclaredConstAggregate()
+		&& sn.SuperClass() != &super)
+		env.Log(CLL_Error, sn.SuperName()->Location(),
+			"The class \"%s\" extends the const class \"%s\": "
+			"subclasses of a const class must be const too.",
+			sn.Name().c_str(), super.Name().c_str());
+	else if (sn.IsDeclaredConstAggregate()
+		&& !super.IsConstAggregate()
+		&& sn.SuperClass() != &super
+		&& &super != FindPreludeClassDecl(env.Registry(), "Object"))
+		env.Log(CLL_Error, sn.SuperName()->Location(),
+			"The class \"%s\" extends the mutable class \"%s\": "
+			"a const class may extend const classes only.",
+			sn.Name().c_str(), super.Name().c_str());
+}
+
+} //namespace
 
 //0.9.0 semantic restriction gate: a variable-style declaration — local,
 //formal parameter, catch parameter, loop variable, or class/struct
@@ -30,7 +66,7 @@ void StatementResolveAccessor::RejectTypeNameVariable(
 
 void StatementResolveAccessor::Access(SnStructDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	for (auto &field : sn.Fields())
 	{
 		//0.9.12 D7 (D-new-2): a struct is a public data record — every
@@ -50,6 +86,9 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 		//fields; the struct default itself is applied at allocation,
 		//not by constructor injection).
 		CheckFieldInitializer(m_Env, field);
+		//v0.12.4 D6: the sealed surface of a const struct.
+		if (sn.IsConstAggregate())
+			CheckConstAggregateFieldSurface(m_Env, sn, "struct", field);
 	}
 	//0.9.11 D2: struct constructors. The member contract rejects plain
 	//function members; the flag contract is shared with class through
@@ -89,7 +128,17 @@ void StatementResolveAccessor::ResolveClassBases(SnClassDecl &sn)
 				//to inherit).
 			}
 			else if (pSuperField && pSuperField->Kind() == NK_ClassDecl)
-				sn.SuperClass(static_cast<SnClassDecl*>(pSuperField));
+			{
+				auto *pSuperDecl = static_cast<SnClassDecl*>(pSuperField);
+				//v0.12.4 D1 (user ruling 2026-10-31): const classes are
+				//extended by const classes only — a mixed hierarchy
+				//(sealed base, mutable subclass) would need per-subclass
+				//seal bookkeeping later. PreResolveClassBases re-runs this
+				//binding in order, so the diagnostic fires on the first
+				//binding only (SuperClass is still unbound then).
+				CheckConstInheritance(m_Env, sn, *pSuperDecl);
+				sn.SuperClass(pSuperDecl);
+			}
 			else
 				m_Env.Log(CLL_Error, sn.SuperName()->Location(),
 					"\"%s\" is not a class type.", sn.SuperName()->ToString().c_str());
@@ -147,7 +196,7 @@ void StatementResolveAccessor::PropagateVirtualOverrides(SnClassDecl &sn)
 
 void StatementResolveAccessor::Access(SnClassDecl &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//Builtin-decls source of truth: the implicit Object chain must be
 	//live before PropagateVirtualOverrides walks the ancestors.
 	EnsureImplicitObjectSuperclass(sn, m_Env.Registry());
@@ -162,6 +211,10 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 			RejectTypeNameVariable(field.Name(), sn, sn,
 				field.Location());
 			field.Accept(*m_pVisitor);
+			//v0.12.4 D6: the sealed surface of a const class. Runs after
+			//the field's type resolved (Access(SnClassField&) above).
+			if (sn.IsConstAggregate())
+				CheckConstAggregateFieldSurface(m_Env, sn, "class", field);
 		}
 	}
 	//Resolve method bodies. Phase 9d-2: track the enclosing class so
@@ -178,7 +231,7 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 
 void StatementResolveAccessor::Access(SnClassField &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	if (sn.Type())
 		sn.Type()->Accept(*m_pVisitor);
 	//0.9.11 D4: the field's type expression resolved in the earlier

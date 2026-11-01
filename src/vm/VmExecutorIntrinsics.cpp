@@ -126,9 +126,11 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //Phase 9d: Exception ctor intrinsic. Shared by all 6 built-in
     //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
     //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
-    //Formals: (this, message). Writes message idx to cell[1], allocates
-    //an empty List<string> and stores its heap idx in cell[3] (backtrace
-    //— field 1 under the uniform 2-cell stride).
+    //v0.12.4 D7 formals: (this, message, cause). Writes message idx to
+    //cell[1], allocates an empty List<string> and stores its heap idx
+    //in cell[3] (backtrace — field 1 under the uniform 2-cell stride),
+    //and stores the cause idx (0 for null) in cell[5]. One-argument
+    //calls arrive with the default null staged into the cause slot.
     //Direct writes (no held references) because AllocClassOnHeap may
     //reallocate m_structHeap mid-execution.
     if (intrinsicId == INTR_Exception_Ctor
@@ -148,14 +150,22 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
             throw std::runtime_error(
                 "NLang VM: Exception ctor on stale reference");
 
-        //Read message formal (string handle).
+        //Read message and cause formals (string/class heap handles;
+        //cause is 0 when null).
         int32_t msgHandle;
         std::memcpy(&msgHandle, locals + callParamBase + kFrameSlotBytes,
                     sizeof(msgHandle));
+        int32_t causeIdx;
+        std::memcpy(&causeIdx, locals + callParamBase + 2 * kFrameSlotBytes,
+                    sizeof(causeIdx));
 
         //cell[1] = message (string handle). Direct write — safe because
         //no allocation between read and write.
         m_structHeap[static_cast<size_t>(thisHeapIdx)][1] = msgHandle;
+
+        //cell[5] = cause (class heap idx, 0 = null; field 2 under the
+        //2-cell stride). Same direct-write reasoning.
+        m_structHeap[static_cast<size_t>(thisHeapIdx)][5] = causeIdx;
 
         //cell[3] = backtrace. Allocate a List<string> and initialize it
         //to a real empty list — a side-table slot via AllocListHandle,

@@ -6,6 +6,7 @@
 #include "SyntaxTree.h"
 #include <llvm/IR/Function.h>
 #include <sstream>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -20,7 +21,7 @@ public:
 
 	void Access(SnNamespace &sn)
 	{
-		assert(m_pVisitor);
+		NLANG_ASSERT(m_pVisitor);
 		for (auto &member : sn.Members())
 			if (member.IsDataField() || CanBeFuncParent(member.Kind()))
 				member.Accept(*m_pVisitor);
@@ -31,11 +32,11 @@ public:
 		if (sn.IsImported())
 		{
 			//TODO: handle imported functions.
-			assert(sn.MetaValue() || sn.IsExternal()); 
+			NLANG_ASSERT(sn.MetaValue() || sn.IsExternal()); 
 			return;
 		}
 
-		assert(!sn.MetaValue());
+		NLANG_ASSERT(!sn.MetaValue());
 
 		//Build parameters.
 		for (auto &param : sn.Params())
@@ -59,14 +60,14 @@ public:
 		else
 			pReturnType = MetaTypeOf(*sn.ReturnType());
 
-		assert(pReturnType);
+		NLANG_ASSERT(pReturnType);
 
 		// Build the function type.
 		std::vector<Type *> paramTypes(sn.Params().size());
 		int i = 0;
 		for (auto &param : sn.Params())
 		{
-			assert(param.MetaType());
+			NLANG_ASSERT(param.MetaType());
 			paramTypes[i] = param.MetaType();
 			i++;
 		}
@@ -77,18 +78,18 @@ public:
 
 		//Create the function.
 		auto linkType = GetFuncLinkType(sn);
-		assert(m_Env.CurrMetaModule());
+		NLANG_ASSERT(m_Env.CurrMetaModule());
 		Function *pMetaFunc = Function::Create(pFuncType, linkType,
 			sn.MetaName(), m_Env.CurrMetaModule());
 
 		//If pMetaFunc conflicted, there was something named 'sn.MetaName()'.
-		assert(pMetaFunc->getName() == sn.MetaName());
+		NLANG_ASSERT(pMetaFunc->getName() == sn.MetaName());
 
 		//If pMetaFunc already has a body, reject this.
-		assert(pMetaFunc->empty());
+		NLANG_ASSERT(pMetaFunc->empty());
 
 		//Set parameter names.
-		assert(pMetaFunc->arg_size() == sn.Params().size());
+		NLANG_ASSERT(pMetaFunc->arg_size() == sn.Params().size());
 		auto iMetaParam = pMetaFunc->arg_begin();
 		for (auto &param : sn.Params())
 		{
@@ -102,14 +103,14 @@ public:
 	void Access(SnFormalParam &sn)
 	{
 		sn.MetaName(sn.Name());
-		assert(sn.Type());
+		NLANG_ASSERT(sn.Type());
 		sn.m_pMetaType = MetaTypeOf(*sn.Type());
 		//The meta value would be set by its parent function.
 	}
 
 	void Access(SyntaxNode &sn)
 	{
-		assert(false && "Not implemented.");
+		NLANG_ASSERT(false && "Not implemented.");
 	}
 
 	void Access(SnArrayTypeExpr &) {}
@@ -140,7 +141,7 @@ private:
 		if (&sn == pRoot)
 			return;
 
-		assert(sn.Parent() && sn.Parent()->IsField());
+		NLANG_ASSERT(sn.Parent() && sn.Parent()->IsField());
 		auto pParent = static_cast<const SnField*>(sn.Parent());
 		if (pParent != pRoot)
 		{
@@ -165,7 +166,7 @@ private:
 	llvm::Type *MetaTypeOf(SnNameExpr &typeExpr)
 	{
 		auto pField = typeExpr.Field();
-		assert(pField && pField->IsTypeField());
+		NLANG_ASSERT(pField && pField->IsTypeField());
 		return pField->MetaType();
 	}
 };

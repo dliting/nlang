@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -71,10 +72,10 @@ bool ExprResolveAccessor::BindNewExprType(SnNewExpr &sn, SnField &typeField)
 
 void ExprResolveAccessor::Access(SnNewExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	auto pClassName = sn.ClassName();
-	assert(pClassName);
+	NLANG_ASSERT(pClassName);
 	pClassName->Accept(*m_pVisitor);
 	TryResolveBuiltinClassName(*pClassName);
 
@@ -116,11 +117,11 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 
 void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 {
-	assert(!sn.IsResolved());
+	NLANG_ASSERT(!sn.IsResolved());
 
 	//Resolve element type name.
 	auto pElemType = sn.ElementType();
-	assert(pElemType);
+	NLANG_ASSERT(pElemType);
 	if (pElemType->IsArrayType())
 	{
 		//Resolve nested element type for array-of-arrays (future extension).

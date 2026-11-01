@@ -6,6 +6,7 @@
 #include "ExprResolverCastFit.hpp"
 #include "ModuleBuilderChecks.h"
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -67,7 +68,7 @@ static bool ReferencesThis(SnExpression& expr)
 
 void StatementResolveAccessor::Access(SnFunction &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	m_pCurrType = &sn;
 
 	//Phase 9c: enforce the parameter count sanity ceiling at
@@ -427,7 +428,7 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 
 void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 {
-	assert(m_pVisitor);
+	NLANG_ASSERT(m_pVisitor);
 	//Resolve the type expression via ExprResolver, not the
 	//StatementResolver visitor (which doesn't have Access for type
 	//expressions). This is critical for SnArrayTypeExpr which would

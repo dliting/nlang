@@ -7,6 +7,7 @@ This file define the interface of basic runtime node classes in nlang.
 #include "Node.h"
 #include <map>
 #include <memory>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -22,7 +23,7 @@ public:
 	//Get the parent.
 	RuntimeNode *Parent() const
 	{
-		assert(!Super_::Parent() || 
+		NLANG_ASSERT(!Super_::Parent() || 
 			dynamic_cast<RuntimeNode*>(Super_::Parent()));
 		return static_cast<RuntimeNode*>(Super_::Parent());
 	}
@@ -47,7 +48,7 @@ public:
 	//Get the traits of a specified node kind.
 	static const NodeTraits &TraitsOf(NodeKind kind)
 	{
-		assert(kind < NK_RT_END);
+		NLANG_ASSERT(kind < NK_RT_END);
 		return s_TraitsTable[kind];
 	}
 

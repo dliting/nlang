@@ -66,25 +66,28 @@ static const BindingRow s_LiteralRows[] = {
 	{"concurrent", "AtomicInt.addAndGet",         INTR_AtomicInt_AddAndGet},
 	{"concurrent", "AtomicInt.incrementAndGet",   INTR_AtomicInt_IncrementAndGet},
 	{"concurrent", "AtomicInt.getAndIncrement",   INTR_AtomicInt_GetAndIncrement},
-	//Cluster 2 (Exception family): declared in stdlib/builtins.n, one
+	//Cluster 2 (Exception family): declared in stdlib/lang.n, one
 	//ctor row each — except ChannelClosedException, which moved to
 	//stdlib/concurrent.n with the channel (concurrency import
 	//redesign). The VM raise paths keep their by-name class caches;
-	//only the ctor call channel is stamped here.
-	{"builtins", "Exception/1",                 INTR_Exception_Ctor},
-	{"builtins", "NullPointerException/1",      INTR_NullPointerException_Ctor},
-	{"builtins", "DivByZeroException/1",        INTR_DivByZeroException_Ctor},
-	{"builtins", "IndexOutOfBoundsException/1", INTR_IndexOutOfBoundsException_Ctor},
-	{"builtins", "AssertionException/1",        INTR_AssertionException_Ctor},
-	{"builtins", "IOException/1",               INTR_IOException_Ctor},
-	{"builtins", "InvalidCastException/1",      INTR_InvalidCastException_Ctor},
-	{"concurrent", "ChannelClosedException/1", INTR_ChannelClosedException_Ctor},
+	//only the ctor call channel is stamped here. v0.12.4 D7: every ctor
+	//declares (message, cause = null), so the arity-aware key is /2 —
+	//one-argument calls ride the default-parameter staging onto the
+	//same row (the AtomicInt/1 rule).
+	{"lang", "Exception/2",                 INTR_Exception_Ctor},
+	{"lang", "NullPointerException/2",      INTR_NullPointerException_Ctor},
+	{"lang", "DivByZeroException/2",        INTR_DivByZeroException_Ctor},
+	{"lang", "IndexOutOfBoundsException/2", INTR_IndexOutOfBoundsException_Ctor},
+	{"lang", "AssertionException/2",        INTR_AssertionException_Ctor},
+	{"lang", "IOException/2",               INTR_IOException_Ctor},
+	{"lang", "InvalidCastException/2",      INTR_InvalidCastException_Ctor},
+	{"concurrent", "ChannelClosedException/2", INTR_ChannelClosedException_Ctor},
 	//Cluster 4 (Object): the three protocol methods. Declared virtual so
 	//override propagation marks user overrides and call sites dispatch by
 	//name; no ctor row (Object is never constructed by user code).
-	{"builtins", "Object.equals",      INTR_Object_Equals},
-	{"builtins", "Object.getHashCode", INTR_Object_GetHashCode},
-	{"builtins", "Object.toString",    INTR_Object_toString},
+	{"lang", "Object.equals",      INTR_Object_Equals},
+	{"lang", "Object.getHashCode", INTR_Object_GetHashCode},
+	{"lang", "Object.toString",    INTR_Object_toString},
 	//Cluster 5 (Promise): declared generic template in stdlib/thread.n
 	//(concurrency import redesign); the erased instance's members stamp
 	//through the same key shape (erasure naming keys them bare
@@ -95,30 +98,32 @@ static const BindingRow s_LiteralRows[] = {
 	{"thread", "Promise.completeExceptionally",
 	                           INTR_Promise_CompleteExceptionally},
 	//Cluster 6 (generic containers + futures): List/Dict declared in
-	//stdlib/builtins.n (phase 2); Channel moved to stdlib/concurrent.n
+	//stdlib/containers.n (the prelude split); Channel moved to stdlib/concurrent.n
 	//and Future to stdlib/thread.n (concurrency import redesign).
 	//Method keys are "Class.method"; ctor keys follow the arity-aware
 	//rule. Erasure naming keys the instances bare ("List"/"List.add" —
 	//same shape as Promise).
-	{"builtins", "List",            INTR_List_Ctor},
-	{"builtins", "List.add",        INTR_List_Add},
-	{"builtins", "List.get",        INTR_List_Get},
-	{"builtins", "List.set",        INTR_List_Set},
-	{"builtins", "List.length",     INTR_List_Length},
-	{"builtins", "List.removeAt",   INTR_List_RemoveAt},
-	{"builtins", "List.indexOf",    INTR_List_IndexOf},
-	{"builtins", "List.contains",   INTR_List_Contains},
-	{"builtins", "List.clear",      INTR_List_Clear},
-	{"builtins", "List.toString",   INTR_List_toString},
-	{"builtins", "Dict",            INTR_Dict_Ctor},
-	{"builtins", "Dict.set",        INTR_Dict_Set},
-	{"builtins", "Dict.get",        INTR_Dict_Get},
-	{"builtins", "Dict.containsKey", INTR_Dict_ContainsKey},
-	{"builtins", "Dict.remove",     INTR_Dict_Remove},
-	{"builtins", "Dict.clear",      INTR_Dict_Clear},
-	{"builtins", "Dict.count",      INTR_Dict_Count},
-	{"builtins", "Dict.keys",       INTR_Dict_Keys},
-	{"builtins", "Dict.toString",   INTR_Dict_toString},
+	{"containers", "List",            INTR_List_Ctor},
+	{"containers", "List.add",        INTR_List_Add},
+	{"containers", "List.get",        INTR_List_Get},
+	{"containers", "List.set",        INTR_List_Set},
+	{"containers", "List.length",     INTR_List_Length},
+	{"containers", "List.removeAt",   INTR_List_RemoveAt},
+	{"containers", "List.indexOf",    INTR_List_IndexOf},
+	{"containers", "List.contains",   INTR_List_Contains},
+	{"containers", "List.clear",      INTR_List_Clear},
+	{"containers", "List.copy",       INTR_List_Copy},
+	{"containers", "List.toString",   INTR_List_toString},
+	{"containers", "Dict",            INTR_Dict_Ctor},
+	{"containers", "Dict.set",        INTR_Dict_Set},
+	{"containers", "Dict.get",        INTR_Dict_Get},
+	{"containers", "Dict.containsKey", INTR_Dict_ContainsKey},
+	{"containers", "Dict.remove",     INTR_Dict_Remove},
+	{"containers", "Dict.clear",      INTR_Dict_Clear},
+	{"containers", "Dict.count",      INTR_Dict_Count},
+	{"containers", "Dict.keys",       INTR_Dict_Keys},
+	{"containers", "Dict.copy",       INTR_Dict_Copy},
+	{"containers", "Dict.toString",   INTR_Dict_toString},
 	{"concurrent", "Channel",         INTR_Channel_CtorUnbounded},
 	{"concurrent", "Channel/1",       INTR_Channel_Ctor},
 	{"concurrent", "Channel.send",    INTR_Channel_Send},
@@ -134,26 +139,26 @@ static const BindingRow s_LiteralRows[] = {
 	//overloads key the one "String.substring" row. Array's four
 	//methods are compile-time-static emissions with no intrinsic id —
 	//zero rows (kStringFaceBindingRows below pins this block's size).
-	{"builtins", "String.equals",      INTR_String_Equals},
-	{"builtins", "String.getHashCode", INTR_String_GetHashCode},
-	{"builtins", "String.substring",   INTR_String_Substring},
-	{"builtins", "String.indexOf",     INTR_String_IndexOf},
-	{"builtins", "String.startsWith",  INTR_String_StartsWith},
-	{"builtins", "String.endsWith",    INTR_String_EndsWith},
-	{"builtins", "String.contains",    INTR_String_Contains},
-	{"builtins", "String.toUpper",     INTR_String_ToUpper},
-	{"builtins", "String.toLower",     INTR_String_ToLower},
-	{"builtins", "String.trim",        INTR_String_Trim},
-	{"builtins", "String.split",       INTR_String_Split},
-	{"builtins", "String.replace",     INTR_String_Replace},
-	{"builtins", "String.toInt",       INTR_String_ToInt},
-	{"builtins", "String.toFloat",     INTR_String_ToFloat},
-	{"builtins", "String.charAt",      INTR_String_CharAt},
-	{"builtins", "String.charCount",   INTR_String_CharCount},
-	{"builtins", "String.toChar",      INTR_String_ToChar},
-	{"builtins", "String.toLong",      INTR_String_ToLong},
-	{"builtins", "String.toDouble",    INTR_String_ToDouble},
-	{"builtins", "String.toBool",      INTR_String_ToBool},
+	{"lang", "String.equals",      INTR_String_Equals},
+	{"lang", "String.getHashCode", INTR_String_GetHashCode},
+	{"lang", "String.substring",   INTR_String_Substring},
+	{"lang", "String.indexOf",     INTR_String_IndexOf},
+	{"lang", "String.startsWith",  INTR_String_StartsWith},
+	{"lang", "String.endsWith",    INTR_String_EndsWith},
+	{"lang", "String.contains",    INTR_String_Contains},
+	{"lang", "String.toUpper",     INTR_String_ToUpper},
+	{"lang", "String.toLower",     INTR_String_ToLower},
+	{"lang", "String.trim",        INTR_String_Trim},
+	{"lang", "String.split",       INTR_String_Split},
+	{"lang", "String.replace",     INTR_String_Replace},
+	{"lang", "String.toInt",       INTR_String_ToInt},
+	{"lang", "String.toFloat",     INTR_String_ToFloat},
+	{"lang", "String.charAt",      INTR_String_CharAt},
+	{"lang", "String.charCount",   INTR_String_CharCount},
+	{"lang", "String.toChar",      INTR_String_ToChar},
+	{"lang", "String.toLong",      INTR_String_ToLong},
+	{"lang", "String.toDouble",    INTR_String_ToDouble},
+	{"lang", "String.toBool",      INTR_String_ToBool},
 };
 
 //Pins the String face block above independently of unrelated packages'
@@ -169,9 +174,9 @@ static_assert(kStringFaceBindingRows == kStringMethodIntrinsicCount + 2,
 //source — so a second static face cannot drift between the two tables:
 //the intrinsic id matches by construction and noReceiver is true by
 //definition of a static face (the type name qualifies the call, no
-//instance rides slot 0). The derived rows stay inert until the builtins
-//source-of-truth migration declares a static native member that stamps
-//onto this channel.
+//instance rides slot 0). The derived rows stay inert until a prelude
+//source file declares a static native member that stamps onto this
+//channel.
 const std::vector<BindingRow>& BindingRows()
 {
 	static const std::vector<BindingRow> s_rows = [] {
@@ -180,7 +185,7 @@ const std::vector<BindingRow>& BindingRows()
 		size_t faceCount = 0;
 		const BuiltinStaticFace* pFaces = BuiltinStaticFaces(faceCount);
 		for (size_t i = 0; i < faceCount; ++i)
-			rows.push_back({"builtins",
+			rows.push_back({pFaces[i].package,
 				std::string(pFaces[i].typeName) + "."
 					+ pFaces[i].methodName,
 				pFaces[i].intrinsicId, /*noReceiver=*/true});

@@ -7,6 +7,7 @@
 #include "RnData.h"
 #include "RuntimeNodeVisitor.h"
 #include "Runtime.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -28,7 +29,7 @@ void RnNamespace::Accept(IRuntimeNodeVisitor &v)
 
 bool RnNamespace::CanAddChild(const RuntimeNode *pChild) const
 {
-	assert(pChild);
+	NLANG_ASSERT(pChild);
 	if (!pChild->IsField())
 		return true;
 	const RnField *pField = static_cast<const RnField*>(pChild);

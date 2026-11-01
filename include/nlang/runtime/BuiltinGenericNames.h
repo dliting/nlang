@@ -45,7 +45,7 @@ inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 //">>" split depth counting working for the four names. Since the
 //phase-2 source-of-truth migration the resolver routes ONLY func to
 //synthetic minting — List/Dict/Channel/Future resolve through their
-//declared templates (List/Dict in the stdlib/builtins.n prelude,
+//declared templates (List/Dict in the stdlib/containers.n prelude,
 //Channel in stdlib/concurrent.n, Future in stdlib/thread.n — the
 //v0.12.3 import boundary), exactly like Promise and
 //every user `class C<T>` (no lex-time set can know a module's class

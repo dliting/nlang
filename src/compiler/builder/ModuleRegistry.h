@@ -11,6 +11,7 @@ gate (module import visibility plan, spec §6).
 #include <unordered_map>
 #include <functional>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include "SyntaxNode.h"
 #include "GenericInstanceRegistry.h"
@@ -34,6 +35,13 @@ using LibraryNamespacePredicate =
 //Spec §7 module-not-found wording — single source shared by the gate
 //resolver (BuildGate) and the .ncu loader (ModuleBuilder::LoadImports).
 std::string ModuleNotFoundText(const std::string& moduleName);
+
+//Module path = the source path made relative to the project root and
+//dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
+//root at all) the path degenerates to the file stem. Shared by unit
+//registration and the prelude resolution's project-source dedup.
+std::string DeriveModulePath(const std::filesystem::path& filePath,
+	const std::string& projectDir);
 
 /*
 Compile-time module registry (spec §6): maps every translation unit
@@ -110,7 +118,7 @@ public:
 	bool IsExternal(uint32_t moduleIndex) const;
 	//True for an inline library TU module (search-path <name>.n).
 	bool IsLibraryModule(uint32_t moduleIndex) const;
-	//True for the reserved prelude package's unit ("builtins" —
+	//True for a reserved prelude package's unit ("lang"/"containers" —
 	//implicitly imported into every build, own in every unit image;
 	//builtin-decls source-of-truth design §6.7). NO_OWNER is false.
 	bool IsPreludeModule(uint32_t moduleIndex) const;

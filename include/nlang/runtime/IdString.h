@@ -8,6 +8,7 @@
 #include <deque>
 #include <unordered_map>
 #include <cassert>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -52,8 +53,8 @@ public:
 	*/
 	explicit IdString(uint32 u4Index): m_u4Index(u4Index)
 	{
-		assert(s_pIndexes);
-		assert(u4Index < s_pIndexes->size());
+		NLANG_ASSERT(s_pIndexes);
+		NLANG_ASSERT(u4Index < s_pIndexes->size());
 	}
 
 	//Get the index.
@@ -66,7 +67,7 @@ public:
 	//The address of inner string should not be changed.
 	const std::string& ToString() const 
 	{ 
-		assert(s_pIndexes && s_pIndexes->size() > m_u4Index);
+		NLANG_ASSERT(s_pIndexes && s_pIndexes->size() > m_u4Index);
 		return (*s_pIndexes)[m_u4Index];
 	}
 

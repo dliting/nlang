@@ -8,6 +8,7 @@
 #include "PrimitiveTypes.h"
 #include <string>
 #include <list>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -86,7 +87,7 @@ public:
 public:
 	void CopyValue(void *pDst, const void *pSrc) const override
 	{
-		assert(pDst && pSrc);
+		NLANG_ASSERT(pDst && pSrc);
 		*static_cast<CppType*>(pDst) = *static_cast<const CppType*>(pSrc);
 	}
 protected:

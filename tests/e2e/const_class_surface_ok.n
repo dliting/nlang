@@ -1,0 +1,14 @@
+//v0.12.4 D6: the legal face of a const class — primitives, string,
+//compliant containers (List<string>), and const self-references (the
+//cause-chain shape). Constructs, reads, exits 7.
+const class Node {
+    public string label;
+    public List<string> tags;
+    public Node next;
+    public Node(string l) { label = l; }
+}
+int main() {
+    Node n = Node("root");
+    if (n.label != "root") { return 1; }
+    return 7;
+}

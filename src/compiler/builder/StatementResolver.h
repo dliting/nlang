@@ -135,6 +135,15 @@ private:
 		SnField *pTargetType, SnField* &pSourceType);
 	void RejectConstStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//v0.12.4 D3/D4: the const-aggregate field-store gate shared by both
+	//arms of RejectConstStoreTarget. A member (not a free helper) because
+	//the ctor exemption needs the private IsConstructorFunction.
+	//Definition in StatementResolverStoreGates.cpp.
+	bool IsSealedFieldWrite(SnExpression &left, SnField &field);
+	//v0.12.4 D4: the sealed-store diagnostic ("is immutable"). Definition
+	//in StatementResolverStoreGates.cpp.
+	void RejectSealedFieldStore(SnField &field,
+		const ISourceLocation *pLoc);
 	void RejectMethodCallStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
 	//0.9.0: the subscript-store statement has no SnSubscriptExpr node to

@@ -7,6 +7,7 @@
 #include <list>
 #include <vector>
 #include <functional>
+#include "StackDump.h"
 
 namespace nlang
 {
@@ -78,13 +79,13 @@ public:
 
 	T& operator*()
 	{
-		assert(m_pValue);
+		NLANG_ASSERT(m_pValue);
 		return *m_pValue;
 	}
 
 	const T& operator*() const
 	{
-		assert(m_pValue);
+		NLANG_ASSERT(m_pValue);
 		return *m_pValue;
 	}
 
@@ -106,7 +107,7 @@ public:
 
 	void Reset(T* pValue)
 	{
-		assert(!pValue || m_pValue != pValue);
+		NLANG_ASSERT(!pValue || m_pValue != pValue);
 		m_Deleter(m_pValue);
 		m_pValue = pValue;
 	}

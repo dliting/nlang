@@ -197,30 +197,115 @@ void VmExecutor::RequestPark(ParkSignal::Reason reason) {
     throw ParkSignal(reason);
 }
 
+//v0.12.4: see the header. Building half of BuildNlangException's
+//backtrace step (VmExecutor.cpp), placed here with the exception-
+//formatting family. Caller contract: the Container domain lock is held
+//by BuildNlangException's DomainGuard for the whole build.
+int32_t VmExecutor::MintBacktraceList() {
+    //Allocate a List<string> and push one entry per active call frame,
+    //innermost-first.
+    int32_t listHeapIdx = -1;
+    if (m_listClassIdx >= 0) {
+        listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
+        //Initialize List.__handle by allocating a fresh side-table slot.
+        m_listStore.emplace_back();  //new empty ListSlot
+        int32_t handle = static_cast<int32_t>(m_listStore.size());
+        //__handle is the first field of List (slot[1]).
+        m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
+        //Populate the backtrace: walk the evaluation stack innermost-first.
+        std::string moduleName = m_currModule ? m_currModule->name : "<module>";
+        for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
+            //v0.8.5: real per-frame source file (same helper/format as
+            //FormatBacktrace — the two surfaces must not drift). The
+            //mint/box/store tail is the existing code, unchanged.
+            const std::string frame = FormatBacktraceFrame(
+                it->func ? it->func->name : std::string("<unknown>"),
+                it->func ? it->func->sourceFile : std::string(),
+                it->currentLine, moduleName);
+            //Box the string so the List element is a real RTK_Boxed
+            //record — the old raw pool index made e.backtrace.get(i)
+            //raise "unbox on null/invalid reference".
+            int32_t frameHandle = MintNewString(frame);
+            int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
+            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
+        }
+    }
+    return listHeapIdx;
+}
+
 //v0.8.5: see the header. Reads the exception object's own message so
 //the top-level report names the actual failure (the old fixed texts
 //"user throw"/"rethrow" hid it).
+//v0.12.4 D8: the report is now the full chain — FormatExceptionChain
+//builds the "<Type>: <message>" top line plus the "Caused by:" hops,
+//so an uncaught wrapped exception names every link.
 std::string VmExecutor::ThrownMessageOf(int32_t heapIdx,
                                         const char* fallback) const {
     if (heapIdx <= 0
         || static_cast<size_t>(heapIdx) >= m_structHeap.size()
         || m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
         return fallback;
-    const StructSlot& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    const int32_t msgHandle = slot.size() > 1 ? slot[1] : 0;
-    std::string msg;
-    if (IsLiveStringHandle(msgHandle))
-        FlattenInto(msg, msgHandle);
-    if (!msg.empty())
-        return msg;
-    //Empty message: name the exception class (leaf spelling — the
-    //user-facing rendering rule shared with toString/checkcast).
-    const int32_t classIdx = slot[0];
-    if (m_currModule != nullptr && classIdx >= 0
-        && static_cast<size_t>(classIdx) < m_currModule->classes.size())
-        return LeafNameOfKey(
-            m_currModule->classes[static_cast<size_t>(classIdx)].name);
-    return fallback;
+    return FormatExceptionChain(heapIdx);
+}
+
+//v0.12.4 D8: one hop's text — "<Type>: <message>", or the bare type
+//name when the message is empty (ThrownMessageOf's empty-message rule,
+//kept: a message-less exception still names itself). The type is the
+//leaf spelling (the user-facing rendering rule the report always had —
+//HostClassName's raw key is package-qualified).
+std::string VmExecutor::FormatExceptionChain(int32_t excHeapIdx) const {
+    //Both reads are lock-free heap reads under the sharing model (the
+    //same contract as ThrownMessageOf).
+    std::string typeName = "exception";
+    if (m_currModule != nullptr) {
+        try {
+            typeName = LeafNameOfKey(HostClassName(excHeapIdx));
+        } catch (const std::exception&) {
+            //defensive: a malformed record still reports the hop
+        }
+    }
+    std::string message;
+    const StructSlot& slot = m_structHeap[static_cast<size_t>(excHeapIdx)];
+    if (slot.size() > 1 && IsLiveStringHandle(slot[1]))
+        FlattenInto(message, slot[1]);
+    std::string chain = message.empty()
+        ? typeName
+        : typeName + ": " + message;
+    return chain + FormatCauseChainTail(excHeapIdx);
+}
+
+//v0.12.4 D8: the "Caused by:" tail — one line per cause link, walking
+//cell[5] while it addresses a live class slot. Bounds-checked per hop;
+//cycles are impossible by construction (see the header).
+std::string VmExecutor::FormatCauseChainTail(int32_t excHeapIdx) const {
+    std::string tail;
+    int32_t cause = 0;
+    {
+        const StructSlot& slot =
+            m_structHeap[static_cast<size_t>(excHeapIdx)];
+        if (slot.size() > 5)
+            cause = slot[5];
+    }
+    while (cause > 0
+           && static_cast<size_t>(cause) < m_structHeap.size()
+           && m_slotKinds[static_cast<size_t>(cause)] == RTK_Class) {
+        const StructSlot& slot = m_structHeap[static_cast<size_t>(cause)];
+        std::string typeName = "exception";
+        if (m_currModule != nullptr) {
+            try {
+                typeName = LeafNameOfKey(HostClassName(cause));
+            } catch (const std::exception&) {
+                break;   //malformed link: report the hops gathered so far
+            }
+        }
+        std::string message;
+        if (slot.size() > 1 && IsLiveStringHandle(slot[1]))
+            FlattenInto(message, slot[1]);
+        tail += "\nCaused by: ";
+        tail += message.empty() ? typeName : typeName + ": " + message;
+        cause = slot.size() > 5 ? slot[5] : 0;
+    }
+    return tail;
 }
 
 void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {

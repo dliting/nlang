@@ -1,15 +1,16 @@
-//Phase 9d: user Exception subclass field access. message/backtrace are
-//inherited from Exception (slot[1]/slot[2]) and the subclass's own code
-//field lands at slot[3]. Verifies no aliasing between inherited and own
-//fields (an earlier bug had them sharing slot[1], passing by coincidence).
-class MyException : Exception {
+//Phase 9d: user Exception subclass field access. message/backtrace/cause
+//are inherited from Exception (cell[1]/cell[3]/cell[5]) and the subclass's
+//own code field lands at cell[7]. Verifies no aliasing between inherited
+//and own fields (an earlier bug had them sharing cell[1], passing by
+//coincidence). v0.12.4: Exception is const, so the subclass is const too
+//and both fields are set through the declaring constructor.
+const class MyException : Exception {
     public int code;
+    public MyException(int c, string m) { super(m); this.code = c; }
 }
 
 int main() {
-    MyException e = MyException();
-    e.code = 5;
-    e.message = "custom";
+    MyException e = MyException(5, "custom");
     try {
         throw e;
     } catch (MyException e2) {

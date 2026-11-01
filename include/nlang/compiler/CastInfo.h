@@ -4,6 +4,7 @@ This file define the interface of the type cast information.
 -----------------------------------------------------------------------------*/
 #pragma once
 #include "SyntaxNode.h"
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -73,7 +74,7 @@ public:
 	//distance) use this instead of constructing a TypeCastInfo.
 	static TypeCastKind PrimitiveVerdict(NodeKind src, NodeKind tgt)
 	{
-		assert(src < NK_DT_COUNT && tgt < NK_DT_COUNT);
+		NLANG_ASSERT(src < NK_DT_COUNT && tgt < NK_DT_COUNT);
 		return s_CastTable[src][tgt];
 	}
 private:

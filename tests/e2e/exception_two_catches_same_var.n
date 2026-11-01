@@ -6,7 +6,7 @@
 //failed to resolve, or worse, bound to the wrong layout).
 import io;
 
-class MyError : Exception {
+const class MyError : Exception {
     public int code;
     public MyError(string message, int c) {
         super(message);

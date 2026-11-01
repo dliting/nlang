@@ -15,6 +15,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -454,7 +455,7 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
 //casts then adjudicate each slot against its declared type).
 void ExprResolveAccessor::Access(SnInitListExpr &sn)
 {
-    assert(!sn.IsResolved());
+    NLANG_ASSERT(!sn.IsResolved());
 
     SnField *pTargetField = nullptr;
     bool bIsArray = false;

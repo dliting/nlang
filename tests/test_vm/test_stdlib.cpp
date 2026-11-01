@@ -402,7 +402,7 @@ void test_stdlib_void_arg_rejected()
 // --- Phase 11 Step 3: string methods ---
 
 //v0.12.2: the retired string-method table walk lives on as this local
-//probe list — signatures are declared in stdlib/builtins.n and the
+//probe list — signatures are declared in stdlib/lang.n and the
 //binding table serves the ids; each row pins one method's compile+run
 //path end to end (name, call arguments, result declaration keyword).
 static const struct { const char* name; const char* args;

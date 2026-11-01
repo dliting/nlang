@@ -5,7 +5,7 @@
 //table cannot represent faithfully).
 import io;
 
-class MyError : Exception {
+const class MyError : Exception {
     public int code;
 }
 

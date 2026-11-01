@@ -82,7 +82,7 @@ public:
     //unit whose members the registration walks will see.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
 
-    //The per-unit registration sequence (builtins → structs → classes →
+    //The per-unit registration sequence (builtin classes → structs → classes →
     //array types → enums → functions → member tables → interfaces →
     //enum methods), in the order that lays out the unit's tables. Run
     //for every real unit before its bytecode pass, and by the library
@@ -333,6 +333,16 @@ private:
     void EmitClassFieldLoad(SnClassDecl& classDecl,
                             const std::string& fieldName,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
+    //v0.12.4 D5: copy-on-read seal — after a field load, when the field
+    //is declared by a const aggregate and typed as a List/Dict
+    //instantiation, emit the copy intrinsic over the loaded handle so
+    //the read yields a fresh container (method calls and subscript
+    //stores through the read mutate the copy). No walker change: the
+    //sequence claims no eval-area slots (the zero-arg receiver-intrinsic
+    //shape, string getHashCode family). Definition in EmitExprMember.cpp.
+    void EmitSealedFieldCopyIfNeeded(SnField* pField,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
     //Array length() builtin method.
     bool EmitMemberArrayRankMethod(SnMemberExpr& member,
         BytecodeEmitter& emitter, uint16_t resultOffset);

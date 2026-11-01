@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
@@ -138,7 +139,7 @@ bool ExprResolveAccessor::AdmitCoercingTrioArgs(SnInvokeExpr &invoke)
 	for (auto &wrap : wraps)
 	{
 		auto iArg = wrap.pContainer->find(wrap.pArg);
-		assert(iArg != wrap.pContainer->end());
+		NLANG_ASSERT(iArg != wrap.pContainer->end());
 		NodeIterator iExpr = iArg;
 		auto *pStringType = SnBuiltinDataType::InstanceOf(NK_String);
 		TypeCastInfo castInfo(wrap.pArg->EvalDataType(), pStringType);
