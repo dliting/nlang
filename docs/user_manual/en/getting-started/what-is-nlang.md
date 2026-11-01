@@ -31,7 +31,7 @@ runtime module. The language itself:
   yields a `Future<T>` for its result; the `concurrent` package
   (`Mutex`, `Channel`, `Semaphore`, `WaitGroup`) provides the
   synchronization layer;
-- **Modern scripting staples** — exception handling, string
+- **Modern language staples** — exception handling, string
   interpolation, `out` parameters, default parameters, and the
   `math`/`io`/`fs`/`thread`/`concurrent` standard libraries.
 

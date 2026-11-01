@@ -11,7 +11,7 @@ NLang是一门类C语法、面向嵌入与自动化场景的类型安全语言�
 - **内建泛型集合**——`List<T>`/`Dict<K,V>`，带初始化器语法；
 - **垃圾回收**——没有`delete`，对象在不可达后自动回收，无需手动释放内存（见[生命周期与垃圾回收](../specification/09-execution-model/memory.md)）；
 - **并发**——`thread.spawn`把函数放到自己的线程上运行，返回`Future<T>`承载结果；`concurrent`包（`Mutex`、`Channel`、`Semaphore`、`WaitGroup`）构成同步层；
-- **现代脚本语言标配**——异常处理、字符串插值、`out`参数、默认参数、`math`/`io`/`fs`/`thread`/`concurrent`标准库。
+- **现代语言标配**——异常处理、字符串插值、`out`参数、默认参数、`math`/`io`/`fs`/`thread`/`concurrent`标准库。
 
 随包分发的六个工具：
 
