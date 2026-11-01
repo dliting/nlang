@@ -426,6 +426,25 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 	}
 }
 
+//An unbraced control-flow body (the grammar accepts a bare Statement
+//under if/while/do/for) makes the declaration a child of the control
+//node, not of the paragraph. The insertion anchor of the declarator
+//decomposition would then be an end()-derived position and the
+//decomposed AssignStmts would land at the top of the paragraph as
+//silently dead code (the locals are only allocated where the decl
+//itself is emitted, inside the branch). Reject loudly instead of
+//emitting wrong code.
+bool StatementResolveAccessor::RejectUnbracedControlFlowDecl(
+	SnLocalDeclStmt &sn, SnParagraph *pParagraph)
+{
+	if (sn.Parent() == pParagraph)
+		return false;
+	m_Env.Log(CLL_Error, sn.Location(),
+		"a local declaration cannot be the unbraced body of a "
+		"control-flow statement; use braces");
+	return true;
+}
+
 void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 {
 	NLANG_ASSERT(m_pVisitor);
@@ -454,25 +473,15 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
 	if (!pParagraph)
 		return;
-	//An unbraced control-flow body (the grammar accepts a bare
-	//Statement under if/while/do/for) makes sn a child of the
-	//control node, not of the paragraph. The insertion anchor below
-	//would then be an end()-derived position and the decomposed
-	//AssignStmts would land at the top of the paragraph as silently
-	//dead code (the locals are only allocated where the decl itself
-	//is emitted, inside the branch). Reject loudly instead of
-	//emitting wrong code.
-	if (sn.Parent() != pParagraph)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"a local declaration cannot be the unbraced body of a "
-			"control-flow statement; use braces");
+	if (RejectUnbracedControlFlowDecl(sn, pParagraph))
 		return;
-	}
 
 	auto *pTypeField = sn.Type()->Field();
 	auto bIsArray = sn.Type()->IsArrayType();
-	RejectConstWithoutInit(sn);
+	if (sn.NodeFlags() & NF_Static)
+		RejectStaticLocalPlacement(sn);
+	else
+		RejectConstWithoutInit(sn);
 	RegisterLocalDeclarators(sn, *pParagraph, pTypeField, bIsArray,
 		pSizedElemField);
 }

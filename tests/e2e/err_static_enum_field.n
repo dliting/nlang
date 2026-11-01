@@ -1,0 +1,9 @@
+//Enums declare members, not static fields (spec D8). The enum grammar
+//has no field arm at all (EnumMember is name / name '=' expr only), so
+//this reject fires at the grammar level — any compile_error diagnostic
+//passes; there is no contract-message expectation for this probe.
+enum E {
+    static int x;
+    A = 1
+}
+int main() { return 0; }

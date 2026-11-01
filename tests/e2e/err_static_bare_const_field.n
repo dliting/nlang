@@ -1,0 +1,6 @@
+//A bare const field is not a legal class member; field-level const exists
+//only as `static const` (spec §5.2).
+class A {
+    const int x = 1;
+}
+int main() { return 0; }

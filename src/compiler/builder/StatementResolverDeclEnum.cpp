@@ -140,6 +140,13 @@ void StatementResolveAccessor::AssignEnumMemberValues(SnEnumDecl &sn)
 	int32_t nextValue = 0;
 	for (auto &member : sn.Members())
 	{
+		//v0.12.6 D8 defense-in-depth: EnumMember takes no grammar flags,
+		//so a flagged member is unparseable today — the check keeps a
+		//future flag arm from silently admitting statics.
+		if (member.ContainFlags(NF_Static))
+			m_Env.Log(CLL_Error, member.Location(),
+				"The enum type \"%s\" cannot declare static fields.",
+				sn.Name().c_str());
 		if (member.ValueExpr())
 			TryAssignExplicitEnumValue(member, sn, nextValue);
 		else

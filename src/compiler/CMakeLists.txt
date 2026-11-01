@@ -140,6 +140,7 @@ add_library(nlang_compiler
     builder/StatementResolverDeclCtor.cpp
     builder/StatementResolverDeclEnum.cpp
     builder/StatementResolverDeclArray.cpp
+    builder/StatementResolverDeclStatic.cpp
     builder/StatementResolverTypes.cpp
     builder/StatementResolverAssign.cpp
     builder/StatementResolverCompound.cpp

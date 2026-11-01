@@ -1,0 +1,11 @@
+//Task 1 intermediate state: static fields parse and validate; access and
+//storage arrive with later tasks. The field must not disturb the instance
+//layout (codegen skips it in this task).
+class Counter {
+    static int total;
+    int dummy;
+}
+int main() {
+    Counter c = Counter();
+    return 0;
+}

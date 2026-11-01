@@ -41,6 +41,12 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
     for (auto& member : sn.Members()) {
         if (member.Kind() == NK_ClassField) {
             auto& cf = static_cast<SnClassField&>(member);
+            //v0.12.6 D1: static fields are module-slot-backed, not
+            //instance layout — they never enter the class record here
+            //(slot allocation and access emission arrive with the
+            //static-members tasks).
+            if (cf.ContainFlags(NF_Static))
+                continue;
             cc.fieldNames.push_back(cf.Name());
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and

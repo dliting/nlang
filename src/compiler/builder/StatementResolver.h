@@ -78,6 +78,18 @@ private:
 	void RejectTypeNameVariable(const std::string &name, SyntaxNode &scope,
 		const SnField &accessor, const ISourceLocation *pLoc);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
+	//True = the declaration is the unbraced body of a control-flow
+	//statement (a child of the control node, not of the paragraph); the
+	//decomposition anchor would silently misplace its AssignStmts, so
+	//the caller rejects. Definition in StatementResolverDecls.cpp.
+	bool RejectUnbracedControlFlowDecl(SnLocalDeclStmt &sn,
+		SnParagraph *pParagraph);
+	//v0.12.6 D8/D11: static-local placement contract (top-level and
+	//generic-class rejections) and the local static-constant
+	//initializer requirement. Definitions in
+	//StatementResolverDeclStatic.cpp.
+	void RejectStaticLocalPlacement(SnLocalDeclStmt &sn);
+	void RejectStaticConstLocalInit(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);
 	//0.9.0: build `name = new Type(args)` for a `Type name(args)`

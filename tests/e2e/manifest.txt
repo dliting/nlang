@@ -1972,3 +1972,14 @@ generic_channel_import 0
 future_selectany_import 0
 thread_pkg_spawn 0
 concurrent_churn_gc 0
+
+# --- v0.12.6 static members and static locals (Task 1: grammar + contracts) ---
+err_static_generic_field compile_error cannot declare static fields
+err_static_struct_field compile_error
+err_static_enum_field compile_error
+err_static_bare_const_field compile_error must be static or static const
+err_static_virtual_field compile_error must be static or static const
+err_static_local_toplevel compile_error top-level statements cannot be combined with an explicit main
+err_static_local_generic_method compile_error cannot be declared inside a generic class
+err_static_const_no_init compile_error must have an initializer
+static_field_decl_only 0

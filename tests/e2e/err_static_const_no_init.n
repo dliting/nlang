@@ -1,0 +1,6 @@
+//A static constant is defined by its initializer; the initializer-less
+//form is rejected like the interface rule.
+class A {
+    public static const int k;
+}
+int main() { return 0; }

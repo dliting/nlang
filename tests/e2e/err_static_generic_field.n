@@ -1,0 +1,7 @@
+//A generic class cannot declare static fields (spec D8): the dictionary
+//model shares one implementation across instantiations.
+class Box<T> {
+    static int x;
+    static const int y = 1;   //the const form of the ban (spec §8) — same diagnostic
+}
+int main() { return 0; }

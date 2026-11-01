@@ -6,7 +6,8 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*v0.9.1: the grammar now carries 4 accepted reduce/reduce conflicts,
+/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (3 at
+the 2026-11-02 re-measure),
 and deterministic parsers cannot use %expect alongside any r/r
 conflict, so there is no %expect here. The counts are pinned by the
 accepted-conflict ledger below and re-measured by the direct bison
@@ -876,6 +877,17 @@ LocalDeclStmt: HeadType LocalDeclList ';' {
 					} |
 					KT_Const HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($2, $3, true, @1);
+					} |
+					//v0.12.6: static locals and local static constants.
+					//Fixed order `static const`; `const static` stays a
+					//syntax error. The resolver (StatementResolverDecls)
+					//validates placement; slot-backed storage arrives with
+					//the static-local tasks.
+					KT_Static HeadType LocalDeclList ';' {
+						$$ = new SnLocalDeclStmt($2, $3, NF_Static, @1);
+					} |
+					KT_Static KT_Const HeadType LocalDeclList ';' {
+						$$ = new SnLocalDeclStmt($3, $4, NF_Static | NF_Const, @1);
 					} ;
 
 LocalDeclList: LocalDeclList ',' TT_Identifier {
@@ -1854,13 +1866,50 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				AccessType Type TT_Identifier ';' {
 					$$ = new SnClassField($2, $3, $1, @1);
 				} |
-				
+
 				//0.9.11 D4: a class field initializer is a compile-time
 				//default. The grammar admits the shape; the constant-surface
 				//check (FieldInitializerChecks.hpp) runs at Access(SnClassField&)
 				//and the injection that applies the default runs later.
 				AccessType Type TT_Identifier '=' Expression ';' {
 					$$ = new SnClassField($2, $3, $1, @1, $5);
+				} |
+
+				//v0.12.6 D1 ruling: the singular-flag twins of the field
+				//arms below. ClassMember — unlike InterfaceMember — also
+				//carries singular NodeFlag FUNCTION arms, and the flag
+				//overlap resolves by shifting on type openers (the 16-
+				//conflict family at the `AccessType NodeFlag .` state):
+				//without these arms `static int x;` dies inside the
+				//function arm waiting for '('. The ';'/`=`/`(` split after
+				//`AccessType NodeFlag Type TT_Identifier` is the same clean
+				//token split as the plural arms.
+				AccessType NodeFlag Type TT_Identifier ';' {
+					auto* field = new SnClassField($3, $4, $1, @1);
+					field->AddFlags($2);
+					$$ = field;
+				} |
+				AccessType NodeFlag Type TT_Identifier '=' Expression ';' {
+					auto* field = new SnClassField($3, $4, $1, @1, $6);
+					field->AddFlags($2);
+					$$ = field;
+				} |
+
+				//v0.12.6 D1: static fields on classes. The flagged shapes
+				//mirror InterfaceMember's field arms — the ';'/`=`/`(`
+				//lookahead split after `AccessType NodeFlagsNonEmpty Type
+				//TT_Identifier` is the same one proven in the interface
+				//body. The member contract (StatementResolverTypes.cpp)
+				//admits only NF_Static and NF_Static|NF_Const here.
+				AccessType NodeFlagsNonEmpty Type TT_Identifier ';' {
+					auto* field = new SnClassField($3, $4, $1, @1);
+					field->AddFlags($2);
+					$$ = field;
+				} |
+				AccessType NodeFlagsNonEmpty Type TT_Identifier '=' Expression ';' {
+					auto* field = new SnClassField($3, $4, $1, @1, $6);
+					field->AddFlags($2);
+					$$ = field;
 				} ;
 
 FunctionBodyOrSemi:	Paragraph { $$ = $1; } |
@@ -1888,7 +1937,11 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //0.11 merge grammar): 30 shift/reduce, 3 reduce/reduce. Re-measured
 //unchanged 2026-10-29 (v0.12.1, bison 3.8.2): the Type arm's mid-rule
 //depth marker adds one state and renumbers only the ClassMember family
-//(677→678); every other state number holds. History: dev's
+//(677→678); every other state number holds. Re-measured 2026-11-02
+//(v0.12.6, bison 3.8.2): the two static local statement arms add ONE
+//shift/reduce — the second conflict of the top-level boundary state —
+//moving the totals to 31/3; every conflicted state renumbered, and
+//the whole list below re-derived from the current .output. History: dev's
 //line measured 27/3 with every generic opener on the 0.10.8 D1
 //OT_TypeLt token; master's declared-generics line re-adopted the
 //plain-'<' family because a user-declared generic class name cannot
@@ -1911,43 +1964,48 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //compare against this ledger and never bump it silently. State numbers
 //are those of the current .output; they shift with every grammar
 //change, so the whole list is re-derived at each re-measure.
-//- state 12 (1, v0.9.1): `const` opening a top-level function vs the
-//  const statement — the AccessTypeEmpty epsilon loses the shift, so
-//  `const int x = 5;` lives and `const int f(){}` is rejected (a true
-//  LALR ambiguity; zero corpus hits, recorded as a known limitation).
-//- states 114/131 (1 each): the '<' shapes in head position — an
+//- state 12 (2): the top-level boundary vs AccessTypeEmpty's epsilon
+//  reduce. v0.9.1's `const` member: `const int x = 5;` lives (shift
+//  opens the statement) and `const int f(){}` is rejected. v0.12.6's
+//  `static` twin is the same trade one keyword later: `static int x =
+//  1;` parses as a top-level statement (the resolver's static-local
+//  placement contract then rejects it), while a `static`-flagged
+//  top-level function header is unparseable — the pre-declared cost
+//  of putting KT_Static in FIRST(Statement), zero corpus hits.
+//- states 115/134 (1 each): the '<' shapes in head position — an
 //  explicit generic type head (`Box<int> b;`) and the void-return func
 //  spellings, on the plain-'<' arms. Shift keeps the generic reading;
 //  the comparison reading loses only in these head states — never in
 //  pure expression states (the anchored literal holds OT_TypeLt).
-//- state 276 (2): catch/finally after a nested `try` statement — the
+//- state 286 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- state 293 (1 sr + 2 rr): after `T name(`, ')' shifts to the explicit
+//- state 303 (1 sr + 2 rr): after `T name(`, ')' shifts to the explicit
 //  empty-parens arm, and FormalParamList's vs ConcreteParamList's empty
 //  productions both reduce on ')' and ',' — the function header wins
 //  (earlier-declared rule), so a bodyless bare `T name();` is always a
 //  construction, never a declaration; forward declarations carry the
 //  explicit `func` marker for that reason.
-//- states 298/299 (1 each, added with TypeName): ':' / `as` followed by
+//- states 308/309 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- states 317/365 (1 each, added with 0.11.2's comma index lists): in a
+//- states 327/379 (1 each, added with 0.11.2's comma index lists): in a
 //  comma-index/subscript-assign context, ']' shifts to the subscript-
 //  assign reading instead of reducing a bare ConcreteParam expression.
-//- states 367/382 (1 each, added with 0.9.15): the empty-parens shape
+//- states 377/394 (1 each, added with 0.9.15): the empty-parens shape
 //  on the body-context first declarator (`T name();` inside a body)
 //  and the top-level header alone — ')' shifts to the explicit empty
 //  arm; same reading as state 293.
-//- state 428 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
+//- state 442 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
 //  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
-//- state 538 (1, added with 0.10.7 D1): the same empty-parens shape on
+//- state 555 (1, added with 0.10.7 D1): the same empty-parens shape on
 //  a continuation declarator — after `T a, b(`, ')' shifts to the
 //  explicit empty-parens continuation arm; `T a, b();` is a zero-
 //  argument construction, same reading as the first arm.
-//- state 678 (16, renumbered from 677 in v0.12.1): ClassMember's
+//- state 698 (16, renumbered from 677→678 by v0.12.1 and again by
+//  v0.12.6's re-derive): ClassMember's
 //  NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
