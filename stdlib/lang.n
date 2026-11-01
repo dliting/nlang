@@ -1,44 +1,11 @@
-//Standard library source for the "builtins" prelude package — the
-//language core and the base containers only (D1: everything else
-//needs an import). Implicitly imported into every compilation unit
-//(JLS §7.5.3 analogue): the names are visible without an import
-//statement, and user declarations shadow them by the ordinary
-//innermost-wins rule. Native class: the implementations live in the
-//VM (intrinsic channel), so class members are declared native.
-//Compile-time inline only: the stdlib.npkg pack list excludes this
-//file; the build-tree stdlib copy keeps it for disk-first development.
-//Concurrency: import thread; / import concurrent;
-
-//Resizing sequence of elements of one type. Elements are boxed at the
-//runtime boundary for primitive type arguments (erasure); class and
-//struct elements travel as references. Indexing sugar: lst[i].
-class List<T> {
-    public native List();
-    public native void add(T item);
-    public native T get(int index);
-    public native void set(int index, T value);
-    public native int length();
-    public native void removeAt(int index);
-    public native int indexOf(T item);
-    public native bool contains(T item);
-    public native void clear();
-    public native List<T> copy();
-    public native string toString();
-}
-
-//Key-value map with insertion-ordered keys. Indexing sugar: dict[k].
-class Dict<K, V> {
-    public native Dict();
-    public native void set(K key, V value);
-    public native V get(K key);
-    public native bool containsKey(K key);
-    public native int remove(K key);
-    public native void clear();
-    public native int count();
-    public native List<K> keys();
-    public native Dict<K, V> copy();
-    public native string toString();
-}
+//Standard library source for the "lang" prelude package — the language
+//core: the class-hierarchy root, the exception family (throw/catch is
+//language syntax), and the String/Array declaration faces of the
+//keyword types. Implicitly imported into every compilation unit
+//(JLS §7.5.3 analogue): names are visible without an import statement,
+//and user declarations shadow them by the ordinary innermost-wins rule.
+//Native classes: implementations live in the VM (intrinsic channel).
+//Compile-time inline only: stdlib.npkg excludes this file.
 
 //Immutable event record (v0.12.4): message/backtrace/cause are sealed
 //after construction; backtrace reads return a copy; cause chains are

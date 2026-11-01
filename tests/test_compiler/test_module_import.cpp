@@ -19,6 +19,7 @@ on every merged TU member (top-level and container members).
 //the test adds src/compiler to its include path (same pattern as
 //test_vm reaching into src/vm).
 #include "builder/ModuleRegistry.h"
+#include "BuiltinPrelude.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/CompiledModuleStubMembers.hpp"
 //Execute-level coverage (review C1): qualifying a call that returns a
@@ -2071,6 +2072,52 @@ private slots:
             "both records carry a real producer table index");
         QVERIFY2(ordinals[0] != ordinals[1],
             "the two overload records carry distinct ordinals");
+    }
+
+    //v0.12.5 prelude split: the reserved table names both packages and
+    //each embedded source carries its anchor declaration.
+    void preludeTableNamesBothPackages()
+    {
+        QCOMPARE(int(kPreludePackageCount), 2);
+        QCOMPARE(std::string(kPreludePackages[0].name),
+                 std::string("lang"));
+        QCOMPARE(std::string(kPreludePackages[1].name),
+                 std::string("containers"));
+        QVERIFY2(std::string(kPreludePackages[0].source)
+                     .find("class Object") != std::string::npos,
+                 "lang source must declare Object");
+        QVERIFY2(std::string(kPreludePackages[1].source)
+                     .find("class List<T>") != std::string::npos,
+                 "containers source must declare List");
+    }
+
+    //Explicit prelude imports are legal and dedup against the implicit
+    //registration (same contract `import builtins;` had).
+    void explicitPreludeImportsDedup()
+    {
+        auto path = writeTempSource("prelude_dedup.n",
+            "import lang;\n"
+            "import containers;\n"
+            "int main() {\n"
+            "    List<int> l = {};\n"
+            "    l.add(7);\n"
+            "    Exception e = Exception(\"x\");\n"
+            "    return l.get(0) + e.message.length();\n"
+            "}\n");
+        const auto outcome = compile("prelude_dedup_test", {path},
+                                     std::string());
+        QVERIFY2(outcome.ok, "explicit prelude imports must dedup cleanly");
+    }
+
+    //builtins.n retired: the old package name is unknown now.
+    void importBuiltinsIsUnknownPackage()
+    {
+        auto path = writeTempSource("builtins_gone.n",
+            "import builtins;\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compile("builtins_gone_test", {path},
+                                     std::string());
+        QVERIFY2(!outcome.ok, "import builtins must fail after the split");
     }
 };
 

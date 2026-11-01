@@ -305,7 +305,7 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
                                             SnMemberExpr& member,
                                             BytecodeEmitter& emitter,
                                             uint16_t resultOffset) {
-    const uint16_t intrinsicId = LookupIntrinsicId("builtins",
+    const uint16_t intrinsicId = LookupIntrinsicId("lang",
         "String." + invoke.CalleeName());
     if (intrinsicId == INTR_None)
         return false;

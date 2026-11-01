@@ -180,27 +180,39 @@ bool ModuleBuilder::ImportLibraryMatch(
 	return ParseLibraryUnit(match.first, match.second);
 }
 
-//The implicit prelude import (JLS §7.5.3 analogue). Resolution order:
-//the first disk match across the effective library dirs is the
-//canonical source (editing the stdlib copy takes effect on rebuild);
-//with no disk match the embedded copy parses as a pseudo-path unit
-//(module path "builtins" via the stem fallback). Two roots offering
-//the package is the existing duplicate-package diagnosis fired from
-//here — neither disk copy may hijack the reserved name.
-bool ModuleBuilder::EnsurePreludeImported()
+//One prelude package's implicit-import resolution (JLS §7.5.3
+//analogue). Resolution order: the first disk match across the
+//effective library dirs is the canonical source (editing the stdlib
+//copy takes effect on rebuild); with no disk match the embedded copy
+//parses as a pseudo-path unit (module path = the package name via the
+//stem fallback). Two roots offering the package is the existing
+//duplicate-package diagnosis fired from here — neither disk copy may
+//hijack a reserved name.
+bool ModuleBuilder::EnsurePreludePackageImported(
+	const PreludePackage &pkg)
 {
-	const auto matches = FindLibrarySourceMatches(kPreludePackageName);
+	const auto matches = FindLibrarySourceMatches(pkg.name);
 	if (matches.size() > 1)
 	{
 		m_upEnv->Log(CLL_Error, "Duplicate package '%s': '%s' and '%s'.",
-			kPreludePackageName, matches.front().first.c_str(),
+			pkg.name, matches.front().first.c_str(),
 			matches.back().first.c_str());
 		return false;
 	}
 	if (!matches.empty())
 		return ImportLibraryMatch(matches.front());
-	return ParseLibraryUnit(kPreludePackageName, std::string(),
-		kBuiltinPreludeSource);
+	return ParseLibraryUnit(pkg.name, std::string(), pkg.source);
+}
+
+//The implicit prelude import: both reserved packages, table order.
+bool ModuleBuilder::EnsurePreludeImported()
+{
+	for (const PreludePackage &pkg : kPreludePackages)
+	{
+		if (!EnsurePreludePackageImported(pkg))
+			return false;
+	}
+	return true;
 }
 
 //One import's library-source handling (DiscoverLibraryUnits' inner loop
@@ -212,12 +224,15 @@ bool ModuleBuilder::EnsurePreludeImported()
 //was added (drives the fixed-point iteration).
 bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 {
-	//The reserved prelude package never resolves through the disk scan
-	//alone: its registration belongs to the implicit import (embedded
-	//fallback included). An explicit `import builtins;` — whichever TU
+	//The reserved prelude packages never resolve through the disk scan
+	//alone: their registration belongs to the implicit import (embedded
+	//fallback included). An explicit `import lang;` — whichever TU
 	//order processed it — dedups against that registration here.
-	if (dottedName == kPreludePackageName)
-		return EnsurePreludeImported();
+	for (const PreludePackage &pkg : kPreludePackages)
+	{
+		if (dottedName == pkg.name)
+			return EnsurePreludePackageImported(pkg);
+	}
 	const auto matches = FindLibrarySourceMatches(dottedName);
 	if (matches.size() > 1)
 	{

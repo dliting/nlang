@@ -153,7 +153,8 @@ void EnsureImplicitObjectSuperclass(SnClassDecl &sn,
 //from this table too, so a second face lands in exactly one
 //hand-maintained place.
 static const BuiltinStaticFace s_Faces[] = {
-	{kBuiltinFutureTypeName, "selectAny", INTR_Future_SelectAny, 1},
+	{"thread", kBuiltinFutureTypeName, "selectAny",
+		INTR_Future_SelectAny, 1},
 };
 
 //Every face row (the derivation input for the binding table's

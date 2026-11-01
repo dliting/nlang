@@ -59,6 +59,7 @@ inline bool IsPreludeFaceClassName(const std::string& name)
 //row and never evaluates the qualifier.
 struct BuiltinStaticFace
 {
+	const char* package;      //declaring package (binding-row key)
 	const char* typeName;
 	const char* methodName;
 	uint16_t intrinsicId;

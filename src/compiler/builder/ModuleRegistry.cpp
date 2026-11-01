@@ -205,9 +205,10 @@ bool ModuleRegistry::IsProjectModule(const std::string& dottedPath) const
 
 bool ModuleRegistry::IsPreludeModule(uint32_t moduleIndex) const
 {
-	//The size guard rules out NO_OWNER with it (0xFFFFFFFF >= size).
+	//Any reserved prelude package path ("lang", "containers"). The size
+	//guard rules out NO_OWNER with it (0xFFFFFFFF >= size).
 	return moduleIndex < m_modules.size()
-		&& m_modules[moduleIndex].path == kPreludePackageName;
+		&& IsPreludePackageName(m_modules[moduleIndex].path);
 }
 
 bool ModuleRegistry::IsCompiledInModule(const std::string& dottedPath) const

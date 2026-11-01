@@ -34,25 +34,38 @@ add_custom_command(
     COMMENT "Generating Flex lexer"
 )
 
-#The embedded prelude TU is a hard source of nlang_compiler: the build
-#generates it from stdlib/builtins.n (the declarations' source of truth),
-#so editing that file re-embeds on the next build.
+#The embedded prelude TUs are hard sources of nlang_compiler: the build
+#generates them from stdlib/lang.n and stdlib/containers.n (the
+#declarations' source of truth), so editing those files re-embeds on
+#the next build.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-set(BUILTINS_SRC ${PROJECT_SOURCE_DIR}/stdlib/builtins.n)
-set(BUILTINS_EMBED ${CMAKE_CURRENT_BINARY_DIR}/generated/builtins_embedded.cpp)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(LANG_PRELUDE_SRC ${PROJECT_SOURCE_DIR}/stdlib/lang.n)
+set(LANG_PRELUDE_EMBED ${CMAKE_CURRENT_BINARY_DIR}/generated/lang_embedded.cpp)
 add_custom_command(
-    OUTPUT ${BUILTINS_EMBED}
+    OUTPUT ${LANG_PRELUDE_EMBED}
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
-            ${BUILTINS_SRC} ${BUILTINS_EMBED} kBuiltinPreludeSource
-    DEPENDS ${BUILTINS_SRC} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
-    COMMENT "Embedding stdlib/builtins.n"
+            ${LANG_PRELUDE_SRC} ${LANG_PRELUDE_EMBED} kLangPreludeSource
+    DEPENDS ${LANG_PRELUDE_SRC} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
+    COMMENT "Embedding stdlib/lang.n"
+)
+set(CONTAINERS_PRELUDE_SRC ${PROJECT_SOURCE_DIR}/stdlib/containers.n)
+set(CONTAINERS_PRELUDE_EMBED
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/containers_embedded.cpp)
+add_custom_command(
+    OUTPUT ${CONTAINERS_PRELUDE_EMBED}
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
+            ${CONTAINERS_PRELUDE_SRC} ${CONTAINERS_PRELUDE_EMBED}
+            kContainersPreludeSource
+    DEPENDS ${CONTAINERS_PRELUDE_SRC} ${PROJECT_SOURCE_DIR}/tools/embed_source.py
+    COMMENT "Embedding stdlib/containers.n"
 )
 
 add_library(nlang_compiler
     ${GENERATED_DIR}/nlang.tab.cpp
     ${GENERATED_DIR}/nlang.lex.cpp
-    ${BUILTINS_EMBED}
+    ${LANG_PRELUDE_EMBED}
+    ${CONTAINERS_PRELUDE_EMBED}
     SyntaxNode.cpp
     SyntaxTree.cpp
     TranslationUnit.cpp
