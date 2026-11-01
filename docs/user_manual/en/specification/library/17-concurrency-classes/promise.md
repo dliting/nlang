@@ -1,4 +1,9 @@
-# Promise
+# 17.5 Promise
+
+`Promise<T>` is a handle class of the `thread` standard-library
+package (§17.1): its name reaches scope through `import thread;`.
+It is the manual completion source behind a `Future`; the
+semantics are §10.5.
 
 ## When to use
 
@@ -38,8 +43,8 @@ int main() {
 |---|---|
 | `Promise()` | Constructs the completion source: a distributable, undecided `Future` exists immediately — no function needed up front |
 | `future()` | Hands out a retrieval handle. Repeatable: each `Future` `get()`s independently, all sharing the one decision |
-| `complete(v)` | Completes with value `v`: the first call wins, later calls are silently ineffective; every waiter wakes with `v` |
-| `completeExceptionally(e)` | Completes with failure — exception object `e`: first-wins as well; a waiting `get()` rethrows `e` into its own context |
+| `complete(v)` | Completes with value `v`: the first call wins and yields `true`, later calls have no effect and yield `false`; every waiter wakes with `v` |
+| `completeExceptionally(e)` | Completes with failure — exception object `e`: the first call wins and yields `true`, later calls have no effect and yield `false`; a waiting `get()` rethrows `e` into its own context |
 
 First-wins is the skeleton of the whole semantics: a value and a
 failure are the same kind of completion — one decision, never
@@ -91,7 +96,7 @@ int main() {
 - **Losers keep running**: the other members run on untouched, their
   results retrievable by `get()` at any later point. A failure no one
   ever observes is still named by the run-end report (see
-  [Suspension and scheduling limits](../specification/10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
+  [Suspension and scheduling limits](../../10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
 - **Duplicates are legal**: one `Future` registered under several
   indices — the minimal index wins.
 - **Edges**: an empty array, a `null` member, more than 64 members,
@@ -110,7 +115,7 @@ installer's `examples/conc_*.n`.
 - **Never completing is silent**: a `Promise` has no timeout; a source
   that never completes leaves its waiters parked until the deadlock
   report stops the run (see
-  [Suspension and scheduling limits](../specification/10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
+  [Suspension and scheduling limits](../../10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
   For a deadline, combine: spawn the wait and a `thread.sleep`
   separately and let whichever wakes first pick the path.
 - **Multi-way waiting is `Future`-only**: there is no "receive from

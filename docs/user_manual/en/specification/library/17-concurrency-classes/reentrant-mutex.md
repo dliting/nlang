@@ -1,4 +1,9 @@
-# ReentrantMutex
+# 17.8 ReentrantMutex
+
+`ReentrantMutex` is a handle class of the `concurrent`
+standard-library package (§17.2): its name reaches scope through
+`import concurrent;`, and instances are constructed and used
+through the instance itself. The semantics are §10.2.
 
 ## When to use
 
@@ -84,10 +89,10 @@ Java's `ReentrantLock`.
 
 | Shape | Use |
 |---|---|
-| One critical section, no composed methods | [Mutex](concurrency-mutex.md) |
+| One critical section, no composed methods | [Mutex](mutex.md) |
 | A public method and its callees both lock | `ReentrantMutex` |
 | Locking inside a recursive body | `ReentrantMutex` |
-| Admission limiting | [Semaphore](concurrency-semaphore.md) |
+| Admission limiting | [Semaphore](semaphore.md) |
 
 The two coexist: each guards its own sections, chosen per member in the
 same program.

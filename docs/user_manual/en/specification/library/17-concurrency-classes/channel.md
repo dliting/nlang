@@ -1,4 +1,9 @@
-# Channel
+# 17.10 Channel
+
+`Channel<T>` is a handle class of the `concurrent` standard-library
+package (§17.2): its name reaches scope through
+`import concurrent;`, and instances are constructed and used
+through the instance itself. The semantics are §10.4.
 
 ## When to use
 
@@ -8,7 +13,7 @@ that wakes a whole group of waiters. A bounded channel is backpressure
 for free — when the producer outruns the consumer, `send` suspends until a
 slot frees, so the pipeline throttles itself without extra machinery.
 This is the other half of the rule of thumb stated on the
-[Mutex](concurrency-mutex.md) page: data you hand over → `Channel`;
+[Mutex](mutex.md) page: data you hand over → `Channel`;
 state you share → `Mutex`.
 
 ## Construction and buffering

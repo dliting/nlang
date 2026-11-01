@@ -76,7 +76,7 @@
 
 - **并发：main返回即结束**：`main`返回时仍挂起或排队的虚拟线程被静默丢弃——没有隐式的等待全部；需要完成顺序请显式`thread.join`。运行队列排空而main仍未完成时虚拟机报告死锁错误。见[并发](../specification/10-concurrency/index.md)。
 
-- **并发：存储按类别加锁，同类串行**：堆与字符串分配按载体各自进行、不加锁，对象字段读写不加锁；容器（List/Dict）、同步原语、流与字符串维护各持一把锁——同类操作互斥，跨类并行。纯计算段与对象字段访问可跨载体并行，但依赖容器或字符串维护的密集循环仍在对应的锁上串行；共享对象（经`spawn`实参或通道共享）的字段并发读写属于数据竞争——可能读到过渡值，单值状态用`AtomicInt`（见[AtomicInt](concurrency-atomic.md)），多字段不变式用`Mutex`协调。每个虚拟线程连续执行约1000次循环迭代让位一次，保证公平轮转。载体数经`VmExecutor::SetCarrierThreadCount`（嵌入宿主，默认1）或`nvm --carriers=N`（工具，默认至多4）调节。见[载体与并行](../specification/10-concurrency/carriers.md)。
+- **并发：存储按类别加锁，同类串行**：堆与字符串分配按载体各自进行、不加锁，对象字段读写不加锁；容器（List/Dict）、同步原语、流与字符串维护各持一把锁——同类操作互斥，跨类并行。纯计算段与对象字段访问可跨载体并行，但依赖容器或字符串维护的密集循环仍在对应的锁上串行；共享对象（经`spawn`实参或通道共享）的字段并发读写属于数据竞争——可能读到过渡值，单值状态用`AtomicInt`（见[AtomicInt](../specification/library/17-concurrency-classes/atomic.md)），多字段不变式用`Mutex`协调。每个虚拟线程连续执行约1000次循环迭代让位一次，保证公平轮转。载体数经`VmExecutor::SetCarrierThreadCount`（嵌入宿主，默认1）或`nvm --carriers=N`（工具，默认至多4）调节。见[载体与并行](../specification/10-concurrency/carriers.md)。
 
 - **并发：多载体下调度顺序未指定**：单载体（库默认）完全确定——同一程序重复运行产生相同的交错顺序；多载体下调度器可按任意顺序取项（为缓存局部性优先取上次执行过的），交错顺序不保证，程序正确性只依赖`join`、通道与互斥的happens-before（先行发生）。见[并发](../specification/10-concurrency/index.md)。
 
@@ -84,11 +84,11 @@
 
 - **并发：没有`await`关键字**：函数不做异步着色（见[并发](../specification/10-concurrency/index.md)的模型一节）；`Future.get()`就是阻塞式等待，`thread.join`等待无返回值的`Thread`。
 
-- **并发：多路等待限于`Future`域**：`Future`可经`Promise`手工完成（[Promise](concurrency-promise.md)），`Future.selectAny`提供「任意一个先决定」的多路等待；但通道上没有「任意一个就绪」的`recv`变体——多源通道要任意收，须为每个源经`Promise`组合一层再对`Future`数组`selectAny`。
+- **并发：多路等待限于`Future`域**：`Future`可经`Promise`手工完成（[Promise](../specification/library/17-concurrency-classes/promise.md)），`Future.selectAny`提供「任意一个先决定」的多路等待；但通道上没有「任意一个就绪」的`recv`变体——多源通道要任意收，须为每个源经`Promise`组合一层再对`Future`数组`selectAny`。
 
-- **并发：派生线程的失败不传播给宿主或main**：未捕获异常被遏制在失败上下文内。等待侧经`join`/`Future.get`观测失败（原异常对象的重抛）；非阻塞观测走`thread.isFailed`/`thread.failure`（见[探测任务失败](concurrency-thread.md#探测任务失败)）。无人等待也无人取回的失败不会无声丢失：运行结束时VM对每个这样的任务在stderr打一行（任务id、异常类型与消息）。
+- **并发：派生线程的失败不传播给宿主或main**：未捕获异常被遏制在失败上下文内。等待侧经`join`/`Future.get`观测失败（原异常对象的重抛）；非阻塞观测走`thread.isFailed`/`thread.failure`（见[探测任务失败](../specification/library/17-concurrency-classes/thread.md#探测任务失败)）。无人等待也无人取回的失败不会无声丢失：运行结束时VM对每个这样的任务在stderr打一行（任务id、异常类型与消息）。
 
-- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](concurrency-reentrant-mutex.md)。见[Mutex](concurrency-mutex.md)。
+- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](../specification/library/17-concurrency-classes/reentrant-mutex.md)。见[Mutex](../specification/library/17-concurrency-classes/mutex.md)。
 
 - **并发：无载体宿主窗口内不能挂起**：run**进行期间**的重入求值——集合格式化时调用`toString`覆写、运行中触发的宿主回调——各等待点与别处一样正常挂起。只有嵌入宿主在run**之外**经`call()`发起的窗口没有在飞载体来服务等待，那里`yield`/`sleep`/未完成的`join`/未完成的`Future.get`/竞争中的`lock`/零许可`acquire`/空通道`recv`/有界通道满时的`send`/`spawn`一律以"cannot suspend"运行期错误拒绝。阻塞原生调用不受此限：发起调用的虚拟线程挂起并放锁，等待期间其他载体照常运行。
 

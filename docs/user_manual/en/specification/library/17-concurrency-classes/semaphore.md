@@ -1,4 +1,9 @@
-# Semaphore
+# 17.7 Semaphore
+
+`Semaphore` is a handle class of the `concurrent` standard-library
+package (§17.2): its name reaches scope through
+`import concurrent;`, and instances are constructed and used
+through the instance itself. The semantics are §10.3.
 
 ## When to use
 
@@ -8,15 +13,13 @@ connection limits, at most N concurrent computations — use
 the way out, and keeping the pair matched keeps the count honest. The
 difference from `Mutex`: a mutex admits exactly one task at a time, a
 semaphore admits at most N. One rule of thumb separates three routes:
-shared state goes through a [mutex](concurrency-mutex.md), handed-off
-data goes through a [channel](concurrency-channel.md), and admission
+shared state goes through a [mutex](mutex.md), handed-off
+data goes through a [channel](channel.md), and admission
 counting goes through a semaphore.
 
 ## Permits
 
-`Semaphore` is declared by the `concurrent` package
-(`stdlib/concurrent.n`), so it arrives with `import concurrent;`. The
-constructor `Semaphore(n)` sets the initial permit count `n`: a
+The constructor `Semaphore(n)` sets the initial permit count `n`: a
 negative value is a runtime error, and `0` is legal — the
 signal-switch shape, where waiters suspend on a zero-permit semaphore
 until some future event calls `release`.
@@ -148,7 +151,7 @@ int main() {
 evaluation (a `toString` override, for example); a zero-permit
 `acquire` suspends there normally, like a contended `lock` — the
 window freezes until a permit appears (see [Suspension inside
-re-entrant evaluation](../specification/10-concurrency/suspension.md#suspension-inside-re-entrant-evaluation)).
+re-entrant evaluation](../../10-concurrency/suspension.md#suspension-inside-re-entrant-evaluation)).
 
 ## Semaphore versus Channel
 

@@ -1,8 +1,12 @@
-# Channel
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
+
+# 17.10 Channel
+
+`Channel<T>`是`concurrent`标准库包的句柄类（§17.2）：名字随`import concurrent;`进入作用域，实例经实例本身构造与使用。语义在§10.4。
 
 ## 何时使用
 
-任务之间要交接数据，就用`Channel`：生产者-消费者流水线、工作队列，或者用`close()`一次性唤醒整组等待者。有界通道自带背压——生产快过消费时`send`挂起等空位，流水线自己限流，不用额外机制。这与[Mutex](concurrency-mutex.md)页那条经验互为对照：传递的数据用通道，共享的状态用互斥体。
+任务之间要交接数据，就用`Channel`：生产者-消费者流水线、工作队列，或者用`close()`一次性唤醒整组等待者。有界通道自带背压——生产快过消费时`send`挂起等空位，流水线自己限流，不用额外机制。这与[Mutex](mutex.md)页那条经验互为对照：传递的数据用通道，共享的状态用互斥体。
 
 ## 构造与缓冲
 

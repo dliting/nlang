@@ -88,7 +88,17 @@ nav:
               - ByteStream与FileStream: specification/library/14-io/streams.md
           - fs包: specification/library/15-fs.md
           - string方法: specification/library/16-string-methods.md
-      - 并发库: specification/17-concurrency-library.md
+          - 并发类:
+              - 概览: specification/library/17-concurrency-classes/index.md
+              - thread包: specification/library/17-concurrency-classes/thread.md
+              - Future: specification/library/17-concurrency-classes/future.md
+              - Promise: specification/library/17-concurrency-classes/promise.md
+              - Mutex: specification/library/17-concurrency-classes/mutex.md
+              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
+              - Channel: specification/library/17-concurrency-classes/channel.md
+              - concurrent包: specification/library/17-concurrency-classes/concurrent.md
       - tensor包: specification/18-tensor.md
       - 库异常: specification/19-library-exceptions.md
       - .ncu单元映像: specification/20-ncu-unit-image.md
@@ -96,16 +106,6 @@ nav:
       - 原生应用二进制接口: specification/22-native-abi.md
   - 语言规格:
       - 命名约定: language-spec/naming-convention.md
-      - 并发:
-          - thread包: language-spec/concurrency-thread.md
-          - Future: language-spec/concurrency-future.md
-          - Promise: language-spec/concurrency-promise.md
-          - Mutex: language-spec/concurrency-mutex.md
-          - Semaphore: language-spec/concurrency-semaphore.md
-          - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
-          - AtomicInt: language-spec/concurrency-atomic.md
-          - Channel: language-spec/concurrency-channel.md
-          - 标准库同步工具: language-spec/concurrency-concurrent.md
       - 标准库:
           - tensor: language-spec/stdlib-tensor.md
           - 异常映射: language-spec/stdlib-exceptions.md

@@ -1,4 +1,8 @@
-# ReentrantMutex
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
+
+# 17.8 ReentrantMutex
+
+`ReentrantMutex`是`concurrent`标准库包的句柄类（§17.2）：名字随`import concurrent;`进入作用域，实例经实例本身构造与使用。语义在§10.2。
 
 ## 何时使用
 
@@ -61,9 +65,9 @@ int main() {
 
 | 形态 | 用 |
 |---|---|
-| 护一段临界区，方法间不组合 | [Mutex](concurrency-mutex.md) |
+| 护一段临界区，方法间不组合 | [Mutex](mutex.md) |
 | 公共方法与它调用的方法都加锁 | `ReentrantMutex` |
 | 递归体内加锁 | `ReentrantMutex` |
-| 计数限流 | [Semaphore](concurrency-semaphore.md) |
+| 计数限流 | [Semaphore](semaphore.md) |
 
 两者可以并存：各自的锁互不干扰，同一程序里按成员选用。

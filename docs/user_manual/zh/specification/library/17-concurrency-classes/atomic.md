@@ -1,10 +1,14 @@
-# AtomicInt
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
+
+# 17.9 AtomicInt
+
+`AtomicInt`是`concurrent`标准库包的句柄类（§17.2）：名字随`import concurrent;`进入作用域，实例经实例本身构造与使用。语义在§10.6。
 
 ## 何时使用
 
-`AtomicInt`承载跨载体共享的**单值**可变状态——计数器、标志位、序列号。字段读写本身不加锁（见[载体与并行](../specification/10-concurrency/carriers.md)），共享字段的普通读写可能读到过渡值；`AtomicInt`把「读-改-写」变成不可分割的单步，无需互斥体。
+`AtomicInt`承载跨载体共享的**单值**可变状态——计数器、标志位、序列号。字段读写本身不加锁（见[载体与并行](../../10-concurrency/carriers.md)），共享字段的普通读写可能读到过渡值；`AtomicInt`把「读-改-写」变成不可分割的单步，无需互斥体。
 
-选择指引：**单个值的原子更新**用`AtomicInt`；**跨多个字段的不变式**用[Mutex](concurrency-mutex.md)（原子只保证单值独立一致，`x = x + 1`与`y = y + 2`的组合一致仍需互斥体）；方法组合或递归加锁用[ReentrantMutex](concurrency-reentrant-mutex.md)。
+选择指引：**单个值的原子更新**用`AtomicInt`；**跨多个字段的不变式**用[Mutex](mutex.md)（原子只保证单值独立一致，`x = x + 1`与`y = y + 2`的组合一致仍需互斥体）；方法组合或递归加锁用[ReentrantMutex](reentrant-mutex.md)。
 
 ## 操作
 
@@ -73,8 +77,8 @@ if (flag.compareExchange(0, 1)) {
 | 形态 | 用 |
 |---|---|
 | 单值计数器/标志位/序列号 | `AtomicInt` |
-| 跨多字段的不变式 | [Mutex](concurrency-mutex.md) |
-| 方法组合或递归加锁 | [ReentrantMutex](concurrency-reentrant-mutex.md) |
-| 限制并发进入数 | [Semaphore](concurrency-semaphore.md) |
+| 跨多字段的不变式 | [Mutex](mutex.md) |
+| 方法组合或递归加锁 | [ReentrantMutex](reentrant-mutex.md) |
+| 限制并发进入数 | [Semaphore](semaphore.md) |
 
 `AtomicInt`可与互斥体并存：热点计数走原子，多字段状态走互斥体，各护其位。

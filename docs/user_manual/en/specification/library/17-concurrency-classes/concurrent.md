@@ -1,7 +1,9 @@
-# The concurrent Package
+# 17.11 The concurrent Package
 
-The normative rules are in [specification §10.3](../specification/10-concurrency/index.md)
-and [§17.2](../specification/17-concurrency-library.md).
+The `concurrent` package's handle classes each have their own page
+(§17.6–§17.10); this page covers the package's one ordinary NLang
+class, `WaitGroup`. The package form is §17.2 and the semantics are
+§10.3.
 
 ## When to use
 
@@ -10,7 +12,7 @@ spawning the tasks, each task calls `done` once as it finishes, and
 `wait` returns when the batch is complete — without holding any
 `Thread` handles. `Semaphore`, which caps how many tasks run a section
 at once, is a handle class of this same package; see
-[Semaphore](concurrency-semaphore.md).
+[Semaphore](semaphore.md).
 
 ## The tools
 
@@ -22,9 +24,10 @@ NLang class, a counting barrier (Go-shaped): `add(n)`
 accumulates outstanding units, each unit calls `done()` once, and
 `wait()` suspends until the count reaches zero. Contract: `add` before
 `wait`, and `done` paired with `add` — an unmatched `done` releases
-`wait` early, a missing `done` suspends it until the deadlock report.
-Each handle class has its own page (see
-[Concurrency](../specification/10-concurrency/index.md) for the map).
+`wait` early, and a missing `done` parks it forever — the program
+ends under the exit policy of §10.1.
+Each handle class has its own page (§17.6–§17.10; the execution-model
+map is [Concurrency](../../10-concurrency/index.md)).
 
 ```nlang
 import concurrent;

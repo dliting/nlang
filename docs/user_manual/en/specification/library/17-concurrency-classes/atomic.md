@@ -1,20 +1,25 @@
-# AtomicInt
+# 17.9 AtomicInt
+
+`AtomicInt` is a handle class of the `concurrent` standard-library
+package (§17.2): its name reaches scope through
+`import concurrent;`, and instances are constructed and used
+through the instance itself. The semantics are §10.6.
 
 ## When to use
 
 `AtomicInt` carries cross-carrier shared **single-value** state —
 counters, flags, sequence numbers. Field reads and writes are not
-locked (see [Carriers and Parallelism](../specification/10-concurrency/carriers.md)); an
+locked (see [Carriers and Parallelism](../../10-concurrency/carriers.md)); an
 ordinary shared-field update can read a transitional value.
 `AtomicInt` turns "read-modify-write" into one indivisible step,
 without a mutex.
 
 Choosing: **atomic updates to one value** take `AtomicInt`; an
-**invariant across several fields** takes [Mutex](concurrency-mutex.md)
+**invariant across several fields** takes [Mutex](mutex.md)
 (atomicity covers each value independently — the pairing of
 `x = x + 1` with `y = y + 2` still needs the mutex); composed or
 recursive locking takes
-[ReentrantMutex](concurrency-reentrant-mutex.md).
+[ReentrantMutex](reentrant-mutex.md).
 
 ## Operations
 
@@ -90,9 +95,9 @@ if (flag.compareExchange(0, 1)) {
 | Shape | Use |
 |---|---|
 | single-value counter / flag / sequence | `AtomicInt` |
-| an invariant across several fields | [Mutex](concurrency-mutex.md) |
-| composed or recursive locking | [ReentrantMutex](concurrency-reentrant-mutex.md) |
-| capping concurrent entry | [Semaphore](concurrency-semaphore.md) |
+| an invariant across several fields | [Mutex](mutex.md) |
+| composed or recursive locking | [ReentrantMutex](reentrant-mutex.md) |
+| capping concurrent entry | [Semaphore](semaphore.md) |
 
 `AtomicInt` coexists with the mutexes: the hot counter goes atomic,
 multi-field state goes under a mutex, each guarding its own shape.

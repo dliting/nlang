@@ -1,7 +1,8 @@
-# thread包
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
 
-规范性规则见规范§10.1与§17.1。
-`thread`是标准库包：权威声明在`stdlib/thread.n`（符号索引与补全因此对它一视同仁），实现内建于虚拟机本体。调用前需`import thread;`（本章示例均已导入）；自建同名包会与标准库包撞名，被重复包规则拒绝。`spawn`的类型化契约——`func<T>`委托返回`Future<T>`——由编译器在声明的`func<void>`基础形态之上附加绑定。
+# 17.3 thread包
+
+`thread`操作在虚拟上下文上跑工作。其语义在§10.1，包形态——导入、声明位置、原生实现——在§17.1；本页固定每个函数的用法。下面每个示例都已导入`thread`。
 
 | 成员 | 形态 | 语义 |
 |---|---|---|
@@ -15,7 +16,7 @@
 
 上手就三步：写一个无参函数或方法，`thread.spawn`它拿到句柄，再用`thread.join`（有返回值时用`Future`的`get()`）等结果。安装包自带的`examples/conc_spawn_join.n`和`examples/conc_future.n`就是这个套路。
 
-参数必须是无参委托——自由函数引用、绑定方法引用或持有委托的变量皆可。委托无返回值（`func<void>`）时得到`Thread`句柄；有返回值（`func<T>`）时得到`Future<T>`句柄，返回值经`get()`取回（见[Future](concurrency-future.md)）：
+参数必须是无参委托——自由函数引用、绑定方法引用或持有委托的变量皆可。委托无返回值（`func<void>`）时得到`Thread`句柄；有返回值（`func<T>`）时得到`Future<T>`句柄，返回值经`get()`取回（见[Future](future.md)）：
 
 ```nlang
 import io;

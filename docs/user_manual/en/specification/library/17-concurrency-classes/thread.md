@@ -1,8 +1,9 @@
-# The thread Package
+# 17.3 The thread Package
 
-The normative rules are in [specification §10.1](../specification/10-concurrency/index.md)
-and [§17.1](../specification/17-concurrency-library.md).
-The `thread` package is an ordinary standard-library package: its authoritative declarations live in `stdlib/thread.n` (completion and the symbol index treat it like any other package), while the implementations are built into the virtual machine itself. Calls need `import thread;` first (the examples in this chapter all import it), and a user package named `thread` collides with the standard library and is rejected by the duplicate-package rule. `spawn`'s typed contract — a `func<T>` delegate yields a `Future<T>` — is bound by the compiler on top of the declared `func<void>` base form.
+The `thread` operations run work on virtual contexts. Their
+semantics are §10.1 and the package form — import, declaration
+site, the native implementation — is §17.1; this page fixes the
+usage of each function. Every example below imports `thread`.
 
 | Member | Shape | Semantics |
 |---|---|---|
@@ -20,7 +21,7 @@ with `thread.join` (or `get()` on a `Future`). The shipped
 `examples/conc_spawn_join.n` and `examples/conc_future.n` show exactly
 this.
 
-The argument must be a zero-argument delegate — a free-function reference, a bound-method reference, or a variable holding a delegate all work. A delegate with no return value (`func<void>`) yields a `Thread` handle; a delegate with a return value (`func<T>`) yields a `Future<T>` handle, and the return value comes back through `get()` (see [Future](concurrency-future.md)):
+The argument must be a zero-argument delegate — a free-function reference, a bound-method reference, or a variable holding a delegate all work. A delegate with no return value (`func<void>`) yields a `Thread` handle; a delegate with a return value (`func<T>`) yields a `Future<T>` handle, and the return value comes back through `get()` (see [Future](future.md)):
 
 ```nlang
 import io;

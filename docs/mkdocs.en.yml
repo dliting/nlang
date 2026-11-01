@@ -87,7 +87,17 @@ nav:
               - ByteStream and FileStream: specification/library/14-io/streams.md
           - The fs Package: specification/library/15-fs.md
           - string Methods: specification/library/16-string-methods.md
-      - The Concurrency Library: specification/17-concurrency-library.md
+          - Concurrency Classes:
+              - Overview: specification/library/17-concurrency-classes/index.md
+              - thread Package: specification/library/17-concurrency-classes/thread.md
+              - Future: specification/library/17-concurrency-classes/future.md
+              - Promise: specification/library/17-concurrency-classes/promise.md
+              - Mutex: specification/library/17-concurrency-classes/mutex.md
+              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
+              - Channel: specification/library/17-concurrency-classes/channel.md
+              - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
       - The tensor Package: specification/18-tensor.md
       - Library Exceptions: specification/19-library-exceptions.md
       - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
@@ -95,16 +105,6 @@ nav:
       - The Native Application Binary Interface (ABI): specification/22-native-abi.md
   - Language Specification:
       - Naming Convention: language-spec/naming-convention.md
-      - Concurrency:
-          - The thread Package: language-spec/concurrency-thread.md
-          - Future: language-spec/concurrency-future.md
-          - Promise: language-spec/concurrency-promise.md
-          - Mutex: language-spec/concurrency-mutex.md
-          - Semaphore: language-spec/concurrency-semaphore.md
-          - ReentrantMutex: language-spec/concurrency-reentrant-mutex.md
-          - AtomicInt: language-spec/concurrency-atomic.md
-          - Channel: language-spec/concurrency-channel.md
-          - The concurrent Package: language-spec/concurrency-concurrent.md
       - Standard Library:
           - tensor: language-spec/stdlib-tensor.md
           - Exception mapping: language-spec/stdlib-exceptions.md

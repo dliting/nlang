@@ -1,12 +1,16 @@
-# Semaphore
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
+
+# 17.7 Semaphore
+
+`Semaphore`是`concurrent`标准库包的句柄类（§17.2）：名字随`import concurrent;`进入作用域，实例经实例本身构造与使用。语义在§10.3。
 
 ## 何时使用
 
-限制同时进入某段代码的任务数——资源池、连接数上限、最多N份并发计算——就用`Semaphore(n)`：进入前`acquire()`取一个许可（permit），离开时`release()`归还，一进一出配对，计数就不会失真。与`Mutex`的差别：互斥体是「同一时间恰好一个」，信号量是「同一时间至多N个」。一条经验划清三种路线：共享的状态用[互斥体](concurrency-mutex.md)，传递的数据用[通道](concurrency-channel.md)，限制并发数用信号量。
+限制同时进入某段代码的任务数——资源池、连接数上限、最多N份并发计算——就用`Semaphore(n)`：进入前`acquire()`取一个许可（permit），离开时`release()`归还，一进一出配对，计数就不会失真。与`Mutex`的差别：互斥体是「同一时间恰好一个」，信号量是「同一时间至多N个」。一条经验划清三种路线：共享的状态用[互斥体](mutex.md)，传递的数据用[通道](channel.md)，限制并发数用信号量。
 
 ## 许可
 
-`Semaphore`声明于`concurrent`包（`stdlib/concurrent.n`），随`import concurrent;`进入作用域。构造`Semaphore(n)`设定初始许可数`n`：负数是运行期错误，`0`合法——「信号开关」形态，先造一个零许可信号量，等将来某个事件`release`一声，等待者才放行。
+构造`Semaphore(n)`设定初始许可数`n`：负数是运行期错误，`0`合法——「信号开关」形态，先造一个零许可信号量，等将来某个事件`release`一声，等待者才放行。
 
 | 成员 | 语义 |
 |---|---|
@@ -122,7 +126,7 @@ int main() {
 }
 ```
 
-`tryAcquire()`绝不挂起，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与竞争中的`lock`一样正常挂起——窗口冻结等待许可出现（见[重入求值内的挂起](../specification/10-concurrency/suspension.md#重入求值内的挂起)）。
+`tryAcquire()`绝不挂起，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与竞争中的`lock`一样正常挂起——窗口冻结等待许可出现（见[重入求值内的挂起](../../10-concurrency/suspension.md#重入求值内的挂起)）。
 
 ## 与Channel对照
 

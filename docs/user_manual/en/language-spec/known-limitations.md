@@ -197,7 +197,7 @@ This page collects the language-level limitations visible to user programs, with
   reads and writes of a shared object's fields (shared through
   `spawn` arguments or a channel) are a data race — a transitional
   value may be read; single-value state takes
-  [AtomicInt](concurrency-atomic.md), multi-field invariants take a
+  [AtomicInt](../specification/library/17-concurrency-classes/atomic.md), multi-field invariants take a
   `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count
@@ -232,7 +232,7 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: multi-way waiting stays in the `Future` domain**: a
   `Future` can be completed by hand through a `Promise`
-  ([Promise](concurrency-promise.md)), and `Future.selectAny` provides
+  ([Promise](../specification/library/17-concurrency-classes/promise.md)), and `Future.selectAny` provides
   the "whichever decides first" multi-way wait; but channels have no
   "whichever is ready" `recv` variant — to receive from many sources
   whichever comes first, wrap each source with a `Promise` and call
@@ -243,7 +243,7 @@ This page collects the language-level limitations visible to user programs, with
   context. Waiting sides observe the failure through `join`/`Future.get`
   (a rethrow of the original exception object); non-blocking observation
   is available through `thread.isFailed`/`thread.failure` (see
-  [Probing a task's failure](concurrency-thread.md#probing-a-tasks-failure)).
+  [Probing a task's failure](../specification/library/17-concurrency-classes/thread.md#probing-a-tasks-failure)).
   A failure nobody ever waited for or retrieved is not silently lost: at
   run end the VM prints one stderr line per such task (task id, exception
   type and message).
@@ -251,8 +251,8 @@ This page collects the language-level limitations visible to user programs, with
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
   deadlock report; composed or recursive methods take
-  [ReentrantMutex](concurrency-reentrant-mutex.md). See
-  [Mutex](concurrency-mutex.md).
+  [ReentrantMutex](../specification/library/17-concurrency-classes/reentrant-mutex.md). See
+  [Mutex](../specification/library/17-concurrency-classes/mutex.md).
 
 - **Concurrency: suspension inside carrier-less host windows**: inside
   re-entrant evaluation that runs **during a run** — your `toString`

@@ -113,8 +113,8 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 | 等任意一个先就绪 | `Future.selectAny(futures)`（返回获胜下标） |
 | 在任务之间传值 | `Channel<T>`（send/recv/close） |
 | 保护共享可变状态 | `Mutex`（lock/unlock/tryLock） |
-| 方法组合或递归体内加锁 | `ReentrantMutex`（可重入，见[ReentrantMutex](../../language-spec/concurrency-reentrant-mutex.md)） |
-| 单值计数器/标志位的原子更新 | `AtomicInt`（load/store/compareExchange，见[AtomicInt](../../language-spec/concurrency-atomic.md)） |
+| 方法组合或递归体内加锁 | `ReentrantMutex`（可重入，见[ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md)） |
+| 单值计数器/标志位的原子更新 | `AtomicInt`（load/store/compareExchange，见[AtomicInt](../library/17-concurrency-classes/atomic.md)） |
 | 限制同时进入某段代码的任务数 | `Semaphore(n)` |
 | 等一批任务全部完成 | `WaitGroup`（add/done/wait）或逐个`join` |
 | 一次性唤醒一组等待者 | `Channel.close()`广播 |
@@ -123,10 +123,11 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 
 - [载体与并行](carriers.md)——执行模型、存储保护、哪些代码真并行、确定性与载体数选择
 - [挂起与调度限制](suspension.md)——挂起与阻塞、跨挂起的异常、主退出策略、死锁报告、重入求值内的挂起
-- [thread包](../../language-spec/concurrency-thread.md)——`spawn`、`join`、`yield`、`id`、`sleep`
-- [Future](../../language-spec/concurrency-future.md)——取回派生任务的返回值
-- [Promise](../../language-spec/concurrency-promise.md)——手工完成源与`Future.selectAny`多路等待
-- [Mutex](../../language-spec/concurrency-mutex.md)——不可重入互斥
-- [Semaphore](../../language-spec/concurrency-semaphore.md)——计数信号量
-- [Channel](../../language-spec/concurrency-channel.md)——消息传递与关闭语义
-- [标准库同步工具](../../language-spec/concurrency-concurrent.md)——concurrent包的各个类，含`WaitGroup`
+- [并发类](../library/17-concurrency-classes/index.md)——库章节：包形态，外加每类一页
+- [thread包](../library/17-concurrency-classes/thread.md)——`spawn`、`join`、`yield`、`id`、`sleep`
+- [Future](../library/17-concurrency-classes/future.md)——取回派生任务的返回值
+- [Promise](../library/17-concurrency-classes/promise.md)——手工完成源与`Future.selectAny`多路等待
+- [Mutex](../library/17-concurrency-classes/mutex.md)——不可重入互斥
+- [Semaphore](../library/17-concurrency-classes/semaphore.md)——计数信号量
+- [Channel](../library/17-concurrency-classes/channel.md)——消息传递与关闭语义
+- [concurrent包](../library/17-concurrency-classes/concurrent.md)——concurrent包的各个类，含`WaitGroup`
