@@ -711,12 +711,12 @@ static void TestCallRejectsSpawnWithoutCarrier() {
     PASS();
 }
 
-//--- prelude package ("builtins") -------------------------------------------
+//--- prelude packages ("lang"/"containers") ----------------------------------
 
 //Case 1 — true dir-less host, zero imports: the embed host clears the
 //stdlib search root (SourceCompiler clears m_sStdLibDir), so this pins
 //that the implicit prelude import keeps the no-search-root pipeline
-//working (embedded-copy path; empty prelude today).
+//working (embedded-copy path).
 static void TestPreludeDirlessMinimalProgram() {
     TEST(TestPreludeDirlessMinimalProgram);
     Interpreter itp;   //no addImportDir: no search roots at all
@@ -726,7 +726,7 @@ static void TestPreludeDirlessMinimalProgram() {
 }
 
 //Case 2 — normal host (import dir present): existing library imports
-//keep working next to the (empty) prelude.
+//keep working next to the prelude.
 static void TestPreludeAlongsideStdlibImports() {
     TEST(TestPreludeAlongsideStdlibImports);
     Interpreter itp;
@@ -738,8 +738,8 @@ static void TestPreludeAlongsideStdlibImports() {
     PASS();
 }
 
-//Case 3 — explicit `import builtins;` is idempotent next to the implicit
-//prelude import: compiles, output unchanged.
+//Case 3 — explicit `import lang;`/`import containers;` are idempotent
+//next to the implicit prelude import: compiles, output unchanged.
 static void TestPreludeExplicitImportIdempotent() {
     TEST(TestPreludeExplicitImportIdempotent);
     Interpreter itp;
@@ -748,22 +748,23 @@ static void TestPreludeExplicitImportIdempotent() {
     int rc = -1;
     try {
         rc = itp.runSource(
-            "import builtins;\nimport io;\nio.print(\"prelude-ok\");");
+            "import lang;\nimport containers;\nimport io;\n"
+            "io.print(\"prelude-ok\");");
     } catch (const LoadError& e) {
-        CHECK(false, std::string("explicit builtins import threw: ") +
+        CHECK(false, std::string("explicit prelude import threw: ") +
             e.what());
         PASS();
         return;
     }
-    CHECK(rc == 0, "explicit builtins import compiles");
+    CHECK(rc == 0, "explicit prelude imports compile");
     CHECK(sink.out == "prelude-ok\n",
-        "output unchanged by the explicit import");
+        "output unchanged by the explicit imports");
     PASS();
 }
 
 //Case 4 — reserved package enforcement, embed shape: the implicit
 //prelude import scans the effective roots, so TWO roots offering
-//builtins.n is the duplicate-package diagnosis fired from the prelude's
+//lang.n is the duplicate-package diagnosis fired from the prelude's
 //own resolution. A SINGLE host-supplied copy is deliberately the
 //canonical prelude (indistinguishable from a stdlib deployment); the
 //project-file collision is the ncc-side enforcement pin.
@@ -773,38 +774,41 @@ static void TestPreludeReservedNameEnforced() {
     ScratchDir scratchA;
     ScratchDir scratchB;
     {
-        std::ofstream f(scratchA.path / "builtins.n");
+        std::ofstream f(scratchA.path / "lang.n");
         f << "//first contested copy\n";
-        std::ofstream g(scratchB.path / "builtins.n");
+        std::ofstream g(scratchB.path / "lang.n");
         g << "//second contested copy\n";
     }
     itp.addImportDir(scratchA.path.string());
     itp.addImportDir(scratchB.path.string());
     bool threw = false;
     try {
-        (void)itp.runSource("import builtins;\nint main() { return 0; }");
+        (void)itp.runSource("import lang;\nint main() { return 0; }");
     } catch (const LoadError& e) {
         threw = true;
         const std::string text = e.what();
         CHECK(text.find("Duplicate package") != std::string::npos,
             "duplicate-package diagnostic fires");
-        CHECK(text.find("builtins") != std::string::npos,
+        CHECK(text.find("'lang'") != std::string::npos,
             "diagnostic names the reserved package");
     }
-    CHECK(threw, "two roots offering builtins.n are diagnosed");
+    CHECK(threw, "two roots offering lang.n are diagnosed");
     PASS();
 }
 
-//Case 5 — dir-less host + explicit `import builtins;`: the import
-//short-circuit resolves the prelude via the embedded copy (no disk).
+//Case 5 — dir-less host + explicit `import lang;`/`import containers;`:
+//the import short-circuit resolves both prelude packages via the
+//embedded copies (no disk).
 static void TestPreludeExplicitImportDirless() {
     TEST(TestPreludeExplicitImportDirless);
     Interpreter itp;   //no search roots
     try {
-        CHECK(itp.runSource("import builtins;\nint main() { return 7; }") == 7,
-            "explicit builtins import resolves via the embedded copy");
+        CHECK(itp.runSource(
+            "import lang;\nimport containers;\nint main() { return 7; }")
+            == 7,
+            "explicit prelude imports resolve via the embedded copies");
     } catch (const LoadError& e) {
-        CHECK(false, std::string("explicit builtins import threw: ") +
+        CHECK(false, std::string("explicit prelude import threw: ") +
             e.what());
     }
     PASS();
