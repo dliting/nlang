@@ -6,6 +6,31 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a garbage-collection root gap for escaping exceptions. Between
+  the unwinding of a failed task's frames and the publication of its
+  failure state, the in-flight exception object was invisible to the
+  collector; a collection in that window reclaimed it while it was
+  still reachable, and reading it afterwards (for example
+  `thread.failure(t).message`) failed with a field access error. The
+  exception is now rooted as the context's failure handle at the moment
+  it leaves the execution window, closing the gap for every escape
+  path.
+- Fixed a compiler crash on debug builds when a declared generic's
+  member type is resolved inside its own completion window: a
+  fixed-key self-reference such as `List<T> copy()` inside `List<T>`
+  handed the same expression to the field resolver twice. Re-binding
+  the same field is now an idempotent no-op at the resolution
+  chokepoint.
+
+### Changed
+
+- Assertion failures in debug builds of the compiler and VM print a
+  stack dump before aborting; release builds are unchanged.
+
 ## [0.12.5] - 2026-11-01
 
 ### Changed
