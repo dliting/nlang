@@ -68,7 +68,8 @@ bool ModuleBuilder::PrepareUnits()
 	if (m_upEnv->HasError())
 		return false;
 	//The implicit prelude import joins every build before library
-	//discovery, so explicit `import builtins;` dedups against it and the
+	//discovery, so an explicit `import lang;`/`import containers;`
+	//dedups against it and the
 	//prelude unit's own imports take part in the fixed point.
 	EnsurePreludeImported();
 	if (m_upEnv->HasError())

@@ -129,7 +129,7 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
     //Prelude top-level members key bare (builtin-decls source-of-truth
     //design §6.7): the records land in every image (IsOwnUnit's prelude
     //arm) and must spell exactly what bare user code resolves —
-    //"Exception", not "builtins.Exception".
+    //"Exception", not "lang.Exception".
     if (reg.IsPreludeModule(reg.OwnerOf(field)))
         return field.Name();
     return reg.QualifiedName(field);

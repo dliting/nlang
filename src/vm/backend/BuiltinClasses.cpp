@@ -6,7 +6,7 @@
     registration order; class/function indexes derive from it, golden
     comparison covered).
     Object and the Exception family retired with the builtin-decls
-    source-of-truth migration: stdlib/builtins.n declares them.
+    source-of-truth migration: stdlib/lang.n declares them.
     List/Dict/Channel/Future retired with phase 2 — their records come
     from declaration emission + binding-table stamping
     (compiler/builder/BindingTable.cpp).
@@ -34,7 +34,7 @@ struct BuiltinMethod {
 
 //fieldClassIndices for a BuiltinField row. Every surviving row's fields
 //are plain handles — no class references remain (the List-typed
-//backtrace moved to the declared Exception in stdlib/builtins.n).
+//backtrace moved to the declared Exception in stdlib/lang.n).
 static constexpr uint16_t BFCLASS_None = 0xFFFF;  //no class reference
 
 struct BuiltinField {
@@ -46,8 +46,9 @@ struct BuiltinField {
 //Superclass source. BSR_ImplicitObject writes -1, which
 //ApplyImplicitObjectInheritance later resolves to the declared prelude
 //Object record (its name guard keeps classes NAMED "Object" at -1).
-//Every other declared class lives in stdlib/builtins.n — its records
-//arrive through the normal declared-class emission, not this table.
+//Every other declared class lives in the standard library sources
+//(stdlib/*.n) — its records arrive through the normal declared-class
+//emission, not this table.
 enum BuiltinSuperRef : int8_t {
     BSR_ImplicitObject,
 };
@@ -132,8 +133,9 @@ const BuiltinClassDecl s_BuiltinClassDecls[] = {
 };
 
 //Phase 2 of the builtin-decls source-of-truth migration: the generic
-//four (List/Dict/Channel/Future) left for stdlib/builtins.n — their
-//records come from the declared emission + binding-table stamping.
+//four (List/Dict in stdlib/containers.n, Channel/Future in
+//stdlib/thread.n) — their records come from the declared emission +
+//binding-table stamping.
 static_assert(std::size(s_BuiltinClassDecls) == 2,
     "the builtin registry retired to ByteStream/FileStream only; a new "
     "row means a new prelude class the source-of-truth design did not "
@@ -141,7 +143,7 @@ static_assert(std::size(s_BuiltinClassDecls) == 2,
 
 //One BuiltinField row → the CompiledClass field arrays. Every surviving
 //row's fields are plain int handles — no class-typed builtin fields
-//remain (backtrace moved to the declared Exception in builtins.n).
+//remain (backtrace moved to the declared Exception in stdlib/lang.n).
 void AppendBuiltinField(CompiledClass& cc, const BuiltinField& f) {
     cc.fieldNames.push_back(f.name);
     cc.fieldTypeKinds.push_back(f.typeKind);

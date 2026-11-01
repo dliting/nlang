@@ -82,7 +82,7 @@ public:
     //unit whose members the registration walks will see.
     void BeginUnit(uint32_t unitIdx, const std::string& modulePath);
 
-    //The per-unit registration sequence (builtins → structs → classes →
+    //The per-unit registration sequence (builtin classes → structs → classes →
     //array types → enums → functions → member tables → interfaces →
     //enum methods), in the order that lays out the unit's tables. Run
     //for every real unit before its bytecode pass, and by the library

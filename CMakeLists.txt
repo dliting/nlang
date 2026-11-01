@@ -223,8 +223,10 @@ set(NLANG_STDLIB_PACKAGE_SOURCES ${NLANG_STDLIB_SOURCES})
 list(REMOVE_ITEM NLANG_STDLIB_PACKAGE_SOURCES
     ${PROJECT_SOURCE_DIR}/stdlib/lang.n
     ${PROJECT_SOURCE_DIR}/stdlib/containers.n)
-set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-    "<Project name=\"stdlib\">\n  <Sources>\n")
+#One string argument, not two: a multi-value set() joins with ";" and
+#the separator would land between the XML declaration and the root
+#element (tinyxml2 happens to tolerate the stray text node).
+set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Project name=\"stdlib\">\n  <Sources>\n")
 foreach(src IN LISTS NLANG_STDLIB_PACKAGE_SOURCES)
     get_filename_component(name "${src}" NAME)
     string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")

@@ -27,7 +27,7 @@ namespace nlang
 //it exists only as Channel<T>, a generic instantiation minted by
 //GetGenericClassDecl. Mutex/Semaphore, Thread and Object lost their
 //stand-ins to the builtin-decls migration — Object is declared in the
-//stdlib/builtins.n prelude, Mutex/Semaphore and Thread in the
+//stdlib/lang.n prelude, Mutex/Semaphore and Thread in the
 //concurrency packages (stdlib/concurrent.n, stdlib/thread.n since the
 //v0.12.3 import boundary).
 

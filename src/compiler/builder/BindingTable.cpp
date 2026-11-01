@@ -174,9 +174,9 @@ static_assert(kStringFaceBindingRows == kStringMethodIntrinsicCount + 2,
 //source — so a second static face cannot drift between the two tables:
 //the intrinsic id matches by construction and noReceiver is true by
 //definition of a static face (the type name qualifies the call, no
-//instance rides slot 0). The derived rows stay inert until the builtins
-//source-of-truth migration declares a static native member that stamps
-//onto this channel.
+//instance rides slot 0). The derived rows stay inert until a prelude
+//source file declares a static native member that stamps onto this
+//channel.
 const std::vector<BindingRow>& BindingRows()
 {
 	static const std::vector<BindingRow> s_rows = [] {

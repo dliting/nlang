@@ -1465,8 +1465,8 @@ private:
 
 /*
 Builtin-decls source of truth: the prelude-owned root declaration of a
-builtin class name. Scans the merged root namespace for the class the
-"builtins" package owns — never a user shadow, which sits ahead of the
+builtin class name. Scans the merged root namespace for the class a
+prelude package owns — never a user shadow, which sits ahead of the
 prelude in the root and must not become other classes' base. Null = the
 prelude has no such class. Definition in ExprResolverBuiltinClasses.cpp.
 */
