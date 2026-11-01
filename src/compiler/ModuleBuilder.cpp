@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <vector>
 
 static const char *BAR_STR =
 	"--------------------------------------------------------------------";
@@ -69,7 +70,7 @@ bool ModuleBuilder::PrepareUnits()
 		return false;
 	//The implicit prelude import joins every build before library
 	//discovery, so an explicit `import lang;`/`import containers;`
-	//dedups against it and the
+	//dedups against it and each
 	//prelude unit's own imports take part in the fixed point.
 	EnsurePreludeImported();
 	if (m_upEnv->HasError())
@@ -328,10 +329,11 @@ void ModuleBuilder::ExpandTypeAliases()
 	//Errors abort the build right after this step.
 	DuplicateFieldChecker checker(*m_upEnv);
 	AliasExpander expander(*m_upEnv);
-	//The prelude unit's root is still intact (the merge clears it) — its
-	//declared names join the clash set even though the merged tree cannot
-	//answer yet (builtin-decls final sweep; TU order == module index).
-	SnNamespace *pPreludeRoot = nullptr;
+	//The prelude units' roots are still intact (the merge clears them):
+	//EVERY prelude package's declared names join the clash set (the
+	//merged tree cannot answer yet; TU order == module index) — one
+	//last-wins pointer would drop the other package's names.
+	std::vector<SnNamespace*> preludeRoots;
 	const ModuleRegistry &registry = m_upEnv->Registry();
 	//Concurrency import redesign: the roots of the units each TU IMPORTS
 	//join its alias clash set — a package class is as hijackable by an
@@ -343,14 +345,14 @@ void ModuleBuilder::ExpandTypeAliases()
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (registry.IsPreludeModule(moduleIndex))
-			pPreludeRoot = pTransUnit->Root();
+			preludeRoots.push_back(pTransUnit->Root());
 		unitRootByPath[registry.ModulePathOf(moduleIndex)]
 			= pTransUnit->Root();
 		++moduleIndex;
 	}
 	for (auto pTransUnit : *m_upTransUnits)
 	{
-		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), pPreludeRoot,
+		checker.CheckUnitAliases(*pTransUnit, TreeRoot(), preludeRoots,
 			ImportedRootsOf(*pTransUnit, unitRootByPath));
 		expander.ProcessUnit(*pTransUnit);
 	}

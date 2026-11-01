@@ -279,8 +279,8 @@ public:
 	expanded by then. Compared sets: other aliases of the same unit, the
 	unit's own root members, built-in type names in the tree root (int/
 	float/string), lazily synthesized built-in class names, the built-in
-	generic class names, the reserved stdlib namespace names, the prelude
-	package's declared root members (pPreludeRoot — the units are not
+	generic class names, the reserved stdlib namespace names, every prelude
+	package's declared root members (preludeRoots — the units are not
 	merged yet, so the merged tree cannot answer; a declared builtin name
 	must not be hijackable by an alias, final-sweep lock), and the roots of
 	the units this TU IMPORTS (importedRoots — concurrency import redesign:
@@ -288,7 +288,7 @@ public:
 	stay outside, which is the D1 visibility rule itself).
 	*/
 	void CheckUnitAliases(const TranslationUnit &unit, SnNamespace &treeRoot,
-		SnNamespace *pPreludeRoot,
+		const std::vector<SnNamespace*> &preludeRoots,
 		const std::vector<SnNamespace*> &importedRoots)
 	{
 		auto pUsings = unit.Usings();
@@ -315,22 +315,22 @@ public:
 			//0.8.3: "Func" dropped — func is a keyword, so it can no
 			//longer be spelled as a type alias name; List/Dict stay
 			//(plain identifiers, spellable as alias names).
-			bool clashesImport = false;
-			for (auto *pRoot : importedRoots)
-			{
-				if (pRoot && pRoot->FindField(sName))
+			auto declaredIn = [](const std::vector<SnNamespace*> &roots,
+				const std::string &name) {
+				for (auto *pRoot : roots)
 				{
-					clashesImport = true;
-					break;
+					if (pRoot && pRoot->FindField(name))
+						return true;
 				}
-			}
+				return false;
+			};
 			if ((unit.Root() && unit.Root()->FindField(sName))
 				|| treeRoot.FindField(sName)
 				|| sName == kBuiltinListTypeName || sName == kBuiltinDictTypeName
 				|| IsBuiltinClassName(sName)
 				|| m_Accessor.m_Env.IsLibraryPackage(sName)
-				|| (pPreludeRoot && pPreludeRoot->FindField(sName))
-				|| clashesImport)
+				|| declaredIn(preludeRoots, sName)
+				|| declaredIn(importedRoots, sName))
 			{
 				m_Accessor.m_Env.Log(CLL_Error, pUsing->Location(),
 					"The name \"%s\" cannot be used as a type alias.",

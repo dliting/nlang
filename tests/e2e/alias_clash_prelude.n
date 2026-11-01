@@ -1,6 +1,8 @@
-//An alias may not hijack a prelude-declared class name. The clash
-//check runs before the units merge, so it consults the prelude unit's
-//own root rather than the merged tree.
+//An alias may not hijack a package class it IMPORTS (Semaphore comes
+//from concurrent). The clash check runs before the units merge, so it
+//consults the imported unit's own root rather than the merged tree —
+//the importedRoots channel, distinct from the prelude-roots channel
+//pinned by alias_clash_prelude_lang.
 import concurrent;
 using Semaphore = int;
 

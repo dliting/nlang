@@ -175,9 +175,10 @@ bool VmBackend::IsOwnUnit(const SnField& member) const {
     //rows first, and the registration walks never see detached nodes.)
     const uint32_t owner = m_pRegistry->OwnerOfContext(member);
     //Prelude members are own in EVERY unit image too (builtin-decls
-    //source-of-truth design §6.7): the prelude unit is a library TU and
-    //never generates, so its declared records ride each project image —
-    //the declared mirror of the ownerless-builtin semantics above.
+    //source-of-truth design §6.7): each prelude unit is a library TU
+    //and never generates, so its declared records ride each project
+    //image — the declared mirror of the ownerless-builtin semantics
+    //above.
     return owner == m_currentUnitIdx || owner == ModuleRegistry::NO_OWNER
         || m_pRegistry->IsPreludeModule(owner);
 }

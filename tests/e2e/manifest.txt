@@ -1876,6 +1876,7 @@ object_static_protocol_reject compile_error claims the virtual dispatch slot of 
 object_tostring_arity compile_error
 naming_reserved_prelude compile_error names a type
 alias_clash_prelude compile_error cannot be used as a type alias
+alias_clash_prelude_lang compile_error cannot be used as a type alias
 alias_clash_package_root compile_error cannot be used as a type alias
 concurrent_channel_park_gcwindow 0 churn done
 concurrent_gate_hammer 17 peak inside the section: 2 (limit 2), total: 40000
