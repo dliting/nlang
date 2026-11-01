@@ -108,4 +108,4 @@ literal, and its values convert implicitly to nothing — not to
 *Informative:* an interface type argument makes a polymorphic
 collection: `List<IShape>` holds a mix of implementing objects,
 and each call through the stored reference dispatches to its own
-implementation (§4.12.6).
+implementation (§4.12.5).

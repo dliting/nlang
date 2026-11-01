@@ -13,7 +13,7 @@ The two value categories of §4.1 govern every boundary at which a
 value moves: assignment and initialization (§4.1), argument
 passing (§7.2), the return value (§6.6), a subscript read or
 write (§5.7), a field read or write (§4.7.4, §4.8.1), and a container
-store or retrieval (chapter 13).
+store or retrieval (chapter 12).
 
 At a boundary, a value of a value type is copied: after the move,
 source and target are independent, and a later change to one is

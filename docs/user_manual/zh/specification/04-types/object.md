@@ -36,7 +36,7 @@ class Point {
 
 名字与签名匹配某个协议成员的方法，即使声明为`private`或默认访问，也可在类外调用：协议派发按名字查找方法，不检查可见性。访问修饰符在协议声明上照常接受但不产生封装效果；普通成员照常受检（§4.8.2）。
 
-`string`以值语义携带该协议：`string.equals(string)`比较内容，`string.getHashCode()`按内容哈希，这使string无需包装类即可用作`Dict`键（§4.3，§4.12.6）。
+`string`以值语义携带该协议：`string.equals(string)`比较内容，`string.getHashCode()`按内容哈希，这使string无需包装类即可用作`Dict`键（§4.3，§12.2）。
 
 class引用上的`==`不受`equals`重写影响：它比较恒等（§4.8.10），值相等需要显式调用`equals`。
 

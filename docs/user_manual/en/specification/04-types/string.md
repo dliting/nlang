@@ -16,7 +16,7 @@ which is also code point order.
 
 `length()` returns the number of bytes; `charCount()` returns the
 number of code points. The string methods are defined in
-chapter 13.
+§11.3.
 
 *Informative:* `string` is a primitive, but unlike the scalar
 types (integers, floats, `bool`, `char`) it is an **immutable

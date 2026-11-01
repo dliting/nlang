@@ -143,4 +143,4 @@ bytes; code-point access (`charAt`, `charCount`, `foreach (char c in s)`)
 is covered by [strings and char](../specification/04-types/string.md) under "The char bridge".
 
 See also: [Specification / Types](../specification/04-types/index.md),
-[Standard Library](../language-spec/standard-library.md).
+[Library Conventions](../specification/library/11-conventions.md).

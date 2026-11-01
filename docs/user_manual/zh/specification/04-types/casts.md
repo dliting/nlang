@@ -31,7 +31,7 @@ unbox/向下强转的Object侧见[Object与装箱](object.md)。
 
 ### 基本类型 → string强制转换
 
-当标量基本类型（全部12个）出现在期望string的上下文时，NLang自动把它强转为字符串形式。最常见于字符串拼接，但在直接赋值、字段存储与你自己代码中声明的函数实参处也会触发。**包（库）调用是例外**——库的`string`形参只接受`string`（见[标准库](../../language-spec/standard-library.md)）。
+当标量基本类型（全部12个）出现在期望string的上下文时，NLang自动把它强转为字符串形式。最常见于字符串拼接，但在直接赋值、字段存储与你自己代码中声明的函数实参处也会触发。**包（库）调用是例外**——库的`string`形参只接受`string`（见[库约定](../library/11-conventions.md)）。
 
 ```nlang
 string s1 = "x" + 5;       // "x5" — int被强转为"5"

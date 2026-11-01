@@ -1,6 +1,6 @@
 # 库机制：搜索路径、源码内联与native模块
 
-本页说明NLang库系统的整体设计：一个库如何被发现、解析、编译和执行，以及机制为何是这个形状。这是面向运行时维护者的设计文档；库作者视角的实用指南见[开发第三方库](../libraries/developing-libraries.md)，用户使用面见[标准库](../language-spec/standard-library.md)。
+本页说明NLang库系统的整体设计：一个库如何被发现、解析、编译和执行，以及机制为何是这个形状。这是面向运行时维护者的设计文档；库作者视角的实用指南见[开发第三方库](../libraries/developing-libraries.md)，用户使用面见[库约定](../specification/library/11-conventions.md)。
 
 ## 1. 指导原则
 

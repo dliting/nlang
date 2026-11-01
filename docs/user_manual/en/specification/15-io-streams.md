@@ -17,7 +17,7 @@ qualifier (`io.print(s)`). The package name is single-segment
 source; the output trio, the input functions and the file
 functions are `native` functions (§7.5), and the typed readers
 are NLang source wrappers over `readToken` and the string
-conversion methods (§13.3).
+conversion methods (§11.3).
 
 **Argument admission.** A call to a package function binds each
 argument against the declared formal type (§7.3); the implicit
@@ -33,10 +33,10 @@ The exception is the output trio `io.print`, `io.write` and
 that render as text (§5.3): scalar primitives, arrays and
 function values. A class, interface or enumeration value is
 rejected — a class or interface value calls `.toString()` first
-(§13.2), and an enumeration variable likewise; an enumeration
+(§11.2), and an enumeration variable likewise; an enumeration
 member constant is accepted and prints its member name (§5.3).
 A struct value is rejected outright: structs have no
-`toString` (§13.2). A `null` argument is rejected: it would
+`toString` (§11.2). A `null` argument is rejected: it would
 print as `0`. The exception is keyed to these three names under
 the `io` package path; a user package that shadows `io`
 inherits it on exactly those names.
@@ -52,7 +52,7 @@ inherits it on exactly those names.
 
 Each function takes one argument under the trio admission of
 §15.1; a non-string argument is rendered as text by §5.3 and
-§13.2 before it is written. The destination is the host's
+§11.2 before it is written. The destination is the host's
 output channel; the effect of a failed host write is
 *unspecified*.
 
@@ -85,7 +85,7 @@ the call waits.
   UTF-8 raises `Exception` (§8.3), not `IOException`.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
-  convert it with the matching string method (§13.3): end of
+  convert it with the matching string method (§11.3): end of
   input raises `IOException` (from `readToken`), and a
   malformed token fails exactly as that string method fails.
 
@@ -115,7 +115,7 @@ impose no text encoding on what they read or write.
 ## 15.5 ByteStream and FileStream
 
 `ByteStream` and `FileStream` are built-in handle classes
-(§13.1): `ByteStream` reads and writes an in-memory buffer,
+(§11.1): `ByteStream` reads and writes an in-memory buffer,
 `FileStream` a disk file. `ByteStream()` constructs an empty
 buffer. `FileStream(path, mode)` opens the file: mode `"w"`
 creates or truncates, `"a"` creates or appends, and `"r"`

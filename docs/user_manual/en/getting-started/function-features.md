@@ -155,4 +155,4 @@ Declaration](../specification/03-program-structure/declarations.md#import-declar
 of the Specification.
 
 See also: [Specification / Declarations](../specification/03-program-structure/declarations.md),
-[Standard Library](../language-spec/standard-library.md).
+[Library Conventions](../specification/library/11-conventions.md).

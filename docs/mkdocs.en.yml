@@ -78,8 +78,10 @@ nav:
           - Overview: specification/10-concurrency/index.md
           - Carriers and Parallelism: specification/10-concurrency/carriers.md
           - Suspension and Scheduling Limits: specification/10-concurrency/suspension.md
-      - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
-      - The math Package: specification/14-math.md
+      - Standard Library:
+          - Library Conventions: specification/library/11-conventions.md
+          - Collections: specification/library/12-collections.md
+          - The math Package: specification/library/13-math.md
       - The io Package and Streams: specification/15-io-streams.md
       - The fs Package: specification/16-fs.md
       - The Concurrency Library: specification/17-concurrency-library.md
@@ -101,8 +103,6 @@ nav:
           - Channel: language-spec/concurrency-channel.md
           - The concurrent Package: language-spec/concurrency-concurrent.md
       - Standard Library:
-          - Standard Library: language-spec/standard-library.md
-          - math: language-spec/stdlib-math.md
           - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md

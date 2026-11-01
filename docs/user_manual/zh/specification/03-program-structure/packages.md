@@ -119,6 +119,6 @@ ndb --machine app.ncu -I C:\libs\mylib
 | `thread` | 谁来跑、结果在哪取：`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数（§10.1、§10.5） |
 | `concurrent` | 跑起来之后怎么配合：`Mutex`、`Semaphore`、`ReentrantMutex`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`、`WaitGroup`（§10.2–§10.4、§10.6） |
 
-标准库包像其他包一样导入（§3.3）；第14–18章描述它们所持有的单元。`.n`源码中的声明是每个包——包括预置包——的真源；实现把声明的native成员绑定到其内建实现。
+标准库包像其他包一样导入（§3.3）；第13–18章描述它们所持有的单元。`.n`源码中的声明是每个包——包括预置包——的真源；实现把声明的native成员绑定到其内建实现。
 
 *资料性：*NLang的库由**`.n`源文件**承载：标准库的`math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n`随工具链分发，第三方库就是某个目录中的一组`.n`（可选搭配native动态库）。文件内用`native`关键字声明在NLang之外实现的函数（`native void print(string s);`）——这类声明只有签名与文档注释、没有函数体；没有`native`标记的普通函数则是可阅读、可修改的NLang实现。一个库可以同时包含两者（混合库，与Python/Java/C#相同）。面向库作者的完整写法见[开发第三方库](../../libraries/developing-libraries.md)。

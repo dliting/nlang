@@ -5,7 +5,7 @@ is found, parsed, compiled and executed, and why the mechanism takes
 this shape. It is a design note for runtime maintainers; the
 author-oriented guide lives in
 [Developing Libraries](../libraries/developing-libraries.md), and
-user-facing usage in [Standard Library](../language-spec/standard-library.md).
+user-facing usage in [Library Conventions](../specification/library/11-conventions.md).
 
 ## 1. Guiding principle
 

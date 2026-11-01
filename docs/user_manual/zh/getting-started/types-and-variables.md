@@ -116,5 +116,5 @@ int main() {
 
 输出`hello, NLang`、`year: 2026`，退出码9。字符串是UTF-8字节序列，`length()`/`substring()`/`indexOf()`都按字节计；按码点访问（`charAt`、`charCount`、`foreach (char c in s)`）见[string与char](../specification/04-types/string.md)的「char桥接」。
 
-详见[规范/类型](../specification/04-types/index.md)、[标准库](../language-spec/standard-library.md)。
+详见[规范/类型](../specification/04-types/index.md)、[库约定](../specification/library/11-conventions.md)。
 

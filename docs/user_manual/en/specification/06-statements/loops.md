@@ -95,7 +95,7 @@ Supported iterables:
 |----------|----------|----------------|
 | `T[N]` (array) | elements `arr[0]..arr[N-1]` | `arr[i]` |
 | `List<T>` | elements in insertion order | `List<T>.get(i)` |
-| `Dict<K,V>` | **keys** (Python style) | a `dict.keys()` snapshot, then one key per step |
+| `Dict<K,V>` | **keys** in insertion order (Python style) | a `dict.keys()` snapshot, then one key per step |
 | `string` | **code points** (`char`) | Unicode Transformation Format (UTF-8) decoding, one code point per step |
 
 **Source constraint**: the source expression must be an array, `List`,

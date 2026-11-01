@@ -14,7 +14,7 @@ Suggested reading order through the
    [Function Values and Delegates](../specification/07-functions/function-values.md)
 4. [Concurrency](../specification/10-concurrency/index.md) — spawning
    virtual threads with `thread.spawn`, channels, mutexes, and Future
-5. [Built-in Classes and Library Conventions](../specification/13-builtin-classes.md)
+5. [Library Conventions](../specification/library/11-conventions.md)
    — the standard library at a glance, followed by the package chapters
 6. [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md)
    and [Program Entry and Exit](../specification/09-execution-model/exit-codes.md)

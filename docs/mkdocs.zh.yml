@@ -79,8 +79,10 @@ nav:
           - 概览: specification/10-concurrency/index.md
           - 载体与并行: specification/10-concurrency/carriers.md
           - 挂起与调度限制: specification/10-concurrency/suspension.md
-      - 内建类与库约定: specification/13-builtin-classes.md
-      - math包: specification/14-math.md
+      - 标准库:
+          - 库约定: specification/library/11-conventions.md
+          - 集合: specification/library/12-collections.md
+          - math包: specification/library/13-math.md
       - io包与流: specification/15-io-streams.md
       - fs包: specification/16-fs.md
       - 并发库: specification/17-concurrency-library.md
@@ -102,8 +104,6 @@ nav:
           - Channel: language-spec/concurrency-channel.md
           - 标准库同步工具: language-spec/concurrency-concurrent.md
       - 标准库:
-          - 标准库: language-spec/standard-library.md
-          - math: language-spec/stdlib-math.md
           - tensor: language-spec/stdlib-tensor.md
           - io: language-spec/stdlib-io.md
           - fs: language-spec/stdlib-fs.md

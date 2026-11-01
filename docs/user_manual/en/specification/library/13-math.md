@@ -1,6 +1,6 @@
-# 14. The math Package
+# 13. The math Package
 
-## 14.1 Package Form
+## 13.1 Package Form
 
 `math` is a standard library package (§3.9.4): `import math;`
 brings it into scope and every function is called through the
@@ -10,7 +10,7 @@ library's `.n` source; the implementations are `native`
 functions (§7.5) carried by the host native library named from
 the package.
 
-## 14.2 Precision
+## 13.2 Precision
 
 Every floating-point function in the package runs at `double`
 precision: parameters and results are `double` (§4.2). Integer
@@ -19,7 +19,7 @@ and `float` arguments enter through the implicit widening of
 `double` result reaches a `float` target only through an
 explicit `as` conversion (§5.5).
 
-## 14.3 Functions
+## 13.3 Functions
 
 The package declares 25 functions.
 
@@ -42,11 +42,11 @@ The package declares 25 functions.
 | `floor(x)` | (`double x`) → `long` | `x` rounded toward negative infinity |
 | `ceil(x)` | (`double x`) → `long` | `x` rounded toward positive infinity |
 | `round(x)` | (`double x`) → `long` | `x` rounded half away from zero |
-| `random()` | () → `double` | the next generator value, in `[0, 1)` (§14.5) |
-| `srand(seed)` | (`int seed`) → `void` | re-seeds the generator (§14.5) |
-| `randomi(min, max)` | (`int min`, `int max`) → `int` | a value drawn from the closed range `[min, max]` (§14.5) |
+| `random()` | () → `double` | the next generator value, in `[0, 1)` (§13.5) |
+| `srand(seed)` | (`int seed`) → `void` | re-seeds the generator (§13.5) |
+| `randomi(min, max)` | (`int min`, `int max`) → `int` | a value drawn from the closed range `[min, max]` (§13.5) |
 
-## 14.4 Error Behavior
+## 13.4 Error Behavior
 
 Failures split into two models.
 
@@ -61,7 +61,7 @@ Failures split into two models.
   when `x` is NaN or the rounded value lies outside the `long`
   range.
 
-## 14.5 Random Numbers
+## 13.5 Random Numbers
 
 The package draws from one generator per program run.
 
@@ -76,5 +76,12 @@ The package draws from one generator per program run.
 
 > Implementation note. The shipped generator is the Mersenne
 > Twister `std::mt19937`, seeded from `std::random_device` at
-> program start; `random()` takes the high 24 bits of a draw
-> and `randomi` reduces a draw modulo the range size.
+> program start; no `std::uniform_*_distribution` is used —
+> those are implementation-defined and not portable.
+
+The two scalings, in pseudocode:
+
+```text
+random()  = (double)((next() >> 8) * (1.0 / 16777216.0))   // 24-bit mantissa, exact in [0,1)
+randomi(min,max) = min + (int32)(next() % (uint32)(max - min + 1))   // small modular bias, documented
+```

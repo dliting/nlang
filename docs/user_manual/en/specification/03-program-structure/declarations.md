@@ -212,7 +212,7 @@ containers `List<T>` and `Dict<K,V>`, the exception family, the
 hierarchy root `Object`, and the declaration holders `String` and
 `Array` as ordinary class declarations — constructor
 arity and method surface are exactly what the file declares. See
-[Standard Library](../../language-spec/standard-library.md).
+[Library Conventions](../library/11-conventions.md).
 
 A root-level declaration of the same name in your own code **shadows**
 the prelude declaration — the innermost declaration wins in every

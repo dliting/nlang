@@ -11,7 +11,7 @@
 3. [函数](../specification/07-functions/index.md) →
    [函数值与委托](../specification/07-functions/function-values.md)
 4. [并发](../specification/10-concurrency/index.md)——`thread.spawn`派生虚拟线程，通道、互斥锁与Future
-5. [内建类与库约定](../specification/13-builtin-classes.md)——标准库一览，其后是各包的章节
+5. [库约定](../specification/library/11-conventions.md)——标准库一览，其后是各包的章节
 6. [生命周期与垃圾回收](../specification/09-execution-model/memory.md)与[程序的进入与退出](../specification/09-execution-model/exit-codes.md)
 
 参考页——[命名约定](../language-spec/naming-convention.md)、[已知限制](../language-spec/known-limitations.md)与[常见错误消息](../language-spec/common-errors.md)——是规范的资料性补充。

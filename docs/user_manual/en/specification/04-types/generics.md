@@ -132,7 +132,7 @@ function type arguments: a struct is a multi-slot value and a
 generic field stores one value slot; a function value is a
 multi-slot record (target, receiver, form). The built-in containers
 accept struct type arguments (a struct key in a `Dict` compares by
-identity, §4.12.6).
+identity, §12.2).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.
@@ -151,84 +151,17 @@ List<int>;`, `IL` works as a type and as a construction target.
 ## 4.12.6 Built-in containers List and Dict
 
 `List<T>` is a growable, ordered, index-addressable collection of
-elements of type `T`.
+elements of type `T`, and `Dict<K, V>` is an associative array
+mapping keys of type `K` to values of type `V`. Both are prelude
+names, visible without an import (§3.9.4), and ordinary generic
+classes: each instantiation is a distinct type (§4.12.1),
+construction follows §4.12.3, and type arguments follow §4.12.5.
 
-| Method       | Signature            | Returns | Notes                             |
-|--------------|----------------------|---------|-----------------------------------|
-| `add`        | `void add(T item)`   | —       | Append to end                     |
-| `get`        | `T get(int idx)`     | T       | Read by index; raises if out of bounds |
-| `set`        | `void set(int i, T)` | —       | Overwrite element                 |
-| `length`     | `int length()`       | int     | Current element count             |
-| `removeAt`   | `void removeAt(int i)` | —     | Erase; shifts later elements down |
-| `indexOf`    | `int indexOf(T item)` | int    | First index of `item`, or -1      |
-| `contains`   | `bool contains(T item)` | bool | true if present, else false       |
-| `clear`      | `void clear()`       | —       | Remove all elements               |
-
-`get` with an index outside the current length raises an
-`IndexOutOfBoundsException` (chapter 8).
-
-`Dict<K, V>` is an associative array mapping keys of type `K` to
-values of type `V`.
-
-| Method         | Signature                  | Returns | Notes                                      |
-|----------------|----------------------------|---------|--------------------------------------------|
-| `set`          | `void set(K key, V value)` | —       | Insert or replace (no duplicate-key error) |
-| `get`          | `V get(K key)`             | V       | Lookup; raises if the key is absent        |
-| `containsKey`  | `bool containsKey(K key)`  | bool    | true if present, else false                |
-| `remove`       | `int remove(K key)`        | int     | 1 if removed, 0 if the key was not found   |
-| `clear`        | `void clear()`             | —       | Remove all entries                         |
-| `count`        | `int count()`              | int     | Current entry count                        |
-
-`get` for a key the map does not hold raises an `Exception`
-(chapter 8); `set` inserts or replaces and never fails on a
-duplicate key.
-
-`Dict` key equality is kind-aware:
-
-- scalar primitive keys compare value bits, with `NaN` not equal to
-  itself;
-- `string` keys compare content (§4.3);
-- class, struct and array keys compare identity — a user `equals`
-  override is not consulted (§4.11.2).
-
-`Dict.keys()` returns a new `List<K>` holding every key in
-insertion order; the list is a copy, so later `set`/`remove` on the
-dict do not affect it. `foreach (K k in dict)` iterates the keys the
-same way, through one `keys()` snapshot (chapter 6). `values()` is
-not provided; iterate the keys and call `get`.
-
-Container methods take named arguments under the ordinary rule
-(§7.2): `l.add(item = 5)`, `d.set(key = "a", value = 1)`.
-
-Calling any method through a `null` container reference raises a
-catchable `NullPointerException` with message
-`NLang VM: null reference error`, as through any other class
-reference (chapter 8, §4.8.10).
-
-With `T` written as `Object`, a container holds a mix of value
-types: primitives and `string` box implicitly at `add`/`set`, class
-instances store their references, and an element pulled out has
-static type `Object` — unbox it with `as` to use it as a concrete
-type (§4.11.4). `contains` and `indexOf` compare boxed primitive
-elements by value. The same applies to `Dict` with `K` or `V`
-written as `Object`.
-
-```nlang
-int main() {
-    List<Object> bag = {};
-    bag.add(42);                     // int boxed in
-    bag.add("hi");                   // string alongside
-    int back = bag.get(0) as int;    // 42
-    if (back == 42 && bag.contains(42)) {
-        return 42;
-    }
-    return 1;
-}
-```
-
-*Informative:* every `set`, `get`, `containsKey` and `remove` on a
-`Dict` scans the entries linearly — acceptable for typical small
-scripts; no O(1) hashtable lookup is provided.
+The method surface — every method with its signature, effect and
+failure behavior, the kind-aware matching of elements and keys, the
+insertion order of `Dict` keys, and the `Object` instantiation that
+mixes value types — is defined in [chapter 12
+Collections](../library/12-collections.md).
 
 ## 4.12.7 Subscript sugar
 
@@ -249,7 +182,7 @@ int x = d["a"];         // == d.get("a")  -> 3
 ```
 
 Out-of-range reads and writes and missing dict keys raise exactly
-as the method forms do (§4.12.6). Because the compiler peels the
+as the method forms do (§12). Because the compiler peels the
 element type off the container type, subscripts compose with the
 rest of the language:
 

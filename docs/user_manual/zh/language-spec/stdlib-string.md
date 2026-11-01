@@ -1,6 +1,6 @@
 # string方法——18个内建
 
-规范性规则见规范§13.2–§13.3。
+规范性规则见规范§11.2–§11.3。
 
 string接收者上的方法（`s.substring(1)`；字面量接收者亦可：`"abc".toUpper()`）。全部string方法由预置类`String`（`stdlib/builtins.n`）声明。这个类只为持有声明而存在：不能实例化、不能继承、也不能用作类型——值类型用`string`关键字书写。string方法清单如下。**字节语义**（Go/Lua模型）：length、substring与indexOf以字节偏移计；Unicode转换格式（UTF-8，Unicode Transformation Format）字节顺序等于码点序（因此关系比较有明确结果）；大小写转换仅作用于美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）。按码点访问（`charAt`/`charCount`/`foreach char`）构建在字节访问之上——见[字符串](../specification/04-types/string.md)「char桥接」。
 

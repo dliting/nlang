@@ -55,7 +55,7 @@ bytes — an editor opening it with a non-UTF-8 encoding still shows
 mojibake. The console switch outlives the tool: a program emitting a
 legacy encoding in the same window afterwards may show as mojibake.
 
-See also: [Language Specification / Standard Library](../language-spec/standard-library.md).
+See also: [Specification / Library Conventions](../specification/library/11-conventions.md).
 
 ### Compile says `not valid UTF-8`?
 

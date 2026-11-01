@@ -35,7 +35,7 @@ directly; function values format as `func <name>`; `null` is rejected
 with one exception: an enum member constant prints directly —
 `io.print(Color.Red)` prints the member name. Struct arguments are
 rejected outright (structs have no `toString`). Full rules in the
-[standard library overview](standard-library.md).
+[library conventions](../specification/library/11-conventions.md).
 
 **Input prompt on an interactive console**: when the program is about to
 block on an input read and both stdin and stdout are consoles, the runtime

@@ -246,7 +246,7 @@ The concurrency names split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
-chapters 14–18 describe the units they hold. The declarations in
+chapters 13–18 describe the units they hold. The declarations in
 the `.n` sources are the source of truth for every package,
 prelude included; the implementation binds the declared native
 members to its built-in implementations.

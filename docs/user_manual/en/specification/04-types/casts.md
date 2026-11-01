@@ -77,7 +77,7 @@ expected, NLang automatically coerces it to its string form. Most common
 in concatenation, but it also fires on direct assignment, field storage
 and arguments of functions declared in your own code. **Package (library)
 calls are the exception** — a library `string` parameter takes `string`
-only (see [Standard Library](../../language-spec/standard-library.md)).
+only (see [Library Conventions](../library/11-conventions.md)).
 
 ```nlang
 string s1 = "x" + 5;       // "x5" — int coerced to "5"

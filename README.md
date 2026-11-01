@@ -246,8 +246,8 @@ int main() {
 ```
 
 Full details — parameter type policy, exception mapping, byte semantics,
-deterministic PRNG — are in the Standard Library chapter
-(`docs/user_manual/en/language-spec/standard-library.md`); runnable copies of the example
+deterministic PRNG — are in the Library Conventions chapter
+(`docs/user_manual/en/specification/library/11-conventions.md`); runnable copies of the example
 live in `examples/stdlib_*.n`.
 
 New to NLang? The `docs/user_manual/en/getting-started/` chapters walk the language, the

@@ -50,8 +50,9 @@
 
 ### 第二部分 — 标准库
 
-- [13. 内建类与库约定](13-builtin-classes.md)
-- [14. math包](14-math.md)
+- [11. 库约定](library/11-conventions.md)
+- [12. 集合](library/12-collections.md)
+- [13. math包](library/13-math.md)
 - [15. io包与流](15-io-streams.md)
 - [16. fs包](16-fs.md)
 - [17. 并发库](17-concurrency-library.md)

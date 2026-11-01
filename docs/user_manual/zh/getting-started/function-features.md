@@ -122,5 +122,5 @@ int answer() { return 42; }
 
 完整的可见性矩阵（谁需要import、允许什么调用形式）与全部六类报错文案，见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」一节。
 
-详见[规范/声明](../specification/03-program-structure/declarations.md)、[标准库](../language-spec/standard-library.md)。
+详见[规范/声明](../specification/03-program-structure/declarations.md)、[库约定](../specification/library/11-conventions.md)。
 

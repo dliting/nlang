@@ -82,7 +82,7 @@ foreach (Type var in iterable) { body }
 |----------------|-------------------------|----------|
 | `T[N]`（数组）  | 元素`arr[0]..arr[N-1]`   | `arr[i]` |
 | `List<T>`      | 按插入顺序的元素          | `List<T>.get(i)` |
-| `Dict<K,V>`    | **键**（Python风格）      | `dict.keys()`键快照后逐个取键 |
+| `Dict<K,V>`    | **键**按插入顺序（Python风格） | `dict.keys()`键快照后逐个取键 |
 | `string`       | **码点**（`char`）        | Unicode转换格式（UTF-8，Unicode Transformation Format）解码推进 |
 
 **源约束**：源表达式必须是数组、`List`、`Dict`或`string`——任何形态均可：lvalue、容器或数组值的调用结果（`List<int[]>`上的`li.get(0)`）、成员访问、`int[n]`、字典下标、裸数组字面量（`[1, 2, 3]`、`[]`——元素类型从循环变量推断）。源只求值一次，所以有副作用的源只运行一次。其他任何源（`int`局部、非容器调用结果）是编译错误："the foreach source must be an array, List, Dict, or string"。

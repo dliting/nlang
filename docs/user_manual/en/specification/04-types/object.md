@@ -68,7 +68,7 @@ remain checked (§4.8.2).
 `string` carries the protocol with value semantics:
 `string.equals(string)` compares content and `string.getHashCode()`
 hashes content, which makes strings usable as `Dict` keys without a
-wrapper class (§4.3, §4.12.6).
+wrapper class (§4.3, §12.2).
 
 `==` on class references is unaffected by an `equals` override: it
 compares identity (§4.8.10), and value equality requires an

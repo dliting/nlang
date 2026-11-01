@@ -23,7 +23,7 @@ nide侧由输出位置优先级决定（详见[三种运行方式](running.md#�
 
 程序输出是Unicode转换格式（UTF-8，Unicode Transformation Format）字节。工具链把进程活动代码页设为UTF-8（工具内嵌清单声明，Windows 10 1903及以上生效），并在启动时把所在控制台切换到UTF-8代码页，默认控制台即可正常显示中文输出，无需手动`chcp 65001`。`fs`与`io`的路径、文件名支持美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的字符，同样按UTF-8往返。重定向到文件的输出字节不受影响——用非UTF-8编码打开它的编辑器仍会显示乱码。该代码页切换在工具退出后仍对同一控制台窗口生效，之后其中按旧编码输出的程序可能显示为乱码。
 
-详见[语言规格/标准库](../language-spec/standard-library.md)。
+详见[规范/库约定](../specification/library/11-conventions.md)。
 
 ### 编译报`not valid UTF-8`？
 
