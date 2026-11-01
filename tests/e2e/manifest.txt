@@ -61,10 +61,14 @@ implicit_float_to_int_reject compile_error Incompatible type
 const_class_array_field_reject compile_error cannot hold an array field
 const_class_mutable_class_field_reject compile_error must be a const class type
 const_class_container_elem_reject compile_error immutable container elements
+const_class_interface_field_reject compile_error cannot be an interface type
+const_class_interface_elem_reject compile_error is an interface
 const_struct_array_field_reject compile_error cannot hold an array field
 const_class_surface_ok 7
 # --- v0.12.4 const-aggregate store gate (D3/D4) ---
 const_base_mutable_subclass_reject compile_error must be const
+const_mutable_base_subclass_reject compile_error may extend const classes only
+const_explicit_object_base_ok 7
 const_field_write_reject compile_error is immutable
 const_field_compound_reject compile_error is immutable
 const_via_field_write_reject compile_error is immutable

@@ -1,0 +1,11 @@
+//v0.12.4 D1 (review fix): spelling the hierarchy root out stays legal
+//on a const class — Object is the exempt root (it has no fields to
+//seal), and the explicit and implicit base spellings agree.
+const class Note : Object {
+    public int n;
+    public Note(int v) { n = v; }
+}
+int main() {
+    Note t = Note(7);
+    return t.n;
+}

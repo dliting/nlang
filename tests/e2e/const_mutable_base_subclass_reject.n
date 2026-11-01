@@ -1,0 +1,12 @@
+//v0.12.4 D1 (review fix): const-only inheritance is symmetric — a
+//const subclass of a mutable base would leave the inherited fields
+//unsealed (the base's own constructors and methods may still write
+//them), so the declaration is rejected like its mirror (a mutable
+//subclass of a const base).
+class Base {
+    public int b;
+}
+const class Sealed : Base {
+    public Sealed() { }
+}
+int main() { return 0; }

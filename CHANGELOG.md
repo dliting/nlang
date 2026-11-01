@@ -15,9 +15,12 @@ All notable changes to NLang are documented here. The format follows
   constructors and field initializers; writes anywhere else — method
   bodies, other classes, across modules — are compile errors naming the
   field and its owner. A const class can only be extended by another
-  const class. The field type surface is constrained (no arrays, no
-  non-const class fields, container element types immutable-faced too)
-  so a mutable handle cannot pierce the seal, and reading a `List`/
+  const class — both directions: a mutable subclass of a const base and
+  a const subclass of a mutable base are compile errors (the root
+  `Object` is exempt). The field type surface is constrained (no arrays,
+  no non-const class or interface fields, container element types
+  immutable-faced too) so a mutable handle cannot pierce the seal, and
+  reading a `List`/
   `Dict` field of a const aggregate returns a shallow copy.
 - `Exception` gained a cause chain: the constructor is now
   `Exception(string message, Exception cause = null)` — the same shape

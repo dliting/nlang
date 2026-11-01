@@ -167,7 +167,8 @@ const struct Vec {
 - **Inheritance restriction**: a const class can only be extended by another
   const class — in `class D : B`, a const `B` with a non-const `D` is a
   compile error, and a const subclass of a plain base is rejected the same
-  way; structs have no inheritance and are each sealed on their own. The
+  way (the root `Object` is exempt: it declares no fields); structs have no
+  inheritance and are each sealed on their own. The
   const marker is carried in the `.ncu` record, so writes to an imported
   const aggregate are rejected on the consumer side too.
 - **Container field reads return copies**: a member read of a `List`/`Dict`
@@ -178,12 +179,14 @@ const struct Vec {
   meaningless. String fields (like `Exception.message`) are immutable by
   themselves and are simply read-only.
 - **The field type surface is constrained** (sealing completeness, checked
-  at declaration): a field cannot be an array or a non-const class type — a
-  mutable handle would pierce the seal; the element types of `List`/`Dict`
-  fields must be immutable-faced as well. The legal surface is primitives,
-  string, enums, const classes/const structs, element-compliant containers,
-  and func types. The built-in `Exception` family is entirely const, which
-  is what makes the self-referential `Exception cause` field legal.
+  at declaration): a field cannot be an array, a non-const class type, or an
+  interface type — a mutable handle would pierce the seal, and an interface
+  reference may be backed by a mutable implementor; the element types of
+  `List`/`Dict` fields must be immutable-faced as well. The legal surface is
+  primitives, string, enums, const classes/const structs, element-compliant
+  containers, and func types. The built-in `Exception` family is entirely
+  const, which is what makes the self-referential `Exception cause` field
+  legal.
 
 ```nlang
 class Util {

@@ -1,0 +1,10 @@
+//v0.12.4 D6 (review fix): an interface-typed field is outside the
+//const field surface — the interface reference can be backed by any
+//mutable implementor, the same leak a mutable class field has.
+interface IVal {
+    int get();
+}
+const class Holder {
+    public IVal t;
+}
+int main() { return 0; }

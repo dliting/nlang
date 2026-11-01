@@ -4,6 +4,7 @@
 ---*/
 #include "StatementResolver.h"
 #include "FieldInitializerChecks.hpp"
+#include "ConstAggregateSurface.hpp"
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 
@@ -13,91 +14,32 @@ namespace nlang
 namespace
 {
 
-//v0.12.4 D6: the field-type surface of a const aggregate. Arrays have
-//no shallow-copy channel and their element slots stay writable through
-//subscript, so array fields are rejected outright (a List field with
-//copy-on-read is the sealed shape). Mutable class/struct field types
-//break the seal through the shared handle (`c.f.x = 1`), and mutable
-//container ELEMENT types break it through the elements
-//(`c.xs.get(0).x = 1`) — the same rule, applied to the type arguments.
-//Legal face: primitives, string, enums, interfaces, func types,
-//type-parameter placeholders, const aggregates, compliant containers.
-void CheckConstAggregateFieldSurface(BuildEnvironment &env,
-	SnField &owner, const char *szKindWord, SnField &field)
+//v0.12.4 D1 (user ruling 2026-10-31), both directions: const classes
+//are extended by const classes only. A sealed base with a mutable
+//subclass would need per-subclass seal bookkeeping; a const subclass
+//of a mutable base is sealed in name only — the base's own
+//constructors and methods keep writing the inherited fields. Object
+//is the exempt hierarchy root: it declares no fields, and every const
+//class reaches it. Fires on the first binding only (PreResolveClassBases
+//re-runs with SuperClass still unbound; the != guard holds either way).
+void CheckConstInheritance(BuildEnvironment &env, SnClassDecl &sn,
+	SnClassDecl &super)
 {
-	if (field.IsArrayType())
-	{
-		env.Log(CLL_Error, field.Location(),
-			"The const %s \"%s\" cannot hold an array field \"%s\": "
-			"use a List<T> field instead.",
-			szKindWord, owner.Name().c_str(), field.Name().c_str());
-		return;
-	}
-	SnField *pType = field.EvalDataType();
-	if (pType == nullptr)
-		return;	//the type expression already failed to resolve
-	if (pType->Kind() == NK_StructDecl)
-	{
-		if (!static_cast<SnStructDecl *>(pType)->IsConstAggregate())
-			env.Log(CLL_Error, field.Location(),
-				"The field \"%s\" of const %s \"%s\" must be a const "
-				"struct type (\"%s\" is mutable).",
-				field.Name().c_str(), szKindWord, owner.Name().c_str(),
-				pType->Name().c_str());
-		return;
-	}
-	if (pType->Kind() != NK_ClassDecl)
-		return;	//primitives, string, enums, interfaces: nothing to seal
-	auto *pClass = static_cast<SnClassDecl *>(pType);
-	//T binds at instantiation (instantiation-time args are the mint's
-	//surface, not the template's); func values are read-only handles.
-	if (pClass->IsTypeParamPlaceholder() || pClass->IsFuncType())
-		return;
-	if (pClass->IsGenericInstantiation()
-		&& (pClass->BaseName() == kBuiltinListTypeName
-			|| pClass->BaseName() == kBuiltinDictTypeName))
-	{
-		for (SnField *pArg : pClass->GenericTypeArgs())
-		{
-			if (pArg->IsArrayType())
-			{
-				env.Log(CLL_Error, field.Location(),
-					"The field \"%s\" of const %s \"%s\" must hold "
-					"immutable container elements (\"%s\" is a mutable "
-					"array).",
-					field.Name().c_str(), szKindWord,
-					owner.Name().c_str(), pArg->ToString().c_str());
-				return;
-			}
-			if (pArg->Kind() == NK_ClassDecl
-				&& !static_cast<SnClassDecl *>(pArg)->IsConstAggregate())
-			{
-				env.Log(CLL_Error, field.Location(),
-					"The field \"%s\" of const %s \"%s\" must hold "
-					"immutable container elements (\"%s\" is mutable).",
-					field.Name().c_str(), szKindWord,
-					owner.Name().c_str(), pArg->Name().c_str());
-				return;
-			}
-			if (pArg->Kind() == NK_StructDecl
-				&& !static_cast<SnStructDecl *>(pArg)->IsConstAggregate())
-			{
-				env.Log(CLL_Error, field.Location(),
-					"The field \"%s\" of const %s \"%s\" must hold "
-					"immutable container elements (\"%s\" is mutable).",
-					field.Name().c_str(), szKindWord,
-					owner.Name().c_str(), pArg->Name().c_str());
-				return;
-			}
-		}
-		return;
-	}
-	if (!pClass->IsConstAggregate())
-		env.Log(CLL_Error, field.Location(),
-			"The field \"%s\" of const %s \"%s\" must be a const class "
-			"type (\"%s\" is mutable).",
-			field.Name().c_str(), szKindWord, owner.Name().c_str(),
-			pClass->Name().c_str());
+	if (super.IsConstAggregate()
+		&& !sn.IsDeclaredConstAggregate()
+		&& sn.SuperClass() != &super)
+		env.Log(CLL_Error, sn.SuperName()->Location(),
+			"The class \"%s\" extends the const class \"%s\": "
+			"subclasses of a const class must be const too.",
+			sn.Name().c_str(), super.Name().c_str());
+	else if (sn.IsDeclaredConstAggregate()
+		&& !super.IsConstAggregate()
+		&& sn.SuperClass() != &super
+		&& &super != FindPreludeClassDecl(env.Registry(), "Object"))
+		env.Log(CLL_Error, sn.SuperName()->Location(),
+			"The class \"%s\" extends the mutable class \"%s\": "
+			"a const class may extend const classes only.",
+			sn.Name().c_str(), super.Name().c_str());
 }
 
 } //namespace
@@ -193,13 +135,7 @@ void StatementResolveAccessor::ResolveClassBases(SnClassDecl &sn)
 				//seal bookkeeping later. PreResolveClassBases re-runs this
 				//binding in order, so the diagnostic fires on the first
 				//binding only (SuperClass is still unbound then).
-				if (pSuperDecl->IsConstAggregate()
-					&& !sn.IsDeclaredConstAggregate()
-					&& sn.SuperClass() != pSuperDecl)
-					m_Env.Log(CLL_Error, sn.SuperName()->Location(),
-						"The class \"%s\" extends the const class \"%s\": "
-						"subclasses of a const class must be const too.",
-						sn.Name().c_str(), pSuperDecl->Name().c_str());
+				CheckConstInheritance(m_Env, sn, *pSuperDecl);
 				sn.SuperClass(pSuperDecl);
 			}
 			else

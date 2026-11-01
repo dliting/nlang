@@ -102,9 +102,9 @@ const struct Vec {
 
 - **可写窗口＝声明该字段的类型自己的构造函数体＋字段初始化器**（默认值在构造期注入照常应用）。任何其他位置写入——方法体、别的类、跨模块——都是编译错误，诊断点名字段与属主（`"text" is immutable: it belongs to the const class "Note"`形态）。子类构造函数**不能**改写继承来的字段，补充数据经`super(...)`转发（见下文「super()——构造函数链」）。
 - **标记不冻结变量绑定**：`Note n = a; n = b;`合法——类型级const与局部`const`（绑定级，见[Const局部](const-local.md)）是两回事。`static`成员不受影响。
-- **继承限定**：const类只能被const类继承——`class D : B`中基类为const而子类未标const是编译错误，const子类继承普通基类同样拒绝；struct无继承，各自密封。const性随`.ncu`序列化携带，导入方对导入const聚合的写入同样被拒绝。
+- **继承限定**：const类只能被const类继承——`class D : B`中基类为const而子类未标const是编译错误，const子类继承普通基类同样拒绝（根类`Object`豁免：它没有字段）；struct无继承，各自密封。const性随`.ncu`序列化携带，导入方对导入const聚合的写入同样被拒绝。
 - **容器字段读取返回副本**：const聚合上`List`/`Dict`字段的成员读取被重写为一次浅拷贝（内建`copy()`，见[内建泛型类](builtin-generic-classes.md)）——外界拿到的是快照，改动副本不影响聚合自身；两次读取得到不同副本，副本之间的`==`比较没有意义。string字段（如`Exception.message`）本身不可变，直接只读。
-- **字段类型面受约束**（密封的完整性，声明期诊断）：字段不能是数组或非const的class类型——可变句柄会穿透密封；`List`/`Dict`字段的元素类型同样必须是不可变面。合法面＝基元、string、枚举、const class/const struct、元素合规的容器、func类型。内建`Exception`家族全部是const类，其`cause`字段的自引用`Exception`因此合法。
+- **字段类型面受约束**（密封的完整性，声明期诊断）：字段不能是数组、非const的class类型或接口类型——可变句柄会穿透密封，接口引用也可能由可变实现类支撑；`List`/`Dict`字段的元素类型同样必须是不可变面。合法面＝基元、string、枚举、const class/const struct、元素合规的容器、func类型。内建`Exception`家族全部是const类，其`cause`字段的自引用`Exception`因此合法。
 
 ### 静态方法
 
