@@ -40,12 +40,14 @@ This page collects the language-level limitations visible to user programs, with
   directly and are evaluated once), and `Dict` keyed on array types
   uses handle identity.
 
-- **Jagged arrays (`T[][]`)**: multi-dimensional array declarations are
-  rejected at compile time ("jagged arrays (T[][]) are not supported") —
-  at locals, fields, parameters, return types, `for`/`foreach` loop
-  variables, and as generic type arguments. The VM has no
-  multi-dimensional array layout; declare flat arrays or use
-  `List<List<T>>`-style containers instead.
+- **Jagged arrays (`T[][]`)**: jagged array declarations are rejected
+  at compile time ("jagged arrays (T[][]) are not supported") — at
+  locals, fields, parameters, return types, `for`/`foreach` loop
+  variables, and as generic type arguments. Rectangular
+  multi-dimensional arrays (`T[,]`, §4.10.7) are unaffected; the VM's
+  array layout is rectangular (uniform dimension lengths), so it
+  cannot express arrays of arrays whose rows differ in length — use
+  `List<List<T>>`-style containers for jagged shapes.
 
 - **Bare `{...}` as a method-call receiver**: a bare brace literal needs
   a typed target; as a receiver (`{}.length()`) there is none, so it
