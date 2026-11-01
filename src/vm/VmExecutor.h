@@ -1922,6 +1922,11 @@ private:
     //raiseException callback roots the fresh object before throwing it
     //across the blocking-native GIL gap.
     int32_t BuildNlangException(int16_t classIdx, const std::string& msg);
+    //v0.12.4 backtrace half of BuildNlangException: mint the List<string>
+    //cell[3] value with one boxed entry per active call frame,
+    //innermost-first. Returns the list's heap idx (-1 when the List
+    //class is not registered).
+    int32_t MintBacktraceList();
 
     //v0.8.5: the message an NLangThrow carries for a thrown exception
     //object. cell[1] holds the message string handle (the ctor intrinsic

@@ -468,35 +468,11 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
     //so the field is explicitly null — never rely on allocation zeroing.
     m_structHeap[static_cast<size_t>(heapIdx)][5] = 0;
 
-    //cell[3] = backtrace (field 1 under the uniform 2-cell stride).
-    //Allocate a List<string> and push one entry per active call frame,
-    //innermost-first.
-    int32_t listHeapIdx = -1;
-    if (m_listClassIdx >= 0) {
-        listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
-        //Initialize List.__handle by allocating a fresh side-table slot.
-        m_listStore.emplace_back();  //new empty ListSlot
-        int32_t handle = static_cast<int32_t>(m_listStore.size());
-        //__handle is the first field of List (slot[1]).
-        m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
-        //Populate the backtrace: walk the evaluation stack innermost-first.
-        std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-        for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
-            //v0.8.5: real per-frame source file (same helper/format as
-            //FormatBacktrace — the two surfaces must not drift). The
-            //mint/box/store tail is the existing code, unchanged.
-            const std::string frame = FormatBacktraceFrame(
-                it->func ? it->func->name : std::string("<unknown>"),
-                it->func ? it->func->sourceFile : std::string(),
-                it->currentLine, moduleName);
-            //Box the string so the List element is a real RTK_Boxed
-            //record — the old raw pool index made e.backtrace.get(i)
-            //raise "unbox on null/invalid reference".
-            int32_t frameHandle = MintNewString(frame);
-            int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
-            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
-        }
-    }
+    //cell[3] = backtrace (field 1 under the uniform 2-cell stride):
+    //one boxed frame string per active call entry, innermost-first
+    //(MintBacktraceList lives with the exception-formatting family in
+    //VmExecutorOpsControl.cpp).
+    int32_t listHeapIdx = MintBacktraceList();
     //Now write listHeapIdx to cell[3] of the Exception. Safe because no
     //further allocations happen before the throw.
     if (listHeapIdx > 0)

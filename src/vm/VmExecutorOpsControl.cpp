@@ -197,6 +197,42 @@ void VmExecutor::RequestPark(ParkSignal::Reason reason) {
     throw ParkSignal(reason);
 }
 
+//v0.12.4: see the header. Building half of BuildNlangException's
+//backtrace step (VmExecutor.cpp), placed here with the exception-
+//formatting family. Caller contract: the Container domain lock is held
+//by BuildNlangException's DomainGuard for the whole build.
+int32_t VmExecutor::MintBacktraceList() {
+    //Allocate a List<string> and push one entry per active call frame,
+    //innermost-first.
+    int32_t listHeapIdx = -1;
+    if (m_listClassIdx >= 0) {
+        listHeapIdx = AllocClassOnHeap(static_cast<uint16_t>(m_listClassIdx));
+        //Initialize List.__handle by allocating a fresh side-table slot.
+        m_listStore.emplace_back();  //new empty ListSlot
+        int32_t handle = static_cast<int32_t>(m_listStore.size());
+        //__handle is the first field of List (slot[1]).
+        m_structHeap[static_cast<size_t>(listHeapIdx)][1] = handle;
+        //Populate the backtrace: walk the evaluation stack innermost-first.
+        std::string moduleName = m_currModule ? m_currModule->name : "<module>";
+        for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
+            //v0.8.5: real per-frame source file (same helper/format as
+            //FormatBacktrace — the two surfaces must not drift). The
+            //mint/box/store tail is the existing code, unchanged.
+            const std::string frame = FormatBacktraceFrame(
+                it->func ? it->func->name : std::string("<unknown>"),
+                it->func ? it->func->sourceFile : std::string(),
+                it->currentLine, moduleName);
+            //Box the string so the List element is a real RTK_Boxed
+            //record — the old raw pool index made e.backtrace.get(i)
+            //raise "unbox on null/invalid reference".
+            int32_t frameHandle = MintNewString(frame);
+            int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
+            m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
+        }
+    }
+    return listHeapIdx;
+}
+
 //v0.8.5: see the header. Reads the exception object's own message so
 //the top-level report names the actual failure (the old fixed texts
 //"user throw"/"rethrow" hid it).
