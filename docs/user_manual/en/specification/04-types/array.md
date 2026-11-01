@@ -66,8 +66,9 @@ total number of elements as an `int`; `rank()` returns the rank;
 with no arguments, consistent with `string.length()` (§4.3).
 
 *Informative:* the array members (`length`, `rank`, `shape`,
-`toString`) are declared by the prelude class `Array` in the
-standard library; like `String`, that class only holds the
+`toString`) are declared by the prelude class `Array` in the `lang`
+package of the standard library; like `String`, that class only
+holds the
 declarations — it cannot be instantiated, extended or used as a
 type, and array types are written with the bracket syntax.
 

@@ -5,15 +5,19 @@
 The standard library is six packages — `math`, `io`, `fs`, `thread`,
 `concurrent` and `tensor`, each a set of package-qualified free
 functions — plus the `string` methods, dispatched on the receiver.
-The prelude package `builtins` sits beside them: every build imports
-it automatically, so its declarations need no import statement, and
-an explicit `import builtins;` is legal and deduplicates (§3.9.4).
-The always-visible names it declares — `Object`, the `Exception`
+The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
+declares the `Exception` family, the hierarchy root `Object` and the
+declaration-holder classes `String` and `Array`; `containers`
+(`stdlib/containers.n`) declares the base containers `List<T>` and
+`Dict<K,V>`. Every build imports both automatically, so their
+declarations need no import statement, and an explicit `import lang;`
+or `import containers;` is legal and deduplicates (§3.9.4). The
+always-visible names they declare — `Object`, the `Exception`
 family, `String`, `Array`, `List<T>` and `Dict<K,V>` — are the whole
 set (§3.9.4).
 
 Every method of the built-in value and container classes is built
-in: its declaration lives in the prelude package, imported by every
+in: its declaration lives in a prelude package, imported by every
 build, and a program cannot replace it — a user class with the same
 name is an ordinary class and never takes over the built-in
 receivers. Two of the prelude classes, `String` and `Array`, are

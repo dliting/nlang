@@ -18,8 +18,9 @@ enumeration value enters `Object` only through boxing (§4.11.3).
 *Informative:* `Object` is the only class without a parent, and the
 built-in classes — `List`, `Dict`, the stream classes and
 `Exception` with its built-in subclasses — share this one hierarchy
-with user classes. Its declaration lives in the prelude package of
-the standard library, which every build imports automatically.
+with user classes. Its declaration lives in the `lang` prelude
+package of the standard library, which every build imports
+automatically.
 
 ## 4.11.2 Protocol methods
 
