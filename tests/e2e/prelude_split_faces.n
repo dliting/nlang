@@ -1,0 +1,22 @@
+//v0.12.5 prelude split: names from both prelude packages stay
+//import-free and bare-visible after builtins.n retires. One name from
+//every moved declaration group: Object (the Mark base), the Exception
+//family, the String face, the Array face, List, and Dict.
+class Mark : Object {
+    public int hit;
+    public Mark() { }
+    public string toString() { return "mark"; }
+}
+int main() {
+    List<int> xs = {};
+    xs.add(3);
+    Dict<string, int> d = {};
+    d.set("k", 4);
+    Exception e = Exception("m");
+    Mark mk = Mark();
+    string s = "ab";
+    int[] a = int[1];
+    //3 + 4 - 1 + 0 + 2 - 1 + 1 - 1 = 7
+    return xs.get(0) + d.get("k") - e.message.length() + mk.hit
+           + s.length() - 1 + a.length() - a.length();
+}

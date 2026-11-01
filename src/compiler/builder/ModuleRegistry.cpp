@@ -43,9 +43,13 @@ bool ContainsValue(const std::vector<std::string>& list,
 	return std::find(list.begin(), list.end(), value) != list.end();
 }
 
+} //namespace
+
 //Module path = the source path made relative to the project root and
 //dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
-//root at all) the path degenerates to the file stem.
+//root at all) the path degenerates to the file stem. Declared in
+//ModuleRegistry.h (the prelude resolution shares it for the
+//project-source dedup).
 std::string DeriveModulePath(const std::filesystem::path &filePath,
 	const std::string &projectDir)
 {
@@ -64,8 +68,6 @@ std::string DeriveModulePath(const std::filesystem::path &filePath,
 		modulePath = filePath.stem().string();
 	return modulePath;
 }
-
-} //namespace
 
 std::string ModuleNotFoundText(const std::string& moduleName)
 {

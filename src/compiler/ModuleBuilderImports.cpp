@@ -191,6 +191,19 @@ bool ModuleBuilder::ImportLibraryMatch(
 bool ModuleBuilder::EnsurePreludePackageImported(
 	const PreludePackage &pkg)
 {
+	//A project source deriving to the reserved name IS the prelude copy
+	//for this build (project-source dedup): that unit registers under
+	//the same package path, so inlining any other copy would collide
+	//with it. Innermost-wins is the language's shadowing rule; the
+	//implicit import respects it instead of guarding the name. Success,
+	//not failure — EnsurePreludeImported must still reach the remaining
+	//packages.
+	const std::string &projectDir = m_upEnv->Params().m_sProjectDir;
+	for (const auto &sourceFile : m_projectSourceFiles)
+	{
+		if (DeriveModulePath(sourceFile, projectDir) == pkg.name)
+			return true;
+	}
 	const auto matches = FindLibrarySourceMatches(pkg.name);
 	if (matches.size() > 1)
 	{

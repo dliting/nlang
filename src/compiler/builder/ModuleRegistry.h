@@ -11,6 +11,7 @@ gate (module import visibility plan, spec §6).
 #include <unordered_map>
 #include <functional>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include "SyntaxNode.h"
 #include "GenericInstanceRegistry.h"
@@ -34,6 +35,13 @@ using LibraryNamespacePredicate =
 //Spec §7 module-not-found wording — single source shared by the gate
 //resolver (BuildGate) and the .ncu loader (ModuleBuilder::LoadImports).
 std::string ModuleNotFoundText(const std::string& moduleName);
+
+//Module path = the source path made relative to the project root and
+//dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
+//root at all) the path degenerates to the file stem. Shared by unit
+//registration and the prelude resolution's project-source dedup.
+std::string DeriveModulePath(const std::filesystem::path& filePath,
+	const std::string& projectDir);
 
 /*
 Compile-time module registry (spec §6): maps every translation unit

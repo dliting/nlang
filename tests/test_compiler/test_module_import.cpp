@@ -2119,6 +2119,29 @@ private slots:
                                      std::string());
         QVERIFY2(!outcome.ok, "import builtins must fail after the split");
     }
+
+    //A project source named lang.n serves as the prelude copy for that
+    //build (project-source dedup): the implicit import must skip the
+    //stdlib copy AND still reach the other prelude package (containers
+    //inlines normally). The project copy must be the complete package
+    //— a partial one lacks the String face the build needs — so the
+    //embedded prelude source is written verbatim as the project file.
+    void projectSourceNamedLangServesAsPrelude()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_proj_lang";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { Exception e = Exception(\"x\");\n"
+               "    List<string> trace = e.backtrace;\n"
+               "    return e.message.length() + trace.length(); }\n";
+        std::ofstream(dir / "lang.n", std::ios::binary)
+            << kLangPreludeSource;
+        const auto outcome = compile("proj_lang_test",
+            {(dir / "main.n").string(), (dir / "lang.n").string()},
+            dir.string());
+        QVERIFY2(outcome.ok, "project lang.n must dedup, not collide");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestModuleImport)

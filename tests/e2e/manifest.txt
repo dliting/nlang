@@ -75,6 +75,8 @@ const_via_field_write_reject compile_error is immutable
 const_subclass_ctor_base_write_reject compile_error is immutable
 const_implicit_this_write_reject compile_error is immutable
 const_ctor_write_ok 7
+# --- v0.12.5 prelude split: both packages' names stay bare-visible ---
+prelude_split_faces 7
 # --- v0.12.4 container shallow copy (D9) ---
 list_copy_independent 34
 dict_copy_independent 23
