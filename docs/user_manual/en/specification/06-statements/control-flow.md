@@ -96,5 +96,5 @@ try {
 }
 ```
 
-See [Exceptions](../../language-spec/exception.md) for the `AssertionException` class and the
+See [Exceptions](../08-exceptions/index.md) for the `AssertionException` class and the
 `try/catch` mechanism.

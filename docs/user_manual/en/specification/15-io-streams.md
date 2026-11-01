@@ -62,7 +62,7 @@ The input functions read the program's standard input through
 one shared cursor: line reads, token reads and code point reads
 interleave over the same position, and the cursor advances by
 exactly what a call consumes. Each input function is a blocking
-native function: it declares a blocking section (§11.1), so the
+native function: it declares a blocking section (§10.1), so the
 calling context parks and the carrier lock is released while
 the call waits.
 
@@ -73,7 +73,7 @@ the call waits.
   a trailing carriage return is stripped. At end of input it
   returns `""`: an empty line and the end of input are not
   distinguishable by the result, and `hasInput()` separates
-  them. With no input channel it raises `IOException` (§9.3).
+  them. With no input channel it raises `IOException` (§8.3).
 - `io.readToken()` returns the next whitespace-delimited token.
   At end of input it raises `IOException`; with no input
   channel likewise.
@@ -82,7 +82,7 @@ the call waits.
   (UTF-8) bytes; leading whitespace is skipped, as for
   `readToken`. At end of input it raises `IOException`; with no
   input channel likewise. A byte sequence that is not valid
-  UTF-8 raises `Exception` (§9.3), not `IOException`.
+  UTF-8 raises `Exception` (§8.3), not `IOException`.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
   convert it with the matching string method (§13.3): end of
@@ -98,7 +98,7 @@ the call waits.
 
 - `io.readFile(path)` returns the whole content of the file at
   `path` as a `string` of bytes (§4.3). It raises `IOException`
-  (§9.3) when the file cannot be opened, its size cannot be
+  (§8.3) when the file cannot be opened, its size cannot be
   determined, the size exceeds 16 MiB, or the read fails
   partway.
 - `io.writeFile(path, content)` creates the file or truncates
@@ -121,8 +121,8 @@ buffer. `FileStream(path, mode)` opens the file: mode `"w"`
 creates or truncates, `"a"` creates or appends, and `"r"`
 opens for reading only. An unassigned stream handle is null; a
 method call through a null handle raises
-`NullPointerException` (§9.3). Every other stream failure is a
-*host-level* run-time error (§9.1): no `catch` clause handles
+`NullPointerException` (§8.3). Every other stream failure is a
+*host-level* run-time error (§8.1): no `catch` clause handles
 it and the program ends. The failure sites are an invalid mode,
 a failed open (including `"r"` on a missing file), access
 through a closed or invalid handle, a write to a read-only
@@ -196,7 +196,7 @@ bytes are whatever the string holds (§4.3); the encoding
 imposes no text form on them. `readString` treats a negative
 length, a length above 16 MiB, and a length that runs past the
 end of the stream alike: each is a host-level run-time error
-(§9.1).
+(§8.1).
 
 **Structs.** `writeStruct(v)` appends no header and no type
 name: the fields of `v`'s type in declaration order, each
@@ -232,7 +232,7 @@ before its fields are read, so a cycle resolves to the same
 instance. A tag other than `0`, `1` or `2`, an object id not
 yet read, a name the program does not declare, and a class
 that is neither the named type nor a subclass of it are
-host-level run-time errors (§9.1).
+host-level run-time errors (§8.1).
 
 **Identity state.** The id numbering belongs to the stream,
 not to the call: successive `writeObject` calls on one stream
@@ -243,5 +243,5 @@ earlier call can be referenced by a later one. `reset()` and
 
 **Depth.** A value nested more than 64 levels deep — struct
 within struct, class within class, or either within the other
-— raises a host-level run-time error (§9.1), on the write side
+— raises a host-level run-time error (§8.1), on the write side
 and on the read side alike.

@@ -125,7 +125,7 @@ exceeds the limit of 16 nested instantiations.`
 A type argument may be a scalar primitive, `string`, an enumeration,
 a class type, an interface type, an array type, or another generic
 instantiation. A `void` type argument is a compile-time error
-(§4.13).
+(§7.4).
 
 A user-declared generic class additionally rejects struct and
 function type arguments: a struct is a multi-slot value and a
@@ -165,7 +165,7 @@ elements of type `T`.
 | `clear`      | `void clear()`       | —       | Remove all elements               |
 
 `get` with an index outside the current length raises an
-`IndexOutOfBoundsException` (chapter 9).
+`IndexOutOfBoundsException` (chapter 8).
 
 `Dict<K, V>` is an associative array mapping keys of type `K` to
 values of type `V`.
@@ -180,7 +180,7 @@ values of type `V`.
 | `count`        | `int count()`              | int     | Current entry count                        |
 
 `get` for a key the map does not hold raises an `Exception`
-(chapter 9); `set` inserts or replaces and never fails on a
+(chapter 8); `set` inserts or replaces and never fails on a
 duplicate key.
 
 `Dict` key equality is kind-aware:
@@ -203,7 +203,7 @@ Container methods take named arguments under the ordinary rule
 Calling any method through a `null` container reference raises a
 catchable `NullPointerException` with message
 `NLang VM: null reference error`, as through any other class
-reference (chapter 9, §4.8.10).
+reference (chapter 8, §4.8.10).
 
 With `T` written as `Object`, a container holds a mix of value
 types: primitives and `string` box implicitly at `add`/`set`, class
@@ -300,4 +300,4 @@ types as a call in the declaring unit.
 *Informative:* all instantiations of one template share a single
 compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
-(§4.13).
+(§7.4).

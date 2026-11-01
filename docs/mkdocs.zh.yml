@@ -64,10 +64,21 @@ nav:
           - 概览: specification/06-statements/index.md
           - 控制流: specification/06-statements/control-flow.md
           - 循环: specification/06-statements/loops.md
-      - 函数与方法: specification/07-functions.md
-      - 异常: specification/09-exceptions.md
-      - 执行模型与内存语义: specification/10-execution-model.md
-      - 并发: specification/11-concurrency.md
+      - 函数:
+          - 概览: specification/07-functions/index.md
+          - 参数与实参: specification/07-functions/parameters.md
+          - 重载解析: specification/07-functions/overloads.md
+          - 函数值与委托: specification/07-functions/function-values.md
+          - 原生函数: specification/07-functions/native.md
+      - 异常: specification/08-exceptions/index.md
+      - 执行模型:
+          - 概览: specification/09-execution-model/index.md
+          - 生命周期与垃圾回收: specification/09-execution-model/memory.md
+          - 程序的进入与退出: specification/09-execution-model/exit-codes.md
+      - 并发:
+          - 概览: specification/10-concurrency/index.md
+          - 载体与并行: specification/10-concurrency/carriers.md
+          - 挂起与调度限制: specification/10-concurrency/suspension.md
       - 内建类与库约定: specification/13-builtin-classes.md
       - math包: specification/14-math.md
       - io包与流: specification/15-io-streams.md
@@ -81,19 +92,7 @@ nav:
   - 语言规格:
       - 概览: language-spec/overview.md
       - 命名约定: language-spec/naming-convention.md
-      - 表达式与语句:
-          - 异常: language-spec/exception.md
-      - 函数:
-          - 函数: language-spec/functions.md
-          - 默认参数: language-spec/default-parameters.md
-          - 命名实参: language-spec/named-arguments.md
-          - 重载解析: language-spec/overload-resolution.md
-          - out参数: language-spec/out-parameters.md
-          - native函数: language-spec/native-functions.md
-          - 函数类型与委托: language-spec/function-types-and-delegates.md
       - 并发:
-          - 并发: language-spec/concurrency.md
-          - 载体与并行: language-spec/concurrency-carriers.md
           - thread包: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
           - Promise: language-spec/concurrency-promise.md
@@ -103,7 +102,6 @@ nav:
           - AtomicInt: language-spec/concurrency-atomic.md
           - Channel: language-spec/concurrency-channel.md
           - 标准库同步工具: language-spec/concurrency-concurrent.md
-          - 挂起与调度限制: language-spec/concurrency-suspension.md
       - 标准库:
           - 标准库: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
@@ -113,9 +111,6 @@ nav:
           - string方法: language-spec/stdlib-string.md
           - 流: language-spec/stdlib-streams.md
           - 异常映射: language-spec/stdlib-exceptions.md
-      - 运行时:
-          - 内存管理: language-spec/memory-management.md
-          - 退出码约定: language-spec/exit-code-convention.md
       - 参考:
           - 已知限制: language-spec/known-limitations.md
           - 常见错误消息: language-spec/common-errors.md

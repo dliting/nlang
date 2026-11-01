@@ -119,12 +119,12 @@ NLANG_DEFINE_NATIVE_INIT
 |---|---|
 | DLL名 | `nlang_<命名空间>.dll`，如`nlang_num.dll` |
 | 导出 | 两个入口，均由`NLANG_DEFINE_NATIVE_INIT`宏生成：版本探针`nlang_abi_version`与初始化入口`nlang_native_init` |
-| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放全局锁 |
+| 注册 | `reg(registry, "命名空间", "函数名", &实现)`按名称派发；`regBlocking(...)`（参数相同）登记可能阻塞的native——调用期间VM停泊该上下文并释放其持有的锁 |
 | ABI版本 | 初始化代码运行前先经`nlang_abi_version`探测；版本不符或缺探针即拒载 |
 | 头文件 | 随源码仓库提供（`include/nlang/vm/NativeHost.h`），无需链接VM库 |
 | 参数助手 | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString`等 |
 
-用任意C++编译器把实现编成`nlang_num.dll`（头文件路径指向仓库`include/`），与`num.n`放在同一目录。分发时库单元与DLL一起交付（见下节）。`native`声明的类型规则见[native函数](../language-spec/native-functions.md)。
+用任意C++编译器把实现编成`nlang_num.dll`（头文件路径指向仓库`include/`），与`num.n`放在同一目录。分发时库单元与DLL一起交付（见下节）。`native`声明的类型规则见[原生函数](../specification/07-functions/native.md)。
 
 ## 4. 分发
 

@@ -19,7 +19,7 @@ single-segment (§3.3). Its declarations are the standard
 library's `.n` source; the kernels are `native` functions
 (§7.5) implemented by the native library shipped with the
 toolchain. Every kernel is a blocking native function: it
-declares a blocking section (§11.1), so the calling context
+declares a blocking section (§10.1), so the calling context
 parks and the carrier lock is released while the kernel runs.
 Argument admission is the package rule of §15.1.
 
@@ -60,13 +60,13 @@ documented surface.
   the operator element by element and return an array of the
   operand element type. The operands must have equal lengths
   (rank 1) or equal shapes (rank 2). Integer `div` by zero
-  raises `DivByZeroException` (§9.3); `float` and `double`
+  raises `DivByZeroException` (§8.3); `float` and `double`
   division follows IEEE, yielding Inf or NaN (§4.2).
 - `sum(a)` returns the sum of all elements as the element type;
   the empty array yields the type's zero.
 - `max(a)` and `min(a)` return the largest and smallest element
   as the element type; the empty array raises `Exception`
-  (§9.3).
+  (§8.3).
 - `mean(a)` returns the arithmetic mean as a `double` for every
   element type; the empty array raises `Exception`.
 - `dot(a, b)` returns the inner product of two equal-length
@@ -89,7 +89,7 @@ language-wide rules (§4.2): `int` and `long` wrap around,
 ## 18.5 Error Behavior
 
 Every tensor failure is a catchable value of the `Exception`
-family (§9.3). A `null` array argument raises
+family (§8.3). A `null` array argument raises
 `NullPointerException`. A negative creation length, or an
 element count past the creation bound of §4.10, raises
 `IndexOutOfBoundsException` at the creation site; a negative

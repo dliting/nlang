@@ -60,7 +60,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 | version minor | u16 | `11` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
-| entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§10.3); empty for a library image (§3.9.1) |
+| entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
 
 **Sections.** The header is followed by eleven sections in a
 fixed order. Each section is a u32 entry count followed by that
@@ -99,7 +99,7 @@ constructor of the unit, in registration order. Each record:
 | Field | Width | Content |
 |---|---|---|
 | name | u32 length + bytes | the qualified key (§3.6) |
-| frame size | u16 | the frame size in bytes, eight bytes per slot: parameters (the receiver included), locals and scratch (§10.2) |
+| frame size | u16 | the frame size in bytes, eight bytes per slot: parameters (the receiver included), locals and scratch (§9.2) |
 | parameter count | u16 | the formal count, including the implicit receiver slot of a method or constructor (§4.8.7) |
 | return kind | u16 | the type-kind code of the return type (§20.5); `0xFE` for `void` |
 | intrinsic id | u16 | `0xFFFF` for an ordinary function; otherwise an engine-internal identifier of a built-in intrinsic |
@@ -126,7 +126,7 @@ body-less by contract (§7.5).
 **Try blocks.** Each entry is five 2-byte values: the start and
 end bytecode offsets of the protected range, the handler entry
 offset, the class-table index of the caught type, and the frame
-byte offset of the local that receives the exception (§9.2).
+byte offset of the local that receives the exception (§8.2).
 
 **Local descriptors.** Each entry is the frame byte offset
 (u16), the byte size (u16), a parameter flag (u8, `1` for a
@@ -141,7 +141,7 @@ receiver is not described: a flags byte (bit `0` set marks an
 descriptor (§20.5).
 
 **Handle mask.** The trailing field tells the garbage collector
-which frame slots to trace (§10.2). It covers the slots from
+which frame slots to trace (§9.2). It covers the slots from
 the first local — index equal to the parameter count — through
 the last frame slot. Each slot carries a 2-bit code: `0` holds
 no root, `1` a string handle, `2` a heap index (a class, struct
@@ -253,7 +253,7 @@ The descriptor bytes are a kind code followed by a payload:
 | `4` | a class | u16 class-table index |
 | `5` | an array | one nested element descriptor, then a rank byte (§4.10) |
 | `6` | a boxed primitive | none (§4.11) |
-| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`) (§4.13) |
+| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`) (§7.4) |
 | `8` | `List` | one nested element descriptor (§4.12) |
 | `9` | `Dict` | two nested descriptors: the key type, then the value type (§4.12) |
 | `10`–`19` | `byte` `ubyte` `short` `ushort` `uint` `long` `ulong` `double` `bool` `char` | none |

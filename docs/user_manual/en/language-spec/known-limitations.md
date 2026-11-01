@@ -183,7 +183,7 @@ This page collects the language-level limitations visible to user programs, with
   suspended or queued when `main` returns are dropped silently — there is no
   implicit wait-for-all; establish completion order explicitly with
   `thread.join`. If the run queue drains while main is still unfinished,
-  the VM reports a deadlock error. See [Concurrency](concurrency.md).
+  the VM reports a deadlock error. See [Concurrency](../specification/10-concurrency/index.md).
 
 - **Concurrency: storage is locked per data category, same-category
   operations serialize**: heap and string allocation proceeds per
@@ -203,7 +203,7 @@ This page collects the language-level limitations visible to user programs, with
   once, which keeps the rotation fair. Set the carrier count
   with `VmExecutor::SetCarrierThreadCount` (embedding hosts, default
   1) or `nvm --carriers=N` (tool, at most 4 by default). See [Carriers and
-  Parallelism](concurrency-carriers.md).
+  Parallelism](../specification/10-concurrency/carriers.md).
 
 - **Concurrency: multi-carrier scheduling order is unspecified**: a
   single carrier (the library default) is fully deterministic — the
@@ -212,7 +212,7 @@ This page collects the language-level limitations visible to user programs, with
   order (preferring the one it last ran, for cache locality), so the
   interleaving is not guaranteed and program
   correctness rests only on the `join`, channel, and mutex
-  happens-before edges. See [Concurrency](concurrency.md).
+  happens-before edges. See [Concurrency](../specification/10-concurrency/index.md).
 
 - **Concurrency: a debugger pause is all-stop**: while the debugger
   is stopped, no virtual thread starts executing — an in-flight
@@ -226,7 +226,7 @@ This page collects the language-level limitations visible to user programs, with
   [ndb](../cli-tools/ndb.md).
 
 - **Concurrency: no `await` keyword**: functions are not async-colored
-  (see the model section in [Concurrency](concurrency.md));
+  (see the model section in [Concurrency](../specification/10-concurrency/index.md));
   `Future.get()` is an honest blocking wait, and `thread.join` waits on
   a valueless `Thread`.
 
@@ -281,4 +281,4 @@ This page collects the language-level limitations visible to user programs, with
   virtual thread suspend and release its locks too. Output-redirection callbacks hold no global lock — concurrent
   output serializes through the console mutex, so keep the callbacks
   short to reduce queueing. See [Carriers and
-  Parallelism](concurrency-carriers.md).
+  Parallelism](../specification/10-concurrency/carriers.md).

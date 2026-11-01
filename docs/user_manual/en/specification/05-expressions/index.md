@@ -69,7 +69,7 @@ It is a run-time error to divide or to take the remainder by
 zero, for every numeric type including the floating-point types
 — a floating-point division by zero yields no infinity. The
 error is raised at the operator as a catchable exception
-(chapter 9).
+(chapter 8).
 
 `<<` and `>>` shift an integer left operand of any integer type
 (§4.2); a `byte`, `ubyte`, `short` or `ushort` left operand is
@@ -77,7 +77,7 @@ promoted to `int`, and the result has the promoted left
 operand's type. The count operand must be assignable to that
 type (§4.4). A count outside `0` to one less than the width of
 the left operand is a run-time error raised as a catchable
-exception (chapter 9); the check is a run-time check, so a
+exception (chapter 8); the check is a run-time check, so a
 constant out-of-range count is not a compile-time error. `>>` is
 an arithmetic shift: the vacated high-order bits take the value
 of the sign bit, so `−8 >> 1` is `−4`.
@@ -173,20 +173,20 @@ At run time:
   the low bits of the target's width, so `300 as byte` is `44`;
 - to `char`: the value must be a Unicode scalar value (§4.2);
   otherwise the cast raises a catchable run-time error
-  (chapter 9);
+  (chapter 8);
 - a downcast of a reference to a class type yields the same
   reference when the value is an instance of that class or of a
   subclass of it; otherwise it raises a catchable run-time error
-  (chapter 9);
+  (chapter 8);
 - an unboxing of `Object` to a scalar primitive or `string`
   reads the boxed value out when the box holds a value of the
-  target type; otherwise it fails at the host level (chapter 9);
+  target type; otherwise it fails at the host level (chapter 8);
   an unboxing to an enumeration reads the boxed `int` value
   when the box holds one, failing at the host level otherwise
-  (chapter 9); the value is not checked against the member table
+  (chapter 8); the value is not checked against the member table
   of §4.6;
 - a downcast or an unboxing of a `null` reference fails at the
-  host level (chapter 9), while an upcast of a `null` reference
+  host level (chapter 8), while an upcast of a `null` reference
   yields `null`;
 - an enumeration cast is unchecked (§4.6).
 
@@ -197,7 +197,7 @@ left to right (§5.1). Each argument must be assignable to its
 parameter's type (§4.4). The result of a call is the callee's
 return type; a call to a `void` function is used as a statement
 (chapter 6). Calling a function value whose value is `null` is a
-catchable run-time error (chapter 9). Default arguments, named
+catchable run-time error (chapter 8). Default arguments, named
 arguments, `out` parameters and overloading are defined in
 chapter 7.
 
@@ -206,20 +206,20 @@ chapter 7.
 `x.m` selects the member `m` of the value of `x`; member lookup
 and dispatch are defined in §4.8 and §4.9. Accessing a member or
 calling a method through a `null` class or interface reference is
-a catchable run-time error (§4.8, chapter 9).
+a catchable run-time error (§4.8, chapter 8).
 
 An array subscript `a[i1, i2, ..., ik]` carries exactly as many
 indices as the array's rank — a different count is a compile-time
 error — and each index is an integer expression. An index outside
 `0` to one less than the length of its dimension is a catchable
-run-time error, on a read and on a write alike (chapter 9). A
+run-time error, on a read and on a write alike (chapter 8). A
 subscript read yields the stored element; for an element of struct
 type it yields a copy (§4.10). A subscript write stores a value
 assignable to the element type (§4.4).
 
 A string subscript `s[i]` reads the byte at byte offset `i` as a
 `ubyte`; the index must be an integer expression, and an
-out-of-range index is a catchable run-time error (chapter 9). A
+out-of-range index is a catchable run-time error (chapter 8). A
 string subscript is read-only: writing through it is a
 compile-time error (§4.3). Code-point access is the `charAt`
 method (chapter 13).
@@ -228,7 +228,7 @@ The subscript of a `List` or `Dict` is sugar over its `get` and
 `set` methods (chapter 13): `li[i]` reads and writes the element
 at position `i` with the same bounds error, and `d[k]` reads and
 writes the value stored under key `k` — reading a key the map
-does not hold is a catchable run-time error (§4.12, chapter 9).
+does not hold is a catchable run-time error (§4.12, chapter 8).
 
 ### Member access
 
@@ -262,7 +262,7 @@ Above the leaf level an entry may also be an expression whose
 value is an array one dimension below the target; with such an
 entry the shape is fixed at run time by the value of the first
 entry, and a later entry of a different width raises a catchable
-exception (chapter 9).
+exception (chapter 8).
 
 A struct brace initializer `T{...}` fills the fields of a new
 struct value by name (`T{f: v, ...}`) or by position (`T{v, ...}`)
@@ -289,7 +289,7 @@ A constructor call `Node(42)` is an expression: it allocates on the heap, runs t
 ## 5.9 Function Value Expressions
 
 A function or method name written without a call is a function
-value (§4.13):
+value (§7.4):
 
 - a free function name denotes that function;
 - `C.m` denotes a static method of the class `C`;
@@ -300,5 +300,5 @@ value (§4.13):
   against the receiver's runtime class at each call (§4.8.9, §4.9.4).
 
 The type of the value is `func<R, P1, ..., Pn>`, matching the
-signature of the denoted function exactly (§4.13). A function
+signature of the denoted function exactly (§7.4). A function
 value is called with `v(a1, ..., an)` (§5.6).

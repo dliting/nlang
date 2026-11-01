@@ -196,7 +196,7 @@ package declares two functions of the same name and parameter count with
 different parameter types, the call site's type-based selection travels to
 the linker, which connects each call to the selected overload's own record.
 An imported overload set therefore links exactly, with no name-and-arity
-ambiguity. See [Overload Resolution](../../language-spec/overload-resolution.md#cross-module-overloads).
+ambiguity. See [Overload Resolution](../07-functions/overloads.md#cross-module-overloads).
 
 ### Streams and literals
 
@@ -231,7 +231,7 @@ One rule decides what is visible without an import: the language
 core and the base containers are always in scope, everything
 else is a package the importing unit names (§3.3). The
 always-visible names are declared by the builtins preset package
-— `Object`, the `Exception` family of §9.3, `String`, `Array`,
+— `Object`, the `Exception` family of §8.3, `String`, `Array`,
 `List<T>` and `Dict<K,V>` — and are the whole set; a program
 that uses any other standard-library name imports its package.
 The stream handle classes `ByteStream` and `FileStream` (§15.1)
@@ -242,8 +242,8 @@ The concurrency names split by what they answer:
 
 | Package | Provides |
 | --- | --- |
-| `thread` | who runs and where the result is fetched: `Thread`, `Future<T>`, `Promise<T>`, and the `thread.*` functions (§11.1, §11.5) |
-| `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§11.2–§11.4, §11.6) |
+| `thread` | who runs and where the result is fetched: `Thread`, `Future<T>`, `Promise<T>`, and the `thread.*` functions (§10.1, §10.5) |
+| `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
 chapters 14–18 describe the units they hold. The declarations in

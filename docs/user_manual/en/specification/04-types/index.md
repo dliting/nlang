@@ -14,7 +14,7 @@ Every expression has exactly one type. The types are:
 - the class `Object` (§4.11);
 - generic class instantiations, the built-in containers `List`
   and `Dict` among them (§4.12);
-- function types (§4.13).
+- function types (§7.4).
 
 Types fall into two value categories. The *value types* are the
 scalar primitives, enumeration types and struct types: a variable
@@ -67,7 +67,7 @@ expressions and statements.
 | `List<T>`   | built-in generic — reference  | [Generics](generics.md) |
 | `Dict<K,V>` | built-in generic — reference  | [Generics](generics.md) |
 | `Object`    | reference — boxed             | [Object and Boxing](object.md) |
-| `func<...>` | first-class function value    | [Function types & delegates](../../language-spec/function-types-and-delegates.md) |
+| `func<...>` | first-class function value    | [Function values and delegates](../07-functions/function-values.md) |
 
 ### Where to look
 
@@ -135,7 +135,7 @@ page that explains that type in detail.
 - **`func`** — reference type: a first-class function value is a heap
   handle; assignment copies the reference, and `==` compares which
   function the handle denotes; calling a null function value raises the
-  null-reference error. See [Functions](../../language-spec/functions.md).
+  null-reference error. See [Functions](../07-functions/index.md).
 
 ### Why the two families differ
 
@@ -270,27 +270,3 @@ receive both operands (`int + uint` → `long`; mixing `int`/`long` with
 `ulong` is a compile error); when floating point participates, the larger
 float rank wins. bool and char take no part in arithmetic. See
 [Operators](../05-expressions/operators.md).
-
-## 4.13 Function Types
-
-A function type is written `func<R, P1, ..., Pn>`: the first type
-argument is the return type — `void` when the function returns no
-value — and the remaining arguments are the parameter types in
-order (§2.3). A parameter type argument may carry the `out`
-prefix. A function with no parameters is written `func<R>`.
-
-`void` appears as a type argument only in the return slot of
-`func<...>`; any other type argument written `void` — such as
-`List<void>` — is a compile-time error.
-
-Two function types are the same type when their return types,
-parameter types and `out` markers match position by position.
-There is no variance: neither the return type nor a parameter type
-may differ, even by an implicit conversion (§4.4).
-
-A value of a function type denotes a function: a free function, a
-static method, or a method bound to an instance (chapter 7). The
-default value is `null`; calling a `null` function value is a
-run-time error. A function value is a reference type whose only
-implicit conversion is to `string` (§4.4): it does not enter
-`Object`.

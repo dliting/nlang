@@ -73,7 +73,7 @@ image (chapter 20).
 
 **Entry record.** A program archive names its entry: the entry
 unit's package path and the entry function's name (`main`
-today, §3.2, §10.3). A library archive carries the zero marker
+today, §3.2, §9.3). A library archive carries the zero marker
 instead. Within the archive, only the entry-owning member image
 keeps a non-empty entry key (§20.2); the archive's entry record
 is the authoritative entry.

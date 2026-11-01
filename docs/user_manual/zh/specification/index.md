@@ -35,10 +35,18 @@
 - [6. 语句](06-statements/index.md)
   - [6.7. 控制流](06-statements/control-flow.md)
   - [6.8. 循环](06-statements/loops.md)
-- [7. 函数与方法](07-functions.md)
-- [9. 异常](09-exceptions.md)
-- [10. 执行模型与内存语义](10-execution-model.md)
-- [11. 并发](11-concurrency.md)
+- [7. 函数](07-functions/index.md)
+  - [7.2. 参数与实参](07-functions/parameters.md)
+  - [7.3. 重载解析](07-functions/overloads.md)
+  - [7.4. 函数值与委托](07-functions/function-values.md)
+  - [7.5. 原生函数](07-functions/native.md)
+- [8. 异常](08-exceptions/index.md)
+- [9. 执行模型](09-execution-model/index.md)
+  - [9.2. 生命周期与垃圾回收](09-execution-model/memory.md)
+  - [9.3. 程序的进入与退出](09-execution-model/exit-codes.md)
+- [10. 并发](10-concurrency/index.md)
+  - [10.8. 载体与并行](10-concurrency/carriers.md)
+  - [10.9. 挂起与调度限制](10-concurrency/suspension.md)
 
 ### 第二部分 — 标准库
 

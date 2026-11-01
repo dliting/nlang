@@ -63,10 +63,21 @@ nav:
           - Overview: specification/06-statements/index.md
           - Control Flow: specification/06-statements/control-flow.md
           - Loops: specification/06-statements/loops.md
-      - Functions: specification/07-functions.md
-      - Exceptions: specification/09-exceptions.md
-      - Execution Model: specification/10-execution-model.md
-      - Concurrency: specification/11-concurrency.md
+      - Functions:
+          - Overview: specification/07-functions/index.md
+          - Parameters and Arguments: specification/07-functions/parameters.md
+          - Overload Resolution: specification/07-functions/overloads.md
+          - Function Values and Delegates: specification/07-functions/function-values.md
+          - Native Functions: specification/07-functions/native.md
+      - Exceptions: specification/08-exceptions/index.md
+      - Execution Model:
+          - Overview: specification/09-execution-model/index.md
+          - Lifetime and Garbage Collection: specification/09-execution-model/memory.md
+          - Program Entry and Exit: specification/09-execution-model/exit-codes.md
+      - Concurrency:
+          - Overview: specification/10-concurrency/index.md
+          - Carriers and Parallelism: specification/10-concurrency/carriers.md
+          - Suspension and Scheduling Limits: specification/10-concurrency/suspension.md
       - Built-in Classes and Library Conventions: specification/13-builtin-classes.md
       - The math Package: specification/14-math.md
       - The io Package and Streams: specification/15-io-streams.md
@@ -80,19 +91,7 @@ nav:
   - Language Specification:
       - Overview: language-spec/overview.md
       - Naming Convention: language-spec/naming-convention.md
-      - Expressions & Statements:
-          - Exceptions: language-spec/exception.md
-      - Functions:
-          - Functions: language-spec/functions.md
-          - Default Parameters: language-spec/default-parameters.md
-          - Named Arguments: language-spec/named-arguments.md
-          - Overload Resolution: language-spec/overload-resolution.md
-          - Out Parameters: language-spec/out-parameters.md
-          - Native Functions: language-spec/native-functions.md
-          - Function Types & Delegates: language-spec/function-types-and-delegates.md
       - Concurrency:
-          - Concurrency: language-spec/concurrency.md
-          - Carriers and Parallelism: language-spec/concurrency-carriers.md
           - The thread Package: language-spec/concurrency-thread.md
           - Future: language-spec/concurrency-future.md
           - Promise: language-spec/concurrency-promise.md
@@ -102,7 +101,6 @@ nav:
           - AtomicInt: language-spec/concurrency-atomic.md
           - Channel: language-spec/concurrency-channel.md
           - The concurrent Package: language-spec/concurrency-concurrent.md
-          - Suspension and Scheduling Limits: language-spec/concurrency-suspension.md
       - Standard Library:
           - Standard Library: language-spec/standard-library.md
           - math: language-spec/stdlib-math.md
@@ -112,9 +110,6 @@ nav:
           - string methods: language-spec/stdlib-string.md
           - Streams: language-spec/stdlib-streams.md
           - Exception mapping: language-spec/stdlib-exceptions.md
-      - Runtime:
-          - Memory Management: language-spec/memory-management.md
-          - Exit Code Convention: language-spec/exit-code-convention.md
       - Reference:
           - Known Limitations: language-spec/known-limitations.md
           - Common Error Messages: language-spec/common-errors.md

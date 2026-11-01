@@ -71,7 +71,7 @@ Assignment between struct values copies the whole value: every
 field is copied, including nested struct fields, so the source and
 the copy are independent. A field of a reference type copies its
 reference, so the two struct values then share that one object
-(chapter 10).
+(chapter 9).
 
 The same deep copy applies everywhere a struct value moves:
 

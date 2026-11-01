@@ -148,7 +148,7 @@ int main() {
 evaluation (a `toString` override, for example); a zero-permit
 `acquire` suspends there normally, like a contended `lock` — the
 window freezes until a permit appears (see [Suspension inside
-re-entrant evaluation](concurrency-suspension.md#suspension-inside-re-entrant-evaluation)).
+re-entrant evaluation](../specification/10-concurrency/suspension.md#suspension-inside-re-entrant-evaluation)).
 
 ## Semaphore versus Channel
 

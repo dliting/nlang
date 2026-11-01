@@ -219,13 +219,13 @@ both are roots:
 `thread.spawn` passes through a safepoint check right after minting the
 root frame and the `Thread` object, so the spawned context's frames are
 covered by the root set from birth. For the concurrency semantics, see
-[Concurrency](../language-spec/concurrency.md) and the
+[Concurrency](../specification/10-concurrency/index.md) and the
 [Frame Machine and Scheduler](frame-machine-and-scheduler.md) page.
 
 ### Stop-The-World Rendezvous and Blocking-Native Roots
 
 Storage protection is split by domain (see
-[Concurrency](../language-spec/concurrency.md)): heap and string
+[Concurrency](../specification/10-concurrency/index.md)): heap and string
 allocation draws from per-carrier free lists, and containers,
 synchronization primitives, streams, and string maintenance each hold
 their own domain lock; frame-local and field-access segments run

@@ -174,4 +174,4 @@ over value-type elements also yields copies). See [Struct](../04-types/struct.md
 
 **Null iterable** throws null pointer exception (NPE) on the first
 `length()` call — consistent with all other class-typed calls. See
-[Exceptions](../../language-spec/exception.md).
+[Exceptions](../08-exceptions/index.md).

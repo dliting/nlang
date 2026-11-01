@@ -17,7 +17,7 @@ nide侧由输出位置优先级决定（详见[三种运行方式](running.md#�
 
 进程退出码就是`main`的返回值，Windows保留32位原值；但POSIX shell（bash、Git-Bash、持续集成（CI，continuous integration）的bash步骤）按惯例只保留低8位——`return 300`在Python/cmd/PowerShell里看到300，在bash里看到44（对256取模）。写测试或脚本时，让预期退出码落在0–255，各观察者看到的结果才一致。
 
-详见[语言规格/退出码约定](../language-spec/exit-code-convention.md)。
+详见[规范/程序的进入与退出](../specification/09-execution-model/exit-codes.md)。
 
 ### 中文输出乱码？
 

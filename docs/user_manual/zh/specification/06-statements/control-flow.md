@@ -65,4 +65,4 @@ try {
 }
 ```
 
-见[异常](../../language-spec/exception.md)了解`AssertionException`类与`try/catch`机制。
+见[异常](../08-exceptions/index.md)了解`AssertionException`类与`try/catch`机制。

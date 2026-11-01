@@ -257,11 +257,11 @@ does not change `==`, and value equality requires an explicit
 
 It is a run-time error if a member is accessed or a method is
 called through a `null` reference; the error is raised as a
-`NullPointerException` (chapter 9).
+`NullPointerException` (chapter 8).
 
 *Informative:* `null` is heap index 0. An uncaught
 `NullPointerException` terminates the program with exit code 1
-(chapter 10). A `string` handle reads `null` as the empty string
+(chapter 9). A `string` handle reads `null` as the empty string
 instead (§4.3).
 
 ## 4.8.11 Classes across modules

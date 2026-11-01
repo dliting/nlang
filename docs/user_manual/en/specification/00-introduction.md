@@ -80,7 +80,7 @@ What happens inside an implementation is outside this
 specification. The virtual machine's internal representation, its
 register allocation, the optimizations it performs and the internal
 structure of its garbage collector are not constrained here,
-provided every observable outcome still matches chapter 10.
+provided every observable outcome still matches chapter 9.
 The binary formats of Part III are the exception: they are specified
 because tools and host programs consume them directly.
 

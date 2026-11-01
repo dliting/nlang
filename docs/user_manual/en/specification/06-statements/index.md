@@ -5,7 +5,7 @@ usage detail of `if`, `switch` and `assert` is on
 [Control Flow](control-flow.md), the loop forms — `for`, `while`,
 `do-while` and `foreach` — are on [Loops](loops.md), and
 `try`/`catch`/`throw`/`finally` is on
-[Exceptions](../../language-spec/exception.md).
+[Exceptions](../08-exceptions/index.md).
 
 ## 6.1 Blocks and Local Declarations
 
@@ -90,7 +90,7 @@ operator:
 
 A compound assignment whose lvalue is a `Dict` subscript raises a
 catchable run-time error at the read of the current value when the
-key is absent (§4.12, chapter 9).
+key is absent (§4.12, chapter 8).
 
 Compound assignment is a statement, not an expression: it has no
 value, and `(x += 1)` in an expression is a syntax error.
@@ -222,16 +222,16 @@ body never ran. An element of struct type is copied into the
 variable at each iteration (§4.7). Mutating the source container
 while iterating it is unspecified: the element count is captured
 at loop entry (§0.4). A `null` source raises a catchable
-null-dereference error (§4.8, chapter 9).
+null-dereference error (§4.8, chapter 8).
 
 ## 6.5 Assertions
 
 `assert(c);` requires a `bool` expression (§5.1). When the value
 is `false`, the statement raises a catchable `AssertionException`
-whose message reads `assertion failed` (chapter 9). An assertion
+whose message reads `assertion failed` (chapter 8). An assertion
 is evaluated on every execution of the statement: no build mode
 strips it. An uncaught `AssertionException` terminates the program
-with exit code 1 (chapter 10).
+with exit code 1 (chapter 9).
 
 ## 6.6 Return
 

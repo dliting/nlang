@@ -51,7 +51,7 @@ produces a library module with no entry function (§3.9).
 
 Execution of a program begins by calling its entry function; the
 value the entry returns becomes the process exit status
-(chapter 10).
+(chapter 9).
 
 ## 3.3 Import Directives
 
@@ -166,7 +166,7 @@ At program scope, visibility depends on what the name denotes:
 - a *type* (class, struct, enum or interface) declared at top level
   is visible program-wide, whatever directory its unit lives in.
 - if the walk finds no binding, a bare identifier may still resolve
-  to a built-in class name; §4.11, §4.12, §9.3 and chapter 11
+  to a built-in class name; §4.11, §4.12, §8.3 and chapter 10
   enumerate the built-in classes.
 
 In type position, the same walk runs restricted to type bindings: a

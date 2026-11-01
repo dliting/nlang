@@ -2,7 +2,7 @@
 
 This chapter maps the failures of library operations — the
 built-in classes of chapter 13 and the packages of chapters
-14–18 — to the built-in exception classes of §9.3. §19.1 is
+14–18 — to the built-in exception classes of §8.3. §19.1 is
 the map; §19.2 fixes the conventions it rests on. The
 semantics of every site live in the chapter that defines the
 operation; this chapter adds no failure behavior of its own.
@@ -20,8 +20,8 @@ operation; this chapter adds no failure behavior of its own.
 | `io` (§15.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §13.3) |
 | streams (§15.5) | `NullPointerException` | a method call through a null stream handle |
 | `fs` (§16.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
-| `concurrent` (§11.4) | `ChannelClosedException` | a send or receive on a closed channel |
-| `concurrent` (§11.4) | `Exception` | construction with a negative capacity |
+| `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
+| `concurrent` (§10.4) | `Exception` | construction with a negative capacity |
 | `tensor` (§18.5) | `NullPointerException` | a null array argument |
 | `tensor` (§18.5) | `IndexOutOfBoundsException` | a creation length past the bound of §4.10; a negative `reshape` dimension |
 | `tensor` (§18.5) | `DivByZeroException` | integer `div` by zero |
@@ -35,9 +35,9 @@ only the sites the defining chapters call out besides it.
 
 - The library declares one exception class of its own:
   `ChannelClosedException`, a direct subclass of `Exception`,
-  declared by the `concurrent` package (§9.3). Every other
-  library failure raises a class of §9.3. User code may declare
-  its own classes (§9.4).
+  declared by the `concurrent` package (§8.3). Every other
+  library failure raises a class of §8.3. User code may declare
+  its own classes (§8.4).
 - The base `Exception` is the class for argument, range and
   parse errors that have no class of their own; there is no
   `IllegalArgumentException` or peer class.
@@ -46,5 +46,5 @@ only the sites the defining chapters call out besides it.
   `remove` on a missing path (§16.3), `io.hasInput` (§15.3),
   and the domain errors of the `math` transcendental family,
   which yield a NaN (§14.4). Stream failures beyond a null
-  handle are *host-level* run-time errors (§15.5, §9.1): no
+  handle are *host-level* run-time errors (§15.5, §8.1): no
   `catch` clause handles them.

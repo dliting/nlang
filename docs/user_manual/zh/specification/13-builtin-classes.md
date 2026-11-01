@@ -4,21 +4,21 @@
 
 ## 13.1 范围
 
-预置名字恒在作用域，无需导入（§3.9.4）：`Object`、§9.3的`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合。本章定义内建值类与容器类的方法面——`Object`协议（§13.2）、`string`方法（§13.3）与`List`和`Dict`方法（§13.4）——以及标准库遵循的约定（§13.5）。
+预置名字恒在作用域，无需导入（§3.9.4）：`Object`、§8.3的`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合。本章定义内建值类与容器类的方法面——`Object`协议（§13.2）、`string`方法（§13.3）与`List`和`Dict`方法（§13.4）——以及标准库遵循的约定（§13.5）。
 
-在其他处定义的方法面：并发句柄类（`Mutex`、`Semaphore`、`AtomicInt`、`Channel`、`Thread`、`Future`）——`concurrent`与`thread`的包类（第11章、第17章），流句柄类（`ByteStream`、`FileStream`）在第15章，异常类在§9.3。
+在其他处定义的方法面：并发句柄类（`Mutex`、`Semaphore`、`AtomicInt`、`Channel`、`Thread`、`Future`）——`concurrent`与`thread`的包类（第10章、第17章），流句柄类（`ByteStream`、`FileStream`）在第15章，异常类在§8.3。
 
 本章每个方法都是内建的：其声明位于预置包`builtins`（§3.9.4）——每次构建都自动导入——程序不能替换它；同名用户类是普通类，不会接管内建接收者。预置类中的`String`与`Array`只作声明持有：它们声明`string`关键字与数组类型的方法面，不能实例化、不能继承、也不能用作类型，且不在类层次之内——`string`与方括号数组语法才是值类型的写法。
 
 ## 13.2 Object协议
 
-每个类都从`Object`继承三个协议方法（§4.11）：`int equals(Object other);`、`int getHashCode();`与`string toString();`。它们的虚属性与重写由§4.8.9定义。默认实现比较对象身份：接收者与实参指代同一对象时`equals`产出`1`，否则产出`0`；`getHashCode`对相等的对象产出相等的`int`。两者都不可经由`null`接收者到达：经由`null`的成员访问抛出`NullPointerException`（§9.3）。
+每个类都从`Object`继承三个协议方法（§4.11）：`int equals(Object other);`、`int getHashCode();`与`string toString();`。它们的虚属性与重写由§4.8.9定义。默认实现比较对象身份：接收者与实参指代同一对象时`equals`产出`1`，否则产出`0`；`getHashCode`对相等的对象产出相等的`int`。两者都不可经由`null`接收者到达：经由`null`的成员访问抛出`NullPointerException`（§8.3）。
 
 `string`把这一对重写为按内容：当且仅当两侧持有相同字节时`equals`产出`1`——与`==`相同的关系（§4.3）——而`getHashCode`对字节做哈希，因此相等的字符串哈希相等。
 
 ### 默认渲染
 
-`toString`把值渲染为文本。没有声明`toString`的类渲染为类的源码名、`@`，以及一个由实现选定的对象编号的小写十六进制渲染：`Widget@7f3a`。`null`接收者抛出`NullPointerException`（§9.3）。
+`toString`把值渲染为文本。没有声明`toString`的类渲染为类的源码名、`@`，以及一个由实现选定的对象编号的小写十六进制渲染：`Widget@7f3a`。`null`接收者抛出`NullPointerException`（§8.3）。
 
 每个内建类型按如下渲染；`List`、`Dict`、类与函数值也作为方法响应`toString()`：
 
@@ -29,7 +29,7 @@
 | `Dict` | `{k1: v1, k2: v2, ...}`——条目按下文规则渲染，按插入序（§6.4） |
 | 数组 | `[...]`，按维度嵌套（§4.10、§5.3） |
 | 枚举 | 成员名（§4.6） |
-| 函数值 | `func name`或`method name`（§4.13） |
+| 函数值 | `func name`或`method name`（§7.4） |
 | 装有装箱值的`Object` | 该值按其类型渲染（§4.11） |
 
 在容器渲染内部：
@@ -39,7 +39,7 @@
 - `struct`元素出现为`<struct>`（结构体不带`toString`，§4.7）；
 - 嵌套的容器、数组、装箱值或函数值按其自身的规则渲染。
 
-渲染至多嵌套64层；嵌套更深的结构——经由`Object`字段的环——在`toString`处抛出宿主级执行期错误（§9.1）。
+渲染至多嵌套64层；嵌套更深的结构——经由`Object`字段的环——在`toString`处抛出宿主级执行期错误（§8.1）。
 
 ## 13.3 string方法
 
@@ -94,7 +94,7 @@
 | `keys()` | 一个新的`List<K>`，含按插入序的各键（§6.4） | — |
 | `toString()` | `{k1: v1, k2: v2, ...}`，按插入序（§13.2） | — |
 
-键匹配就是§4.12的区分种类的相等性。下标语法糖`li[i]`与`d[k]`映射到`get`与`set`（§5.7）；容器的存入或取出按§10.1的类别移动值。
+键匹配就是§4.12的区分种类的相等性。下标语法糖`li[i]`与`d[k]`映射到`get`与`set`（§5.7）；容器的存入或取出按§9.1的类别移动值。
 
 ## 13.5 库约定
 
@@ -102,5 +102,5 @@
 
 - 类型用PascalCase；方法、函数与变量用camelCase；枚举成员用PascalCase；类型参数是单个大写字母；`main`小写（§3.2）。
 - 纯访问器可以带`get`前缀（`getHashCode`）；主流风格是裸名（`length`、`count`、`keys`）。内建类的方法对谓词用裸名（`contains`、`startsWith`、`containsKey`）；包函数可以带`is`或`has`前缀（`fs.isFile`、`io.hasInput`）。
-- 失败经由抛出§9.3的内建异常类来报告，外加唯一一个包声明的类——`concurrent`的`ChannelClosedException`（§9.3）。第19章把每个库操作映射到它所抛出的类。
+- 失败经由抛出§8.3的内建异常类来报告，外加唯一一个包声明的类——`concurrent`的`ChannelClosedException`（§8.3）。第19章把每个库操作映射到它所抛出的类。
 - 文本输出经由`toString`渲染值（§5.3、§13.2）；控制台函数的实参面在第15章。

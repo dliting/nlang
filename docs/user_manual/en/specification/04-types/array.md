@@ -22,7 +22,7 @@ those lengths never change for the value's lifetime. Every element
 starts as the default value of the element type. It is a run-time
 error if a creation length is negative or if the product of the
 lengths exceeds 100000000; the error is raised at the creation
-site as an `IndexOutOfBoundsException` (chapter 9).
+site as an `IndexOutOfBoundsException` (chapter 8).
 
 ```nlang
 int[] a = int[3];         // expression position: fixed length, elements zero-initialized
@@ -56,7 +56,7 @@ array, and an array field or element stores the reference.
 Reading an element of struct type yields a copy of the stored
 struct, not the stored struct itself; writing a field of that copy
 does not change the array, and storing a struct back requires an
-assignment to the element (§4.7.4, chapter 10).
+assignment to the element (§4.7.4, chapter 9).
 
 ## 4.10.4 Members: length, rank, shape
 
@@ -92,7 +92,7 @@ struct elements the write goes to the array's own element
 
 An index outside `0` to the dimension's length minus one is a
 catchable run-time error on both reads and writes, raised as an
-`IndexOutOfBoundsException` (chapter 9).
+`IndexOutOfBoundsException` (chapter 8).
 
 *Informative:* the creation cap of §4.10.2 covers every creation
 path — `T[n]` and the tensor package's native minting alike; 100M
@@ -175,7 +175,7 @@ With an expression row present the shape is a run-time fact: the
 first row pins the inner dimensions, and every later row must agree
 with it. Rows of differing width raise a catchable base `Exception`
 naming the level and both widths; a `null` row raises a
-`NullPointerException` (chapter 9). Without expression rows the
+`NullPointerException` (chapter 8). Without expression rows the
 whole shape remains a compile-time fact.
 
 The brace form `{...}` is not accepted for an array target.

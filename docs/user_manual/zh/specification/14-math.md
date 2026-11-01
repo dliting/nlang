@@ -42,7 +42,7 @@
 失败分为两种模型。
 
 - 超越函数家族的定义域错误——对负数取`sqrt`、对非正数取`log`、`asin`或`acos`的实参落在`[-1, 1]`之外——产出一个NaN的`double`（§4.2），不抛出；该包遵循C惯例。NaN会经由后续算术传播下去。
-- 实参错误抛出`Exception`（§9.3）：对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；以及`x`为NaN或舍入结果落在`long`值域之外时的`floor`、`ceil`或`round`。
+- 实参错误抛出`Exception`（§8.3）：对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；以及`x`为NaN或舍入结果落在`long`值域之外时的`floor`、`ceil`或`round`。
 
 ## 14.5 随机数
 

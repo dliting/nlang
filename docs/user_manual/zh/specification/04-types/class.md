@@ -152,9 +152,9 @@ class Dog : Animal {
 
 两个类引用按身份比较：当且仅当两者指代同一实例或同为`null`时`==`成立。方法`equals`是另一个独立的、需显式参与的操作（§4.11.2）；重写它不改变`==`，值相等需要显式调用`equals`。
 
-经由`null`引用访问成员或调用方法时，是执行期错误；错误以`NullPointerException`抛出（第9章）。
+经由`null`引用访问成员或调用方法时，是执行期错误；错误以`NullPointerException`抛出（第8章）。
 
-*资料性：*`null`即堆索引0。未捕获的`NullPointerException`使程序以退出码1终止（第10章）。`string`句柄的`null`则读作空串（§4.3）。
+*资料性：*`null`即堆索引0。未捕获的`NullPointerException`使程序以退出码1终止（第9章）。`string`句柄的`null`则读作空串（§4.3）。
 
 ## 4.8.11 跨模块的类
 

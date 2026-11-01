@@ -4,7 +4,7 @@
 
 `AtomicInt` carries cross-carrier shared **single-value** state —
 counters, flags, sequence numbers. Field reads and writes are not
-locked (see [Carriers and Parallelism](concurrency-carriers.md)); an
+locked (see [Carriers and Parallelism](../specification/10-concurrency/carriers.md)); an
 ordinary shared-field update can read a transitional value.
 `AtomicInt` turns "read-modify-write" into one indivisible step,
 without a mutex.

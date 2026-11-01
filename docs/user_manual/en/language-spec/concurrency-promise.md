@@ -91,7 +91,7 @@ int main() {
 - **Losers keep running**: the other members run on untouched, their
   results retrievable by `get()` at any later point. A failure no one
   ever observes is still named by the run-end report (see
-  [Suspension and scheduling limits](concurrency-suspension.md)).
+  [Suspension and scheduling limits](../specification/10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
 - **Duplicates are legal**: one `Future` registered under several
   indices — the minimal index wins.
 - **Edges**: an empty array, a `null` member, more than 64 members,
@@ -110,7 +110,7 @@ installer's `examples/conc_*.n`.
 - **Never completing is silent**: a `Promise` has no timeout; a source
   that never completes leaves its waiters parked until the deadlock
   report stops the run (see
-  [Suspension and scheduling limits](concurrency-suspension.md#main-exit-policy-and-the-deadlock-report)).
+  [Suspension and scheduling limits](../specification/10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)).
   For a deadline, combine: spawn the wait and a `thread.sleep`
   separately and let whichever wakes first pick the path.
 - **Multi-way waiting is `Future`-only**: there is no "receive from

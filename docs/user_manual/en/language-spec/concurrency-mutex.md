@@ -17,7 +17,7 @@ admission you cap → [Semaphore](concurrency-semaphore.md).
 
 ## The lock
 
-`Mutex` is a non-reentrant mutual-exclusion lock: locking it again while holding it suspends forever (see [the deadlock report](concurrency-suspension.md#main-exit-policy-and-the-deadlock-report)) — composed or recursive methods take [ReentrantMutex](concurrency-reentrant-mutex.md).
+`Mutex` is a non-reentrant mutual-exclusion lock: locking it again while holding it suspends forever (see [the deadlock report](../specification/10-concurrency/suspension.md#main-exit-policy-and-the-deadlock-report)) — composed or recursive methods take [ReentrantMutex](concurrency-reentrant-mutex.md).
 
 | Member | Semantics |
 |---|---|

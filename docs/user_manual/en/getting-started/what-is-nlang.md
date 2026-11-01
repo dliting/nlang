@@ -26,7 +26,7 @@ runtime module. The language itself:
   initializer syntax;
 - **Garbage-collected** — no `delete`; objects are reclaimed
   automatically once unreachable, so you never free memory by hand (see
-  [Memory Management](../language-spec/memory-management.md));
+  [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md));
 - **Concurrent** — `thread.spawn` runs a function on its own thread and
   yields a `Future<T>` for its result; the `concurrent` package
   (`Mutex`, `Channel`, `Semaphore`, `WaitGroup`) provides the

@@ -3,7 +3,7 @@
 ## 13.1 Scope
 
 The prelude names are always visible, no import (§3.9.4):
-`Object`, the `Exception` family (§9.3), `String`, `Array`,
+`Object`, the `Exception` family (§8.3), `String`, `Array`,
 `List<T>` and `Dict<K,V>` — the whole set. This chapter defines
 the method surface of the built-in value and container classes — the `Object` protocol
 (§13.2), the `string` methods (§13.3) and the `List` and `Dict`
@@ -13,9 +13,9 @@ methods (§13.4) — and the conventions the standard library follows
 Method surfaces defined elsewhere: the concurrency handle classes
 (`Mutex`, `Semaphore`, `AtomicInt`, `Channel`, `Thread`,
 `Future`), package classes of `concurrent` and `thread`
-(chapter 11, chapter 17), the stream handle classes
+(chapter 10, chapter 17), the stream handle classes
 (`ByteStream`, `FileStream`) in chapter 15, and the exception
-classes in §9.3.
+classes in §8.3.
 
 Every method in this chapter is built in: its declaration lives in the
 prelude package `builtins` (§3.9.4), imported by every build, and a
@@ -36,7 +36,7 @@ overriding. The defaults compare object identity: `equals`
 yields `1` when receiver and argument denote the same object and
 `0` otherwise, and `getHashCode` yields an `int` equal for equal
 objects. Neither is reachable through a `null` receiver: a member
-access through `null` raises `NullPointerException` (§9.3).
+access through `null` raises `NullPointerException` (§8.3).
 
 `string` overrides the pair to content: `equals` yields `1`
 exactly when both sides hold the same bytes — the same relation as
@@ -49,7 +49,7 @@ hash equal.
 `toString` renders as the class's source name, `@`, and a
 lowercase hexadecimal rendering of an implementation-chosen object
 number: `Widget@7f3a`. A `null` receiver raises
-`NullPointerException` (§9.3).
+`NullPointerException` (§8.3).
 
 Each built-in type renders as follows; `List`, `Dict`, class and
 function values also answer `toString()` as a method:
@@ -61,7 +61,7 @@ function values also answer `toString()` as a method:
 | `Dict` | `{k1: v1, k2: v2, ...}` — entries rendered by the rules below, in insertion order (§6.4) |
 | array | `[...]`, nested per dimension (§4.10, §5.3) |
 | enumeration | the member name (§4.6) |
-| function value | `func name` or `method name` (§4.13) |
+| function value | `func name` or `method name` (§7.4) |
 | `Object` holding a boxed value | the value rendered as its type (§4.11) |
 
 Inside a container rendering:
@@ -77,7 +77,7 @@ Inside a container rendering:
 
 A rendering nests at most 64 levels deep; a structure nested
 deeper — a cycle through `Object` fields — raises a host-level
-run-time error at the `toString` site (§9.1).
+run-time error at the `toString` site (§8.1).
 
 ## 13.3 string Methods
 
@@ -145,7 +145,7 @@ A `Dict<K, V>` (§4.12) maps keys to values:
 Key matching is the kind-aware equality of §4.12. The subscript
 sugar `li[i]` and `d[k]` maps to `get` and `set` (§5.7); a
 container store or retrieval moves values by the categories of
-§10.1.
+§9.1.
 
 ## 13.5 Library Conventions
 
@@ -160,8 +160,8 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §9.3, plus the one package-declared class, `concurrent`'s
-  `ChannelClosedException` (§9.3). Chapter 19 maps each library
+  of §8.3, plus the one package-declared class, `concurrent`'s
+  `ChannelClosedException` (§8.3). Chapter 19 maps each library
   operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §13.2);
   the argument surface of the console functions is chapter 15.

@@ -88,7 +88,7 @@ and `IOException` all extend `Exception`, and so does the `concurrent`
 package's `ChannelClosedException`; user
 classes can inherit from `Exception` too (`class MyException : Exception`).
 Which operations raise which class is mapped on the
-[Exceptions](../language-spec/exception.md) and
+[Exceptions](../specification/08-exceptions/index.md) and
 [Exception mapping](../language-spec/stdlib-exceptions.md) pages.
 
-See also: [Language Specification / Exceptions](../language-spec/exception.md).
+See also: [Specification / Exceptions](../specification/08-exceptions/index.md).

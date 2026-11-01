@@ -92,7 +92,7 @@ calls nested as arguments sit outside the subset; importing the
 function rejects them on the consumer side with the error above.
 Compiling the sources together in one project build does not hit this
 restriction — the default expression is used directly. See →
-[Default Parameters](default-parameters.md).
+[Default Parameters](../specification/07-functions/parameters.md).
 
 ### Imported function does not match its record
 
@@ -130,7 +130,7 @@ A control-flow statement's unbraced (bare) body cannot be a declaration
 the call site must carry the `out` marker, otherwise you get `The
 function invoke "foo(y)" is not compatible with the declaration.`. See
 [Statements](../specification/06-statements/index.md) "Unbraced body" and
-[Out Parameters](out-parameters.md).
+[Out Parameters](../specification/07-functions/parameters.md).
 
 ### First direct-init argument parsed as a type at top level
 

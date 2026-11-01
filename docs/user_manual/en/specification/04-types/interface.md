@@ -98,7 +98,7 @@ A call through an interface reference dispatches dynamically
 against the object's runtime class, by the same mechanism as class
 virtual dispatch (§4.8.9). It is a catchable run-time error if a
 method is called through a `null` interface reference (§4.8.10,
-chapter 9).
+chapter 8).
 
 An interface type stands apart from every other type: it accepts
 only references from classes that implement it and the `null`

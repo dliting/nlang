@@ -29,7 +29,7 @@ int main() {
 
 输出`17 = 5*3 + 2`，退出码13。`out`参数让一次调用带回多个结果；参数可带默认值（还支持具名实参）；函数可重载，支持递归与`void`返回。
 
-详见[语言规格/函数](../language-spec/functions.md)。
+详见[规范/函数](../specification/07-functions/index.md)。
 
 ### 函数值
 
@@ -51,7 +51,7 @@ int main() {
 
 输出：无；退出码42。函数可以当作值传递：`func`关键字（`func<Ret, Args...>`）命名一种函数类型，自由函数或绑定方法（`c.foo`）都能绑到它上面。函数值可存进变量、字段与集合（`List<func<int, int>>`、`func<int, int>[]`）。
 
-详见[语言规格/函数类型与委托](../language-spec/function-types-and-delegates.md)。
+详见[规范/函数值与委托](../specification/07-functions/function-values.md)。
 
 ### native函数
 
@@ -65,7 +65,7 @@ int quad(int x) { return natAdd(x, x); }  // NLang函数可以包装native函数
 
 输出：无——本片段只展示声明侧（能通过编译；真正调用需要宿主侧实现）。`native`函数没有函数体，实现由宿主进程提供：自由函数以`<包名>.<函数名>`为键，命令行工具按包名在搜索路径上定位`nlang_<包名>.dll`，嵌入宿主则按名称注册实现。标准库的`io.print`就是这样一个native函数（`stdlib/io.n`中声明为`native void print(string)`，实现随`nlang_io.dll`分发）。调用直接交给内建实现执行，不在NLang侧产生函数调用（不占用调用栈）；NLang侧的包装函数（如`quad`）则是普通函数。
 
-详见[语言规格/函数](../language-spec/functions.md)。
+详见[规范/函数](../specification/07-functions/index.md)。
 
 ### 模块
 

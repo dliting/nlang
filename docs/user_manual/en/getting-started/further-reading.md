@@ -13,13 +13,13 @@ Suggested reading order for the Language Specification:
 4. [Expressions](../specification/05-expressions/index.md) →
    [Statements](../specification/06-statements/index.md)
    — operators, control flow, exceptions
-5. [Functions](../language-spec/functions.md) →
-   [Function Types & Delegates](../language-spec/function-types-and-delegates.md)
-6. [Concurrency](../language-spec/concurrency.md) — spawning
+5. [Functions](../specification/07-functions/index.md) →
+   [Function Values and Delegates](../specification/07-functions/function-values.md)
+6. [Concurrency](../specification/10-concurrency/index.md) — spawning
    virtual threads with `thread.spawn`, channels, mutexes, and Future
 7. [Standard Library](../language-spec/standard-library.md),
-   [Memory Management](../language-spec/memory-management.md),
-   [Exit Code Convention](../language-spec/exit-code-convention.md),
+   [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md),
+   [Program Entry and Exit](../specification/09-execution-model/exit-codes.md),
    [Known Limitations](../language-spec/known-limitations.md)
 
 For the execution engine: start with

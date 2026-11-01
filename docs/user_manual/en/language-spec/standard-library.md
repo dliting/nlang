@@ -22,7 +22,7 @@ concurrency classes are ordinary package classes: `thread`
 the `thread.*` functions; `concurrent` (`stdlib/concurrent.n`)
 declares `Mutex`, `ReentrantMutex`, `Semaphore`, `AtomicInt`,
 `Channel<T>`, `ChannelClosedException` and `WaitGroup` — each package
-needs its import (see [Concurrency](concurrency.md) and
+needs its import (see [Concurrency](../specification/10-concurrency/index.md) and
 [Generics](../specification/04-types/generics.md)). The streams
 `ByteStream`/`FileStream` remain import-free (see
 [Streams](stdlib-streams.md)). A package is
@@ -37,7 +37,7 @@ computation, fs the filesystem's names and metadata, tensor the numeric
 array kernels (see [tensor](stdlib-tensor.md)), thread the
 virtual-thread spawn and suspension primitives, and concurrent the
 coordination classes — `Mutex`, `Channel`, `Semaphore`, `AtomicInt`,
-`WaitGroup` (see [Concurrency](concurrency.md)).
+`WaitGroup` (see [Concurrency](../specification/10-concurrency/index.md)).
 
 The **signatures** (parameter kinds, arity, return type) live in the
 `stdlib/*.n` declarations shipped with the toolchain and reach the compiler
@@ -61,7 +61,7 @@ explicit `as` — `math.absi(1.5)` is a compile error). The exceptions are the
 three coercing io functions (`write`/`print`/`eprint`), which accept string, arrays,
 all scalar primitives and function values
 (converted at the call site; a function value renders as `func <name>`,
-see [Function Types and Delegates](function-types-and-delegates.md));
+see [Function Values and Delegates](../specification/07-functions/function-values.md));
 class objects and enum variables need an explicit
 `.toString()` before printing (an enum member constant prints its member
 name directly; struct arguments are rejected outright —
@@ -73,7 +73,7 @@ The detailed reference is one page per topic:
 - [tensor — numeric array kernels](stdlib-tensor.md)
 - [io — content IO](stdlib-io.md) (token reads and mixed semantics included)
 - [fs — names, directories, metadata](stdlib-fs.md)
-- [Concurrency — virtual threads, Mutex, Channel, Future, and synchronization tools](concurrency.md)
+- [Concurrency — virtual threads, Mutex, Channel, Future, and synchronization tools](../specification/10-concurrency/index.md)
 - [string methods — 18 built-ins](stdlib-string.md)
 - [Streams — ByteStream and FileStream](stdlib-streams.md)
 - [Packages and Import Search](../specification/03-program-structure/packages.md) (nide configuration and the third-party library shape included)

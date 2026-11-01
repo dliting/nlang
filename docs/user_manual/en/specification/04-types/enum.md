@@ -89,7 +89,7 @@ first: `a[i].weight(3)`, not `a.weight(3)` (§4.10).
 member carrying that value. A value inside the member table that
 no member carries returns the empty string; a value beyond the
 table raises a host-level run-time error at `toString()`
-(chapter 9 distinguishes host-level errors from exceptions).
+(chapter 8 distinguishes host-level errors from exceptions).
 
 ```nlang
 string s = Color.Red.toString();   // "Red"

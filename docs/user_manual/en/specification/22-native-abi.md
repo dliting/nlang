@@ -60,7 +60,7 @@ executable is always in the list; an embedding host may add
 directories, and a development build appends the build-tree
 directory that holds its own native outputs. A module found in
 no directory raises a host-level run-time error at the call
-(§9.1) naming the file and every directory consulted.
+(§8.1) naming the file and every directory consulted.
 
 **Load sequence.** The host opens the module file and then:
 
@@ -75,7 +75,7 @@ A rejection at any step unloads the module before its init
 runs: the registrations of an incompatible module — pointers
 into a library the host unloads at once — must never enter the
 native table. A rejected module raises a host-level run-time
-error at the call (§9.1).
+error at the call (§8.1).
 
 **Lifetime.** A loaded module stays loaded until the host
 shuts down, and modules are unloaded in reverse order of
@@ -102,7 +102,7 @@ void regBlocking(void* registry, const char* ns,
 
 **Registration.** Inside `nlang_native_init` the module
 registers each of its functions through `reg` — a non-blocking
-native, called while the global lock is held (§11.1) — or
+native, called while the global lock is held (§10.1) — or
 through `regBlocking` — a native with a blocking section
 (§22.7) — passing the opaque `registry` pointer through
 unchanged. The registered key is `<ns>.<name>`. The return
@@ -162,7 +162,7 @@ value travel in one eight-byte cell:
 
 The other four bytes of a cell that carries a four-byte value
 or a handle are never read. A handle is the same identifier
-the garbage collector traces (§10.2): a native passes it back
+the garbage collector traces (§9.2): a native passes it back
 through the host table and never dereferences it directly.
 
 **Frame discipline.** The native reads `args` and writes `ret`
@@ -233,9 +233,9 @@ class selected by `exceptionKind` and never returns:
 | `3` | `IndexOutOfBoundsException` |
 | `4` | `DivByZeroException` |
 
-The raised object is an ordinary exception of §9.3 with
+The raised object is an ordinary exception of §8.3 with
 `message` as its message: NLang code catches it exactly as it
-catches a `throw` (§9.1).
+catches a `throw` (§8.1).
 
 **Random.** `nextRandom` draws the next value and `seedRandom`
 seeds the generator; the state belongs to the host and is
@@ -257,7 +257,7 @@ A kind outside these four raises the base `Exception`. A
 negative length or dimension, and any request past the
 allocation guard, raises `IndexOutOfBoundsException` — the
 same outcome as a negative sized creation on the language side
-(§4.10, §9.3). A rank outside `1` to `64` raises the base
+(§4.10, §8.3). A rank outside `1` to `64` raises the base
 `Exception` (§4.10). The minted handle is kept alive by the
 host until the native writes it into `ret` (§22.7).
 
@@ -307,11 +307,11 @@ view instead of copying one.
 
 **The two channels.** A native registered through `reg` runs
 while the global lock is held: it must not wait on anything
-outside the virtual machine (§11.1). A native registered
+outside the virtual machine (§10.1). A native registered
 through `regBlocking` declares a blocking section: it may
 take unbounded time waiting on the outside world, and the
 virtual machine releases the global lock around its call so
-other contexts run meanwhile (§11.1).
+other contexts run meanwhile (§10.1).
 
 **Staging.** The blocking section is transparent to the
 signature. Before releasing the lock the host copies the
@@ -334,4 +334,4 @@ collected once the section ends.
 **Propagation.** An exception raised inside a blocking section
 — by `raiseException` or by a host callback — is held until
 the calling context is restored, and then propagates to the
-caller's handler like any other raise (§9.1).
+caller's handler like any other raise (§8.1).

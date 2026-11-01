@@ -55,7 +55,7 @@ Failures split into two models.
   `[-1, 1]` — yields a NaN `double` (§4.2) and does not raise;
   the package follows the C convention. A NaN propagates
   through further arithmetic.
-- An argument error raises `Exception` (§9.3): `absi` of the
+- An argument error raises `Exception` (§8.3): `absi` of the
   most negative `int`, `clampi` or `clampf` with `lo > hi`,
   `randomi` with `min > max`, and `floor`, `ceil` or `round`
   when `x` is NaN or the rounded value lies outside the `long`

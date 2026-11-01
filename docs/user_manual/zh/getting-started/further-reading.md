@@ -10,10 +10,10 @@
    ——类型系统、声明与List/Dict
 4. [表达式](../specification/05-expressions/index.md) → [语句](../specification/06-statements/index.md)
    ——运算符、控制流、异常
-5. [函数](../language-spec/functions.md) →
-   [函数类型与委托](../language-spec/function-types-and-delegates.md)
-6. [并发](../language-spec/concurrency.md)——`thread.spawn`派生虚拟线程，通道、互斥锁与Future
-7. [标准库](../language-spec/standard-library.md)、[内存管理](../language-spec/memory-management.md)、[退出码约定](../language-spec/exit-code-convention.md)、[已知限制](../language-spec/known-limitations.md)
+5. [函数](../specification/07-functions/index.md) →
+   [函数值与委托](../specification/07-functions/function-values.md)
+6. [并发](../specification/10-concurrency/index.md)——`thread.spawn`派生虚拟线程，通道、互斥锁与Future
+7. [标准库](../language-spec/standard-library.md)、[生命周期与垃圾回收](../specification/09-execution-model/memory.md)、[程序的进入与退出](../specification/09-execution-model/exit-codes.md)、[已知限制](../language-spec/known-limitations.md)
 
 想了解执行引擎：[VM架构/概览](../vm-architecture/overview.md)，再按需读编译管线、栈帧布局、字节码指令等章节。五个命令行工具（nlang/ncc/nvm/ndb/ndisasm）的用法见[命令行工具](../cli-tools/overview.md)一章。在集成开发环境（IDE，integrated development environment）里调试程序见[在nide中调试](debugging.md)。
 

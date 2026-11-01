@@ -124,7 +124,7 @@ The contract between host and library — the application binary interface (ABI)
 | Header | provided in the source repository (`include/nlang/vm/NativeHost.h`); no VM library to link against |
 | Argument helpers | `ArgInt`/`ArgString`/`ReturnInt`/`ReturnString` and friends |
 
-Compile the implementation into `nlang_num.dll` with any C++ compiler (add the repository `include/` to the header path) and place it next to `num.n`. When distributing, ship the library unit together with the DLL (next section). Typing rules for `native` declarations are in [Native Functions](../language-spec/native-functions.md).
+Compile the implementation into `nlang_num.dll` with any C++ compiler (add the repository `include/` to the header path) and place it next to `num.n`. When distributing, ship the library unit together with the DLL (next section). Typing rules for `native` declarations are in [Native Functions](../specification/07-functions/native.md).
 
 ## 4. Distribution
 

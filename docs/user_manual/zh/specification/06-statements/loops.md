@@ -129,4 +129,4 @@ foreach (string name in ages) {
 
 **struct元素被拷贝进循环变量**（值语义）：`foreach (Point p in arr) { p.x = 99; }`不修改`arr`的元素——`p`每轮都是新深拷贝（与C#一致，对值类型元素做foreach也产生拷贝）。见[结构体](../04-types/struct.md)。
 
-**null迭代源**在第一次`length()`调用时抛空指针异常（NPE，null pointer exception）——与所有其他class类型调用一致。见[异常](../../language-spec/exception.md)。
+**null迭代源**在第一次`length()`调用时抛空指针异常（NPE，null pointer exception）——与所有其他class类型调用一致。见[异常](../08-exceptions/index.md)。

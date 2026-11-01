@@ -1,6 +1,6 @@
 # The concurrent Package
 
-The normative rules are in [specification §11.3](../specification/11-concurrency.md)
+The normative rules are in [specification §10.3](../specification/10-concurrency/index.md)
 and [§17.2](../specification/17-concurrency-library.md).
 
 ## When to use
@@ -24,7 +24,7 @@ accumulates outstanding units, each unit calls `done()` once, and
 `wait`, and `done` paired with `add` — an unmatched `done` releases
 `wait` early, a missing `done` suspends it until the deadlock report.
 Each handle class has its own page (see
-[Concurrency](concurrency.md) for the map).
+[Concurrency](../specification/10-concurrency/index.md) for the map).
 
 ```nlang
 import concurrent;

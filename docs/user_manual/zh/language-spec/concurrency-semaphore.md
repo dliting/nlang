@@ -122,7 +122,7 @@ int main() {
 }
 ```
 
-`tryAcquire()`绝不挂起，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与竞争中的`lock`一样正常挂起——窗口冻结等待许可出现（见[重入求值内的挂起](concurrency-suspension.md#重入求值内的挂起)）。
+`tryAcquire()`绝不挂起，因此重入求值（如`toString`覆写）内也可安全调用；零许可`acquire`则与竞争中的`lock`一样正常挂起——窗口冻结等待许可出现（见[重入求值内的挂起](../specification/10-concurrency/suspension.md#重入求值内的挂起)）。
 
 ## 与Channel对照
 

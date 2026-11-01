@@ -40,7 +40,7 @@ Python/cmd/PowerShell and as 44 in bash (300 mod 256). When writing
 tests or scripts, keep expected exit codes within 0–255 so every
 observer sees the same value.
 
-See also: [Language Specification / Exit Code Convention](../language-spec/exit-code-convention.md).
+See also: [Specification / Program Entry and Exit](../specification/09-execution-model/exit-codes.md).
 
 ### Garbled output in the console?
 

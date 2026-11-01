@@ -45,10 +45,18 @@ before they land here.
 - [6. Statements](06-statements/index.md)
   - [6.7 Control Flow](06-statements/control-flow.md)
   - [6.8 Loops](06-statements/loops.md)
-- [7. Functions and Methods](07-functions.md)
-- [9. Exceptions](09-exceptions.md)
-- [10. Execution Model and Memory Semantics](10-execution-model.md)
-- [11. Concurrency](11-concurrency.md)
+- [7. Functions](07-functions/index.md)
+  - [7.2 Parameters and Arguments](07-functions/parameters.md)
+  - [7.3 Overload Resolution](07-functions/overloads.md)
+  - [7.4 Function Values and Delegates](07-functions/function-values.md)
+  - [7.5 Native Functions](07-functions/native.md)
+- [8. Exceptions](08-exceptions/index.md)
+- [9. Execution Model](09-execution-model/index.md)
+  - [9.2 Lifetime and Garbage Collection](09-execution-model/memory.md)
+  - [9.3 Program Entry and Exit](09-execution-model/exit-codes.md)
+- [10. Concurrency](10-concurrency/index.md)
+  - [10.8 Carriers and Parallelism](10-concurrency/carriers.md)
+  - [10.9 Suspension and Scheduling Limits](10-concurrency/suspension.md)
 
 ### Part II — The Standard Library
 
