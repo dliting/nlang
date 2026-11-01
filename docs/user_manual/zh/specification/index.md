@@ -72,12 +72,12 @@
 
 ### 第三部分 — 二进制格式
 
-- [20. `.ncu`单元映像](20-ncu-unit-image.md)
-- [21. `.npkg`包档案](21-npkg-package-archive.md)
-- [22. 原生应用二进制接口（ABI）](22-native-abi.md)
+- [20. `.ncu`单元映像](formats/20-ncu.md)
+- [21. `.npkg`包档案](formats/21-npkg.md)
+- [22. 原生应用二进制接口（ABI）](formats/22-abi.md)
 
 ### 参考
 
-- [已知限制](../language-spec/known-limitations.md)
-- [常见错误消息](../language-spec/common-errors.md)
-- [命名约定](../language-spec/naming-convention.md)
+- [已知限制](reference/known-limitations.md)
+- [常见错误消息](reference/common-errors.md)
+- [命名约定](reference/naming-convention.md)

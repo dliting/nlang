@@ -120,7 +120,7 @@ terminal's scrollback and copy work as usual.
 write `lib.f()`; the bare name `f()` does not resolve. The visibility
 rules for each reference form are on the [Specification /
 Declarations](../specification/03-program-structure/declarations.md) "Import Declaration"
-section. See [Common Error Messages](../language-spec/common-errors.md)
+section. See [Common Error Messages](../specification/reference/common-errors.md)
 for the full error text.
 
 ### Assigning an array value to another type gives `Incompatible type`?
@@ -129,10 +129,10 @@ An array value has only two legal destinations — its own array type
 and every `string` target (`toString`, etc.); every other scalar
 context is rejected at compile time with an explicit error
 (`Incompatible type "a"`).
-The full rule is on [Language Specification / Known
-Limitations](../language-spec/known-limitations.md), the "Array values
+The full rule is on [Language Reference / Known
+Limitations](../specification/reference/known-limitations.md), the "Array values
 in scalar contexts" item. See [Common Error
-Messages](../language-spec/common-errors.md) for the full error text.
+Messages](../specification/reference/common-errors.md) for the full error text.
 
 ### What happens to an uninitialized variable?
 
@@ -155,8 +155,8 @@ cannot take arguments`. Create such a struct with a bare declaration
 `Point{2, 3}` in declaration order. Declare a constructor
 (`public Point(int a, int b) { x = a; y = b; }`) and `Point(2, 3)` runs
 it. See the "A struct without a constructor cannot take arguments"
-entry in [Language Specification / Common Error
-Messages](../language-spec/common-errors.md) and
+entry in [Language Reference / Common Error
+Messages](../specification/reference/common-errors.md) and
 [Struct](../specification/04-types/struct.md) "Creation and initialization".
 
 ### Array or `List` — which one?
@@ -193,9 +193,9 @@ of a function is capped at 64; exceeding it is a compile
 error (`function "f" has 65 parameters; limit is 64.`). The condition
 typing is on [Specification / Statements](../specification/06-statements/index.md)
 ("Condition typing"); the parameter ceiling is on [Language
-Specification / Known Limitations](../language-spec/known-limitations.md)
+Reference / Known Limitations](../specification/reference/known-limitations.md)
 ("Parameter count ceiling" item). See [Common Error
-Messages](../language-spec/common-errors.md) for the full error text.
+Messages](../specification/reference/common-errors.md) for the full error text.
 
 ### Why can't a subclass overload a parent virtual method like Java/C++?
 
@@ -230,7 +230,7 @@ help window is rebuilt each time it is reopened (it does not remember
 the last browsing position).
 
 More known limitations:
-[Language Specification / Known
-Limitations](../language-spec/known-limitations.md),
+[Language Reference / Known
+Limitations](../specification/reference/known-limitations.md),
 [VM Architecture / Known
 Limitations](../vm-architecture/known-limitations.md).

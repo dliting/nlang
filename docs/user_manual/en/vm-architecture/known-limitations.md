@@ -2,7 +2,7 @@
 
 This page lists the limitations currently visible to user programs,
 with workable alternatives where they exist; for language-level
-limitations see [Known Limitations](../language-spec/known-limitations.md).
+limitations see [Known Limitations](../specification/reference/known-limitations.md).
 
 1. **Exit code range**: The process exit code passes through as the full
    32-bit value; however, POSIX shells keep only the low 8 bits in `$?`

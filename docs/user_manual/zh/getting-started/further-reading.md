@@ -14,7 +14,7 @@
 5. [库约定](../specification/library/11-conventions.md)——标准库一览，其后是各包的章节
 6. [生命周期与垃圾回收](../specification/09-execution-model/memory.md)与[程序的进入与退出](../specification/09-execution-model/exit-codes.md)
 
-参考页——[命名约定](../language-spec/naming-convention.md)、[已知限制](../language-spec/known-limitations.md)与[常见错误消息](../language-spec/common-errors.md)——是规范的资料性补充。
+规范末尾的参考页——[命名约定](../specification/reference/naming-convention.md)、[已知限制](../specification/reference/known-limitations.md)与[常见错误消息](../specification/reference/common-errors.md)——是编号章节的资料性补充。
 
 想了解执行引擎：[VM架构/概览](../vm-architecture/overview.md)，再按需读编译管线、栈帧布局、字节码指令等章节。五个命令行工具（nlang/ncc/nvm/ndb/ndisasm）的用法见[命令行工具](../cli-tools/overview.md)一章。在集成开发环境（IDE，integrated development environment）里调试程序见[在nide中调试](debugging.md)。
 

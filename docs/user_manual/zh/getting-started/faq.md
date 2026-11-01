@@ -51,11 +51,11 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 跨模块引用报`Module '...' is not imported`？
 
-`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 数组值赋给其他类型报`Incompatible type`？
 
-数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言规格/已知限制](../language-spec/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+数组值只有两类合法去向——自身数组类型与全部`string`目标（`toString`等），其余标量上下文一律在编译期报出明确错误（`Incompatible type "a"`）。完整规则见[语言参考/已知限制](../specification/reference/known-limitations.md)的「标量上下文中的数组值」条。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 变量不初始化会怎样？
 
@@ -63,7 +63,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### `Point(2, 3)`为什么报「没有构造器」？
 
-未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言规格/常见错误消息](../language-spec/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../specification/04-types/struct.md)「创建与初始化」。
+未声明构造器的struct不能带实参调用——`Point(2, 3)`报`struct "Point" has no constructor; Point() cannot take arguments`。这类struct用裸声明（`Point p;`）或花括号条目创建：`Point{x: 2, y: 3}`或按声明序的`Point{2, 3}`。声明构造器（`public Point(int a, int b) { x = a; y = b; }`）后`Point(2, 3)`就会运行它。见[语言参考/常见错误消息](../specification/reference/common-errors.md)的「未声明构造器的struct不能带实参」条与[结构体](../specification/04-types/struct.md)「创建与初始化」。
 
 ### 数组和`List`用哪个？
 
@@ -77,7 +77,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 `if` / `while` / `do-while` / `for` / `assert`的条件与`&&` / `||` /
 `!`的操作数都必须是`bool`（比较与谓词已经产生bool——没有C式的「非零即真」）；int、string、float、char、class、struct、array都会在编译期报错（`if condition must be bool, not
-"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[规范/语句](../specification/06-statements/index.md)的「条件类型」，参数数上限见[语言规格/已知限制](../language-spec/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../language-spec/common-errors.md)。
+"Int32"`、`operator '&&' requires bool operands, got "Int32"`）。计数判断请写`if (count != 0)`。另外函数参数个数上限为64，超出触发编译期错误（`function "f" has 65 parameters; limit is 64.`）。条件类型的机制见[规范/语句](../specification/06-statements/index.md)的「条件类型」，参数数上限见[语言参考/已知限制](../specification/reference/known-limitations.md)的「参数数上限」条。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 为什么不能像Java/C++那样在子类重载父类虚方法？
 
@@ -95,5 +95,5 @@ installation.」。多因文档站未随包部署到`docs\site\`，或安装目�
 内嵌帮助窗口顶栏有Back / Forward导航按钮，可在已访问的文档页之间前进后退；帮助窗口关闭后每次重新打开都会重建（不保留上次的浏览位置）。
 
 更多已知限制：
-[语言规格/已知限制](../language-spec/known-limitations.md)、[VM架构/已知限制](../vm-architecture/known-limitations.md)。
+[语言参考/已知限制](../specification/reference/known-limitations.md)、[VM架构/已知限制](../vm-architecture/known-limitations.md)。
 

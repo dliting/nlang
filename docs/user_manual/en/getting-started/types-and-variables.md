@@ -3,7 +3,7 @@
 Every snippet below really compiles and runs (`ncc build` + `nvm`) —
 copy any of them into nide or a `.n` file to try it. Each section states
 the actual output and exit code, and ends with links to the matching
-Language Specification chapters.
+language specification chapters.
 
 ### Variables and Types
 

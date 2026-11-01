@@ -1,24 +1,14 @@
 # Known Limitations
 
-This page collects the language-level limitations visible to user programs, with workable alternatives; see [the VM's known limitations](../vm-architecture/known-limitations.md) for the virtual-machine side.
+This page collects the language-level limitations visible to user programs, with workable alternatives; see [the VM's known limitations](../../vm-architecture/known-limitations.md) for the virtual-machine side.
 
 ### Types, arrays and collections
-
-- **Generic class declarations are signature-only (all-native members)**:
-  `class Box<T> { ... }` declarations are accepted, but carry signatures
-  only — members must be native methods, and nlang method bodies, field
-  initializers, and parameter default values inside a generic declaration
-  are rejected at compile time; a native member without a host binding
-  compiles and fails only at runtime with `native function not
-  registered`. For everyday generics use the built-in containers
-  (`List<T>`, `Dict<K,V>`, `Channel<T>`, `Future<T>`) and the prelude
-  `Promise<T>`.
 
 - **`as` from string to a numeric type is forbidden**: `"5" as int` is a
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
-  [string methods](../specification/library/16-string-methods.md)); this is a deliberate scope
+  [string methods](../library/16-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
 - **Array values in scalar contexts**: an array value has exactly two
@@ -61,7 +51,7 @@ This page collects the language-level limitations visible to user programs, with
   a typed target; as a receiver (`{}.length()`) there is none, so it
   stays rejected — bind a typed local first. Named arguments do infer
   (`count(items = {1, 2})`). See
-  [Collection Initializers](../specification/05-expressions/initializers.md).
+  [Collection Initializers](../05-expressions/initializers.md).
 
 - **Empty array literal**: the empty literal is `{}` for `List<T>` and
   `Dict<K,V>` targets (`List<T> l = {};`, `Dict<K,V> d = {};`); an array
@@ -74,7 +64,7 @@ This page collects the language-level limitations visible to user programs, with
 - **Direct-init parenthesized form on the first declarator only**:
   `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
   this page stands for a type-with-constructor example; see
-  [Class](../specification/04-types/class.md) and [Struct](../specification/04-types/struct.md)).
+  [Class](../04-types/class.md) and [Struct](../04-types/struct.md)).
 
 - **Mixed declarators take the array type**: in `int a[3], b;` the
   sibling `b` is a null `int[]` (array-typed), not an int.
@@ -183,7 +173,7 @@ This page collects the language-level limitations visible to user programs, with
   suspended or queued when `main` returns are dropped silently — there is no
   implicit wait-for-all; establish completion order explicitly with
   `thread.join`. If the run queue drains while main is still unfinished,
-  the VM reports a deadlock error. See [Concurrency](../specification/10-concurrency/index.md).
+  the VM reports a deadlock error. See [Concurrency](../10-concurrency/index.md).
 
 - **Concurrency: storage is locked per data category, same-category
   operations serialize**: heap and string allocation proceeds per
@@ -197,13 +187,13 @@ This page collects the language-level limitations visible to user programs, with
   reads and writes of a shared object's fields (shared through
   `spawn` arguments or a channel) are a data race — a transitional
   value may be read; single-value state takes
-  [AtomicInt](../specification/library/17-concurrency-classes/atomic.md), multi-field invariants take a
+  [AtomicInt](../library/17-concurrency-classes/atomic.md), multi-field invariants take a
   `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count
   with `VmExecutor::SetCarrierThreadCount` (embedding hosts, default
   1) or `nvm --carriers=N` (tool, at most 4 by default). See [Carriers and
-  Parallelism](../specification/10-concurrency/carriers.md).
+  Parallelism](../10-concurrency/carriers.md).
 
 - **Concurrency: multi-carrier scheduling order is unspecified**: a
   single carrier (the library default) is fully deterministic — the
@@ -212,7 +202,7 @@ This page collects the language-level limitations visible to user programs, with
   order (preferring the one it last ran, for cache locality), so the
   interleaving is not guaranteed and program
   correctness rests only on the `join`, channel, and mutex
-  happens-before edges. See [Concurrency](../specification/10-concurrency/index.md).
+  happens-before edges. See [Concurrency](../10-concurrency/index.md).
 
 - **Concurrency: a debugger pause is all-stop**: while the debugger
   is stopped, no virtual thread starts executing — an in-flight
@@ -223,16 +213,16 @@ This page collects the language-level limitations visible to user programs, with
   the call stacks and locals of suspended contexts remain inspectable
   while stopped. `ndb` pins a single carrier to keep stepping and
   breakpoints deterministic; multi-context inspection is covered in
-  [ndb](../cli-tools/ndb.md).
+  [ndb](../../cli-tools/ndb.md).
 
 - **Concurrency: no `await` keyword**: functions are not async-colored
-  (see the model section in [Concurrency](../specification/10-concurrency/index.md));
+  (see the model section in [Concurrency](../10-concurrency/index.md));
   `Future.get()` is an honest blocking wait, and `thread.join` waits on
   a valueless `Thread`.
 
 - **Concurrency: multi-way waiting stays in the `Future` domain**: a
   `Future` can be completed by hand through a `Promise`
-  ([Promise](../specification/library/17-concurrency-classes/promise.md)), and `Future.selectAny` provides
+  ([Promise](../library/17-concurrency-classes/promise.md)), and `Future.selectAny` provides
   the "whichever decides first" multi-way wait; but channels have no
   "whichever is ready" `recv` variant — to receive from many sources
   whichever comes first, wrap each source with a `Promise` and call
@@ -243,7 +233,7 @@ This page collects the language-level limitations visible to user programs, with
   context. Waiting sides observe the failure through `join`/`Future.get`
   (a rethrow of the original exception object); non-blocking observation
   is available through `thread.isFailed`/`thread.failure` (see
-  [Probing a task's failure](../specification/library/17-concurrency-classes/thread.md#probing-a-tasks-failure)).
+  [Probing a task's failure](../library/17-concurrency-classes/thread.md#probing-a-tasks-failure)).
   A failure nobody ever waited for or retrieved is not silently lost: at
   run end the VM prints one stderr line per such task (task id, exception
   type and message).
@@ -251,8 +241,8 @@ This page collects the language-level limitations visible to user programs, with
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
   deadlock report; composed or recursive methods take
-  [ReentrantMutex](../specification/library/17-concurrency-classes/reentrant-mutex.md). See
-  [Mutex](../specification/library/17-concurrency-classes/mutex.md).
+  [ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md). See
+  [Mutex](../library/17-concurrency-classes/mutex.md).
 
 - **Concurrency: suspension inside carrier-less host windows**: inside
   re-entrant evaluation that runs **during a run** — your `toString`
@@ -278,7 +268,7 @@ This page collects the language-level limitations visible to user programs, with
   the native declaration contract — a third-party native that waits
   anyway occupies only the carrier executing it, and every other
   carrier runs on; adding the blocking declaration lets the calling
-  virtual thread suspend and release its locks too. Output-redirection callbacks hold no global lock — concurrent
+  virtual thread suspend and release its locks too. Output-redirection callbacks take no category lock — concurrent
   output serializes through the console mutex, so keep the callbacks
   short to reduce queueing. See [Carriers and
-  Parallelism](../specification/10-concurrency/carriers.md).
+  Parallelism](../10-concurrency/carriers.md).

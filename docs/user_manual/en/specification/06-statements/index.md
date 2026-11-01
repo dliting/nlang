@@ -118,7 +118,7 @@ rules as the binary shift — see [Operators](../05-expressions/operators.md) "S
 For string elements only `+=` (concat) is legal; the other six operators
 are rejected with `operator not supported on string`. A string base is not
 supported (`string does not support subscript access`, see [Common
-Errors](../../language-spec/common-errors.md) "Assignment targets"). `d[k] += v` throws when
+Errors](../reference/common-errors.md) "Assignment targets"). `d[k] += v` throws when
 the key is missing (same as reading `d[k]`).
 
 ## 6.3 Selection

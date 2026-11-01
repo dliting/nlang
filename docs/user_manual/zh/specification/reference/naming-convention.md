@@ -1,3 +1,5 @@
+> 译文仅供参考，以英文规范为准（informative translation; the English specification is normative）。
+
 # 命名约定
 
 
@@ -9,7 +11,7 @@ NLang方法采用**camelCase**、类型采用**PascalCase**——Java风格大�
 | 方法——动作/命令（有副作用或多参数） | camelCase，裸动词 | `add(x)`、`clear()`、`readInt()`、`run()` |
 | 方法——纯访问器（无副作用、无参数、有返回值） | camelCase加`get`/`set`前缀 | `getHashCode()` |
 | 方法——谓词（返回`bool`） | camelCase，裸单词 | `contains(x)`、`startsWith(s)`、`fs.exists(p)` |
-| 自由函数 | camelCase | `io.print(s)`、`computeTotal()` |
+| 自由函数 | camelCase | `io.print(s)`、`fs.isFile(p)`、`computeTotal()` |
 | 变量/参数/局部变量 | camelCase | `firstName`、`itemCount` |
 | 入口函数`main` | 小写（唯一例外） | `int main()` |
 | 枚举值 | PascalCase | `Color.Red`、`Day.Monday` |
@@ -21,4 +23,4 @@ NLang方法采用**camelCase**、类型采用**PascalCase**——Java风格大�
 - 覆盖Java + JS + C++约定（最大公约数）。
 - `main`例外保留了C/C++/Java通用的入口函数约定。
 - 访问器保留`getXxx` / `setXxx`前缀（C#风格）：目前只有`getHashCode`使用这一形式；其他访问器（`length`、`count`、`position`、`keys`）用裸camelCase。
-- 谓词不用`isXxx` / `hasXxx`前缀——`contains`与`startsWith`本身已足够清晰。（例外：`equals`沿用Object虚方法协议，返回int 0/1——见[Object与装箱](../specification/04-types/object.md)。）
+- 内建类方法的谓词一律裸名——`contains`与`startsWith`本身已足够清晰；包（自由）函数在裸名过于含糊时可以用`is` / `has`前缀：`fs.isFile`、`fs.isDirectory`、`io.hasInput`。（例外：`equals`沿用Object虚方法协议，返回int 0/1——见[Object与装箱](../04-types/object.md)。）

@@ -43,7 +43,7 @@ not keep it alive; wait for what you need (`join`, `get`, `wait`) before
 returning. Contexts still suspended or queued are dropped silently: there
 is no implicit wait-for-all, because one sleeping worker should not hang
 the whole program (see the [known
-limitations](../../language-spec/known-limitations.md)).
+limitations](../reference/known-limitations.md)).
 
 When `main` is suspended and no runnable context remains (for example, an
 empty-channel `recv` whose sender will never come, or a mutex relocked by

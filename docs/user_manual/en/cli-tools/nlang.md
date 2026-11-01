@@ -106,7 +106,7 @@ rejected by the duplicate-definition check. Inside a function body,
 `Foo f();` is a zero-argument direct initialization (a variable
 declaration calling the constructor with no arguments) and keeps working;
 the empty-parameter ambiguity exists only at top level (see
-[Known Limitations](../language-spec/known-limitations.md)).
+[Known Limitations](../specification/reference/known-limitations.md)).
 
 ## Out of Scope
 

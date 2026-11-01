@@ -19,10 +19,11 @@ Suggested reading order through the
 6. [Lifetime and Garbage Collection](../specification/09-execution-model/memory.md)
    and [Program Entry and Exit](../specification/09-execution-model/exit-codes.md)
 
-The reference pages — [Naming Convention](../language-spec/naming-convention.md),
-[Known Limitations](../language-spec/known-limitations.md), and
-[Common Error Messages](../language-spec/common-errors.md) — are
-informative companions to the specification.
+The reference pages at the end of the specification — [Naming
+Convention](../specification/reference/naming-convention.md), [Known
+Limitations](../specification/reference/known-limitations.md), and
+[Common Error Messages](../specification/reference/common-errors.md) —
+are informative companions to the numbered chapters.
 
 For the execution engine: start with
 [VM Architecture / Overview](../vm-architecture/overview.md), then read

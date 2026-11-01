@@ -85,7 +85,7 @@ with a lower bound: when every virtual thread is waiting, sleepers wake
 within the operating system's timer granularity (about 15.6 ms on
 Windows). A paused debugger blocks new virtual threads from starting
 while the stop lasts; each in-flight segment stops once it finishes (see
-[Known limitations](../../language-spec/known-limitations.md)).
+[Known limitations](../reference/known-limitations.md)).
 
 The defaults stay conservative: leave the carrier count alone unless
 measurement shows a benefit.

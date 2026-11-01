@@ -35,7 +35,7 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
-  - 规范:
+  - 语言参考:
       - 概览: specification/index.md
       - 引言: specification/00-introduction.md
       - 词法结构: specification/01-lexical.md
@@ -101,14 +101,14 @@ nav:
               - concurrent包: specification/library/17-concurrency-classes/concurrent.md
           - tensor包: specification/library/18-tensor.md
           - 库异常: specification/library/19-library-exceptions.md
-      - .ncu单元映像: specification/20-ncu-unit-image.md
-      - .npkg包档案: specification/21-npkg-package-archive.md
-      - 原生应用二进制接口: specification/22-native-abi.md
-  - 语言规格:
-      - 命名约定: language-spec/naming-convention.md
+      - 二进制格式:
+          - .ncu单元映像: specification/formats/20-ncu.md
+          - .npkg包档案: specification/formats/21-npkg.md
+          - 原生应用二进制接口: specification/formats/22-abi.md
       - 参考:
-          - 已知限制: language-spec/known-limitations.md
-          - 常见错误消息: language-spec/common-errors.md
+          - 已知限制: specification/reference/known-limitations.md
+          - 常见错误消息: specification/reference/common-errors.md
+          - 命名约定: specification/reference/naming-convention.md
   - 库与集成:
       - 开发第三方库: libraries/developing-libraries.md
       - 集成NLang: libraries/integrating-nlang.md

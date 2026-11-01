@@ -1,8 +1,9 @@
-# English tree. INHERIT pulls every shared setting from the base; the
-# manual trees are fully translated and the specification tree is being
-# seeded in batches, so docs/user_manual/translation-pending.txt is
-# non-empty and the tree-parity pytest runs in pending mode (strict
-# nav parity locks again once the list empties).
+# English tree. INHERIT pulls every shared setting from the base; both
+# the manual trees and the specification tree are fully translated, so
+# docs/user_manual/translation-pending.txt is empty and the tree-parity
+# pytest runs in strict mode (the two navs must list identical page
+# paths; a page missing from one nav fails the gate even when
+# translated).
 INHERIT: mkdocs.base.yml
 site_name: NLang Documentation
 docs_dir: user_manual/en
@@ -34,7 +35,7 @@ nav:
       - nvm: cli-tools/nvm.md
       - ndb: cli-tools/ndb.md
       - ndisasm: cli-tools/ndisasm.md
-  - Specification:
+  - Language Reference:
       - Overview: specification/index.md
       - Introduction: specification/00-introduction.md
       - Lexical Structure: specification/01-lexical.md
@@ -100,14 +101,14 @@ nav:
               - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
           - The tensor Package: specification/library/18-tensor.md
           - Library Exceptions: specification/library/19-library-exceptions.md
-      - The `.ncu` Unit Image: specification/20-ncu-unit-image.md
-      - The `.npkg` Package Archive: specification/21-npkg-package-archive.md
-      - The Native Application Binary Interface (ABI): specification/22-native-abi.md
-  - Language Specification:
-      - Naming Convention: language-spec/naming-convention.md
+      - Binary Formats:
+          - The `.ncu` Unit Image: specification/formats/20-ncu.md
+          - The `.npkg` Package Archive: specification/formats/21-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/22-abi.md
       - Reference:
-          - Known Limitations: language-spec/known-limitations.md
-          - Common Error Messages: language-spec/common-errors.md
+          - Known Limitations: specification/reference/known-limitations.md
+          - Common Error Messages: specification/reference/common-errors.md
+          - Naming Convention: specification/reference/naming-convention.md
   - Libraries and Integration:
       - Developing Libraries: libraries/developing-libraries.md
       - Integrating NLang: libraries/integrating-nlang.md

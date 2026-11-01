@@ -64,7 +64,7 @@ redundant — plain `int x = b;` works. The implicit matrix is in
 - Array operands are rejected outright (`ia as int`, `ia as Object` —
   "the cast operand is an array"): an array value's legal conversions are
   its own array type and string targets — never `as` (see
-  [Known Limitations](../../language-spec/known-limitations.md) for the full array-value
+  [Known Limitations](../reference/known-limitations.md) for the full array-value
   conversion rule).
 
 The Object side of unboxing/downcasting is on

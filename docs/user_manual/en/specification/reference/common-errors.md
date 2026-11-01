@@ -4,7 +4,7 @@ The NLang compiler's error messages, grouped by error family. Each
 family shows the trigger shape, the error text, a one-line cause, and a
 pointer to the full rule. Systematic limits (what you *can* do, rather
 than how it errors) are on [Known Limitations](known-limitations.md);
-quick answers to high-frequency questions are on the [FAQ](../getting-started/faq.md).
+quick answers to high-frequency questions are on the [FAQ](../../getting-started/faq.md).
 
 ### Array values (scalar contexts)
 
@@ -44,8 +44,8 @@ of `&&`/`||`/`!` must all be `bool` (comparisons and predicates already
 produce bool) — int, string, float, char, class, struct, and array are
 all rejected with explicit errors (`if condition must be bool, not "Int32"`,
 `operator '&&' requires bool operands, got "Int32"`). Rewrite as an
-explicit comparison: `if (s != "")`, `if (count != 0)`. See [Statements](../specification/06-statements/index.md) "Condition typing" and
-[Operators](../specification/05-expressions/operators.md) "Logical".
+explicit comparison: `if (s != "")`, `if (count != 0)`. See [Statements](../06-statements/index.md) "Condition typing" and
+[Operators](../05-expressions/operators.md) "Logical".
 
 ### import and visibility
 
@@ -61,7 +61,7 @@ Error: Module 'nosuch' not found. Check the project Sources list or -I import pa
 unimported standard library package (or a known project module) without
 importing it reports a "not imported" diagnostic — for example, calling
 `io.print` without `import io;` reports `Package 'io' is not imported.
-Add 'import io;' at the top of this file.`. See [Declarations](../specification/03-program-structure/declarations.md) "Import Declaration".
+Add 'import io;' at the top of this file.`. See [Declarations](../03-program-structure/declarations.md) "Import Declaration".
 
 ### Default expressions on imported functions
 
@@ -92,7 +92,7 @@ calls nested as arguments sit outside the subset; importing the
 function rejects them on the consumer side with the error above.
 Compiling the sources together in one project build does not hit this
 restriction — the default expression is used directly. See →
-[Default Parameters](../specification/07-functions/parameters.md).
+[Default Parameters](../07-functions/parameters.md).
 
 ### Imported function does not match its record
 
@@ -109,7 +109,7 @@ module's `.ncu` is left stale, the recorded position no longer names the
 same function. The linker refuses to guess and reports this rather than
 silently binding the call to the wrong record. Recompile the importing
 module against the current producer artifact. See →
-[Packages](../specification/03-program-structure/packages.md).
+[Packages](../03-program-structure/packages.md).
 
 ### Declarations and control flow
 
@@ -129,8 +129,8 @@ A control-flow statement's unbraced (bare) body cannot be a declaration
 — use a braced body. When calling a function with an `out` parameter,
 the call site must carry the `out` marker, otherwise you get `The
 function invoke "foo(y)" is not compatible with the declaration.`. See
-[Statements](../specification/06-statements/index.md) "Unbraced body" and
-[Out Parameters](../specification/07-functions/parameters.md).
+[Statements](../06-statements/index.md) "Unbraced body" and
+[Out Parameters](../07-functions/parameters.md).
 
 ### First direct-init argument parsed as a type at top level
 
@@ -173,7 +173,7 @@ Error: cannot assign to the result of a method call.
 A method call yields a value, not a location — both `c.step() = v` and
 `c.step() += v` are rejected with this error. To write a field, use `c.n`
 as the left value; the full set of supported left values is in
-[Compound Assignment](../specification/06-statements/index.md).
+[Compound Assignment](../06-statements/index.md).
 
 ### The method "f" claims the virtual dispatch slot of ...
 
@@ -205,7 +205,7 @@ pointing at the contract, and the class declaration adds a
 `required by its inheritance contract` line; when the contract is an
 interface method the anchor reads `"IF.val(Int32): Int32"` (next entry).
 Make the signature match the contract exactly (an override), or rename the
-method. See [Class](../specification/04-types/class.md), "Virtual methods and overriding".
+method. See [Class](../04-types/class.md), "Virtual methods and overriding".
 
 ### The method "f" claims the virtual dispatch slot of ... with a different signature ... Virtual dispatch is name-based
 
@@ -235,7 +235,7 @@ drop `virtual` from the whole family — fully non-virtual families
 overload normally. The rendered signatures use the internal type names
 (`Int32`, `String`, `Float`), and a `static` member mixed with an
 instance `virtual` member is rejected the same way (`static` counts as
-a signature difference). See [Class](../specification/04-types/class.md), "Virtual methods and
+a signature difference). See [Class](../04-types/class.md), "Virtual methods and
 overriding".
 
 ### The class "F" does not implement the method "val(Int32): Int32" required by interface "IF"
@@ -286,7 +286,7 @@ in the class), the variant
 `The class "C" does not implement the method "val(Int32): Int32" required by interface "IF" (found "val(String): Int32" with a different signature).`
 is reported instead. Provide an implementation with the exact signature
 in the class (or one of its parents); note that a same-name method must
-not coexist as an overload of an interface contract. See [Interface](../specification/04-types/interface.md), "Declaration and implementation contract".
+not coexist as an overload of an interface contract. See [Interface](../04-types/interface.md), "Declaration and implementation contract".
 
 ### switch and enum
 
@@ -310,7 +310,7 @@ A switch discriminant may be an integer-family value (including char),
 `float`/`double`, `string`, or enum; bool, class, struct, `List`,
 `Dict`, and array values are rejected — use `if`/`else` + `equals()`
 for class values, and expand a bool discriminant into `if`/`else`. See
-[Switch](../specification/06-statements/control-flow.md).
+[Switch](../06-statements/control-flow.md).
 
 ### Literal and constant fit
 
@@ -352,8 +352,8 @@ target's range (a constant-fit special case — `byte b = 5` is legal);
 unsuffixed decimal and exponent forms are `double` literals, and integer
 targets never accept float constants (`int x = 2e5` likewise reports
 Incompatible type); string interpolation only supports `${name}` named
-variables, not expressions. See [Primitive Types](../specification/04-types/primitives.md) "Numeric
-literals" and [String](../specification/04-types/string.md) "String interpolation".
+variables, not expressions. See [Primitive Types](../04-types/primitives.md) "Numeric
+literals" and [String](../04-types/string.md) "String interpolation".
 
 ### Numeric type mixing
 
@@ -401,8 +401,8 @@ with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
 suppresses this warning family; an explicit `as` never warns). See →
-[Types](../specification/04-types/index.md) "Numeric conversion matrix" and
-[Operators](../specification/05-expressions/operators.md) "Arithmetic".
+[Types](../04-types/index.md) "Numeric conversion matrix" and
+[Operators](../05-expressions/operators.md) "Arithmetic".
 
 ### `as` casts
 
@@ -434,7 +434,7 @@ Error: Invalid cast: `String as Int32` is not allowed.
 writing `as` for a widening that is already implicitly legal is
 redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/
-`toDouble()` method family. See [Type Casts](../specification/04-types/casts.md).
+`toDouble()` method family. See [Type Casts](../04-types/casts.md).
 
 ### Dict initializer key type mismatch
 
@@ -453,7 +453,7 @@ Dict initializer keys are expressions checked against the declared key
 type K by the same conversion rule as values — a string key in a
 `Dict<int, int>` fails that check. Write a key of the declared key type
 (`{1: 2}`), or declare `K` as `string`. See →
-[Collection Initializers](../specification/05-expressions/initializers.md).
+[Collection Initializers](../05-expressions/initializers.md).
 
 ### A struct without a constructor cannot take arguments
 
@@ -473,8 +473,8 @@ A struct that declares no constructor can only be created with a bare
 declaration (`Point p;`) or a brace entry list (`Point{x: 2, y: 3}` /
 `Point{2, 3}`) — it cannot be called with arguments. Declare a constructor
 to call it: `public Point(int a, int b) { x = a; y = b; }` makes `Point(2, 3)`
-run it (see [Struct](../specification/04-types/struct.md) "Creation and initialization" and
-[Collection Initializers](../specification/05-expressions/initializers.md)).
+run it (see [Struct](../04-types/struct.md) "Creation and initialization" and
+[Collection Initializers](../05-expressions/initializers.md)).
 
 ### Type aliases
 
@@ -488,7 +488,7 @@ Error: The type alias "A" is defined more than once in this translation unit.
 ```
 
 The same alias name may not be defined twice in one translation unit; a
-circular alias (`using A = B; using B = A;`) is rejected. See [Declarations](../specification/03-program-structure/declarations.md) "Type Aliases".
+circular alias (`using A = B; using B = A;`) is rejected. See [Declarations](../03-program-structure/declarations.md) "Type Aliases".
 
 ### Source file encoding
 
@@ -516,4 +516,4 @@ file's logical content; the diagnostic comes from the bytes actually
 stored on disk, so the same source compiles fine once re-saved as
 UTF-8. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
-[Primitive Types](../specification/04-types/primitives.md) "Representation: from source to console".
+[Primitive Types](../04-types/primitives.md) "Representation: from source to console".

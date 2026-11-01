@@ -60,7 +60,7 @@ x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
 
 位移对`<<=`/`>>=`把结果类型固定为左值的声明类型（不提升为int），计数实参规则与二元位移一致——见[运算符](../05-expressions/operators.md)「位移」。
 
-元素为string时仅`+=`（拼接）合法，其余六个操作报`operator not supported on string`。string基不支持（`string does not support subscript access`，见[常见错误](../../language-spec/common-errors.md)「赋值目标」）。`d[k] += v`在键缺失时抛异常（与读`d[k]`相同）。
+元素为string时仅`+=`（拼接）合法，其余六个操作报`operator not supported on string`。string基不支持（`string does not support subscript access`，见[常见错误](../reference/common-errors.md)「赋值目标」）。`d[k] += v`在键缺失时抛异常（与读`d[k]`相同）。
 
 ## 6.3 选择
 

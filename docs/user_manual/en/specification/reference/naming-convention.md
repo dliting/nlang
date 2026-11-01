@@ -12,7 +12,7 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 | Methods — action / command (side effects or multi-arg) | camelCase, bare verb | `add(x)`, `clear()`, `readInt()`, `run()` |
 | Methods — pure accessor (no side effects, no args, returns value) | camelCase with `get`/`set` prefix | `getHashCode()` |
 | Methods — predicate (returns `bool`) | camelCase, bare word | `contains(x)`, `startsWith(s)`, `fs.exists(p)` |
-| Free functions | camelCase | `io.print(s)`, `computeTotal()` |
+| Free functions | camelCase | `io.print(s)`, `fs.isFile(p)`, `computeTotal()` |
 | Variables / parameters / locals | camelCase | `firstName`, `itemCount` |
 | Entry-point function `main` | lowercase (sole exception) | `int main()` |
 | Enum values | PascalCase | `Color.Red`, `Day.Monday` |
@@ -27,7 +27,9 @@ unambiguously) and aligns with the largest developer audience (Java + JS + C++).
 - `getXxx` / `setXxx` prefix retained on accessors (C# style): only
   `getHashCode` currently uses this form; other accessors (`length`,
   `count`, `position`, `keys`) use bare camelCase.
-- Predicates do not use `isXxx` / `hasXxx` prefixes — `contains` and
-  `startsWith` are clear on their own. (Exception: `equals` follows the
-  Object virtual method protocol and returns int 0/1 — see
-  [Object and Boxing](../specification/04-types/object.md).)
+- Predicates on built-in class methods use bare names — `contains` and
+  `startsWith` are clear on their own. Package (free) functions may take
+  an `is` / `has` prefix when the bare name would be too vague:
+  `fs.isFile`, `fs.isDirectory`, `io.hasInput`. (Exception: `equals`
+  follows the Object virtual method protocol and returns int 0/1 — see
+  [Object and Boxing](../04-types/object.md).)

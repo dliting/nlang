@@ -84,12 +84,12 @@ before they land here.
 
 ### Part III — Binary Formats
 
-- [20. The `.ncu` Unit Image](20-ncu-unit-image.md)
-- [21. The `.npkg` Package Archive](21-npkg-package-archive.md)
-- [22. The Native Application Binary Interface (ABI)](22-native-abi.md)
+- [20. The `.ncu` Unit Image](formats/20-ncu.md)
+- [21. The `.npkg` Package Archive](formats/21-npkg.md)
+- [22. The Native Application Binary Interface (ABI)](formats/22-abi.md)
 
 ### Reference
 
-- [Known Limitations](../language-spec/known-limitations.md)
-- [Common Error Messages](../language-spec/common-errors.md)
-- [Naming Convention](../language-spec/naming-convention.md)
+- [Known Limitations](reference/known-limitations.md)
+- [Common Error Messages](reference/common-errors.md)
+- [Naming Convention](reference/naming-convention.md)

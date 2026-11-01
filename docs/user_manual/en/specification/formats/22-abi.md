@@ -102,10 +102,9 @@ void regBlocking(void* registry, const char* ns,
 
 **Registration.** Inside `nlang_native_init` the module
 registers each of its functions through `reg` — a non-blocking
-native, called while the global lock is held (§10.1) — or
-through `regBlocking` — a native with a blocking section
-(§22.7) — passing the opaque `registry` pointer through
-unchanged. The registered key is `<ns>.<name>`. The return
+native, which runs with no lock held (§10.1) — or through
+`regBlocking` — a native with a blocking section (§22.7) —
+passing the opaque `registry` pointer through unchanged. The registered key is `<ns>.<name>`. The return
 value of `nlang_native_init` is informational; the probe is
 the single version authority.
 
@@ -306,25 +305,27 @@ view instead of copying one.
 ## 22.7 Blocking Sections
 
 **The two channels.** A native registered through `reg` runs
-while the global lock is held: it must not wait on anything
-outside the virtual machine (§10.1). A native registered
+with no lock held: it must not wait on anything outside the
+virtual machine, and its stores take the category locks
+through self-guarded callbacks (§10.1). A native registered
 through `regBlocking` declares a blocking section: it may
 take unbounded time waiting on the outside world, and the
-virtual machine releases the global lock around its call so
-other contexts run meanwhile (§10.1).
+virtual machine releases the locks it holds around its call
+so other contexts run meanwhile (§10.1).
 
 **Staging.** The blocking section is transparent to the
-signature. Before releasing the lock the host copies the
+signature. Before releasing those locks the host copies the
 argument cells and the result cell onto C++ stack storage,
 keeps them reachable by the collector, and parks the calling
 context; after the native returns it copies the result back
 and resumes the context. The native sees the same `args` and
 `ret` either way.
 
-**Callbacks.** Every host callback reacquires the global lock
-internally, so a blocking native may call any callback at any
-point of its section; the native itself must not assume
-exclusive access to the virtual machine inside the section.
+**Callbacks.** Every host callback guards itself — it takes
+the lock its store needs and releases it before returning —
+so a blocking native may call any callback at any point of
+its section; the native itself must not assume exclusive
+access to the virtual machine inside the section.
 
 **Rooting.** A handle minted inside a blocking section
 (§22.5) is kept alive by the host until the native writes it
