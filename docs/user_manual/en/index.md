@@ -1,6 +1,6 @@
 # NLang Documentation
 
-NLang is a statically-typed scripting language for embedding and
+NLang is a type-safe language for embedding and
 automation — and a testbed for artificial intelligence (AI)-friendly language features. It ships
 with its own compiler, bytecode VM (it executes the bytecode the
 compiler emits), debugger, and integrated development environment (IDE), developed as an
