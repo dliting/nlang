@@ -208,7 +208,7 @@ SnField *ExprResolveAccessor::FindBareValueField(SnIdentifierExpr &idExpr,
 		return IsBareVisible(static_cast<SnFunction &>(field), curModule);
 	};
 	SnField *pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
-		*m_pAccessor, Flags(), bareFuncFilter);
+		*m_pAccessor, Flags(), bareFuncFilter, idExpr.Location());
 	if (!pField && ContainFlags(ERF_IgnoreUsings))
 	{
 		NLANG_ASSERT(idExpr.Usings());

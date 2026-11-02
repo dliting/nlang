@@ -153,6 +153,13 @@ enum_default 3
 enum_param 1
 enum_to_int 2
 enum_neg_reject compile_error non-negative
+enum_bare_member 0
+enum_bare_shadow 42
+enum_bare_switch 0
+enum_bare_method_body 0
+err_enum_bare_ambiguous compile_error is ambiguous
+err_enum_bare_assign compile_error is a constant and cannot be assigned
+err_enum_qual_assign compile_error is a constant and cannot be assigned
 # --- string ---
 string_length 5
 string_length_twice 10
@@ -1557,7 +1564,7 @@ interface_constant_missing_static compile_error must be static const
 interface_constant_missing_const compile_error must be static const
 interface_constant_extra_flag compile_error cannot be virtual
 interface_constant_private compile_error must be public
-interface_constant_unfoldable compile_error must be a constant expression
+interface_constant_runtime_expr 3
 interface_constant_object compile_error must have a compile-time scalar or string type
 interface_constant_type_mismatch compile_error has incompatible type "Double"; expected "Int32"
 interface_constant_type_mismatch_string compile_error has incompatible type "String"; expected "Int32"
@@ -1565,8 +1572,8 @@ interface_constant_out_of_range compile_error constant 300 out of range for 'byt
 interface_constant_protected compile_error must be public
 interface_constant_native compile_error cannot be native
 interface_constant_array compile_error must have a compile-time scalar or string type
-interface_constant_unfoldable_identifier compile_error must be a constant expression
-interface_constant_unfoldable_call compile_error must be a constant expression
+interface_constant_runtime_enum 1
+interface_constant_runtime_call 4
 interface_constant_name_clash compile_error ambiguous with the method of the same name
 interface_constant_assign compile_error is a constant and cannot be assigned
 interface_constant_bare_name compile_error is an interface constant
@@ -1745,7 +1752,7 @@ decl_sized_init_scalar_reject compile_error sized declaration initializer
 # --- 0.10.7 D4: interface field shape arms -> contract diagnostics ---
 iface_field_no_flags compile_error must be static const
 iface_field_no_flags_noinit compile_error must be static const
-iface_field_no_init compile_error must be a constant expression
+iface_field_no_init compile_error must have an initializer
 # --- 0.10.7 D5: protocol methods public regardless of access ---
 proto_default_access 3
 # --- 0.10.8 D4: keyed entry values accept bare brace literals ---
@@ -1998,3 +2005,18 @@ err_static_fwd_ref_qualified compile_error is referenced before its
 static_read_before_init_cycle 0
 const_local_fold_regression 42
 err_static_instance_access compile_error must be accessed through its class
+static_const_class_folded 42
+static_const_class_runtime 1
+static_const_interface_runtime 2
+static_const_iface_method_trigger 21
+static_const_iface_no_impl_trigger 0
+static_const_local 2
+static_local_loop 13
+static_local_method 13
+static_local_recursion_read 0
+err_static_const_assign compile_error cannot be assigned
+err_static_iface_const_assign compile_error cannot be assigned
+err_static_const_out compile_error cannot be passed as an out argument
+err_static_local_struct compile_error cannot have a struct type
+err_static_local_sized compile_error sized array
+err_iface_mutable_static compile_error must be static const

@@ -1,0 +1,6 @@
+//Interfaces carry static const only — a mutable static field is
+//rejected with the existing "must be static const" diagnostic.
+interface Bad {
+    static int x;
+}
+int main() { return 0; }

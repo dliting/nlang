@@ -168,6 +168,15 @@ enum class OpCode : uint8_t {
     OP_ClassInitFail,   // u16 classIdx, u16 kind — reset the owner so the
                         // next use retries (D10); pair with OP_Rethrow
 
+    // === 0.12.6 Task 7: static-local slot machines (spec §8) ===
+    OP_SlotInitGate,    // u16 slotIdx, u16 donePc (absolute) — Done and
+                        // re-entrant-self jump donePc; the first claimer
+                        // falls through to the guarded initializer; anyone
+                        // else parks and re-walks the gate on wake
+    OP_SlotInitDone,    // u16 slotIdx — publish Done, wake waiters
+    OP_SlotInitFail,    // u16 slotIdx — reset the machine so the next use
+                        // retries (D10); pair with OP_Rethrow
+
     OP_Count
 };
 
@@ -199,7 +208,8 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
     OpCode::OP_DebugInfo, OpCode::OP_NullCheck, OpCode::OP_CheckCast,
     OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
-    OpCode::OP_MakeVFunc};
+    OpCode::OP_MakeVFunc,
+    OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
     OpCode::OP_Neg};
 static constexpr OpCode kStrideKindByte[] = {
@@ -213,7 +223,8 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
     OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
-    OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail};
+    OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
+    OpCode::OP_SlotInitGate};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};

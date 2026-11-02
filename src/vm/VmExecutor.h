@@ -622,6 +622,11 @@ private:
     void OpClassInitGate(BytecodeReader& reader);
     void OpClassInitDone(BytecodeReader& reader);
     void OpClassInitFail(BytecodeReader& reader);
+    //Task 7 (spec §8): the static-local twin of the class-init protocol,
+    //keyed on the slot's own machine instead of the owner table.
+    void OpSlotInitGate(BytecodeReader& reader);
+    void OpSlotInitDone(BytecodeReader& reader);
+    void OpSlotInitFail(BytecodeReader& reader);
     void ParkOnClassInitOwner(VmStaticSlots::StaticOwnerState* owner,
                               uint32_t selfId, uint16_t gatePc);
     void WakeClassInitWaiters(VmStaticSlots::StaticOwnerState* owner);

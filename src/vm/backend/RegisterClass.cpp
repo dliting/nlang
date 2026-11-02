@@ -8,6 +8,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/BuiltinNames.h"
+#include "builder/FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -68,8 +69,10 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
 //v0.12.6 D1: one static class field -> one module slot + the class
 //record's staticFields entry. Runs inside CollectOwnClassFields, so the
 //module table's order IS declaration order (classes in walk order,
-//members in textual order). Task 7 refines const classification (the
-//foldable arm takes no slot); every static gets a slot in this task.
+//members in textual order). Task 7 (D3/D12): a compile-time-folded
+//static const takes NO slot — slotIdx 0xFFFF marks the entry, whose
+//foldedValue the constant-read phase emits inline. The fold predicate
+//is the same one the synthesis filter and emission consult.
 //The TypeDesc fills in the ResolveClassMetadata phase — BuildTypeDesc
 //needs all classes registered (leaf slots resolve through the table).
 void VmBackend::AllocateStaticFieldSlot(SnClassField& cf, CompiledClass& cc) {
@@ -77,6 +80,13 @@ void VmBackend::AllocateStaticFieldSlot(SnClassField& cf, CompiledClass& cc) {
     sf.name = cf.Name();
     sf.access = static_cast<uint8_t>(cf.AccessType());
     sf.isConst = cf.ContainFlags(NF_Const);
+    if (StaticConstFoldsAtCompileTime(cf)) {
+        sf.slotIdx = 0xFFFF;
+        sf.foldedValue = ExtractDefaultValue(
+            cf.Initializer(), RuntimeTypeKind(cf.EvalDataType()));
+        cc.staticFields.push_back(std::move(sf));
+        return;
+    }
     sf.slotIdx =
         static_cast<uint16_t>(m_compiledModule.staticSlots.size());
     CompiledStaticSlot slot;
@@ -106,8 +116,11 @@ void VmBackend::BuildStaticFieldTypeDescs(SnClassDecl* pDecl,
         auto& cf = static_cast<SnClassField&>(member);
         TypeDesc td = BuildTypeDesc(cf.EvalDataType(),
                                     LeafSlotResolvers());
-        m_compiledModule.staticSlots.at(
-            m_staticSlotByField.at(&cf)).type = td;
+        //Folded consts (slotIdx 0xFFFF) own no slot row — the class
+        //record's staticFields entry still carries the declared type.
+        auto slotIt = m_staticSlotByField.find(&cf);
+        if (slotIt != m_staticSlotByField.end())
+            m_compiledModule.staticSlots.at(slotIt->second).type = td;
         m_compiledModule.classes[classIdx].staticFields[si].type =
             std::move(td);
         ++si;

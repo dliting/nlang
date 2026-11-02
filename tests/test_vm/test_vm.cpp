@@ -1064,6 +1064,45 @@ void test_static_init_claim_release() {
     PASS();
 }
 
+//v0.12.6 Task 7 K7 extension: static-local slots carry their own
+//tri-state machines beside the class owner table, and the same
+//ReleaseContextClaims sweep must reset a dead context's stranded slot
+//machine and hand back its parked waiters — one caller, both tables.
+void test_static_local_slot_claim_release() {
+    TEST(static_local_slot_claim_release);
+    VmStaticSlots slots;
+    slots.Build(4, 1);
+    using Owner = VmStaticSlots::StaticOwnerState;
+
+    //Claim a SLOT machine like OP_SlotInitGate does, with a waiter
+    //parked on it, plus one Done machine and one never-touched machine.
+    Owner* machine = slots.SlotMachine(2);
+    CHECK(machine != nullptr, "slot machines are sized with the table");
+    uint8_t expected = Owner::kUninitialized;
+    CHECK(machine->phase.compare_exchange_strong(
+              expected, Owner::kInitializing),
+          "slot machine CAS claim succeeded");
+    machine->ownerCtxId.store(5, std::memory_order_release);
+    machine->waiters.push_back(8);
+    slots.SlotMachine(1)->phase.store(Owner::kDone,
+                                      std::memory_order_release);
+
+    std::vector<uint32_t> woken = slots.ReleaseContextClaims(5);
+
+    CHECK(machine->phase.load() == Owner::kUninitialized
+       && machine->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "dead context's slot machine reset for the next retry");
+    CHECK(machine->waiters.empty(),
+          "slot machine's waiters handed off for waking");
+    CHECK(slots.SlotMachine(1)->phase.load() == Owner::kDone,
+          "published slot machine untouched");
+    CHECK(slots.SlotMachine(0)->phase.load() == Owner::kUninitialized,
+          "untouched slot machine stays untouched");
+    CHECK(woken.size() == 1 && woken[0] == 8,
+          "the parked slot waiter returned to the caller for waking");
+    PASS();
+}
+
 //v0.12.6 D12: the runtime init-bit protocol's storage half. A slot's
 //bit starts clear, StoreStatic-equivalent marking sets it, bits are
 //per-slot independent, and owner-state transitions (Done/Fail) never
@@ -1138,6 +1177,11 @@ int main() {
 
     // v0.12.6 D12: runtime init-bit protocol storage
     try { test_static_init_bits_protocol(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_static_local_slot_claim_release(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

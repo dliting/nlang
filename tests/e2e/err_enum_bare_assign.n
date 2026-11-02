@@ -1,0 +1,7 @@
+//An enum member is a constant: a bare store target is rejected with
+//the constant-store diagnostic.
+enum Mode { One, Two }
+int main() {
+    One = 5;
+    return 0;
+}

@@ -1,0 +1,12 @@
+//Write protection reaches out-arguments. The grammar accepts only a
+//bare identifier after out (KT_Out TT_Identifier, nlang.y:2381-2387),
+//so the reachable surface is a static-const LOCAL — qualified field
+//spellings are grammar-level rejects and pin nothing here.
+int fill(out int v) {
+    v = 1;
+    return 0;
+}
+int main() {
+    static const int x = 40;
+    return fill(out x);
+}

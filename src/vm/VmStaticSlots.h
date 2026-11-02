@@ -70,18 +70,32 @@ public:
     };
 
     //Size cells from the module's own staticSlots records and zero
-    //them, and size one owner state per class record; called wherever
-    //VmClassLayout rebuilds (InitializeForRun).
-    void Build(size_t slotCount, size_t ownerCount);
+    //them, and size one owner state per class record plus one machine
+    //per slot (static locals own theirs directly, Task 7); interface
+    //owners continue the owner table after the classes (kind-1 gates
+    //address them through OwnerByKind). Called wherever VmClassLayout
+    //rebuilds (InitializeForRun).
+    void Build(size_t slotCount, size_t classCount,
+               size_t ifaceCount = 0);
 
     //K7 (spec §8): a context that dies without running its
     //initializer's synthesized catch (asynchronous abort) can leave
     //owners stuck Initializing with waiters parked on them. Reset
-    //every claim the dead context still holds and hand the parked
-    //waiters back to the caller for waking. Owners in any other phase
-    //— published Done, another context's Initializing — stay
-    //untouched. GIL-guarded like every owner-table transition.
+    //every claim the dead context still holds — class owners AND
+    //static-local slot machines — and hand the parked waiters back to
+    //the caller for waking. Machines in any other phase — published
+    //Done, another context's Initializing — stay untouched.
+    //GIL-guarded like every owner-table transition.
     std::vector<uint32_t> ReleaseContextClaims(uint32_t ctxId);
+
+    //Task 7 (static locals): the per-slot tri-state machine a
+    //declaration-site OP_SlotInitGate claims. Same protocol as a class
+    //owner, one machine per slot (the ownerKind=2 records own theirs;
+    //class/interface slots simply never claim theirs).
+    StaticOwnerState* SlotMachine(size_t slotIdx) {
+        return slotIdx < m_slotMachines.size() ? &m_slotMachines[slotIdx]
+                                               : nullptr;
+    }
 
     //D12 init bits: clear until the slot's initializer stores it (the
     //loader sizes the table alongside the cells; only slots whose
@@ -105,10 +119,27 @@ public:
                                           : nullptr;
     }
 
+    //v0.12.6 D11: the class-init protocol's kind byte routes here —
+    //kind 0 addresses a class owner by class-table index, kind 1 an
+    //interface owner by interface-table index (stored after the class
+    //owners). One table, two index spaces; the executor never does the
+    //offset itself.
+    StaticOwnerState* OwnerByKind(uint16_t kind, size_t idx) {
+        if (kind == 0)
+            return Owner(idx);
+        if (kind == 1)
+            return idx < m_ifaceOwnerCount
+                ? &m_owners[m_classOwnerCount + idx] : nullptr;
+        return nullptr;
+    }
+
 private:
     std::vector<uint64_t> m_cells;
     std::vector<uint8_t> m_initBits;
     std::vector<StaticOwnerState> m_owners;
+    std::vector<StaticOwnerState> m_slotMachines;
+    size_t m_classOwnerCount = 0;
+    size_t m_ifaceOwnerCount = 0;
 };
 
 } // namespace nlang

@@ -64,7 +64,8 @@ bool IsBarePoolScope(const SyntaxNode &scope)
 
 SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	SyntaxNode &parent, const SnField &accessor, ExprResolveFlagSet flags,
-	std::function<bool(SnField &)> pFuncFilter)
+	std::function<bool(SnField &)> pFuncFilter,
+	const ISourceLocation *pSpillLoc)
 {
 	SnField *pField = parent.FindField(sName);
 	if (pField && pField->AllowAccess(accessor))
@@ -85,6 +86,13 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 		//co-occur today — the sole filter call site Access(SnIdentifierExpr)
 		//never runs with SPO — re-verify when call-site configs change.)
 	}
+	//v0.12.6: the scope's child enums answer after its own members miss
+	//(the unscoped-enum spill, FindEnumMemberSpill below). Runs on every
+	//miss path — a found-but-inaccessible or filter-rejected direct
+	//member is a miss here too, matching the doctrine above.
+	if (SnField *pSpill = FindEnumMemberSpill(parent, sName, accessor,
+			pSpillLoc))
+		return pSpill;
 	//A found-but-inaccessible field is a miss too: under SPO (member
 	//access, using-directive lookup) the search stops here and the caller
 	//diagnoses "cannot resolve"; without SPO an ancestor scope with a
@@ -94,7 +102,43 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	auto pParent = parent.Parent();
 	if (!pParent)
 		return nullptr;
-	return FindFieldInAncestor(sName, *pParent, accessor, flags, pFuncFilter);
+	return FindFieldInAncestor(sName, *pParent, accessor, flags, pFuncFilter,
+		pSpillLoc);
+}
+
+SnField *ExprResolveAccessor::FindEnumMemberSpill(SyntaxNode &scope,
+	const std::string &sName, const SnField &accessor,
+	const ISourceLocation *pLoc)
+{
+	SnEnumMember *pHit = nullptr;
+	SnEnumDecl *pHitOwner = nullptr;
+	for (auto &node : scope.Children())
+	{
+		if (node.Kind() != NK_EnumDecl)
+			continue;
+		auto &decl = static_cast<SnEnumDecl &>(node);
+		if (decl.IsImported())
+			continue;
+		auto *pMember = static_cast<SnEnumMember *>(decl.FindField(sName));
+		if (!pMember || !pMember->AllowAccess(accessor))
+			continue;
+		if (pHit)
+		{
+			//Same scope, two enums, one member name: answering with either
+			//would bind a possibly wrong constant silently. The logged
+			//error fails the build, so the first hit is returned.
+			m_Env.Log(CLL_Error, pLoc,
+				"The name \"%s\" is ambiguous: it matches members of the "
+				"enums \"%s\" and \"%s\". Qualify the member with its "
+				"enum name.",
+				sName.c_str(), pHitOwner->Name().c_str(),
+				decl.Name().c_str());
+			return pHit;
+		}
+		pHit = pMember;
+		pHitOwner = &decl;
+	}
+	return pHit;
 }
 
 //0.9.x shadow guard (see ExprResolver.h).

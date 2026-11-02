@@ -15,6 +15,7 @@
 ---*/
 #include "StatementResolver.h"
 #include "BuiltinNames.h"
+#include "FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnStatements.h>
@@ -27,7 +28,11 @@ namespace nlang {
 
 namespace {
 
-//Static fields with initializers, in declaration order.
+//Static fields with initializers, in declaration order. Foldable
+//static consts (v0.12.6 D3/D12) stay out: their value folds into every
+//access site, so they own no slot, no initializer statement and no
+//gate. StaticConstFoldsAtCompileTime is the same predicate the backend
+//registration and emission consult — one definition of "folded".
 void CollectInitializedStatics(SnClassDecl& decl,
 	std::vector<SnClassField*>& out)
 {
@@ -35,7 +40,8 @@ void CollectInitializedStatics(SnClassDecl& decl,
 		if (member.Kind() != NK_ClassField)
 			continue;
 		auto& field = static_cast<SnClassField&>(member);
-		if (field.ContainFlags(NF_Static) && field.Initializer())
+		if (field.ContainFlags(NF_Static) && field.Initializer()
+			&& !StaticConstFoldsAtCompileTime(field))
 			out.push_back(&field);
 	}
 }
@@ -169,6 +175,65 @@ void CheckStaticForwardRefsIn(SnClassDecl& decl, BuildEnvironment& env)
 	}
 }
 
+//Task 7 (D11): an interface needs its own $staticInit when any of its
+//constants is a runtime constant (non-folded). Folded-only interfaces
+//keep the zero-machinery path (D9 shape for interfaces).
+bool InterfaceNeedsStaticInit(SnInterfaceDecl& decl)
+{
+	for (auto& member : decl.Members()) {
+		if (member.Kind() != NK_ClassField
+			|| !IsInterfaceConstantField(member))
+			continue;
+		auto& field = static_cast<SnClassField&>(member);
+		if (field.Initializer()
+			&& !StaticConstFoldsAtCompileTime(field))
+			return true;
+	}
+	return false;
+}
+
+//Build one interface's "$staticInit" member: the runtime-constant
+//assignments, no super chain. Same detach/containment discipline as
+//SynthesizeOneClass (the initializer moves under the assignment; the
+//NF_Generated flag keeps the stores out of user-facing diagnostics and
+//past the const-store gate). The store target is the QUALIFIED
+//`<Interface>.<name>` spelling — bare constant names are a pinned
+//reject inside interface bodies, and the synthesized code uses the
+//same form user code must.
+void SynthesizeOneInterface(SnInterfaceDecl& decl)
+{
+	const ISourceLocation& loc = *decl.Location();
+
+	UniquePtrList<SnStatement> stmts;
+	for (auto& member : decl.Members()) {
+		if (member.Kind() != NK_ClassField
+			|| !IsInterfaceConstantField(member))
+			continue;
+		auto& field = static_cast<SnClassField&>(member);
+		if (!field.Initializer()
+			|| StaticConstFoldsAtCompileTime(field))
+			continue;
+		SnExpression* init = field.DetachChild(field.Initializer());
+		NLANG_ASSERT(init);
+		auto* lhs = new SnMemberExpr(
+			new SnIdentifierExpr(
+				new std::string(decl.Name()), *init->Location()),
+			new SnIdentifierExpr(
+				new std::string(field.Name()), *init->Location()),
+			*init->Location());
+		auto* assign = new SnAssignStmt(lhs, init, *init->Location());
+		assign->AddFlags(NF_Generated);
+		stmts.Add(assign);
+	}
+
+	auto* func = new SnFunction(FA_Public,
+		NF_Static | NF_Generated | NF_ExplicitVoid, nullptr,
+		new std::string(kStaticInitFuncName),
+		UniquePtrList<SnFormalParam>(), loc);
+	func->Body(new SnParagraph(std::move(stmts), loc));
+	decl.Members().push_back(func);
+}
+
 } //namespace
 
 //D12 layer 1 pre-pass entry (declaration in StatementResolver.h's public
@@ -186,8 +251,11 @@ void StatementResolver::PreSynthesizeStaticInitializers(Node& node,
 	//a shared memo. D12 layer 1 rides the same walk: forward-reference
 	//checking needs only the declaration order and the raw initializer
 	//expressions, both intact before synthesis detaches them.
+	//Task 7 (D11): interfaces with runtime constants synthesize the
+	//same-shaped member (no chain query — interfaces have no supers).
 	std::unordered_map<SnClassDecl*, bool> memo;
 	std::vector<SnClassDecl*> work;
+	std::vector<SnInterfaceDecl*> ifaceWork;
 	std::function<void(Node&)> collect = [&](Node& n) {
 		if (n.Kind() == NK_ClassDecl) {
 			auto& decl = static_cast<SnClassDecl&>(n);
@@ -200,6 +268,11 @@ void StatementResolver::PreSynthesizeStaticInitializers(Node& node,
 				if (ClassNeedsStaticInit(decl, memo))
 					work.push_back(&decl);
 			}
+		} else if (n.Kind() == NK_InterfaceDecl) {
+			auto& decl = static_cast<SnInterfaceDecl&>(n);
+			if (!decl.IsImported()
+				&& InterfaceNeedsStaticInit(decl))
+				ifaceWork.push_back(&decl);
 		}
 		for (auto& child : n.Children())
 			collect(child);
@@ -207,6 +280,8 @@ void StatementResolver::PreSynthesizeStaticInitializers(Node& node,
 	collect(node);
 	for (auto* decl : work)
 		SynthesizeOneClass(*decl);
+	for (auto* decl : ifaceWork)
+		SynthesizeOneInterface(*decl);
 }
 
 } //namespace nlang

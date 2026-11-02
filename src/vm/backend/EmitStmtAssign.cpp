@@ -46,10 +46,22 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         EmitAssignToLocal(assign, target.localOffset,
             field->EvalDataType(), emitter);
     } else if (target.kind == BareIdTarget::StaticSlot) {
+        //v0.12.6 Task 7: a static LOCAL's declaration-site init (the
+        //decomposed NF_Generated assign) runs under the slot's own
+        //once-guard (D2/D10) — the guard owns exactly this store. A
+        //later user store is a plain slot write: the declaration is
+        //lexically upstream, so the machine is Done (and D12's init
+        //bit already covers the re-entrant window).
+        if (field->Kind() == NK_FormalParam
+            && assign.ContainFlags(NF_Generated)) {
+            EmitStaticLocalInitSequence(assign, target.slotIdx, emitter);
+            return;
+        }
         //v0.12.6: bare static-field store — same stage-then-store shape
         //as the local write (the destination is written only after the
         //whole RHS evaluated). The gate runs before the RHS: reaching
-        //the store is itself the first active use (D2).
+        //the store is itself the first active use (D2); for a static
+        //local the field-bound gate is a no-op (no class owner).
         EmitStaticFieldGate(field, emitter);
         EvalAreaClaim claim(*this, 1);
         uint16_t valueSlot = claim.base();
@@ -118,14 +130,30 @@ void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, BytecodeEmitter& emitter) {
     if (EmitAssignSubscriptElementStore(assign, memberExpr, emitter))
         return;
+    //v0.12.6: an enum member is a compile-time constant — the resolver's
+    //const-store gate rejects user stores. Reaching emission means the
+    //gate missed, and the historical fall-through emitted NOTHING for
+    //the store silently; fail the build instead.
+    if (auto* guard = memberExpr.Field(); guard
+        && guard->Kind() == NK_EnumMember) {
+        throw std::runtime_error(
+            "NLang backend: enum member reached store emission: "
+            + guard->Name());
+    }
     //v0.12.6 D3: static store through the class name. Keyed on the
     //bound field, not the receiver's type — the outer names a type and
     //has no value shape (a value receiver never reaches codegen; the
     //resolver's namespace filter rejects it).
+    //Task 7 (D11): a RUNTIME interface constant stores through the
+    //interface's synthesized $staticInit only (user stores were
+    //rejected at the resolver's const gate); folded constants never
+    //have a slot, so the map membership is the discriminator.
     if (auto* field = memberExpr.Field(); field
         && field->Kind() == NK_ClassField
         && field->ContainFlags(NF_Static)
-        && !IsInterfaceConstantField(*field)) {
+        && (!IsInterfaceConstantField(*field)
+            || m_staticSlotByField.count(
+                static_cast<SnClassField*>(field)) != 0)) {
         //Gate before the RHS (first active use, D2; declaring class, D4).
         EmitStaticFieldGate(field, emitter);
         EvalAreaClaim claim(*this, 1);

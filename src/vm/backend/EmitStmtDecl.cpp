@@ -26,6 +26,14 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
         //RuntimeTypeKind files every local, arrays included. The separate
         //IsArrayType shape branch and element walk are gone.
         SnField* evalType = decl.Type()->Field();
+        //v0.12.6 Task 7 (spec §8): a static declarant takes a module
+        //slot, not a frame slot — no AllocLocal, no per-declarator
+        //allocation opcodes. The decomposed init assign (NF_Generated,
+        //the immediately following statement) emits the once-guard.
+        if (decl.NodeFlags() & NF_Static) {
+            RegisterStaticLocalDeclarators(decl, evalType);
+            return;
+        }
         for (auto& local : decl.Decls()) {
             //0.10.7 D2: per-declarator slot kind — a size payload makes
             //only its own slot an array handle; siblings keep the head
@@ -53,6 +61,30 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
             //Class and array types start as null (0) — no allocation needed.
         }
         return;
+}
+
+//v0.12.6 Task 7 (spec §8): one module slot per static declarant —
+//ownerKind=2, the owning function's record name as ownerKey (display
+//and cross-module identity; same-named locals in different functions
+//are different slots). hasInitializer starts 0: the decomposed init
+//assign's once-guard (EmitStaticLocalInitSequence) flips it at
+//emission, so an initializer-less static keeps D9's read-zero
+//machinery and an initialized one joins D12's bit discipline.
+void VmBackend::RegisterStaticLocalDeclarators(SnLocalDeclStmt& decl,
+    SnField* evalType) {
+    for (auto& local : decl.Decls()) {
+        NLANG_ASSERT(m_compiledModule.staticSlots.size() < 0xFFFF
+            && "static slot table overflow");
+        const uint16_t slotIdx = static_cast<uint16_t>(
+            m_compiledModule.staticSlots.size());
+        CompiledStaticSlot slot;
+        slot.name = local.name;
+        slot.ownerKey = m_currFunc->func->name;
+        slot.ownerKind = 2;   //static local
+        slot.type = BuildTypeDesc(evalType, LeafSlotResolvers());
+        m_currFunc->staticLocalSlots[local.name] = slotIdx;
+        m_compiledModule.staticSlots.push_back(std::move(slot));
+    }
 }
 
     //Assert statement: assert(cond); - exit(1) on failure.

@@ -226,17 +226,26 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
 //0.9.10 v2.4: interface statics, deduped by qualified key like classes.
 //No import slots exist for this table (statics never cross as types), so
 //every entry is an own entry; the first provider owns the metadata remap.
+//v0.12.6 Task 7 (D11): kind-1 class-init gates address this table, so
+//the merge records the unit→merged map for every index (deduped or
+//pushed) like the class table.
 static void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
-                            UnitPushes& p) {
+                            NcuOperandMaps& m, UnitPushes& p) {
     for (uint32_t i = 0; i < u.interfaces.size(); ++i) {
-        bool existing = false;
-        for (const auto& ci : merged.interfaces)
-            if (ci.name == u.interfaces[i].name) { existing = true; break; }
-        if (existing)
+        int existing = -1;
+        for (size_t mi = 0; mi < merged.interfaces.size(); ++mi)
+            if (merged.interfaces[mi].name == u.interfaces[i].name) {
+                existing = static_cast<int>(mi);
+                break;
+            }
+        if (existing >= 0) {
+            m.interfaces[i] = static_cast<uint32_t>(existing);
             continue;
+        }
+        m.interfaces[i] =
+            static_cast<uint32_t>(merged.interfaces.size());
         merged.interfaces.push_back(u.interfaces[i]);
-        p.interfaces.push_back(
-            static_cast<uint32_t>(merged.interfaces.size() - 1));
+        p.interfaces.push_back(m.interfaces[i]);
     }
 }
 
@@ -254,7 +263,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeStaticSlots(units[ui], merged, maps[ui], pushes[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
-        MergeInterfaces(units[ui], merged, pushes[ui]);
+        MergeInterfaces(units[ui], merged, maps[ui], pushes[ui]);
     }
 }
 
@@ -421,6 +430,12 @@ static void RemapInterfaceMetadata(CompiledInterface& iface,
             Lookup(m.functions, iface.staticInitFuncIdx));
     for (auto& constant : iface.constants) {
         RemapTypeDesc(constant.type, m.structs, m.classes);
+        //v0.12.6 Task 7 (D11): a runtime constant's slot addresses the
+        //merged storage table (the class staticFields shape); folded
+        //constants keep their 0xFFFF marker untouched.
+        if (constant.slotIdx != 0xFFFF)
+            constant.slotIdx = static_cast<uint16_t>(
+                Lookup(m.slots, constant.slotIdx));
         RemapDefaultValueStrings(constant.value, m, context);
     }
     for (auto& sig : iface.instanceMethods) {

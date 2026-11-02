@@ -83,13 +83,32 @@ void StatementResolveAccessor::RejectSealedFieldStore(SnField &field,
 //chained `h.in.n = v`) and implicit-this identifier targets (`n = v`
 //inside a method). The only legal writer is the declaring type's own
 //constructor (D3).
+//v0.12.6 D3/D12: static consts on classes are constants at every write
+//site; the one legal writer of a runtime-const slot is the class's own
+//synthesized $staticInit — those assignments carry NF_Generated and
+//pass (a foldable const never enters $staticInit at all).
 void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 	const ISourceLocation *pLoc)
 {
+	if (left.Parent() && left.Parent()->ContainFlags(NF_Generated))
+		return;	//compiler-synthesized initializer statement
 	if (left.Kind() == NK_MemberExpr)
 	{
 		auto *pMemberField = static_cast<SnMemberExpr &>(left).Field();
-		if (pMemberField && IsInterfaceConstantField(*pMemberField))
+		//v0.12.6: enum member constants join the constant-store family.
+		//Before this arm the qualified form (`Mode.One = 5`) fell through
+		//every gate and codegen silently emitted nothing for the store.
+		if (pMemberField && pMemberField->Kind() == NK_EnumMember)
+			m_Env.Log(CLL_Error, pLoc,
+				"\"%s\" is a constant and cannot be assigned.",
+				pMemberField->Name().c_str());
+		else if (pMemberField && IsInterfaceConstantField(*pMemberField))
+			m_Env.Log(CLL_Error, pLoc,
+				"\"%s\" is a constant and cannot be assigned.",
+				pMemberField->Name().c_str());
+		else if (pMemberField && pMemberField->Kind() == NK_ClassField
+			&& pMemberField->ContainFlags(NF_Static)
+			&& pMemberField->ContainFlags(NF_Const))
 			m_Env.Log(CLL_Error, pLoc,
 				"\"%s\" is a constant and cannot be assigned.",
 				pMemberField->Name().c_str());
@@ -101,9 +120,20 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 		return;
 	auto* pLeftField = static_cast<SnIdentifierExpr&>(left).Field();
 	if (pLeftField && pLeftField->ContainFlags(NF_Const))
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot assign to const local \"%s\".",
-			pLeftField->Name().c_str());
+	{
+		//Static consts of the enclosing class and spilled enum members
+		//reach the bare arm through implicit-name resolution — they are
+		//fields, not locals, and get the constant-field wording.
+		if (pLeftField->Kind() == NK_ClassField
+			|| pLeftField->Kind() == NK_EnumMember)
+			m_Env.Log(CLL_Error, pLoc,
+				"\"%s\" is a constant and cannot be assigned.",
+				pLeftField->Name().c_str());
+		else
+			m_Env.Log(CLL_Error, pLoc,
+				"cannot assign to const local \"%s\".",
+				pLeftField->Name().c_str());
+	}
 	else if (pLeftField && IsSealedFieldWrite(left, *pLeftField))
 		RejectSealedFieldStore(*pLeftField, pLoc);
 }

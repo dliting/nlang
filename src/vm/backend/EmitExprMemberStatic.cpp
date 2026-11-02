@@ -105,19 +105,36 @@ bool VmBackend::EmitMemberStaticFaceCall(SnMemberExpr& member,
 //emitted and the read is a plain module-slot load. The bound field is
 //the DECLARING class's node for inherited statics (D4): the slot index
 //follows the field, not the spelling.
+//Task 7 (D11): a runtime interface constant reaches here past the
+//constant-read phase (only folded constants were consumed there) —
+//its read gates the INTERFACE's lazy initializer (kind 1) and loads
+//the slot the initializer stores.
 bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
                                           SnField* field,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
     if (!(field && field->Kind() == NK_ClassField
-          && field->ContainFlags(NF_Static)
-          //Interface constants are compile-time literals consumed by
-          //the constant-read phase; they never load a slot here.
-          && !IsInterfaceConstantField(*field)))
+          && field->ContainFlags(NF_Static)))
         return false;
     auto* inner = member.Inner();
     if (!(inner && inner->Kind() == NK_IdentifierExpr))
         return false;   //invoke shapes belong to the call arms
+    if (IsInterfaceConstantField(*field)) {
+        //Folded constants never reach a slot; a miss here means the
+        //constant-read phase already emitted the literal.
+        if (m_staticSlotByField.find(
+                static_cast<SnClassField*>(field))
+                == m_staticSlotByField.end())
+            return false;
+        auto* owner =
+            static_cast<SnInterfaceDecl*>(field->Parent());
+        EmitInterfaceInitGate(*owner, emitter);
+        emitter.Emit(OpCode::OP_LoadStatic);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(StaticSlotIndexOf(
+            static_cast<const SnClassField&>(*field)));
+        return true;
+    }
     //First active use gates the DECLARING class's initializer (D2/D4).
     EmitStaticFieldGate(field, emitter);
     emitter.Emit(OpCode::OP_LoadStatic);

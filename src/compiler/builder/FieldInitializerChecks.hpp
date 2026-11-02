@@ -187,6 +187,55 @@ inline void CheckConstantValueSurface(BuildEnvironment &env,
 		*pSourceType, subject);
 }
 
+//v0.12.6 Task 7 (spec D3/D12): does this static const field fold at
+//compile time into its DefaultValueDesc? ONE predicate shared by every
+//consumer of "folded" — the resolver's $staticInit synthesis filter,
+//the backend's slot registration (0xFFFF entry, no slot) and the
+//access-site constant-read phase — so the three can never disagree
+//(a divergence would emit a slot-less OP_LoadStatic). The surface is
+//CheckConstantValueSurface read as a predicate: declaration-time
+//checks and this function mirror each other, with the same
+//fold/domain/fit arms. Anything false here is a runtime const instead
+//(slot-backed, lazily initialized). The template covers class fields
+//and interface constants (identical faces).
+template <typename FieldT>
+inline bool StaticConstFoldsAtCompileTime(FieldT& field)
+{
+	if (!field.ContainFlags(NF_Static) || !field.ContainFlags(NF_Const))
+		return false;
+	SnExpression *pInit = field.Initializer();
+	if (!pInit)
+		return false;
+	SnField *pDeclared = field.EvalDataType();
+	if (!IsConstantValueType(pDeclared))
+		return false;
+	const ConstantFoldKind foldKind = ClassifyConstantInitializer(pInit);
+	if (foldKind == ConstantFoldKind::NotFoldable)
+		return false;
+	//null folds as the zero sentinel of any scalar/string slot.
+	if (foldKind == ConstantFoldKind::Null)
+		return true;
+	auto *pSourceType = SnBuiltinDataType::InstanceOf(
+		FoldKindNodeKind(foldKind));
+	//String/scalar domain split (RejectConstantDomainMismatch shape).
+	if ((pDeclared->Kind() == NK_String)
+		!= (foldKind == ConstantFoldKind::String))
+		return false;
+	if (pDeclared->Kind() == NK_String)
+		return true;
+	//Numeric fit (RejectConstantNumericMismatch shape): same/auto
+	//converts implicitly; an explicit narrowing folds only when the
+	//literal fits the declared slot.
+	auto castInfo = GetCastInfo(pSourceType, pDeclared);
+	if (castInfo.Kind() == TCK_Same || castInfo.Kind() == TCK_Auto)
+		return true;
+	ConstantFitOutcome fit;
+	const int ri = ScalarPrimIndexOf(pDeclared->Kind());
+	if (ri >= 0 && castInfo.Kind() == TCK_Explicit)
+		fit = TryConstantFit(*pInit, kScalarPrims[ri]);
+	return fit.verdict == CF_Fits;
+}
+
 //0.9.11 D4: a class or struct field initializer is a compile-time
 //default. Only scalar and string slots carry one (the gate names the
 //field form); the fold/domain/fit surface is shared with interface

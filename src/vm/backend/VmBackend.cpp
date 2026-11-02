@@ -66,6 +66,17 @@ void VmBackend::ForEachDeclNode(SnField& parent,
     }
 }
 
+//v0.12.6: the synthesized "$staticInit" member emits through its
+//protocol arm (gate glue around the assignments), not the ordinary
+//body emitter — one dispatch both generation walks share.
+void VmBackend::DispatchFunctionGeneration(SnFunction& func,
+                                           size_t funcIdx) {
+    if (IsStaticInitName(func.Name()))
+        GenerateStaticInitFunction(func, funcIdx);
+    else
+        GenerateFunction(func, funcIdx);
+}
+
 void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     //Function lists outside SnFunctionParentField: enum methods and
     //(0.9.11 D2) struct constructors — both walk through ForEachDeclNode.
@@ -87,8 +98,13 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
         && parent.Kind() != NK_InterfaceDecl)
         return;
     SnClassDecl* prevClass = m_pCurrClass;
+    SnInterfaceDecl* prevInterface = m_pCurrInterface;
     if (parent.Kind() == NK_ClassDecl)
         m_pCurrClass = static_cast<SnClassDecl*>(&parent);
+    else if (parent.Kind() == NK_InterfaceDecl)
+        //Task 7 (D11): the interface $staticInit arm reads this the
+        //way the class arm reads m_pCurrClass.
+        m_pCurrInterface = static_cast<SnInterfaceDecl*>(&parent);
     auto& members =
         static_cast<SnFunctionParentField&>(parent).Members();
     for (auto& child : members) {
@@ -96,20 +112,14 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
             auto& func = static_cast<SnFunction&>(child);
             if (func.Body() || func.ContainFlags(NF_Native)) {
                 auto it = m_funcIndexMap.find(&func);
-                if (it != m_funcIndexMap.end()) {
-                    //v0.12.6: the synthesized "$staticInit" member emits
-                    //through its protocol arm (gate glue around the
-                    //assignments), not the ordinary body emitter.
-                    if (IsStaticInitName(func.Name()))
-                        GenerateStaticInitFunction(func, it->second);
-                    else
-                        GenerateFunction(func, it->second);
-                }
+                if (it != m_funcIndexMap.end())
+                    DispatchFunctionGeneration(func, it->second);
             }
         }
         GenerateBytecodeRecursive(child);
     }
     m_pCurrClass = prevClass;
+    m_pCurrInterface = prevInterface;
 }
 
 //v1.12 type descriptors: capture the true formal/return types for

@@ -1,0 +1,13 @@
+//Bare enum members work as switch case labels and as call arguments.
+enum Mode { One, Two }
+int code(Mode m) {
+    switch (m) {
+        case One: return 1;
+        case Two: return 2;
+    }
+    return 0;
+}
+int main() {
+    Mode m = One;
+    return code(m) - 1 + code(Two) - 2;   //0
+}

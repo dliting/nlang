@@ -321,9 +321,12 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 namespace
 {
 
-//0.9.10 D3.3: the declared-type gate of an interface constant; the
-//fold/domain/fit surface is shared with class field initializers
-//(FieldInitializerChecks.hpp).
+//0.9.10 D3.3 + v0.12.6 D11: the declared-type gate of an interface
+//constant (scalar or string only), then the initializer split: a
+//foldable literal keeps the full declaration-time fold/domain/fit
+//surface (it folds into every use site); anything else is a runtime
+//constant — the interface's synthesized $staticInit stores it lazily,
+//and the ordinary assignment machinery type-checks the expression.
 void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 	SnClassField &field)
 {
@@ -338,6 +341,16 @@ void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 			field.Name().c_str());
 		return;
 	}
+	if (!field.Initializer())
+	{
+		env.Log(CLL_Error, field.Location(),
+			"The interface constant \"%s\" must have an initializer.",
+			field.Name().c_str());
+		return;
+	}
+	if (ClassifyConstantInitializer(field.Initializer())
+		== ConstantFoldKind::NotFoldable)
+		return;	//runtime constant — checked via the synthesized store
 	CheckConstantValueSurface(env, field, field.Initializer(),
 		*pDeclared, "constant");
 }

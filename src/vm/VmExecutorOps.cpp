@@ -372,6 +372,9 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         case OpCode::OP_ClassInitGate:
         case OpCode::OP_ClassInitDone:
         case OpCode::OP_ClassInitFail:
+        case OpCode::OP_SlotInitGate:
+        case OpCode::OP_SlotInitDone:
+        case OpCode::OP_SlotInitFail:
             //v0.12.6: the static-access family dispatches from its own
             //TU (VmExecutorOpsStaticInit.cpp).
             ExecuteStaticAccessOps(op, reader, locals);

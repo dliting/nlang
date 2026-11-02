@@ -1,0 +1,8 @@
+//The sized array declarator allocates a fresh array per execution;
+//for a static local the once-guard would store that one handle, but
+//the per-declarator array-token plumbing stays out of v0.12.6 —
+//declare an array type and initialize it with new instead.
+int main() {
+    static int arr[3];
+    return 0;
+}

@@ -24,6 +24,10 @@ struct NcuOperandMaps
 	std::unordered_map<uint32_t, uint32_t> structs;
 	std::unordered_map<uint32_t, uint32_t> arrayTypes;
 	std::unordered_map<uint32_t, uint32_t> enums;
+	//v0.12.6 Task 7 (D11): kind-1 class-init gates address the
+	//interface table (runtime interface constants), so its merge needs
+	//the same unit→merged operand map as the class table.
+	std::unordered_map<uint32_t, uint32_t> interfaces;
 	//v2.13 (v0.12.6): static slot indices are unit-local in bytecode
 	//operands — each unit's own slots append to the merged storage table,
 	//never deduped (a slot is storage identity, not a symbol).

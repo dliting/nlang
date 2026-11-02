@@ -1,0 +1,7 @@
+//Foldable static const: no slot, no trigger, folds at every access.
+class MathU {
+    public static const int k = 40;
+}
+int main() {
+    return MathU.k + 2;   //42
+}

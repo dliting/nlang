@@ -244,6 +244,53 @@ static void test_initialized_class_synthesizes_static_init()
     PASS();
 }
 
+//v0.12.6 Task 7 (spec D3/D12): a foldable `static const` field occupies
+//no runtime slot and triggers nothing — its staticFields entry carries
+//slotIdx 0xFFFF with the folded value, and only the mutable sibling
+//holds a slot in the module's staticSlots table.
+static void test_folded_static_const_occupies_no_slot()
+{
+    TEST(folded_static_const_occupies_no_slot);
+    CompiledModule mod = loadOne(
+        "class MathU {\n"
+        "    public static const int k = 40;\n"
+        "    public static int m;\n"
+        "}\n"
+        "int main() {\n"
+        "    MathU.m = MathU.k + 1;\n"
+        "    return MathU.m;\n"
+        "}\n");
+    const CompiledClass* cc = findClass(mod, "MathU");
+    CHECK(cc != nullptr, "MathU class record present");
+    const CompiledStaticField* folded = nullptr;
+    const CompiledStaticField* mutableField = nullptr;
+    for (const auto& sf : cc->staticFields) {
+        if (sf.name == "k")
+            folded = &sf;
+        if (sf.name == "m")
+            mutableField = &sf;
+    }
+    CHECK(folded != nullptr, "folded const appears in staticFields");
+    CHECK(folded->slotIdx == 0xFFFF,
+        "folded const carries slotIdx 0xFFFF (no slot)");
+    CHECK(folded->foldedValue.tag == RTK_Int32
+              && folded->foldedValue.intValue == 40,
+        "folded const carries its folded value");
+    CHECK(mutableField != nullptr, "mutable static appears in staticFields");
+    CHECK(mutableField->slotIdx != 0xFFFF
+              && mutableField->slotIdx < mod.staticSlots.size(),
+        "mutable static holds a real slot index");
+    size_t usedSlots = 0;
+    for (const auto& sf : cc->staticFields)
+        if (sf.slotIdx != 0xFFFF)
+            ++usedSlots;
+    CHECK(mod.staticSlots.size() == usedSlots,
+        "the module's slot table holds only the mutable field's slot");
+    CHECK(!moduleHasOp(mod, OpCode::OP_ClassInitGate),
+        "a fully-folded class emits no initialization gate");
+    PASS();
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -259,6 +306,11 @@ int main()
         g_fail++;
     }
     try { test_initialized_class_synthesizes_static_init(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_folded_static_const_occupies_no_slot(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

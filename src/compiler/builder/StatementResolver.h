@@ -90,6 +90,7 @@ private:
 	//StatementResolverDeclStatic.cpp.
 	void RejectStaticLocalPlacement(SnLocalDeclStmt &sn);
 	void RejectStaticConstLocalInit(SnLocalDeclStmt &sn);
+	void RejectStaticLocalTypeContract(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);
 	//0.9.0: build `name = new Type(args)` for a `Type name(args)`

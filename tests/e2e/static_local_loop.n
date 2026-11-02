@@ -1,0 +1,15 @@
+//A static local declared in a loop body initializes on first execution;
+//later iterations read the kept value — and the kept value persists
+//across CALLS (spec §8: one slot per declaration site, not per call).
+int f() {
+    int last = 0;
+    int i = 0;
+    while (i < 3) {
+        static int kept = 7;
+        kept = kept + 1;
+        last = kept;
+        i = i + 1;
+    }
+    return last;   //10 on the first call (7+3), 13 on the second (10+3)
+}
+int main() { f(); return f(); }   //13 — mutated value survived the call

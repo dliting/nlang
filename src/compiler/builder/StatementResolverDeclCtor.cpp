@@ -147,7 +147,13 @@ SnAssignStmt *StatementResolveAccessor::BuildCtorInitAssign(
 	auto *pNew = new SnNewExpr(pClassName, pArgs, *sn.Location());
 	auto *pLeft = new SnIdentifierExpr(
 		new std::string(decl.name), *sn.Location());
-	return new SnAssignStmt(pLeft, pNew, *sn.Location());
+	auto *pAssign = new SnAssignStmt(pLeft, pNew, *sn.Location());
+	//v0.12.6 Task 7: same declaration-identity marker as the plain
+	//init assign — a static local's ctor-init runs under the
+	//once-guard (BuildLocalInitAssign comment).
+	if (sn.NodeFlags() & NF_Static)
+		pAssign->AddFlags(NF_Generated);
+	return pAssign;
 }
 
 //Consume a `Type name(args)` declarator: build the decomposition assign,

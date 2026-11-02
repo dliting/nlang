@@ -164,6 +164,21 @@ void ExprResolveAccessor::Access(SnOutArgExpr &sn)
 			pInner->ToString().c_str());
 		return;
 	}
+	//v0.12.6 D3: const locals and static locals bind as frame-slot
+	//formals, but neither may take the writeback — a const local by
+	//its one-assignment contract, a static local because its storage
+	//is a module slot the frame writeback cannot address (and whose
+	//initializer discipline the once-guard owns).
+	if (pField->ContainFlags(NF_Const) || pField->ContainFlags(NF_Static))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"out argument \"%s\" is %s and cannot be passed as an out "
+			"argument.",
+			pInner->ToString().c_str(),
+			pField->ContainFlags(NF_Const) ? "a constant"
+			                               : "a static local variable");
+		return;
+	}
 	sn.EvalDataType(pInner->EvalDataType());
 	sn.AddFlags(NF_Resolved);
 }
