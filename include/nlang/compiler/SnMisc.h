@@ -193,6 +193,11 @@ public:
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+	//SnField: the declared type expression (the Type() slot).
+	SnFieldExpr *DeclaredTypeExpr() const override
+	{
+		return m_pType;
+	}
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
@@ -288,6 +293,15 @@ public:
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+	//SnField: the declared type expression (the Type() slot).
+	SnFieldExpr *DeclaredTypeExpr() const override;
+	//v0.12.6 Task 8: for an imported stub field backed by a runtime
+	//static slot, the slot's row index in the PRODUCER's own
+	//staticSlots table (mirrors SnFunction::m_iProducerFuncIdx) — it
+	//rides the stub into the consumer's placeholder import record
+	//(ownerOrdinal) so nlink single-selects the producer's row.
+	//0xFFFF = own declaration or a folded constant (no producer row).
+	uint16_t m_iProducerSlotIdx = 0xFFFF;
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;

@@ -112,6 +112,7 @@ add_library(nlang_vm
     NcuLinker.cpp
     NcuLinkerRemap.cpp
     NcuLinkerSlots.cpp
+    NcuLinkerInterfaces.cpp
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp

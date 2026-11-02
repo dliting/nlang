@@ -137,7 +137,7 @@ void VmBackend::EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
         && lhsField->ContainFlags(NF_Static)
         && !IsInterfaceConstantField(*lhsField)) {
         EmitCompoundAssignStaticField(ca,
-            StaticSlotIndexOf(static_cast<const SnClassField&>(*lhsField)),
+            StaticSlotIndexOf(static_cast<SnClassField&>(*lhsField)),
             memberExpr.EvalDataType(), op, emitter);
         return;
     }

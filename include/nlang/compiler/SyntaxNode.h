@@ -34,6 +34,7 @@ class SnUsing;
 typedef UniquePtrList<SnUsing> UsingList;
 
 class SnField;
+class SnFieldExpr;
 
 //The abstract base class of all the other syntax node classes in an AST.
 class NLANG_COMPILER_API SyntaxNode: public Node
@@ -245,6 +246,20 @@ public:
 	virtual bool IsArrayType() const
 	{
 		return false;
+	}
+
+	/*
+	The declared type expression of this field member (the "int" of
+	"int x"), or null when the member declares no type. SnDataField,
+	SnStructField and SnClassField are SIBLING classes that each keep
+	their own m_pType — mixed-kind callers must use this virtual, never
+	a static_cast between the siblings: their layouts are independent,
+	so a cross cast reads the wrong member slots (a crash that
+	previously hid behind the three layouts coincidentally matching).
+	*/
+	virtual SnFieldExpr *DeclaredTypeExpr() const
+	{
+		return nullptr;
 	}
 
 	std::string TypedName() const;

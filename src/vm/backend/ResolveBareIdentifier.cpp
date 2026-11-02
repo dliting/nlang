@@ -6,6 +6,8 @@
     Split out of VmBackend.cpp (2026-11-02 source-size guard).
 ---*/
 #include "VmBackend.h"
+#include "builder/ModuleRegistry.h"
+#include "builder/SymbolSlots.hpp"
 #include <nlang/compiler/SnData.h>
 
 #include <stdexcept>
@@ -39,7 +41,7 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
         && field->ContainFlags(NF_Static)) {
         t.kind = BareIdTarget::StaticSlot;
         t.slotIdx = StaticSlotIndexOf(
-            static_cast<const SnClassField&>(*field));
+            static_cast<SnClassField&>(*field));
         return t;
     }
     if (auto* pOwner = OwningTypeOfMemberField(field)) {
@@ -60,12 +62,37 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
     return t;
 }
 
-uint16_t VmBackend::StaticSlotIndexOf(const SnClassField& field) const {
-    auto it = m_staticSlotByField.find(const_cast<SnClassField*>(&field));
-    if (it == m_staticSlotByField.end())
-        throw std::runtime_error(
-            "NLang backend: static field without a slot: " + field.Name());
-    return it->second;
+//v0.12.6 Task 8: own fields answer from the registration map; an
+//imported stub field (NF_Imported owner, rider valid) instead mints
+//the placeholder import record on first use — StaticSlotSymbolSlot
+//dedupes, so every use site in this unit shares one tail slot. The
+//rider's absence on an imported field (a folded constant) never
+//reaches here: the constant-read phase consumes it first.
+uint16_t VmBackend::StaticSlotIndexOf(SnClassField& field) {
+    auto it = m_staticSlotByField.find(&field);
+    if (it != m_staticSlotByField.end())
+        return it->second;
+    auto* pParent = field.Parent();
+    const uint16_t rider = field.m_iProducerSlotIdx;
+    //Class and interface declarations are both SnField subclasses; the
+    //SnField& view serves the owner-tag queries below.
+    if (pParent && rider != 0xFFFF
+        && (pParent->Kind() == NK_ClassDecl
+            || pParent->Kind() == NK_InterfaceDecl)) {
+        auto& owner = static_cast<SnField&>(*pParent);
+        if (owner.IsImported() || !IsOwnUnit(owner)) {
+            const uint8_t ownerKind =
+                pParent->Kind() == NK_InterfaceDecl ? 1 : 0;
+            const uint16_t slot = static_cast<uint16_t>(
+                StaticSlotSymbolSlot(m_compiledModule,
+                    SymbolSlotModulePath(*m_pRegistry, owner),
+                    field.Name(), KeyOf(owner), ownerKind, rider));
+            m_staticSlotByField[&field] = slot;
+            return slot;
+        }
+    }
+    throw std::runtime_error(
+        "NLang backend: static field without a slot: " + field.Name());
 }
 
 //Task 7: the module slot a static local addresses. The declaration

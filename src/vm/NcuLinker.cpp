@@ -8,6 +8,7 @@
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
 #include "NcuLinkerSlots.h"
+#include "NcuLinkerInterfaces.h"
 #include <nlang/vm/ExprDesc.h>
 #include <map>
 #include <stdexcept>
@@ -18,18 +19,6 @@
 
 namespace nlang {
 namespace {
-
-//本单元实际压入合并表的条目下标（去重命中的不记——它们的元数据由
-//首个提供方单元负责重映射，二次重映射会改错数据）。
-struct UnitPushes
-{
-	std::vector<uint32_t> classes;
-	std::vector<uint32_t> structs;
-	std::vector<uint32_t> functions;
-	std::vector<uint32_t> interfaces;
-	std::vector<uint32_t> enums;
-	std::vector<uint32_t> slots;
-};
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
 //行为＝intrinsic 派发）允许去重；用户函数永不按名去重——裸方法键
@@ -223,31 +212,9 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
-//0.9.10 v2.4: interface statics, deduped by qualified key like classes.
-//No import slots exist for this table (statics never cross as types), so
-//every entry is an own entry; the first provider owns the metadata remap.
-//v0.12.6 Task 7 (D11): kind-1 class-init gates address this table, so
-//the merge records the unit→merged map for every index (deduped or
-//pushed) like the class table.
-static void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
-                            NcuOperandMaps& m, UnitPushes& p) {
-    for (uint32_t i = 0; i < u.interfaces.size(); ++i) {
-        int existing = -1;
-        for (size_t mi = 0; mi < merged.interfaces.size(); ++mi)
-            if (merged.interfaces[mi].name == u.interfaces[i].name) {
-                existing = static_cast<int>(mi);
-                break;
-            }
-        if (existing >= 0) {
-            m.interfaces[i] = static_cast<uint32_t>(existing);
-            continue;
-        }
-        m.interfaces[i] =
-            static_cast<uint32_t>(merged.interfaces.size());
-        merged.interfaces.push_back(u.interfaces[i]);
-        p.interfaces.push_back(m.interfaces[i]);
-    }
-}
+//0.9.10 v2.4 + v0.12.6 Task 8: the interface merge with placeholder-row
+//preference lives in NcuLinkerInterfaces.cpp (size-guard split; Pass C
+//consumes its pushes through UnitPushes, NcuLinkerInterfaces.h).
 
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
@@ -263,7 +230,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeStaticSlots(units[ui], merged, maps[ui], pushes[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
-        MergeInterfaces(units[ui], merged, maps[ui], pushes[ui]);
+        MergeInterfaces(units[ui], merged, maps[ui], pushes, ui);
     }
 }
 

@@ -60,6 +60,22 @@ const std::string *BareTypeParamName(const SnFieldExpr *pType,
 		return nullptr;
 	return &pBound->Name();
 }
+
+//NK_ClassField arm of CheckGenericDeclContract: a bare type-parameter
+//field type has no concrete kind, so no initial value exists.
+void CheckClassFieldInitializer(const SnClassDecl &cls,
+	const SnClassField &field, BuildEnvironment &env)
+{
+	const std::string *pParamName = BareTypeParamName(field.Type(), env);
+	if (field.Initializer() && pParamName)
+		env.Log(CLL_Error, field.Location(),
+			"The field \"%s\" of generic class \"%s\" cannot "
+			"have an initializer: the type parameter \"%s\" "
+			"has no concrete kind, so no initial value exists "
+			"(constructors may initialize it).",
+			field.Name().c_str(), cls.Name().c_str(),
+			pParamName->c_str());
+}
 } //namespace
 
 //v0.12.3 dictionary model: a T[] TYPE position is a legal handle
@@ -98,17 +114,11 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 		CheckMemberNotTypeParamName(cls, member, env);
 		if (member.Kind() == NK_ClassField)
 		{
-			auto &field = static_cast<SnDataField &>(member);
-			const std::string *pParamName =
-				BareTypeParamName(field.Type(), env);
-			if (field.Value() && pParamName)
-				env.Log(CLL_Error, member.Location(),
-					"The field \"%s\" of generic class \"%s\" cannot "
-					"have an initializer: the type parameter \"%s\" "
-					"has no concrete kind, so no initial value exists "
-					"(constructors may initialize it).",
-					member.Name().c_str(), cls.Name().c_str(),
-					pParamName->c_str());
+			//A class field IS an SnClassField (not an SnDataField —
+			//siblings, never cross cast); the initializer is the
+			//class-field spelling of the generic-contract "value".
+			CheckClassFieldInitializer(cls,
+				static_cast<SnClassField &>(member), env);
 			continue;
 		}
 		if (member.Kind() != NK_Function)

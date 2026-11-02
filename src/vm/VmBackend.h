@@ -1019,6 +1019,10 @@ private:
         uint16_t ownerOrdinal = 0xFFFF;
     };
     OwnerMemberMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
+    //FunctionSlotFor's namespace-branch tail: replays the record's
+    //ordinal from the stub's producer index (see Slots.cpp).
+    void ReplayNamespaceBranchOrdinal(OwnerMemberMeta &meta,
+        SnFunction &callee);
 
     //0.9.11 D2/T6: the AST-selected constructor (SnNewExpr/SnInvokeExpr/
     //SnSuperCallStmt CtorFunction()) when it is registered
@@ -1150,6 +1154,11 @@ private:
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
     void RegisterInterfaces(SnNamespace& root);
+    //RegisterInterfaces worker: contentless placeholder rows for foreign
+    //interfaces (v0.12.6 Task 8 — unit-local indices for kind-1 gates
+    //against imported interfaces; nlink's merge prefers the provider's
+    //rich row at the same merged index).
+    void RegisterForeignInterfacePlaceholders(SnNamespace& root);
     //RegisterInterfaces worker: the constants loop (fold split rides
     //StaticConstFoldsAtCompileTime; runtime constants take ownerKind=1
     //module slots).
@@ -1567,7 +1576,10 @@ private:
     //0.12.6: the module slot a static class field owns (declaration
     //order, assigned at class registration). Throws on a static field
     //the registration walk never saw — an internal invariant break.
-    uint16_t StaticSlotIndexOf(const SnClassField& field) const;
+    //v0.12.6 Task 8: non-const — an imported stub field (producer slot
+    //rider) mints its placeholder import record on first use, so the
+    //lookup mutates the unit table and the field→slot cache.
+    uint16_t StaticSlotIndexOf(SnClassField& field);
     //Task 7: the same lookup for a static local, keyed by name in the
     //current function's context (function-scoped by construction).
     uint16_t StaticLocalSlotIndexOf(const SnField& field) const;

@@ -161,7 +161,7 @@ void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
         EmitExpression(*assign.Right(), emitter, valueSlot);
         emitter.Emit(OpCode::OP_StoreStatic);
         emitter.EmitUint16(StaticSlotIndexOf(
-            static_cast<const SnClassField&>(*field)));
+            static_cast<SnClassField&>(*field)));
         emitter.EmitUint16(valueSlot);
         return;
     }

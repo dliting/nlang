@@ -6,6 +6,7 @@
     从 Register.cpp 拆出（phase 6 B1 产码切换战役）。
 ---*/
 #include "VmBackend.h"
+#include "builder/BuiltinNames.h"
 #include "builder/SymbolSlots.hpp"
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExtraTypes.h>
@@ -50,6 +51,14 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
         return FunctionSlotFor(*static_cast<SnFunction*>(pOwner));
     if (IsOwnUnit(callee))
         return OwnFunctionSlotFor(callee);
+    //v0.12.6 Task 8: a $staticInit stub member (imported class or
+    //interface initializer) addresses the producer's function table as
+    //a NAMESPACED record — the producer registers it under its
+    //qualified key OUTSIDE methodIndices (AppendClassMemberMethods and
+    //RegisterInterfaces exclude it), so the owner-keyed member-ordinal
+    //path cannot see it. Route to the namespace branch: the stub's
+    //m_iProducerFuncIdx single-selects, arity 0 matches the record.
+    const bool isStaticInit = IsStaticInitName(callee.Name());
     //Cross-unit methods/constructors carry the owner metadata computed
     //below in the slot record. Arity follows the TABLE convention
     //(formals + this for class, struct, and enum instance methods,
@@ -62,32 +71,39 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
     //no longer disambiguates.
     const SyntaxNode* pParent = callee.Parent();
     const bool isStatic = callee.ContainFlags(NF_Static);
-    const bool needsThis = pParent
+    const bool needsThis = !isStaticInit
+        && pParent
         && (pParent->Kind() == NK_ClassDecl
             || pParent->Kind() == NK_StructDecl
             || pParent->Kind() == NK_EnumDecl)
         && !isStatic;
-    auto meta = CrossUnitOwnerMeta(callee);
-    //0.10.14: the namespace branch (free functions, interface statics,
-    //enum methods — CrossUnitOwnerMeta leaves ownerKind 0 + an empty
-    //owner key) carries the stub's producer function-table index as
-    //the record's ordinal, so nlink single-selects the callee's record
-    //instead of scanning by name+arity. Class/struct members keep the
-    //replayed member ordinal computed above. A same-build cross-unit
-    //callee (an inlined library source, or another user unit in a
-    //project) is no stub and carries no minted index — replay it from
-    //the shared declaration tree; without it, same-name same-arity
-    //overloads (the tensor elementwise family) link ambiguously.
-    if (meta.ownerClassKey.empty()) {
-        meta.ownerOrdinal = callee.m_iProducerFuncIdx;
-        if (meta.ownerOrdinal == 0xFFFF)
-            meta.ownerOrdinal = ProducerIdxOfCrossUnitFunc(callee);
-    }
+    auto meta = isStaticInit ? OwnerMemberMeta{}
+                             : CrossUnitOwnerMeta(callee);
+    ReplayNamespaceBranchOrdinal(meta, callee);
     return FunctionSymbolSlot(m_compiledModule,
         SymbolSlotModulePath(*m_pRegistry, callee), KeyOf(callee),
         static_cast<uint32_t>(
             callee.Params().size() + (needsThis ? 1 : 0)),
         meta.ownerClassKey, isStatic, meta.ownerKind, meta.ownerOrdinal);
+}
+
+//FunctionSlotFor's namespace-branch tail: free functions, interface
+//statics, enum methods — CrossUnitOwnerMeta leaves ownerKind 0 + an
+//empty owner key — carry the stub's producer function-table index as
+//the record's ordinal, so nlink single-selects the callee's record
+//instead of scanning by name+arity. Class/struct members keep the
+//replayed member ordinal. A same-build cross-unit callee (an inlined
+//library source, or another user unit in a project) is no stub and
+//carries no minted index — replay it from the shared declaration
+//tree; without it, same-name same-arity overloads (the tensor
+//elementwise family) link ambiguously.
+void VmBackend::ReplayNamespaceBranchOrdinal(OwnerMemberMeta &meta,
+        SnFunction &callee) {
+    if (meta.ownerClassKey.empty()) {
+        meta.ownerOrdinal = callee.m_iProducerFuncIdx;
+        if (meta.ownerOrdinal == 0xFFFF)
+            meta.ownerOrdinal = ProducerIdxOfCrossUnitFunc(callee);
+    }
 }
 
 //v2.6 owner metadata for the cross-unit import record (phase6 design
@@ -137,6 +153,13 @@ VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
         if (member.Kind() != NK_Function)
             continue;
         auto& fn = static_cast<const SnFunction&>(member);
+        //v0.12.6 Task 8: the consumer stub appends a $staticInit member
+        //(the imported initializer gate's callee). The producer's
+        //methodIndices exclude it by name, so the ordinal replay skips
+        //it too — counting it would shift every later member's ordinal
+        //into the wrong record.
+        if (IsStaticInitName(fn.Name()))
+            continue;
         //Unregistered members have no table record at all (the
         //producer's filter skips bodyless non-native decls; stub
         //members pass by construction).

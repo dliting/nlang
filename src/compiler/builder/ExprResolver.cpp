@@ -170,13 +170,18 @@ bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 
 		if (sn.Kind() != NK_Function)
 		{
-			auto &dataField = static_cast<SnDataField &>(sn);
-			if (!ResolveDataType(*dataField.Type(), outerType))
+			//Mixed kinds reach here (struct/class fields, formal
+			//params); the field classes are siblings that each keep
+			//their own type slot, so the type expression comes through
+			//the virtual, never a static_cast between the siblings.
+			SnFieldExpr *pDeclaredType = sn.DeclaredTypeExpr();
+			NLANG_ASSERT(pDeclaredType);
+			if (!ResolveDataType(*pDeclaredType, outerType))
 				return false;
 			//Array redesign B: jagged declarations (T[][]) have no VM
 			//layout and used to degrade silently — reject here.
-			if (ArrayTypeDepth(dataField.Type()) >= 2)
-				m_Accessor.m_Env.Log(CLL_Error, dataField.Location(),
+			if (ArrayTypeDepth(pDeclaredType) >= 2)
+				m_Accessor.m_Env.Log(CLL_Error, sn.Location(),
 					"jagged arrays (T[][]) are not supported");
 			return true;
 		}

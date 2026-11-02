@@ -147,6 +147,26 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
         AppendInterfaceSignatures(sn, ci);
         m_compiledModule.interfaces.push_back(std::move(ci));
     });
+    RegisterForeignInterfacePlaceholders(root);
+}
+
+//v0.12.6 Task 8: foreign interfaces (imported stubs, inline-library
+//units) still need a unit-local table index when THIS unit's code
+//emits kind-1 gates against them (imported runtime constants,
+//imported interface static method calls). A contentless placeholder
+//row fills the slot; nlink's interface merge prefers the provider's
+//rich row at the same merged index (NcuLinker.cpp).
+void VmBackend::RegisterForeignInterfacePlaceholders(SnNamespace& root) {
+    ForEachDeclNode(root, [&](SnField& node) {
+        if (node.Kind() != NK_InterfaceDecl || IsOwnUnit(node))
+            return;
+        auto& sn = static_cast<SnInterfaceDecl&>(node);
+        CompiledInterface ci;
+        ci.name = KeyOf(sn);
+        m_ifaceIndexByDecl[&sn] = static_cast<uint16_t>(
+            m_compiledModule.interfaces.size());
+        m_compiledModule.interfaces.push_back(std::move(ci));
+    });
 }
 
 //v0.12.6 Task 7 (D11): kind-1 gate operands carry the interface-table

@@ -678,6 +678,30 @@ target_link_libraries(test_array_flags
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
 
+# v0.12.6 Task 8 (D13): import-cycle detection unit tests. Pure edge-graph
+# coverage — both spec §8 forms need stale images no ordinary compilation
+# can produce, so the unit test feeds the graph directly (see the test
+# file header).
+add_executable(test_import_cycle
+    test_compiler/test_import_cycle.cpp
+)
+
+target_include_directories(test_import_cycle
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_import_cycle
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME import_cycle_tests COMMAND test_import_cycle)
+
 # v2.3 ExprDesc default-expression grammar drift guards (console suite).
 # Real compile -> .ncu write -> load round-trip decoded by an INDEPENDENT
 # hand-rolled reader (writer/reader co-drift cannot pass), the producer

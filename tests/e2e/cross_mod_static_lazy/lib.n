@@ -1,0 +1,18 @@
+//Producer: a foldable static const (no slot, no trigger) and a lazily
+//initialized static field whose initializer is observable through Probe.
+//The interface runtime constant carries the same lazy-once contract in
+//D11's interface flavor (Task 8).
+class Probe {
+    public static int inits = 0;
+}
+class Util {
+    public static const int k = 40;
+    public static int value = counted();
+}
+interface Rules {
+    static const int base = counted();
+}
+int counted() {
+    Probe.inits = Probe.inits + 1;
+    return 30;
+}

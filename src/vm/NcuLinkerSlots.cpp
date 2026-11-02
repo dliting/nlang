@@ -310,6 +310,53 @@ static void ResolveTypeSlots(const std::vector<CompiledModule>& units,
     }
 }
 
+//v0.12.6 Task 8 (v2.13): static-slot placeholder tails resolve against
+//the provider unit's own rows. ownerOrdinal is the producer's own slot
+//row index — single-select, then recheck name+ownerKey (the authority+
+//recheck model of the function tables; a mismatch is a stale consumer
+//artifact). This table's import-record ownerKind domain is its own
+//(0 = class owner, 1 = interface owner) and never selects a table —
+//resolution is purely row-based.
+static void ResolveStaticSlotSlots(const std::vector<CompiledModule>& units,
+    const std::unordered_map<std::string, size_t>& unitOf,
+    std::vector<NcuOperandMaps>& maps,
+    std::vector<std::string>& problems) {
+    for (size_t ui = 0; ui < units.size(); ++ui) {
+        const CompiledModule& u = units[ui];
+        const size_t ownCount = u.staticSlots.size()
+                              - u.staticSlotImports.size();
+        for (size_t j = 0; j < u.staticSlotImports.size(); ++j) {
+            const auto& imp = u.staticSlotImports[j];
+            const uint32_t slot = static_cast<uint32_t>(ownCount + j);
+            const std::string what = "static slot '" + imp.name
+                + "' of " + (imp.ownerKind == 1 ? "interface" : "class")
+                + " '" + imp.ownerClassKey + "' from module '"
+                + imp.modulePath + "'";
+            auto owner = unitOf.find(imp.modulePath);
+            if (owner == unitOf.end()) {
+                problems.push_back("unit '" + u.modulePath + "': import of "
+                    + what + " fails: module '" + imp.modulePath
+                    + "' is not in the link closure");
+                continue;
+            }
+            const CompiledModule& tgt = units[owner->second];
+            const size_t tgtOwn = tgt.staticSlots.size()
+                                - tgt.staticSlotImports.size();
+            if (imp.ownerOrdinal >= tgtOwn
+                || tgt.staticSlots[imp.ownerOrdinal].name != imp.name
+                || tgt.staticSlots[imp.ownerOrdinal].ownerKey
+                       != imp.ownerClassKey) {
+                problems.push_back("unit '" + u.modulePath + "': imported "
+                    + what + " does not match its record in the owning unit "
+                    "(stale artifact — recompile the importing module)");
+                continue;
+            }
+            maps[ui].slots[slot] =
+                maps[owner->second].slots[imp.ownerOrdinal];
+        }
+    }
+}
+
 } //namespace
 
 void NcuResolveSlots(const std::vector<CompiledModule>& units,
@@ -323,6 +370,7 @@ void NcuResolveSlots(const std::vector<CompiledModule>& units,
         unitOf.emplace(units[i].modulePath, i);
     ResolveFunctionSlots(units, unitOf, maps, problems);
     ResolveTypeSlots(units, merged, maps, problems);
+    ResolveStaticSlotSlots(units, unitOf, maps, problems);
 }
 
 } //namespace nlang

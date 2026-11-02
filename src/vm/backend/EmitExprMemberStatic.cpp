@@ -120,11 +120,16 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
     if (!(inner && inner->Kind() == NK_IdentifierExpr))
         return false;   //invoke shapes belong to the call arms
     if (IsInterfaceConstantField(*field)) {
-        //Folded constants never reach a slot; a miss here means the
-        //constant-read phase already emitted the literal.
-        if (m_staticSlotByField.find(
-                static_cast<SnClassField*>(field))
-                == m_staticSlotByField.end())
+        //Folded constants never reach a slot — a map miss with no
+        //producer rider means the constant-read phase already emitted
+        //the literal. An imported runtime constant (Task 8) is a map
+        //miss BY CONSTRUCTION (the row lives in the producer's image)
+        //and carries the rider instead; it proceeds to gate+load and
+        //mints its placeholder slot below.
+        auto* pConstField = static_cast<SnClassField*>(field);
+        const bool ownSlot = m_staticSlotByField.find(pConstField)
+                             != m_staticSlotByField.end();
+        if (!ownSlot && pConstField->m_iProducerSlotIdx == 0xFFFF)
             return false;
         auto* owner =
             static_cast<SnInterfaceDecl*>(field->Parent());
@@ -132,7 +137,7 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
         emitter.Emit(OpCode::OP_LoadStatic);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(StaticSlotIndexOf(
-            static_cast<const SnClassField&>(*field)));
+            static_cast<SnClassField&>(*field)));
         return true;
     }
     //First active use gates the DECLARING class's initializer (D2/D4).
@@ -140,7 +145,7 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
     emitter.Emit(OpCode::OP_LoadStatic);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(StaticSlotIndexOf(
-        static_cast<const SnClassField&>(*field)));
+        static_cast<SnClassField&>(*field)));
     return true;
 }
 

@@ -7,6 +7,7 @@
 ---*/
 #include "CompiledModuleCtorStub.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
+#include "CompiledModuleStaticFieldStubs.hpp"
 #include "CompiledModuleStubSupport.hpp"
 #include "SymbolSlots.hpp"
 #include "ModuleRegistry.h"
@@ -274,6 +275,20 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 			access, ProducerIdxClamp(idx)));
 	}
 
+	//v0.12.6 Task 8: static fields + the $staticInit stub member
+	//(CompiledModuleStaticFieldStubs.hpp).
+	AppendClassStaticFieldStubs(cc, cm, loc, pMembers);
+	//v0.12.6 Task 8: the class's $staticInit stub member — consumer
+	//first-active-use gates call it through the imported function slot
+	//(FunctionSlotFor routes $staticInit to the namespace branch; the
+	//ordinal replay in CrossUnitOwnerMeta skips it by name).
+	if (cc.staticInitFuncIdx != 0xFFFF
+	    && cc.staticInitFuncIdx < cm.functions.size()) {
+		pMembers->push_back(CreateFunctionStub(
+			cm.functions[cc.staticInitFuncIdx], cm, loc, FA_Public,
+			ProducerIdxClamp(cc.staticInitFuncIdx)));
+	}
+
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
 	//v2.12 (v0.12.4): the const marker survived the wire — rebuild the
@@ -306,8 +321,23 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	//fields whose synthesized literal initializer folds again at the
 	//consumer's use sites (the declaration contract already ran at
 	//the producer; imported stubs are exempt from re-checking).
+	//v0.12.6 Task 8: a runtime constant (slotIdx valid) rebuilds
+	//initializer-less with the producer slot row rider instead — the
+	//consumer's read gates the interface's lazy initializer (kind 1)
+	//and loads the resolved slot (D11 across modules).
 	for (const auto &constant : ci.constants)
 	{
+		if (constant.slotIdx != 0xFFFF)
+		{
+			auto *pField = new SnClassField(
+				SynthTypeExprFromDesc(constant.type, cm, loc),
+				new std::string(constant.name), FA_Public, loc);
+			pField->AddFlags(NF_Static);
+			pField->AddFlags(NF_Const);
+			pField->m_iProducerSlotIdx = constant.slotIdx;
+			pMembers->push_back(pField);
+			continue;
+		}
 		SnExpression *pInit = SynthScalarDefault(constant.value, cm, loc);
 		if (!pInit)
 			throw std::runtime_error(
@@ -356,6 +386,18 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 			new std::string(sig.name), pParams, loc);
 		pFunc->AddFlags(NF_Imported);   //R6-2
 		pMembers->push_back(pFunc);
+	}
+	//v0.12.6 Task 8: the interface's $staticInit stub member — consumer
+	//kind-1 gates (runtime constant read, interface static method call)
+	//call it through the imported function slot. Interface statics ride
+	//the namespace branch of the cross-unit record already, so no
+	//FunctionSlotFor special case is involved on this owner kind.
+	if (ci.staticInitFuncIdx != 0xFFFF
+	    && ci.staticInitFuncIdx < cm.functions.size())
+	{
+		pMembers->push_back(CreateFunctionStub(
+			cm.functions[ci.staticInitFuncIdx], cm, loc, FA_Public,
+			ProducerIdxClamp(ci.staticInitFuncIdx)));
 	}
 	auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
