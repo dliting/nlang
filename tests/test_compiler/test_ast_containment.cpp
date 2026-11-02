@@ -113,14 +113,19 @@ static void TestDetachChild()
     //caller re-parents the node.
     CHECK(expr.Index() == pIndex);
 
-    //A foreign node (not a child) is rejected with null, list untouched.
-    auto *pForeign = MakeIdent("z");
-    CHECK(expr.DetachChild(pForeign) == nullptr);
+    //Null input stays a tolerated no-op (absent optional child).
+    CHECK(expr.DetachChild(nullptr) == nullptr);
     CHECK(expr.Children().find(pArray) != expr.Children().end());
+
+    //A foreign node (wrong owner) is a precondition violation that
+    //asserts in Debug builds (same discipline as ReplaceChildNode) —
+    //not a runtime-rejectable miss, so it has no testable Release
+    //behavior. A silent null there would hand the caller a node
+    //another tree still owns (v0.12.6: wrong-owner detach corrupted
+    //both trees before the contract hardened).
 
     //The detached node is caller-owned now: re-parent or delete it.
     delete pIndex;
-    delete pForeign;
 }
 
 int main()

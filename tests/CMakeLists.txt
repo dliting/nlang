@@ -39,6 +39,27 @@ target_link_libraries(test_vm
 
 add_test(NAME vm_tests COMMAND test_vm)
 
+# v0.12.6 lazy static initialization: emitter-shape assertions on real
+# compiled images (initializer-less fast path vs synthesized $staticInit).
+add_executable(test_static_init
+    test_vm/test_static_init.cpp
+)
+
+target_include_directories(test_static_init
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_static_init
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME static_init_tests COMMAND test_static_init)
+
 # nlink unit tests: synthetic per-unit module images drive the load-time
 # linker (peer merge, slot resolution, operand remap) — no codegen, no I/O.
 # The src/compiler dir covers builder/SymbolSlots.hpp, the producer side of

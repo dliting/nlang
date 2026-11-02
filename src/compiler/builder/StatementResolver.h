@@ -366,6 +366,14 @@ public:
 	static void PreInjectClassFieldInitializers(Node& node,
 		StatementResolveAccessor& accessor);
 
+	//Pre-pass (v0.12.6 D2/D4): synthesize each needing class's
+	//"$staticInit" static member (initializer assignments moved into a
+	//function body) before the document-order traversal, which then
+	//resolves it like any static method. Runs after PreResolveClassBases
+	//— the need test walks the super chain.
+	static void PreSynthesizeStaticInitializers(Node& node,
+		StatementResolveAccessor& accessor);
+
 	void Resolve(SnNamespace &root);
 private:
 	StatementResolveAccessor m_Accessor;

@@ -145,4 +145,31 @@ void VmScheduler::AbortPark(int id) {
         m_heldByCarrier[static_cast<size_t>(t_carrier->carrierId)] = id;
 }
 
+//v0.12.6 (spec §6.2)：静态初始化门停泊——仅状态迁移（ParkForSemaphore
+//形态）——等待者集合在执行器 VmStaticSlots 的 StaticOwnerState 侧表
+//（FIFO），唤醒由 ClassInitDone/Fail 显式触发。
+void VmScheduler::ParkForClassInit(int id) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::ParkedClassInit;
+    ReleaseHeldIfCurrent(id);
+    //K4：焦点停泊——门等待者放行。
+    NotifyGateWaiters();
+}
+
+//v0.12.6：唤醒门等待者——回 Runnable；已完成停泊者入队尾（K7 握手，
+//见 ExecutionContext::framesParked；WakeForSemaphore 形态）。
+void VmScheduler::WakeForClassInit(int id) {
+    GilEnsureGuard g(*this);
+    ExecutionContext* ctx = FindMutable(id);
+    if (!ctx)
+        return;
+    ctx->state = ContextState::Runnable;
+    if (ctx->framesParked)
+        m_runQueue.push_back(id);
+    m_runQueueCv.notify_all();
+}
+
 } // namespace nlang

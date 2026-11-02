@@ -199,7 +199,9 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
     } else if (target.kind == BareIdTarget::StaticSlot) {
         //Bare static-field read inside the class (D3's qualified-only
         //rule for outsiders is a resolver concern; the bare form is the
-        //in-class spelling). No receiver, no null check.
+        //in-class spelling). No receiver, no null check. First active
+        //use gates the declaring class's lazy initializer (D2).
+        EmitStaticFieldGate(field, emitter);
         emitter.Emit(OpCode::OP_LoadStatic);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(target.slotIdx);
@@ -381,6 +383,12 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         }
 
         auto* callee = invoke.Callee();
+
+        //v0.12.6 D2: a bare static-method call (the in-class spelling)
+        //is a first active use too — gate the callee's declaring class
+        //before any argument evaluation. Free functions carry no owner
+        //class and the gate is a no-op.
+        EmitStaticFieldGate(callee, emitter);
 
         //Phase 9c: binding-aware argument emission. Handles positional,
         //named, and default-param bindings via EmitCallArgs.

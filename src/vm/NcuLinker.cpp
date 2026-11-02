@@ -302,6 +302,11 @@ static void RemapClassMetadata(CompiledModule& merged,
         //remaps (the cross-unit ownerOrdinal addresses this list).
         for (auto& i : cc.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
+        //v2.13 (v0.12.6): the synthesized $staticInit record address —
+        //0xFFFF keeps its "no initializer machinery" meaning.
+        if (cc.staticInitFuncIdx != 0xFFFF)
+            cc.staticInitFuncIdx = static_cast<uint16_t>(
+                Lookup(m.functions, cc.staticInitFuncIdx));
         for (auto& td : cc.fieldTypeDescs)
             RemapTypeDesc(td, m.structs, m.classes);
         //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
@@ -397,6 +402,36 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
         RemapDefaultValueStrings(dv, m, context);
 }
 
+//0.9.10 v2.4: interface static indices are function-table indices —
+//remap them like the class method block. D3 constants carry unit-local
+//type descriptors and pooled string defaults, so they remap through the
+//same maps as function records. 0.9.12 (v2.7): instance-method
+//signatures ride the same channels (formal/return descriptors and
+//pooled default strings); the signatures carry no function or type
+//indices beyond the descriptors, so nothing else remaps here.
+static void RemapInterfaceMetadata(CompiledInterface& iface,
+                                   const NcuOperandMaps& m) {
+    const std::string context = "interface '" + iface.name + "'";
+    for (auto& i : iface.staticMethodIndices)
+        i = static_cast<uint16_t>(Lookup(m.functions, i));
+    //v2.13 (v0.12.6): reserved interface initializer record — remap
+    //alongside the static methods when minted.
+    if (iface.staticInitFuncIdx != 0xFFFF)
+        iface.staticInitFuncIdx = static_cast<uint16_t>(
+            Lookup(m.functions, iface.staticInitFuncIdx));
+    for (auto& constant : iface.constants) {
+        RemapTypeDesc(constant.type, m.structs, m.classes);
+        RemapDefaultValueStrings(constant.value, m, context);
+    }
+    for (auto& sig : iface.instanceMethods) {
+        for (auto& ptd : sig.paramTypeDescs)
+            RemapTypeDesc(ptd.type, m.structs, m.classes);
+        RemapTypeDesc(sig.returnType, m.structs, m.classes);
+        for (auto& dv : sig.defaultValues)
+            RemapDefaultValueStrings(dv, m, context);
+    }
+}
+
 static void FinalizeUnits(const std::vector<CompiledModule>& units,
                           CompiledModule& merged,
                           std::vector<NcuOperandMaps>& maps,
@@ -409,39 +444,8 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         RemapStaticSlotMetadata(merged, maps[ui], pushes[ui].slots);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
-        //0.9.10 v2.4: interface static indices are function-table
-        //indices — remap them like the class method block. D3 constants
-        //carry unit-local type descriptors and pooled string defaults,
-        //so they remap through the same maps as function records.
-        //0.9.12 (v2.7): instance-method signatures ride the same
-        //channels (formal/return descriptors and pooled default
-        //strings); the signatures carry no function or type indices
-        //beyond the descriptors, so nothing else remaps here.
         for (uint32_t idx : pushes[ui].interfaces)
-        {
-            auto& iface = merged.interfaces[idx];
-            const std::string context = "interface '" + iface.name + "'";
-            for (auto& i : iface.staticMethodIndices)
-                i = static_cast<uint16_t>(
-                    Lookup(maps[ui].functions, i));
-            for (auto& constant : iface.constants)
-            {
-                RemapTypeDesc(constant.type, maps[ui].structs,
-                    maps[ui].classes);
-                RemapDefaultValueStrings(constant.value, maps[ui],
-                    context);
-            }
-            for (auto& sig : iface.instanceMethods)
-            {
-                for (auto& ptd : sig.paramTypeDescs)
-                    RemapTypeDesc(ptd.type, maps[ui].structs,
-                        maps[ui].classes);
-                RemapTypeDesc(sig.returnType, maps[ui].structs,
-                    maps[ui].classes);
-                for (auto& dv : sig.defaultValues)
-                    RemapDefaultValueStrings(dv, maps[ui], context);
-            }
-        }
+            RemapInterfaceMetadata(merged.interfaces[idx], maps[ui]);
     }
 }
 

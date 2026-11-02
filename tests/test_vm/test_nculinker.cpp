@@ -1045,6 +1045,95 @@ static void test_link_interface_signature_remap() {
     PASS();
 }
 
+//0.12.6 (v2.13): the lazy static-initialization channel — a class's
+//staticInitFuncIdx (and an interface's reserved twin) addresses the
+//merged FUNCTION table, and OP_ClassInitGate/Done/Fail carry a merged
+//CLASS-table index as their first operand. Cross-unit merges shift both
+//tables; a missed remap silently gates the wrong class or calls the
+//wrong initializer record.
+static void test_link_static_init_remap() {
+    TEST(link_static_init_remap);
+
+    //lib: $staticInit = own function 0, lib.f = own function 1; the
+    //initializing class is own class 1 (a filler class forces the
+    //class-channel remap non-identity too).
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("$staticInit", 0)); //own 0
+    CompiledFunction f = MakeFunc("lib.f", 0);            //own 1
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_ClassInitGate); em.EmitUint16(1);
+        em.EmitUint16(7); em.EmitUint16(0);   //donePc -> the Done below
+        em.Emit(OpCode::OP_ClassInitDone); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_ClassInitFail); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        f.bytecode = em.TakeBytes();
+    }
+    lib.functions.push_back(std::move(f));
+    lib.classes.push_back(MakeClass("lib.Filler"));       //own 0
+    CompiledClass cfg = MakeClass("lib.Cfg");             //own 1
+    cfg.staticInitFuncIdx = 0;
+    cfg.methodIndices = {1};
+    lib.classes.push_back(cfg);
+    CompiledInterface iface;
+    iface.name = "lib.Iface";
+    iface.staticMethodIndices = {1};
+    iface.staticInitFuncIdx = 0;
+    lib.interfaces.push_back(std::move(iface));
+
+    //app: one own class and one own function ahead of the merge, so
+    //every lib index shifts by one (functions) or one/two (classes).
+    CompiledModule app = MakeUnit("app");
+    app.classes.push_back(MakeClass("app.Host"));         //own 0 -> merged 0
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));            //own 0
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //merged classes: app.Host=0, lib.Filler=1, lib.Cfg=2; merged
+    //functions: app.main=0, $staticInit=1, lib.f=2.
+    CHECK(merged.classes.size() == 3 && merged.functions.size() == 3,
+          "app+lib records merged");
+    CHECK(merged.classes[2].name == "lib.Cfg"
+       && merged.classes[2].staticInitFuncIdx == 1,
+          "class staticInitFuncIdx remapped to the merged function table");
+    CHECK(merged.interfaces.size() == 1
+       && merged.interfaces[0].staticInitFuncIdx == 1
+       && merged.interfaces[0].staticMethodIndices.size() == 1
+       && merged.interfaces[0].staticMethodIndices[0] == 2,
+          "interface initializer and static-method indices remapped");
+
+    //The protocol opcodes inside lib.f (merged function 2) must address
+    //the merged class table; donePc and kind are function-local and
+    //stay untouched.
+    BytecodeReader rd(merged.functions[2].bytecode.data(),
+                      merged.functions[2].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitGate
+       && rd.ReadUint16() == 2,
+          "gate classIdx remapped to the merged class table");
+    CHECK(rd.ReadUint16() == 7, "gate donePc stays function-local");
+    CHECK(rd.ReadUint16() == 0, "gate kind tag untouched");
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitDone
+       && rd.ReadUint16() == 2,
+          "done classIdx remapped to the merged class table");
+    rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitFail
+       && rd.ReadUint16() == 2,
+          "fail classIdx remapped to the merged class table");
+    rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_Return, "trailing return intact");
+
+    PASS();
+}
+
 //0.10.14: a namespace-branch import record with an ownerOrdinal
 //single-selects the target record by index — two same-name same-arity
 //candidates no longer collide (the old ambiguity error is gone). The
@@ -1238,6 +1327,11 @@ int main() {
         g_fail++;
     }
     try { test_link_interface_signature_remap(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_static_init_remap(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

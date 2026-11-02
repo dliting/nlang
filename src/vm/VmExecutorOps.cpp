@@ -368,11 +368,13 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             break;
 
         case OpCode::OP_LoadStatic:
-            OpLoadStatic(reader, locals);
-            break;
-
         case OpCode::OP_StoreStatic:
-            OpStoreStatic(reader, locals);
+        case OpCode::OP_ClassInitGate:
+        case OpCode::OP_ClassInitDone:
+        case OpCode::OP_ClassInitFail:
+            //v0.12.6: the static-access family dispatches from its own
+            //TU (VmExecutorOpsStaticInit.cpp).
+            ExecuteStaticAccessOps(op, reader, locals);
             break;
 
         case OpCode::OP_New:

@@ -110,6 +110,9 @@ void VmBackend::EmitCompoundAssignThisField(SnCompoundAssignStmt& ca,
 void VmBackend::EmitCompoundAssignStaticField(SnCompoundAssignStmt& ca,
         uint16_t slotIdx, SnField* lhsType, int op,
         BytecodeEmitter& emitter) {
+    //First active use gates the declaring class (D2/D4) — before the
+    //old-value load so the read observes initialized storage.
+    EmitStaticFieldGate(lhsType, emitter);
     EvalAreaClaim claim(*this, 2);
     uint16_t oldValSlot = claim.base();
     uint16_t rhsSlot = claim.base() + kFrameSlotBytes;

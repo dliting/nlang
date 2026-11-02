@@ -80,6 +80,9 @@ static const char* s_OpCodeNames[] = {
     "shr",
     "load_static",
     "store_static",
+    "class_init_gate",
+    "class_init_done",
+    "class_init_fail",
 };
 
 const char* OpCodeName(OpCode op) {

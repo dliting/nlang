@@ -99,13 +99,13 @@ bool SyntaxNode::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 
 SyntaxNode *SyntaxNode::DetachChild(SyntaxNode *pChild)
 {
-	if (!pChild || pChild->Parent() != this)
+	if (!pChild)
 		return nullptr;
-	auto &children = Children();
-	auto iRemove = children.find(pChild);
-	if (iRemove == children.end())
-		return nullptr;
-	RemoveChild(iRemove);
+	//Wrong owner is a caller bug, not a tolerated miss: the caller would
+	//re-parent a node another tree still owns. Same discipline as
+	//ReplaceChildNode.
+	NLANG_ASSERT(pChild->Parent() == this);
+	RemoveChild(pChild);
 	return pChild;
 }
 

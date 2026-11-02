@@ -611,6 +611,20 @@ private:
     //table (lock-free like the field family — benign value races, K8).
     void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
     void OpStoreStatic(BytecodeReader& reader, uint8_t* locals);
+
+    //v0.12.6 lazy static initialization (spec §6.2): gate dispatch,
+    //Done publish, Fail reset; waiters wake re-walking the gate.
+    //ExecuteStaticAccessOps is the dispatch arm of the whole
+    //static-access family (LoadStatic/StoreStatic + the protocol
+    //opcodes), held beside them in VmExecutorOpsStaticInit.cpp.
+    void ExecuteStaticAccessOps(OpCode op, BytecodeReader& reader,
+                                uint8_t* locals);
+    void OpClassInitGate(BytecodeReader& reader);
+    void OpClassInitDone(BytecodeReader& reader);
+    void OpClassInitFail(BytecodeReader& reader);
+    void ParkOnClassInitOwner(VmStaticSlots::StaticOwnerState* owner,
+                              uint32_t selfId, uint16_t gatePc);
+    void WakeClassInitWaiters(VmStaticSlots::StaticOwnerState* owner);
     void OpNew(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
@@ -2186,6 +2200,9 @@ private:
     //and is ignored for narrower ones). Used by boxing/unboxing, GC
     //trace, and the shared BoxedValuesEqual comparator.
     static constexpr int kBoxedValueSlot = 1;
+    //Cap for one-level debug dumps ("<Point{x=1, y=2, ...}>"): the
+    //element renderers in VmExecutorDebug*.cpp share it.
+    static constexpr int kMaxElementsShown = 5;
 };
 
 } // namespace nlang

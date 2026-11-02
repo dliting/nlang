@@ -30,6 +30,9 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
     auto* callee = invoke.Callee();
     if (!(callee && callee->ContainFlags(NF_Static)))
         return false;
+    //First active use gates the callee's declaring class (D2/D4) —
+    //before the arguments stage.
+    EmitStaticFieldGate(callee, emitter);
     std::vector<OutSpill> outSpills;
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
                  /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
@@ -115,6 +118,8 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
     auto* inner = member.Inner();
     if (!(inner && inner->Kind() == NK_IdentifierExpr))
         return false;   //invoke shapes belong to the call arms
+    //First active use gates the DECLARING class's initializer (D2/D4).
+    EmitStaticFieldGate(field, emitter);
     emitter.Emit(OpCode::OP_LoadStatic);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(StaticSlotIndexOf(

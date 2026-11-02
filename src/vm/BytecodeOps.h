@@ -158,6 +158,16 @@ enum class OpCode : uint8_t {
     OP_LoadStatic,      // uint16 dst, uint16 slotIdx — frame[dst] = slots[slotIdx]
     OP_StoreStatic,     // uint16 slotIdx, uint16 src — slots[slotIdx] = frame[src]
 
+    // === 0.12.6: lazy static initialization (spec §6.2 D2/D4/D5/D10) ===
+    OP_ClassInitGate,   // u16 classIdx, u16 donePc (absolute), u16 kind
+                        // (0 = class, 1 = interface) — Done jumps donePc;
+                        // the first claimer falls through to the paired
+                        // OP_CallFunc of the owner's $staticInit; a later
+                        // context parks and re-walks the gate on wake
+    OP_ClassInitDone,   // u16 classIdx, u16 kind — publish Done, wake waiters
+    OP_ClassInitFail,   // u16 classIdx, u16 kind — reset the owner so the
+                        // next use retries (D10); pair with OP_Rethrow
+
     OP_Count
 };
 
@@ -202,14 +212,16 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
     OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
-    OpCode::OP_LoadStatic, OpCode::OP_StoreStatic};
+    OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
+    OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};
 static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
-    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt};
+    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
+    OpCode::OP_ClassInitGate};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_AssembleArrayN,

@@ -48,7 +48,9 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
     } else if (target.kind == BareIdTarget::StaticSlot) {
         //v0.12.6: bare static-field store — same stage-then-store shape
         //as the local write (the destination is written only after the
-        //whole RHS evaluated).
+        //whole RHS evaluated). The gate runs before the RHS: reaching
+        //the store is itself the first active use (D2).
+        EmitStaticFieldGate(field, emitter);
         EvalAreaClaim claim(*this, 1);
         uint16_t valueSlot = claim.base();
         EmitExpression(*assign.Right(), emitter, valueSlot);
@@ -124,6 +126,8 @@ void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
         && field->Kind() == NK_ClassField
         && field->ContainFlags(NF_Static)
         && !IsInterfaceConstantField(*field)) {
+        //Gate before the RHS (first active use, D2; declaring class, D4).
+        EmitStaticFieldGate(field, emitter);
         EvalAreaClaim claim(*this, 1);
         uint16_t valueSlot = claim.base();
         EmitExpression(*assign.Right(), emitter, valueSlot);

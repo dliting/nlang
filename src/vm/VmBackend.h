@@ -235,10 +235,21 @@ private:
         CompiledFunction& compiledFunc);
     //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
     void StampIntrinsicChannel(SnFunction& func,
-        CompiledFunction& compiledFunc);
-    //StampIntrinsicChannel's owner resolution (context walk, with the
+        CompiledFunction& compiledFunc);    //StampIntrinsicChannel's owner resolution (context walk, with the
     //declared-generic instance-copy arm resolving through the template).
     uint32_t IntrinsicChannelOwnerOf(const SnFunction& func) const;
+
+    //v0.12.6 lazy static initialization (spec §6.2): gate+call prefix
+    //for a first-active-use site. Emits nothing when the class needs no
+    //initializer. EmitStaticFieldGate is the field-bound convenience
+    //the static access arms call (gate the DECLARING class, D4).
+    void EmitClassInitGate(SnClassDecl& decl, BytecodeEmitter& emitter);
+    void EmitStaticFieldGate(SnField* field, BytecodeEmitter& emitter);
+    //GenerateFunction's static-init arm plus its protocol body (super
+    //gate inside the try, assignments, catch-all Fail+Rethrow, Done).
+    void GenerateStaticInitFunction(SnFunction& func, size_t funcIdx);
+    void EmitStaticInitBody(SnClassDecl& decl, SnFunction& func,
+        BytecodeEmitter& emitter);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
@@ -1348,6 +1359,12 @@ private:
     void EmitNewObject(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
                        SnExpressionList& ctorArgs, SnExpression* pSkipArg,
                        uint16_t resultOffset);
+    //Ctor-selection tail of EmitNewObject: registered selection → its
+    //function slot, table fallback, else plain OP_New alloc.
+    void EmitNewCtorDispatch(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
+                             SnExpressionList& ctorArgs,
+                             SnExpression* pSkipArg, uint16_t classIdx,
+                             uint16_t resultOffset);
     //0.9.11 D2/D3: struct construction lowering for the explicit call
     //forms (the direct-init `S name(args);` spelling decomposes into a
     //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).

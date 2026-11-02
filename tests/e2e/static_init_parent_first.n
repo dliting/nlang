@@ -1,0 +1,18 @@
+//Superclass initializes before subclass (D4), recorded via a static log.
+class Log {
+    public static int order = 0;
+}
+class Base {
+    public static int b = mark(1);
+}
+class Derived : Base {
+    public static int d = mark(2);
+}
+int mark(int tag) {
+    Log.order = Log.order * 10 + tag;
+    return tag;
+}
+int main() {
+    int x = Derived.d;
+    return Log.order * 10 + x;   //122 (order 1 then 2, then d==2)
+}

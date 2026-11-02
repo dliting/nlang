@@ -1,4 +1,5 @@
 #include "VmBackend.h"
+#include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -95,8 +96,15 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
             auto& func = static_cast<SnFunction&>(child);
             if (func.Body() || func.ContainFlags(NF_Native)) {
                 auto it = m_funcIndexMap.find(&func);
-                if (it != m_funcIndexMap.end())
-                    GenerateFunction(func, it->second);
+                if (it != m_funcIndexMap.end()) {
+                    //v0.12.6: the synthesized "$staticInit" member emits
+                    //through its protocol arm (gate glue around the
+                    //assignments), not the ordinary body emitter.
+                    if (IsStaticInitName(func.Name()))
+                        GenerateStaticInitFunction(func, it->second);
+                    else
+                        GenerateFunction(func, it->second);
+                }
             }
         }
         GenerateBytecodeRecursive(child);

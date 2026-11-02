@@ -7,6 +7,7 @@
 ---*/
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
+#include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -286,6 +287,15 @@ void VmBackend::AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc) {
     for (auto& child : sn.Members()) {
         if (child.Kind() != NK_Function)
             continue;
+        //v0.12.6 D2: the synthesized "$staticInit" member is not part
+        //of the callable surface — a consumer stub must not rebuild it
+        //as a ghost method. Its index rides staticInitFuncIdx instead.
+        if (IsStaticInitName(child.Name())) {
+            auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+            if (it != m_funcIndexMap.end())
+                cc.staticInitFuncIdx = static_cast<uint16_t>(it->second);
+            continue;
+        }
         auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
         if (it == m_funcIndexMap.end())
             continue;

@@ -58,6 +58,23 @@ static void PatchNameOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     }
 }
 
+//v0.12.6 lazy-init protocol opcodes: every one leads with a class
+//table index; the remaining operands (donePc jump target, kind tag)
+//are function-local and stay untouched.
+static void PatchClassInitOperands(OpCode op, std::vector<uint8_t>& bc,
+    size_t pos, const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    switch (op) {
+        case OpCode::OP_ClassInitGate:
+        case OpCode::OP_ClassInitDone:
+        case OpCode::OP_ClassInitFail:
+            PatchOperand(bc, pos + 1, maps.classes, "class", onUnmapped);
+            break;
+        default:
+            break;
+    }
+}
+
 //Type- and slot-channel operands (class/struct/array/enum/static-slot
 //tables). SECOND-operand entries note the offset — OP_New family
 //shapes lead with a dst frame offset.
@@ -111,6 +128,7 @@ void NcuRemapBytecodeOperands(std::vector<uint8_t>& bytecode,
         OpCode op = static_cast<OpCode>(bytecode[pos]);
         PatchNameOperands(op, bytecode, pos, maps, onUnmapped);
         PatchTypeOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchClassInitOperands(op, bytecode, pos, maps, onUnmapped);
         pos += InstructionStride(op);
     }
 }

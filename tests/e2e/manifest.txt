@@ -1987,4 +1987,8 @@ static_field_share 2
 static_field_bare_name 42
 static_field_inherited 66
 static_field_compound 6
+static_field_lazy_init 51
+static_init_parent_first 122
+static_init_fail_retry 72
+static_init_first_touch_matrix 0
 err_static_instance_access compile_error must be accessed through its class

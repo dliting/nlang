@@ -149,6 +149,7 @@ add_library(nlang_compiler
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp
     builder/ClassFieldInitializerInjection.cpp
+    builder/StaticInitSynthesis.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
 )

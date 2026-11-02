@@ -129,8 +129,11 @@ public:
 	on the new owner (DOM removeChild protocol). The typed member slot of
 	the old owner is intentionally left pointing at the detached node so
 	existing readers keep working until the caller re-parents it.
-	\return the detached node, or null if pChild is not a child of this
-	node (including null input and foreign nodes).
+	\return the detached node, or null for null input. A non-null child
+	whose parent is not this node is a caller bug (wrong owner) and
+	asserts — the same precondition discipline as ReplaceChildNode; a
+	silent null there would hand the caller a still-owned node and
+	corrupt both trees.
 	Used by the local-decl decomposition in StatementResolver (Phase 13
 	Step 0.5 container unification).
 	*/

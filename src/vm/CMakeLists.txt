@@ -12,6 +12,7 @@ add_library(nlang_vm
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
+    VmExecutorDebugContainers.cpp
     VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
@@ -22,6 +23,7 @@ add_library(nlang_vm
     VmExecutorOpsStrings.cpp
     VmExecutorOpsArrayN.cpp
     VmExecutorOpsObjects.cpp
+    VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
@@ -61,6 +63,7 @@ add_library(nlang_vm
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
     backend/ResolveBareIdentifier.cpp
+    backend/EmitStaticInit.cpp
     backend/RegisterInterfaces.cpp
     backend/RegisterEnums.cpp
     backend/RegisterStructs.cpp
