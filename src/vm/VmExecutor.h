@@ -1944,6 +1944,7 @@ private:
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
+    int16_t m_initExcClassIdx = -1;  //v0.12.6 D12: InitializationException
     int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
     //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic

@@ -1993,4 +1993,8 @@ static_init_fail_retry 72
 static_init_first_touch_matrix 0
 static_init_concurrent_once 0
 static_init_owner_death 92
+err_static_fwd_ref_bare compile_error is referenced before its
+err_static_fwd_ref_qualified compile_error is referenced before its
+static_read_before_init_cycle 0
+const_local_fold_regression 42
 err_static_instance_access compile_error must be accessed through its class

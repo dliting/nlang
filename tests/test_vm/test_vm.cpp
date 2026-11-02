@@ -1064,6 +1064,33 @@ void test_static_init_claim_release() {
     PASS();
 }
 
+//v0.12.6 D12: the runtime init-bit protocol's storage half. A slot's
+//bit starts clear, StoreStatic-equivalent marking sets it, bits are
+//per-slot independent, and owner-state transitions (Done/Fail) never
+//clear them — the "attempts counter" retention of D10 rides on the
+//bits surviving a failed attempt. The read-side throw and the
+//completed-owner fast behavior are pinned by the e2e probes.
+void test_static_init_bits_protocol() {
+    TEST(static_init_bits_protocol);
+    VmStaticSlots slots;
+    slots.Build(4, 2);
+    CHECK(!slots.IsSlotInitialized(0) && !slots.IsSlotInitialized(1),
+          "bits start clear");
+    slots.MarkSlotInitialized(1);
+    CHECK(!slots.IsSlotInitialized(0) && slots.IsSlotInitialized(1),
+          "marking is per-slot");
+    //A Fail-equivalent owner reset must not disturb the bit (D10
+    //retention): flip the owner through Uninitialized and re-check.
+    auto* owner = slots.Owner(0);
+    owner->phase.store(VmStaticSlots::StaticOwnerState::kInitializing,
+                       std::memory_order_release);
+    owner->phase.store(VmStaticSlots::StaticOwnerState::kUninitialized,
+                       std::memory_order_release);
+    CHECK(slots.IsSlotInitialized(1),
+          "bits survive owner-state transitions");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1104,6 +1131,13 @@ int main() {
 
     // v0.12.6 K7: context-death claim reclamation (owner-table unit)
     try { test_static_init_claim_release(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+
+    // v0.12.6 D12: runtime init-bit protocol storage
+    try { test_static_init_bits_protocol(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

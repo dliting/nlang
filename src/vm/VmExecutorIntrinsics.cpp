@@ -123,7 +123,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
-    //Phase 9d: Exception ctor intrinsic. Shared by all 6 built-in
+    //Phase 9d: Exception ctor intrinsic. Shared by all 7 built-in
     //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
     //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
     //v0.12.4 D7 formals: (this, message, cause). Writes message idx to
@@ -140,6 +140,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         || intrinsicId == INTR_AssertionException_Ctor
         || intrinsicId == INTR_IOException_Ctor
         || intrinsicId == INTR_InvalidCastException_Ctor
+        || intrinsicId == INTR_InitializationException_Ctor
         || intrinsicId == INTR_ChannelClosedException_Ctor) {
         int32_t thisHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));

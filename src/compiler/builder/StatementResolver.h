@@ -257,6 +257,13 @@ public:
 	//ClassFieldInitializerInjection.cpp.
 	void InjectClassFieldInitializers(SnClassDecl &sn);
 
+	//v0.12.6 D12 pre-pass entry: diagnose a static-field initializer that
+	//directly references a later-declared static of the same class (bare
+	//or Class.member spelling) — the read would observe the not-yet-stored
+	//slot. Logs only; never mutates the AST. Definition in
+	//StaticInitSynthesis.cpp.
+	void CheckStaticForwardRefs(SnClassDecl &sn);
+
 	void Access(SnNamespace &sn);
 	void Access(SnFunction &sn);
 	void Access(SnField &sn);

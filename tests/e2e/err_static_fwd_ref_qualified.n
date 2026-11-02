@@ -1,0 +1,6 @@
+//Qualified forward reference is the same defect (D12).
+class A {
+    public static int a = A.b;
+    public static int b = 1;
+}
+int main() { return A.a; }

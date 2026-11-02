@@ -66,6 +66,18 @@ void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
 void VmExecutor::OpLoadStatic(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t slotIdx = reader.ReadUint16();
+    //D12: a slot with an initializer reads as uninitialized until its
+    //initializer stores it — throw instead of handing out the silent
+    //zero. The access-site gate has already run, so the owner is at
+    //least Initializing: an unset bit here means the initializer is
+    //running deeper on this stack (re-entrant read) or failed; both
+    //surface as a catchable InitializationException.
+    const CompiledStaticSlot& meta = m_currModule->staticSlots[slotIdx];
+    if (meta.hasInitializer && !m_staticSlots.IsSlotInitialized(slotIdx))
+        RaiseNlangException(m_initExcClassIdx,
+                            "Static field \"" + meta.name
+                            + "\" is read before its initializer stored "
+                              "a value.");
     //Plain 8-byte cell copy (same uniform-slot semantics as OpLoadField:
     //narrow kinds read the low half, upper bytes ride along harmlessly).
     std::memcpy(locals + dst, m_staticSlots.Cell(slotIdx),
@@ -77,6 +89,13 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
     uint16_t src = reader.ReadUint16();
     std::memcpy(m_staticSlots.Cell(slotIdx), locals + src,
                 kHeapFieldStrideBytes);
+    //D12: the initializer's store publishes the value. Marking is
+    //unconditional for initializer-bearing slots: gates precede every
+    //user-visible store, so a mark here can never lag a visible value,
+    //and a store from inside a failed attempt keeps the bit (D10's
+    //attempts-counter retention — the retry re-runs and re-marks).
+    if (m_currModule->staticSlots[slotIdx].hasInitializer)
+        m_staticSlots.MarkSlotInitialized(slotIdx);
 }
 
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {

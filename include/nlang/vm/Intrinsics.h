@@ -227,5 +227,8 @@ static constexpr uint16_t INTR_Channel_CtorUnbounded = 169;
 //in the compiler seals that aliasing for const aggregates).
 static constexpr uint16_t INTR_List_Copy = 170;
 static constexpr uint16_t INTR_Dict_Copy = 171;
+//v0.12.6 D12: seventh Exception ctor; 172 = next fresh id (appended,
+//never reused — the retired-block policy above).
+static constexpr uint16_t INTR_InitializationException_Ctor = 172;
 
 }  // namespace nlang

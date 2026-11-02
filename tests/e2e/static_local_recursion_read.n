@@ -1,0 +1,17 @@
+//Recursive re-entry into a static local's initializer that actually reads
+//the slot throws; the exception is catchable and the slot retries clean
+//on the next call (D12 static-local rule + D10). Manifest row lands with
+//Task 7's slot guards — the class/interface runtime layer of Task 6 does
+//not make this probe pass whole.
+int f(int n) {
+    static int cache = f(0);
+    return cache + n;
+}
+int main() {
+    try {
+        f(1);
+        return 1;
+    } catch (Exception e) {
+        return 0;
+    }
+}

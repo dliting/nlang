@@ -14,6 +14,13 @@
    the owner publishes. All vector/atomic access happens under the
    scheduler GIL (bytecode handlers run with it held), so the waiters
    list needs no lock of its own.
+
+   v0.12.6 Task 6 (spec D12): per-slot initialization bits. A slot with
+   an initializer reads as uninitialized until its owning initializer
+   stores it; LoadStatic checks the bit and throws instead of handing
+   out the silent zero. Bits survive a failed initializer (D10's
+   attempts-counter retention: a retry re-runs stores and re-marks).
+   GIL-guarded like the rest of the table.
 ---*/
 #ifndef NLANG_VM_STATIC_SLOTS_H
 #define NLANG_VM_STATIC_SLOTS_H
@@ -76,6 +83,14 @@ public:
     //untouched. GIL-guarded like every owner-table transition.
     std::vector<uint32_t> ReleaseContextClaims(uint32_t ctxId);
 
+    //D12 init bits: clear until the slot's initializer stores it (the
+    //loader sizes the table alongside the cells; only slots whose
+    //record has an initializer are ever queried or marked).
+    bool IsSlotInitialized(size_t slotIdx) const {
+        return m_initBits[slotIdx] != 0;
+    }
+    void MarkSlotInitialized(size_t slotIdx) { m_initBits[slotIdx] = 1; }
+
     //8-byte value cell for one slot; callers pass already-validated
     //indices (the loader cross-checks every staticFields slotIdx
     //against the table size, same trust level as class indexes).
@@ -92,6 +107,7 @@ public:
 
 private:
     std::vector<uint64_t> m_cells;
+    std::vector<uint8_t> m_initBits;
     std::vector<StaticOwnerState> m_owners;
 };
 

@@ -5,6 +5,7 @@ namespace nlang {
 
 void VmStaticSlots::Build(size_t slotCount, size_t ownerCount) {
     m_cells.assign(slotCount, 0);
+    m_initBits.assign(slotCount, 0);
     //In-place construction: the owner state carries atomics, which
     //have no copy assignment for vector::assign to use.
     m_owners.clear();

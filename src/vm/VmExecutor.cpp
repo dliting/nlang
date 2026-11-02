@@ -98,6 +98,7 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
+    cacheExcClass("InitializationException",  &m_initExcClassIdx);
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
     //K1 Slice 6: cache the Thread class index (spawn mints instances).

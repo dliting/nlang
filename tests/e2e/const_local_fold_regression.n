@@ -1,0 +1,7 @@
+//Spec §8 regression pin (F11): the existing const-local path must
+//survive Task 6's flags rewiring of SnLocalDeclStmt unchanged.
+int f() {
+    const int x = 40;
+    return x + 2;
+}
+int main() { return f(); }
