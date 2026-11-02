@@ -1,0 +1,44 @@
+//Four carriers hit the first use concurrently; initialization runs
+//exactly once and every reader sees the same value (D5).
+import thread;
+
+class Probe {
+    public static int runs = 0;
+}
+class Once {
+    public static int value = countedSlow();
+}
+class Reader {
+    public int saw;
+    public void read() {
+        saw = Once.value;
+    }
+}
+int countedSlow() {
+    Probe.runs = Probe.runs + 1;
+    int s = 0;
+    int i = 0;
+    //bound keeps the sum under INT32_MAX (no wrap) while staying a long
+    //enough busy window for four carriers to hit the gate concurrently
+    while (i < 46340) { s = s + i; i = i + 1; }
+    return s % 100;
+}
+int main() {
+    Reader r1 = Reader();
+    Reader r2 = Reader();
+    Reader r3 = Reader();
+    Reader r4 = Reader();
+    Thread a = thread.spawn(r1.read);
+    Thread b = thread.spawn(r2.read);
+    Thread c = thread.spawn(r3.read);
+    Thread d = thread.spawn(r4.read);
+    thread.join(a);
+    thread.join(b);
+    thread.join(c);
+    thread.join(d);
+    int mismatches = 0;
+    if (r1.saw != r4.saw) { mismatches = mismatches + 1; }
+    if (r2.saw != r4.saw) { mismatches = mismatches + 1; }
+    if (r3.saw != r4.saw) { mismatches = mismatches + 1; }
+    return mismatches * 10 + (Probe.runs - 1);   //0 = all agree, ran exactly once
+}

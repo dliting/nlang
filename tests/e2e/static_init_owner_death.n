@@ -1,0 +1,35 @@
+//K7/D10 end to end: an initializer running on a spawned context dies
+//with an uncaught exception; the owner claim does not strand, and a
+//later use from another context retries successfully. (Whether the
+//reset came from the synthesized catch or the teardown hook is the
+//unit test's pin; this test pins the user-visible guarantee.)
+import thread;
+
+class Probe {
+    public static int runs = 0;
+}
+class Fragile {
+    public static int value = counted();
+}
+class Trigger {
+    public void go() {
+        int x = Fragile.value;   //throws on the first initialization
+    }
+}
+int counted() {
+    Probe.runs = Probe.runs + 1;
+    if (Probe.runs < 2) {
+        throw AssertionException("first init dies with its context");
+    }
+    return 9;
+}
+int main() {
+    Trigger t = Trigger();
+    Thread a = thread.spawn(t.go);
+    try {
+        thread.join(a);   //join RETHROWS the failed task's exception; catch is the quiet observation path
+    } catch (Exception e) {
+    }
+    int got = Fragile.value;   //retry from main's context: succeeds
+    return got * 10 + Probe.runs;   //92
+}

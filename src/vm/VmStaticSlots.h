@@ -67,6 +67,15 @@ public:
     //VmClassLayout rebuilds (InitializeForRun).
     void Build(size_t slotCount, size_t ownerCount);
 
+    //K7 (spec §8): a context that dies without running its
+    //initializer's synthesized catch (asynchronous abort) can leave
+    //owners stuck Initializing with waiters parked on them. Reset
+    //every claim the dead context still holds and hand the parked
+    //waiters back to the caller for waking. Owners in any other phase
+    //— published Done, another context's Initializing — stay
+    //untouched. GIL-guarded like every owner-table transition.
+    std::vector<uint32_t> ReleaseContextClaims(uint32_t ctxId);
+
     //8-byte value cell for one slot; callers pass already-validated
     //indices (the loader cross-checks every staticFields slotIdx
     //against the table size, same trust level as class indexes).

@@ -6,6 +6,7 @@
 #include "nlang/runtime/NodeConsts.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <filesystem>
@@ -1011,6 +1012,58 @@ void test_opcode_name_table() {
     PASS();
 }
 
+//v0.12.6 K7 (spec §8): a context that dies mid-initialization must not
+//strand its owner claims or its waiters. ReleaseContextClaims resets
+//every owner the dead context was Initializing back to Uninitialized
+//and hands the parked waiter ids to the caller for waking. Owners in
+//any other phase (Done published, other owners' Initializing) stay
+//untouched.
+void test_static_init_claim_release() {
+    TEST(static_init_claim_release);
+    VmStaticSlots slots;
+    slots.Build(4, 4);
+    using Owner = VmStaticSlots::StaticOwnerState;
+
+    //Claim like the gate does: CAS Uninitialized->Initializing, then
+    //stamp the claiming context id.
+    auto claim = [&](size_t ownerIdx, uint32_t ctxId) {
+        Owner* owner = slots.Owner(ownerIdx);
+        uint8_t expected = Owner::kUninitialized;
+        CHECK(owner->phase.compare_exchange_strong(
+                  expected, Owner::kInitializing),
+              "test claim CAS succeeded");
+        owner->ownerCtxId.store(ctxId, std::memory_order_release);
+    };
+    claim(0, 7);   //dead context's owner, two waiters parked
+    claim(1, 7);   //dead context's owner, no waiters
+    claim(2, 9);   //a LIVE context's owner — must survive untouched
+    slots.Owner(0)->waiters.push_back(11);
+    slots.Owner(0)->waiters.push_back(12);
+    //Owner 3 left published (Done): release must not disturb it.
+    slots.Owner(3)->phase.store(Owner::kDone, std::memory_order_release);
+
+    std::vector<uint32_t> woken = slots.ReleaseContextClaims(7);
+
+    CHECK(slots.Owner(0)->phase.load() == Owner::kUninitialized
+       && slots.Owner(0)->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "claimed owner 0 reset for the next retry");
+    CHECK(slots.Owner(0)->waiters.empty(),
+          "reset owner's waiters handed off for waking");
+    CHECK(slots.Owner(1)->phase.load() == Owner::kUninitialized
+       && slots.Owner(1)->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "claimless waiter-free owner 1 reset too");
+    CHECK(slots.Owner(2)->phase.load() == Owner::kInitializing
+       && slots.Owner(2)->ownerCtxId.load() == 9,
+          "live context's claim untouched");
+    CHECK(slots.Owner(3)->phase.load() == Owner::kDone,
+          "published owner untouched");
+    CHECK(woken.size() == 2
+       && std::find(woken.begin(), woken.end(), 11) != woken.end()
+       && std::find(woken.begin(), woken.end(), 12) != woken.end(),
+          "both parked waiters returned to the caller for waking");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1048,6 +1101,13 @@ int main() {
     // VmExecutor execution tests are retired — see the rationale at the
     // former section above. The e2e suite (real .n files, real execution)
     // is the authoritative gate.
+
+    // v0.12.6 K7: context-death claim reclamation (owner-table unit)
+    try { test_static_init_claim_release(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
 
     // Module save/load (uses WriteCompiledModule — frame layout is correct)
     try { test_module_save_load(); }

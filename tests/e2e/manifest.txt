@@ -1991,4 +1991,6 @@ static_field_lazy_init 51
 static_init_parent_first 122
 static_init_fail_retry 72
 static_init_first_touch_matrix 0
+static_init_concurrent_once 0
+static_init_owner_death 92
 err_static_instance_access compile_error must be accessed through its class
