@@ -43,6 +43,41 @@ is drawn in [Specification / Types](../specification/04-types/index.md).
 
 See also: [Specification / Class](../specification/04-types/class.md).
 
+### Static Members
+
+```nlang
+import io;
+
+class Registry {
+    public static int count = 0;       // one slot on the class itself
+
+    public static void note() {
+        Registry.count = Registry.count + 1;
+    }
+}
+
+int main() {
+    Registry.note();                   // first use runs the initializer
+    Registry.note();
+    io.print("counted " + Registry.count);
+    if (Registry.count == 2)
+        return 2;
+    return 1;
+}
+```
+
+Output `counted 2`, exit code 2. A `static` field is one storage
+slot on the class — every method and every instance addresses the
+same slot through the class name. Statics initialize lazily: the
+initializer runs on the first use of any static member, exactly
+once, no matter how many objects exist. `static const` adds
+read-only after initialization. A function body can also declare
+`static int last = 0;` — a static local with the same lazy,
+once-per-declaration-site behavior.
+
+See also: [Specification / Class](../specification/04-types/class.md),
+[Specification / Statements](../specification/06-statements/index.md).
+
 ### Interface
 
 ```nlang

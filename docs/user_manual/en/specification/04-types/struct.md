@@ -82,6 +82,12 @@ The same deep copy applies everywhere a struct value moves:
   copy.
 - **As a class field**: assigning `obj.s = s1` deep-copies `s1`
   into the class's field.
+- **As a static field's value**: storing a struct into a class or
+  interface static slot (a static field, a static constant's lazy
+  channel, or a static local of struct type) deep-copies it — the
+  slot owns an independent record, reading the slot into a
+  variable deep-copies again, and a member write through the slot
+  mutates the slot's own record (§4.8.8).
 - **As an array element**: `Point[n]` allocates a fresh,
   independent struct per element at creation, nested struct fields
   included. Reading an element into a struct variable deep-copies

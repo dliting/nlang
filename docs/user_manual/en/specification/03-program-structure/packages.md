@@ -154,6 +154,22 @@ A closure problem — a missing package, an unreadable artifact —
 is collected and reported in one shot, listing every directory
 searched, rather than surfacing one failure at a time.
 
+The import graph must be acyclic: a package may not import,
+directly or through a chain, a package that imports it back. A
+cycle — whether the build's own units close it, or an external
+artifact already contains one — is a compile-time error naming
+the packages along the cycle, in cycle order. The same rule
+keeps every package's declarations reachable in one copy: a
+cycle could only link by bootstrapping stale images of each
+other, with each class on the ring existing twice.
+
+Static state crosses module boundaries by the lazy rules of
+§4.8.8, not by load order: loading links code but initializes
+nothing, and the first use of a static member — from the
+declaring module or through an import — triggers that class's
+own initializer first. A module no one touches initializes
+nothing.
+
 ### Qualified names
 
 Everything a package declares can be reached through its qualified
