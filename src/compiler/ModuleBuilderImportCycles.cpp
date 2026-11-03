@@ -56,6 +56,21 @@ void ExpandWildcard(const std::vector<std::string> &allPaths,
 			out.push_back(path);
 }
 
+//A compiled unit importing its own module path is a self-reference,
+//not a dependency: the names are already visible (the import gate
+//keeps duplicate/self references idempotent, spec §4) and no mirror
+//loads, so the D13 hazards — a second slot table, a second lazy
+//init — cannot occur. Drop such edges from the compiled-unit side
+//only; loaded images keep their recorded edges untouched (a recorded
+//self-edge there IS the old-mirror bootstrap artifact the ban
+//targets).
+void DropSelfReference(const std::string &module,
+	std::vector<std::string> &targets)
+{
+	targets.erase(std::remove(targets.begin(), targets.end(), module),
+		targets.end());
+}
+
 //Every import record target of a loaded image (empty paths skipped —
 //an internal marker, not a module edge).
 std::vector<std::string> ImageImportTargets(const CompiledModule &image)
@@ -94,10 +109,11 @@ ModuleBuilder::CollectImportGraphEdges()
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		std::vector<std::string> unitEdges;
+		const std::string ownPath = reg.ModulePathOf(moduleIdx++);
 		for (const auto &spec : pTransUnit->Imports())
 			ExpandWildcard(allPaths, spec, unitEdges);
-		AddEdges(edges, reg.ModulePathOf(moduleIdx++),
-			std::move(unitEdges));
+		DropSelfReference(ownPath, unitEdges);
+		AddEdges(edges, ownPath, std::move(unitEdges));
 	}
 	for (const auto &image : m_loadedImports)
 		AddEdges(edges, image.modulePath, ImageImportTargets(image));
@@ -121,6 +137,7 @@ bool ModuleBuilder::RejectImportCycles()
 		std::vector<std::string> rootEdges;
 		for (const auto &spec : pTransUnit->Imports())
 			ExpandWildcard(allPaths, spec, rootEdges);
+		DropSelfReference(root, rootEdges);
 		const std::string cycle = ImportCycleCheck::Check(
 			root, rootEdges, edges);
 		if (!cycle.empty())
