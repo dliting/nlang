@@ -97,11 +97,13 @@ bool ExprResolveAccessor::RejectNamedOrOutArguments(SnInvokeExpr &invoke)
 //binds to the same-named constructor member first (a function is a
 //data value, so the receiver switch's data branch would take the
 //ctor's void return as the receiver type). In a member-expr qualifier
-//that shadow is never the intent — a function value owns no members,
-//and no variable may share a visible type's name (0.9.0) — so a
-//ctor-shaped binding rebinds to the owning type: `Counter.total`
-//inside Counter resolves exactly like the outside spelling, all the
-//way to codegen.
+//that shadow is never the intent — a function value exposes no member
+//lookup but the by-name toString (and even there the rebind makes the
+//inside spelling reject instance-method-through-type like the outside
+//one, pinned by err_ctor_shadow_tostring), and no variable may share
+//a visible type's name (0.9.0) — so a ctor-shaped binding rebinds to
+//the owning type: `Counter.total` inside Counter resolves exactly
+//like the outside spelling, all the way to codegen.
 void ExprResolveAccessor::RebindCtorShadowedQualifier(
 	SnMemberExpr &snMember)
 {

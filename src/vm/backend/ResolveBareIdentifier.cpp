@@ -72,7 +72,7 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
 //project unit) is no stub and carries no wire rider — the rider is
 //replayed from the shadow registration archive, the same pattern the
 //function channel uses for cross-unit callees
-//(ProducerIdxOfCrossUnitStatic).
+//(EffectiveProducerSlotIdx).
 uint16_t VmBackend::StaticSlotIndexOf(SnClassField& field) {
     auto it = m_staticSlotByField.find(&field);
     if (it != m_staticSlotByField.end())
@@ -85,9 +85,7 @@ uint16_t VmBackend::StaticSlotIndexOf(SnClassField& field) {
             || pParent->Kind() == NK_InterfaceDecl)) {
         auto& owner = static_cast<SnField&>(*pParent);
         if (owner.IsImported() || !IsOwnUnit(owner)) {
-            uint16_t rider = field.m_iProducerSlotIdx;
-            if (rider == 0xFFFF && !owner.IsImported())
-                rider = ProducerIdxOfCrossUnitStatic(field);
+            const uint16_t rider = EffectiveProducerSlotIdx(field);
             if (rider != 0xFFFF) {
                 const uint8_t ownerKind =
                     pParent->Kind() == NK_InterfaceDecl ? 1 : 0;

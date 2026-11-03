@@ -222,8 +222,8 @@ class Counter {
 Access through the type name (`Counter.total`) is the universal
 form, visible wherever the class is. Inside the class a bare name
 denotes the static field directly, like any member. Access through
-an object is rejected with the same diagnostic as a static method
-call on a receiver. A struct has no static members at all — the
+an object is rejected the same way a static method call on a receiver
+is. A struct has no static members at all — the
 flag on a struct field is a compile-time error — and a generic
 class cannot declare static fields, because its members belong to
 the one erased implementation shared by every instantiation.

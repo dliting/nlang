@@ -1,0 +1,15 @@
+//Inside the class's own member bodies the bare class name rebinds to
+//the type for member-expr qualifiers (the ctor shadow never names a
+//receiver). The rebind makes the inside spelling match the outside
+//one for the func-handle exception too: `Counter.toString()` inside
+//the body looks up toString in class scope (the inherited instance
+//method) and rejects instance-method-through-type, instead of riding
+//the constructor value's by-name toString.
+class Counter {
+    public Counter() {}
+    public int probe() {
+        string s = Counter.toString();
+        return 1;
+    }
+}
+int main() { return 0; }

@@ -134,8 +134,7 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
         const bool ownSlot = m_staticSlotByField.find(pConstField)
                              != m_staticSlotByField.end();
         const bool runtimeChannel = ownSlot
-            || pConstField->m_iProducerSlotIdx != 0xFFFF
-            || ProducerIdxOfCrossUnitStatic(*pConstField) != 0xFFFF;
+            || EffectiveProducerSlotIdx(*pConstField) != 0xFFFF;
         if (!runtimeChannel)
             return false;
         auto* owner =

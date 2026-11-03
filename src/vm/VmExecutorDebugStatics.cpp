@@ -1,8 +1,9 @@
-// --- VmExecutor debug view: static slots (ndb `i statics`) ---
-// v0.12.6 Task 9: the IVmDebugView::StaticSlots implementation plus its
-// two rendering helpers (owner init phase, one cell by declared kind).
-// Same TU discipline as VmExecutorDebug.cpp: frozen-time, const, no
-// NLang code execution, no NLang-heap allocation.
+/*--- VmExecutor debug view: static slots (ndb `i statics`).
+    v0.12.6 Task 9: the IVmDebugView::StaticSlots implementation plus its
+    two rendering helpers (owner init phase, one cell by declared kind).
+    Same TU discipline as VmExecutorDebug.cpp: frozen-time, const, no
+    NLang code execution, no NLang-heap allocation.
+---*/
 
 #include "VmExecutor.h"
 #include "IDebugHooks.h"

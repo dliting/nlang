@@ -118,7 +118,13 @@ public:
     //inlined library source's class static or interface runtime
     //constant — nodes that carry no wire rider, unlike rebuilt .ncu
     //stubs). 0xFFFF = no archived slot.
-    uint16_t ProducerIdxOfCrossUnitStatic(const SnClassField& field);
+    uint16_t ProducerIdxOfCrossUnitStatic(
+        const SnClassField& field) const;
+    //The one query every rider-gated site asks: the wire rider when the
+    //node carries one, else the archive replay above (0xFFFF = neither,
+    //the producer folded the constant or owns no slot row). Both call
+    //sites route through this so they cannot drift apart again.
+    uint16_t EffectiveProducerSlotIdx(const SnClassField& field) const;
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the

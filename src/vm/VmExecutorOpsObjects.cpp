@@ -103,7 +103,7 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
             const int32_t copyIdx =
                 DeepCopyStruct(srcHeapIdx, meta.type.typeIdx);
             std::memcpy(m_staticSlots.Cell(slotIdx), &copyIdx,
-                        kHeapFieldStrideBytes);
+                        sizeof(copyIdx));
             if (meta.hasInitializer)
                 m_staticSlots.MarkSlotInitialized(slotIdx);
             return;

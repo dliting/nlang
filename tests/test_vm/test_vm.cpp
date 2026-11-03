@@ -1107,8 +1107,11 @@ void test_static_local_slot_claim_release() {
 //bit starts clear, StoreStatic-equivalent marking sets it, bits are
 //per-slot independent, and owner-state transitions (Done/Fail) never
 //clear them — the "attempts counter" retention of D10 rides on the
-//bits surviving a failed attempt. The read-side throw and the
-//completed-owner fast behavior are pinned by the e2e probes.
+//bits surviving a failed attempt. The read-side throw is pinned by
+//the e2e probes. OpLoadStatic keeps a steady-state bit read (one
+//GIL-guarded byte) instead of a per-context owned-claims count: the
+//count would add bookkeeping to every claim/Done/Fail/owner-death
+//protocol for a negligible gain.
 void test_static_init_bits_protocol() {
     TEST(static_init_bits_protocol);
     VmStaticSlots slots;

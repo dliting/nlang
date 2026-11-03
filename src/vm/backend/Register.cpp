@@ -343,7 +343,7 @@ uint16_t VmBackend::ProducerIdxOfCrossUnitFunc(const SnFunction& callee) {
 //row in any image, and the constant-read phase consumes them before
 //StaticSlotIndexOf ever asks.
 uint16_t VmBackend::ProducerIdxOfCrossUnitStatic(
-    const SnClassField& field) {
+    const SnClassField& field) const {
     const uint32_t owner = m_pRegistry->OwnerOfContext(field);
     if (owner == ModuleRegistry::NO_OWNER
         || owner >= m_unitStaticSlotIdxByModule.size())
@@ -351,6 +351,21 @@ uint16_t VmBackend::ProducerIdxOfCrossUnitStatic(
     const auto& map = m_unitStaticSlotIdxByModule[owner];
     const auto it = map.find(const_cast<SnClassField*>(&field));
     return it != map.end() ? it->second : 0xFFFF;
+}
+
+//The single decision point for "which producer staticSlots index does
+//this field address": the wire rider when the node carries one (a
+//rebuilt .ncu stub), else the shadow-archive replay (a same-build
+//foreign unit). Both rider-gated sites (StaticSlotIndexOf's foreign
+//branch and EmitMemberStaticFieldRead's runtime-channel test) route
+//through here so the two can never drift — the archive lookup for an
+//imported stub is a no-op (empty archive row), so the unified query
+//changes nothing for stub fields.
+uint16_t VmBackend::EffectiveProducerSlotIdx(
+    const SnClassField& field) const {
+    if (field.m_iProducerSlotIdx != 0xFFFF)
+        return field.m_iProducerSlotIdx;
+    return ProducerIdxOfCrossUnitStatic(field);
 }
 
 //K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)
