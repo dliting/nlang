@@ -2005,6 +2005,7 @@ err_static_fwd_ref_qualified compile_error is referenced before its
 static_read_before_init_cycle 0
 const_local_fold_regression 42
 err_static_instance_access compile_error must be accessed through its class
+static_qualified_in_class 41
 static_const_class_folded 42
 static_const_class_runtime 1
 static_const_interface_runtime 2

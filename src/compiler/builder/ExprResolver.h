@@ -452,6 +452,10 @@ private:
 	*/
 	bool TryResolveMemberHead(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr);
+	//v0.12.6: rebind a constructor-shadowed class-name qualifier to the
+	//owning type (see ExprResolverMember.cpp) before the receiver
+	//context switch classifies it.
+	void RebindCtorShadowedQualifier(SnMemberExpr &snMember);
 	void SwitchContextToReceiver(SnMemberExpr &snMember);
 	bool RejectVoidReceiverMemberAccess(SnMemberExpr &snMember,
 		SyntaxNode *pSavedContext);

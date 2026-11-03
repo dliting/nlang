@@ -93,12 +93,46 @@ bool ExprResolveAccessor::RejectNamedOrOutArguments(SnInvokeExpr &invoke)
 	return false;
 }
 
+//v0.12.6: inside the class's own member bodies the bare class name
+//binds to the same-named constructor member first (a function is a
+//data value, so the receiver switch's data branch would take the
+//ctor's void return as the receiver type). In a member-expr qualifier
+//that shadow is never the intent — a function value owns no members,
+//and no variable may share a visible type's name (0.9.0) — so a
+//ctor-shaped binding rebinds to the owning type: `Counter.total`
+//inside Counter resolves exactly like the outside spelling, all the
+//way to codegen.
+void ExprResolveAccessor::RebindCtorShadowedQualifier(
+	SnMemberExpr &snMember)
+{
+	if (snMember.Outer()->Kind() != NK_IdentifierExpr)
+		return;
+	auto &outerFieldExpr =
+		static_cast<SnIdentifierExpr &>(*snMember.Outer());
+	SnField *pBound = outerFieldExpr.Field();
+	if (!pBound || pBound->Kind() != NK_Function)
+		return;
+	auto* pOwner = pBound->Parent();
+	const bool bCtorNamed =
+		(pOwner->Kind() == NK_ClassDecl
+		 && static_cast<SnClassDecl*>(pOwner)->Name() == pBound->Name())
+		|| (pOwner->Kind() == NK_StructDecl
+		 && static_cast<SnStructDecl*>(pOwner)->Name()
+			== pBound->Name());
+	if (!bCtorNamed)
+		return;
+	outerFieldExpr.m_pField = static_cast<SnField*>(pOwner);
+	outerFieldExpr.EvalDataType(
+		static_cast<SnField*>(pOwner)->EvalDataType());
+}
+
 //Receiver-scope switch: a data-typed outer resolves in its type context;
 //a type outer (namespace/class name) resolves in the type's scope, with
 //the enum-member re-anchor for `Color.Blue.rank()` receivers (the member
 //masquerades as Int32, which would land the context on the int builtin).
 void ExprResolveAccessor::SwitchContextToReceiver(SnMemberExpr &snMember)
 {
+	RebindCtorShadowedQualifier(snMember);
 	if (snMember.Outer()->IsDataExpr())
 		m_pContext = snMember.Outer()->EvalDataType();
 	else
