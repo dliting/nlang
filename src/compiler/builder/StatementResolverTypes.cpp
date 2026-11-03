@@ -321,26 +321,20 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 namespace
 {
 
-//0.9.10 D3.3 + v0.12.6 D11: the declared-type gate of an interface
-//constant (scalar or string only), then the initializer split: a
-//foldable literal keeps the full declaration-time fold/domain/fit
-//surface (it folds into every use site); anything else is a runtime
-//constant — the interface's synthesized $staticInit stores it lazily,
-//and the ordinary assignment machinery type-checks the expression.
+//0.9.10 D3.3 + v0.12.6 D11/D14/D15: an interface constant takes any
+//declared type a class static field takes. Scalars and strings fold at
+//compile time (the full declaration-time fold/domain/fit surface); every
+//other type — structs since D14, classes, arrays, containers and
+//enums since D15 — is a runtime constant: the interface's synthesized
+//$staticInit stores it lazily, and the ordinary assignment machinery
+//type-checks the expression. 0.9.10's "object constants need shared
+//runtime storage" objection died with D11's runtime slots.
 void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 	SnClassField &field)
 {
 	SnField *pDeclared = field.EvalDataType();
 	if (!pDeclared)
 		return;	//the type expression already failed to resolve
-	if (!IsConstantValueType(pDeclared))
-	{
-		env.Log(CLL_Error, field.Location(),
-			"The interface constant \"%s\" must have a compile-time "
-			"scalar or string type.",
-			field.Name().c_str());
-		return;
-	}
 	if (!field.Initializer())
 	{
 		env.Log(CLL_Error, field.Location(),
@@ -348,7 +342,11 @@ void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 			field.Name().c_str());
 		return;
 	}
-	if (ClassifyConstantInitializer(field.Initializer())
+	//Fold surface is a scalar/string matter (StaticConstFoldsAtCompileTime
+	//mirrors this arm); all other declared types ride the runtime channel
+	//whatever their initializer looks like.
+	if (!IsConstantValueType(pDeclared)
+		|| ClassifyConstantInitializer(field.Initializer())
 		== ConstantFoldKind::NotFoldable)
 		return;	//runtime constant — checked via the synthesized store
 	CheckConstantValueSurface(env, field, field.Initializer(),

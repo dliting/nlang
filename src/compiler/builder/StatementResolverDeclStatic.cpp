@@ -36,23 +36,17 @@ void StatementResolveAccessor::RejectStaticLocalPlacement(SnLocalDeclStmt &sn)
 		RejectStaticConstLocalInit(sn);
 }
 
-//v0.12.6 Task 7: the type contract of a static local. A struct-typed
-//static local is rejected — struct assignment deep-copies into the
-//target's own heap object, and the module slot stores one handle
-//cell, so the copy semantics have no slot-store spelling. The sized
-//array declarator is rejected with it: it allocates a fresh array
-//per execution, and the per-declarator array-token typing stays out
-//of the static-local path — an array-typed declaration initialized
-//with new covers the use.
+//v0.12.6 Task 7 + D14: the type contract of a static local. The sized
+//array declarator is rejected: it allocates a fresh array per
+//execution, and the per-declarator array-token typing stays out of the
+//static-local path — an array-typed declaration initialized with new
+//covers the use. Struct-typed static locals are legal since D14: the
+//slot's store deep-copies at the runtime choke point (OpStoreStatic),
+//and an initializer-less declaration materializes a zeroed record at
+//run init — the same value semantics as any other struct storage.
 void StatementResolveAccessor::RejectStaticLocalTypeContract(
 	SnLocalDeclStmt &sn)
 {
-	auto *pTypeField = sn.Type()->Field();
-	if (pTypeField && pTypeField->Kind() == NK_StructDecl)
-		m_Env.Log(CLL_Error, sn.Location(),
-			"Static local \"%s\" cannot have a struct type.",
-			sn.Decls().empty() ? ""
-			                   : sn.Decls().front().name.c_str());
 	for (auto &decl : sn.Decls())
 	{
 		if (decl.pArraySize)

@@ -112,6 +112,13 @@ public:
     //no archived record.
     void ShadowRegisterUnits(SnNamespace& root);
     uint16_t ProducerIdxOfCrossUnitFunc(const SnFunction& callee);
+    //Same-build cross-unit static support, the static-slot mirror of
+    //the function archive above: StaticSlotIndexOf replays the
+    //producer's staticSlots index for a foreign-unit static field (an
+    //inlined library source's class static or interface runtime
+    //constant — nodes that carry no wire rider, unlike rebuilt .ncu
+    //stubs). 0xFFFF = no archived slot.
+    uint16_t ProducerIdxOfCrossUnitStatic(const SnClassField& field);
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
@@ -302,6 +309,12 @@ private:
     int ClassAncestorFieldOffset(SnClassDecl& ancestor,
                                  const std::string& fieldName,
                                  uint16_t& off);
+    //v0.12.6 D14: the declared-type companion of FindClassFieldOffset —
+    //same root→parent→own search (statics skipped); returns the field's
+    //declared type node or null. The store sites consult it for the
+    //struct deep-copy decision (manual 4.7.4).
+    SnField* FindClassFieldDecl(SnClassDecl& classDecl,
+                                const std::string& fieldName);
     //0.9.11 D2: generalized to struct fields — returns the owning type
     //decl (SnClassDecl or SnStructDecl) for a member field of either,
     //null otherwise; the caller dispatches the offset helper by the
@@ -682,11 +695,17 @@ private:
     //element/member targets.
     uint16_t ResolveMemberFieldOffset(SyntaxNode* elemType,
                                       const std::string& fieldName);
+    //v0.12.6 D14: the declared-type twin of ResolveMemberFieldOffset —
+    //the field's type node for a class (chain walk) or struct (flat
+    //scan) element/member target, null on a miss.
+    SnField* DeclaredMemberFieldType(SyntaxNode* elemType,
+                                     const std::string& fieldName);
     void EmitAssignBareIdentifier(SnAssignStmt& assign, SnField* field,
                                   BytecodeEmitter& emitter);
     void EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
                            SnField* varType, BytecodeEmitter& emitter);
     void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
+                               SnField* fieldType,
                                BytecodeEmitter& emitter);
     void EmitAssignMemberField(SnAssignStmt& assign,
                                SnMemberExpr& memberExpr,
@@ -696,10 +715,10 @@ private:
                                          BytecodeEmitter& emitter);
     void EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter);
+        SnField* fieldType, BytecodeEmitter& emitter);
     void EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter);
+        SnField* fieldType, BytecodeEmitter& emitter);
     void EmitAssignClassField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, SnClassDecl* classDecl,
         BytecodeEmitter& emitter);
@@ -934,6 +953,16 @@ private:
     void EmitStructDeepCopy(uint16_t dst, uint16_t src,
                             SnStructDecl& structDecl,
                             BytecodeEmitter& emitter);
+    //v0.12.6 D14: struct-aware field store — when the field's declared
+    //type is a struct, deep-copy the staged value in place before the
+    //store (a struct moving into a field is copied, manual 4.7.4);
+    //every other kind stores the cell as-is. valueSlot already holds
+    //the right side's value (OP_CopyStruct reads the source cell before
+    //writing the destination, so dst == src is safe).
+    void EmitStructAwareStoreField(SnField* fieldType,
+                                   uint16_t objSlot, uint16_t fieldOff,
+                                   uint16_t valueSlot,
+                                   BytecodeEmitter& emitter);
 
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing
@@ -1618,6 +1647,13 @@ private:
     //ShadowRegisterUnits.
     std::vector<std::unordered_map<SnFunction*, uint16_t>>
         m_unitFuncIdxByModule;
+    //The static-slot sibling of the archive above: per-unit static
+    //field -> producer staticSlots index, harvested from the same
+    //shadow registration pass (staticSlots order is declaration order
+    //within one unit — no prelude interleaving, the prelude declares
+    //no statics — so the replay matches the producer image exactly).
+    std::vector<std::unordered_map<SnClassField*, uint16_t>>
+        m_unitStaticSlotIdxByModule;
 
     //Phase 6 per-unit mode: the registration walks only see members owned
     //by the selected unit, and cross-unit references become import slots.

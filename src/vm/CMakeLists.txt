@@ -13,6 +13,7 @@ add_library(nlang_vm
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
     VmExecutorDebugContainers.cpp
+    VmExecutorDebugStatics.cpp
     VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
@@ -82,6 +83,7 @@ add_library(nlang_vm
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
     backend/EmitExprInitListND.cpp
+    backend/EmitInitListAggregate.cpp
     backend/EmitExprMember.cpp
     backend/EmitExprMemberFieldLoad.cpp
     backend/FieldOffsets.cpp

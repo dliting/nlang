@@ -87,4 +87,36 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
     return -1;
 }
 
+//v0.12.6 D14: the declared-type companion of FindClassFieldOffset —
+//same root→parent→own search order (statics skipped), returning the
+//field's declared type node (EvalDataType) instead of its offset. The
+//store sites need it to decide the struct deep-copy (manual 4.7.4); a
+//miss returns null and the caller takes the plain store.
+SnField* VmBackend::FindClassFieldDecl(SnClassDecl& classDecl,
+                                      const std::string& fieldName) {
+    std::vector<SnClassDecl*> ancestors;
+    auto* pSuper = classDecl.SuperClass();
+    while (pSuper) {
+        ancestors.push_back(pSuper);
+        pSuper = pSuper->SuperClass();
+    }
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+        for (auto& member : (*it)->Members()) {
+            if (member.Kind() != NK_ClassField
+                || member.ContainFlags(NF_Static))
+                continue;
+            if (member.Name() == fieldName)
+                return static_cast<SnClassField&>(member)
+                    .EvalDataType();
+        }
+    }
+    for (auto& member : classDecl.Members()) {
+        if (member.Kind() != NK_ClassField || member.ContainFlags(NF_Static))
+            continue;
+        if (member.Name() == fieldName)
+            return static_cast<SnClassField&>(member).EvalDataType();
+    }
+    return nullptr;
+}
+
 } //namespace nlang

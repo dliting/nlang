@@ -219,6 +219,7 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
     return out;
 }
 
+
 // --- formatters ---
 
 //Frame slots are uniform kFrameSlotBytes cells: the low 4 bytes carry

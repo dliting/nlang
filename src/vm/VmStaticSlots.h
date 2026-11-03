@@ -96,6 +96,10 @@ public:
         return slotIdx < m_slotMachines.size() ? &m_slotMachines[slotIdx]
                                                : nullptr;
     }
+    const StaticOwnerState* SlotMachine(size_t slotIdx) const {
+        return slotIdx < m_slotMachines.size() ? &m_slotMachines[slotIdx]
+                                               : nullptr;
+    }
 
     //D12 init bits: clear until the slot's initializer stores it (the
     //loader sizes the table alongside the cells; only slots whose
@@ -111,10 +115,18 @@ public:
     uint8_t* Cell(size_t slotIdx) {
         return reinterpret_cast<uint8_t*>(&m_cells[slotIdx]);
     }
+    //Const twin for frozen-time readers (the debug view).
+    const uint8_t* Cell(size_t slotIdx) const {
+        return reinterpret_cast<const uint8_t*>(&m_cells[slotIdx]);
+    }
 
     size_t Count() const { return m_cells.size(); }
 
     StaticOwnerState* Owner(size_t ownerIdx) {
+        return ownerIdx < m_owners.size() ? &m_owners[ownerIdx]
+                                          : nullptr;
+    }
+    const StaticOwnerState* Owner(size_t ownerIdx) const {
         return ownerIdx < m_owners.size() ? &m_owners[ownerIdx]
                                           : nullptr;
     }
@@ -125,6 +137,14 @@ public:
     //owners). One table, two index spaces; the executor never does the
     //offset itself.
     StaticOwnerState* OwnerByKind(uint16_t kind, size_t idx) {
+        if (kind == 0)
+            return Owner(idx);
+        if (kind == 1)
+            return idx < m_ifaceOwnerCount
+                ? &m_owners[m_classOwnerCount + idx] : nullptr;
+        return nullptr;
+    }
+    const StaticOwnerState* OwnerByKind(uint16_t kind, size_t idx) const {
         if (kind == 0)
             return Owner(idx);
         if (kind == 1)

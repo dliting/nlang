@@ -389,6 +389,9 @@ public:
     DebugFrameInfo FrameInfo(int contextId, size_t depth) const override;
     std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const override;
+    //v0.12.6 Task 9: static-slot listing for the debug view — live cell
+    //values (locals rendering) plus the owning init machine's phase.
+    std::vector<DebugStaticSlotInfo> StaticSlots() const override;
     //K7 task 5: the freeze parking bracket (see IDebugHooks.h). The
     //frozen carrier leaves the GC rendezvous denominator, hands off any
     //held global lock, and takes a count on the dispatch gate; exit
@@ -827,6 +830,12 @@ private:
     //Extension point ③: host-registered roots (host-held reference
     //Values) — same dual-domain value test as the frame band.
     void MarkHostRoots(std::vector<int32_t>& worklist);
+    //v0.12.6 Task 9: static-slot cells are roots for their whole
+    //module's run — a static field outlives every frame that stored it.
+    //Declared-kind routing from the slot table (MarkFrameLocals'
+    //discipline); cells are written only by bytecode handlers under the
+    //GIL, so the quiescent rendezvous reads them race-free.
+    void MarkStaticSlotRoots(std::vector<int32_t>& worklist);
     //Shared value test behind the frame band and the native roots: a
     //true reference is valid in exactly its own domain (string-store
     //handle vs heap idx); a cross-domain hit can only over-mark.
@@ -1793,6 +1802,12 @@ private:
     std::string FormatDebugRefShort(int32_t heapIdx) const;
     std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
+    //v0.12.6 Task 9: static-slot display helpers (VmExecutorDebug.cpp) —
+    //cell rendering by declared kind + owner init-phase lookup.
+    std::string StaticSlotInitPhase(const CompiledStaticSlot& slot,
+                                    size_t slotIdx) const;
+    std::string FormatDebugStaticCell(uint8_t kind,
+                                      const uint8_t* cell) const;
 
     //String object store (definitions in VmExecutorStrings.cpp).
     //By value: rvalue products (to_string temporaries, concat/readFile

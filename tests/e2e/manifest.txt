@@ -1566,13 +1566,12 @@ interface_constant_missing_const compile_error must be static const
 interface_constant_extra_flag compile_error cannot be virtual
 interface_constant_private compile_error must be public
 interface_constant_runtime_expr 3
-interface_constant_object compile_error must have a compile-time scalar or string type
 interface_constant_type_mismatch compile_error has incompatible type "Double"; expected "Int32"
 interface_constant_type_mismatch_string compile_error has incompatible type "String"; expected "Int32"
 interface_constant_out_of_range compile_error constant 300 out of range for 'byte'
 interface_constant_protected compile_error must be public
 interface_constant_native compile_error cannot be native
-interface_constant_array compile_error must have a compile-time scalar or string type
+interface_constant_array compile_error Incompatible value "1"
 interface_constant_runtime_enum 1
 interface_constant_runtime_call 4
 interface_constant_name_clash compile_error ambiguous with the method of the same name
@@ -2015,9 +2014,20 @@ static_const_local 2
 static_local_loop 13
 static_local_method 13
 static_local_recursion_read 0
+static_slot_gc_survive 0
+static_struct_value 0
+static_struct_default 0
+static_local_struct 0
+static_const_struct 0
+struct_field_store_value 0
+cross_mod_static_struct 0
 err_static_const_assign compile_error cannot be assigned
 err_static_iface_const_assign compile_error cannot be assigned
+static_const_iface_class 9
+static_const_iface_array 7
+static_const_iface_enum 2
+static_const_iface_list 2
+cross_mod_static_iface_const 5
 err_static_const_out compile_error cannot be passed as an out argument
-err_static_local_struct compile_error cannot have a struct type
 err_static_local_sized compile_error sized array
 err_iface_mutable_static compile_error must be static const

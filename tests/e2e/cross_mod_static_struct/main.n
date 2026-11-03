@@ -1,0 +1,19 @@
+//Consumer: stores into an imported struct static copy the value (the
+//executor's slot-store deep-copy is keyed on the linked module's slot
+//metadata), and the imported initializer-less static reads as the
+//zeroed default.
+import lib;
+
+int main() {
+    if (Registry.anchor.x != 7 || Registry.anchor.y != 9) { return 1; }
+    Point local = Point(3, 4);
+    Registry.anchor = local;
+    local.x = 99;
+    if (Registry.anchor.x != 3) { return 2; }
+    Registry.fresh.y = 11;
+    if (Registry.fresh.y != 11 || Registry.fresh.x != 0) { return 3; }
+    Point back = Registry.anchor;
+    back.y = 70;
+    if (Registry.anchor.y != 4) { return 4; }
+    return 0;
+}

@@ -134,8 +134,10 @@ bool DebugSession::RunCommand(const std::string& cmd) {
             DoInfoBreakpoints();
         else if (arg == "locals")
             DoInfoLocals();
+        else if (arg == "statics")
+            DoInfoStatics();
         else
-            m_out << "Usage: i b | i locals\n";
+            m_out << "Usage: i b | i locals | i statics\n";
     } else if (head == "d" || head == "delete") {
         DoDelete(arg);
     } else if (head == "threads") {
@@ -294,6 +296,7 @@ void DebugSession::DoHelp() {
         "bt                                 backtrace\n"
         "frame <n>                          select frame\n"
         "info locals                        locals of selected frame\n"
+        "i statics                          static slots (value + init phase)\n"
         "p <name>                           print one local\n"
         "l [line]                           list source around line\n"
         "x                                  disassemble current frame\n"

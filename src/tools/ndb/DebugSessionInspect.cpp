@@ -139,6 +139,30 @@ void DebugSession::DoInfoLocals() {
     m_out.flush();
 }
 
+//i statics: every static slot of the module with its live value and
+//the owning initializer's phase. Owner kind names the anchor kind
+//(class static / interface constant / static local); the value renders
+//through the same channels as locals. Module-lifetime state — no
+//context or frame selection involved.
+void DebugSession::DoInfoStatics() {
+    const auto slots = m_pController->View().StaticSlots();
+    if (slots.empty()) {
+        m_out << "No static slots.\n";
+        m_out.flush();
+        return;
+    }
+    for (const auto& s : slots) {
+        const char* kind = s.ownerKind == 2 ? "local"
+            : s.ownerKind == 1 ? "interface" : "class";
+        m_out << s.ownerKey << "." << s.name << "  (" << kind << ")  = "
+              << s.display;
+        if (!s.initPhase.empty())
+            m_out << "  init=" << s.initPhase;
+        m_out << "\n";
+    }
+    m_out.flush();
+}
+
 void DebugSession::DoPrint(const std::string& arg) {
     if (arg.empty()) {
         m_out << "Usage: p <name>\n";

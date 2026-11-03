@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <mutex>
 
 namespace nlang {
 
@@ -109,6 +110,42 @@ void VmExecutor::TestRootValue(int32_t val,
         PushMarked(val, worklist);
 }
 
+
+//Root scan: static-slot cells (v0.12.6 Task 9). A static field or
+//runtime constant outlives every frame that stored it — the slot cell
+//is the only durable anchor once the setter's frame dies, exactly the
+//shape MarkContextResultCell's accumulator happened to mask in the
+//survival probe (a stale copy of the index kept the object marked; an
+//in-churn scalar return displaced it and the sweep freed the object).
+//Kind routing mirrors MarkFrameLocals: the slot's declared kind picks
+//the domain (string handle vs heap idx), a T-typed slot tests both
+//domains (over-mark only — the GC is non-moving). Cell writes happen
+//only in bytecode handlers under the GIL; the collection runs at the
+//quiescent rendezvous where no bytecode executes, so the read needs no
+//lock — the same soundness argument as the parked-frame scans.
+void VmExecutor::MarkStaticSlotRoots(std::vector<int32_t>& worklist) {
+    const size_t count = m_staticSlots.Count();
+    for (size_t i = 0; i < count; ++i) {
+        const uint8_t kind = m_currModule->staticSlots[i].type.kind;
+        if (kind != RTK_Struct && kind != RTK_Class && kind != RTK_Array
+            && kind != RTK_Func && kind != RTK_String
+            && kind != RTK_TypeParam)
+            continue;
+        int32_t val;
+        std::memcpy(&val, m_staticSlots.Cell(i), sizeof(val));
+        if (kind == RTK_String) {
+            MarkString(val);
+            continue;
+        }
+        if (kind == RTK_TypeParam) {
+            TestRootValue(val, worklist);
+            continue;
+        }
+        if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+            && !m_markBits[val])
+            PushMarked(val, worklist);
+    }
+}
 
 //One context's resultCell root. K8 Task 7: for a LIVE context the
 //cell is not just a return slot — PushFrameCore's result-cell
@@ -221,6 +258,89 @@ void VmExecutor::AuditWaiterDestinationRanges(
                 "every GC root surface (frame transfer bug)\n",
                 static_cast<int>(ci));
             std::terminate();
+        }
+    }
+}
+
+
+//Same string/heap split as the frame scans — RTK_String values are
+//string-store handles routed to MarkString (its own validation),
+//everything else is a heap idx under the mark guard. K8: the registry
+//iterates under its leaf mutex — host threads and blocking-native
+//carriers mutate it from OUTSIDE the rendezvous denominator (their
+//windows are suspended), so the collection's read needs the same
+//mutex; MarkString/PushMarked take no lock, keeping this a leaf
+//critical section.
+void VmExecutor::MarkHostRoots(std::vector<int32_t>& worklist) {
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
+    for (const HostRoot& root : m_hostRoots) {
+        if (root.kind == RTK_String) {
+            MarkString(root.value);
+        } else if (root.value > 0
+                && static_cast<size_t>(root.value) < m_slotKinds.size()
+                && !m_markBits[root.value]) {
+            PushMarked(root.value, worklist);
+        }
+    }
+}
+
+//K1 Slice 6 root arm: parked/queued contexts are not in EvalStack()
+//(the steal model) — their whole frame stacks are roots here, plus each
+//context's Thread object (join reads __handle) and a Failed context's
+//exception object (join rethrows it by heap idx; it must survive until
+//every joiner has thrown). Same three frame arms as the running stack;
+//MarkFrameResult is safe on parked frames (externalResult points at
+//the stable result cells). K8: one scheduler-domain guard over the
+//whole scan — the collection itself is GIL-free, and the timer thread
+//(also outside the rendezvous) flips ctx->state under the scheduler
+//lock; the guard also replaces 2N+2 per-call self-acquires of
+//Find/ContextCount. The mark helpers take no lock, so the guard holds
+//nothing inward (GIL→gcStop-leaf is the one legal order and is not
+//used here — ScanRegisteredStacks runs before this arm, un-nested).
+void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
+    VmScheduler::GilEnsureGuard gil(*m_spScheduler);
+    for (size_t i = 0; i < m_spScheduler->ContextCount(); ++i) {
+        const ExecutionContext* ctx = m_spScheduler->Find(
+            static_cast<int>(i));
+        for (const CallFrame& parkedFrame : ctx->frames) {
+            MarkFrameLocals(parkedFrame, worklist);
+            MarkFrameResult(parkedFrame, worklist);
+            MarkFrameBand(parkedFrame, worklist);
+        }
+        const int32_t ctxRoots[3] = { ctx->threadObjHeapIdx,
+                                      ctx->failExcHeapIdx,
+                                      ctx->resumeExcHeapIdx };
+        for (int32_t val : ctxRoots) {
+            if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
+                && !m_markBits[val])
+                PushMarked(val, worklist);
+        }
+        MarkContextResultCell(ctx, worklist);
+    }
+}
+
+//K2 slice 4 (§2.5 staged roots): in-flight blocking native calls. The
+//address form covers the staged argument cells and the staged return
+//cell — their contents exist only after entry (the ret cell is written
+//by the native itself), so only an address can see the final values;
+//argument cells are immutable past the entry copy (const in the ABI).
+//The value form covers handles minted by re-entrant NativeHost
+//callbacks during the blocking section. K8: registry mutations take
+//the root-registry leaf mutex (K7's GIL serialization died with the
+//lock-free allocation paths), and a blocking-native carrier sits
+//outside the rendezvous denominator — the collection's iteration
+//takes the same mutex. TestRootValue/PushMarked take no lock.
+void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
+    std::lock_guard<std::mutex> g(m_rootRegistryMutex);
+    for (const NativeCallRoot& root : m_nativeCallRoots) {
+        if (root.cells) {
+            for (uint32_t i = 0; i < root.cellCount; ++i) {
+                int32_t val;
+                std::memcpy(&val,
+                    root.cells + static_cast<size_t>(i) * kFrameSlotBytes,
+                    sizeof(val));
+                TestRootValue(val, worklist);
+            }
         }
     }
 }

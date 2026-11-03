@@ -70,7 +70,8 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         emitter.EmitUint16(target.slotIdx);
         emitter.EmitUint16(valueSlot);
     } else if (target.kind == BareIdTarget::ThisField) {
-        EmitAssignToThisField(assign, target.fieldOff, emitter);
+        EmitAssignToThisField(assign, target.fieldOff,
+            field->EvalDataType(), emitter);
     }
 }
 
@@ -106,9 +107,10 @@ void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
 }
 
 //Implicit this.<field> = value (bare member write inside a method).
-//Same opcode shape as the MemberExpr write.
+//Same opcode shape as the MemberExpr write; the declared type rides
+//along for the D14 struct deep-copy decision.
 void VmBackend::EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
-        BytecodeEmitter& emitter) {
+        SnField* fieldType, BytecodeEmitter& emitter) {
     EmitExpression(*assign.Right(), emitter,
         m_currFunc->tempSlot2);
     emitter.Emit(OpCode::OP_VarLocal);
@@ -117,10 +119,8 @@ void VmBackend::EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
     emitter.EmitUint16(m_currFunc->tempSlot);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.Emit(OpCode::OP_StoreField);
-    emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
-    emitter.EmitUint16(m_currFunc->tempSlot2);
+    EmitStructAwareStoreField(fieldType, m_currFunc->tempSlot,
+        static_cast<uint16_t>(fieldOff), m_currFunc->tempSlot2, emitter);
 }
 
 //Member lvalue: arr[i].field / li[i].field subscripted-element stores
@@ -199,6 +199,25 @@ uint16_t VmBackend::ResolveMemberFieldOffset(SyntaxNode* elemType,
     return static_cast<uint16_t>(off);
 }
 
+//v0.12.6 D14: the declared-type twin of ResolveMemberFieldOffset —
+//class fields walk the inheritance chain (FindClassFieldDecl), struct
+//fields scan the flat list; a miss returns null and the caller's
+//store falls back to the plain 8-byte cell store.
+SnField* VmBackend::DeclaredMemberFieldType(SyntaxNode* elemType,
+        const std::string& fieldName) {
+    if (elemType->Kind() == NK_ClassDecl)
+        return FindClassFieldDecl(
+            *static_cast<SnClassDecl*>(elemType), fieldName);
+    if (elemType->Kind() == NK_StructDecl) {
+        for (auto& sf :
+            static_cast<SnStructDecl*>(elemType)->Fields()) {
+            if (sf.Name() == fieldName)
+                return sf.EvalDataType();
+        }
+    }
+    return nullptr;
+}
+
 //arr[i].field = v / li[i].field = v. The subscript outer's index must
 //NOT alias tempSlot2 (which holds the right side value). Returns true
 //when a class/struct element shape consumed the statement; false lets
@@ -220,13 +239,14 @@ bool VmBackend::EmitAssignSubscriptElementStore(SnAssignStmt& assign,
     if (inner->Kind() != NK_IdentifierExpr) return true;
     auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
     uint16_t fieldOff = ResolveMemberFieldOffset(elemType, fieldName);
+    SnField* fieldType = DeclaredMemberFieldType(elemType, fieldName);
     if (IsContainerSubscript(*sub.Array())) {
         EmitAssignContainerElementFieldStore(assign, sub, elemType,
-            fieldOff, emitter);
+            fieldOff, fieldType, emitter);
         return true;
     }
     EmitAssignArrayElementFieldStore(assign, sub, elemType, fieldOff,
-        emitter);
+        fieldType, emitter);
     return true;
 }
 
@@ -240,7 +260,7 @@ bool VmBackend::EmitAssignSubscriptElementStore(SnAssignStmt& assign,
 //first (JLS 15.26.1).
 void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter) {
+        SnField* fieldType, BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 2);
     uint16_t objSlot = claim.base();
     uint16_t valueSlot = objSlot + kFrameSlotBytes;
@@ -250,10 +270,8 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         emitter.EmitUint16(objSlot);
     }
     EmitExpression(*assign.Right(), emitter, valueSlot);
-    emitter.Emit(OpCode::OP_StoreField);
-    emitter.EmitUint16(objSlot);
-    emitter.EmitUint16(fieldOff);
-    emitter.EmitUint16(valueSlot);
+    EmitStructAwareStoreField(fieldType, objSlot, fieldOff, valueSlot,
+        emitter);
 }
 
 //Array receiver: `arr[i].field = v`. Phase 10 audit round-3: stage
@@ -265,7 +283,7 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
 //container path above and SubscriptAssignStmt.
 void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter) {
+        SnField* fieldType, BytecodeEmitter& emitter) {
     //Stage-2: N indices + element temp + value in one exclusive claim.
     const size_t rank = sub.Indices().size();
     EvalAreaClaim claim(*this, rank + 2);
@@ -294,19 +312,19 @@ void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         emitter.Emit(OpCode::OP_NullCheck);
         emitter.EmitUint16(m_currFunc->tempSlot);
     }
-    //6. store_field obj=tempSlot off=fieldOff src=claim[2]
-    emitter.Emit(OpCode::OP_StoreField);
-    emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.EmitUint16(fieldOff);
-    emitter.EmitUint16(valueSlot);
+    //6. store_field obj=tempSlot off=fieldOff src=claim[2] (struct
+    //values deep-copy in place first, D14)
+    EmitStructAwareStoreField(fieldType, m_currFunc->tempSlot, fieldOff,
+        valueSlot, emitter);
 }
 
-//Class field assignment: reference semantics, no deep copy. Phase 10
-//audit round-4: park [receiver, value] in an EvalAreaClaim(2) — the old
-//tempSlot/tempSlot2 staging was clobbered by a call in the RHS (argument
-//binaries fall through PickTempSlot to tempSlot; struct-argument deep
-//copy scratches tempSlot), crashing or storing through the wrong
-//object. Receiver first (JLS 15.26.1).
+//Class field assignment: reference semantics for handles, deep copy for
+//struct values (v0.12.6 D14 — the field owns an independent record,
+//manual 4.7.4). Phase 10 audit round-4: park [receiver, value] in an
+//EvalAreaClaim(2) — the old tempSlot/tempSlot2 staging was clobbered by
+//a call in the RHS (argument binaries fall through PickTempSlot to
+//tempSlot; struct-argument deep copy scratches tempSlot), crashing or
+//storing through the wrong object. Receiver first (JLS 15.26.1).
 void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, SnClassDecl* classDecl,
         BytecodeEmitter& emitter) {
@@ -323,6 +341,25 @@ void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(objSlot);
     EmitExpression(*assign.Right(), emitter, valueSlot);
+    EmitStructAwareStoreField(
+        FindClassFieldDecl(*classDecl, fieldName),
+        objSlot, fieldOff, valueSlot, emitter);
+}
+
+//v0.12.6 D14: struct-aware field store — the emit-side twin of the
+//static slot's runtime deep-copy (OpStoreStatic). When the field's
+//declared type is a struct, the staged value is deep-copied in place
+//first, so the field owns an independent record (manual 4.7.4); every
+//other kind stores the 8-byte cell as-is. Same Kind()-after-
+//RuntimeTypeKind shape as EmitAssignToLocal's struct branch.
+void VmBackend::EmitStructAwareStoreField(SnField* fieldType,
+        uint16_t objSlot, uint16_t fieldOff, uint16_t valueSlot,
+        BytecodeEmitter& emitter) {
+    if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct
+        && fieldType->Kind() == NK_StructDecl) {
+        EmitStructDeepCopy(valueSlot, valueSlot,
+            static_cast<SnStructDecl&>(*fieldType), emitter);
+    }
     emitter.Emit(OpCode::OP_StoreField);
     emitter.EmitUint16(objSlot);
     emitter.EmitUint16(fieldOff);

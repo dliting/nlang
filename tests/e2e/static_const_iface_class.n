@@ -1,0 +1,17 @@
+//D15: an interface constant of class type rides the runtime channel —
+//the interface's lazy initializer builds the object once; every read
+//shares it, and mutation through the constant is visible to all
+//readers (shallow const: the binding is fixed, the object is not).
+class Box {
+    public int v;
+    public Box(int v) { this.v = v; }
+}
+interface Holder {
+    static const Box shared = Box(7);
+}
+int main() {
+    if (Holder.shared.v != 7)
+        return 1;
+    Holder.shared.v = 9;      // member write through the constant
+    return Holder.shared.v;   //9
+}
