@@ -68,27 +68,36 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
 //dedupes, so every use site in this unit shares one tail slot. The
 //rider's absence on an imported field (a folded constant) never
 //reaches here: the constant-read phase consumes it first.
+//A same-build foreign unit (an inlined library source, or a sibling
+//project unit) is no stub and carries no wire rider — the rider is
+//replayed from the shadow registration archive, the same pattern the
+//function channel uses for cross-unit callees
+//(ProducerIdxOfCrossUnitStatic).
 uint16_t VmBackend::StaticSlotIndexOf(SnClassField& field) {
     auto it = m_staticSlotByField.find(&field);
     if (it != m_staticSlotByField.end())
         return it->second;
     auto* pParent = field.Parent();
-    const uint16_t rider = field.m_iProducerSlotIdx;
     //Class and interface declarations are both SnField subclasses; the
     //SnField& view serves the owner-tag queries below.
-    if (pParent && rider != 0xFFFF
+    if (pParent
         && (pParent->Kind() == NK_ClassDecl
             || pParent->Kind() == NK_InterfaceDecl)) {
         auto& owner = static_cast<SnField&>(*pParent);
         if (owner.IsImported() || !IsOwnUnit(owner)) {
-            const uint8_t ownerKind =
-                pParent->Kind() == NK_InterfaceDecl ? 1 : 0;
-            const uint16_t slot = static_cast<uint16_t>(
-                StaticSlotSymbolSlot(m_compiledModule,
-                    SymbolSlotModulePath(*m_pRegistry, owner),
-                    field.Name(), KeyOf(owner), ownerKind, rider));
-            m_staticSlotByField[&field] = slot;
-            return slot;
+            uint16_t rider = field.m_iProducerSlotIdx;
+            if (rider == 0xFFFF && !owner.IsImported())
+                rider = ProducerIdxOfCrossUnitStatic(field);
+            if (rider != 0xFFFF) {
+                const uint8_t ownerKind =
+                    pParent->Kind() == NK_InterfaceDecl ? 1 : 0;
+                const uint16_t slot = static_cast<uint16_t>(
+                    StaticSlotSymbolSlot(m_compiledModule,
+                        SymbolSlotModulePath(*m_pRegistry, owner),
+                        field.Name(), KeyOf(owner), ownerKind, rider));
+                m_staticSlotByField[&field] = slot;
+                return slot;
+            }
         }
     }
     throw std::runtime_error(

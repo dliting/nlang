@@ -124,12 +124,19 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
         //producer rider means the constant-read phase already emitted
         //the literal. An imported runtime constant (Task 8) is a map
         //miss BY CONSTRUCTION (the row lives in the producer's image)
-        //and carries the rider instead; it proceeds to gate+load and
-        //mints its placeholder slot below.
+        //and carries the rider instead; a same-build foreign unit (an
+        //inlined library source) carries no wire rider but the shadow
+        //archive replays exactly what the producer minted (0xFFFF =
+        //the producer folded it too). Runtime channel = any of the
+        //three; it proceeds to gate+load and mints its placeholder
+        //slot below.
         auto* pConstField = static_cast<SnClassField*>(field);
         const bool ownSlot = m_staticSlotByField.find(pConstField)
                              != m_staticSlotByField.end();
-        if (!ownSlot && pConstField->m_iProducerSlotIdx == 0xFFFF)
+        const bool runtimeChannel = ownSlot
+            || pConstField->m_iProducerSlotIdx != 0xFFFF
+            || ProducerIdxOfCrossUnitStatic(*pConstField) != 0xFFFF;
+        if (!runtimeChannel)
             return false;
         auto* owner =
             static_cast<SnInterfaceDecl*>(field->Parent());

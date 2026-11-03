@@ -925,6 +925,7 @@ cross_mod_static_disambiguation 32
 cross_mod_static_inherited 7
 cross_mod_staticness_overload 42
 cross_mod_static_lazy 0
+cross_mod_static_src_inline 106
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0
