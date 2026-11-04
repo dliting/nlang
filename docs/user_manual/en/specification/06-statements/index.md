@@ -73,6 +73,42 @@ declaration (say `const int x;` as a field) remains a syntax error —
 immutability is granted wholesale by the type-level marker, never "half a
 class".
 
+### Static local
+
+```nlang
+int nextId() {
+    static int last = 100;   // one slot, initialized on the first call
+    last = last + 1;
+    return last;
+}
+```
+
+`static T x = e;` declares a local whose name has the usual block
+scope but whose storage is one slot for the declaration site,
+shared by every call: the initializer runs on the first execution
+of the declaration statement — exactly once — and later
+executions, and later calls, read the kept value. A static local
+declared in a loop body initializes on the first iteration and
+keeps its value across iterations and across calls. The
+declaration may appear in a function or method body; at the top
+level it is a compile-time error, and so is one inside a generic
+class or method (§4.12).
+
+`static const T x = e;` adds the constant constraint: it requires
+an initializer, and assigning to `x` afterwards is a compile-time
+error. A constant-foldable initializer folds at compile time, like
+a class static constant (§4.8.8); any other expression runs lazily
+on the first execution.
+
+A static local of a struct type follows the struct value model:
+each store into the slot deep-copies the record, and a declaration
+without an initializer starts at the struct's zero value
+(§4.7.4). Re-entering the initializer before it stores — a
+recursive call that reads its own static local — raises
+`InitializationException` (§8.3) at the reading site, catchable
+like every exception, and the slot's initialization resets: the
+next call runs the initializer again.
+
 ## 6.2 Assignment
 
 The target of an assignment — the lvalue — is a local variable or

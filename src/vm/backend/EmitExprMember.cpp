@@ -3,6 +3,7 @@
     从 VmBackend.cpp 抽取；方法调用族拆至 EmitExprMemberCall.cpp，字符串族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "builder/FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -67,6 +68,12 @@ void VmBackend::Access(SnMemberExpr& expr) {
     //throw), no null check, args stage from slot 0.
     if (EmitMemberStaticCall(member, emitter, resultOffset))
         return;
+    //v0.12.6: type-name-qualified static field read (Counter.total; the
+    //D4 inherited Derived.tag binds the DECLARING class's field). Same
+    //reasoning as the static call above: the receiver names a type and
+    //has no value to emit.
+    if (EmitMemberStaticFieldRead(member, field, emitter, resultOffset))
+        return;
     //Static faces on builtin generic type names (Future.selectAny):
     //detection is the qualifier singleton's pointer identity — must
     //run before the typed-receiver dispatch reads the outer's type
@@ -109,7 +116,11 @@ static bool IsReceiverlessFuncRefTarget(SnField& field) {
 
 //Compile-time constant read phase: an enum member constant (Color.Red)
 //and an interface constant (I.NAME) both emit an inline literal. The
-//receiver names a type, so no receiver value is emitted.
+//receiver names a type, so no receiver value is emitted. v0.12.6 D3:
+//foldable class static consts (MathU.k) join the phase — one predicate
+//(StaticConstFoldsAtCompileTime) also drives slot registration and the
+//synthesis filter, so a folded const can never fall through to a
+//slot-less OP_LoadStatic.
 bool VmBackend::EmitMemberConstantRead(SnField* field,
                                        BytecodeEmitter& emitter,
                                        uint16_t resultOffset) {
@@ -118,9 +129,10 @@ bool VmBackend::EmitMemberConstantRead(SnField* field,
         emitter.Emit(OpCode::OP_ConstInt32);
         emitter.EmitInt32(pEnumMember->Value());
     } else if (field && field->Kind() == NK_ClassField
-               && IsInterfaceConstantField(*field)) {
-        EmitInterfaceConstantRead(*static_cast<SnClassField*>(field),
-                                  emitter);
+               && StaticConstFoldsAtCompileTime(
+                   *static_cast<SnClassField*>(field))) {
+        EmitFoldedConstantRead(*static_cast<SnClassField*>(field),
+                               emitter);
     } else {
         return false;
     }
@@ -207,18 +219,19 @@ static double FoldedFloatingValue(const DefaultValueDesc& dv) {
     }
 }
 
-//0.9.10 D3.5: interface constant use site. The declaration contract
-//guarantees the initializer folds and the declared type is scalar or
-//string, so emission is a plain inline literal (the caller's constant
-//phase assigns it to the result slot).
-void VmBackend::EmitInterfaceConstantRead(SnClassField& field,
-                                          BytecodeEmitter& emitter) {
+//0.9.10 D3.5 / v0.12.6 D3: folded-constant use site. The declaration
+//contract guarantees the initializer folds and the declared type is
+//scalar or string, so emission is a plain inline literal (the caller's
+//constant phase assigns it to the result slot). Interface constants and
+//compile-time-folded class static consts share the shape.
+void VmBackend::EmitFoldedConstantRead(SnClassField& field,
+                                       BytecodeEmitter& emitter) {
     DefaultValueDesc dv = ExtractDefaultValue(
         field.Initializer(), RuntimeTypeKind(field.EvalDataType()));
     if (dv.tag == RTK_Void) {
         //Declaration contract violation — an internal invariant break.
         throw std::runtime_error(
-            "NLang backend: interface constant without a folded value: "
+            "NLang backend: folded constant without a value: "
             + field.Name());
     }
     SnField* pDeclared = field.EvalDataType();

@@ -1,0 +1,13 @@
+//Lazy exactly-once initialization on first active use (D2/D9): the
+//initializer runs when main first reads the field.
+class Cfg {
+    public static int value = side() + 1;
+}
+int side() {
+    return 40;
+}
+int main() {
+    int probe = 0;
+    if (Cfg.value == 41) { probe = 1; }
+    return probe * 10 + Cfg.value;   //51
+}

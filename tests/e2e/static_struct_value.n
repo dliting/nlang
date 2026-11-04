@@ -1,0 +1,36 @@
+//D14: a struct-typed class static is a value boundary — stores copy the
+//whole value, reads into locals copy at the consuming boundary, member
+//writes land on the slot's own record, and the stored record survives
+//collection via the static-slot roots (--gc-stress=8).
+struct Point {
+    public int x;
+    public int y;
+    Point(int a, int b) { x = a; y = b; }
+}
+class Registry {
+    public static Point anchor = Point(7, 9);
+}
+int bump(int v) { return v + 1; }
+int main() {
+    if (Registry.anchor.x != 7 || Registry.anchor.y != 9) { return 1; }
+    Point local = Point(1, 2);
+    Registry.anchor = local;
+    local.x = 100;
+    if (Registry.anchor.x != 1) { return 2; }
+    Point back = Registry.anchor;
+    back.y = 55;
+    if (Registry.anchor.y != 2) { return 3; }
+    Registry.anchor.x = 5;
+    if (Registry.anchor.x != 5) { return 4; }
+    //GC churn under stress: the in-loop value-returning call displaces
+    //the context accumulator, so the stored record survives only as a
+    //static-slot root (the false-anchor trap this suite documents).
+    int acc = 0;
+    for (int i = 0; i < 60; i += 1) {
+        Point churn = Point(i, i);
+        acc = bump(acc);
+    }
+    if (acc != 60) { return 5; }
+    if (Registry.anchor.x != 5 || Registry.anchor.y != 2) { return 6; }
+    return 0;
+}

@@ -208,7 +208,7 @@ SnField *ExprResolveAccessor::FindBareValueField(SnIdentifierExpr &idExpr,
 		return IsBareVisible(static_cast<SnFunction &>(field), curModule);
 	};
 	SnField *pField = FindFieldInAncestor(idExpr.Name(), *m_pContext,
-		*m_pAccessor, Flags(), bareFuncFilter);
+		*m_pAccessor, Flags(), bareFuncFilter, idExpr.Location());
 	if (!pField && ContainFlags(ERF_IgnoreUsings))
 	{
 		NLANG_ASSERT(idExpr.Usings());
@@ -236,7 +236,10 @@ bool ExprResolveAccessor::RejectBareInterfaceConstant(
 bool ExprResolveAccessor::RejectImplicitThisInStatic(SnIdentifierExpr &idExpr,
 	SnField *pField)
 {
-	if (!pField || pField->Kind() != NK_ClassField)
+	//v0.12.6: a static field carries no implicit this — the bare name
+	//inside a static method is the class-qualified access in disguise.
+	if (!pField || pField->Kind() != NK_ClassField
+		|| pField->ContainFlags(NF_Static))
 		return false;
 	auto *pEnclosing = EnclosingFunction();
 	if (!pEnclosing || !pEnclosing->ContainFlags(NF_Static))

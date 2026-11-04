@@ -1,0 +1,30 @@
+//v0.12.6 D3: the type-name-qualified static form inside the class's
+//own member bodies. The same-named constructor shadows the bare class
+//name in member scope, but a member-expr qualifier denotes the type —
+//a function value owns no members, so the qualifier rebinds.
+class Counter {
+    public static int total;
+    public int serial;
+    public Counter() {
+        Counter.total = Counter.total + 1;   // qualified inside the ctor
+        this.serial = Counter.total;
+    }
+    public static int doubled() {
+        return Counter.total * 2;            // qualified static read in a static method
+    }
+    public int bump() {
+        Counter.total = Counter.total + 10;  // qualified read+write in an instance method
+        return Counter.total;
+    }
+}
+
+int main() {
+    Counter a = Counter();
+    Counter b = Counter();
+    int afterBump = b.bump();                //2 + 10 = 12
+    if (afterBump != 12) { return 1; }
+    int doubled = Counter.doubled();         //12 * 2 = 24 — qualified static call in class
+    if (doubled != 24) { return 2; }
+    if (Counter.total != 12) { return 3; }
+    return 40 + a.serial;   //41
+}

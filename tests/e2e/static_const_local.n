@@ -1,0 +1,17 @@
+//Local static const evaluates once across calls.
+class Probe {
+    public static int runs = 0;
+}
+int f() {
+    static const int x = side();
+    return x;
+}
+int side() {
+    Probe.runs = Probe.runs + 1;
+    return 30;
+}
+int main() {
+    f();
+    f();
+    return f() - 29 + Probe.runs;   //2
+}

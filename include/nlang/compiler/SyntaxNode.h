@@ -34,6 +34,7 @@ class SnUsing;
 typedef UniquePtrList<SnUsing> UsingList;
 
 class SnField;
+class SnFieldExpr;
 
 //The abstract base class of all the other syntax node classes in an AST.
 class NLANG_COMPILER_API SyntaxNode: public Node
@@ -129,8 +130,11 @@ public:
 	on the new owner (DOM removeChild protocol). The typed member slot of
 	the old owner is intentionally left pointing at the detached node so
 	existing readers keep working until the caller re-parents it.
-	\return the detached node, or null if pChild is not a child of this
-	node (including null input and foreign nodes).
+	\return the detached node, or null for null input. A non-null child
+	whose parent is not this node is a caller bug (wrong owner) and
+	asserts — the same precondition discipline as ReplaceChildNode; a
+	silent null there would hand the caller a still-owned node and
+	corrupt both trees.
 	Used by the local-decl decomposition in StatementResolver (Phase 13
 	Step 0.5 container unification).
 	*/
@@ -242,6 +246,20 @@ public:
 	virtual bool IsArrayType() const
 	{
 		return false;
+	}
+
+	/*
+	The declared type expression of this field member (the "int" of
+	"int x"), or null when the member declares no type. SnDataField,
+	SnStructField and SnClassField are SIBLING classes that each keep
+	their own m_pType — mixed-kind callers must use this virtual, never
+	a static_cast between the siblings: their layouts are independent,
+	so a cross cast reads the wrong member slots (a crash that
+	previously hid behind the three layouts coincidentally matching).
+	*/
+	virtual SnFieldExpr *DeclaredTypeExpr() const
+	{
+		return nullptr;
 	}
 
 	std::string TypedName() const;

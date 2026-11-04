@@ -135,4 +135,36 @@ inline uint32_t EnumSymbolSlot(CompiledModule &mod,
 	return slot;
 }
 
+//v0.12.6 Task 8: cross-unit static-slot placeholder. Dedup key:
+//modulePath + ownerKey + name. ownerOrdinal is the row's index in the
+//producer's own staticSlots table — the authoritative single-select
+//selector that nlink rechecks by name+ownerKey (the function-record
+//authority+recheck model). ownerKind rides the record in THIS table's
+//own domain: 0 = class owner, 1 = interface owner (it never selects a
+//table kind at link time — the key pair already identifies the row).
+inline uint32_t StaticSlotSymbolSlot(CompiledModule &mod,
+	const std::string &modulePath, const std::string &name,
+	const std::string &ownerKey, uint8_t ownerKind,
+	uint16_t ownerOrdinal)
+{
+	const uint32_t ownCount = static_cast<uint32_t>(
+		mod.staticSlots.size() - mod.staticSlotImports.size());
+	for (uint32_t i = ownCount; i < mod.staticSlots.size(); ++i)
+	{
+		if (mod.staticSlots[i].name == name
+			&& mod.staticSlots[i].ownerKey == ownerKey
+			&& mod.staticSlotImports[i - ownCount].modulePath == modulePath)
+			return i;
+	}
+	CompiledStaticSlot placeholder;
+	placeholder.name = name;
+	placeholder.ownerKey = ownerKey;
+	placeholder.ownerKind = ownerKind;
+	const uint32_t slot = static_cast<uint32_t>(mod.staticSlots.size());
+	mod.staticSlots.push_back(std::move(placeholder));
+	mod.staticSlotImports.push_back(
+		{modulePath, name, 0, ownerKey, false, ownerKind, ownerOrdinal});
+	return slot;
+}
+
 } // namespace nlang

@@ -1,0 +1,20 @@
+//Calling an interface's static method is a first-use trigger (D11):
+//the interface initializes lazily, so the runtime constant the method
+//reads is ready, exactly once.
+interface Rules {
+    static const int limit = compute();
+    public static int check(int v) {
+        return v % Rules.limit;   //qualified — bare constant reads inside interface method bodies are a pinned reject (interface_constant_bare_name)
+    }
+}
+class Probe {
+    public static int runs = 0;
+}
+int compute() {
+    Probe.runs = Probe.runs + 1;
+    return 7;
+}
+int main() {
+    int r = Rules.check(30);   //first touch: interface static method call
+    return r * 10 + Probe.runs;   //2*10+1 = 21
+}

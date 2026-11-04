@@ -154,6 +154,29 @@ enum class OpCode : uint8_t {
     OP_Shr,             // u8 kind, u16 dst, u16 src — same, arithmetic on
                         // signed rows and logical on unsigned rows
 
+    // === 0.12.6: static slots (module-wide table, spec §6.2) ===
+    OP_LoadStatic,      // uint16 dst, uint16 slotIdx — frame[dst] = slots[slotIdx]
+    OP_StoreStatic,     // uint16 slotIdx, uint16 src — slots[slotIdx] = frame[src]
+
+    // === 0.12.6: lazy static initialization (spec §6.2 D2/D4/D5/D10) ===
+    OP_ClassInitGate,   // u16 classIdx, u16 donePc (absolute), u16 kind
+                        // (0 = class, 1 = interface) — Done jumps donePc;
+                        // the first claimer falls through to the paired
+                        // OP_CallFunc of the owner's $staticInit; a later
+                        // context parks and re-walks the gate on wake
+    OP_ClassInitDone,   // u16 classIdx, u16 kind — publish Done, wake waiters
+    OP_ClassInitFail,   // u16 classIdx, u16 kind — reset the owner so the
+                        // next use retries (D10); pair with OP_Rethrow
+
+    // === 0.12.6 Task 7: static-local slot machines (spec §8) ===
+    OP_SlotInitGate,    // u16 slotIdx, u16 donePc (absolute) — Done and
+                        // re-entrant-self jump donePc; the first claimer
+                        // falls through to the guarded initializer; anyone
+                        // else parks and re-walks the gate on wake
+    OP_SlotInitDone,    // u16 slotIdx — publish Done, wake waiters
+    OP_SlotInitFail,    // u16 slotIdx — reset the machine so the next use
+                        // retries (D10); pair with OP_Rethrow
+
     OP_Count
 };
 
@@ -185,7 +208,8 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
     OpCode::OP_DebugInfo, OpCode::OP_NullCheck, OpCode::OP_CheckCast,
     OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
-    OpCode::OP_MakeVFunc};
+    OpCode::OP_MakeVFunc,
+    OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
     OpCode::OP_Neg};
 static constexpr OpCode kStrideKindByte[] = {
@@ -197,14 +221,18 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
-    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape};
+    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
+    OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
+    OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
+    OpCode::OP_SlotInitGate};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};
 static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
-    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt};
+    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
+    OpCode::OP_ClassInitGate};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_AssembleArrayN,

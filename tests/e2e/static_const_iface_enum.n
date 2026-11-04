@@ -1,0 +1,11 @@
+//D15: enum-typed interface constants — the same runtime channel; the
+//slot carries the enum's scalar value and compares by member.
+enum Color { Red, Green }
+interface Tones {
+    static const Color base = Color.Green;
+}
+int main() {
+    if (Tones.base == Color.Red)
+        return 1;
+    return 2;   //base == Green
+}

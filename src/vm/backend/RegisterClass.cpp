@@ -7,6 +7,8 @@
 ---*/
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
+#include "builder/BuiltinNames.h"
+#include "builder/FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -41,6 +43,16 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
     for (auto& member : sn.Members()) {
         if (member.Kind() == NK_ClassField) {
             auto& cf = static_cast<SnClassField&>(member);
+            //v0.12.6 D1: static fields are module-slot-backed, not
+            //instance layout — the instance arrays never see them.
+            //Slot allocation (and the class record's staticFields
+            //entry) happen here so the module table's declaration
+            //order is exact: classes register in walk order, members
+            //in textual order.
+            if (cf.ContainFlags(NF_Static)) {
+                AllocateStaticFieldSlot(cf, cc);
+                continue;
+            }
             cc.fieldNames.push_back(cf.Name());
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and
@@ -51,6 +63,67 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
             cc.fieldClassIndices.push_back(0xFFFF);
             cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
         }
+    }
+}
+
+//v0.12.6 D1: one static class field -> one module slot + the class
+//record's staticFields entry. Runs inside CollectOwnClassFields, so the
+//module table's order IS declaration order (classes in walk order,
+//members in textual order). Task 7 (D3/D12): a compile-time-folded
+//static const takes NO slot — slotIdx 0xFFFF marks the entry, whose
+//foldedValue the constant-read phase emits inline. The fold predicate
+//is the same one the synthesis filter and emission consult.
+//The TypeDesc fills in the ResolveClassMetadata phase — BuildTypeDesc
+//needs all classes registered (leaf slots resolve through the table).
+void VmBackend::AllocateStaticFieldSlot(SnClassField& cf, CompiledClass& cc) {
+    CompiledStaticField sf;
+    sf.name = cf.Name();
+    sf.access = static_cast<uint8_t>(cf.AccessType());
+    sf.isConst = cf.ContainFlags(NF_Const);
+    if (StaticConstFoldsAtCompileTime(cf)) {
+        sf.slotIdx = 0xFFFF;
+        sf.foldedValue = ExtractDefaultValue(
+            cf.Initializer(), RuntimeTypeKind(cf.EvalDataType()));
+        cc.staticFields.push_back(std::move(sf));
+        return;
+    }
+    sf.slotIdx =
+        static_cast<uint16_t>(m_compiledModule.staticSlots.size());
+    CompiledStaticSlot slot;
+    slot.name = cf.Name();
+    slot.ownerKey = cc.name;
+    slot.ownerKind = 0;   //class
+    slot.isRuntimeConst = 0;
+    slot.hasInitializer = cf.Initializer() ? 1 : 0;
+    m_staticSlotByField[&cf] = sf.slotIdx;
+    m_compiledModule.staticSlots.push_back(std::move(slot));
+    cc.staticFields.push_back(std::move(sf));
+}
+
+//Deferred TypeDesc fill for one class's static fields (the static
+//sibling of BuildClassFieldTypeDescs). Index-based access throughout:
+//BuildTypeDesc can append import placeholders to classes mid-loop.
+void VmBackend::BuildStaticFieldTypeDescs(SnClassDecl* pDecl,
+    size_t classIdx) {
+    size_t si = 0;
+    for (auto& member : pDecl->Members()) {
+        if (member.Kind() != NK_ClassField
+            || !member.ContainFlags(NF_Static))
+            continue;
+        if (si >= m_compiledModule.classes[classIdx]
+                .staticFields.size())
+            break;
+        auto& cf = static_cast<SnClassField&>(member);
+        TypeDesc td = BuildTypeDesc(cf.EvalDataType(),
+                                    LeafSlotResolvers());
+        //Folded consts (slotIdx 0xFFFF) own no slot row — the class
+        //record's staticFields entry still carries the declared type.
+        auto slotIt = m_staticSlotByField.find(&cf);
+        if (slotIt != m_staticSlotByField.end())
+            m_compiledModule.staticSlots.at(slotIt->second).type = td;
+        m_compiledModule.classes[classIdx].staticFields[si].type =
+            std::move(td);
+        ++si;
     }
 }
 
@@ -167,6 +240,7 @@ void VmBackend::ResolveClassMetadata(
         }
         ResolveClassFieldRefs(pDecl, ci);
         BuildClassFieldTypeDescs(pDecl, ci);
+        BuildStaticFieldTypeDescs(pDecl, ci);
     }
 }
 
@@ -226,6 +300,15 @@ void VmBackend::AppendClassMemberMethods(SnClassDecl& sn, CompiledClass& cc) {
     for (auto& child : sn.Members()) {
         if (child.Kind() != NK_Function)
             continue;
+        //v0.12.6 D2: the synthesized "$staticInit" member is not part
+        //of the callable surface — a consumer stub must not rebuild it
+        //as a ghost method. Its index rides staticInitFuncIdx instead.
+        if (IsStaticInitName(child.Name())) {
+            auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
+            if (it != m_funcIndexMap.end())
+                cc.staticInitFuncIdx = static_cast<uint16_t>(it->second);
+            continue;
+        }
         auto it = m_funcIndexMap.find(static_cast<SnFunction*>(&child));
         if (it == m_funcIndexMap.end())
             continue;

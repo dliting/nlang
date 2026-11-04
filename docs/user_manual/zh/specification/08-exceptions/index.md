@@ -88,7 +88,7 @@ try {
 
 ## 8.3 内建异常
 
-`Exception`扩展`Object`（§4.11）。内建异常类是`Exception`及其六个直接子类：
+`Exception`扩展`Object`（§4.11）。内建异常类是`Exception`及其七个直接子类：
 
 | 类 | 由谁抛出 |
 | --- | --- |
@@ -99,6 +99,7 @@ try {
 | `AssertionException` | 失败的`assert`（§6.5） |
 | `InvalidCastException` | 失败的`as`向下转型（§5.5） |
 | `IOException` | 失败的`io`或`fs`操作（第14章、第15章） |
+| `InitializationException` | 静态初始化器经初始化协议失败时抛出，被抛对象作为其cause包裹（§4.8.8）；在初始化尚未完成时读取带初始化器的静态成员，类、接口或静态局部皆然（§4.8.8、§6.1） |
 
 `concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。
 

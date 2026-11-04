@@ -32,17 +32,17 @@ void PatchOperand(std::vector<uint8_t>& bc, size_t off,
 
 } //namespace
 
-//Per-opcode operand rewrite: dispatch the 11 remap-relevant operand
-//kinds. Other operands (local offsets, jump targets, intrinsic IDs,
-//type tags, debug line numbers) are unit-local and do not need
-//remapping.
-static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
+//Name-channel operands (string pool / function table). Other operands
+//(local offsets, jump targets, intrinsic IDs, type tags, debug line
+//numbers) are unit-local and do not need remapping.
+static void PatchNameOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
     switch (op) {
         case OpCode::OP_ConstString:
         case OpCode::OP_AssertFail:
         case OpCode::OP_CallMethod:
+        case OpCode::OP_MakeVFunc:
             PatchOperand(bc, pos + 1, maps.strings, "string", onUnmapped);
             break;
         case OpCode::OP_CallFunc:
@@ -53,9 +53,51 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_MakeBoundFunc:
             PatchOperand(bc, pos + 1, maps.functions, "function", onUnmapped);
             break;
-        case OpCode::OP_MakeVFunc:
-            PatchOperand(bc, pos + 1, maps.strings, "string", onUnmapped);
+        default:
             break;
+    }
+}
+
+//v0.12.6 lazy-init protocol opcodes: each leads with an owner table
+//index whose channel the trailing kind tag selects — kind 0 the class
+//table (Gate: owner@+1, donePc@+3, kind@+5; Done/Fail: owner@+1,
+//kind@+3), kind 1 the interface table (Task 7, D11). The remaining
+//operands (donePc jump target) are function-local and stay untouched.
+static void PatchClassInitOperands(OpCode op, std::vector<uint8_t>& bc,
+    size_t pos, const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    switch (op) {
+        case OpCode::OP_ClassInitGate:
+        case OpCode::OP_ClassInitDone:
+        case OpCode::OP_ClassInitFail: {
+            //The kind tag read stays INSIDE the case: the instruction
+            //itself spans the operand (Gate: 7 bytes, kind@+5; Done/Fail:
+            //5 bytes, kind@+3), while a pre-switch read would index past
+            //every short tail instruction — a function always ends on a
+            //stride-1 opcode, so the hoisted form was a Debug-only
+            //vector-subscript assert on ANY linked unit.
+            const size_t kindOff = (op == OpCode::OP_ClassInitGate)
+                ? pos + 5 : pos + 3;
+            const uint16_t kind = static_cast<uint16_t>(bc[kindOff])
+                | (static_cast<uint16_t>(bc[kindOff + 1]) << 8);
+            const bool isInterface = (kind == 1);
+            PatchOperand(bc, pos + 1,
+                isInterface ? maps.interfaces : maps.classes,
+                isInterface ? "interface" : "class", onUnmapped);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+//Type- and slot-channel operands (class/struct/array/enum/static-slot
+//tables). SECOND-operand entries note the offset — OP_New family
+//shapes lead with a dst frame offset.
+static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
+    const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    switch (op) {
         case OpCode::OP_New:
             // dst, classIdx — the table operand is the SECOND uint16
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
@@ -81,6 +123,22 @@ static void PatchTableOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_Enum_to_str:
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;
+        case OpCode::OP_LoadStatic:
+            // dst, slotIdx — the table operand is the SECOND uint16
+            PatchOperand(bc, pos + 3, maps.slots, "static slot", onUnmapped);
+            break;
+        case OpCode::OP_StoreStatic:
+            // slotIdx, src — the table operand is the FIRST uint16
+            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+            break;
+        case OpCode::OP_SlotInitGate:
+            // slotIdx, donePc — donePc is a function-local jump target
+            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+            break;
+        case OpCode::OP_SlotInitDone:
+        case OpCode::OP_SlotInitFail:
+            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+            break;
         default:
             break;
     }
@@ -92,7 +150,9 @@ void NcuRemapBytecodeOperands(std::vector<uint8_t>& bytecode,
     size_t pos = 0;
     while (pos < bytecode.size()) {
         OpCode op = static_cast<OpCode>(bytecode[pos]);
-        PatchTableOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchNameOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchTypeOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchClassInitOperands(op, bytecode, pos, maps, onUnmapped);
         pos += InstructionStride(op);
     }
 }

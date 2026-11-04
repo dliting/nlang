@@ -221,6 +221,67 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
             throw std::runtime_error("Invalid module: truncated enum keys");
     }
 
+    //v2.13 (v0.12.6): the module's static slot table (see the saver's
+    //section). Per slot: u32 name, u32 ownerKey, the ownerKind /
+    //isRuntimeConst / hasInitializer bytes, a length-prefixed TypeDesc.
+    //ownerKind has its own table-local domain (0 = class, 1 = interface,
+    //2 = static local — see CompiledStaticSlot).
+    {
+        uint32_t slotCount = 0;
+        fs.read(reinterpret_cast<char*>(&slotCount), sizeof(slotCount));
+        if (!fs.good() || slotCount > (1u << 20))
+            throw std::runtime_error("Invalid module: bad static slot count");
+        mod.staticSlots.resize(slotCount);
+        for (uint32_t i = 0; i < slotCount; ++i) {
+            auto& slot = mod.staticSlots[i];
+            uint32_t slotNameLen = 0;
+            fs.read(reinterpret_cast<char*>(&slotNameLen),
+                    sizeof(slotNameLen));
+            if (!fs.good() || slotNameLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad static slot name length");
+            slot.name.resize(slotNameLen);
+            fs.read(slot.name.data(), slotNameLen);
+            uint32_t ownerKeyLen = 0;
+            fs.read(reinterpret_cast<char*>(&ownerKeyLen),
+                    sizeof(ownerKeyLen));
+            if (!fs.good() || ownerKeyLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad static slot owner key length");
+            slot.ownerKey.resize(ownerKeyLen);
+            fs.read(slot.ownerKey.data(), ownerKeyLen);
+            fs.read(reinterpret_cast<char*>(&slot.ownerKind),
+                    sizeof(slot.ownerKind));
+            fs.read(reinterpret_cast<char*>(&slot.isRuntimeConst),
+                    sizeof(slot.isRuntimeConst));
+            fs.read(reinterpret_cast<char*>(&slot.hasInitializer),
+                    sizeof(slot.hasInitializer));
+            if (!fs.good() || slot.ownerKind > 2 || slot.isRuntimeConst > 1
+                || slot.hasInitializer > 1)
+                throw std::runtime_error(
+                    "Invalid module: bad static slot flags");
+            slot.type = ReadTypeDesc(fs);
+        }
+        //The class static-field blocks and interface constants were
+        //parsed before this table, so their slot references are only
+        //bounds-checkable now — every non-folded index must address this
+        //table (the runtime addresses slots by it).
+        for (const auto& cc : mod.classes)
+            for (const auto& sf : cc.staticFields)
+                if (sf.slotIdx != 0xFFFF
+                    && sf.slotIdx >= mod.staticSlots.size())
+                    throw std::runtime_error(
+                        "Invalid module: class static field slot index "
+                        "out of range");
+        for (const auto& iface : mod.interfaces)
+            for (const auto& constant : iface.constants)
+                if (constant.slotIdx != 0xFFFF
+                    && constant.slotIdx >= mod.staticSlots.size())
+                    throw std::runtime_error(
+                        "Invalid module: interface constant slot index "
+                        "out of range");
+    }
+
     //v2.0 phase 6: cross-unit import slots, one section per table (in
     //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
     //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
@@ -293,6 +354,10 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     readImports(mod.classImports, false);
     readImports(mod.structImports, false);
     readImports(mod.enumImports, false);
+    //v2.13: cross-module static-slot imports; ownerKind follows the
+    //static-slot domain (0 = class owner, 1 = interface owner — the
+    //shared reader's >2 bound admits no other value anyway).
+    readImports(mod.staticSlotImports, true);
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated import sections");
 
@@ -317,6 +382,9 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
     checkImportBounds(mod.classImports, mod.classes.size(), "class");
     checkImportBounds(mod.structImports, mod.structs.size(), "struct");
     checkImportBounds(mod.enumImports, mod.enumNames.size(), "enum");
+    //v2.13: static-slot imports tail the slot table the same way.
+    checkImportBounds(mod.staticSlotImports, mod.staticSlots.size(),
+                      "static slot");
 
     //Resolve the serialized entry key to an index. An empty key is the
     //"no entry" contract (libraries); a NON-empty key that names no

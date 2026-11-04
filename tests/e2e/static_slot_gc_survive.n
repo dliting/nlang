@@ -1,0 +1,44 @@
+// v0.12.6 Task 9: a static slot holding a reference is a GC root. The
+// static field carries a class instance across function boundaries and
+// collections (--gc-stress): the setter's and churner's frames die at
+// their returns, so the ONLY anchor of the stored instance is the slot
+// cell. The churn loop also calls a scalar function every iteration so
+// the context accumulator (resultCell) holds a competing value — without
+// that call the accumulator keeps a stale copy of the instance index and
+// masks the missing root scan. A slot cell missing from the root scan
+// lets the sweep free the instance mid-churn, and the read-back then
+// finds null (exit 1) or a reused record (exit 2) instead of the value.
+class Box {
+    public int payload;
+}
+
+class Holder {
+    public static Box kept;
+}
+
+void setKept() {
+    Holder.kept = Box();
+    Holder.kept.payload = 42;
+}
+
+int bump(int x) {
+    return x + 1;
+}
+
+void churn() {
+    int acc = 0;
+    for (int round = 0; round < 2000; round = round + 1) {
+        Box scratch = Box();
+        scratch.payload = round;
+        acc = bump(acc);
+    }
+    if (acc < 0) { Holder.kept = Box(); }
+}
+
+int main() {
+    setKept();
+    churn();
+    if (Holder.kept == null) { return 1; }
+    if (Holder.kept.payload != 42) { return 2; }
+    return 0;
+}

@@ -148,6 +148,7 @@ void StatementResolver::Resolve(SnNamespace &root)
 	m_Accessor.Visitor(&visitor);
 	PreAssignEnumMemberValues(root, m_Accessor);
 	PreResolveClassBases(root, m_Accessor);
+	PreSynthesizeStaticInitializers(root, m_Accessor);
 	PreInjectClassFieldInitializers(root, m_Accessor);
 	root.Accept(visitor);
 }

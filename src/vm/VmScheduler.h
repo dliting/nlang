@@ -86,7 +86,7 @@ inline thread_local GilHolder* t_gilOwner = nullptr;
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
     enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend,
-                        Semaphore };
+                        Semaphore, ClassInit };
     Reason reason;
     explicit ParkSignal(Reason r) : reason(r) {}
 };
@@ -137,6 +137,8 @@ enum class ContextState {
     ParkedJoin,      //Slice 6：join 目标未完成停泊
     ParkedMutex,     //Slice 8：锁竞争停泊
     ParkedSemaphore, //P2-1 (v0.10.17)：零许可acquire停泊
+    ParkedClassInit, //v0.12.6：静态初始化门停泊——另一上下文正在
+                     //初始化本类，Done/Fail 唤醒后重走门
     ParkedChanRecv,  //Slice 9：空通道接收停泊
     ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
     ParkedPromise,   //Promise 内部上下文：出生停泊，无代码帧，永不被
@@ -385,6 +387,14 @@ public:
     //P2-1：唤醒停泊获取者——release 把许可移交给队首等待者后调用——
     //回 Runnable 入队尾（WakeForMutex 形态）。
     void WakeForSemaphore(int id);
+
+    //v0.12.6 (spec §6.2)：静态初始化门停泊——state → ParkedClassInit。
+    //等待者集合在执行器 VmStaticSlots 的 StaticOwnerState 侧表（FIFO），
+    //唤醒只经 WakeForClassInit（ClassInitDone/Fail 触发；停泊者唤醒后
+    //重走门指令，读到新相位自行分派）。
+    void ParkForClassInit(int id);
+    //v0.12.6：唤醒门等待者——回 Runnable 入队尾（WakeForSemaphore 形态）。
+    void WakeForClassInit(int id);
 
     //通道接收停泊（Slice 9）：state → ParkedChanRecv。等待者集合在执
     //行器的 ChannelSlot 侧表（FIFO，各携带唤醒时写值的目标指针）——

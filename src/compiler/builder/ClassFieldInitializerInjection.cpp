@@ -99,7 +99,9 @@ SnExpression *CloneConstantInitializer(SnExpression *pInit)
 	}
 }
 
-//Fields carrying an initializer, in declaration order.
+//Fields carrying an initializer, in declaration order. Static fields
+//are excluded: their initializers are lazy runtime code (v0.12.6 D1),
+//not instance defaults applied by constructors.
 void CollectFieldInitFields(SnClassDecl &sn,
 	std::vector<SnClassField *> &initFields)
 {
@@ -108,6 +110,8 @@ void CollectFieldInitFields(SnClassDecl &sn,
 		if (member.Kind() == NK_ClassField)
 		{
 			auto &field = static_cast<SnClassField &>(member);
+			if (field.ContainFlags(NF_Static))
+				continue;
 			if (field.Initializer())
 				initFields.push_back(&field);
 		}

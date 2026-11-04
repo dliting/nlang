@@ -1,0 +1,18 @@
+//Implementing an interface does not trigger its initialization (D11).
+interface Limits {
+    static const int max = compute();
+}
+class Probe {
+    public static int runs = 0;
+}
+int compute() {
+    Probe.runs = Probe.runs + 1;
+    return 50;
+}
+class Impl implements Limits {
+    int dummy;
+}
+int main() {
+    Impl i = Impl();
+    return Probe.runs;   //0 — construction triggered nothing
+}

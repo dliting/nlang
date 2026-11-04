@@ -1,0 +1,9 @@
+//v0.12.6 D11: a call initializer is a runtime constant — the call runs
+//once inside the interface's lazily-triggered $staticInit.
+int seed() { return 4; }
+
+interface ILimits {
+	public static const int MAX = seed();
+}
+
+int main() { return ILimits.MAX; }   //4

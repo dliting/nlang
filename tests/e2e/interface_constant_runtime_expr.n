@@ -1,0 +1,8 @@
+//v0.12.6 D11: a non-literal initializer is a runtime constant — the
+//interface's synthesized $staticInit computes `1 + 2` lazily; the
+//read triggers it exactly once.
+interface ILimits {
+	static const int MAX = 1 + 2;
+}
+
+int main() { return ILimits.MAX; }   //3

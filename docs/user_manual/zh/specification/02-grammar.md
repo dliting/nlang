@@ -124,7 +124,9 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";" ;
+LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+                | "static" HeadType LocalDeclList ";"
+                | "static" "const" HeadType LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -174,7 +176,7 @@ BreakStmt       = "break" ";" ;
 ContinueStmt    = "continue" ";" ;
 ```
 
-`for`语句要求给出条件：`for (i = 0; ; i += 1)`是语法错误。`else`归属于最近的外层`if`（§2.7）。`ε`表示空体。
+`for`语句要求给出条件：`for (i = 0; ; i += 1)`是语法错误。`else`归属于最近的外层`if`（§2.7）。局部声明最多带一个前导关键字：静态局部的两种形式是`static T x = e;`与`static const T x = e;`，顺序固定——`const static`是语法错误（§6.1）。`ε`表示空体。
 
 ## 2.6 表达式
 

@@ -1,0 +1,22 @@
+//D14: an initializer-less struct static starts at the type's default —
+//a zeroed struct record, the static-slot sibling of the allocation-time
+//default instance fields get. Fields read as defaults; member writes
+//and member-read member-writes work; no bounds crash on a bare cell.
+struct Point {
+    public int x;
+    public int y;
+    Point(int a, int b) { x = a; y = b; }
+}
+class Registry {
+    public static Point anchor;
+}
+int main() {
+    if (Registry.anchor.x != 0 || Registry.anchor.y != 0) { return 1; }
+    Registry.anchor.x = 42;
+    Registry.anchor.y = Registry.anchor.x + 1;
+    if (Registry.anchor.x != 42 || Registry.anchor.y != 43) { return 2; }
+    Point local = Registry.anchor;
+    local.x = 99;
+    if (Registry.anchor.x != 42) { return 3; }
+    return 0;
+}

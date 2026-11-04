@@ -1,0 +1,28 @@
+//First active use takes three shapes (spec §6.2): a write, a static
+//method call, and construction — each triggers lazy initialization.
+class Log {
+    public static int order = 0;
+}
+int mark(int tag) {
+    Log.order = Log.order * 10 + tag;
+    return tag;
+}
+class ByWrite {
+    public static int w = mark(1);
+}
+class ByCall {
+    public static int c = mark(2);
+    public static int touch() { return 0; }
+}
+class ByNew {
+    public static int n = mark(3);
+    int dummy;
+}
+int main() {
+    ByWrite.w = ByWrite.w + 10;   //first touch: write
+    ByCall.touch();               //first touch: static method call
+    ByNew b = ByNew();            //first touch: construction
+    if (Log.order != 123) { return 1; }
+    if (ByWrite.w != 11) { return 2; }
+    return 0;
+}

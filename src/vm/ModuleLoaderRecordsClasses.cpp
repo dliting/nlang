@@ -4,7 +4,9 @@
     守卫拆分，一表一 TU，零行为变化）。共用的流级适配器 ReadTypeDesc
     定义在 ModuleLoaderRecords.cpp，经 ModuleLoaderRecords.h 跨 TU 共享。
     0.9.12 (v2.7)：类记录改读自有字段＋方法访问/虚标志＋构造器访问；
-    超类链终止/无环/深度校验在读毕统一执行。
+    超类链终止/无环/深度校验在读毕统一执行。v2.13 (v0.12.6)：构造器访问
+    之后追加静态字段块＋静态初始化器索引（槽位越界校验推迟到模块槽位表
+    读毕统一执行）。
 ---*/
 #include "ModuleLoaderRecords.h"
 #include <nlang/runtime/NodeConsts.h>
@@ -160,6 +162,56 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
                 throw std::runtime_error(
                     "Invalid module: bad class constructor access");
         }
+
+        //v2.13 (v0.12.6): declared static fields in textual order (see
+        //the saver's block comment). A DefaultValueDesc record follows
+        //only when slotIdx == 0xFFFF — the folded arm carries its value
+        //inline. slot bounds are validated after the module slot table
+        //is read (it sits later in the stream).
+        uint16_t staticFieldCount = 0;
+        fs.read(reinterpret_cast<char*>(&staticFieldCount),
+                sizeof(staticFieldCount));
+        if (!fs.good() || staticFieldCount > (1u << 12))
+            throw std::runtime_error(
+                "Invalid module: bad class static field count");
+        cc.staticFields.resize(staticFieldCount);
+        for (uint16_t j = 0; j < staticFieldCount; ++j) {
+            auto& sf = cc.staticFields[j];
+            uint32_t sfNameLen = 0;
+            fs.read(reinterpret_cast<char*>(&sfNameLen), sizeof(sfNameLen));
+            if (!fs.good() || sfNameLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad class static field name length");
+            sf.name.resize(sfNameLen);
+            fs.read(sf.name.data(), sfNameLen);
+            sf.type = ReadTypeDesc(fs);
+            fs.read(reinterpret_cast<char*>(&sf.access), sizeof(sf.access));
+            if (!fs.good() || sf.access > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad class static field access");
+            uint8_t constFlag = 0;
+            fs.read(reinterpret_cast<char*>(&constFlag), sizeof(constFlag));
+            if (!fs.good() || constFlag > 1)
+                throw std::runtime_error(
+                    "Invalid module: bad class static field const flag");
+            sf.isConst = (constFlag != 0);
+            fs.read(reinterpret_cast<char*>(&sf.slotIdx), sizeof(sf.slotIdx));
+            if (sf.slotIdx == 0xFFFF)
+                sf.foldedValue = ReadDefaultValueDesc(fs);
+        }
+
+        //v2.13 (v0.12.6): the class's lazy static-initializer function.
+        //Functions were parsed before the class table, so the index is
+        //bounds-checked here like methodIndices above.
+        fs.read(reinterpret_cast<char*>(&cc.staticInitFuncIdx),
+                sizeof(cc.staticInitFuncIdx));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated class static init index");
+        if (cc.staticInitFuncIdx != 0xFFFF
+            && cc.staticInitFuncIdx >= mod.functions.size())
+            throw std::runtime_error(
+                "Invalid module: class static init index out of range");
     }
 
     //0.9.12 (v2.7): the class records carry OWN fields and join their

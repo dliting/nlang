@@ -1,0 +1,8 @@
+//Static fields are declared on classes and interfaces only (spec D8).
+//StructField takes no flags, so this reject is grammar-level too —
+//any compile_error diagnostic passes; the resolver-side struct check
+//below is defense-in-depth, not the pinned diagnostic.
+struct P {
+    static int x;
+}
+int main() { return 0; }

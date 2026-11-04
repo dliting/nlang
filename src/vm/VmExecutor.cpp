@@ -98,6 +98,7 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("AssertionException",       &m_assertExcClassIdx);
     cacheExcClass("IOException",              &m_ioExcClassIdx);
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
+    cacheExcClass("InitializationException",  &m_initExcClassIdx);
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
     //K1 Slice 6: cache the Thread class index (spawn mints instances).
@@ -151,9 +152,29 @@ void VmExecutor::InitializeForRun(const CompiledModule& module) {
     //or backtrace from a previous run.
     m_currModule = &module;
     m_classLayout.Build(module.classes);
+    //v0.12.6 D11: interface owners continue the owner table after the
+    //classes (kind-1 gates address them through OwnerByKind).
+    m_staticSlots.Build(module.staticSlots.size(), module.classes.size(),
+                        module.interfaces.size());
     ResetPerRunState(module);
     InitStringStore(module);
     InitStructHeap();
+    //v0.12.6 D14: an initializer-less struct static's default is a
+    //zeroed struct record (nested structs and compile-time field
+    //defaults included) — the static-slot sibling of the allocation-
+    //time default instance fields get. Materialized at run init, before
+    //any context can observe the cell; the records are module-lifetime
+    //roots (MarkStaticSlotRoots' RTK_Struct arm) from the first
+    //collection on. Initializer-bearing slots keep D12: their zero
+    //reads as uninitialized and the read throws until the initializer
+    //stores.
+    for (size_t i = 0; i < module.staticSlots.size(); ++i) {
+        const CompiledStaticSlot& slot = module.staticSlots[i];
+        if (slot.type.kind != RTK_Struct || slot.hasInitializer)
+            continue;
+        const int32_t heapIdx = AllocStructOnHeap(slot.type.typeIdx);
+        std::memcpy(m_staticSlots.Cell(i), &heapIdx, sizeof(heapIdx));
+    }
     //GIL removal batch 1 (§7.2): pre-warm the native registry so the
     //module table stays read-only while frames execute — every native
     //the merged module declares is resolved here, at run init. A native

@@ -1,0 +1,33 @@
+//D14: struct runtime constants — a class static const and an interface
+//runtime const of struct type both initialize lazily exactly once and
+//read as independent values.
+struct Point {
+    public int x;
+    public int y;
+    Point(int a, int b) { x = a; y = b; }
+}
+class Probe {
+    public static int inits = 0;
+}
+class Registry {
+    public static const Point origin = mk();
+}
+interface Rules {
+    static const Point base = mk();
+}
+Point mk() {
+    Probe.inits = Probe.inits + 1;
+    return Point(5, 6);
+}
+int main() {
+    if (Probe.inits != 0) { return 1; }
+    Point o = Registry.origin;
+    if (Probe.inits != 1) { return 2; }
+    if (o.x != 5 || o.y != 6) { return 3; }
+    o.x = 77;
+    if (Registry.origin.x != 5) { return 4; }
+    Point b = Rules.base;
+    if (Probe.inits != 2) { return 5; }
+    if (b.x != 5 || b.y != 6) { return 6; }
+    return 0;
+}

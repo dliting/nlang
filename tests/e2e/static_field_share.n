@@ -1,0 +1,16 @@
+//Static field storage is shared across instances; an initializer-less
+//static reads zero and carries no initialization machinery (spec D9).
+class Counter {
+    public static int total;
+}
+int bump() {
+    Counter.total = Counter.total + 1;
+    return Counter.total;
+}
+int main() {
+    Counter a = Counter();
+    Counter b = Counter();
+    bump();
+    bump();
+    return Counter.total;   //2
+}

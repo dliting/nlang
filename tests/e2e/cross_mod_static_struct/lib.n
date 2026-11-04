@@ -1,0 +1,13 @@
+//Producer: struct statics across the module boundary — an initialized
+//static (the consumer's store deep-copies into it), and an
+//initializer-less static whose zeroed record materializes in the linked
+//module.
+struct Point {
+    public int x;
+    public int y;
+    Point(int a, int b) { x = a; y = b; }
+}
+class Registry {
+    public static Point anchor = Point(7, 9);
+    public static Point fresh;
+}

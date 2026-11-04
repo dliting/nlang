@@ -1,0 +1,19 @@
+//Initializer failure resets the owner and the next use retries (D10):
+//the first read throws and is caught; the second read succeeds.
+class Flaky {
+    public static int attempts;   //initializer-less: zero slot, persists across retries (an initializer would re-run and reset it on every retry — D10)
+    public static int value = boom();
+    public static int boom() {
+        Flaky.attempts = Flaky.attempts + 1;
+        if (Flaky.attempts < 2) {
+            throw AssertionException("first try fails");
+        }
+        return 7;
+    }
+}
+int main() {
+    int got = 0;
+    try { got = Flaky.value; } catch (Exception e) { }
+    try { got = Flaky.value; } catch (Exception e) { }
+    return got * 10 + Flaky.attempts;   //72
+}

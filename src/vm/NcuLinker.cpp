@@ -8,6 +8,7 @@
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
 #include "NcuLinkerSlots.h"
+#include "NcuLinkerInterfaces.h"
 #include <nlang/vm/ExprDesc.h>
 #include <map>
 #include <stdexcept>
@@ -18,17 +19,6 @@
 
 namespace nlang {
 namespace {
-
-//本单元实际压入合并表的条目下标（去重命中的不记——它们的元数据由
-//首个提供方单元负责重映射，二次重映射会改错数据）。
-struct UnitPushes
-{
-	std::vector<uint32_t> classes;
-	std::vector<uint32_t> structs;
-	std::vector<uint32_t> functions;
-	std::vector<uint32_t> interfaces;
-	std::vector<uint32_t> enums;
-};
 
 //(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
 //行为＝intrinsic 派发）允许去重；用户函数永不按名去重——裸方法键
@@ -87,6 +77,8 @@ static void ValidateClosure(const std::vector<CompiledModule>& units) {
         checkTable("class", u.classImports.size(), u.classes.size());
         checkTable("struct", u.structImports.size(), u.structs.size());
         checkTable("enum", u.enumImports.size(), u.enumNames.size());
+        checkTable("staticSlot", u.staticSlotImports.size(),
+            u.staticSlots.size());
     }
 }
 
@@ -177,6 +169,20 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
+//v2.13 (v0.12.6): static slots are STORAGE, not symbols — no name dedup.
+//Each unit's own entries append in unit order (import tail entries get
+//their mapping from slot resolution, not here); the provider unit owns
+//the metadata remap of what it pushed.
+static void MergeStaticSlots(const CompiledModule& u, CompiledModule& merged,
+                             NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.staticSlots.size() - u.staticSlotImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        m.slots[i] = static_cast<uint32_t>(merged.staticSlots.size());
+        merged.staticSlots.push_back(u.staticSlots[i]);
+        p.slots.push_back(m.slots[i]);
+    }
+}
+
 static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
                            NcuOperandMaps& m, UnitPushes& p,
                            BuiltinStubIndex& builtinStubs) {
@@ -206,22 +212,9 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
-//0.9.10 v2.4: interface statics, deduped by qualified key like classes.
-//No import slots exist for this table (statics never cross as types), so
-//every entry is an own entry; the first provider owns the metadata remap.
-static void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
-                            UnitPushes& p) {
-    for (uint32_t i = 0; i < u.interfaces.size(); ++i) {
-        bool existing = false;
-        for (const auto& ci : merged.interfaces)
-            if (ci.name == u.interfaces[i].name) { existing = true; break; }
-        if (existing)
-            continue;
-        merged.interfaces.push_back(u.interfaces[i]);
-        p.interfaces.push_back(
-            static_cast<uint32_t>(merged.interfaces.size() - 1));
-    }
-}
+//0.9.10 v2.4 + v0.12.6 Task 8: the interface merge with placeholder-row
+//preference lives in NcuLinkerInterfaces.cpp (size-guard split; Pass C
+//consumes its pushes through UnitPushes, NcuLinkerInterfaces.h).
 
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
@@ -234,9 +227,10 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
         MergeStructs(units[ui], merged, maps[ui], pushes[ui]);
         MergeEnums(units[ui], merged, maps[ui], pushes[ui]);
+        MergeStaticSlots(units[ui], merged, maps[ui], pushes[ui]);
         MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
                        builtinStubs);
-        MergeInterfaces(units[ui], merged, pushes[ui]);
+        MergeInterfaces(units[ui], merged, maps[ui], pushes, ui);
     }
 }
 
@@ -284,9 +278,31 @@ static void RemapClassMetadata(CompiledModule& merged,
         //remaps (the cross-unit ownerOrdinal addresses this list).
         for (auto& i : cc.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
+        //v2.13 (v0.12.6): the synthesized $staticInit record address —
+        //0xFFFF keeps its "no initializer machinery" meaning.
+        if (cc.staticInitFuncIdx != 0xFFFF)
+            cc.staticInitFuncIdx = static_cast<uint16_t>(
+                Lookup(m.functions, cc.staticInitFuncIdx));
         for (auto& td : cc.fieldTypeDescs)
             RemapTypeDesc(td, m.structs, m.classes);
+        //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
+        //merged storage table, the type descriptor the merged type tables.
+        for (auto& sf : cc.staticFields) {
+            if (sf.slotIdx != 0xFFFF)
+                sf.slotIdx = static_cast<uint16_t>(
+                    Lookup(m.slots, sf.slotIdx));
+            RemapTypeDesc(sf.type, m.structs, m.classes);
+        }
     }
+}
+
+//v2.13 (v0.12.6): the static slot records the unit pushed carry
+//unit-local type descriptors — remap them like the field descriptors.
+static void RemapStaticSlotMetadata(CompiledModule& merged,
+                                    const NcuOperandMaps& m,
+                                    const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed)
+        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes);
 }
 
 //默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
@@ -362,6 +378,42 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
         RemapDefaultValueStrings(dv, m, context);
 }
 
+//0.9.10 v2.4: interface static indices are function-table indices —
+//remap them like the class method block. D3 constants carry unit-local
+//type descriptors and pooled string defaults, so they remap through the
+//same maps as function records. 0.9.12 (v2.7): instance-method
+//signatures ride the same channels (formal/return descriptors and
+//pooled default strings); the signatures carry no function or type
+//indices beyond the descriptors, so nothing else remaps here.
+static void RemapInterfaceMetadata(CompiledInterface& iface,
+                                   const NcuOperandMaps& m) {
+    const std::string context = "interface '" + iface.name + "'";
+    for (auto& i : iface.staticMethodIndices)
+        i = static_cast<uint16_t>(Lookup(m.functions, i));
+    //v2.13 (v0.12.6): reserved interface initializer record — remap
+    //alongside the static methods when minted.
+    if (iface.staticInitFuncIdx != 0xFFFF)
+        iface.staticInitFuncIdx = static_cast<uint16_t>(
+            Lookup(m.functions, iface.staticInitFuncIdx));
+    for (auto& constant : iface.constants) {
+        RemapTypeDesc(constant.type, m.structs, m.classes);
+        //v0.12.6 Task 7 (D11): a runtime constant's slot addresses the
+        //merged storage table (the class staticFields shape); folded
+        //constants keep their 0xFFFF marker untouched.
+        if (constant.slotIdx != 0xFFFF)
+            constant.slotIdx = static_cast<uint16_t>(
+                Lookup(m.slots, constant.slotIdx));
+        RemapDefaultValueStrings(constant.value, m, context);
+    }
+    for (auto& sig : iface.instanceMethods) {
+        for (auto& ptd : sig.paramTypeDescs)
+            RemapTypeDesc(ptd.type, m.structs, m.classes);
+        RemapTypeDesc(sig.returnType, m.structs, m.classes);
+        for (auto& dv : sig.defaultValues)
+            RemapDefaultValueStrings(dv, m, context);
+    }
+}
+
 static void FinalizeUnits(const std::vector<CompiledModule>& units,
                           CompiledModule& merged,
                           std::vector<NcuOperandMaps>& maps,
@@ -371,41 +423,11 @@ static void FinalizeUnits(const std::vector<CompiledModule>& units,
         RemapClassMetadata(merged, maps[ui], pushes[ui].classes);
         RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
         RemapEnumMethodIndices(merged, maps[ui], pushes[ui].enums);
+        RemapStaticSlotMetadata(merged, maps[ui], pushes[ui].slots);
         for (uint32_t idx : pushes[ui].functions)
             FinalizeFunction(merged.functions[idx], maps[ui]);
-        //0.9.10 v2.4: interface static indices are function-table
-        //indices — remap them like the class method block. D3 constants
-        //carry unit-local type descriptors and pooled string defaults,
-        //so they remap through the same maps as function records.
-        //0.9.12 (v2.7): instance-method signatures ride the same
-        //channels (formal/return descriptors and pooled default
-        //strings); the signatures carry no function or type indices
-        //beyond the descriptors, so nothing else remaps here.
         for (uint32_t idx : pushes[ui].interfaces)
-        {
-            auto& iface = merged.interfaces[idx];
-            const std::string context = "interface '" + iface.name + "'";
-            for (auto& i : iface.staticMethodIndices)
-                i = static_cast<uint16_t>(
-                    Lookup(maps[ui].functions, i));
-            for (auto& constant : iface.constants)
-            {
-                RemapTypeDesc(constant.type, maps[ui].structs,
-                    maps[ui].classes);
-                RemapDefaultValueStrings(constant.value, maps[ui],
-                    context);
-            }
-            for (auto& sig : iface.instanceMethods)
-            {
-                for (auto& ptd : sig.paramTypeDescs)
-                    RemapTypeDesc(ptd.type, maps[ui].structs,
-                        maps[ui].classes);
-                RemapTypeDesc(sig.returnType, maps[ui].structs,
-                    maps[ui].classes);
-                for (auto& dv : sig.defaultValues)
-                    RemapDefaultValueStrings(dv, maps[ui], context);
-            }
-        }
+            RemapInterfaceMetadata(merged.interfaces[idx], maps[ui]);
     }
 }
 

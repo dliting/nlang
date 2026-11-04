@@ -81,6 +81,7 @@ static const BindingRow s_LiteralRows[] = {
 	{"lang", "AssertionException/2",        INTR_AssertionException_Ctor},
 	{"lang", "IOException/2",               INTR_IOException_Ctor},
 	{"lang", "InvalidCastException/2",      INTR_InvalidCastException_Ctor},
+	{"lang", "InitializationException/2",  INTR_InitializationException_Ctor},
 	{"concurrent", "ChannelClosedException/2", INTR_ChannelClosedException_Ctor},
 	//Cluster 4 (Object): the three protocol methods. Declared virtual so
 	//override propagation marks user overrides and call sites dispatch by

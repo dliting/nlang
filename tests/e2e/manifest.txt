@@ -153,6 +153,13 @@ enum_default 3
 enum_param 1
 enum_to_int 2
 enum_neg_reject compile_error non-negative
+enum_bare_member 0
+enum_bare_shadow 42
+enum_bare_switch 0
+enum_bare_method_body 0
+err_enum_bare_ambiguous compile_error is ambiguous
+err_enum_bare_assign compile_error is a constant and cannot be assigned
+err_enum_qual_assign compile_error is a constant and cannot be assigned
 # --- string ---
 string_length 5
 string_length_twice 10
@@ -917,6 +924,8 @@ cross_mod_interface_static 42
 cross_mod_static_disambiguation 32
 cross_mod_static_inherited 7
 cross_mod_staticness_overload 42
+cross_mod_static_lazy 0
+cross_mod_static_src_inline 106
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0
@@ -1557,16 +1566,15 @@ interface_constant_missing_static compile_error must be static const
 interface_constant_missing_const compile_error must be static const
 interface_constant_extra_flag compile_error cannot be virtual
 interface_constant_private compile_error must be public
-interface_constant_unfoldable compile_error must be a constant expression
-interface_constant_object compile_error must have a compile-time scalar or string type
+interface_constant_runtime_expr 3
 interface_constant_type_mismatch compile_error has incompatible type "Double"; expected "Int32"
 interface_constant_type_mismatch_string compile_error has incompatible type "String"; expected "Int32"
 interface_constant_out_of_range compile_error constant 300 out of range for 'byte'
 interface_constant_protected compile_error must be public
 interface_constant_native compile_error cannot be native
-interface_constant_array compile_error must have a compile-time scalar or string type
-interface_constant_unfoldable_identifier compile_error must be a constant expression
-interface_constant_unfoldable_call compile_error must be a constant expression
+interface_constant_array compile_error Incompatible value "1"
+interface_constant_runtime_enum 1
+interface_constant_runtime_call 4
 interface_constant_name_clash compile_error ambiguous with the method of the same name
 interface_constant_assign compile_error is a constant and cannot be assigned
 interface_constant_bare_name compile_error is an interface constant
@@ -1745,7 +1753,7 @@ decl_sized_init_scalar_reject compile_error sized declaration initializer
 # --- 0.10.7 D4: interface field shape arms -> contract diagnostics ---
 iface_field_no_flags compile_error must be static const
 iface_field_no_flags_noinit compile_error must be static const
-iface_field_no_init compile_error must be a constant expression
+iface_field_no_init compile_error must have an initializer
 # --- 0.10.7 D5: protocol methods public regardless of access ---
 proto_default_access 3
 # --- 0.10.8 D4: keyed entry values accept bare brace literals ---
@@ -1972,3 +1980,57 @@ generic_channel_import 0
 future_selectany_import 0
 thread_pkg_spawn 0
 concurrent_churn_gc 0
+
+# --- v0.12.6 static members and static locals (Task 1: grammar + contracts) ---
+err_static_generic_field compile_error cannot declare static fields
+err_static_struct_field compile_error
+err_static_enum_field compile_error
+err_static_bare_const_field compile_error must be static or static const
+err_static_virtual_field compile_error must be static or static const
+err_static_local_toplevel compile_error top-level statements cannot be combined with an explicit main
+err_static_local_generic_method compile_error cannot be declared inside a generic class
+err_static_const_no_init compile_error must have an initializer
+static_field_decl_only 0
+static_field_share 2
+static_field_bare_name 42
+static_field_inherited 66
+static_field_compound 6
+static_field_lazy_init 51
+static_init_parent_first 122
+static_init_fail_retry 72
+static_init_first_touch_matrix 0
+static_init_concurrent_once 0
+static_init_owner_death 92
+err_static_fwd_ref_bare compile_error is referenced before its
+err_static_fwd_ref_qualified compile_error is referenced before its
+static_read_before_init_cycle 0
+const_local_fold_regression 42
+err_static_instance_access compile_error must be accessed through its class
+static_qualified_in_class 41
+err_ctor_shadow_tostring compile_error must be called through a receiver object
+static_const_class_folded 42
+static_const_class_runtime 1
+static_const_interface_runtime 2
+static_const_iface_method_trigger 21
+static_const_iface_no_impl_trigger 0
+static_const_local 2
+static_local_loop 13
+static_local_method 13
+static_local_recursion_read 0
+static_slot_gc_survive 0
+static_struct_value 0
+static_struct_default 0
+static_local_struct 0
+static_const_struct 0
+struct_field_store_value 0
+cross_mod_static_struct 0
+err_static_const_assign compile_error cannot be assigned
+err_static_iface_const_assign compile_error cannot be assigned
+static_const_iface_class 9
+static_const_iface_array 7
+static_const_iface_enum 2
+static_const_iface_list 2
+cross_mod_static_iface_const 5
+err_static_const_out compile_error cannot be passed as an out argument
+err_static_local_sized compile_error sized array
+err_iface_mutable_static compile_error must be static const

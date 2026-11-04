@@ -7,6 +7,7 @@
 #include "VmBackend.h"
 #include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnExtraTypes.h>
 #include <vector>
@@ -29,6 +30,9 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
     auto* callee = invoke.Callee();
     if (!(callee && callee->ContainFlags(NF_Static)))
         return false;
+    //First active use gates the callee's declaring class (D2/D4) —
+    //before the arguments stage.
+    EmitStaticFieldGate(callee, emitter);
     std::vector<OutSpill> outSpills;
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
                  /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
@@ -91,6 +95,63 @@ bool VmBackend::EmitMemberStaticFaceCall(SnMemberExpr& member,
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     emitter.Emit(OpCode::OP_ParaEnd);
+    return true;
+}
+
+//v0.12.6: type-name-qualified static field read (Counter.total). The
+//resolver's namespace filter guarantees the only member shape that
+//reaches codegen with an NF_Static class field is the type-name form
+//(a value receiver is rejected there, D3) — so the receiver is never
+//emitted and the read is a plain module-slot load. The bound field is
+//the DECLARING class's node for inherited statics (D4): the slot index
+//follows the field, not the spelling.
+//Task 7 (D11): a runtime interface constant reaches here past the
+//constant-read phase (only folded constants were consumed there) —
+//its read gates the INTERFACE's lazy initializer (kind 1) and loads
+//the slot the initializer stores.
+bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
+                                          SnField* field,
+                                          BytecodeEmitter& emitter,
+                                          uint16_t resultOffset) {
+    if (!(field && field->Kind() == NK_ClassField
+          && field->ContainFlags(NF_Static)))
+        return false;
+    auto* inner = member.Inner();
+    if (!(inner && inner->Kind() == NK_IdentifierExpr))
+        return false;   //invoke shapes belong to the call arms
+    if (IsInterfaceConstantField(*field)) {
+        //Folded constants never reach a slot — a map miss with no
+        //producer rider means the constant-read phase already emitted
+        //the literal. An imported runtime constant (Task 8) is a map
+        //miss BY CONSTRUCTION (the row lives in the producer's image)
+        //and carries the rider instead; a same-build foreign unit (an
+        //inlined library source) carries no wire rider but the shadow
+        //archive replays exactly what the producer minted (0xFFFF =
+        //the producer folded it too). Runtime channel = any of the
+        //three; it proceeds to gate+load and mints its placeholder
+        //slot below.
+        auto* pConstField = static_cast<SnClassField*>(field);
+        const bool ownSlot = m_staticSlotByField.find(pConstField)
+                             != m_staticSlotByField.end();
+        const bool runtimeChannel = ownSlot
+            || EffectiveProducerSlotIdx(*pConstField) != 0xFFFF;
+        if (!runtimeChannel)
+            return false;
+        auto* owner =
+            static_cast<SnInterfaceDecl*>(field->Parent());
+        EmitInterfaceInitGate(*owner, emitter);
+        emitter.Emit(OpCode::OP_LoadStatic);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(StaticSlotIndexOf(
+            static_cast<SnClassField&>(*field)));
+        return true;
+    }
+    //First active use gates the DECLARING class's initializer (D2/D4).
+    EmitStaticFieldGate(field, emitter);
+    emitter.Emit(OpCode::OP_LoadStatic);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(StaticSlotIndexOf(
+        static_cast<SnClassField&>(*field)));
     return true;
 }
 

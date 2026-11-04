@@ -50,6 +50,10 @@ anything unmarked is reclaimed. The roots include:
   fields and string array elements;
 - the call stacks of suspended virtual threads, and elements sitting in
   channel buffers (chapter 10);
+- the static slots of loaded modules — class and interface statics,
+  static constants and static locals (§4.8.8, §6.1) — including the
+  zero-value struct records materialized for initializer-less struct
+  statics (§4.7.4);
 - references the host program holds through the embedding interface
   (see [Embedding NLang](../../libraries/embedding-api.md)).
 

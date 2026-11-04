@@ -1,0 +1,11 @@
+//D15: an array-typed interface constant holds the array by reference;
+//element stores go through (shallow const), the name never rebinds.
+interface Primes {
+    static const int[] table = [2, 3, 5];
+}
+int main() {
+    if (Primes.table[1] != 3)
+        return 1;
+    Primes.table[0] = 7;      // element store allowed
+    return Primes.table[0];   //7
+}

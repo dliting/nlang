@@ -100,6 +100,27 @@ int countNativeMethods(const SnClassDecl& sn)
     return methods;
 }
 
+//Whole-tree count of static fields (class statics and interface
+//constants — both are NK_ClassField with NF_Static). The cross-unit
+//static-slot archive's replay fidelity premise is "a unit's
+//staticSlots table is exactly its own declarations" (v0.12.6 Task
+//11): it holds only while the prelude units declare no statics. A
+//prelude static would shift every unit's table; this count turns
+//that silent drift into a loud failure.
+int countStaticClassFields(const Node& node)
+{
+    //Children() yields Node&; every node in the tree is a SyntaxNode
+    //in practice (same idiom as ModuleBuilder's pending-ref walk) —
+    //downcast once for the kind/flag check.
+    auto& syn = static_cast<const SyntaxNode&>(node);
+    int count = (syn.Kind() == NK_ClassField
+                 && syn.ContainFlags(NF_Static)) ? 1 : 0;
+    const auto& children = node.Children();
+    for (auto it = children.cbegin(); it != children.cend(); ++it)
+        count += countStaticClassFields(*it);
+    return count;
+}
+
 //The records of one class's declared methods, gathered through the
 //CompiledClass method table (records carry bare method names — class
 //ownership lives only in methodIndices).
@@ -135,6 +156,7 @@ private slots:
     void stringFaceDeclaredWith22MethodsAndNoBase();
     void arrayFaceDeclaredWith4MethodsAndNoBase();
     void stringFaceBindingRowsStampIntrinsics();
+    void preludeDeclaresNoStaticFields();
 };
 
 void TestPreludeFaces::stringFaceDeclaredWith22MethodsAndNoBase()
@@ -212,6 +234,23 @@ void TestPreludeFaces::stringFaceBindingRowsStampIntrinsics()
                 QVERIFY(fn->isNative);
             }
         }
+    }));
+}
+
+//v0.12.6 Task 11 hardening: the merged tree inlines the prelude units
+//alongside the snippet. The snippet declares exactly one static field,
+//so any additional static anywhere in the tree is a prelude (or other
+//inlined library) static — the exact declaration the static-slot
+//archive's fidelity premise forbids.
+void TestPreludeFaces::preludeDeclaresNoStaticFields()
+{
+    QVERIFY(withBuild("prelude_no_statics",
+        "class Probe {\n"
+        "    public static int total = 1;\n"
+        "}\n"
+        "int main() { return Probe.total; }",
+        [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
+        QCOMPARE(countStaticClassFields(builder.TreeRootView()), 1);
     }));
 }
 

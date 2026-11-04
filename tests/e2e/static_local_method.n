@@ -1,0 +1,16 @@
+//Static locals work inside class method bodies too: one slot per
+//declaration site, shared by every call on any instance (spec §8).
+class Counter {
+    public int bump() {
+        static int hits = 10;
+        hits = hits + 1;
+        return hits;
+    }
+}
+int main() {
+    Counter a = Counter();
+    Counter b = Counter();
+    a.bump();
+    b.bump();
+    return a.bump();   //13 — the slot is shared across instances
+}

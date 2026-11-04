@@ -8,6 +8,67 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-11-03
+
+### Added
+
+- **Static members with lazy initialization.** Classes and interfaces
+  declare `static` fields: one storage slot on the type itself,
+  shared by every method, instance and importer. An initializer
+  runs lazily — the first use of any static member (a read or
+  write, a static method call, or instance construction) triggers
+  the type's initializer exactly once; concurrent first uses let
+  one context run it while the others wait. A failing initializer
+  propagates its exception to the first-use site and resets, so
+  the next use retries; a read of an initializer-bearing static
+  from inside the initialization it awaits raises the new
+  `InitializationException` (a direct `Exception` subclass) at
+  the reading site.
+- **`static const` fields.** A constant-foldable initializer folds
+  at compile time — no storage, no run-time code. Any other
+  expression initializes lazily like a static field and is
+  read-only afterwards; this makes interface constants of any
+  declared type a class static field takes — non-foldable
+  initializers, struct, class, array, container and enum types —
+  legal, on the same lazy channel, across modules too.
+- **Static locals.** `static T x = e;` (and `static const`) inside
+  a function or method body: the name keeps its block scope while
+  the storage is one slot per declaration site — the initializer
+  runs on the first execution of the declaration and the value
+  survives across calls. Top-level and generic-context static
+  locals are compile-time errors.
+- **Struct-typed statics with value semantics.** A static field,
+  constant or local of a struct type follows the struct value
+  model: storing deep-copies the record, a declaration without an
+  initializer starts at the struct's zero value, and a member
+  write through the slot mutates the slot's own record.
+- **Cross-module statics.** Static slots link across packages by
+  qualified name with linker remapping; the same lazy rules apply
+  through imports. The import graph must now be acyclic — a cycle
+  (in the build or inside an imported artifact) is a compile-time
+  error naming the packages along the cycle.
+- Static slots are garbage-collection roots for their module's
+  lifetime, and `ndb` gains an `i statics` view over a module's
+  slots and their initialization phases.
+
+### Fixed
+
+- Fixed struct-typed instance field stores aliasing the source
+  value: assigning a struct to a class field (`obj.s = s1`) and
+  brace-initializer fills (`C{p: v}`) now deep-copy, as the
+  manual's value-semantics clause always promised.
+- Fixed type-qualified static access inside a class's own member
+  bodies: the bare class name bound to the same-named constructor
+  (a function value), so `Counter.total` failed with a
+  void-receiver error; the qualifier now resolves to the type
+  itself, matching the outside spelling.
+- Fixed importing statics from a library whose `.n` source is on
+  the compile search path (the standard-library flow): the inlined
+  source path left the statics without a producer slot index and
+  the compile failed; the index is now replayed from the
+  compile-time registration archive, the same channel cross-unit
+  calls use.
+
 ### Changed
 
 - **Breaking**: the user manual's two reference trees are merged into

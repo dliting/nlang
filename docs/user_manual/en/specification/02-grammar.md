@@ -145,7 +145,9 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";" ;
+LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+                | "static" HeadType LocalDeclList ";"
+                | "static" "const" HeadType LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -197,7 +199,10 @@ ContinueStmt    = "continue" ";" ;
 
 The `for` statement requires its condition: `for (i = 0; ; i += 1)`
 is a syntax error. An `else` belongs to the nearest enclosing `if`
-(§2.7). `ε` denotes the empty body.
+(§2.7). A local declaration takes at most one leading keyword: the
+static-local forms are `static T x = e;` and `static const T x = e;`
+in that fixed order — `const static` is a syntax error (§6.1).
+`ε` denotes the empty body.
 
 ## 2.6 Expressions
 

@@ -50,6 +50,19 @@ struct DebugContextInfo {
     std::string sourceFile;
 };
 
+//One static slot of the module (v0.12.6): declaration, live cell value
+//(the same rendering the locals display uses) and its owner's
+//lazy-initialization phase. Phase names mirror the gate protocol:
+//uninitialized / initializing / done (a failed initializer resets to
+//uninitialized for the retry).
+struct DebugStaticSlotInfo {
+    std::string name;       //declared name; static locals append "#<n>"
+    std::string ownerKey;   //class/interface key, or owning function
+    uint8_t ownerKind = 0;  //0 class / 1 interface / 2 static local
+    std::string display;    //live cell value
+    std::string initPhase;  //owning machine's phase ("" when unresolvable)
+};
+
 //Read-only view over the frozen VM state. Only valid inside an
 //IDebugHooks callback (the program is suspended there). Frame queries
 //address one context by id: the running context reads the executor's
@@ -71,6 +84,13 @@ public:
     virtual DebugFrameInfo FrameInfo(int contextId, size_t depth) const = 0;
     virtual std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const = 0;
+    //v0.12.6: the module's static slots (class statics, interface
+    //runtime constants, static locals) with live values and owner init
+    //phases — module-lifetime state, not per-frame. Default: none (a
+    //view without a module reports no slots).
+    virtual std::vector<DebugStaticSlotInfo> StaticSlots() const {
+        return {};
+    }
     //K7: the freeze parking bracket, driven by the session controller
     //around the frozen window. Enter: leave the GC stop-the-world
     //denominator (arriving under any in-flight stop) and hand off the

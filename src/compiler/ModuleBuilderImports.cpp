@@ -66,6 +66,11 @@ bool ModuleBuilder::LoadImports()
 			return false;
 	}
 
+	//v0.12.6 Task 8 (D13): reject cyclic import graphs before codegen
+	//(ModuleBuilderImportCycles.cpp).
+	if (!RejectImportCycles())
+		return false;
+
 	return true;
 }
 

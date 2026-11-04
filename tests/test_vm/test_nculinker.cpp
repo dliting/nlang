@@ -1045,6 +1045,183 @@ static void test_link_interface_signature_remap() {
     PASS();
 }
 
+//0.12.6 (v2.13): the lazy static-initialization channel — a class's
+//staticInitFuncIdx (and an interface's reserved twin) addresses the
+//merged FUNCTION table, and OP_ClassInitGate/Done/Fail carry a merged
+//CLASS-table index as their first operand. Cross-unit merges shift both
+//tables; a missed remap silently gates the wrong class or calls the
+//wrong initializer record.
+static void test_link_static_init_remap() {
+    TEST(link_static_init_remap);
+
+    //lib: $staticInit = own function 0, lib.f = own function 1; the
+    //initializing class is own class 1 (a filler class forces the
+    //class-channel remap non-identity too).
+    CompiledModule lib = MakeUnit("lib");
+    lib.functions.push_back(MakeFunc("$staticInit", 0)); //own 0
+    CompiledFunction f = MakeFunc("lib.f", 0);            //own 1
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_ClassInitGate); em.EmitUint16(1);
+        em.EmitUint16(7); em.EmitUint16(0);   //donePc -> the Done below
+        em.Emit(OpCode::OP_ClassInitDone); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_ClassInitFail); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        f.bytecode = em.TakeBytes();
+    }
+    lib.functions.push_back(std::move(f));
+    lib.classes.push_back(MakeClass("lib.Filler"));       //own 0
+    CompiledClass cfg = MakeClass("lib.Cfg");             //own 1
+    cfg.staticInitFuncIdx = 0;
+    cfg.methodIndices = {1};
+    lib.classes.push_back(cfg);
+    CompiledInterface iface;
+    iface.name = "lib.Iface";
+    iface.staticMethodIndices = {1};
+    iface.staticInitFuncIdx = 0;
+    lib.interfaces.push_back(std::move(iface));
+
+    //app: one own class and one own function ahead of the merge, so
+    //every lib index shifts by one (functions) or one/two (classes).
+    CompiledModule app = MakeUnit("app");
+    app.classes.push_back(MakeClass("app.Host"));         //own 0 -> merged 0
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));            //own 0
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //merged classes: app.Host=0, lib.Filler=1, lib.Cfg=2; merged
+    //functions: app.main=0, $staticInit=1, lib.f=2.
+    CHECK(merged.classes.size() == 3 && merged.functions.size() == 3,
+          "app+lib records merged");
+    CHECK(merged.classes[2].name == "lib.Cfg"
+       && merged.classes[2].staticInitFuncIdx == 1,
+          "class staticInitFuncIdx remapped to the merged function table");
+    CHECK(merged.interfaces.size() == 1
+       && merged.interfaces[0].staticInitFuncIdx == 1
+       && merged.interfaces[0].staticMethodIndices.size() == 1
+       && merged.interfaces[0].staticMethodIndices[0] == 2,
+          "interface initializer and static-method indices remapped");
+
+    //The protocol opcodes inside lib.f (merged function 2) must address
+    //the merged class table; donePc and kind are function-local and
+    //stay untouched.
+    BytecodeReader rd(merged.functions[2].bytecode.data(),
+                      merged.functions[2].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitGate
+       && rd.ReadUint16() == 2,
+          "gate classIdx remapped to the merged class table");
+    CHECK(rd.ReadUint16() == 7, "gate donePc stays function-local");
+    CHECK(rd.ReadUint16() == 0, "gate kind tag untouched");
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitDone
+       && rd.ReadUint16() == 2,
+          "done classIdx remapped to the merged class table");
+    rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_ClassInitFail
+       && rd.ReadUint16() == 2,
+          "fail classIdx remapped to the merged class table");
+    rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_Return, "trailing return intact");
+
+    PASS();
+}
+
+//0.12.6 Task 8 (v2.13): cross-unit static-slot placeholders — the
+//consumer's import tail rides staticSlotImports (that table's own
+//ownerKind domain: 0 = class owner, 1 = interface owner; ownerOrdinal =
+//the producer's own slot row), and nlink resolves the tail to the
+//producer's pushed row. A missed resolution leaves the LoadStatic/
+//StoreStatic slot operand unmapped and the link throws; a wrong
+//resolution lands on the filler row. The link-time merge itself stays
+//cycle-tolerant (test_link_cyclic_closure above) — the D13 cycle ban
+//lives in the compiler's import prelude, not here.
+static void test_link_static_slot_import_remap() {
+    TEST(link_static_slot_import_remap);
+
+    //lib: own slot rows 0 (filler, so the resolution is non-identity)
+    //and 1 ("value", owned by class lib.Util, initializer-backed).
+    CompiledModule lib = MakeUnit("lib");
+    CompiledStaticSlot pad;
+    pad.name = "pad";
+    pad.ownerKey = "lib.Filler";
+    CompiledStaticSlot value;
+    value.name = "value";
+    value.ownerKey = "lib.Util";
+    value.hasInitializer = 1;
+    value.type.kind = RTK_Int32;
+    lib.staticSlots.push_back(pad);                   //own 0
+    lib.staticSlots.push_back(std::move(value));      //own 1
+    lib.classes.push_back(MakeClass("lib.Filler"));
+    lib.classes.push_back(MakeClass("lib.Util"));
+    lib.functions.push_back(MakeFunc("$staticInit", 0));  //own 0
+    CompiledFunction getf = MakeFunc("lib.get", 0);        //own 1
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_LoadStatic); em.EmitUint16(1); em.EmitUint16(1);
+        em.Emit(OpCode::OP_Return);
+        getf.bytecode = em.TakeBytes();
+    }
+    lib.functions.push_back(std::move(getf));
+
+    //app: no own slot rows, so the placeholder tail sits at index 0.
+    //main loads AND stores through the placeholder — LoadStatic's slot
+    //is the second operand, StoreStatic's the first (BytecodeOps.h) —
+    //both must land on the producer's merged row 1.
+    CompiledModule app = MakeUnit("app");
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        em.Emit(OpCode::OP_LoadStatic);  em.EmitUint16(0); em.EmitUint16(0);
+        em.Emit(OpCode::OP_StoreStatic); em.EmitUint16(0); em.EmitUint16(0);
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));
+    CompiledStaticSlot ph;   //placeholder tail row mirrors the target
+    ph.name = "value";
+    ph.ownerKey = "lib.Util";
+    app.staticSlots.push_back(std::move(ph));
+    //Brace order: modulePath, name, paramCount, ownerClassKey, isStatic,
+    //ownerKind (this table's domain: 0 = class), ownerOrdinal (= the
+    //producer's own row index of "value").
+    app.staticSlotImports.push_back({"lib", "value", 0, "lib.Util",
+                                     false, 0, 1});
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //Producer rows push once (filler 0, value 1); the consumer's
+    //placeholder row is never copied into the merged table.
+    CHECK(merged.staticSlots.size() == 2
+       && merged.staticSlots[1].name == "value"
+       && merged.staticSlots[1].ownerKey == "lib.Util"
+       && merged.staticSlots[1].hasInitializer == 1,
+          "producer slot row survives the merge, placeholder dropped");
+
+    BytecodeReader rd(merged.functions[0].bytecode.data(),
+                      merged.functions[0].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_LoadStatic
+       && rd.ReadUint16() == 0    //dst frame offset untouched
+       && rd.ReadUint16() == 1,   //placeholder 0 -> producer row 1
+          "LoadStatic slot operand resolved to the producer's row");
+    CHECK(rd.ReadOp() == OpCode::OP_StoreStatic
+       && rd.ReadUint16() == 1    //slot operand is the FIRST uint16
+       && rd.ReadUint16() == 0,   //src frame offset untouched
+          "StoreStatic slot operand resolved to the producer's row");
+    CHECK(rd.ReadOp() == OpCode::OP_Return && rd.Eof(), "Return terminator");
+    PASS();
+}
+
 //0.10.14: a namespace-branch import record with an ownerOrdinal
 //single-selects the target record by index — two same-name same-arity
 //candidates no longer collide (the old ambiguity error is gone). The
@@ -1238,6 +1415,16 @@ int main() {
         g_fail++;
     }
     try { test_link_interface_signature_remap(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_static_init_remap(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_static_slot_import_remap(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

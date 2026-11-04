@@ -80,6 +80,13 @@ void StatementResolveAccessor::Access(SnStructDecl &sn)
 		//0.9.0 semantic restriction: struct field names may not reuse
 		//visible type names.
 		RejectTypeNameVariable(field.Name(), sn, sn, field.Location());
+		//v0.12.6 D8 defense-in-depth: StructField takes no grammar flags,
+		//so a flagged struct field is unparseable today — the check keeps
+		//a future flag arm from silently admitting statics.
+		if (field.ContainFlags(NF_Static))
+			m_Env.Log(CLL_Error, field.Location(),
+				"The struct type \"%s\" cannot declare static fields.",
+				sn.Name().c_str());
 		field.Type()->Accept(*m_pVisitor);
 		//0.9.11 D4: the initializer's constant surface, checked once the
 		//type expression resolved (the same shared surface as class
@@ -194,6 +201,41 @@ void StatementResolveAccessor::PropagateVirtualOverrides(SnClassDecl &sn)
 	}
 }
 
+//v0.12.6 D1: class static-field declaration contract. The legal flag
+//sets are NF_Static and NF_Static|NF_Const (NodeFlagsNonEmpty yields
+//only const/static/virtual/native); a static constant needs its
+//initializer (the declaration IS the initializer — no zero-default
+//form); a declared generic class carries no static fields (D8: one
+//shared implementation serves every instantiation, so per-class state
+//has no home).
+static void CheckClassFieldStaticContract(BuildEnvironment &env,
+	SnClassDecl &owner, SnField &field)
+{
+	const bool bStatic = field.ContainFlags(NF_Static);
+	const bool bConst = field.ContainFlags(NF_Const);
+	if ((bStatic || bConst)
+		&& (field.ContainFlags(NF_Virtual) || field.ContainFlags(NF_Native)
+			|| (bConst && !bStatic)))
+	{
+		env.Log(CLL_Error, field.Location(),
+			"The class field \"%s\" must be static or static const.",
+			field.Name().c_str());
+		return;
+	}
+	if (bStatic && bConst && field.Kind() == NK_ClassField
+		&& !static_cast<SnClassField &>(field).Initializer())
+	{
+		env.Log(CLL_Error, field.Location(),
+			"The static constant \"%s\" must have an initializer.",
+			field.Name().c_str());
+		return;
+	}
+	if (bStatic && owner.IsGenericDeclaration())
+		env.Log(CLL_Error, field.Location(),
+			"The generic class \"%s\" cannot declare static fields.",
+			owner.Name().c_str());
+}
+
 void StatementResolveAccessor::Access(SnClassDecl &sn)
 {
 	NLANG_ASSERT(m_pVisitor);
@@ -206,6 +248,14 @@ void StatementResolveAccessor::Access(SnClassDecl &sn)
 	{
 		if (field.Kind() == NK_ClassField)
 		{
+			//v0.12.6 D1: the static-field contract runs where the owning
+			//class is in hand (the generic ban needs it). Imported stubs
+			//passed the contract at the producer. Intersect (any of the
+			//two bits), not Contain: ContainFlags is the all-bits test,
+			//and `static virtual int x;` carries no NF_Const to satisfy it.
+			if (!sn.IsImported()
+				&& field.IntersectFlags(NF_Static | NF_Const))
+				CheckClassFieldStaticContract(m_Env, sn, field);
 			//0.9.0 semantic restriction: class field names may not
 			//reuse visible type names.
 			RejectTypeNameVariable(field.Name(), sn, sn,
@@ -234,6 +284,12 @@ void StatementResolveAccessor::Access(SnClassField &sn)
 	NLANG_ASSERT(m_pVisitor);
 	if (sn.Type())
 		sn.Type()->Accept(*m_pVisitor);
+	//v0.12.6 D1: a static field's initializer is lazy runtime code (D2),
+	//not a compile-time instance default — the constant-surface check
+	//does not apply. Foldable `static const` folding arrives with the
+	//runtime-const tasks.
+	if (sn.ContainFlags(NF_Static))
+		return;
 	//0.9.11 D4: the field's type expression resolved in the earlier
 	//ResolveDataTypes pass, so the initializer's constant surface is
 	//checkable here. Interface constants never reach this arm (the
@@ -265,23 +321,34 @@ bool StatementResolveAccessor::IsExceptionSubclass(SnField *t)
 namespace
 {
 
-//0.9.10 D3.3: the declared-type gate of an interface constant; the
-//fold/domain/fit surface is shared with class field initializers
-//(FieldInitializerChecks.hpp).
+//0.9.10 D3.3 + v0.12.6 D11/D14/D15: an interface constant takes any
+//declared type a class static field takes. Scalars and strings fold at
+//compile time (the full declaration-time fold/domain/fit surface); every
+//other type — structs since D14, classes, arrays, containers and
+//enums since D15 — is a runtime constant: the interface's synthesized
+//$staticInit stores it lazily, and the ordinary assignment machinery
+//type-checks the expression. 0.9.10's "object constants need shared
+//runtime storage" objection died with D11's runtime slots.
 void CheckInterfaceConstantInitializer(BuildEnvironment &env,
 	SnClassField &field)
 {
 	SnField *pDeclared = field.EvalDataType();
 	if (!pDeclared)
 		return;	//the type expression already failed to resolve
-	if (!IsConstantValueType(pDeclared))
+	if (!field.Initializer())
 	{
 		env.Log(CLL_Error, field.Location(),
-			"The interface constant \"%s\" must have a compile-time "
-			"scalar or string type.",
+			"The interface constant \"%s\" must have an initializer.",
 			field.Name().c_str());
 		return;
 	}
+	//Fold surface is a scalar/string matter (StaticConstFoldsAtCompileTime
+	//mirrors this arm); all other declared types ride the runtime channel
+	//whatever their initializer looks like.
+	if (!IsConstantValueType(pDeclared)
+		|| ClassifyConstantInitializer(field.Initializer())
+		== ConstantFoldKind::NotFoldable)
+		return;	//runtime constant — checked via the synthesized store
 	CheckConstantValueSurface(env, field, field.Initializer(),
 		*pDeclared, "constant");
 }

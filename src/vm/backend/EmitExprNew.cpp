@@ -52,12 +52,25 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     //own branch of the slot helper covers every ownerless shape.
     const uint16_t classIdx =
         static_cast<uint16_t>(ClassSlotFor(*pClassDecl));
-    //0.9.11 T6 (D10): the resolver-selected ctor drives the call — the
-    //first-same-name scan is gone. A registered selection calls through
-    //its function slot; a null selection (builtin/generic intrinsic ctor,
-    //or a type without ctors) keeps the table path; a selected-but-
-    //unregistered ctor mirrors EmitStructCtor: plain alloc, arguments
-    //unevaluated, no call.
+    //v0.12.6 D2: construction is a first active use — gate the
+    //constructed class before any argument evaluation (a no-op for
+    //classes with no initializer).
+    EmitClassInitGate(*pClassDecl, *m_pCurrEmitter);
+    EmitNewCtorDispatch(pClassDecl, pCtorFn, ctorArgs, pSkipArg, classIdx,
+                        resultOffset);
+}
+
+//0.9.11 T6 (D10): the resolver-selected ctor drives the call — the
+//first-same-name scan is gone. A registered selection calls through
+//its function slot; a null selection (builtin/generic intrinsic ctor,
+//or a type without ctors) keeps the table path; a selected-but-
+//unregistered ctor mirrors EmitStructCtor: plain alloc, arguments
+//unevaluated, no call.
+void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
+                                    SnFunction* pCtorFn,
+                                    SnExpressionList& ctorArgs,
+                                    SnExpression* pSkipArg, uint16_t classIdx,
+                                    uint16_t resultOffset) {
     SnFunction* pRegistered = RegisteredCtor(pCtorFn);
     if (pRegistered) {
         const uint16_t ctorIdx =

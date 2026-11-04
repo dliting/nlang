@@ -452,6 +452,10 @@ private:
 	*/
 	bool TryResolveMemberHead(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr);
+	//v0.12.6: rebind a constructor-shadowed class-name qualifier to the
+	//owning type (see ExprResolverMember.cpp) before the receiver
+	//context switch classifies it.
+	void RebindCtorShadowedQualifier(SnMemberExpr &snMember);
 	void SwitchContextToReceiver(SnMemberExpr &snMember);
 	bool RejectVoidReceiverMemberAccess(SnMemberExpr &snMember,
 		SyntaxNode *pSavedContext);
@@ -534,7 +538,20 @@ private:
 	*/
 	SnField *FindFieldInAncestor(const std::string &sName, SyntaxNode &parent,
 		const SnField &accessor, ExprResolveFlagSet flags,
-		std::function<bool(SnField &)> pFuncFilter = nullptr);
+		std::function<bool(SnField &)> pFuncFilter = nullptr,
+		const ISourceLocation *pSpillLoc = nullptr);
+
+	/*
+	v0.12.6: the unscoped-enum spill behind FindFieldInAncestor. Enum
+	members are visible in the scope that declares their enum (C++-style
+	unscoped semantics), so when a scope's own members miss, its child
+	enums answer. Imported stubs stay out — cross-module enum access
+	keeps the qualified form (manual §4.6.4). Two same-scope enums
+	sharing the member name never pick silently: the collision is
+	diagnosed and the build fails.
+	*/
+	SnField *FindEnumMemberSpill(SyntaxNode &scope, const std::string &sName,
+		const SnField &accessor, const ISourceLocation *pLoc);
 
 	/*
 	0.9.x: the scope-chain walk behind the SnNameExpr shadow guard. Value

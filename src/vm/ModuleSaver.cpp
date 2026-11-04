@@ -319,98 +319,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
             fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
     }
 
-    // Class descriptors
-    uint32_t classCount = static_cast<uint32_t>(mod.classes.size());
-    fs.write(reinterpret_cast<const char*>(&classCount), sizeof(classCount));
-
-    for (auto& cc : mod.classes) {
-        uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
-        fs.write(reinterpret_cast<const char*>(&nameLen), sizeof(nameLen));
-        fs.write(cc.name.c_str(), nameLen);
-
-        fs.write(reinterpret_cast<const char*>(&cc.fieldCount),
-                 sizeof(cc.fieldCount));
-        fs.write(reinterpret_cast<const char*>(&cc.superClassIdx),
-                 sizeof(cc.superClassIdx));
-
-        //v2.12 (v0.12.4): const-aggregate marker (see CompiledClass).
-        fs.write(reinterpret_cast<const char*>(&cc.isConstAggregate),
-                 sizeof(cc.isConstAggregate));
-
-        //Field names
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            uint32_t fnLen = static_cast<uint32_t>(cc.fieldNames[i].size());
-            fs.write(reinterpret_cast<const char*>(&fnLen), sizeof(fnLen));
-            fs.write(cc.fieldNames[i].c_str(), fnLen);
-        }
-
-        //Field type kinds
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldTypeKinds[i]),
-                     sizeof(cc.fieldTypeKinds[i]));
-        }
-
-        //Field struct indices
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldStructIndices[i]),
-                     sizeof(cc.fieldStructIndices[i]));
-        }
-
-        //Field class indices
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldClassIndices[i]),
-                     sizeof(cc.fieldClassIndices[i]));
-        }
-
-        //v1.12: per-field type descriptors (len==0 = not expressible).
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            WriteLenPrefixedTypeDesc(fs,
-                (i < cc.fieldTypeDescs.size()) ? cc.fieldTypeDescs[i]
-                                               : TypeDesc{});
-        }
-
-        //Field access
-        for (size_t i = 0; i < cc.fieldCount; ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.fieldAccess[i]),
-                     sizeof(cc.fieldAccess[i]));
-        }
-
-        //Method indices
-        uint16_t methodCount = static_cast<uint16_t>(cc.methodIndices.size());
-        fs.write(reinterpret_cast<const char*>(&methodCount), sizeof(methodCount));
-        for (size_t i = 0; i < cc.methodIndices.size(); ++i) {
-            fs.write(reinterpret_cast<const char*>(&cc.methodIndices[i]),
-                     sizeof(cc.methodIndices[i]));
-        }
-
-        //0.9.12 (v2.7): declared access and virtuality per method,
-        //parallel to methodIndices (counts ride on methodCount — the
-        //producer keeps the vectors parallel by construction, same
-        //invariant as fieldAccess above). The consumer stub rebuilds
-        //each member with its visibility, and the cross-module
-        //override contract reads the virtuality.
-        for (auto a : cc.methodAccess)
-            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
-        for (auto v : cc.methodVirtual)
-            fs.write(reinterpret_cast<const char*>(&v), sizeof(v));
-
-        //v2.6: ctor indices in declaration order; the cross-module
-        //ownerOrdinal indexes this list (replaces v2.5's single index).
-        uint16_t ctorCount = static_cast<uint16_t>(
-            cc.constructorIndices.size());
-        fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
-        for (auto idx : cc.constructorIndices)
-            fs.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
-
-        //0.9.12 (v2.7): declared access per ctor, parallel to
-        //constructorIndices (count rides on ctorCount). Replaces the
-        //v2.4 publicStaticMethodIndices block, removed in place: every
-        //member function — static included — now travels in
-        //methodIndices, and staticness rides the function record's
-        //isStatic flag.
-        for (auto a : cc.constructorAccess)
-            fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
-    }
+    // Class descriptors (wire layout in ModuleSaverRecordsClasses.cpp —
+    // one table per TU; the v2.13 static block landed with the split)
+    WriteClassRecords(fs, mod);
 
     //0.9.10 v2.4 + 0.9.12 v2.7: interface statics / constants /
     //instance-method signature tables (the wire layout lives with the
@@ -435,6 +346,36 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //keys, member-method tables) — writer in
     //ModuleSaverRecordsEnums.cpp (one table per TU).
     WriteEnumRecords(fs, mod);
+
+    //v2.13 (v0.12.6): the module's static slot table — one entry per
+    //runtime-addressed static (mutable class statics, runtime-const
+    //fields, static locals; compile-time-folded constants occupy no
+    //slot). Per slot: name (u32 len + bytes), ownerKey (u32 len + bytes),
+    //the ownerKind / isRuntimeConst / hasInitializer bytes, and a
+    //length-prefixed TypeDesc. Class/interface records reference these
+    //slots by index (their staticFields blocks were written earlier).
+    {
+        uint32_t slotCount = static_cast<uint32_t>(mod.staticSlots.size());
+        fs.write(reinterpret_cast<const char*>(&slotCount),
+                 sizeof(slotCount));
+        for (const auto& slot : mod.staticSlots) {
+            uint32_t slotNameLen = static_cast<uint32_t>(slot.name.size());
+            fs.write(reinterpret_cast<const char*>(&slotNameLen),
+                     sizeof(slotNameLen));
+            fs.write(slot.name.c_str(), slotNameLen);
+            uint32_t ownerKeyLen = static_cast<uint32_t>(slot.ownerKey.size());
+            fs.write(reinterpret_cast<const char*>(&ownerKeyLen),
+                     sizeof(ownerKeyLen));
+            fs.write(slot.ownerKey.c_str(), ownerKeyLen);
+            fs.write(reinterpret_cast<const char*>(&slot.ownerKind),
+                     sizeof(slot.ownerKind));
+            fs.write(reinterpret_cast<const char*>(&slot.isRuntimeConst),
+                     sizeof(slot.isRuntimeConst));
+            fs.write(reinterpret_cast<const char*>(&slot.hasInitializer),
+                     sizeof(slot.hasInitializer));
+            WriteLenPrefixedTypeDesc(fs, slot.type);
+        }
+    }
 
     //v2.0 phase 6: cross-unit import slots, one section per table, in
     //slot order (own entries occupy 0..n-1, imports n..n+m). Per entry:
@@ -488,6 +429,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     writeImports(mod.classImports, false);
     writeImports(mod.structImports, false);
     writeImports(mod.enumImports, false);
+    //v2.13: cross-module static-slot imports (cross-module static access,
+    //resolved by nlink like the tables above). Same record shape as the
+    //function section; ownerKind here follows the static-slot table's own
+    //0 = class owner / 1 = interface owner domain (see CompiledModule).
+    writeImports(mod.staticSlotImports, true);
 
     return fs.good();
 }

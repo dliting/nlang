@@ -4,7 +4,9 @@
     WriteCompiledModule 的骨架与标量段留在 ModuleSaver.cpp，复合记录表的
     逐字段序列化按一表一 TU 分文件——interfaces 在
     ModuleSaverRecordsInterfaces.cpp（0.9.12 v2.7 拆分，与读取侧
-    ModuleLoaderRecords.h 同构）。仅 vm 模块内部使用，不安装到 include/。
+    ModuleLoaderRecords.h 同构），classes 在 ModuleSaverRecordsClasses.cpp
+    （2026-11-02 v2.13 静态块落地时拆分）。仅 vm 模块内部使用，不安装到
+    include/。
 ---*/
 #pragma once
 #include "nlang/vm/CompiledModule.h"
@@ -21,6 +23,12 @@ void WriteInterfaceRecords(std::ostream& fs, const CompiledModule& mod);
 //serialize the enum record table. Defined in
 //ModuleSaverRecordsEnums.cpp; the wire layout is documented there.
 void WriteEnumRecords(std::ostream& fs, const CompiledModule& mod);
+
+//Class record table (own fields, members, constructors, v2.13 static
+//block). Defined in ModuleSaverRecordsClasses.cpp (2026-11-02 split from
+//ModuleSaver.cpp when the static block landed); wire layout documented
+//there.
+void WriteClassRecords(std::ostream& fs, const CompiledModule& mod);
 
 //Stream-level adapters shared by the saver TUs (defined in
 //ModuleSaver.cpp): one length-prefixed type descriptor and one fixed

@@ -53,10 +53,10 @@ instance `The interface member "m" must be public.` and
 
 An interface may declare `public static` members: static methods
 carry bodies and are called through the interface name, and static
-constants have the form `static const T Name = e;` with `e` a
-compile-time constant; both belong to the interface type, not to
-any implementing class, and take no part in the implementation
-contract. A static method and an instance method of the interface
+constants have the form `static const T Name = e;`; both belong
+to the interface type, not to any implementing class, and take
+no part in the implementation contract. A static method and an
+instance method of the interface
 may share a name when their parameter lists differ; an exact
 collision is a compile-time error, and a constant may not share a
 method's name.
@@ -73,11 +73,23 @@ interface IMath {
 A static method must carry a body; `this` is not available in it.
 Call it through the interface name (`IMath.twice(21)`) from any
 scope where the interface is visible, including imported modules.
-A static constant's value must fold to a compile-time scalar or
-string constant — the same rules as a default parameter value
-(§7.2) — and must be compatible with its declared type; it
-is read through the interface name (`IMath.base`), and assigning
-to it is a compile-time error.
+A static constant takes any declared type a class static field
+takes, and its value must be compatible with that type. A scalar
+or string constant whose initializer is a compile-time constant
+folds at compile time — the same rules as a default parameter
+value (§7.2); every other constant — a non-foldable initializer, or
+a struct, class, array, container or enum type — initializes
+lazily like a class static field (§4.8.8) and later reads are
+read-only. Either way the constant is read through the interface
+name (`IMath.base`), and assigning to it is a compile-time error.
+
+An interface with statics initializes lazily like a class (§4.8.8):
+the first read of a constant or call of a static method runs the
+interface's initializer once, and a failing initializer propagates
+the exception to that first-use site with the same retry rules.
+Implementing an interface does not trigger its initialization —
+the statics belong to the interface type, not to any implementing
+class.
 
 ## 4.9.4 Values and dispatch
 

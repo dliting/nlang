@@ -6,6 +6,7 @@
 #include "nlang/runtime/NodeConsts.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <filesystem>
@@ -1011,6 +1012,127 @@ void test_opcode_name_table() {
     PASS();
 }
 
+//v0.12.6 K7 (spec §8): a context that dies mid-initialization must not
+//strand its owner claims or its waiters. ReleaseContextClaims resets
+//every owner the dead context was Initializing back to Uninitialized
+//and hands the parked waiter ids to the caller for waking. Owners in
+//any other phase (Done published, other owners' Initializing) stay
+//untouched.
+void test_static_init_claim_release() {
+    TEST(static_init_claim_release);
+    VmStaticSlots slots;
+    slots.Build(4, 4);
+    using Owner = VmStaticSlots::StaticOwnerState;
+
+    //Claim like the gate does: CAS Uninitialized->Initializing, then
+    //stamp the claiming context id.
+    auto claim = [&](size_t ownerIdx, uint32_t ctxId) {
+        Owner* owner = slots.Owner(ownerIdx);
+        uint8_t expected = Owner::kUninitialized;
+        CHECK(owner->phase.compare_exchange_strong(
+                  expected, Owner::kInitializing),
+              "test claim CAS succeeded");
+        owner->ownerCtxId.store(ctxId, std::memory_order_release);
+    };
+    claim(0, 7);   //dead context's owner, two waiters parked
+    claim(1, 7);   //dead context's owner, no waiters
+    claim(2, 9);   //a LIVE context's owner — must survive untouched
+    slots.Owner(0)->waiters.push_back(11);
+    slots.Owner(0)->waiters.push_back(12);
+    //Owner 3 left published (Done): release must not disturb it.
+    slots.Owner(3)->phase.store(Owner::kDone, std::memory_order_release);
+
+    std::vector<uint32_t> woken = slots.ReleaseContextClaims(7);
+
+    CHECK(slots.Owner(0)->phase.load() == Owner::kUninitialized
+       && slots.Owner(0)->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "claimed owner 0 reset for the next retry");
+    CHECK(slots.Owner(0)->waiters.empty(),
+          "reset owner's waiters handed off for waking");
+    CHECK(slots.Owner(1)->phase.load() == Owner::kUninitialized
+       && slots.Owner(1)->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "claimless waiter-free owner 1 reset too");
+    CHECK(slots.Owner(2)->phase.load() == Owner::kInitializing
+       && slots.Owner(2)->ownerCtxId.load() == 9,
+          "live context's claim untouched");
+    CHECK(slots.Owner(3)->phase.load() == Owner::kDone,
+          "published owner untouched");
+    CHECK(woken.size() == 2
+       && std::find(woken.begin(), woken.end(), 11) != woken.end()
+       && std::find(woken.begin(), woken.end(), 12) != woken.end(),
+          "both parked waiters returned to the caller for waking");
+    PASS();
+}
+
+//v0.12.6 Task 7 K7 extension: static-local slots carry their own
+//tri-state machines beside the class owner table, and the same
+//ReleaseContextClaims sweep must reset a dead context's stranded slot
+//machine and hand back its parked waiters — one caller, both tables.
+void test_static_local_slot_claim_release() {
+    TEST(static_local_slot_claim_release);
+    VmStaticSlots slots;
+    slots.Build(4, 1);
+    using Owner = VmStaticSlots::StaticOwnerState;
+
+    //Claim a SLOT machine like OP_SlotInitGate does, with a waiter
+    //parked on it, plus one Done machine and one never-touched machine.
+    Owner* machine = slots.SlotMachine(2);
+    CHECK(machine != nullptr, "slot machines are sized with the table");
+    uint8_t expected = Owner::kUninitialized;
+    CHECK(machine->phase.compare_exchange_strong(
+              expected, Owner::kInitializing),
+          "slot machine CAS claim succeeded");
+    machine->ownerCtxId.store(5, std::memory_order_release);
+    machine->waiters.push_back(8);
+    slots.SlotMachine(1)->phase.store(Owner::kDone,
+                                      std::memory_order_release);
+
+    std::vector<uint32_t> woken = slots.ReleaseContextClaims(5);
+
+    CHECK(machine->phase.load() == Owner::kUninitialized
+       && machine->ownerCtxId.load() == Owner::kNoOwnerCtx,
+          "dead context's slot machine reset for the next retry");
+    CHECK(machine->waiters.empty(),
+          "slot machine's waiters handed off for waking");
+    CHECK(slots.SlotMachine(1)->phase.load() == Owner::kDone,
+          "published slot machine untouched");
+    CHECK(slots.SlotMachine(0)->phase.load() == Owner::kUninitialized,
+          "untouched slot machine stays untouched");
+    CHECK(woken.size() == 1 && woken[0] == 8,
+          "the parked slot waiter returned to the caller for waking");
+    PASS();
+}
+
+//v0.12.6 D12: the runtime init-bit protocol's storage half. A slot's
+//bit starts clear, StoreStatic-equivalent marking sets it, bits are
+//per-slot independent, and owner-state transitions (Done/Fail) never
+//clear them — the "attempts counter" retention of D10 rides on the
+//bits surviving a failed attempt. The read-side throw is pinned by
+//the e2e probes. OpLoadStatic keeps a steady-state bit read (one
+//GIL-guarded byte) instead of a per-context owned-claims count: the
+//count would add bookkeeping to every claim/Done/Fail/owner-death
+//protocol for a negligible gain.
+void test_static_init_bits_protocol() {
+    TEST(static_init_bits_protocol);
+    VmStaticSlots slots;
+    slots.Build(4, 2);
+    CHECK(!slots.IsSlotInitialized(0) && !slots.IsSlotInitialized(1),
+          "bits start clear");
+    slots.MarkSlotInitialized(1);
+    CHECK(!slots.IsSlotInitialized(0) && slots.IsSlotInitialized(1),
+          "marking is per-slot");
+    //A Fail-equivalent owner reset must not disturb the bit (D10
+    //retention): flip the owner through Uninitialized and re-check.
+    auto* owner = slots.Owner(0);
+    owner->phase.store(VmStaticSlots::StaticOwnerState::kInitializing,
+                       std::memory_order_release);
+    owner->phase.store(VmStaticSlots::StaticOwnerState::kUninitialized,
+                       std::memory_order_release);
+    CHECK(slots.IsSlotInitialized(1),
+          "bits survive owner-state transitions");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1048,6 +1170,25 @@ int main() {
     // VmExecutor execution tests are retired — see the rationale at the
     // former section above. The e2e suite (real .n files, real execution)
     // is the authoritative gate.
+
+    // v0.12.6 K7: context-death claim reclamation (owner-table unit)
+    try { test_static_init_claim_release(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+
+    // v0.12.6 D12: runtime init-bit protocol storage
+    try { test_static_init_bits_protocol(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_static_local_slot_claim_release(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
 
     // Module save/load (uses WriteCompiledModule — frame layout is correct)
     try { test_module_save_load(); }

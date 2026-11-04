@@ -1,0 +1,7 @@
+//Static locals are legal only inside function bodies (spec §5.2).
+//With an explicit main() present, the pre-existing script-mode gate
+//("top-level statements cannot be combined with an explicit main()")
+//fires before the static-local check — expect THAT diagnostic; the
+//probe pins the reject, not the new message.
+static int x = 1;
+int main() { return x; }

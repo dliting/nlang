@@ -18,9 +18,6 @@ namespace nlang {
 
 namespace {
 
-//Cap for one-level field/element dumps ("<Point{x=1, y=2, ...}>").
-const int kMaxElementsShown = 5;
-
 const char* DebugKindName(uint8_t kind) {
     //0.7.5: scalars name themselves through the registry (bool today,
     //the P4-P6 family later) — no per-kind arm to forget.
@@ -94,6 +91,7 @@ const char* ContextStateName(ContextState state) {
     case ContextState::ParkedJoin:    return "parked-join";
     case ContextState::ParkedMutex:   return "parked-mutex";
     case ContextState::ParkedSemaphore: return "parked-sem";
+    case ContextState::ParkedClassInit: return "parked-classinit";
     case ContextState::ParkedChanRecv: return "parked-chan-recv";
     case ContextState::ParkedChanSend: return "parked-chan-send";
     case ContextState::ParkedPromise:  return "parked-promise";
@@ -220,6 +218,7 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
     }
     return out;
 }
+
 
 // --- formatters ---
 
@@ -457,42 +456,6 @@ std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
             elemKind);
     }
     if (length > bound) result += ", ...";
-    result += "}";
-    return result;
-}
-
-std::string VmExecutor::FormatDebugList(int32_t handle) const {
-    if (handle <= 0
-        || static_cast<size_t>(handle) > m_listStore.size())
-        return "List[0]{}";
-    std::vector<int32_t> elems = SnapshotListElements(handle);
-    std::string result = "List[" + std::to_string(elems.size()) + "]{";
-    size_t bound = elems.size() < static_cast<size_t>(kMaxElementsShown)
-        ? elems.size() : static_cast<size_t>(kMaxElementsShown);
-    for (size_t i = 0; i < bound; ++i) {
-        if (i > 0) result += ", ";
-        result += FormatDebugElementHeap(elems[i]);
-    }
-    if (elems.size() > bound) result += ", ...";
-    result += "}";
-    return result;
-}
-
-std::string VmExecutor::FormatDebugDict(int32_t handle) const {
-    if (handle <= 0
-        || static_cast<size_t>(handle) > m_dictStore.size())
-        return "Dict[0]{}";
-    std::vector<std::pair<int32_t, int32_t>> entries
-        = SnapshotDictEntries(handle);
-    std::string result = "Dict[" + std::to_string(entries.size()) + "]{";
-    size_t bound = entries.size() < static_cast<size_t>(kMaxElementsShown)
-        ? entries.size() : static_cast<size_t>(kMaxElementsShown);
-    for (size_t i = 0; i < bound; ++i) {
-        if (i > 0) result += ", ";
-        result += FormatDebugElementHeap(entries[i].first) + ": "
-            + FormatDebugElementHeap(entries[i].second);
-    }
-    if (entries.size() > bound) result += ", ...";
     result += "}";
     return result;
 }

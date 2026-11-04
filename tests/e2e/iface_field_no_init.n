@@ -1,5 +1,6 @@
-// 0.10.7 D4: flags present but no initializer — the foldability check
-// names the missing constant expression.
+// 0.10.7 D4 (reworded v0.12.6): flags present but no initializer — a
+// dedicated diagnostic names it (runtime constants still require one;
+// the old foldability text no longer fits non-literal initializers).
 interface I {
     static const int X;
 }

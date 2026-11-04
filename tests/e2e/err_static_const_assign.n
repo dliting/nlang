@@ -1,0 +1,7 @@
+class MathU {
+    public static const int k = 40;
+}
+int main() {
+    MathU.k = 1;
+    return 0;
+}

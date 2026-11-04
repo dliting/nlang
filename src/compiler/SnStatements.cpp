@@ -153,9 +153,27 @@ SnField * SnInvokeStmt::FindField(const std::string& sName) const
 
 //SnLocalDeclStmt
 
+//v0.12.6: the two legacy ctors delegate to the flags ctor — the child
+//registration (init exprs, ctor args, array sizes) lives in one place.
 SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	std::vector<LocalDecl> *pDecls, const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls)
+	SnLocalDeclStmt(pType, pDecls, NF_NONE, loc)
+{
+}
+
+//Phase 9a: const local variant.
+SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
+	std::vector<LocalDecl> *pDecls, bool isConst,
+	const ISourceLocation &loc) :
+	SnLocalDeclStmt(pType, pDecls, isConst ? NF_Const : NF_NONE, loc)
+{
+}
+
+SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
+	std::vector<LocalDecl> *pDecls, NodeBits nodeFlags,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls),
+	m_nodeFlags(nodeFlags)
 {
 	NLANG_ASSERT(m_pType);
 	AddChild(m_pType);
@@ -170,26 +188,6 @@ SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
 	//0.9.0: ctor args of `T name(args)` follow the same dual-storage
 	//model — children until the resolver detaches them into the
 	//synthesized SnNewExpr. The pArraySize slot of `T name[n]` does too.
-	for (auto &decl : *m_upDecls)
-		if (decl.pCtorArgs)
-			for (auto *pArg : *decl.pCtorArgs)
-				AddChild(pArg);
-	for (auto &decl : *m_upDecls)
-		if (decl.pArraySize)
-			AddChild(decl.pArraySize);
-}
-
-//Phase 9a: const local variant.
-SnLocalDeclStmt::SnLocalDeclStmt(SnFieldExpr *pType,
-	std::vector<LocalDecl> *pDecls, bool isConst,
-	const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_pType(pType), m_upDecls(pDecls), m_isConst(isConst)
-{
-	NLANG_ASSERT(m_pType);
-	AddChild(m_pType);
-	for (auto &decl : *m_upDecls)
-		if (decl.pInitExpr)
-			AddChild(decl.pInitExpr);
 	for (auto &decl : *m_upDecls)
 		if (decl.pCtorArgs)
 			for (auto *pArg : *decl.pCtorArgs)

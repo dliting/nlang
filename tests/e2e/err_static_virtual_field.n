@@ -1,0 +1,5 @@
+//Field flag combinations beyond static / static const are rejected.
+class A {
+    static virtual int x;
+}
+int main() { return 0; }

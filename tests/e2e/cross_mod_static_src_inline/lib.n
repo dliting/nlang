@@ -1,0 +1,24 @@
+//Producer for the source-inlining flow: the consumer's compiler parses
+//this very file as an inlined library translation unit (no .ncu stubs),
+//so every static below addresses the producer image through replayed
+//import records. Same lazy-once contract as cross_mod_static_lazy, one
+//channel over. bump() adds a static method and a consumer-reachable
+//static store inside the producer's own unit.
+class Probe {
+    public static int inits = 0;
+}
+class Util {
+    public static const int k = 40;
+    public static int value = counted();
+    public static int bump(int by) {
+        Probe.inits = Probe.inits + by;
+        return Probe.inits;
+    }
+}
+interface Rules {
+    static const int base = counted();
+}
+int counted() {
+    Probe.inits = Probe.inits + 1;
+    return 30;
+}

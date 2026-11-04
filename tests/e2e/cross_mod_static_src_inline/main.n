@@ -1,0 +1,22 @@
+//Consumer: the import resolves against lib.n as an inlined library
+//source (the stdlib flow), not against a compiled stub. Reading the
+//folded const triggers nothing; the initialized static and the
+//interface runtime constant trigger the producer's initializers
+//exactly once each, lazily; the consumer-side store and the static
+//method ride the same producer image. 32 + 40 + 30 + 4 = 106.
+import lib;
+
+int main() {
+    int folded = Util.k;
+    if (Probe.inits != 0) { return 1; }
+    int v = Util.value;
+    if (Probe.inits != 1) { return 2; }
+    int b = Rules.base;
+    if (Probe.inits != 2) { return 3; }
+    Util.value = v + 2;              //consumer-side store, producer slot
+    int w = Util.value;
+    if (w != 32) { return 4; }
+    int after = Util.bump(2);
+    if (after != 4) { return 5; }
+    return w + folded + b + after;   //106
+}

@@ -346,19 +346,31 @@ def main():
                     errors.append(f"  {name}: empty order.txt")
                     continue
 
-                #Compile each module in order. Sealed layout: each
-                #module's source is staged into its own private dir
-                #and -I points at a per-test scratch dir holding ONLY
-                #the earlier modules' .ncu artifacts — imports resolve
-                #against compiled artifacts (the external-stub path),
-                #never against the sibling .n sources. Compiling from
-                #the test dir itself would let ncc's library source
-                #discovery inline the siblings, silently exercising
-                #source inlining instead of the package import model
-                #the cross-module tests exist to pin. Runtime is
-                #unaffected: nvm/ndb default their package search to
-                #the entry .ncu's own directory, where the sibling
-                #.ncu files still live.
+                #Compile each module in order. Sealed layout (default):
+                #each module's source is staged into its own private
+                #dir and -I points at a per-test scratch dir holding
+                #ONLY the earlier modules' .ncu artifacts — imports
+                #resolve against compiled artifacts (the external-stub
+                #path), never against the sibling .n sources. Compiling
+                #from the test dir itself would let ncc's library
+                #source discovery inline the siblings, silently
+                #exercising source inlining instead of the package
+                #import model the cross-module tests exist to pin.
+                #Runtime is unaffected: nvm/ndb default their package
+                #search to the entry .ncu's own directory, where the
+                #sibling .ncu files still live.
+                #
+                #Source-inline layout (marker file source_inline.txt):
+                #the flow the sealed layout deliberately avoids becomes
+                #the point of the test — every module source is staged
+                #TOGETHER in one shared dir and each module compiles
+                #with -I pointing at it, so import discovery inlines
+                #the earlier modules' .n sources as library translation
+                #units (the stdlib flow). The .ncu artifacts still land
+                #in the shared dir and join the run closure through the
+                #entry-dir search default.
+                src_inline = os.path.isfile(
+                    os.path.join(test_dir, 'source_inline.txt'))
                 imports_dir = os.path.join(IMPORTS_TMP, name)
                 if os.path.isdir(imports_dir):
                     shutil.rmtree(imports_dir)
@@ -366,11 +378,16 @@ def main():
                 compile_ok = True
                 reject_stderr = ''  #diagnostics of the failed compile
                 for mod_name in modules:
-                    mod_dir = os.path.join(imports_dir, mod_name)
-                    os.makedirs(mod_dir, exist_ok=True)
-                    src = os.path.join(mod_dir, f"{mod_name}.n")
-                    shutil.copyfile(
-                        os.path.join(test_dir, f"{mod_name}.n"), src)
+                    if src_inline:
+                        src = os.path.join(imports_dir, f"{mod_name}.n")
+                        shutil.copyfile(
+                            os.path.join(test_dir, f"{mod_name}.n"), src)
+                    else:
+                        mod_dir = os.path.join(imports_dir, mod_name)
+                        os.makedirs(mod_dir, exist_ok=True)
+                        src = os.path.join(mod_dir, f"{mod_name}.n")
+                        shutil.copyfile(
+                            os.path.join(test_dir, f"{mod_name}.n"), src)
                     out = os.path.join(imports_dir, f"{mod_name}.ncu")
                     try:
                         r = subprocess.run(

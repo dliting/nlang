@@ -1,5 +1,6 @@
-//0.9.10 D3.3: array constants need shared runtime storage; the
-//declared-type gate rejects the array shape before foldability.
+//v0.12.6 D15: an array-typed interface constant is a runtime constant —
+//legal to declare. The initializer still type-checks through the
+//synthesized store's ordinary assignment machinery.
 interface ILimits {
 	public static const int[] MAX = 1;
 }

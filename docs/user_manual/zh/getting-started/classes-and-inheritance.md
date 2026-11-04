@@ -40,6 +40,33 @@ int main() {
 
 详见[规范/类](../specification/04-types/class.md)。
 
+### 静态成员
+
+```nlang
+import io;
+
+class Registry {
+    public static int count = 0;       // 类自身上的一个槽位
+
+    public static void note() {
+        Registry.count = Registry.count + 1;
+    }
+}
+
+int main() {
+    Registry.note();                   // 首次使用运行初始化器
+    Registry.note();
+    io.print("counted " + Registry.count);
+    if (Registry.count == 2)
+        return 2;
+    return 1;
+}
+```
+
+输出`counted 2`，退出码2。`static`字段是类上的一个存储槽位——所有方法、所有实例都经类名访问同一个槽位。静态成员懒惰初始化：初始化器在任意静态成员的首次使用时运行，恰好一次，与对象数量无关。`static const`在初始化之后只读。函数体内也可以声明`static int last = 0;`——静态局部变量，行为同样是懒惰、每个声明点一次。
+
+详见[规范/类](../specification/04-types/class.md)、[规范/语句](../specification/06-statements/index.md)。
+
 ### 接口
 
 ```nlang

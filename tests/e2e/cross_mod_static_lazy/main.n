@@ -1,0 +1,17 @@
+//Consumer: reading the folded const triggers nothing (Review Focus #2);
+//reading the initialized static triggers the producer's initializer
+//exactly once, lazily, in this process (D13 trigger order). The
+//interface runtime constant follows the same lazy-once contract (D11).
+import lib;
+
+int main() {
+    int folded = Util.k;
+    if (Probe.inits != 0) { return 1; }
+    int v = Util.value;
+    if (Probe.inits != 1) { return 2; }
+    int w = Util.value;
+    if (Probe.inits != 1) { return 3; }
+    int b = Rules.base;
+    if (Probe.inits != 2) { return 4; }
+    return v + folded + b - 100;   //30 + 40 + 30 - 100 = 0
+}

@@ -63,6 +63,63 @@ void VmExecutor::OpStoreField(BytecodeReader& reader, uint8_t* locals) {
                 locals + src, kHeapFieldStrideBytes);
 }
 
+void VmExecutor::OpLoadStatic(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t slotIdx = reader.ReadUint16();
+    //D12: a slot with an initializer reads as uninitialized until its
+    //initializer stores it — throw instead of handing out the silent
+    //zero. The access-site gate has already run, so the owner is at
+    //least Initializing: an unset bit here means the initializer is
+    //running deeper on this stack (re-entrant read) or failed; both
+    //surface as a catchable InitializationException.
+    const CompiledStaticSlot& meta = m_currModule->staticSlots[slotIdx];
+    if (meta.hasInitializer && !m_staticSlots.IsSlotInitialized(slotIdx))
+        RaiseNlangException(m_initExcClassIdx,
+                            "Static field \"" + meta.name
+                            + "\" is read before its initializer stored "
+                              "a value.");
+    //Plain 8-byte cell copy (same uniform-slot semantics as OpLoadField:
+    //narrow kinds read the low half, upper bytes ride along harmlessly).
+    std::memcpy(locals + dst, m_staticSlots.Cell(slotIdx),
+                kHeapFieldStrideBytes);
+}
+
+void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
+    uint16_t slotIdx = reader.ReadUint16();
+    uint16_t src = reader.ReadUint16();
+    const CompiledStaticSlot& meta = m_currModule->staticSlots[slotIdx];
+    //v0.12.6 D14: a struct-typed slot is a value boundary — the slot
+    //owns an independent record, not the source's handle. Deep-copy at
+    //this single choke point so every producer (user stores, $staticInit
+    //assignments, static-local guard stores, cross-module consumers)
+    //shares the semantics. The slot metadata's typeIdx carries the
+    //struct table index, link-remapped by nlink like every TypeDesc.
+    //A zero handle passes through unchanged: null is not a struct
+    //value, and no legal program produces it here.
+    if (meta.type.kind == RTK_Struct) {
+        int32_t srcHeapIdx;
+        std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
+        if (srcHeapIdx > 0) {
+            const int32_t copyIdx =
+                DeepCopyStruct(srcHeapIdx, meta.type.typeIdx);
+            std::memcpy(m_staticSlots.Cell(slotIdx), &copyIdx,
+                        sizeof(copyIdx));
+            if (meta.hasInitializer)
+                m_staticSlots.MarkSlotInitialized(slotIdx);
+            return;
+        }
+    }
+    std::memcpy(m_staticSlots.Cell(slotIdx), locals + src,
+                kHeapFieldStrideBytes);
+    //D12: the initializer's store publishes the value. Marking is
+    //unconditional for initializer-bearing slots: gates precede every
+    //user-visible store, so a mark here can never lag a visible value,
+    //and a store from inside a failed attempt keeps the bit (D10's
+    //attempts-counter retention — the retry re-runs and re-marks).
+    if (meta.hasInitializer)
+        m_staticSlots.MarkSlotInitialized(slotIdx);
+}
+
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t classIdx = reader.ReadUint16();

@@ -8,6 +8,7 @@
 #include "SyntaxTree.h"
 #include "nlang/vm/CompiledModule.h"
 #include <list>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -155,6 +156,14 @@ private:
 	//collect the single-segment external .ncu candidates into
 	//rExternalNames. False after logging the gate errors.
 	bool BuildImportGates(std::vector<std::string> &rExternalNames);
+	//v0.12.6 Task 8 (D13) workers (ModuleBuilderImportCycles.cpp):
+	//CollectImportGraphEdges builds the dependency edge table (compiled
+	//units with wildcard expansion + loaded images' import records);
+	//RejectImportCycles walks each root through ImportCycleCheck and
+	//logs the first cycle found. False after logging it.
+	std::map<std::string, std::vector<std::string>>
+		CollectImportGraphEdges();
+	bool RejectImportCycles();
 	//Load one external .ncu candidate: parse it, mint the stub nodes,
 	//register their owners and keep the detached stubs alive. False
 	//after logging the failure.

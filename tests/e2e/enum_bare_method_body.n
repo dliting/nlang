@@ -1,0 +1,9 @@
+//A bare member inside the enum's own method body keeps working (the
+//enum scope was always on the walk); regression pin for the spill.
+//(One = 0, Two = 1.)
+enum Mode { One, Two;
+    public int plus() { return this + One; }
+}
+int main() {
+    return Mode.Two.plus() - 1;   //(1 + 0) - 1 = 0
+}

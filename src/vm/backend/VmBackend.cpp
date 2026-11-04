@@ -1,4 +1,5 @@
 #include "VmBackend.h"
+#include "builder/BuiltinNames.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -65,6 +66,17 @@ void VmBackend::ForEachDeclNode(SnField& parent,
     }
 }
 
+//v0.12.6: the synthesized "$staticInit" member emits through its
+//protocol arm (gate glue around the assignments), not the ordinary
+//body emitter — one dispatch both generation walks share.
+void VmBackend::DispatchFunctionGeneration(SnFunction& func,
+                                           size_t funcIdx) {
+    if (IsStaticInitName(func.Name()))
+        GenerateStaticInitFunction(func, funcIdx);
+    else
+        GenerateFunction(func, funcIdx);
+}
+
 void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     //Function lists outside SnFunctionParentField: enum methods and
     //(0.9.11 D2) struct constructors — both walk through ForEachDeclNode.
@@ -86,8 +98,13 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
         && parent.Kind() != NK_InterfaceDecl)
         return;
     SnClassDecl* prevClass = m_pCurrClass;
+    SnInterfaceDecl* prevInterface = m_pCurrInterface;
     if (parent.Kind() == NK_ClassDecl)
         m_pCurrClass = static_cast<SnClassDecl*>(&parent);
+    else if (parent.Kind() == NK_InterfaceDecl)
+        //Task 7 (D11): the interface $staticInit arm reads this the
+        //way the class arm reads m_pCurrClass.
+        m_pCurrInterface = static_cast<SnInterfaceDecl*>(&parent);
     auto& members =
         static_cast<SnFunctionParentField&>(parent).Members();
     for (auto& child : members) {
@@ -96,12 +113,13 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
             if (func.Body() || func.ContainFlags(NF_Native)) {
                 auto it = m_funcIndexMap.find(&func);
                 if (it != m_funcIndexMap.end())
-                    GenerateFunction(func, it->second);
+                    DispatchFunctionGeneration(func, it->second);
             }
         }
         GenerateBytecodeRecursive(child);
     }
     m_pCurrClass = prevClass;
+    m_pCurrInterface = prevInterface;
 }
 
 //v1.12 type descriptors: capture the true formal/return types for
@@ -431,33 +449,8 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
     throw std::runtime_error("NLang backend: local variable not found: " + name);
 }
 
-VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
-    BareIdTarget t;
-    if (!field)
-        return t;
-    auto it = m_currFunc->localOffsets.find(field->Name());
-    if (it != m_currFunc->localOffsets.end()) {
-        t.kind = BareIdTarget::Local;
-        t.localOffset = it->second;
-        return t;
-    }
-    if (auto* pOwner = OwningTypeOfMemberField(field)) {
-        //0.9.11 D2: struct fields flatten through the struct helper (the
-        //class helper walks the inheritance chain, which structs lack).
-        int off = (field->Kind() == NK_StructField)
-            ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
-                              field->Name())
-            : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
-                                   field->Name());
-        if (off >= 0) {
-            t.kind = BareIdTarget::ThisField;
-            t.owner = pOwner;
-            t.fieldOff = off;
-            return t;
-        }
-    }
-    return t;
-}
+//ResolveBareIdentifier/StaticSlotIndexOf live in ResolveBareIdentifier.cpp
+//(bare-name target classification, shared by three emitter families).
 
 bool VmBackend::WriteModuleArtifact(BuildEnvironment& env,
                                     const CompiledModule& module,

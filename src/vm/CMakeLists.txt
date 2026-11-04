@@ -12,6 +12,8 @@ add_library(nlang_vm
     VmExecutorHostProxyBridge.cpp
     VmExecutorStrings.cpp
     VmExecutorDebug.cpp
+    VmExecutorDebugContainers.cpp
+    VmExecutorDebugStatics.cpp
     VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
@@ -22,12 +24,14 @@ add_library(nlang_vm
     VmExecutorOpsStrings.cpp
     VmExecutorOpsArrayN.cpp
     VmExecutorOpsObjects.cpp
+    VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
     VmExecutorGCSweep.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
+    VmStaticSlots.cpp
     VmDefaultMaterializer.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp
@@ -59,6 +63,8 @@ add_library(nlang_vm
     backend/Slots.cpp
     backend/RegisterArrayTypes.cpp
     backend/RegisterClass.cpp
+    backend/ResolveBareIdentifier.cpp
+    backend/EmitStaticInit.cpp
     backend/RegisterInterfaces.cpp
     backend/RegisterEnums.cpp
     backend/RegisterStructs.cpp
@@ -70,12 +76,14 @@ add_library(nlang_vm
     backend/WalkersStmt.cpp
     backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
+    backend/EmitExprIdent.cpp
     backend/EmitExprCast.cpp
     backend/EmitExprSubscript.cpp
     backend/EmitExprBinary.cpp
     backend/EmitExprNew.cpp
     backend/EmitExprInitList.cpp
     backend/EmitExprInitListND.cpp
+    backend/EmitInitListAggregate.cpp
     backend/EmitExprMember.cpp
     backend/EmitExprMemberFieldLoad.cpp
     backend/FieldOffsets.cpp
@@ -99,12 +107,14 @@ add_library(nlang_vm
     ModuleLoaderRecordsInterfaces.cpp
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsClasses.cpp
     ModuleSaverRecordsInterfaces.cpp
     ModuleSaverRecordsEnums.cpp
     NcuPackage.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp
     NcuLinkerSlots.cpp
+    NcuLinkerInterfaces.cpp
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp

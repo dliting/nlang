@@ -1,0 +1,7 @@
+//D15: interface constants cross modules on the runtime channel — the
+//interface's own lazy initializer runs on the consumer's first read.
+import lib;
+
+int main() {
+    return Holder.shared.v;   //5
+}

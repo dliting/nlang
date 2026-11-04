@@ -1,0 +1,8 @@
+//Two enums in the same scope sharing a member name: the bare name is
+//ambiguous and must be diagnosed, never silently resolved to one of
+//them (their values may differ).
+enum Alpha { X }
+enum Beta { X }
+int main() {
+    return X;   //ambiguous
+}

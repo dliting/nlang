@@ -1,0 +1,12 @@
+//v0.12.6 D11: an enum-member initializer is outside the fold surface,
+//so the constant initializes at runtime — reading it triggers the
+//interface's $staticInit (enum members are qualified by language rule).
+enum Mode {
+	One = 1
+}
+
+interface ILimits {
+	public static const int MAX = Mode.One;
+}
+
+int main() { return ILimits.MAX; }   //1

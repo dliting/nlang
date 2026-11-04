@@ -1,0 +1,8 @@
+//D15: container-typed interface constants — same runtime channel; the
+//init-list assignment builds the List in the interface's initializer.
+interface Registry {
+    static const List<int> xs = [1, 2, 3];
+}
+int main() {
+    return Registry.xs.get(1);   //2
+}

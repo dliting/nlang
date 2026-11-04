@@ -1,8 +1,10 @@
 /*---
-    EmitExprCore.cpp — 核心表达式发射：字面量/标识符/调用/out 拒绝/名字/this 与类型引用拒绝、表达式兜底、字符串常量登记。
-    从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
+    EmitExprCore.cpp — 核心表达式发射：字面量、类型引用拒绝、表达式兜底、字符串常量登记。
+    从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）；
+    标识符发射族后拆至 EmitExprIdent.cpp（2026-11-02 尺寸守卫）。
 ---*/
 #include "VmBackend.h"
+#include "builder/FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
@@ -148,115 +150,6 @@ void VmBackend::Access(SnLiteralExpr& expr) {
     return;
 }
 
-//Identifier arm: default-param binding override — read the formal's
-//caller-side callParamBase slot directly (see LookupOverride).
-void VmBackend::EmitIdentifierOverrideRead(BytecodeEmitter& emitter,
-                                           uint16_t resultOffset,
-                                           uint16_t overrideSlot) {
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(overrideSlot);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-}
-
-//Identifier arm: enum member constant — emit the resolved integer value.
-void VmBackend::EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
-                                             uint16_t resultOffset,
-                                             SnField* field) {
-    auto* pEnumMember = static_cast<SnEnumMember*>(field);
-    emitter.Emit(OpCode::OP_ConstInt32);
-    emitter.EmitInt32(pEnumMember->Value());
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-}
-
-//Identifier arm: bound function reference in value position — emit a
-//static-bound handle (the pending-ref sweep rejects unbound references).
-//SlotFor keeps this unit-local: a cross-unit reference becomes an import
-//placeholder the load-time linker resolves.
-void VmBackend::EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
-                                             uint16_t resultOffset,
-                                             SnField* field) {
-    emitter.Emit(OpCode::OP_MakeFunc);
-    emitter.EmitUint16(static_cast<uint16_t>(
-        FunctionSlotFor(static_cast<SnFunction&>(*field))));
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-}
-
-//Identifier arm: resolved-field tail — local frame read or the implicit
-//this.<field> member read; no codegen binding is an internal error.
-void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
-                                        uint16_t resultOffset,
-                                        SnField* field) {
-    auto target = ResolveBareIdentifier(field);
-    if (target.kind == BareIdTarget::Local) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(target.localOffset);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    } else if (target.kind == BareIdTarget::ThisField) {
-        //Implicit this.<field> (bare member read inside a method).
-        //Same opcode shape as the MemberExpr class-field read.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(ImplicitThisSlot());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_LoadField);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-        //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
-        EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
-    } else {
-        throw std::runtime_error(
-            "NLang backend: identifier has no codegen binding: "
-            + field->Name());
-    }
-}
-
-void VmBackend::Access(SnIdentifierExpr& expr) {
-    NodeKind kind = expr.Kind();
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
-        auto& idExpr = static_cast<SnIdentifierExpr&>(expr);
-        //Phase 9c: binding override — when evaluating a default-param
-        //expression, an identifier referring to an earlier formal must
-        //read from the caller-side callParamBase slot rather than the
-        //callee's local frame. Check the override stack before falling
-        //through to normal local/global resolution.
-        auto override = LookupOverride(idExpr.Name());
-        if (override.first) {
-            EmitIdentifierOverrideRead(emitter, resultOffset,
-                override.second);
-            return;
-        }
-        auto* field = idExpr.Field();
-        if (field && field->Kind() == NK_EnumMember) {
-            EmitIdentifierEnumMemberRead(emitter, resultOffset, field);
-            return;
-        }
-        if (field && field->Kind() == NK_Function) {
-            EmitIdentifierFuncHandleRead(emitter, resultOffset, field);
-            return;
-        }
-        if (field) {
-            EmitIdentifierFieldRead(emitter, resultOffset, field);
-        } else {
-            //Round-11: an unresolved identifier reaching codegen means the
-            //resolver marked something resolved without binding it (the
-            //string equals() arg bug did exactly this). Emitting ConstZero
-            //here produced silent wrong code; fail the build instead —
-            //the front end reports resolver errors before codegen runs.
-            throw std::runtime_error(
-                "NLang backend: identifier reached codegen unresolved: "
-                + idExpr.Name());
-        }
-        return;
-}
-
 //Delegate invoke arm: materialize the bound callee handle into a scratch
 //evalArea slot (the field form must not disturb callParamBase), then
 //dispatch through EmitDelegateDispatch.
@@ -373,6 +266,12 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         }
 
         auto* callee = invoke.Callee();
+
+        //v0.12.6 D2: a bare static-method call (the in-class spelling)
+        //is a first active use too — gate the callee's declaring class
+        //before any argument evaluation. Free functions carry no owner
+        //class and the gate is a no-op.
+        EmitStaticFieldGate(callee, emitter);
 
         //Phase 9c: binding-aware argument emission. Handles positional,
         //named, and default-param bindings via EmitCallArgs.

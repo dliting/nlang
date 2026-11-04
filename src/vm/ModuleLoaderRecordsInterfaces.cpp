@@ -39,6 +39,12 @@ static void ReadInterfaceConstants(std::istream& fs, CompiledInterface& ci)
         fs.read(constant.name.data(), nameLen);
         constant.type = ReadTypeDesc(fs);
         constant.value = ReadDefaultValueDesc(fs);
+        //v2.13 (v0.12.6): the constant's module slot (D11's runtime-
+        //initialized arm); 0xFFFF = compile-time-folded. Bounds are
+        //validated after the module slot table is read (later in the
+        //stream), like the class static-field slots.
+        fs.read(reinterpret_cast<char*>(&constant.slotIdx),
+                sizeof(constant.slotIdx));
     }
 }
 
@@ -120,7 +126,9 @@ static void ReadInterfaceSignatures(std::istream& fs, CompiledInterface& ci,
 //prefixed qualified key plus its static function indices. Mirrors the
 //class method block; the qualified key is the linkage identity (like
 //enumKeys). 0.9.12 (v2.7): appends the constants block and the
-//instance-method signature block.
+//instance-method signature block. v2.13 (v0.12.6): each constant carries
+//a trailing slotIdx and the record closes with the static-initializer
+//index.
 void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
 {
     uint32_t ifaceCount = 0;
@@ -153,6 +161,20 @@ void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
 
         //0.9.12 (v2.7): instance-method signatures (see the helper).
         ReadInterfaceSignatures(fs, ci, mod.stringConstants.size());
+
+        //v2.13 (v0.12.6): the interface's lazy static-initializer
+        //function, the record's trailing field (0xFFFF = none). The
+        //function table was parsed before the interface table, so the
+        //index is bounds-checked here.
+        fs.read(reinterpret_cast<char*>(&ci.staticInitFuncIdx),
+                sizeof(ci.staticInitFuncIdx));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated interface static init index");
+        if (ci.staticInitFuncIdx != 0xFFFF
+            && ci.staticInitFuncIdx >= mod.functions.size())
+            throw std::runtime_error(
+                "Invalid module: interface static init index out of range");
     }
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated interface table");

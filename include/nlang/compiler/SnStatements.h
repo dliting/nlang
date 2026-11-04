@@ -230,11 +230,22 @@ public:
 		std::vector<LocalDecl> *pDecls, bool isConst,
 		const ISourceLocation &loc);
 
+	//v0.12.6: flagged variant — NF_Static (static local) and NF_Const
+	//(const local) ride one flags word; the two ctors above delegate
+	//here. NF_Static declarations are validated by the resolver and
+	//gain slot-backed storage in later tasks.
+	SnLocalDeclStmt(SnFieldExpr *pType,
+		std::vector<LocalDecl> *pDecls, NodeBits nodeFlags,
+		const ISourceLocation &loc);
+
 	//Get the type name expression.
 	SnFieldExpr *Type() const { return m_pType; }
 
 	//Phase 9a: const-ness flag.
-	bool IsConst() const { return m_isConst; }
+	bool IsConst() const { return (m_nodeFlags & NF_Const) != 0; }
+
+	//v0.12.6: declaration flags (NF_Static / NF_Const bits).
+	NodeBits NodeFlags() const { return m_nodeFlags; }
 
 	//Get the declarations.
 	const std::vector<LocalDecl> &Decls() const { return *m_upDecls; }
@@ -247,7 +258,7 @@ public:
 private:
 	SnFieldExpr *m_pType;
 	std::unique_ptr<std::vector<LocalDecl>> m_upDecls;
-	bool m_isConst = false;
+	NodeBits m_nodeFlags = NF_NONE;
 };
 
 /*

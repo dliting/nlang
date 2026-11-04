@@ -112,6 +112,19 @@ public:
     //no archived record.
     void ShadowRegisterUnits(SnNamespace& root);
     uint16_t ProducerIdxOfCrossUnitFunc(const SnFunction& callee);
+    //Same-build cross-unit static support, the static-slot mirror of
+    //the function archive above: StaticSlotIndexOf replays the
+    //producer's staticSlots index for a foreign-unit static field (an
+    //inlined library source's class static or interface runtime
+    //constant — nodes that carry no wire rider, unlike rebuilt .ncu
+    //stubs). 0xFFFF = no archived slot.
+    uint16_t ProducerIdxOfCrossUnitStatic(
+        const SnClassField& field) const;
+    //The one query every rider-gated site asks: the wire rider when the
+    //node carries one, else the archive replay above (0xFFFF = neither,
+    //the producer folded the constant or owns no slot row). Both call
+    //sites route through this so they cannot drift apart again.
+    uint16_t EffectiveProducerSlotIdx(const SnClassField& field) const;
 
     //Cross-unit reference slots (SymbolSlots.hpp): resolve a bound
     //declaration to its unit-local table slot — own declarations via the
@@ -122,6 +135,10 @@ public:
     //model clone-to-owner fallback (see Slots.cpp).
     uint32_t OwnFunctionSlotFor(SnFunction& callee);
     uint32_t ClassSlotFor(SnClassDecl& decl);
+    //v0.12.6 Task 7 (D11): the interface-table index of an own-unit
+    //interface (RegisterInterfaces fills the map) — kind-1 gate
+    //operands address the interface owner through it.
+    uint16_t InterfaceSlotFor(SnInterfaceDecl& decl);
     uint32_t StructSlotFor(SnStructDecl& decl);
     uint32_t EnumSlotFor(SnEnumDecl& decl);
 
@@ -235,10 +252,42 @@ private:
         CompiledFunction& compiledFunc);
     //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
     void StampIntrinsicChannel(SnFunction& func,
-        CompiledFunction& compiledFunc);
-    //StampIntrinsicChannel's owner resolution (context walk, with the
+        CompiledFunction& compiledFunc);    //StampIntrinsicChannel's owner resolution (context walk, with the
     //declared-generic instance-copy arm resolving through the template).
     uint32_t IntrinsicChannelOwnerOf(const SnFunction& func) const;
+
+    //v0.12.6 lazy static initialization (spec §6.2): gate+call prefix
+    //for a first-active-use site. Emits nothing when the class needs no
+    //initializer. EmitStaticFieldGate is the field-bound convenience
+    //the static access arms call (gate the DECLARING class, D4; an
+    //interface parent routes to the interface gate, D11).
+    void EmitClassInitGate(SnClassDecl& decl, BytecodeEmitter& emitter);
+    void EmitInterfaceInitGate(SnInterfaceDecl& decl,
+                               BytecodeEmitter& emitter);
+    void EmitStaticFieldGate(SnField* field, BytecodeEmitter& emitter);
+    //GenerateFunction's static-init arm plus its protocol body (super
+    //gate inside the try, assignments, catch-all Fail+Rethrow, Done).
+    //The interface flavor is the same protocol with kind=1 and no
+    //super chain (Task 7, D11).
+    void GenerateStaticInitFunction(SnFunction& func, size_t funcIdx);
+    void EmitStaticInitBody(SnClassDecl& decl, SnFunction& func,
+        BytecodeEmitter& emitter);
+    void EmitInterfaceStaticInitBody(SnInterfaceDecl& decl, SnFunction& func,
+        BytecodeEmitter& emitter);
+    //Shared protocol core of the two bodies above (Fail/Done carry the
+    //owner index and kind; the super gate is classes-only).
+    void EmitStaticInitProtocolBody(uint16_t ownerIdx, uint16_t kind,
+        SnFunction& func, SnClassDecl* super, BytecodeEmitter& emitter);
+
+    //v0.12.6 Task 7 (spec §8): static locals. Registration runs at the
+    //declaration statement (one module slot per declarator, ownerKind=2,
+    //no frame slot); the decomposed init assign (NF_Generated) emits the
+    //once-guard below; every later read/store is a plain static-slot
+    //access (the declaration is lexically upstream of all uses).
+    void RegisterStaticLocalDeclarators(SnLocalDeclStmt& decl,
+        SnField* evalType);
+    void EmitStaticLocalInitSequence(SnAssignStmt& assign, uint16_t slotIdx,
+        BytecodeEmitter& emitter);
 
     //pResult reload before any accumulator-reading opcode (the cast_f2i
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
@@ -266,6 +315,12 @@ private:
     int ClassAncestorFieldOffset(SnClassDecl& ancestor,
                                  const std::string& fieldName,
                                  uint16_t& off);
+    //v0.12.6 D14: the declared-type companion of FindClassFieldOffset —
+    //same root→parent→own search (statics skipped); returns the field's
+    //declared type node or null. The store sites consult it for the
+    //struct deep-copy decision (manual 4.7.4).
+    SnField* FindClassFieldDecl(SnClassDecl& classDecl,
+                                const std::string& fieldName);
     //0.9.11 D2: generalized to struct fields — returns the owning type
     //decl (SnClassDecl or SnStructDecl) for a member field of either,
     //null otherwise; the caller dispatches the offset helper by the
@@ -298,8 +353,10 @@ private:
     //0.9.10 D3: interface constant literal — the initializer is folded
     //at the use site into a Const* op writing pResult (the caller
     //assigns it to the result slot, like the enum-member arm).
-    void EmitInterfaceConstantRead(SnClassField& field,
-                                   BytecodeEmitter& emitter);
+    //v0.12.6: serves interface constants AND compile-time-folded class
+    //static consts — the same inline-literal emission for both forms.
+    void EmitFoldedConstantRead(SnClassField& field,
+                                BytecodeEmitter& emitter);
     bool EmitMemberBuiltinDispatch(SnMemberExpr& member,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
@@ -307,6 +364,12 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //0.12.6: type-name-qualified static field read (Counter.total, the
+    //D4 inherited Derived.tag). Keyed on the bound field, never the
+    //receiver — the receiver names a type and has no value to emit.
+    bool EmitMemberStaticFieldRead(SnMemberExpr& member, SnField* field,
+                                   BytecodeEmitter& emitter,
+                                   uint16_t resultOffset);
     //Static face on a builtin generic type name (Future.selectAny):
     //no receiver — args stage from claim slot 0 and dispatch straight
     //to OP_CallIntrinsic (the face table's row carries the id).
@@ -638,11 +701,17 @@ private:
     //element/member targets.
     uint16_t ResolveMemberFieldOffset(SyntaxNode* elemType,
                                       const std::string& fieldName);
+    //v0.12.6 D14: the declared-type twin of ResolveMemberFieldOffset —
+    //the field's type node for a class (chain walk) or struct (flat
+    //scan) element/member target, null on a miss.
+    SnField* DeclaredMemberFieldType(SyntaxNode* elemType,
+                                     const std::string& fieldName);
     void EmitAssignBareIdentifier(SnAssignStmt& assign, SnField* field,
                                   BytecodeEmitter& emitter);
     void EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
                            SnField* varType, BytecodeEmitter& emitter);
     void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
+                               SnField* fieldType,
                                BytecodeEmitter& emitter);
     void EmitAssignMemberField(SnAssignStmt& assign,
                                SnMemberExpr& memberExpr,
@@ -652,10 +721,10 @@ private:
                                          BytecodeEmitter& emitter);
     void EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter);
+        SnField* fieldType, BytecodeEmitter& emitter);
     void EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
         SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        BytecodeEmitter& emitter);
+        SnField* fieldType, BytecodeEmitter& emitter);
     void EmitAssignClassField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, SnClassDecl* classDecl,
         BytecodeEmitter& emitter);
@@ -686,6 +755,12 @@ private:
         SnField* field, int fieldOff, int op, BytecodeEmitter& emitter);
     void EmitCompoundAssignMemberField(SnCompoundAssignStmt& ca,
         SnMemberExpr& memberExpr, int op, BytecodeEmitter& emitter);
+    //v0.12.6 D3: static read-modify-write (bare or class-qualified) —
+    //slot load, RHS, compound op, slot store; old value and RHS park in
+    //an exclusive claim across the RHS emission.
+    void EmitCompoundAssignStaticField(SnCompoundAssignStmt& ca,
+        uint16_t slotIdx, SnField* lhsType, int op,
+        BytecodeEmitter& emitter);
     //0.8.4: bare-subscript LHS (arr[i] += v, li[i] -= v, d[k] *= v) —
     //read-modify-write with base and index each evaluated exactly once
     //(JLS 15.26.1), parked in an EvalAreaClaim(4) [base, index, old, rhs].
@@ -884,6 +959,16 @@ private:
     void EmitStructDeepCopy(uint16_t dst, uint16_t src,
                             SnStructDecl& structDecl,
                             BytecodeEmitter& emitter);
+    //v0.12.6 D14: struct-aware field store — when the field's declared
+    //type is a struct, deep-copy the staged value in place before the
+    //store (a struct moving into a field is copied, manual 4.7.4);
+    //every other kind stores the cell as-is. valueSlot already holds
+    //the right side's value (OP_CopyStruct reads the source cell before
+    //writing the destination, so dst == src is safe).
+    void EmitStructAwareStoreField(SnField* fieldType,
+                                   uint16_t objSlot, uint16_t fieldOff,
+                                   uint16_t valueSlot,
+                                   BytecodeEmitter& emitter);
 
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing
@@ -969,6 +1054,10 @@ private:
         uint16_t ownerOrdinal = 0xFFFF;
     };
     OwnerMemberMeta CrossUnitOwnerMeta(const SnFunction& callee) const;
+    //FunctionSlotFor's namespace-branch tail: replays the record's
+    //ordinal from the stub's producer index (see Slots.cpp).
+    void ReplayNamespaceBranchOrdinal(OwnerMemberMeta &meta,
+        SnFunction &callee);
 
     //0.9.11 D2/T6: the AST-selected constructor (SnNewExpr/SnInvokeExpr/
     //SnSuperCallStmt CtorFunction()) when it is registered
@@ -1063,6 +1152,11 @@ private:
     //helpers re-index per statement.
     void ResolveClassFieldRefs(SnClassDecl* pDecl, size_t classIdx);
     void BuildClassFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx);
+    //0.12.6 D1: static-field slot allocation (module declaration order)
+    //and the deferred type-descriptor fill for those slots — descriptors
+    //wait for the all-classes-registered phase, like the sibling above.
+    void AllocateStaticFieldSlot(SnClassField& cf, CompiledClass& cc);
+    void BuildStaticFieldTypeDescs(SnClassDecl* pDecl, size_t classIdx);
     //TypeLeafSlots wiring for BuildTypeDesc: leaves slot through
     //StructSlotFor/ClassSlotFor (own entry or import placeholder).
     TypeLeafSlots LeafSlotResolvers();
@@ -1095,6 +1189,16 @@ private:
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
     void RegisterInterfaces(SnNamespace& root);
+    //RegisterInterfaces worker: contentless placeholder rows for foreign
+    //interfaces (v0.12.6 Task 8 — unit-local indices for kind-1 gates
+    //against imported interfaces; nlink's merge prefers the provider's
+    //rich row at the same merged index).
+    void RegisterForeignInterfacePlaceholders(SnNamespace& root);
+    //RegisterInterfaces worker: the constants loop (fold split rides
+    //StaticConstFoldsAtCompileTime; runtime constants take ownerKind=1
+    //module slots).
+    void RegisterInterfaceConstants(SnInterfaceDecl& sn,
+                                    CompiledInterface& ci);
     //RegisterInterfaces worker: one interface's instance-method signature
     //records from its AST members (uses the leaf-slot resolvers and the
     //default-value encoders, hence a member).
@@ -1142,6 +1246,10 @@ private:
     //GenerateAllBytecode worker: recursive, maintaining m_pCurrClass as it
     //descends into a class so method bodies resolve the right receiver.
     void GenerateBytecodeRecursive(SnField& parent);
+    //v0.12.6: shared generation dispatch — the synthesized "$staticInit"
+    //member routes to its protocol emitter, everything else to the
+    //ordinary body emitter.
+    void DispatchFunctionGeneration(SnFunction& func, size_t funcIdx);
 
     //Register an array type from its element type field.
     //Returns the arrayTypeIdx in m_compiledModule.arrayTypes.
@@ -1210,6 +1318,8 @@ private:
 
     //SnIdentifierExpr arms: default-param binding-override read, enum
     //member constant, function handle, local/implicit-this field tail.
+    //Definitions in backend/EmitExprIdent.cpp (2026-11-02 size-guard
+    //split out of EmitExprCore.cpp).
     void EmitIdentifierOverrideRead(BytecodeEmitter& emitter,
                                     uint16_t resultOffset,
                                     uint16_t overrideSlot);
@@ -1219,6 +1329,11 @@ private:
                                       uint16_t resultOffset, SnField* field);
     void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                  uint16_t resultOffset, SnField* field);
+    //v0.12.6 D3: inline-literal read of a compile-time-folded static
+    //const; false = not a folded const (caller falls through).
+    bool TryEmitFoldedStaticConstRead(SnField* field,
+                                      BytecodeEmitter& emitter,
+                                      uint16_t resultOffset);
 
     //SnLiteralExpr arm: registry-driven scalar const emission (the
     //caller has already verified typeKind is a registry row).
@@ -1331,6 +1446,12 @@ private:
     void EmitNewObject(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
                        SnExpressionList& ctorArgs, SnExpression* pSkipArg,
                        uint16_t resultOffset);
+    //Ctor-selection tail of EmitNewObject: registered selection → its
+    //function slot, table fallback, else plain OP_New alloc.
+    void EmitNewCtorDispatch(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
+                             SnExpressionList& ctorArgs,
+                             SnExpression* pSkipArg, uint16_t classIdx,
+                             uint16_t resultOffset);
     //0.9.11 D2/D3: struct construction lowering for the explicit call
     //forms (the direct-init `S name(args);` spelling decomposes into a
     //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).
@@ -1470,13 +1591,16 @@ private:
     //     caller via LookupOverride() before calling here
     //  2. local frame (params + user locals) — localOffsets
     //  3. implicit this.<classField> — bare member access inside a method
-    //  4. NotFound — resolver/codegen model divergence (internal error)
+    //  4. static class field — module slot (0.12.6 D1/D3: no instance
+    //     involved; locals keep shadowing per the bare-pool precedence)
+    //  5. NotFound — resolver/codegen model divergence (internal error)
     //Single source of truth shared by the IdentifierExpr read, AssignStmt
     //write, and CompoundAssignStmt paths so the three stay in lockstep.
     struct BareIdTarget {
-        enum Kind { Local, ThisField, NotFound };
+        enum Kind { Local, ThisField, StaticSlot, NotFound };
         Kind kind = NotFound;
         uint16_t localOffset = 0;   //Local
+        uint16_t slotIdx = 0;       //StaticSlot: module slot index
         //ThisField: owning type decl (SnClassDecl or SnStructDecl —
         //0.9.11 D2). Consumers read fieldOff only; the owner exists to
         //keep the binding auditable.
@@ -1484,6 +1608,16 @@ private:
         int fieldOff = -1;          //ThisField: flattened field offset
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
+    //0.12.6: the module slot a static class field owns (declaration
+    //order, assigned at class registration). Throws on a static field
+    //the registration walk never saw — an internal invariant break.
+    //v0.12.6 Task 8: non-const — an imported stub field (producer slot
+    //rider) mints its placeholder import record on first use, so the
+    //lookup mutates the unit table and the field→slot cache.
+    uint16_t StaticSlotIndexOf(SnClassField& field);
+    //Task 7: the same lookup for a static local, keyed by name in the
+    //current function's context (function-scoped by construction).
+    uint16_t StaticLocalSlotIndexOf(const SnField& field) const;
 
     //Receiver slot for implicit this.<field> access: local 0 (`this` in a
     //method body), or the caller-side this-override slot when emitting a
@@ -1506,11 +1640,26 @@ private:
     std::string m_entryKey;
     CompiledModule m_compiledModule;
     std::unordered_map<SnFunction*, size_t> m_funcIndexMap;
+    //0.12.6 D1: static class field -> its module slot index (assigned
+    //in declaration order at class registration; the emit-side mirror
+    //of CompiledModule::staticSlots for OP_LoadStatic/OP_StoreStatic).
+    std::unordered_map<SnClassField*, uint16_t> m_staticSlotByField;
+    //v0.12.6 Task 7 (D11): interface decl -> its interface-table index,
+    //filled at RegisterInterfaces; kind-1 gates address the interface
+    //owner through it.
+    std::unordered_map<SnInterfaceDecl*, uint16_t> m_ifaceIndexByDecl;
     //Archived per-unit function tables (indexed by module idx), the
     //producer-index source for cross-unit import records. Filled by
     //ShadowRegisterUnits.
     std::vector<std::unordered_map<SnFunction*, uint16_t>>
         m_unitFuncIdxByModule;
+    //The static-slot sibling of the archive above: per-unit static
+    //field -> producer staticSlots index, harvested from the same
+    //shadow registration pass (staticSlots order is declaration order
+    //within one unit — no prelude interleaving, the prelude declares
+    //no statics — so the replay matches the producer image exactly).
+    std::vector<std::unordered_map<SnClassField*, uint16_t>>
+        m_unitStaticSlotIdxByModule;
 
     //Phase 6 per-unit mode: the registration walks only see members owned
     //by the selected unit, and cross-unit references become import slots.
@@ -1621,6 +1770,11 @@ private:
     struct FuncContext {
         CompiledFunction* func = nullptr;
         std::unordered_map<std::string, uint16_t> localOffsets;  //name -> frame offset
+        //v0.12.6 Task 7: a static local's name -> module slot index.
+        //Function-scoped by construction (reads live in the declaring
+        //function only), so the name key is unambiguous per context;
+        //the declaration statement registers before any use can emit.
+        std::unordered_map<std::string, uint16_t> staticLocalSlots;
         uint16_t nextOffset = 0;     //next free offset in the frame
         uint16_t tempSlot = 0;       //temp pool slot 0 (binary op left / condition eval)
         uint16_t tempSlot2 = 0;      //temp pool slot 1
@@ -1652,6 +1806,11 @@ private:
     //super(...) statements look up the parent class ctor through it.
     //Set in GenerateAllBytecode's class loop; nullptr elsewhere.
     SnClassDecl* m_pCurrClass = nullptr;
+    //v0.12.6 Task 7 (D11): the interface whose members are currently
+    //being generated — the interface $staticInit arm reads it the way
+    //the class arm reads m_pCurrClass. Set in the same walk; nullptr
+    //elsewhere.
+    SnInterfaceDecl* m_pCurrInterface = nullptr;
 
     //Phase 9c: identifier binding override stack for default-parameter
     //evaluation. When emitting a default expression that references earlier

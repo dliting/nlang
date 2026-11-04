@@ -1,0 +1,16 @@
+//Bare enum members resolve wherever the enum declaration is in an
+//enclosing scope: a top-level function, a class method body and an
+//interface static method body all read them without qualification.
+//(Members count from 0: One = 0, Two = 1.)
+enum Mode { One, Two }
+class Holder {
+    public int get() { return One; }   //class method body
+}
+interface Rules {
+    public static int get() { return Two; }   //interface static method
+}
+int top() { return One; }   //top-level function
+int main() {
+    Holder h = Holder();
+    return top() + h.get() + Rules.get() - 1;   //0 + 0 + 1 - 1 = 0
+}

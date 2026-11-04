@@ -1,0 +1,23 @@
+//A cross-class initialization cycle reading an unset slot throws at the
+//real read site — catchable (D12 runtime layer + D10).
+class Bump {
+    public static int marks = 0;
+}
+class A {
+    public static int a = readB();
+}
+class B {
+    public static int b = A.a;
+}
+int readB() {
+    Bump.marks = Bump.marks + 1;
+    return B.b;
+}
+int main() {
+    try {
+        int x = A.a;
+        return 1;
+    } catch (Exception e) {
+        return 0;   //the cycle threw at B.b's read of A.a
+    }
+}

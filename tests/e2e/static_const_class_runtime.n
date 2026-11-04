@@ -1,0 +1,16 @@
+//Non-foldable static const: lazy exactly-once, then immutable.
+class Probe {
+    public static int runs = 0;
+}
+class MathU {
+    public static const int k = side();
+}
+int side() {
+    Probe.runs = Probe.runs + 1;
+    return 40;
+}
+int main() {
+    int a = MathU.k;
+    int b = MathU.k;
+    return a + b - 80 + Probe.runs;   //1: evaluated once
+}

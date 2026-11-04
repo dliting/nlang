@@ -199,6 +199,111 @@ rejected too (`must be called through a receiver object`). Using
 `this` in a static method is a compile error (`this is not
 available in a static method`).
 
+### Static fields
+
+A `static` field has one storage slot on the class itself instead
+of one per instance: every read and write — from any method, from
+any instance, and through the type name — addresses that single
+slot. A static field is declared like an instance field with the
+`static` flag (§2.4), and an initializer is optional; a
+declaration without one starts at the type's default value.
+
+```nlang
+class Counter {
+    public static int total;          // defaults to 0
+    public int serial;
+    public Counter() {
+        Counter.total = Counter.total + 1;
+        this.serial = Counter.total;  // shared state, read per instance
+    }
+}
+```
+
+Access through the type name (`Counter.total`) is the universal
+form, visible wherever the class is. Inside the class a bare name
+denotes the static field directly, like any member. Access through
+an object is rejected the same way a static method call on a receiver
+is. A struct has no static members at all — the
+flag on a struct field is a compile-time error — and a generic
+class cannot declare static fields, because its members belong to
+the one erased implementation shared by every instantiation.
+
+An inherited static field stays owned by the class that declares
+it: `Sub.total` and `Base.total` name the same slot, and the
+initializer — if any — belongs to the declaring class.
+
+A static field of a struct type follows the struct value model
+(§4.7.4): storing a value into the slot deep-copies the record,
+so the slot owns an independent copy — a later change to the
+stored source never shows through — and a member write through
+the slot (`Registry.anchor.x = 5`) mutates the slot's own record.
+A declaration without an initializer starts at the struct's zero
+value, every field at its default, nested structs included
+(§4.7.2).
+
+### Static constants
+
+A `static const` field adds immutability to a static field:
+assignment outside the initializer is a compile-time error, and
+the declaration requires an initializer. Its initializer takes one
+of two channels:
+
+- a constant-foldable expression (a literal, arithmetic over
+  literals, ...) folds at compile time into the declared constant
+  — no storage and no run-time code exist for it;
+- any other expression initializes the slot lazily like a static
+  field's initializer (below), with the same exactly-once
+  guarantee, and every later read is read-only.
+
+A `static const` of a struct type always takes the lazy channel:
+a struct value cannot fold, so the initializer builds the record
+once at first use, and the value semantics are the static field's
+— reading the constant into a variable deep-copies it (§4.7.4).
+
+### Lazy initialization
+
+A static field (or non-folded static constant) with an initializer
+is initialized *lazily*: nothing runs at program start, and the
+first use of any static member of the class triggers the class's
+initializer, which runs each initializer once. *First use* means a
+read or write of any static member, a call of a static method, or
+the construction of an instance — including construction through
+`super(...)` from a subclass. When several contexts reach the
+first use at the same time, one runs the initializer and the
+others wait; the value each of them then observes is the stored
+one.
+
+```nlang
+class Config {
+    public static int size = compute();   // runs on first use of Config
+    public static int compute() { return 40; }
+}
+int main() {
+    return Config.size;                   // initializer runs here, once
+}
+```
+
+The initializer's stores are published by the initializer itself;
+if it throws, the exception — the thrown object, or an
+`InitializationException` (§8.3) wrapping it when the failure
+escapes through the initialization protocol — propagates to the
+first-use site, and the class's initialization state resets: the
+next use runs the initializer again. *Retry repeats side effects:*
+an initializer that partially succeeded before throwing runs from
+its start on the retry, so observable effects can happen twice. A
+plain counter field without an initializer survives the retry at
+its stored value, which is the usual way to detect a repeated
+attempt.
+
+A read of an initializer-bearing static field from inside the very
+initialization it awaits — directly, or around a cycle of two
+classes whose initializers reference each other — cannot see the
+value before the initializer stores it. That read raises
+`InitializationException` (§8.3) at the reading site, and it is
+catchable like every exception; the cycle `A`'s initializer reads
+`B.b` while `B`'s reads `A.a` surfaces this way at the deeper
+read.
+
 ## 4.8.9 Virtual methods and overriding
 
 The `virtual` flag marks a method for dynamic dispatch. A call

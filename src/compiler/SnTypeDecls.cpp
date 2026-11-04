@@ -239,6 +239,13 @@ SnField *SnClassField::EvalDataType() const
 	return nullptr;
 }
 
+//Out-of-line to keep the class body free of layout-bearing inline
+//definitions (see the SnField::DeclaredTypeExpr discipline note).
+SnFieldExpr *SnClassField::DeclaredTypeExpr() const
+{
+	return m_pType;
+}
+
 bool SnClassField::IsArrayType() const
 {
 	return m_pType && m_pType->IsArrayType();

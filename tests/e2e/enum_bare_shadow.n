@@ -1,0 +1,8 @@
+//A local declaration shadows a same-named enum member; the qualified
+//form still reaches the constant. (One = 0, Two = 1.)
+enum Mode { One, Two }
+int main() {
+    int One = 42;
+    Mode m = Two;
+    return One + m - 1;   //42 + 1 - 1 = 42
+}

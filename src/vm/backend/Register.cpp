@@ -153,6 +153,8 @@ void VmBackend::BeginUnit(uint32_t unitIdx, const std::string& modulePath) {
     m_compiledModule.name = modulePath;
     m_entryKey.clear();
     m_funcIndexMap.clear();
+    //0.12.6: per-unit slot map (mirrors staticSlots' own reset above).
+    m_staticSlotByField.clear();
     m_enumIndexMap.clear();
     m_structFieldTypes.clear();
     m_listClassIdx = -1;
@@ -298,11 +300,14 @@ void VmBackend::RegisterUnitTables(SnNamespace& root) {
 //only knowable by RUNNING that sequence — a hand-replayed count would
 //drift with every builtin change. Shadow-register every unit once
 //(registration only, no bytecode, no image) and archive its function
-//map; the layout depends only on the unit's own declarations plus the
-//constant builtin set, so it matches the producer exactly.
+//map AND static-slot map; the layout depends only on the unit's own
+//declarations plus the constant builtin set, so it matches the producer
+//exactly (staticSlots even more directly: the prelude declares no
+//statics, so a unit's table is exactly its own declarations in order).
 void VmBackend::ShadowRegisterUnits(SnNamespace& root) {
     const uint32_t count = m_pRegistry->ModuleCount();
     m_unitFuncIdxByModule.assign(count, {});
+    m_unitStaticSlotIdxByModule.assign(count, {});
     for (uint32_t i = 0; i < count; ++i) {
         BeginUnit(i, m_pRegistry->ModulePathOf(i));
         RegisterUnitTables(root);
@@ -310,6 +315,10 @@ void VmBackend::ShadowRegisterUnits(SnNamespace& root) {
         archived.reserve(m_funcIndexMap.size());
         for (auto& kv : m_funcIndexMap)
             archived[kv.first] = static_cast<uint16_t>(kv.second);
+        auto& archivedSlots = m_unitStaticSlotIdxByModule[i];
+        archivedSlots.reserve(m_staticSlotByField.size());
+        for (auto& kv : m_staticSlotByField)
+            archivedSlots[kv.first] = kv.second;
     }
     //The shadow modules' tables must not leak into a real unit's image:
     //the first real BeginUnit resets every per-unit member anyway, but
@@ -325,6 +334,38 @@ uint16_t VmBackend::ProducerIdxOfCrossUnitFunc(const SnFunction& callee) {
     const auto& map = m_unitFuncIdxByModule[owner];
     const auto it = map.find(const_cast<SnFunction*>(&callee));
     return it != map.end() ? it->second : 0xFFFF;
+}
+
+//The static-slot mirror of ProducerIdxOfCrossUnitFunc: a same-build
+//foreign static (an inlined library source's class static or interface
+//runtime constant) needs the producer's staticSlots index as the import
+//record rider. Folded consts answer 0xFFFF by design — they own no slot
+//row in any image, and the constant-read phase consumes them before
+//StaticSlotIndexOf ever asks.
+uint16_t VmBackend::ProducerIdxOfCrossUnitStatic(
+    const SnClassField& field) const {
+    const uint32_t owner = m_pRegistry->OwnerOfContext(field);
+    if (owner == ModuleRegistry::NO_OWNER
+        || owner >= m_unitStaticSlotIdxByModule.size())
+        return 0xFFFF;
+    const auto& map = m_unitStaticSlotIdxByModule[owner];
+    const auto it = map.find(const_cast<SnClassField*>(&field));
+    return it != map.end() ? it->second : 0xFFFF;
+}
+
+//The single decision point for "which producer staticSlots index does
+//this field address": the wire rider when the node carries one (a
+//rebuilt .ncu stub), else the shadow-archive replay (a same-build
+//foreign unit). Both rider-gated sites (StaticSlotIndexOf's foreign
+//branch and EmitMemberStaticFieldRead's runtime-channel test) route
+//through here so the two can never drift — the archive lookup for an
+//imported stub is a no-op (empty archive row), so the unified query
+//changes nothing for stub fields.
+uint16_t VmBackend::EffectiveProducerSlotIdx(
+    const SnClassField& field) const {
+    if (field.m_iProducerSlotIdx != 0xFFFF)
+        return field.m_iProducerSlotIdx;
+    return ProducerIdxOfCrossUnitStatic(field);
 }
 
 //K1's per-module intrinsic stub append (RegisterThreadNamespaceFunctions)

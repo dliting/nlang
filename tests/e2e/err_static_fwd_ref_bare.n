@@ -1,0 +1,6 @@
+//Direct forward reference inside the same class is a compile error (D12).
+class A {
+    public static int a = b;
+    public static int b = 1;
+}
+int main() { return A.a; }

@@ -1,0 +1,7 @@
+//The qualified store is rejected too — before this gate it compiled
+//silently and dropped the write.
+enum Mode { One, Two }
+int main() {
+    Mode.One = 5;
+    return 0;
+}

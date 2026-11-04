@@ -30,6 +30,14 @@ bool VmExecutor::FailContextContained(int ctx, int32_t excHeapIdx) {
         return true;
     UnwindFrames().clear();   //dead context's records
     m_spScheduler->WakeJoiners(ctx, /*failed=*/true);
+    //K7: the dying context may still hold lazy-init claims (it died
+    //between a gate claim and its initializer's synthesized catch —
+    //e.g. an exception thrown from native code below the try). Reset
+    //them and wake the parked waiters, so a later use retries instead
+    //of parking forever on a dead owner.
+    for (uint32_t waiter : m_staticSlots.ReleaseContextClaims(
+            static_cast<uint32_t>(ctx)))
+        m_spScheduler->WakeForClassInit(static_cast<int>(waiter));
     return false;
 }
 

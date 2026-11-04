@@ -1,0 +1,15 @@
+//Interface runtime constant: reading it triggers the interface's
+//initialization exactly once.
+interface Limits {
+    static const int max = compute();
+}
+class Probe {
+    public static int runs = 0;
+}
+int compute() {
+    Probe.runs = Probe.runs + 1;
+    return 50;
+}
+int main() {
+    return Limits.max - 49 + Probe.runs;   //2
+}

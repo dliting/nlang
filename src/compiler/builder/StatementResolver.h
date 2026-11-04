@@ -78,6 +78,19 @@ private:
 	void RejectTypeNameVariable(const std::string &name, SyntaxNode &scope,
 		const SnField &accessor, const ISourceLocation *pLoc);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
+	//True = the declaration is the unbraced body of a control-flow
+	//statement (a child of the control node, not of the paragraph); the
+	//decomposition anchor would silently misplace its AssignStmts, so
+	//the caller rejects. Definition in StatementResolverDecls.cpp.
+	bool RejectUnbracedControlFlowDecl(SnLocalDeclStmt &sn,
+		SnParagraph *pParagraph);
+	//v0.12.6 D8/D11: static-local placement contract (top-level and
+	//generic-class rejections) and the local static-constant
+	//initializer requirement. Definitions in
+	//StatementResolverDeclStatic.cpp.
+	void RejectStaticLocalPlacement(SnLocalDeclStmt &sn);
+	void RejectStaticConstLocalInit(SnLocalDeclStmt &sn);
+	void RejectStaticLocalTypeContract(SnLocalDeclStmt &sn);
 	SnAssignStmt *BuildLocalInitAssign(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl);
 	//0.9.0: build `name = new Type(args)` for a `Type name(args)`
@@ -245,6 +258,13 @@ public:
 	//ClassFieldInitializerInjection.cpp.
 	void InjectClassFieldInitializers(SnClassDecl &sn);
 
+	//v0.12.6 D12 pre-pass entry: diagnose a static-field initializer that
+	//directly references a later-declared static of the same class (bare
+	//or Class.member spelling) — the read would observe the not-yet-stored
+	//slot. Logs only; never mutates the AST. Definition in
+	//StaticInitSynthesis.cpp.
+	void CheckStaticForwardRefs(SnClassDecl &sn);
+
 	void Access(SnNamespace &sn);
 	void Access(SnFunction &sn);
 	void Access(SnField &sn);
@@ -352,6 +372,14 @@ public:
 	//sees the synthesized member (same forward-reference discipline as
 	//PreResolveClassBases; idempotent on already-injected classes).
 	static void PreInjectClassFieldInitializers(Node& node,
+		StatementResolveAccessor& accessor);
+
+	//Pre-pass (v0.12.6 D2/D4): synthesize each needing class's
+	//"$staticInit" static member (initializer assignments moved into a
+	//function body) before the document-order traversal, which then
+	//resolves it like any static method. Runs after PreResolveClassBases
+	//— the need test walks the super chain.
+	static void PreSynthesizeStaticInitializers(Node& node,
 		StatementResolveAccessor& accessor);
 
 	void Resolve(SnNamespace &root);

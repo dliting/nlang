@@ -47,6 +47,12 @@ public:
 		return m_pType;
 	}
 
+	//SnField: the declared type expression (the Type() slot).
+	SnFieldExpr *DeclaredTypeExpr() const override
+	{
+		return m_pType;
+	}
+
 	//Get the expression of the default value.
 	SnExpression *Value() const
 	{

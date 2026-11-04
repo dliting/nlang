@@ -68,6 +68,9 @@ private:
     void DoBacktrace();
     void DoFrame(const std::string& arg);
     void DoInfoLocals();
+    //v0.12.6: static-slot listing (class statics, interface runtime
+    //constants, static locals) with live values + owner init phases.
+    void DoInfoStatics();
     void DoPrint(const std::string& arg);
     void DoList(const std::string& arg);
     void DoDisassemble();

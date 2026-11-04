@@ -43,6 +43,13 @@ const class InvalidCastException : Exception {
     public native InvalidCastException(string message, Exception cause = null);
 }
 
+//Thrown when a static field with an initializer is read before its
+//initializer stored a value (lazy initialization still running deeper
+//on the same stack, or a failed initializer's retry pending).
+const class InitializationException : Exception {
+    public native InitializationException(string message, Exception cause = null);
+}
+
 //Root of the class hierarchy: every class without a declared base
 //inherits these three protocol methods. Override them with the exact
 //signatures to customize per-class behavior.

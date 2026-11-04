@@ -8,6 +8,7 @@
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
 #include "VmClassLayout.h"
+#include "VmStaticSlots.h"
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
@@ -388,6 +389,9 @@ public:
     DebugFrameInfo FrameInfo(int contextId, size_t depth) const override;
     std::vector<DebugLocalValue> FrameLocals(int contextId,
         size_t depth) const override;
+    //v0.12.6 Task 9: static-slot listing for the debug view — live cell
+    //values (locals rendering) plus the owning init machine's phase.
+    std::vector<DebugStaticSlotInfo> StaticSlots() const override;
     //K7 task 5: the freeze parking bracket (see IDebugHooks.h). The
     //frozen carrier leaves the GC rendezvous denominator, hands off any
     //held global lock, and takes a count on the dispatch gate; exit
@@ -606,6 +610,29 @@ private:
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
     void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    //0.12.6: static slot cell copies against the module's VmStaticSlots
+    //table (lock-free like the field family — benign value races, K8).
+    void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreStatic(BytecodeReader& reader, uint8_t* locals);
+
+    //v0.12.6 lazy static initialization (spec §6.2): gate dispatch,
+    //Done publish, Fail reset; waiters wake re-walking the gate.
+    //ExecuteStaticAccessOps is the dispatch arm of the whole
+    //static-access family (LoadStatic/StoreStatic + the protocol
+    //opcodes), held beside them in VmExecutorOpsStaticInit.cpp.
+    void ExecuteStaticAccessOps(OpCode op, BytecodeReader& reader,
+                                uint8_t* locals);
+    void OpClassInitGate(BytecodeReader& reader);
+    void OpClassInitDone(BytecodeReader& reader);
+    void OpClassInitFail(BytecodeReader& reader);
+    //Task 7 (spec §8): the static-local twin of the class-init protocol,
+    //keyed on the slot's own machine instead of the owner table.
+    void OpSlotInitGate(BytecodeReader& reader);
+    void OpSlotInitDone(BytecodeReader& reader);
+    void OpSlotInitFail(BytecodeReader& reader);
+    void ParkOnClassInitOwner(VmStaticSlots::StaticOwnerState* owner,
+                              uint32_t selfId, uint16_t gatePc);
+    void WakeClassInitWaiters(VmStaticSlots::StaticOwnerState* owner);
     void OpNew(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
@@ -803,6 +830,12 @@ private:
     //Extension point ③: host-registered roots (host-held reference
     //Values) — same dual-domain value test as the frame band.
     void MarkHostRoots(std::vector<int32_t>& worklist);
+    //v0.12.6 Task 9: static-slot cells are roots for their whole
+    //module's run — a static field outlives every frame that stored it.
+    //Declared-kind routing from the slot table (MarkFrameLocals'
+    //discipline); cells are written only by bytecode handlers under the
+    //GIL, so the quiescent rendezvous reads them race-free.
+    void MarkStaticSlotRoots(std::vector<int32_t>& worklist);
     //Shared value test behind the frame band and the native roots: a
     //true reference is valid in exactly its own domain (string-store
     //handle vs heap idx); a cross-domain hit can only over-mark.
@@ -1622,6 +1655,9 @@ private:
     //InitializeForRun binds a new module; consumers read class fields
     //through it instead of the CompiledClass parallel arrays.
     VmClassLayout m_classLayout;
+    //0.12.6: static slot storage for the bound module — one zeroed
+    //8-byte cell per staticSlots record, rebuilt with the layout view.
+    VmStaticSlots m_staticSlots;
     //String objectization: runtime strings are GC-managed immutable objects.
     //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
     //uninitialized, reads as "" — same fallback shape the old pool-index-0
@@ -1766,6 +1802,12 @@ private:
     std::string FormatDebugRefShort(int32_t heapIdx) const;
     std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
+    //v0.12.6 Task 9: static-slot display helpers (VmExecutorDebug.cpp) —
+    //cell rendering by declared kind + owner init-phase lookup.
+    std::string StaticSlotInitPhase(const CompiledStaticSlot& slot,
+                                    size_t slotIdx) const;
+    std::string FormatDebugStaticCell(uint8_t kind,
+                                      const uint8_t* cell) const;
 
     //String object store (definitions in VmExecutorStrings.cpp).
     //By value: rvalue products (to_string temporaries, concat/readFile
@@ -1922,6 +1964,7 @@ private:
     int16_t m_oobExcClassIdx = -1;
     int16_t m_assertExcClassIdx = -1;
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
+    int16_t m_initExcClassIdx = -1;  //v0.12.6 D12: InitializationException
     int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
     //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
@@ -2178,6 +2221,9 @@ private:
     //and is ignored for narrower ones). Used by boxing/unboxing, GC
     //trace, and the shared BoxedValuesEqual comparator.
     static constexpr int kBoxedValueSlot = 1;
+    //Cap for one-level debug dumps ("<Point{x=1, y=2, ...}>"): the
+    //element renderers in VmExecutorDebug*.cpp share it.
+    static constexpr int kMaxElementsShown = 5;
 };
 
 } // namespace nlang

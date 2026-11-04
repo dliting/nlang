@@ -62,6 +62,39 @@ bool ReceiverNamesType(SnExpression *pOuter)
 		|| pField->Kind() == NK_EnumDecl);
 }
 
+//v0.12.6 D3: the FIELD channel of the receiver namespace split — same
+//policy as the method arm in ApplyReceiverNamespaceFilter: a type-name
+//receiver only sees statics, a value receiver only instance fields, and
+//no instance/static rebind exists for fields. False = rejected with
+//the diagnostic logged.
+static bool ApplyReceiverFieldNamespace(SnIdentifierExpr &idExpr,
+	SnField *&rpField, SnExpression *pOuter, BuildEnvironment &env)
+{
+	//Type-name receiver: the static namespace is the only legal one for
+	//a field — an instance field through the class name is the mirror
+	//error of the method arm.
+	if (ReceiverNamesType(pOuter))
+	{
+		if (rpField->ContainFlags(NF_Static))
+			return true;
+		env.Log(CLL_Error, idExpr.Location(),
+			"the instance field \"%s\" must be accessed through a "
+			"receiver object.",
+			idExpr.Name().c_str());
+		return false;
+	}
+	//Value receiver: static members belong to the class, not to
+	//instances (D3).
+	if (rpField->ContainFlags(NF_Static))
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"the static field \"%s\" must be accessed through its class.",
+			idExpr.Name().c_str());
+		return false;
+	}
+	return true;
+}
+
 //0.9.10 D2.4: first same-name member of ONE namespace (static vs
 //instance) along the receiver's chain — the rebind and cross-namespace
 //diagnostic search. 0.9.10 D5: imported class stubs carry their
@@ -104,6 +137,26 @@ SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 	return nullptr;
 }
 
+//Shared tail of the method namespace arms: search ONE namespace
+//(static vs instance) and rebind on an accessible hit; otherwise log
+//the arm's diagnostic and reject (AllowAccess gates the rebind;
+//FindMethodInNamespace does not).
+static bool RebindMethodOrReject(SnIdentifierExpr &idExpr,
+	SnField *&rpField, bool bStaticWanted, SyntaxNode *pContext,
+	SnField *pAccessor, BuildEnvironment &env, const char *pErrText)
+{
+	auto *pHit = FindMethodInNamespace(pContext, idExpr.Name(),
+		bStaticWanted);
+	if (pHit && pHit->AllowAccess(*pAccessor))
+	{
+		rpField = pHit;
+		return true;
+	}
+	env.Log(CLL_Error, idExpr.Location(), pErrText,
+		idExpr.Name().c_str());
+	return false;
+}
+
 //0.9.10 D2.4: the member VALUE channel (receiver.name with no invoke)
 //gets the same namespace split as calls. Called from
 //Access(SnIdentifierExpr) once the plain search bound the inner name —
@@ -111,51 +164,45 @@ SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 //it is namespace-blind. Without the split, an own static shadows an
 //inherited instance method, and a static-only name binds as a
 //receiver-bearing handle (silent garbage at runtime).
+//v0.12.6 D3: static FIELDS join the split — the field arms mirror the
+//method arms (interface constants are excluded: their bare form never
+//gets here — RejectBareInterfaceConstant ran first — and the qualified
+//form is the legal literal read all along).
 bool ExprResolveAccessor::ApplyReceiverNamespaceFilter(
 	SnIdentifierExpr &idExpr, SnField *&rpField)
 {
 	auto *pMember = AsMemberInner(idExpr);
-	if (!pMember || rpField->Kind() != NK_Function)
+	if (!pMember)
 		return true;
 	auto *pOuter = pMember->Outer();
 	if (OuterIsNamespaceQualifier(pOuter))
+		return true;
+	if (rpField->Kind() == NK_ClassField
+		&& !IsInterfaceConstantField(*rpField))
+		return ApplyReceiverFieldNamespace(idExpr, rpField, pOuter,
+			m_Env);
+	if (rpField->Kind() != NK_Function)
 		return true;
 	if (ReceiverNamesType(pOuter))
 	{
 		//0.9.14 D-new-1: the type-name receiver sees the static namespace,
 		//symmetric with the value receiver below — a static method binds as
-		//a receiverless function value. An own instance method gives way to
-		//the inherited static (AllowAccess gates the rebind;
-		//FindMethodInNamespace does not).
+		//a receiverless function value. An own instance method gives way
+		//to the inherited static.
 		if (rpField->ContainFlags(NF_Static))
 			return true;
-		auto *pStatic = FindMethodInNamespace(m_pContext, idExpr.Name(), true);
-		if (pStatic && pStatic->AllowAccess(*m_pAccessor))
-		{
-			rpField = pStatic;
-			return true;
-		}
-		m_Env.Log(CLL_Error, idExpr.Location(),
-			"the instance method \"%s\" must be called through a receiver "
-			"object.",
-			idExpr.Name().c_str());
-		return false;
+		return RebindMethodOrReject(idExpr, rpField, true, m_pContext,
+			m_pAccessor, m_Env,
+			"the instance method \"%s\" must be called through a "
+			"receiver object.");
 	}
 	if (!rpField->ContainFlags(NF_Static))
 		return true;
 	//Value receiver: the instance namespace is the only one it sees — a
-	//shadowing own static gives way to the inherited instance method
-	//(AllowAccess gates the rebind; FindMethodInNamespace does not).
-	auto *pInstance = FindMethodInNamespace(m_pContext, idExpr.Name(), false);
-	if (pInstance && pInstance->AllowAccess(*m_pAccessor))
-	{
-		rpField = pInstance;
-		return true;
-	}
-	m_Env.Log(CLL_Error, idExpr.Location(),
-		"the static method \"%s\" must be called through the type name.",
-		idExpr.Name().c_str());
-	return false;
+	//shadowing own static gives way to the inherited instance method.
+	return RebindMethodOrReject(idExpr, rpField, false, m_pContext,
+		m_pAccessor, m_Env,
+		"the static method \"%s\" must be called through the type name.");
 }
 
 //0.9.10 D2.4: classify the call site by receiver syntax. A bare call

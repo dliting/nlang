@@ -76,6 +76,7 @@ add_library(nlang_compiler
     BuildEnvironment.cpp
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
+    ModuleBuilderImportCycles.cpp
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
     GenericDeclContracts.cpp
@@ -140,6 +141,8 @@ add_library(nlang_compiler
     builder/StatementResolverDeclCtor.cpp
     builder/StatementResolverDeclEnum.cpp
     builder/StatementResolverDeclArray.cpp
+    builder/StatementResolverDeclDefaults.cpp
+    builder/StatementResolverDeclStatic.cpp
     builder/StatementResolverTypes.cpp
     builder/StatementResolverAssign.cpp
     builder/StatementResolverCompound.cpp
@@ -148,8 +151,10 @@ add_library(nlang_compiler
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp
     builder/ClassFieldInitializerInjection.cpp
+    builder/StaticInitSynthesis.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
+    builder/ImportCycleCheck.cpp
 )
 
 target_include_directories(nlang_compiler

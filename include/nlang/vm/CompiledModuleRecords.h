@@ -210,6 +210,31 @@ struct CompiledFunction {
 
 struct CompiledModule;
 
+//v2.13 (v0.12.6): one runtime-addressed static — mutable class statics,
+//runtime-const fields, static locals. Compile-time-folded constants
+//occupy no slot (they never materialize at runtime).
+struct CompiledStaticSlot {
+    std::string name;          //declared name; static locals append "#<n>" to disambiguate same-named sites in one function
+    std::string ownerKey;      //class/interface qualified key; owning function key for static locals
+    uint8_t ownerKind = 0;     //0 = class, 1 = interface, 2 = static local
+    uint8_t isRuntimeConst = 0;
+    uint8_t hasInitializer = 0;   //drives D12 init-bit participation
+    TypeDesc type;
+};
+
+//v2.13 (v0.12.6): per-class declared static field, textual order. The
+//consumer stub rebuilds it for cross-module access checks; slotIdx ties
+//the field to its module slot (0xFFFF = compile-time-folded constant —
+//foldedValue carries it and no slot exists).
+struct CompiledStaticField {
+    std::string name;
+    TypeDesc type;
+    uint8_t access = 0;        //FA_*, mirrors CompiledClass::fieldAccess
+    bool isConst = false;
+    uint16_t slotIdx = 0xFFFF; //0xFFFF = compile-time-folded const (foldedValue); u16 matches the operand width that addresses slots
+    DefaultValueDesc foldedValue;
+};
+
 struct CompiledClass {
     std::string name;
     uint16_t fieldCount = 0;
@@ -260,6 +285,13 @@ struct CompiledClass {
     //0.9.12 (v2.7): FA_* per constructor, parallel to constructorIndices
     //(size equality enforced by the loader).
     std::vector<uint8_t> constructorAccess;
+    //v2.13 (v0.12.6): declared static fields in textual order — the
+    //consumer stub rebuilds the static surface from them; slotIdx ties
+    //each to the module's staticSlots table.
+    std::vector<CompiledStaticField> staticFields;
+    //v2.13 (v0.12.6): the class's lazy static-initializer function
+    //(0xFFFF = none; u16 = function-index operand width).
+    uint16_t staticInitFuncIdx = 0xFFFF;
 };
 
 //0.9.12 (v2.7): one exported interface instance-method signature. The
@@ -292,6 +324,10 @@ struct CompiledInterfaceConstant {
     std::string name;
     TypeDesc type;
     DefaultValueDesc value;
+    //v2.13 (v0.12.6): the constant's module slot when it is a
+    //runtime-initialized static const (D11's non-foldable arm); 0xFFFF =
+    //compile-time-folded (value carries it, no slot).
+    uint16_t slotIdx = 0xFFFF;
 };
 
 struct CompiledInterface {
@@ -300,6 +336,9 @@ struct CompiledInterface {
     std::vector<CompiledInterfaceConstant> constants;
     //0.9.12 (v2.7): instance-method signatures in declaration order.
     std::vector<CompiledInterfaceMethod> instanceMethods;
+    //v2.13 (v0.12.6): the interface's lazy static-initializer function
+    //(0xFFFF = none).
+    uint16_t staticInitFuncIdx = 0xFFFF;
 };
 
 } // namespace nlang

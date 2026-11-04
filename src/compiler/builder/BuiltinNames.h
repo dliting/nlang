@@ -51,6 +51,20 @@ inline bool IsPreludeFaceClassName(const std::string& name)
 	return name == "String" || name == "Array";
 }
 
+//v0.12.6 (spec §6.2 D2): name of the synthesized lazy static
+//initializer every class with an initialized static (own or inherited)
+//carries as a member. `$` cannot appear in a source identifier, so the
+//name alone identifies the member. Shared by the resolver synthesis,
+//the class method-table builder (skips it — a consumer stub must not
+//rebuild it as a callable ghost method — while recording its index as
+//staticInitFuncIdx) and the backend's special-case emission.
+inline constexpr const char* kStaticInitFuncName = "$staticInit";
+
+inline bool IsStaticInitName(const std::string& name)
+{
+	return name == kStaticInitFuncName;
+}
+
 //Static faces on builtin generic TYPE NAMES — the type name as a call
 //qualifier (`Future.selectAny(futures)`), no receiver instance: the
 //intrinsic's arguments start at slot 0 (the binding row's noReceiver

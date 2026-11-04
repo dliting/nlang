@@ -1,0 +1,9 @@
+//D15: interface constants cross modules on the runtime channel — the
+//interface's own lazy initializer runs on the consumer's first read.
+class Box {
+    public int v;
+    public Box(int v) { this.v = v; }
+}
+interface Holder {
+    static const Box shared = Box(5);
+}

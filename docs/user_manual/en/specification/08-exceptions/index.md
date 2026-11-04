@@ -146,7 +146,7 @@ try {
 ## 8.3 Built-in Exceptions
 
 `Exception` extends `Object` (§4.11). The built-in exception
-classes are `Exception` and its six direct subclasses:
+classes are `Exception` and its seven direct subclasses:
 
 | Class | Raised by |
 | --- | --- |
@@ -157,6 +157,7 @@ classes are `Exception` and its six direct subclasses:
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
 | `IOException` | a failed `io` or `fs` operation (chapter 14, chapter 15) |
+| `InitializationException` | a static initializer failing through the initialization protocol, wrapping the thrown object as its cause (§4.8.8); a read of an initializer-bearing static — class, interface or static local — from inside the initialization it awaits (§4.8.8, §6.1) |
 
 The `concurrent` package (§3.9.4) declares one further direct
 subclass, `ChannelClosedException`, raised by operations on a
