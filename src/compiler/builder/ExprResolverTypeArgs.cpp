@@ -5,9 +5,11 @@
 ---*/
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
+#include "SnExpressions.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 
 namespace nlang
 {
@@ -17,12 +19,38 @@ namespace nlang
 //(pre-token, the element masquerade additionally degraded such
 //declarations twice silently), so it is rejected at the declaration
 //site (array redesign B, spec §5.5).
+//v0.12.7: the generic spelling counts as a level too (Array<E> = 1 +
+//depth(E), spec D12) — Array<Array<int>> is the jagged shape in generic
+//clothes, while List<Array<int>> stays depth 1 per argument (the base is
+//List, not Array). The base check is syntax-level; the prelude face gate
+//keeps the name "Array" unshadowable.
 int ArrayTypeDepth(const SnFieldExpr* pType)
 {
 	int depth = 0;
-	for (const auto* pCur = pType; pCur
-		&& pCur->Kind() == NK_ArrayTypeExpr; ++depth)
-		pCur = static_cast<const SnArrayTypeExpr*>(pCur)->ElementType();
+	const SnFieldExpr* pCur = pType;
+	while (pCur)
+	{
+		if (pCur->Kind() == NK_ArrayTypeExpr)
+		{
+			++depth;
+			pCur = static_cast<const SnArrayTypeExpr*>(
+				pCur)->ElementType();
+			continue;
+		}
+		if (pCur->Kind() == NK_GenericTypeExpr)
+		{
+			auto* pGen = static_cast<const SnGenericTypeExpr*>(pCur);
+			//The grammar wraps the base in an SnNameExpr; its ToString()
+			//is the bare name.
+			if (pGen->TypeArgs().size() != 1
+				|| pGen->Base()->ToString() != kBuiltinArrayTypeName)
+				return depth;
+			++depth;
+			pCur = pGen->TypeArgs()[0];
+			continue;
+		}
+		return depth;
+	}
 	return depth;
 }
 

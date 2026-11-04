@@ -85,7 +85,9 @@ void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 }
 
 //RTK_Array body: the element descriptor, then the v2.11 rank byte
-//(the cap mirrors the language-side kMaxArrayRank).
+//(the cap mirrors the language-side kMaxArrayRank). v0.12.7: rank 0 is
+//the unannotated spelling (Array<E> — the bracket annotation lives on
+//the value, not the type), 1..kMaxArrayRank are bracket annotations.
 void ParseArrayBody(TypeDesc& td, const uint8_t* pData, size_t size,
 	size_t& pos, size_t depth)
 {
@@ -94,7 +96,7 @@ void ParseArrayBody(TypeDesc& td, const uint8_t* pData, size_t size,
 		throw std::runtime_error(
 			"Invalid module: truncated type descriptor");
 	td.rank = pData[pos++];
-	if (td.rank < 1 || td.rank > kMaxArrayRank)
+	if (td.rank > kMaxArrayRank)
 		throw std::runtime_error(
 			"Invalid module: array descriptor rank out of range");
 }
@@ -340,6 +342,22 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					td.kind = RTK_Dict;
 					td.elems.push_back(BuildTypeDesc(args[0], slots, depth + 1));
 					td.elems.push_back(BuildTypeDesc(args[1], slots, depth + 1));
+					return td;
+				}
+				//v0.12.7: Array<E> erases to the array record kind with
+				//rank 0 (unannotated) — the bracket spelling writes
+				//1..kMaxArrayRank via the array-token arm above.
+				if (pClass->BaseName() == kBuiltinArrayTypeName
+					&& args.size() == 1)
+				{
+					if (depth >= kMaxTypeDescDepth)
+					{
+						td.kind = RTK_NonSerialized;
+						return td;
+					}
+					td.kind = RTK_Array;
+					td.rank = 0;
+					td.elems.push_back(BuildTypeDesc(args[0], slots, depth + 1));
 					return td;
 				}
 				//Any other instantiation is unexpected (func took the

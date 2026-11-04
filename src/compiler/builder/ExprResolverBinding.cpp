@@ -3,6 +3,7 @@
     从 ExprResolverCast.cpp 抽取（2026-10-12 source-size 拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "ExprResolverCastFit.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -74,6 +75,62 @@ static bool AdmitsInitListArg(const SnFormalParam &formal)
 //Phase 9c: sum of CalcTypeDistance over the bound (positional / named)
 //entries. B_Default contributes 0. Returns -1 if any bound entry has
 //incompatible types.
+//Fitted-constant scoring twin of the fixup-phase ConstantFitGate: a
+//compile-time constant whose value fits the formal converts implicitly
+//on assignment (`float f = 0.5` binds), so candidate scoring must see
+//the same conversion or the overload is unreachable — a double literal
+//against a float formal is TCK_Explicit, which the raw ladder grades
+//-1, and a relu-shaped call (float array + 0.0 bound) would have no
+//viable candidate at all. Same predicates as the gate: Explicit pair,
+//scalar target, TryConstantFit says Fits.
+static bool BindingConstantFits(SnExpression &caller, SnField *pTgt)
+{
+	TypeCastInfo castInfo(caller.EvalDataType(), pTgt);
+	if (castInfo.Kind() != TCK_Explicit)
+		return false;
+	const int ti = pTgt ? ScalarPrimIndexOf(pTgt->Kind()) : -1;
+	if (ti < 0)
+		return false;
+	return TryConstantFit(caller, kScalarPrims[ti]).verdict == CF_Fits;
+}
+
+//The rung a fitting constant binds with: the pair's widening ladder
+//(the same table PrimitiveDistance grades) with the Explicit verdict
+//read as its natural conversion. Exact-type matches stay at 0 and beat
+//every fit; an out-param (distance must be 0) can never come from a
+//fit because a same-type pair never verdicts Explicit.
+static int FittedConstantRung(NodeKind srcKind, NodeKind tgtKind)
+{
+	if (srcKind == NK_EnumDecl)
+		srcKind = NK_Int32;
+	if (tgtKind == NK_EnumDecl)
+		tgtKind = NK_Int32;
+	const int si = ScalarPrimIndexOf(srcKind);
+	const int ti = ScalarPrimIndexOf(tgtKind);
+	if (si < 0 || ti < 0)
+		return -1;
+	const auto &s = kScalarPrims[si];
+	const auto &t = kScalarPrims[ti];
+	if (s.category != PC_Float && t.category == PC_Float)
+		return kDistToFloat;               // integer → float hop
+	return std::abs(int(s.rank) - int(t.rank));
+}
+
+//Distance of one typed (positional / named) binding: the raw ladder,
+//then the fitted-constant promotion (see BindingConstantFits — a
+//constant whose value fits the formal binds at its natural rung).
+//-1 = incompatible.
+int ExprResolveAccessor::TypedBindingDistance(SnExpression &caller,
+	SnField &srcT, SnField &tgtT) const
+{
+	int n = CalcTypeDistance(srcT, tgtT);
+	if (n >= 0)
+		return n;
+	if (!BindingConstantFits(caller, &tgtT))
+		return -1;
+	return FittedConstantRung(srcT.Kind(), tgtT.Kind());
+}
+
 int ExprResolveAccessor::ComputeBindingDistance(
 	const std::vector<FormalBinding> &bindings) const
 {
@@ -109,7 +166,7 @@ int ExprResolveAccessor::ComputeBindingDistance(
 			continue;
 		if (nNull < 0)
 			return -1;
-		int n = CalcTypeDistance(*pSrc, *pTgt);
+		const int n = TypedBindingDistance(*b.pCallerExpr, *pSrc, *pTgt);
 		if (n < 0)
 			return -1;
 		//Trial scoring stays pure (TryBindArgs' no-logging contract):

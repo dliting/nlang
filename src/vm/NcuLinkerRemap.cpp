@@ -99,24 +99,23 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
     switch (op) {
         case OpCode::OP_New:
-            // dst, classIdx — the table operand is the SECOND uint16
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
             break;
         case OpCode::OP_CheckCast:
             PatchOperand(bc, pos + 1, maps.classes, "class", onUnmapped);
             break;
+        case OpCode::OP_CheckArrayType:
+            PatchOperand(bc, pos + 5, maps.arrayTypes, "array type",
+                         onUnmapped);
+            break;
         case OpCode::OP_AllocStruct:
-            // dst, structIdx, fieldCount — table operand is the SECOND uint16
             PatchOperand(bc, pos + 3, maps.structs, "struct", onUnmapped);
             break;
         case OpCode::OP_CopyStruct:
-            // dst, src, structIdx — third operand
             PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
             break;
         case OpCode::OP_AllocArrayN:
         case OpCode::OP_AssembleArrayN:
-            // dst, typeIdx, ... — the table operand is the SECOND
-            // uint16 (rank/elem base ride after it, no remap needed)
             PatchOperand(bc, pos + 3, maps.arrayTypes, "array type",
                          onUnmapped);
             break;
@@ -124,17 +123,12 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;
         case OpCode::OP_LoadStatic:
-            // dst, slotIdx — the table operand is the SECOND uint16
             PatchOperand(bc, pos + 3, maps.slots, "static slot", onUnmapped);
             break;
         case OpCode::OP_StoreStatic:
-            // slotIdx, src — the table operand is the FIRST uint16
             PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
             break;
         case OpCode::OP_SlotInitGate:
-            // slotIdx, donePc — donePc is a function-local jump target
-            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
-            break;
         case OpCode::OP_SlotInitDone:
         case OpCode::OP_SlotInitFail:
             PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);

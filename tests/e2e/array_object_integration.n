@@ -1,0 +1,25 @@
+// v0.12.7 Task 5: Array<E> <: Object — the zero-alloc upcast, the Object
+// protocol dispatched on an array receiver, the checked `as` downcast
+// (rank AND element type), and container round-trips through Object.
+import lang;
+
+int main() {
+    int[,] a = int[2, 2];
+    a[0, 0] = 4;
+    Object o = a;                    // zero-alloc upcast (no box record)
+    assert(o.toString() == "[[4, 0], [0, 0]]");
+    assert(o.equals(o) == 1);        // Object.equals returns int
+    bool hashWorked = o.getHashCode() != 0;
+    assert(hashWorked);
+    List<Object> lo = List();
+    lo.add(a);                       // containers hold arrays
+    int[,] back = lo.get(0) as int[,];
+    assert(back[0, 0] == 4);
+    bool caught = false;
+    try { int[] w = o as int[]; assert(false); }   // wrong rank: catchable
+    catch (InvalidCastException e) { caught = true; }
+    assert(caught);
+    back[1, 1] = 7;                  // alias writes visible
+    assert(a[1, 1] == 7);
+    return 0;
+}

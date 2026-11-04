@@ -1,12 +1,16 @@
 /*---
-tensor_binary.cpp — the elementwise binary family (add/sub/mul/div) of
-the tensor native module. One registered native per operation name; the
-NLang side declares four same-name overloads per name (int/long/float/
-double) and overload resolution funnels them all here — the runtime
-element kind of the first view picks the typed kernel.
+tensor_binary.cpp — the elementwise binary family (add/sub/mul/div) and
+the unary math pair (exp/log) of the tensor native module. One
+registered native per operation name; the NLang side declares four
+same-name overloads per binary name (int/long/float/double) and
+overload resolution funnels them all here — the runtime element kind of
+the first view picks the typed kernel. exp/log are rank-preserving
+float/double maps (integers have no exp semantics; the declared surface
+gates them out).
 ---*/
 #include "TensorKernels.h"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <type_traits>
@@ -113,6 +117,51 @@ void DispatchBinary(NativeHost* host, uint8_t* ret, const uint8_t* args,
     }
 }
 
+//Unary math maps: rank-preserving, output minted with the operand
+//shape. std::exp/std::log overload per carrier, so one typed body
+//serves float and double.
+enum class UnaryOp : int { Exp, Log };
+
+template <typename T>
+void UnaryMathKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     uint8_t kind, UnaryOp op) {
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    if (v.elemKind != kind)
+        Raise(host, NEXC_Base, "tensor: unexpected element kind");
+    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    const T* in = CellsOf<const T>(v);
+    T* outCells = CellsOf<T>(out);
+    for (int64_t i = 0; i < v.elemCount; ++i) {
+        outCells[i] = op == UnaryOp::Exp
+            ? static_cast<T>(std::exp(in[i]))
+            : static_cast<T>(std::log(in[i]));
+    }
+    ReturnInt(ret, handle);
+}
+
+//Kind dispatch for the unary pair; integer kinds are a defensive raise
+//(the declared surface only admits float/double).
+void DispatchUnaryMath(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, UnaryOp op) {
+    NativeArrayView va;
+    va.elemKind = 0xEE;
+    host->getArrayView(host, ArgInt(args, 0), &va);
+    switch (va.elemKind) {
+        case NEK_Float32:
+            UnaryMathKernel<float>(host, ret, args, NEK_Float32, op);
+            break;
+        case NEK_Float64:
+            UnaryMathKernel<double>(host, ret, args, NEK_Float64, op);
+            break;
+        default:
+            Raise(host, NEXC_Base,
+                  "tensor: element kind has no exp/log semantics");
+    }
+}
+
 } // namespace
 
 #define TENSOR_BINARY(Name, Op)                                        \
@@ -126,5 +175,17 @@ TENSOR_BINARY(TensorAdd, BinOp::Add)
 TENSOR_BINARY(TensorSub, BinOp::Sub)
 TENSOR_BINARY(TensorMul, BinOp::Mul)
 TENSOR_BINARY(TensorDiv, BinOp::Div)
+
+void TensorExp(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    (void)argc;
+    DispatchUnaryMath(host, ret, args, UnaryOp::Exp);
+}
+
+void TensorLog(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    (void)argc;
+    DispatchUnaryMath(host, ret, args, UnaryOp::Log);
+}
 
 } // namespace tensor

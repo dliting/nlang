@@ -30,6 +30,12 @@ inline constexpr const char* kBuiltinDictTypeName = "Dict";
 inline constexpr const char* kBuiltinFuncTypeName = "func";
 inline constexpr const char* kBuiltinChannelTypeName = "Channel";
 inline constexpr const char* kBuiltinFutureTypeName = "Future";
+//v0.12.7: Array is the single array type's generic face (Array<int> is
+//the same type as int[]; brackets are a static rank annotation). Unlike
+//List/Dict it has NO erased runtime backing class — array values are
+//RTK_Array records — so the constant serves name identity only
+//(scanner generic-open set, template-row method matching).
+inline constexpr const char* kBuiltinArrayTypeName = "Array";
 //Promise is a DECLARED generic (stdlib/thread.n template + hidden
 //__handle slot + intrinsics), NOT a member of the synthetic-minting
 //whitelist below: every consumer of IsBuiltinGenericTypeName routes on
@@ -42,12 +48,12 @@ inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 //Returns true if name is a recognized built-in generic type name.
 //The set is the SCANNER's generic-open flag set only: a '<' directly
 //after one of these names is a type-argument opener, and it keeps the
-//">>" split depth counting working for the four names. Since the
+//">>" split depth counting working. Since the
 //phase-2 source-of-truth migration the resolver routes ONLY func to
-//synthetic minting — List/Dict/Channel/Future resolve through their
-//declared templates (List/Dict in the stdlib/containers.n prelude,
-//Channel in stdlib/concurrent.n, Future in stdlib/thread.n — the
-//v0.12.3 import boundary), exactly like Promise and
+//synthetic minting — List/Dict/Channel/Future/Array resolve through
+//their declared templates (List/Dict in the stdlib/containers.n
+//prelude, Channel in stdlib/concurrent.n, Future in stdlib/thread.n,
+//Array in the stdlib/lang.n prelude), exactly like Promise and
 //every user `class C<T>` (no lex-time set can know a module's class
 //declarations, so declared use sites parse on the grammar's plain-'<'
 //type arms).
@@ -56,7 +62,8 @@ inline bool IsBuiltinGenericTypeName(const std::string& name)
 	return name == kBuiltinListTypeName || name == kBuiltinDictTypeName
 		|| name == kBuiltinFuncTypeName
 		|| name == kBuiltinChannelTypeName
-		|| name == kBuiltinFutureTypeName;
+		|| name == kBuiltinFutureTypeName
+		|| name == kBuiltinArrayTypeName;
 }
 
 } //namespace nlang

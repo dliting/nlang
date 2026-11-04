@@ -47,6 +47,11 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     FuncContext ctx;
     ctx.func = &compiledFunc;
     ctx.nextOffset = 0;
+    //v0.12.7 Task 3: the return-boundary rank check reads the declared
+    //return type's annotation (the resolved type expr's Field() is the
+    //interned token).
+    auto* pRetType = func.ReturnType();
+    ctx.pDeclaredReturnType = pRetType ? pRetType->Field() : nullptr;
     m_currFunc = &ctx;
     //The emitter pointer only ever points at this function's stack
     //emitter (set by EmitStatement/EmitExpression). Null it here so
@@ -227,6 +232,7 @@ uint8_t VmBackend::EvalSlotClassOfKind(uint8_t rtk) {
     case RTK_Struct:
     case RTK_Class:
     case RTK_Array:
+    case RTK_ArrayView:   //v0.12.7: runtime-only view kind — never declared today, mapped for kind-table completeness
     case RTK_Func:
         return ESC_HeapIndex;
     case RTK_TypeParam:

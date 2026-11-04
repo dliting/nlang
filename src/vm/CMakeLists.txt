@@ -23,6 +23,7 @@ add_library(nlang_vm
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
     VmExecutorOpsArrayN.cpp
+    VmExecutorOpsArrayCheck.cpp
     VmExecutorOpsObjects.cpp
     VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
@@ -90,6 +91,8 @@ add_library(nlang_vm
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberStatic.cpp
     backend/EmitExprMemberString.cpp
+    backend/EmitExprMemberArray.cpp
+    backend/EmitArrayBoundary.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
     backend/EmitStmtCompound.cpp

@@ -1,0 +1,20 @@
+import lang;
+
+int main() {
+    Array<int> a = int[4];          // annotated spelling flows into the generic spelling
+    a[0] = 7;
+    assert(a.length() == 4);
+    assert(a.rank() == 1);
+    assert(a.toString() == "[7, 0, 0, 0]");
+    Array<string> s = string[2];    // allocation spelling = bare element type + dims
+    s[0] = "hi";
+    assert(s.length() == 2);
+    // The protocol methods: identity semantics (same record → equal).
+    assert(a.equals(a));
+    assert(!a.equals(s));
+    assert(a.getHashCode() == a.getHashCode());
+    // The generic spelling flows back into the annotated one.
+    int[] plain = a;
+    assert(plain[0] == 7);
+    return 0;
+}

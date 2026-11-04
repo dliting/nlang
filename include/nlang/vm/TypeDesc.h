@@ -71,8 +71,9 @@ struct TypeDesc
 {
 	uint8_t kind = RTK_NonSerialized;
 	uint16_t typeIdx = 0xFFFF;
-	//Array arm only: 1 = T[], 2 = T[,] (kMaxArrayRank cap on the wire);
-	//every other kind keeps the default and ignores the byte.
+	//Array arm only: 0 = unannotated (Array<E> spelling, v0.12.7),
+	//1 = T[], 2 = T[,] (kMaxArrayRank cap on the wire); every other
+	//kind keeps the default and ignores the byte.
 	uint8_t rank = 1;
 	std::vector<TypeDesc> elems;
 };

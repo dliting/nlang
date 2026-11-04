@@ -73,6 +73,9 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //ResolveDataTypes; local declarations and the for-var/foreach-var
 //handlers in StatementResolver — the latter resolve via the visitor where
 //an SnArrayTypeExpr never resolves, so their gates are shape-based).
+//v0.12.7: the generic spelling counts too (Array<E> = 1 + depth(E), spec
+//D12 — Array<Array<int>> is T[][] in generic clothes), so every gate
+//above sees both spellings with one predicate.
 //Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
@@ -642,7 +645,8 @@ private:
 	//opposite namespace holds a same-name member on the receiver's chain —
 	//report the call-form mismatch instead of the generic not-found text.
 	bool RejectCrossNamespaceCall(SnInvokeExpr &snInvoke);
-	void LogAmbiguousCall(SnInvokeExpr &invoke);
+	void LogAmbiguousCall(SnInvokeExpr &invoke, SnFunction *pFirst,
+		SnFunction *pTied);
 	bool MaybeLogImportedFuncRef(SnInvokeExpr &invoke,
 		bool bNameMatchedImported);
 	bool MaybeLogPendingFuncRef(SnInvokeExpr &invoke);
@@ -668,7 +672,8 @@ private:
 	FindFuncResult FindFuncByInvoke(SnFunction *&pFunc, SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &outBindings,
 		bool &rbNameMatchedImported, bool &rbVisibilityHintLogged,
-		std::vector<SnFunction*> *pOutCandidates = nullptr);
+		std::vector<SnFunction*> *pOutCandidates = nullptr,
+		bool *pbAmbiguousCall = nullptr);
 
 	/*
 	Module import visibility (M3b): the TryBindArgs / type-distance core
@@ -684,6 +689,14 @@ private:
 	FindFuncResult MatchInvokeAgainst(SnInvokeExpr &invoke,
 		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
 		std::vector<FormalBinding> &outBindings, bool &rbAmbiguous);
+	//The candidate sweep under MatchInvokeAgainst (bind / closest
+	//distance / own-TU tie-break). Returns the best distance; -1 when
+	//nothing binds. rpTied carries the equal-distance pair member for
+	//the ambiguity diagnostic.
+	int SweepInvokeCandidates(SnInvokeExpr &invoke,
+		const std::vector<SnFunction*> &candidates,
+		std::vector<FormalBinding> &outBestBindings, bool &rbAmbiguous,
+		SnFunction *&rpBest, SnFunction *&rpTied);
 
 	/*
 	0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst —
@@ -728,7 +741,8 @@ private:
 	*/
 	void LogInvokeFailure(SnInvokeExpr &invoke, FindFuncResult res,
 		SnFunction *pCallee, bool bNameMatchedImported,
-		const std::vector<SnFunction*> &candidates);
+		const std::vector<SnFunction*> &candidates,
+		bool bAmbiguityAlreadyLogged = false);
 
 	/*
 	The failure tail of Access(SnInvokeExpr) — the 0.9.0 ctor fallback
@@ -741,7 +755,8 @@ private:
 		SnFunction *pCallee, bool bNameMatchedImported,
 		bool bVisibilityHintLogged,
 		const std::vector<SnFunction*> &candidates,
-		const std::vector<SnExpression*> &deferredBraceArgs);
+		const std::vector<SnExpression*> &deferredBraceArgs,
+		bool bAmbiguousCall = false);
 
 	/*
 	Per-argument detail for an incompatible call, shared by the bare and
@@ -834,6 +849,12 @@ private:
 	*/
 	int ComputeBindingDistance(
 		const std::vector<FormalBinding> &bindings) const;
+
+	//Distance of one typed binding: the raw ladder plus the
+	//fitted-constant promotion (a fitting constant binds at its natural
+	//rung; see BindingConstantFits). -1 = incompatible.
+	int TypedBindingDistance(SnExpression &caller, SnField &srcT,
+		SnField &tgtT) const;
 
 	/*
 	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
@@ -1022,6 +1043,23 @@ private:
 	bool RejectBareGenericCtorInvoke(SnInvokeExpr &snInvoke);
 	SnClassDecl *ResolveDeclaredGenericCtorTarget(SnInvokeExpr &snInvoke,
 		SnClassDecl &tmpl);
+	//v0.12.7: binds `Array(dims)` to the ArrayDynCtor form — exactly one
+	//array-valued dims argument; the element type is the instance's type
+	//argument. True = consumed (bound or a named diagnostic logged).
+	bool BindArrayDynCtorInvoke(SnInvokeExpr &snInvoke, SnClassDecl &instance);
+	//TryResolveCtorInvoke's Array-face arm (runs before the face gate).
+	bool TryResolveArrayDynCtorInvoke(SnInvokeExpr &snInvoke,
+		SnField *pTypeDecl);
+	//v0.12.7 M1: the deferred-brace-argument pre-arm of the ctor fallback
+	//gate — `Array([2, 3])` holds a bracket literal whose target can only
+	//be the (known) int[] dims formal. True = every deferred argument is
+	//resolved now (the gate may admit the ctor route); false = not the
+	//Array dyn-ctor shape, or an argument failed to infer against int[]
+	//(its own diagnostic already logged; rbSwept tells the caller the
+	//failure-tail sweep must not re-accept the diagnosed arguments).
+	bool TryInferArrayDimsDeferredArgs(SnInvokeExpr &snInvoke,
+		const std::vector<SnExpression*> &deferredBraceArgs,
+		bool &rbSwept);
 	//The LHS declared type published by the assign resolver for
 	//`Channel<int> c = Channel(4);`-shaped calls (the declared-generic
 	//ctor arm reads it); null outside an assignment's RHS resolution.
@@ -1184,6 +1222,10 @@ private:
 	bool ResolveStringSubscript(SnSubscriptExpr &sn, SnField *pBaseType);
 	bool TryResolveContainerSubscript(SnSubscriptExpr &sn,
 		SnField *pBaseType);
+	//v0.12.7 extraction: bind the subscript's element type from the
+	//base's array type (token element, or the Array<E> type argument).
+	//False = the token's rank-arity diagnostic fired.
+	bool BindSubscriptElemType(SnSubscriptExpr &sn, SnField *pBaseType);
 
 	//0.9.0: consume the subscript as a sized array creation (`int[n]` /
 	//`Foo[n]`) when the base identifier resolved as a TYPE; the index
@@ -1193,6 +1235,9 @@ private:
 	//unresolved dimensions consume the expression). Returns false when
 	//a diagnostic already fired.
 	bool ResolveCreationDims(SnSubscriptExpr &sn);
+	//The dimension contract: resolves to an integer (enum masquerades
+	//as Int32). False = the diagnostic fired and the expr is consumed.
+	bool CheckCreationDim(SnExpression &dim);
 
 	//0.9.0: expression-position alias support for the creation twins —
 	//the pre-pass expands type positions only, so `P[n]` / `P(args)`
@@ -1316,6 +1361,12 @@ private:
 	bool BindQualifiedInvoke(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, SnFunction &callee, FindFuncResult res,
 		std::vector<FormalBinding> &bindings);
+	//Failure arm of ResolveModuleQualifiedCallee (qualified-ctor fallback,
+	//shared failure diagnostics, consumed close-out); same split.
+	bool ReportQualifiedCalleeMiss(SnMemberExpr &snMember,
+		SnInvokeExpr &invoke, FindFuncResult res, SnFunction *pCallee,
+		bool bAmbiguous, const std::vector<SnFunction*> &candidates,
+		const std::string &modulePath);
 	//Package-call admission policy: the module-qualified path is a
 	//binding-policy domain of its own — library formals admit per the
 	//conversion matrix only (the generic binder's scalar/array→string

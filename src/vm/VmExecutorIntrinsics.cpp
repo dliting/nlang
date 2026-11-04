@@ -123,6 +123,22 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
+    //v0.12.7 Task 5: Array.toString() — the face's virtual-dispatch arm
+    //(an Object-receiver protocol call on an array receiver lands here
+    //via the Array face row). Null raises NPE like the Object default;
+    //the payload formats through the shared array formatter.
+    if (intrinsicId == INTR_Array_toString) {
+        int32_t thisHeapIdx;
+        std::memcpy(&thisHeapIdx, locals + callParamBase,
+                    sizeof(thisHeapIdx));
+        if (thisHeapIdx <= 0)
+            RaiseNlangException(m_nullPtrExcClassIdx,
+                                "NLang VM: NullPointerException");
+        int32_t handle = MintArrayString(thisHeapIdx);
+        std::memcpy(pResult, &handle, sizeof(handle));
+        return;
+    }
+
     //Phase 9d: Exception ctor intrinsic. Shared by all 7 built-in
     //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
     //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).

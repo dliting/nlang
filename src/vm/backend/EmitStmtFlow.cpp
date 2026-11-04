@@ -45,6 +45,10 @@ void VmBackend::Access(SnReturnStmt& stmt) {
             //Phase 9d-2: evaluate the return expression BEFORE running
             //finally copies (Java semantics: expr first, finally second).
             EmitExpression(*ret.Result(), emitter, m_currFunc->returnSlot);
+            //v0.12.7 Task 3: return-boundary rank check — an annotated
+            //return type receiving an unannotated array value.
+            EmitArrayRankBoundary(m_currFunc->pDeclaredReturnType,
+                ret.Result(), m_currFunc->returnSlot, emitter);
         }
         //Phase 9d-2: a return leaving try/finally regions runs each
         //finally body inline (innermost first). returnSlot is a reserved

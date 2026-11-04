@@ -177,6 +177,30 @@ enum class OpCode : uint8_t {
     OP_SlotInitFail,    // u16 slotIdx — reset the machine so the next use
                         // retries (D10); pair with OP_Rethrow
 
+    // === v0.12.7 Task 3: boundary rank check ===
+    OP_CheckArrayRank,  // u16 dst, u16 src, u16 rank — null passes through
+                        // unchanged; otherwise the RTK_Array record's rank
+                        // cell must equal rank or a catchable
+                        // InvalidCastException is raised
+
+    // === v0.12.7 Task 5: Object→array downcast check ===
+    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx — null passes
+                        // through; the record's type identity (kind +
+                        // arrayTypes row) must match or a catchable
+                        // InvalidCastException is raised
+
+    // === v0.12.7 Task 4: unannotated Array<E> spelling (no static rank) ===
+    OP_LoadElementDyn,  // u16 dst, u16 arr, u16 idxBase, u16 nCoords — the
+                        // coordinate count verifies against the record's
+                        // rank cell; mismatch raises catchable
+                        // IndexOutOfBoundsException (both counts)
+    OP_StoreElementDyn, // u16 arr, u16 idxBase, u16 src, u16 nCoords —
+                        // store twin of OP_LoadElementDyn
+    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot — dims is a
+                        // rank-1 int[] handle; the rank = dims.length()
+                        // validates in [1, kMaxArrayRank] and the extents
+                        // go through AllocArrayOnHeap
+
     OP_Count
 };
 
@@ -232,9 +256,11 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate};
+    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
+    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
+    OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
     OpCode::OP_AssembleArrayN,
     OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
 static constexpr OpCode kStrideOutMaskWords[] = {

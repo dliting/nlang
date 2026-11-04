@@ -33,6 +33,13 @@ static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=t
 //consumer routes it conservatively (GC tests both domains). First kind
 //above the scalar block (10..19), keeping the two ranges disjoint.
 static constexpr uint8_t RTK_TypeParam = 20;
+//v0.12.7: runtime-only kind of an array VIEW record (spec §4.2 of the
+//array/tensor design). Never a declared type kind — it never appears on
+//the wire or in locals tables; it labels heap records whose header
+//prefix mirrors RTK_Array (kind/typeIdx/rank/elemCount/dims at the same
+//offsets) and whose tail carries strides/offset/target. The target cell
+//always names an OWNED RTK_Array record (depth one).
+static constexpr uint8_t RTK_ArrayView = 21;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)

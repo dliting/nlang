@@ -367,7 +367,8 @@ void TestTwoMainsPerUnitRejected() {
     //top-level names across units conflict at resolve, before any
     //per-unit codegen — so the build fails with the duplicate-
     //definition error, not a codegen ambiguity.
-    CHECK(b.log.find("conflicted") != std::string::npos,
+    CHECK(b.log.find("conflicts with an existing definition")
+              != std::string::npos,
           "diagnosis names the duplicate definition");
 }
 

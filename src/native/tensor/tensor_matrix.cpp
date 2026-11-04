@@ -1,10 +1,10 @@
 /*---
 tensor_matrix.cpp — matrix-family kernels of the `tensor` native
-module: transpose (rank-2 mirror), flatten (any rank -> 1) and the
-reshape family (any source rank -> the target rank carried by the
-entry name; row-major throughout). All three are pure copies over
-pinned views; output minting goes through the ABI v9 shaped host
-callback (NewArrayShaped).
+module: transpose (rank-2 mirror), flatten (any rank -> 1), the
+generic reshape (target shape carried by the int[] argument, with the
+-1 inferred dim) and concat (axis-wise join; row-major throughout).
+All are pure copies over pinned views; output minting goes through
+the ABI v9 shaped host callback (NewArrayShaped).
 ---*/
 #include "TensorKernels.h"
 
@@ -13,6 +13,7 @@ callback (NewArrayShaped).
 #include <string>
 
 using nlang::native::ArgArray;
+using nlang::native::ArgInt;
 using nlang::native::NewArrayShaped;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
@@ -65,32 +66,33 @@ void FlattenKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ReturnInt(ret, handle);
 }
 
-//Shared body of the reshape family: `targetRank` comes from the entry
-//name, the source array and the shape vector are the two arguments.
-void ReshapeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
-                   int32_t targetRank) {
-    NativeArrayView src;
-    ArgArray(host, args, 0, &src);
-    NativeArrayView shape;
-    ArgArray(host, args, 1, &shape);
-    if (shape.elemKind != NEK_Int32)
-        Raise(host, NEXC_Base, "tensor.reshape: shape must be int[]");
-    if (targetRank < 1 || targetRank > nlang::kMaxArrayRank
-        || shape.elemCount != targetRank) {
+//Validate the shape argument and fill `dims` with it, inferring the
+//single -1 dim from the source element count (the product of the rest
+//must divide evenly). The product accumulates saturating — above any
+//legal mint, so the final compare stays exact. Raises on every
+//violated rule; the count-vs-product check lives here too, so the
+//caller is free to mint straight after.
+void PrepareReshapeDims(NativeHost* host, const NativeArrayView& src,
+                        const NativeArrayView& shape, int32_t* dims) {
+    const int32_t targetRank = shape.elemCount;
+    if (targetRank < 1 || targetRank > nlang::kMaxArrayRank) {
         Raise(host, NEXC_Base,
               "tensor.reshape: shape length "
-                  + std::to_string(shape.elemCount)
-                  + " does not match target rank "
-                  + std::to_string(targetRank));
+                  + std::to_string(targetRank)
+                  + " is outside the supported rank range");
     }
-    //Saturating product with per-dim validation: negative dims raise
-    //the sized-creation family (OOB); a final mismatch the base
-    //Exception with both numbers spelled out.
-    int32_t dims[nlang::kMaxArrayRank];
     int64_t product = 1;
+    int32_t inferSlot = -1;
     const int32_t* shapeCells = static_cast<const int32_t*>(shape.data);
     for (int32_t d = 0; d < targetRank; ++d) {
         const int32_t dim = shapeCells[d];
+        if (dim == -1) {
+            if (inferSlot >= 0)
+                Raise(host, NEXC_Base, "tensor.reshape: at most one dim may be -1");
+            inferSlot = d;
+            dims[d] = 1;
+            continue;
+        }
         if (dim < 0)
             Raise(host, NEXC_OutOfBounds,
                   "tensor.reshape: shape dim is negative");
@@ -102,19 +104,112 @@ void ReshapeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         else
             product *= dim;
     }
-    if (product != src.elemCount) {
+    if (inferSlot >= 0) {
+        //Division form: zero-product dims carry no inference base, and
+        //a non-even split has no rank the payload can fill.
+        if (product == 0 || src.elemCount % product != 0) {
+            Raise(host, NEXC_Base,
+                  "tensor.reshape: cannot infer the -1 dim from count "
+                      + std::to_string(src.elemCount)
+                      + " and product " + std::to_string(product));
+        }
+        dims[inferSlot] = static_cast<int32_t>(src.elemCount / product);
+    } else if (product != src.elemCount) {
         Raise(host, NEXC_Base,
               "tensor.reshape: element count "
                   + std::to_string(src.elemCount)
                   + " does not match shape product "
                   + std::to_string(product));
     }
-    const int32_t handle = NewArrayShaped(host, src.elemKind, targetRank,
-                                          dims);
+}
+
+//Reshape body: the target shape is the second argument (its length is
+//the target rank). Exactly one dim may be -1 — inferred from the
+//element count over the product of the others, which must divide
+//evenly. Still a row-major copy; the view form lands with the view
+//tasks (v0.12.7 Step 2).
+void ReshapeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
+    NativeArrayView src;
+    ArgArray(host, args, 0, &src);
+    NativeArrayView shape;
+    ArgArray(host, args, 1, &shape);
+    if (shape.elemKind != NEK_Int32)
+        Raise(host, NEXC_Base, "tensor.reshape: shape must be int[]");
+    int32_t dims[nlang::kMaxArrayRank];
+    PrepareReshapeDims(host, src, shape, dims);
+    const int32_t handle = NewArrayShaped(host, src.elemKind,
+                                          shape.elemCount, dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     std::memcpy(out.data, src.data,
                 static_cast<size_t>(src.elemCount) * src.elemCellBytes);
+    ReturnInt(ret, handle);
+}
+
+//The copy geometry around the concat axis: `outer` slices before it,
+//`inner` contiguous cells after it per slice.
+void AxisCopyGeometry(const NativeArrayView& a, int32_t axis,
+                      int64_t* outer, int64_t* inner) {
+    *outer = 1;
+    for (int32_t d = 0; d < axis; ++d)
+        *outer *= a.dims[d];
+    *inner = 1;
+    for (int32_t d = axis + 1; d < a.rank; ++d)
+        *inner *= a.dims[d];
+}
+
+//Concat body: equal ranks, every dim equal except the axis dim (which
+//sums); an out-of-range axis raises the bounds family. Row-major copy
+//per (outer-slice, source) block — the cells after the axis are
+//contiguous, so each block is one memcpy.
+void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
+    NativeArrayView a;
+    ArgArray(host, args, 0, &a);
+    NativeArrayView b;
+    ArgArray(host, args, 1, &b);
+    if (a.elemKind != b.elemKind)
+        Raise(host, NEXC_Base, "tensor.concat: element type mismatch");
+    if (a.rank != b.rank) {
+        Raise(host, NEXC_Base, "tensor.concat: rank mismatch (" + ShapeText(a)
+                                   + " vs " + ShapeText(b) + ")");
+    }
+    const int32_t axis = ArgInt(args, 2);
+    if (axis < 0 || axis >= a.rank)
+        Raise(host, NEXC_OutOfBounds,
+              "tensor.concat: axis out of range");
+    int32_t outDims[nlang::kMaxArrayRank];
+    for (int32_t d = 0; d < a.rank; ++d) {
+        if (d == axis)
+            continue;
+        if (a.dims[d] != b.dims[d]) {
+            Raise(host, NEXC_Base,
+                  std::string("tensor.concat: shape mismatch (")
+                      + ShapeText(a) + " vs " + ShapeText(b) + ")");
+        }
+        outDims[d] = a.dims[d];
+    }
+    outDims[axis] = a.dims[axis] + b.dims[axis];
+    const int32_t handle = NewArrayShaped(host, a.elemKind, a.rank, outDims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    int64_t outer = 0;
+    int64_t inner = 0;
+    AxisCopyGeometry(a, axis, &outer, &inner);
+    const int64_t cellBytes = a.elemCellBytes;
+    const int64_t aAlong = a.dims[axis];
+    const int64_t bAlong = b.dims[axis];
+    const char* aCells = static_cast<const char*>(a.data);
+    const char* bCells = static_cast<const char*>(b.data);
+    char* outCells = static_cast<char*>(out.data);
+    for (int64_t o = 0; o < outer; ++o) {
+        char* dstA = outCells
+            + o * (aAlong + bAlong) * inner * cellBytes;
+        std::memcpy(dstA, aCells + o * aAlong * inner * cellBytes,
+                    static_cast<size_t>(aAlong * inner) * cellBytes);
+        std::memcpy(dstA + aAlong * inner * cellBytes,
+                    bCells + o * bAlong * inner * cellBytes,
+                    static_cast<size_t>(bAlong * inner) * cellBytes);
+    }
     ReturnInt(ret, handle);
 }
 
@@ -178,22 +273,17 @@ void TensorFlatten(NativeHost* host, uint8_t* ret, const uint8_t* args,
     FlattenKernel(host, ret, args);
 }
 
-//Reshape entries: the target rank is the trailing digit of the entry
-//name, threaded into the shared kernel as a compile-time constant.
-#define TENSOR_RESHAPE_DEF(Rank)                                           \
-    void TensorReshape##Rank(NativeHost* host, uint8_t* ret,               \
-                             const uint8_t* args, int argc) {              \
-        (void)argc;                                                        \
-        ReshapeKernel(host, ret, args, (Rank));                            \
-    }
-TENSOR_RESHAPE_DEF(1)
-TENSOR_RESHAPE_DEF(2)
-TENSOR_RESHAPE_DEF(3)
-TENSOR_RESHAPE_DEF(4)
-TENSOR_RESHAPE_DEF(5)
-TENSOR_RESHAPE_DEF(6)
-TENSOR_RESHAPE_DEF(7)
-TENSOR_RESHAPE_DEF(8)
+void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    ReshapeKernel(host, ret, args);
+}
+
+void TensorConcat(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc) {
+    (void)argc;
+    ConcatKernel(host, ret, args);
+}
 
 void TensorMatmul(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc) {

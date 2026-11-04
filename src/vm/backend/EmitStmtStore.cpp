@@ -158,7 +158,8 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
         EmitStructDeepCopy(valueSlot, valueSlot,
             static_cast<SnStructDecl&>(*elemType), emitter);
     }
-    emitter.Emit(OpCode::OP_StoreElementN);
+    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+        ? OpCode::OP_StoreElementDyn : OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);
     emitter.EmitUint16(idxBase);
     emitter.EmitUint16(valueSlot);

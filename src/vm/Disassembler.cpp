@@ -1,8 +1,5 @@
-// --- shared disassembler (ndisasm CLI + ndb `x`) ---
-// Instruction-line formatting: per-opcode switches split into
-// operand-domain functions (flow/constants/arithmetic/strings/calls/
-// objects/array-records/func-values); Emit* helpers read one operand
-// shape and format it printf-style (byte-identical, test-pinned).
+// --- shared disassembler (ndisasm CLI + ndb `x`): per-opcode switches split
+// into operand-domain functions; Emit* helpers printf-format one shape.
 
 #include "Disassembler.h"
 #include "BytecodeReader.h"
@@ -29,9 +26,8 @@ static void EmitU16(BytecodeReader &r, std::ostringstream &out,
     out << head << buf << "\n";
 }
 
-//Print `n` uint16 operands (n = 2..4). Reads into a named array BEFORE
-//the format call: unspecified argument evaluation order emits in-arg
-//reads reversed on MSVC; unused slots stay zeroed (snprintf ignores).
+//Print `n` uint16 operands (n = 2..4), reading the array BEFORE formatting
+//(MSVC reverses in-arg read order; snprintf ignores the unused slots).
 static void EmitU16xN(int n, BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const char *fmt) {
     uint16_t v[4] = {0, 0, 0, 0};
@@ -93,9 +89,7 @@ static void EmitCaseNext(BytecodeReader &r, std::ostringstream &out,
     out << head << buf << "\n";
 }
 
-//--- module-table printers: append a looked-up table name when the
-//index is in range (out-of-range prints bare, matching the original).
-
+//--- module-table printers: append the looked-up name when idx is in range.
 static void EmitConstString(BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const CompiledModule &module) {
     uint16_t idx = r.ReadUint16();
@@ -179,9 +173,7 @@ static void EmitMakeVFunc(BytecodeReader &r, std::ostringstream &out,
     out << "\n";
 }
 
-//--- operand-domain dispatch ---
-//Each Disasm*Ops function owns one opcode domain: true = handled,
-//false lets the next domain try.
+//--- operand-domain dispatch: true = handled, false tries the next.
 
 static bool DisasmFlowOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
@@ -394,8 +386,7 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
     }
 }
 
-//The stage-2/3 array-record family (alloc, element access, shape
-//export, row assembly) — split from DisasmObjectOps for its budget.
+//The stage-2/3 array-record family — split from DisasmObjectOps for budget.
 static bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
     switch (op) {
@@ -406,13 +397,22 @@ static bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
             EmitU16xN(4, r, out, head, " dst=%u type=%u elems=%u count=%u");
             return true;
         case OpCode::OP_LoadElementN:
+        case OpCode::OP_LoadElementDyn:
             EmitU16xN(4, r, out, head, " dst=%u arr=%u idxBase=%u rank=%u");
             return true;
         case OpCode::OP_StoreElementN:
+        case OpCode::OP_StoreElementDyn:
             EmitU16xN(4, r, out, head, " arr=%u idxBase=%u src=%u rank=%u");
             return true;
         case OpCode::OP_LoadElementFlat:
             EmitU16xN(3, r, out, head, " dst=%u arr=%u flatIdx=%u");
+            return true;
+        case OpCode::OP_CheckArrayRank:
+        case OpCode::OP_CheckArrayType:
+            EmitU16xN(3, r, out, head, " dst=%u src=%u expect=%u");
+            return true;
+        case OpCode::OP_AllocArrayDyn:
+            EmitU16xN(3, r, out, head, " dst=%u type=%u dims=%u");
             return true;
         case OpCode::OP_ArrayShape:
         case OpCode::OP_ArrayLength:

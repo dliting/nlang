@@ -246,6 +246,20 @@ bool ModuleRegistry::IsModuleImported(uint32_t moduleIndex,
 	return false;
 }
 
+//v0.12.7 name-resolution design V1: the bare-pool admission half of the
+//import gate — the owner module is in the importer's EXACT list (the
+//same-directory auto-adds D7 and the explicit imports alike). Wildcards
+//are deliberately not consulted: a wildcard admits qualified paths only,
+//never bare names.
+bool ModuleRegistry::IsExactImportedBy(uint32_t importer,
+	uint32_t owner) const
+{
+	if (importer >= m_modules.size() || owner >= m_modules.size())
+		return false;
+	return ContainsValue(m_modules[importer].gate.exact,
+		m_modules[owner].path);
+}
+
 bool ModuleRegistry::IsKnownModule(const std::string& dottedPath) const
 {
 	for (const ModuleEntry& entry : m_modules)

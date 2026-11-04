@@ -500,6 +500,34 @@ target_compile_definitions(test_native_array_abi
 
 add_test(NAME native_array_abi_tests COMMAND test_native_array_abi)
 
+# v0.12.7 Task 8: RTK_ArrayView view records — layout, creation
+# validation matrix, depth-one folding, and the GC edge (direct
+# AllocViewOnHeap calls against a real executor).
+add_executable(test_array_view_record
+    test_vm/test_array_view_record.cpp
+)
+
+target_include_directories(test_array_view_record
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_array_view_record
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_array_view_record)
+target_compile_definitions(test_array_view_record
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME array_view_record_tests COMMAND test_array_view_record)
+
 # Stage-2 task 1: rank-carrying array type tokens (comma suffix grammar,
 # jagged gate preservation, generic-argument acceptance).
 add_executable(test_nd_tokens
@@ -1987,6 +2015,45 @@ add_test(NAME proj_import_visibility_run
 set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
+
+#v0.12.7 name-resolution matrix (docs/dev/name_resolution_design.md):
+#qualified names are absolute module paths (the my.* wildcard never
+#aliases foo→my.foo); an explicit import admits the module's members to
+#the bare pool (V1); different-shape same-name imports merge. The
+#fixture self-checks every value before returning 0.
+add_test(NAME proj_name_visibility_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_name_visibility/proj_name_visibility.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_name_visibility.npkg)
+add_test(NAME proj_name_visibility_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_name_visibility.npkg)
+set_tests_properties(proj_name_visibility_run PROPERTIES
+    DEPENDS proj_name_visibility_compile
+    PASS_REGULAR_EXPRESSION "name-visibility-ok")
+
+#v0.12.7 V1: bare use of an explicitly imported library package from a
+#SUBDIRECTORY translation unit — visibility follows the import, never
+#the caller's directory (the pre-fix ""-directory coincidence rejected
+#exactly this).
+add_test(NAME proj_bare_import_sub_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_bare_import_sub/proj_bare_import_sub.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_import_sub.npkg)
+add_test(NAME proj_bare_import_sub_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_import_sub.npkg)
+set_tests_properties(proj_bare_import_sub_run PROPERTIES
+    DEPENDS proj_bare_import_sub_compile
+    PASS_REGULAR_EXPRESSION "bare-after-import")
+
+#v0.12.7 V4: two explicitly imported modules provide the same-shape bare
+#name — an equal-distance tie is a use-site ambiguity error naming BOTH
+#providers and the qualified escape, never a silent pick.
+add_test(NAME proj_ambiguous_bare_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_ambiguous_bare/proj_ambiguous_bare.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_ambiguous_bare.npkg)
+set_tests_properties(proj_ambiguous_bare_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "module 'alpha.dup' and module 'beta.dup'")
 
 #0.9.0 Phase A: qualified constructor call without `new`
 #(shapes.Point(2, 3)). The fixture self-checks the field sum (5) BEFORE

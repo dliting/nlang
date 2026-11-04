@@ -1,0 +1,11 @@
+// v0.12.7 name-resolution: bare use of an explicitly imported library
+// package from a SUBDIRECTORY translation unit — visibility follows the
+// import, never the caller's directory (the pre-fix ""-directory
+// coincidence rejected exactly this).
+import io;
+
+int main() {
+    io.print("bare-import-sub");
+    print("bare-after-import");
+    return 0;
+}

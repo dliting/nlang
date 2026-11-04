@@ -1323,7 +1323,9 @@ private slots:
         QVERIFY2(!res.ok, "bare cross-directory call must fail the build");
         QVERIFY2(containsError(res.errors,
             "Function 'help' is not visible here. It lives in module "
-            "'utils.helper'; import it and qualify the call."),
+            "'utils.helper'. Add an explicit import "
+            "('import utils.helper;') or qualify the call "
+            "('utils.helper.help')."),
             "must get the spec section 7 visibility diagnostic");
         QVERIFY2(!containsError(res.errors,
             "does not exist or is not accessible"),
@@ -1350,26 +1352,22 @@ private slots:
         QVERIFY2(run.exitValue == 9, "extra() must return 9");
     }
 
-    //An imported external .ncu function is foreign even when imported:
-    //the bare pool never spans module boundaries - qualify instead.
+    //v0.12.7 V1: an explicit import admits the external .ncu module's
+    //members to the bare pool too (one rule for libraries, project
+    //modules and externals alike) - the bare add(2, 3) now builds and
+    //runs (the pre-V1 qualified-only expectation is superseded).
     void bareCrossModuleRejected()
     {
-        auto res = buildGateProject({
+        GateProjectOptions opts;
+        opts.szMainBody =
             "import lib;\n"
-            "int main() { return add(2, 3); }\n"});
-        QVERIFY2(res.builder != nullptr,
-            "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok, "bare external call must fail the build");
-        QVERIFY2(containsError(res.errors,
-            "Function 'add' is not visible here. It lives in module "
-            "'lib'; import it and qualify the call."),
-            "must get the spec section 7 visibility diagnostic");
-        QVERIFY2(!containsError(res.errors,
-            "does not exist or is not accessible"),
-            "the hint must replace the generic not-found report");
-        QVERIFY2(!containsError(res.errors,
-            "is not compatible with the declaration"),
-            "the hint must replace the generic incompatibility report");
+            "int main() { return add(2, 3); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "bare external call must build and execute after the "
+            "explicit import").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 5, "lib.add(2, 3) must compute 5");
     }
 
     //T4 sibling pinning m12 from the other side. extra.n is a
@@ -1478,7 +1476,7 @@ private slots:
             "cross-directory same-signature functions must coexist")
             .c_str());
         QVERIFY2(!containsError(run.errors,
-                "is conflicted with a exist field definition"),
+                "conflicts with an existing definition"),
             "cross-directory same-signature functions must not be "
             "reported as duplicate definitions");
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
@@ -1488,9 +1486,10 @@ private slots:
     }
 
     //A local function and an imported .ncu stub with the same name and
-    //signature coexist. The bare call binds the LOCAL one (the stub is
-    //foreign, so the Task 6 bare pool drops it - asserted by execution);
-    //the qualified form compiles alongside it, never executed here.
+    //signature coexist. The bare call binds the LOCAL one (v0.12.7 V4
+    //tie-break: this TU's own definitions shadow imported ones at equal
+    //distance - asserted by execution); the qualified form compiles
+    //alongside it, never executed here.
     void localAndImportedSameNameCoexist()
     {
         GateProjectOptions opts;
@@ -1512,7 +1511,7 @@ private slots:
             "the bare add(1, 2) must bind the local add (12); the lib "
             "stub computes 3, tripping the 7 guard");
         QVERIFY2(!containsError(run.errors,
-                "is conflicted with a exist field definition"),
+                "conflicts with an existing definition"),
             "the local/imported pair must not be reported as duplicates");
     }
 
@@ -1532,7 +1531,7 @@ private slots:
         QVERIFY2(!res.ok,
             "same-directory duplicate signatures must fail the build");
         QVERIFY2(containsError(res.errors,
-            "is conflicted with a exist field definition"),
+            "conflicts with an existing definition"),
             "the legacy duplicate-definition diagnostic must stay");
     }
 

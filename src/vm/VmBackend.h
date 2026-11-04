@@ -414,6 +414,30 @@ private:
     bool EmitMemberArrayLengthMethod(SnMemberExpr& member,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
+    //v0.12.7: Array protocol methods equals(Object)/getHashCode() —
+    //identity semantics via the Object protocol intrinsics, staged in
+    //the string protocol-call shape. Definition in
+    //EmitExprMemberArray.cpp.
+    bool EmitMemberArrayProtocolMethod(SnMemberExpr& member,
+                                       BytecodeEmitter& emitter,
+                                       uint16_t resultOffset);
+    //v0.12.7 Task 3: boundary rank check — an annotated target (interned
+    //token) receiving an unannotated array value (the Array<E> spelling)
+    //verifies the record's rank at the assign/argument/return boundaries.
+    //Emits OP_CheckArrayRank in place on the staged slot; no-op when the
+    //target is not an annotated token or the value already carries the
+    //annotation (same-rank annotated flow is compile-checked, mismatched
+    //annotated flow is a compile error). Definition in EmitExprCast.cpp.
+    void EmitArrayRankBoundary(const SnField* targetType,
+                               const SnExpression* pSource,
+                               uint16_t slot, BytecodeEmitter& emitter);
+    //v0.12.7 Task 5: the Object→array downcast (`o as int[]`) — registers
+    //the target's array type and emits OP_CheckArrayType in place on the
+    //staged slot. False = the target is not an array token (the caller
+    //falls through to the class OP_CheckCast arm). Definition in
+    //EmitArrayBoundary.cpp.
+    bool EmitAsArrayDowncastOp(const SnField* targetType, uint16_t slot,
+                               BytecodeEmitter& emitter);
     //Bound method reference in value position (c.foo) — func handle.
     void EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
                                  BytecodeEmitter& emitter,
@@ -1404,6 +1428,16 @@ private:
     void EmitArraySubscriptRead(SnSubscriptExpr& sub,
                                 BytecodeEmitter& emitter,
                                 uint16_t resultOffset);
+    //v0.12.7: shared static/dyn element-op choice — true when the base's
+    //static type carries no rank annotation (the Array<E> spelling), so
+    //the record rank verifies at run time via the Dyn pair. Shared by
+    //the read, store, compound, and field-store element emitters.
+    static bool SubscriptNeedsDynOps(const SnExpression& arrExpr);
+    //v0.12.7: `Array(dims)` dynamic-rank construction — the elem type
+    //comes from the declared instantiation's type argument.
+    void EmitArrayDynCtor(SnClassDecl& instance,
+                          SnExpressionList& params,
+                          uint16_t resultOffset);
 
     //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
     //(operand staging + opcode dispatch into the arithmetic/relational/
@@ -1799,6 +1833,11 @@ private:
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
         uint16_t foreachCounter = 0;
+        //v0.12.7 Task 3: the declared return type of the function being
+        //emitted (non-owning; null for void) — the return-boundary rank
+        //check reads the annotation from it. Static-init contexts leave
+        //the default (their synthesized functions are void).
+        SnField* pDeclaredReturnType = nullptr;
     };
     FuncContext* m_currFunc = nullptr;
 

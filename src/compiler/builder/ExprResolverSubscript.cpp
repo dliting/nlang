@@ -119,8 +119,13 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //BindArrayTypeToken mints the array token over it — the same tail as
 //Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
 //then `Ints[2]`) is rejected as a creation head.
-//Stage-2: resolve every creation dimension; named/out forms and
-//unresolved dimensions consume the expression (true, diagnostics fired).
+//Stage-2: resolve every creation dimension, then apply the dimension
+//contract. The contract is "any expression resolving to an integer" —
+//not a parse-shape whitelist: the old kind check called the
+//resolve-stage predicate IsDataExpr on parse-stage nodes and asserted
+//on every method-call dim (`float[x.length()]`). Named/out forms and
+//unresolved dimensions consume the expression (false, diagnostics
+//fired).
 bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
 {
 	//Rank cap mirrors the grammar's production-point cap: the index
@@ -133,19 +138,33 @@ bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
 	}
 	for (auto *pIndex : sn.Indices())
 	{
-		if (pIndex->Kind() != NK_IdentifierExpr
-			&& pIndex->Kind() != NK_NameExpr
-			&& !pIndex->IsDataExpr())
-		{
-			m_Env.Log(CLL_Error, pIndex->Location(),
-				"array creation dimensions must be plain expressions.");
-			return false;
-		}
 		pIndex->Accept(*m_pVisitor);
 		if (!pIndex->IsResolved())
 			return false;  //consumed: the dimension diagnostic already fired
+		if (!CheckCreationDim(*pIndex))
+			return false;
 	}
 	return true;
+}
+
+//The sized-creation dimension contract: the dimension must resolve to
+//an integer (an enum masquerades as Int32, mirroring the cast ladder).
+//The emit path stores extents as int32 cells; a float dim would read
+//garbage cells as extents, so it is a compile error. A negative
+//runtime value stays the bounds family — the same rule `int[n]`
+//creation has always had.
+bool ExprResolveAccessor::CheckCreationDim(SnExpression &dim)
+{
+	auto *pType = dim.EvalDataType();
+	NodeKind kind = pType ? pType->Kind() : NK_Namespace;
+	if (kind == NK_EnumDecl)
+		kind = NK_Int32;
+	const int scalar = ScalarPrimIndexOf(kind);
+	if (scalar >= 0 && kScalarPrims[scalar].category != PC_Float)
+		return true;
+	m_Env.Log(CLL_Error, dim.Location(),
+		"array creation dimension must be an integer expression.");
+	return false;
 }
 
 bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
@@ -222,28 +241,45 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))
 		return;
-	if (arrayType && arrayType->Kind() == NK_ArrayTypeToken)
+	if (!BindSubscriptElemType(sn, arrayType))
+		return;
+	sn.AddFlags(NF_Resolved);
+	BindArrayTypeToken(sn);
+}
+
+//Bind the subscript's element type from the base's array type. The
+//interned token carries the static rank annotation, so the index count
+//is checked against it here; the Array<E> spelling has no annotation —
+//the record's rank governs at run time (the Dyn element pair carries
+//the source-written index count and verifies it against the record).
+bool ExprResolveAccessor::BindSubscriptElemType(SnSubscriptExpr &sn,
+	SnField *pBaseType)
+{
+	if (pBaseType && pBaseType->Kind() == NK_ArrayTypeToken)
 	{
 		//Stage-2: the index count must equal the token rank — the named
 		//arity diagnostic replaces the old single-index assumption.
-		const auto rank = static_cast<SnArrayTypeToken*>(arrayType)->Rank();
+		const auto rank = static_cast<SnArrayTypeToken*>(pBaseType)->Rank();
 		if (sn.Indices().size() != rank)
 		{
 			m_Env.Log(CLL_Error, sn.Location(),
 				"array subscript expects %u indices, got %u.",
 				static_cast<unsigned>(rank),
 				static_cast<unsigned>(sn.Indices().size()));
-			return;
+			return false;
 		}
 		//0.7.3 B token path: an
 		//array-valued base carries the interned array token — the
 		//subscript's own type is its ELEMENT.
-		arrayType = static_cast<SnArrayTypeToken*>(
-			arrayType)->ElemTypeOf();
-		sn.EvalDataType(arrayType);
+		sn.EvalDataType(static_cast<SnArrayTypeToken*>(
+			pBaseType)->ElemTypeOf());
 	}
-	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
+	else if (SnField* pGenElem = ArrayInstantiationElem(pBaseType))
+	{
+		//v0.12.7 generic spelling: the element is the type argument.
+		sn.EvalDataType(pGenElem);
+	}
+	return true;
 }
 
 } //namespace nlang

@@ -372,10 +372,13 @@ void StatementResolveAccessor::ApplyArrayElementStoreCast(
 {
 	auto* pElemType = sn.Array()->EvalDataType();
 	//0.7.3 B token path: an array-valued base carries the interned
-	//token; the element gate consumes the ELEMENT.
+	//token; the element gate consumes the ELEMENT. v0.12.7: the generic
+	//spelling Array<E> peels to its type argument the same way.
 	if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
 		pElemType = static_cast<SnArrayTypeToken*>(
 			pElemType)->ElemTypeOf();
+	else if (pElemType)
+		pElemType = ArrayInstantiationElem(pElemType);
 	if (pElemType && sn.Value()->EvalDataType())
 	{
 		//0.7.3 B: the array-valued RHS carries its interned

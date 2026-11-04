@@ -96,6 +96,12 @@ SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
 //mirror name-yield pass).
 bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
 {
+	//v0.12.7: Array<E> instantiations are real types (the single array
+	//type's generic spelling) — only the bare face name is gated. The
+	//template declaration itself still trips the gate, so bare "Array"
+	//keeps its actionable diagnostic.
+	if (sn.IsGenericInstantiation())
+		return false;
 	return IsPreludeFaceClassName(sn.Name())
 		&& &sn == FindPreludeClassDecl(reg, sn.Name());
 }
@@ -104,7 +110,7 @@ bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
 static const char *FaceUsageHint(const std::string &faceName)
 {
 	return faceName == "String" ? "string keyword"
-		: "array syntax (e.g. int[])";
+		: "array syntax (e.g. int[]) or Array<elem>";
 }
 
 //v0.12.2 face-misuse gate: one diagnostic shape for every position a

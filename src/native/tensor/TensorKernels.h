@@ -36,17 +36,25 @@ void FullI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void FullD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void FullDimsI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void FullDimsL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void FullDimsF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void FullDimsD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
 //--- elementwise binary entries (tensor_binary.cpp) -----------------------------
+//The exp/log unary pair rides the same family: rank-preserving maps
+//over float/double payloads.
 
 void TensorAdd(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorSub(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorMul(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorDiv(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorExp(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorLog(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
 //--- reduction entries (tensor_reduce.cpp) --------------------------------------
 
@@ -57,21 +65,17 @@ void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void TensorDot(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
 //--- matrix entries (tensor_matrix.cpp) ------------------------------------------
-//The reshape family: one entry per target rank — the rank rides the
-//registered name (reshape1..reshape8; all four element kinds share it).
+//reshape takes the whole target shape as its second argument (with the
+//-1 inferred dim), so one entry serves every rank.
 
 void TensorTranspose(NativeHost* host, uint8_t* ret, const uint8_t* args,
                      int argc);
 void TensorFlatten(NativeHost* host, uint8_t* ret, const uint8_t* args,
                    int argc);
-void TensorReshape1(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape2(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape3(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape4(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape5(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape6(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape7(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-void TensorReshape8(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+void TensorConcat(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
 void TensorMatmul(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc);
 

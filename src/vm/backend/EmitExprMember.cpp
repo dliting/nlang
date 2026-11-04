@@ -286,57 +286,9 @@ bool VmBackend::EmitMemberBuiltinDispatch(SnMemberExpr& member,
         return true;
     if (EmitMemberArrayShapeMethod(member, emitter, resultOffset))
         return true;
+    if (EmitMemberArrayProtocolMethod(member, emitter, resultOffset))
+        return true;
     return false;
-}
-
-//Stage-2: arr.rank() — the rank is a compile-time property of the
-//receiver's token; the receiver still evaluates (and null-checks) for
-//side-effect and null-semantics parity with length().
-bool VmBackend::EmitMemberArrayRankMethod(SnMemberExpr& member,
-                                          BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
-    auto* inner = member.Inner();
-    if (!(inner && inner->Kind() == NK_InvokeExpr
-        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "rank"
-        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
-            == static_cast<SnInvokeExpr*>(inner)->Params().end()
-        && member.Outer()->IsArrayValued()))
-        return false;
-    auto* pToken = static_cast<SnArrayTypeToken*>(
-        member.Outer()->EvalDataType());
-    EmitExpression(*member.Outer(), emitter, resultOffset);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(resultOffset);
-    emitter.Emit(OpCode::OP_ConstInt32);
-    emitter.EmitInt32(static_cast<int32_t>(pToken->Rank()));
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-    return true;
-}
-
-//Stage-2: arr.shape() — mints int[rank] with the dims (OP_ArrayShape).
-bool VmBackend::EmitMemberArrayShapeMethod(SnMemberExpr& member,
-                                           BytecodeEmitter& emitter,
-                                           uint16_t resultOffset) {
-    auto* inner = member.Inner();
-    if (!(inner && inner->Kind() == NK_InvokeExpr
-        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "shape"
-        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
-            == static_cast<SnInvokeExpr*>(inner)->Params().end()
-        && member.Outer()->IsArrayValued()))
-        return false;
-    //The runtime mint looks up int[] in the module's arrayTypes table:
-    //register it here (the lazy codegen-time registration every other
-    //expression-side array follows — EmitExprNew, init lists), since a
-    //declaration elsewhere must not be required to carry it.
-    RegisterArrayType(SnBuiltinDataType::InstanceOf(NK_Int32));
-    EmitExpression(*member.Outer(), emitter, resultOffset);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(resultOffset);
-    emitter.Emit(OpCode::OP_ArrayShape);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(resultOffset);
-    return true;
 }
 
 //Typed-receiver phase: struct field read, class field read or method call,
@@ -420,39 +372,6 @@ bool VmBackend::EmitMemberSubscriptElementRead(SnMemberExpr& member,
         }
     }
     return false;
-}
-
-//Array length() builtin method (e.g. arr.length()). The receiver
-//check is the array-valued property on the outer expression (stamped
-//at resolver binding tails — any shape: identifier, member like
-//li.get(0), or call result like mk()/lib.mk(3)); the emission itself
-//is shape-agnostic (EmitExpression handles any receiver form). The
-//resolver consumed the call shape (TryResolveArrayLengthMethod); the
-//zero-argument check here is defensive depth. Checked BEFORE the
-//struct/class dispatch in EmitMemberTypedReceiverDispatch as defense
-//in depth: array values carry the interned array token in
-//EvalDataType (IsArrayValued is that derived check), so the
-//struct/class branches do not match array receivers today — the
-//order just guarantees a future typed-receiver change cannot
-//silently swallow the builtin.
-//Returns true when the method call was emitted.
-bool VmBackend::EmitMemberArrayLengthMethod(SnMemberExpr& member,
-                                            BytecodeEmitter& emitter,
-                                            uint16_t resultOffset) {
-    auto* inner = member.Inner();
-    if (!(inner && inner->Kind() == NK_InvokeExpr
-        && static_cast<SnInvokeExpr*>(inner)->CalleeName() == "length"
-        && static_cast<SnInvokeExpr*>(inner)->Params().begin()
-            == static_cast<SnInvokeExpr*>(inner)->Params().end()
-        && member.Outer()->IsArrayValued()))
-        return false;
-    EmitExpression(*member.Outer(), emitter, resultOffset);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(resultOffset);
-    emitter.Emit(OpCode::OP_ArrayLength);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(resultOffset);
-    return true;
 }
 
 } //namespace nlang

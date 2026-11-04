@@ -203,14 +203,15 @@ void TestNestedMainNotRejected() {
 //D8 regression guard: the duplicate-field checker's generic redefinition
 //diagnostic must survive for ordinary same-name collisions that are NOT
 //the script-entry case (here two top-level functions named "foo"; neither
-//is the synthesized entry, so the legacy "is conflicted" text applies).
+//is the synthesized entry, so the generic conflict text applies).
 void TestGenericDuplicateStillRejected() {
     const fs::path dir = scenarioDir("dup_generic");
     writeFile(dir / "main.n",
         "int foo() { return 1; }\nint foo() { return 2; }\n");
     ScenarioBuild build = compileScenario(dir, {dir.string()});
     CHECK(!build.ok, "duplicate top-level function fails to build");
-    CHECK(build.log.find("is conflicted") != std::string::npos,
+    CHECK(build.log.find("conflicts with an existing definition")
+            != std::string::npos,
         "generic redefinition diagnostic preserved");
 }
 

@@ -137,9 +137,17 @@ static const BindingRow s_LiteralRows[] = {
 	//(INTR_String_Substring..INTR_String_ToBool) + equals +
 	//getHashCode; String.length (OP_StrLen) and String.toString
 	//(identity fold) carry no id, so they have no row. Both substring
-	//overloads key the one "String.substring" row. Array's four
-	//methods are compile-time-static emissions with no intrinsic id —
-	//zero rows (kStringFaceBindingRows below pins this block's size).
+	//overloads key the one "String.substring" row. v0.12.7 Task 5: the
+	//Array face's protocol methods — the virtual dispatch ids for an
+	//Object-receiver protocol call on an array (ReceiverClassIndex maps
+	//RTK_Array to the face row). toString formats through the shared
+	//array formatter; equals/getHashCode ride the Object identity
+	//intrinsics. length/rank/shape keep zero rows: compile-time-static
+	//emissions that can never reach a virtual dispatch (the Object
+	//protocol is exactly these three methods).
+	{"lang", "Array.equals",      INTR_Object_Equals},
+	{"lang", "Array.getHashCode", INTR_Object_GetHashCode},
+	{"lang", "Array.toString",    INTR_Array_toString},
 	{"lang", "String.equals",      INTR_String_Equals},
 	{"lang", "String.getHashCode", INTR_String_GetHashCode},
 	{"lang", "String.substring",   INTR_String_Substring},

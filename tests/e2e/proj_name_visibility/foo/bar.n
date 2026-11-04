@@ -1,0 +1,2 @@
+// Package foo.bar: the top-level namesake of my.foo.bar.
+int x() { return 2; }

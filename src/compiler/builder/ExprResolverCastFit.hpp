@@ -33,6 +33,19 @@ struct ConstLiteralValue
 //The NK_Float value rides v.d at float precision (exact widening).
 bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v);
 
+//0.7.5 overload-distance rungs for implicit primitive conversions,
+//shared by every grader of the ladder (PrimitiveDistance in
+//ExprResolverCast.cpp, the fitted-constant scoring in
+//ExprResolverBinding.cpp). In-category and cross-sign containment
+//widenings cost the registry rank delta (max 3); the integer→float hop
+//and the →string coercion sit on fixed rungs above every widening, so
+//byte→int < byte→float < byte→string — the direction the old
+//abs(NK delta) scheme lost once the kind values were reshuffled.
+//string coercion sits above the float hop (numeric formal beats string
+//formal for a numeric arg).
+constexpr int kDistToFloat = 4;   // > max in-category rank delta (3)
+constexpr int kDistToString = 5;  // > kDistToFloat
+
 //Verdict of TryConstantFit for one (constant, target-row) pair.
 enum ConstantFitVerdict
 {

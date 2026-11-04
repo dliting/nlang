@@ -263,14 +263,18 @@ SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
 
 //2026-09-26 decomposition of Access(SnAsExpr&): the 0.7.2 array-operand
 //guard as its own named phase. Returns true after logging the rejection.
+//v0.12.7: an array target is legal now — the boundary rank check IS the
+//array spelling of `as` (the annotated token; the generic spelling is
+//unannotated and adds nothing). Every other target keeps the named
+//rejection: no legal form exists for an array operand (string is an
+//assignment-only coercion — call toString()).
 bool ExprResolveAccessor::RejectAsArrayOperand(SnAsExpr &sn)
 {
-	//`as` has no array-typed target spelling (the target is a name
-	//expression), and string targets are assignment-only coercions — so
-	//no legal form exists for an array-valued operand. Post-0.7.3 B the
-	//cast table would reject every spelling anyway (token×scalar =
-	//None); the named branch keeps the diagnostic specific.
 	if (!sn.Operand()->IsArrayValued())
+		return false;
+	auto* pTgt = sn.TargetType()->Field();
+	if (pTgt && (pTgt->Kind() == NK_ArrayTypeToken
+		|| ArrayInstantiationElem(pTgt)))
 		return false;
 	m_Env.Log(CLL_Error, sn.Location(),
 		"Invalid cast \"%s as %s\": the cast operand is an array.",
@@ -287,6 +291,18 @@ bool ExprResolveAccessor::RejectAsArrayOperand(SnAsExpr &sn)
 bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 	SnField *pTgtType, TypeCastKind kind)
 {
+	//v0.12.7: `null as T[]` is the typed null — the null bridge gives
+	//TCK_Auto, which the gate below rejects; admit as TCK_Same (the
+	//boundary check passes null through).
+	if (sn.Operand()->ContainFlags(NF_NullLiteral)
+		&& (pTgtType->Kind() == NK_ArrayTypeToken
+			|| ArrayInstantiationElem(pTgtType)))
+	{
+		sn.SetResolved(pTgtType, TCK_Same);
+		sn.EvalDataType(pTgtType);
+		return true;
+	}
+
 	//Phase 13: `f as string` renders the handle ("func <name>"). Class→
 	//string is normally an assignment-only coercion (TCK_Auto is rejected
 	//for `as`); function handles get an explicit branch so all four
@@ -308,10 +324,9 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		return true;
 	}
 
-	//TCK_Auto (e.g. int→float) is not allowed via `as` — use primitive cast syntax.
-	//TCK_Dynamic similarly. Valid: TCK_Same/Box/Unbox/Downcast, plus
-	//TCK_Explicit (0.7.5) — narrowing scalar conversions are exactly what
-	//the operator exists for.
+	//TCK_Auto (int→float) and TCK_Dynamic are not allowed via `as` —
+	//use primitive cast syntax. Valid: TCK_Same/Box/Unbox/Downcast plus
+	//TCK_Explicit (0.7.5 narrowing scalars, the operator's purpose).
 	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox
 		&& kind != TCK_Downcast && kind != TCK_Explicit)
 	{

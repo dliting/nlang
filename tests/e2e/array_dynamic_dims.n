@@ -1,0 +1,10 @@
+// v0.12.7 Task 4: the Array(dims) dims argument must be int[] — the VM
+// reads the extents as int32 cells, so a non-int element kind is a
+// compile-time diagnostic (the spec pins dims to int[]).
+import lang;
+
+int main() {
+    float[] fdims = float[2];
+    Array<int> a = Array(fdims);
+    return 0;
+}

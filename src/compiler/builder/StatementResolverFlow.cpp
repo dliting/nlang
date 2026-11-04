@@ -235,7 +235,10 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 		auto* pGen = static_cast<SnClassDecl*>(pSrcType);
 		if (pGen->IsGenericInstantiation()
 			&& (pGen->BaseName() == kBuiltinListTypeName
-				|| pGen->BaseName() == kBuiltinDictTypeName)
+				|| pGen->BaseName() == kBuiltinDictTypeName
+				//v0.12.7: Array<E> iteration yields E (the generic
+				//spelling of the single array type).
+				|| pGen->BaseName() == kBuiltinArrayTypeName)
 			&& !pGen->GenericTypeArgs().empty())
 		{
 			pElemField = pGen->GenericTypeArgs()[0];

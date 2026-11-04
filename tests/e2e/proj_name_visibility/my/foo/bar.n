@@ -1,0 +1,4 @@
+// Package my.foo.bar: the nested namesake of foo.bar. Disjoint shapes
+// (x(int) here, x() in foo/bar.n) so the bare pool merges them by
+// overload distance instead of colliding.
+int x(int a) { return 10 + a; }

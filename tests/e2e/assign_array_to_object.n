@@ -1,0 +1,11 @@
+//Assigning an array value to an Object variable is the spec 4.1
+//zero-alloc upcast: the handle flows as-is (GC-traced), no degraded
+//element-kind boxing. Round-trip proves the identity.
+int main() {
+    int[] ia = int[3];
+    ia[2] = 9;
+    Object o = ia;
+    int[] back = o as int[];
+    assert(back[2] == 9);
+    return 0;
+}

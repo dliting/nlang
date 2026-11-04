@@ -726,7 +726,7 @@ static void TestDuplicateTypeInOnePackageRejected() {
         "class Box { public int a; }\n"
         "struct Box { int b; }\n"
         "int main() { return 0; }\n" } });
-    CHECK(compileLog(dirLog).find("is conflicted with a exist field definition")
+    CHECK(compileLog(dirLog).find("conflicts with an existing definition")
               != std::string::npos,
           "the reachable duplicate-type diagnostic still fires (measured today)");
     //(2b) cross-package same names used to be legal — the shell kept the

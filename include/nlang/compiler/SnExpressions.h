@@ -27,6 +27,25 @@ class Value;
 namespace nlang
 {
 
+//v0.12.7: the element of an Array<E> instantiation of the prelude
+//template — the generic spelling of the single array type — or null for
+//any other node (the bare face name, another generic, a plain type).
+//The shared "is this the array type" test alongside the interned token
+//(see SnExpression::IsArrayValued). Defined in SnArrayTypeToken.cpp: it
+//needs SnClassDecl's full definition.
+SnField *ArrayInstantiationElem(SnField *pType);
+
+//v0.12.7: type identity across the two spellings of the single array
+//type — interned token and Array<E> instantiation, either side either
+//order, recursing on elements (Array<Array<int>> vs int[][] included).
+//Annotated x annotated compares ranks (double[] and double[,] stay
+//distinct at every compile-time check); only the generic spelling is
+//unannotated, matching any token rank — the boundary rank check is the
+//`as` cast's runtime job, not this predicate's. Elements compare by
+//node identity only (invariance).
+//Defined in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
+bool SameArrayType(SnField *pLeft, SnField *pRight);
+
 //The abstract expression syntax node.
 class BuildEnvironment;
 class SnClassDecl;
@@ -59,15 +78,12 @@ public:
 	}
 
 	//Array-valued type property (array redesign B): DERIVED — the
-	//expression is array-valued exactly when its type token is the
-	//interned array token (SnArrayTypeToken). Dispatch sites still ask
-	//this before Kind(): array values now carry the token itself in
-	//EvalDataType, so the element masquerade is gone. No side channel.
-	bool IsArrayValued() const
-	{
-		auto* pType = EvalDataType();
-		return pType && pType->Kind() == NK_ArrayTypeToken;
-	}
+	//expression is array-valued when its type is the interned array
+	//token (SnArrayTypeToken) or an Array<E> instantiation (v0.12.7:
+	//the generic spelling of the same single type, spec §4.1).
+	//Dispatch sites still ask this before Kind(). Out-of-line: the
+	//instantiation test needs SnClassDecl's full definition.
+	bool IsArrayValued() const;
 
 	//llvm::Type *MetaType() const
 	//{
@@ -419,6 +435,12 @@ public:
 	void CtorStruct(SnStructDecl *pCtorStruct) { m_pCtorStruct = pCtorStruct; }
 	SnFunction *CtorFunction() const { return m_pCtorFunction; }
 	void CtorFunction(SnFunction *pCtorFunction) { m_pCtorFunction = pCtorFunction; }
+	//v0.12.7: the Array face's dynamic-rank constructor — `Array(dims)`
+	//with the instance from the assign-published target. The Array<E>
+	//record is not a class object, so codegen routes to the array-alloc
+	//emission (OP_AllocArrayDyn), never the shared new-object path.
+	SnClassDecl *ArrayDynCtor() const { return m_pArrayDynCtor; }
+	void ArrayDynCtor(SnClassDecl *pInstance) { m_pArrayDynCtor = pInstance; }
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
@@ -426,6 +448,7 @@ private:
 	SnClassDecl *m_pCtorClass = nullptr;
 	SnStructDecl *m_pCtorStruct = nullptr;
 	SnFunction *m_pCtorFunction = nullptr;
+	SnClassDecl *m_pArrayDynCtor = nullptr;
 };
 
 /*
@@ -599,6 +622,15 @@ public:
 	const std::vector<SnFieldExpr*> &TypeArgs() const
 	{
 		return *m_upTypeArgs;
+	}
+
+	//v0.12.7: Array<E> is the array type's generic spelling — an array
+	//type expression once resolved (the declaration-side IsArrayType
+	//hook that SnDataField and the field walks forward to).
+	bool IsArrayType() const override
+	{
+		SnField* pResolved = Field();
+		return pResolved && ArrayInstantiationElem(pResolved) != nullptr;
 	}
 
 	void Accept(ISyntaxNodeVisitor &) override;

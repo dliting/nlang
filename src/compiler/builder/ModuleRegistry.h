@@ -128,6 +128,10 @@ public:
 	//NO_OWNER-safe (no m_modules[NO_OWNER] indexing).
 	bool IsModuleImported(uint32_t moduleIndex,
 		const std::string& dottedPath) const;
+	//v0.12.7 V1 bare-pool admission: owner's path is in importer's
+	//gate.exact (same-directory auto-adds + explicit imports; never
+	//wildcards). Definition beside IsModuleImported.
+	bool IsExactImportedBy(uint32_t importer, uint32_t owner) const;
 	//The import-gate policy in one place: may the module at moduleIndex
 	//reference dottedPath? A node synthesized from an imported module's
 	//signature (its nearest owner is an EXTERNAL registry entry) was not

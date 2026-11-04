@@ -1,0 +1,12 @@
+//Passing an array value to an Object-typed parameter is the spec 4.1
+//upcast (one superclass hop) — the handle flows as-is into the formal.
+int[] Take(Object o) {
+    return o as int[];
+}
+int main() {
+    int[] ia = int[3];
+    ia[1] = 6;
+    int[] back = Take(ia);
+    assert(back[1] == 6);
+    return 0;
+}

@@ -1,0 +1,10 @@
+// v0.12.7 Task 2: the jagged invariant (spec D12) covers the generic
+// spelling — Array<Array<int>> is T[][] in generic clothes and has no
+// VM layout, exactly like the bracket form.
+import lang;
+
+int main() {
+    Array<Array<int>> a;
+    int[][] b;
+    return 0;
+}

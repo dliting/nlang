@@ -1,6 +1,6 @@
-//e2e-①: the free-function form of the package note — the bare spawn()
-//miss names the package AND the qualified spelling (an import alone is
-//not the fix: package functions stay qualified-only even once imported).
+//e2e-①: the package note on a bare spawn() miss — an explicit import IS
+//the complete fix under the unified visibility model (V1: an explicit
+//import admits bare use and the qualified spelling alike).
 int work() { return 1; }
 int main() {
     spawn(work);

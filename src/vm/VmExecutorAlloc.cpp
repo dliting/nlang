@@ -163,6 +163,133 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     return heapIdx;
 }
 
+//Validation half of AllocViewOnHeap (split for the function-size guard):
+//target-handle families, the depth-one peel, type identity, dims/
+//product, and coverage. Returns the peeled OWNED target handle and
+//carries the validated elemCount out. dims/strides/offset are OWNER-
+//payload-space numbers — every real caller derives them from a record
+//header (view headers already store owner-space strides), so the fold
+//never re-derives them; a view target's cell is already the owned
+//record (maintained by induction), the fold just rewrites the handle.
+int32_t VmExecutor::ValidateViewCreation(uint16_t arrayTypeIdx,
+    uint8_t rank, const int32_t* dims, const int32_t* strides,
+    int32_t offset, int32_t targetIdx, int32_t& elemCountOut) {
+    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error("NLang VM: invalid array type index");
+    if (rank < 1 || rank > kMaxArrayRank)
+        RaiseNlangException(m_oobExcClassIdx, "view rank out of range");
+    if (targetIdx < 0
+        || static_cast<size_t>(targetIdx) >= m_structHeap.size())
+        throw std::runtime_error(
+            "NLang VM: invalid heap index in AllocView");
+    if (targetIdx == 0)
+        RaiseNlangException(m_nullPtrExcClassIdx, "view of a null array");
+    //Depth-one fold: peel a view target to its owned record; the peeled
+    //handle re-validates (a corrupt tail must not read OOB below).
+    if (m_slotKinds[static_cast<size_t>(targetIdx)] == RTK_ArrayView) {
+        const int32_t viewRank =
+            m_structHeap[static_cast<size_t>(targetIdx)][2];
+        targetIdx = m_structHeap[static_cast<size_t>(targetIdx)]
+            [ArrayViewTargetCell(static_cast<uint8_t>(viewRank))];
+        if (targetIdx <= 0
+            || static_cast<size_t>(targetIdx) >= m_structHeap.size())
+            throw std::runtime_error(
+                "NLang VM: corrupt view record (target out of range)");
+    }
+    if (m_slotKinds[static_cast<size_t>(targetIdx)] != RTK_Array)
+        RaiseNlangException(m_oobExcClassIdx,
+            "view target is not an array");
+    //Per-dim and product validation (negative dims, the 100M cap) — the
+    //same gate owned creation uses; raises the OutOfBounds family.
+    const int32_t size = ValidateArrayDims(rank, dims);
+    ValidateViewTypeMatch(arrayTypeIdx, rank, targetIdx);
+    //Coverage: the smallest and largest addresses the affine map can
+    //produce must land inside the owner's element range (zero strides
+    //and negative axes included — they fold into min/max naturally).
+    //int64 terms: dims are within the cap and every dim of a non-empty
+    //product is >= 1, so at most log2(kMaxArrayElems) terms are nonzero
+    //and each (dims[d]-1)*strides[d] fits — the sum cannot overflow.
+    if (size > 0)
+        ValidateViewCoverage(rank, dims, strides, offset,
+            static_cast<int64_t>(
+                m_structHeap[static_cast<size_t>(targetIdx)][3]));
+    elemCountOut = size;
+    return targetIdx;
+}
+
+//Type identity at the ELEMENT level (function-size split of the view
+//validation): the caller's row must name this view's own rank (record
+//cells [1] and [2] stay consistent — rank-reduced views like m[1, :]
+//carry their own row, not the owner's) and the same element as the
+//owner's row. Rank itself may differ — slicing changes it. The heap
+//cell reads happen as rvalues (no reference held across the raise,
+//which may grow the store); the arrayTypes rows live on the immutable
+//module and stay stable.
+void VmExecutor::ValidateViewTypeMatch(uint16_t arrayTypeIdx,
+                                       uint8_t rank, int32_t ownerIdx) {
+    const auto& callerRow = m_currModule->arrayTypes[arrayTypeIdx];
+    const auto& ownerRow =
+        m_currModule->arrayTypes[static_cast<size_t>(
+            static_cast<uint16_t>(
+                m_structHeap[static_cast<size_t>(ownerIdx)][1]))];
+    if (callerRow.rank != rank
+        || callerRow.elemKind != ownerRow.elemKind
+        || callerRow.elemTypeIdx != ownerRow.elemTypeIdx)
+        RaiseNlangException(m_oobExcClassIdx,
+            "view element type does not match the target array");
+}
+
+//Coverage half of the view validation (function-size split): the
+//smallest and largest addresses the affine map can produce must land
+//inside the owner's element range (zero strides and negative axes
+//included — they fold into min/max naturally). int64 terms: dims are
+//within the cap and every dim of a non-empty product is >= 1, so at
+//most log2(kMaxArrayElems) terms are nonzero and each
+//(dims[d]-1)*strides[d] fits — the sum cannot overflow.
+void VmExecutor::ValidateViewCoverage(uint8_t rank, const int32_t* dims,
+    const int32_t* strides, int32_t offset, int64_t ownerCount) {
+    int64_t minAddr = offset;
+    int64_t maxAddr = offset;
+    for (uint8_t d = 0; d < rank; ++d) {
+        const int64_t span = static_cast<int64_t>(dims[d] - 1)
+            * static_cast<int64_t>(strides[d]);
+        if (span < 0) minAddr += span; else maxAddr += span;
+    }
+    if (minAddr < 0 || maxAddr >= ownerCount)
+        RaiseNlangException(m_oobExcClassIdx,
+            "view range exceeds the target array bounds");
+}
+
+//The single view-creation choke point (v0.12.7): validate, then
+//materialize an RTK_ArrayView record. All target reads happen before
+//the slot take — TakeHeapSlot may grow the store and invalidate held
+//references (the AllocArrayOnHeap contract).
+int32_t VmExecutor::AllocViewOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+    const int32_t* dims, const int32_t* strides, int32_t offset,
+    int32_t targetIdx) {
+    int32_t elemCount = 0;
+    targetIdx = ValidateViewCreation(arrayTypeIdx, rank, dims, strides,
+                                     offset, targetIdx, elemCount);
+    NoteGcPressure();
+    const int32_t heapIdx = TakeHeapSlot();
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(
+        ArrayViewRecordCells(rank), 0);
+    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_ArrayView;
+    m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
+    auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
+    record[0] = RTK_ArrayView;
+    record[1] = arrayTypeIdx;
+    record[2] = rank;
+    record[3] = elemCount;
+    for (uint8_t d = 0; d < rank; ++d) {
+        record[4 + d] = dims[d];
+        record[ArrayViewStridesBase(rank) + d] = strides[d];
+    }
+    record[ArrayViewOffsetCell(rank)] = offset;
+    record[ArrayViewTargetCell(rank)] = targetIdx;
+    return heapIdx;
+}
+
 int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");

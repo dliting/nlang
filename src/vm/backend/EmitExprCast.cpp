@@ -316,24 +316,22 @@ bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     return false;
 }
 
-    //Phase 8e-1.5: `expr as T` runtime-checked cast.
-    //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
-    //(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
-    //(0.7.5 narrowing scalar conversion, e.g. float→int).
+    //Phase 8e-1.5: `expr as T` runtime-checked cast. Valid kinds:
+    //TCK_Same (no-op; v0.12.7 adds the array rank boundary), TCK_Box,
+    //TCK_Unbox, TCK_Downcast (ancestor→subclass), TCK_Explicit.
 void VmBackend::Access(SnAsExpr& expr) {
-    //No `NodeKind kind` snapshot: this body's only `kind` is its own
-    //TypeCastKind local below (the pre-refactor branch shadowed the chain
-    //variable with it).
+    //The body's only `kind` is the TypeCastKind local below.
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& asExpr = static_cast<SnAsExpr&>(expr);
-        //Evaluate operand to resultOffset. After this, pResult holds the
-        //value (heap idx for ref types) per EmitExpression convention.
+        //Evaluate operand to resultOffset (heap idx for ref types).
         EmitExpression(*asExpr.Operand(), emitter, resultOffset);
 
         auto kind = asExpr.CastKind();
         if (kind == TCK_Same) {
-            //Already the right type — no opcode needed.
+            //v0.12.7: the boundary rank check; null passes through.
+            EmitArrayRankBoundary(asExpr.ResolvedTarget(),
+                                  asExpr.Operand(), resultOffset, emitter);
             return;
         }
         if (kind == TCK_Box) {
@@ -345,6 +343,10 @@ void VmBackend::Access(SnAsExpr& expr) {
             return;
         }
         if (kind == TCK_Downcast) {
+            //v0.12.7 Task 5: array token target checks type identity.
+            if (EmitAsArrayDowncastOp(asExpr.ResolvedTarget(),
+                                      resultOffset, emitter))
+                return;
             EmitAsDowncastOp(asExpr, emitter, resultOffset);
             return;
         }
@@ -353,17 +355,13 @@ void VmBackend::Access(SnAsExpr& expr) {
                 return;
             //Uncovered kind pair — fall through to the invariant throw.
         }
-        //Phase 13: `f as string` is the one resolver-approved TCK_Auto
-        //`as` form — function handles render as "func <name>".
+        //Phase 13: `f as string` — function handles render as "func <name>".
         if (kind == TCK_Auto) {
             if (EmitAsFuncToString(asExpr, emitter, resultOffset))
                 return;
         }
-        //Other kinds (TCK_Auto, TCK_Dynamic, TCK_None, and TCK_Explicit
-        //pairs outside the transitional opcode coverage) are rejected by
-        //ExprResolver.Access(SnAsExpr&) before codegen — reaching here is
-        //an internal invariant break. Round-13: this used to silently
-        //return, leaving resultOffset unwritten (stale/garbage value).
+        //Other kinds are resolver-rejected — invariant break if reached
+        //(round-13: used to silently leave a stale value).
         throw std::runtime_error(
             "NLang backend: unhandled `as` cast kind in codegen: "
             + std::to_string(static_cast<int>(kind)) + " at "

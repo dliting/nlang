@@ -1,0 +1,62 @@
+// v0.12.7 Task 4: dynamic-rank subscript pair + Array(dims) construction.
+// The Array<E> spelling carries no rank annotation: the source-written
+// coordinate count verifies against the record rank at run time, and a
+// mismatch is a catchable IndexOutOfBoundsException (both counts in the
+// message). The element type comes from the declared instantiation.
+import lang;
+
+int main() {
+    // the inline bracket literal is the natural shape-vector spelling —
+    // the literal infers its int[] target inside the Array() call itself
+    Array<int> lit = Array([2, 3]);
+    lit[1, 2] = 7;
+    assert(lit[1, 2] == 7);
+    assert(lit.length() == 6);
+    assert(lit.rank() == 2);
+
+    int[] dims = int[2];
+    dims[0] = 2; dims[1] = 3;
+    Array<int> m = Array(dims);       // dynamic-rank construction, rank=2
+    m[1, 2] = 9;
+    assert(m[1, 2] == 9);
+    assert(m.length() == 6);
+    assert(m.rank() == 2);            // unannotated spelling: run-time rank
+    assert(m.shape()[0] == 2);
+    bool caught = false;
+    try { int v = m[0]; }
+    catch (IndexOutOfBoundsException e) { caught = true; }
+    assert(caught);
+
+    // compound assign rides the dynamic pair too (dims extents are the
+    // payload values — set them explicitly, defaults are zero)
+    int[] one = int[1];
+    one[0] = 1;
+    Array<int> v = Array(one);
+    v[0] = 5;
+    v[0] += 7;
+    assert(v[0] == 12);
+
+    // dims must be a rank-1 int array (rank-2 smuggled through the
+    // unannotated spelling is a run-time user error, catchable)
+    bool caughtDims = false;
+    try { Array<int> bad = Array(int[2, 2]); }
+    catch (IndexOutOfBoundsException e) { caughtDims = true; }
+    assert(caughtDims);
+
+    // the rank (dims length) validates at run time: 0 and 65 out of range
+    bool caughtZero = false;
+    try { Array<int> z = Array(int[0]); }
+    catch (IndexOutOfBoundsException e) { caughtZero = true; }
+    assert(caughtZero);
+    int[] big = int[65];
+    bool caughtBig = false;
+    try { Array<int> w = Array(big); }
+    catch (IndexOutOfBoundsException e) { caughtBig = true; }
+    assert(caughtBig);
+
+    // element type comes from the declared target instantiation
+    Array<float> f = Array(dims);
+    f[0, 0] = 1.5;
+    assert(f[0, 0] > 1.4 && f[0, 0] < 1.6);
+    return 0;
+}

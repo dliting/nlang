@@ -264,6 +264,27 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     return result;
 }
 
+//v0.12.7 Task 5: shared array formatting — null/stale/kind validation,
+//FormatArray, mint. OP_Array_to_str and the Array.toString intrinsic
+//format through this one path (K8: the walker snapshots container
+//structure under the Container domain lock internally; the mint
+//self-locks).
+int32_t VmExecutor::MintArrayString(int32_t heapIdx) {
+    std::string s;
+    if (heapIdx <= 0) {
+        s = "<null>";
+    } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()) {
+        throw std::runtime_error(
+            "NLang VM: array_to_str on stale reference");
+    } else if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array) {
+        throw std::runtime_error(
+            "NLang VM: array_to_str on non-array");
+    } else {
+        s = FormatArray(heapIdx, 0);
+    }
+    return MintNewString(std::move(s));
+}
+
 std::string VmExecutor::FormatList(int32_t handle, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(

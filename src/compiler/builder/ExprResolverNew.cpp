@@ -233,6 +233,114 @@ SnClassDecl *ExprResolveAccessor::ResolveDeclaredGenericCtorTarget(
 	return pInstance;
 }
 
+//v0.12.7: bind `Array(dims)` — exactly one array-valued dims argument;
+//the element type comes from the declared instantiation (Array<int> →
+//int). The args are already resolved (this runs in the invoke failure
+//branch). True = consumed (bound or rejected with a named diagnostic).
+bool ExprResolveAccessor::BindArrayDynCtorInvoke(SnInvokeExpr &snInvoke,
+	SnClassDecl &instance)
+{
+	size_t argCount = 0;
+	for (auto &param : snInvoke.Params())
+		++argCount;
+	if (argCount != 1)
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"Array(...) expects exactly one dims argument, got %u.",
+			static_cast<unsigned>(argCount));
+		return true;
+	}
+	if (!snInvoke.Params().begin()->IsArrayValued())
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"Array(...): the dims argument must be an array.");
+		return true;
+	}
+	//The VM reads the extents as int32 cells (spec: dims is int[]) — a
+	//non-int element kind would decode its bit pattern as extents.
+	auto *pDimsType = snInvoke.Params().begin()->EvalDataType();
+	auto *pElem = pDimsType->Kind() == NK_ArrayTypeToken
+		? static_cast<SnArrayTypeToken *>(pDimsType)->ElemTypeOf()
+		: ArrayInstantiationElem(pDimsType);
+	if (!pElem || pElem->Kind() != NK_Int32)
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"Array(...): the dims argument must be int[].");
+		return true;
+	}
+	snInvoke.ArrayDynCtor(&instance);
+	snInvoke.EvalDataType(&instance);
+	snInvoke.AddFlags(NF_Resolved);
+	return true;
+}
+
+//v0.12.7: the Array face's dynamic-rank ctor arm of TryResolveCtorInvoke —
+//`Array<int> a = Array(dims);` names the face TEMPLATE, the assign-published
+//target supplies <E>. Runs before the face gate: success binds the
+//ArrayDynCtor form; failure (no typed target) is consumed by the
+//declared-generic diagnostic, which names the exact fix. True = consumed.
+bool ExprResolveAccessor::TryResolveArrayDynCtorInvoke(SnInvokeExpr &snInvoke,
+	SnField *pTypeDecl)
+{
+	if (pTypeDecl->Kind() != NK_ClassDecl
+		|| !IsPreludeFaceClass(m_Env.Registry(),
+			static_cast<SnClassDecl &>(*pTypeDecl))
+		|| !static_cast<SnClassDecl *>(pTypeDecl)->IsGenericDeclaration())
+		return false;
+	auto *pInstance = ResolveDeclaredGenericCtorTarget(snInvoke,
+		static_cast<SnClassDecl &>(*pTypeDecl));
+	if (!pInstance)
+		return true;
+	return BindArrayDynCtorInvoke(snInvoke, *pInstance);
+}
+
+//v0.12.7 M1: `Array([2, 3])` — a bracket literal at the dims position is
+//a deferred init-list argument, and the ctor-fallback gate requires an
+//empty deferred set ("no formal to infer the target from"). The Array
+//dims formal IS known (int[], spec), so this arm hands each deferred
+//literal that target and re-resolves it; the reopened gate then runs
+//the ordinary TryResolveArrayDynCtorInvoke flow. Mirrors
+//ResolveDeferredBraceArgs' wrapper discipline: named arguments keep
+//their SnNamedArgExpr wrapper accepted (its Access propagates the inner
+//resolution into the invoke's child list).
+bool ExprResolveAccessor::TryInferArrayDimsDeferredArgs(
+	SnInvokeExpr &snInvoke,
+	const std::vector<SnExpression*> &deferredBraceArgs, bool &rbSwept)
+{
+	rbSwept = false;
+	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
+		snInvoke.Location());
+	if (!pTypeDecl || pTypeDecl->Kind() != NK_ClassDecl
+		|| !IsPreludeFaceClass(m_Env.Registry(),
+			static_cast<SnClassDecl &>(*pTypeDecl))
+		|| !static_cast<SnClassDecl *>(pTypeDecl)->IsGenericDeclaration())
+		return false;
+	//The dims formal is int[] (spec): the interned rank-1 token over the
+	//built-in int type — the same declaration-channel shape every
+	//InferredTarget consumer expects.
+	auto *pDimsTarget = m_Env.InternArrayTypeToken(
+		SnBuiltinDataType::InstanceOf(NK_Int32), 1);
+	bool bAllResolved = true;
+	for (auto *pArg : deferredBraceArgs)
+	{
+		SnExpression *pInner = pArg;
+		if (pArg->Kind() == NK_NamedArgExpr)
+			pInner = static_cast<SnNamedArgExpr&>(*pArg).Inner();
+		auto *pInitList = UntypedInitListOf(*pInner);
+		if (!pInitList)
+			continue;
+		pInitList->InferredTarget(pDimsTarget);
+		pArg->Accept(*m_pVisitor);
+		if (!pArg->IsResolved())
+			bAllResolved = false;
+	}
+	//Every argument went through an Accept — unresolved ones carry their
+	//own named diagnostic; re-accepting them in the failure tail would
+	//duplicate it.
+	rbSwept = true;
+	return bAllResolved;
+}
+
 //Bare `Foo(args)` without new: bind the invoke as a constructor call.
 //Runs ONLY in the invoke-resolution failure branch (functions keep
 //priority), with the arguments already resolved. True = consumed —
@@ -245,6 +353,10 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 		snInvoke.Location());
 	if (!pTypeDecl)
 		return RejectBareGenericCtorInvoke(snInvoke);
+	//v0.12.7: the Array face's dynamic-rank ctor runs BEFORE the face
+	//gate (see the helper — success binds, failure is consumed).
+	if (TryResolveArrayDynCtorInvoke(snInvoke, pTypeDecl))
+		return true;
 	//v0.12.2: face classes cannot be constructed — consume with the
 	//error so codegen never sees a face-typed allocation.
 	if (RejectPreludeFaceUse(m_Env, pTypeDecl, snInvoke.Location(),

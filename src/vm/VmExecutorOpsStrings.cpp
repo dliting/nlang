@@ -37,24 +37,12 @@ void VmExecutor::OpArray_to_str(uint8_t* pResult) {
     //under the Container domain lock internally; everything else here
     //is benign heap reads plus a self-locking mint.
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
-    //push result string to pool, write idx to pResult.
-    //Reads heap layout via FormatArray (stage-2 header: rank/elemCount/
-    //dims at cells 2/3/4+, payload after the padded header).
+    //push result string to pool, write idx to pResult. The heap walk
+    //runs through MintArrayString (v0.12.7 Task 5: shared with the
+    //Array.toString intrinsic).
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
-    std::string s;
-    if (heapIdx <= 0) {
-        s = "<null>";
-    } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()) {
-        throw std::runtime_error(
-            "NLang VM: array_to_str on stale reference");
-    } else if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array) {
-        throw std::runtime_error(
-            "NLang VM: array_to_str on non-array");
-    } else {
-        s = FormatArray(heapIdx, 0);
-    }
-    int32_t handle = MintNewString(std::move(s));
+    int32_t handle = MintArrayString(heapIdx);
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 

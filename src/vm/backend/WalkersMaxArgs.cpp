@@ -254,7 +254,7 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
     //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
     //0.9.11 D2: the struct twin joins (same claim layout).
-    if (invoke.CtorClass() || invoke.CtorStruct()) {
+    if (invoke.CtorClass() || invoke.CtorStruct() || invoke.ArrayDynCtor()) {
         MaxArgsCtorInvoke(invoke, maxArgs);
         return;
     }

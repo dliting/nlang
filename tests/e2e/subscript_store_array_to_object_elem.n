@@ -1,9 +1,12 @@
-//An array handle stored into an Object[] element would be boxed as its
-//element kind (an int) and become GC-invisible garbage; reject it by
-//name instead.
+//An array value stored into an Object[] element flows as the heap
+//handle itself (RTK_Array slot, GC-traced) — the spec 4.1 zero-alloc
+//upcast, not a degraded-element-kind boxing. Round-trip proves identity.
 int main() {
     Object[] a = Object[2];
     int[] ia = int[2];
+    ia[1] = 5;
     a[0] = ia;
+    int[] back = a[0] as int[];
+    assert(back[1] == 5);
     return 0;
 }

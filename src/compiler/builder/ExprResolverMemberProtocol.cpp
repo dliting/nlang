@@ -43,6 +43,18 @@ bool ExprResolveAccessor::RejectTypeNameProtocolCall(SnInvokeExpr &invoke,
 	m_pContext = pSavedContext;
 	return true;
 }
+//The receiver's declaration field for plain-lvalue shapes (identifier
+//or member field); null for every other shape — the lvalue family the
+//non-class toString dispatch accepts.
+static SnField* OuterLvalueFieldOf(SnMemberExpr &snMember)
+{
+	auto outerKind = snMember.Outer()->Kind();
+	if (outerKind == NK_IdentifierExpr || outerKind == NK_MemberExpr)
+		return static_cast<SnFieldExpr&>(
+			*snMember.Outer()).Field();
+	return nullptr;
+}
+
 //Phase 8e-9b: non-class toString receiver detection — enum, int, float,
 //array. Detection: m_pContext (the receiver's type context) is NK_EnumDecl,
 //NK_Int32, or NK_Float. For enum literal access (Color.Green.toString()),
@@ -55,38 +67,21 @@ bool ExprResolveAccessor::IsNonClassToStringReceiver(SnMemberExpr &snMember)
 	//this is the only arm that catches it: the receiver's type
 	//context is the interned array token (never a scalar), so
 	//the enum and int/float arms below cannot fire. Detection
-	//keys on the FIELD's declared array-ness for identifier/
-	//member shapes (the same lvalue family as the receiver
-	//gate above) — the authoritative declaration signal.
-	{
-		auto outerKind = snMember.Outer()->Kind();
-		if (outerKind == NK_IdentifierExpr
-			|| outerKind == NK_MemberExpr)
-		{
-			auto& outerFieldExpr = static_cast<SnFieldExpr&>(
-				*snMember.Outer());
-			auto* outerField = outerFieldExpr.Field();
-			if (outerField && outerField->IsArrayType())
-				isNonClassToString = true;
-		}
-	}
+	//keys on the FIELD's declared array-ness — the authoritative
+	//declaration signal. v0.12.7: the field may be the interned
+	//token OR the Array<E> instantiation (the generic spelling).
+	SnField* pOuterField = OuterLvalueFieldOf(snMember);
+	if (pOuterField && (pOuterField->IsArrayType()
+		|| ArrayInstantiationElem(pOuterField)))
+		isNonClassToString = true;
 	//Enum via m_pContext (typed enum variable: Color c; c.toString())
 	if (!isNonClassToString && m_pContext
 		&& m_pContext->Kind() == NK_EnumDecl)
 		isNonClassToString = true;
 	//Enum via outer Field() chain (Color.Green.toString())
-	if (!isNonClassToString)
-	{
-		auto outerKind = snMember.Outer()->Kind();
-		if (outerKind == NK_MemberExpr || outerKind == NK_IdentifierExpr)
-		{
-			auto& outerFieldExpr = static_cast<SnFieldExpr&>(
-				*snMember.Outer());
-			auto* outerField = outerFieldExpr.Field();
-			if (outerField && outerField->Kind() == NK_EnumMember)
-				isNonClassToString = true;
-		}
-	}
+	if (!isNonClassToString && pOuterField
+		&& pOuterField->Kind() == NK_EnumMember)
+		isNonClassToString = true;
 	//Scalar via m_pContext (int x; x.toString(), 42.toString()).
 	//0.7.5: registry-driven — bool (and the P4-P6 kinds) stringify
 	//through the same OP_Prim_to_str path as int/float.

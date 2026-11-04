@@ -1,0 +1,22 @@
+// v0.12.7 Task 2: brackets are a static rank annotation of the single
+// array type — int[] and Array<int> are the SAME type, so values flow
+// between the spellings with no conversion and no diagnostics.
+import lang;
+
+int f(Array<int> a) { return a[0]; }
+
+int main() {
+    int[] x = int[3];           // annotated spelling
+    Array<int> y = x;           // annotated -> generic: same type
+    int[] z = y;                // generic -> annotated: same type
+    x[0] = 5;
+    assert(f(y) == 5);
+    assert(f(x) == 5);          // parameter slot takes either spelling
+    List<Array<int>> la = List();   // containers hold arrays: allowed
+    Array<int> r = int[2];
+    r[1] = 9;
+    la.add(r);                     // box an array into the container
+    int[] back = la.get(0);         // spelling flows both ways in and out
+    assert(back[1] == 9);
+    return 0;
+}

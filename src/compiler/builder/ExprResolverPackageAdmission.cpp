@@ -218,6 +218,29 @@ bool ExprResolveAccessor::BindQualifiedInvoke(SnMemberExpr &snMember,
 	return true;
 }
 
+//The failure arm of ResolveModuleQualifiedCallee: the qualified-ctor
+//fallback (0.9.0: a member name that is one of the module's CLASSES is
+//a qualified constructor call — functions keep priority, the match in
+//the caller ran first), then the shared failure diagnostics (the
+//ambiguity report suppresses the generic text, v0.12.7) and the
+//consumed close-out. True = the ctor fallback bound the member.
+bool ExprResolveAccessor::ReportQualifiedCalleeMiss(
+	SnMemberExpr &snMember, SnInvokeExpr &invoke, FindFuncResult res,
+	SnFunction *pCallee, bool bAmbiguous,
+	const std::vector<SnFunction*> &candidates,
+	const std::string &modulePath)
+{
+	if (res == FFR_FuncNameNotFound
+		&& TryResolveQualifiedCtorInvoke(snMember, invoke, modulePath))
+		return true;   //ctor bound; the caller finishes the member
+	LogInvokeFailure(invoke, res, pCallee,
+		res == FFR_Incompatible && !bAmbiguous
+			&& AnyNameMatchedImported(candidates), candidates,
+		bAmbiguous);
+	FinishConsumedMember(snMember);
+	return false;
+}
+
 //Candidate matching and binding of the module-qualified call, shared
 //close-out discipline of the bare path. True = fully resolved (the
 //member carries callee and result type; the caller only finishes the
@@ -246,19 +269,8 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 	auto res = MatchInvokeAgainst(invoke, candidates, pCallee, bindings,
 		bAmbiguous);
 	if (res != FFR_ExactMatch && res != FFR_ApproximateMatch)
-	{
-		//0.9.0: a member name that is one of the module's CLASSES (no
-		//function carries the name) is a qualified constructor call —
-		//functions keep priority (the match above ran first).
-		if (res == FFR_FuncNameNotFound
-			&& TryResolveQualifiedCtorInvoke(snMember, invoke, modulePath))
-			return true;   //ctor bound; the caller finishes the member
-		LogInvokeFailure(invoke, res, pCallee,
-			res == FFR_Incompatible && !bAmbiguous
-				&& AnyNameMatchedImported(candidates), candidates);
-		FinishConsumedMember(snMember);
-		return false;
-	}
+		return ReportQualifiedCalleeMiss(snMember, invoke, res, pCallee,
+			bAmbiguous, candidates, modulePath);
 	//Admission policy, strict arm: veto the generic binder's →string
 	//coercions on every non-trio package call.
 	if (!bCoercingTrio

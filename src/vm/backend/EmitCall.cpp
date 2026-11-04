@@ -337,6 +337,16 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
     uint16_t slotIdx = static_cast<uint16_t>(bindingIdx + slotBase);
     EmitBinding(pBindings, bindingIdx, slotIdx, slotBase, emitter,
                 thisSlot, claimBase);
+    //v0.12.7: boundary rank check — an annotated formal receiving an
+    //unannotated array argument (defaults carry no caller expression;
+    //their scalar-only contract needs no check).
+    auto& binding = pBindings[bindingIdx];
+    if (!binding.bIsOut && binding.pCallerExpr) {
+        EmitArrayRankBoundary(binding.pFormal->EvalDataType(),
+            binding.pCallerExpr,
+            static_cast<uint16_t>(claimBase
+                + slotIdx * kFrameSlotBytes), emitter);
+    }
     applyBox(slotIdx);
     //Phase 9e: out binding — record the caller local for the
     //post-call spill. The resolver guarantees pCallerExpr is a

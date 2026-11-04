@@ -235,4 +235,27 @@ void VmBackend::EmitNewArrayND(SnField* pElemType,
     emitter.EmitUint16(rank);
     emitter.EmitUint16(dimsBase);
 }
+
+//v0.12.7 Task 4: `Array(dims)` — the Array face's dynamic-rank
+//construction. The element type comes from the declared instantiation's
+//type argument (Array<int> → int); the rank and extents verify at run
+//time against the dims argument (OP_AllocArrayDyn). The resolver gates
+//the shape: exactly one array-valued argument.
+void VmBackend::EmitArrayDynCtor(SnClassDecl& instance,
+                                 SnExpressionList& params,
+                                 uint16_t resultOffset) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    auto& typeArgs = instance.GenericTypeArgs();
+    NLANG_ASSERT(typeArgs.size() == 1 && typeArgs[0] != nullptr);
+    uint16_t elemArrayTypeIdx = RegisterArrayType(typeArgs[0]);
+    EvalAreaClaim dimsClaim(*this, 1);
+    uint16_t dimsSlot = dimsClaim.base();
+    EmitExpression(*params.begin(), emitter, dimsSlot);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(dimsSlot);
+    emitter.Emit(OpCode::OP_AllocArrayDyn);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(elemArrayTypeIdx);
+    emitter.EmitUint16(dimsSlot);
+}
 } //namespace nlang

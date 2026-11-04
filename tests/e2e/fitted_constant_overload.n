@@ -1,0 +1,27 @@
+// Fitted-constant overload scoring: a compile-time constant whose value
+// fits a formal converts implicitly at candidate-scoring time — the
+// scoring twin of the assignment-path constant-fit gate. Without it, a
+// double literal can never reach a float overload (the raw double→float
+// verdict is Explicit, scored -1), and a relu-shaped call
+// (float array + 0.0 bound) has no viable overload at all. An exact
+// match still beats a fit: kind(da, 0.0) stays double.
+string kind(Array<float> a, float bound) {
+    return "float";
+}
+string kind(Array<double> a, double bound) {
+    return "double";
+}
+
+int main() {
+    // relu shape: the double overload is dead on argument 1 (array
+    // element types are invariant), so the fitting literal must reach
+    // the float overload
+    float[] fa = float[2];
+    if (kind(fa, 0.0) != "float") return 1;
+    // exact match beats a fit
+    double[] da = double[2];
+    if (kind(da, 0.0) != "double") return 2;
+    // scalar formals, same rule
+    if (kind(da, da[0]) != "double") return 3;
+    return 0;
+}

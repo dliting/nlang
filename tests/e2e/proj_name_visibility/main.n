@@ -1,0 +1,24 @@
+// v0.12.7 name-resolution matrix (docs/dev/name_resolution_design.md):
+// qualified names are absolute module paths (a wildcard never aliases a
+// prefix — foo.bar.x() can never mean my.foo.bar.x()); an explicit
+// import admits the module's members to the bare pool; different-shape
+// same-name imports merge by overload distance.
+import io;
+import my.*;
+import foo.bar;
+import my.foo.bar;
+
+int main() {
+    // Qualified absoluteness: both trees reachable, each by its own path
+    // (my.* wildcard admits my.foo.bar's qualified form).
+    if (my.foo.bar.x(0) != 10) return 1;
+    if (foo.bar.x() != 2) return 2;
+    // Explicit import → bare use (the unified model's fourth clause);
+    // the wildcard admits no bare name, so bare x() is unambiguous.
+    if (x() != 2) return 3;
+    // Different-shape providers merge into one overload pool.
+    if (x(5) != 15) return 4;
+    // Self-checked: print the sentinel the run test matches.
+    io.print("name-visibility-ok");
+    return 0;
+}

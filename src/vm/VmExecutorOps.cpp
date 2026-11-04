@@ -11,14 +11,12 @@
 
 namespace nlang {
 
-//Frame machine core (see VmExecutor.h for the contract group). RunFrames
-//owns the exception machinery; DispatchFrames owns the instruction loop.
+//Frame machine core (contracts in VmExecutor.h): RunFrames = exception
+//machinery; DispatchFrames = the instruction loop.
 
 //K1 Slice 6: a joiner resumed over a FAILED target throws the target's
-//original exception object HERE — inside RunFrames' handler-search try,
-//so the handler walk covers the just-restored frames with the join call
-//site's opPc (exactly as if join had thrown). No-op unless the carrier
-//armed the flag (ArmResumeRethrow); consumed at most once per resume.
+//original exception object HERE, inside RunFrames' handler-search try, so
+//the handler walk covers the restored frames. Consumed once per resume.
 void VmExecutor::ConsumeResumeThrow() {
     if (ResumeThrowExcIdxRef() == 0)
         return;
@@ -31,10 +29,9 @@ void VmExecutor::RunFrames(size_t baseDepth)
 {
     //K7: no window guard — every entry shape (carrier dispatch, host
     //bridge, nested toString/callback window) runs inside an enclosing
-    //ExecutingScope or BridgeExecutingScope, which owns this thread's
-    //rendezvous membership; the nested windows stay suppressed by the
-    //poll-root gate. Wrapper form retained: the 50-line body below has
-    //zero headroom under the source-size guard.
+    //ExecutingScope/BridgeExecutingScope owning this thread's rendezvous
+    //membership; nested windows stay suppressed by the poll-root gate.
+    //Wrapper retained: the body below has zero headroom under the size guard.
     RunFramesInner(baseDepth);
 }
 
@@ -49,26 +46,23 @@ void VmExecutor::RunFramesInner(size_t baseDepth)
             return;
         } catch (NLangThrow& ex) {
             //Keep the original exception object alive across the handler
-            //search (rethrown by pointer below — no copy; heapIdx is the
-            //payload the tryBlocks walk needs frame by frame).
+            //search (rethrown by pointer — heapIdx is the frame-walk payload).
             inflightExc = ex.heapIdx;
             inflight = std::current_exception();
         } catch (ParkSignal&) {
             //Suspension/preemption is not an error (K1 decision 2):
             //frames stay untouched — no unwind records, no handler
             //search — and the carrier loop routes by the signal's
-            //reason. Must precede the catch-all below, which would
-            //otherwise corrupt UnwindFrames() (the O2 audit's one
-            //mandatory ordering).
+            //reason. Must precede the catch-all below (it would corrupt
+            //UnwindFrames() — the O2 audit's mandatory ordering).
             throw;
         } catch (ShutdownSignal&) {
             //K2 slice 4: parked frames, not an unwind — pass it on.
             throw;
         } catch (...) {
             //Non-NLang error (unknown opcode, malformed module, ...):
-            //record one unwind entry per frame of this window, innermost
-            //first, so the uncaught-path backtrace covers these frames
-            //too, then propagate unchanged.
+            //record one unwind entry per frame (innermost first) so the
+            //uncaught-path backtrace covers them, then propagate unchanged.
             while (EvalStack().size() > baseDepth)
                 RecordUnwindAndPopFrame();
             throw;
@@ -95,13 +89,12 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         //Window drained: every frame above baseDepth has returned.
         if (EvalStack().size() <= baseDepth)
             return;
-        //Copy out everything the inner loop reads and let the
-        //CallFrame reference die at the end of the block — NO
-        //reference may survive across instructions. A false-returning
-        //op can still move EvalStack(): a nested evaluation window
-        //(user toString via collection formatting, or a native host
-        //callback's CallByName) pushes frames, and a vector growth
-        //frees the old element array; only the per-frame localsBuf
+        //Copy out everything the inner loop reads and let the CallFrame
+        //reference die at the end of the block — NO reference may survive
+        //across instructions. A false-returning op can still move
+        //EvalStack(): a nested evaluation window (user toString via
+        //collection formatting, native host callbacks) pushes frames and
+        //vector growth frees the old element array; only the per-frame localsBuf
         //pointers are move-stable. locals/pResult survive by that
         //invariant; a CallFrame& would not (v0.10.0 final review:
         //OP_DebugInfo read opPc through the stale one).
@@ -120,11 +113,9 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
                               func->bytecode.size());
         reader.Seek(resumePc);
 
-        //frameDone = the top frame changed (call pushed / frame returned)
-        //and every pointer captured above is suspect — re-fetch on the
-        //next outer iteration. The op handlers that can switch frames
-        //are exactly the call family (they return true) and the return
-        //family below.
+        //frameDone = the top frame changed (call pushed / frame returned):
+        //every pointer captured above is suspect — re-fetch next iteration.
+        //Only the call-family handlers (true-returning) switch frames.
         bool frameDone = false;
         while (!reader.Eof() && !frameDone) {
             //Offset of the in-flight instruction: the tryBlocks range
@@ -389,10 +380,9 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
                 frameDone = true;
             break;
 
-        //Phase 9e: OP_CallMethodDirect + out writeback (same protocol as
-        //OP_CallFuncOut; for methods, slot 0 is `this`, user out params
-        //start at slot 1). Out args on virtual dispatch are rejected at
-        //compile time, so no OP_CallMethod variant is needed.
+        //Phase 9e: OP_CallMethodDirect + out writeback (slot 0 is `this`).
+        //Virtual dispatch rejects out args at compile time — no
+        //OP_CallMethod variant needed.
         case OpCode::OP_CallMethodDirectOut:
             if (OpCallMethodDirectOut(reader, locals, pResult))
                 frameDone = true;
@@ -442,6 +432,21 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             break;
         case OpCode::OP_ArrayShape:
             OpArrayShape(reader, locals);
+            break;
+        case OpCode::OP_CheckArrayRank:
+            OpCheckArrayRank(reader, locals);
+            break;
+        case OpCode::OP_CheckArrayType:
+            OpCheckArrayType(reader, locals);
+            break;
+        case OpCode::OP_LoadElementDyn:
+            OpLoadElementDyn(reader, locals);
+            break;
+        case OpCode::OP_StoreElementDyn:
+            OpStoreElementDyn(reader, locals);
+            break;
+        case OpCode::OP_AllocArrayDyn:
+            OpAllocArrayDyn(reader, locals);
             break;
 
         //Phase 8e-1: primitive → Object boxing.

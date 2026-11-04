@@ -804,9 +804,9 @@ void test_typed_spawn_requires_import()
 }
 
 //包真实化准入（自由函数裸名）：无 import 的裸 spawn(work) 调用在
-//"does not exist" 主诊断外还带 D10 note——包函数即便补了 import 也
-//必须限定调用，自由函数形态的 note 直接给出限定拼写，而不是只建议
-//补 import（类形态的 note 保持"add import"不变）。
+//"does not exist" 主诊断外还带包 note。v0.12.7 V1 统一后，显式 import
+//同时授予裸用与限定用——自由函数与类形态的 note 同为"add import"，
+//旧的"即便补 import 也须限定"文案随统一可见性模型废止。
 void test_spawn_bare_names_qualified_spelling()
 {
     TEST(spawn_bare_names_qualified_spelling);
@@ -816,8 +816,8 @@ void test_spawn_bare_names_qualified_spelling()
         "    spawn(work);\n"
         "    return 0;\n"
         "}\n",
-        "call it as 'thread.spawn' after 'import thread';"),
-        "bare spawn without import names the qualified spelling");
+        "is provided by package 'thread'; add 'import thread';"),
+        "bare spawn without import names the missing import");
     PASS();
 }
 

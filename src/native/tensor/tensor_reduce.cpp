@@ -2,7 +2,8 @@
 tensor_reduce.cpp — the reduction family (sum/max/min/mean/dot) of the
 tensor native module. Same dispatch shape as the binary family: one
 registered native per operation name, the first view's runtime element
-kind picks the typed kernel. Integer sums wrap like language int
+kind picks the typed kernel. max/min also carry the clamp arm (array +
+bound, arity-dispatched on argc). Integer sums wrap like language int
 arithmetic (declared T return); dot accumulates in 64 bits and returns
 long so large inner products never wrap; mean always returns double.
 ---*/
@@ -11,6 +12,11 @@ long so large inner products never wrap; mean always returns double.
 #include <cstdint>
 
 using nlang::native::ArgArray;
+using nlang::native::ArgDouble;
+using nlang::native::ArgFloat;
+using nlang::native::ArgInt;
+using nlang::native::ArgLong;
+using nlang::native::NewArrayShaped;
 using nlang::native::Raise;
 using nlang::native::ReturnDouble;
 using nlang::native::ReturnFloat;
@@ -91,6 +97,52 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ReturnScalar(ret, acc);
 }
 
+//Clamp arm of max/min (array + bound, argc >= 2): elementwise bound,
+//operand shape preserved.
+template <typename T>
+void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                 bool isMax, T bound) {
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank, v.dims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    const T* in = CellsOf<const T>(v);
+    T* outCells = CellsOf<T>(out);
+    for (int64_t i = 0; i < v.elemCount; ++i) {
+        const T cur = in[i];
+        const T clipped = isMax ? (cur > bound ? cur : bound)
+                                : (cur < bound ? cur : bound);
+        outCells[i] = clipped;
+    }
+    ReturnInt(ret, handle);
+}
+
+//Kind dispatch for the clamp arm; the bound rides slot 1 in the kind's
+//own carrier.
+void DispatchClamp(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   bool isMax) {
+    NativeArrayView v;
+    v.elemKind = 0xEE;
+    host->getArrayView(host, ArgInt(args, 0), &v);
+    switch (v.elemKind) {
+        case NEK_Int32:
+            ClampKernel(host, ret, args, isMax, ArgInt(args, 1));
+            break;
+        case NEK_Int64:
+            ClampKernel(host, ret, args, isMax, ArgLong(args, 1));
+            break;
+        case NEK_Float32:
+            ClampKernel(host, ret, args, isMax, ArgFloat(args, 1));
+            break;
+        case NEK_Float64:
+            ClampKernel(host, ret, args, isMax, ArgDouble(args, 1));
+            break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
 //Kind dispatch on the first view (same contract as the binary family).
 uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
     NativeArrayView v;
@@ -120,7 +172,12 @@ void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     }
 }
 
-void TensorMax(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+void TensorMax(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    if (argc >= 2) {
+        DispatchClamp(host, ret, args, true);
+        return;
+    }
     switch (ElemKindOfFirst(host, args)) {
         case NEK_Int32:
             UnaryReduceKernel<int32_t, int64_t>(host, ret, args, RedOp::Max);
@@ -139,7 +196,12 @@ void TensorMax(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     }
 }
 
-void TensorMin(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+void TensorMin(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    if (argc >= 2) {
+        DispatchClamp(host, ret, args, false);
+        return;
+    }
     switch (ElemKindOfFirst(host, args)) {
         case NEK_Int32:
             UnaryReduceKernel<int32_t, int64_t>(host, ret, args, RedOp::Min);

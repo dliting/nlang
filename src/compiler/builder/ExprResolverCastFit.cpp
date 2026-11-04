@@ -89,6 +89,11 @@ static bool UIntFitsRow(uint64 v, const ScalarPrimInfo& p)
 	return p.category == PC_UInt &&
 		(p.slotWidth == 8 || v <= ((uint64(1) << (p.slotWidth * 8)) - 1));
 }
+//Exact-mantissa rule (0.7.5 literal tiering): an unsuffixed constant
+//is a double, and it binds a float formal only when the value survives
+//the double→float round trip — 0.5 / 0.0 bind, 0.1 / 2.9 need the
+//`f` suffix (C#-aligned; the suffix is the language's answer, not a
+//silent rounding).
 static bool DoubleFitsFloat(double v)
 {
 	float f = static_cast<float>(v);

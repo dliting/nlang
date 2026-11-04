@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project name="proj_name_visibility">
+  <Sources>
+    <File path="main.n"/>
+    <File path="my/foo/bar.n"/>
+    <File path="foo/bar.n"/>
+  </Sources>
+</Project>

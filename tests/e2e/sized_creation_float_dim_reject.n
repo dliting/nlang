@@ -1,0 +1,9 @@
+// A float dimension is not an integer expression — the sized-creation
+// contract rejects it at compile time (both spellings compile the same
+// helper; this file pins the `T[dims]` twin).
+int main() {
+    float f = 2.5;
+    float g = f * 4;
+    float[] a = float[g];
+    return 0;
+}

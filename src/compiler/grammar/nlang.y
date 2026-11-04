@@ -2271,6 +2271,15 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
+				//v0.12.7: the as-target gains the bracket spellings — the
+				//boundary rank check (OP_CheckArrayRank) is the whole point
+				//of `dyn as int[]`. The generic spelling adds nothing as a
+				//target (it is unannotated — no check, no conversion), so
+				//only the annotation forms exist here.
+				Expression KT_As TypeName OT_Brackets
+					{ $$ = new SnAsExpr($1, new SnArrayTypeExpr($3, @4), @2); } |
+				Expression KT_As TypeName OT_BracketsND
+					{ $$ = new SnAsExpr($1, MakeArrayTypeND($3, @4, $4, parser), @2); } |
 				//0.9.0: `func<...>(...)` at value positions keeps the anchored
 				//resolver reject (func types have no by-name constructor; bind
 				//a reference) - the diagnostic experience inherited from the
