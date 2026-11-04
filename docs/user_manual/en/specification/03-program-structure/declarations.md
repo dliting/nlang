@@ -34,14 +34,18 @@ Visibility:
 |---|---|---|
 | Same file | no | bare |
 | Same directory, other project files | no (implicit) | bare **or** qualified |
-| Cross-directory, same project | **yes** (`import utils.helper;` or `import utils.*;`) | qualified only: `utils.helper.f()` |
-| External module | **yes** (`import lib;`) | qualified only: `lib.f()` |
-| Standard library `io`/`math`/`fs`/`thread`/`concurrent` | **yes** (`import io;`) | qualified: `io.print` |
+| Cross-directory, same project, exact import | **yes** (`import utils.helper;`) | bare **or** qualified: `f()` / `utils.helper.f()` |
+| Cross-directory, same project, wildcard | **yes** (`import utils.*;`) | qualified only: `utils.helper.f()` |
+| External module | **yes** (`import lib;`) | bare **or** qualified: `f()` / `lib.f()` |
+| Standard library `io`/`math`/`fs`/`thread`/`concurrent` | **yes** (`import io;`) | bare **or** qualified: `print(...)` / `io.print(...)` |
 
-- Bare-name resolution covers only the own file plus same-directory
-  files; everything else must be qualified by module path. Ownerless
-  symbols (root built-ins such as the `Exception` class family, native
-  host bindings) stay globally bare-visible.
+- Bare-name resolution covers the own file, same-directory files, and
+  every module this file imports by its exact path: after
+  `import lib;` the bare `f()` and the qualified `lib.f()` are both
+  admissible. A wildcard import contributes no bare names — it admits
+  qualified calls only. Ownerless symbols (root built-ins such as the
+  `Exception` class family, native host bindings) stay globally
+  bare-visible.
 - Wildcard `import utils.*;` is a **recursive prefix match** in module
   path space: every path starting with `utils.` is importable
   (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import
@@ -76,7 +80,9 @@ Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import ut
 Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
-Function 'add' is not visible here. It lives in module 'utils.helper'; import it and qualify the call.
+Function 'add' is not visible here. It lives in module 'utils.helper'. Add an explicit import ('import utils.helper;') or qualify the call ('utils.helper.add').
+ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
+"Int32 dup()" conflicts with an existing definition of the same name.
 ```
 
 ### Variable Declaration

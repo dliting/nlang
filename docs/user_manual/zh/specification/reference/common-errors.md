@@ -47,8 +47,7 @@ import nosuch;
 Error: Module 'nosuch' not found. Check the project Sources list or -I import path.
 ```
 
-`import`只开放限定名。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this
-file.`。详见[声明](../03-program-structure/declarations.md)「import声明」。
+精确`import`开放两种拼写——限定名`lib.f()`与裸名`f()`；通配`import`仅开放限定调用。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」诊断——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this file.`。函数存在但不在本文件的裸名池内时，诊断会说明它所在的模块：`Function 'add' is not visible here. It lives in module 'utils.helper'. Add an explicit import ('import utils.helper;') or qualify the call ('utils.helper.add').`。详见[声明](../03-program-structure/declarations.md)「import声明」。
 
 ### 被导入函数的默认表达式
 

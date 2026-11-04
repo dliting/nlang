@@ -174,11 +174,18 @@ nothing.
 
 Everything a package declares can be reached through its qualified
 name — `package.member` (and `package.sub.member` for a dotted
-package). The import opens the qualified name only: after
-`import lib;` you write `lib.f()`, and the bare `f()` does not
-resolve through the import. (A file in the same directory as the
-caller shares that directory's bare pool — the same-directory rule
-is unchanged.)
+package). A qualified name is an **absolute module path**: it names
+exactly one package, and an import never re-bases it — after
+`import my.*;` the call `foo.bar.x()` still addresses the top-level
+`foo.bar` package, never `my.foo.bar`. Nested packages therefore
+cannot collide through qualified names, whatever wildcards are in
+scope.
+
+An explicit import opens both spellings: after `import lib;` the
+qualified `lib.f()` and the bare `f()` are both admissible — the
+import adds `lib`'s functions to this file's bare pool. A wildcard
+import opens qualified calls only. Same-directory files share the
+directory's bare pool without any import.
 
 Qualified type names are spelled the same way: `alib.Point`,
 `gfx.color.deep.Shade`. Unlike functions, a type is also reachable by

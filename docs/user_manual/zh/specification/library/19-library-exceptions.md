@@ -19,10 +19,10 @@
 | `fs`（§15.3） | `IOException` | `size`、`listFiles`、`makeDirs`或`remove`失败 |
 | `concurrent`（§10.4） | `ChannelClosedException` | 已关闭通道上的发送或接收 |
 | `concurrent`（§10.4） | `Exception` | 负容量的构造 |
-| `tensor`（§18.5） | `NullPointerException` | null数组实参 |
-| `tensor`（§18.5） | `IndexOutOfBoundsException` | 越过§4.10上限的创建长度；负的`reshape`维度 |
-| `tensor`（§18.5） | `DivByZeroException` | 整数`div`除零 |
-| `tensor`（§18.5） | `Exception` | 步长为零或无法推进的`arange`，或越过上限的范围；长度或形状不匹配；对空数组调用`max`、`min`或`mean` |
+| `tensor`（§18.6） | `NullPointerException` | null数组实参 |
+| `tensor`（§18.6） | `IndexOutOfBoundsException` | 越过§4.10上限的创建长度；负的`reshape`维度 |
+| `tensor`（§18.6） | `DivByZeroException` | 整数`div`除零 |
+| `tensor`（§18.6） | `Exception` | 步长为零或无法推进的`arange`，或越过上限的范围；长度或形状不匹配；对空数组调用`max`、`min`或`mean` |
 
 经由`null`接收者的调用在每个单元里都抛出`NullPointerException`（§11.2）；表中各行只列定义章节除此之外另行点名的位点。
 

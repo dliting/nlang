@@ -136,11 +136,18 @@ identity, §12.2).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.
-Elements pulled out with `get` or subscript keep their array type,
+The bracket spelling and the generic spelling are the same type
+(§4.10.1), so `List<Array<int>>` and `List<int[]>` are one type
+written two ways. Elements pulled out with `get` or subscript keep
+their array type,
 so `foreach (int[] row in grid)` iterates them directly (chapter
 6). `indexOf` and `contains` compare array elements by handle
 identity. A jagged type argument (`List<int[][]>`) is rejected like
-any jagged declaration (§4.10.1).
+any jagged declaration (§4.10.1) — and so is the same jagged shape
+in generic clothes: `Array<Array<int>>` is `int[][]` and is a
+compile-time error wherever the type is written. An unannotated
+`Array<T>` is a plain type argument: `List<Array<T>>` inside a
+generic class declares a list of arrays of the type parameter.
 
 An instantiation works as an element type in the declaration-site
 array form — `List<int> arr[2];` — while the creation form

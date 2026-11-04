@@ -11,9 +11,12 @@ This page collects the language-level limitations visible to user programs, with
   [string methods](../library/16-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
-- **Array values in scalar contexts**: an array value has exactly two
-  legal destinations — its own array type (the element type must match exactly) and
-  `string` targets in **every** position; `null` always converts to an
+- **Array values in scalar contexts**: an array value has exactly three
+  legal destinations — its own array type (the element type must match
+  exactly; between bracket spellings the rank must match too, while a
+  bracket-free `Array<T>` position admits any rank through the boundary
+  check, §4.10.7), `string` targets in **every** position, and `Object`
+  (§4.11.1); `null` always converts to an
   array target; comparisons are identity-only; every other use is
   rejected at compile time with an explicit error.
 
@@ -23,19 +26,21 @@ This page collects the language-level limitations visible to user programs, with
   (`string[] sa; sa[0] = arr`) and container stores (`List<string>`
   subscript and `.add`) — all via runtime toString coercion
   (`"[1, 2]"`); `==` / `!=` work only against another array or `null`.
-  The rejection list: scalar, class, interface, or `Object` targets,
-  `as` casts (`ia as int`), non-array parameters, numeric binary
+  The rejection list: scalar, class and interface targets,
+  array-operand `as` casts (`ia as int` — an array target like
+  `o as int[]` is the legal form, §4.5), non-array parameters, numeric binary
   operands (`arr + 1`), relational or cross-type comparisons
-  (`arr < arr2`, `arr == 5`), condition positions (`if (arr)`),
-  `switch` discriminants, and method receivers. Cross-element and
+  (`arr < arr2`, `arr == 5`), condition positions (`if (arr)`), and
+  `switch` discriminants. Cross-element and
   shared-representation array conversions are rejected alike:
   `string[] b = ia`, the covariant upcast `Base[] ba = da`, and
   `enum[]` ↔ `int[]` interconversion all fail with "an array value
   only converts to the same array type". Elements pulled out of
   `List<T[]>` / `Dict<K,T[]>` follow the same rule; the compiler sees
-  that they are arrays — method-receiver and
-  `switch`-discriminant uses (`li[0].rank()`, `switch (li.get(0))`)
-  are rejected with an explicit error, `foreach` can iterate them into
+  that they are arrays — the array face methods work on them
+  (`li[0].rank()`), `switch`-discriminant use
+  (`switch (li.get(0))`) is rejected with an explicit error,
+  `foreach` can iterate them into
   an array-typed loop variable (array-valued sources may be used
   directly and are evaluated once), and `Dict` keyed on array types
   uses handle identity.
@@ -144,6 +149,13 @@ This page collects the language-level limitations visible to user programs, with
 - **The `implements qualified-name.interface` form is not accepted by
   the grammar** (e.g. `implements lib.IF`): `import` first, then use
   the unqualified name.
+
+- **Types and global fields have no import gate**: function visibility
+  follows this file's import set (§3.3), but class, struct and enum
+  type names and global fields are reachable by their bare name
+  program-wide, whatever package declares them (§3.6). A cross-module
+  visibility gate for types and fields is future work; until then a
+  program's type names form one shared namespace.
 
 ### Functions and statements
 

@@ -10,10 +10,13 @@ instance — or `null`. `Object` is a reference type: assignment and
 parameter passing copy the reference, and the default value is
 `null` (§4.8.1).
 
-No other type has a path into `Object`: array, struct, interface
-and function values are not assignable to `Object` and not
-convertible to it with `as` (§4.4). A scalar primitive, `string` or
-enumeration value enters `Object` only through boxing (§4.11.3).
+Array values are references into `Object` too: an `Array<T>` value
+— bracket spelling or generic spelling — is assignable to `Object`
+without allocation, and comes back with `as` (§4.11.4). Struct,
+interface and function values have no path into `Object`: they are
+not assignable to it and not convertible to it with `as` (§4.4).
+A scalar primitive, `string` or enumeration value enters `Object`
+only through boxing (§4.11.3).
 
 *Informative:* `Object` is the only class without a parent, and the
 built-in classes — `List`, `Dict`, the stream classes and
@@ -71,6 +74,14 @@ remain checked (§4.8.2).
 hashes content, which makes strings usable as `Dict` keys without a
 wrapper class (§4.3, §12.2).
 
+Arrays carry the protocol with identity semantics: `toString()`
+renders the element list (`"[7, 0, 0, 0]"`), and `equals` /
+`getHashCode` compare the reference — two arrays holding equal
+elements are not `equals` (§4.10.3). The calls dispatch to the
+array implementations whenever the receiver's static type leaves
+the value's array-ness visible: `Object`, `Array<T>`, or a bracket
+spelling (§4.10.1).
+
 `==` on class references is unaffected by an `equals` override: it
 compares identity (§4.8.10), and value equality requires an
 explicit `equals` call.
@@ -115,6 +126,9 @@ phase.
 Reading a boxed value back out requires the `as` operator: `as`
 unboxes a primitive from `Object` and downcasts an `Object` to a
 class type (§4.5). An enumeration read back from `Object` yields
-the `int` it boxed. The full `as` rules — unboxing, class
-downcasts and the conversions that are compile-time errors — are on
-[Type Casts](casts.md).
+the `int` it boxed. An array read back from `Object` uses the same
+operator with an array target — `o as int[]` verifies the rank and
+the element type together and raises a catchable
+`InvalidCastException` on a mismatch (§4.5). The full `as` rules —
+unboxing, class and array downcasts and the conversions that are
+compile-time errors — are on [Type Casts](casts.md).

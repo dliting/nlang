@@ -29,11 +29,12 @@ import utils.*;            // 递归通配符
 |---|---|---|
 | 同一文件 | 否 | 裸名 |
 | 同目录其他项目文件 | 否（隐式） | 裸名**或**限定名 |
-| 跨目录、同一项目 | **是**（`import utils.helper;`或`import utils.*;`） | 仅限定名：`utils.helper.f()` |
-| 外部模块 | **是**（`import lib;`） | 仅限定名：`lib.f()` |
-| 标准库`io`/`math`/`fs`/`thread`/`concurrent` | **是**（`import io;`） | 限定名：`io.print` |
+| 跨目录、同一项目，精确导入 | **是**（`import utils.helper;`） | 裸名**或**限定名：`f()` / `utils.helper.f()` |
+| 跨目录、同一项目，通配导入 | **是**（`import utils.*;`） | 仅限定名：`utils.helper.f()` |
+| 外部模块 | **是**（`import lib;`） | 裸名**或**限定名：`f()` / `lib.f()` |
+| 标准库`io`/`math`/`fs`/`thread`/`concurrent` | **是**（`import io;`） | 裸名**或**限定名：`print(...)` / `io.print(...)` |
 
-- 裸名解析只覆盖本文件与同目录文件；其余一律按模块路径限定。无属主符号（`Exception`类家族等根级内建、native宿主绑定）保持全局裸名可见。
+- 裸名解析覆盖本文件、同目录文件，以及本文件按精确路径导入的每个模块：`import lib;`之后，裸名`f()`与限定名`lib.f()`均可调用。通配导入不贡献任何裸名——仅放行限定调用。无属主符号（`Exception`类家族等根级内建、native宿主绑定）保持全局裸名可见。
 - 通配符`import utils.*;`是模块路径空间中的**递归前缀匹配**：以`utils.`开头的每条路径都可导入（`utils.helper`、`utils.sub.x`、……）。它只缩写导入清单——调用时仍写完整路径。通配符只匹配项目文件；外部模块名是单段的，永不匹配。
 - `import utils;`只匹配根文件`utils.n`；要访问`utils/`目录请用完整路径或通配符。
 - 重复导入是幂等的；精确导入与通配符重叠时取并集；导入自身模块路径或同目录文件是无害的冗余。
@@ -48,7 +49,9 @@ Module 'utils.helper' is not imported. Add 'import utils.helper;' (or 'import ut
 Package 'io' is not imported. Add 'import io;' at the top of this file.
 Module 'utils.helper' not found. Check the project Sources list or -I import path.
 String import is removed. Use 'import <module>;' with an identifier path.
-Function 'add' is not visible here. It lives in module 'utils.helper'; import it and qualify the call.
+Function 'add' is not visible here. It lives in module 'utils.helper'. Add an explicit import ('import utils.helper;') or qualify the call ('utils.helper.add').
+ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
+"Int32 dup()" conflicts with an existing definition of the same name.
 ```
 
 ### 变量声明

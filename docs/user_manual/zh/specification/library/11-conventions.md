@@ -4,9 +4,9 @@
 
 ## 11.1 范围与包接口面
 
-标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`六个包（各是一组包限定的自由函数）与`string`方法（经接收者分派）组成。两个预置包与之并列：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`与声明持有类`String`与`Array`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。每次构建自动导入两者，其声明无需任何import语句即可见，显式写`import lang;`或`import containers;`也合法且自动去重（§3.9.4）。两者声明的恒可见名字——`Object`、`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合（§3.9.4）。
+标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`六个包（各是一组包限定的自由函数）与`string`方法（经接收者分派）组成。两个预置包与之并列：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`、声明持有类`String`与泛型数组面`Array<T>`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。每次构建自动导入两者，其声明无需任何import语句即可见，显式写`import lang;`或`import containers;`也合法且自动去重（§3.9.4）。两者声明的恒可见名字——`Object`、`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合（§3.9.4）。
 
-内建值类与容器类的每个方法都是内建的：其声明位于预置包，每次构建都自动导入，程序不能替换它——同名用户类是普通类，不会接管内建接收者。预置类中的`String`与`Array`只作声明持有：它们声明`string`关键字与数组类型的方法面，不能实例化、不能继承、也不能用作类型，且不在类层次之内——`string`与方括号数组语法才是值类型的写法。
+内建值类与容器类的每个方法都是内建的：其声明位于预置包，每次构建都自动导入，程序不能替换它——同名用户类是普通类，不会接管内建接收者。预置类中的`String`只作声明持有：它声明`string`关键字的方法面，不能实例化、不能继承、也不能用作类型，且不在类层次之内——`string`关键字就是值类型的写法。预置类`Array`则走向另一边：`Array<T>`是真实的泛型类型（§4.10.1），其值经方括号创建形式构造；类本身仍只持有数组方法声明，不能被继承。
 
 方法面分布在本规范的各处：`string`方法在第16章，`List`与`Dict`方法在第12章，每个值的默认渲染在§11.2，并发句柄类与`thread`、`concurrent`的包类在第10章、第17章，流句柄类在第14章，异常类在§8.3。
 

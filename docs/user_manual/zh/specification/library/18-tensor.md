@@ -2,7 +2,7 @@
 
 # 18. tensor包
 
-`tensor`包针对`int`、`long`、`float`与`double`四种元素种类的数组提供数值核函数。张量值就是普通数组（§4.10）：该包不引入新类型，元素用§5的下标读写，§4.10的数组成员原样适用。§18.1固定包形态；§18.2定义构造与形状操作；§18.3定义逐元素核函数与归约；§18.4定义矩阵乘积；§18.5固定错误模型。
+`tensor`包针对`int`、`long`、`float`与`double`四种元素种类的数组提供数值核函数。张量值就是普通数组（§4.10）：该包不引入新类型，元素用§5的下标读写，§4.10的数组成员原样适用。§18.1固定包形态；§18.2定义构造与形状操作；§18.3定义逐元素核函数与归约；§18.4定义矩阵乘积；§18.5定义示范层；§18.6固定错误模型。
 
 ## 18.1 包形态
 
@@ -12,16 +12,39 @@
 
 ## 18.2 构造与形状
 
-- `full(n, value)`返回由`value`的`n`个副本构成的数组；元素类型是`value`的类型。
+- `full(n, value)`返回由`value`的`n`个副本构成的秩1数组；`full(dims, value)`改为填充由`dims`描述的形状，`dims`是秩1的`int[]`。元素类型是`value`的类型；家族的每个成员都按该类型挑选。
 - `arange(start, stop, step)`返回严格在`stop`之前的半开等差数列`start`、`start + step`、……；元素类型是三个参数的公共类型。`arange(0.0, 1.0, 0.25)`得到`0.0, 0.25, 0.5, 0.75`。
 - 零填充的数组不需要核函数：定长创建`T[n]`即零初始化（§4.10）；全1数组即`full(n, 1)`。
-- `reshape1`–`reshape8`把扁平的源数组`a`重排为名字所带秩的形状，按行主序填充；秩2的源先用`flatten(a)`摊平。`int[]`的`shape`必须恰好有那么多维，且各维之积必须等于`a`的元素数。声明面覆盖目标秩1–8；§4.10的全局秩上限是64。
+- `reshape(a, shape)`返回把`a`的元素按行主序填入`shape`所述形状的新数组，`shape`是秩1的`int[]`；各维之积必须等于`a`的元素数，结果秩遵循§4.10的全局上限（带方括号标注的结果按标注核秩）。至多一个维度可为`-1`——由元素数除以其余各维之积推断，且必须整除。
+- `concat(a, b, axis)`沿`axis`拼接两个同秩数组：结果在`axis`维上取长度之和，其余各维取操作数的长度——这些长度必须相等。
 - `flatten(a)`把秩2数组`a`按行主序作为秩1数组返回。
 - `transpose(a)`把秩2数组`a`按行主序作为`[cols, rows]`返回。
+
+```nlang
+import io;
+import tensor;
+
+int main() {
+    int[] shape = int[2];
+    shape[0] = 2; shape[1] = 3;
+    double[,] m = tensor.full(shape, 2.5);   // 2x3，每个元素都是2.5
+    int[] six = int[1];
+    six[0] = 6;
+    double[] flat = tensor.reshape(m, six);  // 单个维度 -> 秩1
+    io.print(flat.length());                 // 6
+    int[] inferred = int[2];
+    inferred[0] = -1; inferred[1] = 2;
+    double[,] rows = tensor.reshape(m, inferred);  // [-1, 2] -> [3, 2]
+    io.print(rows.length());                 // 6
+    return 0;
+}
+```
 
 ## 18.3 逐元素核函数与归约
 
 - `add(a, b)`、`sub(a, b)`、`mul(a, b)`与`div(a, b)`逐元素施加运算符，返回操作数元素类型的数组。操作数必须长度相等（秩1）或形状相等（秩2）。整数`div`除零抛出`DivByZeroException`（§8.3）；`float`与`double`除法遵循IEEE，产出Inf或NaN（§4.2）。
+- `exp(a)`与`log(a)`逐元素施加数学函数（`e`的元素次幂、自然对数），返回操作数元素类型的数组。它们只为`float`与`double`声明。
+- `max(a, bound)`与`min(a, bound)`返回`a`的副本，每个元素在`bound`处被截断（从下方抬到界，从上方压到界）；元素类型是元素与界的公共类型。
 - `sum(a)`以元素类型返回所有元素之和；空数组产出该类型的零值。
 - `max(a)`与`min(a)`以元素类型返回最大与最小元素；空数组抛出`Exception`（§8.3）。
 - `mean(a)`对每种元素类型都以`double`返回算术平均值；空数组抛出`Exception`。
@@ -39,6 +62,8 @@ int main() {
     double[] c = tensor.add(a, b);                 // 2.0 2.25 2.5 2.75
     io.print(tensor.sum(c));                       // 9.5
     io.print(tensor.dot(a, a));                    // 0.875
+    double[] e = tensor.exp(c);                    // 逐元素e^x
+    double[] lo = tensor.max(a, 0.5);              // 0.5 0.5 0.5 0.75
     return 0;
 }
 ```
@@ -54,9 +79,33 @@ int[] f = tensor.flatten(m);         // [1, 2, 3, 4]
 int[,] p = tensor.matmul(m, m);      // [[7, 10], [15, 22]]
 ```
 
-## 18.5 错误行为
+## 18.5 示范层
 
-每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的长度或形状不匹配、`reshape`的形状其长度与目标秩不符或其乘积与元素数不符，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧。
+该包的三个函数用NLang本身编写——其源码是该包的`.n`文件，像任何库函数一样可读可改（§3.9.4）。它们组合native核函数，而不是新增核函数：
+
+- `relu(a)`从下方把数组截到零（`max(a, 0)`），为`float`与`double`声明——整数元素没有激活语义。
+- `softmax(x)`对平移后的元素（`x - max(x)`，防止大输入让`exp`溢出）取指数，再按它们的和归一；结果总和为1。
+- `crossEntropyLoss(logits, labels)`计算独热`labels`对`softmax(logits)`的交叉熵：`-sum(labels * log(softmax(logits)))`。形参是秩1的：秩2的批次先经`flatten`摊平（§18.2）。
+
+```nlang
+import io;
+import tensor;
+
+int main() {
+    double[] logits = [2.0, 1.0, 0.1];
+    double[] labels = [1.0, 0.0, 0.0];
+    double loss = tensor.crossEntropyLoss(logits, labels);
+    io.print(loss);                    // ≈ 0.417（argmax的软目标）
+    double[] shifted = tensor.sub(logits, [1.0, 1.0, 1.0]);  // [1, 0, -0.9]
+    double[] act = tensor.relu(shifted);                     // [1, 0, 0]
+    io.print(act[2]);                  // 0——截到零
+    return 0;
+}
+```
+
+## 18.6 错误行为
+
+每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的长度或形状不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧。
 
 *资料性：*诊断消息的写法形如`matmul`的`tensor.matmul: shape mismatch (2x3 vs 2x2)`、逐元素核函数的`tensor: shape mismatch (2x3 vs 2x2)`。
 

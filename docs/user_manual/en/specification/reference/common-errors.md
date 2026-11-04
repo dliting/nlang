@@ -57,11 +57,17 @@ import nosuch;
 Error: Module 'nosuch' not found. Check the project Sources list or -I import path.
 ```
 
-`import` only opens qualified names. Referencing a member of an
-unimported standard library package (or a known project module) without
-importing it reports a "not imported" diagnostic — for example, calling
-`io.print` without `import io;` reports `Package 'io' is not imported.
-Add 'import io;' at the top of this file.`. See [Declarations](../03-program-structure/declarations.md) "Import Declaration".
+An exact `import` opens both spellings — the qualified `lib.f()` and
+the bare `f()`; a wildcard `import` opens qualified calls only.
+Referencing a member of an unimported standard library package (or a
+known project module) without importing it reports a "not imported"
+diagnostic — for example, calling `io.print` without `import io;`
+reports `Package 'io' is not imported. Add 'import io;' at the top of
+this file.`. A function that exists but stays outside this file's bare
+pool reports where it lives: `Function 'add' is not visible here. It
+lives in module 'utils.helper'. Add an explicit import ('import
+utils.helper;') or qualify the call ('utils.helper.add').`. See
+[Declarations](../03-program-structure/declarations.md) "Import Declaration".
 
 ### Default expressions on imported functions
 

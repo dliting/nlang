@@ -23,10 +23,10 @@ operation; this chapter adds no failure behavior of its own.
 | `fs` (§15.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
 | `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
 | `concurrent` (§10.4) | `Exception` | construction with a negative capacity |
-| `tensor` (§18.5) | `NullPointerException` | a null array argument |
-| `tensor` (§18.5) | `IndexOutOfBoundsException` | a creation length past the bound of §4.10; a negative `reshape` dimension |
-| `tensor` (§18.5) | `DivByZeroException` | integer `div` by zero |
-| `tensor` (§18.5) | `Exception` | `arange` with a zero or non-advancing step, or a range past the bound; a length or shape mismatch; `max`, `min` or `mean` on an empty array |
+| `tensor` (§18.6) | `NullPointerException` | a null array argument |
+| `tensor` (§18.6) | `IndexOutOfBoundsException` | a creation length past the bound of §4.10; a negative `reshape` dimension |
+| `tensor` (§18.6) | `DivByZeroException` | integer `div` by zero |
+| `tensor` (§18.6) | `Exception` | `arange` with a zero or non-advancing step, or a range past the bound; a length or shape mismatch; `max`, `min` or `mean` on an empty array |
 
 A call through a `null` receiver raises
 `NullPointerException` in every unit (§11.2); the rows list
