@@ -1,0 +1,14 @@
+import io;
+class Box {
+    public int v = 4;
+    public int size() { return v; }
+}
+int main() {
+    string s = "hi";
+    byte[] b = byte[s.length()];
+    Box x = Box();
+    int[] a = int[x.size()];
+    if (b.length() != 2 || a.length() != 4) { return 1; }
+    io.print("ok");
+    return 0;
+}
