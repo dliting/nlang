@@ -909,6 +909,23 @@ target_link_libraries(test_domainlocks
 
 add_test(NAME domainlocks_tests COMMAND test_domainlocks)
 
+# v0.13.0 net: the OS socket abstraction contract (loopback TCP/UDP,
+# poller set, numeric resolution, unprivileged ICMP echo) — no VM.
+add_executable(test_net_platform
+    test_vm/test_net_platform.cpp
+)
+target_include_directories(test_net_platform
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_platform
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME net_platform_tests COMMAND test_net_platform)
+
 # K8 Task 2: chunked block storage (stable element addresses, atomic size
 # publication) — real threads for the read/growth overlap contract.
 add_executable(test_chunkedarray

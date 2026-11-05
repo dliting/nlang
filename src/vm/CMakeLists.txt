@@ -125,6 +125,16 @@ add_library(nlang_vm
     TypeDesc.cpp
 )
 
+#v0.13.0 net: one NetPlatform implementation per platform (design §6).
+if(WIN32)
+    target_sources(nlang_vm PRIVATE
+        net/NetPlatformWindows.cpp
+        net/NetPlatformWindowsIcmp.cpp)
+else()
+    target_sources(nlang_vm PRIVATE
+        net/NetPlatformPosix.cpp)
+endif()
+
 target_include_directories(nlang_vm
     PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -141,3 +151,14 @@ target_link_libraries(nlang_vm
     PUBLIC nlang_runtime
     PRIVATE nlang_compiler nlang_langservice ${CMAKE_DL_LIBS}
 )
+
+if(WIN32)
+    #v0.13.0 net: vendored wepoll (IOCP-backed epoll-compatible poller,
+    #BSD-2-Clause — src/3rdparty/wepoll/LICENSE.txt) + winsock2 +
+    #iphlpapi (IcmpSendEcho2). The POSIX branch builds NetPlatformPosix.cpp.
+    target_sources(nlang_vm PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/3rdparty/wepoll/wepoll.c)
+    target_include_directories(nlang_vm PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/3rdparty/wepoll)
+    target_link_libraries(nlang_vm PRIVATE ws2_32 iphlpapi)
+endif()
