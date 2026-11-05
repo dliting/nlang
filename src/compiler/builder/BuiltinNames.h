@@ -37,7 +37,24 @@ struct SnInvokeExpr;
 //(stdlib/concurrent.n, stdlib/thread.n). Object stayed in the
 //stdlib/lang.n prelude; all of them resolve through the scope
 //chain like any declared class.
+//v0.12.7 Task 8.5: the stream classes moved to stdlib/io.n (real
+//class declarations + binding-table stamping, the List/Dict pattern).
+//No synthesized builtin class remains, so the predicate answers false
+//for every name and its call sites fall through to the ordinary
+//declared-class resolution. Retained (not deleted) while the retired
+//synthetic-singleton machinery is cleaned up file by file.
 inline bool IsBuiltinClassName(const std::string& name)
+{
+	(void)name;
+	return false;
+}
+
+//The stream class names — declared in stdlib/io.n since Task 8.5. The
+//resolver's literal-type special path (readStruct/readObject) and the
+//struct/object argument gates (writeStruct/writeObject) key on these
+//names; everything else about the classes is ordinary declaration
+//resolution.
+inline bool IsStreamClassName(const std::string& name)
 {
 	return name == "ByteStream" || name == "FileStream";
 }

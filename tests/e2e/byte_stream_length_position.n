@@ -1,3 +1,4 @@
+import io;
 int main() {
     ByteStream bs = ByteStream();
     bs.writeInt(42);

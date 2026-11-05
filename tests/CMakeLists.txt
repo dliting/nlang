@@ -1339,6 +1339,40 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(prelude_faces_tests test_prelude_faces)
 
+    # Builtin-surface coverage gate (v0.12.7 Task 8.5): every class
+    # the C++ side certifies as a builtin must carry a real .n
+    # declaration in the standard library — the stream classes in io
+    # with the full 18-method family, and every handle/face name
+    # somewhere in the imported packages. A new builtin row without a
+    # declaration face fails here by name.
+    add_executable(test_builtin_surface_coverage
+        test_compiler/test_builtin_surface_coverage.cpp
+    )
+    target_include_directories(test_builtin_surface_coverage
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_builtin_surface_coverage
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_builtin_surface_coverage)
+    target_compile_definitions(test_builtin_surface_coverage
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_builtin_surface_coverage POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_builtin_surface_coverage>)
+    endif()
+    nlang_add_qtest(builtin_surface_coverage_tests
+        test_builtin_surface_coverage)
+
     # Module registry unit tests (module import visibility Task 2):
     # per-TU module path computation relative to the project root, the
     # single-file stem fallback and the reserved segment gate, driven
@@ -1397,6 +1431,11 @@ if(NLANG_BUILD_IDE)
             nlang_runtime
             nlang_vm
             Qt5::Test
+    )
+    nlang_stdlib_test(test_array_property)
+    target_compile_definitions(test_array_property
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     if(WIN32)
         add_custom_command(TARGET test_array_property POST_BUILD

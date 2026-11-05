@@ -82,3 +82,74 @@ native void writeFile(string path, string content);
 // Create or append content to path.
 // Raises IOException on failure.
 native void appendFile(string path, string content);
+
+// In-memory binary stream (v0.12.7 Task 8.5: declared here like every
+// other builtin class; the C++ registry row is retired). Writes append
+// at the position; reads advance it. length() is the byte count,
+// position() the next read/write offset; reset() rewinds to 0.
+class ByteStream {
+    // Empty stream. The write family appends; readInt etc. consume from
+    // the position and raise IOException at the end of the buffer.
+    public native ByteStream();
+
+    // Scalar readers: 4-byte int/float and 8-byte long/double wire
+    // forms; readString is length-prefixed UTF-8.
+    public native int readInt();
+    public native float readFloat();
+    public native long readLong();
+    public native double readDouble();
+    public native string readString();
+
+    // Stream control: byte count, next offset, rewind, release.
+    public native int length();
+    public native int position();
+    public native void reset();
+    public native void close();
+
+    // Scalar writers: the argument kind matches the declared formal
+    // (an int argument may be any integer of at most 32 bits; a long
+    // or double argument widens from narrower kinds).
+    public native void writeInt(int v);
+    public native void writeFloat(float v);
+    public native void writeLong(long v);
+    public native void writeDouble(double v);
+    public native void writeString(string s);
+
+    // Structured serialization: writeStruct takes a struct value;
+    // writeObject takes a class value or null (an interface-typed
+    // reference serializes the actual object). readStruct/readObject
+    // take the type name as a STRING LITERAL and return a value of
+    // that declared type — the compiler resolves the literal to the
+    // declaration and the runtime checks polymorphic reads.
+    public native void writeStruct(Object s);
+    public native void writeObject(Object o);
+    public native Object readStruct(string typeName);
+    public native Object readObject(string typeName);
+}
+
+// File-backed binary stream with the ByteStream method family minus
+// reset (a file stream rewinds by re-opening); mode is "read" or
+// "write" (case-insensitive). Writing in read mode, reading a missing
+// file, and any host I/O failure raise IOException.
+class FileStream {
+    // Open path in the given mode. Raises IOException on failure.
+    public native FileStream(string path, string mode);
+
+    public native int readInt();
+    public native float readFloat();
+    public native long readLong();
+    public native double readDouble();
+    public native string readString();
+    public native int length();
+    public native int position();
+    public native void close();
+    public native void writeInt(int v);
+    public native void writeFloat(float v);
+    public native void writeLong(long v);
+    public native void writeDouble(double v);
+    public native void writeString(string s);
+    public native void writeStruct(Object s);
+    public native void writeObject(Object o);
+    public native Object readStruct(string typeName);
+    public native Object readObject(string typeName);
+}

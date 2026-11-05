@@ -4,6 +4,7 @@
 // slots, so an out argument silently does nothing. Round 12 added the
 // matching named-argument rejection at all four builtin dispatch sites;
 // this file covers the out-argument shapes on each site.
+import io;
 class Box { int v; }
 
 int main() {

@@ -1,3 +1,4 @@
+import io;
 class Y : ByteStream {
     int check() { return 3; }
 }

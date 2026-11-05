@@ -990,6 +990,7 @@ private slots:
     void syntheticsSecondBuildIsolated()
     {
         const auto pathA = writeTempSource("syn_two_a.n",
+            "import io;\n"
             "int main() {\n"
             "    List<int> l = [10, 20, 30];\n"
             "    int x = l.get(1);\n"
@@ -1000,6 +1001,7 @@ private slots:
             "    return 0;\n"
             "}\n");
         const auto pathB = writeTempSource("syn_two_b.n",
+            "import io;\n"
             "int main() {\n"
             "    List<string> l = [\"a\", \"b\"];\n"
             "    string s = l.get(0);\n"

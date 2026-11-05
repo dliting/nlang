@@ -1,3 +1,4 @@
+import io;
 int main() {
     //compile_error: readers take no arguments — the argument slot is
     //never read, so a stray argument used to pass silently.

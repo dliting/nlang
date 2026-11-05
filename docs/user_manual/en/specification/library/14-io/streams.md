@@ -1,7 +1,8 @@
 # 14.5 ByteStream and FileStream
 
-`ByteStream` and `FileStream` are built-in handle classes
-(§11.1): `ByteStream` reads and writes an in-memory buffer,
+`ByteStream` and `FileStream` are the `io` package's built-in
+handle classes (§11.1); using them takes `import io;` (§3.9.4):
+`ByteStream` reads and writes an in-memory buffer,
 `FileStream` a disk file. `ByteStream()` constructs an empty
 buffer. `FileStream(path, mode)` opens the file: mode `"w"`
 creates or truncates, `"a"` creates or appends, and `"r"`
@@ -49,9 +50,12 @@ writers take any value §4.4 assigns implicitly to their slot
 type: an `int` enters `writeLong`, and a `float` or an integer
 enters `writeDouble`, the conversion applied at the call site;
 a `ulong` exceeds the `long` range and needs an explicit
-`as long`. The 4-byte writers are exact: `writeInt` takes an
-integer of at most 32 bits, and `writeFloat` takes exactly a
-`float`. A rejected argument is a compile-time error, as is a
+`as long`. The 4-byte writers admit by declared formal:
+`writeInt` takes an integer of at most 32 bits; `writeFloat`
+takes a `float`, and a constant that fits a `float` losslessly
+is equally admissible — `writeFloat(1.0)` rides the same
+constant-fit special case as `float f = 1.0;` (§4.2). A rejected
+argument is a compile-time error, as is a
 `char` or `string` argument to a numeric method.
 
 A read consumes the stream in write order — the example reads

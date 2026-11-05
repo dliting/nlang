@@ -2,6 +2,7 @@
 //writeLong/readLong and writeDouble/readDouble round-trips. Narrower
 //integer/float arguments ride the resolver's widening wrap into the
 //8-byte slot (the same admission math.sqrt arguments use).
+import io;
 import fs;
 
 int main() {

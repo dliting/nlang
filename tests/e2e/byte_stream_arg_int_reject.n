@@ -1,3 +1,4 @@
+import io;
 int main() {
     //compile_error: writeInt writes exactly 4 bytes; a float argument's
     //bit pattern would land in the stream as a bogus integer.

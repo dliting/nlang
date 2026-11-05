@@ -488,19 +488,10 @@ private:
 		SnFieldExpr *pInnerExpr, SnInvokeExpr &invoke,
 		const std::string &name, NodeKind retKind,
 		SyntaxNode *pSavedContext);
-	void CheckStreamMethodSignature(SnInvokeExpr &invoke,
-		const std::string &name);
-	//0.7.5 Task 9: writeLong/writeDouble value-argument admission —
-	//cast-matrix verdict with a widening wrap (see the TU for rationale).
-	void AdmitWideStreamWriterArg(SnInvokeExpr &invoke,
-		const std::string &name);
-	//One scalar argument vs its declared runtime kind (0.7.5
-	//scalar-matrix policy): TCK_Same admits as-is, a widening TCK_Auto
-	//admits wrapped in a cast expr in place, narrowing stays
-	//explicit-only. String keeps the exact-kind policy (the scalar
-	//registry does not know NK_String).
-	bool ScalarArgAdmitted(NodeIterator &it, SnField* pArgType,
-		uint8_t want);
+	//v0.12.7 Task 8.5: only the four serialization specials resolve
+	//by name (the io.n declarations cannot express their semantics);
+	//the ordinary stream methods resolve through their declared
+	//signatures like any native class member.
 	bool TryResolveStreamBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	//Access's builtin by-name method families, historical dispatch order

@@ -1,3 +1,4 @@
+import io;
 struct Vec { float x; float y; }
 
 int main() {

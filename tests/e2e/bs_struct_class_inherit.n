@@ -1,3 +1,4 @@
+import io;
 class Animal {
     public int legs;
 }

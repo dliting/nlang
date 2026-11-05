@@ -1,3 +1,4 @@
+import io;
 class Holder {
     public int v;
 }

@@ -1,6 +1,7 @@
 //0.7.5 Task 9: writeLong goes through the cast matrix, so ulong (whose
 //values above INT64_MAX have no signed representation) needs the
 //explicit `as long` — the same rule as assigning ulong to a long.
+import io;
 int main() {
     ByteStream bs = ByteStream();
     ulong u = 18446744073709551615;

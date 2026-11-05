@@ -298,9 +298,9 @@ debug_class_method_throws 1
 byte_stream_rw_int 6
 byte_stream_rw_float 4
 # --- 0.7.5: stream methods gate argument kind and arity by name ---
-byte_stream_arg_float_reject compile_error expects a float argument
-byte_stream_arg_int_reject compile_error an integer of at most 32 bits
-byte_stream_arity_reject compile_error takes no arguments
+byte_stream_write_float_fit 0
+byte_stream_arg_int_reject compile_error Argument 1 of "writeInt" has type "Float"; "Int32" expected
+byte_stream_arity_reject compile_error is not compatible with the declaration
 byte_stream_rw_string 1
 byte_stream_length_position 1
 byte_stream_eos 1
@@ -1390,9 +1390,9 @@ char_switch_cross 0
 # 0.7.5 Task 9: 64-bit stream primitives + all-primitive printing.
 stream_long_double 0
 print_all_primitives 0 true
-stream_long_arg_char_reject compile_error expects a long argument
-stream_long_arg_ulong_reject compile_error expects a long argument
-stream_double_arg_string_reject compile_error expects a double argument
+stream_long_arg_char_reject compile_error Argument 1 of "writeLong" has type "Char"; "Long" expected
+stream_long_arg_ulong_reject compile_error Argument 1 of "writeLong" has type "ULong"; "Long" expected
+stream_double_arg_string_reject compile_error Argument 1 of "writeDouble" has type "String"; "Double" expected
 # 0.7.6: source files must be UTF-8 (invalid bytes rejected with a named
 # error; a leading UTF-8 BOM is accepted and skipped).
 src_utf8_bom 5

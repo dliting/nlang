@@ -2,7 +2,7 @@
 
 # 14.5 ByteStream与FileStream
 
-`ByteStream`与`FileStream`是内建句柄类（§11.1）：`ByteStream`读写内存缓冲，`FileStream`读写磁盘文件。`ByteStream()`构造一个空缓冲。`FileStream(path, mode)`打开文件：模式`"w"`创建或截断，`"a"`创建或追加，`"r"`只以读方式打开；直接初始化声明同样合法（`FileStream fs("data.bin", "w");`，§4.8.4）。未赋值的流句柄为null；经由null句柄的方法调用抛出`NullPointerException`（§8.3）。其他一切流失败都是*宿主级*执行期错误（§8.1）：没有`catch`子句处理它，程序结束。失败位点有：无效模式、打开失败（包括对缺失文件用`"r"`）、经由已关闭或无效句柄的访问、对只读流的写入或对只写流的读取、越过流末的读取、命名了程序未声明的类型的结构体或对象读取，以及由`writeStruct`或`writeObject`写出的、带数组或函数类型字段的结构体或类值。
+`ByteStream`与`FileStream`是`io`包的内建句柄类（§11.1），使用前`import io;`（§3.9.4）：`ByteStream`读写内存缓冲，`FileStream`读写磁盘文件。`ByteStream()`构造一个空缓冲。`FileStream(path, mode)`打开文件：模式`"w"`创建或截断，`"a"`创建或追加，`"r"`只以读方式打开；直接初始化声明同样合法（`FileStream fs("data.bin", "w");`，§4.8.4）。未赋值的流句柄为null；经由null句柄的方法调用抛出`NullPointerException`（§8.3）。其他一切流失败都是*宿主级*执行期错误（§8.1）：没有`catch`子句处理它，程序结束。失败位点有：无效模式、打开失败（包括对缺失文件用`"r"`）、经由已关闭或无效句柄的访问、对只读流的写入或对只写流的读取、越过流末的读取、命名了程序未声明的类型的结构体或对象读取，以及由`writeStruct`或`writeObject`写出的、带数组或函数类型字段的结构体或类值。
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -29,7 +29,7 @@ double d = bs.readDouble();  // 0.5
 | `reset()` | 把游标回到0并清除对象身份状态；缓冲保留（仅`ByteStream`） |
 | `close()` | 释放缓冲或文件句柄；句柄变为无效 |
 
-标量写方法按宽度准入实参。8字节写入器接受§4.4能隐式赋值到其槽类型的任何值：`int`进入`writeLong`，`float`或整数进入`writeDouble`，转换在调用点施加；`ulong`超出`long`值域，需要显式`as long`。4字节写入器要求精确：`writeInt`接受至多32位的整数，`writeFloat`恰好接受一个`float`。被拒绝的实参是编译期错误，给数值方法传`char`或`string`实参也是编译期错误。
+标量写方法按宽度准入实参。8字节写入器接受§4.4能隐式赋值到其槽类型的任何值：`int`进入`writeLong`，`float`或整数进入`writeDouble`，转换在调用点施加；`ulong`超出`long`值域，需要显式`as long`。4字节写入器按声明形参准入：`writeInt`接受至多32位的整数；`writeFloat`接受`float`，能无损落入`float`的常量实参同样合法——`writeFloat(1.0)`与§4.2的常量适配特例（`float f = 1.0;`）同一条规则。被拒绝的实参是编译期错误，给数值方法传`char`或`string`实参也是编译期错误。
 
 读取按写出顺序消耗流——示例先读回int，再读double——越过流末的读取抛出宿主级错误而非产出值。由`writeObject`写出的`null`类引用读回为`null`。在同一张`writeObject`图内，共享引用被保持：指代同一实例的两个字段读回为一个实例。对`FileStream`调用`close()`释放操作系统句柄并使流句柄失效；对同一引用的后续调用报告无效句柄错误。值的字节级编码——字节序以及结构体与对象的形式——由§14.6固定。
 

@@ -257,10 +257,9 @@ always-visible names are declared by the preset packages `lang`
 and `containers` — `Object`, the `Exception` family of §8.3,
 `String` and `Array` in `lang`; `List<T>` and `Dict<K,V>` in
 `containers` — and are the whole set; a program
-that uses any other standard-library name imports its package.
-The stream handle classes `ByteStream` and `FileStream` (§14.5)
-are also import-free today — the one remaining asymmetry,
-retained until their declaration source migrates.
+that uses any other standard-library name imports its package,
+the stream handle classes `ByteStream` and `FileStream` (§14.5)
+included.
 
 The concurrency names split by what they answer:
 
