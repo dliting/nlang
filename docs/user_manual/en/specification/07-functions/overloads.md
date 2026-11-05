@@ -131,16 +131,17 @@ Two same-name overloads with the same parameter count but different
 parameter types therefore link without ambiguity — the call site has
 already decided which one runs.
 
-```nlang lib.n
-int score(int v) { return v + 1; }
-int score(double v) { return 100; }
-```
-
 ```nlang
 import lib;
 
-int a = lib.score(1);     // int overload    -> 2
-int b = lib.score(2.5);   // double overload -> 100
+int main() {
+    return lib.score(1) + lib.score(2.5);   // 2 + 100 = 102
+}
+```
+
+```nlang lib.n
+int score(int v) { return v + 1; }
+int score(double v) { return 100; }
 ```
 
 The compile-time ambiguity rule is unchanged: when an argument converts to
@@ -170,9 +171,10 @@ import alpha.dup;
 import beta.dup;
 
 int main() {
-    return dup();   // Error: ambiguous call to function "dup":
-                    // module 'alpha.dup' and module 'beta.dup' both match
-                    // with equal distance; qualify the call with the
-                    // module path.
+    return dup();
 }
+```
+
+```text
+Error: ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
 ```

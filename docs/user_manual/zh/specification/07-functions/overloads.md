@@ -88,16 +88,17 @@ struct的诊断文案中用`struct`（`no constructor of struct "S" matches the 
 
 *资料性：*导入的自由函数、接口静态方法、枚举方法的重载，解析方式与同单元内完全一致：编译器在调用点按参数类型选出最佳匹配，链接器把选中的那个重载连到生产方单元里它自己的记录。因此同名同参数数但参数类型不同的两个重载不会再在链接期产生歧义——调用点已经决定了运行哪一个。
 
-```nlang lib.n
-int score(int v) { return v + 1; }
-int score(double v) { return 100; }
-```
-
 ```nlang
 import lib;
 
-int a = lib.score(1);     // int重载    → 2
-int b = lib.score(2.5);   // double重载 → 100
+int main() {
+    return lib.score(1) + lib.score(2.5);   // 2 + 100 = 102
+}
+```
+
+```nlang lib.n
+int score(int v) { return v + 1; }
+int score(double v) { return 100; }
 ```
 
 编译期二义规则不变：当实参以相同距离可转换到两个重载的形参类型时，解析器在调用点报告二义，无论这两个重载是否位于另一个模块。
@@ -117,9 +118,10 @@ import alpha.dup;
 import beta.dup;
 
 int main() {
-    return dup();   // 错误：ambiguous call to function "dup":
-                    // module 'alpha.dup' and module 'beta.dup' both match
-                    // with equal distance; qualify the call with the
-                    // module path.
+    return dup();
 }
+```
+
+```text
+Error: ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
 ```

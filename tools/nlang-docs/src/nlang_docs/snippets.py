@@ -26,11 +26,13 @@ runtime):
    stops at a successful compile;
  - the error-example convention: a ```text fence whose first non-blank
    line starts with "Error" quotes a compiler diagnostic; it attaches
-   to the maximal run of immediately preceding consecutive ```nlang
-   fences (prose and blank lines may separate them, any other fence
-   breaks the run). That run must fail to compile and every non-blank
-   quote line must appear verbatim in ncc's stderr — the manual's
-   quoted diagnostics stay pinned to the real compiler output;
+   to the run of immediately preceding ```nlang fences that reads as
+   one example — blank lines may separate them; a prose paragraph or
+   any other fence breaks the run (a runnable program that merely
+   precedes the example is never swallowed into it). That run must
+   fail to compile and every non-blank quote line must appear verbatim
+   in ncc's stderr — the manual's quoted diagnostics stay pinned to
+   the real compiler output;
  - blocks without main are not runnable: a ```nlang <path> label joins
    them to the preceding program as an extra source file (the guide's
    module section); a bare mainless block is a fragment — counted in
@@ -82,7 +84,8 @@ def parse_blocks(text):
     quotes are resolved here (see the module docstring's convention)."""
     lines = text.splitlines()
     problems = []
-    fences = []                   #(open line idx, lang, label, body lines)
+    #fences: (open line idx, lang, label, body lines, close line idx)
+    fences = []
     i = 0
     while i < len(lines):
         opened = _FENCE_OPEN.match(lines[i])
@@ -99,24 +102,31 @@ def parse_blocks(text):
                 "line %d: fence ```%s is never closed; the rest of the "
                 "page is not audited" % (i + 1, lang))
             break
-        fences.append((i, lang, label, lines[i + 1:end]))
+        fences.append((i, lang, label, lines[i + 1:end], end))
         i = end + 1
-    #Attach each Error-quote to the maximal run of consecutive nlang
-    #fences right before it; a fence already claimed by an earlier quote
-    #is not re-claimed. One shared list per run: group_errors uses the
-    #object identity to tell one run's fences from another's.
+    #Attach each Error-quote to the run of nlang fences right before it
+    #that reads as ONE example: fences separated by blank lines only. A
+    #paragraph of prose starts a new example, so a runnable program that
+    #merely precedes the error example is never swallowed into it. A
+    #fence already claimed by an earlier quote stops the walk too. One
+    #shared list per run: group_errors uses the object identity to tell
+    #one run's fences from another's.
     quotes = {}                   #fence index -> quote lines
-    for idx, (_, lang, _, body) in enumerate(fences):
+    for idx, (_, lang, _, body, _) in enumerate(fences):
         if lang != "text":
             continue
         first = next((x for x in body if x.strip()), "")
         if not _ERROR_QUOTE_START.match(first):
             continue
         quote_lines = [x.strip() for x in body if x.strip()]
-        j = idx - 1
-        while j >= 0 and fences[j][1] == "nlang" and j not in quotes:
-            j -= 1
-        for k in range(j + 1, idx):
+        run_start = idx
+        while (run_start > 0
+                and fences[run_start - 1][1] == "nlang"
+                and (run_start - 1) not in quotes
+                and not any(x.strip() for x in lines[
+                    fences[run_start - 1][4] + 1:fences[run_start][0]])):
+            run_start -= 1
+        for k in range(run_start, idx):
             quotes[k] = quote_lines
     blocks = [SnippetBlock(f[0] + 1, f[1], f[2], "\n".join(f[3]) + "\n",
                            quotes.get(i))
@@ -391,6 +401,15 @@ def _audit_program(program, ncc, nvm, scratch):
     return []
 
 
+def _has_dotted_labels(program):
+    """Dotted module paths — a directory component in a <path> label,
+    like ``alpha/dup.n`` — name project modules. Sealed ``.ncu`` staging
+    cannot carry them (precompiled dotted packages resolve by their
+    single last segment, so the imports would miss); a project build
+    resolves the dotted paths natively."""
+    return any("/" in relpath for relpath in program.files)
+
+
 def _audit_error(program, ncc, scratch):
     """An error-example run must fail to compile, and every quote line
     must appear verbatim in the compiler's stderr (the manual quotes
@@ -408,8 +427,13 @@ def _audit_error(program, ncc, scratch):
     ``.nproj`` inlines the sources and would compile them cleanly. The
     first failing step is the expected failure point; its stderr must
     carry the quote. If every step compiles, the quoted diagnostic no
-    longer reproduces."""
-    if len(program.files) == 1:
+    longer reproduces.
+
+    Dotted-label examples (``alpha/dup.n``) take the project arm
+    instead: their diagnostics are name-resolution errors that fire in
+    a project build, and sealed staging cannot even load the modules
+    (see _has_dotted_labels)."""
+    if len(program.files) == 1 or _has_dotted_labels(program):
         nproj = _materialize(program, scratch)
         build_cmd, _ = _build_cmd(program, ncc, scratch, nproj)
         built = _run(build_cmd, cwd=scratch)
