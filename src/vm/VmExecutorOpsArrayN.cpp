@@ -37,14 +37,32 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     NoteGcPressure();
 }
 
-//Row-major element address shared by the element op family: per-dim
-//bounds check (catchable OOB naming the dimension keeps ND debugging
-//humane), then the flat index. The caller has already gated null/kind
-//and the rank match.
+//Dual-shape element address shared by the element op family: per-dim
+//bounds check against the record's own dims (catchable OOB naming the
+//dimension keeps ND debugging humane), then the flat index in OWNER
+//payload space. An owning record folds computed row-major strides from
+//offset 0; a view record folds its recorded strides from its recorded
+//offset (negative strides reverse, zero strides broadcast). The caller
+//has already gated null/kind and the rank match.
 int64_t VmExecutor::ElementFlatAddress(const std::vector<int32_t>& slot,
-    uint16_t rank, uint16_t idxBase, uint8_t* locals) {
+    uint8_t kind, uint16_t rank, uint16_t idxBase, uint8_t* locals) {
     const int32_t* dims = slot.data() + 4;
-    int64_t flat = 0;
+    int32_t rowMajor[kMaxArrayRank];
+    const int32_t* strides;
+    int64_t flat;
+    if (kind == RTK_ArrayView) {
+        strides = slot.data() + ArrayViewStridesBase(
+            static_cast<uint8_t>(rank));
+        flat = slot[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
+    } else {
+        int32_t stride = 1;
+        for (int32_t d = rank - 1; d >= 0; --d) {
+            rowMajor[d] = stride;
+            stride *= dims[d];
+        }
+        strides = rowMajor;
+        flat = 0;
+    }
     for (uint16_t d = 0; d < rank; ++d) {
         int32_t idx;
         std::memcpy(&idx, locals + idxBase + d * kFrameSlotBytes,
@@ -53,9 +71,64 @@ int64_t VmExecutor::ElementFlatAddress(const std::vector<int32_t>& slot,
             RaiseNlangException(m_oobExcClassIdx,
                 "NLang VM: array index out of bounds (dim "
                 + std::to_string(d) + ")");
-        flat = flat * dims[d] + idx;
+        flat += static_cast<int64_t>(idx) * strides[d];
     }
     return flat;
+}
+
+//Dual-shape payload window: owning records carry the payload at their
+//own padded header, view records address their OWNER's payload (the
+//depth-one peel invariant puts an owned record handle in the target
+//cell). Callers must not hold the returned reference across a
+//heap-growing call.
+std::vector<int32_t>& VmExecutor::ElementPayloadRecord(
+    std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut) {
+    if (kind != RTK_ArrayView) {
+        payloadBaseOut = ArrayPayloadBase(slot);
+        return slot;
+    }
+    const uint8_t rank = static_cast<uint8_t>(slot[2]);
+    const int32_t target = slot[ArrayViewTargetCell(rank)];
+    if (target <= 0
+        || static_cast<size_t>(target) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(target)] != RTK_Array)
+        throw std::runtime_error(
+            "NLang VM: corrupt view record (target out of range)");
+    auto& owner = m_structHeap[static_cast<size_t>(target)];
+    payloadBaseOut = ArrayPayloadBase(owner);
+    return owner;
+}
+
+//Affine address of the flat-eth element (row-major over the record's
+//own dims) of a VIEW record, in owner payload space — the coordinate
+//decode foreach and row copies share. dims[d] >= 1 holds by creation
+//validation, so the div/mod walk is exact.
+int64_t VmExecutor::ViewFlatElementAddress(
+    const std::vector<int32_t>& view, int64_t flat) {
+    const int32_t rank = view[2];
+    const int32_t* dims = view.data() + 4;
+    const int32_t* strides =
+        view.data() + ArrayViewStridesBase(static_cast<uint8_t>(rank));
+    int64_t addr = view[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
+    int64_t rem = flat;
+    for (int32_t d = rank - 1; d >= 0; --d) {
+        const int32_t coord = static_cast<int32_t>(rem % dims[d]);
+        rem /= dims[d];
+        addr += static_cast<int64_t>(coord) * strides[d];
+    }
+    return addr;
+}
+
+void VmExecutor::RejectZeroStrideStore(const std::vector<int32_t>& slot,
+                                       uint8_t rank) {
+    const int32_t* strides =
+        slot.data() + ArrayViewStridesBase(rank);
+    for (uint8_t d = 0; d < rank; ++d) {
+        if (strides[d] == 0)
+            RaiseNlangExceptionBase(
+                "cannot store through a broadcast (zero-stride) view; "
+                "reshape it to materialize a writable copy");
+    }
 }
 
 void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
@@ -68,9 +141,11 @@ void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    //Element opcodes are only emitted for array-typed bases; any other
-    //slot kind is a compiler invariant violation (uncatchable).
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    //Element opcodes are only emitted for array-typed bases, and both
+    //record kinds are array-typed values; any other slot kind is a
+    //compiler invariant violation (uncatchable).
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_LoadElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -78,10 +153,14 @@ void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
     if (static_cast<uint16_t>(recRank) != rank)
         throw std::runtime_error(
             "NLang VM: OP_LoadElementN rank mismatch");
-    int64_t flat = ElementFlatAddress(slot, rank, idxBase, locals);
+    int64_t flat = ElementFlatAddress(slot, kind, rank, idxBase, locals);
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
     //0.7.5: element stride is registry-driven (slot[1] holds the array
-    //type idx recorded at alloc). A 2-cell element copies 8 bytes —
-    //the destination frame slot is the uniform 8-byte cell.
+    //type idx recorded at alloc; a view's own row carries the same
+    //element kind — creation validated it against the owner). A 2-cell
+    //element copies 8 bytes — the destination frame slot is the
+    //uniform 8-byte cell.
     uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
     if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
@@ -89,7 +168,7 @@ void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
     std::memcpy(locals + dst,
-        slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
+        payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
@@ -105,7 +184,8 @@ void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
     //Same kind gate as OP_LoadElementN (invariant violation, uncatchable).
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_StoreElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -113,7 +193,14 @@ void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
     if (static_cast<uint16_t>(recRank) != rank)
         throw std::runtime_error(
             "NLang VM: OP_StoreElementN rank mismatch");
-    int64_t flat = ElementFlatAddress(slot, rank, idxBase, locals);
+    //Broadcast axes reject the store up front (one pass, all axes):
+    //every logical index folds onto one owner cell, so a store would
+    //silently corrupt aliases.
+    if (kind == RTK_ArrayView)
+        RejectZeroStrideStore(slot, static_cast<uint8_t>(rank));
+    int64_t flat = ElementFlatAddress(slot, kind, rank, idxBase, locals);
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
     //0.7.5: mirror of OP_LoadElementN's stride read — 2-cell elements
     //copy the full 8 bytes from the source frame slot.
     uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
@@ -122,7 +209,7 @@ void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_StoreElementN on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    std::memcpy(slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
+    std::memcpy(payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }
@@ -137,8 +224,10 @@ void VmExecutor::OpArrayLength(BytecodeReader& reader, uint8_t* locals) {
                             "NLang VM: null array access");
     //Same kind gate as OP_LoadElement (hole 3). No index
     //operand here, so only the range check precedes it; the
-    //kind must still gate the slot[2] length read.
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    //kind must still gate the slot[2] length read. A view's
+    //elemCount is its own logical count.
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array
+        && m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_ArrayLength expects an array slot");
     //Stage-2 header: elemCount moved to slot[3].
@@ -159,7 +248,8 @@ void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_LoadElementFlat expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -173,10 +263,16 @@ void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_LoadElementFlat on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    const int32_t rank = slot[2];
+    //A view's payload is not contiguous: decode the linear index to
+    //coordinates over the view's own dims, then apply the affine map.
+    const int64_t addr = kind == RTK_ArrayView
+        ? ViewFlatElementAddress(slot, flat)
+        : static_cast<int64_t>(flat);
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
     std::memcpy(locals + dst,
-        slot.data() + ArrayHeaderCells(static_cast<uint8_t>(rank))
-            + static_cast<size_t>(flat) * cells,
+        payload.data() + payloadBase
+            + static_cast<size_t>(addr) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
@@ -189,7 +285,10 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    //A view reports its own logical dims (the shared header prefix
+    //makes the read kind-agnostic).
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array
+        && m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_ArrayShape expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -217,121 +316,12 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, &shapeIdx, sizeof(shapeIdx));
 }
 
-//Stage-3 D3: assemble a rank>=2 array from staged row handles - the
-//dynamic-shape ND initializer arm (OP_AssembleArrayN). Rows validate
-//and snapshot in SnapshotAssembleRows; this allocates the record and
-//copies the row payloads into its contiguous row-major storage. Only
-//struct elements deep-copy (value semantics); every other kind copies
-//cell-wise, exactly like OP_StoreElementN's slot write.
-void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
-    uint16_t dst = reader.ReadUint16();
-    uint16_t arrayTypeIdx = reader.ReadUint16();
-    uint16_t elemSlotBase = reader.ReadUint16();
-    uint16_t rowCount = reader.ReadUint16();
-    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
-        throw std::runtime_error(
-            "NLang VM: OP_AssembleArrayN on invalid array type");
-    const CompiledArrayType& arrayType =
-        m_currModule->arrayTypes[arrayTypeIdx];
-    const uint8_t rank = arrayType.rank;
-    //The emitter only produces rank>=2 assemblies with non-empty row
-    //lists; anything else is a compiler invariant violation.
-    if (rank < 2 || rank > kMaxArrayRank || rowCount == 0)
-        throw std::runtime_error(
-            "NLang VM: OP_AssembleArrayN on invalid shape header");
-    std::vector<int32_t> rowHandles(rowCount);
-    int32_t dims[kMaxArrayRank];
-    SnapshotAssembleRows(locals, elemSlotBase, rowCount, rank,
-                         rowHandles, dims);
-    const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
-    NoteGcPressure();
-    CopyAssembleRows(heapIdx, arrayType, rowHandles);
-    std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
-}
-
-//Row-payload copy of OpAssembleArrayN: every row's cells block-copy
-//into the fresh record's contiguous row-major storage. Only struct
-//elements deep-copy (value semantics); every other kind copies
-//cell-wise, exactly like OP_StoreElementN's slot write.
-void VmExecutor::CopyAssembleRows(int32_t heapIdx,
-    const CompiledArrayType& arrayType,
-    const std::vector<int32_t>& rowHandles) {
-    const uint8_t rank = arrayType.rank;
-    const size_t destBase = ArrayHeaderCells(rank);
-    const size_t rowBase = ArrayHeaderCells(static_cast<uint8_t>(rank - 1));
-    const size_t cells = static_cast<size_t>(
-        ArrayElemCells(arrayType.elemKind));
-    const bool structElems = arrayType.elemKind == RTK_Struct
-        && arrayType.elemTypeIdx != 0xFFFF;
-    const size_t rowCount = rowHandles.size();
-    for (size_t r = 0; r < rowCount; ++r) {
-        const size_t rowSlot = static_cast<size_t>(rowHandles[r]);
-        const size_t rowElems =
-            static_cast<size_t>(m_structHeap[rowSlot][3]);
-        if (!structElems) {
-            const int32_t* rowCells = m_structHeap[rowSlot].data();
-            auto& dest = m_structHeap[static_cast<size_t>(heapIdx)];
-            std::memcpy(dest.data() + destBase + r * rowElems * cells,
-                rowCells + rowBase, rowElems * cells * sizeof(int32_t));
-            continue;
-        }
-        //Struct elements are values: one DeepCopyStruct per element.
-        //Each deep copy grows m_structHeap, so every access re-indexes
-        //by the stable heap handles instead of holding a reference.
-        for (size_t e = 0; e < rowElems; ++e) {
-            const int32_t elemHandle =
-                m_structHeap[rowSlot][rowBase + e];
-            const int32_t copyIdx = DeepCopyStruct(elemHandle,
-                                                   arrayType.elemTypeIdx);
-            m_structHeap[static_cast<size_t>(heapIdx)]
-                [destBase + r * rowElems + e] = copyIdx;
-        }
-    }
-}
-
-//Validation pass of OpAssembleArrayN: null/kind/row-rank gates plus the
-//shared per-level width check, and the handle/dims snapshot the
-//allocation consumes. Target dim L (L >= 1) is row dim L-1; the first
-//row pins it, later rows must agree - differing widths are user data
-//shape and take the catchable base-exception family.
-void VmExecutor::SnapshotAssembleRows(const uint8_t* locals,
-    uint16_t elemSlotBase, uint16_t rowCount, uint8_t rank,
-    std::vector<int32_t>& rowHandles, int32_t* dims) {
-    dims[0] = static_cast<int32_t>(rowCount);
-    for (uint16_t r = 0; r < rowCount; ++r) {
-        std::memcpy(&rowHandles[r],
-                    locals + elemSlotBase + r * kFrameSlotBytes,
-                    sizeof(int32_t));
-        const int32_t handle = rowHandles[r];
-        if (handle <= 0
-            || static_cast<size_t>(handle) >= m_structHeap.size())
-            RaiseNlangException(m_nullPtrExcClassIdx,
-                                "NLang VM: null array access");
-        if (m_slotKinds[static_cast<size_t>(handle)] != RTK_Array)
-            throw std::runtime_error(
-                "NLang VM: OP_AssembleArrayN expects array rows");
-        auto& row = m_structHeap[static_cast<size_t>(handle)];
-        if (row[2] != rank - 1)
-            throw std::runtime_error(
-                "NLang VM: OP_AssembleArrayN row rank mismatch");
-        for (uint8_t d = 0; d + 1 < rank; ++d) {
-            if (r == 0)
-                dims[d + 1] = row[4 + d];
-            else if (row[4 + d] != dims[d + 1])
-                RaiseNlangExceptionBase(
-                    "ND initializer widths differ (dim "
-                    + std::to_string(d + 1) + ": "
-                    + std::to_string(dims[d + 1]) + " vs "
-                    + std::to_string(row[4 + d]) + ")");
-        }
-    }
-}
-
 //v0.12.7 Task 4: the unannotated Array<E> spelling's element read. The
 //record rank is unknown to the compiler, so the source-written
 //coordinate count verifies against it here; a mismatch is a USER error
 //(catchable OOB carrying both counts), unlike the static pair's
-//invariant. Views join when they land (Task 8), like the boundary check.
+//invariant. Views dispatch through the same dual-shape helpers as the
+//static pair (Task 10).
 void VmExecutor::OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
@@ -342,7 +332,8 @@ void VmExecutor::OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals) {
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_LoadElementDyn expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -358,14 +349,17 @@ void VmExecutor::OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_LoadElementDyn on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    int64_t flat = ElementFlatAddress(slot, nCoords, idxBase, locals);
+    int64_t flat = ElementFlatAddress(slot, kind, nCoords, idxBase, locals);
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
     std::memcpy(locals + dst,
-        slot.data() + ArrayHeaderCells(static_cast<uint8_t>(nCoords))
+        payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
-//Store twin of OpLoadElementDyn (same gates, payload copy reversed).
+//Store twin of OpLoadElementDyn (same gates, payload copy reversed);
+//view bases take the broadcast-axis rejection like the static store.
 void VmExecutor::OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arr = reader.ReadUint16();
     uint16_t idxBase = reader.ReadUint16();
@@ -376,7 +370,8 @@ void VmExecutor::OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals) {
     if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null array access");
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array)
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
         throw std::runtime_error(
             "NLang VM: OP_StoreElementDyn expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
@@ -386,14 +381,18 @@ void VmExecutor::OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals) {
             "array subscript expects " + std::to_string(recRank)
             + " indices, got " + std::to_string(nCoords)
             + " (rank " + std::to_string(recRank) + ")");
+    if (kind == RTK_ArrayView)
+        RejectZeroStrideStore(slot, static_cast<uint8_t>(nCoords));
     uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
     if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
             "NLang VM: OP_StoreElementDyn on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    int64_t flat = ElementFlatAddress(slot, nCoords, idxBase, locals);
-    std::memcpy(slot.data() + ArrayHeaderCells(static_cast<uint8_t>(nCoords))
+    int64_t flat = ElementFlatAddress(slot, kind, nCoords, idxBase, locals);
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    std::memcpy(payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
 }

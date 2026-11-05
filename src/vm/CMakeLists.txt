@@ -23,6 +23,7 @@ add_library(nlang_vm
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
     VmExecutorOpsArrayN.cpp
+    VmExecutorOpsAssemble.cpp
     VmExecutorOpsArrayCheck.cpp
     VmExecutorOpsObjects.cpp
     VmExecutorOpsStaticInit.cpp

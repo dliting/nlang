@@ -681,6 +681,12 @@ private:
     void CopyAssembleRows(int32_t heapIdx,
         const CompiledArrayType& arrayType,
         const std::vector<int32_t>& rowHandles);
+    //View-row arm of the copy: every element runs through the affine
+    //map into the row's owner payload (see the implementation).
+    void CopyAssembleViewRow(int32_t heapIdx, size_t rowSlot,
+        size_t rowElems, size_t destBase, size_t rowOrdinal,
+        const CompiledArrayType& arrayType, size_t cells,
+        bool structElems);
     void OpLoadElementN(BytecodeReader& reader, uint8_t* locals);
     void OpStoreElementN(BytecodeReader& reader, uint8_t* locals);
     void OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals);
@@ -706,9 +712,30 @@ private:
     void OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals);
     //Row-major element address shared by the element op family: per-dim
     //bounds check (catchable OOB naming the dimension), then the flat
-    //index. The caller has already gated null/kind/rank.
+    //index in OWNER payload space — an owning record folds computed
+    //row-major strides from offset 0, a view folds its recorded strides
+    //from its recorded offset. The caller has already gated
+    //null/kind/rank.
     int64_t ElementFlatAddress(const std::vector<int32_t>& slot,
-        uint16_t rank, uint16_t idxBase, uint8_t* locals);
+        uint8_t kind, uint16_t rank, uint16_t idxBase, uint8_t* locals);
+    //Dual-shape payload window: owning records carry the payload at
+    //their own padded header, view records in their OWNER's payload
+    //(the depth-one peel invariant). Returns the record owning the
+    //cells and its payload base; the caller must not hold either
+    //across a heap-growing call.
+    std::vector<int32_t>& ElementPayloadRecord(
+        std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut);
+    //Affine address of the flat-eth element (row-major over the record's
+    //own dims) of a VIEW record, in owner payload space. Callers bound
+    //flat by the record's elemCount first.
+    int64_t ViewFlatElementAddress(const std::vector<int32_t>& view,
+                                   int64_t flat);
+    //Stores through a broadcast axis are not definable (every logical
+    //index folds onto one owner cell — silent alias corruption); reject
+    //them once over all axes at store entry. Loads are fine: broadcast
+    //reads repeat the target cell.
+    void RejectZeroStrideStore(const std::vector<int32_t>& slot,
+                               uint8_t rank);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
     void OpCheckCast(BytecodeReader& reader, uint8_t* pResult);
@@ -783,6 +810,14 @@ private:
     void FormatArrayElement(std::string& result,
         const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
         int cells, int depth);
+    //View-record formatting: the same brackets as an owning record over
+    //the view's own dims, but every element read runs through the
+    //affine map into the owner payload.
+    void FormatViewNDLevel(std::string& result,
+        const std::vector<int32_t>& view, uint8_t rank, uint8_t level,
+        int32_t flat, int32_t viewHeapIdx, uint8_t elemKind, int cells,
+        int depth);
+    std::string FormatViewArray(int32_t heapIdx, int depth);
     void FormatArrayNDLevel(std::string& result,
         const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
         size_t& flatIndex, uint8_t elemKind, int cells, int depth);

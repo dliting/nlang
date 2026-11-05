@@ -1,0 +1,81 @@
+// v0.12.7 Task 10: dual-shape element ops on views. Views minted
+// through the ABI-v10 exercise native walk the ordinary element
+// opcodes: static and dynamic load/store, length, foreach (the flat
+// reader), the zero-stride store rejection, negative strides, stores
+// aliasing through to the owner, and array formatting.
+import tensor;
+
+int main() {
+    int[] a = [0, 11, 22, 33, 44, 55];
+
+    //Strided view: v[i] == a[1 + 2i] for i in 0..2.
+    int[] v = tensor.strideViewI(a, 3, 2, 1);
+    if (v.length() != 3) return 1;
+    if (v[0] != 11 || v[1] != 33 || v[2] != 55) return 2;
+    v[1] = 30;                       //store through the view aliases
+    if (a[3] != 30) return 3;        //owner cell a[3] changed
+
+    //Dynamic (unannotated) spelling exercises the Dyn op pair.
+    Array<int> dv = v;
+    if (dv[2] != 55) return 4;
+    dv[0] = 10;
+    if (a[1] != 10) return 5;
+
+    //Negative stride: w[i] == a[2 - i].
+    int[] w = tensor.strideViewI(a, 3, -1, 2);
+    if (w[0] != 22 || w[1] != 10 || w[2] != 0) return 6;
+    w[2] = 99;                       //first logical cell hits owner head
+    if (a[0] != 99) return 7;
+
+    //Zero-stride (broadcast) view: loads repeat the target cell (a[1]
+    //holds 10 by now), every store is rejected with the catchable
+    //broadcast message.
+    int[] z = tensor.strideViewI(a, 3, 0, 1);
+    if (z[0] != 10 || z[2] != 10) return 8;
+    int caught = 0;
+    try {
+        z[1] = 5;
+    } catch (Exception e) {
+        caught = 1;
+        if (e.message != "cannot store through a broadcast (zero-stride) view; reshape it to materialize a writable copy") return 9;
+    }
+    if (caught != 1) return 10;
+    //The rejected store changed nothing.
+    if (a[1] != 10) return 11;
+
+    //Foreach walks the logical row-major order of the view.
+    int sum = 0;
+    foreach (int x in v) {
+        sum += x;
+    }
+    if (sum != 10 + 30 + 55) return 12;
+
+    //Formatting reads through the affine map too.
+    if (z.toString() != "[10, 10, 10]") return 13;
+
+    //A view row in an ND initializer assembles by copying through the
+    //affine map — the row is a value, not an alias into the assembly.
+    int[,] m = [[1, 2, 3], v];
+    if (m[1, 0] != 10 || m[1, 2] != 55) return 14;
+    m[1, 1] = 7;
+    if (v[1] != 30) return 15;
+
+    //Shape reports the view's own logical dims.
+    if (v.shape()[0] != 3) return 16;
+
+    //Compound assignment stores through the same op: it writes through
+    //a normal view and takes the broadcast rejection on a zero-stride
+    //one.
+    w[1] += 100;
+    if (a[1] != 110) return 17;
+    caught = 0;
+    try {
+        z[0] += 1;
+    } catch (Exception e) {
+        caught = 1;
+        if (e.message != "cannot store through a broadcast (zero-stride) view; reshape it to materialize a writable copy") return 18;
+    }
+    if (caught != 1) return 19;
+
+    return 0;
+}
