@@ -1,0 +1,9 @@
+// v0.12.7 Task 3: the producer side declares the unannotated generic
+// spelling but returns a rank-2 record — the boundary promise lives only
+// in the consumer's annotated local, so the check must fire across the
+// module boundary.
+Array<int> make() {
+    int[,] m = int[2, 3];
+    m[1, 2] = 42;
+    return m;
+}

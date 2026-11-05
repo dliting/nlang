@@ -20,7 +20,7 @@ expr as TypeName
 `(T)expr` prefix cast). *Informative:* a prefix form cannot be told
 apart from a parenthesized expression reliably — the parser cannot
 distinguish `(foo) + bar` from `(foo + bar)`; the keyword operator has
-no such ambiguity, matching C#, TypeScript, and Kotlin. Four classes of
+no such ambiguity, matching C#, TypeScript, and Kotlin. Five classes of
 conversion are supported:
 
 - **Scalar narrowing and cross-sign** (bit-truncating, the C# unchecked
@@ -44,6 +44,16 @@ conversion are supported:
   class leaf names); uncaught, the process exits with a non-zero code.
   `o as Object` is a
   no-op (allowed for symmetry).
+- **Array target**: `o as int[]` reads an array value back out of an
+  `Object` (§4.11), and `a as int[,]` states the rank promise of a
+  bracket-free `Array<T>` value explicitly — both run the same
+  run-time check, which verifies the rank and the element type
+  together. A mismatch raises a catchable `InvalidCastException`
+  (`array rank mismatch` with the expected and actual ranks, or
+  `array element type mismatch`); `null` passes through as `null`.
+  A mismatch between two bracket spellings — `x as int[,]` where
+  `x` is `int[]` — is rejected at compile time: both sides have
+  already promised their rank (§4.10.7).
 
 `as` is reserved for pairs the matrix does not admit — using `as` on a
 conversion that is **already implicit** is also a compile error
@@ -61,9 +71,11 @@ redundant — plain `int x = b;` works. The implicit matrix is in
 - `bool` to or from any numeric type: bool reaches `string` by coercion
   (the `"ok=" + true` example below) and `Object` by boxing (§4.11), but
   converts to and from no numeric type.
-- Array operands are rejected outright (`ia as int`, `ia as Object` —
-  "the cast operand is an array"): an array value's legal conversions are
-  its own array type and string targets — never `as` (see
+- An array operand with a non-array target is rejected outright
+  (`ia as int`, `ia as Object` — "the cast operand is an array"):
+  an array value reaches `Object` by plain assignment (§4.11.1),
+  reaches `string` through `toString()`, and converts to no scalar
+  type (see
   [Known Limitations](../reference/known-limitations.md) for the full array-value
   conversion rule).
 

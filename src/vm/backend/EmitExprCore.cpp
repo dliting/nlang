@@ -251,6 +251,13 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         //the NewExpr emission; dispatched first — the delegate predicate
         //in the dispatch tail would misread the bound class as a func
         //value.
+        //v0.12.7: the Array face's dynamic-rank ctor — the Array<E> record
+        //is not a class object; route to the array-alloc emission.
+        if (invoke.ArrayDynCtor()) {
+            EmitArrayDynCtor(*invoke.ArrayDynCtor(), invoke.Params(),
+                             resultOffset);
+            return;
+        }
         if (invoke.CtorClass()) {
             EmitNewObject(invoke.CtorClass(), invoke.CtorFunction(),
                           invoke.Params(), nullptr, resultOffset);

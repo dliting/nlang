@@ -1,0 +1,139 @@
+// v0.12.7 Task 6: the collapsed tensor surface — full(dims), unary
+// exp/log, clamp max/min, generic reshape with -1 inference, concat,
+// and the math-face random pair the MLP layer composes with (no
+// random.n — the 2026-11-03 adversarial ruling keeps math.n the sole
+// PRNG surface).
+import tensor;
+import math;
+
+int[] shape23() {
+    int[] s = int[2];
+    s[0] = 2;
+    s[1] = 3;
+    return s;
+}
+
+int[] shape1() {
+    int[] s = int[1];
+    s[0] = 6;
+    return s;
+}
+
+int[] shapeNeg() {
+    int[] s = int[2];
+    s[0] = -1;
+    s[1] = 2;
+    return s;
+}
+
+int[] shapeTwoNeg() {
+    int[] s = int[2];
+    s[0] = -1;
+    s[1] = -1;
+    return s;
+}
+
+int main() {
+    // creation: count overload and dims overload
+    double[] fl = full(6, 1.5);
+    if (fl.length() != 6 || fl[5] != 1.5) return 1;
+    double[,] m = full(shape23(), 2.5);
+    if (m[1, 2] != 2.5) return 2;
+    m[0, 0] = 0.0;
+
+    // unary elementwise: rank flows through the unannotated return
+    double[,] e = exp(m);
+    if (e[0, 0] != 1.0) return 3;
+    double[] lg = log(fl);
+    if (lg[0] < 0.405 || lg[0] > 0.406) return 4;
+    float zf = 0.0;
+    float tf = 2.0;
+    float sf = 1.0;
+    float[] fa = arange(zf, tf, sf);
+    float[] fe = exp(fa);
+    if (fe[1] < 2.718 || fe[1] > 2.720) return 5;
+
+    // clamp: elementwise max/min against a bound, all kinds
+    double[,] cl = max(m, 1.0);
+    if (cl[0, 0] != 1.0 || cl[1, 2] != 2.5) return 6;
+    int[] ia = int[3];
+    ia[0] = 5;
+    ia[1] = 2;
+    ia[2] = 7;
+    int[] ic = max(ia, 4);
+    if (ic[0] != 5 || ic[1] != 4 || ic[2] != 7) return 7;
+    int[] im = min(ia, 4);
+    if (im[0] != 4 || im[1] != 2 || im[2] != 4) return 8;
+
+    // reductions stay arity-dispatched against the clamp pair
+    if (sum(m) != 12.5) return 9;
+
+    // generic reshape: explicit shape and the -1 inferred dim
+    double[] flat = reshape(m, shape1());
+    if (flat.length() != 6 || flat[5] != 2.5) return 10;
+    double[,] neg = reshape(m, shapeNeg());
+    if (neg.length() != 6 || neg[2, 1] != 2.5) return 11;
+
+    // concat along every axis of rank 1 and rank 2
+    double[] f0 = concat(fl, fl, 0);
+    if (f0.length() != 12 || f0[6] != 1.5) return 12;
+    double[,] ca = full(shape23(), 1.0);
+    double[,] cb = full(shape23(), 2.0);
+    double[,] r0 = concat(ca, cb, 0);
+    if (r0.length() != 12 || r0[0, 0] != 1.0 || r0[2, 0] != 2.0) return 13;
+    double[,] r1 = concat(ca, cb, 1);
+    if (r1[0, 3] != 2.0 || r1[1, 2] != 1.0) return 14;
+
+    // error model: two -1 dims raise the base Exception; an out-of-range
+    // concat axis raises the bounds family
+    bool caught = false;
+    try {
+        reshape(m, shapeTwoNeg());
+    } catch (Exception ex) {
+        caught = true;
+    }
+    if (!caught) return 15;
+    caught = false;
+    try {
+        concat(ca, cb, 2);
+    } catch (IndexOutOfBoundsException exc) {
+        caught = true;
+    }
+    if (!caught) return 16;
+
+    // math face PRNG pair (deterministic, seeded)
+    math.srand(42);
+    double r = math.random();
+    if (!(r >= 0.0 && r < 1.0)) return 17;
+    int k = math.randomi(0, 9);
+    if (k < 0 || k > 9) return 18;
+
+    // the plain-NLang layer: relu / softmax / crossEntropyLoss compose
+    // the kernels above (float and double overloads)
+    float[] xf = float[2];
+    xf[0] = -1.5;
+    xf[1] = 2.5;
+    float[] rect = relu(xf);
+    if (rect[0] != 0.0 || rect[1] != 2.5) return 19;
+    // softmax([-1.5, 2.5]): p ≈ [0.0180, 0.9820], sums to 1
+    float[] sm = softmax(xf);
+    if (sm[0] < 0.0179 || sm[0] > 0.0181) return 20;
+    if (sm[1] < 0.981 || sm[1] > 0.983) return 21;
+    float total = sm[0] + sm[1];
+    if (total < 0.999 || total > 1.001) return 22;
+    // cross-entropy of one-hot labels [0, 1]: -log(0.9820) ≈ 0.0182
+    float[] lab = float[2];
+    lab[0] = 0.0;
+    lab[1] = 1.0;
+    float ce = crossEntropyLoss(xf, lab);
+    if (ce < 0.018 || ce > 0.019) return 23;
+    // double side through the same composition
+    double[] negD = double[2];
+    negD[0] = -1.5;
+    negD[1] = 2.5;
+    double[] labD = double[2];
+    labD[1] = 1.0;
+    double ceD = crossEntropyLoss(negD, labD);
+    if (ceD < 0.018 || ceD > 0.019) return 24;
+    return 0;
+}

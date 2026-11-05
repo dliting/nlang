@@ -1,3 +1,4 @@
+import io;
 int main() {
     FileStream stream = FileStream("_phase8_tmp/test_strings.bin", "w");
     stream.writeString("hi");

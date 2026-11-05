@@ -137,9 +137,62 @@ static const BindingRow s_LiteralRows[] = {
 	//(INTR_String_Substring..INTR_String_ToBool) + equals +
 	//getHashCode; String.length (OP_StrLen) and String.toString
 	//(identity fold) carry no id, so they have no row. Both substring
-	//overloads key the one "String.substring" row. Array's four
-	//methods are compile-time-static emissions with no intrinsic id —
-	//zero rows (kStringFaceBindingRows below pins this block's size).
+	//overloads key the one "String.substring" row. v0.12.7 Task 5: the
+	//Array face's protocol methods — the virtual dispatch ids for an
+	//Object-receiver protocol call on an array (ReceiverClassIndex maps
+	//RTK_Array to the face row). toString formats through the shared
+	//array formatter; equals/getHashCode ride the Object identity
+	//intrinsics. length/rank/shape keep zero rows: compile-time-static
+	//emissions that can never reach a virtual dispatch (the Object
+	//protocol is exactly these three methods).
+	{"lang", "Array.equals",      INTR_Object_Equals},
+	{"lang", "Array.getHashCode", INTR_Object_GetHashCode},
+	{"lang", "Array.toString",    INTR_Array_toString},
+	//v0.12.7 Task 8.5: the stream classes — declared in stdlib/io.n,
+	//retiring the last C++ registry rows (the C++ table kept them
+	//synthesized). The declared native records stamp onto the frozen
+	//stream intrinsic ids; ctor keys follow the arity-aware rule
+	//(ByteStream 0-formal = bare name, FileStream/2). readStruct/
+	//readObject declare Object returns — the resolver's literal-type
+	//special path rebinds the call's result to the named declaration
+	//before emission, so the row's shape is the wire shape.
+	{"io", "ByteStream",             INTR_BS_Ctor},
+	{"io", "ByteStream.readInt",     INTR_BS_ReadInt},
+	{"io", "ByteStream.readFloat",   INTR_BS_ReadFloat},
+	{"io", "ByteStream.readLong",    INTR_BS_ReadLong},
+	{"io", "ByteStream.readDouble",  INTR_BS_ReadDouble},
+	{"io", "ByteStream.readString",  INTR_BS_ReadString},
+	{"io", "ByteStream.length",      INTR_BS_Length},
+	{"io", "ByteStream.position",    INTR_BS_Position},
+	{"io", "ByteStream.reset",       INTR_BS_Reset},
+	{"io", "ByteStream.close",       INTR_BS_Close},
+	{"io", "ByteStream.writeInt",    INTR_BS_WriteInt},
+	{"io", "ByteStream.writeFloat",  INTR_BS_WriteFloat},
+	{"io", "ByteStream.writeLong",   INTR_BS_WriteLong},
+	{"io", "ByteStream.writeDouble", INTR_BS_WriteDouble},
+	{"io", "ByteStream.writeString", INTR_BS_WriteString},
+	{"io", "ByteStream.writeStruct", INTR_BS_WriteStruct},
+	{"io", "ByteStream.readStruct",  INTR_BS_ReadStruct},
+	{"io", "ByteStream.writeObject", INTR_BS_WriteObject},
+	{"io", "ByteStream.readObject",  INTR_BS_ReadObject},
+	{"io", "FileStream/2",           INTR_FS_Ctor},
+	{"io", "FileStream.readInt",     INTR_FS_ReadInt},
+	{"io", "FileStream.readFloat",   INTR_FS_ReadFloat},
+	{"io", "FileStream.readLong",    INTR_FS_ReadLong},
+	{"io", "FileStream.readDouble",  INTR_FS_ReadDouble},
+	{"io", "FileStream.readString",  INTR_FS_ReadString},
+	{"io", "FileStream.length",      INTR_FS_Length},
+	{"io", "FileStream.position",    INTR_FS_Position},
+	{"io", "FileStream.close",       INTR_FS_Close},
+	{"io", "FileStream.writeInt",    INTR_FS_WriteInt},
+	{"io", "FileStream.writeFloat",  INTR_FS_WriteFloat},
+	{"io", "FileStream.writeLong",   INTR_FS_WriteLong},
+	{"io", "FileStream.writeDouble", INTR_FS_WriteDouble},
+	{"io", "FileStream.writeString", INTR_FS_WriteString},
+	{"io", "FileStream.writeStruct", INTR_FS_WriteStruct},
+	{"io", "FileStream.readStruct",  INTR_FS_ReadStruct},
+	{"io", "FileStream.writeObject", INTR_FS_WriteObject},
+	{"io", "FileStream.readObject",  INTR_FS_ReadObject},
 	{"lang", "String.equals",      INTR_String_Equals},
 	{"lang", "String.getHashCode", INTR_String_GetHashCode},
 	{"lang", "String.substring",   INTR_String_Substring},

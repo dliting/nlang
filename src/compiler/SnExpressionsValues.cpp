@@ -258,6 +258,52 @@ bool SnSubscriptExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
+SnSliceItemExpr::SnSliceItemExpr(SnExpression *pHead, SnExpression *pStop,
+	SnExpression *pStep, const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pHead(pHead), m_pStop(pStop), m_pStep(pStep)
+{
+	//Present parts are regular children (containment invariant); absent
+	//parts stay null — the presence itself carries the slice's meaning.
+	if (m_pHead)
+		AddChild(m_pHead);
+	if (m_pStop)
+		AddChild(m_pStop);
+	if (m_pStep)
+		AddChild(m_pStep);
+}
+
+void SnSliceItemExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnSliceItemExpr::ToString() const
+{
+	return "slice";
+}
+
+bool SnSliceItemExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//Cached members over the children list — route splices through
+	//ResetChild to keep them in sync.
+	if (m_pHead == pOld)
+	{
+		ResetChild(m_pHead, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	if (m_pStop == pOld)
+	{
+		ResetChild(m_pStop, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	if (m_pStep == pOld)
+	{
+		ResetChild(m_pStep, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 SnNewArrayExpr::SnNewArrayExpr(SnFieldExpr *pElemType, SnExpression *pSize,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pElemType(pElemType), m_pSize(pSize)

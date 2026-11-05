@@ -42,6 +42,17 @@ Shape c = Shape("n"); // 绑定Shape(string)——字符串字面量不转换为
 
 默认参数参与距离计算：精确类型匹配（距离0）优先于一级加宽，收窄实参会拒绝对应候选。
 
+常量实参按赋值对它的处理方式计分（§4.4）：值能装入形参的字面量使对应候选可行，代价与相应的加宽转换相同。规则与赋值同构——`float f = 0.5;`能绑定——所以只有经常量适配才能到达的重载不再是死候选。精确类型匹配仍胜过任何常量适配，不适配的常量（例如值经不住double→float往返的`double`字面量）与从前一样把候选排除在外。
+
+```nlang
+int first(float[] a, float v) { return 1; }
+int first(double[] a, double v) { return 2; }
+float[] fa = float[1];
+double[] da = double[1];
+first(fa, 0.5);   // 0.5装入float：绑定float重载
+first(da, 0.5);   // double精确匹配：绑定double重载
+```
+
 ```nlang
 class V {
     public V(int a, int b = 7) { }
@@ -77,16 +88,40 @@ struct的诊断文案中用`struct`（`no constructor of struct "S" matches the 
 
 *资料性：*导入的自由函数、接口静态方法、枚举方法的重载，解析方式与同单元内完全一致：编译器在调用点按参数类型选出最佳匹配，链接器把选中的那个重载连到生产方单元里它自己的记录。因此同名同参数数但参数类型不同的两个重载不会再在链接期产生歧义——调用点已经决定了运行哪一个。
 
+```nlang
+import lib;
+
+int main() {
+    return lib.score(1) + lib.score(2.5);   // 2 + 100 = 102
+}
+```
+
 ```nlang lib.n
 int score(int v) { return v + 1; }
 int score(double v) { return 100; }
 ```
 
-```nlang
-import lib;
+编译期二义规则不变：当实参以相同距离可转换到两个重载的形参类型时，解析器在调用点报告二义，无论这两个重载是否位于另一个模块。
 
-int a = lib.score(1);     // int重载    → 2
-int b = lib.score(2.5);   // double重载 → 100
+同名来自多个模块时，距离先裁决：距离严格更近的匹配胜出，与归属无关。**等距**时本文件的定义遮蔽一切导入的定义——本文件的`int dup()`静默胜过导入的`int dup()`。两个导入的定义等距打平是使用点错误，诊断点名两个模块；限定调用（`alpha.dup()`或`beta.dup()`）显式选定其一。本地声明与导入携带同形函数时同样解析——本地胜出。
+
+```nlang alpha/dup.n
+int dup() { return 1; }
 ```
 
-编译期二义规则不变：当实参以相同距离可转换到两个重载的形参类型时，解析器在调用点报告二义，无论这两个重载是否位于另一个模块。
+```nlang beta/dup.n
+int dup() { return 2; }
+```
+
+```nlang
+import alpha.dup;
+import beta.dup;
+
+int main() {
+    return dup();
+}
+```
+
+```text
+Error: ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
+```

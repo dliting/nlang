@@ -726,7 +726,7 @@ static void TestDuplicateTypeInOnePackageRejected() {
         "class Box { public int a; }\n"
         "struct Box { int b; }\n"
         "int main() { return 0; }\n" } });
-    CHECK(compileLog(dirLog).find("is conflicted with a exist field definition")
+    CHECK(compileLog(dirLog).find("conflicts with an existing definition")
               != std::string::npos,
           "the reachable duplicate-type diagnostic still fires (measured today)");
     //(2b) cross-package same names used to be legal — the shell kept the
@@ -749,7 +749,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     auto dir = scenarioDir("stream_literal_one");
     writeFiles(dir, {
         { "alib.n", "struct S { int a; }\n" },
-        { "main.n", "import alib;\n"
+        { "main.n", "import io;\nimport alib;\n"
           "int main() {\n"
           "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
@@ -775,7 +775,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     writeFiles(dir2, {
         { "alib.n", "struct S { int a; }\n" },
         { "blib.n", "struct S { int b; }\n" },
-        { "main.n", "import alib;\nimport blib;\n"
+        { "main.n", "import io;\nimport alib;\nimport blib;\n"
           "int main() {\n"
           "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
@@ -787,7 +787,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     writeFiles(dir2Log, {
         { "alib.n", "struct S { int a; }\n" },
         { "blib.n", "struct S { int b; }\n" },
-        { "main.n", "import alib;\nimport blib;\n"
+        { "main.n", "import io;\nimport alib;\nimport blib;\n"
           "int main() {\n"
           "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 1; bs.writeStruct(w); bs.reset();\n"
@@ -800,6 +800,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     //while the lookup source changes.
     auto dir3 = scenarioDir("stream_literal_none");
     writeFiles(dir3, { { "main.n",
+        "import io;\n"
         "int main() {\n"
         "  ByteStream bs = ByteStream();\n"
         "  return bs.readStruct(\"NoSuchType\");\n"
@@ -807,6 +808,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     CHECK(!compileDir(dir3), "an unknown literal type name fails");
     auto dir3Log = scenarioDir("stream_literal_none_log");   //twin for the log
     writeFiles(dir3Log, { { "main.n",
+        "import io;\n"
         "int main() {\n"
         "  ByteStream bs = ByteStream();\n"
         "  return bs.readStruct(\"NoSuchType\");\n"
@@ -821,7 +823,7 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     auto dir4 = scenarioDir("stream_literal_qualified");
     writeFiles(dir4, {
         { "alib.n", "struct S { int a; }\n" },
-        { "main.n", "import alib;\n"
+        { "main.n", "import io;\nimport alib;\n"
           "int main() {\n"
           "  ByteStream bs = ByteStream();\n"
           "  alib.S w; w.a = 4; bs.writeStruct(w); bs.reset();\n"

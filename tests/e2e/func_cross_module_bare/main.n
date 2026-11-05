@@ -1,0 +1,10 @@
+//v0.12.7 V1: the bare VALUE reference to an explicitly imported
+//module's function binds — an explicit import admits bare use for
+//calls and function references alike (func_cross_module_reject's old
+//qualified-only expectation predates the unified visibility model).
+import lib;
+
+int main() {
+    func<int, int> f = dbl;
+    return f(1);
+}

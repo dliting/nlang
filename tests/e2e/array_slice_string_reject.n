@@ -1,0 +1,6 @@
+import lang;
+int main() {
+    string s = "abc";
+    string t = s[0:2];
+    return 0;
+}

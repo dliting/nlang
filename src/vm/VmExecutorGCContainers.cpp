@@ -13,10 +13,11 @@ namespace {
 //hand-expanded literals: List/Dict x mark/push). At kind granularity the
 //mark set and the worklist push set coincide — every traced kind has
 //children for the dispatch below to walk (func's receiver, array
-//elements, boxed payload, class/struct fields).
+//elements, boxed payload, class/struct fields, a view's target edge).
 inline bool IsChildBearingHeapKind(uint8_t kind) {
     return kind == RTK_Class || kind == RTK_Struct || kind == RTK_Boxed
-        || kind == RTK_Func || kind == RTK_Array;
+        || kind == RTK_Func || kind == RTK_Array
+        || kind == RTK_ArrayView;
 }
 } // namespace
 

@@ -112,9 +112,25 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			break;
 		case RTK_Array:
 			if (!td.elems.empty())
+			{
+				//v0.12.7: rank 0 is the unannotated Array<E> spelling —
+				//the stub rebuilds the generic form so the consumer's
+				//boundary rank check governs (the annotation lives on
+				//the value, not the stub's spelling).
+				if (td.rank == 0)
+				{
+					auto *pArgs = new std::vector<SnFieldExpr*>();
+					pArgs->push_back(
+						SynthTypeExprFromDesc(td.elems[0], cm, loc));
+					return new SnGenericTypeExpr(
+						new SnIdentifierExpr(
+							new std::string(kBuiltinArrayTypeName), loc),
+						pArgs, loc);
+				}
 				return new SnArrayTypeExpr(
 					SynthTypeExprFromDesc(td.elems[0], cm, loc), loc,
 					td.rank);
+			}
 			break;
 		case RTK_List:
 			if (!td.elems.empty())

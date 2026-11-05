@@ -177,64 +177,6 @@ bool ExprResolveAccessor::CollectInvokeCandidates(SnInvokeExpr &invoke,
 	return !candidates.empty();
 }
 
-FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
-	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
-	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged,
-	std::vector<SnFunction*> *pOutCandidates)
-{
-	//Contract: the out-params are always initialized. The NotFound path
-	//returns early without touching pFuncFound — an uninitialized caller
-	//local then holds stack garbage, and `if (pCallee)` in
-	//Access(SnInvokeExpr) dereferences a dangling pointer (ncc crash;
-	//observed when imported stubs shifted stack layout). Clearing here
-	//covers every path.
-	pFuncFound = nullptr;
-	rbNameMatchedImported = false;
-	rbVisibilityHintLogged = false;
-	const bool bSearchInAncestor = !ContainFlags(ERF_SearchInParentOnly);
-	bool bImportedMatch = false;
-
-	//Collect the same-name accessible candidates along the scope chain;
-	//the bind/distance core itself is shared with the module-qualified
-	//call path via MatchInvokeAgainst below.
-	std::vector<SnFunction*> candidates;
-	if (!CollectInvokeCandidates(invoke, bSearchInAncestor, candidates,
-			bImportedMatch, rbVisibilityHintLogged))
-		return FFR_FuncNameNotFound;
-	//Hand the name-matched set to the caller so the failure path can log
-	//per-argument detail (the set is non-empty here).
-	if (pOutCandidates)
-		*pOutCandidates = candidates;
-
-	//One matching core for both call paths; the ambiguity log lives there.
-	//rbNameMatchedImported stays reserved for the no-viable-bind verdict
-	//(the ambiguity report is complete on its own) — the distinction is
-	//observable through the imported-argument diagnostic.
-	bool bAmbiguous = false;
-	auto res = MatchInvokeAgainst(invoke, candidates, pFuncFound,
-		outBindings, bAmbiguous);
-	if (res == FFR_Incompatible && !bAmbiguous)
-	{
-		//At least one candidate matched by name but none could bind.
-		//Surface whether an imported stub was among them — its parameter
-		//types are synthesized, so the Incompatible verdict may simply
-		//mean the compiler could not see the real signature.
-		pFuncFound = nullptr;
-		rbNameMatchedImported = bImportedMatch;
-	}
-	return res;
-}
-
-//0.9.11 T6: the resolved actual-pointer list of an invoke — built once
-//for the whole candidate sweep.
-static std::vector<SnExpression*> CollectInvokeActuals(SnInvokeExpr &invoke)
-{
-	std::vector<SnExpression*> actuals;
-	for (auto &param : invoke.Params())
-		actuals.push_back(&param);
-	return actuals;
-}
-
 //M3b: the TryBindArgs / type-distance core of FindFuncByInvoke — the
 //single matching implementation shared by the bare path (candidates
 //collected along the scope chain there) and the module-qualified path
@@ -252,46 +194,130 @@ FindFuncResult ExprResolveAccessor::MatchInvokeAgainst(SnInvokeExpr &invoke,
 	if (candidates.empty())
 		return FFR_FuncNameNotFound;
 
-	const std::vector<SnExpression*> actuals = CollectInvokeActuals(invoke);
-	int nBestDistance = -1;
-	SnFunction *pBest = nullptr;
 	std::vector<FormalBinding> bestBindings;
-
-	//Bind, then keep the strictest viable distance; a tie at the
-	//smallest viable distance is ambiguous.
-	auto consider = [&](SnFunction *pCandidate) {
-		std::vector<FormalBinding> tryBind;
-		if (!TryBindArgs(actuals, *pCandidate, tryBind))
-			return;
-		int n = ComputeBindingDistance(tryBind);
-		if (n < 0)
-			return;
-		if (nBestDistance < 0 || n < nBestDistance)
-		{
-			nBestDistance = n;
-			pBest = pCandidate;
-			bestBindings = std::move(tryBind);
-			rbAmbiguous = false;
-		}
-		else if (n == nBestDistance)
-		{
-			rbAmbiguous = true;
-		}
-	};
-
-	for (auto *pCandidate : candidates)
-		consider(pCandidate);
-
-	if (nBestDistance < 0)
+	SnFunction *pBest = nullptr;
+	SnFunction *pTied = nullptr;
+	const int nBest = SweepInvokeCandidates(invoke, candidates,
+		bestBindings, rbAmbiguous, pBest, pTied);
+	if (nBest < 0)
 		return FFR_Incompatible;
 	if (rbAmbiguous)
 	{
-		LogAmbiguousCall(invoke);
+		LogAmbiguousCall(invoke, pBest, pTied);
 		return FFR_Incompatible;
 	}
 	pFunc = pBest;
 	outBindings = std::move(bestBindings);
-	return (nBestDistance == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+	return (nBest == 0) ? FFR_ExactMatch : FFR_ApproximateMatch;
+}
+
+//0.9.11 T6: the resolved actual-pointer list of an invoke — built once
+//for the whole candidate sweep.
+static std::vector<SnExpression*> CollectInvokeActuals(SnInvokeExpr &invoke)
+{
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	return actuals;
+}
+
+//FindFuncByInvoke's bare-path head: candidate collection plus the shared
+//matching core. Contract (header decl): the out-params are always
+//initialized — an uninitialized caller local holding stack garbage once
+//crashed Access(SnInvokeExpr) via `if (pCallee)`.
+FindFuncResult ExprResolveAccessor::FindFuncByInvoke(SnFunction *&pFuncFound,
+	SnInvokeExpr &invoke, std::vector<FormalBinding> &outBindings,
+	bool &rbNameMatchedImported, bool &rbVisibilityHintLogged,
+	std::vector<SnFunction*> *pOutCandidates, bool *pbAmbiguousCall)
+{
+	pFuncFound = nullptr;
+	rbNameMatchedImported = false;
+	rbVisibilityHintLogged = false;
+	if (pbAmbiguousCall)
+		*pbAmbiguousCall = false;
+	bool bImportedMatch = false;
+	std::vector<SnFunction*> candidates;
+	if (!CollectInvokeCandidates(invoke,
+			!ContainFlags(ERF_SearchInParentOnly), candidates,
+			bImportedMatch, rbVisibilityHintLogged))
+		return FFR_FuncNameNotFound;
+	if (pOutCandidates)
+		*pOutCandidates = candidates;
+
+	//One matching core for both call paths; the ambiguity log lives
+	//there. The ambiguity flag rides out so the caller's generic failure
+	//text stays silent after the named report (v0.12.7); on a
+	//no-viable-bind Incompatible, rbNameMatchedImported surfaces whether
+	//an imported stub was among the name matches (its parameter types
+	//are synthesized — the verdict may just mean the real signature was
+	//not visible).
+	bool bAmbiguous = false;
+	auto res = MatchInvokeAgainst(invoke, candidates, pFuncFound,
+		outBindings, bAmbiguous);
+	if (pbAmbiguousCall)
+		*pbAmbiguousCall = bAmbiguous;
+	if (res == FFR_Incompatible && !bAmbiguous)
+	{
+		pFuncFound = nullptr;
+		rbNameMatchedImported = bImportedMatch;
+	}
+	return res;
+}
+
+//The candidate sweep under MatchInvokeAgainst: bind every candidate,
+//keep the strictest viable distance, and break equal-distance ties
+//toward this TU's OWN definitions (C# namespace-member / Rust
+//local-beats-glob precedent: a local same-shape declaration wins
+//silently; only import-vs-import ties stay the loud use-site
+//ambiguity). The tied pair is retained for the named diagnostic
+//(v0.12.7 V4). Returns the best distance; -1 when nothing binds.
+int ExprResolveAccessor::SweepInvokeCandidates(SnInvokeExpr &invoke,
+	const std::vector<SnFunction*> &candidates,
+	std::vector<FormalBinding> &outBestBindings, bool &rbAmbiguous,
+	SnFunction *&rpBest, SnFunction *&rpTied)
+{
+	const std::vector<SnExpression*> actuals = CollectInvokeActuals(invoke);
+	auto &reg = m_Env.Registry();
+	const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
+	auto isOwnTu = [&reg, curModule](SnFunction *pFunc) {
+		return reg.OwnerOf(*pFunc) == curModule;
+	};
+	int nBestDistance = -1;
+	rpBest = nullptr;
+	rpTied = nullptr;
+	for (auto *pCandidate : candidates)
+	{
+		std::vector<FormalBinding> tryBind;
+		if (!TryBindArgs(actuals, *pCandidate, tryBind))
+			continue;
+		const int n = ComputeBindingDistance(tryBind);
+		if (n < 0)
+			continue;
+		if (nBestDistance < 0 || n < nBestDistance)
+		{
+			nBestDistance = n;
+			rpBest = pCandidate;
+			outBestBindings = std::move(tryBind);
+			rbAmbiguous = false;
+		}
+		else if (n == nBestDistance)
+		{
+			if (isOwnTu(pCandidate) == isOwnTu(rpBest))
+			{
+				rbAmbiguous = true;
+				rpTied = pCandidate;
+			}
+			else if (isOwnTu(pCandidate))
+			{
+				//The own-TU candidate shadows the imported tie.
+				rpBest = pCandidate;
+				outBestBindings = std::move(tryBind);
+				rbAmbiguous = false;
+			}
+			//An imported candidate loses to the own-TU best: skip.
+		}
+	}
+	return nBestDistance;
 }
 
 //0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst — the

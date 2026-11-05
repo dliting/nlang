@@ -2,9 +2,10 @@
 
 ## 4.10.1 Element type and rank
 
-An array type is fixed by its *element type* and its *rank*: the
-number of dimensions, at least 1 and at most 64. The rank is part
-of the type: `int[]` and `int[,,]` are different types, and so are
+An array type is fixed by its *element type* and — when written
+with brackets — its *rank*: the number of dimensions, at least 1
+and at most 64. Among bracket spellings the rank is part of the
+type: `int[]` and `int[,,]` are different types, and so are
 `int[]` and `long[]`. A rank above 64 is a compile-time error.
 
 The rank is written as a single bracket suffix group after the
@@ -15,14 +16,50 @@ in `int[][]`, is a compile-time error. A jagged shape — an array
 whose elements are arrays of different lengths — is not
 expressible.
 
+Every array value's type is the standard library's generic class
+`Array<T>`: the bracket spelling is an *annotation* of that one
+type, and `int[]` and `Array<int>` are the same type at every
+compile-time check — assignment, argument passing, overload
+resolution, container elements. The annotation is a promise the
+compiler keeps (static coordinate checks, a constant `rank()`,
+direct subscript code); the bracket-free spelling `Array<int>`
+makes no rank promise, and the rank then lives in the value
+(§4.10.7). Writing the element as a type argument gives the same
+jagged rejection in generic clothes: `Array<Array<int>>` is
+`int[][]` and is a compile-time error, while a container of array
+references — `List<Array<int>>`, `Array<List<int>>` — stays legal
+(§4.12.5).
+
 ## 4.10.2 Creation
 
 An array value is created with a length for each dimension, and
 those lengths never change for the value's lifetime. Every element
-starts as the default value of the element type. It is a run-time
-error if a creation length is negative or if the product of the
-lengths exceeds 100000000; the error is raised at the creation
-site as an `IndexOutOfBoundsException` (chapter 8).
+starts as the default value of the element type. Each creation
+dimension is an integer expression — a literal, a variable, a call
+result, any expression whose value is an integer; an enumeration
+member counts as its integer value, and a floating-point-valued
+dimension is a compile-time error. It is a run-time error if a
+creation length is negative or if the product of the lengths
+exceeds 100000000; the error is raised at the creation site as an
+`IndexOutOfBoundsException` (chapter 8).
+
+A value whose rank is itself a run-time fact is created through
+the generic spelling: the target type fixes the element type, and
+the dimensions arrive as a rank-1 `int[]` whose length is the
+rank.
+
+```nlang
+int[] dims = int[2];
+dims[0] = 2; dims[1] = 3;
+Array<int> m = Array(dims);   // rank 2, 2x3, zero-filled
+Array<float> w = Array(dims); // element type comes from the target
+```
+
+The rank — the length of `dims` — must fall in the legal range
+(1 to 64) and is validated when the value is created; a length of
+0 or above 64 raises a catchable `IndexOutOfBoundsException`. The
+`dims` argument must be a rank-1 `int` array: any other element
+type is a compile-time error.
 
 ```nlang
 int[] a = int[3];         // expression position: fixed length, elements zero-initialized
@@ -58,6 +95,12 @@ struct, not the stored struct itself; writing a field of that copy
 does not change the array, and storing a struct back requires an
 assignment to the element (§4.7.4, chapter 9).
 
+An array value is also an `Object` (§4.11): either spelling flows
+into an `Object` position without allocation, and the protocol
+calls `toString`, `equals` and `getHashCode` reach the array's own
+implementations — `toString` renders the element list
+(`"[7, 0, 0, 0]"`), the other two compare identity (§4.11.2).
+
 ## 4.10.4 Members: length, rank, shape
 
 Every array value supports three members: `length()` returns the
@@ -66,11 +109,14 @@ total number of elements as an `int`; `rank()` returns the rank;
 with no arguments, consistent with `string.length()` (§4.3).
 
 *Informative:* the array members (`length`, `rank`, `shape`,
-`toString`) are declared by the prelude class `Array` in the `lang`
-package of the standard library; like `String`, that class only
-holds the declarations — it cannot be instantiated, extended or
-used as a type, and array types are written with the bracket
-syntax.
+`toString`, `equals`, `getHashCode`) are declared by the generic
+face class `Array<T>` in the `lang` package of the standard
+library. The class holds only the declarations — it cannot be
+extended (a generic instantiation is not a legal parent class,
+§4.12) — but unlike `String` it is a real type: `Array<int>` works
+everywhere a type is written, and its values are constructed with
+`Array(dims)` or the bracket creation forms of §4.10.2. The bare
+name `Array` without type arguments stays a compile-time error.
 
 ## 4.10.5 Subscripting
 
@@ -88,6 +134,22 @@ A subscript left-value takes compound assignment (`a[i] += 1`)
 under the same rules as any other left-value (chapter 5); for
 struct elements the write goes to the array's own element
 (§4.10.3).
+
+On a bracket-annotated array the coordinate count is a
+compile-time check (§4.10.7). On a value typed `Array<T>` without
+brackets the source still writes a fixed coordinate count, and the
+count is checked against the value's rank when the subscript runs:
+a mismatch raises a catchable `IndexOutOfBoundsException` whose
+message names both counts. There is no coordinate-count
+array allocation — the check rides the same subscript operation.
+
+```nlang
+int[] dims = int[2];
+dims[0] = 2; dims[1] = 3;
+Array<int> m = Array(dims);           // rank 2
+m[1, 2] = 9;                          // two coordinates, rank 2: fine
+int v = m[0];                         // run-time error: 1 coordinate vs rank 2
+```
 
 ## 4.10.6 Out of bounds
 
@@ -118,7 +180,8 @@ int[,,] t = int[rows, 1, 2];  // sizes may be expressions (runtime)
   more coordinates is a compile-time error — and each coordinate is
   an integer expression; an out-of-range coordinate raises
   `IndexOutOfBoundsException` exactly as in the rank-1 case
-  (§4.10.6).
+  (§4.10.6). (On a bracket-free `Array<T>` value the coordinate
+  count is a run-time check, §4.10.5.)
 - `a.rank()` returns the rank; `a.shape()` returns a rank-1 `int`
   array holding the length of each dimension; `a.length()` returns
   the total element count, the product of the dimensions
@@ -134,6 +197,29 @@ int[,,] t = int[rows, 1, 2];  // sizes may be expressions (runtime)
 Declaration-site sizes are rank-1 only (`int b[100]`); a
 multi-dimensional array uses the creation form — `int a[2, 3];` is
 a compile-time error.
+
+### Flowing between annotated and bracket-free spellings
+
+A value typed with brackets flows into a bracket-free
+`Array<T>` position freely — the annotation says more, not
+something else. The reverse direction carries a promise the value
+has not made, so the compiler inserts an implicit *boundary rank
+check* — one check at each assignment, argument-passing and return
+boundary, not on every access. When the value's rank does not
+match the annotation, the check raises a catchable
+`InvalidCastException` whose message names the expected and actual
+ranks; `null` flows through as `null` (§4.5). The explicit form of
+the same check is the cast `a as int[,]` (§4.5).
+
+```nlang
+int[,] grid = int[2, 3];
+Array<int> dyn = grid;        // annotated -> bracket-free: free
+int[] row = dyn;              // boundary check: rank 2 vs 1, throws
+int[,] back = dyn as int[,];  // explicit form of the same check
+```
+
+A mismatch between two bracket spellings (`int[]` into `int[,]`)
+remains a compile-time error: both sides have made their promise.
 
 ## 4.10.8 Initializers
 

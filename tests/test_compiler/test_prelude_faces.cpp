@@ -154,7 +154,7 @@ private slots:
     }
 
     void stringFaceDeclaredWith22MethodsAndNoBase();
-    void arrayFaceDeclaredWith4MethodsAndNoBase();
+    void arrayFaceDeclaredWith6MethodsAndNoBase();
     void stringFaceBindingRowsStampIntrinsics();
     void preludeDeclaresNoStaticFields();
 };
@@ -181,31 +181,53 @@ void TestPreludeFaces::stringFaceDeclaredWith22MethodsAndNoBase()
     }));
 }
 
-void TestPreludeFaces::arrayFaceDeclaredWith4MethodsAndNoBase()
+void TestPreludeFaces::arrayFaceDeclaredWith6MethodsAndNoBase()
 {
     QVERIFY(withBuild("array_face", "int main() { return 0; }",
         [](ModuleBuilder& builder, ModuleBuilder::UnitImages& images) {
         auto* pArray = FindPreludeClassDecl(builder.Registry(), "Array");
         QVERIFY(pArray != nullptr);
-        QCOMPARE(countNativeMethods(*pArray), 4);
+        QCOMPARE(countNativeMethods(*pArray), 6);
         QVERIFY(pArray->SuperClass() == nullptr);
         QVERIFY(pArray->SuperName() == nullptr);
-        //Array's four methods are compile-time-static emissions with no
-        //intrinsic id: their declared records carry no binding row and
-        //stay inert host-native declarations (never called through the
-        //record — emission uses the opcode fast paths).
+        //Split surface (v0.12.7 Task 5): length/rank/shape stay
+        //compile-time-static emissions with no intrinsic id (no binding
+        //row, inert host-native declarations); toString/equals/
+        //getHashCode joined the Object protocol and stamp binding rows.
         const auto records = classMethodRecords(images, "Array");
-        QCOMPARE(int(records.size()), 4);
+        QCOMPARE(int(records.size()), 6);
         std::set<std::string> names;
         for (const auto* fn : records)
         {
-            QCOMPARE(fn->intrinsicId, uint16_t(INTR_None));
-            QVERIFY(fn->isNative);
             names.insert(fn->name);
+            if (fn->name == "length" || fn->name == "rank"
+                || fn->name == "shape")
+            {
+                QCOMPARE(fn->intrinsicId, uint16_t(INTR_None));
+                QVERIFY(fn->isNative);
+            }
+            else if (fn->name == "toString")
+            {
+                QCOMPARE(fn->intrinsicId,
+                    uint16_t(INTR_Array_toString));
+                QVERIFY(!fn->isNative);
+            }
+            else if (fn->name == "equals")
+            {
+                QCOMPARE(fn->intrinsicId, uint16_t(INTR_Object_Equals));
+                QVERIFY(!fn->isNative);
+            }
+            else if (fn->name == "getHashCode")
+            {
+                QCOMPARE(fn->intrinsicId,
+                    uint16_t(INTR_Object_GetHashCode));
+                QVERIFY(!fn->isNative);
+            }
         }
-        //Exactly the declared face: length/rank/shape/toString.
+        //Exactly the declared face.
         QCOMPARE(names, (std::set<std::string>{
-            "length", "rank", "shape", "toString"}));
+            "length", "rank", "shape", "toString", "equals",
+            "getHashCode"}));
     }));
 }
 

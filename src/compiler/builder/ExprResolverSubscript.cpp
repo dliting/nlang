@@ -36,6 +36,16 @@ bool ExprResolveAccessor::ResolveStringSubscript(SnSubscriptExpr &sn,
 {
 	if (!pBaseType || pBaseType->Kind() != NK_String)
 		return false;
+	//v0.12.7 Task 11: slices view arrays; strings are immutable values.
+	for (auto *pIndex : sn.Indices())
+	{
+		if (pIndex->Kind() == NK_SliceItemExpr)
+		{
+			m_Env.Log(CLL_Error, pIndex->Location(),
+				"string indexing does not support slices.");
+			return true;
+		}
+	}
 	auto* pIdxType = sn.Index()->IsResolved()
 		? sn.Index()->EvalDataType() : nullptr;
 	if (pIdxType)
@@ -103,6 +113,16 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 	}
 	if (!elem)
 		return false;
+	//v0.12.7 Task 11: slices view arrays; containers take plain keys.
+	//(After the elem selection: Array<E> is also a generic
+	//instantiation but reaches the array path, not this arm.)
+	for (auto *pIndex : sn.Indices())
+		if (pIndex->Kind() == NK_SliceItemExpr)
+		{
+			m_Env.Log(CLL_Error, pIndex->Location(),
+				"container subscripts do not support slices.");
+			return true;  //consumed: the diagnostic already fired
+		}
 	sn.EvalDataType(elem);
 	sn.AddFlags(NF_Resolved);
 	BindArrayTypeToken(sn);
@@ -119,8 +139,13 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //BindArrayTypeToken mints the array token over it — the same tail as
 //Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
 //then `Ints[2]`) is rejected as a creation head.
-//Stage-2: resolve every creation dimension; named/out forms and
-//unresolved dimensions consume the expression (true, diagnostics fired).
+//Stage-2: resolve every creation dimension, then apply the dimension
+//contract. The contract is "any expression resolving to an integer" —
+//not a parse-shape whitelist: the old kind check called the
+//resolve-stage predicate IsDataExpr on parse-stage nodes and asserted
+//on every method-call dim (`float[x.length()]`). Named/out forms and
+//unresolved dimensions consume the expression (false, diagnostics
+//fired).
 bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
 {
 	//Rank cap mirrors the grammar's production-point cap: the index
@@ -133,19 +158,41 @@ bool ExprResolveAccessor::ResolveCreationDims(SnSubscriptExpr &sn)
 	}
 	for (auto *pIndex : sn.Indices())
 	{
-		if (pIndex->Kind() != NK_IdentifierExpr
-			&& pIndex->Kind() != NK_NameExpr
-			&& !pIndex->IsDataExpr())
+		//v0.12.7 Task 11: a slice never forms a creation dimension —
+		//reject before the integer contract reads it.
+		if (pIndex->Kind() == NK_SliceItemExpr)
 		{
 			m_Env.Log(CLL_Error, pIndex->Location(),
-				"array creation dimensions must be plain expressions.");
+				"array creation dimensions cannot be slices.");
 			return false;
 		}
 		pIndex->Accept(*m_pVisitor);
 		if (!pIndex->IsResolved())
 			return false;  //consumed: the dimension diagnostic already fired
+		if (!CheckCreationDim(*pIndex))
+			return false;
 	}
 	return true;
+}
+
+//The sized-creation dimension contract: the dimension must resolve to
+//an integer (an enum masquerades as Int32, mirroring the cast ladder).
+//The emit path stores extents as int32 cells; a float dim would read
+//garbage cells as extents, so it is a compile error. A negative
+//runtime value stays the bounds family — the same rule `int[n]`
+//creation has always had.
+bool ExprResolveAccessor::CheckCreationDim(SnExpression &dim)
+{
+	auto *pType = dim.EvalDataType();
+	NodeKind kind = pType ? pType->Kind() : NK_Namespace;
+	if (kind == NK_EnumDecl)
+		kind = NK_Int32;
+	const int scalar = ScalarPrimIndexOf(kind);
+	if (scalar >= 0 && kScalarPrims[scalar].category != PC_Float)
+		return true;
+	m_Env.Log(CLL_Error, dim.Location(),
+		"array creation dimension must be an integer expression.");
+	return false;
 }
 
 bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
@@ -181,8 +228,8 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 		return true;
 	}
 	//Stage-2: the creation twin T[2, 3] carries N dimensions — the index
-	//list IS the rank. Named/out forms ride ConcreteParamList and are
-	//rejected here.
+	//list IS the rank. Named/out forms and slices are rejected inside
+	//ResolveCreationDims.
 	if (!ResolveCreationDims(sn))
 		return true;
 	sn.NewArrayElem(pElemField);
@@ -193,6 +240,39 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	sn.EvalDataType(m_Env.InternArrayTypeToken(pElemField, rank));
 	sn.AddFlags(NF_Resolved);
 	return true;
+}
+
+//v0.12.7 Task 11: the slice item h[:s[:st]] rides a subscript list.
+//Every present part must resolve to an integer (enum masquerades as
+//Int32, mirroring CheckCreationDim's ladder); the item itself binds
+//Int32 so generic consumers see a resolved data expression.
+void ExprResolveAccessor::Access(SnSliceItemExpr &sn)
+{
+	NLANG_ASSERT(!sn.IsResolved());
+	SnExpression *parts[] = { sn.Head(), sn.Stop(), sn.Step() };
+	for (SnExpression *pPart : parts)
+	{
+		if (!pPart)
+			continue;
+		pPart->Accept(*m_pVisitor);
+		if (!pPart->IsResolved())
+			return;
+		auto *pType = pPart->EvalDataType();
+		NodeKind kind = pType ? pType->Kind() : NK_Namespace;
+		if (kind == NK_EnumDecl)
+			kind = NK_Int32;
+		const int scalar = ScalarPrimIndexOf(kind);
+		const bool isInteger = scalar >= 0
+			&& kScalarPrims[scalar].category != PC_Float;
+		if (!isInteger)
+		{
+			m_Env.Log(CLL_Error, pPart->Location(),
+				"slice endpoints and the step must be integers.");
+			return;
+		}
+	}
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	sn.AddFlags(NF_Resolved);
 }
 
 void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
@@ -222,28 +302,90 @@ void ExprResolveAccessor::Access(SnSubscriptExpr &sn)
 		return;
 	if (TryResolveContainerSubscript(sn, arrayType))
 		return;
-	if (arrayType && arrayType->Kind() == NK_ArrayTypeToken)
+	if (!BindSubscriptElemType(sn, arrayType))
+		return;
+	//v0.12.7 Task 11: a slice axis re-types the result as a VIEW —
+	//an array token of (element, slice-axis count); the scalar axes
+	//fold into the view offset at run time.
+	if (SliceAxisCount(sn) != 0 && !BindSliceViewType(sn))
+		return;
+	sn.AddFlags(NF_Resolved);
+	BindArrayTypeToken(sn);
+}
+
+//v0.12.7 Task 11: the axes kept by a slice subscript — every index
+//that is a slice item survives in the view; scalar axes fold away.
+size_t ExprResolveAccessor::SliceAxisCount(const SnSubscriptExpr &sn) const
+{
+	size_t slices = 0;
+	for (auto *pIndex : sn.Indices())
+	{
+		if (pIndex->Kind() == NK_SliceItemExpr)
+			++slices;
+	}
+	return slices;
+}
+
+//v0.12.7 Task 11: re-type a slice subscript as a view. BindSubscriptElemType
+//has already stored the ELEMENT in EvalDataType; mint the view's own token
+//over it (the token the emitter registers as the view's arrayTypes row).
+bool ExprResolveAccessor::BindSliceViewType(SnSubscriptExpr &sn)
+{
+	//Axis-count cap mirroring the creation gate: the token spelling
+	//gets it from the rank-arity check, but the Array<E> spelling has
+	//no static annotation — and the staged presence mask allocates
+	//4 bits per axis, so an over-cap list must stop at compile time.
+	if (sn.Indices().size() > kMaxArrayRank)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"array rank %d exceeds the maximum of %d.",
+			static_cast<int>(sn.Indices().size()),
+			static_cast<int>(kMaxArrayRank));
+		return false;
+	}
+	auto* pElem = sn.EvalDataType();
+	if (!pElem)
+		return false;  //the element binding failed upstream
+	const size_t sliceCount = SliceAxisCount(sn);
+	NLANG_ASSERT(sliceCount >= 1 && sliceCount <= kMaxArrayRank);
+	sn.EvalDataType(m_Env.InternArrayTypeToken(pElem,
+		static_cast<uint8_t>(sliceCount)));
+	return true;
+}
+
+//Bind the subscript's element type from the base's array type. The
+//interned token carries the static rank annotation, so the index count
+//is checked against it here; the Array<E> spelling has no annotation —
+//the record's rank governs at run time (the Dyn element pair carries
+//the source-written index count and verifies it against the record).
+bool ExprResolveAccessor::BindSubscriptElemType(SnSubscriptExpr &sn,
+	SnField *pBaseType)
+{
+	if (pBaseType && pBaseType->Kind() == NK_ArrayTypeToken)
 	{
 		//Stage-2: the index count must equal the token rank — the named
 		//arity diagnostic replaces the old single-index assumption.
-		const auto rank = static_cast<SnArrayTypeToken*>(arrayType)->Rank();
+		const auto rank = static_cast<SnArrayTypeToken*>(pBaseType)->Rank();
 		if (sn.Indices().size() != rank)
 		{
 			m_Env.Log(CLL_Error, sn.Location(),
 				"array subscript expects %u indices, got %u.",
 				static_cast<unsigned>(rank),
 				static_cast<unsigned>(sn.Indices().size()));
-			return;
+			return false;
 		}
 		//0.7.3 B token path: an
 		//array-valued base carries the interned array token — the
 		//subscript's own type is its ELEMENT.
-		arrayType = static_cast<SnArrayTypeToken*>(
-			arrayType)->ElemTypeOf();
-		sn.EvalDataType(arrayType);
+		sn.EvalDataType(static_cast<SnArrayTypeToken*>(
+			pBaseType)->ElemTypeOf());
 	}
-	sn.AddFlags(NF_Resolved);
-	BindArrayTypeToken(sn);
+	else if (SnField* pGenElem = ArrayInstantiationElem(pBaseType))
+	{
+		//v0.12.7 generic spelling: the element is the type argument.
+		sn.EvalDataType(pGenElem);
+	}
+	return true;
 }
 
 } //namespace nlang

@@ -1,0 +1,27 @@
+// v0.12.7 Task 3: boundary rank checks. An annotated target (rank >= 1)
+// receiving a value whose static type is unannotated (Array<E> spelling)
+// gets a runtime rank check; same-rank and null flow through untouched.
+import lang;
+
+int g(Array<int> a) { return a[0]; }   // unannotated formal: no check
+
+int main() {
+    // Dynamic-rank construction Array(int[] dims) lands in Task 4.
+    int[] r1 = int[3];
+    int[,] r2 = int[2, 3];
+    bool caught = false;
+    try { int[,] m = r2; } catch (InvalidCastException e) { caught = true; }
+    assert(caught == false);   // same-rank flow: no check, no throw
+    caught = false;
+    Array<int> dyn = r2;       // annotated -> unannotated: free
+    try { int[] w = dyn; assert(false); }   // rank 2 into rank 1: caught
+    catch (InvalidCastException e) { caught = true; }
+    assert(caught);
+    int[,] back = r2 as int[,];   // explicit spelling: same check op
+    back[0, 0] = 1;
+    assert(back[0, 1] == r2[0, 1]);
+    int[] nullRound = null as int[];   // null passes through
+    assert(nullRound == null);
+    assert(g(r1) == 0);         // either spelling as argument
+    return 0;
+}

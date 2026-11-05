@@ -230,5 +230,9 @@ static constexpr uint16_t INTR_Dict_Copy = 171;
 //v0.12.6 D12: seventh Exception ctor; 172 = next fresh id (appended,
 //never reused — the retired-block policy above).
 static constexpr uint16_t INTR_InitializationException_Ctor = 172;
+//v0.12.7 Task 5: Array.toString — the face's virtual-dispatch arm
+//(ReceiverClassIndex maps an array receiver to the Array face class;
+//the stamped face row reaches this id from OP_CallMethod).
+static constexpr uint16_t INTR_Array_toString = 173;
 
 }  // namespace nlang

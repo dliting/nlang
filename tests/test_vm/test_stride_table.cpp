@@ -1,6 +1,8 @@
 //Stride-table integrity pin: every opcode value in [0, OP_Count) must
-//resolve to an extent in [1, 9] — an unlisted opcode throws at runtime
+//resolve to an extent in [1, 11] — an unlisted opcode throws at runtime
 //("unknown opcode in disassembler") far from the authoring mistake.
+//The ceiling is the widest deliberate stride: 9 (immediate opcodes)
+//until v0.12.7 Task 11's 5-operand OP_MakeArrayView at 11.
 //Guards the group-table rewrite of InstructionStride, where inline-
 //braced rows of a constexpr aggregate holding initializer_list members
 //silently failed to match under MSVC (OP_ConstInt32 walked to the miss
@@ -35,8 +37,8 @@ static void test_all_opcodes_resolve()
             std::cerr << "    missing opcode value: " << value << "\n";
             return;
         }
-        if (stride < 1 || stride > 9) {
-            FAIL("stride out of the [1, 9] extent range");
+        if (stride < 1 || stride > 11) {
+            FAIL("stride out of the [1, 11] extent range");
             std::cerr << "    opcode " << value << " stride " << stride
                       << "\n";
             return;
@@ -60,6 +62,8 @@ static void test_known_extents()
         "opcode + 8-byte immediate is 9 bytes");
     CHECK(InstructionStride(OpCode::OP_CallDelegateOut) == 9,
         "opcode + 2x uint16 + uint32 outMask is 9 bytes");
+    CHECK(InstructionStride(OpCode::OP_MakeArrayView) == 11,
+        "opcode + 5x uint16 operands is 11 bytes (widest stride)");
     PASS();
 }
 

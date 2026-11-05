@@ -418,31 +418,29 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 		"requires an import and qualification)", name.c_str());
 }
 
-//D10 (concurrency import redesign): a bare-name miss where a stamped
-//package declares the name — name the package and the fix (the
-//binding table is the package->symbol map for these classes). The two
-//forms carry different fixes: a class becomes visible through the
-//import alone, while a package function stays qualified-only even
-//after the import, so its note names the qualified spelling. True =
-//note logged (the caller suppresses the generic visibility/module-path
-//guesses).
+//D10 (concurrency import redesign), v0.12.7 V1 revision: a bare-name
+//miss where a stamped package declares the name — name the package and
+//the fix (the binding table is the package->symbol map for these
+//classes). An explicit import now admits bare use for functions and
+//classes alike (the old qualified-only function note was wrong for the
+//unified model), so one text serves both forms. Suppressed when this
+//TU already imports the package: the miss then has another cause (the
+//"add import" advice would be noise). True = note logged (the caller
+//suppresses the generic visibility/module-path guesses).
 bool ExprResolveAccessor::MaybeLogPackageHint(const std::string &name)
 {
 	std::string package;
-	bool freeFuncForm = false;
-	if (!BindingPackageForName(name, package, &freeFuncForm))
+	if (!BindingPackageForName(name, package))
 		return false;
-	if (freeFuncForm)
-		m_Env.Log(CLL_Error,
-			"(note: \"%s\" is provided by package '%s'; "
-			"call it as '%s.%s' after 'import %s';)",
-			name.c_str(), package.c_str(), package.c_str(),
-			name.c_str(), package.c_str());
-	else
-		m_Env.Log(CLL_Error,
-			"(note: \"%s\" is provided by package '%s'; "
-			"add 'import %s';)",
-			name.c_str(), package.c_str(), package.c_str());
+	const uint32_t curModule =
+		m_Env.Registry().OwnerOfContext(*m_pContext);
+	if (curModule != ModuleRegistry::NO_OWNER
+		&& m_Env.Registry().ImportGateAllows(curModule, package))
+		return false;
+	m_Env.Log(CLL_Error,
+		"(note: \"%s\" is provided by package '%s'; "
+		"add 'import %s';)",
+		name.c_str(), package.c_str(), package.c_str());
 	return true;
 }
 

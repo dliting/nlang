@@ -167,13 +167,17 @@ SnField *ExprResolveAccessor::FindTypeNameInAncestor(const std::string &sName,
 		bIncludeNamespaces);
 }
 
-//Module import visibility (D1/D7): the owner-side half of the bare-pool
-//rule (scope side: IsBarePoolScope above). Ownerless symbols (root
-//built-ins, runtime tables) stay visible — the filter applies ONLY to
-//owned NK_Function members of bare-pool scopes (M2: a namespace declared
-//in another directory is just as foreign); class/interface/enum scopes
-//are untouched (types stay global, spec §5.5). The owned-pair core
-//delegates to ModuleRegistry::ShareBarePool (single authority).
+//Module import visibility (D1/D7 + v0.12.7 V1): the owner-side half of
+//the bare-pool rule (scope side: IsBarePoolScope above). Ownerless
+//symbols (root built-ins, runtime tables) stay visible — the filter
+//applies ONLY to owned NK_Function members of bare-pool scopes (M2: a
+//namespace declared in another directory is just as foreign);
+//class/interface/enum scopes are untouched (types stay global, spec
+//§5.5). Cross-module admission is the EXACT import gate (explicit
+//`import a.b;` admits bare use — same-directory auto-adds ride the same
+//list), so a wildcard never floods the bare pool. The same-directory
+//pair check stays for the flat-library coincidence (library TU gates do
+//not auto-add each other).
 bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 {
 	auto &reg = m_Env.Registry();
@@ -181,6 +185,8 @@ bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 	if (owner == ModuleRegistry::NO_OWNER)
 		return true;
 	if (owner == curModule)
+		return true;
+	if (reg.IsExactImportedBy(curModule, owner))
 		return true;
 	//Defensive: an untagged context cannot share a directory with anyone.
 	//Reachable only if a caller skips the OwnerOfContext precondition —
@@ -209,12 +215,14 @@ SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName,
 	return nullptr;
 }
 
-//the first scan hit: name-dict range order within a scope, then child
-//namespaces in insertion order — deterministic, but an arbitrary pick
-//among equals (any of them fixes the diagnosis).
-static SnFunction* FindOwnedFunctionElsewhere(SnFunctionParentField &scope,
+//Every same-name function the bare pool scan would hide: name-dict
+//range order within a scope, then child namespaces in insertion order.
+//v0.12.7 V4: the full provider set (was: an arbitrary first hit) — the
+//collision hint must name every module so the escape is actionable.
+static void CollectOwnedFunctionsElsewhere(SnFunctionParentField &scope,
 	const std::string &name,
-	const std::function<bool(SnFunction &)> &isVisible)
+	const std::function<bool(SnFunction &)> &isVisible,
+	std::vector<SnFunction*> &rOut)
 {
 	auto range = scope.Members().NameDict().equal_range(name);
 	for (auto iField = range.first; iField != range.second; ++iField)
@@ -223,17 +231,15 @@ static SnFunction* FindOwnedFunctionElsewhere(SnFunctionParentField &scope,
 			continue;
 		auto *pFunc = static_cast<SnFunction *>(iField->second);
 		if (!isVisible(*pFunc))
-			return pFunc;
+			rOut.push_back(pFunc);
 	}
 	for (auto &member : scope.Members())
 	{
 		if (!IsBarePoolScope(member))
 			continue;
-		if (auto *pForeign = FindOwnedFunctionElsewhere(
-				static_cast<SnNamespace &>(member), name, isVisible))
-			return pForeign;
+		CollectOwnedFunctionsElsewhere(
+			static_cast<SnNamespace &>(member), name, isVisible, rOut);
 	}
-	return nullptr;
 }
 
 bool ExprResolveAccessor::MaybeLogVisibilityHint(const std::string &name,
@@ -249,20 +255,38 @@ bool ExprResolveAccessor::MaybeLogVisibilityHint(const std::string &name,
 	while (pRoot->Parent())
 		pRoot = pRoot->Parent();
 	NLANG_ASSERT(IsBarePoolScope(*pRoot));
-	auto *pForeign = FindOwnedFunctionElsewhere(
+	std::vector<SnFunction*> hidden;
+	CollectOwnedFunctionsElsewhere(
 		static_cast<SnNamespace &>(*pRoot), name,
 		[this, curModule](SnFunction &func)
 		{
 			return IsBareVisible(func, curModule);
-		});
-	if (!pForeign)
+		}, hidden);
+	if (hidden.empty())
 		return false;
+	//v0.12.7: name EVERY provider and give both fixes — an explicit
+	//import admits bare use too (V1), and the qualified spelling always
+	//works once the module is admissible.
+	std::string modules;
+	for (auto *pFunc : hidden)
+	{
+		if (!modules.empty())
+			modules += ", ";
+		modules += "'" + m_Env.Registry().ModulePathOf(
+			m_Env.Registry().OwnerOf(*pFunc)) + "'";
+	}
+	const std::string firstModule = m_Env.Registry().ModulePathOf(
+		m_Env.Registry().OwnerOf(*hidden.front()));
 	m_Env.Log(CLL_Error, pLoc,
-		"Function '%s' is not visible here. It lives in module '%s'; "
-		"import it and qualify the call.",
-		name.c_str(),
-		m_Env.Registry().ModulePathOf(
-			m_Env.Registry().OwnerOf(*pForeign)).c_str());
+		hidden.size() == 1
+			? "Function '%s' is not visible here. It lives in module "
+			  "%s. Add an explicit import ('import %s;') or qualify "
+			  "the call ('%s.%s')."
+			: "Function '%s' is not visible here. It lives in modules: "
+			  "%s. Add an explicit import ('import %s;') or qualify "
+			  "the call ('%s.%s').",
+		name.c_str(), modules.c_str(), firstModule.c_str(),
+		firstModule.c_str(), name.c_str());
 	return true;
 }
 

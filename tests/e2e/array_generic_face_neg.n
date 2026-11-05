@@ -1,0 +1,6 @@
+import lang;
+
+int main() {
+    Array a = int[4];   // bare Array stays rejected in type position
+    return 0;
+}

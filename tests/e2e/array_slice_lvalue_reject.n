@@ -1,0 +1,6 @@
+import lang;
+int main() {
+    int[,] m = int[2, 2];
+    m[1:2, :] = 5;
+    return 0;
+}

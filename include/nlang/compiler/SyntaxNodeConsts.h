@@ -41,6 +41,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InitListExpr)			/* [e1,e2] / {k:v} / new T{} (Phase 8e-6) */	\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
 	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
+	MACRO_IMPL(SliceItemExpr)			/* slice item h:s:st (v0.12.7 T11) */	\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
 	MACRO_IMPL(InvokeStmt)				/* invoke statement */				\
 	MACRO_IMPL(LocalDeclStmt)			/* local variable declaration */		\

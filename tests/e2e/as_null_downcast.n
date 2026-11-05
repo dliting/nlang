@@ -1,0 +1,22 @@
+// v0.12.7 Task 3: OP_CheckCast on null yields null (Java/C# semantics)
+// instead of a host-level VM error. The scenario that reaches the op:
+// a CLASS-TYPED null (the literal path admits array targets only).
+class Foo {
+    public int x;
+}
+
+int main() {
+    Object o = null;
+    Foo f = o as Foo;
+    if (f != null) {
+        return 1;
+    }
+    int code = 0;
+    Foo real = Foo();
+    Object boxed = real;
+    Foo back = boxed as Foo;   // non-null downcast still resolves
+    if (back == null || back.x != 0) {
+        code = 2;
+    }
+    return code;
+}

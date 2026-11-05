@@ -92,7 +92,10 @@ bool VmBackend::EmitMemberArrayToString(SnMemberExpr& member,
         auto& outerFieldExpr = static_cast<SnFieldExpr&>(
             *member.Outer());
         auto* outerField = outerFieldExpr.Field();
-        if (outerField && outerField->IsArrayType())
+        //v0.12.7: the field may be the interned token OR the Array<E>
+        //instantiation (the generic spelling of the same type).
+        if (outerField && (outerField->IsArrayType()
+            || ArrayInstantiationElem(outerField)))
         {
             EmitExpression(*member.Outer(), emitter, resultOffset);
             //Field loads leave the pResult accumulator

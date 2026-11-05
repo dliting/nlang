@@ -9,6 +9,7 @@
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "CastInfo.h"
+#include "ModuleRegistry.h"
 #include <string>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
@@ -19,8 +20,39 @@ namespace nlang
 //M3b: the ambiguity diagnostic of MatchInvokeAgainst — logged at the
 //matching core (candidate-set independent) so the bare and
 //module-qualified paths report identically.
-void ExprResolveAccessor::LogAmbiguousCall(SnInvokeExpr &invoke)
+void ExprResolveAccessor::LogAmbiguousCall(SnInvokeExpr &invoke,
+	SnFunction *pFirst, SnFunction *pTied)
 {
+	//v0.12.7 V4: name the equal-distance providers so the escape is
+	//actionable (Rust E0659 / C# CS0104 precedent). Two modules → the
+	//module-path qualification resolves it; one module → two overloads
+	//of the same shape, and only the argument types can.
+	auto &reg = m_Env.Registry();
+	const bool bFirstOwned = pFirst
+		&& reg.OwnerOf(*pFirst) != ModuleRegistry::NO_OWNER;
+	const bool bTiedOwned = pTied
+		&& reg.OwnerOf(*pTied) != ModuleRegistry::NO_OWNER;
+	if (bFirstOwned && bTiedOwned
+		&& reg.OwnerOf(*pFirst) != reg.OwnerOf(*pTied))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"ambiguous call to function \"%s\": module '%s' and module "
+			"'%s' both match with equal distance; qualify the call with "
+			"the module path.",
+			invoke.CalleeName().c_str(),
+			reg.ModulePathOf(reg.OwnerOf(*pFirst)).c_str(),
+			reg.ModulePathOf(reg.OwnerOf(*pTied)).c_str());
+		return;
+	}
+	if (bFirstOwned && bTiedOwned)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"ambiguous call to function \"%s\": two overloads in module "
+			"'%s' match with equal distance.",
+			invoke.CalleeName().c_str(),
+			reg.ModulePathOf(reg.OwnerOf(*pFirst)).c_str());
+		return;
+	}
 	m_Env.Log(CLL_Error, invoke.Location(),
 		"ambiguous call to function \"%s\": multiple overloads match "
 		"with equal distance.",
@@ -100,13 +132,19 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 //call path so both surfaces report identically (spec §7 / M4).
 void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
 	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported,
-	const std::vector<SnFunction*> &candidates)
+	const std::vector<SnFunction*> &candidates,
+	bool bAmbiguityAlreadyLogged)
 {
 	NLANG_ASSERT((res == FFR_Incompatible || res == FFR_FuncNameNotFound)
 		&& "failure logging takes failure results only");
 
 	if (res == FFR_Incompatible)
 	{
+		//v0.12.7: the ambiguity report named the providers and the
+		//escape already — the generic incompatibility text would only
+		//bury it.
+		if (bAmbiguityAlreadyLogged)
+			return;
 		//pCallee is null by contract on the imported-stub path; the flag
 		//comes from the name-matched candidate scan.
 		if (MaybeLogImportedFuncRef(invoke, bNameMatchedImported))

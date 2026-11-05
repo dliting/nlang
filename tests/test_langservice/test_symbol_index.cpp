@@ -28,12 +28,12 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 183 functions: io 15 (10 natives + 5 typed-reader wrappers),
+    // 175 functions: io 15 (10 natives + 5 typed-reader wrappers),
     // math 25, fs 8, thread 7 (the K3 materialized package plus the
-    // P2-2 failure probes), tensor 128
-    // (stage-1 creation/elementwise/reduction + stage-3 matrix family,
-    // matmul and the rank-2 face).
-    CHECK(index.size() == 183);
+    // P2-2 failure probes), tensor 120 (the collapsed surface: generic
+    // reshape with -1 inference, elementwise exp/log/clamp, concat,
+    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss).
+    CHECK(index.size() == 175);
 }
 
 static void TestResolvePrint() {
@@ -277,16 +277,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // matmul and the rank-2 face).
-    CHECK(index.size() == 183);
+    CHECK(index.size() == 175);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    // matmul and the rank-2 face).
-    CHECK(index.size() == 183);
+    CHECK(index.size() == 175);
 }
 
 static void TestBlockCommentBraces() {

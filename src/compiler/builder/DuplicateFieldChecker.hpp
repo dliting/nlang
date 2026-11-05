@@ -56,8 +56,8 @@ public:
 			auto *pMember = sn.Members().find(method.Name());
 			if (pMember) {
 				m_Env.Log(CLL_Error, method.Location(),
-					"The field \"%s\" is conflicted with a exist field "
-					"definition.", method.ToString().c_str());
+					"\"%s\" conflicts with an existing definition of the "
+					"same name.", method.ToString().c_str());
 				m_Env.Log(CLL_More, pMember->Location(),
 					"See also the definition of \"%s\".",
 					pMember->ToString().c_str());
@@ -231,8 +231,8 @@ private:
 		auto &errorField = (f1.IsImported()) ? f2 : f1;
 		auto &existField = (&errorField == &f1) ? f2 : f1;
 		m_Env.Log(CLL_Error, errorField.Location(),
-			"The field \"%s\" is conflicted with a exist field definition.",
-			errorField.ToString().c_str());
+			"\"%s\" conflicts with an existing definition of the same "
+			"name.", errorField.ToString().c_str());
 		m_Env.Log(CLL_More, existField.Location(),
 			"See also the definition of \"%s\".",
 			existField.ToString().c_str());

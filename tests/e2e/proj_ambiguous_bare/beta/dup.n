@@ -1,0 +1,1 @@
+int dup() { return 2; }

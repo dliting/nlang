@@ -100,6 +100,7 @@ enum class OpCode : uint8_t {
     OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
     OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
     OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
+    OP_MakeArrayView,   // uint16 dst, uint16 arr, uint16 typeIdx, uint16 rank, uint16 paramsBase — slice subscript; params = 3×rank int32 slots (start/stop/step per axis, INT32_MIN default sentinel) followed by ceil(4×rank/32) mask slots (4 bits/axis: start/stop/step present + axis-is-scalar)
 
     // === Phase 8e-1: Object protocol + boxing/cast ===
     OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
@@ -177,6 +178,30 @@ enum class OpCode : uint8_t {
     OP_SlotInitFail,    // u16 slotIdx — reset the machine so the next use
                         // retries (D10); pair with OP_Rethrow
 
+    // === v0.12.7 Task 3: boundary rank check ===
+    OP_CheckArrayRank,  // u16 dst, u16 src, u16 rank — null passes through
+                        // unchanged; otherwise the RTK_Array record's rank
+                        // cell must equal rank or a catchable
+                        // InvalidCastException is raised
+
+    // === v0.12.7 Task 5: Object→array downcast check ===
+    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx — null passes
+                        // through; the record's type identity (kind +
+                        // arrayTypes row) must match or a catchable
+                        // InvalidCastException is raised
+
+    // === v0.12.7 Task 4: unannotated Array<E> spelling (no static rank) ===
+    OP_LoadElementDyn,  // u16 dst, u16 arr, u16 idxBase, u16 nCoords — the
+                        // coordinate count verifies against the record's
+                        // rank cell; mismatch raises catchable
+                        // IndexOutOfBoundsException (both counts)
+    OP_StoreElementDyn, // u16 arr, u16 idxBase, u16 src, u16 nCoords —
+                        // store twin of OP_LoadElementDyn
+    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot — dims is a
+                        // rank-1 int[] handle; the rank = dims.length()
+                        // validates in [1, kMaxArrayRank] and the extents
+                        // go through AllocArrayOnHeap
+
     OP_Count
 };
 
@@ -232,11 +257,15 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate};
+    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
+    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
+    OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
     OpCode::OP_AssembleArrayN,
     OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
+static constexpr OpCode kStrideFiveWords[] = {
+    OpCode::OP_MakeArrayView};
 static constexpr OpCode kStrideOutMaskWords[] = {
     OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
     OpCode::OP_CallDelegateOut};
@@ -281,6 +310,7 @@ inline size_t InstructionStride(OpCode op) {
         StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
         StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
         StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
+        StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
         StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
         StrideGroup(kStrideConst32, 1 + 4),

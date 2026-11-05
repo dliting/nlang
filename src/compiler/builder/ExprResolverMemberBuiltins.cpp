@@ -247,11 +247,20 @@ bool ExprResolveAccessor::TryResolveArrayBuiltinInvoke(
 			return false;   //not an Array face method — the reject
                             //gate has already spoken for arrays
 		m_Env.Log(CLL_Error, invoke.Location(),
-			"array.%s() takes no arguments.",
-			invoke.CalleeName().c_str());
+			"array.%s expects %d argument(s).",
+			invoke.CalleeName().c_str(),
+			(int)FormalCountOf(*pOtherArity));
 		m_pContext = pSavedContext;
 		return true;
 	}
+	//Args resolve in the caller's scope (the String face's equals
+	//recipe: restore the context and drop the parent-only search
+	//first, or the argument stays unresolved and codegen silently
+	//reads stale memory — v0.12.7 gave the face its first method
+	//with a formal, equals(Object)).
+	m_pContext = pSavedContext;
+	RemoveFlags(ERF_SearchInParentOnly);
+	ResolveExpressionList(invoke.Params());
 	BindFaceMethodResult(snMember, pInnerExpr, *pMatch);
 	snMember.AddFlags(NF_Resolved);
 	BindArrayTypeToken(snMember);

@@ -1,3 +1,4 @@
+import io;
 int main() {
     FileStream stream = FileStream("_phase8_tmp/test_write_read.bin", "w");
     stream.writeInt(42);

@@ -99,6 +99,9 @@ void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
         EvalAreaClaim claim(*this, 1);
         uint16_t valueSlot = claim.base();
         EmitExpression(*assign.Right(), emitter, valueSlot);
+        //v0.12.7: annotated target × unannotated value — the boundary
+        //rank check (null passes through unchanged).
+        EmitArrayRankBoundary(varType, assign.Right(), valueSlot, emitter);
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(valueSlot);
         emitter.Emit(OpCode::OP_Assign);
@@ -113,6 +116,9 @@ void VmBackend::EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
         SnField* fieldType, BytecodeEmitter& emitter) {
     EmitExpression(*assign.Right(), emitter,
         m_currFunc->tempSlot2);
+    //v0.12.7: boundary rank check on the staged value.
+    EmitArrayRankBoundary(fieldType, assign.Right(),
+        m_currFunc->tempSlot2, emitter);
     emitter.Emit(OpCode::OP_VarLocal);
     emitter.EmitUint16(ImplicitThisSlot());
     emitter.Emit(OpCode::OP_Assign);
@@ -270,6 +276,9 @@ void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
         emitter.EmitUint16(objSlot);
     }
     EmitExpression(*assign.Right(), emitter, valueSlot);
+    //v0.12.7: boundary rank check on the staged value (container
+    //elements may carry an annotated field).
+    EmitArrayRankBoundary(fieldType, assign.Right(), valueSlot, emitter);
     EmitStructAwareStoreField(fieldType, objSlot, fieldOff, valueSlot,
         emitter);
 }
@@ -302,7 +311,8 @@ void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
     emitter.EmitUint16(claimBase);
     //4. load element into tempSlot (free scratch — all operands are
     //parked in exclusive claim slots now)
-    emitter.Emit(OpCode::OP_LoadElementN);
+    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+        ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
     emitter.EmitUint16(m_currFunc->tempSlot);
     emitter.EmitUint16(claimBase);
     emitter.EmitUint16(idxBase);
@@ -341,9 +351,15 @@ void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(objSlot);
     EmitExpression(*assign.Right(), emitter, valueSlot);
-    EmitStructAwareStoreField(
-        FindClassFieldDecl(*classDecl, fieldName),
-        objSlot, fieldOff, valueSlot, emitter);
+    //v0.12.7: boundary rank check on the staged value.
+    {
+        auto* pFieldDecl = FindClassFieldDecl(*classDecl, fieldName);
+        EmitArrayRankBoundary(
+            pFieldDecl ? pFieldDecl->EvalDataType() : nullptr,
+            assign.Right(), valueSlot, emitter);
+        EmitStructAwareStoreField(pFieldDecl,
+            objSlot, fieldOff, valueSlot, emitter);
+    }
 }
 
 //v0.12.6 D14: struct-aware field store — the emit-side twin of the

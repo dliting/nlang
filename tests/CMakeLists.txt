@@ -500,6 +500,34 @@ target_compile_definitions(test_native_array_abi
 
 add_test(NAME native_array_abi_tests COMMAND test_native_array_abi)
 
+# v0.12.7 Task 8: RTK_ArrayView view records — layout, creation
+# validation matrix, depth-one folding, and the GC edge (direct
+# AllocViewOnHeap calls against a real executor).
+add_executable(test_array_view_record
+    test_vm/test_array_view_record.cpp
+)
+
+target_include_directories(test_array_view_record
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_array_view_record
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_array_view_record)
+target_compile_definitions(test_array_view_record
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME array_view_record_tests COMMAND test_array_view_record)
+
 # Stage-2 task 1: rank-carrying array type tokens (comma suffix grammar,
 # jagged gate preservation, generic-argument acceptance).
 add_executable(test_nd_tokens
@@ -1311,6 +1339,40 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(prelude_faces_tests test_prelude_faces)
 
+    # Builtin-surface coverage gate (v0.12.7 Task 8.5): every class
+    # the C++ side certifies as a builtin must carry a real .n
+    # declaration in the standard library — the stream classes in io
+    # with the full 18-method family, and every handle/face name
+    # somewhere in the imported packages. A new builtin row without a
+    # declaration face fails here by name.
+    add_executable(test_builtin_surface_coverage
+        test_compiler/test_builtin_surface_coverage.cpp
+    )
+    target_include_directories(test_builtin_surface_coverage
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_builtin_surface_coverage
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_builtin_surface_coverage)
+    target_compile_definitions(test_builtin_surface_coverage
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_builtin_surface_coverage POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_builtin_surface_coverage>)
+    endif()
+    nlang_add_qtest(builtin_surface_coverage_tests
+        test_builtin_surface_coverage)
+
     # Module registry unit tests (module import visibility Task 2):
     # per-TU module path computation relative to the project root, the
     # single-file stem fallback and the reserved segment gate, driven
@@ -1369,6 +1431,11 @@ if(NLANG_BUILD_IDE)
             nlang_runtime
             nlang_vm
             Qt5::Test
+    )
+    nlang_stdlib_test(test_array_property)
+    target_compile_definitions(test_array_property
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     if(WIN32)
         add_custom_command(TARGET test_array_property POST_BUILD
@@ -1987,6 +2054,45 @@ add_test(NAME proj_import_visibility_run
 set_tests_properties(proj_import_visibility_run PROPERTIES
     DEPENDS proj_import_visibility_compile
     PASS_REGULAR_EXPRESSION "3")
+
+#v0.12.7 name-resolution matrix (docs/dev/name_resolution_design.md):
+#qualified names are absolute module paths (the my.* wildcard never
+#aliases foo→my.foo); an explicit import admits the module's members to
+#the bare pool (V1); different-shape same-name imports merge. The
+#fixture self-checks every value before returning 0.
+add_test(NAME proj_name_visibility_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_name_visibility/proj_name_visibility.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_name_visibility.npkg)
+add_test(NAME proj_name_visibility_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_name_visibility.npkg)
+set_tests_properties(proj_name_visibility_run PROPERTIES
+    DEPENDS proj_name_visibility_compile
+    PASS_REGULAR_EXPRESSION "name-visibility-ok")
+
+#v0.12.7 V1: bare use of an explicitly imported library package from a
+#SUBDIRECTORY translation unit — visibility follows the import, never
+#the caller's directory (the pre-fix ""-directory coincidence rejected
+#exactly this).
+add_test(NAME proj_bare_import_sub_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_bare_import_sub/proj_bare_import_sub.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_import_sub.npkg)
+add_test(NAME proj_bare_import_sub_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_bare_import_sub.npkg)
+set_tests_properties(proj_bare_import_sub_run PROPERTIES
+    DEPENDS proj_bare_import_sub_compile
+    PASS_REGULAR_EXPRESSION "bare-after-import")
+
+#v0.12.7 V4: two explicitly imported modules provide the same-shape bare
+#name — an equal-distance tie is a use-site ambiguity error naming BOTH
+#providers and the qualified escape, never a silent pick.
+add_test(NAME proj_ambiguous_bare_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_ambiguous_bare/proj_ambiguous_bare.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_ambiguous_bare.npkg)
+set_tests_properties(proj_ambiguous_bare_compile PROPERTIES
+    PASS_REGULAR_EXPRESSION "module 'alpha.dup' and module 'beta.dup'")
 
 #0.9.0 Phase A: qualified constructor call without `new`
 #(shapes.Point(2, 3)). The fixture self-checks the field sum (5) BEFORE

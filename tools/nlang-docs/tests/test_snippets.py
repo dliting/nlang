@@ -172,6 +172,23 @@ def test_error_quote_not_attached_across_other_fence():
     assert blocks[1].error_quote == ["Error: only the last block"]
 
 
+def test_error_quote_not_attached_across_prose_paragraph():
+    #A paragraph of prose between fences starts a new example: a
+    #runnable program that merely precedes the error example (blank
+    #lines and prose away) keeps its fences unclaimed, or the quote
+    #would swallow a program it never demonstrated.
+    doc = ("```nlang\nint main() { return 3; }\n```\n"
+           "```nlang lib.n\nint g() { return 1; }\n```\n"
+           "\nSome prose between the fences.\n\n"
+           "```nlang main.n\nimport lib;\nint main() { return g(); }\n```\n"
+           "\n```text\nError: boom here\n```\n")
+    blocks, problems = parse_blocks(doc)
+    assert problems == []
+    assert blocks[0].error_quote is None
+    assert blocks[1].error_quote is None
+    assert blocks[2].error_quote == ["Error: boom here"]
+
+
 def test_bare_mainless_blocks_are_fragments_not_problems():
     doc = "```nlang\nint twice(int x) { return x * 2; }\n```\n"
     blocks, _ = parse_blocks(doc)
@@ -307,6 +324,31 @@ def test_audit_error_example_multi_file_uses_sealed_ncu_path(tmp_path):
     #sealed sequential recipe (the F-001 shape from the manual).
     doc = tmp_path / "page.md"
     doc.write_text(ERROR_MULTI_DOC, encoding="utf-8")
+    problems, _, _, errors = audit_doc(doc, NCC, NVM, tmp_path / "w")
+    assert problems == []
+    assert len(errors) == 1
+
+
+ERROR_DOTTED_DOC = (
+    "```nlang alpha/dup.n\nint dup() { return 1; }\n```\n"
+    "\n```nlang beta/dup.n\nint dup() { return 2; }\n```\n"
+    "\n```nlang\nimport alpha.dup;\nimport beta.dup;\n\n"
+    "int main() {\n    return dup();\n}\n```\n"
+    "\n```text\nError: ambiguous call to function \"dup\": module "
+    "'alpha.dup' and module 'beta.dup' both match with equal distance; "
+    "qualify the call with the module path.\n```\n")
+
+
+@needs_tools
+def test_audit_error_example_dotted_labels_stage_as_project(tmp_path):
+    #Dotted module paths (a directory component in a label, like
+    #alpha/dup.n) name PROJECT modules: sealed .ncu staging cannot
+    #carry them (precompiled dotted packages resolve by their single
+    #last segment, so both imports would miss), so these examples
+    #build as a project — the same .nproj layout the runnable
+    #programs use, and the shape the e2e project fixtures prove.
+    doc = tmp_path / "page.md"
+    doc.write_text(ERROR_DOTTED_DOC, encoding="utf-8")
     problems, _, _, errors = audit_doc(doc, NCC, NVM, tmp_path / "w")
     assert problems == []
     assert len(errors) == 1

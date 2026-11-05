@@ -243,8 +243,10 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	std::vector<SnFunction*> candidates;
 	bool bNameMatchedImported = false;
 	bool bVisibilityHintLogged = false;
+	bool bAmbiguousCall = false;
 	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings,
-		bNameMatchedImported, bVisibilityHintLogged, &candidates);
+		bNameMatchedImported, bVisibilityHintLogged, &candidates,
+		&bAmbiguousCall);
 
 	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredBraceArgs))
 		return;
@@ -265,7 +267,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	}
 
 	ResolveFailedInvoke(snInvoke, res, pCallee, bNameMatchedImported,
-		bVisibilityHintLogged, candidates, deferredBraceArgs);
+		bVisibilityHintLogged, candidates, deferredBraceArgs,
+		bAmbiguousCall);
 }
 
 //The failure tail of Access(SnInvokeExpr). 0.9.0: an unresolved call
@@ -278,7 +281,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported,
 	bool bVisibilityHintLogged, const std::vector<SnFunction*> &candidates,
-	const std::vector<SnExpression*> &deferredBraceArgs)
+	const std::vector<SnExpression*> &deferredBraceArgs,
+	bool bAmbiguousCall)
 {
 	if (bVisibilityHintLogged)
 		return;
@@ -287,12 +291,25 @@ void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	//route must not consume the call (a resolved call with an unresolved
 	//argument would reach the backend). The generic failure text plus the
 	//sweep's missing-target diagnostic is the complete report.
-	if (res == FFR_FuncNameNotFound && deferredBraceArgs.empty()
+	//v0.12.7 M1: the one arm that KNOWS its formal is Array(dims) — the
+	//dims formal is int[], so the deferred literal there is inferable;
+	//a successful inference re-opens the gate below. rbSwept marks that
+	//the helper's Accepts already diagnosed the failures — the tail sweep
+	//must not repeat them.
+	bool bArgsAdmissible = deferredBraceArgs.empty();
+	bool bArgsSwept = false;
+	if (!bArgsAdmissible && res == FFR_FuncNameNotFound)
+	{
+		bArgsAdmissible = TryInferArrayDimsDeferredArgs(snInvoke,
+			deferredBraceArgs, bArgsSwept);
+	}
+	if (res == FFR_FuncNameNotFound && bArgsAdmissible
 		&& TryResolveCtorInvoke(snInvoke))
 		return;
 	LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported,
-		candidates);
-	AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		candidates, bAmbiguousCall);
+	if (!bArgsSwept)
+		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
 }
 
 //Phase 9c: validate caller-side argument syntax (candidate-independent).

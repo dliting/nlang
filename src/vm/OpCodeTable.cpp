@@ -58,6 +58,7 @@ static const char* s_OpCodeNames[] = {
     "load_element_flat",
     "array_length",
     "array_shape",
+    "make_array_view",
     "box",
     "unbox",
     "check_cast",
@@ -86,6 +87,11 @@ static const char* s_OpCodeNames[] = {
     "slot_init_gate",
     "slot_init_done",
     "slot_init_fail",
+    "check_array_rank",
+    "check_array_type",
+    "load_element_dyn",
+    "store_element_dyn",
+    "alloc_array_dyn",
 };
 
 const char* OpCodeName(OpCode op) {

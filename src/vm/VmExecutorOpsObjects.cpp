@@ -211,14 +211,16 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
     uint16_t targetClassIdx = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
-    if (heapIdx <= 0
+    //v0.12.7: null is a legal language value — `x as T` on null yields
+    //null (the result cell already holds it); out-of-range stays host error.
+    if (heapIdx == 0)
+        return;
+    if (heapIdx < 0
         || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        throw std::runtime_error("NLang VM: cast on null/invalid reference");
+        throw std::runtime_error("NLang VM: cast on invalid reference");
     if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
-        throw std::runtime_error(
-            "NLang VM: CheckCast target is not a class object");
-    int32_t actualClassIdx =
-        m_structHeap[static_cast<size_t>(heapIdx)][0];
+        throw std::runtime_error("NLang VM: CheckCast target is not a class object");
+    int32_t actualClassIdx = m_structHeap[static_cast<size_t>(heapIdx)][0];
     //Walk the actual class's super chain; accept if target is found.
     bool ok = (actualClassIdx == static_cast<int32_t>(targetClassIdx));
     int32_t cur = actualClassIdx;
@@ -243,12 +245,10 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
             static_cast<size_t>(targetClassIdx)];
         const auto& act = m_currModule->classes[
             static_cast<size_t>(actualClassIdx)];
-        //User-visible failure message: leaf names. The class table keys
-        //are package-qualified link identities; the leaf-name spelling
-        //for user-facing rendering is the shared rule (CompiledModule.h).
-        //v0.8.5: raise the catchable built-in InvalidCastException (NLang
-        //catch reads e.message); the malformed-state guards above stay
-        //std::runtime_error by design.
+        //User-visible failure message: leaf names (the class table keys
+        //are package-qualified link identities; shared rule, CompiledModule.h).
+        //v0.8.5: raise the catchable InvalidCastException (NLang catch reads
+        //e.message); the malformed-state guards above stay std::runtime_error.
         RaiseNlangException(m_invalidCastExcClassIdx, std::string(
             "NLang VM: invalid cast - expected `")
             + LeafNameOfKey(tgt.name) + "`, got `"
@@ -298,6 +298,17 @@ int32_t VmExecutor::ReceiverClassIndex(int32_t heapIdx) const {
         //as the boxed-primitive root.
         for (size_t i = 0; i < classes.size(); ++i)
             if (classes[i].name == "Object")
+                return static_cast<int32_t>(i);
+        return -1;
+    }
+    //v0.12.7 Task 5: an array receiver dispatches on the Array face —
+    //the face row's stamped protocol methods (toString/equals/
+    //getHashCode) answer Object-receiver protocol calls (spec 4.1:
+    //Array<E> <: Object). Same bare-name scan as the boxed root.
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Array) {
+        const auto& classes = m_currModule->classes;
+        for (size_t i = 0; i < classes.size(); ++i)
+            if (classes[i].name == "Array")
                 return static_cast<int32_t>(i);
         return -1;
     }

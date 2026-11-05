@@ -6,7 +6,7 @@
 
 ## 22.1 范围与版本
 
-**ABI版本。**本章描述ABI版本 **9**。宿主接受版本探针恰好报`9`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§22.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
+**ABI版本。**本章描述ABI版本 **10**。宿主接受版本探针恰好报`10`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§22.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
 
 **本章固定的内容。**模块发现与加载（§22.2）、模块导出与注册（§22.3）、调用约定与值单元（§22.4）、宿主函数表（§22.5）、固定数组视图（§22.6）与阻塞段契约（§22.7）。
 
@@ -25,7 +25,7 @@
 **加载序列。**宿主打开模块文件，然后：
 
 1. 解析导出`nlang_abi_version`；没有该导出的模块被拒绝；
-2. 调用它；除`9`以外的值被拒绝；
+2. 调用它；除`10`以外的值被拒绝；
 3. 解析导出`nlang_native_init`；没有该导出的模块被拒绝；
 4. 调用它一次（§22.3）。
 
@@ -39,7 +39,7 @@
 
 | 导出 | 签名 | 契约 |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | 返回`9`；唯一的版本权威（§22.2） |
+| `nlang_abi_version` | `unsigned (void)` | 返回`10`；唯一的版本权威（§22.2） |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | 探针通过后调用一次 |
 
 连同注册回调
@@ -95,7 +95,7 @@ void fn(NativeHost* host, uint8_t* ret,
 
 ## 22.5 宿主函数表
 
-**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`9`的`uint32_t`——之后按固定顺序跟随下列十五个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
+**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`10`的`uint32_t`——之后按固定顺序跟随下列十六个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
 
 | 回调 | 签名 |
 |---|---|
@@ -114,6 +114,7 @@ void fn(NativeHost* host, uint8_t* ret,
 | `getArrayView` | `int (NativeHost* self, int32_t handle, NativeArrayView* out)` |
 | `newArray` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t length)` |
 | `newArrayShaped` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims)` |
+| `newArrayView` | `int32_t (NativeHost* self, int32_t targetHandle, int32_t rank, const int32_t* dims, const int32_t* strides, int64_t offset)` |
 
 **字符串。**`getString`返回`handle`背后字符串的字节；`newString`从一个以NUL结尾的Unicode转换格式（UTF-8）缓冲区创建字符串并返回其句柄；`newListString`在一次调用内从`count`个以NUL结尾的缓冲区创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。
 
@@ -144,30 +145,35 @@ void fn(NativeHost* host, uint8_t* ret,
 
 这四个之外的种类抛出基类`Exception`。负的长度或维度，以及超过分配守卫的任何请求，抛出`IndexOutOfBoundsException`——与语言侧负尺寸创建的结果相同（§4.10、§8.3）。`1`到`64`之外的秩抛出基类`Exception`（§4.10）。铸造出的句柄由宿主保持存活，直到原生函数把它写进`ret`（§22.7）。
 
-`getArrayView`用`handle`背后数组的§22.6固定视图填好`*out`并返回`1`；为null或越界的句柄抛出`NullPointerException`，非数组值的句柄抛出基类`Exception`——不存在不抛出的失败路径。
+`newArrayView`在`targetHandle`背后的数组——或视图——之上铸造一个视图（§4.10），采用给定的秩、各维长度、步幅与偏移（以元素计，§22.6）；元素种类取自目标。其校验就是语言自身视图创建所施加的那套：为null或非数组的目标分别抛出`NullPointerException`或`IndexOutOfBoundsException`，`1`到`64`之外的秩或非标量的元素种类抛出基类`Exception`，非法的维度或超出目标边界的范围抛出`IndexOutOfBoundsException`（§4.10）。铸造出的句柄由宿主保持存活，直到原生函数把它写进`ret`（§22.7）。
+
+`getArrayView`用`handle`背后数组——持有记录或视图记录——的§22.6固定视图填好`*out`并返回`1`；为null或越界的句柄抛出`NullPointerException`，非数组值的句柄抛出基类`Exception`——不存在不抛出的失败路径。
 
 ## 22.6 固定数组视图
 
-**视图。**`NativeArrayView`描述一个堆数组的载荷：
+**视图。**`NativeArrayView`描述一个堆数组的载荷——持有记录的载荷，或视图记录在其持有记录中的窗口：
 
 | 字段 | 类型 | 内容 |
 |---|---|---|
 | `rank` | `int32_t` | 数组的秩（§4.10） |
 | `dims` | `const int32_t*` | 各维长度；指向数组记录内部 |
-| `strides` | `const int32_t*` | 以元素计的行主序步幅；指向视图自身内部 |
+| `strides` | `const int32_t*` | 以元素计的步幅；指向视图自身内部 |
 | `elemCount` | `int64_t` | 元素总数 |
 | `elemKind` | `uint8_t` | 元素种类（§22.5） |
 | `elemCellBytes` | `uint8_t` | 每元素步幅的字节数：`4`，`long`与`double`为`8` |
 | `reserved` | `uint8_t[2]` | 写`0`；读取器忽略该字段 |
+| `offset` | `int64_t` | 零号元素所在的位置，以元素计（§22.6寻址） |
 | `stridesInline` | `int32_t[64]` | `strides`所指向的存储：64个条目，即秩上限（§22.5） |
-| `data` | `void*` | 载荷基址——零号元素 |
+| `data` | `void*` | 持有记录的载荷基址 |
 
 **寻址。**下标为`i[0] … i[rank-1]`的元素位于
 
 ```
-data + (i[0]*strides[0] + … + i[rank-1]*strides[rank-1])
+data + (offset + i[0]*strides[0] + … + i[rank-1]*strides[rank-1])
      * elemCellBytes
 ```
+
+`offset`以元素计，与`strides`同一单位。持有数组报`0`和由自身各维长度算出的行主序步幅；视图报它记录的偏移与步幅，指向持有载荷，`data`仍指向持有记录的载荷基址。
 
 **生命周期。**垃圾回收器不移动对象，且参数记录在原生调用期间保持存活，所以视图的每个指针在调用期间都稳定——且仅在调用期间。绝不要把视图缓存到返回之后。
 

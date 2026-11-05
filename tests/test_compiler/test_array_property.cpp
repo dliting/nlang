@@ -20,6 +20,8 @@ the old shape-inference predicate computed post hoc.
 //Internal header: ModuleLoader is opaque in the public API (same pattern
 //as test_module_import; the src/vm include dir is on this target).
 #include "ModuleLoader.h"
+#include "NcuLoader.h"
+#include "NcuLinker.h"
 #include "VmExecutor.h"
 #include <filesystem>
 #include <fstream>
@@ -27,6 +29,10 @@ the old shape-inference predicate computed post hoc.
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifndef STDLIB_DIR
+#define STDLIB_DIR ""
+#endif
 
 using namespace nlang;
 
@@ -86,6 +92,7 @@ CompileOutcome compileOne(const char* szBody)
         "array_property_" + std::to_string(++runCount);
     out.params->m_sOutputDir = dir.string();
     out.params->m_sTempDir = dir.string();
+    out.params->m_sStdLibDir = STDLIB_DIR;
     out.logger = std::make_unique<MemLogger>();
     out.builder = std::make_unique<ModuleBuilder>(*out.params, *out.logger);
     //BuildArtifacts (production path): writes the entry-unit .ncu the
@@ -263,6 +270,7 @@ void TestArrayProperty::structFieldKindStoredAsArray()
 void TestArrayProperty::writeStructArrayFieldThrows()
 {
     auto out = compileOne(
+        "import io;\n"
         "struct S { int[] f; }\n"
         "int main() {\n"
         "    S s;\n"
@@ -275,7 +283,16 @@ void TestArrayProperty::writeStructArrayFieldThrows()
         / (out.params->m_sOutputModule + ".ncu");
     std::string errorText;
     try {
-        CompiledModule mod = ModuleLoader::Load(ncu.string());
+        //The program imports io (the stream classes are io-declared
+        //builtins), so the entry .ncu is not self-contained: load the
+        //closure with the test stdlib on the search path, link, then
+        //execute — the channel nvm itself runs.
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {out.params->m_sOutputDir, STDLIB_DIR};
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(ncu.string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+            loaded.entryKey);
         VmExecutor executor;
         executor.Execute(mod);
     } catch (const std::exception& e) {

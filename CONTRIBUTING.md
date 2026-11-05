@@ -48,6 +48,16 @@ The version number lives in one place: the repository root `VERSION` file.
 CMake reads it at configure time and feeds the tools' `--version`, the IDE's
 About dialog, the documentation-site footer and the CPack package names.
 
+**Manual sync is part of a feature task, not a release chore.** The user
+manual carries a coverage anchor: `docs/user_manual/SYNC_BASELINE` holds the
+commit whose user-visible changes the manual already reflects. Before
+editing the manual, run `python tools/manual_sync_check.py` and account for
+every commit it lists — each is either already reflected, not user-visible
+(language surface, standard-library surface, diagnostics, exit codes and
+ABI are the user-visible classes), or reflected in this edit. Commit the
+manual, then run the same tool with `--update` to re-anchor. A release
+requires zero drift.
+
 **Bump the version when a change lands, not when you release:**
 
 1. A user-visible feature addition or change bumps the minor version

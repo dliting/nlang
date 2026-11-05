@@ -1,0 +1,10 @@
+//An init-list entry that is itself an array value upcasts into the
+//traced element slot — the handle flows as-is, GC-visible.
+int main() {
+    int[] ia = int[3];
+    ia[0] = 8;
+    Object[] oa = [ia];
+    int[] back = oa[0] as int[];
+    assert(back[0] == 8);
+    return 0;
+}

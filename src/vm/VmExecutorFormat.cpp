@@ -234,6 +234,10 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(
             "NLang VM: toString depth limit exceeded");
+    //A view record's payload lives in its owner — the bracket walk is
+    //the same, the element reads are not (affine map, owner window).
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_ArrayView)
+        return FormatViewArray(heapIdx, depth);
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
     int32_t length = slot[3];
@@ -262,6 +266,80 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     }
     result += "]";
     return result;
+}
+
+//v0.12.7 Task 10: view-record formatting entry — the element kind comes
+//from the view's own type row (creation validated it against the
+//owner's), and the bracket walk runs over the view's own dims.
+std::string VmExecutor::FormatViewArray(int32_t heapIdx, int depth) {
+    const auto& view = m_structHeap[static_cast<size_t>(heapIdx)];
+    uint16_t arrayTypeIdx = static_cast<uint16_t>(view[1]);
+    uint8_t elemKind = RTK_Int32;
+    if (arrayTypeIdx < m_currModule->arrayTypes.size())
+        elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
+    std::string result;
+    FormatViewNDLevel(result, view,
+        static_cast<uint8_t>(view[2]), 0, 0, heapIdx,
+        elemKind, ArrayElemCells(elemKind), depth);
+    return result;
+}
+
+//One nesting level of view formatting. flat is the row-major ordinal of
+//the level's first element over the view's own dims; a child at slot i
+//of this level starts flat + i * (product of the deeper dims). Leaf
+//reads resolve the owner window fresh per element — an element's own
+//formatting (a user toString on a class element) may allocate and grow
+//m_structHeap, so no reference survives across leaves.
+void VmExecutor::FormatViewNDLevel(std::string& result,
+    const std::vector<int32_t>& view, uint8_t rank, uint8_t level,
+    int32_t flat, int32_t viewHeapIdx, uint8_t elemKind, int cells,
+    int depth) {
+    result += "[";
+    const int32_t n = view[4 + level];
+    int32_t tail = 1;
+    for (uint8_t d = level + 1; d < rank; ++d)
+        tail *= view[4 + d];
+    for (int32_t i = 0; i < n; ++i) {
+        if (i > 0) result += ", ";
+        if (level + 1 < rank) {
+            FormatViewNDLevel(result, view, rank,
+                static_cast<uint8_t>(level + 1), flat + i * tail,
+                viewHeapIdx, elemKind, cells, depth);
+            continue;
+        }
+        size_t base;
+        auto& owner = ElementPayloadRecord(
+            m_structHeap[static_cast<size_t>(viewHeapIdx)],
+            RTK_ArrayView, base);
+        const int64_t addr = ViewFlatElementAddress(view, flat + i);
+        FormatArrayElement(result, owner,
+            base + static_cast<size_t>(addr) * cells,
+            elemKind, cells, depth);
+    }
+    result += "]";
+}
+
+//v0.12.7 Task 5: shared array formatting — null/stale/kind validation,
+//FormatArray, mint. OP_Array_to_str and the Array.toString intrinsic
+//format through this one path (K8: the walker snapshots container
+//structure under the Container domain lock internally; the mint
+//self-locks).
+int32_t VmExecutor::MintArrayString(int32_t heapIdx) {
+    std::string s;
+    if (heapIdx <= 0) {
+        s = "<null>";
+    } else if (static_cast<size_t>(heapIdx) >= m_structHeap.size()) {
+        throw std::runtime_error(
+            "NLang VM: array_to_str on stale reference");
+    } else if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Array
+               && m_slotKinds[static_cast<size_t>(heapIdx)]
+                      != RTK_ArrayView) {
+        throw std::runtime_error(
+            "NLang VM: array_to_str on non-array");
+    } else {
+        s = FormatArray(heapIdx, 0);
+    }
+    return MintNewString(std::move(s));
 }
 
 std::string VmExecutor::FormatList(int32_t handle, int depth) {

@@ -193,6 +193,38 @@ inline uint32_t ArrayHeaderCells(uint8_t rank)
 //beyond it. 100M elements is 800MB at the widest element — every
 //legitimate operand fits, and 4 + n*cells can never overflow int32.
 static constexpr int32_t kMaxArrayElems = 100 * 1000 * 1000;
+//View record tail (v0.12.7, spec §4.2 of the array/tensor design). The
+//strides/offset/target cells follow the dims run DIRECTLY — no even-
+//padding: ArrayHeaderCells' pad serves the OWNED record's payload
+//alignment only, and a view record has no payload.
+//  [4+rank .. 4+2*rank-1] = strides (elements per logical step; 0 =
+//                           broadcast axis, negative = reversed axis)
+//  [4+2*rank]             = offset (element position in the OWNER's
+//                           payload space)
+//  [4+2*rank+1]           = target (always an owned RTK_Array record —
+//                           depth one)
+//Only view-aware consumers read past the dims run; ordinary payload
+//consumers are kind-gated and never touch a view record. The shared
+//header prefix ([0]=kind, [1]=arrayTypeIdx, [2]=rank, [3]=elemCount,
+//[4..4+rank-1]=dims) is field-for-field identical to the owned layout,
+//so every metadata consumer (length/shape/rank/toString/foreach length)
+//reads views with zero branching.
+inline uint32_t ArrayViewStridesBase(uint8_t rank)
+{
+    return 4u + rank;
+}
+inline uint32_t ArrayViewOffsetCell(uint8_t rank)
+{
+    return 4u + 2u * rank;
+}
+inline uint32_t ArrayViewTargetCell(uint8_t rank)
+{
+    return 5u + 2u * rank;
+}
+inline uint32_t ArrayViewRecordCells(uint8_t rank)
+{
+    return 6u + 2u * rank;
+}
 //--- Eval-area slot classes (K2 slice 5) ----------------------------------
 //Precise GC root class for one frame-band slot (the band is
 //[paramCount, localsSize) — return slot, temps, call staging, evalArea
@@ -214,7 +246,8 @@ enum EvalSlotClass : uint8_t {
 //Cells occupied by one array element of the given RTK elem kind:
 //2 for the 8-byte scalar family (long/ulong, double when it lands),
 //1 for everything else (≤4-byte scalars and every reference kind).
-//Element i of an array record lives at cell 3 + i*cells.
+//Element i of an owned array record lives at
+//ArrayHeaderCells(rank) + i*cells (the padded payload base).
 inline int ArrayElemCells(uint8_t elemRtk)
 {
     int pi = ScalarPrimIndexOfRtk(elemRtk);

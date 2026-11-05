@@ -1,0 +1,11 @@
+// v0.12.7 Task 11: the Array<E> spelling carries no static rank
+// annotation, so an over-cap slice list (65 axes) must stop at compile
+// time - the staged presence mask allocates 4 bits per axis.
+import lang;
+
+int main() {
+    int[] one = int[1];
+    Array<int> a = one;
+    Array<int> v = a[:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:];
+    return 0;
+}

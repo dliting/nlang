@@ -55,7 +55,13 @@ extern "C" {
 // still points into the record and grows nothing). Version 9: newArrayShaped
 // (mint an ND array from explicit dims) joined the table so matrix-family
 // kernels can mint [rows, cols] and beyond; newArray stays rank-1.
-#define NLANG_HOST_ABI_VERSION 9u
+// Version 10: the array-view side — NativeArrayView gained `offset`
+// (element units, matching strides; owning arrays report 0), getArrayView
+// accepts view records (filling from the record's strides/offset instead
+// of recomputing row-major ones; owning records keep the computed shape),
+// and newArrayView mints a view over an existing array handle with the
+// same validation the language's view creation applies.
+#define NLANG_HOST_ABI_VERSION 10u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -113,7 +119,11 @@ enum NativeElemKind {
 //             call, so the pointer is stable for the call — and only for
 //             the call. Never cache it past return.
 // elemCellBytes is the per-element stride in bytes (4, or 8 for the
-// 8-byte scalar family); elemCount the total element count.
+// 8-byte scalar family); elemCount the total element count. offset is
+// in ELEMENT units, the same unit as strides: element (i0, i1, ...)
+// lives at data + (offset + sum(ik * strides[k])) * elemCellBytes.
+// Owning arrays report 0 (data already points at element zero); a
+// view record reports its recorded offset into the owning payload.
 typedef struct NativeArrayView {
     int32_t rank;
     const int32_t* dims;
@@ -122,6 +132,7 @@ typedef struct NativeArrayView {
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
     uint8_t reserved[2];
+    int64_t offset;        // ABI v10: element units, matches strides
     int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
     void* data;
 } NativeArrayView;
@@ -197,6 +208,17 @@ struct NativeHost {
     // return cell. (v9)
     int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
                               int32_t rank, const int32_t* dims);
+
+    // Mint a view over the array (or view) behind targetHandle: the given
+    // rank/dims/strides/offset (offset in ELEMENT units) with the same
+    // validation the language's view creation applies — null or non-array
+    // targets, rank out of range, element-type mismatch, bad dims and
+    // range-exceeds-bounds all raise (the OutOfBounds family). Returns the
+    // view's heap handle; the handle is rooted until the native writes it
+    // into its return cell. (v10)
+    int32_t (*newArrayView)(NativeHost* self, int32_t targetHandle,
+                            int32_t rank, const int32_t* dims,
+                            const int32_t* strides, int64_t offset);
 };
 
 // Version probe. The host resolves this export first and rejects the
@@ -319,6 +341,7 @@ inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
     out->elemCellBytes = 0;
     out->reserved[0] = 0;
     out->reserved[1] = 0;
+    out->offset = 0;
     out->data = nullptr;
     host->getArrayView(host, ArgInt(args, slot), out);
 }
@@ -332,6 +355,15 @@ inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
 inline int32_t NewArrayShaped(NativeHost* host, uint8_t elemKind,
                               int32_t rank, const int32_t* dims) {
     return host->newArrayShaped(host, elemKind, rank, dims);
+}
+
+// v10: mint a view over an existing array handle (validation and units
+// as the newArrayView slot documents).
+inline int32_t NewArrayView(NativeHost* host, int32_t targetHandle,
+                            int32_t rank, const int32_t* dims,
+                            const int32_t* strides, int64_t offset) {
+    return host->newArrayView(host, targetHandle, rank, dims, strides,
+                              offset);
 }
 
 inline std::string ArgString(NativeHost* host, const uint8_t* args,

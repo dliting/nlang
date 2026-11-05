@@ -1,3 +1,4 @@
+import io;
 struct Person { string name; int age; }
 
 int main() {

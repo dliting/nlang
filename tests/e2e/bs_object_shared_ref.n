@@ -1,3 +1,4 @@
+import io;
 class Holder { public int v; }
 class Pair { public Holder a; public Holder b; }
 

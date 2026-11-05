@@ -6,8 +6,8 @@ The standard library is six packages — `math`, `io`, `fs`, `thread`,
 `concurrent` and `tensor`, each a set of package-qualified free
 functions — plus the `string` methods, dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
-declares the `Exception` family, the hierarchy root `Object` and the
-declaration-holder classes `String` and `Array`; `containers`
+declares the `Exception` family, the hierarchy root `Object`, the
+declaration-holder class `String` and the generic array face `Array<T>`; `containers`
 (`stdlib/containers.n`) declares the base containers `List<T>` and
 `Dict<K,V>`. Every build imports both automatically, so their
 declarations need no import statement, and an explicit `import lang;`
@@ -20,11 +20,15 @@ Every method of the built-in value and container classes is built
 in: its declaration lives in a prelude package, imported by every
 build, and a program cannot replace it — a user class with the same
 name is an ordinary class and never takes over the built-in
-receivers. Two of the prelude classes, `String` and `Array`, are
-declaration holders only: they declare the method surfaces of the
-`string` keyword and the array types, cannot be instantiated,
-extended, or used as types, and stay outside the class hierarchy —
-`string` and the bracket array syntax are the value spellings.
+receivers. The `String` prelude class is a
+declaration holder only: it declares the method surface of the
+`string` keyword, cannot be instantiated, extended, or used as a
+type, and stays outside the class hierarchy — the `string` keyword
+is the value spelling. The `Array` prelude class went the other
+way: `Array<T>` is a real generic type (§4.10.1) whose values are
+constructed with the bracket creation forms, while the class
+itself only holds the array method declarations and cannot be
+extended.
 
 The method surfaces are defined across the specification: the
 `string` methods in chapter 16, the `List` and `Dict` methods in

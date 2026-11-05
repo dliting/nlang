@@ -153,6 +153,20 @@ public:
                           uint8_t outCell[8]) const;
     void HostArraySetCell(int32_t heapIdx, uint32_t index,
                           const uint8_t cell[8]);
+    //v0.12.7: the single view-creation choke point (the RTK_ArrayView
+    //sibling of AllocArrayOnHeap). dims/strides/offset are OWNER-payload
+    //positions: addr(idx) = offset + sum(idx[d]*strides[d]) addresses the
+    //target's underlying owned record, whatever handle the caller holds.
+    //A view target folds in one step (depth one); coverage validates
+    //against the owner. Public because the native host ABI's view-minting
+    //face (newArrayView) and the white-box view-record tests mint views
+    //from outside the executor's opcode paths — the same reach
+    //MintHostString gives the string face. Validation failures raise the
+    //creation family (catchable OutOfBounds); a null target handle the
+    //NPE family; an out-of-range handle a host-level runtime_error.
+    int32_t AllocViewOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+        const int32_t* dims, const int32_t* strides, int32_t offset,
+        int32_t targetIdx);
     uint32_t HostListSize(int32_t heapIdx) const;
     int32_t HostListGet(int32_t heapIdx, uint32_t index) const;
     bool HostDictEntryGet(int32_t heapIdx, uint32_t index,
@@ -297,6 +311,10 @@ public:
     void SetConservativeBandForTests(bool conservative) {
         m_conservativeBandForTests = conservative;
     }
+    //White-box GC drive: the safepoint entry, exposed so tests can force
+    //full collections outside a run (the debugger tests reach collection
+    //through real execution; white-box heap tests have no frames).
+    void CollectGarbageForTests() { CollectGarbage(); }
     //0.11.4 B white-box probes: corrupt a live array record so tests can
     //drive the native callbacks against a malformed record (the defensive
     //checks are otherwise unreachable — records are VM-built). The tests
@@ -308,6 +326,15 @@ public:
     void OverwriteArrayRecordCellForTests(int32_t handle, size_t cell,
                                           int32_t value) {
         m_structHeap[static_cast<size_t>(handle)][cell] = value;
+    }
+    //White-box read probes (the read face of the two write probes above):
+    //GC survival checks read the slot's kind byte (0 = swept) and live
+    //record cells without dereferencing a freed record.
+    uint8_t HeapSlotKindForTests(int32_t handle) const {
+        return m_slotKinds[static_cast<size_t>(handle)];
+    }
+    int32_t ReadHeapRecordCellForTests(int32_t handle, size_t cell) const {
+        return m_structHeap[static_cast<size_t>(handle)][cell];
     }
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
@@ -554,9 +581,19 @@ private:
     void OpDebugInfo(BytecodeReader& reader, uint16_t opPc);
     void OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult);
     void OpArray_to_str(uint8_t* pResult);
+    //v0.12.7 Task 5: shared array toString — null/stale/kind validation,
+    //FormatArray, mint. OP_Array_to_str and the Array.toString intrinsic
+    //format through this one path.
+    int32_t MintArrayString(int32_t heapIdx);
     void OpConcat_str(BytecodeReader& reader, uint8_t* locals);
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
+    //Phase 11 Q4 bytewise relational family (memcmp order; a null
+    //handle reads ""); DispatchFrames forwards here like the rest.
+    void OpLess_str(BytecodeReader& reader, uint8_t* locals);
+    void OpLessEqual_str(BytecodeReader& reader, uint8_t* locals);
+    void OpGreater_str(BytecodeReader& reader, uint8_t* locals);
+    void OpGreaterEqual_str(BytecodeReader& reader, uint8_t* locals);
     void OpStrLen(BytecodeReader& reader, uint8_t* locals);
     //0.7.5 char bridge: s[i] byte read and the code-point iteration step
     //(operand contracts in BytecodeOps.h).
@@ -637,6 +674,27 @@ private:
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 11: mint the slice-subscript view (OP_MakeArrayView)
+    //— normalize staged endpoints/steps, fold scalar axes into the
+    //offset, allocate the depth-one view. Contract at the implementation.
+    void OpMakeArrayView(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 11: accumulator of the slice axis fold — the offset
+    //(owner space, int64 until the record store) and the kept axes
+    //(dims sized to the rank cap; see Config.h).
+    struct SliceFoldState {
+        int64_t offset = 0;
+        int32_t newDims[64] = {};
+        int32_t newStrides[64] = {};
+        uint8_t viewRank = 0;
+    };
+    //Fold helpers of OpMakeArrayView (static members so they can raise
+    //through the executor's private family; see the implementation).
+    static void FoldSliceAxes(VmExecutor* e, uint16_t rank,
+        uint16_t paramsBase, const uint8_t* locals, uint8_t baseKind,
+        const std::vector<int32_t>& record, SliceFoldState& st);
+    static void FoldOneSliceAxis(VmExecutor* e, uint16_t axis,
+        uint32_t bits, const int32_t* dims, const int32_t* strides,
+        const uint8_t* locals, uint16_t paramsBase, SliceFoldState& st);
     //Stage-3 D3: assemble a rank>=2 array from staged row handles (the
     //dynamic-shape initializer arm); contract at the implementation.
     void OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals);
@@ -650,11 +708,61 @@ private:
     void CopyAssembleRows(int32_t heapIdx,
         const CompiledArrayType& arrayType,
         const std::vector<int32_t>& rowHandles);
+    //View-row arm of the copy: every element runs through the affine
+    //map into the row's owner payload (see the implementation).
+    void CopyAssembleViewRow(int32_t heapIdx, size_t rowSlot,
+        size_t rowElems, size_t destBase, size_t rowOrdinal,
+        const CompiledArrayType& arrayType, size_t cells,
+        bool structElems);
     void OpLoadElementN(BytecodeReader& reader, uint8_t* locals);
     void OpStoreElementN(BytecodeReader& reader, uint8_t* locals);
     void OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals);
     void OpArrayShape(BytecodeReader& reader, uint8_t* locals);
     void OpArrayLength(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 3: boundary rank check — the runtime half of the
+    //promise model. Null passes through; a rank mismatch (or a non-array
+    //handle flowed through Object) raises the catchable
+    //InvalidCastException.
+    void OpCheckArrayRank(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 5: the Object→array downcast check (`o as int[]`) —
+    //null passes through; a non-array handle or an arrayTypes-row
+    //mismatch (rank or element type) raises the catchable
+    //InvalidCastException.
+    void OpCheckArrayType(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 4: the unannotated Array<E> spelling's element pair —
+    //the record rank is unknown to the compiler, so the source-written
+    //coordinate count verifies at run time (catchable OOB on mismatch).
+    void OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 4: `Array(dims)` — the rank is dims.length() and the
+    //extents are the dims payload, validated through AllocArrayOnHeap.
+    void OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals);
+    //Row-major element address shared by the element op family: per-dim
+    //bounds check (catchable OOB naming the dimension), then the flat
+    //index in OWNER payload space — an owning record folds computed
+    //row-major strides from offset 0, a view folds its recorded strides
+    //from its recorded offset. The caller has already gated
+    //null/kind/rank.
+    int64_t ElementFlatAddress(const std::vector<int32_t>& slot,
+        uint8_t kind, uint16_t rank, uint16_t idxBase, uint8_t* locals);
+    //Dual-shape payload window: owning records carry the payload at
+    //their own padded header, view records in their OWNER's payload
+    //(the depth-one peel invariant). Returns the record owning the
+    //cells and its payload base; the caller must not hold either
+    //across a heap-growing call.
+    std::vector<int32_t>& ElementPayloadRecord(
+        std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut);
+    //Affine address of the flat-eth element (row-major over the record's
+    //own dims) of a VIEW record, in owner payload space. Callers bound
+    //flat by the record's elemCount first.
+    int64_t ViewFlatElementAddress(const std::vector<int32_t>& view,
+                                   int64_t flat);
+    //Stores through a broadcast axis are not definable (every logical
+    //index folds onto one owner cell — silent alias corruption); reject
+    //them once over all axes at store entry. Loads are fine: broadcast
+    //reads repeat the target cell.
+    void RejectZeroStrideStore(const std::vector<int32_t>& slot,
+                               uint8_t rank);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
     void OpCheckCast(BytecodeReader& reader, uint8_t* pResult);
@@ -729,6 +837,14 @@ private:
     void FormatArrayElement(std::string& result,
         const std::vector<int32_t>& slot, size_t off, uint8_t elemKind,
         int cells, int depth);
+    //View-record formatting: the same brackets as an owning record over
+    //the view's own dims, but every element read runs through the
+    //affine map into the owner payload.
+    void FormatViewNDLevel(std::string& result,
+        const std::vector<int32_t>& view, uint8_t rank, uint8_t level,
+        int32_t flat, int32_t viewHeapIdx, uint8_t elemKind, int cells,
+        int depth);
+    std::string FormatViewArray(int32_t heapIdx, int depth);
     void FormatArrayNDLevel(std::string& result,
         const std::vector<int32_t>& slot, uint8_t rank, uint8_t level,
         size_t& flatIndex, uint8_t elemKind, int cells, int depth);
@@ -773,6 +889,20 @@ private:
         const int32_t* dims);
     //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
     int32_t ValidateArrayDims(uint8_t rank, const int32_t* dims);
+    //Validation half of AllocViewOnHeap (function-size split): target
+    //families + depth-one peel + type identity + dims/product + coverage.
+    //Returns the peeled OWNED target; carries elemCount out.
+    int32_t ValidateViewCreation(uint16_t arrayTypeIdx, uint8_t rank,
+        const int32_t* dims, const int32_t* strides, int32_t offset,
+        int32_t targetIdx, int32_t& elemCountOut);
+    //Element-level type identity: caller's row names the view's rank and
+    //the owner's element (rank may differ — slicing changes it).
+    void ValidateViewTypeMatch(uint16_t arrayTypeIdx, uint8_t rank,
+                               int32_t ownerIdx);
+    //Coverage half of the view validation: min/max affine addresses
+    //within the owner's element range; raises OutOfBounds.
+    void ValidateViewCoverage(uint8_t rank, const int32_t* dims,
+        const int32_t* strides, int32_t offset, int64_t ownerCount);
 
     //GC: mark-sweep garbage collection.
     //Design decisions (see docs/user_manual/en/vm-architecture/garbage-collection-design.md
@@ -848,6 +978,9 @@ private:
     void MarkChannelElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkStructFields(int32_t idx, std::vector<int32_t>& worklist);
     void MarkArrayElements(int32_t idx, std::vector<int32_t>& worklist);
+    //v0.12.7: a view record owns no payload — its single reference edge
+    //is the owned target (same single-edge shape as MarkFuncReceiver).
+    void MarkArrayViewTarget(int32_t idx, std::vector<int32_t>& worklist);
     void SweepPhase();
     void RecycleClassContainerHandles(size_t heapIdx);
     void FreeOwnedStructs(int32_t heapIdx);
@@ -1595,6 +1728,19 @@ private:
     //matrix-family kernels.
     static int32_t NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
         int32_t rank, const int32_t* dims);
+    //v10 view side of minting (contract in NativeHost.h): a view over an
+    //existing handle, validated exactly like the language's creation.
+    static int32_t NativeNewArrayView(NativeHost* self, int32_t targetHandle,
+        int32_t rank, const int32_t* dims, const int32_t* strides,
+        int64_t offset);
+    //v10 helpers of the two callbacks above (definitions in
+    //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
+    //own strides/offset, the resolver peels depth-one to the owning
+    //record's type row for the minted rank.
+    static void FillViewRecordArrayView(VmExecutor* e, int32_t handle,
+                                        NativeArrayView* out);
+    static uint16_t ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
+                                         uint8_t rank);
     //Locate the scalar array-type record for (elemRtk, rank) in the linked
     //module's arrayTypes (elemTypeIdx == 0xFFFF). Lookup-only: m_currModule
     //is const and the stdlib TU inlining registers every declared array

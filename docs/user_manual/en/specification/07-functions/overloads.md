@@ -68,6 +68,25 @@ Default parameters take part in the distance: an exact type match at
 distance 0 beats one level of widening, and a narrowing argument rejects
 the candidate.
 
+A constant argument is scored the way assignment treats it
+(§4.4): a literal whose value fits the formal makes that candidate
+viable and costs the same as the corresponding widening
+conversion. The rule mirrors assignment — `float f = 0.5;` binds —
+so an overload reachable only through a fitting constant is not
+dead. An exact type match still wins over any constant fit, and a
+constant that does not fit (for example a `double` literal whose
+value does not survive the round trip to `float`) leaves the
+candidate out as before.
+
+```nlang
+int first(float[] a, float v) { return 1; }
+int first(double[] a, double v) { return 2; }
+float[] fa = float[1];
+double[] da = double[1];
+first(fa, 0.5);   // 0.5 fits float: binds the float overload
+first(da, 0.5);   // exact double match: binds the double overload
+```
+
 ```nlang
 class V {
     public V(int a, int b = 7) { }
@@ -112,19 +131,50 @@ Two same-name overloads with the same parameter count but different
 parameter types therefore link without ambiguity — the call site has
 already decided which one runs.
 
-```nlang lib.n
-int score(int v) { return v + 1; }
-int score(double v) { return 100; }
-```
-
 ```nlang
 import lib;
 
-int a = lib.score(1);     // int overload    -> 2
-int b = lib.score(2.5);   // double overload -> 100
+int main() {
+    return lib.score(1) + lib.score(2.5);   // 2 + 100 = 102
+}
+```
+
+```nlang lib.n
+int score(int v) { return v + 1; }
+int score(double v) { return 100; }
 ```
 
 The compile-time ambiguity rule is unchanged: when an argument converts to
 the parameter type of two overloads at equal distance, the resolver reports
 the ambiguity at the call site, whether or not the overloads live in another
 module.
+
+When the same name arrives from several modules, distance decides first:
+a strictly closer match wins regardless of ownership. At **equal**
+distance the own file's definition shadows every imported one — a local
+`int dup()` beats an imported `int dup()` silently. Two imported
+definitions tying at equal distance are a use-site error naming both
+modules; the qualified call (`alpha.dup()` or `beta.dup()`) selects one
+explicitly. A local declaration and an import carrying the same shape
+resolve the same way — the local wins.
+
+```nlang alpha/dup.n
+int dup() { return 1; }
+```
+
+```nlang beta/dup.n
+int dup() { return 2; }
+```
+
+```nlang
+import alpha.dup;
+import beta.dup;
+
+int main() {
+    return dup();
+}
+```
+
+```text
+Error: ambiguous call to function "dup": module 'alpha.dup' and module 'beta.dup' both match with equal distance; qualify the call with the module path.
+```

@@ -1,5 +1,8 @@
 #include "CastInfo.h"
 #include "SnMisc.h"
+#include "SnArrayTypeToken.h"
+#include "SnExpressions.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/StackDump.h>
 
@@ -138,6 +141,37 @@ void TypeCastInfo::CalcCastKind()
 		if (srcKind == NK_Int32 && tgtKind == NK_ArrayTypeToken)
 		{
 			m_Kind = TCK_Auto;
+			return;
+		}
+		//v0.12.7: token × Array<E> — the two spellings of the single
+		//array type are the same type. TCK_Same both directions: the
+		//generic spelling is unannotated (any token rank flows through,
+		//the bracket annotation rides the value); the boundary rank
+		//check is the `as` cast's runtime job, not this table's.
+		if (SameArrayType(m_pSource, m_pTarget))
+		{
+			m_Kind = TCK_Same;
+			return;
+		}
+		//v0.12.7 Task 5: token × Object — the zero-alloc upcast (spec
+		//4.1: Array<E> <: Object). An array handle IS the Object
+		//reference; no boxing record. The generic spelling (Array<E>)
+		//rides the class branch above, so this arm completes the
+		//annotated spelling.
+		if (srcKind == NK_ArrayTypeToken && tgtKind == NK_ClassDecl
+			&& m_pTarget && m_pTarget->Name() == "Object")
+		{
+			m_Kind = TCK_Same;
+			return;
+		}
+		//v0.12.7 Task 5: Object × token — the explicit downcast (`as`
+		//only; implicit flows reject TCK_Downcast). The runtime verifies
+		//kind and array-type identity (OP_CheckArrayType), so both the
+		//rank and the element type of the value must match.
+		if (srcKind == NK_ClassDecl && tgtKind == NK_ArrayTypeToken
+			&& m_pSource && m_pSource->Name() == "Object")
+		{
+			m_Kind = TCK_Downcast;
 			return;
 		}
 		m_Kind = TCK_None;

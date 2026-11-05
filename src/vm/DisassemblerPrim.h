@@ -11,6 +11,7 @@
 namespace nlang {
 
 class BytecodeReader;
+enum class OpCode : uint8_t;
 
 //Each printer consumes its instruction's operands from the reader and
 //appends one formatted line ("add<int> 12 20", "cmp<long> eq 4 8",
@@ -25,5 +26,16 @@ void DisasmPrimToStr(BytecodeReader &r, std::ostringstream &out,
     const std::string &head);
 void DisasmPrimNeg(BytecodeReader &r, std::ostringstream &out,
     const std::string &head);
+
+//Shared uint16-operand printer (n = 2..5): reads the operand array
+//BEFORE formatting (MSVC reverses in-arg read order). Exported for the
+//split disassembler families; defined in Disassembler.cpp.
+void DisasmU16xN(int n, BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt);
+
+//The array-record opcode family (Alloc/Load/Store/Assemble/Shape/
+//Length/MakeArrayView) — defined in this header's .cpp.
+bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head);
 
 } //namespace nlang

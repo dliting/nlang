@@ -186,6 +186,8 @@ void VmExecutor::MarkPhase() {
             MarkStructFields(idx, worklist);
         } else if (m_slotKinds[idx] == RTK_Array) {
             MarkArrayElements(idx, worklist);
+        } else if (m_slotKinds[idx] == RTK_ArrayView) {
+            MarkArrayViewTarget(idx, worklist);
         }
     }
 }
@@ -277,12 +279,54 @@ void VmExecutor::MarkFuncReceiver(int32_t idx,
     }
 }
 
+//v0.12.7: a view record owns no payload — element tracing stays on the
+//owned record's own mark arm. The view's single reference edge is its
+//target cell; keeping the target reachable is exactly what keeps the
+//elements alive (reachability composes: view -> target -> elements).
+//The tail read carries ArrayPayloadBase's rank guard (a tail reader on
+//a corrupted record must not walk past it).
+void VmExecutor::MarkArrayViewTarget(int32_t idx,
+                                     std::vector<int32_t>& worklist) {
+    const int32_t viewRank = m_structHeap[static_cast<size_t>(idx)][2];
+    if (viewRank < 1 || viewRank > kMaxArrayRank)
+        throw std::runtime_error(
+            "NLang VM: corrupt view record (rank out of range)");
+    const int32_t targetIdx = m_structHeap[static_cast<size_t>(idx)]
+        [ArrayViewTargetCell(static_cast<uint8_t>(viewRank))];
+    if (targetIdx > 0
+        && static_cast<size_t>(targetIdx) < m_slotKinds.size()
+        && m_slotKinds[static_cast<size_t>(targetIdx)] == RTK_Array
+        && !m_markBits[static_cast<size_t>(targetIdx)]) {
+        PushMarked(targetIdx, worklist);
+    }
+}
+
 //String objectization: a boxed string's payload (slot[1]) is a
 //string handle. Other boxed tags carry raw bits (no children).
 void VmExecutor::MarkBoxedPayload(int32_t idx) {
     if (m_structHeap[idx][0] == RTK_String)
         MarkString(m_structHeap[idx][1]);
 }
+
+namespace {
+//Single source for the class/struct field arms' declared-vs-runtime
+//double condition (was two hand-expanded four-way conditions — same
+//shape as IsChildBearingHeapKind/ArrayElemKindAccepts). Object-declared
+//fields also hold boxed primitive records (runtime RTK_Boxed). An
+//array-declared slot may hold a VIEW record at runtime (the unannotated
+//Array<T> boundary admits any rank) — the worklist's view arm walks its
+//target edge.
+inline bool DeclaredFieldAcceptsRuntime(uint8_t declaredKind,
+                                        uint8_t runtimeKind) {
+    return (declaredKind == RTK_Class
+                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed))
+        || (declaredKind == RTK_Struct && runtimeKind == RTK_Struct)
+        || (declaredKind == RTK_Func && runtimeKind == RTK_Func)
+        || (declaredKind == RTK_Array
+                && (runtimeKind == RTK_Array
+                    || runtimeKind == RTK_ArrayView));
+}
+} // namespace
 
 void VmExecutor::MarkClassFields(int32_t idx,
                                  std::vector<int32_t>& worklist) {
@@ -309,6 +353,7 @@ void VmExecutor::MarkClassFields(int32_t idx,
         }
         if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
             continue;
+        const uint8_t refKind = m_slotKinds[static_cast<size_t>(refIdx)];
         //Array redesign B: field kinds come from the declared type,
         //so RTK_Array fields are routed explicitly (same declared-
         //plus-runtime double condition as the reference kinds).
@@ -318,17 +363,11 @@ void VmExecutor::MarkClassFields(int32_t idx,
         //Pre-fix v1.9 modules also misfile array fields as
         //RTK_Int32 here; the v1.10 loader floor (same release)
         //refuses them, closing the GC under-trace window.
-        //Object-declared fields (declared kind RTK_Class) also
-        //hold boxed primitive records (runtime kind RTK_Boxed) —
+        //Object-declared fields also hold boxed primitive records —
         //push those too; the worklist's boxed arm marks a wrapped
         //string payload. Without this arm the sweep frees the
         //box while the field still points at it.
-        if ((fields[i].kind == RTK_Class
-                && (m_slotKinds[refIdx] == RTK_Class
-                    || m_slotKinds[refIdx] == RTK_Boxed))
-            || (fields[i].kind == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
-            || (fields[i].kind == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
-            || (fields[i].kind == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
+        if (DeclaredFieldAcceptsRuntime(fields[i].kind, refKind)) {
             if (!m_markBits[refIdx])
                 PushMarked(refIdx, worklist);
         }
@@ -349,17 +388,12 @@ void VmExecutor::MarkStructFields(int32_t idx,
         }
         if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
             continue;
+        const uint8_t refKind = m_slotKinds[static_cast<size_t>(refIdx)];
         //Explicit RTK_Array route (declared kind now authoritative) —
         //see the RTK_Class branch above for why the old runtime-kind
         //fallback is gone, including the v1.10 module-floor coupling.
-        //Same Object-field boxed-record acceptance as the class
-        //field arm above (an Object field inside a struct).
-        if ((cs.fieldTypeKinds[i] == RTK_Class
-                && (m_slotKinds[refIdx] == RTK_Class
-                    || m_slotKinds[refIdx] == RTK_Boxed))
-            || (cs.fieldTypeKinds[i] == RTK_Struct && m_slotKinds[refIdx] == RTK_Struct)
-            || (cs.fieldTypeKinds[i] == RTK_Func && m_slotKinds[refIdx] == RTK_Func)
-            || (cs.fieldTypeKinds[i] == RTK_Array && m_slotKinds[refIdx] == RTK_Array)) {
+        //Acceptance is the class arm's shared predicate.
+        if (DeclaredFieldAcceptsRuntime(cs.fieldTypeKinds[i], refKind)) {
             if (!m_markBits[refIdx])
                 PushMarked(refIdx, worklist);
         }

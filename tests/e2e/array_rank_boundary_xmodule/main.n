@@ -1,0 +1,15 @@
+// v0.12.7 Task 3: the unannotated return flows into an annotated local —
+// the runtime rank check fires (a rank-2 record into an int[] target
+// would throw; the matching int[,] target passes).
+import lib;
+
+int main() {
+    int[,] m = lib.make();
+    if (m[1, 2] != 42) {
+        return 1;
+    }
+    int code = 0;
+    try { int[] w = lib.make(); assert(false); }
+    catch (InvalidCastException e) { code = 42; }
+    return code;
+}

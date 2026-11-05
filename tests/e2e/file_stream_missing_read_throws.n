@@ -1,4 +1,5 @@
 //Open "r" on nonexistent file throws runtime_error; nvm exits non-zero.
+import io;
 int main() {
     FileStream stream = FileStream("_phase8_tmp/nonexistent_file.bin", "r");
     return 0;

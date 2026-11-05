@@ -1,0 +1,13 @@
+import io;
+int main() {
+    //v0.12.7 Task 8.5: writeFloat goes through the declared float
+    //formal, so an unsuffixed 1.0 rides the same constant fitting as
+    //`float f = 1.0;` — converted exactly, not written raw. (The old
+    //by-name gate rejected it, contradicting the local-declaration
+    //rule.)
+    ByteStream bs = ByteStream();
+    bs.writeFloat(1.0);
+    bs.reset();
+    if (bs.readFloat() == 1.0f) return 0;
+    return 1;
+}

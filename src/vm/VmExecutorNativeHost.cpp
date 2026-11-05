@@ -98,6 +98,7 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.getArrayView = &VmExecutor::NativeGetArrayView;
     host.c.newArray = &VmExecutor::NativeNewArray;
     host.c.newArrayShaped = &VmExecutor::NativeNewArrayShaped;
+    host.c.newArrayView = &VmExecutor::NativeNewArrayView;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------

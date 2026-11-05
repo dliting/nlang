@@ -1,4 +1,5 @@
 //ReadInt on empty stream throws runtime_error; nvm exits non-zero.
+import io;
 int main() {
     ByteStream bs = ByteStream();
     int a = bs.readInt();

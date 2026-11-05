@@ -16,11 +16,14 @@ operands alive).
 #include <cmath>
 #include <cstdint>
 
+using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
 using nlang::native::ArgFloat;
 using nlang::native::ArgInt;
 using nlang::native::ArgLong;
 using nlang::native::NewArray;
+using nlang::native::NewArrayShaped;
+using nlang::native::NewArrayView;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
 
@@ -43,6 +46,36 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     T* cells = CellsOf<T>(v);
     for (int64_t i = 0; i < v.elemCount; ++i)
         cells[i] = value;
+    ReturnInt(ret, handle);
+}
+
+//full(dims, value): the int[] dims vector shapes the mint, the fill
+//value rides slot 1. A negative dim raises the bounds family (sized
+//creation); NewArrayShaped enforces the element-count cap.
+template <typename T>
+void FullDimsKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    uint8_t kind, T value) {
+    NativeArrayView dims;
+    ArgArray(host, args, 0, &dims);
+    if (dims.elemKind != NEK_Int32)
+        Raise(host, NEXC_Base, "tensor.full: dims must be int[]");
+    const int32_t rank = static_cast<int32_t>(dims.elemCount);
+    if (rank < 1 || rank > nlang::kMaxArrayRank)
+        Raise(host, NEXC_Base, "tensor.full: dims length out of range");
+    int32_t shape[nlang::kMaxArrayRank];
+    const int32_t* cells = static_cast<const int32_t*>(dims.data);
+    for (int32_t d = 0; d < rank; ++d) {
+        if (cells[d] < 0)
+            Raise(host, NEXC_OutOfBounds,
+                  "tensor.full: dims dim is negative");
+        shape[d] = cells[d];
+    }
+    const int32_t handle = NewArrayShaped(host, kind, rank, shape);
+    NativeArrayView v;
+    host->getArrayView(host, handle, &v);
+    T* filled = CellsOf<T>(v);
+    for (int64_t i = 0; i < v.elemCount; ++i)
+        filled[i] = value;
     ReturnInt(ret, handle);
 }
 
@@ -92,6 +125,16 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
             static_cast<T>((Reader)(args, 1)));                        \
     }
 
+//Dims-shaped twin: same shape, but the mint is FullDimsKernel (the
+//dims vector is slot 0, the fill value slot 1).
+#define TENSOR_CONST_FILL_DIMS_BY_ARG(Name, Kind, T, Reader)           \
+    void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
+              int argc) {                                              \
+        (void)argc;                                                    \
+        FullDimsKernel<T>(host, ret, args, (Kind),                     \
+            static_cast<T>((Reader)(args, 1)));                        \
+    }
+
 #define TENSOR_ARANGE(Name, Kind, T, Reader)                           \
     void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
               int argc) {                                              \
@@ -113,10 +156,44 @@ TENSOR_CONST_FILL_BY_ARG(FullI, NEK_Int32, int32_t, ReadI)
 TENSOR_CONST_FILL_BY_ARG(FullL, NEK_Int64, int64_t, ReadL)
 TENSOR_CONST_FILL_BY_ARG(FullF, NEK_Float32, float, ReadF)
 TENSOR_CONST_FILL_BY_ARG(FullD, NEK_Float64, double, ReadD)
+TENSOR_CONST_FILL_DIMS_BY_ARG(FullDimsI, NEK_Int32, int32_t, ReadI)
+TENSOR_CONST_FILL_DIMS_BY_ARG(FullDimsL, NEK_Int64, int64_t, ReadL)
+TENSOR_CONST_FILL_DIMS_BY_ARG(FullDimsF, NEK_Float32, float, ReadF)
+TENSOR_CONST_FILL_DIMS_BY_ARG(FullDimsD, NEK_Float64, double, ReadD)
 TENSOR_ARANGE(ArangeI, NEK_Int32, int32_t, ReadI)
 TENSOR_ARANGE(ArangeL, NEK_Int64, int64_t, ReadL)
 TENSOR_ARANGE(ArangeF, NEK_Float32, float, ReadF)
 TENSOR_ARANGE(ArangeD, NEK_Float64, double, ReadD)
+
+//ABI v10 exercise pair. strideViewI mints a rank-1 view through the
+//new newArrayView host entry (len/stride/offset in element units —
+//the validation raises exactly like the language's view creation);
+//viewSumI walks any rank-1 int array or view through getArrayView,
+//addressing elements as data[(offset + i*strides[0]) * elemCellBytes]
+//(owning arrays report offset 0 and row-major strides).
+void StrideViewI(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                 int argc) {
+    (void)argc;
+    const int32_t target = ArgInt(args, 0);
+    const int32_t len = ArgInt(args, 1);
+    const int32_t stride = ArgInt(args, 2);
+    const int32_t offset = ArgInt(args, 3);
+    const int32_t dims[1] = { len };
+    const int32_t strides[1] = { stride };
+    ReturnInt(ret, NewArrayView(host, target, 1, dims, strides, offset));
+}
+
+void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) {
+    (void)argc;
+    NativeArrayView view;
+    ArgArray(host, args, 0, &view);
+    int64_t sum = 0;
+    const int32_t* payload = static_cast<const int32_t*>(view.data);
+    for (int64_t i = 0; i < view.elemCount; ++i)
+        sum += payload[view.offset + i * view.strides[0]];
+    ReturnInt(ret, static_cast<int32_t>(sum));
+}
 
 } // namespace tensor
 
@@ -125,14 +202,22 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "fullL", &tensor::FullL);
     regBlocking(registry, "tensor", "fullF", &tensor::FullF);
     regBlocking(registry, "tensor", "fullD", &tensor::FullD);
+    regBlocking(registry, "tensor", "fullDimsI", &tensor::FullDimsI);
+    regBlocking(registry, "tensor", "fullDimsL", &tensor::FullDimsL);
+    regBlocking(registry, "tensor", "fullDimsF", &tensor::FullDimsF);
+    regBlocking(registry, "tensor", "fullDimsD", &tensor::FullDimsD);
     regBlocking(registry, "tensor", "arangeI", &tensor::ArangeI);
     regBlocking(registry, "tensor", "arangeL", &tensor::ArangeL);
     regBlocking(registry, "tensor", "arangeF", &tensor::ArangeF);
     regBlocking(registry, "tensor", "arangeD", &tensor::ArangeD);
+    regBlocking(registry, "tensor", "strideViewI", &tensor::StrideViewI);
+    regBlocking(registry, "tensor", "viewSumI", &tensor::ViewSumI);
     regBlocking(registry, "tensor", "add", &tensor::TensorAdd);
     regBlocking(registry, "tensor", "sub", &tensor::TensorSub);
     regBlocking(registry, "tensor", "mul", &tensor::TensorMul);
     regBlocking(registry, "tensor", "div", &tensor::TensorDiv);
+    regBlocking(registry, "tensor", "exp", &tensor::TensorExp);
+    regBlocking(registry, "tensor", "log", &tensor::TensorLog);
     regBlocking(registry, "tensor", "sum", &tensor::TensorSum);
     regBlocking(registry, "tensor", "max", &tensor::TensorMax);
     regBlocking(registry, "tensor", "min", &tensor::TensorMin);
@@ -140,16 +225,9 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "dot", &tensor::TensorDot);
     regBlocking(registry, "tensor", "transpose", &tensor::TensorTranspose);
     regBlocking(registry, "tensor", "flatten", &tensor::TensorFlatten);
-    //Mechanical rank rows: reshape1..8 share one kernel — the target
-    //rank rides the entry name, all four element kinds the registration.
-    regBlocking(registry, "tensor", "reshape1", &tensor::TensorReshape1);
-    regBlocking(registry, "tensor", "reshape2", &tensor::TensorReshape2);
-    regBlocking(registry, "tensor", "reshape3", &tensor::TensorReshape3);
-    regBlocking(registry, "tensor", "reshape4", &tensor::TensorReshape4);
-    regBlocking(registry, "tensor", "reshape5", &tensor::TensorReshape5);
-    regBlocking(registry, "tensor", "reshape6", &tensor::TensorReshape6);
-    regBlocking(registry, "tensor", "reshape7", &tensor::TensorReshape7);
-    regBlocking(registry, "tensor", "reshape8", &tensor::TensorReshape8);
+    //One reshape entry: the target shape rides the int[] argument.
+    regBlocking(registry, "tensor", "reshape", &tensor::TensorReshape);
+    regBlocking(registry, "tensor", "concat", &tensor::TensorConcat);
     regBlocking(registry, "tensor", "matmul", &tensor::TensorMatmul);
     return NLANG_HOST_ABI_VERSION;
 }

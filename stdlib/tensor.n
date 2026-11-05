@@ -3,20 +3,22 @@
 // build. The native functions are implemented in the host (nlang_tensor.dll);
 // any plain NLang function would compile from this file. Edit freely.
 //
-// Stage 1 covers 1-D numeric kernels over int/long/float/double arrays.
 // The public surface uses ONE naming discipline: same-name overloads, the
 // element kind carried by the typed arguments (the fill value for full,
 // the progression triple for arange, the array operands everywhere else).
-// The suffixed natives below (fullI/fullL/..., arangeI/...) are internal
-// implementation the typed wrappers dispatch to — the native ABI passes
-// raw value cells without kind metadata, so one native cannot see which
-// scalar kind a call carried. Zero-filled arrays need no kernel at all:
-// the language's sized creation `T[n]` is zero-initialized.
+// Rank-generic operations are declared over the unannotated Array<T> —
+// one declaration serves every rank, and the caller's variable annotation
+// provides the rank check at run time. The suffixed natives below
+// (fullI/fullL/..., arangeI/...) are internal implementation the typed
+// wrappers dispatch to — the native ABI passes raw value cells without
+// kind metadata, so one native cannot see which scalar kind a call
+// carried. Zero-filled arrays need no kernel at all: the language's
+// sized creation `T[n]` is zero-initialized.
 //
 // Error model: null arrays raise NullPointerException, negative lengths
 // or lengths past the 100M-element cap raise IndexOutOfBoundsException,
-// length mismatches, zero arange steps and empty reductions raise the
-// base Exception.
+// length/shape mismatches, zero arange steps and empty reductions raise
+// the base Exception.
 
 //--- creation (public overloads over internal per-kind natives) ---------------
 
@@ -32,6 +34,22 @@ float[] full(int n, float value) {
 }
 double[] full(int n, double value) {
     return fullD(n, value);
+}
+
+// A dims-shaped array filled with value; the element kind is the value's
+// type and the rank is the dims length. A negative dim raises the bounds
+// family, matching sized creation.
+Array<int> full(int[] dims, int value) {
+    return fullDimsI(dims, value);
+}
+Array<long> full(int[] dims, long value) {
+    return fullDimsL(dims, value);
+}
+Array<float> full(int[] dims, float value) {
+    return fullDimsF(dims, value);
+}
+Array<double> full(int[] dims, double value) {
+    return fullDimsD(dims, value);
 }
 
 // Half-open arithmetic progression: start, start+step, ... strictly
@@ -57,12 +75,36 @@ native int[] fullI(int n, int value);
 native long[] fullL(int n, long value);
 native float[] fullF(int n, float value);
 native double[] fullD(int n, double value);
+native Array<int> fullDimsI(int[] dims, int value);
+native Array<long> fullDimsL(int[] dims, long value);
+native Array<float> fullDimsF(int[] dims, float value);
+native Array<double> fullDimsD(int[] dims, double value);
 native int[] arangeI(int start, int stop, int step);
 native long[] arangeL(long start, long stop, long step);
 native float[] arangeF(float start, float stop, float step);
 native double[] arangeD(double start, double stop, double step);
 
-//--- elementwise (same-name overloads; runtime element-kind dispatch) ---------
+// Internal ABI-v10 exercise pair (native host ABI v10: view minting
+// and stride-aware views). strideViewI mints a rank-1 view of target
+// (len elements starting at offset, step stride — both in elements);
+// viewSumI sums any rank-1 int array or view through the pinned view
+// (the owning arm computes row-major strides, the view arm reads the
+// record's). They exist to exercise the host entry points end to end.
+native int[] strideViewI(int[] target, int len, int stride, int offset);
+native int viewSumI(int[] v);
+
+//--- unary elementwise (float/double; integers have no exp semantics) ---------
+
+// Elementwise e^x; the operand rank flows through unchanged.
+native Array<float> exp(Array<float> a);
+native Array<double> exp(Array<double> a);
+
+// Elementwise natural logarithm; the operand rank flows through
+// unchanged. Negative operands follow IEEE (NaN).
+native Array<float> log(Array<float> a);
+native Array<double> log(Array<double> a);
+
+//--- elementwise binary (same-name overloads; runtime element-kind dispatch) --
 
 // Elementwise sum of two arrays of the same length.
 native int[] add(int[] a, int[] b);
@@ -90,25 +132,42 @@ native long[] div(long[] a, long[] b);
 native float[] div(float[] a, float[] b);
 native double[] div(double[] a, double[] b);
 
+//--- clamp (elementwise bound; the clamp pair shares names with the
+//--- reductions and is arity-dispatched) ---------------------------------------
+
+// Elementwise maximum of a and bound; the operand rank flows through.
+native Array<int> max(Array<int> a, int bound);
+native Array<long> max(Array<long> a, long bound);
+native Array<float> max(Array<float> a, float bound);
+native Array<double> max(Array<double> a, double bound);
+
+// Elementwise minimum of a and bound; the operand rank flows through.
+native Array<int> min(Array<int> a, int bound);
+native Array<long> min(Array<long> a, long bound);
+native Array<float> min(Array<float> a, float bound);
+native Array<double> min(Array<double> a, double bound);
+
 //--- reductions (same-name overloads; runtime element-kind dispatch) -----------
+// Rank-generic: one unannotated declaration covers every rank; the
+// payload is flattened in row-major order.
 
 // Sum of all elements. The empty array yields the type's zero.
-native int sum(int[] a);
-native long sum(long[] a);
-native float sum(float[] a);
-native double sum(double[] a);
+native int sum(Array<int> a);
+native long sum(Array<long> a);
+native float sum(Array<float> a);
+native double sum(Array<double> a);
 
 // Largest element; an empty array raises the base Exception.
-native int max(int[] a);
-native long max(long[] a);
-native float max(float[] a);
-native double max(double[] a);
+native int max(Array<int> a);
+native long max(Array<long> a);
+native float max(Array<float> a);
+native double max(Array<double> a);
 
 // Smallest element; an empty array raises the base Exception.
-native int min(int[] a);
-native long min(long[] a);
-native float min(float[] a);
-native double min(double[] a);
+native int min(Array<int> a);
+native long min(Array<long> a);
+native float min(Array<float> a);
+native double min(Array<double> a);
 
 // Arithmetic mean; always double, for every element kind. An empty
 // array raises the base Exception.
@@ -116,6 +175,10 @@ native double mean(int[] a);
 native double mean(long[] a);
 native double mean(float[] a);
 native double mean(double[] a);
+native double mean(int[,] a);
+native double mean(long[,] a);
+native double mean(float[,] a);
+native double mean(double[,] a);
 
 // Inner product of two arrays of the same length. Integer kinds
 // accumulate in 64 bits and return long (no silent overflow); the empty
@@ -139,44 +202,24 @@ native long[] flatten(long[,] a);
 native float[] flatten(float[,] a);
 native double[] flatten(double[,] a);
 
-// Reshape any source array to the target rank carried by the name: the
-// element count must equal the product of `shape` — otherwise the base
-// Exception raises with both numbers spelled out, and a negative shape
-// dim raises IndexOutOfBoundsException (matching sized creation).
-// Target ranks 1..8 are declared; the global rank cap is 64 — append
-// rows mechanically as needs arise.
-native int[] reshape1(int[] a, int[] shape);
-native int[,] reshape2(int[] a, int[] shape);
-native int[,,] reshape3(int[] a, int[] shape);
-native int[,,,] reshape4(int[] a, int[] shape);
-native int[,,,,] reshape5(int[] a, int[] shape);
-native int[,,,,,] reshape6(int[] a, int[] shape);
-native int[,,,,,,] reshape7(int[] a, int[] shape);
-native int[,,,,,,,] reshape8(int[] a, int[] shape);
-native long[] reshape1(long[] a, int[] shape);
-native long[,] reshape2(long[] a, int[] shape);
-native long[,,] reshape3(long[] a, int[] shape);
-native long[,,,] reshape4(long[] a, int[] shape);
-native long[,,,,] reshape5(long[] a, int[] shape);
-native long[,,,,,] reshape6(long[] a, int[] shape);
-native long[,,,,,,] reshape7(long[] a, int[] shape);
-native long[,,,,,,,] reshape8(long[] a, int[] shape);
-native float[] reshape1(float[] a, int[] shape);
-native float[,] reshape2(float[] a, int[] shape);
-native float[,,] reshape3(float[] a, int[] shape);
-native float[,,,] reshape4(float[] a, int[] shape);
-native float[,,,,] reshape5(float[] a, int[] shape);
-native float[,,,,,] reshape6(float[] a, int[] shape);
-native float[,,,,,,] reshape7(float[] a, int[] shape);
-native float[,,,,,,,] reshape8(float[] a, int[] shape);
-native double[] reshape1(double[] a, int[] shape);
-native double[,] reshape2(double[] a, int[] shape);
-native double[,,] reshape3(double[] a, int[] shape);
-native double[,,,] reshape4(double[] a, int[] shape);
-native double[,,,,] reshape5(double[] a, int[] shape);
-native double[,,,,,] reshape6(double[] a, int[] shape);
-native double[,,,,,,] reshape7(double[] a, int[] shape);
-native double[,,,,,,,] reshape8(double[] a, int[] shape);
+// Reshape to the target shape in row-major order (a copy; the view
+// form lands with the v0.12.7 view tasks). Exactly one shape dim may be
+// -1: it is inferred as elemCount divided by the product of the other
+// dims, which must divide evenly — otherwise the base Exception raises
+// with both numbers spelled out. Any other negative dim raises the
+// bounds family (matching sized creation).
+native Array<int> reshape(Array<int> a, int[] shape);
+native Array<long> reshape(Array<long> a, int[] shape);
+native Array<float> reshape(Array<float> a, int[] shape);
+native Array<double> reshape(Array<double> a, int[] shape);
+
+// Concatenate two arrays of equal rank along axis: every dim must match
+// except the axis dim, which sums. An out-of-range axis raises the
+// bounds family.
+native Array<int> concat(Array<int> a, Array<int> b, int axis);
+native Array<long> concat(Array<long> a, Array<long> b, int axis);
+native Array<float> concat(Array<float> a, Array<float> b, int axis);
+native Array<double> concat(Array<double> a, Array<double> b, int axis);
 
 // Matrix product: [aRows, aCols] * [bRows, bCols] -> [aRows, bCols];
 // the inner dimensions must match — otherwise the base Exception names
@@ -187,8 +230,7 @@ native long[,] matmul(long[,] a, long[,] b);
 native float[,] matmul(float[,] a, float[,] b);
 native double[,] matmul(double[,] a, double[,] b);
 
-//--- rank-2 surface (same kernels; elementwise keeps the operand shape,
-//--- reductions flatten over the payload) --------------------------------------
+//--- rank-2 surface (same kernels; elementwise keeps the operand shape) --------
 
 // Elementwise sum of two same-shape rank-2 arrays.
 native int[,] add(int[,] a, int[,] b);
@@ -215,22 +257,63 @@ native long[,] div(long[,] a, long[,] b);
 native float[,] div(float[,] a, float[,] b);
 native double[,] div(double[,] a, double[,] b);
 
-// Sum / largest / smallest over all elements of a rank-2 array.
-native int sum(int[,] a);
-native long sum(long[,] a);
-native float sum(float[,] a);
-native double sum(double[,] a);
-native int max(int[,] a);
-native long max(long[,] a);
-native float max(float[,] a);
-native double max(double[,] a);
-native int min(int[,] a);
-native long min(long[,] a);
-native float min(float[,] a);
-native double min(double[,] a);
+//--- plain-NLang layer: the small neural-net composition the kernels
+//--- above are built for. float and double overloads; integers have no
+//--- activation semantics.
 
-// Arithmetic mean over a rank-2 array; always double.
-native double mean(int[,] a);
-native double mean(long[,] a);
-native double mean(float[,] a);
-native double mean(double[,] a);
+// Rectified linear unit: max(a, 0) elementwise. The bare 0.0 literal
+// binds the float clamp through the fitted-constant rung (the double
+// overload is dead on argument 1 — array element types are invariant).
+Array<float> relu(Array<float> a) {
+    return max(a, 0.0);
+}
+Array<double> relu(Array<double> a) {
+    return max(a, 0.0);
+}
+
+// Softmax over the flattened payload, stabilized by the global max
+// (exp(x - m) then normalize by the sum; the shift keeps large inputs
+// from overflowing exp).
+Array<float> softmax(Array<float> x) {
+    float m = max(x);
+    float[] shifted = float[x.length()];
+    for (int i = 0; i < x.length(); i += 1) {
+        shifted[i] = x[i] - m;
+    }
+    float[] e = exp(shifted);
+    float s = sum(e);
+    for (int i = 0; i < e.length(); i += 1) {
+        e[i] = e[i] / s;
+    }
+    return e;
+}
+Array<double> softmax(Array<double> x) {
+    double m = max(x);
+    double[] shifted = double[x.length()];
+    for (int i = 0; i < x.length(); i += 1) {
+        shifted[i] = x[i] - m;
+    }
+    double[] e = exp(shifted);
+    double s = sum(e);
+    for (int i = 0; i < e.length(); i += 1) {
+        e[i] = e[i] / s;
+    }
+    return e;
+}
+
+// Cross-entropy of one-hot labels against softmax(logits):
+// -sum(labels * log(softmax(logits))). The formals are the rank-1
+// spelling on purpose: an unannotated `Array<T>` formal matches any
+// rank, and passing one to the rank-split mul family would be
+// ambiguous (rank-1 and rank-2 rows both match). Rank-2 batches
+// flatten first (tensor.flatten).
+float crossEntropyLoss(float[] logits, float[] labels) {
+    float[] p = softmax(logits);
+    float[] lp = log(p);
+    return -sum(mul(labels, lp));
+}
+double crossEntropyLoss(double[] logits, double[] labels) {
+    double[] p = softmax(logits);
+    double[] lp = log(p);
+    return -sum(mul(labels, lp));
+}

@@ -12,7 +12,7 @@ states the loading contract.
 ## 20.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.12**, recorded in the header as major `2`, minor `12`
+**2.13**, recorded in the header as major `2`, minor `13`
 (§20.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ descriptors (§20.5), the default values and default expressions
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.12
-image carries the instruction set of the 2.12 toolchain — but
+string here. It is pinned to the same format version — a 2.13
+image carries the instruction set of the 2.13 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §22.4; the
 archive that packs images is chapter 21.
@@ -57,12 +57,12 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `12` |
+| version minor | u16 | `13` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
 
-**Sections.** The header is followed by eleven sections in a
+**Sections.** The header is followed by thirteen sections in a
 fixed order. Each section is a u32 entry count followed by that
 many records:
 
@@ -75,10 +75,12 @@ many records:
 | 5 | interfaces | §20.4 |
 | 6 | array types | §20.4 |
 | 7 | enums | §20.4 |
-| 8 | function imports | §20.7 |
-| 9 | class imports | §20.7 |
-| 10 | struct imports | §20.7 |
-| 11 | enum imports | §20.7 |
+| 8 | static slots | §20.4 |
+| 9 | function imports | §20.7 |
+| 10 | class imports | §20.7 |
+| 11 | struct imports | §20.7 |
+| 12 | enum imports | §20.7 |
+| 13 | static-slot imports | §20.7 |
 
 **Names.** Every function, class, struct, interface and
 enumeration is recorded under its qualified key
@@ -195,6 +197,8 @@ allocation (§4.7.2).
 | method virtual flags | u8 each | `1` for a `virtual` method (§4.8.9) |
 | constructor count | u16 | followed by that many u16 function-table indices |
 | constructor access | u8 each | |
+| static field count | u16 | each entry: a u32-length name, a length-prefixed type descriptor, an access byte, a const flag (`1` = `const`), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant, which carries its folded value as a default value record (§20.6) instead |
+| static-initializer index | u16 | the function-table index of the class's static initializer (§4.8.8); `0xFFFF` = none |
 
 The field list carries only the fields this class declares:
 the full instance layout is derived at load time by walking the
@@ -207,8 +211,9 @@ in the method list; the constructor table selects them.
 |---|---|---|
 | name | u16 length + bytes | the qualified key (§3.6) |
 | static method count | u16 | followed by that many u16 function-table indices |
-| constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor and a default value record (§20.6) |
+| constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor, a default value record (§20.6), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant (the value record carries it), anything else is a runtime-initialized constant (§4.9.3) |
 | signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
+| static-initializer index | u16 | the function-table index of the interface's static initializer; `0xFFFF` = none |
 
 Interface constants are scalar or string (§4.9.3); their default
 value record carries the folded initializer. Instance-method
@@ -231,6 +236,21 @@ bytes). Then the qualified keys: one per enumeration (u16
 length + bytes), no separate count. Then the member methods: a
 u32 count followed by, per method, a u16 function-table index
 and an access byte (§4.6.2).
+
+**Static slots.** One record per runtime-addressed static the
+unit declares — mutable class statics, runtime-initialized
+interface constants, and static locals (§4.8.8);
+compile-time-folded constants occupy no slot. Bytecode
+addresses a slot by its index into this table:
+
+| Field | Width | Content |
+|---|---|---|
+| name | u32 length + bytes | the member name |
+| owner key | u32 length + bytes | the qualified key of the owning class or interface |
+| owner kind | u8 | `0` class owner, `1` interface owner |
+| runtime-const flag | u8 | `1` for a runtime-initialized constant |
+| initializer flag | u8 | `1` when a static-initializer function assigns the slot |
+| type | u16 length + descriptor | §20.5 |
 
 ## 20.5 Type Descriptors
 
@@ -328,7 +348,7 @@ an *import slot* appended to the table it belongs to: the
 table's own entries occupy indices `0..n-1` and its imports
 occupy `n..n+m`, so a compile-time reference to an external
 declaration is a table index above the own-entry count. The
-four import sections follow the table order of §20.2.
+five import sections follow the table order of §20.2.
 
 Every entry:
 
@@ -352,6 +372,11 @@ owner ordinal single-selects the target. The loader binds each
 slot by loading the target package and locating the member
 (§3.9.3).
 
+The static-slot import section (§20.2) uses the function
+section's record shape with its own owner-kind domain: `0`
+class owner, `1` interface owner — an external static slot
+reference names the owning type, never a member position.
+
 ## 20.8 Loading and Validation
 
 A loader reads the image strictly and rejects it whole: a
@@ -359,8 +384,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.12 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.12 → reject with an
+- **version.** Below 2.13 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.13 → reject with an
   "upgrade the toolchain" diagnostic (§20.1).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string

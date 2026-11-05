@@ -299,6 +299,10 @@ public:
 	void Access(SnSuperCallStmt &sn);
 	bool IsExceptionSubclass(SnField *t);
 	void Access(SnSubscriptAssignStmt &sn);
+	//v0.12.7 Task 11: resolve the subscript store's indices; a slice
+	//index rejects the statement ("slice assignment is not supported
+	//yet"). True = a diagnostic fired.
+	bool ResolveStoreIndices(SnSubscriptAssignStmt &sn);
 	void Access(SnThisExpr &sn);
 	void Access(SnArrayTypeExpr &);
 

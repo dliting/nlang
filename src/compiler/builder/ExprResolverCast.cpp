@@ -132,15 +132,9 @@ static int ClassInterfaceDistance(const SnClassDecl &source,
 	return -1;
 }
 
-//0.7.5 overload-distance rungs for implicit primitive conversions.
-//In-category and cross-sign containment widenings cost the registry
-//rank delta (max 3); the integer→float hop and the →string coercion
-//sit on fixed rungs above every widening, so byte→int < byte→float <
-//byte→string — the direction the old abs(NK delta) scheme lost once
-//the kind values were reshuffled. string coercion sits above the
-//float hop (numeric formal beats string formal for a numeric arg).
-static const int kDistToFloat = 4;   // > max in-category rank delta (3)
-static const int kDistToString = 5;  // > kDistToFloat
+//0.7.5 overload-distance rungs (kDistToFloat / kDistToString) moved to
+//ExprResolverCastFit.hpp — the fitted-constant scorer in
+//ExprResolverBinding.cpp grades the same ladder.
 
 //The primitive×primitive ladder (0.7.5 registry derivation). Verdicts
 //come from the cast table: TCK_None and the explicit-only narrowings
@@ -171,19 +165,14 @@ static int PrimitiveDistance(NodeKind srcKind, NodeKind tgtKind)
 	return kDistToFloat;
 }
 
-int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
-	const SnField &target) const
+//The class/interface arm family of CalcTypeDistance: inheritance
+//distance for class pairs, interface realization for class-to-interface,
+//identity only between interfaces, and -1 for every mixed shape.
+//Both kinds checked by the caller (arrays and primitives never land
+//here — SameArrayType unifies the array spellings before the ladder).
+static int ClassFamilyDistance(const SnField &source, const SnField &target,
+	NodeKind srcKind, NodeKind tgtKind)
 {
-	if (&source == &target)
-		return 0;
-	auto srcKind = source.Kind();
-	auto tgtKind = target.Kind();
-	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
-	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
-	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
-		return (&source == &target) ? 0 : -1;
-	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
-		return -1;
 	if (srcKind == NK_ClassDecl && tgtKind == NK_ClassDecl)
 		return ClassInheritanceDistance(
 			static_cast<const SnClassDecl&>(source),
@@ -197,10 +186,41 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		return (&source == &target) ? 0 : -1;
 	//Interface to class is never valid — interface refs cannot be downcast
 	//implicitly (no dynamic cast in this phase).
-	if (srcKind == NK_InterfaceDecl || tgtKind == NK_InterfaceDecl)
+	return -1;
+}
+
+int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
+	const SnField &target) const
+{
+	if (&source == &target)
+		return 0;
+	auto srcKind = source.Kind();
+	auto tgtKind = target.Kind();
+	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
+	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
+		return (&source == &target) ? 0 : -1;
+	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
 		return -1;
-	if (srcKind == NK_ClassDecl || tgtKind == NK_ClassDecl)
-		return -1;
+	//v0.12.7: the two spellings of the single array type are one type —
+	//the SameArrayType predicate (CastInfo's TCK_Same rule: elements by
+	//node identity, unannotated matches any rank) is distance 0. Must
+	//run BEFORE the ClassDecl arms: an Array<E> instantiation is an
+	//NK_ClassDecl node and would fall to the class-ladder reject below.
+	if (SameArrayType(const_cast<SnField*>(&source),
+		const_cast<SnField*>(&target)))
+		return 0;
+	//v0.12.7 Task 5: Array<E> <: Object (spec 4.1) — one hop (a direct
+	//superclass step) for BOTH spellings: the token and the Array<E>
+	//instance (no declared Object base, so the class ladder cannot see
+	//the edge). CanImplicitlyBind reads it via the TCK_Same verdict.
+	if (tgtKind == NK_ClassDecl && target.Name() == "Object"
+		&& (srcKind == NK_ArrayTypeToken
+			|| ArrayInstantiationElem(const_cast<SnField*>(&source))))
+		return 1;
+	if (srcKind == NK_ClassDecl || srcKind == NK_InterfaceDecl
+		|| tgtKind == NK_ClassDecl || tgtKind == NK_InterfaceDecl)
+		return ClassFamilyDistance(source, target, srcKind, tgtKind);
 	//0.7.3 B D5: an array argument coerces to a string formal through the
 	//cast table's TCK_Auto (runtime toString). Grant candidacy a finite
 	//distance — the same rung as every scalar→string coercion (0.7.5:

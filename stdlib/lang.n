@@ -92,14 +92,18 @@ class String {
     public native bool toBool();
 }
 
-//Array's method face — declaration-level source of truth for every
-//array type (int[], string[,], …; rank rides the array type itself).
+//Array<T> — the single array type's method face. Every array spelling
+//(int[], Array<int>, m as int[,]) resolves here; rank rides the value.
+//Brackets are a static rank annotation, not a separate type.
 //length() is the element count (total elements for rank > 1), rank()
-//the static rank, shape() the per-dimension sizes as int[rank]. Face
-//holder only: not instantiable, not extendable, no Object base.
-class Array {
+//the static rank, shape() the per-dimension sizes as int[rank].
+//equals/getHashCode are identity semantics (Object-receiver dispatch).
+//Face holder only: not extendable, no Object base (spec D10).
+class Array<T> {
     public native int length();
     public native int rank();
     public native int[] shape();
     public native string toString();
+    public native bool equals(Object other);
+    public native int getHashCode();
 }

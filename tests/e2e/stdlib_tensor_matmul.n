@@ -22,12 +22,12 @@ int main() {
 
     // int32 wraparound pin: each product term is 65536*65536, the 2x2
     // sum wraps to 0 — no silent widening to long
-    int[,] big = tensor.reshape2(tensor.fullI(4, 65536), [2, 2]);
+    int[,] big = tensor.reshape(tensor.fullI(4, 65536), [2, 2]);
     int[,] w = tensor.matmul(big, big);
     if (w[0,0] != 0 || w[1,1] != 0) return 6;
 
     // long kind keeps 64-bit width: the same shape sums to 2^33
-    long[,] lb = tensor.reshape2(tensor.fullL(4, 65536), [2, 2]);
+    long[,] lb = tensor.reshape(tensor.fullL(4, 65536), [2, 2]);
     long[,] lw = tensor.matmul(lb, lb);
     if (lw[0,0] != 8589934592) return 7;
 

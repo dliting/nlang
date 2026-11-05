@@ -315,7 +315,8 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
     //No copy on read (Phase 9d-3: value copies belong at store
     //boundaries): the old-value slot aliases the element until the
     //computed result is stored.
-    emitter.Emit(OpCode::OP_LoadElementN);
+    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+        ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
     emitter.EmitUint16(oldValSlot);
     emitter.EmitUint16(claimBase);
     emitter.EmitUint16(idxBase);
@@ -329,7 +330,8 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
         EmitStructDeepCopy(oldValSlot, oldValSlot,
             static_cast<SnStructDecl&>(*elemType), emitter);
     }
-    emitter.Emit(OpCode::OP_StoreElementN);
+    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+        ? OpCode::OP_StoreElementDyn : OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);
     emitter.EmitUint16(idxBase);
     emitter.EmitUint16(oldValSlot);
