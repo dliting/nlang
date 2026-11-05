@@ -1,0 +1,31 @@
+// net.n — 网络通信包:TCP、UDP、ICMP。需显式`import net;`。
+// 阻塞方法在虚拟线程上停泊(不占载体),timeoutMs=0表示无限等待。
+// 失败抛SocketException,超时抛TimeoutException(同属IOException家族)。
+
+// 底层socket错误:连接被拒、对端断开、socket已关闭、选项设置失败等。
+const class SocketException : IOException {
+    public native SocketException(string message, Exception cause = null);
+}
+
+// 带timeoutMs的操作在截止前未完成。
+const class TimeoutException : IOException {
+    public native TimeoutException(string message, Exception cause = null);
+}
+
+// string是字节容器;这两个助手在文本与字节数组间转换(UTF-8字节序列,
+// 不经string方法面)。
+native byte[] toBytes(string s);
+native string fromBytes(byte[] data);
+
+// TCP监听端点。bind后开始监听;close停止监听。
+class TcpListener {
+    // 监听host:port;port=0由系统分配,经localPort()读回。
+    public static native TcpListener bind(string host, int port);
+    // 便利重载:监听所有接口的port。
+    public static TcpListener bind(int port) {
+        return bind("0.0.0.0", port);
+    }
+    public native string localAddress();
+    public native int localPort();
+    public native void close();
+}

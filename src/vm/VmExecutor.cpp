@@ -100,6 +100,10 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("InvalidCastException",     &m_invalidCastExcClassIdx);
     cacheExcClass("InitializationException",  &m_initExcClassIdx);
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
+    //v0.13.0 net: the net exception classes (declared in stdlib/net.n;
+    //unique-suffix lookup — -1 when net is not imported).
+    cacheExcClass("SocketException",          &m_socketExcClassIdx);
+    cacheExcClass("TimeoutException",         &m_timeoutExcClassIdx);
 
     //K1 Slice 6: cache the Thread class index (spawn mints instances).
     int threadIdx = module.FindClassBareOrUniqueSuffix("Thread");
@@ -107,6 +111,17 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     //K3: same for the Future face of typed spawn.
     int futureIdx = module.FindClassBareOrUniqueSuffix("Future");
     m_futureClassIdx = (futureIdx >= 0) ? static_cast<int16_t>(futureIdx) : -1;
+    //v0.13.0 net: the four handle classes stdlib/net.n declares (the
+    //mint arms need the class idx; -1 when net is not imported — the
+    //net natives cannot fire then).
+    auto cacheNetClass = [&](const char* name, int16_t* out) {
+        int idx = module.FindClassBareOrUniqueSuffix(name);
+        *out = (idx >= 0) ? static_cast<int16_t>(idx) : -1;
+    };
+    cacheNetClass("TcpListener", &m_tcpListenerClassIdx);
+    cacheNetClass("TcpStream",   &m_tcpStreamClassIdx);
+    cacheNetClass("UdpSocket",   &m_udpSocketClassIdx);
+    cacheNetClass("IcmpSocket",  &m_icmpSocketClassIdx);
 }
 
 //String objectization: eagerly materialize every module string constant

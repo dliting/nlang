@@ -2065,3 +2065,5 @@ as_null_downcast 0
 array_dynamic_subscript 0
 array_dynamic_dims compile_error dims argument
 array_object_integration 0
+stdlib_net_bytes_roundtrip 0 ok
+stdlib_net_tcp_bind_probe 0 ok
