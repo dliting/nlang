@@ -123,6 +123,7 @@ add_library(nlang_vm
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
+    net/NetSocketTable.cpp
 )
 
 #v0.13.0 net: one NetPlatform implementation per platform (design §6).

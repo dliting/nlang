@@ -926,6 +926,23 @@ target_link_libraries(test_net_platform
 
 add_test(NAME net_platform_tests COMMAND test_net_platform)
 
+# v0.13.0 net: the per-executor socket slot table (generation-tagged
+# handles, close-waits-for-waiters fd lifetime) — no VM.
+add_executable(test_net_slots
+    test_vm/test_net_slots.cpp
+)
+target_include_directories(test_net_slots
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_slots
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME net_slots_tests COMMAND test_net_slots)
+
 # K8 Task 2: chunked block storage (stable element addresses, atomic size
 # publication) — real threads for the read/growth overlap contract.
 add_executable(test_chunkedarray
