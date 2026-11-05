@@ -1,15 +1,19 @@
 /*---
-tensor_reduce.cpp — the reduction family (sum/max/min/mean/dot) of the
-tensor native module. Same dispatch shape as the binary family: one
-registered native per operation name, the first view's runtime element
-kind picks the typed kernel. max/min also carry the clamp arm (array +
-bound, arity-dispatched on argc). Integer sums wrap like language int
-arithmetic (declared T return); dot accumulates in 64 bits and returns
-long so large inner products never wrap; mean always returns double.
+    tensor_reduce.cpp — the reduction family (sum/max/min/mean/dot) of
+    the tensor native module. Same dispatch shape as the binary family:
+    one registered native per operation name, the first view's runtime
+    element kind picks the typed kernel. max/min also carry the clamp
+    arm (array + bound, arity-dispatched on argc); sum carries the axis
+    arm (array + axis). Every walk addresses through the recorded
+    strides/offset, so views reduce without materializing. Integer sums
+    wrap like language int arithmetic (declared T return); dot
+    accumulates in 64 bits and returns long so large inner products
+    never wrap; mean always returns double.
 ---*/
 #include "TensorKernels.h"
 
 #include <cstdint>
+#include <string>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
@@ -43,20 +47,24 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     const T* cells = CellsOf<const T>(v);
     if (op == RedOp::Sum) {
         Acc acc = 0;
-        for (int64_t i = 0; i < v.elemCount; ++i)
-            acc = static_cast<Acc>(acc + cells[i]);
+        StrideWalk(v, [&](int64_t addr) {
+            acc = static_cast<Acc>(acc + cells[addr]);
+        });
         ReturnScalar(ret, static_cast<T>(acc));
         return;
     }
     if (v.elemCount == 0)
         Raise(host, NEXC_Base, op == RedOp::Max
             ? "tensor.max: empty array" : "tensor.min: empty array");
-    T best = cells[0];
-    for (int64_t i = 1; i < v.elemCount; ++i) {
-        const T cur = cells[i];
-        if (op == RedOp::Max ? cur > best : cur < best)
+    T best = T(0);
+    bool first = true;
+    StrideWalk(v, [&](int64_t addr) {
+        const T cur = cells[addr];
+        if (first || (op == RedOp::Max ? cur > best : cur < best)) {
             best = cur;
-    }
+            first = false;
+        }
+    });
     ReturnScalar(ret, best);
 }
 
@@ -69,13 +77,16 @@ void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor.mean: empty array");
     const T* cells = CellsOf<const T>(v);
     double acc = 0.0;
-    for (int64_t i = 0; i < v.elemCount; ++i)
-        acc += static_cast<double>(cells[i]);
+    StrideWalk(v, [&](int64_t addr) {
+        acc += static_cast<double>(cells[addr]);
+    });
     ReturnDouble(ret, acc / static_cast<double>(v.elemCount));
 }
 
 //dot: same-kind operands, 64-bit accumulation for integral kinds (the
-//declared return widens with it); float accumulates float, double double.
+//declared return widens with it); float accumulates float, double
+//double. Both views walk their own row-major odometer — the shapes may
+//differ as long as the counts match (2x3 . 3x2 flattens alike).
 template <typename T, typename Acc>
 void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView va;
@@ -90,10 +101,17 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
             + std::to_string(vb.elemCount) + ")");
     const T* ca = CellsOf<const T>(va);
     const T* cb = CellsOf<const T>(vb);
+    int64_t idxA[nlang::kMaxArrayRank] = {0};
+    int64_t idxB[nlang::kMaxArrayRank] = {0};
+    int64_t addrA = va.offset;
+    int64_t addrB = vb.offset;
     Acc acc = 0;
-    for (int64_t i = 0; i < va.elemCount; ++i)
-        acc = static_cast<Acc>(acc + static_cast<Acc>(ca[i])
-            * static_cast<Acc>(cb[i]));
+    for (int64_t i = 0; i < va.elemCount; ++i) {
+        acc = static_cast<Acc>(acc + static_cast<Acc>(ca[addrA])
+            * static_cast<Acc>(cb[addrB]));
+        StrideWalkAdvance(va, idxA, &addrA);
+        StrideWalkAdvance(vb, idxB, &addrB);
+    }
     ReturnScalar(ret, acc);
 }
 
@@ -109,12 +127,12 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     host->getArrayView(host, handle, &out);
     const T* in = CellsOf<const T>(v);
     T* outCells = CellsOf<T>(out);
-    for (int64_t i = 0; i < v.elemCount; ++i) {
-        const T cur = in[i];
-        const T clipped = isMax ? (cur > bound ? cur : bound)
-                                : (cur < bound ? cur : bound);
-        outCells[i] = clipped;
-    }
+    int64_t at = 0;
+    StrideWalk(v, [&](int64_t addr) {
+        const T cur = in[addr];
+        outCells[at++] = isMax ? (cur > bound ? cur : bound)
+                               : (cur < bound ? cur : bound);
+    });
     ReturnInt(ret, handle);
 }
 
@@ -143,6 +161,59 @@ void DispatchClamp(NativeHost* host, uint8_t* ret, const uint8_t* args,
     }
 }
 
+//sum(a, axis): the axis dim is eliminated, every other dim is kept
+//(rank 1 + axis 0 is the full reduction — the scalar return). The
+//outer odometer walks the result coords; the inner loop strides along
+//the source axis. Accumulation mirrors the flattened sum (Acc carrier,
+//narrowed to T on store).
+template <typename T, typename Acc>
+void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    const int32_t axis = ArgInt(args, 1);
+    if (axis < 0 || axis >= v.rank)
+        Raise(host, NEXC_Base, "tensor.sum: axis "
+              + std::to_string(axis) + " out of range for rank "
+              + std::to_string(v.rank));
+    const T* cells = CellsOf<const T>(v);
+    const int32_t along = v.dims[axis];
+    const int64_t axisStride = v.strides[axis];
+    const int32_t outRank = v.rank - 1;
+    if (outRank == 0) {
+        Acc acc = 0;
+        for (int64_t s = 0; s < along; ++s)
+            acc = static_cast<Acc>(acc + cells[v.offset + s * axisStride]);
+        ReturnScalar(ret, static_cast<T>(acc));
+        return;
+    }
+    int32_t outDims[nlang::kMaxArrayRank];
+    for (int32_t d = 0; d < outRank; ++d)
+        outDims[d] = v.dims[d < axis ? d : d + 1];
+    const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
+                                          outDims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    T* outCells = CellsOf<T>(out);
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t base = v.offset;
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        Acc acc = 0;
+        for (int64_t s = 0; s < along; ++s)
+            acc = static_cast<Acc>(acc + cells[base + s * axisStride]);
+        outCells[i] = static_cast<T>(acc);
+        for (int32_t d = outRank - 1; d >= 0; --d) {
+            const int32_t src = d < axis ? d : d + 1;
+            idx[d] += 1;
+            base += v.strides[src];
+            if (idx[d] < outDims[d])
+                break;
+            base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
+            idx[d] = 0;
+        }
+    }
+    ReturnInt(ret, handle);
+}
+
 //Kind dispatch on the first view (same contract as the binary family).
 uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
     NativeArrayView v;
@@ -153,7 +224,23 @@ uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
 
 } // namespace
 
-void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    if (argc == 2) {
+        switch (ElemKindOfFirst(host, args)) {
+            case NEK_Int32:
+                SumAxisKernel<int32_t, int64_t>(host, ret, args); break;
+            case NEK_Int64:
+                SumAxisKernel<int64_t, int64_t>(host, ret, args); break;
+            case NEK_Float32:
+                SumAxisKernel<float, double>(host, ret, args); break;
+            case NEK_Float64:
+                SumAxisKernel<double, double>(host, ret, args); break;
+            default:
+                Raise(host, NEXC_Base, "tensor: unsupported element kind");
+        }
+        return;
+    }
     switch (ElemKindOfFirst(host, args)) {
         case NEK_Int32:
             UnaryReduceKernel<int32_t, int64_t>(host, ret, args, RedOp::Sum);
@@ -220,7 +307,9 @@ void TensorMin(NativeHost* host, uint8_t* ret, const uint8_t* args,
     }
 }
 
-void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                int argc) {
+    (void)argc;
     switch (ElemKindOfFirst(host, args)) {
         case NEK_Int32:   MeanKernel<int32_t>(host, ret, args); break;
         case NEK_Int64:   MeanKernel<int64_t>(host, ret, args); break;
@@ -231,12 +320,18 @@ void TensorMean(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     }
 }
 
-void TensorDot(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
+void TensorDot(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    (void)argc;
     switch (ElemKindOfFirst(host, args)) {
-        case NEK_Int32:   DotKernel<int32_t, int64_t>(host, ret, args); break;
-        case NEK_Int64:   DotKernel<int64_t, int64_t>(host, ret, args); break;
-        case NEK_Float32: DotKernel<float, float>(host, ret, args); break;
-        case NEK_Float64: DotKernel<double, double>(host, ret, args); break;
+        case NEK_Int32:
+            DotKernel<int32_t, int64_t>(host, ret, args); break;
+        case NEK_Int64:
+            DotKernel<int64_t, int64_t>(host, ret, args); break;
+        case NEK_Float32:
+            DotKernel<float, float>(host, ret, args); break;
+        case NEK_Float64:
+            DotKernel<double, double>(host, ret, args); break;
         default:
             Raise(host, NEXC_Base, "tensor: unsupported element kind");
     }

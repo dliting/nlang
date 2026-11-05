@@ -1875,6 +1875,7 @@ stdlib_tensor_reshape_negdim 0
 #Task 6: the collapsed tensor surface — full(dims), exp/log, clamp,
 #generic reshape with -1 inference, concat, math-face PRNG composition.
 tensor_surface_v2 0
+tensor_views_broadcast 0
 array_abi_v10 0
 array_view_ops 0
 #v0.12.7 Task 11: slice subscripts — colon items producing views

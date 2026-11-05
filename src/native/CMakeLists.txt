@@ -34,7 +34,8 @@ endforeach()
 target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp
     tensor/tensor_matrix.cpp
-    tensor/tensor_reduce.cpp)
+    tensor/tensor_reduce.cpp
+    tensor/tensor_views.cpp)
 
 # Single authoritative output and NOTHING copies the modules around the
 # build tree — hosts resolve them through NativeLibraryLoader's build-tree

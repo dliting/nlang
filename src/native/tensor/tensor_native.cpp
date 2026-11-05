@@ -229,5 +229,17 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "reshape", &tensor::TensorReshape);
     regBlocking(registry, "tensor", "concat", &tensor::TensorConcat);
     regBlocking(registry, "tensor", "matmul", &tensor::TensorMatmul);
+    //v0.12.7 Task 12: the view family and the scalar arms.
+    regBlocking(registry, "tensor", "slice", &tensor::TensorSlice);
+    regBlocking(registry, "tensor", "broadcastTo",
+                &tensor::TensorBroadcastTo);
+    regBlocking(registry, "tensor", "addScalar",
+                &tensor::TensorAddScalar);
+    regBlocking(registry, "tensor", "subScalar",
+                &tensor::TensorSubScalar);
+    regBlocking(registry, "tensor", "mulScalar",
+                &tensor::TensorMulScalar);
+    regBlocking(registry, "tensor", "divScalar",
+                &tensor::TensorDivScalar);
     return NLANG_HOST_ABI_VERSION;
 }
