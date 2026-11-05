@@ -100,6 +100,7 @@ enum class OpCode : uint8_t {
     OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
     OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
     OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
+    OP_MakeArrayView,   // uint16 dst, uint16 arr, uint16 typeIdx, uint16 rank, uint16 paramsBase — slice subscript; params = 3×rank int32 slots (start/stop/step per axis, INT32_MIN default sentinel) followed by ceil(4×rank/32) mask slots (4 bits/axis: start/stop/step present + axis-is-scalar)
 
     // === Phase 8e-1: Object protocol + boxing/cast ===
     OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
@@ -263,6 +264,8 @@ static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
     OpCode::OP_AssembleArrayN,
     OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
+static constexpr OpCode kStrideFiveWords[] = {
+    OpCode::OP_MakeArrayView};
 static constexpr OpCode kStrideOutMaskWords[] = {
     OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
     OpCode::OP_CallDelegateOut};
@@ -307,6 +310,7 @@ inline size_t InstructionStride(OpCode op) {
         StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
         StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
         StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
+        StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
         StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
         StrideGroup(kStrideConst32, 1 + 4),

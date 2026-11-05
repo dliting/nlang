@@ -472,6 +472,12 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
             EmitContainerSubscriptGet(sub, emitter, resultOffset);
             return;
         }
+        //v0.12.7 Task 11: a slice axis mints a view instead of loading
+        //an element (the resolver typed the result as the view token).
+        if (HasSliceAxis(sub)) {
+            EmitArrayViewRead(sub, emitter, resultOffset);
+            return;
+        }
         EmitArraySubscriptRead(sub, emitter, resultOffset);
 }
 

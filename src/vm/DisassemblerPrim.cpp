@@ -94,4 +94,47 @@ void DisasmPrimNeg(BytecodeReader &r, std::ostringstream &out,
     out << head << "<" << kind << "> " << dst << "\n";
 }
 
+//The stage-2/3 array-record family (moved to this size-split file
+//from Disassembler.cpp when OP_MakeArrayView outgrew that file's
+//budget; it had already moved once from DisasmObjectOps).
+bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
+        case OpCode::OP_AllocArrayN:
+            DisasmU16xN(4, r, out, head, " dst=%u type=%u rank=%u dimsBase=%u");
+            return true;
+        case OpCode::OP_AssembleArrayN:
+            DisasmU16xN(4, r, out, head, " dst=%u type=%u elems=%u count=%u");
+            return true;
+        case OpCode::OP_LoadElementN:
+        case OpCode::OP_LoadElementDyn:
+            DisasmU16xN(4, r, out, head, " dst=%u arr=%u idxBase=%u rank=%u");
+            return true;
+        case OpCode::OP_StoreElementN:
+        case OpCode::OP_StoreElementDyn:
+            DisasmU16xN(4, r, out, head, " arr=%u idxBase=%u src=%u rank=%u");
+            return true;
+        case OpCode::OP_LoadElementFlat:
+            DisasmU16xN(3, r, out, head, " dst=%u arr=%u flatIdx=%u");
+            return true;
+        case OpCode::OP_CheckArrayRank:
+        case OpCode::OP_CheckArrayType:
+            DisasmU16xN(3, r, out, head, " dst=%u src=%u expect=%u");
+            return true;
+        case OpCode::OP_AllocArrayDyn:
+            DisasmU16xN(3, r, out, head, " dst=%u type=%u dims=%u");
+            return true;
+        case OpCode::OP_ArrayShape:
+        case OpCode::OP_ArrayLength:
+            DisasmU16xN(2, r, out, head, " dst=%u arr=%u");
+            return true;
+        case OpCode::OP_MakeArrayView:
+            DisasmU16xN(5, r, out, head,
+                " dst=%u arr=%u type=%u rank=%u params=%u");
+            return true;
+        default:
+            return false;
+    }
+}
+
 } //namespace nlang

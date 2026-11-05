@@ -1877,6 +1877,15 @@ stdlib_tensor_reshape_negdim 0
 tensor_surface_v2 0
 array_abi_v10 0
 array_view_ops 0
+#v0.12.7 Task 11: slice subscripts — colon items producing views
+#(the reject rows pin each diagnostic family).
+array_slice_syntax 0
+array_slice_lvalue_reject compile_error slice assignment is not supported yet
+array_slice_string_reject compile_error string indexing does not support slices
+array_slice_container_reject compile_error container subscripts do not support slices
+array_slice_creation_reject compile_error array creation dimensions cannot be slices
+array_slice_float_reject compile_error slice endpoints and the step must be integers
+array_slice_rank_reject compile_error array rank 65 exceeds the maximum of 64
 #Task 4 Step 0: an empty class body (marker classes) is legal.
 grammar_empty_class 0
 #thread.spawn mints instances; with-args rejects).

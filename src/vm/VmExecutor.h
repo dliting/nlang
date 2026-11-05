@@ -588,6 +588,12 @@ private:
     void OpConcat_str(BytecodeReader& reader, uint8_t* locals);
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
+    //Phase 11 Q4 bytewise relational family (memcmp order; a null
+    //handle reads ""); DispatchFrames forwards here like the rest.
+    void OpLess_str(BytecodeReader& reader, uint8_t* locals);
+    void OpLessEqual_str(BytecodeReader& reader, uint8_t* locals);
+    void OpGreater_str(BytecodeReader& reader, uint8_t* locals);
+    void OpGreaterEqual_str(BytecodeReader& reader, uint8_t* locals);
     void OpStrLen(BytecodeReader& reader, uint8_t* locals);
     //0.7.5 char bridge: s[i] byte read and the code-point iteration step
     //(operand contracts in BytecodeOps.h).
@@ -668,6 +674,27 @@ private:
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 11: mint the slice-subscript view (OP_MakeArrayView)
+    //— normalize staged endpoints/steps, fold scalar axes into the
+    //offset, allocate the depth-one view. Contract at the implementation.
+    void OpMakeArrayView(BytecodeReader& reader, uint8_t* locals);
+    //v0.12.7 Task 11: accumulator of the slice axis fold — the offset
+    //(owner space, int64 until the record store) and the kept axes
+    //(dims sized to the rank cap; see Config.h).
+    struct SliceFoldState {
+        int64_t offset = 0;
+        int32_t newDims[64] = {};
+        int32_t newStrides[64] = {};
+        uint8_t viewRank = 0;
+    };
+    //Fold helpers of OpMakeArrayView (static members so they can raise
+    //through the executor's private family; see the implementation).
+    static void FoldSliceAxes(VmExecutor* e, uint16_t rank,
+        uint16_t paramsBase, const uint8_t* locals, uint8_t baseKind,
+        const std::vector<int32_t>& record, SliceFoldState& st);
+    static void FoldOneSliceAxis(VmExecutor* e, uint16_t axis,
+        uint32_t bits, const int32_t* dims, const int32_t* strides,
+        const uint8_t* locals, uint16_t paramsBase, SliceFoldState& st);
     //Stage-3 D3: assemble a rank>=2 array from staged row handles (the
     //dynamic-shape initializer arm); contract at the implementation.
     void OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals);

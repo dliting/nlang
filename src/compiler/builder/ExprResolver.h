@@ -320,6 +320,11 @@ public:
 	//Resolve subscript expression.
 	void Access(SnSubscriptExpr &);
 
+	//v0.12.7 Task 11: resolve a slice item h[:s[:st]] inside a subscript
+	//list. Every present part must resolve to an integer; the item
+	//itself carries Int32 (a marker for the parent's view typing).
+	void Access(SnSliceItemExpr &);
+
 	//Resolve this expression.
 	void Access(SnThisExpr &);
 
@@ -1217,6 +1222,13 @@ private:
 	//base's array type (token element, or the Array<E> type argument).
 	//False = the token's rank-arity diagnostic fired.
 	bool BindSubscriptElemType(SnSubscriptExpr &sn, SnField *pBaseType);
+	//v0.12.7 Task 11: count the slice axes of a subscript (a scalar axis
+	//folds into the view offset; a slice axis survives in the result).
+	size_t SliceAxisCount(const SnSubscriptExpr &sn) const;
+	//v0.12.7 Task 11: bind the slice-result view type — an array token
+	//of (element, slice-axis count). Returns false when the plain
+	//element binding already diagnosed.
+	bool BindSliceViewType(SnSubscriptExpr &sn);
 
 	//0.9.0: consume the subscript as a sized array creation (`int[n]` /
 	//`Foo[n]`) when the base identifier resolved as a TYPE; the index

@@ -183,6 +183,28 @@ static SnField* SubscriptStoreElemType(SnExpression *pBase)
 	return nullptr;
 }
 
+//v0.12.7 Task 11: resolve the store's index expressions; a slice
+//index stops the statement — slice lvalues PARSE (the unified
+//subscript list) but have no store semantics until a writable view
+//gains materialization semantics. True = a diagnostic fired.
+bool StatementResolveAccessor::ResolveStoreIndices(
+	SnSubscriptAssignStmt &sn)
+{
+	for (auto *pIndex : sn.Indices())
+	{
+		if (pIndex && !pIndex->IsResolved())
+			m_ExprResolver.Resolve(*pIndex, *pIndex->Parent(),
+				*m_pCurrType, ERF_None);
+		if (pIndex && pIndex->Kind() == NK_SliceItemExpr)
+		{
+			m_Env.Log(CLL_Error, pIndex->Location(),
+				"slice assignment is not supported yet.");
+			return true;
+		}
+	}
+	return false;
+}
+
 void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 {
 	if (sn.IsResolved())
@@ -190,11 +212,8 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 	NLANG_ASSERT(m_pCurrType);
 	if (sn.Array() && !sn.Array()->IsResolved())
 		m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
-	for (auto *pIndex : sn.Indices())
-	{
-		if (pIndex && !pIndex->IsResolved())
-			m_ExprResolver.Resolve(*pIndex, *pIndex->Parent(), *m_pCurrType, ERF_None);
-	}
+	if (ResolveStoreIndices(sn))
+		return;
 	//0.9.0: a bare brace stored value takes the base's element type as
 	//its target (the array element, or the container's value slot). The
 	//base is resolved by now, so the element type is derivable.

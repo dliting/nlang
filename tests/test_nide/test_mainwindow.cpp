@@ -144,17 +144,20 @@ const char* const kLoopSource =
     "\n"                              //4
     "public int main() {\n"           //5
     "    int spin = 0;\n"             //6
-    "    while (spin < 100000000) {\n"//7
+    "    while (spin < 30000000) {\n" //7
     "        spin = spin + 1;\n"      //8
     "    }\n"                         //9
     "    int t = touch();\n"          //10 <- prelude breakpoint
     "    return 42;\n"                //11
     "}\n";                            //12
 
-//A bare nvm run of the 100M-iteration loop above takes ~19s on a
-//mid-load desktop and the debugged session needs more; the loop-stop
-//QTRY ceiling must leave room for background load or the gate flakes
-//on busy machines (needed 34s at 44% load).
+//The loop only has to outlive the queued-toggle window (the toggles
+//land right after the Running state is observed). 30M iterations keep
+//seconds of margin on both ends of the machine-speed range without
+//tying the QTRY ceiling to absolute wall time: a 100M loop once made
+//the whole family flake on a machine running ~2.4x slower than the
+//calibration desktop (debugged loop-stop ~95s against the 90s QTRY
+//ceiling, 2026-11-05).
 constexpr int kLoopStopTimeoutMs = 90000;
 
 //The embedded help's mkdocs-material search needs the page-side retry

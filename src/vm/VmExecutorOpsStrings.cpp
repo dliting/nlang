@@ -193,4 +193,26 @@ void VmExecutor::OpStrForeachStep(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + cond, &more, sizeof(more));
 }
 
+//Phase 11 Q4: bytewise relational compare — memcmp order; UTF-8 byte
+//order equals code point order (multibyte-safe); a null operand
+//(handle 0) reads "", same convention as Eq/Ne. DispatchFrames routes
+//here through one-line forwarding cases like every other opcode
+//(a sub-dispatch helper before its switch made each dispatch pay an
+//extra cross-TU call — ~2.4x on tight loops).
+#define STR_REL(NAME, OP)                                                   \
+    void VmExecutor::NAME(BytecodeReader& reader, uint8_t* locals) {        \
+        uint16_t lhs = reader.ReadUint16();                                 \
+        uint16_t rhs = reader.ReadUint16();                                 \
+        int32_t hA, hB;                                                     \
+        std::memcpy(&hA, locals + lhs, sizeof(hA));                         \
+        std::memcpy(&hB, locals + rhs, sizeof(hB));                         \
+        int32_t r = (StrVal(hA) OP StrVal(hB)) ? 1 : 0;                     \
+        std::memcpy(locals + lhs, &r, sizeof(r));                           \
+    }
+STR_REL(OpLess_str, <)
+STR_REL(OpLessEqual_str, <=)
+STR_REL(OpGreater_str, >)
+STR_REL(OpGreaterEqual_str, >=)
+#undef STR_REL
+
 } // namespace nlang

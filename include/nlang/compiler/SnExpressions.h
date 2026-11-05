@@ -938,6 +938,37 @@ private:
 	SnField *m_pNewArrayElem = nullptr;
 };
 
+//v0.12.7 Task 11: one slice item of a subscript list — `head:stop:step`
+//with every part optional (a[:], a[1:], a[:3], a[::2], a[::-1]). The
+//item rides SnSubscriptExpr's index vector; a subscript holding at
+//least one of these resolves to a depth-one view, an all-scalar
+//subscript stays an element read. Null parts are absent children —
+//their presence is what the emitter folds into the existence bitmask.
+class NLANG_COMPILER_API SnSliceItemExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_SliceItemExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnSliceItemExpr(SnExpression *pHead, SnExpression *pStop,
+		SnExpression *pStep, const ISourceLocation &loc);
+
+	SnExpression *Head() const { return m_pHead; }
+	SnExpression *Stop() const { return m_pStop; }
+	SnExpression *Step() const { return m_pStep; }
+
+	bool IsDataExpr() const override { return true; }
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+private:
+	SnExpression *m_pHead;
+	SnExpression *m_pStop;
+	SnExpression *m_pStep;
+};
+
 //Array allocation expression (e.g. new int[10]).
 class NLANG_COMPILER_API SnNewArrayExpr : public SnCompoundPlainExpr
 {

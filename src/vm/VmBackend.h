@@ -583,6 +583,10 @@ private:
     //NK_SubscriptExpr: 2-slot claim over the deeper operand.
     static uint16_t SubscriptExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
+    //NK_SliceItemExpr (v0.12.7 Task 11): no own claim — the deepest of
+    //its present parts (they stage into the parent subscript's claim).
+    static uint16_t SliceItemExprPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
     //NK_MemberExpr: receiver + method-call inner (string-method trailing
     //arg reservation included).
     static uint16_t MemberExprPeakDepth(SnExpression& expr,
@@ -1428,6 +1432,21 @@ private:
     void EmitArraySubscriptRead(SnSubscriptExpr& sub,
                                 BytecodeEmitter& emitter,
                                 uint16_t resultOffset);
+    //v0.12.7 Task 11: true when any subscript index is a slice item —
+    //the read re-routes from the element load to the view mint.
+    static bool HasSliceAxis(const SnSubscriptExpr& sub);
+    //v0.12.7 Task 11: the slice-subscript view mint — receiver, one
+    //start/stop/step slot per axis and the presence-mask words stage in
+    //one exclusive claim; OP_MakeArrayView normalizes and allocates.
+    void EmitArrayViewRead(SnSubscriptExpr& sub,
+                           BytecodeEmitter& emitter,
+                           uint16_t resultOffset);
+    //Staging half of EmitArrayViewRead (split for the function-size
+    //guard): one axis's parameter slots + its presence bits into the
+    //mask word array (layout at the implementation).
+    void EmitViewAxisParams(SnSubscriptExpr& sub, size_t d,
+                            uint16_t paramsBase, BytecodeEmitter& emitter,
+                            uint32_t* mask);
     //v0.12.7: shared static/dyn element-op choice — true when the base's
     //static type carries no rank annotation (the Array<E> spelling), so
     //the record rank verifies at run time via the Dyn pair. Shared by

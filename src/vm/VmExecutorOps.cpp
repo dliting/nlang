@@ -302,50 +302,6 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpDebugInfo(reader, opPc);
             break;
 
-        case OpCode::OP_Concat_str:
-            OpConcat_str(reader, locals);
-            break;
-
-        case OpCode::OP_Eq_str:
-            OpEq_str(reader, locals);
-            break;
-
-        case OpCode::OP_Ne_str:
-            OpNe_str(reader, locals);
-            break;
-        //Phase 11 Q4: bytewise relational compare. std::string's
-        //operator< is lexicographic on unsigned char values (charTraits
-        //compare), so this is memcmp order — and UTF-8 byte order equals
-        //code point order, making it correct for multibyte text too.
-        //A null operand (handle 0) reads "", same convention as Eq/Ne.
-#define STR_REL(OP)                                                    \
-        {                                                              \
-            uint16_t lhs = reader.ReadUint16();                        \
-            uint16_t rhs = reader.ReadUint16();                        \
-            int32_t hA, hB;                                            \
-            std::memcpy(&hA, locals + lhs, sizeof(hA));                \
-            std::memcpy(&hB, locals + rhs, sizeof(hB));                \
-            int32_t r = (StrVal(hA) OP StrVal(hB)) ? 1 : 0;            \
-            std::memcpy(locals + lhs, &r, sizeof(r));                  \
-        }
-        case OpCode::OP_Less_str: STR_REL(<); break;
-        case OpCode::OP_LessEqual_str: STR_REL(<=); break;
-        case OpCode::OP_Greater_str: STR_REL(>); break;
-        case OpCode::OP_GreaterEqual_str: STR_REL(>=); break;
-#undef STR_REL
-
-        case OpCode::OP_StrLen:
-            OpStrLen(reader, locals);
-            break;
-
-        case OpCode::OP_StrByteAt:
-            OpStrByteAt(reader, locals);
-            break;
-
-        case OpCode::OP_StrForeachStep:
-            OpStrForeachStep(reader, locals);
-            break;
-
         case OpCode::OP_AllocStruct:
             OpAllocStruct(reader, locals);
             break;
@@ -410,6 +366,10 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 
         case OpCode::OP_AllocArrayN:
             OpAllocArrayN(reader, locals);
+            break;
+
+        case OpCode::OP_MakeArrayView:
+            OpMakeArrayView(reader, locals);
             break;
 
         case OpCode::OP_AssembleArrayN:
@@ -481,6 +441,41 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 
         case OpCode::OP_PopHandler:
             OpPopHandler();
+            break;
+
+        //String opcode family (implementations in VmExecutorOpsStrings.cpp
+        //under the file-budget split): one-line forwarding cases keep the
+        //single-switch dispatch — a sub-dispatch helper guarding the switch
+        //made every opcode pay an extra cross-TU call (~2.4x on tight loops).
+        case OpCode::OP_Concat_str:
+            OpConcat_str(reader, locals);
+            break;
+        case OpCode::OP_Eq_str:
+            OpEq_str(reader, locals);
+            break;
+        case OpCode::OP_Ne_str:
+            OpNe_str(reader, locals);
+            break;
+        case OpCode::OP_Less_str:
+            OpLess_str(reader, locals);
+            break;
+        case OpCode::OP_LessEqual_str:
+            OpLessEqual_str(reader, locals);
+            break;
+        case OpCode::OP_Greater_str:
+            OpGreater_str(reader, locals);
+            break;
+        case OpCode::OP_GreaterEqual_str:
+            OpGreaterEqual_str(reader, locals);
+            break;
+        case OpCode::OP_StrLen:
+            OpStrLen(reader, locals);
+            break;
+        case OpCode::OP_StrByteAt:
+            OpStrByteAt(reader, locals);
+            break;
+        case OpCode::OP_StrForeachStep:
+            OpStrForeachStep(reader, locals);
             break;
 
         default:

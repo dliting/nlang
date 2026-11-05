@@ -58,6 +58,7 @@ static const char* s_OpCodeNames[] = {
     "load_element_flat",
     "array_length",
     "array_shape",
+    "make_array_view",
     "box",
     "unbox",
     "check_cast",

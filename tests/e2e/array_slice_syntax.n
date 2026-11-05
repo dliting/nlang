@@ -1,0 +1,71 @@
+// v0.12.7 Task 11: slice subscripts — colon items producing views.
+// Mixed scalar/slice axes fold the scalars into the offset, all-scalar
+// subscripts stay element reads, negative steps reverse, endpoints
+// clip, defaults follow the step direction, and views alias the base.
+import lang;
+
+int main() {
+    int[,] m = int[4, 5];
+    m[1, 2] = 7;
+    int[,] v = m[1:3, :];           // view, rank 2
+    assert(v.shape()[0] == 2);
+    int[] row = m[1, :];            // axis drop, rank-1 view
+    assert(row[2] == 7);
+    int x = m[1, 2];                // all scalar = element
+    assert(x == 7);
+    int[] rev = m[0, ::-1];         // negative step
+    assert(rev.shape()[0] == 5);
+    int[] head = m[0, :3];
+    assert(head.shape()[0] == 3);
+    int[] tail = m[0, 3:];          // default endpoints
+    assert(tail.shape()[0] == 2);
+    m[1, 2] = 8;                    // aliasing write is visible
+    assert(row[2] == 8);
+    int[] clip = m[0, 2:100];       // clipping
+    assert(clip.shape()[0] == 3);
+    //Default reverse start == explicit -1 start: the same elements,
+    // both including the head; the reversal's head is the array's tail.
+    assert(rev[0] == m[0, 4]);
+    assert(rev[4] == m[0, 0]);
+    //View-of-view: strides and offsets stay owner-space, so a second
+    // slice composes onto the base's coordinates.
+    int[,] w = v[:, 1:3];
+    assert(w.shape()[0] == 2 && w.shape()[1] == 2);
+    assert(w[0, 1] == 8);           // m[1, 2]
+    m[1, 2] = 9;
+    assert(w[0, 1] == 9);           // two view levels deep
+    //A written part that evaluates to the default sentinel's value is
+    //rejected by its presence bit (value space cannot express it).
+    int s = -2147483647 - 1;
+    bool caught = false;
+    try { int[] bad = m[0, s:]; assert(false); }
+    catch (Exception e) {
+        caught = e.message == "slice endpoint/step out of range";
+    }
+    assert(caught);
+    caught = false;
+    try { int[] zero = m[0, ::0]; assert(false); }
+    catch (Exception e) {
+        caught = e.message == "slice step cannot be zero";
+    }
+    assert(caught);
+    //The Array<E> spelling (no static rank annotation) slices through
+    //the same op; the record's own rank verifies at run time.
+    int[] src = int[3];
+    src[0] = 5; src[1] = 6; src[2] = 7;
+    Array<int> dyn = src;
+    Array<int> dynRev = dyn[::-1];
+    assert(dynRev[0] == 7);
+    Array<int> dynMid = dyn[1:3];
+    assert(dynMid.shape()[0] == 2 && dynMid[0] == 6);
+    //Every-part-default shapes: [:], [::], [1::], [:2:].
+    int[] full = src[:];
+    assert(full.shape()[0] == 3 && full[0] == 5);
+    int[] also = src[::];
+    assert(also.shape()[0] == 3 && also[2] == 7);
+    int[] tail2 = src[1::];
+    assert(tail2.shape()[0] == 2);
+    int[] head2 = src[:2:];
+    assert(head2.shape()[0] == 2);
+    return 0;
+}

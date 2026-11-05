@@ -81,6 +81,16 @@ void VmBackend::MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
     } else if (expr.Kind() == NK_OutArgExpr) {
         //Phase 9e: out arg — walk the inner identifier.
         MaxArgsWalkExpr(*static_cast<SnOutArgExpr&>(expr).Inner(), maxArgs);
+    } else if (expr.Kind() == NK_SliceItemExpr) {
+        //v0.12.7 Task 11: slice parts evaluate into the parent
+        //subscript's claim slots — walk them for nested invokes only.
+        auto& item = static_cast<SnSliceItemExpr&>(expr);
+        if (item.Head())
+            MaxArgsWalkExpr(*item.Head(), maxArgs);
+        if (item.Stop())
+            MaxArgsWalkExpr(*item.Stop(), maxArgs);
+        if (item.Step())
+            MaxArgsWalkExpr(*item.Step(), maxArgs);
     } else if (expr.Kind() == NK_SubscriptExpr) {
         MaxArgsSubscriptExpr(expr, maxArgs);
     } else if (expr.Kind() == NK_MemberExpr) {

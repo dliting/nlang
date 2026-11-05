@@ -190,6 +190,17 @@ bool StatementResolveAccessor::RejectCompoundSubscriptTarget(
 	if (left.Kind() != NK_SubscriptExpr)
 		return false;
 	auto& sub = static_cast<SnSubscriptExpr&>(left);
+	//v0.12.7 Task 11: slice lvalues (`m[1:2] += v`) share the plain
+	//store's gate — no store semantics until views materialize.
+	for (auto *pIndex : sub.Indices())
+	{
+		if (pIndex->Kind() == NK_SliceItemExpr)
+		{
+			m_Env.Log(CLL_Error, pLoc,
+				"slice assignment is not supported yet.");
+			return true;
+		}
+	}
 	if (sub.NewArrayElem())
 	{
 		m_Env.Log(CLL_Error, pLoc, "cannot assign to an array creation.");

@@ -119,6 +119,12 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             PatchOperand(bc, pos + 3, maps.arrayTypes, "array type",
                          onUnmapped);
             break;
+        case OpCode::OP_MakeArrayView:
+            //Operand order dst/arr/typeIdx/rank/paramsBase — the view's
+            //own type row (the slice result), remapped like any other.
+            PatchOperand(bc, pos + 5, maps.arrayTypes, "array type",
+                         onUnmapped);
+            break;
         case OpCode::OP_Enum_to_str:
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;

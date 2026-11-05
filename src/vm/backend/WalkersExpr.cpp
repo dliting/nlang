@@ -88,17 +88,18 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
         auto& as = static_cast<SnAsExpr&>(expr);
         return ExprPeakDepth(*as.Operand(), visited);
     }
-    //NamedArgExpr
-    if (kind == NK_NamedArgExpr) {
-        auto& named = static_cast<SnNamedArgExpr&>(expr);
-        return ExprPeakDepth(*named.Inner(), visited);
-    }
-    //OutArgExpr (Phase 9e) — transparent like NamedArgExpr: its inner
-    //identifier evaluates into the claimed binding slot.
-    if (kind == NK_OutArgExpr) {
-        auto& out = static_cast<SnOutArgExpr&>(expr);
-        return ExprPeakDepth(*out.Inner(), visited);
-    }
+    //NamedArgExpr / OutArgExpr — transparent: the inner evaluates into
+    //the claimed binding slot.
+    if (kind == NK_NamedArgExpr)
+        return ExprPeakDepth(
+            *static_cast<SnNamedArgExpr&>(expr).Inner(), visited);
+    if (kind == NK_OutArgExpr)
+        return ExprPeakDepth(
+            *static_cast<SnOutArgExpr&>(expr).Inner(), visited);
+    //SliceItemExpr (v0.12.7 Task 11) — transparent: its present parts
+    //evaluate into the parent subscript's claim slots.
+    if (kind == NK_SliceItemExpr)
+        return SliceItemExprPeakDepth(expr, visited);
     //SubscriptExpr
     if (kind == NK_SubscriptExpr)
         return SubscriptExprPeakDepth(expr, visited);
@@ -212,6 +213,25 @@ uint16_t VmBackend::BinaryExprPeakDepth(SnExpression& expr,
     return l;  //unary: operand → resultOffset, no claim
 }
 
+//NK_SliceItemExpr arm of ExprPeakDepth (v0.12.7 Task 11): no claim of
+//its own — the deepest of its present parts is the item's depth (the
+//parts evaluate into the parent subscript's claim slots).
+uint16_t VmBackend::SliceItemExprPeakDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited) {
+    auto& item = static_cast<SnSliceItemExpr&>(expr);
+    uint16_t deepest = 0;
+    if (item.Head())
+        deepest = std::max(deepest,
+            ExprPeakDepth(*item.Head(), visited));
+    if (item.Stop())
+        deepest = std::max(deepest,
+            ExprPeakDepth(*item.Stop(), visited));
+    if (item.Step())
+        deepest = std::max(deepest,
+            ExprPeakDepth(*item.Step(), visited));
+    return deepest;
+}
+
 //NK_SubscriptExpr arm of ExprPeakDepth.
 uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited) {
@@ -235,7 +255,13 @@ uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
         i = std::max(i, ExprPeakDepth(*pIndex, visited));
     //Stage-2: the read claim is receiver + N indices (container lowers
     //to a get() call — same count, its index is one expression).
-    const uint16_t claim = static_cast<uint16_t>(1 + sub.Indices().size());
+    //v0.12.7 Task 11: a slice subscript claims receiver + 3 slots per
+    //axis (start/stop/step) + the presence-mask words — EmitArrayViewRead's
+    //layout, mirrored so evalArea never under-reserves.
+    const size_t n = sub.Indices().size();
+    const uint16_t claim = HasSliceAxis(sub)
+        ? static_cast<uint16_t>(1 + 3 * n + (4 * n + 31) / 32)
+        : static_cast<uint16_t>(1 + n);
     uint16_t m = (a > i ? a : i);
     return claim + m;
 }

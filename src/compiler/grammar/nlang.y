@@ -328,8 +328,9 @@ static bool CollectQualifiedSegments(
 %type <v_pFormalParam>			FormalParam
 %type <v_pFormalParamList>		FormalParamList
 %type <v_pExpression>			Expression ParenthesesExpr LiteralExpr SubscriptExpr
-%type <v_pExpressionList>		ConcreteParamList
-%type <v_pExpression>			ConcreteParam BracedInitExpr
+%type <v_pExpressionList>		ConcreteParamList SubscriptItemList
+%type <v_pExpression>			ConcreteParam BracedInitExpr SubscriptItem
+%type <v_pExpression>			SliceItem SliceHead SliceStop SliceStepOpt SliceStep
 %type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
 %type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
@@ -1222,16 +1223,17 @@ SuperCallStmt: KT_Super '(' ConcreteParamList ')' ';' {
 
 /*
 Array subscript assignment statement (e.g. arr[i] = value).
+v0.12.7 Task 11: rides the unified SubscriptItemList, so slice lvalues
+(m[1:3, :] = v) parse here and are rejected by the resolver with the
+slice-assignment diagnostic (stores through a slice are not supported
+yet — a writable view needs materialization semantics first).
 */
-SubscriptAssignStmt: Expression '[' Expression ']' '=' Expression ';' {
-					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
-				} |
-				Expression '[' ConcreteParamList ']' '=' Expression ';' {
+SubscriptAssignStmt: Expression '[' SubscriptItemList ']' '=' Expression ';' {
 					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} |
 				//0.9.0: bare brace stored value — the base's element type is
 				//the init list's target (resolver-side inference).
-				Expression '[' Expression ']' '=' BracedInitExpr ';' {
+				Expression '[' SubscriptItemList ']' '=' BracedInitExpr ';' {
 					$$ = new SnSubscriptAssignStmt($1, $3, $6, @1);
 				} ;
 
@@ -1941,7 +1943,12 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //(v0.12.6, bison 3.8.2): the two static local statement arms add ONE
 //shift/reduce — the second conflict of the top-level boundary state —
 //moving the totals to 31/3; every conflicted state renumbered, and
-//the whole list below re-derived from the current .output. History: dev's
+//the whole list below re-derived from the current .output. Re-measured
+//2026-11-05 (v0.12.7 Task 11, bison 3.8.2): unifying the two subscript
+//arms into SubscriptItemList REMOVES the two `ConcreteParam: Expression
+//.' shift/reduce conflicts — ConcreteParam no longer lives in the
+//bracket context — moving the totals to 29/3; every other conflict is
+//unchanged in kind (rule renumbering only, 364→375 family). History: dev's
 //line measured 27/3 with every generic opener on the 0.10.8 D1
 //OT_TypeLt token; master's declared-generics line re-adopted the
 //plain-'<' family because a user-declared generic class name cannot
@@ -2330,15 +2337,76 @@ IdentifierExpr:	TT_Identifier	{ $$ = new SnIdentifierExpr($1, @1);			} |
 					KT_Char		{ $$ = new SnIdentifierExpr(NK_Char, @1);	} ;
 
 
-SubscriptExpr:	Expression '[' Expression ']' {
-					$$ = new SnSubscriptExpr($1, $3, @1);
-				} |
-				//Stage-2: comma index lists — a[i, j] (and the creation
-				//twin T[2, 3]). Named/out forms ride ConcreteParamList
-				//and are rejected by the resolver.
-				Expression '[' ConcreteParamList ']' {
+//v0.12.7 Task 11: single unified arm. Scalar subscripts ride
+//SubscriptItem: Expression, comma lists ride SubscriptItemList, slices
+//ride SliceItem (resolver-side: any slice item -> view result, all
+//scalar -> element). Behavior change vs. the former two arms: named/out
+//subscript forms (which rode ConcreteParamList and were rejected by the
+//resolver) are now parse errors — the diagnosis moved from resolve to
+//parse time (ledger note in the accepted-conflict ledger above).
+SubscriptExpr:	Expression '[' SubscriptItemList ']' {
 					$$ = new SnSubscriptExpr($1, $3, @1);
 				} ;
+
+/*
+Subscript item list (v0.12.7 Task 11): one or more comma-separated
+items, each a scalar expression or a slice item. Deliberately no empty
+production — unlike ConcreteParamList's empty arm for zero-argument
+calls, `[]` is not a subscript, and keeping the epsilon out keeps the
+shared bracket states unambiguous.
+*/
+SubscriptItemList:	SubscriptItem {
+						$$ = new PtrList<SnExpression>();
+						$$->push_back($1);
+					} |
+					SubscriptItemList ',' SubscriptItem {
+						$1->push_back($3);
+						$$ = $1;
+					} ;
+
+SubscriptItem:	Expression {
+					$$ = $1;
+				} |
+				SliceItem {
+					$$ = $1;
+				} ;
+
+/*
+Slice item h:s:st with every part optional (`:`, `:s`, `h:`, `h:s`,
+`::st`, ...). Absent parts stay null — presence itself carries the
+slice's meaning; the emitter folds part presence into the mask word.
+*/
+SliceItem:	SliceHead ':' SliceStop SliceStepOpt {
+				$$ = new SnSliceItemExpr($1, $3, $4, @$);
+			} ;
+
+SliceHead:	{
+				$$ = nullptr;
+			} |
+			Expression {
+				$$ = $1;
+			} ;
+
+SliceStop:	{
+				$$ = nullptr;
+			} |
+			Expression {
+				$$ = $1;
+			} ;
+
+SliceStepOpt:	{
+					$$ = nullptr;
+				} |
+				':' SliceStep {
+					$$ = $2;
+				} ;
+
+SliceStep:	{
+				$$ = nullptr;
+			} |
+			Expression {
+				$$ = $1;
+			} ;
 
 //0.9.0: bare `{...}` initializer for the value positions wired below
 //(declaration/assignment RHS, subscript store, call argument, return,

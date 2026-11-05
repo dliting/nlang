@@ -160,9 +160,8 @@ AssignStmt      = ( IdentifierExpr | MemberExpr )
 CompoundAssignStmt = ( IdentifierExpr | MemberExpr | SubscriptExpr )
                      CompoundOp Expression ";" ;
 CompoundOp      = "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" ;
-SubscriptAssignStmt = Expression "[" Expression "]"
-                      "=" ( Expression | BracedInitExpr ) ";"
-                | Expression "[" ConcreteParamList "]" "=" Expression ";" ;
+SubscriptAssignStmt = Expression "[" SubscriptItemList "]"
+                      "=" ( Expression | BracedInitExpr ) ";" ;
 InvokeStmt      = InvokeExpr ";" | MemberExpr ";" ;
 SuperCallStmt   = "super" "(" [ ConcreteParamList ] ")" ";" ;
 ReturnStmt      = "return" ( Expression | BracedInitExpr ) ";"
@@ -233,7 +232,14 @@ TypeKeyword     = "int" | "byte" | "ubyte" | "short" | "ushort"
                 | "string" | "bool" | "char" ;
 MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr ) ;
 InvokeExpr      = <identifier> "(" [ ConcreteParamList ] ")" ;
-SubscriptExpr   = Expression "[" ( Expression | ConcreteParamList ) "]" ;
+SubscriptExpr   = Expression "[" SubscriptItemList "]" ;
+SubscriptItemList = SubscriptItem { "," SubscriptItem } ;
+SubscriptItem   = Expression | SliceItem ;
+SliceItem       = SliceHead ":" SliceStop SliceStepOpt ;
+SliceHead       = [ Expression ] ;
+SliceStop       = [ Expression ] ;
+SliceStepOpt    = [ ":" SliceStep ] ;
+SliceStep       = [ Expression ] ;
 
 BracedInitExpr  = "{" InitEntries "}" ;
 InitEntries     = [ InitEntryList ] ;
