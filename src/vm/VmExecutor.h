@@ -1666,6 +1666,19 @@ private:
     //matrix-family kernels.
     static int32_t NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
         int32_t rank, const int32_t* dims);
+    //v10 view side of minting (contract in NativeHost.h): a view over an
+    //existing handle, validated exactly like the language's creation.
+    static int32_t NativeNewArrayView(NativeHost* self, int32_t targetHandle,
+        int32_t rank, const int32_t* dims, const int32_t* strides,
+        int64_t offset);
+    //v10 helpers of the two callbacks above (definitions in
+    //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
+    //own strides/offset, the resolver peels depth-one to the owning
+    //record's type row for the minted rank.
+    static void FillViewRecordArrayView(VmExecutor* e, int32_t handle,
+                                        NativeArrayView* out);
+    static uint16_t ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
+                                         uint8_t rank);
     //Locate the scalar array-type record for (elemRtk, rank) in the linked
     //module's arrayTypes (elemTypeIdx == 0xFFFF). Lookup-only: m_currModule
     //is const and the stdlib TU inlining registers every declared array

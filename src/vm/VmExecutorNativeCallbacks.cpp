@@ -2,8 +2,9 @@
 VmExecutorNativeCallbacks.cpp — native-host callback implementations
 split from VmExecutorNativeHost.cpp when that file reached the
 source-size budget: the exception-family mapping of raiseException and
-the ABI v6 array side (getArrayView's pinned payload view, newArray's
-zero-initialized minting). Table wiring stays in InitNativeHost.
+the array side (getArrayView's pinned payload view, the minting family
+through newArray/newArrayShaped/newArrayView, ABI v6 through v10).
+Table wiring stays in InitNativeHost.
 ---*/
 #include "VmExecutor.h"
 #include "VmExecutorNativeHost.h"
@@ -109,7 +110,66 @@ static void FillArrayView(NativeArrayView* out,
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = 0;
     out->reserved[1] = 0;
+    out->offset = 0;   //owning array: data already points at element zero
     out->data = record.data() + payloadBase;   //payload base
+}
+
+//ABI v10 view arm of getArrayView: fill from the VIEW record's own
+//dims/strides/offset (owner-payload-space element units), with data
+//pointing at the OWNING record's payload base — element (i0,..) lives
+//at data + (offset + sum(ik*strides[k])) * elemCellBytes. The view's
+//type row carries the element kind (creation validated it against the
+//owner, and the rank may differ from the owner's — slicing reduces it).
+static void FillViewArrayView(NativeArrayView* out,
+                              std::vector<int32_t>& view,
+                              std::vector<int32_t>& owner,
+                              const CompiledArrayType& at,
+                              size_t ownerPayloadBase) {
+    const int32_t rank = view[2];
+    for (int32_t d = 0; d < rank; ++d)
+        out->stridesInline[d] =
+            view[ArrayViewStridesBase(static_cast<uint8_t>(rank)) + d];
+    out->rank = rank;
+    out->dims = view.data() + 4;
+    out->strides = out->stridesInline;
+    out->elemCount = view[3];
+    out->elemKind = at.elemKind;
+    out->elemCellBytes = static_cast<uint8_t>(
+        ArrayElemCells(at.elemKind) * kHeapCellBytes);
+    out->reserved[0] = 0;
+    out->reserved[1] = 0;
+    out->offset = view[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
+    out->data = owner.data() + ownerPayloadBase;
+}
+
+//ABI v10 view-record arm of NativeGetArrayView (declaration in
+//VmExecutor.h): fill from the VIEW record's own recorded strides/offset,
+//with data at the OWNING record's payload base. Corrupt-record checks
+//are VM invariant breaks (runtime_error), like the owning arm's reads.
+void VmExecutor::FillViewRecordArrayView(VmExecutor* e, int32_t handle,
+                                         NativeArrayView* out) {
+    auto& view = e->m_structHeap[static_cast<size_t>(handle)];
+    const int32_t viewRank = view[2];
+    if (viewRank < 1 || viewRank > kMaxArrayRank)
+        throw std::runtime_error(
+            "NLang VM: corrupt view record (rank)");
+    const int32_t target = view[ArrayViewTargetCell(
+        static_cast<uint8_t>(viewRank))];
+    if (target <= 0
+        || static_cast<size_t>(target) >= e->m_structHeap.size()
+        || e->m_slotKinds[static_cast<size_t>(target)] != RTK_Array)
+        throw std::runtime_error(
+            "NLang VM: corrupt view record (target out of range)");
+    auto& owner = e->m_structHeap[static_cast<size_t>(target)];
+    const int32_t viewTypeIdx = view[1];
+    if (viewTypeIdx < 0
+        || static_cast<size_t>(viewTypeIdx)
+            >= e->m_currModule->arrayTypes.size())
+        e->RaiseNlangExceptionBase(
+            "getArrayView: corrupt array type index");
+    FillViewArrayView(out, view, owner,
+        e->m_currModule->arrayTypes[static_cast<size_t>(viewTypeIdx)],
+        ArrayPayloadBase(owner));
 }
 
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
@@ -125,8 +185,15 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         e->RaiseNlangException(e->m_nullPtrExcClassIdx,
             "getArrayView: array is null");
     }
-    if (e->m_slotKinds[static_cast<size_t>(handle)] != RTK_Array) {
+    const uint8_t kind = e->m_slotKinds[static_cast<size_t>(handle)];
+    if (kind != RTK_Array && kind != RTK_ArrayView) {
         e->RaiseNlangExceptionBase("getArrayView: value is not an array");
+    }
+    //ABI v10: a view handle fills from its own record (recorded
+    //strides/offset) with data at the owning record's payload base.
+    if (kind == RTK_ArrayView) {
+        FillViewRecordArrayView(e, handle, out);
+        return 1;
     }
     auto& record = e->m_structHeap[static_cast<size_t>(handle)];
     //Validate before reading any header cell: ArrayPayloadBase covers the
@@ -187,6 +254,79 @@ int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
         static_cast<uint8_t>(rank));
     const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
+    //Root across the blocking section (same discipline as newArray).
+    e->RootMintedNativeHandle(handle);
+    return handle;
+}
+
+//ABI v10 owner resolution for NativeNewArrayView (declaration in
+//VmExecutor.h): depth-one peel to the owning record (the view-record
+//invariant), then the owner's element kind picks the minted rank's type
+//row. Raises for a non-array owner and a non-scalar element kind; a
+//corrupt view record is a VM invariant break (runtime_error).
+uint16_t VmExecutor::ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
+                                          uint8_t rank) {
+    int32_t ownerIdx = targetHandle;
+    if (e->m_slotKinds[static_cast<size_t>(ownerIdx)] == RTK_ArrayView) {
+        const int32_t viewRank =
+            e->m_structHeap[static_cast<size_t>(ownerIdx)][2];
+        ownerIdx = e->m_structHeap[static_cast<size_t>(ownerIdx)]
+            [ArrayViewTargetCell(static_cast<uint8_t>(viewRank))];
+        if (ownerIdx <= 0
+            || static_cast<size_t>(ownerIdx) >= e->m_structHeap.size())
+            throw std::runtime_error(
+                "NLang VM: corrupt view record (target out of range)");
+    }
+    if (e->m_slotKinds[static_cast<size_t>(ownerIdx)] != RTK_Array)
+        e->RaiseNlangException(e->m_oobExcClassIdx,
+            "newArrayView: target is not an array");
+    const int32_t ownerTypeIdx =
+        e->m_structHeap[static_cast<size_t>(ownerIdx)][1];
+    if (ownerTypeIdx < 0
+        || static_cast<size_t>(ownerTypeIdx)
+            >= e->m_currModule->arrayTypes.size())
+        e->RaiseNlangExceptionBase(
+            "newArrayView: corrupt array type index");
+    const uint8_t elemKind =
+        e->m_currModule->arrayTypes[static_cast<size_t>(ownerTypeIdx)]
+            .elemKind;
+    //The scalar-array type rows exist for the four mintable kinds; a
+    //target of any other kind could never be addressed from NLang code.
+    if (elemKind != NEK_Int32 && elemKind != NEK_Int64
+        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
+        e->RaiseNlangExceptionBase(
+            "newArrayView: target element kind is not a scalar view kind");
+    }
+    return e->FindScalarArrayTypeIdx(elemKind, rank);
+}
+
+//ABI v10 (contract in NativeHost.h): mint a view over an existing
+//handle. The element kind comes from the TARGET (a view's type row must
+//match its owner's), so the arrayTypes row derives after resolving the
+//target family; every further check (rank, dims, type identity,
+//coverage) raises inside AllocViewOnHeap's validation — the choke point
+//the language's view creation shares.
+int32_t VmExecutor::NativeNewArrayView(NativeHost* self,
+    int32_t targetHandle, int32_t rank, const int32_t* dims,
+    const int32_t* strides, int64_t offset) {
+    VmExecutor* e = Wrap(self)->executor;
+    GilEnsureGuard gil(*e);
+    if (rank < 1 || rank > kMaxArrayRank)
+        e->RaiseNlangExceptionBase("newArrayView: rank out of range");
+    //The view record stores offset in an int32 cell (element units);
+    //a 64-bit offset beyond that range could never be addressed.
+    if (offset < INT32_MIN || offset > INT32_MAX)
+        e->RaiseNlangException(e->m_oobExcClassIdx,
+            "newArrayView: offset out of range");
+    if (targetHandle <= 0
+        || static_cast<size_t>(targetHandle) >= e->m_slotKinds.size())
+        e->RaiseNlangException(e->m_nullPtrExcClassIdx,
+            "newArrayView: target array is null");
+    const uint16_t arrayTypeIdx = ResolveViewOwnerType(e, targetHandle,
+        static_cast<uint8_t>(rank));
+    const int32_t handle = e->AllocViewOnHeap(arrayTypeIdx,
+        static_cast<uint8_t>(rank), dims, strides,
+        static_cast<int32_t>(offset), targetHandle);
     //Root across the blocking section (same discipline as newArray).
     e->RootMintedNativeHandle(handle);
     return handle;

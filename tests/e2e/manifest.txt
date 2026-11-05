@@ -1875,6 +1875,7 @@ stdlib_tensor_reshape_negdim 0
 #Task 6: the collapsed tensor surface — full(dims), exp/log, clamp,
 #generic reshape with -1 inference, concat, math-face PRNG composition.
 tensor_surface_v2 0
+array_abi_v10 0
 #Task 4 Step 0: an empty class body (marker classes) is legal.
 grammar_empty_class 0
 #thread.spawn mints instances; with-args rejects).

@@ -1,0 +1,27 @@
+// v0.12.7 Task 9: native host ABI v10 end to end. A native mints a
+// view through the new newArrayView entry (rank-1, stride 2, offset 1
+// over [0, 11, 22, 33, 44, 55] — the elements 11, 33, 55), and the
+// same handle walks back through getArrayView: the view arm must honor
+// the record's strides/offset, the owning arm the computed row-major
+// ones with offset 0. Creation validation raises the catchable
+// OutOfBounds family exactly like the language's own view creation.
+// (Language-side shape/element reads of a view are Task 10's
+// dual-shape ops; this fixture stays on the ABI-owned surface.)
+import tensor;
+
+int main() {
+    int[] a = [0, 11, 22, 33, 44, 55];
+    int[] v = tensor.strideViewI(a, 3, 2, 1);
+    if (tensor.viewSumI(v) != 99) return 1;    //11 + 33 + 55
+    if (tensor.viewSumI(a) != 165) return 2;   //0 + 11 + ... + 55
+    //offset 4 + (3-1)*2 = 8 exceeds the owner's 6 elements.
+    int caught = 0;
+    try {
+        int[] bad = tensor.strideViewI(a, 3, 2, 4);
+        caught = 2;
+    } catch (IndexOutOfBoundsException e) {
+        caught = 1;
+    }
+    if (caught != 1) return 3;
+    return 0;
+}

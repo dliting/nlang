@@ -23,6 +23,7 @@ using nlang::native::ArgInt;
 using nlang::native::ArgLong;
 using nlang::native::NewArray;
 using nlang::native::NewArrayShaped;
+using nlang::native::NewArrayView;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
 
@@ -164,6 +165,36 @@ TENSOR_ARANGE(ArangeL, NEK_Int64, int64_t, ReadL)
 TENSOR_ARANGE(ArangeF, NEK_Float32, float, ReadF)
 TENSOR_ARANGE(ArangeD, NEK_Float64, double, ReadD)
 
+//ABI v10 exercise pair. strideViewI mints a rank-1 view through the
+//new newArrayView host entry (len/stride/offset in element units —
+//the validation raises exactly like the language's view creation);
+//viewSumI walks any rank-1 int array or view through getArrayView,
+//addressing elements as data[(offset + i*strides[0]) * elemCellBytes]
+//(owning arrays report offset 0 and row-major strides).
+void StrideViewI(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                 int argc) {
+    (void)argc;
+    const int32_t target = ArgInt(args, 0);
+    const int32_t len = ArgInt(args, 1);
+    const int32_t stride = ArgInt(args, 2);
+    const int32_t offset = ArgInt(args, 3);
+    const int32_t dims[1] = { len };
+    const int32_t strides[1] = { stride };
+    ReturnInt(ret, NewArrayView(host, target, 1, dims, strides, offset));
+}
+
+void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) {
+    (void)argc;
+    NativeArrayView view;
+    ArgArray(host, args, 0, &view);
+    int64_t sum = 0;
+    const int32_t* payload = static_cast<const int32_t*>(view.data);
+    for (int64_t i = 0; i < view.elemCount; ++i)
+        sum += payload[view.offset + i * view.strides[0]];
+    ReturnInt(ret, static_cast<int32_t>(sum));
+}
+
 } // namespace tensor
 
 NLANG_DEFINE_NATIVE_INIT {
@@ -179,6 +210,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "arangeL", &tensor::ArangeL);
     regBlocking(registry, "tensor", "arangeF", &tensor::ArangeF);
     regBlocking(registry, "tensor", "arangeD", &tensor::ArangeD);
+    regBlocking(registry, "tensor", "strideViewI", &tensor::StrideViewI);
+    regBlocking(registry, "tensor", "viewSumI", &tensor::ViewSumI);
     regBlocking(registry, "tensor", "add", &tensor::TensorAdd);
     regBlocking(registry, "tensor", "sub", &tensor::TensorSub);
     regBlocking(registry, "tensor", "mul", &tensor::TensorMul);

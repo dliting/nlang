@@ -13,8 +13,8 @@ pinned array view; §22.7 states the blocking-section contract.
 
 ## 22.1 Scope and Version
 
-**ABI version.** This chapter describes ABI version **9**. The
-host accepts a module whose version probe reports exactly `9`
+**ABI version.** This chapter describes ABI version **10**. The
+host accepts a module whose version probe reports exactly `10`
 and rejects every other value, including a module that exports
 no probe at all (§22.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
@@ -66,7 +66,7 @@ no directory raises a host-level run-time error at the call
 
 1. resolves the export `nlang_abi_version`; a module without
    the export is rejected;
-2. calls it; a value other than `9` is rejected;
+2. calls it; a value other than `10` is rejected;
 3. resolves the export `nlang_native_init`; a module without
    the export is rejected;
 4. calls it once (§22.3).
@@ -172,8 +172,8 @@ the call (§22.5, §22.6).
 ## 22.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
-whose first field is `abiVersion`, a `uint32_t` holding `9`,
-followed in fixed order by the fifteen callbacks below. Each
+whose first field is `abiVersion`, a `uint32_t` holding `10`,
+followed in fixed order by the sixteen callbacks below. Each
 callback takes the table itself as its first parameter, shown
 as `self` in the signatures:
 
@@ -194,6 +194,7 @@ as `self` in the signatures:
 | `getArrayView` | `int (NativeHost* self, int32_t handle, NativeArrayView* out)` |
 | `newArray` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t length)` |
 | `newArrayShaped` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims)` |
+| `newArrayView` | `int32_t (NativeHost* self, int32_t targetHandle, int32_t rank, const int32_t* dims, const int32_t* strides, int64_t offset)` |
 
 **Strings.** `getString` returns the bytes of the string
 behind `handle`; `newString` creates a string from a
@@ -260,36 +261,57 @@ same outcome as a negative sized creation on the language side
 `Exception` (§4.10). The minted handle is kept alive by the
 host until the native writes it into `ret` (§22.7).
 
+`newArrayView` mints a view (§4.10) over the array — or view —
+behind `targetHandle`, with the given rank, dims, strides and
+offset (element units, §22.6); the element kind comes from the
+target. The validation is the one the language's own view
+creation applies: a null or non-array target raises
+`NullPointerException` or `IndexOutOfBoundsException`
+respectively, a rank outside `1` to `64` or a non-scalar
+element kind raises the base `Exception`, and bad dims or a
+range exceeding the target's bounds raise
+`IndexOutOfBoundsException` (§4.10). The minted handle is kept
+alive by the host until the native writes it into `ret`
+(§22.7).
+
 `getArrayView` fills `*out` with the pinned view of §22.6 of
-the array behind `handle` and returns `1`; a handle that is
-null or out of range raises `NullPointerException`, and a
-handle of a non-array value raises the base `Exception` —
-there is no non-raising failure.
+the array — owning record or view record — behind `handle` and
+returns `1`; a handle that is null or out of range raises
+`NullPointerException`, and a handle of a non-array value
+raises the base `Exception` — there is no non-raising failure.
 
 ## 22.6 Pinned Array Views
 
 **View.** `NativeArrayView` describes one heap array's
-payload:
+payload — an owning record's, or a view record's window into
+its owning record:
 
 | Field | Type | Content |
 |---|---|---|
 | `rank` | `int32_t` | the array's rank (§4.10) |
 | `dims` | `const int32_t*` | the dimension lengths; points into the array record |
-| `strides` | `const int32_t*` | the row-major strides in elements; points into the view itself |
+| `strides` | `const int32_t*` | the strides in elements; points into the view itself |
 | `elemCount` | `int64_t` | the total element count |
 | `elemKind` | `uint8_t` | the element kind (§22.5) |
 | `elemCellBytes` | `uint8_t` | the per-element stride in bytes: `4`, or `8` for `long` and `double` |
 | `reserved` | `uint8_t[2]` | written `0`; the reader ignores the field |
+| `offset` | `int64_t` | where element zero lives, in elements (§22.6 addressing) |
 | `stridesInline` | `int32_t[64]` | the storage `strides` points at: 64 entries, the rank ceiling (§22.5) |
-| `data` | `void*` | the payload base — element zero |
+| `data` | `void*` | the payload base of the owning record |
 
 **Addressing.** The element at indices `i[0] … i[rank-1]`
 lies at
 
 ```
-data + (i[0]*strides[0] + … + i[rank-1]*strides[rank-1])
+data + (offset + i[0]*strides[0] + … + i[rank-1]*strides[rank-1])
      * elemCellBytes
 ```
+
+`offset` is in element units, the same unit as `strides`. An
+owning array reports `0` and row-major strides computed from
+its dims; a view reports its recorded offset and strides into
+the owning payload, with `data` still pointing at the owning
+record's payload base.
 
 **Lifetime.** The garbage collector does not move objects and
 the argument record is kept alive for the duration of the

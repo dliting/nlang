@@ -44,6 +44,10 @@ void ArangeI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+//ABI v10 exercise pair: mint a rank-1 view through newArrayView, and
+//sum any rank-1 int array or view through getArrayView (both arms).
+void StrideViewI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
+void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 
 //--- elementwise binary entries (tensor_binary.cpp) -----------------------------
 //The exp/log unary pair rides the same family: rank-preserving maps

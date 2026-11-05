@@ -84,6 +84,15 @@ native long[] arangeL(long start, long stop, long step);
 native float[] arangeF(float start, float stop, float step);
 native double[] arangeD(double start, double stop, double step);
 
+// Internal ABI-v10 exercise pair (native host ABI v10: view minting
+// and stride-aware views). strideViewI mints a rank-1 view of target
+// (len elements starting at offset, step stride — both in elements);
+// viewSumI sums any rank-1 int array or view through the pinned view
+// (the owning arm computes row-major strides, the view arm reads the
+// record's). They exist to exercise the host entry points end to end.
+native int[] strideViewI(int[] target, int len, int stride, int offset);
+native int viewSumI(int[] v);
+
 //--- unary elementwise (float/double; integers have no exp semantics) ---------
 
 // Elementwise e^x; the operand rank flows through unchanged.
