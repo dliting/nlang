@@ -450,10 +450,14 @@ VmScheduler::~VmScheduler() {
     {
         GilEnsureGuard g(*this);
         m_timerShutdown = true;
+        m_ioThreadShutdown = true;   //v0.13.0 net: same lazy-thread protocol
     }
     m_timerCv.notify_all();
+    m_ioCv.notify_all();
     if (m_timerThread.joinable())
         m_timerThread.join();
+    if (m_ioThread.joinable())
+        m_ioThread.join();
 }
 
 //K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用

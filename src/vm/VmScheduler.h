@@ -38,6 +38,11 @@
 
 namespace nlang {
 
+//v0.13.0 net: the poller event record (defined in net/NetPlatform.h);
+//forward-declared so the IO harvest helper can name it without pulling
+//the platform header into every scheduler consumer.
+struct NetPollEvent;
+
 //回边配额（决策 5）：每 N 次回边安全点允许一次调度决策。
 constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
 
@@ -86,7 +91,7 @@ inline thread_local GilHolder* t_gilOwner = nullptr;
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
     enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend,
-                        Semaphore, ClassInit };
+                        Semaphore, ClassInit, Io };
     Reason reason;
     explicit ParkSignal(Reason r) : reason(r) {}
 };
@@ -141,6 +146,8 @@ enum class ContextState {
                      //初始化本类，Done/Fail 唤醒后重走门
     ParkedChanRecv,  //Slice 9：空通道接收停泊
     ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
+    ParkedIo,        //v0.13.0 net: net IO parking — one state for every
+                     //direction, the direction lives on the socket slot
     ParkedPromise,   //Promise 内部上下文：出生停泊，无代码帧，永不被
                      //调度；Promise.complete 决定其结局（Finished/
                      //Failed 迁移＋唤醒 join 停泊者）
@@ -414,6 +421,23 @@ public:
     //停泊的调用不会重执行），或 close 已预置关闭异常重抛（K8 同
     //WakeForChanRecv 的句柄参数）。
     void WakeForChanSend(int id, int32_t rethrowExcHeapIdx = 0);
+
+    //v0.13.0 net: IO parking (net library design §6/§7). The context
+    //parks until the poller reports fd+events ready, the deadline
+    //passes, or the close path wakes it (WakeForIo / RemoveIoWaitsForFd
+    //then WakeForIo). fd < 0 = pure deadline park (resolver/icmp
+    //jobs). Mirrors ParkForTimer's lazy thread start and the K7
+    //framesParked handshake.
+    void ParkForIo(int id, int fd, uint32_t events,
+                   std::chrono::steady_clock::time_point deadline,
+                   bool hasDeadline);
+    //Moves a ParkedIo context back to Runnable (enqueued under the
+    //framesParked handshake, WakeForMutex shape).
+    void WakeForIo(int id);
+    //Drops every interest entry for a closing fd (the poller
+    //re-registers interest from the table each loop, so removal here
+    //is enough — no wepoll del needed).
+    void RemoveIoWaitsForFd(int fd);
 
     //K8：中止一次从未到达窃帧的状态迁移——两阶段停泊握手的复查发现等
     //待者条目已被消费（结果落在「登记→迁移」窗口内）。上下文从未离开
@@ -834,6 +858,29 @@ private:
     std::thread m_timerThread;            //懒启动；常驻执行器
     bool m_timerThreadStarted = false;    //ParkForTimer 首次登记时置位
     bool m_timerShutdown = false;         //仅析构置位（每 run 不动）
+
+    //v0.13.0 net: one IO interest entry (the poller's working set).
+    struct IoWaitEntry {
+        int contextId = 0;
+        int fd = -1;             //-1 = deadline-only (no poll interest)
+        uint32_t events = 0;
+        std::chrono::steady_clock::time_point deadline;
+        bool hasDeadline = false;
+    };
+    void IoPollerThreadMain();
+    void SyncPollerInterest(void* poller);   //add/mod to match m_ioWaits
+    int NextIoTimeoutMs() const;             //nearest deadline, capped
+    void HarvestIoEvents(void* poller, std::vector<NetPollEvent>& evs);
+                                            //ready + expired wakes
+    std::vector<IoWaitEntry> m_ioWaits;      //linear table (timer shape)
+    //Last interest set registered with the poller (fd, events): the
+    //per-slice re-sync dedups against it (skip unchanged registrations,
+    //del vanished fds). Poller-thread-only, touched under the GIL.
+    std::vector<std::pair<int, uint32_t>> m_ioPollerRegistered;
+    bool m_ioThreadStarted = false;
+    bool m_ioThreadShutdown = false;
+    std::thread m_ioThread;
+    std::condition_variable_any m_ioCv;      //interest/shutdown signal
 
     static thread_local CarrierState t_selfCarrier;
     static thread_local CarrierState* t_carrier;

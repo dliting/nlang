@@ -943,6 +943,23 @@ target_link_libraries(test_net_slots
 
 add_test(NAME net_slots_tests COMMAND test_net_slots)
 
+# v0.13.0 net: the scheduler IO parking contract (poller wake, deadline
+# wake, close-side wake) — in-process scheduler, no bytecode.
+add_executable(test_net_scheduler
+    test_vm/test_net_scheduler.cpp
+)
+target_include_directories(test_net_scheduler
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_scheduler
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME net_scheduler_tests COMMAND test_net_scheduler)
+
 # K8 Task 2: chunked block storage (stable element addresses, atomic size
 # publication) — real threads for the read/growth overlap contract.
 add_executable(test_chunkedarray

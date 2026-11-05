@@ -3,6 +3,7 @@ add_library(nlang_vm
     VmScheduler.cpp
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
+    VmSchedulerIo.cpp
     VmSchedulerSync.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
