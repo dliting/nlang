@@ -439,7 +439,7 @@ const struct Vec {
   root `Object` is exempt: it declares no fields, §4.11).
   Structs have no inheritance and are each sealed on their own
   (§4.7). The const marker rides the type record of the compiled
-  module (§20.4), so writes to an imported const aggregate are
+  module (§21.4), so writes to an imported const aggregate are
   rejected on the consumer side too (§4.8.11).
 - A member read of a `List` or `Dict` field of a const aggregate
   is rewritten to a shallow copy — the built-in `copy()` (§12.1,

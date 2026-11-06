@@ -84,7 +84,7 @@ half-written transitional value may be read, but memory is never
 corrupted. The internal structure of a container or a string is
 therefore never torn by concurrency, and shared mutable state is
 coordinated with a `Mutex` (§10.2). A native call that declares a
-blocking section (§22.7) releases the locks it holds while it
+blocking section (§23.7) releases the locks it holds while it
 waits, so other contexts run; a native that declares none runs
 without holding them, and its stores take the category locks
 through self-guarded callbacks.

@@ -9,7 +9,7 @@ error guidance. For a guided introduction to the language, see
 informative and links here for the rules it summarizes. The English
 text is normative.
 
-The specification describes NLang 0.12.6. It is a living document:
+The specification describes NLang 0.13.0. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
@@ -66,7 +66,7 @@ before they land here.
 - [12. Collections](library/12-collections.md)
 - [13. The math Package](library/13-math.md)
 - [14. The io Package and Streams](library/14-io/index.md)
-  - [14.5 ByteStream and FileStream](library/14-io/streams.md)
+  - [14.6 ByteStream and FileStream](library/14-io/streams.md)
 - [15. The fs Package](library/15-fs.md)
 - [16. string Methods](library/16-string-methods.md)
 - [17. The Concurrency Classes](library/17-concurrency-classes/index.md)
@@ -81,12 +81,16 @@ before they land here.
   - [17.11 The concurrent Package](library/17-concurrency-classes/concurrent.md)
 - [18. The tensor Package](library/18-tensor.md)
 - [19. Library Exceptions](library/19-library-exceptions.md)
+- [20. The Network Library](library/20-network/index.md)
+  - [20.2 The Transmission Control Protocol (TCP) Classes](library/20-network/tcp.md)
+  - [20.3 The UdpSocket Class](library/20-network/udp.md)
+  - [20.4 The Internet Control Message Protocol (ICMP) Surface](library/20-network/icmp.md)
 
 ### Part III — Binary Formats
 
-- [20. The `.ncu` Unit Image](formats/20-ncu.md)
-- [21. The `.npkg` Package Archive](formats/21-npkg.md)
-- [22. The Native Application Binary Interface (ABI)](formats/22-abi.md)
+- [21. The `.ncu` Unit Image](formats/21-ncu.md)
+- [22. The `.npkg` Package Archive](formats/22-npkg.md)
+- [23. The Native Application Binary Interface (ABI)](formats/23-abi.md)
 
 ### Reference
 

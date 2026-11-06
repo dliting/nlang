@@ -8,6 +8,36 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-06
+
+### Added
+
+- **The `net` package.** A general-purpose network library shipped
+  as its own native module (`nlang_net.dll`), located and loaded on
+  first use — the virtual machine itself stays network-free.
+  `TcpListener` and `TcpStream` carry streams with per-call
+  timeouts, half-close (`shutdownWrite`) and option setters
+  (`setNoDelay`, `setKeepAlive`, buffer sizes); `UdpSocket` carries
+  datagrams with connect/send/recv, broadcast and multicast;
+  `net.ping` and `IcmpSocket` answer reachability and round-trip
+  time. Every blocking method parks the calling virtual thread and
+  releases its carrier, so thousands of concurrent connections can
+  wait on sockets at once — even with a single carrier. Failures
+  raise the package-declared `SocketException` and
+  `TimeoutException`, subclasses of `IOException`.
+- **Generic IO facilities in `io`.** `io.nowMs()` reads the
+  monotonic millisecond clock; `io.parkForIo(fd, events,
+  deadlineMs)` parks the calling virtual thread until a descriptor
+  is ready or an absolute deadline passes — the parking primitive
+  the `net` natives build on, generic to any descriptor-owning
+  native library; `io.toBytes(s)` and `io.fromBytes(data)` convert
+  between `string` and raw UTF-8 `byte[]`.
+- **Network examples.** `examples/net_echo_server.n` and
+  `net_echo_client.n` (a spawned-handler echo pair),
+  `net_udp_echo.n`, `net_ping.n`, `net_http_mini.n` (a minimal
+  HTTP/1.0 server built on the package) and `net_conc_bench.n` (a
+  1000-connection concurrency benchmark).
+
 ## [0.12.6] - 2026-11-03
 
 ### Added

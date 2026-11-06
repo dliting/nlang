@@ -51,7 +51,7 @@ define host-level failures name their sites — the call-depth
 bound (§7.1), a missing native function (§7.5), the unboxing and
 `null`-downcast failures of §5.5, an enumeration `toString()`
 beyond its member table (§4.6), the `toString` nesting bound of
-§11.2, the stream failures of §14.5, and the concurrency
+§11.2, the stream failures of §14.6, and the concurrency
 failures of chapter 10.
 
 ```nlang
@@ -163,7 +163,11 @@ The `concurrent` package (§3.9.4) declares one further direct
 subclass, `ChannelClosedException`, raised by operations on a
 closed channel (§10.4); it reaches scope through
 `import concurrent;` like any package class, and `catch` treats
-it like every other subclass.
+it like every other subclass. The `net` package (§3.9.4) declares
+two subclasses of `IOException`, `SocketException` and
+`TimeoutException`, raised by the socket operations of chapter 20;
+they reach scope through `import net;` like any package class, and
+`catch` treats them like every other subclass.
 
 Every built-in exception class is a const class (§4.8.12), and
 every constructor has the same shape:

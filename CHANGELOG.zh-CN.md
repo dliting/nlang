@@ -8,7 +8,13 @@
 
 ## [Unreleased]
 
-## [0.12.6] - 2026-11-03
+## [0.13.0] - 2026-11-06
+
+### 新增
+
+- **`net`包。**随工具链分发的通用网络库，构建为独立的native模块（`nlang_net.dll`），首次调用时定位装载——虚拟机自身不依赖网络。`TcpListener`与`TcpStream`承载流：逐调用超时、半关闭（`shutdownWrite`）与选项设置器（`setNoDelay`、`setKeepAlive`、缓冲区大小）；`UdpSocket`承载数据报：connect/send/recv、广播与组播；`net.ping`与`IcmpSocket`回答可达性与往返时延。每个阻塞方法停泊发起调用的虚拟线程并释放载体，上千条并发连接可同时等在套接字上——单载体亦然。失败抛包声明的`SocketException`与`TimeoutException`（`IOException`的子类）。
+- **`io`的通用IO设施。**`io.nowMs()`读单调毫秒时钟；`io.parkForIo(fd, events, deadlineMs)`停泊发起调用的虚拟线程，直到描述符就绪或到达绝对截止时刻——`net`原生实现构建其上的停泊原语，对任何持有描述符的native库通用；`io.toBytes(s)`与`io.fromBytes(data)`在`string`与原始UTF-8`byte[]`之间转换。
+- **网络示例。**`examples/net_echo_server.n`与`net_echo_client.n`（派生处理器回测对）、`net_udp_echo.n`、`net_ping.n`、`net_http_mini.n`（构建于该包之上的最小HTTP/1.0服务器）与`net_conc_bench.n`（1000连接并发基准）。
 
 ### 新增
 

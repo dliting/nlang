@@ -101,10 +101,15 @@ nav:
               - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
           - The tensor Package: specification/library/18-tensor.md
           - Library Exceptions: specification/library/19-library-exceptions.md
+          - The Network Library:
+              - Overview: specification/library/20-network/index.md
+              - TCP Classes: specification/library/20-network/tcp.md
+              - UdpSocket: specification/library/20-network/udp.md
+              - ICMP: specification/library/20-network/icmp.md
       - Binary Formats:
-          - The `.ncu` Unit Image: specification/formats/20-ncu.md
-          - The `.npkg` Package Archive: specification/formats/21-npkg.md
-          - The Native Application Binary Interface (ABI): specification/formats/22-abi.md
+          - The `.ncu` Unit Image: specification/formats/21-ncu.md
+          - The `.npkg` Package Archive: specification/formats/22-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/23-abi.md
       - Reference:
           - Known Limitations: specification/reference/known-limitations.md
           - Common Error Messages: specification/reference/common-errors.md

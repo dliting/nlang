@@ -1,4 +1,4 @@
-# 14.5 ByteStream and FileStream
+# 14.6 ByteStream and FileStream
 
 `ByteStream` and `FileStream` are the `io` package's built-in
 handle classes (§11.1); using them takes `import io;` (§3.9.4):
@@ -68,12 +68,12 @@ instance. `close()` on a `FileStream` releases the
 operating-system handle and invalidates the stream handle;
 later calls on the same reference report the invalid-handle
 error. The byte-level encoding of the values — byte order and
-the struct and object forms — is fixed by §14.6.
+the struct and object forms — is fixed by §14.7.
 
-## 14.6 Stream Encoding
+## 14.7 Stream Encoding
 
 This section fixes the byte-level encoding exchanged by the
-write and read methods of §14.5. The encoding is the same for
+write and read methods of §14.6. The encoding is the same for
 `ByteStream` and `FileStream`. The stream carries no header:
 each method appends its record at the cursor, and a stream
 written by successive calls is the concatenation of those
@@ -88,7 +88,7 @@ binary32 and binary64 encodings of the value (§4.2).
 **Scalar methods.** `writeInt` and `writeFloat` append 4 bytes
 and `writeLong` and `writeDouble` append 8: the encoding of
 the value in the method's slot type. The implicit widening of
-§14.5 is applied at the call site, so the bytes always carry
+§14.6 is applied at the call site, so the bytes always carry
 the slot type's width — `writeLong(42)` appends the 8 bytes of
 the `long` value 42.
 
@@ -114,7 +114,7 @@ encoded by its own type —
 `readStruct(name)` consumes exactly that byte sequence against
 the named type: the stream and the program must agree on the
 type's shape. Array and function-typed fields are rejected on
-the write side (§14.5).
+the write side (§14.6).
 
 **Class records.** `writeObject(c)` appends one record per
 class-typed value, tagged by its first byte:
@@ -141,7 +141,7 @@ not to the call: successive `writeObject` calls on one stream
 continue the numbering, and successive `readObject` calls
 rebuild one shared pairing, so an instance written by an
 earlier call can be referenced by a later one. `reset()` and
-`close()` clear the state on both sides (§14.5).
+`close()` clear the state on both sides (§14.6).
 
 **Depth.** A value nested more than 64 levels deep — struct
 within struct, class within class, or either within the other
