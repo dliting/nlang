@@ -125,18 +125,22 @@ int NetAccept(int fd) {
     return ToFd(c);
 }
 
+bool NetErrWouldBlock(int err) {
+    return err == WSAEWOULDBLOCK || err == WSAENOBUFS;
+}
+
 int NetRecv(int fd, uint8_t* dst, int len) {
     const int n = recv(Fd(fd), reinterpret_cast<char*>(dst), len, 0);
     if (n > 0) return n;
     if (n == 0) return 0;   //EOF
-    if (WSAGetLastError() == WSAEWOULDBLOCK) return kNetWouldBlock;
+    if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
     return -1;
 }
 
 int NetSend(int fd, const uint8_t* src, int len) {
     const int n = send(Fd(fd), reinterpret_cast<const char*>(src), len, 0);
     if (n >= 0) return n;
-    if (WSAGetLastError() == WSAEWOULDBLOCK) return kNetWouldBlock;
+    if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
     return -1;
 }
 
@@ -185,7 +189,7 @@ int NetRecvFrom(int fd, uint8_t* dst, int len,
     const int n = recvfrom(Fd(fd), reinterpret_cast<char*>(dst), len, 0,
                            reinterpret_cast<sockaddr*>(&ss), &ssLen);
     if (n < 0) {
-        if (WSAGetLastError() == WSAEWOULDBLOCK) return kNetWouldBlock;
+        if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
         return -1;
     }
     outAddress = AddrText(reinterpret_cast<sockaddr*>(&ss));
@@ -201,7 +205,7 @@ int NetSendTo(int fd, const uint8_t* src, int len,
     const int n = sendto(Fd(fd), reinterpret_cast<const char*>(src), len, 0,
                          reinterpret_cast<sockaddr*>(&ss), ssLen);
     if (n >= 0) return n;
-    if (WSAGetLastError() == WSAEWOULDBLOCK) return kNetWouldBlock;
+    if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
     return -1;
 }
 

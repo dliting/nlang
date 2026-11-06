@@ -30,7 +30,9 @@ int IcmpEchoV4(const in_addr& target, const uint8_t* payload, int len, int timeo
                           static_cast<WORD>(len), nullptr, rep,
                           static_cast<DWORD>(reply.size()),
                           static_cast<DWORD>(timeoutMs));
-    const int rtt = n > 0 && rep->Status == 0 ? static_cast<int>(rep->RoundTripTime) : -1;
+    //Status carries the verdict: 0 = reply, IP_REQ_TIMED_OUT = no
+    //answer, everything else = unreachable/error (external review I5).
+    const int rtt = n > 0 ? NetIcmpStatusVerdict(static_cast<int>(rep->Status)) : -1;
     IcmpCloseHandle(h);
     return rtt;
 }
@@ -50,12 +52,18 @@ int IcmpEchoV6(const in6_addr& target, const uint8_t* payload, int len, int time
                           static_cast<WORD>(len), nullptr, rep,
                           static_cast<DWORD>(reply.size()),
                           static_cast<DWORD>(timeoutMs));
-    const int rtt = n > 0 && rep->Status == 0 ? static_cast<int>(rep->RoundTripTime) : -1;
+    const int rtt = n > 0 ? NetIcmpStatusVerdict(static_cast<int>(rep->Status)) : -1;
     IcmpCloseHandle(h);
     return rtt;
 }
 
 }  //namespace
+
+int NetIcmpStatusVerdict(int status) {
+    if (status == IP_SUCCESS) return 0;
+    if (status == IP_REQ_TIMED_OUT) return -1;   //no answer before the timeout
+    return -2;   //IP_DEST_*_UNREACHABLE / IP_TTL_EXPIRED_* / IP_GENERAL_FAILURE
+}
 
 int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int timeoutMs) {
     NetPlatformInit();

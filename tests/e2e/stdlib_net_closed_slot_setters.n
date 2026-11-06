@@ -1,0 +1,48 @@
+import io;
+import thread;
+import net;
+
+// External review M11: a handle whose close is still deferred by a
+// parked waiter is closed for every arm. The option setters and
+// shutdownWrite must report the closed code — not succeed on the
+// still-open fd that the deferred recycle keeps alive until the last
+// waiter drains.
+
+class Reader {
+    public TcpStream s;
+    public int woke = 0;
+    public void run() {
+        byte[] buf = byte[64];
+        try { s.read(buf, 60000); }
+        catch (SocketException e) { woke = 1; }   //the close wake
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream acc = srv.accept(5000);
+    srv.close();
+
+    Reader r = Reader(); r.s = acc;
+    Thread t = thread.spawn(r.run);
+    thread.sleep(50);      //the reader parks in read -> slot waiter set
+    acc.close();           //waiter present -> the recycle is deferred
+
+    // The slot is alive (deferred recycle) but closed: every arm of
+    // the handle must say closed, isClosed included.
+    int bad = 0;
+    if (!acc.isClosed()) { bad = bad + 1; }
+    try { acc.setNoDelay(true); bad = bad + 2; }
+    catch (SocketException e) { }
+    try { acc.shutdownWrite(); bad = bad + 4; }
+    catch (SocketException e) { }
+
+    thread.join(t);
+    if (r.woke != 1) { bad = bad + 8; }
+    cli.close();
+    if (bad != 0) { return bad; }
+    io.print("ok");
+    return 0;
+}

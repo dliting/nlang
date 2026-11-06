@@ -23,9 +23,9 @@
 | 成员 | 形态 | 语义 |
 |---|---|---|
 | `TcpStream.connect(host, port, timeoutMs = 0)` | 静态→`TcpStream` | 解析`host`并建立连接，把解析出的每个地址依次试一遍；解析与等待都停泊调用方（§20.1）；截止时刻到来仍无地址接受连接时抛`TimeoutException`，解析失败或所有连接尝试被拒时抛`SocketException` |
-| `read(buf, timeoutMs = 0)` | →`int` | 最多填`buf.length`个字节并返回个数；`0`表示流结束——对端关闭了它的写端。字节按序到达；一次`read`可能返回少于请求的字节数 |
-| `write(data, count = -1)` | →`int` | 发送`data`的前`count`个字节——`count`为`-1`时全发；停泊直到字节移交给协议栈 |
-| `write(s)` | →`int` | 文本简写：把`s`编码为Unicode转换格式（UTF-8）字节并发送 |
+| `read(buf, timeoutMs = 0)` | →`int` | 用非空`buf`最多填`buf.length`个字节并返回个数；`0`表示流结束——对端关闭了它的写端；`buf`为空抛`SocketException`，因为`0`已留给流结束这个信号。字节按序到达；一次`read`可能返回少于请求的字节数 |
+| `write(data, count = -1, timeoutMs = 0)` | →`int` | 发送`data`的前`count`个字节——`count`为`-1`时全发；停泊直到字节移交给协议栈。`timeoutMs`约束整个写全量：对端停止读取且截止时刻到来时抛`TimeoutException`，此时载荷可能已经发出了一部分 |
+| `write(s, timeoutMs = 0)` | →`int` | 文本简写：把`s`编码为Unicode转换格式（UTF-8）字节并发送，超时行为与字节重载相同 |
 | `readLine(timeoutMs = 0)` | →`string` | 读到下一个`\n`为止（含），去掉它（及它前面的`\r`）并返回该行；流结束且什么都没读到时返回`null`，流在行中间结束时返回残缺的行——`null`是按行分帧协议的输入结束标记 |
 | `readExactly(count, timeoutMs = 0)` | →`byte[]` | 读满恰好`count`个字节到新数组；流提前结束抛`SocketException`——按`Content-Length`分帧的正文就该用它 |
 | `shutdownWrite()` | — | 半关闭：向对端发送流结束标记，读端保持打开（见下） |

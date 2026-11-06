@@ -11,11 +11,14 @@
 
     Error contract is the TCP one (R10): closed slot -1, timeout -2,
     concurrent claim -3, platform failure -4 with the OS text recorded
-    for _lastErrorText. UDP send paths never park: a non-blocking
-    datagram send either hands the buffer over or fails.
+    for _lastErrorText. UDP send paths park on write interest when the
+    send buffer reports full (external review I6); a datagram never
+    partial-writes, so a retry replays the whole datagram (no offset
+    stash like the TCP write loop needs).
 ---*/
 #include "net_udp.h"
 
+#include "net_options.h"
 #include "net_platform.h"
 #include "net_slots.h"
 #include "net_state.h"
@@ -38,64 +41,40 @@ using nlang::native::ReturnString;
 namespace nlang {
 namespace {
 
-//Shared option-setter shapes (same discipline as the TCP option
-//natives): resolve the fd under the mutex, apply one socket call,
-//map a closed slot to -1 and a failure to -4 with the platform text
-//recorded. The bool travels as an int32 cell (the VM's bool
-//representation).
-void ApplyFlag(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    bool (*apply)(int, bool)) {
-    NetExecState* st = NetState(h);
-    int fd = -1;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));   }
-    if (fd < 0) { ReturnInt(ret, kNetErrClosed); return; }
-    if (apply(fd, ArgInt(a, 1) != 0)) { ReturnInt(ret, 0); return; }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
-}
-
-//Int-valued variant of ApplyFlag (TTL setters).
-void ApplyInt(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    bool (*apply)(int, int)) {
-    NetExecState* st = NetState(h);
-    int fd = -1;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));   }
-    if (fd < 0) { ReturnInt(ret, kNetErrClosed); return; }
-    if (apply(fd, ArgInt(a, 1))) { ReturnInt(ret, 0); return; }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
-}
-
-//Text-valued variant of ApplyFlag (multicast group membership).
-void ApplyText(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    bool (*apply)(int, const std::string&)) {
-    NetExecState* st = NetState(h);
-    int fd = -1;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));   }
-    if (fd < 0) { ReturnInt(ret, kNetErrClosed); return; }
-    if (apply(fd, ArgString(h, a, 1))) { ReturnInt(ret, 0); return; }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
+//Numeric-only endpoint resolution shared by the UDP connect/sendTo
+//arms (external review Important 2): the guard precedes any socket
+//state, and a failed lookup surfaces as -4 with the platform text.
+bool ResolveNumeric(NativeHost* h, uint8_t* ret, const std::string& host,
+    int port, NetEndpoint* ep) {
+    if (!NetIsNumericAddress(host)) { ReturnInt(ret, kNetErrArg); return false; }
+    std::vector<NetEndpoint> endpoints;
+    if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
+        NetRememberLastError(h);
+        ReturnInt(ret, kNetErrPlatform);
+        return false;
+    }
+    *ep = endpoints.front();
+    return true;
 }
 
 }  //namespace
 
 //--- setup -----------------------------------------------------------------
 
-//udpBind(host, port): resolve, open the first endpoint's family, bind
+//udpBind(host, port): open the numeric endpoint's family, bind
 //(port 0 = system-assigned, read back through _udpLocalPort). Same
-//shape as TcpBind: the resolve runs outside the mutex.
+//shape as TcpBind: host names are rejected with kNetErrArg — the
+//script layer resolves them on the pool first (external review
+//Important 2).
 void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     const std::string host = ArgString(h, a, 0);
     const int port = ArgInt(a, 1);
+    if (!NetIsNumericAddress(host)) { ReturnInt(ret, kNetErrArg); return; }
     NetPlatformInit();   //idempotent through a once flag (R4)
     std::vector<NetEndpoint> endpoints;
     if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
-        NetRememberLastError(st);
+        NetRememberLastError(h);
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -104,7 +83,7 @@ void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     if (fd < 0 || NetBind(fd, ep.address, port) != 0) {
         if (fd >= 0)
             NetClose(fd);
-        NetRememberLastError(st);
+        NetRememberLastError(h);
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -116,17 +95,15 @@ void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 //udpConnect(host, port): the immediate associate(2) — UDP connect
 //never has an in-progress state (contrast the TCP verdict loop).
+//Numeric endpoint only (external review Important 2); the guard
+//precedes the handle lookup so an argument error is decided before
+//any socket state is touched.
 void NetUdpConnect(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     const std::string host = ArgString(h, a, 1);
     const int port = ArgInt(a, 2);
-    std::vector<NetEndpoint> endpoints;
-    if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
-        NetRememberLastError(st);
-        ReturnInt(ret, kNetErrPlatform);
-        return;
-    }
-    const NetEndpoint& ep = endpoints.front();
+    NetEndpoint ep;
+    if (!ResolveNumeric(h, ret, host, port, &ep)) return;
     int fd = -1;
     {   std::lock_guard<std::mutex> g(st->m_mutex);
         fd = st->m_slots.FdOf(ArgInt(a, 0));   }
@@ -135,58 +112,108 @@ void NetUdpConnect(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         ReturnInt(ret, 0);
         return;
     }
-    NetRememberLastError(st);
+    NetRememberLastError(h);
     ReturnInt(ret, kNetErrPlatform);
 }
 
 //--- data path ---------------------------------------------------------------
 
-//udpSendTo(handle, data, count, host, port): resolve then one
-//sendto — datagrams never partial-write, so there is nothing to park
-//for (v1 resolves per call; the numeric fast path keeps the common
-//loop off getaddrinfo).
+//udpSendTo(handle, data, count, host, port, deadlineMs): one sendto,
+//parked on write interest and replayed while the send buffer reports
+//full (external review I6) — a datagram never partial-writes, so the
+//replay is the whole datagram. Numeric endpoint only (external review
+//Important 2): the script layer resolves host names on the pool,
+//keeping the send loop off getaddrinfo entirely.
 void NetUdpSendTo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
+    const int32_t handle = ArgInt(a, 0);
     NativeArrayView data;
     ArgArray(h, a, 1, &data);
     const int count = ArgInt(a, 2);
     const std::string host = ArgString(h, a, 3);
     const int port = ArgInt(a, 4);
+    const long long deadline = ArgLong(a, 5);
+    const int self = h->currentContextId(h);
     const std::vector<uint8_t> packed = NetPackBytes(data, count);
-    std::vector<NetEndpoint> endpoints;
-    if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
-        NetRememberLastError(st);
-        ReturnInt(ret, kNetErrPlatform);
-        return;
+    NetEndpoint ep;
+    if (!ResolveNumeric(h, ret, host, port, &ep)) return;
+    bool claimed = false;
+    for (;;) {
+        int fd = -1;
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Write, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
+            return;
+        }
+        const int n = NetSendTo(fd, packed.data(), count, ep.address, ep.port);
+        if (n >= 0) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            ReturnInt(ret, n);
+            return;
+        }
+        if (n != kNetWouldBlock) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            NetRememberLastError(h);
+            ReturnInt(ret, kNetErrPlatform);
+            return;
+        }
+        if (deadline > 0 && h->nowMs(h) >= deadline) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            ReturnInt(ret, kNetErrTimeout);
+            return;
+        }
+        if (NetParkTail(st, handle, NetDir::Write,
+                NetClaimAndPark(st, handle, NetDir::Write, self, deadline, h),
+                claimed, ret))
+            return;
     }
-    const NetEndpoint& ep = endpoints.front();
-    int fd = -1;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));   }
-    if (fd < 0) { ReturnInt(ret, kNetErrClosed); return; }
-    const int n = NetSendTo(fd, packed.data(), count, ep.address, ep.port);
-    if (n >= 0) { ReturnInt(ret, n); return; }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
 }
 
-//udpSend(handle, data, count): send() on a connected socket; an
-//unconnected one fails with ENOTCONN and surfaces as -4 with the
-//platform text.
+//udpSend(handle, data, count, deadlineMs): send() on a connected
+//socket; an unconnected one fails with ENOTCONN and surfaces as -4
+//with the platform text. Buffer-full sends park on write interest
+//and replay the whole datagram (external review I6).
 void NetUdpSend(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
+    const int32_t handle = ArgInt(a, 0);
     NativeArrayView data;
     ArgArray(h, a, 1, &data);
     const int count = ArgInt(a, 2);
+    const long long deadline = ArgLong(a, 3);
+    const int self = h->currentContextId(h);
     const std::vector<uint8_t> packed = NetPackBytes(data, count);
-    int fd = -1;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));   }
-    if (fd < 0) { ReturnInt(ret, kNetErrClosed); return; }
-    const int n = NetSend(fd, packed.data(), count);
-    if (n >= 0) { ReturnInt(ret, n); return; }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
+    bool claimed = false;
+    for (;;) {
+        int fd = -1;
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Write, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
+            return;
+        }
+        const int n = NetSend(fd, packed.data(), count);
+        if (n >= 0) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            ReturnInt(ret, n);
+            return;
+        }
+        if (n != kNetWouldBlock) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            NetRememberLastError(h);
+            ReturnInt(ret, kNetErrPlatform);
+            return;
+        }
+        if (deadline > 0 && h->nowMs(h) >= deadline) {
+            NetRelease(st, handle, NetDir::Write, claimed);
+            ReturnInt(ret, kNetErrTimeout);
+            return;
+        }
+        if (NetParkTail(st, handle, NetDir::Write,
+                NetClaimAndPark(st, handle, NetDir::Write, self, deadline, h),
+                claimed, ret))
+            return;
+    }
 }
 
 //udpRecvFrom(handle, buf, deadlineMs): the _tcpRead park loop with
@@ -228,7 +255,7 @@ void NetUdpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         if (n != kNetWouldBlock) {
             NetRelease(st, handle, NetDir::Read, claimed);
-            NetRememberLastError(st);
+            NetRememberLastError(h);
             ReturnInt(ret, kNetErrPlatform);
             return;
         }
@@ -270,15 +297,22 @@ void NetUdpLastRecvPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //--- options -----------------------------------------------------------------
 
 void NetUdpSetBroadcast(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    int) { ApplyFlag(h, ret, a, NetSetBroadcast); }
+    int) { NetApplyFlag(h, ret, a, NetSetBroadcast); }
 void NetUdpJoinMulticast(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    int) { ApplyText(h, ret, a, NetJoinMulticast); }
+    int) { NetApplyText(h, ret, a, NetJoinMulticast); }
 void NetUdpLeaveMulticast(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    int) { ApplyText(h, ret, a, NetLeaveMulticast); }
+    int) { NetApplyText(h, ret, a, NetLeaveMulticast); }
 void NetUdpSetMulticastTtl(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    int) { ApplyInt(h, ret, a, NetSetMulticastTtl); }
+    int) { NetApplyInt(h, ret, a, NetSetMulticastTtl); }
 void NetUdpSetTtl(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    int) { ApplyInt(h, ret, a, NetSetTtl); }
+    int) { NetApplyInt(h, ret, a, NetSetTtl); }
+//udpSetSendBufferSize/udpSetRecvBufferSize(handle, bytes): SO_SNDBUF/
+//SO_RCVBUF, TCP parity (the kernel may clamp). Also the levers that
+//make the send-park path testable.
+void NetUdpSetSendBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a,
+    int) { NetApplyInt(h, ret, a, NetSetSendBuffer); }
+void NetUdpSetRecvBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a,
+    int) { NetApplyInt(h, ret, a, NetSetRecvBuffer); }
 
 //--- state -------------------------------------------------------------------
 
@@ -291,13 +325,13 @@ void NetUdpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        st->m_lastErrorText = "socket closed";
+        st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
         ReturnInt(ret, 0);
         return;
     }
     const std::string text = NetLocalAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, 0);
         return;
     }
@@ -314,7 +348,7 @@ void NetUdpLocalPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetLocalPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -326,13 +360,13 @@ void NetUdpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        st->m_lastErrorText = "socket closed";
+        st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
         ReturnInt(ret, 0);
         return;
     }
     const std::string text = NetPeerAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, 0);
         return;
     }
@@ -349,7 +383,7 @@ void NetUdpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetPeerPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -392,6 +426,8 @@ void NetRegisterUdpNatives(void* registry, RegisterNativeFn reg,
     regBlocking(registry, "net", "_udpLeaveMulticast", &NetUdpLeaveMulticast);
     regBlocking(registry, "net", "_udpSetMulticastTtl", &NetUdpSetMulticastTtl);
     regBlocking(registry, "net", "_udpSetTtl", &NetUdpSetTtl);
+    regBlocking(registry, "net", "_udpSetSendBufferSize", &NetUdpSetSendBufferSize);
+    regBlocking(registry, "net", "_udpSetRecvBufferSize", &NetUdpSetRecvBufferSize);
     regBlocking(registry, "net", "_udpLocalAddress", &NetUdpLocalAddress);
     regBlocking(registry, "net", "_udpLocalPort", &NetUdpLocalPort);
     regBlocking(registry, "net", "_udpPeerAddress", &NetUdpPeerAddress);

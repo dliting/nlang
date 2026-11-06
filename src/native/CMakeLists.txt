@@ -43,6 +43,7 @@ target_sources(nlang_tensor PRIVATE
 # auto-links through its own pragma, and it is an empty TU on POSIX).
 target_sources(nlang_net PRIVATE
     net/net_jobs.cpp
+    net/net_options.cpp
     net/net_slots.cpp
     net/net_state.cpp
     net/net_tcp.cpp

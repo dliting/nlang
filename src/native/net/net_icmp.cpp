@@ -9,9 +9,13 @@
     unwinds the native call and re-entry rebuilds the stack, so the
     job record carries the requesting context id: re-entry adopts the
     job it already submitted (FindOwn) instead of minting a new one.
-    NetIcmpEcho's verdicts map through the record: -1 (no reply in
-    time) becomes the -2 timeout code, -2 (unreachable/resolve
-    failure) the -4 platform code.
+    The helper timeout is always bounded by the echo slice (external
+    review I3): a slice that expires while the script deadline still
+    allows re-arms with a fresh echo, so one job never holds a pool
+    worker longer than one slice and an unlimited ping retransmits
+    instead of hanging the pool. NetIcmpEcho's verdicts map through
+    the record: -1 (no reply in time) becomes the -2 timeout code, -2
+    (unreachable/resolve failure) the -4 platform code.
 
     The raw IcmpSocket arms follow the UDP discipline: bind mints the
     slot, recvFrom parks on read interest (net_tcp_park.h), the source
@@ -44,11 +48,6 @@ using nlang::native::ReturnString;
 namespace nlang {
 namespace {
 
-//Echo timeout for an unlimited ping (deadline 0): ~24.8 days in the
-//helper's DWORD milliseconds — effectively infinite, and the context
-//parks without a deadline anyway.
-constexpr int kIcmpInfiniteTimeoutMs = 0x7FFFFFFF;
-
 //Internet checksum (RFC 1071) over the ICMP message. The Windows raw
 //ICMP socket requires the application-filled checksum (the helper API
 //builds it itself), so _icmpSendTo completes a message whose checksum
@@ -67,18 +66,6 @@ void IcmpFillChecksum(std::vector<uint8_t>& msg) {
     const uint16_t ones = static_cast<uint16_t>(~sum);
     msg[2] = static_cast<uint8_t>(ones >> 8);
     msg[3] = static_cast<uint8_t>(ones & 0xFF);
-}
-
-//Echo timeout for the helper: the time left until the deadline, clamped
-//to the helper's DWORD range; deadline 0 means unlimited.
-int IcmpEchoTimeout(long long deadline, long long nowMs) {
-    if (deadline <= 0)
-        return kIcmpInfiniteTimeoutMs;
-    const long long left = deadline - nowMs;
-    if (left <= 0)
-        return 0;
-    return left < kIcmpInfiniteTimeoutMs
-        ? static_cast<int>(left) : kIcmpInfiniteTimeoutMs;
 }
 
 //Heap arg record for the pool worker (NativeHost* dangles after the
@@ -107,50 +94,102 @@ void IcmpWorker(void* arg) {
         r == -1 ? kNetErrTimeout : kNetErrPlatform);
 }
 
+//Adopt the job this context already submitted (park re-entry) or mint
+//a fresh one, flagging the submit (the ping wait loop's prologue).
+int32_t PingMintOrAdopt(NetExecState* st, int self, bool* submit) {
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    const int32_t jobId = st->m_jobs.FindOwn(kNetJobIcmp, self);
+    if (jobId != 0)
+        return jobId;
+    *submit = true;
+    return st->m_jobs.Mint(kNetJobIcmp, self);
+}
+
+//Slice expired: release the record and re-arm with a fresh echo (the
+//next loop round submits outside the lock; a worker still in flight
+//keeps the released record alive until it fills). Caller holds the
+//state mutex.
+void PingResubmit(NetExecState* st, int32_t* jobId, int self, bool* submit) {
+    st->m_jobs.Release(*jobId);
+    *jobId = st->m_jobs.Mint(kNetJobIcmp, self);
+    *submit = true;
+}
+
+//Release the record and stage the verdict. Caller holds the state
+//mutex; a worker still in flight keeps the released record alive
+//until it fills (net_jobs.h lifetime rule).
+void PingReturn(NetExecState* st, int32_t jobId, uint8_t* ret, int value) {
+    st->m_jobs.Release(jobId);
+    ReturnInt(ret, value);
+}
+
 }  //namespace
 
-//ping(host, deadlineMs): mint-or-adopt, submit once, park on the
-//self-pipe until the record is done (R9 drain discipline: the ack
-//byte is a hint, the record under the mutex is the truth). The record
-//is released on every exit path — a worker still in flight keeps it
-//alive until it fills (net_jobs.h lifetime rule).
+//Declared in net_icmp.h (unit-tested): the time left until the
+//deadline capped by the echo slice (external review I3) — the helper
+//timeout is always bounded, so one ping job never holds a pool worker
+//longer than one slice; deadline 0 (unlimited) gets one slice.
+int IcmpEchoTimeout(long long deadline, long long nowMs) {
+    if (deadline <= 0)
+        return kIcmpEchoSliceMs;
+    const long long left = deadline - nowMs;
+    if (left <= 0)
+        return 0;
+    return left < kIcmpEchoSliceMs
+        ? static_cast<int>(left) : kIcmpEchoSliceMs;
+}
+
+//Declared in net_icmp.h: only a slice timeout re-arms, and only while
+//the deadline still allows (external review I3) — a reply and an
+//unreachable verdict are terminal, and an unlimited deadline (0)
+//always allows.
+bool IcmpShouldResubmit(int err, long long deadline, long long nowMs) {
+    return err == kNetErrTimeout && (deadline <= 0 || nowMs < deadline);
+}
+
+//ping(host, deadlineMs): mint-or-adopt, submit, park on the self-pipe
+//until the record is done (R9 drain discipline: the ack byte is a
+//hint, the record under the mutex is the truth). The helper timeout
+//is bounded by the echo slice (external review I3): a slice that
+//expires while the deadline still allows releases the record and
+//re-arms with a fresh echo — retransmission, the shape every ping
+//tool uses, and the pool worker is never held longer than one slice,
+//so executor teardown and the priority-0 DNS queue stay responsive
+//even against a black-hole host. The record is released on every exit
+//path — a worker still in flight keeps it alive until it fills
+//(net_jobs.h lifetime rule).
 void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     const std::string host = ArgString(h, a, 0);
     const long long deadline = ArgLong(a, 1);
     const int self = h->currentContextId(h);
-    int32_t jobId = 0;
     bool submit = false;
-    {   std::lock_guard<std::mutex> g(st->m_mutex);
-        jobId = st->m_jobs.FindOwn(kNetJobIcmp, self);
-        if (jobId == 0) {
-            jobId = st->m_jobs.Mint(kNetJobIcmp, self);
-            submit = true;
-        }   }
-    if (submit) {
-        h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
-            IcmpEchoTimeout(deadline, h->nowMs(h))},
-            st->m_selfPipeFds[1], 1);   //priority 1 (D5 two-level queue)
-    }
+    int32_t jobId = PingMintOrAdopt(st, self, &submit);
     const int readFd = st->m_selfPipeFds[0];
     for (;;) {
+        if (submit) {
+            submit = false;
+            h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
+                IcmpEchoTimeout(deadline, h->nowMs(h))},
+                st->m_selfPipeFds[1], 1);   //priority 1 (D5 two-level queue)
+        }
         NetDrainPipe(readFd);
         std::lock_guard<std::mutex> g(st->m_mutex);
         const NetJobRecord* rec = st->m_jobs.Lookup(jobId);
         if (rec && rec->done) {
-            const int r = rec->err != 0 ? rec->err : rec->rttMs;
-            st->m_jobs.Release(jobId);
-            ReturnInt(ret, r);
+            if (IcmpShouldResubmit(rec->err, deadline, h->nowMs(h))) {
+                PingResubmit(st, &jobId, self, &submit);
+                continue;
+            }
+            PingReturn(st, jobId, ret, rec->err != 0 ? rec->err : rec->rttMs);
             return;
         }
         if (deadline > 0 && h->nowMs(h) >= deadline) {
-            st->m_jobs.Release(jobId);
-            ReturnInt(ret, kNetErrTimeout);
+            PingReturn(st, jobId, ret, kNetErrTimeout);
             return;
         }
         if (readFd < 0) {   //self-pair never came up
-            st->m_jobs.Release(jobId);
-            ReturnInt(ret, kNetErrPlatform);
+            PingReturn(st, jobId, ret, kNetErrPlatform);
             return;
         }
         //The done-check and the first-entry registration share one
@@ -158,9 +197,13 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         //the ack byte is only a hint and a co-waiter's drain can eat
         //it, so separate sections could park this waiter past a
         //record that was already done (R9 lost-wakeup closure, the
-        //NetTcpResolveWait shape).
-        if (h->parkForIo(h, readFd, NLANG_EV_READ, deadline,
-                deadline > 0) == 0)
+        //NetTcpResolveWait shape). An unlimited deadline parks in
+        //bounded slices (external review M9): a lost ack byte or a
+        //dead poller thread delays the wake by one slice, never
+        //forever.
+        const long long parkBy = (deadline > 0) ? deadline
+            : h->nowMs(h) + kJobParkSliceMs;
+        if (h->parkForIo(h, readFd, NLANG_EV_READ, parkBy, true) == 0)
             return;   //unwound; re-entry adopts the job (FindOwn)
     }
 }
@@ -176,13 +219,13 @@ void NetIcmpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetPlatformInit();   //idempotent through a once flag (R4)
     const int fd = NetOpenIcmp();
     if (fd < 0) {
-        NetRememberLastError(st);
+        NetRememberLastError(h);
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
     if (NetBind(fd, host, 0) != 0) {
         NetClose(fd);
-        NetRememberLastError(st);
+        NetRememberLastError(h);
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -193,19 +236,22 @@ void NetIcmpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 }
 
 //icmpSendTo(handle, message, host): the full ICMP message (type/code/
-//checksum/ID/seq/data) goes out as built by the script; resolve then
-//one sendto (datagram semantics, no parking).
+//checksum/ID/seq/data) goes out as built by the script; one sendto
+//(datagram semantics, no parking). Numeric endpoint only (external
+//review Important 2); the guard precedes the checksum fill and the
+//handle lookup, so a host name is rejected before any work.
 void NetIcmpSendTo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     NativeArrayView message;
     ArgArray(h, a, 1, &message);
     const std::string host = ArgString(h, a, 2);
+    if (!NetIsNumericAddress(host)) { ReturnInt(ret, kNetErrArg); return; }
     std::vector<uint8_t> packed = NetPackBytes(message,
         static_cast<int>(message.elemCount));
     IcmpFillChecksum(packed);   //raw sockets need the app-filled checksum
     std::vector<NetEndpoint> endpoints;
     if (!NetResolve(host, 0, endpoints) || endpoints.empty()) {
-        NetRememberLastError(st);
+        NetRememberLastError(h);
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -217,7 +263,7 @@ void NetIcmpSendTo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const int n = NetIcmpSend(fd, packed.data(),
         static_cast<int>(packed.size()), ep.address);
     if (n >= 0) { ReturnInt(ret, n); return; }
-    NetRememberLastError(st);
+    NetRememberLastError(h);
     ReturnInt(ret, kNetErrPlatform);
 }
 
@@ -256,7 +302,7 @@ void NetIcmpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         if (n != kNetWouldBlock) {
             NetRelease(st, handle, NetDir::Read, claimed);
-            NetRememberLastError(st);
+            NetRememberLastError(h);
             ReturnInt(ret, kNetErrPlatform);
             return;
         }

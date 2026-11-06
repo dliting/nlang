@@ -988,6 +988,7 @@ add_test(NAME net_scheduler_tests COMMAND test_net_scheduler)
 add_executable(test_net_adopt
     test_vm/test_net_adopt.cpp
     ${PROJECT_SOURCE_DIR}/src/native/net/net_tcp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_options.cpp
     ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
     ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
     ${NLANG_NET_MODULE_TEST_SOURCES}
@@ -1032,6 +1033,34 @@ if(WIN32)
 endif()
 
 add_test(NAME net_jobs_tests COMMAND test_net_jobs)
+
+# External review I3: the ping helper's bounded echo slice (a pool
+# worker is never held by one job; a slice timeout re-arms while the
+# script deadline allows) — the pure verdicts, no VM.
+add_executable(test_net_icmp
+    test_vm/test_net_icmp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_icmp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_tcp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_options.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_icmp
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_icmp
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_icmp PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_icmp_tests COMMAND test_net_icmp)
 
 # v0.13.0 net task 6: per-executor module state — two executors in one
 # process run net bytecode through the nlang_net module and mint

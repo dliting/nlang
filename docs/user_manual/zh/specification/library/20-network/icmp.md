@@ -8,7 +8,7 @@
 
 | 成员 | 形态 | 语义 |
 |---|---|---|
-| `net.ping(host, timeoutMs = 5000)` | →`int` | 向`host`发送一个ICMP回声请求并等待回声应答；以毫秒返回往返时延；没有应答到来抛`TimeoutException`，主机无法解析或不可达抛`SocketException` |
+| `net.ping(host, timeoutMs = 5000)` | →`int` | 向`host`发送ICMP回声请求直到有一个得到应答——没有回音的请求会重传，直到截止时刻到来，这正是`ping`工具的形态；以毫秒返回往返时延；截止时刻到来仍无应答抛`TimeoutException`，主机无法解析或回报不可达抛`SocketException` |
 
 `ping`在等待期间停泊调用上下文（§20.1）。Windows上它走`IcmpSendEcho2`，不需要管理员权限；Linux上它走数据报ICMP套接字，普通用户在`net.ipv4.ping_group_range`覆盖到该用户或组之后即可打开。
 

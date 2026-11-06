@@ -24,6 +24,14 @@ namespace nlang {
 constexpr int kNetWouldBlock = -1000;
 constexpr int kNetInProgress = -1001;
 
+//Maps a socket failure code (WSAGetLastError / errno) to the
+//would-block verdict: EWOULDBLOCK/EAGAIN plus ENOBUFS, the
+//documented "output buffer full" error of datagram sends —
+//transient by definition, so parking natives retry instead of
+//failing (external review I6). Pure function: loopback never fills
+//a send buffer, so the mapping is unit-testable on its own.
+bool NetErrWouldBlock(int errCode);
+
 //Address family. The neutral header keeps its own enum: AF_INET6 is
 //23 on Windows but 10 on Linux/10 on macOS, so callers must not pass
 //raw AF_* values; each platform TU maps this enum to its AF_*.
@@ -117,6 +125,11 @@ bool NetResolve(const std::string& host, int port,
 //the _tcpResolveStart fast-path gate: a literal fills its job record
 //on the spot instead of paying a pool round trip. Same test as
 //NetResolve's own numeric path (inet_pton).
+//The host-taking natives (_tcpBind/_udpBind/_udpConnect/_udpSendTo/
+//_icmpSendTo) gate on this and answer kNetErrArg for a host name:
+//getaddrinfo must never run on a carrier (external review Important
+//2, spec §I.4) — the script layer resolves names through the
+//_tcpResolve* job and hands the natives numeric endpoints only.
 bool NetIsNumericAddress(const std::string& host);
 //ICMP echo round trip: returns RTT milliseconds, -1 = timeout,
 //-2 = unreachable/error. Resolves first; prefers the first IPv4
@@ -124,6 +137,11 @@ bool NetIsNumericAddress(const std::string& host);
 //(Icmp6SendEcho2 with source "::"). POSIX skeleton: DGRAM ICMP.
 int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len,
                 int timeoutMs);
+//Maps a platform ICMP failure code to the verdicts above (external
+//review I5): Windows passes the ICMP_ECHO_REPLY Status, POSIX the
+//recvfrom errno. Pure function so the timeout-vs-unreachable split is
+//unit-testable without a live network.
+int NetIcmpStatusVerdict(int platformCode);
 
 //--- raw ICMP sockets (IcmpSocket) -----------------------------------------
 //Windows: SOCK_RAW/IPPROTO_ICMP (admin; bind reports the admin

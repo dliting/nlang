@@ -10,6 +10,14 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#include <iphlpapi.h>
+#include <ipexport.h>   //IP_SUCCESS / IP_TIMEOUT / IP_DEST_UNREACHABLE
+#else
+#include <cerrno>
+#endif
 
 using namespace nlang;   //the brief's test body calls the entries unqualified
 
@@ -98,11 +106,50 @@ static void TestResolveAndIcmp() {
     CHECK(rtt >= 0);   //-1 timeout, -2 error — loopback must answer
 }
 
+static void TestIcmpStatusVerdict() {
+    //External review I5: the ICMP failure classification is a pure
+    //function so the unreachable-vs-timeout split is pinned without a
+    //live network (the loopback echo above can produce neither).
+#ifdef _WIN32
+    CHECK(NetIcmpStatusVerdict(IP_SUCCESS) == 0);
+    CHECK(NetIcmpStatusVerdict(IP_REQ_TIMED_OUT) == -1);
+    CHECK(NetIcmpStatusVerdict(IP_DEST_HOST_UNREACHABLE) == -2);
+    CHECK(NetIcmpStatusVerdict(IP_GENERAL_FAILURE) == -2);
+#else
+    CHECK(NetIcmpStatusVerdict(0) == 0);
+    CHECK(NetIcmpStatusVerdict(EAGAIN) == -1);
+    CHECK(NetIcmpStatusVerdict(EHOSTUNREACH) == -2);
+    CHECK(NetIcmpStatusVerdict(ENETUNREACH) == -2);
+#endif
+}
+
+static void TestSendWouldBlockVerdict() {
+    //External review I6: ENOBUFS — the documented "output buffer full"
+    //error of datagram sends — must read as would-block so the UDP
+    //send natives park and retry instead of failing with -4. Loopback
+    //never fills a send buffer, so the mapping is pinned as a pure
+    //function (the park loop mirrors the proven TCP write shape).
+#ifdef _WIN32
+    CHECK(NetErrWouldBlock(WSAEWOULDBLOCK));
+    CHECK(NetErrWouldBlock(WSAENOBUFS));
+    CHECK(!NetErrWouldBlock(WSAECONNREFUSED));
+    CHECK(!NetErrWouldBlock(0));
+#else
+    CHECK(NetErrWouldBlock(EWOULDBLOCK));
+    CHECK(NetErrWouldBlock(EAGAIN));
+    CHECK(NetErrWouldBlock(ENOBUFS));
+    CHECK(!NetErrWouldBlock(ECONNREFUSED));
+    CHECK(!NetErrWouldBlock(0));
+#endif
+}
+
 int main() {
     TestTcpLoopbackRoundTrip();
     TestWouldBlock();
     TestUdpRoundTrip();
     TestResolveAndIcmp();
+    TestIcmpStatusVerdict();
+    TestSendWouldBlockVerdict();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

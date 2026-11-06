@@ -36,6 +36,15 @@ struct NetExecState;
 constexpr int kNetJobResolve = 0;
 constexpr int kNetJobIcmp = 1;
 
+//Self-pipe park slice for an unlimited script deadline (external
+//review M9): the ack byte is only a hint and its write can be lost —
+//a co-waiter's drain eats it, the pipe overflows under thousands of
+//jobs, or the poller thread is gone. A waiter with no deadline to
+//fall back on re-checks the record every slice instead of sleeping
+//forever; 100 ms is far below human perception and far above the ack
+//path's cost.
+constexpr long long kJobParkSliceMs = 100;
+
 struct NetJobRecord {
     int kind = 0;
     int owner = 0;           //requesting context id (ping re-entry adoption)

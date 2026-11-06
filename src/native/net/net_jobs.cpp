@@ -235,9 +235,14 @@ void NetTcpResolveWait(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         //The first-entry registration shares the mutex with the
         //worker's fill: either done is visible now, or the ack byte
-        //lands after the registration (R9 lost-wakeup closure).
-        if (h->parkForIo(h, readFd, NLANG_EV_READ, deadline,
-                deadline > 0) == 0)
+        //lands after the registration (R9 lost-wakeup closure). An
+        //unlimited deadline parks in bounded slices (external review
+        //M9): the ack write can be lost (a co-waiter's drain, a full
+        //pipe, a dead poller thread), and the slice re-check bounds
+        //the delay instead of sleeping forever.
+        const long long parkBy = (deadline > 0) ? deadline
+            : h->nowMs(h) + kJobParkSliceMs;
+        if (h->parkForIo(h, readFd, NLANG_EV_READ, parkBy, true) == 0)
             return;   //unwound; the re-entry re-checks
     }
 }

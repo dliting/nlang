@@ -249,6 +249,12 @@ struct NativeHost {
     //CallNative with the same staged arguments; retry the operation).
     //fd < 0 = pure deadline park. Only callable from a blocking-channel
     //native (the GIL is released on entry; the host re-takes it).
+    //Re-entry re-executes the CallNative instruction (the dispatch loop
+    //pins pc at it), so parking exists only for instruction-level
+    //(script-dispatched) native calls; host-initiated native calls —
+    //the native-main root window, the host bridge's native-formal arm
+    //— carry no such re-execution anchor and must not park (external
+    //review M13).
     //Note: the armed flag is set by ANY WakeForIo wake, including
     //interpreter-path parks (e.g. thread.sleep) that never called
     //parkForIo; a stale armed makes the next blocking-native's first

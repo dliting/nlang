@@ -34,6 +34,7 @@ using nlang::native::ReturnInt;
 using nlang::native::ReturnLong;
 using nlang::native::ReturnString;
 
+using nlang::kNetErrArg;
 using nlang::kNetErrClosed;
 using nlang::kNetErrPlatform;
 using nlang::kNetKindTcpListener;
@@ -41,6 +42,7 @@ using nlang::NetBind;
 using nlang::NetClose;
 using nlang::NetEndpoint;
 using nlang::NetExecState;
+using nlang::NetIsNumericAddress;
 using nlang::NetLastErrorText;
 using nlang::NetListen;
 using nlang::NetLocalAddress;
@@ -77,12 +79,14 @@ namespace {
 //clients past their connect timeout.
 constexpr int kNetListenBacklog = 512;
 
-//Records the failure text for _lastErrorText (R10: the -4 code carries
-//its message through the state, not through raiseException). Takes the
-//state mutex — call only while it is NOT already held.
-void SetNetError(NetExecState* st, const std::string& text) {
+//Records the failure text for _lastErrorText under the calling
+//context's id (R10: the -4 code carries its message through the
+//state, not through raiseException; M10 keys it per context). Takes
+//the state mutex — call only while it is NOT already held.
+void SetNetError(NativeHost* h, const std::string& text) {
+    NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
-    st->m_lastErrorText = text;
+    st->m_lastErrorText[h->currentContextId(h)] = text;
 }
 
 // nowMs: the host's monotonic millisecond clock — the same clock
@@ -93,11 +97,24 @@ void NowMs(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     ReturnLong(ret, h->nowMs(h));
 }
 
-// lastErrorText: the text recorded by the most recent -4 failure.
+// lastErrorText: the text recorded by the most recent -4 failure of
+// THIS context (M10: keyed by context id and erased on read — the
+// script's _throwNet consumes its text exactly once, a co-context's
+// failure never surfaces here, and a read entry never lingers to be
+// mistaken for a fresh failure). Empty text when this context has no
+// failure pending.
 void LastErrorText(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     NetExecState* st = NetState(h);
+    const int self = h->currentContextId(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
-    ReturnString(h, ret, st->m_lastErrorText);
+    auto it = st->m_lastErrorText.find(self);
+    if (it == st->m_lastErrorText.end()) {
+        ReturnString(h, ret, std::string());
+        return;
+    }
+    const std::string text = it->second;
+    st->m_lastErrorText.erase(it);   //consumed on read (M10)
+    ReturnString(h, ret, text);
 }
 
 // toBytes/fromBytes: the module-internal UTF-8 converters (r1 note 5:
@@ -138,8 +155,10 @@ void NetFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnString(h, ret, content);
 }
 
-// tcpBind: resolve, open, bind, listen; the first resolved endpoint
-// picks the family (host "::" opens a dual-stack listener: NetBind
+// tcpBind: open, bind, listen on a numeric endpoint (host names are
+// rejected with kNetErrArg — the script layer resolves them on the
+// pool first, external review Important 2); the address family comes
+// from the text (host "::" opens a dual-stack listener: NetBind
 // clears IPV6_V6ONLY for it); port 0 is system-assigned and read back
 // through _tcpLocalPort. Migrated from the VM intrinsic (task 6): the
 // Raise became the R10 code + last-error text; the script mints the
@@ -148,13 +167,14 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     const std::string host = ArgString(h, a, 0);
     const int port = ArgInt(a, 1);
+    if (!NetIsNumericAddress(host)) { ReturnInt(ret, kNetErrArg); return; }
     //Idempotent through a once flag (ruling R4); every net native
     //needs the socket subsystem up (Winsock on Windows).
     NetPlatformInit();
     const std::string context = "bind " + host + ":" + std::to_string(port);
     std::vector<NetEndpoint> endpoints;
     if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
-        SetNetError(st, context + " failed: " + NetLastErrorText());
+        SetNetError(h, context + " failed: " + NetLastErrorText());
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -164,7 +184,7 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         || NetListen(fd, kNetListenBacklog) != 0) {
         if (fd >= 0)
             NetClose(fd);
-        SetNetError(st, context + " failed: " + NetLastErrorText());
+        SetNetError(h, context + " failed: " + NetLastErrorText());
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -184,13 +204,13 @@ void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        st->m_lastErrorText = "socket closed";
+        st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
         ReturnInt(ret, 0);
         return;
     }
     const std::string text = NetLocalAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, 0);
         return;
     }
@@ -209,7 +229,7 @@ void TcpLocalPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetLocalPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, kNetErrPlatform);
         return;
     }

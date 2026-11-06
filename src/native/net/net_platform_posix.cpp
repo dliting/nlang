@@ -180,18 +180,22 @@ int NetAccept(int fd) {
     return c;
 }
 
+bool NetErrWouldBlock(int err) {
+    return err == EWOULDBLOCK || err == EAGAIN || err == ENOBUFS;
+}
+
 int NetRecv(int fd, uint8_t* dst, int len) {
     const int n = static_cast<int>(recv(fd, dst, static_cast<size_t>(len), 0));
     if (n > 0) return n;
     if (n == 0) return 0;   //EOF
-    if (errno == EWOULDBLOCK || errno == EAGAIN) return kNetWouldBlock;
+    if (NetErrWouldBlock(errno)) return kNetWouldBlock;
     return -1;
 }
 
 int NetSend(int fd, const uint8_t* src, int len) {
     const int n = static_cast<int>(send(fd, src, static_cast<size_t>(len), 0));
     if (n >= 0) return n;
-    if (errno == EWOULDBLOCK || errno == EAGAIN) return kNetWouldBlock;
+    if (NetErrWouldBlock(errno)) return kNetWouldBlock;
     return -1;
 }
 
@@ -224,7 +228,7 @@ int NetRecvFrom(int fd, uint8_t* dst, int len,
     const int n = static_cast<int>(recvfrom(fd, dst, static_cast<size_t>(len), 0,
                                             reinterpret_cast<sockaddr*>(&ss), &ssLen));
     if (n < 0) {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) return kNetWouldBlock;
+        if (NetErrWouldBlock(errno)) return kNetWouldBlock;
         return -1;
     }
     outAddress = AddrText(reinterpret_cast<sockaddr*>(&ss));
@@ -240,7 +244,7 @@ int NetSendTo(int fd, const uint8_t* src, int len,
     const int n = static_cast<int>(sendto(fd, src, static_cast<size_t>(len), 0,
                                           reinterpret_cast<sockaddr*>(&ss), ssLen));
     if (n >= 0) return n;
-    if (errno == EWOULDBLOCK || errno == EAGAIN) return kNetWouldBlock;
+    if (NetErrWouldBlock(errno)) return kNetWouldBlock;
     return -1;
 }
 
@@ -374,21 +378,58 @@ bool NetIsNumericAddress(const std::string& host) {
     return inet_pton(AF_INET6, text.c_str(), &v6) == 1;
 }
 
+#ifdef MSG_ERRQUEUE
+namespace {
+//True when an ICMP error (e.g. destination unreachable) is queued.
+//An unconnected DGRAM ICMP socket does not surface ICMP errors through
+//recvfrom — with IP_RECVERR they land on the socket error queue, which
+//MSG_ERRQUEUE dequeues (external review I5; Linux semantics, hence the
+//guard: BSD sockets report those errors through recvfrom's errno).
+bool IcmpErrqueuePending(int fd) {
+    char ctrl[512];
+    msghdr msg;
+    std::memset(&msg, 0, sizeof(msg));
+    msg.msg_control = ctrl;
+    msg.msg_controllen = sizeof(ctrl);
+    //The error queue of this socket type holds only error records, so a
+    //successful dequeue means an error arrived; EAGAIN means the queue
+    //is empty and the wait really ended in silence.
+    return recvmsg(fd, &msg, MSG_ERRQUEUE | MSG_DONTWAIT) >= 0;
+}
+}  //namespace
+#endif
+
+namespace {
+//The echo probes one family per job: prefer IPv4, fall back to IPv6
+//(the slice re-arm keeps a dual-stack host reachable either way).
+const NetEndpoint* PickEchoEndpoint(const std::vector<NetEndpoint>& eps) {
+    for (const NetEndpoint& e : eps)
+        if (e.family == NetFamily::Inet) return &e;
+    for (const NetEndpoint& e : eps)
+        if (e.family == NetFamily::Inet6) return &e;
+    return nullptr;
+}
+}  //namespace
+
 int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int timeoutMs) {
     //DGRAM ICMP: the kernel rewrites id/sequence and delivers the echo
     //reply here; SO_RCVTIMEO bounds the blocking recvfrom.
     std::vector<NetEndpoint> eps;
     if (!NetResolve(host, 0, eps)) return -2;
-    const NetEndpoint* ep = nullptr;
-    for (const NetEndpoint& e : eps)
-        if (e.family == NetFamily::Inet) { ep = &e; break; }
-    if (!ep)
-        for (const NetEndpoint& e : eps)
-            if (e.family == NetFamily::Inet6) { ep = &e; break; }
+    const NetEndpoint* ep = PickEchoEndpoint(eps);
     if (!ep) return -2;
     const int proto = ep->family == NetFamily::Inet ? IPPROTO_ICMP : IPPROTO_ICMPV6;
     const int fd = socket(ToAf(ep->family), SOCK_DGRAM, proto);
     if (fd < 0) return -2;
+    const int one = 1;
+#ifdef IP_RECVERR
+    if (ep->family == NetFamily::Inet)
+        setsockopt(fd, IPPROTO_IP, IP_RECVERR, &one, sizeof(one));
+#endif
+#ifdef IPV6_RECVERR
+    if (ep->family == NetFamily::Inet6)
+        setsockopt(fd, IPPROTO_IPV6, IPV6_RECVERR, &one, sizeof(one));
+#endif
     timeval tv;
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = static_cast<long>(timeoutMs % 1000) * 1000;
@@ -403,11 +444,24 @@ int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int ti
         if (n >= 0)
             rtt = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start).count());
-        else if (n != kNetWouldBlock)
-            rtt = -2;   //hard socket error; kNetWouldBlock = SO_RCVTIMEO expiry
+        else {
+            //errno after the failure: EAGAIN/EWOULDBLOCK = SO_RCVTIMEO
+            //expiry, anything else = hard socket error (I5 verdict map).
+            rtt = NetIcmpStatusVerdict(errno);
+#ifdef MSG_ERRQUEUE
+            if (rtt == -1 && IcmpErrqueuePending(fd))
+                rtt = -2;   //the wait ended on a queued ICMP error
+#endif
+        }
     }
     close(fd);
     return rtt;
+}
+
+int NetIcmpStatusVerdict(int err) {
+    if (err == 0) return 0;
+    if (err == EAGAIN || err == EWOULDBLOCK || err == ETIMEDOUT) return -1;
+    return -2;   //EHOSTUNREACH / ENETUNREACH / ECONNREFUSED / EACCES ...
 }
 
 int NetOpenIcmp() {

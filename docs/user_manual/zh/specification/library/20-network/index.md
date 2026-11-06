@@ -10,19 +10,19 @@
 
 该包的表面：
 
-- `net.ping(host, timeoutMs = 5000)`发送一个ICMP回声请求，以毫秒返回往返时延（§20.4）。
+- `net.ping(host, timeoutMs = 5000)`向`host`发送ICMP回声请求直到有一个得到应答，以毫秒返回往返时延（§20.4）。
 - `TcpListener`——bind、accept、close（§20.2）。
 - `TcpStream`——connect、read、write、readLine、readExactly、shutdownWrite、close与选项设置方法（§20.2）。
-- `UdpSocket`——bind、sendTo、recvFrom、connect、send、recv与广播、组播选项（§20.3）。
+- `UdpSocket`——bind、sendTo、recvFrom、connect、send、recv与广播、组播、缓冲区大小选项（§20.3）。
 - `IcmpSocket`——bind、sendTo、recvFrom、close（§20.4）。
 
 ### 停泊与超时
 
-每个阻塞方法——`accept`、`read`、`readLine`、`readExactly`、`recv`、`recvFrom`、`connect`、`ping`——停泊发起调用的虚拟线程，直到操作完成或截止时刻到来；载体在此期间运行其他上下文（§10.1）。`timeoutMs`参数固定这次调用最多等多久：`0`（缺省）不设截止地等待，正值最多等待那么多毫秒。等待在截止时刻结束抛`TimeoutException`；套接字保持打开、仍可用，之后的调用可能成功。
+每个阻塞方法——`accept`、`read`、`readLine`、`readExactly`、`write`、`send`、`sendTo`、`recv`、`recvFrom`、`connect`、`ping`——停泊发起调用的虚拟线程，直到操作完成或截止时刻到来；载体在此期间运行其他上下文（§10.1）。以主机名给出地址的方法——`bind`、`connect`、`sendTo`、`ping`——在解析名字期间同样停泊：解析在运行时的解析线程池上执行，缓慢的查询不会占用任何载体（§10.1）。`timeoutMs`参数固定这次调用最多等多久：`0`（缺省）不设截止地等待，正值最多等待那么多毫秒。等待在截止时刻结束抛`TimeoutException`；套接字保持打开、仍可用，之后的调用可能成功。
 
 ### 每个方向一个操作
 
-一个套接字同一时刻每个方向只允许一个停泊中的操作：一个上下文已在该套接字的`read`上停泊时，另一个上下文对同一套接字的第二次`read`抛`SocketException`（`another operation is parked on this socket`），而不是与第一个争抢字节。惯用形态是每个连接一个上下文在读、需要时另一个在写——读永远不会把一个流拆给两个读者。
+一个套接字同一时刻每个方向只允许一个进行中的操作：一个上下文正在该套接字上读（无论已停泊还是仍在调用中）时，另一个上下文对同一套接字的第二次`read`抛`SocketException`（`another operation is in progress on this socket`），而不是与第一个争抢字节。惯用形态是每个连接一个上下文在读、需要时另一个在写——读永远不会把一个流拆给两个读者。
 
 ### 异常
 

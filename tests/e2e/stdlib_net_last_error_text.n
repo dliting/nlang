@@ -1,0 +1,38 @@
+import io;
+import thread;
+import net;
+
+// External review M10: the platform error text is per-context. The
+// failing native records it, the failing context's _throwNet consumes
+// it, and a context that never failed (or already consumed its own)
+// reads an empty string — a co-context's failure must never surface
+// as this context's error text.
+
+class Binder {
+    public int port = 0;
+    public void run() {
+        try { TcpListener.bind("127.0.0.1", port); }
+        catch (SocketException e) { }   //consumes its own text
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+
+    // Own failure: the raw native records the text, this context reads it.
+    if (net._tcpBind("127.0.0.1", port) != -4) { return 1; }
+    if (net._lastErrorText() == "") { return 2; }
+
+    // Another context fails (and consumes its text through _throwNet);
+    // this context's next probe must be empty — never the other's.
+    Binder b = Binder();
+    b.port = port;
+    Thread t = thread.spawn(b.run);
+    thread.join(t);
+    if (net._lastErrorText() != "") { return 3; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}

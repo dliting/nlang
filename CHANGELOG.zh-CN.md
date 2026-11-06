@@ -12,7 +12,7 @@
 
 ### 新增
 
-- **`net`包。**随工具链分发的通用网络库，构建为独立的native模块（`nlang_net.dll`），首次调用时定位装载——虚拟机自身不依赖网络。`TcpListener`与`TcpStream`承载流：逐调用超时、半关闭（`shutdownWrite`）与选项设置器（`setNoDelay`、`setKeepAlive`、缓冲区大小）；`UdpSocket`承载数据报：connect/send/recv、广播与组播；`net.ping`与`IcmpSocket`回答可达性与往返时延。每个阻塞方法停泊发起调用的虚拟线程并释放载体，上千条并发连接可同时等在套接字上——单载体亦然。失败抛包声明的`SocketException`与`TimeoutException`（`IOException`的子类）。
+- **`net`包。**随工具链分发的通用网络库，构建为独立的native模块（`nlang_net.dll`），首次调用时定位装载——虚拟机自身不依赖网络。`TcpListener`与`TcpStream`承载流：逐调用超时（含有界的写全量）、半关闭（`shutdownWrite`）与选项设置器（`setNoDelay`、`setKeepAlive`、缓冲区大小）；`UdpSocket`承载数据报：connect/send/recv、广播、组播与缓冲区大小设置器；`net.ping`重传回声请求直到截止时刻，与`IcmpSocket`一起回答可达性与往返时延。主机名在解析线程池上解析——解析停泊调用方而不占用载体——解析出的地址依次逐个尝试。每个阻塞方法停泊发起调用的虚拟线程并释放载体，上千条并发连接可同时等在套接字上——单载体亦然。套接字每个方向同一时刻只允许一个进行中的操作：同一套接字上的第二次并发读或写抛`SocketException`，而不是与第一个争抢字节。失败抛包声明的`SocketException`与`TimeoutException`（`IOException`的子类）。
 - **`io`的通用IO设施。**`io.nowMs()`读单调毫秒时钟；`io.parkForIo(fd, events, deadlineMs)`停泊发起调用的虚拟线程，直到描述符就绪或到达绝对截止时刻——`net`原生实现构建其上的停泊原语，对任何持有描述符的native库通用；`io.toBytes(s)`与`io.fromBytes(data)`在`string`与原始UTF-8`byte[]`之间转换。
 - **网络示例。**`examples/net_echo_server.n`与`net_echo_client.n`（派生处理器回测对）、`net_udp_echo.n`、`net_ping.n`、`net_http_mini.n`（构建于该包之上的最小HTTP/1.0服务器）与`net_conc_bench.n`（1000连接并发基准）。
 

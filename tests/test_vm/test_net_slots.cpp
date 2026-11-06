@@ -37,7 +37,10 @@ static void TestCloseWaitsForWaiters() {
     const int32_t h = table.Mint(7, kNetKindUdp);
     table.SetWaiter(h, NetDir::Read, /*ctxId*/42);
     table.MarkClosed(h);
-    CHECK(table.FdOf(h) == 7);                  //fd kept while parked
+    //Closed is closed mid-deferral (external review M11): FdOf reports
+    //-1 while the parked waiter still keeps the fd alive (OpenCount 1).
+    CHECK(table.FdOf(h) == -1);
+    CHECK(table.OpenCount() == 1);              //fd kept while parked
     table.ReleaseWaiter(h, NetDir::Read);
     CHECK(table.FdOf(h) == -1);                 //last waiter drained:
                                                 //the real close ran

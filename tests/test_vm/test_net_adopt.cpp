@@ -1,13 +1,17 @@
 /*---
-    test_net_adopt.cpp — the claim-adopt critical section (final review
-    I2): a fresh call must never adopt a foreign context's claim on a
-    direction. Pre-fix NetAdoptClaim accepted any waiter state as its
-    own, so a second write reset the parked writer's writeSent
-    progress and the stream carried duplicated bytes. The e2e writer
-    test (stdlib_net_tcp_concurrent_writer.n) cannot pin this on
-    Windows loopback — the auto-tuned send buffer absorbs successive
-    writes unpredictably, so the parked state the bug needs is not
-    deterministic there; this unit test is the deterministic proof.
+    test_net_adopt.cpp — the claim-adopt critical section (final
+    review I2, external review C1): a call claims its direction at
+    entry and must never adopt a foreign context's claim. Pre-fix
+    NetAdoptClaim left a fresh call unclaimed until it parked (C1:
+    two fresh same-direction calls then raced for the bytes, the
+    second resetting the first's writeSent and splitting or
+    duplicating the stream) and accepted a foreign waiter as its
+    own (I2: a fresh write reset the parked writer's progress). The
+    e2e writer test (stdlib_net_tcp_concurrent_writer.n) cannot pin
+    these on Windows loopback — the auto-tuned send buffer absorbs
+    successive writes unpredictably, so the parked state the bugs
+    need is not deterministic there; this unit test is the
+    deterministic proof.
 ---*/
 #include "net/net_state.h"
 #include "net/net_tcp_park.h"
@@ -70,8 +74,13 @@ static void TestAdoptAdoptsOwnClaim() {
     CHECK(fd == 7);
 }
 
-//A fresh call on an unclaimed direction: live slot, no claim yet.
-static void TestAdoptFreshCallUnclaimed() {
+//External review C1: a fresh call claims the direction at entry —
+//the claim must not wait for the park, or two fresh same-direction
+//calls race for the bytes (the second resets the first's writeSent
+//and the stream splits or duplicates). A fresh call claims, a
+//second fresh call on the same direction is rejected, and the
+//other direction stays free.
+static void TestAdoptFreshCallClaims() {
     NetExecState st;
     int32_t h = 0;
     {
@@ -79,11 +88,24 @@ static void TestAdoptFreshCallUnclaimed() {
         h = st.m_slots.Mint(/*fd*/9, kNetKindTcpStream);
     }
     int fd = -1;
-    bool claimed = true;
+    bool claimed = false;
     CHECK(NetAdoptClaim(&st, h, NetDir::Read, /*self*/4, &fd, &claimed)
         == kNetAdoptOk);
-    CHECK(!claimed);
+    CHECK(claimed);
     CHECK(fd == 9);
+    {
+        std::lock_guard<std::mutex> g(st.m_mutex);
+        CHECK(st.m_slots.Lookup(h)->readWaiter == 4);   //claimed at entry
+    }
+    //Callers initialize claimed=false; the Concurrent branch leaves
+    //it untouched (the caller never held the direction).
+    bool claimed2 = false;
+    CHECK(NetAdoptClaim(&st, h, NetDir::Read, /*ctxB*/5, &fd, &claimed2)
+        == kNetAdoptConcurrent);
+    CHECK(!claimed2);
+    CHECK(NetAdoptClaim(&st, h, NetDir::Write, /*ctxB*/5, &fd, &claimed2)
+        == kNetAdoptOk);
+    CHECK(claimed2);
 }
 
 //The closer won the window: Gone, and the direction's waiter is
@@ -109,7 +131,7 @@ static void TestAdoptGoneDrainsWaiter() {
 int main() {
     TestAdoptRejectsForeignWaiter();
     TestAdoptAdoptsOwnClaim();
-    TestAdoptFreshCallUnclaimed();
+    TestAdoptFreshCallClaims();
     TestAdoptGoneDrainsWaiter();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;

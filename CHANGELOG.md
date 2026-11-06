@@ -16,14 +16,21 @@ All notable changes to NLang are documented here. The format follows
   as its own native module (`nlang_net.dll`), located and loaded on
   first use — the virtual machine itself stays network-free.
   `TcpListener` and `TcpStream` carry streams with per-call
-  timeouts, half-close (`shutdownWrite`) and option setters
-  (`setNoDelay`, `setKeepAlive`, buffer sizes); `UdpSocket` carries
-  datagrams with connect/send/recv, broadcast and multicast;
-  `net.ping` and `IcmpSocket` answer reachability and round-trip
-  time. Every blocking method parks the calling virtual thread and
-  releases its carrier, so thousands of concurrent connections can
-  wait on sockets at once — even with a single carrier. Failures
-  raise the package-declared `SocketException` and
+  timeouts (a bounded write-all included), half-close
+  (`shutdownWrite`) and option setters (`setNoDelay`,
+  `setKeepAlive`, buffer sizes); `UdpSocket` carries datagrams with
+  connect/send/recv, broadcast, multicast and buffer-size setters;
+  `net.ping` retransmits echo requests until its deadline and
+  `IcmpSocket` answers reachability and round-trip time. Host
+  names resolve on a resolver pool — resolution parks the caller
+  instead of occupying a carrier — and every resolved address is
+  tried in turn. Every blocking method parks the calling virtual
+  thread and releases its carrier, so thousands of concurrent
+  connections can wait on sockets at once — even with a single
+  carrier. Each socket direction carries one operation at a time:
+  a second concurrent read or write on the same socket raises
+  `SocketException` rather than racing the first for the bytes.
+  Failures raise the package-declared `SocketException` and
   `TimeoutException`, subclasses of `IOException`.
 - **Generic IO facilities in `io`.** `io.nowMs()` reads the
   monotonic millisecond clock; `io.parkForIo(fd, events,

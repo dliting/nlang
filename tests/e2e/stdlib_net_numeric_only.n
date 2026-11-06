@@ -1,0 +1,52 @@
+import io;
+import net;
+
+// External review Important 2: host-name resolution runs only on the
+// resolver pool, never on a carrier. The five natives that take a
+// host string therefore accept a numeric endpoint only — a host name
+// is rejected with -5 (the argument error _throwNet maps) before any
+// handle lookup or socket work — and the script methods resolve host
+// names through the resolve job (parking, no carrier blocked). The
+// public surface keeps accepting host names, unchanged.
+
+int main() {
+    byte[] d = byte[4];
+    d[0] = 65;
+
+    // The natives reject host names. The check precedes the handle
+    // lookup, so the UDP/ICMP calls are pinned with an invalid
+    // handle (no admin rights needed for the ICMP one).
+    if (net._tcpBind("localhost", 0) != -5) { return 1; }
+    if (net._udpBind("localhost", 0) != -5) { return 2; }
+    if (net._udpConnect(0, "localhost", 9) != -5) { return 3; }
+    if (net._udpSendTo(0, d, 4, "localhost", 9, 0) != -5) { return 4; }
+    if (net._icmpSendTo(0, d, "localhost") != -5) { return 5; }
+    // A numeric endpoint still passes the guard untouched.
+    int h = net._tcpBind("127.0.0.1", 0);
+    if (h < 0) { return 6; }
+    net._tcpClose(h);
+
+    // The public surface resolves host names (on the pool): TCP.
+    TcpListener srv = TcpListener.bind("localhost", 0);
+    TcpStream cli = TcpStream.connect("localhost", srv.localPort(), 3000);
+    TcpStream c = srv.accept(3000);
+    if (cli.write(d) != 4) { return 7; }
+    byte[] buf = byte[8];
+    if (c.read(buf, 3000) != 4) { return 8; }
+    cli.close(); c.close(); srv.close();
+
+    // ... and UDP: bind, connect, sendTo all take host names.
+    UdpSocket u = UdpSocket.bind("localhost", 0);
+    UdpSocket v = UdpSocket.bind("localhost", 0);
+    v.connect("localhost", u.localPort());
+    if (v.send(d) != 4) { return 9; }
+    string peer = "";
+    int peerPort = 0;
+    if (u.recvFrom(buf, out peer, out peerPort, 3000) != 4) { return 10; }
+    if (u.sendTo(d, "localhost", v.localPort()) != 4) { return 11; }
+    if (v.recv(buf, 3000) != 4) { return 12; }
+    u.close(); v.close();
+
+    io.print("ok");
+    return 0;
+}

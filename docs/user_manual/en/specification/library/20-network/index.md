@@ -32,21 +32,27 @@ duplicate-package rule (§11.1).
 
 The package surface:
 
-- `net.ping(host, timeoutMs = 5000)` sends one ICMP echo request
-  and returns the round-trip time in milliseconds (§20.4).
+- `net.ping(host, timeoutMs = 5000)` sends ICMP echo requests to
+  `host` until one is answered and returns the round-trip time in
+  milliseconds (§20.4).
 - `TcpListener` — bind, accept, close (§20.2).
 - `TcpStream` — connect, read, write, readLine, readExactly,
   shutdownWrite, close, and the option setters (§20.2).
 - `UdpSocket` — bind, sendTo, recvFrom, connect, send, recv, and
-  the broadcast and multicast options (§20.3).
+  the broadcast, multicast and buffer-size options (§20.3).
 - `IcmpSocket` — bind, sendTo, recvFrom, close (§20.4).
 
 ### Parking and timeouts
 
 Every blocking method — `accept`, `read`, `readLine`,
-`readExactly`, `recv`, `recvFrom`, `connect`, `ping` — parks the
-calling virtual thread until the operation completes or the
-deadline passes; the carrier runs other contexts meanwhile (§10.1).
+`readExactly`, `write`, `send`, `sendTo`, `recv`, `recvFrom`,
+`connect`, `ping` — parks the calling virtual thread until the
+operation completes or the deadline passes; the carrier runs other
+contexts meanwhile (§10.1).
+Methods that name an address by host name — `bind`, `connect`,
+`sendTo`, `ping` — park while the name resolves as well:
+resolution runs on the runtime's resolver pool, so a slow lookup
+occupies no carrier (§10.1).
 The `timeoutMs` parameter fixes how long the call waits: `0` (the
 default) waits without a deadline, a positive value waits at most
 that many milliseconds. A wait that ends at its deadline raises
@@ -55,13 +61,13 @@ call may succeed.
 
 ### One operation per direction
 
-A socket allows one parked operation per direction at a time: if
-one context is parked in `read` on a socket, a second `read` on the
-same socket from another context raises `SocketException`
-(`another operation is parked on this socket`) rather than racing
-the first one for the bytes. The usual shape is one context per
-connection reading and, if needed, another writing — reads never
-split a stream between two readers.
+A socket allows one operation per direction at a time: while one
+context is reading from a socket — parked or still running the
+call — a second `read` on the same socket from another context
+raises `SocketException` (`another operation is in progress on
+this socket`) rather than racing the first one for the bytes. The
+usual shape is one context per connection reading and, if needed,
+another writing — reads never split a stream between two readers.
 
 ### Exceptions
 

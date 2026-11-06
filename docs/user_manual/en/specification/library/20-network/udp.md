@@ -12,15 +12,16 @@ rule are §20.1.
 | Member | Shape | Semantics |
 |---|---|---|
 | `UdpSocket.bind(host = "0.0.0.0", port = 0)` | static → `UdpSocket` | Binds a local endpoint; port `0` lets the system assign one, readable back through `localPort()` |
-| `sendTo(data, host, port, count = -1)` | → `int` | Sends one datagram — all of `data`, or its first `count` bytes — to `host:port` |
+| `sendTo(data, host, port, count = -1, timeoutMs = 0)` | → `int` | Sends one datagram — all of `data`, or its first `count` bytes — to `host:port`; parks while `host` resolves and when the send buffer is full, bounded by `timeoutMs` (§20.1) |
 | `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | → `int` | Takes the next datagram and reports its sender through the `out` parameters; returns the received byte count; parks until one arrives or the deadline passes |
 | `connect(host, port)` | — | Associates the socket with one peer; afterwards `send` / `recv` need no address and only that peer's datagrams arrive |
-| `send(data, count = -1)` | → `int` | Sends one datagram to the associated peer; raises `SocketException` when the socket is unconnected |
+| `send(data, count = -1, timeoutMs = 0)` | → `int` | Sends one datagram to the associated peer; raises `SocketException` when the socket is unconnected; parks when the send buffer is full, bounded by `timeoutMs` (§20.1) |
 | `recv(buf, timeoutMs = 0)` | → `int` | Takes the next datagram from the associated peer and returns its byte count — `0` is an empty datagram, not end of stream: UDP has no stream to end |
 | `setBroadcast(on)` | — | Allows sending to the broadcast address (`SO_BROADCAST`) |
 | `joinMulticast(group)` / `leaveMulticast(group)` | — | Joins or leaves a multicast group; the receiving interface is the socket's bound address (a wildcard bind selects the system default interface) |
 | `setMulticastTtl(ttl)` | — | Time-to-live for outgoing multicast datagrams (`1` stays on the local link) |
 | `setTtl(ttl)` | — | Time-to-live for outgoing unicast datagrams |
+| `setSendBufferSize(bytes)` / `setRecvBufferSize(bytes)` | — | Requests the socket buffer sizes |
 | `localAddress()` / `localPort()` | → `string` / `int` | The local endpoint |
 | `peerAddress()` / `peerPort()` | → `string` / `int` | The associated peer; raise `SocketException` when the socket is unconnected |
 | `close()` | — | Closes the socket; idempotent |

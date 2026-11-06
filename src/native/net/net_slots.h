@@ -75,8 +75,13 @@ public:
     //recycled immediately; otherwise the last ReleaseWaiter does both
     //(R5). Idempotent: a recycled handle is simply unknown.
     void MarkClosed(int32_t handle);
-    //Returns the slot's fd (-1 once really closed). Used by close/
-    //option arms before the closed check.
+    //Returns the slot's fd, or -1 when the handle is stale or the
+    //slot is closed — including the closed-but-deferred window (the
+    //fd stays open until the last waiter drains, R5): the fd is
+    //still usable there, but every handle arm must already report
+    //the closed code (external review M11). Close arms call this
+    //before MarkClosed, so the first close still sees the open fd;
+    //a repeat close gets -1 and skips the redundant wake.
     int FdOf(int32_t handle) const;
     int OpenCount() const;   //slots with a live fd (leak assertions)
     //Closes every still-open fd and clears the slots (executor

@@ -12,4 +12,22 @@ namespace nlang {
 void NetRegisterIcmpNatives(void* registry, RegisterNativeFn reg,
     RegisterNativeBlockingFn regBlocking);
 
+//Echo slice (external review I3): the helper timeout is always bounded
+//by this, so one ping job never holds a pool worker longer than one
+//slice — teardown and the priority-0 DNS queue are never hostage to a
+//black-hole host. A slice that expires while the script deadline still
+//allows re-arms with a fresh echo (retransmission, the shape every
+//ping tool uses).
+constexpr int kIcmpEchoSliceMs = 5000;
+
+//Echo timeout for the helper: the time left until the deadline capped
+//by the echo slice; deadline 0 (unlimited) gets one slice. Pure
+//(unit-tested in test_net_icmp.cpp).
+int IcmpEchoTimeout(long long deadline, long long nowMs);
+
+//Whether a finished job with this err must be re-submitted: only a
+//slice timeout while the deadline still allows (deadline 0 always
+//allows). Reply and unreachable verdicts are terminal.
+bool IcmpShouldResubmit(int err, long long deadline, long long nowMs);
+
 }  //namespace nlang

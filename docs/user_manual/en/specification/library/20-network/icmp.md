@@ -12,7 +12,7 @@ ICMP messages themselves.
 
 | Member | Shape | Semantics |
 |---|---|---|
-| `net.ping(host, timeoutMs = 5000)` | → `int` | Sends one ICMP echo request to `host` and waits for the echo reply; returns the round-trip time in milliseconds; raises `TimeoutException` when no answer arrives and `SocketException` when the host cannot be resolved or is unreachable |
+| `net.ping(host, timeoutMs = 5000)` | → `int` | Sends ICMP echo requests to `host` until one is answered — a request that draws no reply is retransmitted until the deadline, the shape the `ping` tool uses; returns the round-trip time in milliseconds; raises `TimeoutException` when the deadline passes with no answer and `SocketException` when the host cannot be resolved or reports unreachable |
 
 `ping` parks the calling context while it waits (§20.1). On Windows
 it runs through `IcmpSendEcho2` and needs no administrator rights;

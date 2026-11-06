@@ -30,9 +30,9 @@ and closing the listener ends the loop through `SocketException`.
 | Member | Shape | Semantics |
 |---|---|---|
 | `TcpStream.connect(host, port, timeoutMs = 0)` | static → `TcpStream` | Resolves `host` and establishes a connection, trying every resolved address in turn; the resolution and the wait both park the caller (§20.1); raises `TimeoutException` when the deadline passes before any address answers, `SocketException` when resolution fails or every connection attempt is refused |
-| `read(buf, timeoutMs = 0)` | → `int` | Fills up to `buf.length` bytes and returns the count; `0` means end of stream — the peer closed its write side. Bytes arrive in order; one `read` may return fewer bytes than asked for |
-| `write(data, count = -1)` | → `int` | Sends `count` bytes of `data` — all of it when `count` is `-1`; parks until the bytes are handed to the stack |
-| `write(s)` | → `int` | Text shorthand: encodes `s` as Unicode Transformation Format (UTF-8) bytes and sends them |
+| `read(buf, timeoutMs = 0)` | → `int` | Fills up to `buf.length` bytes of a non-empty `buf` and returns the count; `0` means end of stream — the peer closed its write side; an empty `buf` raises `SocketException`, because `0` is reserved for that end-of-stream signal. Bytes arrive in order; one `read` may return fewer bytes than asked for |
+| `write(data, count = -1, timeoutMs = 0)` | → `int` | Sends `count` bytes of `data` — all of it when `count` is `-1`; parks until the bytes are handed to the stack. `timeoutMs` bounds the whole write-all: if the peer stops reading and the deadline passes, raises `TimeoutException` with part of the payload already sent |
+| `write(s, timeoutMs = 0)` | → `int` | Text shorthand: encodes `s` as Unicode Transformation Format (UTF-8) bytes and sends them, with the same timeout behavior as the byte overload |
 | `readLine(timeoutMs = 0)` | → `string` | Reads up to and past the next `\n`, strips it (and a preceding `\r`), and returns the line; returns `null` when the stream ends with nothing read, and the partial line when it ends mid-line — `null` is the end-of-input marker for line-framed protocols |
 | `readExactly(count, timeoutMs = 0)` | → `byte[]` | Reads exactly `count` bytes into a fresh array; raises `SocketException` when the stream ends early — the right tool for a `Content-Length`-framed body |
 | `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below) |

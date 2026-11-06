@@ -102,7 +102,10 @@ void NetSocketTable::MarkClosed(int32_t handle) {
 
 int NetSocketTable::FdOf(int32_t handle) const {
     const NetSocketSlot* slot = SlotOf(handle, const_cast<NetSocketTable*>(this)->m_slots);
-    return slot ? slot->fd : -1;
+    //Closed is closed even mid-deferral (external review M11): the
+    //setters, shutdownWrite and the non-parking send/connect arms
+    //all resolve through here, so one check covers every arm.
+    return (slot && !slot->closed) ? slot->fd : -1;
 }
 
 void NetSocketTable::Recycle(int32_t handle) {

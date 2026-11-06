@@ -28,7 +28,10 @@ void NetStateDtor(void* state) {
         //R9: pool workers write job records through the state pointer;
         //the free must wait for every in-flight job to fill (the pool
         //itself is joined later, at scheduler teardown — R8
-        //precondition).
+        //precondition). The wait is bounded, not open-ended: every
+        //helper timeout is capped (the ICMP echo slice, net_icmp.h;
+        //getaddrinfo's own resolver timeout), so teardown is never
+        //hostage to external network state (external review I3).
         std::unique_lock<std::mutex> g(st->m_mutex);
         st->m_jobsShutdown = true;
         st->m_jobsDoneCv.wait(g, [st] {
@@ -44,15 +47,24 @@ void NetStateDtor(void* state) {
     if (st->m_selfPipeFds[1] >= 0)
         NetClose(st->m_selfPipeFds[1]);
     //Executor teardown closes sockets the script never closed (design
-    //D12 backstop).
+    //D12 backstop). Invariant (external review M14): a module may
+    //close fds the VM poller still watches only in this window —
+    //the normal close arms deregister through wakeIoWaiters first,
+    //but the moduleState dtor has no host to call, so the poller
+    //keeps stale registrations (these fds and the self-pipe read
+    //end above) until the scheduler destructor joins it. Benign by
+    //construction: the run has ended (carriers joined, no context
+    //parked) and no new fd is minted here, so HUP/ERR events the
+    //poller reports for a closed fd wake nobody.
     std::lock_guard<std::mutex> g(st->m_mutex);
     st->m_slots.CloseAllOpen();
     delete st;
 }
 
-void NetRememberLastError(NetExecState* st) {
+void NetRememberLastError(NativeHost* h) {
+    NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
-    st->m_lastErrorText = NetLastErrorText();
+    st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
 }
 
 }  //namespace nlang

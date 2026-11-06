@@ -12,9 +12,12 @@
     first-entry registration share ONE state-mutex critical section;
     the closer (MarkClosed under the mutex, wakeIoWaiters after the
     unlock) runs on the same mutex — the lost-wakeup window is closed
-    on both sides. Re-entry rebuilds this stack, so a call adopts the
-    claim that survived the park (waiter == self) and releases it on
-    every exit path (R5: the last release performs the deferred
+    on both sides. A call claims its direction at entry (external
+    review C1: the GIL is away for the whole native body, so a claim
+    only at the park would let two fresh same-direction calls race
+    for the bytes); re-entry rebuilds this stack and adopts the claim
+    that survived the park (waiter == self). Every exit path releases
+    when claimed (R5: the last release performs the deferred
     close). Data always wins over expired bookkeeping: the syscall is
     tried before the deadline is consulted (review focus 1).
 
@@ -25,6 +28,7 @@
 ---*/
 #include "net_tcp.h"
 
+#include "net_options.h"
 #include "net_platform.h"
 #include "net_slots.h"
 #include "net_state.h"
@@ -102,11 +106,10 @@ NetParkOutcome NetClaimAndPark(NetExecState* st, int32_t handle, NetDir dir,
     return kNetParkReplay;
 }
 
-//Declared in net_tcp_park.h: shared by every parking native (the UDP
-//receive arms run the same discipline).
-
 //Releases the direction's claim if this call holds it (R9: table
 //access under the state mutex; R5: the last release closes the fd).
+//Declared in net_tcp_park.h: shared by every parking native (the UDP
+//receive arms run the same discipline).
 void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed) {
     if (!claimed)
         return;
@@ -114,7 +117,8 @@ void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed) {
     st->m_slots.ReleaseWaiter(handle, dir);
 }
 
-//Reads the slot's fd and adopts this call's claim under the mutex.
+//Claims the direction for this call (or adopts the claim that
+//survived a park) and reads the slot's fd, under the mutex.
 //kNetAdoptGone when the slot is gone: the direction's waiter is
 //cleared unconditionally — a claim there is either this call's own
 //pre-park claim (releasing it lets the R5 deferred close proceed) or
@@ -139,10 +143,18 @@ NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
         : slot->acceptWaiter;
     if (waiter != 0 && waiter != self)
         return kNetAdoptConcurrent;
-    //Re-entry rebuilds this stack: adopt the claim that survived the
-    //park (waiter == self is this call's own; waiter == 0 is a fresh
-    //call that has not claimed yet).
-    *claimed = (waiter == self);
+    //External review C1: claim at entry, not at the park. The
+    //blocking arm releases the GIL for the whole native body, so two
+    //fresh same-direction calls run concurrently until one parks —
+    //an unclaimed window let the second reset the first's
+    //per-direction state (writeSent) and split or duplicate the
+    //stream. Claiming here makes the manual's one-operation-per-
+    //direction contract hold unconditionally: the second fresh
+    //caller sees a foreign waiter and is rejected before touching
+    //anything. Re-entry (waiter == self) adopts the claim that
+    //survived the park; every exit path releases when claimed.
+    st->m_slots.SetWaiter(handle, dir, self);
+    *claimed = true;
     return kNetAdoptOk;
 }
 
@@ -190,7 +202,11 @@ void NetUnpackBytes(const NativeArrayView& view, const uint8_t* bytes,
 //--- read ------------------------------------------------------------------
 
 //_tcpRead(handle, buf, deadlineMs): try recv, then the deadline, then
-//claim+park. Returns bytes read (0 = EOF) or an R10 code.
+//claim+park. Returns bytes read (0 = EOF) or an R10 code. A
+//zero-length buf is rejected as an argument error (external review
+//M12): recv(fd, ptr, 0) returns 0, which this contract reserves for
+//EOF — the degenerate call must not masquerade as end of stream. The
+//arg guard precedes the slot state, the numeric-only discipline.
 void NetTcpRead(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     const int32_t handle = ArgInt(a, 0);
@@ -198,6 +214,7 @@ void NetTcpRead(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ArgArray(h, a, 1, &buf);
     const long long deadline = ArgLong(a, 2);
     const int self = h->currentContextId(h);   //R14
+    if (buf.elemCount == 0) { ReturnInt(ret, kNetErrArg); return; }
     std::vector<uint8_t> scratch(static_cast<size_t>(buf.elemCount));
     bool claimed = false;
     for (;;) {
@@ -220,7 +237,7 @@ void NetTcpRead(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         if (n != kNetWouldBlock) {
             NetRelease(st, handle, NetDir::Read, claimed);
-            NetRememberLastError(st);   //lastErrorText under the mutex
+            NetRememberLastError(h);   //lastErrorText under the mutex
             ReturnInt(ret, kNetErrPlatform);
             return;
         }
@@ -272,7 +289,7 @@ void NetTcpWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         const int run = NetSendRun(st, handle, fd, packed, &offset);
         if (run < 0) {
             NetRelease(st, handle, NetDir::Write, claimed);
-            NetRememberLastError(st);   //EPIPE: connection lost
+            NetRememberLastError(h);   //EPIPE: connection lost
             ReturnInt(ret, kNetErrPlatform);
             return;
         }
@@ -325,7 +342,7 @@ void NetTcpAccept(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         if (peer != kNetWouldBlock) {
             NetRelease(st, handle, NetDir::Accept, claimed);
-            NetRememberLastError(st);
+            NetRememberLastError(h);
             ReturnInt(ret, kNetErrPlatform);
             return;
         }
@@ -360,7 +377,7 @@ void NetTcpShutdownWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         ReturnInt(ret, 0);
         return;
     }
-    NetRememberLastError(st);
+    NetRememberLastError(h);
     ReturnInt(ret, kNetErrPlatform);
 }
 
@@ -378,13 +395,13 @@ void NetTcpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     const NetSocketSlot* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        st->m_lastErrorText = "socket closed";
+        st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
         ReturnInt(ret, 0);
         return;
     }
     const std::string text = NetPeerAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, 0);
         return;
     }
@@ -402,7 +419,7 @@ void NetTcpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetPeerPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText = NetLastErrorText();
+        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -411,74 +428,27 @@ void NetTcpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 //--- options ---------------------------------------------------------------
 
-namespace {
-
-//Shared option-setter shape (R10): resolve the fd under the mutex,
-//apply one setsockopt, map a closed slot to -1 and a setsockopt
-//failure to -4 with the platform text recorded. The bool travels as
-//an int32 cell (the VM's bool representation — fs natives' return
-//shape in reverse).
-void ApplyOption(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    bool (*apply)(int, bool)) {
-    NetExecState* st = NetState(h);
-    int fd = -1;
-    {
-        std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));
-    }
-    if (fd < 0) {
-        ReturnInt(ret, kNetErrClosed);
-        return;
-    }
-    if (apply(fd, ArgInt(a, 1) != 0)) {
-        ReturnInt(ret, 0);
-        return;
-    }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
-}
-
-//Int-valued variant of ApplyOption (buffer sizes).
-void ApplyIntOption(NativeHost* h, uint8_t* ret, const uint8_t* a,
-    bool (*apply)(int, int)) {
-    NetExecState* st = NetState(h);
-    int fd = -1;
-    {
-        std::lock_guard<std::mutex> g(st->m_mutex);
-        fd = st->m_slots.FdOf(ArgInt(a, 0));
-    }
-    if (fd < 0) {
-        ReturnInt(ret, kNetErrClosed);
-        return;
-    }
-    if (apply(fd, ArgInt(a, 1))) {
-        ReturnInt(ret, 0);
-        return;
-    }
-    NetRememberLastError(st);
-    ReturnInt(ret, kNetErrPlatform);
-}
-
-}  //namespace
+//The setter shape itself lives in net_options.cpp (shared with the
+//UDP option natives).
 
 //_tcpSetNoDelay(handle, on): TCP_NODELAY. 0, -1 closed, -4 platform.
 void NetTcpSetNoDelay(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
-    ApplyOption(h, ret, a, NetSetNoDelay);
+    NetApplyFlag(h, ret, a, NetSetNoDelay);
 }
 
 //_tcpSetKeepAlive(handle, on): SO_KEEPALIVE.
 void NetTcpSetKeepAlive(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
-    ApplyOption(h, ret, a, NetSetKeepAlive);
+    NetApplyFlag(h, ret, a, NetSetKeepAlive);
 }
 
 //_tcpSetSendBufferSize(handle, bytes): SO_SNDBUF (the kernel may clamp).
 void NetTcpSetSendBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
-    ApplyIntOption(h, ret, a, NetSetSendBuffer);
+    NetApplyInt(h, ret, a, NetSetSendBuffer);
 }
 
 //_tcpSetRecvBufferSize(handle, bytes): SO_RCVBUF (the kernel may clamp).
 void NetTcpSetRecvBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
-    ApplyIntOption(h, ret, a, NetSetRecvBuffer);
+    NetApplyInt(h, ret, a, NetSetRecvBuffer);
 }
 
 }  //namespace nlang

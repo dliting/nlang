@@ -2076,11 +2076,13 @@ stdlib_net_tcp_localhost 0 ok
 stdlib_net_tcp_close_wakes_reader 0 ok
 stdlib_net_tcp_concurrent_reader 0 ok
 stdlib_net_tcp_write_closed 0 ok
+stdlib_net_tcp_write_timeout 0 ok
 stdlib_net_tcp_ipv6 0 ok
 stdlib_net_tcp_options 0 ok
 stdlib_net_tcp_readline 0 ok
 stdlib_net_udp_echo 0 ok
 stdlib_net_udp_connected 0 ok
+stdlib_net_udp_send_park 0 ok
 stdlib_net_udp_multicast 0 ok
 stdlib_net_ping_loopback 0 ok
 stdlib_net_icmp_raw 0 ok
@@ -2090,4 +2092,9 @@ stdlib_net_tcp_concurrent_writer 0 ok
 stdlib_net_ping_stress 0 ok
 stdlib_net_count_guard 0 ok
 stdlib_net_udp_ttl 0 ok
+stdlib_net_numeric_only 0 ok
+stdlib_net_last_error_text 0 ok
+stdlib_net_closed_slot_setters 0 ok
+stdlib_net_tcp_zero_read 0 ok
+stdlib_net_conc_bytes 0 ok
 stdlib_io_park_guard 0 ok
