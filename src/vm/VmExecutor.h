@@ -770,6 +770,16 @@ private:
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
     void OpCheckCast(BytecodeReader& reader, uint8_t* pResult);
+    //The class a checked-cast operand dispatches on: a class record's
+    //own header; boxed values and arrays (owned or view) resolve their
+    //protocol roots (Object / the Array face — spec 4.1, final-review
+    //I1). Non-class, non-Object kinds have no row (host error).
+    int32_t CastOperandClassIndex(int32_t heapIdx) const;
+    //True when the class at actualClassIdx is targetClassIdx or a
+    //subclass of it — the super-chain walk OpCheckCast checks. Exact
+    //mirror of the historical inline loop (range-breaks included).
+    bool ClassMatchesTarget(int32_t actualClassIdx,
+                            uint16_t targetClassIdx) const;
     void OpThrow(BytecodeReader& reader, uint8_t* locals);
     void OpRethrow();
     void OpPopHandler();
@@ -779,9 +789,9 @@ private:
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
 
     //Serialize all fields of a struct to a byte sink.
-    //Recursive over nested struct and class fields (class via
-    //SerializeClassFields — Phase 8c). Array fields throw (Phase 8e).
-    //Depth limit prevents pathological cycles.
+    //Recursive over nested struct, class and array fields (class via
+    //SerializeClassFields — Phase 8c; array via SerializeArrayRecord —
+    //v0.12.7 Task 13). Depth limit guards against pathological cycles.
     //Writer callable signature: void(const uint8_t* p, size_t n)
     template<typename Writer, typename StreamState>
     void SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
@@ -826,6 +836,12 @@ private:
     template<typename Reader, typename StreamState>
     int32_t DeserializeArrayRecord(Reader&& read, StreamState& st,
         int depth);
+    //The tag-dispatch tail behind DeserializeArrayRecord; class-field
+    //reader positions that already peeked the tag (tag 3 there) enter
+    //here directly.
+    template<typename Reader, typename StreamState>
+    int32_t DeserializeArrayRecordTagged(uint8_t tag, Reader&& read,
+        StreamState& st, int depth);
     template<typename Reader>
     void ReadArrayHeader(Reader&& read, uint8_t& elemKindOut,
         uint16_t& elemTypeIdxOut, uint8_t& rankOut, int32_t* dimsOut);
@@ -833,6 +849,15 @@ private:
     void ReadArrayElements(int32_t heapIdx, uint8_t elemKind,
         uint16_t elemTypeIdx, int32_t elemCount, Reader&& read,
         StreamState& st, int depth);
+
+    //Final-review C4: boxed values in Object-typed positions — tag 4 in
+    //the class-ref tag space. Payload: the wrapped kind byte, then a
+    //string (length-prefixed) or a scalar at the registry width. Boxes
+    //are immutable values: no back-reference, each read mints fresh.
+    template<typename Writer>
+    void WriteBoxedRecord(int32_t heapIdx, Writer&& write);
+    template<typename Reader>
+    int32_t ReadBoxedRecord(Reader&& read);
 
     //Materialize a view record into a fresh owning record of the view's
     //dims (per-element affine copy). Returns the new heap index; the
@@ -894,12 +919,19 @@ private:
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);
-    //Class index a virtual method call on this receiver dispatches on.
-    //A boxed record's header slot holds the wrapped type tag, not a
-    //class index — boxed receivers resolve against Object, the static
-    //type every boxed value carries (their only reachable methods are
-    //the Object protocol). Returns -1 when Object is absent (callers
-    //report an invalid class index).
+    //Bare-name class-row scans over the prelude root: builtins' face
+    //classes are keyed bare in every image, a user package's same-name
+    //row is package-qualified and must not shadow them. -1 when absent
+    //(callers report an invalid class index). ObjectRootClassIdx backs
+    //boxed-value dispatch/casts (a boxed record's header holds the
+    //wrapped type tag, not a class index); ArrayFaceClassIdx backs
+    //array-value dispatch/casts (an array record's header holds its
+    //kind byte — spec 4.1: Array<E> <: Object).
+    int32_t ObjectRootClassIdx() const;
+    int32_t ArrayFaceClassIdx() const;
+    //Class index a virtual method call on this receiver dispatches on:
+    //a class record by its header, boxed values and arrays (owned or
+    //view) by their protocol roots above.
     int32_t ReceiverClassIndex(int32_t heapIdx) const;
 
     //Invoke virtual toString on a class instance by heap idx, returning

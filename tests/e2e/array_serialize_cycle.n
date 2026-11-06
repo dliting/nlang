@@ -1,0 +1,27 @@
+// Final-review I2: cyclic graphs through array records serialize — the
+// array takes part in the back-reference table, so a struct whose array
+// field points back to the containing array round-trips with identity
+// restored.
+import io;
+
+struct S {
+    S[] f;
+}
+
+int main() {
+    S[] s = S[1];
+    S e = s[0];
+    e.f = s;
+    s[0] = e;
+
+    ByteStream bs = ByteStream();
+    bs.writeObject(s);
+    bs.reset();
+    S[] back = bs.readArray() as S[];
+
+    int acc = 0;
+    if (back.shape()[0] == 1) { acc = acc + 1; }
+    S be = back[0];
+    if (be.f == back) { acc = acc + 2; }    // back-ref: same array, not a copy
+    return acc;
+}

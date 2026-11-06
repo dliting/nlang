@@ -50,25 +50,26 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
 }
 
 //full(dims, value): the int[] dims vector shapes the mint, the fill
-//value rides slot 1. A negative dim raises the bounds family (sized
-//creation); NewArrayShaped enforces the element-count cap.
+//value rides slot 1. The dims cells are collected through the shared
+//rank-1 collector (stride-aware walk of a view's logical cells, bounded
+//length) — a direct linear read would shape the result from the wrong
+//cells whenever dims is a strided view. A negative dim raises the
+//bounds family (sized creation); NewArrayShaped enforces the
+//element-count cap.
 template <typename T>
 void FullDimsKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                     uint8_t kind, T value) {
     NativeArrayView dims;
     ArgArray(host, args, 0, &dims);
-    if (dims.elemKind != NEK_Int32)
-        Raise(host, NEXC_Base, "tensor.full: dims must be int[]");
-    const int32_t rank = static_cast<int32_t>(dims.elemCount);
-    if (rank < 1 || rank > nlang::kMaxArrayRank)
-        Raise(host, NEXC_Base, "tensor.full: dims length out of range");
     int32_t shape[nlang::kMaxArrayRank];
-    const int32_t* cells = static_cast<const int32_t*>(dims.data);
+    const int32_t rank =
+        CollectIntCells(host, dims, "tensor.full", shape);
+    if (rank < 1)
+        Raise(host, NEXC_Base, "tensor.full: dims length out of range");
     for (int32_t d = 0; d < rank; ++d) {
-        if (cells[d] < 0)
+        if (shape[d] < 0)
             Raise(host, NEXC_OutOfBounds,
                   "tensor.full: dims dim is negative");
-        shape[d] = cells[d];
     }
     const int32_t handle = NewArrayShaped(host, kind, rank, shape);
     NativeArrayView v;

@@ -1,0 +1,42 @@
+// Final-review C4: an Object-declared field may hold an array, a boxed
+// primitive or a string — writeObject serializes the runtime value
+// (crashed on all three before) and readObject restores it.
+import io;
+
+class Box {
+    public Object o;
+}
+
+int main() {
+    int acc = 0;
+
+    int[,] m = int[2, 3];
+    m[1, 2] = 7;
+    Box b = Box();
+    b.o = m;
+    ByteStream bs = ByteStream();
+    bs.writeObject(b);
+    bs.reset();
+    Box back = bs.readObject("Box");
+    int[,] bm = back.o as int[,];
+    if (bm[1, 2] == 7) { acc = acc + 1; }
+
+    Box bi = Box();
+    bi.o = 5;
+    ByteStream bsi = ByteStream();
+    bsi.writeObject(bi);
+    bsi.reset();
+    Box bi2 = bsi.readObject("Box");
+    int iv = bi2.o as int;
+    if (iv == 5) { acc = acc + 2; }
+
+    Box bx = Box();
+    bx.o = "hi";
+    ByteStream bss = ByteStream();
+    bss.writeObject(bx);
+    bss.reset();
+    Box bx2 = bss.readObject("Box");
+    if (bx2.o as string == "hi") { acc = acc + 4; }
+
+    return acc;
+}

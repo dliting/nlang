@@ -19,7 +19,7 @@ past the end of the stream, a struct or object read naming a
 type the program does not declare, a function-typed field
 written by `writeStruct` or `writeObject`, and an array whose
 elements are class references written by `writeObject` (scalar
-and struct elements serialize, §14.6).
+and struct elements serialize, §14.7).
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -71,8 +71,12 @@ and `readArray()` reads it back. `readArray()` returns `Object`;
 cast the result with `as` to the annotated array type, and the
 cast checks rank and element type exactly as it does for any
 array value (§4.5). Within one `writeObject` graph, shared references are
-preserved: two fields naming the same instance read back as one
-instance. `close()` on a `FileStream` releases the
+preserved: two fields naming the same instance — or the same array —
+read back as one value, and a cycle that runs through an array field
+reads back as the same cycle. An `Object`-typed field serializes
+whatever value it holds — a class instance, an array, or a boxed
+primitive or string (§4.11.1) — and reads back to the same value.
+`close()` on a `FileStream` releases the
 operating-system handle and invalidates the stream handle;
 later calls on the same reference report the invalid-handle
 error. The byte-level encoding of the values — byte order and
@@ -135,10 +139,14 @@ each dimension as a 4-byte signed integer, and finally the
 elements in row-major order. Scalar elements encode at their own
 width exactly as struct fields do, `string` elements in the
 `writeString` form, and struct elements as bare struct records,
-one per element. `readArray()` consumes such a record and
+one per element. A repeated array reference — including a cycle
+back through an array field — writes the tag-`2` back-reference
+of the class records below instead of a second copy; array
+records take part in the same object-id numbering.
+`readArray()` consumes such a record and
 returns a freshly created owning array (never a view); a `null`
 array field written in a graph reads back as the tag-`0` null
-of §14.7's class records. A tag other than `0` or `3` read by
+of §14.7's class records. A tag other than `0`, `2` or `3` read by
 `readArray`, a struct name the program does not declare, a rank
 outside 1 to 64, and an element kind with no wire form are
 host-level run-time errors (§8.1).
@@ -150,17 +158,23 @@ class-typed value, tagged by its first byte:
 |---|---|---|
 | `0` | `null` | the tag byte alone |
 | `1` | an instance written for the first time | the tag byte, a 4-byte unsigned length, the class's qualified name (§3.6), then the instance's fields — inherited fields first, base class to derived class — each encoded as in the struct table |
-| `2` | an instance already written on this stream | the tag byte and a 4-byte object id |
+| `2` | an instance or array record already written on this stream | the tag byte and a 4-byte object id |
+| `3` | an array value in a class-field position | the array record of this section (an `Object`-typed field holding an array writes this form) |
+| `4` | a boxed primitive or string in a class-field position | the tag byte, the wrapped kind byte, then a length-prefixed `string` (the `writeString` form) or a scalar at its own width (an `Object`-typed field holding a boxed value writes this form) |
 
 Object ids are assigned in write order, counting from 0, one
-id per tag-`1` record. `readObject(name)` re-creates the
+id per tag-`1` or tag-`3` record. `readObject(name)` re-creates the
 graph: a tag-`1` record's name must name a class the program
 declares, and that class must be the named type or a subclass
 of it (§4.8.5); the instance is registered under the next id
 before its fields are read, so a cycle resolves to the same
-instance. A tag other than `0`, `1` or `2`, an object id not
-yet read, a name the program does not declare, and a class
-that is neither the named type nor a subclass of it are
+instance. A value-form tag (`3` or `4`) is legal only where the
+declared field type is `Object` — the only class type arrays and
+boxed values convert to (§4.10.7, §4.11.1). A tag other than the
+five above, an object id not
+yet read, a name the program does not declare, a class
+that is neither the named type nor a subclass of it, and a
+value-form tag under a class type other than `Object` are
 host-level run-time errors (§8.1).
 
 **Identity state.** The id numbering belongs to the stream,

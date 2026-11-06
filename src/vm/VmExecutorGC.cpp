@@ -312,14 +312,18 @@ namespace {
 //Single source for the class/struct field arms' declared-vs-runtime
 //double condition (was two hand-expanded four-way conditions — same
 //shape as IsChildBearingHeapKind/ArrayElemKindAccepts). Object-declared
-//fields also hold boxed primitive records (runtime RTK_Boxed). An
-//array-declared slot may hold a VIEW record at runtime (the unannotated
-//Array<T> boundary admits any rank) — the worklist's view arm walks its
-//target edge.
+//fields also hold boxed primitive records (runtime RTK_Boxed) and,
+//since arrays are Object values (§4.11.1), array records owned or view
+//(final-review C1: without these arms the sweep frees a reachable
+//array and the field keeps a dangling handle). An array-declared slot
+//may hold a VIEW record at runtime (the unannotated Array<T> boundary
+//admits any rank) — the worklist's array/view arms walk them.
 inline bool DeclaredFieldAcceptsRuntime(uint8_t declaredKind,
                                         uint8_t runtimeKind) {
     return (declaredKind == RTK_Class
-                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed))
+                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed
+                    || runtimeKind == RTK_Array
+                    || runtimeKind == RTK_ArrayView))
         || (declaredKind == RTK_Struct && runtimeKind == RTK_Struct)
         || (declaredKind == RTK_Func && runtimeKind == RTK_Func)
         || (declaredKind == RTK_Array
@@ -404,20 +408,27 @@ namespace {
 //Single source for the array-element trace acceptance (was four
 //hand-expanded else-if arms): declared elemKind must match the record's
 //runtime slot kind. Object[] elements carry boxed primitive records
-//(declared RTK_Class, runtime RTK_Boxed) — same acceptance as the
-//field arms. The RTK_Array row (an array whose elements are themselves
-//array records, array redesign B spec §5.3#1) is currently unreachable
-//from compilable source (jagged declarations rejected; List<int[]>
-//elements live in the container store) — defensive base for
-//future/external .nmod paths. String elements never reach this test
-//(they carry store handles, routed before it).
+//(declared RTK_Class, runtime RTK_Boxed) and array records owned or
+//view (arrays are Object values, §4.11.1 — final-review C1) — same
+//acceptance as the field arms. The RTK_Array row (an array whose
+//elements are themselves array records, array redesign B spec §5.3#1)
+//is currently unreachable from compilable source (jagged declarations
+//rejected; List<int[]> elements live in the container store) —
+//defensive base for future/external .nmod paths, kept symmetric with
+//the field predicate (a view element rides the view arm). String
+//elements never reach this test (they carry store handles, routed
+//before it).
 inline bool ArrayElemKindAccepts(uint8_t elemKind, uint8_t runtimeKind)
 {
     return (elemKind == RTK_Class
-                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed))
+                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed
+                    || runtimeKind == RTK_Array
+                    || runtimeKind == RTK_ArrayView))
         || (elemKind == RTK_Struct && runtimeKind == RTK_Struct)
         || (elemKind == RTK_Func && runtimeKind == RTK_Func)
-        || (elemKind == RTK_Array && runtimeKind == RTK_Array);
+        || (elemKind == RTK_Array
+                && (runtimeKind == RTK_Array
+                    || runtimeKind == RTK_ArrayView));
 }
 } // namespace
 

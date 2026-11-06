@@ -207,6 +207,39 @@ void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
     }
 }
 
+int32_t VmExecutor::CastOperandClassIndex(int32_t heapIdx) const {
+    const uint8_t slotKind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (slotKind == RTK_Boxed)
+        return ObjectRootClassIdx();
+    if (slotKind == RTK_Array || slotKind == RTK_ArrayView)
+        return ArrayFaceClassIdx();
+    if (slotKind == RTK_Class)
+        return m_structHeap[static_cast<size_t>(heapIdx)][0];
+    throw std::runtime_error(
+        "NLang VM: CheckCast target is not a class object");
+}
+
+bool VmExecutor::ClassMatchesTarget(int32_t actualClassIdx,
+                                    uint16_t targetClassIdx) const {
+    if (actualClassIdx == static_cast<int32_t>(targetClassIdx))
+        return true;
+    int32_t cur = actualClassIdx;
+    while (cur > 0)
+    {
+        if (static_cast<size_t>(cur) >= m_currModule->classes.size())
+            break;
+        const int16_t sup = m_currModule->classes[
+            static_cast<size_t>(cur)].superClassIdx;
+        if (sup < 0 || static_cast<size_t>(sup) >=
+            m_currModule->classes.size())
+            break;
+        if (static_cast<uint16_t>(sup) == targetClassIdx)
+            return true;
+        cur = static_cast<int32_t>(sup);
+    }
+    return false;
+}
+
 void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
     uint16_t targetClassIdx = reader.ReadUint16();
     int32_t heapIdx;
@@ -218,28 +251,16 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
     if (heapIdx < 0
         || static_cast<size_t>(heapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: cast on invalid reference");
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] != RTK_Class)
-        throw std::runtime_error("NLang VM: CheckCast target is not a class object");
-    int32_t actualClassIdx = m_structHeap[static_cast<size_t>(heapIdx)][0];
-    //Walk the actual class's super chain; accept if target is found.
-    bool ok = (actualClassIdx == static_cast<int32_t>(targetClassIdx));
-    int32_t cur = actualClassIdx;
-    while (!ok && cur > 0)
-    {
-        const auto& cc = m_currModule->classes[
-            static_cast<size_t>(cur)];
-        int16_t sup = cc.superClassIdx;
-        if (sup < 0 || static_cast<size_t>(sup) >=
-            m_currModule->classes.size())
-            break;
-        if (static_cast<uint16_t>(sup) == targetClassIdx)
-        {
-            ok = true;
-            break;
-        }
-        cur = static_cast<int32_t>(sup);
-    }
-    if (!ok)
+    //v0.12.7 (final-review I1): arrays (owned or view) and boxed values
+    //are Object citizens — their protocol rows walk the same super
+    //chain as class records, so every class-target failure raises the
+    //catchable InvalidCastException below (the §4.5 error model);
+    //before, these kinds hit the host error and escaped every catch.
+    const int32_t actualClassIdx = CastOperandClassIndex(heapIdx);
+    if (actualClassIdx < 0)
+        throw std::runtime_error(
+            "NLang VM: protocol root class row missing for cast");
+    if (!ClassMatchesTarget(actualClassIdx, targetClassIdx))
     {
         const auto& tgt = m_currModule->classes[
             static_cast<size_t>(targetClassIdx)];
@@ -289,29 +310,37 @@ bool VmExecutor::IsSubclassOf(uint16_t actualIdx, uint16_t declaredIdx) {
     return false;
 }
 
+int32_t VmExecutor::ObjectRootClassIdx() const {
+    const auto& classes = m_currModule->classes;
+    for (size_t i = 0; i < classes.size(); ++i)
+        if (classes[i].name == "Object")
+            return static_cast<int32_t>(i);
+    return -1;
+}
+
+int32_t VmExecutor::ArrayFaceClassIdx() const {
+    const auto& classes = m_currModule->classes;
+    for (size_t i = 0; i < classes.size(); ++i)
+        if (classes[i].name == "Array")
+            return static_cast<int32_t>(i);
+    return -1;
+}
+
 int32_t VmExecutor::ReceiverClassIndex(int32_t heapIdx) const {
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Boxed) {
-        const auto& classes = m_currModule->classes;
-        //Bare-name scan = the prelude root: prelude top-level members key
-        //bare "Object" in every image (source-of-truth design §6.7); a
-        //user pkg.Object is keyed with its package and must not be treated
-        //as the boxed-primitive root.
-        for (size_t i = 0; i < classes.size(); ++i)
-            if (classes[i].name == "Object")
-                return static_cast<int32_t>(i);
-        return -1;
-    }
-    //v0.12.7 Task 5: an array receiver dispatches on the Array face —
-    //the face row's stamped protocol methods (toString/equals/
-    //getHashCode) answer Object-receiver protocol calls (spec 4.1:
-    //Array<E> <: Object). Same bare-name scan as the boxed root.
-    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_Array) {
-        const auto& classes = m_currModule->classes;
-        for (size_t i = 0; i < classes.size(); ++i)
-            if (classes[i].name == "Array")
-                return static_cast<int32_t>(i);
-        return -1;
-    }
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    //Boxed receivers resolve against Object, the static type every
+    //boxed value carries (their only reachable methods are the Object
+    //protocol).
+    if (kind == RTK_Boxed)
+        return ObjectRootClassIdx();
+    //v0.12.7 Task 5: an array receiver (owning record or view — both
+    //record kinds dispatch alike) lands on the Array face — the face
+    //row's stamped protocol methods (toString/equals/getHashCode)
+    //answer Object-receiver protocol calls (spec 4.1: Array<E> <:
+    //Object). Final-review C2: the view record's header holds its kind
+    //byte, which must never reach the class-index read below.
+    if (kind == RTK_Array || kind == RTK_ArrayView)
+        return ArrayFaceClassIdx();
     return m_structHeap[static_cast<size_t>(heapIdx)][0];
 }
 

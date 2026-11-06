@@ -156,6 +156,51 @@ All notable changes to NLang are documented here. The format follows
   broadcast axis rejects exactly as before; `tensor.slice` also
   now raises on an int32-overflowing span instead of silently
   truncating the stride.
+- **Arrays held in `Object`-typed slots survive collection.** The
+  garbage collector's field- and element-trace acceptance did not
+  recognize array records (owned or view) under a declared
+  `Object` kind, so an array stored in an `Object` field or an
+  `Object[]` element was swept while still reachable — the next
+  `as` read a reused slot: wrong data or a dangling handle. Both
+  acceptance predicates now take the array kinds under `Object`.
+- **Protocol calls on view receivers dispatch on the Array
+  face.** `ReceiverClassIndex` had no arm for view records, so
+  `Object o = a[1:3]; o.toString()` read the record's kind byte
+  as a class index — an uncatchable invalid-class-index error at
+  best, and in modules with enough classes a method dispatched
+  through the wrong row with the view as `this`. Views now
+  resolve to the same Array face row owning arrays use.
+- **Oversized tensor shape lists are a catchable error.**
+  `CollectIntCells` copied a shape list's cells into a fixed
+  64-cell buffer before any length check — `tensor.reshape` with
+  a 65-cell shape smashed the stack and killed the process. The
+  walk is bounded by the buffer contract now; the same fix makes
+  `tensor.full(dims, value)` read the dims cells through a
+  strided view's logical content (a linear read used the owner's
+  cells) and reject non-rank-1 dims.
+- **`as` with a class target on array and boxed values is
+  catchable.** `o as SomeClass` where `o` holds an array or a
+  boxed primitive raised an uncatchable host error instead of
+  the `InvalidCastException` the checked-cast error model
+  promises. Both kinds now resolve their protocol rows (Array
+  face / Object root) and walk the same super chain as class
+  records — the Object root upcast succeeds, anything else
+  raises the catchable failure.
+- **Cycles through array records serialize.** Array records took
+  no part in the back-reference table, so a struct whose array
+  field pointed back at the containing array hit the uncatchable
+  depth limit while class cycles round-tripped. Array records
+  now share the object-id space: repeated references write the
+  tag-2 back-reference and read back with identity restored.
+- **`Object`-typed fields serialize their runtime value.**
+  `writeObject` walked class-declared fields as class records
+  unconditionally, so an `Object` field holding an array, a
+  boxed primitive or a string crashed the VM (the value's header
+  read as a class index). The class writer now routes by the
+  runtime kind — arrays serialize as array records, boxed
+  values in a new tagged form — and the reader accepts those
+  forms in `Object`-typed positions only.
+  truncating the stride.
 
 ## [0.12.6] - 2026-11-03
 

@@ -1,0 +1,52 @@
+// Final-review C1: arrays (owned or view) held in Object-declared field
+// and element slots must survive GC churn while reachable.
+import lang;
+
+class Holder {
+    public Object o;
+}
+
+// Builds the view in a helper so no stale frame root keeps the target
+// alive — the Object field is the only live reference.
+Holder makeHolder() {
+    int[] src = int[500000];
+    src[499998] = 42;
+    Holder h = Holder();
+    h.o = src[1:499999];
+    return h;
+}
+
+int main() {
+    int acc = 0;
+
+    // owned array in an Object field
+    Holder h = Holder();
+    int[] big = int[500000];
+    big[499999] = 42;
+    h.o = big;
+    big = null;
+    int i = 0;
+    while (i < 400) { int[] junk = int[100000]; junk[0] = i; i = i + 1; }
+    int[] back = h.o as int[];
+    if (back[499999] == 42) { acc = acc + 1; }
+
+    // owned array in an Object[] element
+    Object[] arr = Object[2];
+    int[] big2 = int[500000];
+    big2[499999] = 43;
+    arr[0] = big2;
+    big2 = null;
+    i = 0;
+    while (i < 400) { int[] junk2 = int[100000]; junk2[0] = i; i = i + 1; }
+    int[] back2 = arr[0] as int[];
+    if (back2[499999] == 43) { acc = acc + 2; }
+
+    // view in an Object field, no stale roots
+    Holder hv = makeHolder();
+    i = 0;
+    while (i < 400) { int[] junk3 = int[100000]; junk3[0] = i; i = i + 1; }
+    int[] backv = hv.o as int[];
+    if (backv[499997] == 42) { acc = acc + 4; }
+
+    return acc;
+}

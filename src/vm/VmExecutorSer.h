@@ -13,10 +13,11 @@ namespace nlang {
 
 //Phase 8b struct serialization helpers.
 //SerializeStructFields: walks a struct's fields and emits bytes via the Writer.
-//Class fields recurse via SerializeClassFields (Phase 8c); array fields throw
-//(Phase 8e). Depth limit prevents pathological cycles
-//(shouldn't happen since structs are value types with no cycles, but defends
-//against bugs and future reference-field features).
+//Class fields recurse via SerializeClassFields (Phase 8c); array fields
+//recurse via SerializeArrayRecord (v0.12.7 Task 13). Depth limit prevents
+//pathological cycles (structs are value types, but a struct array's
+//elements can point back at the array — the back-ref table resolves
+//those).
 template<typename Writer, typename StreamState>
 void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
     Writer&& write, StreamState& st, int depth)
@@ -185,9 +186,12 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
 //SerializeClassFields: emits a tagged record for a class-typed reference.
 //tag=0: null (heapIdx <= 0). tag=1: new object (class name + field payload),
 //recorded in st.serializeObjIds for later back-references. tag=2: back-ref
-//to a previously-emitted object id. Per-kind field switch mirrors
-//SerializeStructFields but reads from cc.fieldTypeKinds[i] / slot[i*2+1]
-//(class header occupies cell[0]; field i lives at cell 1+2i).
+//to a previously-emitted object id (class objects and array records share
+//the id space). tag=3: array record (owned or view), tag=4: boxed value —
+//an Object-typed position may hold either at runtime (final-review C4;
+//routing below). Per-kind field switch mirrors SerializeStructFields but
+//reads from cc.fieldTypeKinds[i] / slot[i*2+1] (class header occupies
+//cell[0]; field i lives at cell 1+2i).
 template<typename Writer, typename StreamState>
 void VmExecutor::SerializeClassFields(int32_t heapIdx,
     Writer&& write, StreamState& st, int depth)
@@ -202,6 +206,29 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
     }
     if (static_cast<size_t>(heapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid class heap index in SerializeClassFields");
+
+    //Runtime-kind routing (final-review C4): a class-declared reference
+    //field may hold any Object value. Arrays take the array record form
+    //(own back-ref table entry inside), boxed records (every primitive
+    //and string) the boxed form; a func value has no wire form (the
+    //func-field precedent — a silent skip desynchronizes the stream).
+    const uint8_t runtimeKind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (runtimeKind == RTK_Array || runtimeKind == RTK_ArrayView) {
+        SerializeArrayRecord(heapIdx, std::forward<Writer>(write),
+                             st, depth);
+        return;
+    }
+    if (runtimeKind == RTK_Boxed) {
+        WriteBoxedRecord(heapIdx, std::forward<Writer>(write));
+        return;
+    }
+    if (runtimeKind == RTK_Func)
+        throw std::runtime_error(
+            "NLang VM: WriteObject does not support func values");
+    if (runtimeKind != RTK_Class)
+        throw std::runtime_error(
+            "NLang VM: WriteObject unsupported runtime kind ("
+            + std::to_string(runtimeKind) + ")");
 
     auto it = st.serializeObjIds.find(heapIdx);
     if (it != st.serializeObjIds.end()) {
@@ -314,6 +341,32 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
 
     if (tag == 0) {
         outHeapIdx = 0;
+        return;
+    }
+    //A class-declared field position may carry an array (tag 3) or a
+    //boxed value (tag 4) — the reader side of SerializeClassFields's
+    //runtime-kind routing (final-review C4). Object is the only class
+    //type these values convert to (§4.10.7, §4.11.1), so a value-form
+    //tag under any other declared class means a hand-crafted stream —
+    //storing it would plant an array record in a typed slot (the loud
+    //failure every other malformed case takes).
+    const bool objTypedField =
+        static_cast<int32_t>(declaredClassIdx) == ObjectRootClassIdx();
+    if (tag == 3) {
+        if (!objTypedField)
+            throw std::runtime_error(
+                "NLang VM: ReadObject array record under a class-typed"
+                " field");
+        outHeapIdx = DeserializeArrayRecordTagged(tag,
+            std::forward<Reader>(read), st, depth + 1);
+        return;
+    }
+    if (tag == 4) {
+        if (!objTypedField)
+            throw std::runtime_error(
+                "NLang VM: ReadObject boxed value under a class-typed"
+                " field");
+        outHeapIdx = ReadBoxedRecord(std::forward<Reader>(read));
         return;
     }
     if (tag == 2) {

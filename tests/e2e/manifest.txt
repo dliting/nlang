@@ -2105,3 +2105,13 @@ stdlib_net_closed_slot_setters 0 ok
 stdlib_net_tcp_zero_read 0 ok
 stdlib_net_conc_bytes 0 ok
 stdlib_io_park_guard 0 ok
+#Final whole-branch review fix pass: GC tracing of arrays in Object slots,
+#view-receiver protocol dispatch, catchable class-target casts on array and
+#boxed values, bounded shape-list collection (tensor.full stride-aware),
+#array back-references in serialization (cycles), Object-field value forms.
+tensor_shape_len_guard 3
+object_slot_array_gc 7
+view_object_protocol 7
+array_cast_class_target 7
+array_serialize_cycle 3
+object_field_value_ser 7
