@@ -1,0 +1,85 @@
+// mnist_mlp — a two-layer perceptron (784 -> 100 -> 10) trained on a
+// 2000-record MNIST subset with mini-batch SGD: the acceptance program
+// for the v0.12.7 array/tensor surface (views, broadcasting, axis
+// reductions). Everything is deterministic — fixed data order, seeded
+// weights — so the printed losses and the test accuracy are the same on
+// every run of the same toolchain build.
+//
+// Build and run from this directory (see README.md):
+//   ncc build -p mnist_mlp.nproj -o mnist_mlp.npkg
+//   nvm mnist_mlp.npkg
+//
+// Exit 0 only when training really reduces the loss and the frozen
+// baseline accuracy is met (the numbers below are from the first
+// measured run; the rationale for the frozen value is in README.md).
+import io;
+import data;
+import layers;
+import math;
+import tensor;
+
+int main() {
+    // Fixed by tools/mnist_subset.py: first N records in file order.
+    int trainCount = 2000;
+    int testCount = 1000;
+    int pixels = 784;
+    int classes = 10;
+
+    int hidden = 100;
+    int batch = 32;
+    int epochs = 40;
+    float lr = 0.5;
+
+    // Frozen baseline: the first measured run of this configuration
+    // reached 0.897 test accuracy, and the literature for 2000-record
+    // MNIST subsets reports 88-92%. The gate sits 4.7 points below the
+    // measured value and under the zone floor, so ordinary float noise
+    // cannot trip it while a real kernel or view regression does.
+    float baseline = 0.85 as float;
+
+    Dataset train = data.loadDataset("data/train_images.f32",
+                                     "data/train_labels.u8",
+                                     trainCount, pixels);
+    Dataset test = data.loadDataset("data/test_images.f32",
+                                    "data/test_labels.u8",
+                                    testCount, pixels);
+
+    math.srand(42);
+    Params p = layers.initParams(pixels, hidden, classes);
+
+    double firstLoss = 0.0;
+    double lastLoss = 0.0;
+    int batches = trainCount / batch;
+    for (int epoch = 0; epoch < epochs; epoch += 1) {
+        double epochLoss = 0.0;
+        for (int b = 0; b < batches; b += 1) {
+            int first = b * batch;
+            float[,] x = data.batchImages(train, first, batch);
+            int[] labels = data.batchLabels(train, first, batch);
+
+            Forward f = layers.forward(p, x);
+            float[,] probs = layers.softmaxRows(f.logits);
+            epochLoss = epochLoss
+                + layers.meanCrossEntropy(f.logits, labels);
+            Grads g = layers.backward(p, x, f.hidden, probs, labels);
+            p = layers.sgdStep(p, g, lr);
+        }
+        epochLoss = epochLoss / batches;
+        if (epoch == 0) {
+            firstLoss = epochLoss;
+        }
+        lastLoss = epochLoss;
+        io.print("epoch " + (epoch + 1) + ": loss " + epochLoss);
+    }
+
+    float[,] testProbs = layers.softmaxRows(
+        layers.forward(p, test.images).logits);
+    double acc = layers.accuracy(testProbs, test.labels);
+    io.print("test accuracy " + acc);
+
+    // The acceptance gate: training must reduce the mean loss, and the
+    // frozen baseline must be met.
+    assert(lastLoss < firstLoss);
+    assert(acc >= baseline);
+    return 0;
+}

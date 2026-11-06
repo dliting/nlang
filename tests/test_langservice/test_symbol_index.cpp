@@ -28,14 +28,14 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 207 functions: io 15 (10 natives + 5 typed-reader wrappers),
-    // math 25, fs 8, thread 7 (the K3 materialized package plus the
+    // 209 functions: io 15 (10 natives + 5 typed-reader wrappers),
+    // math 25, fs 10 (the binary read pair readBytes/readFloats), thread 7 (the K3 materialized package plus the
     // P2-2 failure probes), tensor 152 (the v0.12.7 surface:
     // broadcasting elementwise with scalar arms, the view family
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss).
-    CHECK(index.size() == 207);
+    CHECK(index.size() == 209);
 }
 
 static void TestResolvePrint() {
@@ -85,7 +85,7 @@ static void TestCompletion() {
     index.LoadLibraryDir(STDLIB_DIR);
 
     const auto fsSyms = index.CompletePackage("fs");
-    CHECK(fsSyms.size() == 8);
+    CHECK(fsSyms.size() == 10);
 
     const auto namespaces = index.Packages();
     CHECK(namespaces.size() == 5);
@@ -279,14 +279,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 207);
+    CHECK(index.size() == 209);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 207);
+    CHECK(index.size() == 209);
 }
 
 static void TestBlockCommentBraces() {

@@ -1,0 +1,185 @@
+// layers.n — the two-layer perceptron (in -> hidden -> out) in batch
+// matrix form: matmul for the linear maps, bias broadcast for the
+// offsets, sum(axis) for the bias gradients, and the scalar arms of the
+// elementwise kernels for scaling. Everything runs on float arrays and
+// views of them.
+import math;
+import tensor;
+
+struct Params {
+    float[,] w1;   // in x hidden
+    float[] b1;    // hidden
+    float[,] w2;   // hidden x out
+    float[] b2;    // out
+}
+
+struct Forward {
+    float[,] hidden;   // batch x hidden, post-ReLU
+    float[,] logits;   // batch x out
+}
+
+struct Grads {
+    float[,] w1;
+    float[] b1;
+    float[,] w2;
+    float[] b2;
+}
+
+// Xavier-style uniform init: every weight drawn from (-scale, scale)
+// with scale = sqrt(6 / (fanIn + fanOut)). The caller seeds the PRNG,
+// so the whole run is deterministic.
+Params initParams(int inDim, int hidden, int outDim) {
+    double scale1 = math.sqrt(6.0 / (inDim + hidden));
+    double scale2 = math.sqrt(6.0 / (hidden + outDim));
+    Params p;
+    p.w1 = float[inDim, hidden];
+    p.b1 = float[hidden];
+    p.w2 = float[hidden, outDim];
+    p.b2 = float[outDim];
+    for (int i = 0; i < inDim; i += 1) {
+        for (int j = 0; j < hidden; j += 1) {
+            p.w1[i, j] = ((math.random() * 2.0 - 1.0) * scale1) as float;
+        }
+    }
+    for (int i = 0; i < hidden; i += 1) {
+        for (int j = 0; j < outDim; j += 1) {
+            p.w2[i, j] = ((math.random() * 2.0 - 1.0) * scale2) as float;
+        }
+    }
+    return p;
+}
+
+// Forward pass for a whole batch. x may be a view (a row block of the
+// training set); the bias broadcast adds b to every row.
+Forward forward(Params p, float[,] x) {
+    Forward f;
+    float[,] z1 = tensor.add(tensor.matmul(x, p.w1), p.b1);
+    f.hidden = tensor.relu(z1);
+    f.logits = tensor.add(tensor.matmul(f.hidden, p.w2), p.b2);
+    return f;
+}
+
+// Row-wise softmax with the textbook stabilization: each row is shifted
+// by its own maximum before exp, so exp never overflows and no row can
+// collapse to 0/0.
+float[,] softmaxRows(float[,] logits) {
+    int rows = logits.shape()[0];
+    int cols = logits.shape()[1];
+    float[,] probs = float[rows, cols];
+    float[] shifted = float[cols];
+    for (int i = 0; i < rows; i += 1) {
+        float[] row = logits[i, :];
+        float m = row[0];
+        for (int j = 1; j < cols; j += 1) {
+            if (row[j] > m) {
+                m = row[j];
+            }
+        }
+        for (int j = 0; j < cols; j += 1) {
+            shifted[j] = row[j] - m;
+        }
+        float[] e = tensor.exp(shifted);
+        float total = tensor.sum(e);
+        for (int j = 0; j < cols; j += 1) {
+            probs[i, j] = e[j] / total;
+        }
+    }
+    return probs;
+}
+
+// Mean cross-entropy from logits: for each row, logsumexp (shifted by
+// the row max) minus the logit at the label. Runs on the same row views
+// as softmaxRows; the shift keeps exp bounded.
+double meanCrossEntropy(float[,] logits, int[] labels) {
+    int rows = logits.shape()[0];
+    int cols = logits.shape()[1];
+    float[] shifted = float[cols];
+    double total = 0.0;
+    for (int i = 0; i < rows; i += 1) {
+        float[] row = logits[i, :];
+        float m = row[0];
+        for (int j = 1; j < cols; j += 1) {
+            if (row[j] > m) {
+                m = row[j];
+            }
+        }
+        for (int j = 0; j < cols; j += 1) {
+            shifted[j] = row[j] - m;
+        }
+        float[] e = tensor.exp(shifted);
+        double logSum = math.log(tensor.sum(e)) + m;
+        total = total + logSum - row[labels[i]];
+    }
+    return total / rows;
+}
+
+// Gradients of the mean cross-entropy w.r.t. every parameter, in batch
+// matrix form. hidden and probs come from the forward pass on the same
+// batch; x is the batch input; batchLabels picks the one-hot column.
+Grads backward(Params p, float[,] x, float[,] hidden, float[,] probs,
+               int[] batchLabels) {
+    int batch = probs.shape()[0];
+    int hiddenDim = hidden.shape()[1];
+    int outDim = probs.shape()[1];
+    float inv = (1.0 / batch) as float;
+
+    // dLogits = (probs - oneHot) / batch
+    float[,] oneHot = float[batch, outDim];
+    for (int i = 0; i < batch; i += 1) {
+        for (int j = 0; j < outDim; j += 1) {
+            oneHot[i, j] = 0.0;
+        }
+        oneHot[i, batchLabels[i]] = 1.0;
+    }
+    float[,] dLogits = tensor.mul(tensor.sub(probs, oneHot), inv);
+
+    Grads g;
+    g.w2 = tensor.matmul(tensor.transpose(hidden), dLogits);
+    g.b2 = tensor.sum(dLogits, 0);
+    // Back through the second linear map, then through the ReLU gate:
+    // the gradient flows exactly where the activation is positive
+    // (hidden = max(z1, 0) is zero exactly where z1 was).
+    float[,] dHidden = tensor.matmul(dLogits, tensor.transpose(p.w2));
+    float[,] dZ1 = float[batch, hiddenDim];
+    for (int i = 0; i < batch; i += 1) {
+        for (int j = 0; j < hiddenDim; j += 1) {
+            dZ1[i, j] = 0.0;
+            if (hidden[i, j] > 0.0) {
+                dZ1[i, j] = dHidden[i, j];
+            }
+        }
+    }
+    g.w1 = tensor.matmul(tensor.transpose(x), dZ1);
+    g.b1 = tensor.sum(dZ1, 0);
+    return g;
+}
+
+// One plain-SGD step: p <- p - lr * g, elementwise through the scalar
+// arms of mul and sub.
+Params sgdStep(Params p, Grads g, float lr) {
+    p.w1 = tensor.sub(p.w1, tensor.mul(g.w1, lr));
+    p.b1 = tensor.sub(p.b1, tensor.mul(g.b1, lr));
+    p.w2 = tensor.sub(p.w2, tensor.mul(g.w2, lr));
+    p.b2 = tensor.sub(p.b2, tensor.mul(g.b2, lr));
+    return p;
+}
+
+// Fraction of rows whose largest probability sits on the true label.
+double accuracy(float[,] probs, int[] labels) {
+    int rows = probs.shape()[0];
+    int cols = probs.shape()[1];
+    int hits = 0;
+    for (int i = 0; i < rows; i += 1) {
+        int best = 0;
+        for (int j = 1; j < cols; j += 1) {
+            if (probs[i, j] > probs[i, best]) {
+                best = j;
+            }
+        }
+        if (best == labels[i]) {
+            hits = hits + 1;
+        }
+    }
+    double hitsD = hits;
+    return hitsD / rows;
+}

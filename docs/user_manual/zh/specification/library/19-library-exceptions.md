@@ -17,6 +17,9 @@
 | `io`（§14.3） | `Exception` | `readChar`落在不是有效Unicode转换格式（UTF-8）的字节序列上；带类型读取器落在格式不当的记号上（即该字符串方法的失败，§16.2） |
 | 流（§14.5） | `NullPointerException` | 经由null流句柄的方法调用 |
 | `fs`（§15.3） | `IOException` | `size`、`listFiles`、`makeDirs`或`remove`失败 |
+| `fs`（§15.4） | `NullPointerException` | 对`readBytes`或`readFloats`传null路径 |
+| `fs`（§15.4） | `IOException` | `readBytes`或`readFloats`的打开或读取失败（含超过16 MiB上限的文件） |
+| `fs`（§15.4） | `Exception` | `readFloats`遇到非4倍数的字节数 |
 | `concurrent`（§10.4） | `ChannelClosedException` | 已关闭通道上的发送或接收 |
 | `concurrent`（§10.4） | `Exception` | 负容量的构造 |
 | `tensor`（§18.6） | `NullPointerException` | null数组实参 |

@@ -2350,6 +2350,22 @@ add_test(NAME proj_imports_lib_stmts_compile
 set_tests_properties(proj_imports_lib_stmts_compile PROPERTIES
     PASS_REGULAR_EXPRESSION "contains top-level statements")
 
+#mnist_mlp: the v0.12.7 acceptance program — a three-unit project
+#(main/data/layers composed through import) training a two-layer
+#perceptron on a 2000-record MNIST subset. It runs from the project
+#directory so its data/ paths resolve, self-checks (the loss fell and
+#the 0.85 accuracy baseline held — measured 0.897) and exits 0 only on
+#success: no output regex, the exit code is the gate.
+add_test(NAME mnist_mlp_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/examples/mnist_mlp/mnist_mlp.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/mnist_mlp.npkg)
+add_test(NAME mnist_mlp_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/mnist_mlp.npkg)
+set_tests_properties(mnist_mlp_run PROPERTIES
+    DEPENDS mnist_mlp_compile
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp)
+
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
 #real compile too. Keep each well under the 3-minute unit-test ceiling.
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
@@ -2362,6 +2378,7 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_two_scripts_compile proj_imports_script_lib
     proj_imports_script_compile proj_imports_script_run
     proj_imports_lib_stmts_compile
+    mnist_mlp_compile mnist_mlp_run
     PROPERTIES TIMEOUT 180)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------

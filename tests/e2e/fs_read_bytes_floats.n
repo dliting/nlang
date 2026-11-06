@@ -1,0 +1,63 @@
+// fs_read_bytes_floats — the fs binary read pair: readBytes returns every
+// file byte as an int[] cell, readFloats decodes the whole file as
+// little-endian float32. null path raises NullPointerException; open
+// failures raise IOException; a byte count that is not a multiple of four
+// raises the base Exception.
+import io;
+import fs;
+
+int main() {
+    fs.makeDirs("_p11_tmp/fs_read_pair");
+
+    // readBytes: byte-exact on known ASCII content written by io.
+    io.writeFile("_p11_tmp/fs_read_pair/bytes.txt", "AB\nz");
+    int[] b = fs.readBytes("_p11_tmp/fs_read_pair/bytes.txt");
+    if (b.length() != 4) return 1;
+    if (b[0] != 65 || b[1] != 66 || b[2] != 10 || b[3] != 122) return 2;
+
+    // readBytes: an empty file is an empty array.
+    io.writeFile("_p11_tmp/fs_read_pair/empty.bin", "");
+    int[] e = fs.readBytes("_p11_tmp/fs_read_pair/empty.bin");
+    if (e.length() != 0) return 3;
+
+    // readFloats: values, signs and order survive the round trip through
+    // an independent writer (FileStream writes float32 little-endian).
+    FileStream w = FileStream("_p11_tmp/fs_read_pair/floats.bin", "w");
+    w.writeFloat(-1.5);
+    w.writeFloat(0.25);
+    w.writeFloat(1024.0);
+    w.close();
+    float[] f = fs.readFloats("_p11_tmp/fs_read_pair/floats.bin");
+    if (f.length() != 3) return 4;
+    if (f[0] != -1.5) return 5;
+    if (f[1] != 0.25) return 6;
+    if (f[2] != 1024.0) return 7;
+
+    // A null path raises NullPointerException.
+    try {
+        string p = null;
+        int[] nb = fs.readBytes(p);
+        if (nb.length() != -1) return 8;  //unreachable
+    } catch (NullPointerException ex) {
+    }
+
+    // An open failure raises IOException with the path in the message.
+    try {
+        int[] mb = fs.readBytes("_p11_tmp/fs_read_pair/no_such_file.bin");
+        if (mb.length() != -1) return 9;  //unreachable
+    } catch (IOException ex) {
+        if (ex.message == "") return 10;
+    }
+
+    // A byte count that is not a multiple of four raises the base
+    // Exception, not IOException.
+    io.writeFile("_p11_tmp/fs_read_pair/five.bin", "abcde");
+    try {
+        float[] bad = fs.readFloats("_p11_tmp/fs_read_pair/five.bin");
+        if (bad.length() != -1) return 11;  //unreachable
+    } catch (IOException ex) {
+        return 12;  //wrong class
+    } catch (Exception ex) {
+    }
+    return 0;
+}
