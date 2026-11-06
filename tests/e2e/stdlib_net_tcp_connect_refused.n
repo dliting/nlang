@@ -1,0 +1,18 @@
+import io;
+import net;
+
+int main() {
+    // Port 1 on loopback: nothing listens. A healthy stack refuses the
+    // connect (SocketException); a firewall that swallows the closed-port
+    // RST lets it hang to the deadline (TimeoutException). Both are
+    // IOException — what this test pins is that connect never falsely
+    // "succeeds" against a dead endpoint.
+    try {
+        TcpStream s = TcpStream.connect("127.0.0.1", 1, 2000);
+        s.close();
+        return 1;
+    } catch (IOException e) {
+        io.print("ok");
+        return 0;
+    }
+}

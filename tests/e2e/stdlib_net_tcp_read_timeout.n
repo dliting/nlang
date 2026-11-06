@@ -1,0 +1,29 @@
+import io;
+import net;
+
+int main() {
+    // The client's read must time out against a silent peer; the
+    // late-data variant proves the deadline never masks data that
+    // did arrive.
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream c1 = srv.accept(5000);
+    byte[] buf = byte[8];
+    try {
+        cli.read(buf, 300);
+        return 1;
+    } catch (TimeoutException e) {
+        // expected
+    }
+    // Late data: send BEFORE the deadline, read with a generous
+    // timeout — the data must win over the deadline bookkeeping.
+    c1.write(io.toBytes("x"));
+    int n = cli.read(buf, 3000);
+    if (n != 1 || buf[0] != 120) { return 2; }
+    cli.close();
+    c1.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

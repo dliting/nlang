@@ -18,6 +18,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -199,6 +200,17 @@ int NetShutdownWrite(int fd) {
 }
 
 int NetConnectResult(int fd) {
+    //Zero-timeout writability probe (see net_platform.h): a pending
+    //connect also reports SO_ERROR == 0, so a stale park wake must not
+    //mint a half-open stream — only a finished connect is writable
+    //(a failed one reports POLLOUT|POLLERR, and getsockopt below
+    //picks up the reason).
+    pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+    if (poll(&pfd, 1, 0) <= 0)
+        return kNetInProgress;   //not writable yet: still connecting
     int err = 0;
     socklen_t size = sizeof(err);
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &size) != 0) return -1;
@@ -349,6 +361,17 @@ bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out
     }
     freeaddrinfo(list);
     return !out.empty();
+}
+
+bool NetIsNumericAddress(const std::string& host) {
+    std::string text = host;
+    if (!text.empty() && text.front() == '[' && text.back() == ']')
+        text = text.substr(1, text.size() - 2);
+    in_addr v4;
+    if (inet_pton(AF_INET, text.c_str(), &v4) == 1)
+        return true;
+    in6_addr v6;
+    return inet_pton(AF_INET6, text.c_str(), &v6) == 1;
 }
 
 int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int timeoutMs) {

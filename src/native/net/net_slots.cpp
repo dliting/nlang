@@ -59,6 +59,7 @@ int32_t NetSocketTable::Mint(int fd, uint8_t kind) {
     slot.closed = false;
     slot.acceptWaiter = slot.readWaiter = slot.writeWaiter = 0;
     slot.interest = 0;
+    slot.writeSent = 0;
     slot.lastPeerAddress.clear();
     slot.lastPeerPort = 0;
     return (static_cast<int32_t>(slot.generation & kGenMask) << kIndexBits)

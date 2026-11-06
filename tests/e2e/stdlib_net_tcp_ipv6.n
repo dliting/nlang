@@ -1,0 +1,23 @@
+import io;
+import net;
+
+int main() {
+    TcpListener srv = TcpListener.bind("::", 0);
+    //connect先行:listen backlog让内核先完成握手,accept随即取到挂起
+    //连接;若accept在前,主上下文停泊等待、connect永不执行。
+    TcpStream cli = TcpStream.connect("[::1]", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    if (c.peerAddress() != "::1") { return 1; }
+    cli.write(io.toBytes("v6"));
+    byte[] buf = byte[8];
+    int n = c.read(buf, 5000);
+    c.write(buf, n);
+    byte[] echo = byte[8];
+    int m = cli.read(echo, 5000);
+    if (m != 2 || io.fromBytes(echo) != "v6") { return 2; }
+    cli.close();
+    c.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

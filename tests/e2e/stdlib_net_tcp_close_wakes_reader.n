@@ -1,0 +1,33 @@
+import io;
+import thread;
+import net;
+
+class BlockedReader {
+    public TcpStream s;
+    public int result = 0;
+    public void run() {
+        byte[] buf = byte[8];
+        try {
+            s.read(buf, 0);          //parks forever
+            result = 1;              //should not reach
+        } catch (SocketException e) {
+            result = 2;              //closed wake
+        }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    BlockedReader r = BlockedReader();
+    r.s = c;
+    Thread t = thread.spawn(r.run);
+    thread.sleep(100);               //reader is parked
+    c.close();                       //close wakes the parked reader
+    thread.join(t);
+    if (r.result != 2) { return 1; }
+    cli.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

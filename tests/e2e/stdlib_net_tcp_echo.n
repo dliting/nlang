@@ -1,0 +1,35 @@
+import io;
+import thread;
+import net;
+
+class EchoHandler {
+    public TcpStream conn;
+    public void run() {
+        byte[] buf = byte[16];
+        int n = conn.read(buf, 5000);
+        conn.write(buf, n);
+        conn.close();
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    EchoHandler h = EchoHandler();
+    //connect先行:listen backlog让内核先完成握手,accept随即取到挂起
+    //连接;若accept在前,主上下文停泊等待、connect永不执行。
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
+    h.conn = srv.accept(5000);
+    Thread t = thread.spawn(h.run);
+    cli.write(io.toBytes("ping"));
+    //本任务只有native read/write(readExactly随任务9):4字节缓冲恰好
+    //容纳回环单段echo,fromBytes(整缓冲)即整消息。
+    byte[] buf = byte[4];
+    int n = cli.read(buf, 5000);
+    if (n != 4 || io.fromBytes(buf) != "ping") { return 1; }
+    cli.close();
+    thread.join(t);
+    srv.close();
+    io.print("ok");
+    return 0;
+}

@@ -2,7 +2,7 @@
     net_native.cpp — the nlang_net module entry (net library design §6):
     the internal primitives the net.n script surface calls (underscore
     names are module-private by convention; the public face is script).
-    All six register on the blocking channel — the r1 model releases the
+    All eighteen register on the blocking channel — the r1 model releases the
     GIL around blocking natives, so the slot table and the last-error
     text are guarded by NetExecState::m_mutex (plan ruling R9) and the
     lock is scoped to the state accesses only (a slow getaddrinfo in
@@ -10,8 +10,10 @@
     R10 error codes; -4 paths record the platform text for
     _lastErrorText. Exception mapping lives in the script (_throwNet).
 ---*/
+#include "net_jobs.h"
 #include "net_platform.h"
 #include "net_state.h"
+#include "net_tcp.h"
 
 #include <nlang/vm/NativeHost.h>
 
@@ -40,6 +42,18 @@ using nlang::NetOpenTcpStream;
 using nlang::NetPlatformInit;
 using nlang::NetResolve;
 using nlang::NetState;
+using nlang::NetTcpAccept;
+using nlang::NetTcpConnectTry;
+using nlang::NetTcpIsClosed;
+using nlang::NetTcpPeerAddress;
+using nlang::NetTcpPeerPort;
+using nlang::NetTcpRead;
+using nlang::NetTcpResolveEndpoint;
+using nlang::NetTcpResolveRelease;
+using nlang::NetTcpResolveStart;
+using nlang::NetTcpResolveWait;
+using nlang::NetTcpShutdownWrite;
+using nlang::NetTcpWrite;
 
 namespace {
 
@@ -178,5 +192,17 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpLocalAddress", &TcpLocalAddress);
     regBlocking(registry, "net", "_tcpLocalPort", &TcpLocalPort);
     regBlocking(registry, "net", "_tcpClose", &TcpClose);
+    regBlocking(registry, "net", "_tcpAccept", &NetTcpAccept);
+    regBlocking(registry, "net", "_tcpResolveStart", &NetTcpResolveStart);
+    regBlocking(registry, "net", "_tcpResolveWait", &NetTcpResolveWait);
+    regBlocking(registry, "net", "_tcpResolveEndpoint", &NetTcpResolveEndpoint);
+    regBlocking(registry, "net", "_tcpResolveRelease", &NetTcpResolveRelease);
+    regBlocking(registry, "net", "_tcpConnectTry", &NetTcpConnectTry);
+    regBlocking(registry, "net", "_tcpRead", &NetTcpRead);
+    regBlocking(registry, "net", "_tcpWrite", &NetTcpWrite);
+    regBlocking(registry, "net", "_tcpShutdownWrite", &NetTcpShutdownWrite);
+    regBlocking(registry, "net", "_tcpIsClosed", &NetTcpIsClosed);
+    regBlocking(registry, "net", "_tcpPeerAddress", &NetTcpPeerAddress);
+    regBlocking(registry, "net", "_tcpPeerPort", &NetTcpPeerPort);
     return NLANG_HOST_ABI_VERSION;
 }

@@ -43,17 +43,17 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 187 functions: io 19 (14 natives + 5 typed-reader wrappers; the
+    // 199 functions: io 19 (14 natives + 5 typed-reader wrappers; the
     // v11 clock/park natives and the byte helpers moved from net),
     // math 25, fs 8, thread 7 (the K3 materialized package plus the
     // P2-2 failure probes), tensor 120 (the collapsed surface: generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
-    // net 8 (ping plus the internal _nowMs/_lastErrorText/_throwNet and
+    // net 20 (ping plus the internal _nowMs/_lastErrorText/_throwNet and
     // _tcp* natives; class methods are not free functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 187);
+    CHECK(env.LibraryIndex().size() == 199);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

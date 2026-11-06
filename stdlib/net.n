@@ -47,6 +47,19 @@ native int _tcpBind(string host, int port);
 native string _tcpLocalAddress(int handle);
 native int _tcpLocalPort(int handle);
 native int _tcpClose(int handle);
+native int _tcpAccept(int handle, long deadlineMs);
+// DNS解析作业(经VM工作池执行,停泊于自管道;R9)。
+native int _tcpResolveStart(string host, int port);
+native int _tcpResolveWait(int jobId, long deadlineMs);
+native string _tcpResolveEndpoint(int jobId, int index);
+native void _tcpResolveRelease(int jobId);
+native int _tcpConnectTry(string address, int port, long deadlineMs);
+native int _tcpRead(int handle, byte[] buf, long deadlineMs);
+native int _tcpWrite(int handle, byte[] data, int count, long deadlineMs);
+native int _tcpShutdownWrite(int handle);
+native int _tcpIsClosed(int handle);
+native string _tcpPeerAddress(int handle);
+native int _tcpPeerPort(int handle);
 
 // TCP监听端点。bind后开始监听;close停止监听。
 class TcpListener {
@@ -63,8 +76,14 @@ class TcpListener {
     public static TcpListener bind(int port) {
         return bind("0.0.0.0", port);
     }
-    // 接受下一个连接;停泊直至有连接或超时(实现随任务7落地)。
-    // accept返回TcpStream,声明见任务7。
+    // 接受下一个连接;在虚拟线程上停泊直至有连接、超时或关闭。
+    public TcpStream accept(int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int h = _tcpAccept(m_handle, deadline);
+        if (h < 0) { _throwNet(h, "accept"); }
+        return TcpStream(h);
+    }
     public string localAddress() {
         string s = _tcpLocalAddress(m_handle);
         if (s == null) { _throwNet(-4, "localAddress"); }
@@ -78,5 +97,86 @@ class TcpListener {
     public void close() {
         int r = _tcpClose(m_handle);
         if (r < 0) { _throwNet(r, "close"); }
+    }
+}
+
+// TCP字节流连接。connect/accept产出;read/write停泊;close释放。
+class TcpStream {
+    private int m_handle;
+    public TcpStream(int handle) { m_handle = handle; }
+
+    // 解析host(停泊于解析池)并按序尝试地址;timeoutMs覆盖
+    // 解析+连接全程(0=不限)。
+    public static TcpStream connect(string host, int port, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        string ctx = "connect " + host + ":" + port.toString();
+        int jobId = _tcpResolveStart(host, port);
+        int count = _tcpResolveWait(jobId, deadline);   //停泊于自管道
+        TcpStream result = null;
+        int lastErr = 0;
+        if (count >= 0) {
+            for (int i = 0; i < count; i = i + 1) {
+                int h = _tcpConnectTry(_tcpResolveEndpoint(jobId, i), port, deadline);
+                if (h >= 0) { result = TcpStream(h); break; }
+                lastErr = h;                     //保留末个端点错误码
+                if (h == -2) { break; }          //截止已到:不再试下一地址
+            }
+        }
+        _tcpResolveRelease(jobId);         //所有路径释放作业记录(R9)
+        if (result != null) { return result; }
+        if (count < 0) { _throwNet(count, ctx); }
+        if (count == 0) { _throwNet(-4, ctx); }   //解析无结果→平台错误
+        if (lastErr != 0) { _throwNet(lastErr, ctx); }  //端点失败(如被拒)
+        _throwNet(-2, ctx);                       //已过截止→超时
+        return TcpStream(0);                    //不可达(上面必抛)
+    }
+    // 至多读满buf.length()字节;返回读到的字节数,0=对端已关闭(EOF)。
+    public int read(byte[] buf, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _tcpRead(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "read"); }
+        return n;
+    }
+    // 全写:内部循环直至count字节全部发出(默认整数组);返回发出数。
+    public int write(byte[] data, int count = -1) {
+        int n = data.length();
+        if (count >= 0) { n = count; }
+        int r = _tcpWrite(m_handle, data, n, 0);
+        if (r < 0) { _throwNet(r, "write"); }
+        return r;
+    }
+    // 文本便捷面write(string)、readLine、readExactly随任务9追加
+    // (脚本层方法,见任务9步骤2全文)。
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+    // 半关闭:发出FIN,读方向保持可用。
+    public void shutdownWrite() {
+        int r = _tcpShutdownWrite(m_handle);
+        if (r < 0) { _throwNet(r, "shutdownWrite"); }
+    }
+    public bool isClosed() { return _tcpIsClosed(m_handle) == 1; }
+    public string peerAddress() {
+        string s = _tcpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _tcpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
     }
 }

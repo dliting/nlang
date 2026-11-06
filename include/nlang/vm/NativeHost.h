@@ -77,6 +77,11 @@ extern "C" {
 // strings/objects/lists carry a 32-bit heap handle in the low half.
 #define NLANG_VALUE_SIZE 8
 
+// parkForIo event bits (the module-side spelling; the VM's IoPoller.h
+// mirrors these exact values for its poller layer).
+#define NLANG_EV_READ 1u
+#define NLANG_EV_WRITE 2u
+
 struct NativeHost;
 typedef struct NativeHost NativeHost;
 

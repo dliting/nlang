@@ -142,6 +142,15 @@ int NetShutdownWrite(int fd) {
 }
 
 int NetConnectResult(int fd) {
+    //Zero-timeout writability probe (see net_platform.h): a pending
+    //connect also reports SO_ERROR == 0, so a stale park wake must not
+    //mint a half-open stream — only a finished connect is writable.
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(Fd(fd), &wfds);
+    timeval tv = { 0, 0 };
+    if (select(0, nullptr, &wfds, nullptr, &tv) <= 0)
+        return kNetInProgress;   //not writable yet: still connecting
     int err = 0;
     int size = sizeof(err);
     if (getsockopt(Fd(fd), SOL_SOCKET, SO_ERROR,
@@ -320,6 +329,17 @@ bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out
     }
     freeaddrinfo(list);
     return !out.empty();
+}
+
+bool NetIsNumericAddress(const std::string& host) {
+    std::string text = host;
+    if (!text.empty() && text.front() == '[' && text.back() == ']')
+        text = text.substr(1, text.size() - 2);
+    in_addr v4;
+    if (inet_pton(AF_INET, text.c_str(), &v4) == 1)
+        return true;
+    in6_addr v6;
+    return inet_pton(AF_INET6, text.c_str(), &v6) == 1;
 }
 
 std::string NetLastErrorText() {

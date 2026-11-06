@@ -39,6 +39,11 @@ struct NetSocketSlot {
     int readWaiter = 0;
     int writeWaiter = 0;
     uint32_t interest = 0;       //parkForIo event bits registered
+    //Bytes of the in-flight write already handed to the kernel: a
+    //park/re-entry restarts the native from its first line, so the
+    //write offset lives here, not on the rebuilt stack. Only the
+    //writeWaiter's call reads or writes it.
+    int writeSent = 0;
     //Last recvFrom source (UDP/ICMP): plain text, minted to a string
     //on demand — no GC root.
     std::string lastPeerAddress;

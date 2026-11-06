@@ -1,0 +1,17 @@
+import io;
+import net;
+
+int main() {
+    // Dual-stack listener: "localhost" resolves ::1 first, and a v4-only
+    // bind would starve the connect behind a black-holed v6 attempt on
+    // machines that swallow the closed-port RST (no Happy Eyeballs yet).
+    TcpListener srv = TcpListener.bind("::", 0);
+    TcpStream cli = TcpStream.connect("localhost", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    cli.write(io.toBytes("hi"));
+    byte[] buf = byte[2];
+    if (c.read(buf, 5000) != 2 || io.fromBytes(buf) != "hi") { return 1; }
+    cli.close(); c.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

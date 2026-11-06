@@ -1,23 +1,27 @@
 /*---
     net_state.h — per-executor module state, host-managed through ABI
     v11 moduleState (design §6, plan ruling R8). Holds the socket slot
-    table and the last-error text; the job table and self-pipe join in
-    task 7. The dtor closes every still-open fd (executor teardown =
-    design D12 backstop); from task 7 it also waits for in-flight jobs
-    before freeing (R9). m_mutex guards m_slots and m_lastErrorText:
-    r1 blocking natives run with the GIL released, so the committed
-    "all calls under the GIL" table invariant no longer holds (plan
-    ruling R9). Lock order: m_mutex -> GIL (parkForIo/wakeIoWaiters
-    take the GIL internally).
+    table, the last-error text, the job table with its self-pipe and
+    the in-flight connect stash (task 7). The dtor closes every
+    still-open fd (executor teardown = design D12 backstop) and waits
+    for in-flight jobs before freeing (R9). m_mutex guards every other
+    member: r1 blocking natives run with the GIL released, so the
+    committed "all calls under the GIL" table invariant no longer
+    holds (plan ruling R9). Lock order: m_mutex -> GIL (parkForIo/
+    wakeIoWaiters take the GIL internally).
 ---*/
 #pragma once
 
+#include "net_jobs.h"
 #include "net_slots.h"
 
 #include <nlang/vm/NativeHost.h>
 
+#include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace nlang {
 
@@ -35,17 +39,33 @@ struct NetExecState {
     std::mutex m_mutex;
     NetSocketTable m_slots;
     std::string m_lastErrorText;
+    //Job offload (net_jobs.h): the table plus the self-pipe the
+    //requesting context parks on — [0] read end (park target), [1]
+    //write end (submitWork's ackFd). Built in the ctor through
+    //NetSocketPair; -1 pair on failure (the wait path reports -4).
+    NetJobTable m_jobs;
+    int m_selfPipeFds[2] = {-1, -1};
+    bool m_jobsShutdown = false;   //dtor: drain in-flight jobs (R9)
+    std::condition_variable m_jobsDoneCv;
+    //In-flight non-blocking connects: re-entry restarts the native
+    //from its first line, so the half-open stream's handle is stashed
+    //per context (one call at a time per context — R14 identity).
+    std::unordered_map<int, int32_t> m_connectInFlight;
 };
 
 //Ctor/dtor behind the moduleState slot (the C ABI callback shapes).
 void* NetStateCtor();
 void NetStateDtor(void* state);
 
+//Records the current OS error text for _lastErrorText (R10 -4 paths).
+//Takes the state mutex — call only while it is NOT already held.
+void NetRememberLastError(NetExecState* st);
+
 //The executor's NetExecState, created on the first call. The tag
 //carries the layout version — bump it whenever NetExecState changes.
 inline NetExecState* NetState(NativeHost* host) {
     return static_cast<NetExecState*>(host->moduleState(
-        host, "nlang.net.v1", &NetStateCtor, &NetStateDtor));
+        host, "nlang.net.v2", &NetStateCtor, &NetStateDtor));
 }
 
 }  //namespace nlang

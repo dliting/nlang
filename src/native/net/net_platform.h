@@ -60,8 +60,12 @@ int NetAccept(int fd);
 int NetRecv(int fd, uint8_t* dst, int len);
 int NetSend(int fd, const uint8_t* src, int len);
 int NetShutdownWrite(int fd);
-//Post-kNetInProgress verdict: 0 = ok, -1 = failed (reason in
-//NetLastErrorText).
+//Post-kNetInProgress verdict: 0 = ok, kNetInProgress = still in flight
+//(park again — a park wake can be spurious), -1 = failed (reason in
+//NetLastErrorText). SO_ERROR alone cannot tell "in progress" from "ok"
+//(a pending connect also reports no error), so the verdict first probes
+//writability with a zero timeout: only a finished connect — ok or
+//failed — is writable.
 int NetConnectResult(int fd);
 
 //--- UDP -----------------------------------------------------------------
@@ -109,6 +113,11 @@ int NetSocketPair(int fds[2]);
 //to v4 when the listener is v4-only).
 bool NetResolve(const std::string& host, int port,
                 std::vector<NetEndpoint>& out);
+//True for a numeric IPv4/IPv6 literal (bracketed "[::1]" accepted) —
+//the _tcpResolveStart fast-path gate: a literal fills its job record
+//on the spot instead of paying a pool round trip. Same test as
+//NetResolve's own numeric path (inet_pton).
+bool NetIsNumericAddress(const std::string& host);
 //ICMP echo round trip: returns RTT milliseconds, -1 = timeout,
 //-2 = unreachable/error. Resolves first; prefers the first IPv4
 //endpoint (IcmpSendEcho2, unprivileged), else the first IPv6
