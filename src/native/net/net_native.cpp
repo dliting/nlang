@@ -52,6 +52,10 @@ using nlang::NetTcpResolveEndpoint;
 using nlang::NetTcpResolveRelease;
 using nlang::NetTcpResolveStart;
 using nlang::NetTcpResolveWait;
+using nlang::NetTcpSetKeepAlive;
+using nlang::NetTcpSetNoDelay;
+using nlang::NetTcpSetRecvBufferSize;
+using nlang::NetTcpSetSendBufferSize;
 using nlang::NetTcpShutdownWrite;
 using nlang::NetTcpWrite;
 
@@ -204,5 +208,9 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpIsClosed", &NetTcpIsClosed);
     regBlocking(registry, "net", "_tcpPeerAddress", &NetTcpPeerAddress);
     regBlocking(registry, "net", "_tcpPeerPort", &NetTcpPeerPort);
+    regBlocking(registry, "net", "_tcpSetNoDelay", &NetTcpSetNoDelay);
+    regBlocking(registry, "net", "_tcpSetKeepAlive", &NetTcpSetKeepAlive);
+    regBlocking(registry, "net", "_tcpSetSendBufferSize", &NetTcpSetSendBufferSize);
+    regBlocking(registry, "net", "_tcpSetRecvBufferSize", &NetTcpSetRecvBufferSize);
     return NLANG_HOST_ABI_VERSION;
 }

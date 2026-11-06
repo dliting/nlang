@@ -20,5 +20,9 @@ void NetTcpShutdownWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc
 void NetTcpIsClosed(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
 void NetTcpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
 void NetTcpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
+void NetTcpSetNoDelay(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
+void NetTcpSetKeepAlive(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
+void NetTcpSetSendBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
+void NetTcpSetRecvBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc);
 
 }  //namespace nlang

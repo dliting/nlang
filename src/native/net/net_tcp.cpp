@@ -388,4 +388,76 @@ void NetTcpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnInt(ret, port);
 }
 
+//--- options ---------------------------------------------------------------
+
+namespace {
+
+//Shared option-setter shape (R10): resolve the fd under the mutex,
+//apply one setsockopt, map a closed slot to -1 and a setsockopt
+//failure to -4 with the platform text recorded. The bool travels as
+//an int32 cell (the VM's bool representation — fs natives' return
+//shape in reverse).
+void ApplyOption(NativeHost* h, uint8_t* ret, const uint8_t* a,
+    bool (*apply)(int, bool)) {
+    NetExecState* st = NetState(h);
+    int fd = -1;
+    {
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        fd = st->m_slots.FdOf(ArgInt(a, 0));
+    }
+    if (fd < 0) {
+        ReturnInt(ret, kNetErrClosed);
+        return;
+    }
+    if (apply(fd, ArgInt(a, 1) != 0)) {
+        ReturnInt(ret, 0);
+        return;
+    }
+    NetRememberLastError(st);
+    ReturnInt(ret, kNetErrPlatform);
+}
+
+//Int-valued variant of ApplyOption (buffer sizes).
+void ApplyIntOption(NativeHost* h, uint8_t* ret, const uint8_t* a,
+    bool (*apply)(int, int)) {
+    NetExecState* st = NetState(h);
+    int fd = -1;
+    {
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        fd = st->m_slots.FdOf(ArgInt(a, 0));
+    }
+    if (fd < 0) {
+        ReturnInt(ret, kNetErrClosed);
+        return;
+    }
+    if (apply(fd, ArgInt(a, 1))) {
+        ReturnInt(ret, 0);
+        return;
+    }
+    NetRememberLastError(st);
+    ReturnInt(ret, kNetErrPlatform);
+}
+
+}  //namespace
+
+//_tcpSetNoDelay(handle, on): TCP_NODELAY. 0, -1 closed, -4 platform.
+void NetTcpSetNoDelay(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    ApplyOption(h, ret, a, NetSetNoDelay);
+}
+
+//_tcpSetKeepAlive(handle, on): SO_KEEPALIVE.
+void NetTcpSetKeepAlive(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    ApplyOption(h, ret, a, NetSetKeepAlive);
+}
+
+//_tcpSetSendBufferSize(handle, bytes): SO_SNDBUF (the kernel may clamp).
+void NetTcpSetSendBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    ApplyIntOption(h, ret, a, NetSetSendBuffer);
+}
+
+//_tcpSetRecvBufferSize(handle, bytes): SO_RCVBUF (the kernel may clamp).
+void NetTcpSetRecvBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    ApplyIntOption(h, ret, a, NetSetRecvBuffer);
+}
+
 }  //namespace nlang

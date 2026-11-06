@@ -60,6 +60,10 @@ native int _tcpShutdownWrite(int handle);
 native int _tcpIsClosed(int handle);
 native string _tcpPeerAddress(int handle);
 native int _tcpPeerPort(int handle);
+native int _tcpSetNoDelay(int handle, bool on);
+native int _tcpSetKeepAlive(int handle, bool on);
+native int _tcpSetSendBufferSize(int handle, int bytes);
+native int _tcpSetRecvBufferSize(int handle, int bytes);
 
 // TCP监听端点。bind后开始监听;close停止监听。
 class TcpListener {
@@ -178,5 +182,25 @@ class TcpStream {
         int p = _tcpLocalPort(m_handle);
         if (p < 0) { _throwNet(p, "localPort"); }
         return p;
+    }
+    // 禁用Nagle算法:小包立即发出(TCP_NODELAY)。
+    public void setNoDelay(bool on) {
+        int r = _tcpSetNoDelay(m_handle, on);
+        if (r < 0) { _throwNet(r, "setNoDelay"); }
+    }
+    // 启用TCP keep-alive探测(SO_KEEPALIVE)。
+    public void setKeepAlive(bool on) {
+        int r = _tcpSetKeepAlive(m_handle, on);
+        if (r < 0) { _throwNet(r, "setKeepAlive"); }
+    }
+    // 设置发送缓冲区大小(SO_SNDBUF);内核可能夹取到上下限。
+    public void setSendBufferSize(int bytes) {
+        int r = _tcpSetSendBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setSendBufferSize"); }
+    }
+    // 设置接收缓冲区大小(SO_RCVBUF);内核可能夹取到上下限。
+    public void setRecvBufferSize(int bytes) {
+        int r = _tcpSetRecvBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
     }
 }

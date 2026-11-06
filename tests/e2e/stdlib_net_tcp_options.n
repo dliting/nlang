@@ -1,0 +1,19 @@
+import io;
+import net;
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    cli.setNoDelay(true);
+    cli.setKeepAlive(true);
+    cli.setSendBufferSize(8192);
+    cli.setRecvBufferSize(8192);
+    // Options must not disturb the data path.
+    cli.write(io.toBytes("opt!"));
+    byte[] buf = byte[4];
+    if (c.read(buf, 5000) != 4) { return 1; }
+    cli.close(); c.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

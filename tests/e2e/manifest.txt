@@ -2077,3 +2077,4 @@ stdlib_net_tcp_close_wakes_reader 0 ok
 stdlib_net_tcp_concurrent_reader 0 ok
 stdlib_net_tcp_write_closed 0 ok
 stdlib_net_tcp_ipv6 0 ok
+stdlib_net_tcp_options 0 ok
