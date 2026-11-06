@@ -1,0 +1,18 @@
+//e2e: writeObject on a CLASS-element array terminates with the named
+//error — class references have no self-contained wire form in array
+//payloads (the func-field precedent: loud failure, never a silent
+//skip). Since v0.12.7 Task 13 the same call on scalar/string/
+//struct-element arrays succeeds (see array_serialize_roundtrip); this
+//pins the remaining rejection arm.
+import io;
+class Node {
+    public int val;
+}
+
+int main() {
+    Node[] arr = Node[3];
+    arr[0] = Node();
+    ByteStream bs = ByteStream();
+    bs.writeObject(arr);
+    return 0;
+}

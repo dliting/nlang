@@ -756,7 +756,7 @@ private:
     //own dims) of a VIEW record, in owner payload space. Callers bound
     //flat by the record's elemCount first.
     int64_t ViewFlatElementAddress(const std::vector<int32_t>& view,
-                                   int64_t flat);
+                                   int64_t flat) const;
     //Stores through a broadcast axis are not definable (every logical
     //index folds onto one owner cell — silent alias corruption); reject
     //them once over all axes at store entry. Loads are fine: broadcast
@@ -801,6 +801,45 @@ private:
     template<typename Reader, typename StreamState>
     void DeserializeClassFields(uint16_t declaredClassIdx, int32_t& outHeapIdx,
         Reader&& read, StreamState& st, int depth);
+
+    //v0.12.7 Task 13: array content serialization — writeObject's array
+    //arm and the array fields of struct/class graphs. Tag 3 in the
+    //class-ref tag space; the payload is self-describing (elemKind,
+    //struct element name, rank, dims) so readArray rebuilds owning
+    //records without an external type literal. A view record
+    //materializes first (fresh owning copy, logical content).
+    template<typename Writer, typename StreamState>
+    void SerializeArrayRecord(int32_t heapIdx,
+        Writer&& write, StreamState& st, int depth);
+    template<typename Writer>
+    void WriteArrayHeader(const CompiledArrayType& at,
+        const std::vector<int32_t>& slot, Writer&& write);
+    template<typename Writer, typename StreamState>
+    void WriteArrayElements(const CompiledArrayType& at,
+        const std::vector<int32_t>& slot, Writer&& write,
+        StreamState& st, int depth);
+
+    template<typename Reader, typename StreamState>
+    int32_t DeserializeArrayRecord(Reader&& read, StreamState& st,
+        int depth);
+    template<typename Reader>
+    void ReadArrayHeader(Reader&& read, uint8_t& elemKindOut,
+        uint16_t& elemTypeIdxOut, uint8_t& rankOut, int32_t* dimsOut);
+    template<typename Reader, typename StreamState>
+    void ReadArrayElements(int32_t heapIdx, uint8_t elemKind,
+        uint16_t elemTypeIdx, int32_t elemCount, Reader&& read,
+        StreamState& st, int depth);
+
+    //Materialize a view record into a fresh owning record of the view's
+    //dims (per-element affine copy). Returns the new heap index; the
+    //view itself is untouched.
+    int32_t MaterializeViewRecord(int32_t viewHeapIdx);
+
+    //General arrayTypes-row lookup by (elemKind, elemTypeIdx, rank) —
+    //the scalar finder is the elemTypeIdx==0xFFFF case. Throws when the
+    //program never declared the shape (no row to mint with).
+    uint16_t FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
+                              uint8_t rank) const;
 
     //Allocate a struct on the heap with recursive nested struct allocation.
     //Returns the heap index.
@@ -1935,6 +1974,14 @@ private:
     std::string FormatDebugClassInstance(int32_t heapIdx) const;
     std::string FormatDebugStructInstance(int32_t heapIdx) const;
     std::string FormatDebugArray(int32_t heapIdx) const;
+    //v0.12.7 Task 13: view-record display — dims in the shape, the
+    //strides/offset pair in a suffix, elements resolved along the owner.
+    std::string FormatDebugViewArray(int32_t heapIdx) const;
+    //Rank-notation short tag ("<double[,] view>") for nested references.
+    std::string DebugViewShortTag(const std::vector<int32_t>& view) const;
+    //Registry kind naming shared by the debug formatter TUs (defined in
+    //VmExecutorDebug.cpp).
+    static const char* DebugKindName(uint8_t kind);
     std::string FormatDebugList(int32_t handle) const;
     std::string FormatDebugDict(int32_t handle) const;
     //One field/element cell by declared kind, registry stride aware:

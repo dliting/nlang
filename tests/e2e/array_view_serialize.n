@@ -1,0 +1,31 @@
+// Task 13: views serialize by logical content — writeObject materializes
+// the view (fresh owning record, numpy pickle semantics) before writing,
+// so the round trip yields an independent copy with the view's shape.
+import io;
+import tensor;
+
+int main() {
+    double[,] m = double[3,4];
+    m[2, 3] = 7.0;
+    double[,] t = tensor.transpose(m);  // view: axes reversed (4,3)
+    ByteStream bs = ByteStream();
+    bs.writeObject(t);
+    bs.reset();
+    double[,] t2 = bs.readArray() as double[,];
+    assert(t2.shape()[0] == 4 && t2.shape()[1] == 3);  // logical shape
+    assert(t2[3, 2] == 7.0);             // logical element lands flat
+    t2[0, 0] = 9.0;                      // the copy is independent of
+    assert(m[0, 0] == 0.0);              // the view's owner
+
+    double[,] g = m[1:3, :];             // syntax slice view (Task 11)
+    ByteStream bs2 = ByteStream();
+    bs2.writeObject(g);
+    bs2.reset();
+    double[,] g2 = bs2.readArray() as double[,];
+    assert(g2.shape()[0] == 2 && g2.shape()[1] == 4);
+    assert(g2[1, 3] == 7.0);
+
+    string s = "${t}";                   // toString of a view stays the
+    assert(s.length() > 2);              // logical bracket walk
+    return 0;
+}

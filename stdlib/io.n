@@ -116,15 +116,20 @@ class ByteStream {
     public native void writeString(string s);
 
     // Structured serialization: writeStruct takes a struct value;
-    // writeObject takes a class value or null (an interface-typed
-    // reference serializes the actual object). readStruct/readObject
-    // take the type name as a STRING LITERAL and return a value of
-    // that declared type — the compiler resolves the literal to the
-    // declaration and the runtime checks polymorphic reads.
+    // writeObject takes a class value, an array value or null (an
+    // interface-typed reference serializes the actual object; an array
+    // value serializes by logical content — a view materializes
+    // first). readStruct/readObject take the type name as a STRING
+    // LITERAL and return a value of that declared type — the compiler
+    // resolves the literal to the declaration and the runtime checks
+    // polymorphic reads. readArray reads back a written array as a
+    // self-describing record; cast the Object result with `as` to the
+    // annotated array type (the cast checks rank and element type).
     public native void writeStruct(Object s);
     public native void writeObject(Object o);
     public native Object readStruct(string typeName);
     public native Object readObject(string typeName);
+    public native Object readArray();
 }
 
 // File-backed binary stream with the ByteStream method family minus
@@ -152,4 +157,5 @@ class FileStream {
     public native void writeObject(Object o);
     public native Object readStruct(string typeName);
     public native Object readObject(string typeName);
+    public native Object readArray();
 }

@@ -104,7 +104,7 @@ std::vector<int32_t>& VmExecutor::ElementPayloadRecord(
 //decode foreach and row copies share. dims[d] >= 1 holds by creation
 //validation, so the div/mod walk is exact.
 int64_t VmExecutor::ViewFlatElementAddress(
-    const std::vector<int32_t>& view, int64_t flat) {
+    const std::vector<int32_t>& view, int64_t flat) const {
     const int32_t rank = view[2];
     const int32_t* dims = view.data() + 4;
     const int32_t* strides =

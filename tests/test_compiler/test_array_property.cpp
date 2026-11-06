@@ -147,7 +147,7 @@ private slots:
     void identifierAndMemberShapes();
     void valueShapes();
     void structFieldKindStoredAsArray();
-    void writeStructArrayFieldThrows();
+    void writeStructArrayFieldSerializes();
 };
 
 void TestArrayProperty::identifierAndMemberShapes()
@@ -267,7 +267,10 @@ void TestArrayProperty::structFieldKindStoredAsArray()
 //silently serializing the array handle as 4 opaque bytes. The e2e
 //manifest can only pin the exit code (its substring column matches
 //stdout), so the message text is pinned here.
-void TestArrayProperty::writeStructArrayFieldThrows()
+//v0.12.7 Task 13: array fields serialize (the old rejection arm is
+//gone); the value round trip itself is pinned by the
+//array_serialize_roundtrip e2e fixture.
+void TestArrayProperty::writeStructArrayFieldSerializes()
 {
     auto out = compileOne(
         "import io;\n"
@@ -298,8 +301,7 @@ void TestArrayProperty::writeStructArrayFieldThrows()
     } catch (const std::exception& e) {
         errorText = e.what();
     }
-    QVERIFY(errorText.find("does not support array fields")
-            != std::string::npos);
+    QVERIFY(errorText.empty());
 }
 
 QTEST_GUILESS_MAIN(TestArrayProperty)

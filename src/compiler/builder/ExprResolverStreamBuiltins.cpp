@@ -125,10 +125,12 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 //The four serialization specials. The declared io.n signature carries
 //Object params/returns (the wire shape); these gates keep the value
 //semantics the declaration cannot express: writeStruct takes exactly a
-//struct value, writeObject a class value, an interface reference or
-//null (an interface slot serializes the actual object). Null is
-//Int32-typed on the wire; only writeObject takes it (a null object
-//reference serializes as the null marker).
+//struct value, writeObject a class value, an array value, an interface
+//reference or null (an interface slot serializes the actual object; an
+//array slot serializes by logical content — the runtime dispatches the
+//kind, so a bare array value can never reach the class-field walk).
+//Null is Int32-typed on the wire; only writeObject takes it (a null
+//object reference serializes as the null marker).
 static const char* StreamSpecialArgExpectation(const std::string &name,
 	SnExpression &arg, bool nullLit)
 {
@@ -139,8 +141,9 @@ static const char* StreamSpecialArgExpectation(const std::string &name,
 		return (!nullLit && ak == NK_StructDecl) ? nullptr : "a struct";
 	if (name == "writeObject")
 	{
-		bool ok = nullLit || ak == NK_ClassDecl || ak == NK_InterfaceDecl;
-		return ok ? nullptr : "a class";
+		bool ok = nullLit || ak == NK_ClassDecl || ak == NK_InterfaceDecl
+			|| ak == NK_ArrayTypeToken;
+		return ok ? nullptr : "a class or array";
 	}
 	return nullptr;
 }

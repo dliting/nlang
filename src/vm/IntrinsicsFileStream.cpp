@@ -33,7 +33,10 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
 {
     //FileStream intrinsics (20-37): 20-29 primitives (4-byte), 30-31
     //struct, 32-33 object, 34-37 the 8-byte scalar quartet.
-    if (intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadDouble) {
+    //readArray landed at 175 (append-only ids) — outside the historical
+    //20-37 range, so explicit membership alongside the range.
+    if ((intrinsicId >= INTR_FS_Ctor && intrinsicId <= INTR_FS_ReadDouble)
+        || intrinsicId == INTR_FS_ReadArray) {
         DomainGuard g(m_domainLocks, DomainId::Stream);
         switch (intrinsicId) {
         case INTR_FS_Ctor: {
@@ -308,11 +311,44 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             if (heapIdx < 0
                 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
                 throw std::runtime_error("NLang VM: WriteObject invalid heap index");
-            SerializeClassFields(heapIdx,
-                [&](const uint8_t* p, size_t n) {
-                    st->fs->write(reinterpret_cast<const char*>(p),
+            //Runtime kind dispatch (Task 13): array values (owning or
+            //view) take the array record arm; everything else —
+            //including null (heapIdx 0) — is the class-field walk.
+            const uint8_t argKind = heapIdx > 0
+                ? m_slotKinds[static_cast<size_t>(heapIdx)]
+                : static_cast<uint8_t>(RTK_Class);
+            if (argKind == RTK_Array || argKind == RTK_ArrayView) {
+                SerializeArrayRecord(heapIdx,
+                    [&](const uint8_t* p, size_t n) {
+                        st->fs->write(reinterpret_cast<const char*>(p),
+                            static_cast<std::streamsize>(n));
+                    }, *st, 0);
+            } else {
+                SerializeClassFields(heapIdx,
+                    [&](const uint8_t* p, size_t n) {
+                        st->fs->write(reinterpret_cast<const char*>(p),
+                            static_cast<std::streamsize>(n));
+                    }, *st, 0);
+            }
+            break;
+        }
+        case INTR_FS_ReadArray: {
+            int32_t handle = ReadStreamHandle(callParamBase, locals,
+                m_structHeap, "readArray");
+            auto& st = m_fileStreams[static_cast<size_t>(handle) - 1];
+            if (!st || st->closed)
+                throw std::runtime_error("NLang VM: stream handle is invalid or closed");
+            if (!st->readable)
+                throw std::runtime_error("NLang VM: FileStream not opened for reading");
+            int32_t outHeapIdx = DeserializeArrayRecord(
+                [&](uint8_t* dst, size_t n) {
+                    st->fs->read(reinterpret_cast<char*>(dst),
                         static_cast<std::streamsize>(n));
+                    if (st->fs->gcount() < static_cast<std::streamsize>(n))
+                        throw std::runtime_error(
+                            "NLang VM: ReadArray past end of stream");
                 }, *st, 0);
+            std::memcpy(pResult, &outHeapIdx, sizeof(outHeapIdx));
             break;
         }
         case INTR_FS_ReadObject: {

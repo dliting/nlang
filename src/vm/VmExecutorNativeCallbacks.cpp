@@ -334,6 +334,16 @@ int32_t VmExecutor::NativeNewArrayView(NativeHost* self,
 
 uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk,
                                             uint8_t rank) const {
+    return FindArrayTypeDef(elemRtk, 0xFFFF, rank);
+}
+
+//General row lookup by (elemKind, elemTypeIdx, rank) — the scalar
+//finder is the elemTypeIdx==0xFFFF case, struct/string rows carry
+//their element type index. A miss means the shape was never declared
+//in this module (an invariant break for native minting; for readArray
+//a stream naming a shape the reader never declared).
+uint16_t VmExecutor::FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
+                                      uint8_t rank) const {
     if (!m_currModule) {
         throw std::runtime_error(
             "NLang VM: no linked module for array-type lookup");
@@ -343,18 +353,19 @@ uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk,
         //Rank filter: without it int[] and int[,] would collapse onto
         //one entry — native minting picks the entry matching its rank.
         if (table[i].elemKind == elemRtk
-            && table[i].elemTypeIdx == 0xFFFF
+            && table[i].elemTypeIdx == elemTypeIdx
             && table[i].rank == rank) {
             return static_cast<uint16_t>(i);
         }
     }
     //The unified-library mechanism inlines every stdlib TU, so each
     //tensor signature's array type is registered at compile time. A miss
-    //here means a native minted a (kind, rank) the program never declared
+    //here means a (kind, element type, rank) the program never declared
     //— an invariant break, not a runtime condition.
     throw std::runtime_error(
-        "NLang VM: no scalar array type registered for elem kind "
-        + std::to_string(static_cast<int>(elemRtk)) + " rank "
+        "NLang VM: no array type registered for elem kind "
+        + std::to_string(static_cast<int>(elemRtk)) + " type idx "
+        + std::to_string(static_cast<int>(elemTypeIdx)) + " rank "
         + std::to_string(static_cast<int>(rank)));
 }
 

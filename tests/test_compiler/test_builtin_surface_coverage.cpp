@@ -135,15 +135,16 @@ void TestBuiltinSurfaceCoverage::streamClassesDeclaredInIo()
     QVERIFY(withStdlibBuild("stream_io_face",
         [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
         auto& reg = builder.Registry();
-        //ByteStream declares 18 methods; FileStream 17 (it has no
+        //ByteStream declares 19 methods; FileStream 18 (it has no
         //reset — rewind on a file stream re-opens instead). Counts
-        //include the constructor (a same-name function member).
+        //include the constructor (a same-name function member) and,
+        //since Task 13, readArray on both.
         struct StreamExpectation {
             const char* className;
             int methodCount;
         };
         const StreamExpectation streamClasses[] = {
-            { "ByteStream", 19 }, { "FileStream", 18 },
+            { "ByteStream", 20 }, { "FileStream", 19 },
         };
         for (const auto& expect : streamClasses)
         {
