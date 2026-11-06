@@ -12,6 +12,7 @@
     R10 error codes; -4 paths record the platform text for
     _lastErrorText. Exception mapping lives in the script (_throwNet).
 ---*/
+#include "net_icmp.h"
 #include "net_jobs.h"
 #include "net_platform.h"
 #include "net_state.h"
@@ -259,7 +260,9 @@ NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "net", "_toBytes", &NetToBytes);
     reg(registry, "net", "_fromBytes", &NetFromBytes);
     //The 18 datagram natives live in net_udp.cpp (registration hook:
-    //net_udp.h) — kept out of this TCP-centric entry TU.
+    //net_udp.h) — kept out of this TCP-centric entry TU. The 6 ICMP
+    //natives likewise live in net_icmp.cpp (hook: net_icmp.h).
     nlang::NetRegisterUdpNatives(registry, reg, regBlocking);
+    nlang::NetRegisterIcmpNatives(registry, reg, regBlocking);
     return NLANG_HOST_ABI_VERSION;
 }

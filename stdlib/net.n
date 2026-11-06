@@ -40,11 +40,57 @@ void _throwNet(int code, string context) {
 // (字节助手toBytes/fromBytes已移入io包,r1补注5;脚本便捷面用下方
 //  内部_toBytes/_fromBytes,随任务9分帧一并注册)
 
-// ---- ICMP 便利面(实现随任务11落地) ----
+// ---- ICMP ----
+native int _ping(string host, long deadlineMs);
+native int _icmpBind(string host);
+native int _icmpSendTo(int handle, byte[] message, string host);
+native int _icmpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _icmpLastRecvAddress(int handle);
+native int _icmpClose(int handle);
+
 // 发送 Echo Request 并等待 Echo Reply,返回往返时延毫秒。
 // 超时抛 TimeoutException;主机无法解析或不可达抛 SocketException。
 // Windows 走 IcmpSendEcho2(免管理员),Linux 走 DGRAM ICMP socket。
-native int ping(string host, int timeoutMs = 5000);
+int ping(string host, int timeoutMs = 5000) {
+    long deadline = 0;
+    if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+    int rtt = _ping(host, deadline);
+    if (rtt < 0) { _throwNet(rtt, "ping " + host); }
+    return rtt;
+}
+
+// 原始ICMP套接字:收发完整ICMP消息。Windows需管理员(SOCK_RAW),
+// Linux走SOCK_DGRAM免特权(受ping_group_range约束)。
+class IcmpSocket {
+    private int m_handle;
+    public IcmpSocket(int handle) { m_handle = handle; }
+
+    public static IcmpSocket bind(string host = "0.0.0.0") {
+        int h = _icmpBind(host);
+        if (h < 0) { _throwNet(h, "icmp bind"); }
+        return IcmpSocket(h);
+    }
+    // 发送完整 ICMP 消息(类型/代码/校验和/ID/序列/载荷);
+    // Windows raw 下校验和字段为 0 时由 native 自动计算。
+    public int sendTo(byte[] icmpMessage, string host) {
+        int r = _icmpSendTo(m_handle, icmpMessage, host);
+        if (r < 0) { _throwNet(r, "icmp sendTo"); }
+        return r;
+    }
+    // 收到一条 ICMP 消息,返回来源地址(out)。
+    public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _icmpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "icmp recvFrom"); }
+        peerAddress = _icmpLastRecvAddress(m_handle);
+        return n;
+    }
+    public void close() {
+        int r = _icmpClose(m_handle);
+        if (r < 0) { _throwNet(r, "icmp close"); }
+    }
+}
 
 // ---- TCP ----
 native int _tcpBind(string host, int port);

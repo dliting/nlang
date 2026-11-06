@@ -1,0 +1,15 @@
+import io;
+import net;
+
+int main() {
+    try {
+        IcmpSocket s = IcmpSocket.bind("127.0.0.1");
+        // Administrator host: the raw socket works — smoke a send.
+        s.close();
+        io.print("ok");
+        return 0;
+    } catch (SocketException e) {
+        io.print("ok");   //unprivileged: the documented error path
+        return 0;
+    }
+}

@@ -48,6 +48,7 @@ target_sources(nlang_net PRIVATE
     net/net_tcp.cpp
     net/net_tcp_connect.cpp
     net/net_udp.cpp
+    net/net_icmp.cpp
     ${PROJECT_SOURCE_DIR}/src/runtime/StackDump.cpp)
 if(WIN32)
     target_sources(nlang_net PRIVATE

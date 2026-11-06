@@ -28,7 +28,7 @@ namespace nlang {
 
 //--- job table -------------------------------------------------------------
 
-int32_t NetJobTable::Mint(int kind) {
+int32_t NetJobTable::Mint(int kind, int owner) {
     int32_t index = 0;
     if (!m_freeList.empty()) {
         index = m_freeList.back();
@@ -40,6 +40,7 @@ int32_t NetJobTable::Mint(int kind) {
     }
     m_records[index] = NetJobRecord{};
     m_records[index].kind = kind;
+    m_records[index].owner = owner;
     m_inUse[index] = 1;
     return index + 1;
 }
@@ -56,6 +57,22 @@ void NetJobTable::MarkDone(int32_t jobId,
     std::vector<std::string>&& endpoints, int err) {
     if (NetJobRecord* rec = Lookup(jobId)) {
         rec->endpoints = std::move(endpoints);
+        rec->err = err;
+        rec->done = true;
+    }
+}
+
+int32_t NetJobTable::FindOwn(int kind, int owner) const {
+    for (size_t i = 0; i < m_records.size(); ++i)
+        if (m_inUse[i] && m_records[i].kind == kind
+            && m_records[i].owner == owner)
+            return static_cast<int32_t>(i) + 1;
+    return 0;
+}
+
+void NetJobTable::MarkDoneIcmp(int32_t jobId, int rttMs, int err) {
+    if (NetJobRecord* rec = Lookup(jobId)) {
+        rec->rttMs = rttMs;
         rec->err = err;
         rec->done = true;
     }
@@ -117,8 +134,9 @@ void ResolveWorker(void* arg) {
         ok ? 0 : kNetErrPlatform);
 }
 
-//Drains the self-pipe read end until would-block (ack bytes are hints;
-//the record under the mutex decides).
+}  //namespace
+
+//Declared in net_jobs.h: shared by the resolve wait and the ping wait.
 void NetDrainPipe(int readFd) {
     if (readFd < 0)
         return;
@@ -130,13 +148,19 @@ void NetDrainPipe(int readFd) {
     }
 }
 
-}  //namespace
-
 void NetFinishResolve(NetExecState* st, int32_t jobId,
     std::vector<std::string>&& endpoints, int err) {
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
         st->m_jobs.MarkDone(jobId, std::move(endpoints), err);
+    }
+    st->m_jobsDoneCv.notify_all();   //teardown wait (R9)
+}
+
+void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err) {
+    {
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        st->m_jobs.MarkDoneIcmp(jobId, rttMs, err);
     }
     st->m_jobsDoneCv.notify_all();   //teardown wait (R9)
 }

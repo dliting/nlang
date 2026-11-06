@@ -38,6 +38,7 @@ constexpr int kNetJobIcmp = 1;
 
 struct NetJobRecord {
     int kind = 0;
+    int owner = 0;           //requesting context id (ping re-entry adoption)
     bool done = false;       //worker filled the result
     bool released = false;   //requesting context is done with it
     std::vector<std::string> endpoints;   //resolve: address texts
@@ -50,12 +51,20 @@ struct NetJobRecord {
 //recycled jobId never aliases a live worker's target — no generation.
 class NetJobTable {
 public:
-    int32_t Mint(int kind);   //jobId = index + 1
+    int32_t Mint(int kind, int owner = 0);   //jobId = index + 1
     //The record for a jobId, or null when free/stale.
     NetJobRecord* Lookup(int32_t jobId);
+    //The jobId of this context's still-registered job of the kind
+    //(_ping re-entry: the stack is rebuilt after the park unwind and
+    //adopts the job it already submitted), or 0 when there is none.
+    //A context runs one native at a time, so it can never own two
+    //live jobs of one kind.
+    int32_t FindOwn(int kind, int owner) const;
     //Fills the result and flags done (caller holds the state mutex;
     //the teardown-cv notify runs in NetFinishResolve after unlock).
     void MarkDone(int32_t jobId, std::vector<std::string>&& endpoints, int err);
+    //ICMP variant: the result is the RTT instead of an endpoint list.
+    void MarkDoneIcmp(int32_t jobId, int rttMs, int err);
     //Flags released and frees the record when done is also set.
     void Release(int32_t jobId);
     //Records still awaiting their worker (the dtor's cv predicate).
@@ -72,6 +81,13 @@ private:
 //cv after the unlock (R9: the dtor waits for in-flight jobs).
 void NetFinishResolve(NetExecState* st, int32_t jobId,
     std::vector<std::string>&& endpoints, int err);
+//ICMP variant of NetFinishResolve (the pool worker's completion).
+void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err);
+
+//Drains the self-pipe read end until would-block (ack bytes are hints;
+//the record under the mutex decides). Shared by the resolve wait
+//(net_jobs.cpp) and the ping wait (net_icmp.cpp).
+void NetDrainPipe(int readFd);
 
 //The resolve natives behind net.n's connect path (registered by
 //net_native.cpp; blocking-channel call shape).
