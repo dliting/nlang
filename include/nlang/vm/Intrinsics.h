@@ -234,6 +234,11 @@ static constexpr uint16_t INTR_InitializationException_Ctor = 172;
 //(ReceiverClassIndex maps an array receiver to the Array face class;
 //the stamped face row reaches this id from OP_CallMethod).
 static constexpr uint16_t INTR_Array_toString = 173;
+//v0.12.7 Task 13: stream array readers (self-describing array records;
+//the write side rides the existing WriteObject ids with a runtime
+//kind dispatch).
+static constexpr uint16_t INTR_BS_ReadArray = 174;
+static constexpr uint16_t INTR_FS_ReadArray = 175;
 
 //174 = next fresh id. The v0.13.0 net block (174..220) retired when
 //net moved out of the VM into the nlang_net native module: module

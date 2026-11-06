@@ -104,7 +104,7 @@ std::vector<int32_t>& VmExecutor::ElementPayloadRecord(
 //decode foreach and row copies share. dims[d] >= 1 holds by creation
 //validation, so the div/mod walk is exact.
 int64_t VmExecutor::ViewFlatElementAddress(
-    const std::vector<int32_t>& view, int64_t flat) {
+    const std::vector<int32_t>& view, int64_t flat) const {
     const int32_t rank = view[2];
     const int32_t* dims = view.data() + 4;
     const int32_t* strides =
@@ -121,10 +121,17 @@ int64_t VmExecutor::ViewFlatElementAddress(
 
 void VmExecutor::RejectZeroStrideStore(const std::vector<int32_t>& slot,
                                        uint8_t rank) {
+    const int32_t* dims = slot.data() + 4;
     const int32_t* strides =
         slot.data() + ArrayViewStridesBase(rank);
     for (uint8_t d = 0; d < rank; ++d) {
-        if (strides[d] == 0)
+        //The rejection is derived from the record itself — a zero-stride
+        //axis only aliases when it spans more than one element (several
+        //coordinates fold onto one owner cell). A size-1 or empty axis
+        //addresses one cell through any stride, so its store stays
+        //legal whatever stride the producer recorded; encoding choices
+        //upstream can never lock a legal write out.
+        if (dims[d] > 1 && strides[d] == 0)
             RaiseNlangExceptionBase(
                 "cannot store through a broadcast (zero-stride) view; "
                 "reshape it to materialize a writable copy");

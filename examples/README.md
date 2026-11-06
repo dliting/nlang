@@ -51,4 +51,5 @@ keeps it within 0-255).
 | conc_carriers_demo.n | concurrency: carrier count does not change results (try `nvm --carriers=1` vs `--carriers=8`) | 20 |
 | hello_project/ | multi-file project (open the `.nproj` in nide) | 0 |
 | libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
+| mnist_mlp/ | two-layer MNIST perceptron — views, broadcasting, axis reductions in batch matrix form (multi-module project; data in `data/`, gate at 0.85) | 0 |
 | embed_host/ | minimal C++ embedding host (built by CMake; run `embed_host <artifact.ncu|.npkg>`) | 0 |

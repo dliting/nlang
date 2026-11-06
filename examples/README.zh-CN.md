@@ -38,4 +38,5 @@
 | stdlib_fs.n | fs路径/目录/元数据 | 0 |
 | hello_project/ | 多文件项目（nide打开`.nproj`） | 0 |
 | libdemo/ | 平面搜索路径库（先编库单元，消费方import后运行期装载） | 0 |
+| mnist_mlp/ | 两层MNIST感知机——批量矩阵形态的视图、广播与沿轴归约（多模块项目；数据在`data/`，验收门槛0.85） | 0 |
 | embed_host/ | 最小C++嵌入宿主（CMake构建，运行`embed_host <产物.ncu|.npkg>`） | 0 |

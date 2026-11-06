@@ -28,9 +28,13 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 232 functions: io 19 (14 natives + 5 typed-reader wrappers),
-    // math 25, fs 8, thread 7 (the K3 materialized package plus the
-    // P2-2 failure probes), tensor 120 (the collapsed surface: generic
+    // 266 functions: io 19 (14 natives + 5 typed-reader wrappers; the
+    // v11 clock/park natives and the byte helpers moved from net),
+    // math 25, fs 10 (the binary read pair readBytes/readFloats),
+    // thread 7 (the K3 materialized package plus the P2-2 failure
+    // probes), tensor 152 (the v0.12.7 surface: broadcasting
+    // elementwise with scalar arms, the view family
+    // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
     // net 53 (the script ping plus the internal _nowMs/_lastErrorText/
@@ -38,7 +42,7 @@ static void TestLoadsRealStdLib() {
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
     // natives and the 5 _icmp* natives; class methods are not free
     // functions).
-    CHECK(index.size() == 232);
+    CHECK(index.size() == 266);
 }
 
 static void TestResolvePrint() {
@@ -88,7 +92,7 @@ static void TestCompletion() {
     index.LoadLibraryDir(STDLIB_DIR);
 
     const auto fsSyms = index.CompletePackage("fs");
-    CHECK(fsSyms.size() == 8);
+    CHECK(fsSyms.size() == 10);
 
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
@@ -285,14 +289,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 232);
+    CHECK(index.size() == 266);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 232);
+    CHECK(index.size() == 266);
 }
 
 static void TestBlockCommentBraces() {

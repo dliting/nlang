@@ -29,3 +29,11 @@ native void remove(string path);
 // Join two path segments; always uses forward slashes.
 // A rooted right segment replaces the left (std::filesystem).
 native string join(string a, string b);
+
+// Whole file as one byte per int cell (values 0 to 255).
+// A null path raises NullPointerException; failures raise IOException.
+native int[] readBytes(string path);
+
+// Whole file decoded as little-endian float32 values.
+// A byte count that is not a multiple of four raises Exception.
+native float[] readFloats(string path);

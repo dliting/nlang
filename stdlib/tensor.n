@@ -105,32 +105,97 @@ native Array<float> log(Array<float> a);
 native Array<double> log(Array<double> a);
 
 //--- elementwise binary (same-name overloads; runtime element-kind dispatch) --
+// Two array operands broadcast by the right-aligned rule: a missing
+// leading axis or a size-1 axis repeats its cell, incompatible shapes
+// raise the base Exception naming both, and the result is a fresh
+// owning record of the broadcast shape. The scalar arm keeps the
+// operand shape. Integer division by zero raises DivByZeroException;
+// float/double division by zero yields IEEE Inf/NaN.
+native Array<int> add(Array<int> a, Array<int> b);
+native Array<long> add(Array<long> a, Array<long> b);
+native Array<float> add(Array<float> a, Array<float> b);
+native Array<double> add(Array<double> a, Array<double> b);
+native Array<int> sub(Array<int> a, Array<int> b);
+native Array<long> sub(Array<long> a, Array<long> b);
+native Array<float> sub(Array<float> a, Array<float> b);
+native Array<double> sub(Array<double> a, Array<double> b);
+native Array<int> mul(Array<int> a, Array<int> b);
+native Array<long> mul(Array<long> a, Array<long> b);
+native Array<float> mul(Array<float> a, Array<float> b);
+native Array<double> mul(Array<double> a, Array<double> b);
+native Array<int> div(Array<int> a, Array<int> b);
+native Array<long> div(Array<long> a, Array<long> b);
+native Array<float> div(Array<float> a, Array<float> b);
+native Array<double> div(Array<double> a, Array<double> b);
 
-// Elementwise sum of two arrays of the same length.
-native int[] add(int[] a, int[] b);
-native long[] add(long[] a, long[] b);
-native float[] add(float[] a, float[] b);
-native double[] add(double[] a, double[] b);
+// Scalar arms (internal addScalar/... names: the array and scalar
+// forms share argc 2, so they cannot ride one registered name).
+native Array<int> addScalar(Array<int> a, int value);
+native Array<long> addScalar(Array<long> a, long value);
+native Array<float> addScalar(Array<float> a, float value);
+native Array<double> addScalar(Array<double> a, double value);
+native Array<int> subScalar(Array<int> a, int value);
+native Array<long> subScalar(Array<long> a, long value);
+native Array<float> subScalar(Array<float> a, float value);
+native Array<double> subScalar(Array<double> a, double value);
+native Array<int> mulScalar(Array<int> a, int value);
+native Array<long> mulScalar(Array<long> a, long value);
+native Array<float> mulScalar(Array<float> a, float value);
+native Array<double> mulScalar(Array<double> a, double value);
+native Array<int> divScalar(Array<int> a, int value);
+native Array<long> divScalar(Array<long> a, long value);
+native Array<float> divScalar(Array<float> a, float value);
+native Array<double> divScalar(Array<double> a, double value);
 
-// Elementwise difference of two arrays of the same length.
-native int[] sub(int[] a, int[] b);
-native long[] sub(long[] a, long[] b);
-native float[] sub(float[] a, float[] b);
-native double[] sub(double[] a, double[] b);
+Array<int> add(Array<int> a, int value) {
+    return addScalar(a, value);
+}
+Array<long> add(Array<long> a, long value) {
+    return addScalar(a, value);
+}
+Array<float> add(Array<float> a, float value) {
+    return addScalar(a, value);
+}
+Array<double> add(Array<double> a, double value) {
+    return addScalar(a, value);
+}
+Array<int> sub(Array<int> a, int value) {
+    return subScalar(a, value);
+}
+Array<long> sub(Array<long> a, long value) {
+    return subScalar(a, value);
+}
+Array<float> sub(Array<float> a, float value) {
+    return subScalar(a, value);
+}
+Array<double> sub(Array<double> a, double value) {
+    return subScalar(a, value);
+}
+Array<int> mul(Array<int> a, int value) {
+    return mulScalar(a, value);
+}
+Array<long> mul(Array<long> a, long value) {
+    return mulScalar(a, value);
+}
+Array<float> mul(Array<float> a, float value) {
+    return mulScalar(a, value);
+}
+Array<double> mul(Array<double> a, double value) {
+    return mulScalar(a, value);
+}
+Array<int> div(Array<int> a, int value) {
+    return divScalar(a, value);
+}
+Array<long> div(Array<long> a, long value) {
+    return divScalar(a, value);
+}
+Array<float> div(Array<float> a, float value) {
+    return divScalar(a, value);
+}
+Array<double> div(Array<double> a, double value) {
+    return divScalar(a, value);
+}
 
-// Elementwise product of two arrays of the same length.
-native int[] mul(int[] a, int[] b);
-native long[] mul(long[] a, long[] b);
-native float[] mul(float[] a, float[] b);
-native double[] mul(double[] a, double[] b);
-
-// Elementwise quotient of two arrays of the same length. Integer
-// division by zero raises DivByZeroException; float/double division by
-// zero yields IEEE Inf/NaN.
-native int[] div(int[] a, int[] b);
-native long[] div(long[] a, long[] b);
-native float[] div(float[] a, float[] b);
-native double[] div(double[] a, double[] b);
 
 //--- clamp (elementwise bound; the clamp pair shares names with the
 //--- reductions and is arity-dispatched) ---------------------------------------
@@ -156,6 +221,13 @@ native int sum(Array<int> a);
 native long sum(Array<long> a);
 native float sum(Array<float> a);
 native double sum(Array<double> a);
+// Sum along one axis: the axis dim is eliminated and the rank drops by
+// one (a rank-1 source with axis 0 returns the scalar). An axis
+// outside [0, rank) raises the base Exception naming axis and rank.
+native Array<int> sum(Array<int> a, int axis);
+native Array<long> sum(Array<long> a, int axis);
+native Array<float> sum(Array<float> a, int axis);
+native Array<double> sum(Array<double> a, int axis);
 
 // Largest element; an empty array raises the base Exception.
 native int max(Array<int> a);
@@ -190,20 +262,46 @@ native double dot(double[] a, double[] b);
 
 //--- matrix family --------------------------------------------------------------
 
-// Rank-2 transpose: [rows, cols] -> [cols, rows] as a row-major copy.
-native int[,] transpose(int[,] a);
-native long[,] transpose(long[,] a);
-native float[,] transpose(float[,] a);
-native double[,] transpose(double[,] a);
+// Transpose as a view: without axes every axis reverses (rank 2 is
+// the familiar [rows, cols] -> [cols, rows]); with axes the view's
+// axis d reads the source axis axes[d] — axes must be a permutation of
+// 0..rank-1 or the base Exception raises.
+native Array<int> transpose(Array<int> a);
+native Array<long> transpose(Array<long> a);
+native Array<float> transpose(Array<float> a);
+native Array<double> transpose(Array<double> a);
+native Array<int> transpose(Array<int> a, int[] axes);
+native Array<long> transpose(Array<long> a, int[] axes);
+native Array<float> transpose(Array<float> a, int[] axes);
+native Array<double> transpose(Array<double> a, int[] axes);
 
-// Flatten to rank 1 in row-major order (the most common reshape).
-native int[] flatten(int[,] a);
-native long[] flatten(long[,] a);
-native float[] flatten(float[,] a);
-native double[] flatten(double[,] a);
+// Flatten to rank 1: a view over a contiguous source, a dense copy
+// otherwise (a strided source has no rank-1 reinterpretation).
+native Array<int> flatten(Array<int> a);
+native Array<long> flatten(Array<long> a);
+native Array<float> flatten(Array<float> a);
+native Array<double> flatten(Array<double> a);
 
-// Reshape to the target shape in row-major order (a copy; the view
-// form lands with the v0.12.7 view tasks). Exactly one shape dim may be
+// Slice every axis at once, the function form of the colon subscript:
+// starts/stops/steps each carry one entry per axis (negative endpoints
+// count from the end; a zero step raises the base Exception).
+native Array<int> slice(Array<int> a, int[] starts, int[] stops, int[] steps);
+native Array<long> slice(Array<long> a, int[] starts, int[] stops, int[] steps);
+native Array<float> slice(Array<float> a, int[] starts, int[] stops, int[] steps);
+native Array<double> slice(Array<double> a, int[] starts, int[] stops, int[] steps);
+
+// Read-only broadcast view: leading axes the source lacks and size-1
+// source axes repeat (zero stride). Aligned dims must match or have
+// source size 1; stores through the view reject (a repeated write
+// would corrupt aliases).
+native Array<int> broadcastTo(Array<int> a, int[] shape);
+native Array<long> broadcastTo(Array<long> a, int[] shape);
+native Array<float> broadcastTo(Array<float> a, int[] shape);
+native Array<double> broadcastTo(Array<double> a, int[] shape);
+
+// Reshape re-views a contiguous source at the same offset (O(1)); a
+// strided source materializes a dense copy first. Exactly one shape
+// dim may be
 // -1: it is inferred as elemCount divided by the product of the other
 // dims, which must divide evenly — otherwise the base Exception raises
 // with both numbers spelled out. Any other negative dim raises the
@@ -229,33 +327,6 @@ native int[,] matmul(int[,] a, int[,] b);
 native long[,] matmul(long[,] a, long[,] b);
 native float[,] matmul(float[,] a, float[,] b);
 native double[,] matmul(double[,] a, double[,] b);
-
-//--- rank-2 surface (same kernels; elementwise keeps the operand shape) --------
-
-// Elementwise sum of two same-shape rank-2 arrays.
-native int[,] add(int[,] a, int[,] b);
-native long[,] add(long[,] a, long[,] b);
-native float[,] add(float[,] a, float[,] b);
-native double[,] add(double[,] a, double[,] b);
-
-// Elementwise difference of two same-shape rank-2 arrays.
-native int[,] sub(int[,] a, int[,] b);
-native long[,] sub(long[,] a, long[,] b);
-native float[,] sub(float[,] a, float[,] b);
-native double[,] sub(double[,] a, double[,] b);
-
-// Elementwise product of two same-shape rank-2 arrays.
-native int[,] mul(int[,] a, int[,] b);
-native long[,] mul(long[,] a, long[,] b);
-native float[,] mul(float[,] a, float[,] b);
-native double[,] mul(double[,] a, double[,] b);
-
-// Elementwise quotient of two same-shape rank-2 arrays (division rules
-// as in the rank-1 overloads).
-native int[,] div(int[,] a, int[,] b);
-native long[,] div(long[,] a, long[,] b);
-native float[,] div(float[,] a, float[,] b);
-native double[,] div(double[,] a, double[,] b);
 
 //--- plain-NLang layer: the small neural-net composition the kernels
 //--- above are built for. float and double overloads; integers have no

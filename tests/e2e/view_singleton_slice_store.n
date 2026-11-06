@@ -1,0 +1,42 @@
+//A length-one slice axis keeps a real stride: element stores through
+//it must not trip the broadcast (zero-stride) store gate. Both slice
+//spellings (subscript and the tensor.slice function form), the
+//negative-step singleton and the empty slice stay writable (or
+//store-free) with writes visible in the owner. A size-1 broadcast
+//axis is the same story — it shares no owner cell, so only a
+//broadcast axis that spans more than one element blocks stores.
+import tensor;
+
+int main() {
+    int[] arr = [1, 2, 3, 4];
+    int[] w = arr[1:2];
+    w[0] = 40;
+    int b = arr[1];
+
+    int[,] m = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    int[,] v = m[1:2, :];
+    v[0, 0] = 90;
+    int a = m[1, 0];
+
+    int[] rev = arr[2:1:-1];
+    rev[0] = 30;
+    int c = arr[2];
+
+    int[] starts = [1];
+    int[] stops = [2];
+    int[] steps = [1];
+    int[] f = tensor.slice(arr, starts, stops, steps);
+    f[0] = 20;
+    int g = arr[1];
+
+    int[] none = arr[2:2];
+    int d = none.length();
+
+    int[] shape14 = [1, 4];
+    int[,] bcast = tensor.broadcastTo(arr, shape14);
+    bcast[0, 2] = 7;
+    int h = arr[2];
+
+    //90 + 40 + 30 + 0 + 20 + 7 = 187
+    return a + b + c + d + g + h;
+}

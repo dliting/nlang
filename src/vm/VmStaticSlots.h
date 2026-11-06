@@ -11,22 +11,27 @@
    state. Each class record owns one StaticOwnerState; the gate opcode
    claims it (CAS Uninitialized→Initializing), Done publishes, Fail
    resets for the next retry. Waiters park re-walking the gate until
-   the owner publishes. All vector/atomic access happens under the
-   scheduler GIL (bytecode handlers run with it held), so the waiters
-   list needs no lock of its own.
+   the owner publishes. Bytecode dispatch runs carrier-parallel — the
+   scheduler GIL covers only scheduler-side state — so every waiters
+   mutation (park registration, the Done/Fail wake handoff, claim
+   release on abort) runs under the table's waiters mutex. Registration
+   and the parked-state store share one critical section so a wake
+   cannot slip between them; a waker publishes the phase BEFORE taking
+   the mutex, letting a losing racer see the fresh phase and abort its
+   park.
 
    v0.12.6 Task 6 (spec D12): per-slot initialization bits. A slot with
    an initializer reads as uninitialized until its owning initializer
    stores it; LoadStatic checks the bit and throws instead of handing
    out the silent zero. Bits survive a failed initializer (D10's
    attempts-counter retention: a retry re-runs stores and re-marks).
-   GIL-guarded like the rest of the table.
 ---*/
 #ifndef NLANG_VM_STATIC_SLOTS_H
 #define NLANG_VM_STATIC_SLOTS_H
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace nlang {
@@ -47,7 +52,8 @@ public:
         //re-enters through the gate's donePc (initialization running
         //deeper on its own stack).
         std::atomic<uint32_t> ownerCtxId{kNoOwnerCtx};
-        //Contexts parked on this owner; GIL-guarded.
+        //Contexts parked on this owner; every mutation runs under
+        //the table's waiters mutex (carrier-parallel dispatch).
         std::vector<uint32_t> waiters;
 
         //Movable by hand: the atomics are neither (their value travels
@@ -85,8 +91,13 @@ public:
     //static-local slot machines — and hand the parked waiters back to
     //the caller for waking. Machines in any other phase — published
     //Done, another context's Initializing — stay untouched.
-    //GIL-guarded like every owner-table transition.
     std::vector<uint32_t> ReleaseContextClaims(uint32_t ctxId);
+
+    //Guards every waiters-list mutation. Cold by construction (a
+    //first-use static gate), so one table-wide mutex beats per-owner
+    //state. Lock order: this mutex, then the scheduler GIL — never
+    //the reverse.
+    std::mutex& WaitersMutex() { return m_waitersMutex; }
 
     //Task 7 (static locals): the per-slot tri-state machine a
     //declaration-site OP_SlotInitGate claims. Same protocol as a class
@@ -154,6 +165,9 @@ public:
     }
 
 private:
+    //See WaitersMutex(). Held across the parked-state store on the
+    //park side; wakers swap the list under it and wake outside it.
+    std::mutex m_waitersMutex;
     std::vector<uint64_t> m_cells;
     std::vector<uint8_t> m_initBits;
     std::vector<StaticOwnerState> m_owners;

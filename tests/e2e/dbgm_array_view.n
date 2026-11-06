@@ -1,0 +1,16 @@
+//e2e dbgm_array_view: machine mode — the debugger displays array views
+//(locals, nested refs, struct fields) through the view record's own
+//dims/strides/offset, elements resolved along the owner.
+struct Pane {
+    double[,] cells;
+}
+
+int main() {
+    double[,] m = double[3,4];
+    m[2, 3] = 7.0;
+    double[,] g = m[1:3, :];
+    Pane p;
+    p.cells = g;
+    int hold = 1;
+    return 0;
+}

@@ -1,7 +1,8 @@
 // fs native module — the dynamically-loaded implementation of the `fs`
-// namespace (names, directories and metadata; whole-file content lives in
-// io). Built as nlang_fs.dll / libnlang_fs.so and loaded through the same
-// mechanism as a third-party native library.
+// namespace (names, directories, metadata and the binary whole-file read
+// pair; whole-text file content lives in io). Built as nlang_fs.dll /
+// libnlang_fs.so and loaded through the same mechanism as a third-party
+// native library.
 //
 // Depends only on the NativeHost ABI, the C++ standard library and
 // <filesystem> (used with std::error_code, so no C++ exceptions cross the
@@ -11,10 +12,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
+using nlang::native::ArgInt;
 using nlang::native::ArgString;
 using nlang::native::ReturnInt;
 using nlang::native::ReturnString;
@@ -22,6 +26,9 @@ using nlang::native::ReturnString;
 namespace {
 
 namespace fsys = std::filesystem;
+
+// DoS bound for the whole-file reads: same 16 MiB cap io.readFile enforces.
+constexpr unsigned long long kMaxReadBytes = 16ull * 1024ull * 1024ull;
 
 void RaiseIo(NativeHost* h, const std::string& msg) {
     nlang::native::Raise(h, NEXC_IOException, msg);
@@ -127,6 +134,87 @@ void FsJoin(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnString(h, ret, joined);
 }
 
+//--- readBytes / readFloats -------------------------------------------------
+// Shared whole-file read: open check, size cap and short-read check, with
+// every failure mapped to IOException naming the path.
+std::string ReadWholeFile(NativeHost* h, const char* funcName,
+                          const std::string& path) {
+    std::ifstream in(path, std::ios_base::binary);
+    if (!in.is_open())
+        RaiseIo(h, std::string(funcName) + ": cannot open \"" + path
+                + "\".");
+    in.seekg(0, std::ios_base::end);
+    const std::streamoff size = in.tellg();
+    if (size < 0)
+        RaiseIo(h, std::string(funcName) + ": cannot determine size of \""
+                + path + "\".");
+    if (static_cast<unsigned long long>(size) > kMaxReadBytes)
+        RaiseIo(h, std::string(funcName) + ": \"" + path
+                + "\" is too large to read.");
+
+    std::string bytes(static_cast<size_t>(size), '\0');
+    in.seekg(0, std::ios_base::beg);
+    if (size > 0)
+        in.read(&bytes[0], size);
+    if (in.bad() || in.gcount() != static_cast<std::streamsize>(size))
+        RaiseIo(h, std::string(funcName) + ": read error on \"" + path
+                + "\".");
+    return bytes;
+}
+
+// A null path is the one string failure that is not an IO failure: the
+// program handed no path at all.
+void CheckNotNullPath(NativeHost* h, const char* funcName,
+                      const uint8_t* a) {
+    if (ArgInt(a, 0) == 0)
+        nlang::native::Raise(h, NEXC_NullPointer,
+                             std::string(funcName) + ": path is null.");
+}
+
+void FsReadBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    CheckNotNullPath(h, "fs.readBytes", a);
+    const std::string path = ArgString(h, a, 0);
+    const std::string bytes = ReadWholeFile(h, "fs.readBytes", path);
+
+    const int32_t count = static_cast<int32_t>(bytes.size());
+    const int32_t handle = h->newArray(h, NEK_Int32, count);
+    NativeArrayView view;
+    h->getArrayView(h, handle, &view);
+    // One byte per cell (0..255), not a packed memcpy.
+    int32_t* cells = static_cast<int32_t*>(view.data);
+    for (size_t i = 0; i < bytes.size(); ++i)
+        cells[i] = static_cast<uint8_t>(bytes[i]);
+    ReturnInt(ret, handle);
+}
+
+void FsReadFloats(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    CheckNotNullPath(h, "fs.readFloats", a);
+    const std::string path = ArgString(h, a, 0);
+    const std::string bytes = ReadWholeFile(h, "fs.readFloats", path);
+
+    if (bytes.size() % 4 != 0)
+        nlang::native::Raise(h, NEXC_Base, "fs.readFloats: \"" + path
+                + "\" holds " + std::to_string(bytes.size())
+                + " bytes, not a multiple of four.");
+
+    const int32_t count = static_cast<int32_t>(bytes.size() / 4);
+    const int32_t handle = h->newArray(h, NEK_Float32, count);
+    NativeArrayView view;
+    h->getArrayView(h, handle, &view);
+    float* cells = static_cast<float*>(view.data);
+    for (int32_t i = 0; i < count; ++i) {
+        // Assemble the float32 bit pattern from little-endian bytes, so
+        // the decode does not depend on the host's byte order.
+        const uint32_t bits =
+            static_cast<uint32_t>(static_cast<uint8_t>(bytes[4 * i + 0]))
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[4 * i + 1])) << 8)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[4 * i + 2])) << 16)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[4 * i + 3])) << 24);
+        std::memcpy(&cells[i], &bits, sizeof(float));
+    }
+    ReturnInt(ret, handle);
+}
+
 } // namespace
 
 // Module entry point. Everything touches the filesystem (unbounded
@@ -140,6 +228,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "fs", "listFiles",   &FsListFiles);
     regBlocking(registry, "fs", "makeDirs",    &FsMakeDirs);
     regBlocking(registry, "fs", "remove",      &FsRemove);
+    regBlocking(registry, "fs", "readBytes",   &FsReadBytes);
+    regBlocking(registry, "fs", "readFloats",  &FsReadFloats);
     reg(registry, "fs", "join",        &FsJoin);
     return NLANG_HOST_ABI_VERSION;
 }

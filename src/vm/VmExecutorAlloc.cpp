@@ -290,6 +290,51 @@ int32_t VmExecutor::AllocViewOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     return heapIdx;
 }
 
+//v0.12.7 Task 13: fresh owning record of the view's own dims, each
+//element read through the view's affine map (the serializer's
+//materialization — the view itself is untouched). The copy loop
+//allocates nothing, so references taken after AllocArrayOnHeap stay
+//valid; struct elements alias the source structs (value-copying them
+//here would be dead work — the transient copy is written to a stream
+//and dropped).
+int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
+    if (viewHeapIdx <= 0
+        || static_cast<size_t>(viewHeapIdx) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(viewHeapIdx)] != RTK_ArrayView)
+        throw std::runtime_error(
+            "NLang VM: invalid view record in MaterializeView");
+    const uint8_t rank =
+        static_cast<uint8_t>(m_structHeap[static_cast<size_t>(viewHeapIdx)][2]);
+    const uint16_t arrayTypeIdx = static_cast<uint16_t>(
+        m_structHeap[static_cast<size_t>(viewHeapIdx)][1]);
+    int32_t dims[kMaxArrayRank] = {0};
+    for (uint8_t d = 0; d < rank; ++d)
+        dims[d] = m_structHeap[static_cast<size_t>(viewHeapIdx)][4 + d];
+    const int32_t elemCount =
+        m_structHeap[static_cast<size_t>(viewHeapIdx)][3];
+
+    const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
+    if (elemCount == 0)
+        return heapIdx;
+
+    const uint8_t elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
+    const int cells = ArrayElemCells(elemKind);
+    size_t ownerBase = 0;
+    auto& owner = ElementPayloadRecord(
+        m_structHeap[static_cast<size_t>(viewHeapIdx)], RTK_ArrayView,
+        ownerBase);
+    const auto& view = m_structHeap[static_cast<size_t>(viewHeapIdx)];
+    auto& dst = m_structHeap[static_cast<size_t>(heapIdx)];
+    const size_t dstBase = ArrayHeaderCells(rank);
+    for (int32_t flat = 0; flat < elemCount; ++flat) {
+        const int64_t addr = ViewFlatElementAddress(view, flat);
+        for (int c = 0; c < cells; ++c)
+            dst[dstBase + static_cast<size_t>(flat) * cells + c] =
+                owner[ownerBase + static_cast<size_t>(addr) * cells + c];
+    }
+    return heapIdx;
+}
+
 int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");

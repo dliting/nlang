@@ -1,0 +1,88 @@
+// Task 13: array content serialization — writeObject accepts array values
+// (owning records; views are covered by array_view_serialize), readArray
+// rebuilds self-describing owning records, and object graphs may carry
+// array fields (struct via writeStruct, class via writeObject) where the
+// serializers used to raise.
+import io;
+
+struct Point {
+    int x;
+    int y;
+}
+
+struct RowBox {
+    int[] row;
+}
+
+class GridBox {
+    public int[,] cells;
+}
+
+int main() {
+    int[,] m = int[2, 3];
+    m[1, 2] = 7;
+    ByteStream bs = ByteStream();
+    bs.writeObject(m);                  // bare array value
+    bs.reset();
+    int[,] back = bs.readArray() as int[,];
+    assert(back[1, 2] == 7);
+    assert(back.shape()[0] == 2 && back.shape()[1] == 3);
+    back[0, 0] = 9;                     // round-trip copy is independent
+    assert(m[0, 0] == 0);
+
+    string[] names = string[2];         // string elements: length-prefixed
+    names[0] = "alpha";                 // payload per element
+    names[1] = "beta";
+    ByteStream bs1 = ByteStream();
+    bs1.writeObject(names);
+    bs1.reset();
+    string[] names2 = bs1.readArray() as string[];
+    assert(names2[0] == "alpha" && names2[1] == "beta");
+
+    double[] d = double[2];             // 8-byte scalar element stride
+    d[0] = 1.5;
+    d[1] = -2.25;
+    ByteStream bs2 = ByteStream();
+    bs2.writeObject(d);
+    bs2.reset();
+    double[] d2 = bs2.readArray() as double[];
+    assert(d2[0] == 1.5 && d2[1] == -2.25);
+
+    Point[] ps = Point[2];              // struct elements: the stream tag
+    ps[1].x = 3;                        // carries the struct name so the
+    ps[1].y = 4;                        // reader can rebuild Point rows
+    ByteStream bs3 = ByteStream();
+    bs3.writeObject(ps);
+    bs3.reset();
+    Point[] ps2 = bs3.readArray() as Point[];
+    assert(ps2[0].x == 0 && ps2[1].x == 3 && ps2[1].y == 4);
+
+    RowBox rb;                          // array field inside a struct graph
+    int[] inner = int[3];
+    inner[2] = 42;
+    rb.row = inner;
+    ByteStream bs4 = ByteStream();
+    bs4.writeStruct(rb);
+    bs4.reset();
+    RowBox rb2 = bs4.readStruct("RowBox");
+    assert(rb2.row[2] == 42);
+    rb2.row[0] = 5;
+    assert(inner[0] == 0);              // field copy is independent too
+
+    int[,] grid = int[2, 2];            // array field inside a class graph
+    grid[0, 1] = 8;
+    GridBox gb = GridBox();
+    gb.cells = grid;
+    ByteStream bs5 = ByteStream();
+    bs5.writeObject(gb);
+    bs5.reset();
+    GridBox gb2 = bs5.readObject("GridBox") as GridBox;
+    assert(gb2.cells[0, 1] == 8);
+
+    ByteStream bs6 = ByteStream();      // null still serializes as the
+    bs6.writeObject(null);              // null marker (class path)
+    bs6.reset();
+    Object none = bs6.readObject("GridBox");
+    assert(none == null);
+    return 0;
+}

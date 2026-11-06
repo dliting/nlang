@@ -1,0 +1,120 @@
+// Task 12: the view/broadcast tensor surface — O(1) transpose/flatten/
+// reshape views over contiguous sources (materialized otherwise), the
+// slice/broadcastTo function forms, broadcasting elementwise with
+// scalar shapes, the axis sum, and matmul's contiguity materialization.
+// Negative-stride and broadcast views stay writable/rejectable through
+// the language store paths (Task 10/11 machinery).
+import tensor;
+
+int main() {
+    int[] d2 = int[2];
+    d2[0] = 3;
+    d2[1] = 4;
+    double[,] m = tensor.full(d2, 0.0);
+    double[] bias = tensor.full(4, 1.0);
+    double[,] biased = tensor.add(m, bias);    // (3,4)+(4,) right-aligned
+    assert(biased[2, 3] == 1.0);
+    double[,] scaled = tensor.add(m, 0.5);     // scalar form
+    assert(scaled[0, 0] == 0.5);
+    bool caught = false;
+    try {
+        tensor.add(m, tensor.full(3, 1.0));    // (3,4)+(3,) incompatible
+        assert(false);
+    } catch (Exception e) {
+        caught = true;
+    }
+    assert(caught);
+
+    double[,] t = tensor.transpose(m);         // view: axes reversed
+    assert(t.shape()[0] == 4);
+    double[] f = tensor.flatten(m);            // view (contiguous source)
+    assert(f[3] == 0.0);
+    double[,] g = m[1:3, :];                   // syntax slice view
+    assert(g.shape()[0] == 2);
+    double[,] mm = tensor.matmul(m, t);        // (3,4)x(4,3): t is a view
+    assert(mm.shape()[0] == 3);                // (materialized then mul)
+
+    m[2, 3] = 7.0;                             // mark a nonzero source cell
+    int[] shape234 = [2, 3, 4];
+    double[,,] bt = tensor.broadcastTo(m, shape234);  // axis-0 zero-stride
+    assert(bt[1, 2, 3] == 7.0 && bt[0, 2, 3] == 7.0); // reads repeat axis 0
+    caught = false;
+    try {
+        bt[1, 0, 0] = 9.0;                     // static-N store: rejected
+        assert(false);
+    } catch (Exception e) {
+        caught = true;
+    }
+    assert(caught);
+    Array<double> anyBt = bt;                  // unannotated receiver
+    caught = false;
+    try {
+        anyBt[0, 0, 0] = 9.0;                  // dynamic store: same check
+        assert(false);
+    } catch (Exception e) {
+        caught = true;
+    }
+    assert(caught);
+
+    int[] shape38 = [3, 8];
+    double[,] mat = tensor.reshape(bt, shape38);  // non-contiguous source:
+    mat[0, 0] = 9.0;                               // materialized copy
+    assert(m[0, 0] == 0.0);                        // source unpolluted
+    double s = 0.0;
+    foreach (double v in bt) {                  // foreach reads zero-stride
+        s += v;
+    }
+    assert(s == 14.0);                          // 2 x sum(m) = 2 x 7.0
+
+    double[] colSum = tensor.sum(m, 0);         // axis 0: (3,4) -> (4,)
+    assert(colSum[3] == 7.0 && colSum.length() == 4);
+
+    double[] rev = m[0, ::-1];                  // negative-stride view
+    rev[0] = 5.0;                               // first logical cell is
+    assert(m[0, 3] == 5.0);                     // the source row tail
+    rev[0] += 1.0;                              // compound store: same path
+    assert(m[0, 3] == 6.0);
+
+    Object ob = mat;                            // write-back through as
+    double[,] viaAs = ob as double[,];
+    viaAs[0, 1] = 2.0;
+    assert(mat[0, 1] == 2.0);
+
+    //transpose(a, axes): the permutation view — [2,3,4] with axes
+    //[2,0,1] reads [4,2,3]; a source cell marked at [1,2,3] lands at
+    //[3,1,2] in the view.
+    int[] shape234b = int[3];
+    shape234b[0] = 2;
+    shape234b[1] = 3;
+    shape234b[2] = 4;
+    int[,,] c = tensor.reshape(tensor.arange(0, 24, 1), shape234b);
+    int[] perm = [2, 0, 1];
+    int[,,] pt = tensor.transpose(c, perm);
+    assert(pt.shape()[0] == 4 && pt.shape()[1] == 2 && pt.shape()[2] == 3);
+    assert(pt[0, 0, 0] == c[0, 0, 0] && pt[3, 1, 2] == c[1, 2, 3]);
+
+    //slice(a, starts, stops, steps): the function form, one entry per
+    //axis — rows 1..2, all columns; then rows reversed, all columns.
+    int[] mFrom = [1, 0];
+    int[] mTo = [3, 4];
+    int[] by1 = [1, 1];
+    double[,] sl = tensor.slice(m, mFrom, mTo, by1);  // rows 1..2 of (3,4)
+    assert(sl.shape()[0] == 2 && sl[0, 0] == m[1, 0]);
+    int[] revFrom = [2, 0];
+    int[] revTo = [0, 4];
+    int[] byNeg1 = [-1, 1];
+    double[,] revRows = tensor.slice(m, revFrom, revTo, byNeg1);  // rows 2,1
+    assert(revRows.shape()[0] == 2 && revRows[0, 0] == m[2, 0]
+        && revRows[1, 0] == m[1, 0]);
+
+    //axis validation: out-of-range axis raises with axis and rank
+    caught = false;
+    try {
+        tensor.sum(m, 2);                       // rank 2, axis 2 invalid
+        assert(false);
+    } catch (Exception e) {
+        caught = true;
+    }
+    assert(caught);
+    return 0;
+}

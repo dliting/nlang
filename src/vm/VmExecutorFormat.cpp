@@ -142,6 +142,9 @@ std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     case RTK_Struct:
         return "<struct>";
     case RTK_Array:
+    case RTK_ArrayView:
+        //FormatArray branches to the view walk on the record's own kind
+        //(Task 10) — the bracket output is the view's logical content.
         return FormatArray(heapIdx, depth + 1);
     case RTK_Func:
         //Fifth FormatHeapValue consumer (container formatting); the four

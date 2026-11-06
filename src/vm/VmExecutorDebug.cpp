@@ -16,9 +16,9 @@
 
 namespace nlang {
 
-namespace {
-
-const char* DebugKindName(uint8_t kind) {
+//Shared with VmExecutorDebugArray.cpp (the array display names
+//kinds through the same registry walk).
+const char* VmExecutor::DebugKindName(uint8_t kind) {
     //0.7.5: scalars name themselves through the registry (bool today,
     //the P4-P6 family later) — no per-kind arm to forget.
     int i = ScalarPrimIndexOfRtk(kind);
@@ -34,6 +34,8 @@ const char* DebugKindName(uint8_t kind) {
     default:         return "unknown";
     }
 }
+
+namespace {
 
 //0.7.5 Task 11: debugger-only char rendering. The registry renderer
 //gives toString semantics (the bare UTF-8 code point — right for
@@ -288,6 +290,10 @@ std::string VmExecutor::FormatDebugHeapValue(int32_t heapIdx) const {
         return FormatDebugStructInstance(heapIdx);
     case RTK_Array:
         return FormatDebugArray(heapIdx);
+    case RTK_ArrayView:
+        //v0.12.7 Task 13: the view's own dims/strides/offset with
+        //elements resolved along the owner.
+        return FormatDebugViewArray(heapIdx);
     case RTK_Func:
         return "Func";
     default:
@@ -360,7 +366,9 @@ std::string VmExecutor::FormatDebugField(const std::vector<int32_t>& slot,
     if (declaredKind == RTK_Array) {
         int32_t raw = slot[cellIdx];
         if (raw > 0 && static_cast<size_t>(raw) < m_slotKinds.size())
-            return FormatDebugArray(raw);
+            return m_slotKinds[static_cast<size_t>(raw)] == RTK_ArrayView
+                ? FormatDebugViewArray(raw)
+                : FormatDebugArray(raw);
         return "null";
     }
     if (ScalarPrimIndexOfRtk(static_cast<uint8_t>(declaredKind)) >= 0) {
@@ -430,35 +438,13 @@ std::string VmExecutor::FormatDebugRefShort(int32_t heapIdx) const {
         return FormatDebugBoxed(slot);
     case RTK_Func:
         return "Func";
+    case RTK_ArrayView:
+        //v0.12.7 Task 13: rank-notation short tag (the full display in
+        //VmExecutorDebugArray.cpp shows dims/strides/offset).
+        return DebugViewShortTag(slot);
     default:
         return "<unknown>";
     }
-}
-
-std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
-    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
-    uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    int32_t length = slot[3];  //stage-2 header: elemCount
-    uint8_t elemKind = RTK_Int32;
-    if (m_currModule
-        && arrayTypeIdx < m_currModule->arrayTypes.size())
-        elemKind = m_currModule->arrayTypes[arrayTypeIdx].elemKind;
-    std::string result = std::string(DebugKindName(elemKind)) + "["
-        + std::to_string(length) + "]{";
-    int bound = length < kMaxElementsShown ? length : kMaxElementsShown;
-    //0.7.5: registry stride — 8-byte scalar elements read the cell
-    //pair through the same stride-aware field renderer as everyone
-    //else; 1-cell kinds read their single cell.
-    const int cells = ArrayElemCells(elemKind);
-    for (int32_t i = 0; i < bound; ++i) {
-        if (i > 0) result += ", ";
-        result += FormatDebugField(slot,
-            ArrayPayloadBase(slot) + static_cast<size_t>(i) * cells,
-            elemKind);
-    }
-    if (length > bound) result += ", ...";
-    result += "}";
-    return result;
 }
 
 } // namespace nlang

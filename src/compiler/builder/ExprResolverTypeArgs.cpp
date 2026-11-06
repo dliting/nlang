@@ -15,8 +15,9 @@ namespace nlang
 {
 
 //Depth of the array-type chain (int[] = 1, int[][] = 2, …). Depth >= 2
-//is a jagged declaration form: the VM has no multi-dimensional layout
-//(pre-token, the element masquerade additionally degraded such
+//is a jagged declaration form: an array-of-array has no heap layout
+//(multi-dimensional brackets [,] annotate one flat record, they do not
+//nest; pre-token, the element masquerade additionally degraded such
 //declarations twice silently), so it is rejected at the declaration
 //site (array redesign B, spec §5.5).
 //v0.12.7: the generic spelling counts as a level too (Array<E> = 1 +

@@ -34,7 +34,8 @@ endforeach()
 target_sources(nlang_tensor PRIVATE
     tensor/tensor_binary.cpp
     tensor/tensor_matrix.cpp
-    tensor/tensor_reduce.cpp)
+    tensor/tensor_reduce.cpp
+    tensor/tensor_views.cpp)
 
 # net: per-executor state + one NetPlatform implementation per platform
 # (design §6). StackDump.cpp is compiled in (not linked) so the module's

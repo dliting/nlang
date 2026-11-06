@@ -46,6 +46,10 @@ void VmStaticSlots::Build(size_t slotCount, size_t classCount,
 
 std::vector<uint32_t> VmStaticSlots::ReleaseContextClaims(uint32_t ctxId) {
     std::vector<uint32_t> woken;
+    //Under the waiters mutex: the drain races nothing on this table,
+    //but a concurrent gate may be registering a waiter (park side
+    //holds the same mutex across its parked-state store).
+    std::lock_guard<std::mutex> guard(m_waitersMutex);
     for (auto& owner : m_owners)
         ResetClaimedMachine(owner, ctxId, woken);
     for (auto& machine : m_slotMachines)

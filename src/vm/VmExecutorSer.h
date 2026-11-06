@@ -71,8 +71,8 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_Array)
         {
-            throw std::runtime_error(
-                "NLang VM: WriteStruct does not support array fields");
+            SerializeArrayRecord(slot[i * 2],
+                std::forward<Writer>(write), st, depth + 1);
         }
         else if (ftk == RTK_Func)
         {
@@ -160,11 +160,8 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_Array)
         {
-            //Defensive: SerializeStructFields rejects array fields on the
-            //write side, so no writer can produce this record — reaching
-            //it means a corrupted or hand-crafted stream.
-            throw std::runtime_error(
-                "NLang VM: ReadStruct does not support array fields");
+            m_structHeap[heapIdxSz][i * 2] = DeserializeArrayRecord(
+                std::forward<Reader>(read), st, depth + 1);
         }
         else if (ftk == RTK_Func)
         {
@@ -278,8 +275,8 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         }
         else if (ftk == RTK_Array)
         {
-            throw std::runtime_error(
-                "NLang VM: WriteStruct does not support array fields");
+            SerializeArrayRecord(slot[i * 2 + 1],
+                std::forward<Writer>(write), st, depth + 1);
         }
         else if (ftk == RTK_Func)
         {
@@ -418,11 +415,8 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         }
         else if (ftk == RTK_Array)
         {
-            //Defensive: SerializeClassFields rejects array fields on the
-            //write side, so no writer can produce this record — reaching
-            //it means a corrupted or hand-crafted stream.
-            throw std::runtime_error(
-                "NLang VM: ReadStruct does not support array fields");
+            m_structHeap[heapIdxSz][i * 2 + 1] = DeserializeArrayRecord(
+                std::forward<Reader>(read), st, depth + 1);
         }
         else if (ftk == RTK_Func)
         {
@@ -445,3 +439,8 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
 }
 
 } // namespace nlang
+
+//Array-content templates (Task 13) — included here, after the
+//struct/class definitions they build on, so the existing Ser consumers
+//need no include change.
+#include "VmExecutorSerArray.h"

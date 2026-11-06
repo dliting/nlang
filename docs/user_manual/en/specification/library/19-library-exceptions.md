@@ -21,6 +21,9 @@ operation; this chapter adds no failure behavior of its own.
 | `io` (§14.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §16.2) |
 | streams (§14.6) | `NullPointerException` | a method call through a null stream handle |
 | `fs` (§15.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
+| `fs` (§15.4) | `NullPointerException` | a null path to `readBytes` or `readFloats` |
+| `fs` (§15.4) | `IOException` | a `readBytes` or `readFloats` open or read failure (a file above the 16 MiB bound included) |
+| `fs` (§15.4) | `Exception` | `readFloats` on a byte count that is not a multiple of four |
 | `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
 | `concurrent` (§10.4) | `Exception` | construction with a negative capacity |
 | `tensor` (§18.6) | `NullPointerException` | a null array argument |

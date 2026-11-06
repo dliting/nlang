@@ -7,11 +7,12 @@
     on the gate itself, so the wake re-walks the same gate and reads
     the fresh phase. Done publishes and wakes the waiters; Fail resets
     the owner (the next use retries) and wakes them too — the rethrown
-    initializer exception carries the failure to user code. Handlers
-    run under the scheduler GIL, so the owner-table atomics and the
-    waiters vector need no extra locking. The park/wake helpers serve
-    both keyings — class/interface owners and per-slot machines share
-    one StaticOwnerState protocol.
+    initializer exception carries the failure to user code. Dispatch
+    runs carrier-parallel (the scheduler GIL covers scheduler state
+    only), so the waiters list and the phase/owner atomics of the
+    claim path follow the waiters-mutex protocol of VmStaticSlots.h.
+    The park/wake helpers serve both keyings — class/interface owners
+    and per-slot machines share one StaticOwnerState protocol.
 ---*/
 #include "VmExecutor.h"
 #include "VmScheduler.h"
@@ -198,12 +199,28 @@ void VmExecutor::OpSlotInitFail(BytecodeReader& reader) {
 //suspension gate runs BEFORE any scheduler state changes (K1 decision
 //2: finish-or-suspend, no half-parked context); the frame pc sits on
 //the gate itself so the wake re-walks it against the fresh phase.
+//Registration and the parked-state store share the waiters-mutex
+//critical section: a Done/Fail publishes its phase BEFORE taking the
+//mutex, so either it swapped us out first (our phase recheck aborts
+//the park and the caller's loop re-walks the gate) or it comes after
+//us and wakes a context already parked or unwinding (K7's mid-unwind
+//arm re-enqueues the latter). RequestPark throws past the released
+//mutex — the park signal's arrival keeps the handshake, not the lock.
 void VmExecutor::ParkOnClassInitOwner(Owner* owner, uint32_t selfId,
                                       uint16_t gatePc) {
     EnsureSuspensionAllowed();
-    owner->waiters.push_back(selfId);
-    EvalStack().back().pc = gatePc;
-    m_spScheduler->ParkForClassInit(static_cast<int>(selfId));
+    {
+        std::lock_guard<std::mutex> guard(m_staticSlots.WaitersMutex());
+        if (owner->phase.load(std::memory_order_acquire)
+                != Owner::kInitializing) {
+            //Published between the gate's phase load and this
+            //registration — parking would miss the wake forever.
+            return;
+        }
+        owner->waiters.push_back(selfId);
+        EvalStack().back().pc = gatePc;
+        m_spScheduler->ParkForClassInit(static_cast<int>(selfId));
+    }
     RequestPark(ParkSignal::Reason::ClassInit);  //[[noreturn]]
 }
 
@@ -228,11 +245,17 @@ void VmExecutor::OpClassInitFail(BytecodeReader& reader) {
     WakeClassInitWaiters(owner);
 }
 
-//Wake every waiter parked on this owner and hand back the list.
+//Wake every waiter parked on this owner: swap the list under the
+//waiters mutex, wake outside it (the scheduler takes its own GIL per
+//call — the mutex never nests inside a GIL acquisition).
 void VmExecutor::WakeClassInitWaiters(Owner* owner) {
-    for (uint32_t waiter : owner->waiters)
+    std::vector<uint32_t> toWake;
+    {
+        std::lock_guard<std::mutex> guard(m_staticSlots.WaitersMutex());
+        toWake.swap(owner->waiters);
+    }
+    for (uint32_t waiter : toWake)
         m_spScheduler->WakeForClassInit(static_cast<int>(waiter));
-    owner->waiters.clear();
 }
 
 } //namespace nlang

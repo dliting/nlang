@@ -319,9 +319,12 @@ bs_struct_nested 13
 bs_struct_float_field 4
 bs_struct_class_field 0
 bs_struct_eos 1
+tensor_view_operand_reads 0
+view_singleton_slice_store 187
+fs_read_bytes_floats 0
 fs_struct_roundtrip 30
 # --- array redesign B Task 5: array-field kind fix ---
-write_struct_array_field_throws 1
+write_object_class_elem_throws 1
 write_struct_func_field_throws 1
 class_array_field_tostring 0
 # --- Phase 8c: class field serialization ---
@@ -1220,6 +1223,7 @@ dbg_catch_throw 3 Throw: dbg_catch_throw.main (dbg_catch_throw.n:4)
 dbgm_basic 42 local total int
 dbgm_breakthrow 0 stopped throw
 dbgm_frame_locals 7 this class Point{x=2, y=5}
+dbgm_array_view 0 view(strides=[4, 1], offset=4)
 dbgm_stdin_roundtrip 0 Hi Alice
 dbgm_readline_eof 0
 dbgm_io_eprint 0 boom
@@ -1875,6 +1879,9 @@ stdlib_tensor_reshape_negdim 0
 #Task 6: the collapsed tensor surface — full(dims), exp/log, clamp,
 #generic reshape with -1 inference, concat, math-face PRNG composition.
 tensor_surface_v2 0
+array_serialize_roundtrip 0
+array_view_serialize 0
+tensor_views_broadcast 0
 array_abi_v10 0
 array_view_ops 0
 #v0.12.7 Task 11: slice subscripts — colon items producing views

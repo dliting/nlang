@@ -45,6 +45,118 @@ All notable changes to NLang are documented here. The format follows
   HTTP/1.0 server built on the package) and `net_conc_bench.n` (a
   1000-connection concurrency benchmark).
 
+## [0.12.7] - 2026-11-06
+
+### Added
+
+- **One array type: `Array<T>`.** Bracket spellings — `int[]`,
+  `int[,]`, `Array<float>` — name a single type. The brackets are
+  static rank annotations, a spelling promise: expressions of any
+  bracket form interconvert freely, and the promise is checked where
+  values cross a boundary (assignment, argument, return). A value
+  whose dynamic rank breaks the annotation raises a catchable
+  `InvalidCastException` naming both ranks; `as` (`m as int[,]`) is
+  the explicit re-spelling. `rank()` reads the dynamic rank and
+  `Array(dims)` constructs at run time on the same type.
+- **O(1) views: reshape, transpose, slice.** `tensor.reshape` and
+  `tensor.transpose` return views — new dimensions and strides over
+  the same cells, so writing through the view writes the source; a
+  reshape of elements not already in row-major order materializes a
+  dense copy first. Slice subscripts (`m[1:3, :]`, `v[i, :]`) produce
+  depth-one views: negative endpoints count from the end
+  (`a[:-1]`), a negative step reverses the axis (`a[::-1]`), and
+  mixing slices with scalar subscripts folds the scalar axis out of
+  the view. Views alias — they are not copies.
+- **Broadcasting.** The elementwise kernels broadcast right-aligned
+  shapes: a `(3, 4)` operand pairs with a `(4,)` row but not a
+  `(3,)` column, and a scalar second argument applies to every
+  element. `tensor.broadcastTo(a, dims)` returns a zero-stride
+  view; writing through it raises a catchable error naming the
+  materialization path, and reshaping that view yields a writable
+  dense copy.
+- **Arrays in `Object`.** An array value is an `Object` with no
+  boxing record in between: assignment to an `Object` variable,
+  `List<Object>` cells and `Object` fields take it as is, protocol
+  methods (`toString`, equality) dispatch on the array slot, and
+  `as int[]` takes it back.
+- **Array content in serialization and the debugger.**
+  `writeObject`/`readObject` carry arrays: whole-array values,
+  array fields inside object graphs, and views (a view serializes
+  as its dense copy). Reading is self-describing through
+  `io.readArray()`. `ndb` prints arrays, including views, in its
+  object display.
+- **`fs.readBytes` / `fs.readFloats`.** Whole-file binary reads:
+  `readBytes` returns one `int` cell per byte (0 to 255);
+  `readFloats` decodes little-endian `float32` — the encoding
+  `FileStream.writeFloat` produces — one `float` cell per 4 bytes.
+  Both share `io.readFile`'s 16 MiB bound. A `null` path raises
+  `NullPointerException`; a failed open or read raises
+  `IOException` naming the path; a byte count not divisible by
+  four (`readFloats`) raises the base `Exception` with the count.
+- **MNIST MLP example project.** `examples/mnist_mlp/`: a
+  multi-module project — dataset loading over `fs.readFloats`,
+  layer definitions, a training driver — that trains a 784-64-10
+  MLP on a 2000/1000-record MNIST subset and gates on ≥ 0.85
+  held-out accuracy (first measured run: 0.897). Training is
+  deterministic: fixed file order and a seeded init.
+  `tools/mnist_subset.py` regenerates the subset from the upstream
+  mirrors with hash verification.
+- **Unified tensor surface.** The rank axis moves to `Array<T>`:
+  the static-rank legacy names (`reshape1`..`reshape8`) are gone,
+  `full(dims, value)` joins the scalar form, `exp`/`log`, `max`/
+  `min` clipping, generic `reshape` with `-1` inference,
+  `concat(a, b, axis)`, and `sum(a, axis)` (sums along one axis
+  and drops it) round out the kernel set on the single type.
+
+### Changed
+
+- **Explicit imports admit bare names.** A name brought in by
+  `import p;` can now be used bare or qualified at the use site;
+  wildcard imports stay qualified-only. Qualified names are
+  absolute module paths; equal-distance ties break toward the own
+  translation unit, and an import-versus-import tie is reported
+  at the use site naming every provider.
+- **Breaking**: the stream classes are `io` package members.
+  `ByteStream` and `FileStream` are declared in the standard
+  library's `io` source, so they require `import io;` (they were
+  the last classes visible without an import). The frozen stream
+  method surface is unchanged underneath.
+
+### Fixed
+
+- **`tensor.matmul` and `concat` read contiguous views at their
+  offset.** A contiguous block view (`m[2:5, :]`) passed to
+  `matmul` or `concat` was read from the owning array's element
+  zero — exact at offset 0, wrong at any other offset. The
+  flat-addressing kernels now fold the view offset into the base.
+  Found by the MNIST acceptance program; no existing fixture used
+  a nonzero-offset view.
+- **Self-import is not an import-cycle edge.** A unit importing
+  its own package no longer trips the acyclic-import-graph check
+  of 0.12.6.
+- **Concurrent static-initialization waiters race the wake path.**
+  Two carriers parking on the same first use raced the waiter
+  registration — an unguarded vector, so a concurrent park could
+  reallocate under the waker: heap corruption, crashes, and in
+  some interleavings a double initialization (two runs of one
+  initializer). Registration and the parked-state store now share
+  one critical section, and a Done/Fail that published first
+  aborts the losing park. Found by a release e2e run, pinned
+  under AddressSanitizer; latent since 0.12.6, with the 0.12.7
+  interpreter timing widening the window enough to surface.
+- **Stores through length-one view axes are legal.** Both slice
+  producers folded a count-≤1 axis's stride to 0 ("never spans"),
+  and the store gate keyed on stride 0 alone — so a legal element
+  store through a singleton slice (`a[1:2][0] = x`,
+  `m[1:2, :][0, 0] = x`) or a size-1 broadcast axis raised the
+  broadcast rejection. Slice folding and `tensor.slice` now record
+  the axis's true affine step, and the gate derives the rejection
+  from the record itself: an axis blocks stores only when it
+  actually aliases (stride 0 *and* length > 1). A spanning
+  broadcast axis rejects exactly as before; `tensor.slice` also
+  now raises on an int32-overflowing span instead of silently
+  truncating the stride.
+
 ## [0.12.6] - 2026-11-03
 
 ### Added

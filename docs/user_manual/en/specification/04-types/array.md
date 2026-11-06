@@ -121,7 +121,8 @@ name `Array` without type arguments stays a compile-time error.
 ## 4.10.5 Subscripting
 
 `a[i]` reads and writes an element; the index is an integer
-expression.
+expression. A subscript may also carry slice items, which produce
+views — §4.10.9.
 
 ```nlang
 int[] a = int[3];
@@ -270,3 +271,71 @@ The brace form `{...}` is not accepted for an array target.
 *Informative:* the full initializer-list rules, including the
 shapes a literal may target, are in [Collection
 Initializers](../05-expressions/initializers.md).
+
+## 4.10.9 Slices and views
+
+A subscript may carry *slice items* in place of plain indices: on
+each axis, `start:stop:step` with every part optional (§2.4). The
+result is not a copy but a *view* — a new array value whose
+elements are the source's elements at the selected positions.
+
+```nlang
+int[,] m = int[4, 4];
+int[,] tl = m[0:2, 0:2];      // the 2x2 top-left corner
+int[] row = m[1, :];          // plain index drops its axis: rank 1
+int[] rev = m[0, ::-1];       // step -1 walks the axis backwards
+```
+
+The rank of the result is the number of sliced axes: plain indices
+select one position along their axis and remove it from the shape,
+slice items keep their axis with the selected length. A rank-1
+array sliced (`a[1:3]`) yields a rank-1 view; an all-index
+subscript (`m[0, 1]`) is the element access of §4.10.5 and no view
+is created.
+
+Each slice axis normalizes independently, Python-style. Omitted
+endpoints take defaults fixed by the step's sign — `0` and the
+axis length for a positive step, the last position and one before
+the first for a negative one. A negative endpoint counts from the
+end (`-1` is the last position); endpoints are clipped to the
+axis; a `0` step is a run-time error, raised as a catchable base
+`Exception` (§8.3). An empty selection is legal and yields a view
+with a zero length on that axis.
+
+A view is an ordinary array value of the element type of its
+source: assignment copies the view reference, the members of
+§4.10.4 report the view's own shape and count, `toString` renders
+the selected elements, and every flowing rule of §4.10.7 applies
+unchanged. What makes it a view is *aliasing*: element reads and
+writes go through to the source array —
+
+```nlang
+int[] a = [1, 2, 3, 4];
+int[] mid = a[1:3];
+mid[0] = 9;                   // writes a[1]
+a[2] = 7;                     // visible through mid[1]
+```
+
+— and views of views compose: slicing a view addresses the
+original elements, not a copy of the copy. A slice expression
+itself may not be the target of an assignment (`a[1:3] = x` is a
+compile-time error): the view is a value, and stores go through
+its own subscripts, one element at a time.
+
+An axis can map several view positions onto one source position —
+through a broadcast view (`broadcastTo`, §18.2) or by slicing an
+already-broadcast axis. Reads repeat the source element; while such
+an axis spans more than one position, stores are rejected — two
+logical cells naming one source cell would silently corrupt one of
+the writes — raising a catchable base `Exception` naming the axis.
+An axis of length 1 addresses exactly one source position whatever
+its stride, so singleton slices and size-1 broadcast axes stay
+writable; negative-stride axes carry no such alias and stay
+writable too.
+
+*Informative:* a view is implemented as its recorded shape,
+per-axis strides and an offset into the source's elements; the
+length of a slice view on one axis never depends on the others.
+Writing a view through `writeObject` writes its *logical
+content* as a fresh record — the round trip yields an independent
+owning array (§14.5).
