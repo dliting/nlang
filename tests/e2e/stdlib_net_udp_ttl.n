@@ -1,0 +1,20 @@
+import io;
+import net;
+
+// Final review M12: setTtl on an IPv6 socket must set the v6 unicast
+// hop limit (IPV6_UNICAST_HOPS) — the v4 IP_TTL knob fails on a v6
+// socket. The loopback round trip proves the option landed on a knob
+// the stack accepts.
+int main() {
+    UdpSocket s = UdpSocket.bind("::", 0);
+    s.setTtl(2);
+    s.sendTo(io.toBytes("v6"), "::1", s.localPort());
+    byte[] buf = byte[8];
+    string from;
+    int port = 0;
+    int n = s.recvFrom(buf, out from, out port, 3000);
+    s.close();
+    if (n != 2) { return 1; }
+    io.print("ok");
+    return 0;
+}

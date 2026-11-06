@@ -1,0 +1,22 @@
+import io;
+import net;   //SocketException/TimeoutException come from the net package
+
+int main() {
+    byte[] data = io.toBytes("hello");
+    if (data.length() != 5) { return 1; }
+    if (data[0] != 104) { return 2; }
+    string s = io.fromBytes(data);
+    if (s != "hello") { return 3; }
+    try {
+        throw SocketException("boom");
+    } catch (SocketException e) {
+        if (e.message != "boom") { return 4; }
+    }
+    try {
+        throw TimeoutException("late");
+    } catch (IOException e) {
+        if (e.message != "late") { return 5; }   //TimeoutException : IOException
+    }
+    io.print("ok");
+    return 0;
+}

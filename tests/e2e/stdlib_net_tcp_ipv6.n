@@ -1,0 +1,25 @@
+import io;
+import net;
+
+int main() {
+    TcpListener srv = TcpListener.bind("::", 0);
+    //Connect first: the listen backlog lets the kernel complete the
+    //handshake, so accept immediately finds the pending connection; if
+    //accept came first, the main context would park and connect would
+    //never run.
+    TcpStream cli = TcpStream.connect("[::1]", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    if (c.peerAddress() != "::1") { return 1; }
+    cli.write(io.toBytes("v6"));
+    byte[] buf = byte[8];
+    int n = c.read(buf, 5000);
+    c.write(buf, n);
+    byte[] echo = byte[8];
+    int m = cli.read(echo, 5000);
+    if (m != 2 || io.fromBytes(echo) != "v6") { return 2; }
+    cli.close();
+    c.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

@@ -1,0 +1,32 @@
+import io;
+import net;
+
+int main() {
+    // write must honor timeoutMs (external review I4): a peer that
+    // never reads closes the flow-control window, the write-all loop
+    // parks on write interest, and the deadline throws instead of
+    // parking forever.
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream c1 = srv.accept(5000);
+    cli.setSendBufferSize(2048);      //explicit buffers disable loopback auto-tune
+    c1.setRecvBufferSize(2048);       //peer never reads -> window closes fast
+    byte[] payload = byte[1024];
+    for (int i = 0; i < payload.length(); i = i + 1) { payload[i] = 65; }
+    try {
+        //256 KiB >> the flow-control window (Windows clamps the 2 KiB
+        //requests to a ~64 KiB floor; the throw lands around round 67)
+        for (int round = 0; round < 256; round = round + 1) {
+            cli.write(payload, -1, 300);
+        }
+        return 1;
+    } catch (TimeoutException e) {
+        // expected: the window stayed shut, one write parked past its deadline
+    }
+    cli.close();
+    c1.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

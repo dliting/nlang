@@ -9,7 +9,7 @@
 #   Linux:   libnlang_<ns>.so
 #   macOS:   libnlang_<ns>.dylib
 
-set(NLANG_NATIVE_MODULES math io fs tensor)
+set(NLANG_NATIVE_MODULES math io fs tensor net)
 
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
@@ -36,6 +36,31 @@ target_sources(nlang_tensor PRIVATE
     tensor/tensor_matrix.cpp
     tensor/tensor_reduce.cpp
     tensor/tensor_views.cpp)
+
+# net: per-executor state + one NetPlatform implementation per platform
+# (design §6). StackDump.cpp is compiled in (not linked) so the module's
+# NLANG_ASSERT sites resolve in Debug builds — the module links nothing
+# but the platform socket libs (the file is self-contained; dbghelp
+# auto-links through its own pragma, and it is an empty TU on POSIX).
+target_sources(nlang_net PRIVATE
+    net/net_jobs.cpp
+    net/net_options.cpp
+    net/net_slots.cpp
+    net/net_state.cpp
+    net/net_tcp.cpp
+    net/net_tcp_connect.cpp
+    net/net_udp.cpp
+    net/net_icmp.cpp
+    ${PROJECT_SOURCE_DIR}/src/runtime/StackDump.cpp)
+if(WIN32)
+    target_sources(nlang_net PRIVATE
+        net/net_platform_windows.cpp
+        net/net_platform_icmp_windows.cpp)
+    target_link_libraries(nlang_net PRIVATE ws2_32 iphlpapi)
+else()
+    target_sources(nlang_net PRIVATE
+        net/net_platform_posix.cpp)
+endif()
 
 # Single authoritative output and NOTHING copies the modules around the
 # build tree — hosts resolve them through NativeLibraryLoader's build-tree
@@ -64,6 +89,6 @@ endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.
-install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor
+install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor nlang_net
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION bin)

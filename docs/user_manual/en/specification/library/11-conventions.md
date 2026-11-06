@@ -2,9 +2,10 @@
 
 ## 11.1 Scope and Package Surface
 
-The standard library is six packages — `math`, `io`, `fs`, `thread`,
-`concurrent` and `tensor`, each a set of package-qualified free
-functions — plus the `string` methods, dispatched on the receiver.
+The standard library is seven packages — `math`, `io`, `fs`,
+`thread`, `concurrent`, `tensor` and `net`, each a set of
+package-qualified free functions — plus the `string` methods,
+dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
@@ -46,8 +47,9 @@ scope. A package name used as a value (`int x = math;`) fails to
 resolve — packages are not values. In terms of duties, `io` carries
 content input/output (IO), `math` numeric computation, `fs` the
 filesystem's names and metadata, `tensor` the numeric array kernels
-(chapter 18), `thread` the virtual-thread spawn and suspension
-primitives, and `concurrent` the coordination classes (§3.9.4).
+(chapter 18), `net` the network sockets (chapter 20), `thread` the
+virtual-thread spawn and suspension primitives, and `concurrent`
+the coordination classes (§3.9.4).
 
 The signatures — parameter kinds, arity and return type — live in
 the `stdlib/*.n` declarations shipped with the toolchain and reach
@@ -116,9 +118,10 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §8.3, plus the one package-declared class, `concurrent`'s
-  `ChannelClosedException` (§8.3). Chapter 19 maps each library
-  operation to the class it raises.
+  of §8.3, plus the three package-declared classes — `concurrent`'s
+  `ChannelClosedException` and `net`'s `SocketException` and
+  `TimeoutException` (§8.3). Chapter 19 maps each library operation
+  to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
   the argument surface of the console functions is chapter 14.
 - Arguments of a library call are checked against the declared

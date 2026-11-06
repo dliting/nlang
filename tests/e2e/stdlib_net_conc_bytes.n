@@ -1,0 +1,85 @@
+import io;
+import thread;
+import net;
+
+// External review Rec 2: a genuinely multi-carrier concurrency case
+// (the sibling .flags file pins --carriers=4). 16 connections each
+// push a 64 KiB rotating pattern through the echo server and verify
+// the returned byte sequence cell by cell. The payload exceeds the
+// loopback buffers, so the write-all and read-exactly loops mix the
+// fast (non-parking) syscall path with parking rounds while four
+// carriers run other contexts' fast paths concurrently — and the
+// per-connection rotation makes cross-connection buffer mixing
+// visible, not just crashes.
+
+class Client {
+    public int port = 0;
+    public int index = 0;
+    public int ok = 0;
+    public void run() {
+        byte[] base = io.toBytes("nlang-net-conc-bytes-0123456789ABCDEF");
+        int m = base.length();
+        byte[] p = byte[65536];
+        for (int j = 0; j < 65536; j = j + 1) {
+            p[j] = base[(j + index * 7) % m];
+        }
+        TcpStream s = TcpStream.connect("127.0.0.1", port, 10000);
+        s.write(p);
+        byte[] q = s.readExactly(65536, 10000);
+        for (int j = 0; j < 65536; j = j + 1) {
+            if (q[j] != p[j]) { s.close(); return; }
+        }
+        s.close();
+        ok = 1;
+    }
+}
+
+class ServeOne {
+    public TcpStream conn;
+    public void run() {
+        byte[] data = conn.readExactly(65536, 10000);
+        conn.write(data);
+        conn.close();
+    }
+}
+
+class Acceptor {
+    public TcpListener listener;
+    public void loop() {
+        while (true) {
+            try {
+                TcpStream conn = listener.accept(2000);
+                ServeOne h = ServeOne();
+                h.conn = conn;
+                thread.spawn(h.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                //accept poll timeout: keep waiting for the next connection
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    Acceptor a = Acceptor();
+    a.listener = srv;
+    Thread acceptor = thread.spawn(a.loop);
+    Thread[] clients = Thread[16];
+    Client[] cs = Client[16];
+    for (int i = 0; i < 16; i = i + 1) {
+        cs[i] = Client();
+        cs[i].port = port;
+        cs[i].index = i;
+        clients[i] = thread.spawn(cs[i].run);
+    }
+    int total = 0;
+    for (int i = 0; i < 16; i = i + 1) { thread.join(clients[i]); total = total + cs[i].ok; }
+    srv.close();
+    thread.join(acceptor);
+    if (total != 16) { return 1; }
+    io.print("ok");
+    return 0;
+}

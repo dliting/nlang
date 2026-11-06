@@ -909,6 +909,200 @@ target_link_libraries(test_domainlocks
 
 add_test(NAME domainlocks_tests COMMAND test_domainlocks)
 
+# v0.13.0 net task 6: the net sources left nlang_vm for the nlang_net
+# module; the unit tests compile them directly instead of reaching them
+# through the VM link. StackDump.cpp rides along so net_slots.cpp's
+# NLANG_ASSERT resolves in Debug builds (the module does the same).
+set(NLANG_NET_MODULE_TEST_SOURCES
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_slots.cpp
+    ${PROJECT_SOURCE_DIR}/src/runtime/StackDump.cpp)
+if(WIN32)
+    list(APPEND NLANG_NET_MODULE_TEST_SOURCES
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_windows.cpp
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_icmp_windows.cpp)
+else()
+    list(APPEND NLANG_NET_MODULE_TEST_SOURCES
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_posix.cpp)
+endif()
+
+# v0.13.0 net: the OS socket abstraction contract (loopback TCP/UDP,
+# numeric resolution, unprivileged ICMP echo) — no VM.
+add_executable(test_net_platform
+    test_vm/test_net_platform.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_platform
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+if(WIN32)
+    target_link_libraries(test_net_platform PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_platform_tests COMMAND test_net_platform)
+
+# v0.13.0 net: the per-executor socket slot table (generation-tagged
+# handles, close-waits-for-waiters fd lifetime) — no VM.
+add_executable(test_net_slots
+    test_vm/test_net_slots.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_slots
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+if(WIN32)
+    target_link_libraries(test_net_slots PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_slots_tests COMMAND test_net_slots)
+
+# v0.13.0 net: the scheduler IO parking contract (poller wake, deadline
+# wake, close-side wake) — in-process scheduler; the socket helpers it
+# drives are the module's platform sources compiled in beside it.
+add_executable(test_net_scheduler
+    test_vm/test_net_scheduler.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_scheduler
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_scheduler
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_scheduler PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_scheduler_tests COMMAND test_net_scheduler)
+
+# Final review I2: the claim-adopt critical section (a fresh call never
+# adopts a foreign context's direction claim) — the net parking TUs
+# compiled in beside the table, no VM process.
+add_executable(test_net_adopt
+    test_vm/test_net_adopt.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_tcp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_options.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_adopt
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_adopt
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_adopt PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_adopt_tests COMMAND test_net_adopt)
+
+# Final review I4: the job table's adoption rule (a released record is
+# never re-adopted by FindOwn) — the table with its completion paths,
+# no VM.
+add_executable(test_net_jobs
+    test_vm/test_net_jobs.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_jobs
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_jobs
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_jobs PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_jobs_tests COMMAND test_net_jobs)
+
+# External review I3: the ping helper's bounded echo slice (a pool
+# worker is never held by one job; a slice timeout re-arms while the
+# script deadline allows) — the pure verdicts, no VM.
+add_executable(test_net_icmp
+    test_vm/test_net_icmp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_icmp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_tcp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_options.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_icmp
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_icmp
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_icmp PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_icmp_tests COMMAND test_net_icmp)
+
+# v0.13.0 net task 6: per-executor module state — two executors in one
+# process run net bytecode through the nlang_net module and mint
+# independent handles; teardown closes the fds they left open.
+add_executable(test_module_state
+    test_vm/test_module_state.cpp
+)
+target_include_directories(test_module_state
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_module_state
+    PRIVATE
+        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+)
+nlang_stdlib_test(test_module_state)
+add_dependencies(test_module_state nlang_net)
+target_compile_definitions(test_module_state
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME module_state_tests COMMAND test_module_state)
+
+# v0.13.0 net task 5: the generic native worker pool (ABI v11 submitWork
+# engine) — runs/joins, two-level priority, lazy start.
+add_executable(test_work_pool
+    test_vm/test_work_pool.cpp
+)
+target_include_directories(test_work_pool
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_work_pool
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME work_pool_tests COMMAND test_work_pool)
+
 # K8 Task 2: chunked block storage (stable element addresses, atomic size
 # publication) — real threads for the read/growth overlap contract.
 add_executable(test_chunkedarray

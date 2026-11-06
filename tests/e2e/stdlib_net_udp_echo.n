@@ -1,0 +1,34 @@
+import io;
+import thread;
+import net;
+
+class UdpEcho {
+    public UdpSocket s;
+    public void run() {
+        byte[] buf = byte[32];
+        string from;
+        int port = 0;
+        int n = s.recvFrom(buf, out from, out port, 5000);
+        s.sendTo(buf, from, port, n);  //send back to the source; only the first n bytes (R3)
+    }
+}
+
+int main() {
+    UdpSocket srv = UdpSocket.bind("127.0.0.1", 0);
+    UdpEcho e = UdpEcho(); e.s = srv;
+    Thread t = thread.spawn(e.run);
+    UdpSocket cli = UdpSocket.bind("127.0.0.1", 0);
+    cli.sendTo(io.toBytes("dgram"), "127.0.0.1", srv.localPort());
+    byte[] buf = byte[32];
+    string from;
+    int port = 0;
+    int n = cli.recvFrom(buf, out from, out port, 5000);
+    //fromBytes reads the whole array: copy out exactly n bytes first.
+    byte[] msg = byte[n];
+    for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
+    if (n != 5 || io.fromBytes(msg) != "dgram") { return 1; }
+    if (from != "127.0.0.1" || port != srv.localPort()) { return 2; }
+    cli.close(); srv.close(); thread.join(t);
+    io.print("ok");
+    return 0;
+}

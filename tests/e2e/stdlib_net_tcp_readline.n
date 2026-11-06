@@ -1,0 +1,37 @@
+import io;
+import thread;
+import net;
+
+class FrameServer {
+    public TcpStream conn;
+    public void run() {
+        string line1 = conn.readLine(5000);
+        string line2 = conn.readLine(5000);
+        if (line1 == "GET /x HTTP/1.0" && line2 == "X-Odd: 1") {
+            conn.write("HTTP/1.0 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+        }
+        conn.shutdownWrite();
+        conn.close();
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    FrameServer s = FrameServer();
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    s.conn = srv.accept(5000);
+    Thread t = thread.spawn(s.run);
+    cli.write("GET /x HTTP/1.0\r\n");
+    cli.write("X-Odd: 1\r\n\r\n");
+    string status = cli.readLine(5000);
+    if (status != "HTTP/1.0 200 OK") { return 1; }
+    string hdr = cli.readLine(5000);
+    hdr = cli.readLine(5000);          //blank line
+    byte[] body = cli.readExactly(5, 5000);
+    if (io.fromBytes(body) != "hello") { return 2; }
+    cli.close();
+    thread.join(t);
+    srv.close();
+    io.print("ok");
+    return 0;
+}

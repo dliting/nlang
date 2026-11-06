@@ -1,0 +1,69 @@
+// Example: mini HTTP server + client — readLine parses the request line,
+// Content-Length frames the fixed-length body (readExactly), and a
+// half-close finishes the exchange. Demonstrates the footing a layered
+// HTTP stack builds on.
+import io;
+import thread;
+import net;
+
+class HttpConnection {
+    public TcpStream conn;
+    public void run() {
+        string requestLine = conn.readLine(5000);
+        if (requestLine == null) { conn.close(); return; }
+        //Discard headers until the blank line.
+        while (true) {
+            string header = conn.readLine(5000);
+            if (header == null || header == "") { break; }
+        }
+        string path = requestLine.split(" ")[1];
+        string body = "served " + path;
+        conn.write("HTTP/1.0 200 OK\nContent-Length: "
+            + body.length().toString() + "\n\n" + body);
+        conn.shutdownWrite();
+        conn.close();
+    }
+}
+
+class HttpAccept {
+    public TcpListener listener;
+    public void run() {
+        while (true) {
+            try {
+                HttpConnection c = HttpConnection();
+                c.conn = listener.accept(2000);
+                thread.spawn(c.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                //accept poll timeout: keep waiting for the next connection
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener listener = TcpListener.bind("127.0.0.1", 0);
+    HttpAccept acc = HttpAccept(); acc.listener = listener;
+    Thread t = thread.spawn(acc.run);
+
+    TcpStream cli = TcpStream.connect("127.0.0.1", listener.localPort(), 5000);
+    cli.write("GET /hello HTTP/1.0\n\n");
+    string status = cli.readLine(5000);
+    int contentLength = 0;
+    while (true) {
+        string header = cli.readLine(5000);
+        if (header == null || header == "") { break; }
+        if (header.startsWith("Content-Length: ")) {
+            contentLength = header.substring(16, header.length()).toInt();
+        }
+    }
+    string body = io.fromBytes(cli.readExactly(contentLength, 5000));
+    io.print("status: " + status + "\n");
+    io.print("body: " + body + "\n");
+    cli.close();
+    listener.close();
+    thread.join(t);
+    io.print("ok");
+    return 0;
+}

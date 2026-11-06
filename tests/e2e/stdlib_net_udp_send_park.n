@@ -1,0 +1,50 @@
+import io;
+import thread;
+import net;
+
+class UdpReader {
+    public UdpSocket rx;
+    public int got = 0;
+    public void run() {
+        byte[] buf = byte[2048];
+        while (true) {
+            try {
+                int n = rx.recv(buf, 5000);
+                if (n > 0) { got = got + 1; }
+            } catch (TimeoutException e) {
+                return;              //no more traffic: done
+            }
+        }
+    }
+}
+
+int main() {
+    // UDP send must park when the send buffer reports full (external
+    // review I6) instead of throwing: a flood through small explicit
+    // buffers completes without exception. Loopback answers a full
+    // peer receive queue by dropping, and UDP guarantees no delivery,
+    // so the arrival count is not pinned — only that the flood never
+    // throws and the reader drains what arrived.
+    UdpSocket rx = UdpSocket.bind("127.0.0.1", 0);
+    UdpSocket tx = UdpSocket.bind("127.0.0.1", 0);
+    tx.connect("127.0.0.1", rx.localPort());
+    tx.setSendBufferSize(2048);      //kernel floor ~64 KiB still << the flood
+    rx.setRecvBufferSize(2048);      //full peer buffer keeps pressure on
+    UdpReader r = UdpReader();
+    r.rx = rx;
+    Thread reader = thread.spawn(r.run);
+    byte[] dgram = byte[1024];
+    dgram[0] = 65;
+    for (int i = 0; i < 400; i = i + 1) {
+        tx.send(dgram, -1, 300);     //must never throw: parks or drops
+    }
+    thread.join(reader);
+    if (r.got <= 0) {
+        io.print("no datagrams arrived");
+        return 1;
+    }
+    tx.close();
+    rx.close();
+    io.print("ok");
+    return 0;
+}

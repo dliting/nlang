@@ -266,12 +266,16 @@ This page collects the language-level limitations visible to user programs, with
   the calling virtual thread suspends and releases its locks for the
   wait, so other carriers keep running.
 
-- **Concurrency: concurrent blocking is capped by the carrier pool**:
-  a native call declared blocking suspends the calling virtual thread
-  and releases its locks for the duration, so other carriers keep running
-  other virtual threads; blocking native calls in flight at once are
-  bounded by the carrier pool size, degrading to queued waiting at
-  worst. A native that does not declare blocking must not wait under
+- **Concurrency: a thread-blocking native call is capped by the
+  carrier pool**: a native call declared blocking suspends the calling
+  virtual thread and releases its locks for the duration, so other
+  carriers keep running other virtual threads. A blocking native that
+  waits by holding its carrier thread is capped by the pool size,
+  degrading to queued waiting at worst; a blocking native that parks
+  on a readiness event (`io.parkForIo`, §14.5) hands its carrier back
+  for the wait, so in-flight waits are not capped by the pool — every
+  `net` socket method parks this way (chapter 20). A native that does
+  not declare blocking must not wait under
   the native declaration contract — a third-party native that waits
   anyway occupies only the carrier executing it, and every other
   carrier runs on; adding the blocking declaration lets the calling
@@ -279,3 +283,19 @@ This page collects the language-level limitations visible to user programs, with
   output serializes through the console mutex, so keep the callbacks
   short to reduce queueing. See [Carriers and
   Parallelism](../10-concurrency/carriers.md).
+
+### Network
+
+- **ICMP (Internet Control Message Protocol) needs platform permission
+  setup**: on Linux the ICMP sockets behind `net.ping` and `IcmpSocket`
+  are gated by the sysctl
+  `net.ipv4.ping_group_range`; unless that range covers the user or
+  group (many distributions ship it disabled), opening one raises
+  `SocketException` with the platform's text. On Windows `IcmpSocket`
+  raw sockets need administrator rights, while `net.ping` needs none.
+  See [ICMP](../library/20-network/icmp.md).
+
+- **IPv6 is exercised on loopback only**: the shipped test suite binds
+  `::` and connects `[::1]`; the dual-stack path on real IPv6 routes is
+  implemented but untested. Every `net` address parameter accepts IPv6
+  addresses (the bracket form `"[::1]"` is accepted and stripped).

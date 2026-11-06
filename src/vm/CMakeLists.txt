@@ -3,7 +3,9 @@ add_library(nlang_vm
     VmScheduler.cpp
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
+    VmSchedulerIo.cpp
     VmSchedulerSync.cpp
+    VmWorkPool.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
     VmExecutorPump.cpp
@@ -126,6 +128,18 @@ add_library(nlang_vm
     TypeDesc.cpp
 )
 
+#The IO poller abstraction (IoPoller.h) is a VM facility — the net
+#module's IO parking (ABI v11 parkForIo) is its first consumer. The
+#NetPlatform implementations moved to the nlang_net native module
+#(src/native/net).
+if(WIN32)
+    target_sources(nlang_vm PRIVATE
+        IoPollerWindows.cpp)
+else()
+    target_sources(nlang_vm PRIVATE
+        IoPollerPosix.cpp)
+endif()
+
 target_include_directories(nlang_vm
     PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -142,3 +156,14 @@ target_link_libraries(nlang_vm
     PUBLIC nlang_runtime
     PRIVATE nlang_compiler nlang_langservice ${CMAKE_DL_LIBS}
 )
+
+if(WIN32)
+    #Vendored wepoll (IOCP-backed epoll-compatible poller, BSD-2-Clause —
+    #src/3rdparty/wepoll/LICENSE.txt) needs winsock2; iphlpapi
+    #(IcmpSendEcho2) moved to nlang_net with the ICMP platform TU.
+    target_sources(nlang_vm PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/3rdparty/wepoll/wepoll.c)
+    target_include_directories(nlang_vm PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/3rdparty/wepoll)
+    target_link_libraries(nlang_vm PRIVATE ws2_32)
+endif()

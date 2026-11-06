@@ -1,4 +1,4 @@
-# 14.5 ByteStream and FileStream
+# 14.6 ByteStream and FileStream
 
 `ByteStream` and `FileStream` are the `io` package's built-in
 handle classes (§11.1); using them takes `import io;` (§3.9.4):
@@ -19,7 +19,7 @@ past the end of the stream, a struct or object read naming a
 type the program does not declare, a function-typed field
 written by `writeStruct` or `writeObject`, and an array whose
 elements are class references written by `writeObject` (scalar
-and struct elements serialize, §14.6).
+and struct elements serialize, §14.7).
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -80,12 +80,12 @@ primitive or string (§4.11.1) — and reads back to the same value.
 operating-system handle and invalidates the stream handle;
 later calls on the same reference report the invalid-handle
 error. The byte-level encoding of the values — byte order and
-the struct and object forms — is fixed by §14.6.
+the struct and object forms — is fixed by §14.7.
 
-## 14.6 Stream Encoding
+## 14.7 Stream Encoding
 
 This section fixes the byte-level encoding exchanged by the
-write and read methods of §14.5. The encoding is the same for
+write and read methods of §14.6. The encoding is the same for
 `ByteStream` and `FileStream`. The stream carries no header:
 each method appends its record at the cursor, and a stream
 written by successive calls is the concatenation of those
@@ -100,7 +100,7 @@ binary32 and binary64 encodings of the value (§4.2).
 **Scalar methods.** `writeInt` and `writeFloat` append 4 bytes
 and `writeLong` and `writeDouble` append 8: the encoding of
 the value in the method's slot type. The implicit widening of
-§14.5 is applied at the call site, so the bytes always carry
+§14.6 is applied at the call site, so the bytes always carry
 the slot type's width — `writeLong(42)` appends the 8 bytes of
 the `long` value 42.
 
@@ -127,7 +127,7 @@ encoded by its own type —
 `readStruct(name)` consumes exactly that byte sequence against
 the named type: the stream and the program must agree on the
 type's shape. Function-typed fields are rejected on the write
-side (§14.5).
+side (§14.6).
 
 **Array records.** `writeObject` on an array value — and an
 array field inside a struct or class record — appends one
@@ -146,7 +146,7 @@ records take part in the same object-id numbering.
 `readArray()` consumes such a record and
 returns a freshly created owning array (never a view); a `null`
 array field written in a graph reads back as the tag-`0` null
-of §14.6's class records. A tag other than `0`, `2` or `3` read by
+of §14.7's class records. A tag other than `0`, `2` or `3` read by
 `readArray`, a struct name the program does not declare, a rank
 outside 1 to 64, and an element kind with no wire form are
 host-level run-time errors (§8.1).
@@ -182,7 +182,7 @@ not to the call: successive `writeObject` calls on one stream
 continue the numbering, and successive `readObject` calls
 rebuild one shared pairing, so an instance written by an
 earlier call can be referenced by a later one. `reset()` and
-`close()` clear the state on both sides (§14.5).
+`close()` clear the state on both sides (§14.6).
 
 **Depth.** A value nested more than 64 levels deep — struct
 within struct, class within class, or either within the other

@@ -1,0 +1,81 @@
+// 基准:同进程10000虚拟线程客户端×短消息echo(spec验收2,不入ctest)。
+// 口径同 wrk/ab:计时窗=并发建立+全部请求;吞吐=msg/s。
+// 另以 --carriers=1 跑一遍,佐证"I/O并发与载体数无关"不变量。
+import io;
+import thread;
+import net;
+
+class BenchClient {
+    public int port = 0;
+    public int id = 0;
+    public int ok = 0;
+    public void run() {
+        // 10k SYN突发会溢出512深accept队列:被拒连接退避重试,同真实客户端。
+        TcpStream s = null;
+        for (int attempt = 0; attempt < 20 && s == null; attempt = attempt + 1) {
+            try {
+                s = TcpStream.connect("127.0.0.1", port, 60000);
+            } catch (SocketException e) {
+                thread.sleep(50);      // 队列满被拒:退避后再试
+            }
+        }
+        if (s == null) { return; }     // 重试耗尽:计为失败
+        s.write("msg-" + id.toString() + "\n");
+        string echo = s.readLine(60000);
+        if (echo == "msg-" + id.toString()) { ok = 1; }
+        s.close();
+    }
+}
+
+class BenchServe {
+    public TcpStream conn;
+    public void run() {
+        string line = conn.readLine(60000);
+        if (line != null) { conn.write(line + "\n"); }
+        conn.close();
+    }
+}
+
+class BenchAccept {
+    public TcpListener listener;
+    public void run() {
+        while (true) {
+            try {
+                BenchServe s = BenchServe();
+                s.conn = listener.accept(5000);
+                thread.spawn(s.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                // accept轮询超时:继续等下一个连接
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener listener = TcpListener.bind("127.0.0.1", 0);
+    BenchAccept acc = BenchAccept(); acc.listener = listener;
+    Thread acceptor = thread.spawn(acc.run);
+
+    long t0 = io.nowMs();             //计时窗=并发建立+全部请求(ab/wrk口径)
+    BenchClient[] cs = BenchClient[10000];
+    Thread[] ts = Thread[10000];
+    for (int i = 0; i < 10000; i = i + 1) {
+        cs[i] = BenchClient();
+        cs[i].port = listener.localPort();
+        cs[i].id = i;
+        ts[i] = thread.spawn(cs[i].run);
+    }
+    int ok = 0;
+    for (int i = 0; i < 10000; i = i + 1) { thread.join(ts[i]); ok = ok + cs[i].ok; }
+    long dt = io.nowMs() - t0;
+    listener.close();
+    thread.join(acceptor);
+    io.print("10000 connections, " + ok.toString() + " echoed, "
+        + dt.toString() + " ms, " + (10000000 / (dt + 1)).toString()
+        + " msg/s\n");
+    if (ok != 10000) { return 1; }
+    io.print("ok");
+    return 0;
+}

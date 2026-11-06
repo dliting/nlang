@@ -1,0 +1,11 @@
+import io;
+import net;
+
+int main() {
+    int rtt = net.ping("127.0.0.1", 3000);
+    if (rtt < 0) { return 1; }
+    int rtt2 = net.ping("localhost", 3000);   //DNS path
+    if (rtt2 < 0) { return 2; }
+    io.print("ok");
+    return 0;
+}

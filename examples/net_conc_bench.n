@@ -1,0 +1,73 @@
+// Example: high-concurrency evidence — 1000 virtual-thread clients in one
+// process exchanging short echo messages. Parking does not occupy a
+// carrier: the run must finish even on a single carrier (inside the
+// 30-second gate). Throughput is measured the way wrk/ab report it.
+import io;
+import thread;
+import net;
+
+class BenchClient {
+    public int port = 0;
+    public int id = 0;
+    public int ok = 0;
+    public void run() {
+        TcpStream s = TcpStream.connect("127.0.0.1", port, 20000);
+        s.write("msg-" + id.toString() + "\n");
+        string echo = s.readLine(20000);
+        if (echo == "msg-" + id.toString()) { ok = 1; }
+        s.close();
+    }
+}
+
+class BenchServe {
+    public TcpStream conn;
+    public void run() {
+        string line = conn.readLine(20000);
+        if (line != null) { conn.write(line + "\n"); }
+        conn.close();
+    }
+}
+
+class BenchAccept {
+    public TcpListener listener;
+    public void run() {
+        while (true) {
+            try {
+                BenchServe s = BenchServe();
+                s.conn = listener.accept(5000);
+                thread.spawn(s.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                //accept poll timeout: keep waiting for the next connection
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener listener = TcpListener.bind("127.0.0.1", 0);
+    BenchAccept acc = BenchAccept(); acc.listener = listener;
+    Thread acceptor = thread.spawn(acc.run);
+
+    long t0 = io.nowMs();             //timed window = concurrent setup + all requests (the ab/wrk measure)
+    BenchClient[] cs = BenchClient[1000];
+    Thread[] ts = Thread[1000];
+    for (int i = 0; i < 1000; i = i + 1) {
+        cs[i] = BenchClient();
+        cs[i].port = listener.localPort();
+        cs[i].id = i;
+        ts[i] = thread.spawn(cs[i].run);
+    }
+    int ok = 0;
+    for (int i = 0; i < 1000; i = i + 1) { thread.join(ts[i]); ok = ok + cs[i].ok; }
+    long dt = io.nowMs() - t0;
+    listener.close();
+    thread.join(acceptor);
+    io.print("1000 connections, " + ok.toString() + " echoed, "
+        + dt.toString() + " ms, " + (1000000 / (dt + 1)).toString()
+        + " msg/s\n");
+    if (ok != 1000) { return 1; }
+    io.print("ok");
+    return 0;
+}

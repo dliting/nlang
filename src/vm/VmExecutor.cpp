@@ -8,7 +8,8 @@
 
 namespace nlang {
 
-VmExecutor::~VmExecutor() = default;
+//v11 R8: ~VmExecutor moved to VmExecutorNativeHost.cpp (it drives the
+//module-state teardown defined there; this file is at the size budget).
 
 //The container side tables (List/Dict/Mutex/Channel/Semaphore) share
 //one reset shape: clear store + free list, cache the builtin class

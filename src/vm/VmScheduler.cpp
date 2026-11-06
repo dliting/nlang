@@ -6,6 +6,7 @@
     取值投递，含 selectAny 等待集）在 VmSchedulerJoin.cpp。
 ---*/
 #include "VmScheduler.h"
+#include "VmWorkPool.h"   //v11: complete type for the pool member's teardown
 #include <algorithm>
 #include <cstring>
 #include <iterator>
@@ -239,7 +240,8 @@ bool VmScheduler::WaitForWorkOrStop(std::unique_lock<std::mutex>& gil) {
     const bool amCarrier = t_carrier != nullptr
         && t_carrier->carrierId >= 0;
     const int waitingMe = amCarrier ? 1 : 0;
-    if (otherPumps == 0 && m_timers.empty()
+    //v0.13.0 net: m_ioWaits joins the liveness set (poller wakes parked).
+    if (otherPumps == 0 && m_timers.empty() && m_ioWaits.empty()
             && m_blockedNativeCount == 0
             && m_idleCarrierCount + waitingMe
                 >= m_activeCarrierCount.load()) {
@@ -450,10 +452,14 @@ VmScheduler::~VmScheduler() {
     {
         GilEnsureGuard g(*this);
         m_timerShutdown = true;
+        m_ioThreadShutdown = true;   //v0.13.0 net: same lazy-thread protocol
     }
     m_timerCv.notify_all();
+    m_ioCv.notify_all();
     if (m_timerThread.joinable())
         m_timerThread.join();
+    if (m_ioThread.joinable())
+        m_ioThread.join();
 }
 
 //K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用

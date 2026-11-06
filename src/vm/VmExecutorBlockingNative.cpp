@@ -189,6 +189,17 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     //the same scope destructor above flips this thread off.
     if (m_spScheduler->StopRequested())
         throw ShutdownSignal();
+    //v0.13.0 net R7: the blocking native parked this context (its
+    //parkForIo registered interest and asked for the unwind). Skip the
+    //frame restore — the frames already live in ctx->frames
+    //(ParkFramesForBlockingNative) and must stay there for the parked
+    //context's GC scan; the carrier loop's ParkSignal catch performs
+    //the queue decision exactly as on the intrinsic RequestPark path
+    //(empty eval stack: nothing to move, only the decision).
+    if (ctx->ioParkPending) {
+        ctx->ioParkPending = false;
+        throw ParkSignal(ParkSignal::Reason::Io);
+    }
     RestoreStolenFrames(ctx, stolenDepth);
 }
 

@@ -60,8 +60,15 @@ extern "C" {
 // accepts view records (filling from the record's strides/offset instead
 // of recomputing row-major ones; owning records keep the computed shape),
 // and newArrayView mints a view over an existing array handle with the
-// same validation the language's view creation applies.
-#define NLANG_HOST_ABI_VERSION 10u
+// same validation the language's view creation applies. Version 11: the
+// IO-parking and work-pool side — nowMs (monotonic clock, same domain as
+// the park deadlines), parkForIo (register interest, unwind, re-enter on
+// wake — the non-blocking-IO contract the net module builds on),
+// moduleState (per-executor module globals with a teardown hook),
+// wakeIoWaiters (close-side wake), currentContextId (the stable caller
+// identity across park/re-entry) and submitWork (the host's generic
+// native worker pool, joined at scheduler teardown).
+#define NLANG_HOST_ABI_VERSION 11u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -69,6 +76,11 @@ extern "C" {
 // pattern); the 8-byte family (long/double) uses all 8 bytes;
 // strings/objects/lists carry a 32-bit heap handle in the low half.
 #define NLANG_VALUE_SIZE 8
+
+// parkForIo event bits (the module-side spelling; the VM's IoPoller.h
+// mirrors these exact values for its poller layer).
+#define NLANG_EV_READ 1u
+#define NLANG_EV_WRITE 2u
 
 struct NativeHost;
 typedef struct NativeHost NativeHost;
@@ -98,9 +110,15 @@ enum NativeExceptionKind {
 // PrimitiveTypes.h (single source; keep in tie by this comment — same
 // discipline as kMaxNativeStagedParams mirroring the compiler constant).
 // The identity mapping lets the host map NEK -> RTK with no table.
+// ABI v11 added the byte pair: io.toBytes mints byte arrays through
+// newArray, and the narrow-cell convention (one int32 cell per element,
+// low byte = value) is reported through NativeArrayView like any other
+// kind.
 enum NativeElemKind {
     NEK_Int32   = 0,   // RTK_Int32
     NEK_Float32 = 1,   // RTK_Float
+    NEK_Byte    = 10,  // RTK_Byte
+    NEK_UByte   = 11,  // RTK_UByte
     NEK_Int64   = 15,  // RTK_Long
     NEK_Float64 = 17   // RTK_Double
 };
@@ -219,6 +237,57 @@ struct NativeHost {
     int32_t (*newArrayView)(NativeHost* self, int32_t targetHandle,
                             int32_t rank, const int32_t* dims,
                             const int32_t* strides, int64_t offset);
+
+    //v11: monotonic milliseconds, same clock domain as the VM IO poller
+    //deadlines (steady_clock epoch; not wall time).
+    long long (*nowMs)(NativeHost* self);
+    //v11: register fd interest + optional absolute deadline (steady-clock
+    //ms; hasDeadline=0 means none), then unwind the calling native.
+    //Returns 0 on the first entry (interest registered; the native MUST
+    //return immediately — the VM parks the context and releases the
+    //carrier) and 1 on re-entry after wake (the VM re-executes the
+    //CallNative with the same staged arguments; retry the operation).
+    //fd < 0 = pure deadline park. Only callable from a blocking-channel
+    //native (the GIL is released on entry; the host re-takes it).
+    //Re-entry re-executes the CallNative instruction (the dispatch loop
+    //pins pc at it), so parking exists only for instruction-level
+    //(script-dispatched) native calls; host-initiated native calls —
+    //the native-main root window, the host bridge's native-formal arm
+    //— carry no such re-execution anchor and must not park (external
+    //review M13).
+    //Note: the armed flag is set by ANY WakeForIo wake, including
+    //interpreter-path parks (e.g. thread.sleep) that never called
+    //parkForIo; a stale armed makes the next blocking-native's first
+    //parkForIo return 1 (one extra retry). Harmless by contract — the
+    //caller re-checks its condition on every return — do not "fix" it
+    //by clearing armed on other wake paths.
+    int (*parkForIo)(NativeHost* self, int fd, unsigned events,
+        long long deadlineMs, int hasDeadline);
+    //v11: per-executor host-managed module state slot keyed by tag. The
+    //host calls ctor() once per executor, stores the pointer with dtor,
+    //and runs dtor at executor teardown (before the module unloads —
+    //modules never unload). Later calls return the stored pointer.
+    void* (*moduleState)(NativeHost* self, const char* tag,
+        void* (*ctor)(void), void (*dtor)(void*));
+    //v11: unregister poller interest for fd and wake every context parked
+    //on it (socket close path — the module cannot reach the VM poller
+    //directly). Callable without the GIL; the host takes it internally.
+    void (*wakeIoWaiters)(NativeHost* self, int fd);
+    //v11: id of the context executing the current blocking-native call
+    //(stable across park/re-entry — the net module's per-direction waiter
+    //guard needs it to tell its own re-entry from a foreign concurrent
+    //claim, plan ruling R14). Only callable from a blocking-channel
+    //native (the staged calling context).
+    int (*currentContextId)(NativeHost* self);
+    //v11: run fn(arg) on the host's generic native worker pool (workers
+    //hold no GIL); on completion the pool sends one byte to ackFd (a
+    //socket fd owned by the caller; -1 = no ack). priority: 0 normal,
+    //1 high (two-level queue — a slow getaddrinfo never starves short
+    //jobs; libuv uv_queue_work precedent). The pool starts lazily and
+    //is joined at scheduler teardown (after all carriers stop, the R8
+    //precondition). Callable from any channel; returns 0.
+    int (*submitWork)(NativeHost* self, void (*fn)(void*), void* arg,
+        int ackFd, int priority);
 };
 
 // Version probe. The host resolves this export first and rejects the

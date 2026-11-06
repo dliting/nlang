@@ -240,4 +240,10 @@ static constexpr uint16_t INTR_Array_toString = 173;
 static constexpr uint16_t INTR_BS_ReadArray = 174;
 static constexpr uint16_t INTR_FS_ReadArray = 175;
 
+//174 = next fresh id. The v0.13.0 net block (174..220) retired when
+//net moved out of the VM into the nlang_net native module: module
+//natives register by name through the NativeHost ABI and need no
+//intrinsic ids. 0.13.0 is unreleased, so the ids are freed for reuse
+//rather than burned.
+
 }  // namespace nlang

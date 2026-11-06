@@ -1,0 +1,33 @@
+import io;
+import thread;
+import net;
+
+class Reader {
+    public TcpStream s;
+    public int outcome = 0;
+    public void run() {
+        byte[] buf = byte[8];
+        try { s.read(buf, 3000); outcome = 1; }
+        catch (SocketException e) { outcome = 2; }
+        catch (TimeoutException e) { outcome = 3; }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    Reader a = Reader(); a.s = c;
+    Reader b = Reader(); b.s = c;
+    Thread t1 = thread.spawn(a.run);
+    thread.sleep(50);
+    Thread t2 = thread.spawn(b.run);   //same direction, same socket
+    thread.join(t1); thread.join(t2);
+    //One parks (times out: 3), the other is rejected (2) — order
+    //independent, both outcomes present.
+    if (!((a.outcome == 3 && b.outcome == 2)
+          || (a.outcome == 2 && b.outcome == 3))) { return 1; }
+    c.close(); cli.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

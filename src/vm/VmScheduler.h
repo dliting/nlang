@@ -32,11 +32,23 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace nlang {
+
+//v0.13.0 net: the poller event record (defined in IoPoller.h);
+//forward-declared so the IO harvest helper can name it without pulling
+//the poller header into every scheduler consumer.
+struct IoPollerEvent;
+
+//r1 note 4: the generic native worker pool (defined in VmWorkPool.h);
+//forward-declared for the unique_ptr member — the full header is only
+//needed where the pool is constructed and destroyed.
+class VmWorkPool;
 
 //回边配额（决策 5）：每 N 次回边安全点允许一次调度决策。
 constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
@@ -86,7 +98,7 @@ inline thread_local GilHolder* t_gilOwner = nullptr;
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
     enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend,
-                        Semaphore, ClassInit };
+                        Semaphore, ClassInit, Io };
     Reason reason;
     explicit ParkSignal(Reason r) : reason(r) {}
 };
@@ -141,6 +153,8 @@ enum class ContextState {
                      //初始化本类，Done/Fail 唤醒后重走门
     ParkedChanRecv,  //Slice 9：空通道接收停泊
     ParkedChanSend,  //K3 task 4：容量满的通道发送停泊
+    ParkedIo,        //v0.13.0 net: net IO parking — one state for every
+                     //direction, the direction lives on the socket slot
     ParkedPromise,   //Promise 内部上下文：出生停泊，无代码帧，永不被
                      //调度；Promise.complete 决定其结局（Finished/
                      //Failed 迁移＋唤醒 join 停泊者）
@@ -162,6 +176,15 @@ struct ExecutionContext {
     //搬帧的同一临界区内补做（帧先落位、队列项后出现——出队者恒见帧
     //已就位，消除「无帧弹出＝全新入口重跑」竞争）。恢复取回帧时清零。
     bool framesParked = false;
+    //v0.13.0 net R7: blocking-native IO park handshake (ABI v11
+    //parkForIo). ioParkPending: the native's first parkForIo entry set
+    //it (interest registered, carrier must take the context);
+    //FinishBlockingNative sees it and unwinds with ParkSignal(Io)
+    //instead of restoring frames. ioParkArmed: WakeForIo set it; the
+    //next parkForIo call from this context returns 1 (re-entry — retry
+    //the syscall). A stale armed is harmless by contract (NativeHost.h).
+    bool ioParkPending = false;
+    bool ioParkArmed = false;
     //P2-4 nested pump: 0 = dispatchable by anyone; nonzero = only the
     //pump holding this token may dispatch (PopAffinity skips it for
     //every other dispatcher — its owner serves it by id, never by
@@ -414,6 +437,31 @@ public:
     //停泊的调用不会重执行），或 close 已预置关闭异常重抛（K8 同
     //WakeForChanRecv 的句柄参数）。
     void WakeForChanSend(int id, int32_t rethrowExcHeapIdx = 0);
+
+    //v0.13.0 net: IO parking (net library design §6/§7). The context
+    //parks until the poller reports fd+events ready, the deadline
+    //passes, or the close path wakes it (WakeIoWaitersForFd).
+    //fd < 0 = pure deadline park (resolver/icmp
+    //jobs). Mirrors ParkForTimer's lazy thread start and the K7
+    //framesParked handshake.
+    void ParkForIo(int id, int fd, uint32_t events,
+                   std::chrono::steady_clock::time_point deadline,
+                   bool hasDeadline);
+    //Moves a ParkedIo context back to Runnable (enqueued under the
+    //framesParked handshake, WakeForMutex shape).
+    void WakeForIo(int id);
+    //v11 R13: drop every interest entry for fd AND wake the parked
+    //contexts (the net module's socket-close path — it cannot reach
+    //the VM poller directly). Callable without the GIL (self-guarded).
+    void WakeIoWaitersForFd(int fd);
+
+    //r1 note 4: run fn(arg) on the generic native worker pool (ABI v11
+    //submitWork). Lazily constructed under a dedicated mutex (the pool
+    //queue is independent of the GIL); joined by the pool's own
+    //destructor during member teardown, after ~VmExecutor ran the
+    //module-state dtors (R8). Definition in VmSchedulerIo.cpp (this
+    //file is at the source-size budget).
+    int SubmitWork(void (*fn)(void*), void* arg, int ackFd, int priority);
 
     //K8：中止一次从未到达窃帧的状态迁移——两阶段停泊握手的复查发现等
     //待者条目已被消费（结果落在「登记→迁移」窗口内）。上下文从未离开
@@ -740,6 +788,11 @@ public:
     //执行器侧的可变访问（帧搬运/根登记）；id 越界返回 nullptr。
     ExecutionContext* FindMutable(int id);
 
+    //v11: out-of-line (like the dtor) — the m_upWorkPool member needs
+    //VmWorkPool complete for the ctor's exception-cleanup path, and
+    //VmExecutor.h's make_unique<VmScheduler> NSDMI instantiates the
+    //ctor in every consumer TU.
+    VmScheduler();
     //K2 slice 3: join 定时器线程（执行器析构路径）。置停泊关停标志、
     //唤醒、join——线程体见 TimerThreadMain。
     ~VmScheduler();
@@ -834,6 +887,42 @@ private:
     std::thread m_timerThread;            //懒启动；常驻执行器
     bool m_timerThreadStarted = false;    //ParkForTimer 首次登记时置位
     bool m_timerShutdown = false;         //仅析构置位（每 run 不动）
+
+    //v0.13.0 net: one IO interest entry (the poller's working set).
+    struct IoWaitEntry {
+        int contextId = 0;
+        int fd = -1;             //-1 = deadline-only (no poll interest)
+        uint32_t events = 0;
+        std::chrono::steady_clock::time_point deadline;
+        bool hasDeadline = false;
+    };
+    void IoPollerThreadMain();
+    void SyncPollerInterest(void* poller);   //add/mod to match m_ioWaits
+    int NextIoTimeoutMs() const;             //nearest deadline, capped
+    void HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs);
+                                            //ready + expired wakes
+    std::vector<IoWaitEntry> m_ioWaits;      //linear table (timer shape)
+    //Last interest set registered with the poller (fd → events): the
+    //per-round re-sync dedups against it (skip unchanged registrations,
+    //del vanished fds). Hashed — the 10k-connection benchmark showed
+    //the vector form made each round O(fds²). Touched under the GIL:
+    //by the poller thread, and by the close-side wake path
+    //(WakeIoWaitersForFd) plus the harvest sleep-transition clear —
+    //the baseline must never outlive the waiters that owned it (a
+    //re-used fd value would match a stale entry and skip re-Add).
+    std::unordered_map<int, uint32_t> m_ioPollerRegistered;
+    bool m_ioThreadStarted = false;
+    bool m_ioThreadShutdown = false;
+    std::thread m_ioThread;
+    std::condition_variable_any m_ioCv;      //interest/shutdown signal
+
+    //r1 note 4: generic native worker pool (ABI v11 submitWork), built
+    //on the first submit. Joined by VmWorkPool's own destructor when
+    //this member is torn down — after the destructor body joined the
+    //timer/poller threads and after ~VmExecutor ran the module-state
+    //dtors (a net-module dtor cv-waits on its queued jobs; R8).
+    std::unique_ptr<VmWorkPool> m_upWorkPool;
+    std::mutex m_workPoolMutex;              //lazy-construction guard, GIL-free
 
     static thread_local CarrierState t_selfCarrier;
     static thread_local CarrierState* t_carrier;

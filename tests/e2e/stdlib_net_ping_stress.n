@@ -1,0 +1,40 @@
+import io;
+import thread;
+import net;
+
+// Final review I3: concurrent pings share the executor's self-pipe,
+// and the ack byte is only a hint — any waiter's drain can consume a
+// co-waiter's ack. Pre-fix the done-check and the park registration
+// in NetPing were separate critical sections: a co-waiter's drain
+// could eat this waiter's ack inside that window, and the ping then
+// slept to its deadline although the record was already done. The
+// record's rttMs is the worker's echo time, so the lost wakeup is
+// invisible in the results — only the wall clock shows it: loopback
+// echoes answer in single-digit ms, so 16 concurrent pings finishing
+// near the 4000 ms deadline is the signature. The fix holds the state
+// mutex across the check and the first-entry registration (the
+// NetTcpResolveWait shape): either done is visible now, or the ack
+// lands after the registration.
+
+class Pinger {
+    public int rtt = -1;
+    public void run() { rtt = net.ping("127.0.0.1", 4000); }
+}
+
+int main() {
+    Pinger[] ps = Pinger[16];
+    Thread[] ts = Thread[16];
+    long t0 = io.nowMs();
+    for (int i = 0; i < 16; i = i + 1) {
+        ps[i] = Pinger();
+        ts[i] = thread.spawn(ps[i].run);
+    }
+    for (int i = 0; i < 16; i = i + 1) { thread.join(ts[i]); }
+    long total = io.nowMs() - t0;
+    for (int i = 0; i < 16; i = i + 1) {
+        if (ps[i].rtt < 0) { return 1; }        //ping failed outright
+    }
+    if (total > 2000) { return 2; }             //lost wakeup: slept to deadline
+    io.print("ok");
+    return 0;
+}

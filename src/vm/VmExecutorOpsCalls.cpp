@@ -20,6 +20,14 @@ bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
     //directly from the caller's callParamBase cells (same ABI as
     //intrinsics) and writes its return into pResult.
     if (callee.isNative) {
+        //v0.13.0 net R7: a blocking native may park mid-call (the
+        //parkForIo path unwinds with ParkSignal). The re-entry contract
+        //re-executes THIS call on resume, so pc must point AT this
+        //instruction — the dispatch loop stores the in-flight offset in
+        //frame.opPc every iteration (VmExecutorOps.cpp). Leaving pc
+        //stale (the pre-park behavior) resumed at the last
+        //call/intrinsic boundary and re-ran already-executed statements.
+        EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
@@ -177,6 +185,9 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     //Phase 9f: native method — same table dispatch, `this` rides
     //at args[0] per the bytecode calling convention.
     if (callee.isNative) {
+        //v0.13.0 net R7: park re-entry re-executes this call
+        //(OpCallFunc native-branch invariant).
+        EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
@@ -249,17 +260,17 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     if (funcIndex < 0)
         throw std::runtime_error("NLang VM: method not found: " + methodName);
     const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
-    //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic
-    //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
-    //re-executing the call would re-park forever (OpCallFunc invariant).
+    //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic suspends
+    //mid-frame and resume re-enters at frame.pc; re-executing re-parks forever.
     if (callee.intrinsicId != INTR_None) {
         EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
         return false;
     }
-    //Phase 9f: native method found via virtual dispatch — same
-    //table dispatch, `this` rides at args[0].
+    //Phase 9f: native method via virtual dispatch — same table dispatch, this at args[0].
     if (callee.isNative) {
+        //v0.13.0 net R7: park re-entry re-executes this call (OpCallFunc invariant).
+        EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
@@ -379,6 +390,10 @@ bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
             throw std::runtime_error(
                 "NLang VM: native function does not support out "
                 "parameters: " + callee.name);
+        //v0.13.0 net R7: park re-entry re-executes this call — undo the
+        //past-the-call pc the delegate op staged (OpCallFunc native-
+        //branch invariant; the handle cell is unchanged across a park).
+        EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }

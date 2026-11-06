@@ -12,13 +12,13 @@ NLang moves code in four kinds of file.
 - **`.ncu` — unit image.** The compiled artifact of one package.
   Cross-package references inside it are *import slots* — a
   target package path and a qualified name — never bodies
-  (§3.9.3). The format is chapter 20.
+  (§3.9.3). The format is chapter 21.
 - **`.npkg` — package archive.** A container of unit images, one
   member per package, each member named by its package path. A
   project build produces one with an *entry record* naming the
   entry unit (§3.2); a library archive omits the record — the
   standard library ships as `stdlib.npkg` (§3.9.4). The format is
-  chapter 21.
+  chapter 22.
 - **Native host library.** The host dynamic library that carries
   `native` implementations, named from the declaring package,
   which is necessarily single-segment (§7.5).
@@ -80,7 +80,7 @@ file `a/b/c.n` under a search root. At compile time:
   the same name — whose declarations enter the build as stubs;
   a dotted path with no source in the build is a compile-time
   error, since external artifacts carry single-segment names
-  (§3.3, §20.2).
+  (§3.3, §21.2).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies
@@ -258,7 +258,7 @@ and `containers` — `Object`, the `Exception` family of §8.3,
 `String` and `Array` in `lang`; `List<T>` and `Dict<K,V>` in
 `containers` — and are the whole set; a program
 that uses any other standard-library name imports its package,
-the stream handle classes `ByteStream` and `FileStream` (§14.5)
+the stream handle classes `ByteStream` and `FileStream` (§14.6)
 included.
 
 The concurrency names split by what they answer:
@@ -269,13 +269,13 @@ The concurrency names split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
-chapters 13–18 describe the units they hold. The declarations in
+chapters 13–20 describe the units they hold. The declarations in
 the `.n` sources are the source of truth for every package,
 prelude included; the implementation binds the declared native
 members to its built-in implementations.
 
 *Informative:* NLang libraries are carried by `.n` source files:
-the standard `math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n`
+the standard `math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n`/`tensor.n`/`net.n`
 ship with the toolchain, and a third-party library is just a
 directory of `.n` files (optionally alongside native dynamic
 libraries). A function implemented outside NLang is declared with

@@ -1139,10 +1139,11 @@ private slots:
         const QList<QListWidget*> popups =
             src->findChildren<QListWidget*>();
         QVERIFY2(!popups.isEmpty(), "completion popup must open after io.");
-        // io has 15 functions: print/write/eprint, the input face
+        // io has 19 functions: print/write/eprint, the input face
         // (hasInput/readLine/readToken/readChar), readFile/writeFile/
-        // appendFile and the five typed readers.
-        QCOMPARE(popups.constFirst()->count(), 15);
+        // appendFile, the five typed readers, and the time/byte face
+        // (nowMs/parkForIo/toBytes/fromBytes).
+        QCOMPARE(popups.constFirst()->count(), 19);
 
         // Picking an entry inserts the function name.
         QListWidgetItem* first = popups.constFirst()->item(0);

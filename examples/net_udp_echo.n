@@ -1,0 +1,36 @@
+// Example: UDP request/reply — sendTo/recvFrom, replying to the source
+// address, datagram semantics.
+import io;
+import thread;
+import net;
+
+class UdpServer {
+    public UdpSocket s;
+    public void run() {
+        byte[] buf = byte[64];
+        string from;
+        int port = 0;
+        int n = s.recvFrom(buf, out from, out port, 5000);
+        s.sendTo(buf, from, port, n);       //reply with only the n bytes received
+    }
+}
+
+int main() {
+    UdpSocket srv = UdpSocket.bind("127.0.0.1", 0);
+    UdpServer srvTask = UdpServer(); srvTask.s = srv;
+    Thread t = thread.spawn(srvTask.run);
+
+    UdpSocket cli = UdpSocket.bind("127.0.0.1", 0);
+    cli.sendTo(io.toBytes("time?"), "127.0.0.1", srv.localPort());
+    byte[] buf = byte[64];
+    string from;
+    int port = 0;
+    int n = cli.recvFrom(buf, out from, out port, 5000);
+    byte[] msg = byte[n];                   //copy to the received length before converting to a string
+    for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
+    io.print("reply from " + from + ":" + port.toString()
+        + " -> " + io.fromBytes(msg) + "\n");
+    cli.close(); srv.close(); thread.join(t);
+    io.print("ok");
+    return 0;
+}

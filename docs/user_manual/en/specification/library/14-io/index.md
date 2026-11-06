@@ -5,9 +5,10 @@ whole-file content transfer. The stream classes `ByteStream`
 and `FileStream` provide binary serialization of values,
 structs and class graphs. §14.1 fixes the package form and the
 argument admission rule that governs every package call;
-§14.2–§14.4 define the io functions; the stream classes
-(§14.5) and the byte-level encoding of stream values (§14.6)
-are defined on their own page.
+§14.2–§14.4 define the io functions; §14.5 defines the generic
+input/output (IO) facilities that native-backed libraries build
+on; the stream classes (§14.6) and the byte-level encoding of
+stream values (§14.7) are defined on their own page.
 
 ## 14.1 Package Form
 
@@ -145,3 +146,36 @@ while (io.hasInput()) {
 package defines no path syntax of its own (the `fs` package of
 chapter 15 does). The content is bytes: the io functions
 impose no text encoding on what they read or write.
+
+## 14.5 Generic IO Facilities
+
+Four functions round out the package as infrastructure for
+native-backed libraries rather than everyday user tools: ordinary
+programs reach the same behavior through the blocking calls of the
+`net` package (chapter 20) or the stream classes of §14.6, and
+rarely call these directly.
+
+- `io.nowMs()` returns a `long` reading of a monotonic millisecond
+  clock — an arbitrary epoch, not wall time — in the same clock
+  domain as `parkForIo` deadlines.
+- `io.parkForIo(fd, events, deadlineMs)` parks the calling virtual
+  thread until the descriptor `fd` is ready (`events`: `1` read,
+  `2` write) or the absolute deadline `deadlineMs` is reached
+  (`deadlineMs <= 0` means no deadline); `fd < 0` is a pure timed
+  wakeup, and `fd < 0` with no deadline returns immediately —
+  nothing can wake such a park, so the call does not wait. The
+  call returns after the wake — the caller re-checks its condition
+  and may park again. This is the parking primitive
+  the `net` package's blocking methods are built on (§20.1), and
+  it is generic: a native library holding a descriptor parks
+  through the same call, and future pipe and process plumbing
+  will too.
+- `io.toBytes(s)` returns the raw Unicode Transformation Format
+  (UTF-8) bytes of `s` as a `byte[]` array; `io.fromBytes(data)`
+  decodes a `byte[]` array back to a `string`. The conversions
+  bypass the string method surface (§16.2) and carry no length
+  prefix or terminator — the byte-level bridge for socket and
+  stream payloads.
+
+*Informative:* `toBytes` and `fromBytes` moved here from the
+`net` package — byte conversion is not network-specific.

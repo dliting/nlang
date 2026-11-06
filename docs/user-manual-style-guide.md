@@ -73,6 +73,9 @@ nav路径两树有序一致（tree parity守卫）；两树同一事实同一语
 | PTY | 伪终端 | pseudo terminal |
 | ConPTY | 伪控制台 | Windows pseudo console |
 | IME | 输入法 | input method |
+| TCP | 传输控制协议 | Transmission Control Protocol |
+| UDP | 用户数据报协议 | User Datagram Protocol |
+| ICMP | 互联网控制报文协议 | Internet Control Message Protocol |
 
 ## 3. 政策与执行映射
 

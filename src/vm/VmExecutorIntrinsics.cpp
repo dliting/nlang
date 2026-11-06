@@ -139,8 +139,8 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         return;
     }
 
-    //Phase 9d: Exception ctor intrinsic. Shared by all 7 built-in
-    //Exception subclasses (INTR_Exception_Ctor, INTR_NullPointer..,
+    //Phase 9d: Exception ctor intrinsic. Shared by every built-in
+    //Exception subclass (INTR_Exception_Ctor, INTR_NullPointer..,
     //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
     //v0.12.4 D7 formals: (this, message, cause). Writes message idx to
     //cell[1], allocates an empty List<string> and stores its heap idx

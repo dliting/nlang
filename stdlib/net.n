@@ -1,0 +1,567 @@
+// net.n — network package: TCP, UDP, ICMP. Requires an explicit `import net;`.
+// Blocking methods park on the virtual thread (no carrier is held);
+// timeoutMs=0 means wait forever.
+// Failures throw SocketException, timeouts throw TimeoutException
+// (both in the IOException family).
+
+// Low-level socket errors: connection refused, peer dropped, socket
+// already closed, option set failed, and so on.
+const class SocketException : IOException {
+    public SocketException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// A timeoutMs-bounded operation did not finish before its deadline.
+const class TimeoutException : IOException {
+    public TimeoutException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// ---- internal primitives (registered by the nlang_net module;
+//      underscore names are not part of the public surface) ----
+// Monotonic milliseconds (same clock domain as the VM poll deadline);
+// the script layer converts timeoutMs to an absolute deadline with it (R12).
+native long _nowMs();
+// Text of the most recent platform error (spliced into the exception
+// message for error code -4).
+native string _lastErrorText();
+// Internal UTF-8 byte conversion (registered by the nlang_net module;
+// the public surface is io.toBytes/fromBytes — builtin packages never
+// import each other, so the script convenience surface uses internal
+// copies, r1 amendment 5).
+native byte[] _toBytes(string s);
+native string _fromBytes(byte[] data);
+
+// Internal: maps an R10 error code to an exception (-1 closed,
+// -2 timeout, -3 concurrent-use violation, -4 platform error, -5 argument).
+void _throwNet(int code, string context) {
+    if (code == -2) { throw TimeoutException("net: " + context + " timed out"); }
+    if (code == -1) { throw SocketException("net: socket closed"); }
+    if (code == -3) { throw SocketException(
+        "net: another operation is in progress on this socket"); }
+    if (code == -4) { throw SocketException(
+        "net: " + context + " failed: " + _lastErrorText()); }
+    throw SocketException("net: " + context + " failed");
+}
+
+// (The byte helpers toBytes/fromBytes moved into the io package,
+//  r1 amendment 5; the script convenience surface uses the internal
+//  _toBytes/_fromBytes below, registered with the Task 9 natives.)
+
+// DNS resolution job (runs on the VM work pool; parks on the
+// self-pipe; R9). Shared by connect and by every host-taking method:
+// the natives accept numeric endpoints only, so name resolution
+// always goes through this job — never onto a carrier (external
+// review Important 2, spec §I.4).
+native int _tcpResolveStart(string host, int port);
+native int _tcpResolveWait(int jobId, long deadlineMs);
+native string _tcpResolveEndpoint(int jobId, int index);
+native void _tcpResolveRelease(int jobId);
+
+// Internal: resolves host to the list of endpoint addresses to try
+// in order (a numeric endpoint comes back as the single-element
+// list, filled on the spot without a pool round trip). Parks on the
+// resolver pool without a deadline — timeoutMs=0 means "no deadline"
+// everywhere in this package. Throws SocketException when the name
+// cannot be resolved.
+List<string> resolveList(string host, int port) {
+    int jobId = _tcpResolveStart(host, port);
+    int count = _tcpResolveWait(jobId, 0);   //parks on the self-pipe
+    List<string> addrs = {};
+    if (count >= 0) {
+        for (int i = 0; i < count; i = i + 1) {
+            addrs.add(_tcpResolveEndpoint(jobId, i));
+        }
+    }
+    _tcpResolveRelease(jobId);   //release the job record on every path (R9)
+    if (count < 0) { _throwNet(count, "resolve " + host); }
+    if (count == 0) { _throwNet(-4, "resolve " + host); }
+    return addrs;
+}
+
+// ---- ICMP ----
+native int _ping(string host, long deadlineMs);
+native int _icmpBind(string host);
+native int _icmpSendTo(int handle, byte[] message, string host);
+native int _icmpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _icmpLastRecvAddress(int handle);
+native int _icmpClose(int handle);
+
+// Sends an Echo Request and waits for the Echo Reply; returns the
+// round-trip time in milliseconds.
+// Throws TimeoutException on timeout; SocketException when the host
+// cannot be resolved or is unreachable.
+// Windows uses IcmpSendEcho2 (no admin rights needed), Linux a DGRAM
+// ICMP socket.
+int ping(string host, int timeoutMs = 5000) {
+    long deadline = 0;
+    if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+    int rtt = _ping(host, deadline);
+    if (rtt < 0) { _throwNet(rtt, "ping " + host); }
+    return rtt;
+}
+
+// Raw ICMP socket: sends and receives complete ICMP messages.
+// Windows needs admin rights (SOCK_RAW); Linux uses SOCK_DGRAM
+// unprivileged (subject to ping_group_range).
+class IcmpSocket {
+    private int m_handle;
+    public IcmpSocket(int handle) { m_handle = handle; }
+
+    public static IcmpSocket bind(string host = "0.0.0.0") {
+        List<string> addrs = resolveList(host, 0);
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int h = _icmpBind(addrs[i]);
+            if (h >= 0) { return IcmpSocket(h); }
+            lastErr = h;                 //try the next endpoint
+        }
+        _throwNet(lastErr, "icmp bind");
+        return IcmpSocket(0);            //unreachable (the throw above)
+    }
+    // Sends a complete ICMP message (type/code/checksum/ID/sequence/
+    // payload); on Windows raw sockets the native layer computes the
+    // checksum when the field is 0.
+    public int sendTo(byte[] icmpMessage, string host) {
+        List<string> addrs = resolveList(host, 0);
+        int r = _icmpSendTo(m_handle, icmpMessage, addrs[0]);
+        if (r < 0) { _throwNet(r, "icmp sendTo"); }
+        return r;
+    }
+    // Receives one ICMP message; the source address comes back via out.
+    public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _icmpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "icmp recvFrom"); }
+        peerAddress = _icmpLastRecvAddress(m_handle);
+        return n;
+    }
+    public void close() {
+        int r = _icmpClose(m_handle);
+        if (r < 0) { _throwNet(r, "icmp close"); }
+    }
+}
+
+// ---- TCP ----
+native int _tcpBind(string host, int port);
+native string _tcpLocalAddress(int handle);
+native int _tcpLocalPort(int handle);
+native int _tcpClose(int handle);
+native int _tcpAccept(int handle, long deadlineMs);
+native int _tcpConnectTry(string address, int port, long deadlineMs);
+native int _tcpRead(int handle, byte[] buf, long deadlineMs);
+native int _tcpWrite(int handle, byte[] data, int count, long deadlineMs);
+native int _tcpShutdownWrite(int handle);
+native int _tcpIsClosed(int handle);
+native string _tcpPeerAddress(int handle);
+native int _tcpPeerPort(int handle);
+native int _tcpSetNoDelay(int handle, bool on);
+native int _tcpSetKeepAlive(int handle, bool on);
+native int _tcpSetSendBufferSize(int handle, int bytes);
+native int _tcpSetRecvBufferSize(int handle, int bytes);
+
+// TCP listening endpoint. bind starts listening; close stops it.
+class TcpListener {
+    private int m_handle;
+    public TcpListener(int handle) { m_handle = handle; }
+
+    // Listens on host:port; port=0 is system-assigned, read back via
+    // localPort(). host may be a name: it is resolved on the resolver
+    // pool (parking) and the addresses are tried in order.
+    public static TcpListener bind(string host, int port) {
+        string ctx = "bind " + host + ":" + port.toString();
+        List<string> addrs = resolveList(host, port);
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int h = _tcpBind(addrs[i], port);
+            if (h >= 0) { return TcpListener(h); }
+            lastErr = h;                 //try the next endpoint
+        }
+        _throwNet(lastErr, ctx);
+        return TcpListener(0);           //unreachable (the throw above)
+    }
+    // Convenience overload: listen on the port across all interfaces.
+    public static TcpListener bind(int port) {
+        return bind("0.0.0.0", port);
+    }
+    // Accepts the next connection; parks on the virtual thread until a
+    // connection arrives, the deadline passes or the listener closes.
+    public TcpStream accept(int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int h = _tcpAccept(m_handle, deadline);
+        if (h < 0) { _throwNet(h, "accept"); }
+        return TcpStream(h);
+    }
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    // Sets the receive buffer (SO_RCVBUF) for connections accepted
+    // from here; the option must be set before the connection is
+    // established to take effect, and the kernel may adjust the value.
+    public void setRecvBufferSize(int bytes) {
+        int r = _tcpSetRecvBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
+    }
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+}
+
+// TCP byte-stream connection. Produced by connect/accept; read/write
+// park; close releases the socket.
+class TcpStream {
+    private int m_handle;
+    public TcpStream(int handle) { m_handle = handle; }
+
+    // Resolves host (parking on the resolver pool) and tries the
+    // addresses in order; timeoutMs covers resolution plus connection
+    // as a whole (0 = unlimited).
+    public static TcpStream connect(string host, int port, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        string ctx = "connect " + host + ":" + port.toString();
+        int jobId = _tcpResolveStart(host, port);
+        int count = _tcpResolveWait(jobId, deadline);   //parks on the self-pipe
+        TcpStream result = null;
+        int lastErr = 0;
+        if (count >= 0) {
+            for (int i = 0; i < count; i = i + 1) {
+                int h = _tcpConnectTry(_tcpResolveEndpoint(jobId, i), port, deadline);
+                if (h >= 0) { result = TcpStream(h); break; }
+                lastErr = h;                     //keep the last endpoint's error code
+                if (h == -2) { break; }          //deadline passed: stop trying
+            }
+        }
+        _tcpResolveRelease(jobId);         //release the job record on every path (R9)
+        if (result != null) { return result; }
+        if (count < 0) { _throwNet(count, ctx); }
+        if (count == 0) { _throwNet(-4, ctx); }   //no resolution result -> platform error
+        if (lastErr != 0) { _throwNet(lastErr, ctx); }  //endpoint failed (e.g. refused)
+        _throwNet(-2, ctx);                       //deadline already passed -> timeout
+        return TcpStream(0);                    //unreachable (the paths above throw)
+    }
+    // Reads at most buf.length() bytes into a non-empty buf; returns
+    // the byte count read, 0 = the peer closed (EOF). An empty buf
+    // throws SocketException — 0 is reserved for the EOF signal, so
+    // a zero-length read is an argument error, not a silent EOF.
+    public int read(byte[] buf, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _tcpRead(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "read"); }
+        return n;
+    }
+    // Write-all: loops internally until all count bytes are sent
+    // (default: the whole array); returns the number of bytes sent.
+    // timeoutMs > 0 bounds the whole write-all: if the peer stops
+    // reading and the parked writes pass the deadline, the call
+    // throws TimeoutException with part of the payload already sent.
+    public int write(byte[] data, int count = -1, int timeoutMs = 0) {
+        int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "write: count " + count.toString() + " > length " + n.toString());
+        }
+        if (count >= 0) { n = count; }
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int r = _tcpWrite(m_handle, data, n, deadline);
+        if (r < 0) { _throwNet(r, "write"); }
+        return r;
+    }
+    // Text convenience: encodes as UTF-8 and writes it all; returns
+    // the number of bytes sent.
+    public int write(string s, int timeoutMs = 0) {
+        return this.write(_toBytes(s), -1, timeoutMs);
+    }
+
+    // Reads one line: ends at '\n' and returns the text without the
+    // line terminator (a trailing '\r' is stripped). If the peer
+    // closes before the line ends, returns the text accumulated so
+    // far; zero bytes then EOF returns null.
+    public string readLine(int timeoutMs = 0) {
+        string acc = "";
+        byte[] one = byte[1];
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        while (true) {
+            int n = _tcpRead(m_handle, one, deadline);   //absolute deadline stays stable across re-reads
+            if (n < 0) { _throwNet(n, "readLine"); }
+            if (n == 0) {
+                if (acc == "") { return null; }
+                return acc;
+            }
+            if (one[0] == 10) {          //'\n'
+                if (acc.length() > 0 && acc.endsWith("\r")) {
+                    return acc.substring(0, acc.length() - 1);
+                }
+                return acc;
+            }
+            acc = acc + _fromBytes(one);
+        }
+    }
+
+    // Reads exactly count bytes (fixed-length HTTP body framing);
+    // throws SocketException if the peer closes early. read writes
+    // from the buffer's first cell with no offset argument, so bytes
+    // land in a temp array and are copied cell by cell.
+    public byte[] readExactly(int count, int timeoutMs = 0) {
+        byte[] payload = byte[count];
+        byte[] tmp = byte[count];
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int got = 0;
+        while (got < count) {
+            int n = _tcpRead(m_handle, tmp, deadline);
+            if (n < 0) { _throwNet(n, "readExactly"); }
+            if (n == 0) {
+                throw SocketException("net: connection closed after "
+                    + got.toString() + " of " + count.toString()
+                    + " bytes");
+            }
+            for (int i = 0; i < n; i = i + 1) {
+                payload[got + i] = tmp[i];
+            }
+            got = got + n;
+        }
+        return payload;
+    }
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+    // Half-close: sends FIN; the read direction stays usable.
+    public void shutdownWrite() {
+        int r = _tcpShutdownWrite(m_handle);
+        if (r < 0) { _throwNet(r, "shutdownWrite"); }
+    }
+    public bool isClosed() { return _tcpIsClosed(m_handle) == 1; }
+    public string peerAddress() {
+        string s = _tcpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _tcpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    // Disables the Nagle algorithm: small packets go out immediately
+    // (TCP_NODELAY).
+    public void setNoDelay(bool on) {
+        int r = _tcpSetNoDelay(m_handle, on);
+        if (r < 0) { _throwNet(r, "setNoDelay"); }
+    }
+    // Enables TCP keep-alive probes (SO_KEEPALIVE).
+    public void setKeepAlive(bool on) {
+        int r = _tcpSetKeepAlive(m_handle, on);
+        if (r < 0) { _throwNet(r, "setKeepAlive"); }
+    }
+    // Sets the send buffer size (SO_SNDBUF); the kernel may clamp it.
+    public void setSendBufferSize(int bytes) {
+        int r = _tcpSetSendBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setSendBufferSize"); }
+    }
+    // Sets the receive buffer size (SO_RCVBUF); the kernel may clamp it.
+    public void setRecvBufferSize(int bytes) {
+        int r = _tcpSetRecvBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
+    }
+}
+
+// ---- UDP ----
+native int _udpBind(string host, int port);
+native int _udpSendTo(int handle, byte[] data, int count, string host, int port, long deadlineMs);
+native int _udpConnect(int handle, string host, int port);
+native int _udpSend(int handle, byte[] data, int count, long deadlineMs);
+native int _udpRecv(int handle, byte[] buf, long deadlineMs);
+native int _udpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _udpLastRecvAddress(int handle);
+native int _udpLastRecvPort(int handle);
+native int _udpSetBroadcast(int handle, bool on);
+native int _udpJoinMulticast(int handle, string group);
+native int _udpLeaveMulticast(int handle, string group);
+native int _udpSetMulticastTtl(int handle, int ttl);
+native int _udpSetTtl(int handle, int ttl);
+native int _udpSetSendBufferSize(int handle, int bytes);
+native int _udpSetRecvBufferSize(int handle, int bytes);
+native string _udpLocalAddress(int handle);
+native int _udpLocalPort(int handle);
+native string _udpPeerAddress(int handle);
+native int _udpPeerPort(int handle);
+native int _udpClose(int handle);
+
+// UDP datagram socket. Connectionless; send/recv need a prior
+// connect, sendTo/recvFrom do not.
+class UdpSocket {
+    private int m_handle;
+    public UdpSocket(int handle) { m_handle = handle; }
+
+    // Binds host:port; port=0 is system-assigned, read back via
+    // localPort(). host may be a name: it is resolved on the resolver
+    // pool (parking) and the addresses are tried in order.
+    public static UdpSocket bind(string host = "0.0.0.0", int port = 0) {
+        string ctx = "bind " + host + ":" + port.toString();
+        List<string> addrs = resolveList(host, port);
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int h = _udpBind(addrs[i], port);
+            if (h >= 0) { return UdpSocket(h); }
+            lastErr = h;                 //try the next endpoint
+        }
+        _throwNet(lastErr, ctx);
+        return UdpSocket(0);             //unreachable (the throw above)
+    }
+    // count defaults to -1 (send the whole array); >=0 sends only the
+    // first count bytes (R3, used to echo back a received buffer).
+    // timeoutMs > 0 bounds the send: a full send buffer parks this
+    // context on write interest until the datagram is handed over.
+    public int sendTo(byte[] data, string host, int port, int count = -1,
+                      int timeoutMs = 0) {
+        int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "sendTo: count " + count.toString() + " > length " + n.toString());
+        }
+        if (count >= 0) { n = count; }
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        List<string> addrs = resolveList(host, port);
+        int r = _udpSendTo(m_handle, data, n, addrs[0], port, deadline);
+        if (r < 0) { _throwNet(r, "sendTo"); }
+        return r;
+    }
+    // Receives one datagram; the source address/port come back via
+    // out parameters. Parks until data arrives or the deadline passes.
+    public int recvFrom(byte[] buf, out string peerAddress, out int peerPort,
+                        int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _udpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recvFrom"); }
+        peerAddress = _udpLastRecvAddress(m_handle);
+        peerPort = _udpLastRecvPort(m_handle);
+        return n;
+    }
+    // Associates a peer: afterwards send/recv only exchange datagrams
+    // with that address. host may be a name: it is resolved on the
+    // resolver pool (parking) and the addresses are tried in order.
+    public void connect(string host, int port) {
+        string ctx = "connect " + host + ":" + port.toString();
+        List<string> addrs = resolveList(host, port);
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int r = _udpConnect(m_handle, addrs[i], port);
+            if (r >= 0) { return; }
+            lastErr = r;                 //try the next endpoint
+        }
+        _throwNet(lastErr, ctx);
+    }
+    // Sends after connect; throws SocketException when not connected.
+    // timeoutMs > 0 bounds the send: a full send buffer parks this
+    // context on write interest until the datagram is handed over.
+    public int send(byte[] data, int count = -1, int timeoutMs = 0) {
+        int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "send: count " + count.toString() + " > length " + n.toString());
+        }
+        if (count >= 0) { n = count; }
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int r = _udpSend(m_handle, data, n, deadline);
+        if (r < 0) { _throwNet(r, "send"); }
+        return r;
+    }
+    // Receives after connect; returns the datagram size
+    // (0 = empty datagram, not EOF).
+    public int recv(byte[] buf, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _udpRecv(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recv"); }
+        return n;
+    }
+    // Allows sending to broadcast addresses (SO_BROADCAST).
+    public void setBroadcast(bool on) {
+        int r = _udpSetBroadcast(m_handle, on);
+        if (r < 0) { _throwNet(r, "setBroadcast"); }
+    }
+    // Joins/leaves a multicast group (the interface is the socket's
+    // bound address; the wildcard address means the default interface).
+    public void joinMulticast(string group) {
+        int r = _udpJoinMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "joinMulticast"); }
+    }
+    public void leaveMulticast(string group) {
+        int r = _udpLeaveMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "leaveMulticast"); }
+    }
+    // TTL for multicast datagrams (IP_MULTICAST_TTL; 1 = local link only).
+    public void setMulticastTtl(int ttl) {
+        int r = _udpSetMulticastTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setMulticastTtl"); }
+    }
+    // TTL for unicast datagrams (IP_TTL).
+    public void setTtl(int ttl) {
+        int r = _udpSetTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setTtl"); }
+    }
+    // Sets the send buffer size (SO_SNDBUF); the kernel may clamp it.
+    public void setSendBufferSize(int bytes) {
+        int r = _udpSetSendBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setSendBufferSize"); }
+    }
+    // Sets the receive buffer size (SO_RCVBUF); the kernel may clamp it.
+    public void setRecvBufferSize(int bytes) {
+        int r = _udpSetRecvBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
+    }
+    public string localAddress() {
+        string s = _udpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _udpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    // The connected peer (throws SocketException when not connected).
+    public string peerAddress() {
+        string s = _udpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _udpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public void close() {
+        int r = _udpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+}

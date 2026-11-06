@@ -1,0 +1,18 @@
+// Example: ICMP ping — round-trip latency, timeout exception handling.
+import io;
+import net;
+
+int main() {
+    try {
+        int rtt = net.ping("127.0.0.1", 3000);
+        io.print("127.0.0.1 rtt=" + rtt.toString() + "ms\n");
+        int rtt2 = net.ping("localhost", 3000);
+        io.print("localhost rtt=" + rtt2.toString() + "ms\n");
+    } catch (TimeoutException e) {
+        io.print("no answer: " + e.message + "\n");
+    } catch (SocketException e) {
+        io.print("error: " + e.message + "\n");
+    }
+    io.print("ok");
+    return 0;
+}

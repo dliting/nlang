@@ -1,0 +1,22 @@
+import io;
+import net;
+
+int main() {
+    //Bind the wildcard address: joinMulticast takes the socket's bound
+    //address as the interface (wildcard → INADDR_ANY), which matches the
+    //default egress interface of the self-sent multicast, so the loop
+    //copy is delivered back to this socket.
+    UdpSocket s = UdpSocket.bind("0.0.0.0", 0);
+    s.setMulticastTtl(1);
+    s.joinMulticast("239.255.255.250");
+    s.sendTo(io.toBytes("m"), "239.255.255.250", s.localPort());
+    byte[] buf = byte[8];
+    string from;
+    int port = 0;
+    int n = s.recvFrom(buf, out from, out port, 3000);
+    s.leaveMulticast("239.255.255.250");
+    s.close();
+    if (n != 1) { return 1; }
+    io.print("ok");
+    return 0;
+}

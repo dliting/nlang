@@ -1,0 +1,11 @@
+import io;
+import net;
+
+int main() {
+    TcpListener l = TcpListener.bind("127.0.0.1", 0);
+    if (l.localPort() <= 0) { return 1; }
+    if (l.localAddress() != "127.0.0.1") { return 2; }
+    l.close();
+    io.print("ok");
+    return 0;
+}

@@ -9,8 +9,11 @@ Table wiring stays in InitNativeHost.
 #include "VmExecutor.h"
 #include "VmExecutorNativeHost.h"
 
+#include <chrono>
+#include <map>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace nlang {
 
@@ -216,9 +219,10 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
     //NEK values mirror the RTK scalar codes (NativeHost.h tie comment) —
-    //accept exactly the four mintable kinds, reject the rest by name.
+    //accept exactly the six mintable kinds, reject the rest by name.
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
-        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
+        && elemKind != NEK_Float32 && elemKind != NEK_Float64
+        && elemKind != NEK_Byte && elemKind != NEK_UByte) {
         e->RaiseNlangExceptionBase(
             "newArray: element kind is not a mintable scalar");
     }
@@ -237,9 +241,10 @@ int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
                                          int32_t rank, const int32_t* dims) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
-    //Same four mintable kinds as newArray (rationale there).
+    //Same six mintable kinds as newArray (rationale there).
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
-        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
+        && elemKind != NEK_Float32 && elemKind != NEK_Float64
+        && elemKind != NEK_Byte && elemKind != NEK_UByte) {
         e->RaiseNlangExceptionBase(
             "newArrayShaped: element kind is not a mintable scalar");
     }
@@ -367,6 +372,93 @@ uint16_t VmExecutor::FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
         + std::to_string(static_cast<int>(elemRtk)) + " type idx "
         + std::to_string(static_cast<int>(elemTypeIdx)) + " rank "
         + std::to_string(static_cast<int>(rank)));
+}
+
+//--- ABI v11: IO parking, module state, work pool ----------------------
+//(contracts in NativeHost.h; plan rulings R7/R8/R13/R14, r1 note 4)
+
+long long VmExecutor::NativeNowMs(NativeHost* /*self*/) {
+    //Same clock domain as the scheduler's IO-park deadlines
+    //(VmSchedulerIo): steady_clock epoch, not wall time.
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+int VmExecutor::NativeParkForIo(NativeHost* self, int fd, unsigned events,
+    long long deadlineMs, int hasDeadline) {
+    VmExecutor* e = Wrap(self)->executor;
+    //Entered from a blocking-channel native: the protocol released the
+    //GIL around invoke, so this guard re-takes it (R7 contract).
+    GilEnsureGuard gil(*e);
+    VmScheduler* sched = e->m_spScheduler.get();
+    const int selfId = sched->CurrentContextId();
+    ExecutionContext* ctx = sched->FindMutable(selfId);
+    //Re-entry after wake: WakeForIo armed this context; clear the flag
+    //and answer 1 so the native retries its syscall.
+    if (ctx && ctx->ioParkArmed) {
+        ctx->ioParkArmed = false;
+        return 1;
+    }
+    if (!ctx)
+        return 0;                        //embed path: nothing to park
+    //First entry: a park needs a carrier to release (same gate as the
+    //intrinsic RequestPark path; throws before any state mutation —
+    //the complete-or-park invariant).
+    e->EnsureSuspensionAllowed();
+    const bool has = hasDeadline != 0 && deadlineMs > 0;
+    //No fd and no deadline: no readiness source and nothing to expire
+    //— parking would hang with no possible wake. Answer ready instead
+    //(the caller's wait is a programming error, not a deadlock;
+    //final review M14).
+    if (fd < 0 && !has)
+        return 1;
+    const std::chrono::steady_clock::time_point deadline{
+        std::chrono::milliseconds(deadlineMs)};
+    sched->ParkForIo(selfId, fd, events, deadline, has);
+    //FinishBlockingNative sees the flag and unwinds with ParkSignal(Io)
+    //instead of restoring frames: the carrier parks this context, and
+    //the wake re-executes this CallNative with the same staged
+    //arguments (R7).
+    ctx->ioParkPending = true;
+    return 0;
+}
+
+void* VmExecutor::NativeModuleState(NativeHost* self, const char* tag,
+    void* (*ctor)(void), void (*dtor)(void*)) {
+    VmExecutor* e = Wrap(self)->executor;
+    //R8: one state slot per tag per executor. The leaf mutex serializes
+    //first-touch construction (module inits can race across carriers).
+    std::lock_guard<std::mutex> g(e->m_moduleStateMutex);
+    const std::string key(tag);
+    auto it = e->m_moduleStates.find(key);
+    if (it != e->m_moduleStates.end())
+        return it->second.first;
+    void* state = ctor();
+    e->m_moduleStates.emplace(key, std::make_pair(state, dtor));
+    return state;
+}
+
+void VmExecutor::NativeWakeIoWaiters(NativeHost* self, int fd) {
+    VmExecutor* e = Wrap(self)->executor;
+    //R13: callable without the GIL (a worker thread closing a socket);
+    //the scheduler method takes the lock internally.
+    e->m_spScheduler->WakeIoWaitersForFd(fd);
+}
+
+int VmExecutor::NativeCurrentContextId(NativeHost* self) {
+    VmExecutor* e = Wrap(self)->executor;
+    //R14: the carrier-slot read needs no GIL. Stable across the park/
+    //re-entry window: the re-executed CallNative re-dispatches on the
+    //same context. -1 outside a blocking-channel native.
+    return e->m_spScheduler->CurrentContextId();
+}
+
+int VmExecutor::NativeSubmitWork(NativeHost* self, void (*fn)(void*),
+    void* arg, int ackFd, int priority) {
+    VmExecutor* e = Wrap(self)->executor;
+    //r1 note 4: the pool queue lock is independent of the GIL, so a
+    //submit from a GIL-free blocking native (or a worker) is safe.
+    return e->m_spScheduler->SubmitWork(fn, arg, ackFd, priority);
 }
 
 } // namespace nlang
