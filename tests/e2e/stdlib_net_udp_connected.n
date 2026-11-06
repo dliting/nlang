@@ -1,0 +1,15 @@
+import io;
+import net;
+
+int main() {
+    UdpSocket a = UdpSocket.bind("127.0.0.1", 0);
+    UdpSocket b = UdpSocket.bind("127.0.0.1", 0);
+    a.connect("127.0.0.1", b.localPort());
+    a.send(io.toBytes("rel"));
+    byte[] buf = byte[3];
+    if (b.recv(buf, 5000) != 3 || io.fromBytes(buf) != "rel") { return 1; }
+    if (a.peerAddress() != "127.0.0.1" || a.peerPort() != b.localPort()) { return 2; }
+    a.close(); b.close();
+    io.print("ok");
+    return 0;
+}

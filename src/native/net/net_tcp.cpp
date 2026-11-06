@@ -46,6 +46,64 @@ using nlang::native::ReturnString;
 namespace nlang {
 namespace {
 
+//Completion tail of a finished write: clear the offset stash and
+//release the write claim under one lock (R5 deferred close).
+void NetWriteFinished(NetExecState* st, int32_t handle, bool claimed) {
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    if (NetSocketSlot* slot = st->m_slots.Lookup(handle))
+        slot->writeSent = 0;
+    if (claimed)
+        st->m_slots.ReleaseWaiter(handle, NetDir::Write);
+}
+
+//Drains packed into the kernel from *offset: 1 = all bytes handed
+//over, 0 = send buffer full (the caller parks for write readiness),
+//-1 = hard error (the caller releases the claim and reports -4).
+//Progress is stashed on the slot so the next park re-enters at the
+//right offset.
+int NetSendRun(NetExecState* st, int32_t handle, int fd,
+    const std::vector<uint8_t>& packed, int* offset) {
+    const int count = static_cast<int>(packed.size());
+    while (*offset < count) {
+        const int n = NetSend(fd, packed.data() + *offset, count - *offset);
+        if (n > 0) {
+            *offset += n;
+            std::lock_guard<std::mutex> g(st->m_mutex);
+            if (NetSocketSlot* slot = st->m_slots.Lookup(handle))
+                slot->writeSent = *offset;   //survive the next park
+            continue;
+        }
+        if (n == kNetWouldBlock || n == 0)
+            return 0;   //send buffer full
+        return -1;   //EPIPE: connection lost
+    }
+    return 1;
+}
+
+}  //namespace
+
+//Declared in net_tcp_park.h: the connect TU shares this critical
+//section; it stays here beside the waiter fields it manipulates.
+NetParkOutcome NetClaimAndPark(NetExecState* st, int32_t handle, NetDir dir,
+    int self, long long deadline, NativeHost* h) {
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    NetSocketSlot* slot = st->m_slots.Lookup(handle);
+    if (!slot)
+        return kNetParkClosed;   //caller releases its own claim after
+    const int waiter = (dir == NetDir::Read) ? slot->readWaiter
+        : (dir == NetDir::Write) ? slot->writeWaiter : slot->acceptWaiter;
+    if (waiter != 0 && waiter != self)
+        return kNetParkConcurrent;
+    st->m_slots.SetWaiter(handle, dir, self);
+    const unsigned ev = (dir == NetDir::Write) ? NLANG_EV_WRITE : NLANG_EV_READ;
+    if (h->parkForIo(h, slot->fd, ev, deadline, deadline > 0) == 0)
+        return kNetParkUnwound;
+    return kNetParkReplay;
+}
+
+//Declared in net_tcp_park.h: shared by every parking native (the UDP
+//receive arms run the same discipline).
+
 //Releases the direction's claim if this call holds it (R9: table
 //access under the state mutex; R5: the last release closes the fd).
 void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed) {
@@ -96,40 +154,6 @@ bool NetParkTail(NetExecState* st, int32_t handle, NetDir dir,
     return false;
 }
 
-//Completion tail of a finished write: clear the offset stash and
-//release the write claim under one lock (R5 deferred close).
-void NetWriteFinished(NetExecState* st, int32_t handle, bool claimed) {
-    std::lock_guard<std::mutex> g(st->m_mutex);
-    if (NetSocketSlot* slot = st->m_slots.Lookup(handle))
-        slot->writeSent = 0;
-    if (claimed)
-        st->m_slots.ReleaseWaiter(handle, NetDir::Write);
-}
-
-//Drains packed into the kernel from *offset: 1 = all bytes handed
-//over, 0 = send buffer full (the caller parks for write readiness),
-//-1 = hard error (the caller releases the claim and reports -4).
-//Progress is stashed on the slot so the next park re-enters at the
-//right offset.
-int NetSendRun(NetExecState* st, int32_t handle, int fd,
-    const std::vector<uint8_t>& packed, int* offset) {
-    const int count = static_cast<int>(packed.size());
-    while (*offset < count) {
-        const int n = NetSend(fd, packed.data() + *offset, count - *offset);
-        if (n > 0) {
-            *offset += n;
-            std::lock_guard<std::mutex> g(st->m_mutex);
-            if (NetSocketSlot* slot = st->m_slots.Lookup(handle))
-                slot->writeSent = *offset;   //survive the next park
-            continue;
-        }
-        if (n == kNetWouldBlock || n == 0)
-            return 0;   //send buffer full
-        return -1;   //EPIPE: connection lost
-    }
-    return 1;
-}
-
 //Gathers count byte-array cells (low bytes, view offset/stride aware)
 //into a packed send buffer.
 std::vector<uint8_t> NetPackBytes(const NativeArrayView& view, int count) {
@@ -151,27 +175,6 @@ void NetUnpackBytes(const NativeArrayView& view, const uint8_t* bytes,
     for (int i = 0; i < count; ++i)
         cells[o + static_cast<int64_t>(i) * step] =
             bytes[static_cast<size_t>(i)];
-}
-
-}  //namespace
-
-//Declared in net_tcp_park.h: the connect TU shares this critical
-//section; it stays here beside the waiter fields it manipulates.
-NetParkOutcome NetClaimAndPark(NetExecState* st, int32_t handle, NetDir dir,
-    int self, long long deadline, NativeHost* h) {
-    std::lock_guard<std::mutex> g(st->m_mutex);
-    NetSocketSlot* slot = st->m_slots.Lookup(handle);
-    if (!slot)
-        return kNetParkClosed;   //caller releases its own claim after
-    const int waiter = (dir == NetDir::Read) ? slot->readWaiter
-        : (dir == NetDir::Write) ? slot->writeWaiter : slot->acceptWaiter;
-    if (waiter != 0 && waiter != self)
-        return kNetParkConcurrent;
-    st->m_slots.SetWaiter(handle, dir, self);
-    const unsigned ev = (dir == NetDir::Write) ? NLANG_EV_WRITE : NLANG_EV_READ;
-    if (h->parkForIo(h, slot->fd, ev, deadline, deadline > 0) == 0)
-        return kNetParkUnwound;
-    return kNetParkReplay;
 }
 
 //--- read ------------------------------------------------------------------

@@ -16,6 +16,7 @@
 #include "net_platform.h"
 #include "net_state.h"
 #include "net_tcp.h"
+#include "net_udp.h"
 
 #include <nlang/vm/NativeHost.h>
 
@@ -257,5 +258,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpSetRecvBufferSize", &NetTcpSetRecvBufferSize);
     reg(registry, "net", "_toBytes", &NetToBytes);
     reg(registry, "net", "_fromBytes", &NetFromBytes);
+    //The 18 datagram natives live in net_udp.cpp (registration hook:
+    //net_udp.h) — kept out of this TCP-centric entry TU.
+    nlang::NetRegisterUdpNatives(registry, reg, regBlocking);
     return NLANG_HOST_ABI_VERSION;
 }

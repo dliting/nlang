@@ -1,0 +1,20 @@
+import io;
+import net;
+
+int main() {
+    //绑通配地址:joinMulticast的接口=socket绑定地址(通配→INADDR_ANY),
+    //与自发多播的默认出口接口一致,回环副本才会投递给本socket。
+    UdpSocket s = UdpSocket.bind("0.0.0.0", 0);
+    s.setMulticastTtl(1);
+    s.joinMulticast("239.255.255.250");
+    s.sendTo(io.toBytes("m"), "239.255.255.250", s.localPort());
+    byte[] buf = byte[8];
+    string from;
+    int port = 0;
+    int n = s.recvFrom(buf, out from, out port, 3000);
+    s.leaveMulticast("239.255.255.250");
+    s.close();
+    if (n != 1) { return 1; }
+    io.print("ok");
+    return 0;
+}

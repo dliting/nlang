@@ -1,9 +1,12 @@
 /*---
-    net_tcp_park.h — the claim+park critical section shared by the TCP
-    data-path natives: net_tcp.cpp (read/write/accept) and
-    net_tcp_connect.cpp (connect). The park/retry loop itself lives in
-    each native; this is the one piece of park bookkeeping that has to
-    cross translation units (waiter discipline: net_tcp.cpp header).
+    net_tcp_park.h — the claim+park critical section and the shared
+    claim/release/park helpers used by every parking native: the TCP
+    TUs (net_tcp.cpp read/write/accept, net_tcp_connect.cpp connect)
+    and the UDP receive arms (net_udp.cpp). The park/retry loop itself
+    lives in each native; these are the pieces of park bookkeeping and
+    byte-array marshalling that have to cross translation units
+    (waiter discipline: net_tcp.cpp header). Definitions live in
+    net_tcp.cpp next to the waiters they manipulate.
 ---*/
 #pragma once
 
@@ -13,6 +16,7 @@
 #include <nlang/vm/NativeHost.h>
 
 #include <cstdint>
+#include <vector>
 
 namespace nlang {
 
@@ -29,5 +33,25 @@ enum NetParkOutcome {
 //note). Defined in net_tcp.cpp next to the waiters it manipulates.
 NetParkOutcome NetClaimAndPark(NetExecState* st, int32_t handle, NetDir dir,
     int self, long long deadline, NativeHost* h);
+
+//Releases the direction's claim if this call holds it (R9 mutex, R5
+//deferred close).
+void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed);
+
+//Reads the slot's fd and adopts this call's claim under the mutex;
+//false = the slot is gone (the direction's waiter is cleared).
+bool NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir, int self,
+    int* fd, bool* claimed);
+
+//Shared park tail: true = the caller must return (unwound, or closed/
+//concurrent with ret staged). False = replay the operation.
+bool NetParkTail(NetExecState* st, int32_t handle, NetDir dir,
+    NetParkOutcome outcome, bool claimed, uint8_t* ret);
+
+//Byte-array narrow-cell marshalling (array store convention: one
+//int32 cell per element, low byte = value).
+std::vector<uint8_t> NetPackBytes(const NativeArrayView& view, int count);
+void NetUnpackBytes(const NativeArrayView& view, const uint8_t* bytes,
+    int count);
 
 }  //namespace nlang

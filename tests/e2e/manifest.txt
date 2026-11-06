@@ -2079,3 +2079,6 @@ stdlib_net_tcp_write_closed 0 ok
 stdlib_net_tcp_ipv6 0 ok
 stdlib_net_tcp_options 0 ok
 stdlib_net_tcp_readline 0 ok
+stdlib_net_udp_echo 0 ok
+stdlib_net_udp_connected 0 ok
+stdlib_net_udp_multicast 0 ok

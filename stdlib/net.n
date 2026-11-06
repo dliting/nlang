@@ -258,3 +258,125 @@ class TcpStream {
         if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
     }
 }
+
+// ---- UDP ----
+native int _udpBind(string host, int port);
+native int _udpSendTo(int handle, byte[] data, int count, string host, int port);
+native int _udpConnect(int handle, string host, int port);
+native int _udpSend(int handle, byte[] data, int count);
+native int _udpRecv(int handle, byte[] buf, long deadlineMs);
+native int _udpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _udpLastRecvAddress(int handle);
+native int _udpLastRecvPort(int handle);
+native int _udpSetBroadcast(int handle, bool on);
+native int _udpJoinMulticast(int handle, string group);
+native int _udpLeaveMulticast(int handle, string group);
+native int _udpSetMulticastTtl(int handle, int ttl);
+native int _udpSetTtl(int handle, int ttl);
+native string _udpLocalAddress(int handle);
+native int _udpLocalPort(int handle);
+native string _udpPeerAddress(int handle);
+native int _udpPeerPort(int handle);
+native int _udpClose(int handle);
+
+// UDP数据报套接字。无连接;send/recv需先connect,sendTo/recvFrom不需要。
+class UdpSocket {
+    private int m_handle;
+    public UdpSocket(int handle) { m_handle = handle; }
+
+    // 绑定host:port;port=0由系统分配,经localPort()读回。
+    public static UdpSocket bind(string host = "0.0.0.0", int port = 0) {
+        int h = _udpBind(host, port);
+        if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
+        return UdpSocket(h);
+    }
+    // count默认-1=全发整数组;≥0只发前count字节(R3,回发接收缓冲用)。
+    public int sendTo(byte[] data, string host, int port, int count = -1) {
+        int n = data.length();
+        if (count >= 0) { n = count; }
+        int r = _udpSendTo(m_handle, data, n, host, port);
+        if (r < 0) { _throwNet(r, "sendTo"); }
+        return r;
+    }
+    // 收一条数据报,经out参数给出来源地址/端口;停泊直至有数据或超时。
+    public int recvFrom(byte[] buf, out string peerAddress, out int peerPort,
+                        int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _udpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recvFrom"); }
+        peerAddress = _udpLastRecvAddress(m_handle);
+        peerPort = _udpLastRecvPort(m_handle);
+        return n;
+    }
+    // 关联对端(associate):此后send/recv只收发该地址的数据报。
+    public void connect(string host, int port) {
+        int r = _udpConnect(m_handle, host, port);
+        if (r < 0) { _throwNet(r, "connect"); }
+    }
+    // connect后发送;未connect抛SocketException。
+    public int send(byte[] data, int count = -1) {
+        int n = data.length();
+        if (count >= 0) { n = count; }
+        int r = _udpSend(m_handle, data, n);
+        if (r < 0) { _throwNet(r, "send"); }
+        return r;
+    }
+    // connect后接收;返回数据报字节数(0=空数据报,非EOF)。
+    public int recv(byte[] buf, int timeoutMs = 0) {
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int n = _udpRecv(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recv"); }
+        return n;
+    }
+    // 允许向广播地址发送(SO_BROADCAST)。
+    public void setBroadcast(bool on) {
+        int r = _udpSetBroadcast(m_handle, on);
+        if (r < 0) { _throwNet(r, "setBroadcast"); }
+    }
+    // 加入/离开多播组(接口=socket绑定地址,通配即默认接口)。
+    public void joinMulticast(string group) {
+        int r = _udpJoinMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "joinMulticast"); }
+    }
+    public void leaveMulticast(string group) {
+        int r = _udpLeaveMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "leaveMulticast"); }
+    }
+    // 多播数据报的TTL(IP_MULTICAST_TTL;1=仅本链路)。
+    public void setMulticastTtl(int ttl) {
+        int r = _udpSetMulticastTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setMulticastTtl"); }
+    }
+    // 单播数据报的TTL(IP_TTL)。
+    public void setTtl(int ttl) {
+        int r = _udpSetTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setTtl"); }
+    }
+    public string localAddress() {
+        string s = _udpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _udpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    // connect后的对端(未connect时抛SocketException)。
+    public string peerAddress() {
+        string s = _udpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _udpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public void close() {
+        int r = _udpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+}
