@@ -66,17 +66,6 @@ This page collects the language-level limitations visible to user programs, with
   target takes no brace form (`int[] a = {};` is rejected — array
   initializers use the bracket form), so an empty array is `int[] a = [];`.
 
-- **Sized-array declaration: size suffix on the first declarator only**:
-  `int a, b[3];` is a syntax error — declare `b` separately.
-
-- **Direct-init parenthesized form on the first declarator only**:
-  `Vec a, b(2);` is a syntax error — declare `b` separately (`Vec` on
-  this page stands for a type-with-constructor example; see
-  [Class](../04-types/class.md) and [Struct](../04-types/struct.md)).
-
-- **Mixed declarators take the array type**: in `int a[3], b;` the
-  sibling `b` is a null `int[]` (array-typed), not an int.
-
 - **Partial initialization is the bracket form at the declaration**:
   `int b[100] = [7, 8];` zero-fills the remainder; the brace form at a
   sized declaration (`int b[100] = {7, 8};`) is a syntax error.
@@ -88,10 +77,13 @@ This page collects the language-level limitations visible to user programs, with
 - **`using` alias declarations belong to the file prologue**: a `using`
   placed after another top-level declaration is a syntax error.
 
-- **`List<struct>` value semantics**: adding the same struct variable
-  to a List twice stores the same underlying object (a struct enters a
-  container by reference). Use separate struct instances for distinct
-  elements.
+- **`List<struct>` element matching compares identity**: a struct
+  element is stored and retrieved as an independent value copy
+  (§4.7.4 — mutating the source after `add` never shows through),
+  but `contains` / `indexOf` (and `Dict` keys, §12.2) compare struct
+  elements by reference identity, so a struct built with equal fields
+  never `contains`-matches a stored one. Find struct elements by
+  iterating and comparing fields.
 
 - **Creation cost**: `Point[n]` allocates n+1 heap
   objects at creation (the array itself + one struct per element).
