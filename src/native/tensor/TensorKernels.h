@@ -22,6 +22,20 @@ T* CellsOf(const NativeArrayView& v) {
     return static_cast<T*>(v.data);
 }
 
+//Base for the flat-addressing kernels (matmul, concat) that index a
+//dense operand from element zero: a view's element zero sits `offset`
+//elements past the owning payload's base, so the flat base must fold
+//the offset in. Owning arrays report offset 0 — the same address as
+//CellsOf. The stride-walking kernels must NOT use this: they already
+//start their odometers at v.offset (StrideWalk), so it would apply
+//twice.
+template <typename T>
+T* FlatCellsOf(const NativeArrayView& v) {
+    return static_cast<T*>(static_cast<void*>(
+        static_cast<uint8_t*>(v.data)
+        + static_cast<int64_t>(v.offset) * v.elemCellBytes));
+}
+
 //"2x3" style shape text for the mismatch messages (elementwise and
 //matmul raise with it).
 inline std::string ShapeText(const NativeArrayView& v) {

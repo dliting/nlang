@@ -319,6 +319,7 @@ bs_struct_nested 13
 bs_struct_float_field 4
 bs_struct_class_field 0
 bs_struct_eos 1
+tensor_view_operand_reads 0
 fs_struct_roundtrip 30
 # --- array redesign B Task 5: array-field kind fix ---
 write_object_class_elem_throws 1

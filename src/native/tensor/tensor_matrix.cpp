@@ -49,10 +49,36 @@ void AxisCopyGeometry(const NativeArrayView& a, int32_t axis,
         *inner *= a.dims[d];
 }
 
+//The concat copy loop: row-major per (outer-slice, source) block — the
+//cells after the axis are contiguous, so each block is one memcpy. The
+//source bases fold the view offsets in (a contiguous view's element
+//zero is at its offset, not at the owner's).
+void CopyConcatBlocks(const NativeArrayView& out, const NativeArrayView& a,
+                      const NativeArrayView& b, int32_t axis) {
+    int64_t outer = 0;
+    int64_t inner = 0;
+    AxisCopyGeometry(a, axis, &outer, &inner);
+    const int64_t cellBytes = a.elemCellBytes;
+    const int64_t aAlong = a.dims[axis];
+    const int64_t bAlong = b.dims[axis];
+    const char* aCells = static_cast<const char*>(a.data)
+        + static_cast<int64_t>(a.offset) * cellBytes;
+    const char* bCells = static_cast<const char*>(b.data)
+        + static_cast<int64_t>(b.offset) * cellBytes;
+    char* outCells = static_cast<char*>(out.data);
+    for (int64_t o = 0; o < outer; ++o) {
+        char* dstA = outCells
+            + o * (aAlong + bAlong) * inner * cellBytes;
+        std::memcpy(dstA, aCells + o * aAlong * inner * cellBytes,
+                    static_cast<size_t>(aAlong * inner) * cellBytes);
+        std::memcpy(dstA + aAlong * inner * cellBytes,
+                    bCells + o * bAlong * inner * cellBytes,
+                    static_cast<size_t>(bAlong * inner) * cellBytes);
+    }
+}
+
 //Concat body: equal ranks, every dim equal except the axis dim (which
-//sums); an out-of-range axis raises the bounds family. Row-major copy
-//per (outer-slice, source) block — the cells after the axis are
-//contiguous, so each block is one memcpy.
+//sums); an out-of-range axis raises the bounds family.
 void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView a;
     NativeArrayView b;
@@ -83,24 +109,7 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     const int32_t handle = NewArrayShaped(host, a.elemKind, a.rank, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    int64_t outer = 0;
-    int64_t inner = 0;
-    AxisCopyGeometry(a, axis, &outer, &inner);
-    const int64_t cellBytes = a.elemCellBytes;
-    const int64_t aAlong = a.dims[axis];
-    const int64_t bAlong = b.dims[axis];
-    const char* aCells = static_cast<const char*>(a.data);
-    const char* bCells = static_cast<const char*>(b.data);
-    char* outCells = static_cast<char*>(out.data);
-    for (int64_t o = 0; o < outer; ++o) {
-        char* dstA = outCells
-            + o * (aAlong + bAlong) * inner * cellBytes;
-        std::memcpy(dstA, aCells + o * aAlong * inner * cellBytes,
-                    static_cast<size_t>(aAlong * inner) * cellBytes);
-        std::memcpy(dstA + aAlong * inner * cellBytes,
-                    bCells + o * bAlong * inner * cellBytes,
-                    static_cast<size_t>(bAlong * inner) * cellBytes);
-    }
+    CopyConcatBlocks(out, a, b, axis);
     ReturnInt(ret, handle);
 }
 
@@ -132,8 +141,10 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
     const int32_t handle = NewArrayShaped(host, a.elemKind, 2, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const T* aCells = CellsOf<T>(a);
-    const T* bCells = CellsOf<T>(b);
+    //Flat bases: a contiguous view's element zero is at its offset, not
+    //at the owner's (FlatCellsOf folds it; out is freshly minted).
+    const T* aCells = FlatCellsOf<T>(a);
+    const T* bCells = FlatCellsOf<T>(b);
     T* outCells = CellsOf<T>(out);
     for (int32_t i = 0; i < aRows; ++i) {
         for (int32_t k = 0; k < aCols; ++k) {
