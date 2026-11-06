@@ -27,6 +27,9 @@ int main() {
     // both including the head; the reversal's head is the array's tail.
     assert(rev[0] == m[0, 4]);
     assert(rev[4] == m[0, 0]);
+    int[] expRev = m[0, -1::-1];      // explicit -1 start walks len+neg
+    assert(expRev.shape()[0] == rev.shape()[0]);
+    assert(expRev[0] == rev[0] && expRev[4] == rev[4]);
     //View-of-view: strides and offsets stay owner-space, so a second
     // slice composes onto the base's coordinates.
     int[,] w = v[:, 1:3];
@@ -39,6 +42,14 @@ int main() {
     int s = -2147483647 - 1;
     bool caught = false;
     try { int[] bad = m[0, s:]; assert(false); }
+    catch (Exception e) {
+        caught = e.message == "slice endpoint/step out of range";
+    }
+    assert(caught);
+    caught = false;
+    //Stop and step slots carry the same presence mask: a written part
+    // hitting the sentinel value is rejected, not read as a default.
+    try { int[] bad2 = m[0, 1:s:s]; assert(false); }
     catch (Exception e) {
         caught = e.message == "slice endpoint/step out of range";
     }
