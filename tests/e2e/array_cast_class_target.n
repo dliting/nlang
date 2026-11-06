@@ -1,0 +1,27 @@
+// Final-review I1: a checked downcast with a class target on an
+// Object-typed value holding an array (owned or view) or a boxed
+// primitive raises the catchable InvalidCastException.
+import lang;
+
+class Thing {
+    public int x;
+}
+
+int main() {
+    int acc = 0;
+
+    int[] a = int[4];
+    Object o = a;
+    try { Thing t = o as Thing; assert(false); }
+    catch (InvalidCastException e) { acc = acc + 1; }
+
+    Object v = a[1:3];
+    try { Thing t2 = v as Thing; assert(false); }
+    catch (InvalidCastException e) { acc = acc + 2; }
+
+    Object b = 5;
+    try { Thing t3 = b as Thing; assert(false); }
+    catch (InvalidCastException e) { acc = acc + 4; }
+
+    return acc;
+}

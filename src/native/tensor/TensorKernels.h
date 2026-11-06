@@ -153,9 +153,11 @@ inline void BroadcastStrides(const NativeArrayView& v, int32_t outRank,
     }
 }
 
-//Collect a rank-1 int array's cells (any length up to kMaxArrayRank)
-//in row-major order; returns the count. Raises for a non-int or
-//non-rank-1 argument (a view rides its strides — rank-1 walk).
+//Collect a rank-1 int array's cells in row-major order; returns the
+//count. Raises for a non-int, non-rank-1, or over-capacity argument (a
+//view rides its strides — rank-1 walk; every caller's buffer holds
+//exactly kMaxArrayRank cells, so the walk is bounded by the same
+//contract — never driven by the argument's own elemCount).
 inline int32_t CollectIntCells(NativeHost* host, const NativeArrayView& v,
                                const char* who, int32_t* out) {
     if (v.elemKind != NEK_Int32 || v.rank != 1)
@@ -163,7 +165,13 @@ inline int32_t CollectIntCells(NativeHost* host, const NativeArrayView& v,
               std::string(who) + ": expects a rank-1 int array");
     const int32_t* cells = static_cast<const int32_t*>(v.data);
     int32_t at = 0;
-    StrideWalk(v, [&](int64_t addr) { out[at++] = cells[addr]; });
+    StrideWalk(v, [&](int64_t addr) {
+        if (at >= nlang::kMaxArrayRank)
+            nlang::native::Raise(host, NEXC_Base,
+                  std::string(who) + ": shape list longer than "
+                  + std::to_string(nlang::kMaxArrayRank) + " cells");
+        out[at++] = cells[addr];
+    });
     return at;
 }
 

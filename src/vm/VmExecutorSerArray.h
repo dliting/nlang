@@ -1,10 +1,11 @@
 /*---
-    VmExecutorSerArray.h — the array-content serialization templates
-    (v0.12.7 Task 13), split from VmExecutorSer.h for the file-size
-    guard. Same shape as the struct/class templates: definitions live
-    in a header because instantiation happens in the consuming TUs;
-    include VmExecutorSer.h (which includes this file) rather than
-    this one directly.
+    VmExecutorSerArray.h — the value-form serialization templates
+    (v0.12.7 Task 13 array content; final-review C4 boxed values),
+    split from VmExecutorSer.h for the file-size guard. Same shape as
+    the struct/class templates: definitions live in a header because
+    instantiation happens in the consuming TUs; include
+    VmExecutorSer.h (which includes this file) rather than this one
+    directly.
 ---*/
 #pragma once
 #include "VmExecutorSer.h"
@@ -19,6 +20,12 @@ namespace nlang {
 //rank byte, dims — so readArray reconstructs without an external type
 //literal. Views materialize first: the record written is the view's
 //logical content in a fresh owning record.
+//Final-review I2: array records join the class writers' back-reference
+//table (tag 2, shared object-id space) — a repeated reference emits the
+//back-ref instead of a second copy, so cyclic graphs through array
+//fields round-trip exactly like class cycles. The id keys the ORIGINAL
+//record (pre-materialization): every reference to one view resolves to
+//one materialized copy.
 template<typename Writer, typename StreamState>
 void VmExecutor::SerializeArrayRecord(int32_t heapIdx,
     Writer&& write, StreamState& st, int depth)
@@ -32,6 +39,18 @@ void VmExecutor::SerializeArrayRecord(int32_t heapIdx,
     }
     if (static_cast<size_t>(heapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid heap index in array record write");
+    //Register BEFORE the payload walk — an element or nested field may
+    //reference this very record (the cycle case).
+    auto it = st.serializeObjIds.find(heapIdx);
+    if (it != st.serializeObjIds.end()) {
+        uint8_t tag = 2;
+        write(&tag, 1);
+        uint32_t id = it->second;
+        write(reinterpret_cast<const uint8_t*>(&id), 4);
+        return;
+    }
+    st.serializeObjIds[heapIdx] = st.nextObjId++;
+
     //Materialize before taking any record reference — the allocation
     //below may grow the heap and move the records.
     if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_ArrayView)
@@ -121,7 +140,8 @@ void VmExecutor::WriteArrayElements(const CompiledArrayType& at,
 }
 
 //Reads what SerializeArrayRecord wrote and returns a freshly-allocated
-//OWNING record (never a view). Tag 0 reads as null (0). The arrayTypes
+//OWNING record (never a view). Tag 0 reads as null (0); tag 2 resolves
+//a previously-read record (the shared back-ref table). The arrayTypes
 //row is resolved from the stream's own (elemKind, element type, rank)
 //— a shape the program never declared fails loudly, not with a
 //mis-typed record.
@@ -129,12 +149,31 @@ template<typename Reader, typename StreamState>
 int32_t VmExecutor::DeserializeArrayRecord(Reader&& read, StreamState& st,
     int depth)
 {
-    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
-        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
     uint8_t tag;
     read(&tag, 1);
+    return DeserializeArrayRecordTagged(tag, std::forward<Reader>(read),
+                                        st, depth);
+}
+
+//The tag-dispatch tail: entry above reads the tag; class-field reader
+//positions that already peeked it enter here directly.
+template<typename Reader, typename StreamState>
+int32_t VmExecutor::DeserializeArrayRecordTagged(uint8_t tag,
+    Reader&& read, StreamState& st, int depth)
+{
+    if (depth >= static_cast<int>(STRUCT_SERIALIZE_DEPTH_LIMIT))
+        throw std::runtime_error("NLang VM: struct serialize depth limit exceeded");
     if (tag == 0)
         return 0;
+    if (tag == 2) {
+        uint32_t id;
+        read(reinterpret_cast<uint8_t*>(&id), 4);
+        auto it = st.deserializeObjIds.find(id);
+        if (it == st.deserializeObjIds.end())
+            throw std::runtime_error(
+                "NLang VM: ReadArray back-reference to unknown object id");
+        return it->second;
+    }
     if (tag != 3)
         throw std::runtime_error("NLang VM: ReadArray unknown array tag");
 
@@ -149,6 +188,9 @@ int32_t VmExecutor::DeserializeArrayRecord(Reader&& read, StreamState& st,
     //AllocArrayOnHeap pre-allocates struct elements; the payload walk
     //below fills them (struct) or overwrites the scalar cells.
     const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
+    //Register BEFORE the payload walk — an element or nested field may
+    //back-reference this record (mirrors the writer's registration).
+    st.deserializeObjIds[st.nextObjId++] = heapIdx;
     //Value snapshot: nested struct reads may grow the heap and move
     //the record; elemCount is data, immune to the move.
     const int32_t elemCount =
@@ -240,6 +282,77 @@ void VmExecutor::ReadArrayElements(int32_t heapIdx, uint8_t elemKind,
             "NLang VM: ReadArray does not support array element kind ("
             + std::to_string(elemKind) + ")");
     }
+}
+
+//--- boxed values in Object-typed positions (final-review C4) ----------
+//Tag 4: a boxed record reaching a class-declared reference slot — any
+//primitive or a string wrapped by OP_Box. Payload after the tag: the
+//wrapped kind byte, then a length-prefixed string or a scalar at the
+//registry width (8-byte rows span the box's two payload cells — the
+//AllocBoxedValue layout). Boxes are immutable values: no
+//back-reference, each read mints a fresh box.
+template<typename Writer>
+void VmExecutor::WriteBoxedRecord(int32_t heapIdx, Writer&& write)
+{
+    const auto& box = m_structHeap[static_cast<size_t>(heapIdx)];
+    uint8_t tag = 4;
+    write(&tag, 1);
+    const uint8_t inner = static_cast<uint8_t>(box[0]);
+    write(&inner, 1);
+    if (inner == RTK_String) {
+        const std::string& s = StrVal(box[1]);
+        int32_t len = static_cast<int32_t>(s.size());
+        write(reinterpret_cast<const uint8_t*>(&len), 4);
+        write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+        return;
+    }
+    const int primRow = ScalarPrimIndexOfRtk(inner);
+    if (primRow < 0)
+        throw std::runtime_error(
+            "NLang VM: WriteObject does not support boxed kind ("
+            + std::to_string(inner) + ")");
+    const size_t width = kScalarPrims[primRow].slotWidth;
+    if (width == 8) {
+        const uint64_t bits =
+            static_cast<uint32_t>(box[1])
+            | (static_cast<uint64_t>(static_cast<uint32_t>(box[2]))
+               << 32);
+        write(reinterpret_cast<const uint8_t*>(&bits), 8);
+    } else {
+        write(reinterpret_cast<const uint8_t*>(&box[1]), width);
+    }
+}
+
+//Reads what WriteBoxedRecord wrote; returns the fresh box's heap idx.
+template<typename Reader>
+int32_t VmExecutor::ReadBoxedRecord(Reader&& read)
+{
+    uint8_t inner = RTK_Int32;
+    read(&inner, 1);
+    if (inner == RTK_String) {
+        uint8_t lenBytes[4];
+        read(lenBytes, 4);
+        int32_t len;
+        std::memcpy(&len, lenBytes, 4);
+        if (len < 0 || static_cast<size_t>(len) > MAX_STRING_LENGTH)
+            throw std::runtime_error(
+                "NLang VM: ReadObject boxed string length out of range");
+        std::string s(static_cast<size_t>(len), '\0');
+        if (len > 0)
+            read(reinterpret_cast<uint8_t*>(&s[0]),
+                 static_cast<size_t>(len));
+        return AllocBoxedValue(RTK_String,
+            MintNewString(std::move(s)));
+    }
+    const int primRow = ScalarPrimIndexOfRtk(inner);
+    if (primRow < 0)
+        throw std::runtime_error(
+            "NLang VM: ReadObject does not support boxed kind ("
+            + std::to_string(inner) + ")");
+    uint64_t bits = 0;
+    read(reinterpret_cast<uint8_t*>(&bits),
+         kScalarPrims[primRow].slotWidth);
+    return AllocBoxedValue(inner, static_cast<int64_t>(bits));
 }
 
 } // namespace nlang
