@@ -2,11 +2,13 @@
     net_native.cpp — the nlang_net module entry (net library design §6):
     the internal primitives the net.n script surface calls (underscore
     names are module-private by convention; the public face is script).
-    All eighteen register on the blocking channel — the r1 model releases the
+    The socket natives register on the blocking channel — the r1 model releases the
     GIL around blocking natives, so the slot table and the last-error
     text are guarded by NetExecState::m_mutex (plan ruling R9) and the
     lock is scoped to the state accesses only (a slow getaddrinfo in
-    bind must not serialize other carriers' calls). Failures return the
+    bind must not serialize other carriers' calls). The two pure byte
+    converters (_toBytes/_fromBytes) never wait, so they register on
+    the regular channel. Failures return the
     R10 error codes; -4 paths record the platform text for
     _lastErrorText. Exception mapping lives in the script (_throwNet).
 ---*/
@@ -21,8 +23,11 @@
 #include <string>
 #include <vector>
 
+using nlang::native::ArgArray;
 using nlang::native::ArgInt;
 using nlang::native::ArgString;
+using nlang::native::NewArray;
+using nlang::native::Raise;
 using nlang::native::ReturnInt;
 using nlang::native::ReturnLong;
 using nlang::native::ReturnString;
@@ -86,6 +91,44 @@ void LastErrorText(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     ReturnString(h, ret, st->m_lastErrorText);
+}
+
+// toBytes/fromBytes: the module-internal UTF-8 converters (r1 note 5:
+// builtin packages never import each other, so net.n's convenience face
+// carries its own copy; the public face stays io.toBytes/fromBytes).
+// Same narrow-cell convention as the io natives (task 5 semantics):
+// byte cells are int32 carrying the value in the low byte.
+void NetToBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    const std::string text = ArgString(h, a, 0);
+    const int32_t len = static_cast<int32_t>(text.size());
+    const int32_t handle = NewArray(h, NEK_Byte, len);
+    NativeArrayView view;
+    h->getArrayView(h, handle, &view);
+    int32_t* cells = static_cast<int32_t*>(view.data);
+    for (int32_t i = 0; i < len; ++i)
+        cells[i] = static_cast<unsigned char>(
+            text[static_cast<size_t>(i)]);
+    ReturnInt(ret, handle);
+}
+
+void NetFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    NativeArrayView view;
+    ArgArray(h, a, 0, &view);
+    if (view.rank != 1
+        || (view.elemKind != NEK_Byte && view.elemKind != NEK_UByte)) {
+        Raise(h, NEXC_IOException,
+            "net._fromBytes: expected a rank-1 byte array");
+        return;
+    }
+    const int32_t* cells = static_cast<const int32_t*>(view.data);
+    const int64_t o = view.offset;
+    const int64_t step = view.strides[0];
+    std::string content;
+    content.reserve(static_cast<size_t>(view.elemCount));
+    for (int64_t i = 0; i < view.elemCount; ++i)
+        content.push_back(static_cast<char>(static_cast<unsigned char>(
+            cells[o + i * step])));
+    ReturnString(h, ret, content);
 }
 
 // tcpBind: resolve, open, bind, listen; the first resolved endpoint
@@ -212,5 +255,7 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpSetKeepAlive", &NetTcpSetKeepAlive);
     regBlocking(registry, "net", "_tcpSetSendBufferSize", &NetTcpSetSendBufferSize);
     regBlocking(registry, "net", "_tcpSetRecvBufferSize", &NetTcpSetRecvBufferSize);
+    reg(registry, "net", "_toBytes", &NetToBytes);
+    reg(registry, "net", "_fromBytes", &NetFromBytes);
     return NLANG_HOST_ABI_VERSION;
 }

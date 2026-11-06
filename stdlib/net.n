@@ -21,6 +21,10 @@ const class TimeoutException : IOException {
 native long _nowMs();
 // 最近一次平台错误的文本(错误码-4时拼入异常消息)。
 native string _lastErrorText();
+// 内部UTF-8字节转换(nlang_net模块注册;公开面是io.toBytes/fromBytes,
+//  预置包互不import故脚本便捷面用内部副本,r1补注5)。
+native byte[] _toBytes(string s);
+native string _fromBytes(byte[] data);
 
 // 内部:错误码映射异常(-1关闭/-2超时/-3并发违例/-4平台错误/-5参数)。
 void _throwNet(int code, string context) {
@@ -151,8 +155,58 @@ class TcpStream {
         if (r < 0) { _throwNet(r, "write"); }
         return r;
     }
-    // 文本便捷面write(string)、readLine、readExactly随任务9追加
-    // (脚本层方法,见任务9步骤2全文)。
+    // 文本便捷面:UTF-8编码后全写;返回发出的字节数。
+    public int write(string s) {
+        return this.write(_toBytes(s));
+    }
+
+    // 读一行:以'\n'结束,返回不含行尾的文本('\r'被剥离)。
+    // 对端在行结束前关闭:返回已积累文本;零字节且EOF返回null。
+    public string readLine(int timeoutMs = 0) {
+        string acc = "";
+        byte[] one = byte[1];
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        while (true) {
+            int n = _tcpRead(m_handle, one, deadline);   //绝对截止跨多次读稳定
+            if (n < 0) { _throwNet(n, "readLine"); }
+            if (n == 0) {
+                if (acc == "") { return null; }
+                return acc;
+            }
+            if (one[0] == 10) {          //'\n'
+                if (acc.length() > 0 && acc.endsWith("\r")) {
+                    return acc.substring(0, acc.length() - 1);
+                }
+                return acc;
+            }
+            acc = acc + _fromBytes(one);
+        }
+    }
+
+    // 读满count字节(HTTP定长体分帧);对端提前关闭抛SocketException。
+    // read从缓冲首cell写入、无偏移入参:读入临时数组再逐cell搬运。
+    public byte[] readExactly(int count, int timeoutMs = 0) {
+        byte[] payload = byte[count];
+        byte[] tmp = byte[count];
+        long deadline = 0;
+        if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
+        int got = 0;
+        while (got < count) {
+            int n = _tcpRead(m_handle, tmp, deadline);
+            if (n < 0) { _throwNet(n, "readExactly"); }
+            if (n == 0) {
+                throw SocketException("net: connection closed after "
+                    + got.toString() + " of " + count.toString()
+                    + " bytes");
+            }
+            for (int i = 0; i < n; i = i + 1) {
+                payload[got + i] = tmp[i];
+            }
+            got = got + n;
+        }
+        return payload;
+    }
     public void close() {
         int r = _tcpClose(m_handle);
         if (r < 0) { _throwNet(r, "close"); }
