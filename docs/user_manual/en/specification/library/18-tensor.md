@@ -48,22 +48,45 @@ documented surface.
 - A zero-filled array needs no kernel: sized creation `T[n]`
   is zero-initialized (§4.10); an all-ones array is
   `full(n, 1)`.
-- `reshape(a, shape)` returns the elements of `a` in a new
-  array of the shape described by the rank-1 `int[]` `shape`,
-  filled in row-major order; the product of the dimensions must
-  equal the element count of `a`, and the result rank follows
-  the global bound of §4.10 (a bracket-annotated result gets
-  its rank checked against the annotation). One dimension of
-  `shape` may be `-1`: it is inferred by dividing the element
-  count by the product of the remaining dimensions, and the
-  division must come out exact. At most one `-1` is allowed.
+- `reshape(a, shape)` returns the elements of `a` in the shape
+  described by the rank-1 `int[]` `shape`, read and filled in
+  row-major order; the product of the dimensions must equal the
+  element count of `a`, and the result rank follows the global
+  bound of §4.10 (a bracket-annotated result gets its rank
+  checked against the annotation). One dimension of `shape` may
+  be `-1`: it is inferred by dividing the element count by the
+  product of the remaining dimensions, and the division must
+  come out exact. At most one `-1` is allowed. When the elements
+  already sit in row-major order without gaps — an array the
+  program created, or a view that selects them contiguously —
+  the result is a view sharing those elements; otherwise a fresh
+  copy is made and the result never aliases `a`.
 - `concat(a, b, axis)` joins two arrays of the same rank along
   `axis`: the result takes the summed length on `axis` and the
   operand lengths everywhere else, which must be equal.
-- `flatten(a)` returns the rank-2 array `a` as a rank-1 array
-  in row-major order.
-- `transpose(a)` returns the rank-2 array `a` as `[cols, rows]`
-  in row-major order.
+- `flatten(a)` returns the elements of an array of any rank as a
+  rank-1 array in row-major order — a view when the elements are
+  contiguous, a copy otherwise (the same rule as `reshape` with
+  one dimension). *Informative:* this matches NumPy's `ravel`,
+  not NumPy's `flatten`, which always copies; NLang's name keeps
+  the one-word spelling and the view-when-possible semantics.
+- `transpose(a)` reverses the axes of an array of any rank, and
+  `transpose(a, axes)` permutes them: `axes` is a rank-1 `int[]`
+  naming each source axis once, in the order the result reads
+  it. Both return views aliasing `a` — a transposed element
+  write reaches the source (§4.10.9).
+- `slice(a, starts, stops, steps)` is the function form of the
+  slice subscript (§4.10.9): three rank-1 `int[]` arrays, one
+  entry per axis, with the same normalization and the same view
+  result.
+- `broadcastTo(a, shape)` returns a view of `a` with the shape
+  described by the rank-1 `int[]` `shape`: each target
+  dimension must equal the source's or the source's must be 1
+  (the size-1 axis repeats), and leading dimensions may be
+  added. The repeated axes address one source cell each, so
+  stores through the result raise `Exception` (§4.10.9);
+  element reads, reductions and serialization see the repeated
+  content.
 
 ```nlang
 import io;
@@ -89,10 +112,11 @@ int main() {
 
 - `add(a, b)`, `sub(a, b)`, `mul(a, b)` and `div(a, b)` apply
   the operator element by element and return an array of the
-  operand element type. The operands must have equal lengths
-  (rank 1) or equal shapes (rank 2). Integer `div` by zero
-  raises `DivByZeroException` (§8.3); `float` and `double`
-  division follows IEEE, yielding Inf or NaN (§4.2).
+  operand element type. The two arrays broadcast (§18.3.1); a
+  scalar second argument (`add(a, 0.5)`) applies to every
+  element. Integer `div` by zero raises `DivByZeroException`
+  (§8.3); `float` and `double` division follows IEEE, yielding
+  Inf or NaN (§4.2).
 - `exp(a)` and `log(a)` apply the mathematical function
   element by element (`e` raised to the element, natural
   logarithm) and return an array of the operand element type.
@@ -102,7 +126,10 @@ int main() {
   from below, lowered from above); the element type is the
   common type of the element and the bound.
 - `sum(a)` returns the sum of all elements as the element type;
-  the empty array yields the type's zero.
+  the empty array yields the type's zero. `sum(a, axis)` sums
+  along one axis and drops it from the shape: a rank-2 `(3, 4)`
+  summed on axis 0 yields `(4,)`, and the last axis of a rank-1
+  array yields the scalar.
 - `max(a)` and `min(a)` return the largest and smallest element
   as the element type; the empty array raises `Exception`
   (§8.3).
@@ -115,7 +142,11 @@ int main() {
 
 For rank-2 operands the elementwise kernels keep the operand
 shape, and the reductions flatten over the elements in
-row-major order.
+row-major order. Views are ordinary operands: every kernel
+reads through the view's own shape and strides (a `transpose`
+result feeds `matmul` directly), and kernels that need
+contiguous cells — `matmul` and `concat` — copy a
+non-contiguous operand first, invisibly to the program.
 
 ```nlang
 import io;
@@ -132,6 +163,24 @@ int main() {
     return 0;
 }
 ```
+
+### 18.3.1 Broadcasting
+
+The two-array kernels pair elements by the right-aligned
+broadcast rule, the same rule NumPy uses: ranks may differ —
+the operand with fewer dimensions is padded with leading axes
+of length 1 — and on each aligned axis the two lengths must be
+equal, or one of them 1; the result takes the larger length on
+every axis, and a size-1 operand axis repeats its single value.
+
+```nlang
+double[,] m = tensor.full([3, 4], 0.0);   // see §18.2 for dims
+double[] bias = tensor.full(4, 1.0);
+double[,] biased = tensor.add(m, bias);   // (3,4)+(4,): rows repeat
+```
+
+An axis pair that is neither equal nor 1 raises `Exception`
+with both shapes (§18.6).
 
 ## 18.4 Matrix Kernels
 
@@ -193,14 +242,18 @@ element count past the creation bound of §4.10, raises
 raises the same class. `arange` checks its
 element count before minting and raises `Exception` when the
 progression would exceed the bound. A zero `arange` step, or one that
-cannot advance toward `stop`, raises `Exception`. A length or
-shape mismatch in a two-operand kernel, a `reshape` shape whose
+cannot advance toward `stop`, raises `Exception`. A broadcast
+mismatch in a two-operand kernel, a `reshape` shape whose
 length misses the target rank, whose product misses the
 element count, or whose `-1` inference divides unevenly, a
-`concat` whose operands disagree on rank or on the non-axis
-dimensions, and `max`, `min` or `mean` on an empty array all
-raise `Exception`; the shape and length mismatch messages name
-both sides.
+`transpose` permutation that misses or repeats an axis, a
+`broadcastTo` target a source shape cannot fill, a `sum` axis
+outside the array's rank, a `slice` list whose length misses
+the rank, a `concat` whose operands disagree on rank or on the
+non-axis dimensions, and `max`, `min` or `mean` on an empty
+array all raise `Exception`; the shape and length mismatch
+messages name both sides, and the axis messages name the axis
+and the rank.
 
 *Informative:* the diagnostics read like
 `tensor.matmul: shape mismatch (2x3 vs 2x2)` for `matmul` and

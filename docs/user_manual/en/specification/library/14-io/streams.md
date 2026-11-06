@@ -16,9 +16,10 @@ an invalid mode, a failed open (including `"r"` on a missing
 file), access through a closed or invalid handle, a write to a
 read-only stream or a read from a write-only stream, a read
 past the end of the stream, a struct or object read naming a
-type the program does not declare, and a struct or class value
-with an array or function-typed field written by `writeStruct`
-or `writeObject`.
+type the program does not declare, a function-typed field
+written by `writeStruct` or `writeObject`, and an array whose
+elements are class references written by `writeObject` (scalar
+and struct elements serialize, §14.6).
 
 ```nlang
 ByteStream bs = ByteStream();
@@ -39,7 +40,8 @@ The method surface is identical except where noted:
 | `writeDouble(x)` / `readDouble() → double` | 8-byte float |
 | `writeString(s)` / `readString() → string` | a 4-byte length, then the bytes |
 | `writeStruct(v)` / `readStruct(name)` | the struct's fields, recursively; the read names the type as a string and yields a value of that type |
-| `writeObject(c)` / `readObject(name)` | the class graph, recursively; the read names the type as a string and yields a value of that type |
+| `writeObject(c)` / `readObject(name)` | the class graph or an array value, recursively; the read names the type as a string and yields a value of that type |
+| `readArray()` | an array written by `writeObject`, as an `Object` (cast with `as`, §4.5) |
 | `length() → int` | the total byte count of the stream |
 | `position() → int` | the current cursor |
 | `reset()` | rewinds the cursor to 0 and clears the object-identity state; the buffer is kept (`ByteStream` only) |
@@ -62,7 +64,13 @@ A read consumes the stream in write order — the example reads
 the int back before the double — and reading past the end
 raises the host-level error rather than yielding a value. A
 `null` class reference written by `writeObject` reads back as
-`null`. Within one `writeObject` graph, shared references are
+`null`. `writeObject` also accepts an array value: the array is
+written as one self-describing record — a view writes its logical
+content, so the round trip yields an independent owning array —
+and `readArray()` reads it back. `readArray()` returns `Object`;
+cast the result with `as` to the annotated array type, and the
+cast checks rank and element type exactly as it does for any
+array value (§4.5). Within one `writeObject` graph, shared references are
 preserved: two fields naming the same instance read back as one
 instance. `close()` on a `FileStream` releases the
 operating-system handle and invalidates the stream handle;
@@ -110,11 +118,30 @@ encoded by its own type —
 | `string` | the `writeString` form |
 | a struct | the same struct encoding, inline and recursive |
 | a class | the class record below |
+| an array | the array record below |
 
 `readStruct(name)` consumes exactly that byte sequence against
 the named type: the stream and the program must agree on the
-type's shape. Array and function-typed fields are rejected on
-the write side (§14.5).
+type's shape. Function-typed fields are rejected on the write
+side (§14.5).
+
+**Array records.** `writeObject` on an array value — and an
+array field inside a struct or class record — appends one
+array record, tagged `3` in the class tag space: the tag byte,
+the element kind byte, then — for struct elements only — a
+4-byte unsigned length and the struct's qualified name (the
+reader rebuilds by name, as classes do), the rank as one byte,
+each dimension as a 4-byte signed integer, and finally the
+elements in row-major order. Scalar elements encode at their own
+width exactly as struct fields do, `string` elements in the
+`writeString` form, and struct elements as bare struct records,
+one per element. `readArray()` consumes such a record and
+returns a freshly created owning array (never a view); a `null`
+array field written in a graph reads back as the tag-`0` null
+of §14.6's class records. A tag other than `0` or `3` read by
+`readArray`, a struct name the program does not declare, a rank
+outside 1 to 64, and an element kind with no wire form are
+host-level run-time errors (§8.1).
 
 **Class records.** `writeObject(c)` appends one record per
 class-typed value, tagged by its first byte:
