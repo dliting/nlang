@@ -69,8 +69,13 @@ using nlang::NetTcpWrite;
 namespace {
 
 //TcpListener accept-queue depth (the backlog every listener API hides
-//behind a constant; 64 matches the common library default).
-constexpr int kNetListenBacklog = 64;
+//behind a constant). Sized for burst accepts: one listener must absorb
+//thousands of simultaneous connects while the acceptor drains at its
+//own pace (Node listens with 511, Go with the system maximum; Windows
+//clamps the effective depth to its own cap). 64 overflowed the 10k
+//benchmark (tools/net_bench/net_bench_10k.n): dropped SYNs pushed
+//clients past their connect timeout.
+constexpr int kNetListenBacklog = 512;
 
 //Records the failure text for _lastErrorText (R10: the -4 code carries
 //its message through the state, not through raiseException). Takes the
