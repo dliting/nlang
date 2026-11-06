@@ -1,17 +1,15 @@
 /*---
-    NetPlatformWindows.cpp — Winsock2 implementation of NetPlatform.h
-    (net library design §6), core sockets + poller + resolver. Sockets
-    are non-blocking; the poller set is vendored wepoll
-    (src/3rdparty/wepoll, BSD-2-Clause). Blocking conveniences
+    net_platform_windows.cpp — Winsock2 implementation of net_platform.h
+    (net library design §6), core sockets + resolver. Sockets are
+    non-blocking; the IO poller set is a VM facility (IoPoller.h /
+    IoPollerWindows.cpp), not part of this layer. Blocking conveniences
     (NetResolve, NetIcmpEcho) are worker-thread only. Shared Winsock
-    helpers live in NetPlatformInternal.h; the ICMP entries live in
-    NetPlatformWindowsIcmp.cpp.
+    helpers live in net_platform_internal.h; the ICMP entries live in
+    net_platform_icmp_windows.cpp.
 ---*/
-#include "net/NetPlatformInternal.h"
+#include "net_platform_internal.h"
 
 #include <windows.h>
-
-#include "wepoll.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -27,30 +25,6 @@ void WsaInitOnce() {
     WSADATA data;
     WSAStartup(MAKEWORD(2, 2), &data);
     std::atexit([] { WSACleanup(); });   //paired with the once (plan ruling R4)
-}
-
-uint32_t ToEpollEvents(uint32_t events) {
-    uint32_t e = 0;
-    if (events & NET_EV_READ) e |= EPOLLIN | EPOLLRDNORM;
-    if (events & NET_EV_WRITE) e |= EPOLLOUT | EPOLLWRNORM;
-    return e;
-}
-
-uint32_t FromEpollEvents(uint32_t events) {
-    uint32_t e = 0;
-    if (events & (EPOLLIN | EPOLLRDNORM | EPOLLRDHUP)) e |= NET_EV_READ;
-    if (events & (EPOLLOUT | EPOLLWRNORM)) e |= NET_EV_WRITE;
-    if (events & EPOLLHUP) e |= NET_EV_HUP;
-    if (events & EPOLLERR) e |= NET_EV_ERR;
-    return e;
-}
-
-int PollerCtl(void* poller, int op, int fd, uint32_t events) {
-    epoll_event ev;
-    std::memset(&ev, 0, sizeof(ev));
-    ev.events = ToEpollEvents(events);
-    ev.data.sock = Fd(fd);
-    return epoll_ctl(static_cast<HANDLE>(poller), op, Fd(fd), &ev);
 }
 
 //Multicast join/leave for both families; interface = the socket's bound
@@ -273,39 +247,41 @@ bool NetSetTtl(int fd, int ttl) {
     return SetSockOptInt(Fd(fd), IPPROTO_IP, IP_TTL, ttl);
 }
 
-void* NetPollerCreate() {
+int NetSocketPair(int fds[2]) {
     NetPlatformInit();
-    return epoll_create1(0);
-}
-
-void NetPollerClose(void* poller) {
-    if (poller) epoll_close(static_cast<HANDLE>(poller));
-}
-
-int NetPollerAdd(void* poller, int fd, uint32_t events) {
-    return PollerCtl(poller, EPOLL_CTL_ADD, fd, events) == 0 ? 0 : -1;
-}
-
-int NetPollerMod(void* poller, int fd, uint32_t events) {
-    return PollerCtl(poller, EPOLL_CTL_MOD, fd, events) == 0 ? 0 : -1;
-}
-
-int NetPollerDel(void* poller, int fd) {
-    return PollerCtl(poller, EPOLL_CTL_DEL, fd, 0) == 0 ? 0 : -1;
-}
-
-int NetPollerWait(void* poller, std::vector<NetPollEvent>& out, int timeoutMs) {
-    epoll_event ready[64];
-    const int n = epoll_wait(static_cast<HANDLE>(poller), ready, 64, timeoutMs);
-    out.clear();
-    if (n <= 0) return n < 0 ? -1 : 0;
-    for (int i = 0; i < n; ++i) {
-        NetPollEvent ev;
-        ev.fd = ToFd(ready[i].data.sock);
-        ev.events = FromEpollEvents(ready[i].events);
-        out.push_back(ev);
+    fds[0] = fds[1] = -1;
+    //Loopback TCP pair: bind an ephemeral listener, connect to it,
+    //accept. The connect/accept run blocking — loopback completes the
+    //handshake in the kernel backlog, so neither call can stall — and
+    //both ends flip to non-blocking afterwards (self-pipe contract).
+    SOCKET ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (ls == INVALID_SOCKET) return -1;
+    sockaddr_in addr;
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    int len = sizeof(addr);
+    if (bind(ls, reinterpret_cast<sockaddr*>(&addr), len) != 0
+        || listen(ls, 1) != 0
+        || getsockname(ls, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        closesocket(ls);
+        return -1;
     }
-    return n;
+    SOCKET cli = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (cli == INVALID_SOCKET) { closesocket(ls); return -1; }
+    if (connect(cli, reinterpret_cast<sockaddr*>(&addr), len) != 0) {
+        closesocket(cli); closesocket(ls); return -1;
+    }
+    SOCKET srv = accept(ls, nullptr, nullptr);
+    closesocket(ls);
+    if (srv == INVALID_SOCKET) { closesocket(cli); return -1; }
+    SetNonBlocking(cli);
+    SetNonBlocking(srv);
+    //Windows sockets are non-inheritable by default, so the
+    //close-on-exec contract holds without extra work.
+    fds[0] = ToFd(srv);   //read end (the side the poller watches)
+    fds[1] = ToFd(cli);   //write end (the ack byte goes here)
+    return 0;
 }
 
 bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out) {

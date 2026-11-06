@@ -235,60 +235,10 @@ static constexpr uint16_t INTR_InitializationException_Ctor = 172;
 //the stamped face row reaches this id from OP_CallMethod).
 static constexpr uint16_t INTR_Array_toString = 173;
 
-//v0.13.0 net package (net library design §5/§6): the appended block
-//174..220 (173 is Array.toString, taken by the merged array wave).
-//Static-face rows live in the binding table's derived face
-//projection; method keys are "Class.method". 221 = next fresh id.
-static constexpr uint16_t INTR_SocketException_Ctor      = 174;
-static constexpr uint16_t INTR_TimeoutException_Ctor     = 175;
-static constexpr uint16_t INTR_Net_ToBytes               = 176;
-static constexpr uint16_t INTR_Net_FromBytes             = 177;
-static constexpr uint16_t INTR_Net_Ping                  = 178;
-//TcpListener (bind is the static face: host, port from slot 0/1).
-static constexpr uint16_t INTR_TcpListener_Bind          = 179;
-static constexpr uint16_t INTR_TcpListener_Accept        = 180;
-static constexpr uint16_t INTR_TcpListener_LocalAddress  = 181;
-static constexpr uint16_t INTR_TcpListener_LocalPort     = 182;
-static constexpr uint16_t INTR_TcpListener_Close         = 183;
-//TcpStream (connect is the static face: host, port, timeoutMs).
-static constexpr uint16_t INTR_TcpStream_Connect         = 184;
-static constexpr uint16_t INTR_TcpStream_Read            = 185;
-static constexpr uint16_t INTR_TcpStream_Write           = 186;
-static constexpr uint16_t INTR_TcpStream_Close           = 187;
-static constexpr uint16_t INTR_TcpStream_ShutdownWrite   = 188;
-static constexpr uint16_t INTR_TcpStream_IsClosed        = 189;
-static constexpr uint16_t INTR_TcpStream_SetNoDelay      = 190;
-static constexpr uint16_t INTR_TcpStream_SetKeepAlive    = 191;
-static constexpr uint16_t INTR_TcpStream_SetSendBufferSize = 192;
-static constexpr uint16_t INTR_TcpStream_SetRecvBufferSize = 193;
-static constexpr uint16_t INTR_TcpStream_PeerAddress     = 194;
-static constexpr uint16_t INTR_TcpStream_PeerPort        = 195;
-static constexpr uint16_t INTR_TcpStream_LocalAddress    = 196;
-static constexpr uint16_t INTR_TcpStream_LocalPort       = 197;
-//UdpSocket (bind is the static face: host, port).
-static constexpr uint16_t INTR_UdpSocket_Bind            = 198;
-static constexpr uint16_t INTR_UdpSocket_SendTo          = 199;
-static constexpr uint16_t INTR_UdpSocket_RecvFromRaw     = 200;
-static constexpr uint16_t INTR_UdpSocket_LastRecvAddress = 201;
-static constexpr uint16_t INTR_UdpSocket_LastRecvPort    = 202;
-static constexpr uint16_t INTR_UdpSocket_Connect         = 203;
-static constexpr uint16_t INTR_UdpSocket_Send            = 204;
-static constexpr uint16_t INTR_UdpSocket_Recv            = 205;
-static constexpr uint16_t INTR_UdpSocket_SetBroadcast    = 206;
-static constexpr uint16_t INTR_UdpSocket_JoinMulticast   = 207;
-static constexpr uint16_t INTR_UdpSocket_LeaveMulticast  = 208;
-static constexpr uint16_t INTR_UdpSocket_SetMulticastTtl = 209;
-static constexpr uint16_t INTR_UdpSocket_SetTtl          = 210;
-static constexpr uint16_t INTR_UdpSocket_LocalAddress    = 211;
-static constexpr uint16_t INTR_UdpSocket_LocalPort       = 212;
-static constexpr uint16_t INTR_UdpSocket_PeerAddress     = 213;
-static constexpr uint16_t INTR_UdpSocket_PeerPort        = 214;
-static constexpr uint16_t INTR_UdpSocket_Close           = 215;
-//IcmpSocket (bind is the static face: host).
-static constexpr uint16_t INTR_IcmpSocket_Bind           = 216;
-static constexpr uint16_t INTR_IcmpSocket_SendTo         = 217;
-static constexpr uint16_t INTR_IcmpSocket_RecvFromRaw    = 218;
-static constexpr uint16_t INTR_IcmpSocket_LastRecvAddress = 219;
-static constexpr uint16_t INTR_IcmpSocket_Close          = 220;
+//174 = next fresh id. The v0.13.0 net block (174..220) retired when
+//net moved out of the VM into the nlang_net native module: module
+//natives register by name through the NativeHost ABI and need no
+//intrinsic ids. 0.13.0 is unreleased, so the ids are freed for reuse
+//rather than burned.
 
 }  // namespace nlang

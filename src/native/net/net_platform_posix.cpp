@@ -1,13 +1,14 @@
 /*---
-    NetPlatformPosix.cpp — POSIX implementation of NetPlatform.h
+    net_platform_posix.cpp — POSIX implementation of net_platform.h
     (net library design §6). Compiled on every non-Windows platform;
-    the poller set is real epoll. Blocking conveniences (NetResolve,
+    the IO poller set is a VM facility (IoPoller.h / IoPollerPosix.cpp),
+    not part of this layer. Blocking conveniences (NetResolve,
     NetIcmpEcho) are worker-thread only. ICMP echo uses
     SOCK_DGRAM/IPPROTO_ICMP (unprivileged ping sockets:
     net.ipv4.ping_group_range on Linux), where the kernel owns the
     ICMP id/sequence and delivers the echo reply to this socket.
 ---*/
-#include "net/NetPlatform.h"
+#include "net_platform.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -17,7 +18,6 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -97,30 +97,6 @@ bool QueryName(int fd, bool peer, sockaddr_storage& ss, socklen_t& len) {
     const int rc = peer ? getpeername(fd, reinterpret_cast<sockaddr*>(&ss), &len)
                         : getsockname(fd, reinterpret_cast<sockaddr*>(&ss), &len);
     return rc == 0;
-}
-
-uint32_t ToEpollEvents(uint32_t events) {
-    uint32_t e = 0;
-    if (events & NET_EV_READ) e |= EPOLLIN;
-    if (events & NET_EV_WRITE) e |= EPOLLOUT;
-    return e;
-}
-
-uint32_t FromEpollEvents(uint32_t events) {
-    uint32_t e = 0;
-    if (events & (EPOLLIN | EPOLLRDHUP)) e |= NET_EV_READ;
-    if (events & EPOLLOUT) e |= NET_EV_WRITE;
-    if (events & EPOLLHUP) e |= NET_EV_HUP;
-    if (events & EPOLLERR) e |= NET_EV_ERR;
-    return e;
-}
-
-int PollerCtl(void* poller, int op, int fd, uint32_t events) {
-    epoll_event ev;
-    std::memset(&ev, 0, sizeof(ev));
-    ev.events = ToEpollEvents(events);
-    ev.data.fd = fd;
-    return epoll_ctl(static_cast<int>(reinterpret_cast<intptr_t>(poller)), op, fd, &ev);
 }
 
 //Multicast join/leave for both families; interface = the socket's bound
@@ -327,40 +303,15 @@ bool NetSetTtl(int fd, int ttl) {
     return SetSockOptInt(fd, IPPROTO_IP, IP_TTL, ttl);
 }
 
-void* NetPollerCreate() {
-    const int ep = epoll_create1(0);
-    return ep < 0 ? nullptr : reinterpret_cast<void*>(static_cast<intptr_t>(ep));
-}
-
-void NetPollerClose(void* poller) {
-    if (poller) close(static_cast<int>(reinterpret_cast<intptr_t>(poller)));
-}
-
-int NetPollerAdd(void* poller, int fd, uint32_t events) {
-    return PollerCtl(poller, EPOLL_CTL_ADD, fd, events) == 0 ? 0 : -1;
-}
-
-int NetPollerMod(void* poller, int fd, uint32_t events) {
-    return PollerCtl(poller, EPOLL_CTL_MOD, fd, events) == 0 ? 0 : -1;
-}
-
-int NetPollerDel(void* poller, int fd) {
-    return PollerCtl(poller, EPOLL_CTL_DEL, fd, 0) == 0 ? 0 : -1;
-}
-
-int NetPollerWait(void* poller, std::vector<NetPollEvent>& out, int timeoutMs) {
-    epoll_event ready[64];
-    const int n = epoll_wait(static_cast<int>(reinterpret_cast<intptr_t>(poller)),
-                             ready, 64, timeoutMs);
-    out.clear();
-    if (n <= 0) return n < 0 ? -1 : 0;
-    for (int i = 0; i < n; ++i) {
-        NetPollEvent ev;
-        ev.fd = ready[i].data.fd;
-        ev.events = FromEpollEvents(ready[i].events);
-        out.push_back(ev);
+int NetSocketPair(int fds[2]) {
+    //SOCK_STREAM + NONBLOCK + CLOEXEC: the self-pipe contract
+    // (non-blocking, close-on-exec) in one syscall.
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+                   0, fds) != 0) {
+        fds[0] = fds[1] = -1;
+        return -1;
     }
-    return n;
+    return 0;
 }
 
 bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out) {

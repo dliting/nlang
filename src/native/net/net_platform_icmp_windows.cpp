@@ -1,12 +1,12 @@
 /*---
-    NetPlatformWindowsIcmp.cpp — ICMP entries of the Windows
-    NetPlatform implementation (net library design §6). NetIcmpEcho
+    net_platform_icmp_windows.cpp — ICMP entries of the Windows
+    net_platform implementation (net library design §6). NetIcmpEcho
     uses the unprivileged IcmpSendEcho2 helper APIs (worker threads
     only); IcmpSocket raw sends use SOCK_RAW/IPPROTO_ICMP, which
     requires administrator privileges (the bind denial carries that
     text through NetLastErrorText, set in the core TU).
 ---*/
-#include "net/NetPlatformInternal.h"
+#include "net_platform_internal.h"
 
 #include <windows.h>
 #include <iphlpapi.h>   //IPAddr / iptypes.h, consumed by ipexport.h

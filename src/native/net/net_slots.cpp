@@ -1,11 +1,11 @@
 /*---
-    NetSocketTable.cpp — slot table mechanics: handle codec, deferred
-    close (R5), free-list recycling. Every entry assumes the caller
-    holds the VM global lock (header note).
+    net_slots.cpp — slot table mechanics: handle codec, deferred close
+    (R5), free-list recycling. Every entry assumes the caller holds
+    NetExecState::m_mutex (header note, plan ruling R9).
 ---*/
-#include "net/NetSocketTable.h"
+#include "net_slots.h"
 
-#include "net/NetPlatform.h"
+#include "net_platform.h"
 
 #include <nlang/runtime/StackDump.h>
 
@@ -122,6 +122,11 @@ int NetSocketTable::OpenCount() const {
     for (const NetSocketSlot& slot : m_slots)
         if (slot.kind != 0 && slot.fd >= 0) ++count;
     return count;
+}
+
+void NetSocketTable::CloseAllOpen() {
+    for (NetSocketSlot& slot : m_slots)
+        CloseFd(slot);   //idempotent through fd = -1
 }
 
 }  //namespace nlang

@@ -15,7 +15,6 @@
 #include "ShardFreeList.h"
 #include "VmDomainLocks.h"
 #include "VmScheduler.h"
-#include "net/NetSocketTable.h"   //v0.13.0 net: m_netSlots member
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -74,13 +73,6 @@ enum FuncHandleForm : int32_t {
     kFuncFormStatic = 0,
     kFuncFormVirtual = 1,
 };
-
-//v0.13.0 net: deadline arithmetic shared by the net TUs (defined in
-//IntrinsicsNetSupport.cpp — no executor state needed). timeoutMs <= 0
-//means "no deadline": the sentinel time_point::max() never passes.
-std::chrono::steady_clock::time_point IoDeadline(int timeoutMs);
-//True once now >= deadline (the max() sentinel never passes).
-bool DeadlinePassed(std::chrono::steady_clock::time_point deadline);
 
 class VmExecutor : public IVmDebugView {
 public:
@@ -1444,77 +1436,6 @@ private:
     bool ExecuteIntrinsicAtomic(uint16_t intrinsicId, uint16_t callParamBase,
                                 uint8_t* locals, uint8_t* pResult);
 
-    //v0.13.0 net package (net library design §6): the family entry and
-    //the per-protocol sub-families (IntrinsicsNetSupport/Tcp/Udp/Icmp
-    //.cpp). Same family contract: return false when the id is not ours.
-    //The exception ctors ride the shared chain in
-    //VmExecutorIntrinsics.cpp; the entry claims their ids so an
-    //unknown-id throw never masks a missing arm.
-    bool ExecuteIntrinsicNet(uint16_t intrinsicId, uint16_t callParamBase,
-                             uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicNetSupport(uint16_t intrinsicId,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicNetTcp(uint16_t intrinsicId,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicNetUdp(uint16_t intrinsicId,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
-    bool ExecuteIntrinsicNetIcmp(uint16_t intrinsicId,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
-    //net.toBytes / net.fromBytes (free calls: args from slot 0, no
-    //`this`). ping joins them in task 9.
-    bool IntrinsicNetToBytes(uint16_t callParamBase, uint8_t* locals,
-                             uint8_t* pResult);
-    bool IntrinsicNetFromBytes(uint16_t callParamBase, uint8_t* locals,
-                               uint8_t* pResult);
-    //TcpListener.bind (static face: host slot 0, port slot 1).
-    bool IntrinsicTcpListenerBind(uint16_t callParamBase, uint8_t* locals,
-                                  uint8_t* pResult);
-    //Shared net helpers (defined in IntrinsicsNetSupport.cpp; every
-    //net TU uses them).
-    //Reads the byte-array argument at a slot: validates handle/rank/elem
-    //kind, returns the payload base + count. Post-merge slice syntax
-    //makes views legal arguments: resolve through ArrayViewOffsetCell
-    //(base = ArrayHeaderCells(1) + view offset, count = the view's
-    //elemCount; consumer pattern VmExecutorNativeCallbacks.cpp:141); a
-    //view with stride != 1 raises SocketException("view stride must be
-    //1"). Raises SocketException on a null or wrong-shaped argument
-    //(the API surface is byte[]/ubyte[]).
-    void ReadNetBufferArg(uint16_t slotOffset, uint16_t callParamBase,
-        uint8_t* locals, int32_t& outArrIdx, size_t& outBase,
-        int32_t& outCount);
-    //Copies count payload cells into a net buffer's cells at base (read
-    //direction fills them after recv); base already carries the view
-    //offset when the argument was a view.
-    void WriteNetBufferCells(int32_t arrIdx, size_t base,
-        const uint8_t* src, int count);
-    //Mints a net handle object: AllocClassOnHeap + __handle cell 1 = the
-    //slot handle (MintThreadObject shape, IntrinsicsThread.cpp:265).
-    int32_t MintNetHandle(int16_t classIdx, int32_t slotHandle);
-    //Reads the receiver's slot handle (slot 0 = this) and looks the slot
-    //up; raises SocketException("socket closed") on a stale/closed slot.
-    NetSocketSlot* NetSlotFromReceiver(uint16_t callParamBase,
-        uint8_t* locals, int32_t& outHandle);
-    //True when the slot handle no longer resolves to a live slot (the
-    //close-race check inside the park loops).
-    bool IsNetSlotClosed(int32_t handle);
-    //Raises SocketException through the by-name class cache. Wraps
-    //RaiseNlangException(m_socketExcClassIdx, msg); message prefix "net: ".
-    [[noreturn]] void RaiseNetSocketError(const std::string& msg);
-    //Reads the int argument at slot offset n (stride kFrameSlotBytes from
-    //callParamBase; the memcpy pattern of the string intrinsics).
-    int ReadNetIntArg(int slotOffset, uint16_t callParamBase,
-        uint8_t* locals);
-    //Writes an int result into pResult (memcpy pattern of the host
-    //natives).
-    void WriteNetResultInt(uint8_t* pResult, int value);
-    //Parks the current context on fd+events until ready/deadline/close:
-    //EnsureSuspensionAllowed() + m_spScheduler->ParkForIo(selfId, ...) +
-    //RequestPark(ParkSignal::Reason::Io) — the sleep park shape
-    //(IntrinsicsThread.cpp:383; the wake-before-steal window is closed
-    //by the same K7 framesParked handshake). On the wake the intrinsic
-    //re-enters right after RequestPark and re-looks-up the slot.
-    void ParkForCurrentIo(int fd, uint32_t events,
-        std::chrono::steady_clock::time_point deadline, bool hasDeadline);
     //Slice 8 helpers. K8: the allocator owns the Sync-domain guard
     //(free-list pop + growth are structure writes; reentrant for
     //already-inside callers). The handle read is heap-side (lock-free —
@@ -2215,20 +2136,6 @@ private:
     int16_t m_ioExcClassIdx = -1;       //Phase 11: IOException
     int16_t m_initExcClassIdx = -1;  //v0.12.6 D12: InitializationException
     int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
-
-    //v0.13.0 net package (net library design §6): the per-executor
-    //socket slot table (generation handles, deferred close — see
-    //net/NetSocketTable.h) and the by-name class caches the net
-    //intrinsics mint and raise through (same -1-if-absent convention
-    //as the Exception caches above; net natives only fire while
-    //net.n is loaded, so the caches are populated whenever they run).
-    NetSocketTable m_netSlots;
-    int16_t m_socketExcClassIdx = -1;
-    int16_t m_timeoutExcClassIdx = -1;
-    int16_t m_tcpListenerClassIdx = -1;
-    int16_t m_tcpStreamClassIdx = -1;
-    int16_t m_udpSocketClassIdx = -1;
-    int16_t m_icmpSocketClassIdx = -1;
 
     //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
     //only — std::uniform_*_distribution is implementation-defined and

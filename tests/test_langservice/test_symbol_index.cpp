@@ -28,14 +28,14 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 179 functions: io 19 (14 natives + 5 typed-reader wrappers),
+    // 187 functions: io 19 (14 natives + 5 typed-reader wrappers),
     // math 25, fs 8, thread 7 (the K3 materialized package plus the
     // P2-2 failure probes), tensor 120 (the collapsed surface: generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
-    // net 0 (class declarations are not free functions; the byte
-    // helpers moved to io).
-    CHECK(index.size() == 179);
+    // net 8 (ping plus the internal _nowMs/_lastErrorText/_throwNet and
+    // _tcp* natives; class methods are not free functions).
+    CHECK(index.size() == 187);
 }
 
 static void TestResolvePrint() {
@@ -87,16 +87,16 @@ static void TestCompletion() {
     const auto fsSyms = index.CompletePackage("fs");
     CHECK(fsSyms.size() == 8);
 
-    //Packages() lists free-function surfaces: net currently declares
-    //only classes (byte helpers moved to io), so it drops out until the
-    //net free functions land.
+    //Packages() lists free-function surfaces: the net module's free
+    //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 5);
+    CHECK(namespaces.size() == 6);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "io");
     CHECK(namespaces[2] == "math");
-    CHECK(namespaces[3] == "tensor");
-    CHECK(namespaces[4] == "thread");
+    CHECK(namespaces[3] == "net");
+    CHECK(namespaces[4] == "tensor");
+    CHECK(namespaces[5] == "thread");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -282,14 +282,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 179);
+    CHECK(index.size() == 187);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 179);
+    CHECK(index.size() == 187);
 }
 
 static void TestBlockCommentBraces() {

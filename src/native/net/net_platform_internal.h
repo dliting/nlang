@@ -1,11 +1,11 @@
 /*---
-    NetPlatformInternal.h — Winsock helpers shared by the two Windows
-    NetPlatform translation units (core sockets/poller and ICMP). Not
-    part of the package surface; include after winsock2.h is available.
+    net_platform_internal.h — Winsock helpers shared by the two Windows
+    net_platform translation units (core sockets and ICMP). Not part of
+    the package surface; include after winsock2.h is available.
 ---*/
 #pragma once
 
-#include "net/NetPlatform.h"
+#include "net_platform.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>

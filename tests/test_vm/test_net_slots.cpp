@@ -3,7 +3,7 @@
     minting with a generation tag (ABA), closed/lookup rules, and the
     close-waits-for-waiters fd lifetime rule (plan ruling R5).
 ---*/
-#include "net/NetSocketTable.h"
+#include "net/net_slots.h"
 #include <cstdio>
 
 using namespace nlang;   //entries live in nlang:: (Task 1 ruling)

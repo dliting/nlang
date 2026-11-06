@@ -141,8 +141,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
 
     //Phase 9d: Exception ctor intrinsic. Shared by every built-in
     //Exception subclass (INTR_Exception_Ctor, INTR_NullPointer..,
-    //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..;
-    //v0.13.0: the net package's SocketException/TimeoutException).
+    //INTR_DivByZero.., INTR_IndexOutOfBounds.., INTR_Assertion..).
     //v0.12.4 D7 formals: (this, message, cause). Writes message idx to
     //cell[1], allocates an empty List<string> and stores its heap idx
     //in cell[3] (backtrace — field 1 under the uniform 2-cell stride),
@@ -158,9 +157,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         || intrinsicId == INTR_IOException_Ctor
         || intrinsicId == INTR_InvalidCastException_Ctor
         || intrinsicId == INTR_InitializationException_Ctor
-        || intrinsicId == INTR_ChannelClosedException_Ctor
-        || intrinsicId == INTR_SocketException_Ctor
-        || intrinsicId == INTR_TimeoutException_Ctor) {
+        || intrinsicId == INTR_ChannelClosedException_Ctor) {
         int32_t thisHeapIdx;
         std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
         if (thisHeapIdx <= 0)
@@ -217,13 +214,6 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     //independently extensible. math/io/fs are not here: they are library
     //sources whose native members run from nlang_<ns>.dll.
     if (ExecuteIntrinsicString(intrinsicId, callParamBase, locals, pResult))
-        return;
-
-    //v0.13.0 net package (net library design §6): family delegation to
-    //IntrinsicsNetSupport.cpp — the entry claims the whole 174..220
-    //range and splits it per protocol (the exception ctors above are
-    //already handled by the shared chain).
-    if (ExecuteIntrinsicNet(intrinsicId, callParamBase, locals, pResult))
         return;
 
     throw std::runtime_error("NLang VM: unknown intrinsic id " + std::to_string(intrinsicId));

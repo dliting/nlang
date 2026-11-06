@@ -213,59 +213,6 @@ static const BindingRow s_LiteralRows[] = {
 	{"lang", "String.toLong",      INTR_String_ToLong},
 	{"lang", "String.toDouble",    INTR_String_ToDouble},
 	{"lang", "String.toBool",      INTR_String_ToBool},
-
-	//v0.13.0 net package (net library design §5): the exception ctors
-	//follow the /2 default-cause rule; free functions key "net.name";
-	//methods key "Class.method". recvFrom's out parameters are a
-	//script-layer wrapper (plan ruling R2) — the raw natives carry the
-	//data. write's count default keeps one row (the default stages).
-	{"net", "SocketException/2",          INTR_SocketException_Ctor},
-	{"net", "TimeoutException/2",         INTR_TimeoutException_Ctor},
-	{"net", "net.toBytes",                INTR_Net_ToBytes},
-	{"net", "net.fromBytes",              INTR_Net_FromBytes},
-	{"net", "net.ping",                   INTR_Net_Ping},
-	{"net", "TcpListener.bind",           INTR_TcpListener_Bind},
-	{"net", "TcpListener.accept",         INTR_TcpListener_Accept},
-	{"net", "TcpListener.localAddress",   INTR_TcpListener_LocalAddress},
-	{"net", "TcpListener.localPort",      INTR_TcpListener_LocalPort},
-	{"net", "TcpListener.close",          INTR_TcpListener_Close},
-	{"net", "TcpStream.connect",          INTR_TcpStream_Connect},
-	{"net", "TcpStream.read",             INTR_TcpStream_Read},
-	{"net", "TcpStream.write",            INTR_TcpStream_Write},
-	{"net", "TcpStream.close",            INTR_TcpStream_Close},
-	{"net", "TcpStream.shutdownWrite",    INTR_TcpStream_ShutdownWrite},
-	{"net", "TcpStream.isClosed",         INTR_TcpStream_IsClosed},
-	{"net", "TcpStream.setNoDelay",       INTR_TcpStream_SetNoDelay},
-	{"net", "TcpStream.setKeepAlive",     INTR_TcpStream_SetKeepAlive},
-	{"net", "TcpStream.setSendBufferSize",   INTR_TcpStream_SetSendBufferSize},
-	{"net", "TcpStream.setRecvBufferSize",   INTR_TcpStream_SetRecvBufferSize},
-	{"net", "TcpStream.peerAddress",      INTR_TcpStream_PeerAddress},
-	{"net", "TcpStream.peerPort",         INTR_TcpStream_PeerPort},
-	{"net", "TcpStream.localAddress",     INTR_TcpStream_LocalAddress},
-	{"net", "TcpStream.localPort",        INTR_TcpStream_LocalPort},
-	{"net", "UdpSocket.bind",             INTR_UdpSocket_Bind},
-	{"net", "UdpSocket.sendTo",           INTR_UdpSocket_SendTo},
-	{"net", "UdpSocket.recvFromRaw",      INTR_UdpSocket_RecvFromRaw},
-	{"net", "UdpSocket.lastRecvAddress",  INTR_UdpSocket_LastRecvAddress},
-	{"net", "UdpSocket.lastRecvPort",     INTR_UdpSocket_LastRecvPort},
-	{"net", "UdpSocket.connect",          INTR_UdpSocket_Connect},
-	{"net", "UdpSocket.send",             INTR_UdpSocket_Send},
-	{"net", "UdpSocket.recv",             INTR_UdpSocket_Recv},
-	{"net", "UdpSocket.setBroadcast",     INTR_UdpSocket_SetBroadcast},
-	{"net", "UdpSocket.joinMulticast",    INTR_UdpSocket_JoinMulticast},
-	{"net", "UdpSocket.leaveMulticast",   INTR_UdpSocket_LeaveMulticast},
-	{"net", "UdpSocket.setMulticastTtl",  INTR_UdpSocket_SetMulticastTtl},
-	{"net", "UdpSocket.setTtl",           INTR_UdpSocket_SetTtl},
-	{"net", "UdpSocket.localAddress",     INTR_UdpSocket_LocalAddress},
-	{"net", "UdpSocket.localPort",        INTR_UdpSocket_LocalPort},
-	{"net", "UdpSocket.peerAddress",      INTR_UdpSocket_PeerAddress},
-	{"net", "UdpSocket.peerPort",         INTR_UdpSocket_PeerPort},
-	{"net", "UdpSocket.close",            INTR_UdpSocket_Close},
-	{"net", "IcmpSocket.bind",            INTR_IcmpSocket_Bind},
-	{"net", "IcmpSocket.sendTo",          INTR_IcmpSocket_SendTo},
-	{"net", "IcmpSocket.recvFromRaw",     INTR_IcmpSocket_RecvFromRaw},
-	{"net", "IcmpSocket.lastRecvAddress", INTR_IcmpSocket_LastRecvAddress},
-	{"net", "IcmpSocket.close",           INTR_IcmpSocket_Close},
 };
 
 //Pins the String face block above independently of unrelated packages'
@@ -359,8 +306,6 @@ const char* const s_HandleClassNames[] = {
 	"Mutex", "Channel", "Future", "Semaphore", "Promise",
 	"ReentrantMutex",
 	"AtomicInt",
-	//v0.13.0 net handle classes (declared in stdlib/net.n).
-	"TcpListener", "TcpStream", "UdpSocket", "IcmpSocket",
 };
 
 bool IsHandleClassName(const std::string& className)

@@ -4,23 +4,79 @@
 
 // 底层socket错误:连接被拒、对端断开、socket已关闭、选项设置失败等。
 const class SocketException : IOException {
-    public native SocketException(string message, Exception cause = null);
+    public SocketException(string message, Exception cause = null) {
+        super(message, cause);
+    }
 }
 
 // 带timeoutMs的操作在截止前未完成。
 const class TimeoutException : IOException {
-    public native TimeoutException(string message, Exception cause = null);
+    public TimeoutException(string message, Exception cause = null) {
+        super(message, cause);
+    }
 }
+
+// ---- 内部原语(nlang_net模块注册;下划线名不属公开面) ----
+// 单调毫秒(与VM轮询截止同域);脚本层据此换算绝对截止点(R12)。
+native long _nowMs();
+// 最近一次平台错误的文本(错误码-4时拼入异常消息)。
+native string _lastErrorText();
+
+// 内部:错误码映射异常(-1关闭/-2超时/-3并发违例/-4平台错误/-5参数)。
+void _throwNet(int code, string context) {
+    if (code == -2) { throw TimeoutException("net: " + context + " timed out"); }
+    if (code == -1) { throw SocketException("net: socket closed"); }
+    if (code == -3) { throw SocketException(
+        "net: another operation is parked on this socket"); }
+    if (code == -4) { throw SocketException(
+        "net: " + context + " failed: " + _lastErrorText()); }
+    throw SocketException("net: " + context + " failed");
+}
+
+// (字节助手toBytes/fromBytes已移入io包,r1补注5;脚本便捷面用下方
+//  内部_toBytes/_fromBytes,随任务9分帧一并注册)
+
+// ---- ICMP 便利面(实现随任务11落地) ----
+// 发送 Echo Request 并等待 Echo Reply,返回往返时延毫秒。
+// 超时抛 TimeoutException;主机无法解析或不可达抛 SocketException。
+// Windows 走 IcmpSendEcho2(免管理员),Linux 走 DGRAM ICMP socket。
+native int ping(string host, int timeoutMs = 5000);
+
+// ---- TCP ----
+native int _tcpBind(string host, int port);
+native string _tcpLocalAddress(int handle);
+native int _tcpLocalPort(int handle);
+native int _tcpClose(int handle);
 
 // TCP监听端点。bind后开始监听;close停止监听。
 class TcpListener {
+    private int m_handle;
+    public TcpListener(int handle) { m_handle = handle; }
+
     // 监听host:port;port=0由系统分配,经localPort()读回。
-    public static native TcpListener bind(string host, int port);
+    public static TcpListener bind(string host, int port) {
+        int h = _tcpBind(host, port);
+        if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
+        return TcpListener(h);
+    }
     // 便利重载:监听所有接口的port。
     public static TcpListener bind(int port) {
         return bind("0.0.0.0", port);
     }
-    public native string localAddress();
-    public native int localPort();
-    public native void close();
+    // 接受下一个连接;停泊直至有连接或超时(实现随任务7落地)。
+    // accept返回TcpStream,声明见任务7。
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
 }

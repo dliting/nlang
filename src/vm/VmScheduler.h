@@ -39,10 +39,10 @@
 
 namespace nlang {
 
-//v0.13.0 net: the poller event record (defined in net/NetPlatform.h);
+//v0.13.0 net: the poller event record (defined in IoPoller.h);
 //forward-declared so the IO harvest helper can name it without pulling
-//the platform header into every scheduler consumer.
-struct NetPollEvent;
+//the poller header into every scheduler consumer.
+struct IoPollerEvent;
 
 //r1 note 4: the generic native worker pool (defined in VmWorkPool.h);
 //forward-declared for the unique_ptr member — the full header is only
@@ -902,7 +902,7 @@ private:
     void IoPollerThreadMain();
     void SyncPollerInterest(void* poller);   //add/mod to match m_ioWaits
     int NextIoTimeoutMs() const;             //nearest deadline, capped
-    void HarvestIoEvents(void* poller, std::vector<NetPollEvent>& evs);
+    void HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs);
                                             //ready + expired wakes
     std::vector<IoWaitEntry> m_ioWaits;      //linear table (timer shape)
     //Last interest set registered with the poller (fd, events): the

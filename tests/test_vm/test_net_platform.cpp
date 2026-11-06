@@ -1,9 +1,10 @@
 /*---
     test_net_platform.cpp — the OS socket abstraction contract: loopback
-    TCP/UDP round trips, the poller set, numeric resolution, and the
-    unprivileged ICMP echo. No VM, no scheduler.
+    TCP/UDP round trips, numeric resolution, and the unprivileged ICMP
+    echo. No VM, no scheduler (the poller set contract lives in
+    test_net_scheduler.cpp).
 ---*/
-#include "net/NetPlatform.h"
+#include "net/net_platform.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -87,26 +88,6 @@ static void TestUdpRoundTrip() {
     NetClose(b);
 }
 
-static void TestPoller() {
-    void* p = NetPollerCreate();
-    CHECK(p != nullptr);
-    int a = NetOpenUdp(NetFamily::Inet), b = NetOpenUdp(NetFamily::Inet);
-    NetBind(a, "127.0.0.1", 0);
-    NetBind(b, "127.0.0.1", 0);
-    CHECK(NetPollerAdd(p, b, NET_EV_READ) == 0);
-    std::vector<NetPollEvent> evs;
-    CHECK(NetPollerWait(p, evs, 10) == 0);        //no traffic: empty
-    CHECK(evs.empty());
-    const uint8_t m[1] = { 1 };
-    NetSendTo(a, m, 1, "127.0.0.1", NetLocalPort(b));
-    CHECK(NetPollerWait(p, evs, 2000) > 0);
-    CHECK(!evs.empty() && evs[0].fd == b && (evs[0].events & NET_EV_READ));
-    NetPollerDel(p, b);
-    NetClose(a);
-    NetClose(b);
-    NetPollerClose(p);
-}
-
 static void TestResolveAndIcmp() {
     std::vector<NetEndpoint> eps;
     CHECK(NetResolve("localhost", 80, eps));
@@ -121,7 +102,6 @@ int main() {
     TestTcpLoopbackRoundTrip();
     TestWouldBlock();
     TestUdpRoundTrip();
-    TestPoller();
     TestResolveAndIcmp();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;

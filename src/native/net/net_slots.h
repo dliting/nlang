@@ -1,14 +1,16 @@
 /*---
-    NetSocketTable.h — the per-VmExecutor socket slot registry (net
-    library design §6): __handle values are (generation<<kHandleIndexBits
+    net_slots.h — the per-executor socket slot registry (net library
+    design §6): __handle values are (generation<<kHandleIndexBits
     | (index+1)) so a closed slot's recycled index never aliases a live
     handle (ABA). The fd close is deferred while waiters are parked on
     the slot (plan ruling R5): MarkClosed only flags, the last
     ReleaseWaiter performs the real NetClose.
 
-    Locking: every call runs under the VM global lock (the intrinsics
-    that touch the table hold the GIL; the poller thread takes the GIL
-    before harvesting) — the table itself takes no lock.
+    Locking: guarded by NetExecState::m_mutex (plan ruling R9) — with
+    r1 blocking natives the GIL is released around the syscall, so
+    calls run concurrently across carriers and the old "everything
+    under the VM global lock" premise (the intrinsic channel) no
+    longer holds. The table itself takes no lock.
 ---*/
 #pragma once
 
@@ -36,7 +38,7 @@ struct NetSocketSlot {
     int acceptWaiter = 0;        //context id, 0 = none
     int readWaiter = 0;
     int writeWaiter = 0;
-    uint32_t interest = 0;       //NET_EV_* currently registered
+    uint32_t interest = 0;       //parkForIo event bits registered
     //Last recvFrom source (UDP/ICMP): plain text, minted to a string
     //on demand — no GC root.
     std::string lastPeerAddress;
@@ -65,6 +67,9 @@ public:
     //closed and no waiters (asserted).
     void ReleaseFree(int32_t handle);
     int OpenCount() const;   //slots with a live fd (leak assertions)
+    //Closes every still-open fd and clears the slots (executor
+    //teardown backstop, design D12 — the script never closed them).
+    void CloseAllOpen();
 
 private:
     static constexpr int32_t kHandleIndexBits = 24;

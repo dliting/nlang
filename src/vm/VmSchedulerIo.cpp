@@ -6,12 +6,12 @@
     discipline exactly): outside the GcWorldStop
     rendezvous by construction, never runs bytecode, holds the global
     lock only while mutating scheduler state — released around
-    NetPollerWait (plan ruling R6 caps the wait so a newly registered
+    IoPollerWait (plan ruling R6 caps the wait so a newly registered
     interest is picked up within one slice).
 ---*/
 #include "VmScheduler.h"
 #include "VmWorkPool.h"
-#include "net/NetPlatform.h"
+#include "IoPoller.h"
 #include <algorithm>
 #include <memory>
 #include <vector>
@@ -140,8 +140,8 @@ void VmScheduler::SyncPollerInterest(void* poller) {
             }
         if (unchanged)
             continue;
-        if (NetPollerAdd(poller, w.first, w.second) != 0)
-            NetPollerMod(poller, w.first, w.second);
+        if (IoPollerAdd(poller, w.first, w.second) != 0)
+            IoPollerMod(poller, w.first, w.second);
     }
     for (auto it = m_ioPollerRegistered.begin();
          it != m_ioPollerRegistered.end();) {
@@ -151,7 +151,7 @@ void VmScheduler::SyncPollerInterest(void* poller) {
         if (still) {
             ++it;
         } else {
-            NetPollerDel(poller, it->first);
+            IoPollerDel(poller, it->first);
             it = m_ioPollerRegistered.erase(it);
         }
     }
@@ -185,12 +185,12 @@ int VmScheduler::NextIoTimeoutMs() const {
 //re-firing the same event every slice (livelock guard, the
 //ExpireDueTimers shape). WakeForIo is a no-op unless the context is
 //still ParkedIo, so the erase is unconditional.
-void VmScheduler::HarvestIoEvents(void*, std::vector<NetPollEvent>& evs) {
-    for (const NetPollEvent& ev : evs) {
+void VmScheduler::HarvestIoEvents(void*, std::vector<IoPollerEvent>& evs) {
+    for (const IoPollerEvent& ev : evs) {
         for (auto it = m_ioWaits.begin(); it != m_ioWaits.end();) {
             const bool hit = it->fd == ev.fd
                 && ((it->events & ev.events) != 0u
-                    || (ev.events & (NET_EV_HUP | NET_EV_ERR)) != 0u);
+                    || (ev.events & (IO_EV_HUP | IO_EV_ERR)) != 0u);
             if (!hit) {
                 ++it;
                 continue;
@@ -218,7 +218,7 @@ void VmScheduler::HarvestIoEvents(void*, std::vector<NetPollEvent>& evs) {
 //through the destructor's flag+notify (same lazy-thread protocol as
 //the timer thread).
 void VmScheduler::IoPollerThreadMain() {
-    void* poller = NetPollerCreate();
+    void* poller = IoPollerCreate();
     for (;;) {
         GilEnsureGuard gil(*this);
         m_ioCv.wait(gil.Lock(), [this] {
@@ -228,15 +228,15 @@ void VmScheduler::IoPollerThreadMain() {
             break;
         SyncPollerInterest(poller);
         const int timeoutMs = NextIoTimeoutMs();
-        std::vector<NetPollEvent> evs;       //thread-local scratch
+        std::vector<IoPollerEvent> evs;       //thread-local scratch
         gil.Release();                       //wait without the GIL
-        NetPollerWait(poller, evs, timeoutMs);
+        IoPollerWait(poller, evs, timeoutMs);
         GilEnsureGuard g2(*this);            //harvest under the GIL
         HarvestIoEvents(poller, evs);
         g2.Release();
         m_runQueueCv.notify_all();           //woken contexts: wake carriers
     }
-    NetPollerClose(poller);
+    IoPollerClose(poller);
 }
 
 } // namespace nlang

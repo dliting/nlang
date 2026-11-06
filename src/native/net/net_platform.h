@@ -1,11 +1,12 @@
 /*---
-    NetPlatform.h — the OS socket abstraction of the net package
+    net_platform.h — the OS socket abstraction of the net package
     (net library design §6). One header, two implementations
-    (NetPlatformWindows.cpp / NetPlatformPosix.cpp). All sockets are
-    non-blocking; "no data / no space" surfaces as kNetWouldBlock, an
-    in-flight connect as kNetInProgress. Blocking conveniences
-    (NetResolve, NetIcmpEcho) run only on the dedicated resolver /
-    icmp worker threads — never on a carrier.
+    (net_platform_windows.cpp / net_platform_posix.cpp). All sockets
+    are non-blocking; "no data / no space" surfaces as kNetWouldBlock,
+    an in-flight connect as kNetInProgress. Blocking conveniences
+    (NetResolve, NetIcmpEcho) run only on the host's work-pool threads
+    (ABI submitWork) — never on a carrier. The IO poller set is a VM
+    facility (IoPoller.h), not part of this layer.
 
     Error convention: -1 = failure with NetLastErrorText() carrying a
     human-readable OS message; kNetWouldBlock / kNetInProgress are
@@ -18,12 +19,6 @@
 #include <vector>
 
 namespace nlang {
-
-//NetPollerWait event bits (a subset of the wepoll/epoll vocabulary).
-constexpr uint32_t NET_EV_READ = 1u;
-constexpr uint32_t NET_EV_WRITE = 2u;
-constexpr uint32_t NET_EV_HUP = 4u;
-constexpr uint32_t NET_EV_ERR = 8u;
 
 //Non-failure status codes returned where -1 means "failed".
 constexpr int kNetWouldBlock = -1000;
@@ -41,12 +36,6 @@ struct NetEndpoint {
     std::string address;
     int port = 0;
     NetFamily family = NetFamily::Inet;
-};
-
-//One poller completion.
-struct NetPollEvent {
-    int fd = 0;
-    uint32_t events = 0;
 };
 
 //Process-level socket subsystem init (WSAStartup on Windows).
@@ -105,14 +94,12 @@ bool NetLeaveMulticast(int fd, const std::string& group);
 bool NetSetMulticastTtl(int fd, int ttl);
 bool NetSetTtl(int fd, int ttl);
 
-//--- poller set (wepoll on Windows, epoll on POSIX) ------------------------
-void* NetPollerCreate();
-void NetPollerClose(void* poller);
-int NetPollerAdd(void* poller, int fd, uint32_t events);
-int NetPollerMod(void* poller, int fd, uint32_t events);
-int NetPollerDel(void* poller, int fd);
-//Fills out with ready events, returns their count (0 on timeout).
-int NetPollerWait(void* poller, std::vector<NetPollEvent>& out, int timeoutMs);
+//--- socket pair (the job self-pipe substrate, plan ruling R9) ------------
+//Creates a connected, non-blocking, close-on-exec socket pair in
+//fds[0]/fds[1]. Windows: a loopback TCP pair (the ack channel must be
+//pollable and wepoll only knows sockets — R9); POSIX: socketpair.
+//Returns 0 on success, -1 on failure.
+int NetSocketPair(int fds[2]);
 
 //--- blocking conveniences (worker threads only) ---------------------------
 //Numeric-literal fast path (inet_pton AF_INET then AF_INET6,
