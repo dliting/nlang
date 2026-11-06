@@ -1,0 +1,67 @@
+import io;
+import thread;
+import net;
+
+class ConnClient {
+    public int port = 0;
+    public int index = 0;
+    public int ok = 0;
+    public void run() {
+        TcpStream s = TcpStream.connect("127.0.0.1", port, 10000);
+        s.write("c" + index.toString() + "\n");
+        string got = s.readLine(10000);
+        if (got == "c" + index.toString()) { ok = 1; }
+        s.close();
+    }
+}
+
+class ServeOne {
+    public TcpStream conn;
+    public void run() {
+        string line = conn.readLine(10000);
+        conn.write(line + "\n");
+        conn.close();
+    }
+}
+
+class Acceptor {
+    public TcpListener listener;
+    public void loop() {
+        while (true) {
+            try {
+                TcpStream conn = listener.accept(2000);
+                ServeOne h = ServeOne();
+                h.conn = conn;
+                thread.spawn(h.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                // accept轮询超时:继续等下一个连接
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.localPort();
+    // Server accept loop on its own virtual thread.
+    Acceptor a = Acceptor();
+    a.listener = srv;
+    Thread acceptor = thread.spawn(a.loop);
+    Thread[] clients = Thread[200];
+    ConnClient[] cs = ConnClient[200];
+    for (int i = 0; i < 200; i = i + 1) {
+        cs[i] = ConnClient();
+        cs[i].port = port;
+        cs[i].index = i;
+        clients[i] = thread.spawn(cs[i].run);
+    }
+    int total = 0;
+    for (int i = 0; i < 200; i = i + 1) { thread.join(clients[i]); total = total + cs[i].ok; }
+    if (total != 200) { return 1; }
+    srv.close();
+    thread.join(acceptor);
+    io.print("ok");
+    return 0;
+}

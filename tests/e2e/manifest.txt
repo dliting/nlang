@@ -2084,3 +2084,5 @@ stdlib_net_udp_connected 0 ok
 stdlib_net_udp_multicast 0 ok
 stdlib_net_ping_loopback 0 ok
 stdlib_net_icmp_raw 0 ok
+stdlib_net_conc_echo 0 ok
+stdlib_net_parked_recv_gc 0 ok
