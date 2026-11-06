@@ -67,8 +67,10 @@ SnFunction *FindMethodInNamespace(SyntaxNode *pContext,
 bool IsPlainLvalueShape(const SnExpression& expr);
 
 //Array redesign B: depth of the array-type chain (int[] = 1, int[][] = 2).
-//Depth >= 2 is a jagged declaration form — the VM has no multi-dimensional
-//layout and the EvalDataType masquerade degrades it twice silently — so
+//Depth >= 2 is a jagged declaration form — an array-of-array has no heap
+//layout (multi-dimensional brackets [,] annotate one flat record, they
+//do not nest) and the EvalDataType masquerade degrades it twice
+//silently — so
 //declaration sites reject it (fields/params/return types in
 //ResolveDataTypes; local declarations and the for-var/foreach-var
 //handlers in StatementResolver — the latter resolve via the visitor where

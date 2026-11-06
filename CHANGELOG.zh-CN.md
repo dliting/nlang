@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+## [0.12.7] - 2026-11-06
+
+### 新增
+
+- **唯一的数组类型`Array<T>`。**方括号拼写——`int[]`、`int[,]`、`Array<float>`——命名同一个类型。方括号是静态秩标注，即拼写承诺：任意方括号形式的表达式自由互转，承诺在值跨越边界处（赋值、传参、返回）检查。动态秩违反标注时抛出可捕获的`InvalidCastException`，消息给出两个秩；`as`（`m as int[,]`）是显式重拼。`rank()`读取动态秩，`Array(dims)`在同一类型上按运行期形状构造。
+- **O(1)视图：reshape、transpose、slice。**`tensor.reshape`与`tensor.transpose`返回视图——同一批单元上的新维度与新步长，经视图写入即写源；元素不按行主序连续排列时reshape先物化稠密副本。slice下标（`m[1:3, :]`、`v[i, :]`）产生降一维视图：负端点从尾部计数（`a[:-1]`）、负步长翻转轴（`a[::-1]`）、slice与标量下标混用把标量轴折叠出视图。视图是别名——不是副本。
+- **广播。**逐元素内核按右对齐形状广播：`(3, 4)`的操作数与`(4,)`行配对、与`(3,)`列不配对，标量第二实参作用于每个元素。`tensor.broadcastTo(a, dims)`返回零步长视图；写穿它抛出可捕获错误并指明物化路径，对该视图reshape得到可写的稠密副本。
+- **数组进`Object`。**数组值就是`Object`，中间没有装箱记录：赋给`Object`变量、放进`List<Object>`单元与`Object`字段原样成立，协议方法（`toString`、相等）按数组槽位派发，`as int[]`取回。
+- **序列化与调试器中的数组内容。**`writeObject`/`readObject`承载数组：整数组值、对象图中的数组字段、视图（视图按其稠密副本序列化）。读取经`io.readArray()`自描述。`ndb`的对象显示中打印数组，视图亦然。
+- **`fs.readBytes`/`fs.readFloats`。**整文件二进制读取：`readBytes`每字节一个`int`单元（0到255）；`readFloats`按小端序解码`float32`——与`FileStream.writeFloat`产出的编码相同——每4字节一个`float`单元。两者共享`io.readFile`的16 MiB上限。`null`路径抛`NullPointerException`；打开或读取失败抛出点名路径的`IOException`；字节数不是4的倍数（`readFloats`）抛出携带字节数的基类`Exception`。
+- **MNIST MLP示例项目。**`examples/mnist_mlp/`：多模块项目——基于`fs.readFloats`的数据集加载、层定义、训练驱动——在2000/1000条MNIST子集上训练784-64-10 MLP，以≥0.85的保留集准确率为门限（首次实测0.897）。训练确定性成立：固定文件顺序＋种子化初始化。`tools/mnist_subset.py`从上游镜像再生成子集并校验哈希。
+- **统一后的tensor面。**秩轴移交`Array<T>`：静态秩旧名（`reshape1`..`reshape8`）删除，`full(dims, value)`加入标量形态，`exp`/`log`、`max`/`min`截断、带`-1`推断的泛型`reshape`、`concat(a, b, axis)`与`sum(a, axis)`（沿一轴求和并去轴）在单一类型上补全内核族。
+
+### 变更
+
+- **显式导入后裸名可用。**`import p;`带入的名字在使用点既可裸用也可限定使用；通配导入仍仅限限定使用。限定名是绝对模块路径；等距并列偏向自身翻译单元，导入与导入的并列在使用点报告并点名每个提供方。
+- **破坏性变更**：流类成为`io`包成员。`ByteStream`与`FileStream`声明在标准库的`io`源码中，因此需要`import io;`（它们是最后两个无需导入即可见的类）。冻结的流方法面在底层不变。
+
+### 修复
+
+- **`tensor.matmul`与`concat`按偏移读取连续视图。**传入`matmul`或`concat`的连续块视图（`m[2:5, :]`）此前从属主数组的零号元素读起——偏移为0时恰好正确，其余偏移全错。平面寻址内核现在把视图偏移折叠进基址。该缺陷由MNIST验收程序发现；既有测试无一使用非零偏移视图。
+- **自导入不是import环边。**单元导入自身包不再触发0.12.6的无环import图检查。
+
 ## [0.12.6] - 2026-11-03
 
 ### 新增
