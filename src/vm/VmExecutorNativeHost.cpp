@@ -99,6 +99,15 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.newArray = &VmExecutor::NativeNewArray;
     host.c.newArrayShaped = &VmExecutor::NativeNewArrayShaped;
     host.c.newArrayView = &VmExecutor::NativeNewArrayView;
+    //v11: IO parking, module state, close-path wakes, context id, work
+    //pool (contracts in NativeHost.h; definitions in
+    //VmExecutorNativeCallbacks.cpp).
+    host.c.nowMs = &VmExecutor::NativeNowMs;
+    host.c.parkForIo = &VmExecutor::NativeParkForIo;
+    host.c.moduleState = &VmExecutor::NativeModuleState;
+    host.c.wakeIoWaiters = &VmExecutor::NativeWakeIoWaiters;
+    host.c.currentContextId = &VmExecutor::NativeCurrentContextId;
+    host.c.submitWork = &VmExecutor::NativeSubmitWork;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
@@ -423,6 +432,26 @@ void VmExecutor::EnsureNativeAvailable(const std::string& name) {
                NativeFn fn, bool blocking) {
             m_natives[modNs + "." + fnName] = NativeEntry{fn, blocking};
         });
+}
+
+//v11 R8: the destructor is defined here (moved from VmExecutor.cpp,
+//which sits at the source-size budget) so it sits with the teardown it
+//drives. Module-state dtors run in the destructor BODY — before member
+//teardown destroys the scheduler (whose destructor joins the work
+//pool): a net-module dtor cv-waits on jobs still queued in that pool,
+//so the pool must outlive the dtors. Carriers are already joined (the
+//run ended before the executor dies), satisfying the R8 precondition.
+VmExecutor::~VmExecutor() {
+    TeardownModuleStates();
+}
+
+void VmExecutor::TeardownModuleStates() {
+    std::lock_guard<std::mutex> g(m_moduleStateMutex);
+    for (auto& entry : m_moduleStates) {
+        if (entry.second.first && entry.second.second)
+            entry.second.second(entry.second.first);
+    }
+    m_moduleStates.clear();
 }
 
 } // namespace nlang

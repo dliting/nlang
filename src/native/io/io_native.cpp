@@ -14,8 +14,11 @@
 #include <string>
 
 using nlang::native::ArgInt;
+using nlang::native::ArgLong;
 using nlang::native::ArgString;
+using nlang::native::NewArray;
 using nlang::native::ReturnInt;
+using nlang::native::ReturnLong;
 using nlang::native::ReturnString;
 
 namespace {
@@ -136,6 +139,71 @@ void IoAppendFile(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     WriteLike(h, a, /*append=*/true, "appendFile");
 }
 
+// v0.13.0 net (r1 note 5): the generic IO surface — monotonic clock,
+// IO parking, and the byte helpers moved out of the net package
+// (string is a byte container; UTF-8 bytes pass through untouched).
+
+// nowMs: the host's monotonic millisecond clock — the same clock
+// domain as parkForIo deadlines (a deadline is an absolute nowMs
+// reading). Pure clock read, no VM state: normal channel.
+void IoNowMs(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    ReturnLong(ret, h->nowMs(h));
+}
+
+// parkForIo: registered on the blocking channel, so the GIL is
+// released around this call and the host can park the context and
+// release the carrier. The ABI return value (0 = parked, 1 = re-entry
+// after wake) is the park protocol's private answer: the script
+// surface returns void — on wake the VM re-executes this call and the
+// script resumes after it. deadlineMs <= 0 means no deadline.
+void IoParkForIo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    (void)ret;
+    const int64_t deadlineMs = ArgLong(a, 2);
+    h->parkForIo(h, ArgInt(a, 0),
+                 static_cast<unsigned>(ArgInt(a, 1)),
+                 deadlineMs, deadlineMs > 0 ? 1 : 0);
+}
+
+// toBytes: string bytes -> rank-1 byte array. Cells are int32 each
+// and the low byte carries the value (the array store's narrow-cell
+// convention); the minted array is zero-initialized and every cell
+// below is written.
+void IoToBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    const std::string text = ArgString(h, a, 0);
+    const int32_t len = static_cast<int32_t>(text.size());
+    const int32_t handle = NewArray(h, NEK_Byte, len);
+    NativeArrayView view;
+    h->getArrayView(h, handle, &view);
+    int32_t* cells = static_cast<int32_t*>(view.data);
+    for (int32_t i = 0; i < len; ++i)
+        cells[i] = static_cast<unsigned char>(
+            text[static_cast<size_t>(i)]);
+    ReturnInt(ret, handle);
+}
+
+// fromBytes: rank-1 byte/ubyte array -> string from the cells' low
+// bytes. A view (slice syntax) is a legal argument: the ABI view
+// reports offset/strides into the owning payload. Symmetric port of
+// the committed net.fromBytes semantics (r1 note 5 moved the surface).
+void IoFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    NativeArrayView view;
+    nlang::native::ArgArray(h, a, 0, &view);
+    if (view.rank != 1
+        || (view.elemKind != NEK_Byte && view.elemKind != NEK_UByte)) {
+        RaiseIo(h, "io.fromBytes: expected a rank-1 byte array");
+        return;
+    }
+    const int32_t* cells = static_cast<const int32_t*>(view.data);
+    const int64_t o = view.offset;
+    const int64_t step = view.strides[0];
+    std::string content;
+    content.reserve(static_cast<size_t>(view.elemCount));
+    for (int64_t i = 0; i < view.elemCount; ++i)
+        content.push_back(static_cast<char>(static_cast<unsigned char>(
+            cells[o + i * step])));
+    ReturnString(h, ret, content);
+}
+
 } // namespace
 
 // Module entry point. Registration channel per function: print/write/
@@ -155,5 +223,9 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "io", "readFile",   &IoReadFile);
     regBlocking(registry, "io", "writeFile",  &IoWriteFile);
     regBlocking(registry, "io", "appendFile", &IoAppendFile);
+    reg(registry, "io", "nowMs",      &IoNowMs);
+    regBlocking(registry, "io", "parkForIo",  &IoParkForIo);
+    reg(registry, "io", "toBytes",    &IoToBytes);
+    reg(registry, "io", "fromBytes",  &IoFromBytes);
     return NLANG_HOST_ABI_VERSION;
 }

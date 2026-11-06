@@ -10,8 +10,11 @@
     interest is picked up within one slice).
 ---*/
 #include "VmScheduler.h"
+#include "VmWorkPool.h"
 #include "net/NetPlatform.h"
 #include <algorithm>
+#include <memory>
+#include <vector>
 
 namespace nlang {
 
@@ -19,12 +22,25 @@ namespace nlang {
 //newly registered interest while the wait is fd-driven.
 static constexpr int kIoPollSliceMs = 10;
 
+//Out-of-line ctor (declaration in VmScheduler.h): the m_upWorkPool
+//member's exception-cleanup path needs VmWorkPool complete, and this
+//file includes it (VmScheduler.cpp is at the source-size budget).
+VmScheduler::VmScheduler() = default;
+
 void VmScheduler::ParkForIo(int id, int fd, uint32_t events,
     std::chrono::steady_clock::time_point deadline, bool hasDeadline) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx)
         return;
+    //v11 R7: the blocking-native park path arrives with state
+    //BlockedNative — MarkBlockedNative counted it, and MarkRunnableHeld
+    //(the only decrement site) is skipped by the park unwind, so
+    //release the count here at the transition: it stays equal to the
+    //number of BlockedNative contexts by construction (deadlock
+    //detection reads it).
+    if (ctx->state == ContextState::BlockedNative)
+        --m_blockedNativeCount;
     ctx->state = ContextState::ParkedIo;
     m_ioWaits.push_back(IoWaitEntry{id, fd, events, deadline, hasDeadline});
     ReleaseHeldIfCurrent(id);
@@ -42,6 +58,11 @@ void VmScheduler::WakeForIo(int id) {
     if (!ctx || ctx->state != ContextState::ParkedIo)
         return;
     ctx->state = ContextState::Runnable;
+    //v11 R7: arm the blocking-native re-entry — the re-executed
+    //parkForIo call answers 1 (retry the syscall). Interpreter-path
+    //parks never read the flag; a stale armed is harmless (contract in
+    //NativeHost.h).
+    ctx->ioParkArmed = true;
     if (ctx->framesParked)
         m_runQueue.push_back(ctx->id);
     //else: the parking carrier enqueues in the same critical section
@@ -55,6 +76,41 @@ void VmScheduler::RemoveIoWaitsForFd(int fd) {
             [fd](const IoWaitEntry& e) { return e.fd == fd; }),
         m_ioWaits.end());
     m_ioCv.notify_all();   //the poller re-syncs interest without it
+}
+
+//v11 R13: the net module's socket-close path (ABI wakeIoWaiters). The
+//waiter ids and the interest entries are dropped in one critical
+//section (the poller re-syncs without them), then each context is
+//woken — WakeForIo self-guards, so the wakes run outside the section.
+void VmScheduler::WakeIoWaitersForFd(int fd) {
+    std::vector<int> ids;
+    {
+        GilEnsureGuard g(*this);
+        for (auto it = m_ioWaits.begin(); it != m_ioWaits.end(); ) {
+            if (it->fd == fd) {
+                ids.push_back(it->contextId);
+                it = m_ioWaits.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        m_ioCv.notify_all();
+    }
+    for (int id : ids)
+        WakeForIo(id);
+}
+
+//r1 note 4: ABI v11 submitWork accessor (declaration in VmScheduler.h;
+//placed here — VmScheduler.cpp is at the source-size budget and this
+//file already owns the lazy helper-thread concern). The pool's own
+//destructor joins it during ~VmScheduler member teardown (R8).
+int VmScheduler::SubmitWork(void (*fn)(void*), void* arg,
+                            int ackFd, int priority) {
+    std::lock_guard<std::mutex> g(m_workPoolMutex);
+    if (!m_upWorkPool)
+        m_upWorkPool = std::make_unique<VmWorkPool>();
+    m_upWorkPool->Submit(fn, arg, ackFd, priority);
+    return 0;
 }
 
 //Re-syncs the poller registration set to the current interest table:

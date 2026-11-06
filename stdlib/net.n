@@ -12,11 +12,6 @@ const class TimeoutException : IOException {
     public native TimeoutException(string message, Exception cause = null);
 }
 
-// string是字节容器;这两个助手在文本与字节数组间转换(UTF-8字节序列,
-// 不经string方法面)。
-native byte[] toBytes(string s);
-native string fromBytes(byte[] data);
-
 // TCP监听端点。bind后开始监听;close停止监听。
 class TcpListener {
     // 监听host:port;port=0由系统分配,经localPort()读回。

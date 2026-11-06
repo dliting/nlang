@@ -32,6 +32,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -42,6 +43,11 @@ namespace nlang {
 //forward-declared so the IO harvest helper can name it without pulling
 //the platform header into every scheduler consumer.
 struct NetPollEvent;
+
+//r1 note 4: the generic native worker pool (defined in VmWorkPool.h);
+//forward-declared for the unique_ptr member — the full header is only
+//needed where the pool is constructed and destroyed.
+class VmWorkPool;
 
 //回边配额（决策 5）：每 N 次回边安全点允许一次调度决策。
 constexpr int DEFAULT_SCHEDULER_TRIP_BACKEDGES = 1000;
@@ -169,6 +175,15 @@ struct ExecutionContext {
     //搬帧的同一临界区内补做（帧先落位、队列项后出现——出队者恒见帧
     //已就位，消除「无帧弹出＝全新入口重跑」竞争）。恢复取回帧时清零。
     bool framesParked = false;
+    //v0.13.0 net R7: blocking-native IO park handshake (ABI v11
+    //parkForIo). ioParkPending: the native's first parkForIo entry set
+    //it (interest registered, carrier must take the context);
+    //FinishBlockingNative sees it and unwinds with ParkSignal(Io)
+    //instead of restoring frames. ioParkArmed: WakeForIo set it; the
+    //next parkForIo call from this context returns 1 (re-entry — retry
+    //the syscall). A stale armed is harmless by contract (NativeHost.h).
+    bool ioParkPending = false;
+    bool ioParkArmed = false;
     //P2-4 nested pump: 0 = dispatchable by anyone; nonzero = only the
     //pump holding this token may dispatch (PopAffinity skips it for
     //every other dispatcher — its owner serves it by id, never by
@@ -438,6 +453,18 @@ public:
     //re-registers interest from the table each loop, so removal here
     //is enough — no wepoll del needed).
     void RemoveIoWaitsForFd(int fd);
+    //v11 R13: drop every interest entry for fd AND wake the parked
+    //contexts (the net module's socket-close path — it cannot reach
+    //the VM poller directly). Callable without the GIL (self-guarded).
+    void WakeIoWaitersForFd(int fd);
+
+    //r1 note 4: run fn(arg) on the generic native worker pool (ABI v11
+    //submitWork). Lazily constructed under a dedicated mutex (the pool
+    //queue is independent of the GIL); joined by the pool's own
+    //destructor during member teardown, after ~VmExecutor ran the
+    //module-state dtors (R8). Definition in VmSchedulerIo.cpp (this
+    //file is at the source-size budget).
+    int SubmitWork(void (*fn)(void*), void* arg, int ackFd, int priority);
 
     //K8：中止一次从未到达窃帧的状态迁移——两阶段停泊握手的复查发现等
     //待者条目已被消费（结果落在「登记→迁移」窗口内）。上下文从未离开
@@ -764,6 +791,11 @@ public:
     //执行器侧的可变访问（帧搬运/根登记）；id 越界返回 nullptr。
     ExecutionContext* FindMutable(int id);
 
+    //v11: out-of-line (like the dtor) — the m_upWorkPool member needs
+    //VmWorkPool complete for the ctor's exception-cleanup path, and
+    //VmExecutor.h's make_unique<VmScheduler> NSDMI instantiates the
+    //ctor in every consumer TU.
+    VmScheduler();
     //K2 slice 3: join 定时器线程（执行器析构路径）。置停泊关停标志、
     //唤醒、join——线程体见 TimerThreadMain。
     ~VmScheduler();
@@ -881,6 +913,14 @@ private:
     bool m_ioThreadShutdown = false;
     std::thread m_ioThread;
     std::condition_variable_any m_ioCv;      //interest/shutdown signal
+
+    //r1 note 4: generic native worker pool (ABI v11 submitWork), built
+    //on the first submit. Joined by VmWorkPool's own destructor when
+    //this member is torn down — after the destructor body joined the
+    //timer/poller threads and after ~VmExecutor ran the module-state
+    //dtors (a net-module dtor cv-waits on its queued jobs; R8).
+    std::unique_ptr<VmWorkPool> m_upWorkPool;
+    std::mutex m_workPoolMutex;              //lazy-construction guard, GIL-free
 
     static thread_local CarrierState t_selfCarrier;
     static thread_local CarrierState* t_carrier;

@@ -22,6 +22,7 @@
 #include <deque>
 #include <exception>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <memory>
 #include <random>
@@ -1813,6 +1814,18 @@ private:
     static int32_t NativeNewArrayView(NativeHost* self, int32_t targetHandle,
         int32_t rank, const int32_t* dims, const int32_t* strides,
         int64_t offset);
+    //v11 IO-parking / module-state / work-pool side (contracts in
+    //NativeHost.h; plan rulings R7/R8/R13/R14, r1 note 4). Definitions
+    //in VmExecutorNativeCallbacks.cpp.
+    static long long NativeNowMs(NativeHost* self);
+    static int NativeParkForIo(NativeHost* self, int fd, unsigned events,
+        long long deadlineMs, int hasDeadline);
+    static void* NativeModuleState(NativeHost* self, const char* tag,
+        void* (*ctor)(void), void (*dtor)(void*));
+    static void NativeWakeIoWaiters(NativeHost* self, int fd);
+    static int NativeCurrentContextId(NativeHost* self);
+    static int NativeSubmitWork(NativeHost* self, void (*fn)(void*),
+        void* arg, int ackFd, int priority);
     //v10 helpers of the two callbacks above (definitions in
     //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
     //own strides/offset, the resolver peels depth-one to the owning
@@ -1992,6 +2005,16 @@ private:
     //another carrier's prints.
     mutable std::mutex m_consoleInMutex;
     mutable std::mutex m_consoleOutMutex;
+
+    //v11 R8: per-executor host module state slots (moduleState tag ->
+    //stored pointer + dtor). Torn down in ~VmExecutor (defined with the
+    //teardown in VmExecutorNativeHost.cpp): all carriers are stopped
+    //and the scheduler member — with its work pool — is still alive,
+    //so a net-module dtor can cv-wait on its queued resolver jobs.
+    //Dtors run in tag order (std::map iteration).
+    void TeardownModuleStates();
+    std::map<std::string, std::pair<void*, void (*)(void*)>> m_moduleStates;
+    mutable std::mutex m_moduleStateMutex;
 
     //ndb: functions[] index of the innermost frame. Module functions
     //vector is stable after load (no reallocation), so pointer

@@ -960,6 +960,23 @@ target_link_libraries(test_net_scheduler
 
 add_test(NAME net_scheduler_tests COMMAND test_net_scheduler)
 
+# v0.13.0 net task 5: the generic native worker pool (ABI v11 submitWork
+# engine) — runs/joins, two-level priority, lazy start.
+add_executable(test_work_pool
+    test_vm/test_work_pool.cpp
+)
+target_include_directories(test_work_pool
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_work_pool
+    PRIVATE
+        nlang_vm
+)
+
+add_test(NAME work_pool_tests COMMAND test_work_pool)
+
 # K8 Task 2: chunked block storage (stable element addresses, atomic size
 # publication) — real threads for the read/growth overlap contract.
 add_executable(test_chunkedarray

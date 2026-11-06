@@ -153,3 +153,21 @@ class FileStream {
     public native Object readStruct(string typeName);
     public native Object readObject(string typeName);
 }
+
+// Monotonic millisecond clock — the same clock domain as parkForIo's
+// deadlines (arbitrary epoch, not wall time).
+native long nowMs();
+
+// Park the current virtual thread until fd is ready (events: 1 = read,
+// 2 = write) or the absolute deadline is reached (deadlineMs <= 0 means
+// no deadline); fd < 0 is a pure deadline park (timed wakeup). The call
+// returns after the wake — the caller re-checks its condition and may
+// park again.
+native void parkForIo(int fd, int events, long deadlineMs);
+
+// string is a byte container; these helpers convert between text and
+// byte arrays (the raw UTF-8 byte sequence, bypassing the string method
+// surface). Moved from the net package — generic byte conversion is not
+// network-specific.
+native byte[] toBytes(string s);
+native string fromBytes(byte[] data);

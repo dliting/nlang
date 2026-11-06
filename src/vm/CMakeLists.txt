@@ -5,6 +5,7 @@ add_library(nlang_vm
     VmSchedulerTimer.cpp
     VmSchedulerIo.cpp
     VmSchedulerSync.cpp
+    VmWorkPool.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
     VmExecutorPump.cpp
