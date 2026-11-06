@@ -322,14 +322,16 @@ itself may not be the target of an assignment (`a[1:3] = x` is a
 compile-time error): the view is a value, and stores go through
 its own subscripts, one element at a time.
 
-An axis can select every position of the source through a
-broadcast view (`broadcastTo`, §18.2) or a step that repeats it:
-such an axis has length in the view but addresses one source
-position. Reads repeat the source element; stores are rejected —
-two logical cells naming one source cell would silently corrupt
-one of the writes — raising a catchable base `Exception` naming
-the axis. Negative-stride axes carry no such alias and stay
-writable.
+An axis can map several view positions onto one source position —
+through a broadcast view (`broadcastTo`, §18.2) or by slicing an
+already-broadcast axis. Reads repeat the source element; while such
+an axis spans more than one position, stores are rejected — two
+logical cells naming one source cell would silently corrupt one of
+the writes — raising a catchable base `Exception` naming the axis.
+An axis of length 1 addresses exactly one source position whatever
+its stride, so singleton slices and size-1 broadcast axes stay
+writable; negative-stride axes carry no such alias and stay
+writable too.
 
 *Informative:* a view is implemented as its recorded shape,
 per-axis strides and an offset into the source's elements; the

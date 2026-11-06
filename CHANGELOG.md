@@ -107,6 +107,18 @@ All notable changes to NLang are documented here. The format follows
   aborts the losing park. Found by a release e2e run, pinned
   under AddressSanitizer; latent since 0.12.6, with the 0.12.7
   interpreter timing widening the window enough to surface.
+- **Stores through length-one view axes are legal.** Both slice
+  producers folded a count-≤1 axis's stride to 0 ("never spans"),
+  and the store gate keyed on stride 0 alone — so a legal element
+  store through a singleton slice (`a[1:2][0] = x`,
+  `m[1:2, :][0, 0] = x`) or a size-1 broadcast axis raised the
+  broadcast rejection. Slice folding and `tensor.slice` now record
+  the axis's true affine step, and the gate derives the rejection
+  from the record itself: an axis blocks stores only when it
+  actually aliases (stride 0 *and* length > 1). A spanning
+  broadcast axis rejects exactly as before; `tensor.slice` also
+  now raises on an int32-overflowing span instead of silently
+  truncating the stride.
 
 ## [0.12.6] - 2026-11-03
 

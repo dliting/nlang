@@ -212,8 +212,8 @@ void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
 
 //slice(a, starts, stops, steps): the all-axes function form. Each axis
 //normalizes (explicit endpoints, no defaults) and keeps its stride ×
-//step in owner space; count<=1 axes store stride 0 (overflow-immune —
-//a kept axis's stride × step is bounded by the owning span).
+//step in owner space — the true affine step per the view-record layout
+//invariant, so the record never carries a fake broadcast marker.
 void TensorSlice(NativeHost* host, uint8_t* ret, const uint8_t* args,
                  int argc) {
     (void)argc;
@@ -235,8 +235,18 @@ void TensorSlice(NativeHost* host, uint8_t* ret, const uint8_t* args,
                                                  steps[k], &start);
         const int64_t axisStride =
             static_cast<int64_t>(src.strides[k]) * steps[k];
+        if (count > 1
+            && (axisStride > INT32_MAX || axisStride < INT32_MIN))
+            Raise(host, NEXC_OutOfBounds,
+                  "tensor.slice: view range exceeds the target array "
+                  "bounds");
+        //count<=1 overflow corner (huge step over a single element):
+        //address-irrelevant, non-zero placeholder keeps the axis off
+        //the broadcast store gate; a genuine broadcast base (source
+        //stride 0) still stores its true 0.
         dims[k] = count;
-        strides[k] = count <= 1 ? 0 : static_cast<int32_t>(axisStride);
+        strides[k] = axisStride > INT32_MAX || axisStride < INT32_MIN
+            ? 1 : static_cast<int32_t>(axisStride);
         offset += static_cast<int64_t>(start) * src.strides[k];
     }
     ReturnInt(ret, NewArrayView(host, ArgInt(args, 0), src.rank, dims,

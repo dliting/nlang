@@ -83,10 +83,11 @@ documented surface.
   described by the rank-1 `int[]` `shape`: each target
   dimension must equal the source's or the source's must be 1
   (the size-1 axis repeats), and leading dimensions may be
-  added. The repeated axes address one source cell each, so
-  stores through the result raise `Exception` (§4.10.9);
-  element reads, reductions and serialization see the repeated
-  content.
+  added. The repeated axes address one source cell each; a
+  store through a repeated axis that spans more than one
+  position raises `Exception` (§4.10.9), while size-1 repeated
+  axes stay writable. Element reads, reductions and
+  serialization see the repeated content.
 
 ```nlang
 import io;

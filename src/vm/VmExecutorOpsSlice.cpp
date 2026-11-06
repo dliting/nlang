@@ -54,15 +54,27 @@ int32_t ClipSliceEndpoint(int32_t value, int32_t len, bool positiveStep) {
         return std::min(std::max(value, 0), len);
     return std::min(std::max(value, -1), len - 1);
 }
+
+//The stride recorded for a folded slice axis: the true affine step in
+//owner space (the view-record layout invariant — never a folded 0,
+//which would mark a writable axis as broadcast). The one corner where
+//the step overflows int32 on a count<=1 axis is address-irrelevant and
+//takes placeholder 1, keeping the record free of a fake broadcast
+//marker; a count>1 overflow is rejected by the caller beforehand.
+int32_t SliceAxisStride(int64_t axisStride) {
+    if (axisStride > INT32_MAX || axisStride < INT32_MIN)
+        return 1;
+    return static_cast<int32_t>(axisStride);
+}
 }  //namespace
 
 //v0.12.7 Task 11: fold ONE slice axis into the accumulating view. The
 //written-part reads reject the default sentinel (presence-masked) and
 //the zero step; normalization then narrows the span (defaults follow
 //the step direction, negative endpoints len+neg, both ends clip) and
-//the kept stride is the owner stride scaled by the step (an axis with
-//at most one element never spans — its stride folds to 0, exact for
-//the coverage math and immune to int32 overflow).
+//the kept stride is the owner stride scaled by the step — the true
+//affine step per the view-record layout invariant, so the record
+//never carries a fake broadcast marker.
 void VmExecutor::FoldOneSliceAxis(VmExecutor* e, uint16_t axis,
     uint32_t bits, const int32_t* dims, const int32_t* strides,
     const uint8_t* locals, uint16_t paramsBase, SliceFoldState& st) {
@@ -106,9 +118,8 @@ void VmExecutor::FoldOneSliceAxis(VmExecutor* e, uint16_t axis,
         && (axisStride > INT32_MAX || axisStride < INT32_MIN))
         e->RaiseNlangException(e->m_oobExcClassIdx,
             "view range exceeds the target array bounds");
+    st.newStrides[st.viewRank] = SliceAxisStride(axisStride);
     st.newDims[st.viewRank] = count;
-    st.newStrides[st.viewRank] = count > 1
-        ? static_cast<int32_t>(axisStride) : 0;
     st.offset += static_cast<int64_t>(start) * strides[axis];
     ++st.viewRank;
 }

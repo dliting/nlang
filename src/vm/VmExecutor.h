@@ -757,10 +757,13 @@ private:
     //flat by the record's elemCount first.
     int64_t ViewFlatElementAddress(const std::vector<int32_t>& view,
                                    int64_t flat) const;
-    //Stores through a broadcast axis are not definable (every logical
-    //index folds onto one owner cell — silent alias corruption); reject
-    //them once over all axes at store entry. Loads are fine: broadcast
-    //reads repeat the target cell.
+    //Stores through a spanning broadcast axis are not definable (more
+    //than one logical index folds onto one owner cell — silent alias
+    //corruption); reject them once over all axes at store entry. The
+    //check keys on aliasing (stride 0 AND dim > 1), not on the stride
+    //encoding alone: a size-1 axis addresses one cell through any
+    //stride and stays writable. Loads are fine: broadcast reads repeat
+    //the target cell.
     void RejectZeroStrideStore(const std::vector<int32_t>& slot,
                                uint8_t rank);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);

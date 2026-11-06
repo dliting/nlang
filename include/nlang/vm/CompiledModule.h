@@ -199,6 +199,18 @@ static constexpr int32_t kMaxArrayElems = 100 * 1000 * 1000;
 //alignment only, and a view record has no payload.
 //  [4+rank .. 4+2*rank-1] = strides (elements per logical step; 0 =
 //                           broadcast axis, negative = reversed axis)
+//INVARIANT — enforced at the consumer, not trusted from producers: a
+//stride is the axis's true affine step in owner space; 0 exists only
+//from broadcast semantics (broadcastTo or slicing an already-broadcast
+//axis). Writeability is DERIVED from the record at the store gate
+//(RejectZeroStrideStore): an axis blocks stores iff stride==0 AND
+//dim>1 (several coordinates fold onto one owner cell). A size-1 axis
+//addresses one cell through any stride, so no producer's encoding
+//choice — fold, placeholder, or true step — can lock a legal write
+//out or let an aliasing write through. Producers still record true
+//steps where they fit; the one address-irrelevant corner (an
+//int32-overflowing step on a single-element axis) takes a non-zero
+//placeholder so the record carries no fake broadcast marker.
 //  [4+2*rank]             = offset (element position in the OWNER's
 //                           payload space)
 //  [4+2*rank+1]           = target (always an owned RTK_Array record —
