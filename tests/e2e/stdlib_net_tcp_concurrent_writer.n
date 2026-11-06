@@ -1,0 +1,99 @@
+import io;
+import thread;
+import net;
+
+// Final review I2: while one write is parked on a socket, a second
+// write on the same direction must be rejected (SocketException).
+// Pre-fix the fresh call adopted the parked writer's slot state
+// instead: it reset the shared writeSent progress and re-ran it, so
+// the stream carried duplicated bytes. The server counts every byte
+// until EOF — exactly the two payloads plus the probe bytes, more if
+// anything duplicated.
+//
+// Whether the parked state materializes at all is platform-dependent:
+// Windows loopback auto-tunes the send buffer and can absorb 1 MiB +
+// 32 MiB without ever blocking (capacity probes measured absorption
+// up to 64 MiB), while a POSIX loopback with its smaller default
+// buffers parks reliably. So the probe loop has two exits: three
+// CONSECUTIVE rejections mean the parked claim is held (a transient
+// mid-send claim lasts a couple of milliseconds and cannot span 15 ms
+// of probes) and the full contract — rejection plus exact count — is
+// asserted; absorption (400 accepted probes) still asserts the exact
+// count. The deterministic proof of the rejection itself is the unit
+// test test_net_adopt.cpp.
+
+class BigWriter {
+    public TcpStream s;
+    public int outcome = 0;
+    public void run() {
+        byte[] small = byte[1048576];
+        byte[] big = byte[33554432];
+        try { s.write(small); s.write(big); outcome = 1; }
+        catch (SocketException e) { outcome = 2; }
+        catch (TimeoutException e) { outcome = 3; }
+    }
+}
+
+class SmallWriter {
+    public TcpStream s;
+    public int outcome = 0;
+    public void run() {
+        byte[] data = byte[1024];
+        try { s.write(data); outcome = 1; }
+        catch (SocketException e) { outcome = 2; }
+        catch (TimeoutException e) { outcome = 3; }
+    }
+}
+
+class Server {
+    public TcpListener srv;
+    public int got = 0;
+    public void run() {
+        TcpStream c = srv.accept(5000);
+        thread.sleep(800);   //let the big writer park before draining
+        byte[] buf = byte[65536];
+        while (true) {
+            int n = c.read(buf, 5000);
+            if (n == 0) { break; }
+            got = got + n;
+        }
+        c.close();
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    Server sv = Server(); sv.srv = srv;
+    Thread ts = thread.spawn(sv.run);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    BigWriter a = BigWriter(); a.s = cli;
+    Thread t1 = thread.spawn(a.run);
+    //Probe the direction: three consecutive rejections = parked
+    //claim; 400 accepted probes = the buffer absorbed everything.
+    byte[] one = byte[1];
+    int probe = 0;
+    int streak = 0;
+    bool parked = false;
+    while (true) {
+        try { cli.write(one); probe = probe + 1; streak = 0; }
+        catch (SocketException e) { streak = streak + 1; }
+        if (streak >= 3) { parked = true; break; }
+        thread.sleep(5);
+        if (probe > 400) { break; }
+    }
+    if (parked) {
+        SmallWriter b = SmallWriter(); b.s = cli;
+        Thread t2 = thread.spawn(b.run);
+        thread.join(t2);
+        if (b.outcome != 2) { return 1; }   //rejected: a holds the direction
+    }
+    thread.join(t1);
+    if (a.outcome != 1) { return 2; }
+    cli.close();                           //EOF for the server
+    thread.join(ts);
+    //no duplicated bytes: the stream carries both payloads plus probes
+    if (sv.got != 34603008 + probe) { return 3; }
+    srv.close();
+    io.print("ok");
+    return 0;
+}

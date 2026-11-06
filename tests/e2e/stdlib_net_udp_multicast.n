@@ -2,8 +2,10 @@ import io;
 import net;
 
 int main() {
-    //绑通配地址:joinMulticast的接口=socket绑定地址(通配→INADDR_ANY),
-    //与自发多播的默认出口接口一致,回环副本才会投递给本socket。
+    //Bind the wildcard address: joinMulticast takes the socket's bound
+    //address as the interface (wildcard → INADDR_ANY), which matches the
+    //default egress interface of the self-sent multicast, so the loop
+    //copy is delivered back to this socket.
     UdpSocket s = UdpSocket.bind("0.0.0.0", 0);
     s.setMulticastTtl(1);
     s.joinMulticast("239.255.255.250");

@@ -1,5 +1,7 @@
-// 示例:高并发证据——同进程1000虚拟线程客户端×短消息echo。
-// 停泊不占载体:单载体下也必须跑完(30s门内)。吞吐口径同 wrk/ab。
+// Example: high-concurrency evidence — 1000 virtual-thread clients in one
+// process exchanging short echo messages. Parking does not occupy a
+// carrier: the run must finish even on a single carrier (inside the
+// 30-second gate). Throughput is measured the way wrk/ab report it.
 import io;
 import thread;
 import net;
@@ -37,7 +39,7 @@ class BenchAccept {
             } catch (SocketException e) {
                 return;                 //listener closed: exit
             } catch (TimeoutException e) {
-                // accept轮询超时:继续等下一个连接
+                //accept poll timeout: keep waiting for the next connection
             }
         }
     }
@@ -48,7 +50,7 @@ int main() {
     BenchAccept acc = BenchAccept(); acc.listener = listener;
     Thread acceptor = thread.spawn(acc.run);
 
-    long t0 = io.nowMs();             //计时窗=并发建立+全部请求(ab/wrk口径)
+    long t0 = io.nowMs();             //timed window = concurrent setup + all requests (the ab/wrk measure)
     BenchClient[] cs = BenchClient[1000];
     Thread[] ts = Thread[1000];
     for (int i = 0; i < 1000; i = i + 1) {

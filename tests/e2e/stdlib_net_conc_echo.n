@@ -36,7 +36,7 @@ class Acceptor {
             } catch (SocketException e) {
                 return;                 //listener closed: exit
             } catch (TimeoutException e) {
-                // accept轮询超时:继续等下一个连接
+                //accept poll timeout: keep waiting for the next connection
             }
         }
     }

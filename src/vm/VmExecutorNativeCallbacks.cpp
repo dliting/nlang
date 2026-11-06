@@ -388,13 +388,19 @@ int VmExecutor::NativeParkForIo(NativeHost* self, int fd, unsigned events,
         ctx->ioParkArmed = false;
         return 1;
     }
+    if (!ctx)
+        return 0;                        //embed path: nothing to park
     //First entry: a park needs a carrier to release (same gate as the
     //intrinsic RequestPark path; throws before any state mutation —
     //the complete-or-park invariant).
     e->EnsureSuspensionAllowed();
-    if (!ctx)
-        return 0;                        //embed path: nothing to park
     const bool has = hasDeadline != 0 && deadlineMs > 0;
+    //No fd and no deadline: no readiness source and nothing to expire
+    //— parking would hang with no possible wake. Answer ready instead
+    //(the caller's wait is a programming error, not a deadlock;
+    //final review M14).
+    if (fd < 0 && !has)
+        return 1;
     const std::chrono::steady_clock::time_point deadline{
         std::chrono::milliseconds(deadlineMs)};
     sched->ParkForIo(selfId, fd, events, deadline, has);

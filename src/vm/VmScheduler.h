@@ -440,8 +440,8 @@ public:
 
     //v0.13.0 net: IO parking (net library design §6/§7). The context
     //parks until the poller reports fd+events ready, the deadline
-    //passes, or the close path wakes it (WakeForIo / RemoveIoWaitsForFd
-    //then WakeForIo). fd < 0 = pure deadline park (resolver/icmp
+    //passes, or the close path wakes it (WakeIoWaitersForFd).
+    //fd < 0 = pure deadline park (resolver/icmp
     //jobs). Mirrors ParkForTimer's lazy thread start and the K7
     //framesParked handshake.
     void ParkForIo(int id, int fd, uint32_t events,
@@ -450,10 +450,6 @@ public:
     //Moves a ParkedIo context back to Runnable (enqueued under the
     //framesParked handshake, WakeForMutex shape).
     void WakeForIo(int id);
-    //Drops every interest entry for a closing fd (the poller
-    //re-registers interest from the table each loop, so removal here
-    //is enough — no wepoll del needed).
-    void RemoveIoWaitsForFd(int fd);
     //v11 R13: drop every interest entry for fd AND wake the parked
     //contexts (the net module's socket-close path — it cannot reach
     //the VM poller directly). Callable without the GIL (self-guarded).
@@ -909,8 +905,11 @@ private:
     //Last interest set registered with the poller (fd → events): the
     //per-round re-sync dedups against it (skip unchanged registrations,
     //del vanished fds). Hashed — the 10k-connection benchmark showed
-    //the vector form made each round O(fds²). Poller-thread-only,
-    //touched under the GIL.
+    //the vector form made each round O(fds²). Touched under the GIL:
+    //by the poller thread, and by the close-side wake path
+    //(WakeIoWaitersForFd) plus the harvest sleep-transition clear —
+    //the baseline must never outlive the waiters that owned it (a
+    //re-used fd value would match a stale entry and skip re-Add).
     std::unordered_map<int, uint32_t> m_ioPollerRegistered;
     bool m_ioThreadStarted = false;
     bool m_ioThreadShutdown = false;

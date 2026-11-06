@@ -1,4 +1,5 @@
-// 示例:UDP请求/应答——sendTo/recvFrom、来源地址回发、数据报语义。
+// Example: UDP request/reply — sendTo/recvFrom, replying to the source
+// address, datagram semantics.
 import io;
 import thread;
 import net;
@@ -10,7 +11,7 @@ class UdpServer {
         string from;
         int port = 0;
         int n = s.recvFrom(buf, out from, out port, 5000);
-        s.sendTo(buf, from, port, n);       //只回发收到的n字节(R3)
+        s.sendTo(buf, from, port, n);       //reply with only the n bytes received
     }
 }
 
@@ -25,7 +26,7 @@ int main() {
     string from;
     int port = 0;
     int n = cli.recvFrom(buf, out from, out port, 5000);
-    byte[] msg = byte[n];                   //按实收长度拷贝再转字符串
+    byte[] msg = byte[n];                   //copy to the received length before converting to a string
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     io.print("reply from " + from + ":" + port.toString()
         + " -> " + io.fromBytes(msg) + "\n");

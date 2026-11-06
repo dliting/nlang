@@ -1,32 +1,41 @@
-// net.n — 网络通信包:TCP、UDP、ICMP。需显式`import net;`。
-// 阻塞方法在虚拟线程上停泊(不占载体),timeoutMs=0表示无限等待。
-// 失败抛SocketException,超时抛TimeoutException(同属IOException家族)。
+// net.n — network package: TCP, UDP, ICMP. Requires an explicit `import net;`.
+// Blocking methods park on the virtual thread (no carrier is held);
+// timeoutMs=0 means wait forever.
+// Failures throw SocketException, timeouts throw TimeoutException
+// (both in the IOException family).
 
-// 底层socket错误:连接被拒、对端断开、socket已关闭、选项设置失败等。
+// Low-level socket errors: connection refused, peer dropped, socket
+// already closed, option set failed, and so on.
 const class SocketException : IOException {
     public SocketException(string message, Exception cause = null) {
         super(message, cause);
     }
 }
 
-// 带timeoutMs的操作在截止前未完成。
+// A timeoutMs-bounded operation did not finish before its deadline.
 const class TimeoutException : IOException {
     public TimeoutException(string message, Exception cause = null) {
         super(message, cause);
     }
 }
 
-// ---- 内部原语(nlang_net模块注册;下划线名不属公开面) ----
-// 单调毫秒(与VM轮询截止同域);脚本层据此换算绝对截止点(R12)。
+// ---- internal primitives (registered by the nlang_net module;
+//      underscore names are not part of the public surface) ----
+// Monotonic milliseconds (same clock domain as the VM poll deadline);
+// the script layer converts timeoutMs to an absolute deadline with it (R12).
 native long _nowMs();
-// 最近一次平台错误的文本(错误码-4时拼入异常消息)。
+// Text of the most recent platform error (spliced into the exception
+// message for error code -4).
 native string _lastErrorText();
-// 内部UTF-8字节转换(nlang_net模块注册;公开面是io.toBytes/fromBytes,
-//  预置包互不import故脚本便捷面用内部副本,r1补注5)。
+// Internal UTF-8 byte conversion (registered by the nlang_net module;
+// the public surface is io.toBytes/fromBytes — builtin packages never
+// import each other, so the script convenience surface uses internal
+// copies, r1 amendment 5).
 native byte[] _toBytes(string s);
 native string _fromBytes(byte[] data);
 
-// 内部:错误码映射异常(-1关闭/-2超时/-3并发违例/-4平台错误/-5参数)。
+// Internal: maps an R10 error code to an exception (-1 closed,
+// -2 timeout, -3 concurrent-use violation, -4 platform error, -5 argument).
 void _throwNet(int code, string context) {
     if (code == -2) { throw TimeoutException("net: " + context + " timed out"); }
     if (code == -1) { throw SocketException("net: socket closed"); }
@@ -37,8 +46,9 @@ void _throwNet(int code, string context) {
     throw SocketException("net: " + context + " failed");
 }
 
-// (字节助手toBytes/fromBytes已移入io包,r1补注5;脚本便捷面用下方
-//  内部_toBytes/_fromBytes,随任务9分帧一并注册)
+// (The byte helpers toBytes/fromBytes moved into the io package,
+//  r1 amendment 5; the script convenience surface uses the internal
+//  _toBytes/_fromBytes below, registered with the Task 9 natives.)
 
 // ---- ICMP ----
 native int _ping(string host, long deadlineMs);
@@ -48,9 +58,12 @@ native int _icmpRecvFrom(int handle, byte[] buf, long deadlineMs);
 native string _icmpLastRecvAddress(int handle);
 native int _icmpClose(int handle);
 
-// 发送 Echo Request 并等待 Echo Reply,返回往返时延毫秒。
-// 超时抛 TimeoutException;主机无法解析或不可达抛 SocketException。
-// Windows 走 IcmpSendEcho2(免管理员),Linux 走 DGRAM ICMP socket。
+// Sends an Echo Request and waits for the Echo Reply; returns the
+// round-trip time in milliseconds.
+// Throws TimeoutException on timeout; SocketException when the host
+// cannot be resolved or is unreachable.
+// Windows uses IcmpSendEcho2 (no admin rights needed), Linux a DGRAM
+// ICMP socket.
 int ping(string host, int timeoutMs = 5000) {
     long deadline = 0;
     if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -59,8 +72,9 @@ int ping(string host, int timeoutMs = 5000) {
     return rtt;
 }
 
-// 原始ICMP套接字:收发完整ICMP消息。Windows需管理员(SOCK_RAW),
-// Linux走SOCK_DGRAM免特权(受ping_group_range约束)。
+// Raw ICMP socket: sends and receives complete ICMP messages.
+// Windows needs admin rights (SOCK_RAW); Linux uses SOCK_DGRAM
+// unprivileged (subject to ping_group_range).
 class IcmpSocket {
     private int m_handle;
     public IcmpSocket(int handle) { m_handle = handle; }
@@ -70,14 +84,15 @@ class IcmpSocket {
         if (h < 0) { _throwNet(h, "icmp bind"); }
         return IcmpSocket(h);
     }
-    // 发送完整 ICMP 消息(类型/代码/校验和/ID/序列/载荷);
-    // Windows raw 下校验和字段为 0 时由 native 自动计算。
+    // Sends a complete ICMP message (type/code/checksum/ID/sequence/
+    // payload); on Windows raw sockets the native layer computes the
+    // checksum when the field is 0.
     public int sendTo(byte[] icmpMessage, string host) {
         int r = _icmpSendTo(m_handle, icmpMessage, host);
         if (r < 0) { _throwNet(r, "icmp sendTo"); }
         return r;
     }
-    // 收到一条 ICMP 消息,返回来源地址(out)。
+    // Receives one ICMP message; the source address comes back via out.
     public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -98,7 +113,8 @@ native string _tcpLocalAddress(int handle);
 native int _tcpLocalPort(int handle);
 native int _tcpClose(int handle);
 native int _tcpAccept(int handle, long deadlineMs);
-// DNS解析作业(经VM工作池执行,停泊于自管道;R9)。
+// DNS resolution job (runs on the VM work pool; parks on the
+// self-pipe; R9).
 native int _tcpResolveStart(string host, int port);
 native int _tcpResolveWait(int jobId, long deadlineMs);
 native string _tcpResolveEndpoint(int jobId, int index);
@@ -115,22 +131,24 @@ native int _tcpSetKeepAlive(int handle, bool on);
 native int _tcpSetSendBufferSize(int handle, int bytes);
 native int _tcpSetRecvBufferSize(int handle, int bytes);
 
-// TCP监听端点。bind后开始监听;close停止监听。
+// TCP listening endpoint. bind starts listening; close stops it.
 class TcpListener {
     private int m_handle;
     public TcpListener(int handle) { m_handle = handle; }
 
-    // 监听host:port;port=0由系统分配,经localPort()读回。
+    // Listens on host:port; port=0 is system-assigned, read back via
+    // localPort().
     public static TcpListener bind(string host, int port) {
         int h = _tcpBind(host, port);
         if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
         return TcpListener(h);
     }
-    // 便利重载:监听所有接口的port。
+    // Convenience overload: listen on the port across all interfaces.
     public static TcpListener bind(int port) {
         return bind("0.0.0.0", port);
     }
-    // 接受下一个连接;在虚拟线程上停泊直至有连接、超时或关闭。
+    // Accepts the next connection; parks on the virtual thread until a
+    // connection arrives, the deadline passes or the listener closes.
     public TcpStream accept(int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -148,44 +166,54 @@ class TcpListener {
         if (p < 0) { _throwNet(p, "localPort"); }
         return p;
     }
+    // Sets the receive buffer (SO_RCVBUF) for connections accepted
+    // from here; the option must be set before the connection is
+    // established to take effect, and the kernel may adjust the value.
+    public void setRecvBufferSize(int bytes) {
+        int r = _tcpSetRecvBufferSize(m_handle, bytes);
+        if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
+    }
     public void close() {
         int r = _tcpClose(m_handle);
         if (r < 0) { _throwNet(r, "close"); }
     }
 }
 
-// TCP字节流连接。connect/accept产出;read/write停泊;close释放。
+// TCP byte-stream connection. Produced by connect/accept; read/write
+// park; close releases the socket.
 class TcpStream {
     private int m_handle;
     public TcpStream(int handle) { m_handle = handle; }
 
-    // 解析host(停泊于解析池)并按序尝试地址;timeoutMs覆盖
-    // 解析+连接全程(0=不限)。
+    // Resolves host (parking on the resolver pool) and tries the
+    // addresses in order; timeoutMs covers resolution plus connection
+    // as a whole (0 = unlimited).
     public static TcpStream connect(string host, int port, int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         string ctx = "connect " + host + ":" + port.toString();
         int jobId = _tcpResolveStart(host, port);
-        int count = _tcpResolveWait(jobId, deadline);   //停泊于自管道
+        int count = _tcpResolveWait(jobId, deadline);   //parks on the self-pipe
         TcpStream result = null;
         int lastErr = 0;
         if (count >= 0) {
             for (int i = 0; i < count; i = i + 1) {
                 int h = _tcpConnectTry(_tcpResolveEndpoint(jobId, i), port, deadline);
                 if (h >= 0) { result = TcpStream(h); break; }
-                lastErr = h;                     //保留末个端点错误码
-                if (h == -2) { break; }          //截止已到:不再试下一地址
+                lastErr = h;                     //keep the last endpoint's error code
+                if (h == -2) { break; }          //deadline passed: stop trying
             }
         }
-        _tcpResolveRelease(jobId);         //所有路径释放作业记录(R9)
+        _tcpResolveRelease(jobId);         //release the job record on every path (R9)
         if (result != null) { return result; }
         if (count < 0) { _throwNet(count, ctx); }
-        if (count == 0) { _throwNet(-4, ctx); }   //解析无结果→平台错误
-        if (lastErr != 0) { _throwNet(lastErr, ctx); }  //端点失败(如被拒)
-        _throwNet(-2, ctx);                       //已过截止→超时
-        return TcpStream(0);                    //不可达(上面必抛)
+        if (count == 0) { _throwNet(-4, ctx); }   //no resolution result -> platform error
+        if (lastErr != 0) { _throwNet(lastErr, ctx); }  //endpoint failed (e.g. refused)
+        _throwNet(-2, ctx);                       //deadline already passed -> timeout
+        return TcpStream(0);                    //unreachable (the paths above throw)
     }
-    // 至多读满buf.length()字节;返回读到的字节数,0=对端已关闭(EOF)。
+    // Reads at most buf.length() bytes; returns the byte count read,
+    // 0 = the peer closed (EOF).
     public int read(byte[] buf, int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -193,28 +221,36 @@ class TcpStream {
         if (n < 0) { _throwNet(n, "read"); }
         return n;
     }
-    // 全写:内部循环直至count字节全部发出(默认整数组);返回发出数。
+    // Write-all: loops internally until all count bytes are sent
+    // (default: the whole array); returns the number of bytes sent.
     public int write(byte[] data, int count = -1) {
         int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "write: count " + count.toString() + " > length " + n.toString());
+        }
         if (count >= 0) { n = count; }
         int r = _tcpWrite(m_handle, data, n, 0);
         if (r < 0) { _throwNet(r, "write"); }
         return r;
     }
-    // 文本便捷面:UTF-8编码后全写;返回发出的字节数。
+    // Text convenience: encodes as UTF-8 and writes it all; returns
+    // the number of bytes sent.
     public int write(string s) {
         return this.write(_toBytes(s));
     }
 
-    // 读一行:以'\n'结束,返回不含行尾的文本('\r'被剥离)。
-    // 对端在行结束前关闭:返回已积累文本;零字节且EOF返回null。
+    // Reads one line: ends at '\n' and returns the text without the
+    // line terminator (a trailing '\r' is stripped). If the peer
+    // closes before the line ends, returns the text accumulated so
+    // far; zero bytes then EOF returns null.
     public string readLine(int timeoutMs = 0) {
         string acc = "";
         byte[] one = byte[1];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         while (true) {
-            int n = _tcpRead(m_handle, one, deadline);   //绝对截止跨多次读稳定
+            int n = _tcpRead(m_handle, one, deadline);   //absolute deadline stays stable across re-reads
             if (n < 0) { _throwNet(n, "readLine"); }
             if (n == 0) {
                 if (acc == "") { return null; }
@@ -230,8 +266,10 @@ class TcpStream {
         }
     }
 
-    // 读满count字节(HTTP定长体分帧);对端提前关闭抛SocketException。
-    // read从缓冲首cell写入、无偏移入参:读入临时数组再逐cell搬运。
+    // Reads exactly count bytes (fixed-length HTTP body framing);
+    // throws SocketException if the peer closes early. read writes
+    // from the buffer's first cell with no offset argument, so bytes
+    // land in a temp array and are copied cell by cell.
     public byte[] readExactly(int count, int timeoutMs = 0) {
         byte[] payload = byte[count];
         byte[] tmp = byte[count];
@@ -257,7 +295,7 @@ class TcpStream {
         int r = _tcpClose(m_handle);
         if (r < 0) { _throwNet(r, "close"); }
     }
-    // 半关闭:发出FIN,读方向保持可用。
+    // Half-close: sends FIN; the read direction stays usable.
     public void shutdownWrite() {
         int r = _tcpShutdownWrite(m_handle);
         if (r < 0) { _throwNet(r, "shutdownWrite"); }
@@ -283,22 +321,23 @@ class TcpStream {
         if (p < 0) { _throwNet(p, "localPort"); }
         return p;
     }
-    // 禁用Nagle算法:小包立即发出(TCP_NODELAY)。
+    // Disables the Nagle algorithm: small packets go out immediately
+    // (TCP_NODELAY).
     public void setNoDelay(bool on) {
         int r = _tcpSetNoDelay(m_handle, on);
         if (r < 0) { _throwNet(r, "setNoDelay"); }
     }
-    // 启用TCP keep-alive探测(SO_KEEPALIVE)。
+    // Enables TCP keep-alive probes (SO_KEEPALIVE).
     public void setKeepAlive(bool on) {
         int r = _tcpSetKeepAlive(m_handle, on);
         if (r < 0) { _throwNet(r, "setKeepAlive"); }
     }
-    // 设置发送缓冲区大小(SO_SNDBUF);内核可能夹取到上下限。
+    // Sets the send buffer size (SO_SNDBUF); the kernel may clamp it.
     public void setSendBufferSize(int bytes) {
         int r = _tcpSetSendBufferSize(m_handle, bytes);
         if (r < 0) { _throwNet(r, "setSendBufferSize"); }
     }
-    // 设置接收缓冲区大小(SO_RCVBUF);内核可能夹取到上下限。
+    // Sets the receive buffer size (SO_RCVBUF); the kernel may clamp it.
     public void setRecvBufferSize(int bytes) {
         int r = _tcpSetRecvBufferSize(m_handle, bytes);
         if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
@@ -325,26 +364,34 @@ native string _udpPeerAddress(int handle);
 native int _udpPeerPort(int handle);
 native int _udpClose(int handle);
 
-// UDP数据报套接字。无连接;send/recv需先connect,sendTo/recvFrom不需要。
+// UDP datagram socket. Connectionless; send/recv need a prior
+// connect, sendTo/recvFrom do not.
 class UdpSocket {
     private int m_handle;
     public UdpSocket(int handle) { m_handle = handle; }
 
-    // 绑定host:port;port=0由系统分配,经localPort()读回。
+    // Binds host:port; port=0 is system-assigned, read back via
+    // localPort().
     public static UdpSocket bind(string host = "0.0.0.0", int port = 0) {
         int h = _udpBind(host, port);
         if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
         return UdpSocket(h);
     }
-    // count默认-1=全发整数组;≥0只发前count字节(R3,回发接收缓冲用)。
+    // count defaults to -1 (send the whole array); >=0 sends only the
+    // first count bytes (R3, used to echo back a received buffer).
     public int sendTo(byte[] data, string host, int port, int count = -1) {
         int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "sendTo: count " + count.toString() + " > length " + n.toString());
+        }
         if (count >= 0) { n = count; }
         int r = _udpSendTo(m_handle, data, n, host, port);
         if (r < 0) { _throwNet(r, "sendTo"); }
         return r;
     }
-    // 收一条数据报,经out参数给出来源地址/端口;停泊直至有数据或超时。
+    // Receives one datagram; the source address/port come back via
+    // out parameters. Parks until data arrives or the deadline passes.
     public int recvFrom(byte[] buf, out string peerAddress, out int peerPort,
                         int timeoutMs = 0) {
         long deadline = 0;
@@ -355,20 +402,26 @@ class UdpSocket {
         peerPort = _udpLastRecvPort(m_handle);
         return n;
     }
-    // 关联对端(associate):此后send/recv只收发该地址的数据报。
+    // Associates a peer: afterwards send/recv only exchange datagrams
+    // with that address.
     public void connect(string host, int port) {
         int r = _udpConnect(m_handle, host, port);
         if (r < 0) { _throwNet(r, "connect"); }
     }
-    // connect后发送;未connect抛SocketException。
+    // Sends after connect; throws SocketException when not connected.
     public int send(byte[] data, int count = -1) {
         int n = data.length();
+        if (count > n) {
+            throw IndexOutOfBoundsException(
+                "send: count " + count.toString() + " > length " + n.toString());
+        }
         if (count >= 0) { n = count; }
         int r = _udpSend(m_handle, data, n);
         if (r < 0) { _throwNet(r, "send"); }
         return r;
     }
-    // connect后接收;返回数据报字节数(0=空数据报,非EOF)。
+    // Receives after connect; returns the datagram size
+    // (0 = empty datagram, not EOF).
     public int recv(byte[] buf, int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -376,12 +429,13 @@ class UdpSocket {
         if (n < 0) { _throwNet(n, "recv"); }
         return n;
     }
-    // 允许向广播地址发送(SO_BROADCAST)。
+    // Allows sending to broadcast addresses (SO_BROADCAST).
     public void setBroadcast(bool on) {
         int r = _udpSetBroadcast(m_handle, on);
         if (r < 0) { _throwNet(r, "setBroadcast"); }
     }
-    // 加入/离开多播组(接口=socket绑定地址,通配即默认接口)。
+    // Joins/leaves a multicast group (the interface is the socket's
+    // bound address; the wildcard address means the default interface).
     public void joinMulticast(string group) {
         int r = _udpJoinMulticast(m_handle, group);
         if (r < 0) { _throwNet(r, "joinMulticast"); }
@@ -390,12 +444,12 @@ class UdpSocket {
         int r = _udpLeaveMulticast(m_handle, group);
         if (r < 0) { _throwNet(r, "leaveMulticast"); }
     }
-    // 多播数据报的TTL(IP_MULTICAST_TTL;1=仅本链路)。
+    // TTL for multicast datagrams (IP_MULTICAST_TTL; 1 = local link only).
     public void setMulticastTtl(int ttl) {
         int r = _udpSetMulticastTtl(m_handle, ttl);
         if (r < 0) { _throwNet(r, "setMulticastTtl"); }
     }
-    // 单播数据报的TTL(IP_TTL)。
+    // TTL for unicast datagrams (IP_TTL).
     public void setTtl(int ttl) {
         int r = _udpSetTtl(m_handle, ttl);
         if (r < 0) { _throwNet(r, "setTtl"); }
@@ -410,7 +464,7 @@ class UdpSocket {
         if (p < 0) { _throwNet(p, "localPort"); }
         return p;
     }
-    // connect后的对端(未connect时抛SocketException)。
+    // The connected peer (throws SocketException when not connected).
     public string peerAddress() {
         string s = _udpPeerAddress(m_handle);
         if (s == null) { _throwNet(-4, "peerAddress"); }

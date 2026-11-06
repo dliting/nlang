@@ -38,10 +38,26 @@ NetParkOutcome NetClaimAndPark(NetExecState* st, int32_t handle, NetDir dir,
 //deferred close).
 void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed);
 
-//Reads the slot's fd and adopts this call's claim under the mutex;
-//false = the slot is gone (the direction's waiter is cleared).
-bool NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir, int self,
-    int* fd, bool* claimed);
+//Outcome of the claim-adopt critical section.
+enum NetAdoptOutcome {
+    kNetAdoptOk,          //slot live; *claimed = this call holds the claim
+    kNetAdoptGone,        //slot gone — the closer won the window
+    kNetAdoptConcurrent,  //a foreign context holds the direction (-3)
+};
+
+//Reads the slot's fd and adopts this call's claim under the mutex.
+//kNetAdoptGone = the slot is gone (the direction's waiter is cleared);
+//kNetAdoptConcurrent = a foreign waiter owns the direction, so the
+//caller must not touch its per-direction state (the claim is left as
+//the foreign call set it — this call never claimed).
+NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
+    int self, int* fd, bool* claimed);
+
+//Maps a rejected adopt to its R10 error code (Gone -> closed,
+//Concurrent -> concurrent).
+inline int NetAdoptErrCode(NetAdoptOutcome adopt) {
+    return adopt == kNetAdoptGone ? kNetErrClosed : kNetErrConcurrent;
+}
 
 //Shared park tail: true = the caller must return (unwound, or closed/
 //concurrent with ret staged). False = replay the operation.

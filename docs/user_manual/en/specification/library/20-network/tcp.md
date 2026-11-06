@@ -17,6 +17,7 @@ a closed or failed socket.
 | `accept(timeoutMs = 0)` | → `TcpStream` | Waits for the next connection and returns it as its own `TcpStream`; parks until one arrives or the deadline passes |
 | `localAddress()` | → `string` | The bound address |
 | `localPort()` | → `int` | The bound port — the system-assigned port when `bind` used port `0` |
+| `setRecvBufferSize(bytes)` | — | Requests the receive buffer size for connections accepted from this listener; set it before those connections are established to take effect |
 | `close()` | — | Stops listening; idempotent. Connections already accepted are unaffected |
 
 `accept`'s `TimeoutException` is a polling tool, not an error: a
@@ -28,7 +29,7 @@ and closing the listener ends the loop through `SocketException`.
 
 | Member | Shape | Semantics |
 |---|---|---|
-| `TcpStream.connect(host, port, timeoutMs = 0)` | static → `TcpStream` | Resolves `host` and establishes a connection, trying every resolved address in turn; the resolution and the wait both park the caller (§20.1); raises `SocketException` when no address answers before the deadline |
+| `TcpStream.connect(host, port, timeoutMs = 0)` | static → `TcpStream` | Resolves `host` and establishes a connection, trying every resolved address in turn; the resolution and the wait both park the caller (§20.1); raises `TimeoutException` when the deadline passes before any address answers, `SocketException` when resolution fails or every connection attempt is refused |
 | `read(buf, timeoutMs = 0)` | → `int` | Fills up to `buf.length` bytes and returns the count; `0` means end of stream — the peer closed its write side. Bytes arrive in order; one `read` may return fewer bytes than asked for |
 | `write(data, count = -1)` | → `int` | Sends `count` bytes of `data` — all of it when `count` is `-1`; parks until the bytes are handed to the stack |
 | `write(s)` | → `int` | Text shorthand: encodes `s` as Unicode Transformation Format (UTF-8) bytes and sends them |

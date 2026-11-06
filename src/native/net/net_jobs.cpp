@@ -59,13 +59,18 @@ void NetJobTable::MarkDone(int32_t jobId,
         rec->endpoints = std::move(endpoints);
         rec->err = err;
         rec->done = true;
-    }
+        FreeIfBoth(jobId);   //release may have come first (net_jobs.h
+    }                        //lifetime rule: free on the second flag)
 }
 
+//Only records the owner has not released are adoptable (final review
+//I4): a released record with the worker still in flight stays in use
+//until the worker fills it, but its waiter already left — re-adopting
+//it would hand a fresh call the stale job's result.
 int32_t NetJobTable::FindOwn(int kind, int owner) const {
     for (size_t i = 0; i < m_records.size(); ++i)
-        if (m_inUse[i] && m_records[i].kind == kind
-            && m_records[i].owner == owner)
+        if (m_inUse[i] && !m_records[i].released
+            && m_records[i].kind == kind && m_records[i].owner == owner)
             return static_cast<int32_t>(i) + 1;
     return 0;
 }
@@ -75,7 +80,8 @@ void NetJobTable::MarkDoneIcmp(int32_t jobId, int rttMs, int err) {
         rec->rttMs = rttMs;
         rec->err = err;
         rec->done = true;
-    }
+        FreeIfBoth(jobId);   //release may have come first (net_jobs.h
+    }                        //lifetime rule: free on the second flag)
 }
 
 void NetJobTable::Release(int32_t jobId) {

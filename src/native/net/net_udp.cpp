@@ -204,8 +204,10 @@ void NetUdpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     bool claimed = false;
     for (;;) {
         int fd = -1;
-        if (!NetAdoptClaim(st, handle, NetDir::Read, self, &fd, &claimed)) {
-            ReturnInt(ret, kNetErrClosed);
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Read, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
         std::string from;

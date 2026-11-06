@@ -20,11 +20,14 @@ namespace nlang {
 namespace {
 
 std::once_flag g_wsaOnce;
+bool g_wsaOk = false;   //written inside the call_once, read after it
+                        //(call_once supplies the happens-before edge)
 
 void WsaInitOnce() {
     WSADATA data;
-    WSAStartup(MAKEWORD(2, 2), &data);
-    std::atexit([] { WSACleanup(); });   //paired with the once (plan ruling R4)
+    g_wsaOk = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    if (g_wsaOk)
+        std::atexit([] { WSACleanup(); });   //paired with the once (plan ruling R4)
 }
 
 //Multicast join/leave for both families; interface = the socket's bound
@@ -59,7 +62,7 @@ bool MulticastGroupOp(int fd, const std::string& group, bool join) {
 
 bool NetPlatformInit() {
     std::call_once(g_wsaOnce, WsaInitOnce);
-    return true;
+    return g_wsaOk;
 }
 
 int NetOpenTcpStream(NetFamily family) {
@@ -265,6 +268,12 @@ bool NetSetMulticastTtl(int fd, int ttl) {
 }
 
 bool NetSetTtl(int fd, int ttl) {
+    //the v4 knob is IP_TTL; the v6 equivalent is the unicast hop limit
+    //(the posix layer branches the same way — final review M12)
+    sockaddr_storage ss;
+    int len = 0;
+    if (QueryName(fd, false, ss, len) && ss.ss_family == AF_INET6)
+        return SetSockOptInt(Fd(fd), IPPROTO_IPV6, IPV6_UNICAST_HOPS, ttl);
     return SetSockOptInt(Fd(fd), IPPROTO_IP, IP_TTL, ttl);
 }
 

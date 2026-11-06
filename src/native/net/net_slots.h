@@ -1,10 +1,15 @@
 /*---
     net_slots.h — the per-executor socket slot registry (net library
-    design §6): __handle values are (generation<<kHandleIndexBits
+    design §6): __handle values are (generation<<kNetHandleIndexBits
     | (index+1)) so a closed slot's recycled index never aliases a live
     handle (ABA). The fd close is deferred while waiters are parked on
     the slot (plan ruling R5): MarkClosed only flags, the last
     ReleaseWaiter performs the real NetClose.
+
+    The slot returns to the free list the moment it is both closed and
+    waiter-free: whichever of MarkClosed / ReleaseWaiter observes that
+    combination performs the close and the recycle, so no caller has a
+    second step to forget (final review M10).
 
     Locking: guarded by NetExecState::m_mutex (plan ruling R9) — with
     r1 blocking natives the GIL is released around the syscall, so
@@ -30,6 +35,10 @@ constexpr uint8_t kNetKindIcmp = 4;
 //ParkedIo state serves every direction).
 enum class NetDir : uint8_t { Read, Write, Accept };
 
+//Handle codec width (net_slots.cpp Mint/SlotOf): the generation lives
+//in the bits above this, the slot index+1 below.
+constexpr int32_t kNetHandleIndexBits = 24;
+
 struct NetSocketSlot {
     int fd = -1;
     uint8_t kind = 0;            //0 = free
@@ -38,7 +47,6 @@ struct NetSocketSlot {
     int acceptWaiter = 0;        //context id, 0 = none
     int readWaiter = 0;
     int writeWaiter = 0;
-    uint32_t interest = 0;       //parkForIo event bits registered
     //Bytes of the in-flight write already handed to the kernel: a
     //park/re-entry restarts the native from its first line, so the
     //write offset lives here, not on the rebuilt stack. Only the
@@ -60,24 +68,27 @@ public:
     const NetSocketSlot* Lookup(int32_t handle) const;
     void SetWaiter(int32_t handle, NetDir dir, int contextId);
     //Clears the direction's waiter id; when the slot is closed and no
-    //waiter remains, performs the deferred real fd close.
+    //waiter remains, performs the deferred real fd close and returns
+    //the slot to the free list.
     void ReleaseWaiter(int32_t handle, NetDir dir);
-    //Flags closed. With no waiters the fd closes immediately;
-    //otherwise the last ReleaseWaiter closes it (R5).
+    //Flags closed. With no waiters the fd closes and the slot is
+    //recycled immediately; otherwise the last ReleaseWaiter does both
+    //(R5). Idempotent: a recycled handle is simply unknown.
     void MarkClosed(int32_t handle);
     //Returns the slot's fd (-1 once really closed). Used by close/
     //option arms before the closed check.
     int FdOf(int32_t handle) const;
-    //Returns the slot to the free list (generation++). Precondition:
-    //closed and no waiters (asserted).
-    void ReleaseFree(int32_t handle);
     int OpenCount() const;   //slots with a live fd (leak assertions)
     //Closes every still-open fd and clears the slots (executor
     //teardown backstop, design D12 — the script never closed them).
     void CloseAllOpen();
 
 private:
-    static constexpr int32_t kHandleIndexBits = 24;
+    //Closes the fd and returns the slot to the free list (generation
+    //++). Precondition: closed and no waiters (asserted). Called by
+    //MarkClosed / ReleaseWaiter at the moment both hold.
+    void Recycle(int32_t handle);
+
     std::vector<NetSocketSlot> m_slots;
     std::vector<int32_t> m_freeList;
 };

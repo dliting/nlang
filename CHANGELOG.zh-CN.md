@@ -16,6 +16,8 @@
 - **`io`的通用IO设施。**`io.nowMs()`读单调毫秒时钟；`io.parkForIo(fd, events, deadlineMs)`停泊发起调用的虚拟线程，直到描述符就绪或到达绝对截止时刻——`net`原生实现构建其上的停泊原语，对任何持有描述符的native库通用；`io.toBytes(s)`与`io.fromBytes(data)`在`string`与原始UTF-8`byte[]`之间转换。
 - **网络示例。**`examples/net_echo_server.n`与`net_echo_client.n`（派生处理器回测对）、`net_udp_echo.n`、`net_ping.n`、`net_http_mini.n`（构建于该包之上的最小HTTP/1.0服务器）与`net_conc_bench.n`（1000连接并发基准）。
 
+## [0.12.6] - 2026-11-03
+
 ### 新增
 
 - **带懒惰初始化的静态成员。**类和接口可声明`static`字段：存储槽位在类型自身上，所有方法、实例与导入方共享。初始化器懒惰执行——任意静态成员的首次使用（读或写、静态方法调用、实例构造）触发该类型的初始化器且仅运行一次；并发的首次使用由一个上下文执行、其余等待。初始化器抛出的异常传播到首次使用点并复位，下次使用重试；在初始化尚未完成时读取带初始化器的静态成员会在读取点抛出新的`InitializationException`（`Exception`的直接子类）。

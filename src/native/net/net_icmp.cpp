@@ -135,26 +135,30 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const int readFd = st->m_selfPipeFds[0];
     for (;;) {
         NetDrainPipe(readFd);
-        {   std::lock_guard<std::mutex> g(st->m_mutex);
-            const NetJobRecord* rec = st->m_jobs.Lookup(jobId);
-            if (rec && rec->done) {
-                const int r = rec->err != 0 ? rec->err : rec->rttMs;
-                st->m_jobs.Release(jobId);
-                ReturnInt(ret, r);
-                return;
-            }   }
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        const NetJobRecord* rec = st->m_jobs.Lookup(jobId);
+        if (rec && rec->done) {
+            const int r = rec->err != 0 ? rec->err : rec->rttMs;
+            st->m_jobs.Release(jobId);
+            ReturnInt(ret, r);
+            return;
+        }
         if (deadline > 0 && h->nowMs(h) >= deadline) {
-            std::lock_guard<std::mutex> g(st->m_mutex);
             st->m_jobs.Release(jobId);
             ReturnInt(ret, kNetErrTimeout);
             return;
         }
         if (readFd < 0) {   //self-pair never came up
-            std::lock_guard<std::mutex> g(st->m_mutex);
             st->m_jobs.Release(jobId);
             ReturnInt(ret, kNetErrPlatform);
             return;
         }
+        //The done-check and the first-entry registration share one
+        //critical section with the worker's fill (final review I3):
+        //the ack byte is only a hint and a co-waiter's drain can eat
+        //it, so separate sections could park this waiter past a
+        //record that was already done (R9 lost-wakeup closure, the
+        //NetTcpResolveWait shape).
         if (h->parkForIo(h, readFd, NLANG_EV_READ, deadline,
                 deadline > 0) == 0)
             return;   //unwound; re-entry adopts the job (FindOwn)
@@ -231,8 +235,10 @@ void NetIcmpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     bool claimed = false;
     for (;;) {
         int fd = -1;
-        if (!NetAdoptClaim(st, handle, NetDir::Read, self, &fd, &claimed)) {
-            ReturnInt(ret, kNetErrClosed);
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Read, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
         std::string from;

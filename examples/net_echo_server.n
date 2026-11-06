@@ -1,5 +1,6 @@
-// 示例:TCP echo服务器——accept循环+每连接一个虚拟线程。
-// 演示:服务器惯用法、spawn状态传递(类实例字段携带连接)、EOF收尾。
+// Example: TCP echo server — accept loop + one virtual thread per
+// connection. Shows the server idiom, spawn state passing (a class
+// instance field carries the connection), and the EOF finish.
 import io;
 import thread;
 import net;
@@ -38,7 +39,7 @@ class AcceptLoop {
             } catch (SocketException e) {
                 return;                     //listener closed: exit
             } catch (TimeoutException e) {
-                // accept轮询超时:继续等下一个连接
+                //accept poll timeout: keep waiting for the next connection
             }
         }
     }

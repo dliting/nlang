@@ -9,7 +9,7 @@ class UdpEcho {
         string from;
         int port = 0;
         int n = s.recvFrom(buf, out from, out port, 5000);
-        s.sendTo(buf, from, port, n);  //回发来源;只发前n字节(R3)
+        s.sendTo(buf, from, port, n);  //send back to the source; only the first n bytes (R3)
     }
 }
 
@@ -23,7 +23,7 @@ int main() {
     string from;
     int port = 0;
     int n = cli.recvFrom(buf, out from, out port, 5000);
-    //fromBytes读整数组:先拷出恰好n字节的缓冲再比较。
+    //fromBytes reads the whole array: copy out exactly n bytes first.
     byte[] msg = byte[n];
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     if (n != 5 || io.fromBytes(msg) != "dgram") { return 1; }

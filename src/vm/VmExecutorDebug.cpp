@@ -94,6 +94,7 @@ const char* ContextStateName(ContextState state) {
     case ContextState::ParkedClassInit: return "parked-classinit";
     case ContextState::ParkedChanRecv: return "parked-chan-recv";
     case ContextState::ParkedChanSend: return "parked-chan-send";
+    case ContextState::ParkedIo:       return "parked-io";
     case ContextState::ParkedPromise:  return "parked-promise";
     case ContextState::BlockedNative: return "blocked-native";
     case ContextState::Finished:      return "finished";

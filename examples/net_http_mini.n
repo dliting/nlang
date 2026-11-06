@@ -1,5 +1,7 @@
-// 示例:迷你HTTP服务器+客户端——readLine解请求行、Content-Length定长
-// 体分帧(readExactly)、半关闭收尾。HTTP分层地基的可行性演示。
+// Example: mini HTTP server + client — readLine parses the request line,
+// Content-Length frames the fixed-length body (readExactly), and a
+// half-close finishes the exchange. Demonstrates the footing a layered
+// HTTP stack builds on.
 import io;
 import thread;
 import net;
@@ -9,7 +11,7 @@ class HttpConnection {
     public void run() {
         string requestLine = conn.readLine(5000);
         if (requestLine == null) { conn.close(); return; }
-        // 丢弃头部直到空行。
+        //Discard headers until the blank line.
         while (true) {
             string header = conn.readLine(5000);
             if (header == null || header == "") { break; }
@@ -34,7 +36,7 @@ class HttpAccept {
             } catch (SocketException e) {
                 return;                 //listener closed: exit
             } catch (TimeoutException e) {
-                // accept轮询超时:继续等下一个连接
+                //accept poll timeout: keep waiting for the next connection
             }
         }
     }

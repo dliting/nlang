@@ -1,4 +1,4 @@
-// 示例:ICMP ping——往返时延、超时异常处理。
+// Example: ICMP ping — round-trip latency, timeout exception handling.
 import io;
 import net;
 

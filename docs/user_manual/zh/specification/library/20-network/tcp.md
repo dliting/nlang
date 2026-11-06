@@ -13,6 +13,7 @@
 | `accept(timeoutMs = 0)` | →`TcpStream` | 等待下一个连接，把它作为自己的`TcpStream`返回；停泊直到有连接到来或截止时刻到来 |
 | `localAddress()` | →`string` | 绑定的地址 |
 | `localPort()` | →`int` | 绑定的端口——`bind`用端口`0`时即系统分配的端口 |
+| `setRecvBufferSize(bytes)` | — | 为经本监听器接受的连接请求接收缓冲区大小；须在连接建立之前设置才生效 |
 | `close()` | — | 停止监听；幂等。已接受的连接不受影响 |
 
 `accept`的`TimeoutException`是轮询工具而非错误：还要照看关停标志的服务器循环捕获它再循环一轮——随包发布的`examples/net_echo_server.n`正是这么做的，关闭监听器则经`SocketException`终结循环。
@@ -21,7 +22,7 @@
 
 | 成员 | 形态 | 语义 |
 |---|---|---|
-| `TcpStream.connect(host, port, timeoutMs = 0)` | 静态→`TcpStream` | 解析`host`并建立连接，把解析出的每个地址依次试一遍；解析与等待都停泊调用方（§20.1）；没有地址在截止前应答时抛`SocketException` |
+| `TcpStream.connect(host, port, timeoutMs = 0)` | 静态→`TcpStream` | 解析`host`并建立连接，把解析出的每个地址依次试一遍；解析与等待都停泊调用方（§20.1）；截止时刻到来仍无地址接受连接时抛`TimeoutException`，解析失败或所有连接尝试被拒时抛`SocketException` |
 | `read(buf, timeoutMs = 0)` | →`int` | 最多填`buf.length`个字节并返回个数；`0`表示流结束——对端关闭了它的写端。字节按序到达；一次`read`可能返回少于请求的字节数 |
 | `write(data, count = -1)` | →`int` | 发送`data`的前`count`个字节——`count`为`-1`时全发；停泊直到字节移交给协议栈 |
 | `write(s)` | →`int` | 文本简写：把`s`编码为Unicode转换格式（UTF-8）字节并发送 |

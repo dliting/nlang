@@ -982,6 +982,57 @@ endif()
 
 add_test(NAME net_scheduler_tests COMMAND test_net_scheduler)
 
+# Final review I2: the claim-adopt critical section (a fresh call never
+# adopts a foreign context's direction claim) — the net parking TUs
+# compiled in beside the table, no VM process.
+add_executable(test_net_adopt
+    test_vm/test_net_adopt.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_tcp.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_adopt
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_adopt
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_adopt PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_adopt_tests COMMAND test_net_adopt)
+
+# Final review I4: the job table's adoption rule (a released record is
+# never re-adopted by FindOwn) — the table with its completion paths,
+# no VM.
+add_executable(test_net_jobs
+    test_vm/test_net_jobs.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_jobs.cpp
+    ${PROJECT_SOURCE_DIR}/src/native/net/net_state.cpp
+    ${NLANG_NET_MODULE_TEST_SOURCES}
+)
+target_include_directories(test_net_jobs
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/native
+        ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(test_net_jobs
+    PRIVATE
+        nlang_vm
+)
+if(WIN32)
+    target_link_libraries(test_net_jobs PRIVATE ws2_32 iphlpapi)
+endif()
+
+add_test(NAME net_jobs_tests COMMAND test_net_jobs)
+
 # v0.13.0 net task 6: per-executor module state — two executors in one
 # process run net bytecode through the nlang_net module and mint
 # independent handles; teardown closes the fds they left open.

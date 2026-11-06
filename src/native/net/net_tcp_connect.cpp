@@ -56,8 +56,7 @@ int NetConnectKick(NetExecState* st, const std::string& address, int port,
     if (r != kNetInProgress && r != kNetWouldBlock) {
         st->m_lastErrorText = NetLastErrorText();
         st->m_connectInFlight.erase(self);
-        st->m_slots.MarkClosed(*handle);
-        st->m_slots.ReleaseFree(*handle);
+        st->m_slots.MarkClosed(*handle);   //no waiters: closes + recycles
         return -1;
     }
     return 0;
@@ -89,8 +88,7 @@ int NetConnectVerdict(NetExecState* st, int32_t handle, int self,
         st->m_connectInFlight.erase(self);
         if (*claimed)
             st->m_slots.ReleaseWaiter(handle, NetDir::Write);
-        st->m_slots.MarkClosed(handle);
-        st->m_slots.ReleaseFree(handle);
+        st->m_slots.MarkClosed(handle);   //waiter-free now: closes + recycles
         return -1;
     }
     return 0;
@@ -104,8 +102,7 @@ void NetAbandonConnect(NetExecState* st, int32_t handle, int self,
     st->m_connectInFlight.erase(self);
     if (claimed)
         st->m_slots.ReleaseWaiter(handle, NetDir::Write);
-    st->m_slots.MarkClosed(handle);
-    st->m_slots.ReleaseFree(handle);
+    st->m_slots.MarkClosed(handle);   //waiter-free now: closes + recycles
 }
 
 }  //namespace

@@ -21,9 +21,13 @@ static void TestMintLookupGeneration() {
     CHECK(s != nullptr && s->fd == 5 && !s->closed);
     table.MarkClosed(h);
     CHECK(table.Lookup(h) == nullptr);          //closed slots reject
-    //Free + remint: the generation differs, the stale handle rejects.
-    table.ReleaseFree(h);
+    //MarkClosed on a waiter-free slot also recycles it (M10): remint
+    //reuses the index, the generation differs, the stale handle rejects.
+    const int32_t indexMask = (1 << kNetHandleIndexBits) - 1;
     const int32_t h2 = table.Mint(/*fd*/9, kNetKindTcpStream);
+    CHECK((h2 & indexMask) == (h & indexMask)); //index came back from the
+                                                //free list, not a fresh slot
+    CHECK((h2 >> kNetHandleIndexBits) != (h >> kNetHandleIndexBits));
     CHECK(table.Lookup(h) == nullptr);          //stale generation
     CHECK(table.Lookup(h2) != nullptr);
 }

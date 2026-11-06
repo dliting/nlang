@@ -160,9 +160,10 @@ native long nowMs();
 
 // Park the current virtual thread until fd is ready (events: 1 = read,
 // 2 = write) or the absolute deadline is reached (deadlineMs <= 0 means
-// no deadline); fd < 0 is a pure deadline park (timed wakeup). The call
-// returns after the wake — the caller re-checks its condition and may
-// park again.
+// no deadline); fd < 0 is a pure deadline park (timed wakeup), and
+// fd < 0 with no deadline returns immediately — nothing can wake such
+// a park. The call returns after the wake — the caller re-checks its
+// condition and may park again.
 native void parkForIo(int fd, int events, long deadlineMs);
 
 // string is a byte container; these helpers convert between text and

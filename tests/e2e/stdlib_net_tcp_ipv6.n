@@ -3,8 +3,10 @@ import net;
 
 int main() {
     TcpListener srv = TcpListener.bind("::", 0);
-    //connect先行:listen backlog让内核先完成握手,accept随即取到挂起
-    //连接;若accept在前,主上下文停泊等待、connect永不执行。
+    //Connect first: the listen backlog lets the kernel complete the
+    //handshake, so accept immediately finds the pending connection; if
+    //accept came first, the main context would park and connect would
+    //never run.
     TcpStream cli = TcpStream.connect("[::1]", srv.localPort(), 5000);
     TcpStream c = srv.accept(5000);
     if (c.peerAddress() != "::1") { return 1; }

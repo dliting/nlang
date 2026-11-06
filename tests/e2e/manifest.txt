@@ -2086,3 +2086,8 @@ stdlib_net_ping_loopback 0 ok
 stdlib_net_icmp_raw 0 ok
 stdlib_net_conc_echo 0 ok
 stdlib_net_parked_recv_gc 0 ok
+stdlib_net_tcp_concurrent_writer 0 ok
+stdlib_net_ping_stress 0 ok
+stdlib_net_count_guard 0 ok
+stdlib_net_udp_ttl 0 ok
+stdlib_io_park_guard 0 ok

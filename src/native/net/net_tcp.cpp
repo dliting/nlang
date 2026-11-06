@@ -30,6 +30,7 @@
 #include "net_state.h"
 #include "net_tcp_park.h"
 
+#include <nlang/runtime/StackDump.h>
 #include <nlang/vm/NativeHost.h>
 
 #include <mutex>
@@ -114,28 +115,35 @@ void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed) {
 }
 
 //Reads the slot's fd and adopts this call's claim under the mutex.
-//Returns false when the slot is gone: the direction's waiter is
+//kNetAdoptGone when the slot is gone: the direction's waiter is
 //cleared unconditionally — a claim there is either this call's own
 //pre-park claim (releasing it lets the R5 deferred close proceed) or
 //a foreign one the closer already woke (that waiter re-enters through
-//the same false branch without touching the fd, so closing the fd now
-//cannot race a parked call).
-bool NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir, int self,
-    int* fd, bool* claimed) {
+//the same Gone branch without touching the fd, so closing the fd now
+//cannot race a parked call). kNetAdoptConcurrent when a foreign
+//context holds the direction: rejecting at entry is what makes the
+//D11 "foreign waiters stay out while the claim is set" invariant hold
+//for the callers' per-direction state (final review I2: a fresh write
+//that adopted through here reset the parked writer's writeSent).
+NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
+    int self, int* fd, bool* claimed) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     NetSocketSlot* slot = st->m_slots.Lookup(handle);
     if (!slot) {
         st->m_slots.ReleaseWaiter(handle, dir);
-        return false;
+        return kNetAdoptGone;
     }
     *fd = slot->fd;
+    const int waiter = (dir == NetDir::Read) ? slot->readWaiter
+        : (dir == NetDir::Write) ? slot->writeWaiter
+        : slot->acceptWaiter;
+    if (waiter != 0 && waiter != self)
+        return kNetAdoptConcurrent;
     //Re-entry rebuilds this stack: adopt the claim that survived the
-    //park (D11 keeps foreign waiters out while the claim is set, so
-    //waiter == self is this call's own).
-    *claimed = (dir == NetDir::Read) ? slot->readWaiter == self
-        : (dir == NetDir::Write) ? slot->writeWaiter == self
-        : slot->acceptWaiter == self;
-    return true;
+    //park (waiter == self is this call's own; waiter == 0 is a fresh
+    //call that has not claimed yet).
+    *claimed = (waiter == self);
+    return kNetAdoptOk;
 }
 
 //Shared park tail: true = the caller must return (unwound: no value
@@ -155,8 +163,10 @@ bool NetParkTail(NetExecState* st, int32_t handle, NetDir dir,
 }
 
 //Gathers count byte-array cells (low bytes, view offset/stride aware)
-//into a packed send buffer.
+//into a packed send buffer. The script layer rejects count > length
+//(final review M2); the assert is the tripwire for future callers.
 std::vector<uint8_t> NetPackBytes(const NativeArrayView& view, int count) {
+    NLANG_ASSERT(count >= 0 && count <= view.elemCount);
     const auto* cells = static_cast<const int32_t*>(view.data);
     const int64_t o = view.offset, step = view.strides[0];
     std::vector<uint8_t> packed(static_cast<size_t>(count));
@@ -192,8 +202,12 @@ void NetTcpRead(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     bool claimed = false;
     for (;;) {
         int fd = -1;
-        if (!NetAdoptClaim(st, handle, NetDir::Read, self, &fd, &claimed)) {
-            ReturnInt(ret, kNetErrClosed);
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Read, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            //Concurrent: claimed stayed false — this call never held
+            //the direction, so there is nothing to release.
+            ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
         const int n = NetRecv(fd, scratch.data(),
@@ -241,8 +255,10 @@ void NetTcpWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     int offset = 0;
     for (;;) {
         int fd = -1;
-        if (!NetAdoptClaim(st, handle, NetDir::Write, self, &fd, &claimed)) {
-            ReturnInt(ret, kNetErrClosed);
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Write, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
         {   //the offset stash survives the park; a fresh call restarts
@@ -290,8 +306,10 @@ void NetTcpAccept(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     bool claimed = false;
     for (;;) {
         int fd = -1;
-        if (!NetAdoptClaim(st, handle, NetDir::Accept, self, &fd, &claimed)) {
-            ReturnInt(ret, kNetErrClosed);
+        const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
+            NetDir::Accept, self, &fd, &claimed);
+        if (adopt != kNetAdoptOk) {
+            ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
         const int peer = NetAccept(fd);   //non-blocking

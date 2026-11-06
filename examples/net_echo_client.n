@@ -1,4 +1,5 @@
-// 示例:TCP客户端——connect、文本收发、readLine分帧、优雅关闭。
+// Example: TCP client — connect, text exchange, readLine framing,
+// graceful close.
 import io;
 import thread;
 import net;

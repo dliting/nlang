@@ -162,8 +162,10 @@ rarely call these directly.
   thread until the descriptor `fd` is ready (`events`: `1` read,
   `2` write) or the absolute deadline `deadlineMs` is reached
   (`deadlineMs <= 0` means no deadline); `fd < 0` is a pure timed
-  wakeup. The call returns after the wake — the caller re-checks
-  its condition and may park again. This is the parking primitive
+  wakeup, and `fd < 0` with no deadline returns immediately —
+  nothing can wake such a park, so the call does not wait. The
+  call returns after the wake — the caller re-checks its condition
+  and may park again. This is the parking primitive
   the `net` package's blocking methods are built on (§20.1), and
   it is generic: a native library holding a descriptor parks
   through the same call, and future pipe and process plumbing

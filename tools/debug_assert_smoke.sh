@@ -6,13 +6,16 @@
 # so 137 ctest + full e2e stayed green while every Debug compile
 # aborted). This gate exercises the assertion-enabled tool chain:
 #
-#   1. build ncc/nvm in Debug (assertions on),
+#   1. build ncc/nvm and the native modules in Debug (assertions on),
 #   2. pack the whole standard library with Debug ncc — the stdlib
 #      sources are the richest single compile in the tree (every
 #      generic template mint, including the fixed-key self-references
 #      that hosted the original bug),
 #   3. compile and run a minimal program end to end,
-#   4. fail on any NLANG_ASSERT stack dump in the captured stderr.
+#   4. compile and run the loopback TCP echo case through the Debug
+#      nlang_net module — the net module's assert sites and the IO
+#      parking path only exist in that combination (final review M6),
+#   5. fail on any NLANG_ASSERT stack dump in the captured stderr.
 #
 # The Debug stdlib pack writes into temp/ so the shared build-tree
 # stdlib.npkg (which Release e2e gates consume) is never overwritten
@@ -48,8 +51,10 @@ fi
 ncc_exe=$build_dir/src/tools/ncc/Debug/ncc.exe
 nvm_exe=$build_dir/src/tools/nvm/Debug/nvm.exe
 
-echo "[1/5] building Debug ncc/nvm (assertions enabled)"
-cmake --build "$build_dir" --config Debug --target ncc nvm \
+echo "[1/6] building Debug ncc/nvm + native modules (assertions enabled)"
+#nlang_native_modules covers every loadable module (the echo case needs
+#at least nlang_io and nlang_net in native/Debug for the loader walk-up).
+cmake --build "$build_dir" --config Debug --target ncc nvm nlang_native_modules \
     >"$workdir.build.log" 2>&1 \
     || { tail -n 15 "$workdir.build.log"; fail "Debug build failed"; }
 
@@ -58,7 +63,7 @@ cmake --build "$build_dir" --config Debug --target ncc nvm \
 
 mkdir -p "$workdir"
 
-echo "[2/5] packing the standard library with Debug ncc"
+echo "[2/6] packing the standard library with Debug ncc"
 "$ncc_exe" build -p "$build_dir/stdlib/stdlib.nproj" \
     -o "$workdir/stdlib.npkg" \
     >"$workdir/pack.out" 2>"$workdir/pack.err" \
@@ -66,7 +71,7 @@ echo "[2/5] packing the standard library with Debug ncc"
 grep -q "stack dump:" "$workdir/pack.err" \
     && fail "stack dump during Debug stdlib pack"
 
-echo "[3/5] compiling a minimal program with Debug ncc"
+echo "[3/6] compiling a minimal program with Debug ncc"
 cat >"$workdir/minimal.n" <<'EOF'
 int main() { return 7; }
 EOF
@@ -76,7 +81,7 @@ EOF
 grep -q "stack dump:" "$workdir/compile.err" \
     && fail "stack dump during Debug compile"
 
-echo "[4/5] running it on Debug nvm"
+echo "[4/6] running it on Debug nvm"
 "$nvm_exe" "$workdir/minimal.ncu" \
     >"$workdir/run.out" 2>"$workdir/run.err"
 run_rc=$?
@@ -84,5 +89,24 @@ run_rc=$?
 grep -q "stack dump:" "$workdir/run.err" \
     && fail "stack dump during Debug run"
 
-echo "[5/5] all steps clean"
+#The loopback echo e2e case, compiled by Debug ncc and run by Debug nvm
+#against the Debug nlang_net module (native/Debug, found by the loader's
+#build-tree walk-up): the net module's NLANG_ASSERT sites, the slot
+#table, and the IO-poller parking path all execute under assertions.
+echo "[5/6] running the loopback echo case on Debug nvm + nlang_net"
+"$ncc_exe" build tests/e2e/stdlib_net_tcp_echo.n -o "$workdir/echo.ncu" \
+    >"$workdir/echo_compile.out" 2>"$workdir/echo_compile.err" \
+    || { tail -n 15 "$workdir/echo_compile.err"; fail "Debug net compile failed"; }
+grep -q "stack dump:" "$workdir/echo_compile.err" \
+    && fail "stack dump during Debug net compile"
+"$nvm_exe" "$workdir/echo.ncu" \
+    >"$workdir/echo_run.out" 2>"$workdir/echo_run.err"
+echo_rc=$?
+[ "$echo_rc" -eq 0 ] || fail "Debug net echo exited $echo_rc, expected 0"
+grep -q "ok" "$workdir/echo_run.out" \
+    || fail "Debug net echo printed no ok (see $workdir/echo_run.out)"
+grep -q "stack dump:" "$workdir/echo_run.err" \
+    && fail "stack dump during Debug net run"
+
+echo "[6/6] all steps clean"
 exit 0

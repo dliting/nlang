@@ -12,7 +12,7 @@
 #include "VmScheduler.h"
 #include "VmWorkPool.h"
 #include "IoPoller.h"
-#include <algorithm>
+#include <nlang/runtime/StackDump.h>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -70,15 +70,6 @@ void VmScheduler::WakeForIo(int id) {
     //that stores the frames (K7 handshake, same as WakeForMutex).
 }
 
-void VmScheduler::RemoveIoWaitsForFd(int fd) {
-    GilEnsureGuard g(*this);
-    m_ioWaits.erase(
-        std::remove_if(m_ioWaits.begin(), m_ioWaits.end(),
-            [fd](const IoWaitEntry& e) { return e.fd == fd; }),
-        m_ioWaits.end());
-    m_ioCv.notify_all();   //the poller re-syncs interest without it
-}
-
 //v11 R13: the net module's socket-close path (ABI wakeIoWaiters). The
 //waiter ids and the interest entries are dropped in one critical
 //section (the poller re-syncs without them), then each context is
@@ -95,6 +86,14 @@ void VmScheduler::WakeIoWaitersForFd(int fd) {
                 ++it;
             }
         }
+        //The fd is closing: every entry for it is gone, so its
+        //baseline entry must go too — if this was the last waiter the
+        //poller cv-sleeps before SyncPollerInterest's del-vanished
+        //loop can run, and a later socket whose fd value the OS
+        //re-uses would match the stale entry and be skipped by the
+        //equal-registration check (final review I1). No kernel del:
+        //the registration dies with the fd.
+        m_ioPollerRegistered.erase(fd);
         m_ioCv.notify_all();
     }
     for (int id : ids)
@@ -179,7 +178,7 @@ int VmScheduler::NextIoTimeoutMs() const {
 //still ParkedIo, so the erase is unconditional. The ready events are
 //hashed by fd so one pass over the table harvests them all (the
 //per-event table scans were O(evs × waits) at 10k parked sockets).
-void VmScheduler::HarvestIoEvents(void*, std::vector<IoPollerEvent>& evs) {
+void VmScheduler::HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs) {
     std::unordered_map<int, uint32_t> ready;
     for (const IoPollerEvent& ev : evs)
         ready[ev.fd] |= ev.events;
@@ -204,6 +203,17 @@ void VmScheduler::HarvestIoEvents(void*, std::vector<IoPollerEvent>& evs) {
             ++it;
         }
     }
+    //Empty table: the poller thread cv-sleeps before SyncPollerInterest
+    //can run, so its del-vanished-fds loop never sees these entries —
+    //drop the kernel registrations and the baseline here instead, for
+    //the same re-used-fd reason as WakeIoWaitersForFd (final review
+    //I1). The Add/Mod pair in SyncPollerInterest re-registers whatever
+    //a later park needs.
+    if (m_ioWaits.empty()) {
+        for (const auto& reg : m_ioPollerRegistered)
+            IoPollerDel(poller, reg.first);
+        m_ioPollerRegistered.clear();
+    }
 }
 
 //The poller thread body (lazy start, see ParkForIo). Empty interest:
@@ -215,6 +225,15 @@ void VmScheduler::HarvestIoEvents(void*, std::vector<IoPollerEvent>& evs) {
 //the timer thread).
 void VmScheduler::IoPollerThreadMain() {
     void* poller = IoPollerCreate();
+    //Poller creation failure is an OS resource exhaustion: readiness
+    //can never be reported, so the thread has nothing to do. Debug
+    //builds assert on it; release builds exit the thread — parked
+    //contexts then only ever wake on their deadlines, and a
+    //deadline-less park hangs (the machine is out of pollable
+    //resources anyway; final review M11a).
+    NLANG_ASSERT(poller != nullptr);
+    if (!poller)
+        return;
     for (;;) {
         GilEnsureGuard gil(*this);
         m_ioCv.wait(gil.Lock(), [this] {
