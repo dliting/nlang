@@ -14,6 +14,7 @@
 #include "IoPoller.h"
 #include <algorithm>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace nlang {
@@ -116,46 +117,37 @@ int VmScheduler::SubmitWork(void (*fn)(void*), void* arg,
 //Re-syncs the poller registration set to the current interest table:
 //per-fd wanted events are aggregated (several contexts may wait on one
 //socket), registrations equal to m_ioPollerRegistered are skipped (the
-//per-slice re-sync costs no syscalls for a steady set), the rest go
+//per-round re-sync costs no syscalls for a steady set), the rest go
 //through Add (fresh fd) or Mod (changed events), and fds that vanished
 //from the table are del'd. Add on an already-registered fd fails with
 //EEXIST, so Mod is the fallback — the pair is idempotent either way.
+//Hashed throughout: the 10k-connection benchmark (task 15) showed the
+//vector scans made each round O(fds²) — hundreds of milliseconds per
+//round once thousands of sockets were parked at once.
 void VmScheduler::SyncPollerInterest(void* poller) {
-    std::vector<std::pair<int, uint32_t>> wanted;
+    std::unordered_map<int, uint32_t> wanted;
     for (const IoWaitEntry& e : m_ioWaits) {
         if (e.fd < 0)
             continue;   //deadline-only park: no poll interest
-        bool found = false;
-        for (auto& w : wanted)
-            if (w.first == e.fd) { w.second |= e.events; found = true; break; }
-        if (!found)
-            wanted.emplace_back(e.fd, e.events);
+        wanted[e.fd] |= e.events;
     }
     for (const auto& w : wanted) {
-        bool unchanged = false;
-        for (const auto& r : m_ioPollerRegistered)
-            if (r.first == w.first && r.second == w.second) {
-                unchanged = true;
-                break;
-            }
-        if (unchanged)
+        auto prev = m_ioPollerRegistered.find(w.first);
+        if (prev != m_ioPollerRegistered.end() && prev->second == w.second)
             continue;
         if (IoPollerAdd(poller, w.first, w.second) != 0)
             IoPollerMod(poller, w.first, w.second);
+        m_ioPollerRegistered[w.first] = w.second;
     }
     for (auto it = m_ioPollerRegistered.begin();
          it != m_ioPollerRegistered.end();) {
-        bool still = false;
-        for (const auto& w : wanted)
-            if (w.first == it->first) { still = true; break; }
-        if (still) {
+        if (wanted.find(it->first) != wanted.end()) {
             ++it;
         } else {
             IoPollerDel(poller, it->first);
             it = m_ioPollerRegistered.erase(it);
         }
     }
-    m_ioPollerRegistered = wanted;   //next loop's dedup baseline
 }
 
 //Wait timeout: the nearest deadline across entries capped at the poll
@@ -182,22 +174,26 @@ int VmScheduler::NextIoTimeoutMs() const {
 //the entry wants a reported bit — HUP/ERR count as ready for every
 //direction (the fd is dead either way). Woken and stale entries are
 //both removed: a context that left ParkedIo on its own must not keep
-//re-firing the same event every slice (livelock guard, the
+//re-firing the same event every round (livelock guard, the
 //ExpireDueTimers shape). WakeForIo is a no-op unless the context is
-//still ParkedIo, so the erase is unconditional.
+//still ParkedIo, so the erase is unconditional. The ready events are
+//hashed by fd so one pass over the table harvests them all (the
+//per-event table scans were O(evs × waits) at 10k parked sockets).
 void VmScheduler::HarvestIoEvents(void*, std::vector<IoPollerEvent>& evs) {
-    for (const IoPollerEvent& ev : evs) {
-        for (auto it = m_ioWaits.begin(); it != m_ioWaits.end();) {
-            const bool hit = it->fd == ev.fd
-                && ((it->events & ev.events) != 0u
-                    || (ev.events & (IO_EV_HUP | IO_EV_ERR)) != 0u);
-            if (!hit) {
-                ++it;
-                continue;
-            }
-            WakeForIo(it->contextId);
-            it = m_ioWaits.erase(it);
+    std::unordered_map<int, uint32_t> ready;
+    for (const IoPollerEvent& ev : evs)
+        ready[ev.fd] |= ev.events;
+    for (auto it = m_ioWaits.begin(); it != m_ioWaits.end();) {
+        const auto r = it->fd >= 0 ? ready.find(it->fd) : ready.end();
+        const bool hit = r != ready.end()
+            && ((it->events & r->second) != 0u
+                || (r->second & (IO_EV_HUP | IO_EV_ERR)) != 0u);
+        if (!hit) {
+            ++it;
+            continue;
         }
+        WakeForIo(it->contextId);
+        it = m_ioWaits.erase(it);
     }
     const auto now = std::chrono::steady_clock::now();
     for (auto it = m_ioWaits.begin(); it != m_ioWaits.end();) {

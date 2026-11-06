@@ -35,6 +35,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace nlang {
@@ -905,10 +906,12 @@ private:
     void HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs);
                                             //ready + expired wakes
     std::vector<IoWaitEntry> m_ioWaits;      //linear table (timer shape)
-    //Last interest set registered with the poller (fd, events): the
-    //per-slice re-sync dedups against it (skip unchanged registrations,
-    //del vanished fds). Poller-thread-only, touched under the GIL.
-    std::vector<std::pair<int, uint32_t>> m_ioPollerRegistered;
+    //Last interest set registered with the poller (fd → events): the
+    //per-round re-sync dedups against it (skip unchanged registrations,
+    //del vanished fds). Hashed — the 10k-connection benchmark showed
+    //the vector form made each round O(fds²). Poller-thread-only,
+    //touched under the GIL.
+    std::unordered_map<int, uint32_t> m_ioPollerRegistered;
     bool m_ioThreadStarted = false;
     bool m_ioThreadShutdown = false;
     std::thread m_ioThread;
