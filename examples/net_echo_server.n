@@ -1,0 +1,68 @@
+// 示例:TCP echo服务器——accept循环+每连接一个虚拟线程。
+// 演示:服务器惯用法、spawn状态传递(类实例字段携带连接)、EOF收尾。
+import io;
+import thread;
+import net;
+
+class Connection {
+    public TcpStream conn;
+    public int id = 0;
+
+    public void serve() {
+        int total = 0;
+        while (true) {
+            byte[] buf = byte[64];
+            int n = conn.read(buf, 5000);
+            if (n == 0) { break; }          //client EOF
+            conn.write(buf, n);             //echo back
+            total = total + n;
+        }
+        conn.close();
+        io.print("connection " + id.toString() + " served "
+            + total.toString() + " bytes\n");
+    }
+}
+
+class AcceptLoop {
+    public TcpListener listener;
+    public int served = 0;
+
+    public void run() {
+        while (true) {
+            try {
+                served = served + 1;
+                Connection c = Connection();
+                c.conn = listener.accept(2000);
+                c.id = served;
+                thread.spawn(c.serve);
+            } catch (SocketException e) {
+                return;                     //listener closed: exit
+            } catch (TimeoutException e) {
+                // accept轮询超时:继续等下一个连接
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener listener = TcpListener.bind("127.0.0.1", 0);
+    io.print("echo server on port " + listener.localPort().toString() + "\n");
+    AcceptLoop loop = AcceptLoop();
+    loop.listener = listener;
+    Thread t = thread.spawn(loop.run);
+
+    // Demo clients in the same process (the gate needs self-exit).
+    for (int i = 0; i < 3; i = i + 1) {
+        TcpStream cli = TcpStream.connect("127.0.0.1", listener.localPort(), 5000);
+        cli.write("hello " + i.toString() + "\n");
+        cli.shutdownWrite();                //half-close: done writing
+        string reply = cli.readLine(5000);
+        io.print("client " + i.toString() + " got: " + reply + "\n");
+        cli.close();
+    }
+    thread.sleep(200);
+    listener.close();
+    thread.join(t);
+    io.print("ok");
+    return 0;
+}

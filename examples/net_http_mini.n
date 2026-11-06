@@ -1,0 +1,67 @@
+// 示例:迷你HTTP服务器+客户端——readLine解请求行、Content-Length定长
+// 体分帧(readExactly)、半关闭收尾。HTTP分层地基的可行性演示。
+import io;
+import thread;
+import net;
+
+class HttpConnection {
+    public TcpStream conn;
+    public void run() {
+        string requestLine = conn.readLine(5000);
+        if (requestLine == null) { conn.close(); return; }
+        // 丢弃头部直到空行。
+        while (true) {
+            string header = conn.readLine(5000);
+            if (header == null || header == "") { break; }
+        }
+        string path = requestLine.split(" ")[1];
+        string body = "served " + path;
+        conn.write("HTTP/1.0 200 OK\nContent-Length: "
+            + body.length().toString() + "\n\n" + body);
+        conn.shutdownWrite();
+        conn.close();
+    }
+}
+
+class HttpAccept {
+    public TcpListener listener;
+    public void run() {
+        while (true) {
+            try {
+                HttpConnection c = HttpConnection();
+                c.conn = listener.accept(2000);
+                thread.spawn(c.run);
+            } catch (SocketException e) {
+                return;                 //listener closed: exit
+            } catch (TimeoutException e) {
+                // accept轮询超时:继续等下一个连接
+            }
+        }
+    }
+}
+
+int main() {
+    TcpListener listener = TcpListener.bind("127.0.0.1", 0);
+    HttpAccept acc = HttpAccept(); acc.listener = listener;
+    Thread t = thread.spawn(acc.run);
+
+    TcpStream cli = TcpStream.connect("127.0.0.1", listener.localPort(), 5000);
+    cli.write("GET /hello HTTP/1.0\n\n");
+    string status = cli.readLine(5000);
+    int contentLength = 0;
+    while (true) {
+        string header = cli.readLine(5000);
+        if (header == null || header == "") { break; }
+        if (header.startsWith("Content-Length: ")) {
+            contentLength = header.substring(16, header.length()).toInt();
+        }
+    }
+    string body = io.fromBytes(cli.readExactly(contentLength, 5000));
+    io.print("status: " + status + "\n");
+    io.print("body: " + body + "\n");
+    cli.close();
+    listener.close();
+    thread.join(t);
+    io.print("ok");
+    return 0;
+}

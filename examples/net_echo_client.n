@@ -1,0 +1,30 @@
+// 示例:TCP客户端——connect、文本收发、readLine分帧、优雅关闭。
+import io;
+import thread;
+import net;
+
+class DemoServer {
+    public TcpStream conn;
+    public void run() {
+        string line = conn.readLine(5000);
+        conn.write("echo:" + line + "\n");
+        conn.close();
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    DemoServer s = DemoServer();
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    s.conn = srv.accept(5000);
+    Thread t = thread.spawn(s.run);
+
+    cli.write("morning\n");
+    string reply = cli.readLine(5000);
+    io.print("server says: " + reply + "\n");
+    cli.close();
+    thread.join(t);
+    srv.close();
+    io.print("ok");
+    return 0;
+}
