@@ -97,6 +97,16 @@ All notable changes to NLang are documented here. The format follows
 - **Self-import is not an import-cycle edge.** A unit importing
   its own package no longer trips the acyclic-import-graph check
   of 0.12.6.
+- **Concurrent static-initialization waiters race the wake path.**
+  Two carriers parking on the same first use raced the waiter
+  registration — an unguarded vector, so a concurrent park could
+  reallocate under the waker: heap corruption, crashes, and in
+  some interleavings a double initialization (two runs of one
+  initializer). Registration and the parked-state store now share
+  one critical section, and a Done/Fail that published first
+  aborts the losing park. Found by a release e2e run, pinned
+  under AddressSanitizer; latent since 0.12.6, with the 0.12.7
+  interpreter timing widening the window enough to surface.
 
 ## [0.12.6] - 2026-11-03
 
