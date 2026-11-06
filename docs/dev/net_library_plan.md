@@ -6,28 +6,33 @@
 **目标:** 按`docs/dev/net_library_design.md`实现nlang通用网络库`net`包:虚拟线程停泊
 式高并发TCP/UDP/ICMP,含六个示例、en+zh手册与全套门禁。
 
-**架构:** socket一律非阻塞;专用IO轮询线程(wepoll/epoll抽象)收割就绪事件并唤醒
-`ParkedIo`停泊上下文,复刻既有定时器线程与Channel两阶段停泊握手;DNS解析与ICMP
-echo在无GIL的专用工作线程上跑,经作业表回联唤醒。脚本层`stdlib/net.n`承载权威声明,
-并以脚本组装`readLine`/`readExactly`/`write(string)`与带out参数的`recvFrom`包装。
+**架构:** socket一律非阻塞;VM调度器的通用IO readiness设施(`IoPoller`+wepoll/epoll,
+按fd通用,net为第一个消费者)收割就绪并唤醒`ParkedIo`停泊上下文(复刻既有定时器线程与
+Channel两阶段停泊握手);网络实现住在VM**外**的`nlang_net` native模块(类第三方库,
+不链接nlang_vm),经ABI v11 `nowMs`/`parkForIo`/`moduleState`/`wakeIoWaiters`/
+`currentContextId`/`submitWork`获得通用IO停泊与原生工作线程池能力,其脚本面归io包
+(io.nowMs/io.parkForIo;通用字节助手io.toBytes/fromBytes亦自net.n移入io包,r1补注5);
+DNS解析与ICMP echo经`submitWork`提交VM通用工作线程池跑(无GIL),经
+self-pipe回联唤醒。`stdlib/net.n`承载权威声明,公开方法一律脚本方法,脚本层组装
+`readLine`/`readExactly`/`write(string)`与带out参数的`recvFrom`包装。
 
-**技术栈:** C++17、Winsock2 + vendored wepoll(IOCP)、POSIX骨架、CMake、nlang
-intrinsic通道(通道B)、e2e(`.n`真实编译执行)+ ctest(C++)。
+**技术栈:** C++17、Winsock2 + vendored wepoll(IOCP,仅编入nlang_vm)、POSIX骨架、
+CMake、VM外native模块通道(NativeHost ABI v11)、e2e(`.n`真实编译执行)+ ctest(C++)。
 
-**Spec:** `docs/dev/net_library_design.md`(v1,已提交8b523528;本计划对§5的两处
-细化见"计划级裁定")。
+**Spec:** `docs/dev/net_library_design.md`(r1+r1补注1/2/3/4/5,见文末修订记录;本计划对
+spec的细化见"计划级裁定"R1–R14;通用设施归属见spec§六盘点表)。
 
 ## 全局约束
 
-- **前置(T1开工前)**:`git merge master`——master领先dev十二个提交(数组/张量统一wave 1、切片语法、native宿主ABI v10、手册同步基线机制bd91907c/5f023053);T12的`tools/manual_sync_check.py`与`SYNC_BASELINE`仅存在于master,先合避免收尾跨线合并([[nlang-merge-array-layout-consumers]]教训)。2026-11-06 `git merge-tree`干跑零冲突(仅known-limitations en/zh两页双方改动,可自动合并);合并后先跑build+ctest门确认绿基线再开T1。
-- C++17;全部代码在`nlang::`命名空间;优先STL,不新增外部依赖(vendored wepoll除外,MIT)。
+- **前置(T1开工前)**:`git merge master`——master领先dev十二个提交(数组/张量统一wave 1、切片语法、native宿主ABI v10、手册同步基线机制bd91907c/5f023053);T14的`tools/manual_sync_check.py`与`SYNC_BASELINE`仅存在于master,先合避免收尾跨线合并([[nlang-merge-array-layout-consumers]]教训)。2026-11-06 `git merge-tree`干跑零冲突(仅known-limitations en/zh两页双方改动,可自动合并);合并后先跑build+ctest门确认绿基线再开T1。
+- C++17;全部代码在`nlang::`命名空间;优先STL,不新增外部依赖(vendored wepoll除外,BSD-2-Clause)。
 - 注释一律英文;文件头`/*--- ---*/`;source_size_guard:每文件≤500行、每函数≤50行——家族按spec§六拆TU。
-- intrinsic ID只追加不复用,本批**174..220**(共47个;前置合并后master已占173=`Array.toString`,221=下一空闲);`BindingTable.cpp`键约定`pkg.name`/`Class.method`/`Class/N`;`s_HandleClassNames`只追加。
-- **VM既有硬约束:intrinsic不支持out参数**(`VmExecutorOpsCalls.cpp:201`显式拒绝)——带out参数的方法必须是net.n脚本层包装(用户函数,写回合法)。
-- 静态native方法走声明类的静态成员路径(计划级裁定R1,含探针);同名重载用默认参数归一(如`write(byte[] data, int count = -1)`),避免绑定键冲突。
-- Windows链接`ws2_32`+`iphlpapi`(仅nlang_vm,PRIVATE);POSIX骨架v1编译通过即可;wepoll vendored到`src/3rdparty/wepoll/`并登记LICENSE。
+- **ABI:`NLANG_HOST_ABI_VERSION` 10→11**(回调表尾追加六项:`nowMs`/`parkForIo`/`moduleState`/`wakeIoWaiters`/`currentContextId`/`submitWork`,契约见任务5);既有四个native模块与VM同构建重编(版本探针)。net不再占intrinsic ID:任务4加的174..220块在任务6删除,下一空闲回到174;`BindingTable.cpp`的net行与`s_HandleClassNames`四个句柄类名同任务删除。
+- **模块native(按名派发)不支持out参数**——带out参数的方法(`UdpSocket.recvFrom`/`IcmpSocket.recvFrom`)必须是net.n脚本层包装(用户函数,写回合法;旧intrinsic通道的`VmExecutorOpsCalls.cpp:201`限制只约束已废弃的intrinsic通道)。
+- 静态工厂=脚本静态方法(net.n `public static TcpListener bind(...)`,调内部namespace native;无绑定表行、无s_Faces行——计划级裁定R1);同名重载用默认参数归一(如`write(byte[] data, int count = -1)`)。
+- Windows:`nlang_net`模块链接`ws2_32`+`iphlpapi`(PRIVATE);`nlang_vm`保留`ws2_32`(wepoll内部用winsock)、去掉`iphlpapi`;wepoll vendored到`src/3rdparty/wepoll/`并登记LICENSE,**仅编入nlang_vm**(模块不poll,只经parkForIo登记兴趣);POSIX骨架v1编译通过即可。
 - e2e hermetic:一律绑回环——IPv4用`127.0.0.1`,IPv6用例绑`::`连`[::1]`,组播用例绑`0.0.0.0`(join接口=默认出口接口,回环副本才投递);端口一律0(经`localPort()`读回)、30s内自退出;多载体变体用`.flags`。
-- 版本0.12.6→**0.13.0**;`CHANGELOG.md`/`CHANGELOG.zh-CN.md`同步;手册en/zh成对;手册```nlang围栏含`main(`即被docs审计真实编译执行(snippets.py规则),网络片段必须自退出。
+- 版本提升至**0.13.0**;`CHANGELOG.md`/`CHANGELOG.zh-CN.md`同步;手册en/zh成对;手册```nlang围栏含`main(`即被docs审计真实编译执行(snippets.py规则),网络片段必须自退出。
 - 门禁只认`tools/gate.sh`判决行/退出码;全套含IDE树ctest、Debug断言冒烟、docs strict(见[[nlang-ide-tree-gate-requirement]]、[[nlang-cleanroom-gate-recipe]]记忆)。
 - TDD:先写失败测试(e2e或ctest)再实现;真实编译`.n`+真实执行字节码。
 - 提交信息英文Conventional Commits;每任务干净退出(测试全绿+零新发现)后提交。
@@ -37,65 +42,86 @@ intrinsic通道(通道B)、e2e(`.n`真实编译执行)+ ctest(C++)。
 
 spec未逐一写出、但使用者最可能踩中的输入类/失效模式;每条在归属任务里钉测试:
 
-1. **超时与数据就绪同刻竞态**:唤醒后先重试操作、再查截止——数据已到则返回,不因"已过截止"误报超时。测试:`stdlib_net_tcp_read_timeout.n`(无数据→TimeoutException)+ 同文件迟到数据变体(数据恰在截止前到→成功)。→任务5
-2. **reader停泊时另一上下文close**:停泊方得`SocketException("socket closed")`而非挂死。测试:`stdlib_net_tcp_close_wakes_reader.n`。→任务5
-3. **write到已关闭对端**:得`SocketException`,不挂死、不静默半写。测试:`stdlib_net_tcp_write_closed.n`。→任务5
-4. **停泊期间GC风暴**:停泊帧内byte[]缓冲引用被精确根集覆盖,唤醒后缓冲完好。测试:`stdlib_net_parked_recv_gc.n`(`--gc-stress=4`)。→任务10
-5. **1000停泊连接不占载体**:单载体下千并发回环echo仍须完成(停泊让出载体)。测试:`examples/net_conc_bench.n`(单载体入examples_manifest门)+ `stdlib_net_conc_echo.n`(`--carriers=4`,200连接)。→任务10/11
+1. **超时与数据就绪同刻竞态**:唤醒后先重试操作、再查截止——数据已到则返回,不因"已过截止"误报超时。测试:`stdlib_net_tcp_read_timeout.n`(无数据→TimeoutException)+ 同文件迟到数据变体(数据恰在截止前到→成功)。→任务7
+2. **reader停泊时另一上下文close**:停泊方得`SocketException("socket closed")`而非挂死。测试:`stdlib_net_tcp_close_wakes_reader.n`。→任务7
+3. **write到已关闭对端**:得`SocketException`,不挂死、不静默半写。测试:`stdlib_net_tcp_write_closed.n`。→任务7
+4. **停泊期间GC风暴**:停泊帧内byte[]缓冲引用被精确根集覆盖,唤醒后缓冲完好。测试:`stdlib_net_parked_recv_gc.n`(`--gc-stress=4`)。→任务12
+5. **1000停泊连接不占载体**:单载体下千并发回环echo仍须完成(停泊让出载体)。测试:`examples/net_conc_bench.n`(单载体入examples_manifest门)+ `stdlib_net_conc_echo.n`(`--carriers=4`,200连接)。→任务12/13
+6. **执行器收尾关闭未关socket**:脚本忘close不得泄漏fd——moduleState析构随执行器关闭全部打开槽;第二个执行器拿到全新槽表(句柄值不跨执行器)。测试:`tests/test_vm/test_module_state.cpp`。→任务6
 
 ## 计划级裁定(对spec的细化,实施时不再重新讨论)
 
-- **R1 静态工厂绑定路径**:首选"声明类静态native成员"路径(net.n写`public static native TcpListener bind(string host, int port);`,绑定表行`{"net","TcpListener.bind",id}`)。任务4含探针:若resolver/stamping不支持静态native(编译或绑定失败),退路=仿`Future.selectAny`在`ExprResolverBuiltinClasses.cpp`的`s_Faces`加行(每`(typeName,methodName)`恰一行,重载靠脚本包装区分),两路e2e判据相同。
-- **R2 out参数包装**:`UdpSocket.recvFrom`/`IcmpSocket.recvFrom`为net.n脚本方法(out参数合法),调私有native原语`recvFromRaw`+`lastRecvAddress`/`lastRecvPort`;C++把来源存为槽内`std::string`,读取时`MintNewString`——不新增GC根。私有native若stamping不支持(探针在任务8),退路=改public并在手册标注"内部原语,配合recvFrom使用"。
-- **R3 write/send计数参数**:spec§五`write(byte[] data)`增默认参`int count = -1`(全写整数组;count≥0只写前count字节);UDP的`send`/`sendTo`同样加`int count = -1`默认参(数据报同样只发前count字节)。echo服务器只回发前n字节的便利(无count参时32字节接收缓冲会全带出去);视图实参由偏移感知助手解析(任务4助手规格)。任务4同步修订spec§五行文。
-- **R4 WSA生命周期落点**:不放`Runtime::StaticInit`(runtime库不链ws2_32);改`NetPlatformInit()`进程级`std::once_flag`,由net家族派发入口与轮询/工作线程首次调用。效果与spec§六"进程级一次、仅VM路径"一致,模块边界更干净。`WSACleanup`配对此once:首次init内注册`std::atexit(NetPlatformWsaCleanup)`,宿主正常退出路径执行(spec§六"WSACleanup在宿主退出路径执行";`Runtime::StaticFini`在runtime层无法调vm符号,atexit与once_flag天然配对)。
+- **R1 静态工厂路径(r1修订重写)**:net.n公开类提供`public static`脚本方法(如`public static TcpListener bind(string host, int port)`),内部调模块注册的namespace native(`_tcpBind`等);模块无对象字段访问,receiver只是对象句柄(同tensor fullI内部native先例)。旧"声明类静态native成员+绑定表行"路径随intrinsic通道废弃(BindingTable不再有net行);句柄=脚本类私有int字段+public脚本构造器。
+- **R2 out参数包装**:`UdpSocket.recvFrom`/`IcmpSocket.recvFrom`为net.n脚本方法(out参数合法):调内部native `_udpRecvFrom`(停泊接收)+`_udpLastRecvAddress`/`_udpLastRecvPort`(读槽内记录来源);C++把来源存为槽内`std::string`,读取时经宿主回调`MintNewString`——不新增GC根。内部native用下划线前缀命名(词法器`Alpha=[_A-Za-z]`合法),不入用户可见面。
+- **R3 write/send计数参数**:spec§五`write(byte[] data)`增默认参`int count = -1`(全写整数组;count≥0只写前count字节);UDP的`send`/`sendTo`同样加`int count = -1`默认参(数据报同样只发前count字节)。echo服务器只回发前n字节的便利(无count参时32字节接收缓冲会全带出去);视图实参由偏移感知助手解析(任务4助手规格)。spec§五行文已由spec r1补注3修订(write/send/sendTo加`int count = -1`)。
+- **R4 WSA生命周期落点(r1修订重写)**:移入`nlang_net`模块——`NLANG_DEFINE_NATIVE_INIT`路径进程级`std::once_flag`,首次init内注册`std::atexit(WSACleanup)`。VM轮询器(wepoll=IOCP)不需要WSAStartup,nlang_vm保留ws2_32链接(wepoll内部用winsock错误报告)。效果与spec§六"进程级一次、WSACleanup在宿主退出路径执行"一致,模块边界更干净。
 - **R5 close的fd生命周期**:按spec§七引用纪律——槽`closed`后不立即`NetClose(fd)`,待停泊者清零(唤醒方复查closed后释放)再真正关fd;无停泊者时close即关。
 - **R6 轮询切片**:有新兴趣时`NetPollerWait`超时取`min(最近截止-now, kIoPollSliceMs=10ms)`,封顶新兴趣登记延迟;无兴趣时cv长睡(复刻定时器线程cv模式)。
+- **R7 停泊解卷/重入契约(审查第1轮重写)**:`parkForIo`首入登记兴趣+置当前上下文`m_ioParkPending`(不置armed)并返回0(native拿到0必须立即返回);blocking臂在已提交K6重取尾段`FinishBlockingNative`内处置停泊,顺序沿用已提交约束:`BeginExecuting`→重取GIL→`RemoveNativeRoots`→generation失配/StopRequested检查→见pending→清除→调调度器新增方法`FinishIoPark(id)`(GIL已持有、无需重取;取`ParkContextFrames`的判定半段,该函数先`frames.clear()`故不可直接复用——帧已由`ParkFramesForBlockingNative`移入`ctx->frames`,不再移动):`ctx->state==ParkedIo`则置`framesParked=true`;已`Runnable`(唤醒抢在停泊登记前)则直接入队。然后**不**`RestoreStolenFrames`、**不**写回ret(停泊上下文无在飞结果;不经跨DLL异常传播)→返回枚举`Parked`。顺序两条硬约束(审查第2轮修正;已提交`VmExecutorBlockingNative.cpp:166-170`注释明文):`BeginExecuting`必须先于GIL重取——垃圾收集停世界的会合在持GIL下挂条件变量等待,最后到达的收集者需要GIL,先重取即死锁;pending读取必须在generation/StopRequested检查之后——僵尸载体路径上上下文已随运行拆除析构,先读是悬空读。唤醒(`WakeForIo`)**置**`m_ioParkArmed`并按既有K7握手入队,调度器迁移上下文、重执行`OP_CallNative`;重入时parkForIo见armed→清→返回1→native重试syscall。标志协议:pending由首入置、blocking臂消费;armed由唤醒置、重入消费(原文"首入置armed、唤醒清armed"自相矛盾,本轮修正)。
+- **R8 moduleState形态**:`moduleState(tag, ctor, dtor)`——宿主维护每执行器`map<tag, pair<ptr, dtor>>`,每tag首调跑ctor,执行器收尾按tag字典序跑dtor(先于模块卸载;原"逆序"在map下无从实施,措辞修正——net现为唯一有状态模块,无实际析构顺序依赖);**前提(审查第2轮明示)**:dtor在全部载体停止后运行——模块dtor取状态mutex并在条件变量上等在飞作业,若仍有载体停在native内持该mutex等待GIL,将与文档锁序(状态mutex→GIL)构成反向死锁;模块状态对象为C++结构体(槽表/last-error/self-pipe/作业表+状态mutex),不用裸bytes形态。
+- **R9 作业通道与每执行器状态加锁(审查第1轮重写)**:作业表存每执行器状态(mutex),工作线程池归VM的VmWorkPool(per-调度器单一通用池,DNS/ICMP以两级优先级队列区分,r1补注4);作业记录存`NetExecState*`+jobId(提交时在调用载体上经moduleState解析——`NativeHost`是每次调用的栈上对象,存其指针调用返回即悬空),fn返回后池向ackFd(=self-pipe写端)写1字节(loopback TCP对——wepoll只认socket);停泊上下文唤醒后先清pipe字节再查作业(电平触发防自旋);记录done/released双标志齐才释放。**状态加锁依据**:已提交`NetSocketTable`头注释的加锁前提是"一切调用在VM全局锁下",r1下blocking native释放GIL后跨载体并发——`NetExecState`增`std::mutex`覆盖槽表、`lastErrorText`与等待者纪律:等待方临界区{查closed→置waiter→parkForIo首入登记},关闭方临界区{MarkClosed→读waiter标志},释放锁后再调`wakeIoWaiters(fd)`(关丢唤醒窗:先close→等待方见closed;先置waiter→关闭方见置位);锁序状态mutex→GIL(parkForIo/wakeIoWaiters内部取GIL时持状态锁,轮询器只GIL下触调度器态,无反序)。执行器析构:dtor先置shutdown并等在飞作业到done(`MarkDone`通知cv)再释放状态——worker不写已释放内存。
+- **R10 错误码表**:native返回负码-1 closed/-2 timeout/-3并发违例/-4平台错误/-5非法参数;脚本`_throwNet`映射TimeoutException/SocketException(-4拼`_lastErrorText()`)。
+- **R11 句柄与命名**:句柄=脚本类私有int字段+public脚本构造器;内部native下划线前缀命名合法;异常子类两参`super(message, cause)`委托有e2e先例(super_with_args.n),退路=super(message)+cause字段拼消息(任务6探针)。
+- **R12 截止传递**:内部native收绝对截止(long,io.nowMs同域,≤0=无截止);公开方法把timeoutMs换算一次,绝对截止跨重入/跨多段操作稳定(readLine/readExactly共享同一截止)。
+- **R13 wakeIoWaiters**:close native(blocking通道、无GIL)需注销兴趣+唤醒停泊等待者——ABI v11第四回调`wakeIoWaiters(fd)`(宿主取GIL→从`m_ioWaits[fd]`收集等待者id并注销兴趣→逐个`WakeForIo`;已提交`RemoveIoWaitsForFd`只注销不唤醒,唤醒语义由本回调补);并入任务5。
+- **R14 currentContextId(审查第1轮新增)**:模块的每方向waiter守卫须区分"本调用重入"与"他人并发抢占"(已提交槽表waiter字段=上下文id,0=无;`ReleaseWaiter`无条件清向,误清他人waiter会破坏R5延迟关fd判定),而模块在blocking通道无上下文身份、ABI v11前四项不携带——增第五回调`currentContextId(self)`(宿主返调度器当前上下文id,跨停泊/重入稳定)。VM保持通用:拒绝策略留在模块,`parkForIo`不掺net语义。
 
 ## 文件结构
 
 ```
-新建  src/3rdparty/wepoll/{wepoll.c,wepoll.h,LICENSE.txt}      vendored(IOCP epoll兼容,MIT)
-新建  src/vm/net/NetPlatform.h                                  平台抽象接口
-新建  src/vm/net/NetPlatformWindows.cpp                         winsock2+wepoll+IcmpSendEcho2
-新建  src/vm/net/NetPlatformPosix.cpp                           POSIX骨架(编译通过)
-新建  src/vm/net/NetSocketTable.h/.cpp                          每执行器socket槽表(代际防ABA)
-新建  src/vm/VmSchedulerIo.cpp                                  ParkForIo/兴趣表/轮询线程
-新建  src/vm/NetResolver.cpp                                    DNS线程+ICMP线程+作业表
-新建  src/vm/IntrinsicsNetSupport.cpp                           家族入口/toBytes/fromBytes/扎根助手
-新建  src/vm/IntrinsicsNetTcp.cpp                               TCP内在函数
-新建  src/vm/IntrinsicsNetUdp.cpp                               UDP内在函数
-新建  src/vm/IntrinsicsNetIcmp.cpp                              ICMP内在函数+ping
-新建  stdlib/net.n                                              权威声明+脚本层方法
-修改  include/nlang/vm/Intrinsics.h                             ID 174..220追加块
-修改  src/compiler/builder/BindingTable.cpp                     net行+s_HandleClassNames
-修改  src/vm/VmExecutorIntrinsics.cpp                           ctor链+2、net家族级联分支
-修改  src/vm/VmExecutor.cpp / VmExecutor.h                      类idx缓存、异常idx、槽表/解析器成员、收尾
-修改  src/vm/VmScheduler.h / VmScheduler.cpp                    Reason::Io、ParkedIo、成员、析构join
-修改  src/vm/CMakeLists.txt                                     新源+wepoll+ws2_32/iphlpapi
-修改  CMakeLists.txt                                            (仅当wepoll需独立目标;默认不需要)
-新建  tests/test_vm/test_net_platform.cpp / test_net_slots.cpp / test_net_scheduler.cpp
-修改  tests/CMakeLists.txt                                      三个ctest注册
-新建  tests/e2e/stdlib_net_*.n(+.flags)                         19个e2e
-新建  tests/e2e/array_size_call_expr.n                          1个e2e(编译器崩溃回归)
-修改  tests/e2e/manifest.txt                                    20行
-修改  tests/test_langservice/test_symbol_index.cpp              175→178、net命名空间
+已提交(任务1-4历史形态;任务6按r1架构搬迁/解耦):
+  src/3rdparty/wepoll/{wepoll.c,wepoll.h,LICENSE.txt}            vendored(IOCP epoll兼容,BSD-2-Clause)
+  src/vm/net/NetPlatform.h / NetPlatformInternal.h / NetPlatformWindows.cpp / NetPlatformWindowsIcmp.cpp / NetPlatformPosix.cpp  平台抽象(syscall层)
+  src/vm/net/NetSocketTable.h/.cpp                              每执行器socket槽表(代际防ABA)
+  src/vm/VmSchedulerIo.cpp                                      兴趣表/轮询线程/ParkForIo
+  src/vm/IntrinsicsNetSupport.cpp / IntrinsicsNetTcp.cpp / IntrinsicsNetUdp.cpp / IntrinsicsNetIcmp.cpp  intrinsic家族(任务6删除)
+  include/nlang/vm/Intrinsics.h ID 174..220块、BindingTable.cpp net行、stdlib/net.n初版、
+  tests/test_vm/test_net_platform.cpp / test_net_slots.cpp / test_net_scheduler.cpp、
+  tests/e2e/stdlib_net_bytes_roundtrip.n / stdlib_net_tcp_bind_probe.n / array_size_call_expr.n
+新建  src/vm/IoPoller.h / IoPollerWindows.cpp / IoPollerPosix.cpp  通用fd readiness抽象(从NetPlatform拆出,wepoll/epoll留VM)
+新建  src/vm/VmWorkPool.h / VmWorkPool.cpp  通用原生工作线程池(并发基础设施,per-调度器惰性起停、与轮询线程同模板):submitWork(fn,arg,ackFd,priority),worker无GIL跑fn、完成向ackFd写一字节(r1补注4)
+搬迁  src/vm/net/NetPlatform.h→net_platform.h、NetPlatformInternal.h→net_platform_internal.h、NetPlatformWindows.cpp→net_platform_windows.cpp、NetPlatformWindowsIcmp.cpp→net_platform_icmp_windows.cpp、NetPlatformPosix.cpp→net_platform_posix.cpp、NetSocketTable.{h,cpp}→net_slots.{h,cpp}  syscall层与槽表git mv入模块
+新建  src/native/net/net_native.cpp net_state.{h,cpp} net_tcp.cpp net_udp.cpp net_icmp.cpp net_jobs.{h,cpp}  模块TU(入口/每执行器状态/TCP/UDP/ICMP/作业表+自管道ack;工作线程池归VM,经submitWork提交)
+修改  include/nlang/vm/NativeHost.h                             ABI v11六回调
+修改  include/nlang/vm/Intrinsics.h                             删174..220块(下一空闲回174)
+修改  src/compiler/builder/BindingTable.cpp                     删net行+s_HandleClassNames四条
+修改  src/vm/VmExecutorIntrinsics.cpp                           删net级联
+修改  src/vm/VmExecutor.h / VmExecutor.cpp                      删net成员/idx缓存/收尾关fd
+修改  src/vm/VmExecutorNativeHost.cpp                           v11接线+六实现
+修改  src/vm/VmExecutorBlockingNative.cpp                       park-pending处置(R7)
+修改  src/vm/VmScheduler.h                                      armed/pending标志、WakeForIo置armed、FinishIoPark(R7)
+修改  src/vm/VmSchedulerIo.cpp                                  include改IoPoller.h
+修改  src/vm/CMakeLists.txt                                     删net TU/IntrinsicsNetSupport/iphlpapi(wepoll留)
+修改  src/native/CMakeLists.txt                                 注册nlang_net(target_sources+ws2_32/iphlpapi+install)
+修改  stdlib/io.n                                               加nowMs/parkForIo/toBytes/fromBytes(字节助手自net.n移入,r1补注5)
+修改  stdlib/net.n                                              全文重写(纯脚本异常/脚本类/内部native;公开toBytes/fromBytes删除)
+改名  tests/e2e/stdlib_net_bytes_roundtrip.n→stdlib_io_bytes_roundtrip.n  字节往返用例随助手迁入io包(r1补注5)
+新建  tests/test_vm/test_work_pool.cpp                          VmWorkPool单测(提交→ack字节、两级优先级、惰性起停)
+新建  tests/test_vm/test_module_state.cpp                       执行器隔离+析构关fd(审查焦点6)
+修改  tests/CMakeLists.txt                                      test_net_platform/test_net_slots改编模块源(不链nlang_vm)+注册test_module_state
+修改  tests/test_vm/test_net_platform.cpp / test_net_slots.cpp / test_net_scheduler.cpp  poller用例并入调度器测试
+修改  tests/test_compiler/test_library_index.cpp                177→179→187→199→203→205→223→229(逐任务)
+修改  tests/test_langservice/test_symbol_index.cpp              同计数
+新建  tests/e2e/stdlib_io_park_now.n                            io停泊e2e
+新建  tests/e2e/stdlib_net_*.n(+.flags)                         17个新net e2e
+修改  tests/e2e/manifest.txt                                    +18行
 新建  examples/net_echo_server.n net_echo_client.n net_http_mini.n net_udp_echo.n net_ping.n net_conc_bench.n
 修改  tests/e2e/examples_manifest.txt                           6行
 新建  docs/user_manual/{en,zh}/specification/library/20-network/{index,tcp,udp,icmp}.md
 修改  docs/user_manual/{en,zh}/specification/library/11-conventions.md 19-library-exceptions.md index.md
 修改  docs/user_manual/{en,zh}/getting-started/install-layout.md mkdocs.en.yml mkdocs.zh.yml
-修改  CHANGELOG.md CHANGELOG.zh-CN.md VERSION stdlib/net.n声明面 docs/user_manual/SYNC_BASELINE
-新建  tools/net_bench/net_bench_10k.n                           本地基准(不入ctest)
+修改  CHANGELOG.md CHANGELOG.zh-CN.md VERSION docs/user_manual/SYNC_BASELINE
+新建  tools/net_bench/net_bench_10k.n                           本地基准(不入ctest;ab/wrk吞吐口径)
 ```
 
 ## 任务依赖
 
 ```
-T1平台层 → T2槽表 → T3调度器停泊 → T4包骨架(探针R1) → T5 TCP核心 → T6 TCP选项
-                                                      T7 脚本分帧(依赖T5)
-T5 → T8 UDP(R2探针) → T9 ICMP+ping → T10 并发/GC加固 → T11 示例 → T12 文档 → T13 全套门禁+基准
+T1平台层 → T2槽表 → T3调度器停泊 → T4包骨架(任务1-4已提交,历史形态)
+T5 ABI v11+io停泊面 → T6 模块搬迁/解耦+net.n重写 → T7 TCP核心 → T8 TCP选项 → T9 脚本分帧
+T7 → T10 UDP → T11 ICMP+ping → T12 并发/GC加固 → T13 示例 → T14 文档 → T15 全套门禁+10k基准
 ```
+任务5-15全文见本文件后半(任务1-4文本为已提交历史,保留原样;其文件路径以任务6搬迁后的新布局为准)。
 
 ---
 
@@ -110,7 +136,7 @@ T5 → T8 UDP(R2探针) → T9 ICMP+ping → T10 并发/GC加固 → T11 示例 
 **接口:**
 - 产出:`nlang::`自由函数`NetPlatformInit/NetOpenTcpStream/NetOpenUdp/NetOpenIcmp/NetBind/NetListen/NetConnect/NetAccept/NetRecv/NetSend/NetRecvFrom/NetSendTo/NetShutdownWrite/NetClose/NetConnectResult/NetLocalPort/NetLocalAddress/NetPeerPort/NetPeerAddress/NetSetNoDelay/NetSetKeepAlive/NetSetSendBuffer/NetSetRecvBuffer/NetSetBroadcast/NetJoinMulticast/NetLeaveMulticast/NetSetMulticastTtl/NetSetTtl/NetPollerCreate/NetPollerClose/NetPollerAdd/NetPollerMod/NetPollerDel/NetPollerWait/NetResolve/NetIcmpEcho/NetIcmpSend/NetIcmpRecv/NetLastErrorText`(任务3/5/8/9消费)。
 
-- [ ] **步骤1:vendor wepoll**。从https://github.com/piscator/wepoll 取`wepoll.c`/`wepoll.h`(MIT),连同MIT全文存为`LICENSE.txt`(登记"Copyright (c) 2019 Oleg Kalashev")。wepoll.c自带`we_`前缀导出(`we_poll_create/we_poll_wait/...`),不与ws2_32符号冲突。
+- [ ] **步骤1:vendor wepoll**。从https://github.com/piscisaureus/wepoll 的dist分支取`wepoll.c`/`wepoll.h`(BSD-2-Clause,Bert Belder 2012-2020),连同BSD-2-Clause全文存为`LICENSE.txt`。导出`epoll_create1/epoll_ctl/epoll_wait/epoll_close`(`WEPOLL_EXPORT`默认为空→静态编入nlang_vm.dll不导出),不与ws2_32符号冲突。(本行按已提交态更正——原文piscator/MIT/`we_`前缀系误述,见任务1台账裁决。)
 
 - [ ] **步骤2:写失败测试**`tests/test_vm/test_net_platform.cpp`(纯平台层,无VM;仿`test_domainlocks`的CHECK宏风格):
 
@@ -429,7 +455,7 @@ add_library(nlang_vm
 ```cmake
 if (WIN32)
     #v0.13.0 net: vendored wepoll (IOCP-backed epoll-compatible poller,
-    #MIT — src/3rdparty/wepoll/LICENSE.txt) + winsock2 + iphlpapi
+    #BSD-2-Clause — src/3rdparty/wepoll/LICENSE.txt) + winsock2 + iphlpapi
     #(IcmpSendEcho2). The POSIX branch builds NetPlatformPosix.cpp.
     target_sources(nlang_vm PRIVATE
         ${PROJECT_SOURCE_DIR}/src/3rdparty/wepoll/wepoll.c)
@@ -1255,16 +1281,371 @@ int main() {
 
 ---
 
-### 任务5:TCP核心——accept/connect/read/write/close + 解析线程
+### 任务5:ABI v11——nowMs/parkForIo/moduleState/wakeIoWaiters/currentContextId/submitWork + VmWorkPool + blocking臂停泊解卷 + io包脚本面
 
 **文件:**
-- 新建:`src/vm/IntrinsicsNetTcp.cpp`、`src/vm/NetResolver.cpp`(DNS作业半边)
-- 修改:`stdlib/net.n`(TcpStream声明)、`src/vm/VmExecutor.h/.cpp`(解析器成员+收尾join)、`src/vm/CMakeLists.txt`、`tests/e2e/manifest.txt`
+- 新建:`src/vm/VmWorkPool.h`/`VmWorkPool.cpp`(通用原生工作线程池,r1补注4)、`tests/test_vm/test_work_pool.cpp`(池单测)
+- 修改:`include/nlang/vm/NativeHost.h`(v10→v11,回调表尾追加六项)、`src/vm/VmExecutorNativeHost.cpp`(InitNativeHost接线+六实现)、`src/vm/VmExecutorBlockingNative.cpp`(park-pending处置,R7)、`src/vm/VmExecutor.h/.cpp`(moduleState表成员)、`src/vm/VmScheduler.h/.cpp`(上下文`m_ioParkArmed`/`m_ioParkPending`字段,WakeForIo置armed,新增`FinishIoPark`,R7;VmWorkPool成员+`SubmitWork`惰性访问+收尾join,r1补注4)、`src/vm/VmSchedulerIo.cpp`(`WakeForIo`置armed;`FinishIoPark`实现)、`src/vm/CMakeLists.txt`(加VmWorkPool.cpp)、`src/native/io/io_native.cpp`(注册nowMs/parkForIo/toBytes/fromBytes)、`stdlib/io.n`(四声明)、`stdlib/net.n`(删公开toBytes/fromBytes,r1补注5)、`tests/e2e/manifest.txt`、`tests/CMakeLists.txt`(注册test_work_pool)、`tests/test_compiler/test_library_index.cpp`/`tests/test_langservice/test_symbol_index.cpp`(177→179;io 15→19、net 2→0;namespaces 6→5)
+- 改名:`tests/e2e/stdlib_net_bytes_roundtrip.n`→`stdlib_io_bytes_roundtrip.n`(import io,io.toBytes/fromBytes;manifest同步改名)
+- 测试:`tests/e2e/stdlib_io_park_now.n`、`tests/e2e/stdlib_io_park_now.flags`、`tests/test_vm/test_work_pool.cpp`
+
+**接口:**
+- 消费:`VmScheduler::ParkForIo/WakeForIo`(任务3已提交)。
+- 产出:ABI v11六项回调(R7停泊契约、R8 moduleState形态、R13 wakeIoWaiters、R14 currentContextId、submitWork工作线程池,r1补注4)、`VmWorkPool`(per-调度器惰性起停,`Submit(fn,arg,ackFd,priority)`,worker无GIL跑fn、完成向ackFd写一字节,两级优先级队列)、`io.nowMs()`/`io.parkForIo(fd,events,deadlineMs)`/`io.toBytes(string)`/`io.fromBytes(byte[])`脚本面、每上下文armed/pending标志。
+
+- [ ] **步骤1:写失败e2e**`stdlib_io_park_now.n`(审查焦点5的io层前哨:停泊让出载体):
+
+```nlang
+import io;
+import thread;
+
+class Ticker {
+    public int ticks = 0;
+    public void run() {
+        long end = io.nowMs() + 300;
+        while (io.nowMs() < end) { ticks = ticks + 1; }
+    }
+}
+
+int main() {
+    long t0 = io.nowMs();
+    Ticker tk = Ticker();
+    Thread t = thread.spawn(tk.run);
+    io.parkForIo(-1, 0, t0 + 200);      //纯截止停泊,约200ms
+    long dt = io.nowMs() - t0;
+    if (dt < 150) { return 1; }          //停泊确实等待了
+    thread.join(t);
+    if (tk.ticks <= 0) { return 2; }     //停泊期间载体跑了另一上下文
+    io.print("ok");
+    return 0;
+}
+```
+
+manifest追加`stdlib_io_park_now 0 ok`;新建`stdlib_io_park_now.flags`内容`--carriers=1`(审查焦点5:停泊必须让出载体——仅单载体下该断言才有意义,多载体时另一载体自然能跑Ticker)。
+
+- [ ] **步骤2:跑e2e确认失败**(io.nowMs/io.parkForIo未声明)。
+- [ ] **步骤3:写失败单测**`tests/test_vm/test_work_pool.cpp`(`tests/CMakeLists.txt`注册,同test_net_scheduler模式链nlang_vm):
+
+```cpp
+// test_work_pool.cpp — VmWorkPool unit tests (r1补注4: generic native
+// worker pool, the concurrent library's native engine layer).
+#include "VmWorkPool.h"
+#include <atomic>
+#include <cstdio>
+#include <mutex>
+#include <string>
+#include <thread>
+
+using namespace nlang;
+
+static int g_failures = 0;
+#define CHECK(cond) do { \
+    if (!(cond)) { \
+        std::printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        ++g_failures; \
+    } \
+} while (0)
+
+//1) submit runs fn on a worker; Shutdown joins every in-flight worker.
+static void TestRunsAndJoins()
+{
+    VmWorkPool pool;
+    std::atomic<int> counter{0};
+    for (int i = 0; i < 8; ++i) {
+        pool.Submit([](void* arg) {
+            (*static_cast<std::atomic<int>*>(arg)).fetch_add(1);
+        }, &counter, -1, 0);
+    }
+    pool.Shutdown();                       //joins all workers
+    CHECK(counter.load() == 8);
+}
+
+//2) priority: one worker, a blocker occupies it while a normal and a
+//   high job queue up; after release the high job runs first.
+static void TestPriorityOrder()
+{
+    VmWorkPool pool(1);                    //single worker for determinism
+    std::atomic<bool> releaseBlocker{false};
+    std::mutex orderMutex;
+    std::string order;
+    auto append = [&](char c) {
+        std::lock_guard<std::mutex> lk(orderMutex);
+        order.push_back(c);
+    };
+    pool.Submit([&releaseBlocker](void*) {
+        while (!releaseBlocker.load()) { std::this_thread::yield(); }
+    }, nullptr, -1, 0);
+    pool.Submit([&append](void*) { append('N'); }, nullptr, -1, 0);
+    pool.Submit([&append](void*) { append('H'); }, nullptr, -1, 1);
+    releaseBlocker.store(true);
+    pool.Shutdown();
+    CHECK(order == "HN");
+}
+
+//3) lazy start: no worker before the first submit; workers exist after.
+//   (The ack byte itself rides a caller-owned socket fd — exercised by
+//   task 7's net_jobs integration, not by this no-ack unit test.)
+static void TestLazyStart()
+{
+    VmWorkPool pool;
+    CHECK(pool.Running() == 0);
+    std::atomic<bool> ran{false};
+    pool.Submit([](void* arg) {
+        *static_cast<std::atomic<bool>*>(arg) = true;
+    }, &ran, -1, 0);
+    CHECK(pool.Running() > 0);
+    pool.Shutdown();
+    CHECK(ran.load());
+}
+
+int main()
+{
+    TestRunsAndJoins();
+    TestPriorityOrder();
+    TestLazyStart();
+    if (g_failures > 0) {
+        std::printf("%d failure(s)\n", g_failures);
+        return 1;
+    }
+    std::printf("all passed\n");
+    return 0;
+}
+```
+
+- [ ] **步骤4:跑单测确认失败**(`VmWorkPool.h`不存在,编译失败)。
+- [ ] **步骤5:`NativeHost.h`升v11**:`NLANG_HOST_ABI_VERSION` 10u→11u;`NativeHostFunctions`表尾追加六项(注释写明契约):
+
+```c
+    //v11: monotonic milliseconds, same clock domain as the VM IO poller
+    //deadlines (steady_clock epoch; not wall time).
+    long long (*nowMs)(NativeHost* self);
+    //v11: register fd interest + optional absolute deadline (steady-clock
+    //ms; hasDeadline=0 means none), then unwind the calling native.
+    //Returns 0 on the first entry (interest registered; the native MUST
+    //return immediately — the VM parks the context and releases the
+    //carrier) and 1 on re-entry after wake (the VM re-executes the
+    //CallNative with the same staged arguments; retry the operation).
+    //fd < 0 = pure deadline park. Only callable from a blocking-channel
+    //native (the GIL is released on entry; the host re-takes it).
+    //Note: the armed flag is set by ANY WakeForIo wake, including
+    //interpreter-path parks (e.g. thread.sleep) that never called
+    //parkForIo; a stale armed makes the next blocking-native's first
+    //parkForIo return 1 (one extra retry). Harmless by contract — the
+    //caller re-checks its condition on every return — do not "fix" it
+    //by clearing armed on other wake paths.
+    int (*parkForIo)(NativeHost* self, int fd, unsigned events,
+        long long deadlineMs, int hasDeadline);
+    //v11: per-executor host-managed module state slot keyed by tag. The
+    //host calls ctor() once per executor, stores the pointer with dtor,
+    //and runs dtor at executor teardown (before the module unloads —
+    //modules never unload). Later calls return the stored pointer.
+    void* (*moduleState)(NativeHost* self, const char* tag,
+        void* (*ctor)(void), void (*dtor)(void*));
+    //v11: unregister poller interest for fd and wake every context parked
+    //on it (socket close path — the module cannot reach the VM poller
+    //directly). Callable without the GIL; the host takes it internally.
+    void (*wakeIoWaiters)(NativeHost* self, int fd);
+    //v11: id of the context executing the current blocking-native call
+    //(stable across park/re-entry — the net module's per-direction waiter
+    //guard needs it to tell its own re-entry from a foreign concurrent
+    //claim, plan ruling R14). Only callable from a blocking-channel
+    //native (the staged calling context).
+    int (*currentContextId)(NativeHost* self);
+    //v11: run fn(arg) on the host's generic native worker pool (workers
+    //hold no GIL); on completion the pool sends one byte to ackFd (a
+    //socket fd owned by the caller; -1 = no ack). priority: 0 normal,
+    //1 high (two-level queue — a slow getaddrinfo never starves short
+    //jobs; libuv uv_queue_work precedent). The pool starts lazily and
+    //is joined at scheduler teardown (after all carriers stop, the R8
+    //precondition). Callable from any channel; returns 0.
+    int (*submitWork)(NativeHost* self, void (*fn)(void*), void* arg,
+        int ackFd, int priority);
+```
+
+- [ ] **步骤6:宿主实现**(`VmExecutorNativeHost.cpp`+`VmWorkPool.{h,cpp}`+`VmScheduler`):`InitNativeHost`接线六项;
+  - `NativeNowMs`:`duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count()`——与`VmSchedulerIo`截止同域(其`ParkForIo`收`steady_clock::time_point`)。
+  - `NativeParkForIo`(无GIL进入):`GilEnsureGuard`内——`if (ctx->m_ioParkArmed) { ctx->m_ioParkArmed=false; return 1; }` → `m_spScheduler->ParkForIo(selfId, fd, events, deadlinePoint, hasDeadline)`(已提交:登记兴趣+置ParkedIo+惰性起轮询线程)→ `ctx->m_ioParkPending=true; return 0;`(首入只置pending;armed由`WakeForIo`置,R7协议)。
+  - `NativeModuleState`:执行器`m_moduleStates`(`std::map<std::string, std::pair<void*, void(*)(void*)>>`,专用mutex);缺tag→`ctor()`入表;析构路径(执行器收尾,`RemoveNativeRoots`同段;全部载体已停止——R8前提)按tag字典序跑dtor清表(R8)。
+  - `NativeWakeIoWaiters`(R13,无GIL进入):`GilEnsureGuard`内先从`m_ioWaits[fd]`收集等待者上下文id并注销兴趣(已提交`RemoveIoWaitsForFd`只注销不唤醒——按其既有签名取id列表或改为收集后删),再逐个`WakeForIo(id)`(置armed+按K7握手入队)。
+  - `NativeCurrentContextId`(R14,blocking通道内):返`m_spScheduler->CurrentContextId()`(`VmExecutorBlockingNative.cpp`既有暂存记录即当前调用上下文)。
+  - `NativeSubmitWork`:`m_spScheduler->SubmitWork(fn, arg, ackFd, priority)`(r1补注4);池队列锁独立于GIL(blocking通道无GIL调用安全;执行器在native调用期间存活)。
+  - `VmWorkPool`(新建,`src/vm/`):`DEFAULT_WORK_POOL_THREADS=4`(magic number常量化;libuv `uv_queue_work`默认先例);`Submit(fn, arg, ackFd, priority)`两级`std::deque`(priority 1先出)+`std::condition_variable`,首次Submit惰性起worker;worker循环:出队→无GIL跑`fn(arg)`→`ackFd>=0`时`send(ackFd,"\1",1,0)`(部分写循环,错误忽略);`Shutdown()`置停旗标+`notify_all`+join(幂等,析构调用;停旗标只在队列排空后生效——worker把已提交作业出队跑完才退出,`TestRunsAndJoins`依赖此;net侧后果:调度器收尾join时排队作业先跑完,收尾至多拖到一次解析超时,dtor的cv等待已覆盖);`Running()`返已起worker数(惰性起停可观测)。`VmScheduler`持`std::unique_ptr<VmWorkPool>`+专用mutex,`SubmitWork`惰性构造;调度器收尾join池——与轮询线程收尾同模板(停旗标+notify+join),且满足R8前提(全部载体停止后)。
+- [ ] **步骤7:blocking臂停泊处置**(`VmExecutorBlockingNative.cpp`,R7):停泊分支插入已提交K6重取尾段`FinishBlockingNative`的`StopRequested`检查之后——其既有顺序`BeginExecuting`→`owner.Acquire`重取GIL→`RemoveNativeRoots`→generation失配检查→`StopRequested`检查不可动摇(已提交注释明文:`BeginExecuting`先于GIL重取,否则垃圾收集停世界的会合持GIL挂条件变量等待、最后到达的收集者需GIL而死锁;pending读取置于两检查之后,僵尸载体路径上下文已析构、先读悬空)。分支体(GIL已持有):读`ctx->m_ioParkPending`→置位则清位,调调度器新方法`FinishIoPark(selfId)`(R7——取`ParkContextFrames`判定半段;帧已由`ParkFramesForBlockingNative`移入`ctx->frames`,该方法首步`frames.clear()`不可复用;GIL已持有、不再重取):同一临界区内`ctx->state==ParkedIo`→置`framesParked=true`(唤醒路径见framesParked即入队);已`Runnable`(唤醒抢在停泊登记前)→直接入队。随后**不**`RestoreStolenFrames`、**不**写回ret(帧留在`ctx->frames`,既有跨挂起根集覆盖;停泊上下文无在飞结果)→返回枚举`Parked`;调度器对`Parked`的处理与内建intrinsic`RequestPark`路径一致(载体回循环,上下文已ParkedIo)。唤醒:`WakeForIo`(已提交,本轮改置`m_ioParkArmed`)→调度器迁移上下文(framesParked握手保证入队)→重执行`OP_CallNative`→`RunBlockingNative`重新暂存参数(脚本帧未动,绝对截止点穿越重入稳定)→native再调`parkForIo`见armed→清→返1→重试syscall。
+- [ ] **步骤8:`io_native.cpp`注册**:`reg(registry,"io","nowMs",&IoNowMs)`(经`host->nowMs()`,不触VM态,普通通道)+`regBlocking(registry,"io","parkForIo",&IoParkForIo)`(直通`host->parkForIo`,返0即回)+`reg(registry,"io","toBytes",&IoToBytes)`/`reg(registry,"io","fromBytes",&IoFromBytes)`(纯转换,普通通道;语义照已提交VM intrinsic(任务4台账)改写为ABI形态——`ArgString`→`newArray`(RTK_Byte)填cell;fromBytes对称:`ArgArray`视图(校验rank==1、elemKind∈{RTK_Byte,RTK_UByte})逐cell取低字节拼`std::string`→`MintNewString`)。`stdlib/io.n`追加四声明:
+
+```nlang
+// 单调毫秒时钟(与 io.parkForIo 的截止同域;起点为系统启动,非墙上时钟)。
+native long nowMs();
+
+// 停泊当前虚拟线程直至 fd 就绪(events:1=读,2=写)或到达绝对截止
+// (deadlineMs<=0 表示无截止)。fd<0 为纯截止停泊(定时唤醒)。
+// 唤醒后本调用返回;调用方复查条件,未满足可再次停泊。
+native void parkForIo(int fd, int events, long deadlineMs);
+
+// string是字节容器;这两个助手在文本与字节数组间转换(UTF-8字节序列,
+// 不经string方法面)。r1补注5:自net包迁入——通用字节转换非网络专属。
+native byte[] toBytes(string s);
+native string fromBytes(byte[] data);
+```
+
+  同步:`stdlib/net.n`删除`toBytes`/`fromBytes`两公开声明(r1补注5;BindingTable的net.toBytes/fromBytes行留待任务6整族删除——net.n已不声明,行暂为死代码无害);`git mv tests/e2e/stdlib_net_bytes_roundtrip.n tests/e2e/stdlib_io_bytes_roundtrip.n`,用例改`import io;`+`io.toBytes`/`io.fromBytes`(原仅用这两助手,去`import net;`),`manifest.txt`行同步改名。
+- [ ] **步骤9:跑绿e2e+全量ctest**(ABI升版后四既有模块同构建重编,探针自然通过;`test_work_pool`RED→GREEN,ctest 149→150)。
+- [ ] **步骤10:提交**`git commit -m "feat(vm): ABI v11 IO parking and work pool callbacks with blocking-native park re-entry and io package surface"`。
+
+**验收判据:**`stdlib_io_park_now`绿(单载体);`test_work_pool`绿(全量ctest 149→150);全量ctest绿;`test_library_index`io计数15→19、net 2→0(总数177→179);`test_symbol_index`namespaces 6→5(net暂无自由函数,任务6重写net.n后回升6)。
+
+---
+
+### 任务6:nlang_net模块骨架——搬迁 + VM解耦 + net.n重构
+
+**文件:**
+- 移动:`src/vm/net/NetPlatform.h`→`src/native/net/net_platform.h`(剥轮询部分)、`NetPlatformInternal.h`→`net_platform_internal.h`、`NetPlatformWindows.cpp`→`net_platform_windows.cpp`、`NetPlatformWindowsIcmp.cpp`→`net_platform_icmp_windows.cpp`、`NetPlatformPosix.cpp`→`net_platform_posix.cpp`、`NetSocketTable.{h,cpp}`→`src/native/net/`(git mv保历史)
+- 新建:`src/vm/IoPoller.h`/`IoPollerWindows.cpp`/`IoPollerPosix.cpp`(轮询抽象从NetPlatform拆出,wepoll/epoll留VM)、`src/native/net/net_native.cpp`(模块入口)、`src/native/net/net_state.{h,cpp}`(宿主托管每执行器状态:槽表+last-error;作业表/自管道随任务7加入)
+- 删除:`src/vm/IntrinsicsNetSupport.cpp`
+- 修改:`include/nlang/vm/Intrinsics.h`(删174..220整块,下一空闲回174)、`src/compiler/builder/BindingTable.cpp`(删net行+`s_HandleClassNames`四类)、`src/vm/VmExecutorIntrinsics.cpp`(删net级联+ctor链)、`src/vm/VmExecutor.h/.cpp`(删net成员/类idx缓存/异常idx/收尾关fd/include)、`src/vm/VmSchedulerIo.cpp`(include改`IoPoller.h`)、`src/vm/CMakeLists.txt`(删net TU+IntrinsicsNetSupport+iphlpapi;wepoll留)、`src/native/CMakeLists.txt`(加net+target_sources+链ws2_32/iphlpapi)、`stdlib/net.n`(全文重写)、`tests/CMakeLists.txt`(test_net_platform/test_net_slots改编译模块源、不链nlang_vm;新增test_module_state)、`tests/test_vm/test_net_platform.cpp`(轮询集测试移入test_net_scheduler.cpp)、`tests/test_compiler/test_library_index.cpp`、`tests/test_langservice/test_symbol_index.cpp`
+- 测试:`tests/test_vm/test_module_state.cpp`(新);既有`stdlib_io_bytes_roundtrip`(任务5改名)/`stdlib_net_tcp_bind_probe`作搬迁回归网
+
+**接口:**
+- 消费:任务5的ABI v11六项。
+- 产出:`nlang_net`模块(注册`_nowMs`/`_lastErrorText`/`_tcpBind`/`_tcpLocalAddress`/`_tcpLocalPort`/`_tcpClose`;字节助手已归io包,任务9随分帧追加内部`_toBytes`/`_fromBytes`)、`net_state`状态对象(R8)、net.n新形态(纯脚本异常类+脚本类持int句柄+内部namespace native,R10/R11/R12)。
+
+- [ ] **步骤1:回归基线**——跑两条net e2e确认绿(VM路径,搬迁前快照)。
+- [ ] **步骤2:拆轮询抽象**:`IoPoller.h`声明`IoPollerCreate/Add/Mod/Del/Wait/Close`+事件常量(已提交`NetPoller*`六函数改前缀为`IoPoller*`、签名不变——调度器六者全用:Add失败回退Mod、轮询线程收尾Close);定位注释写明**通用fd就绪设施**(net是第一个消费者;管道/进程stdio等持fd原生库后续复用;regular file不可poll、将来fs异步走线程池——libuv/Go/Loom同此,spec r1补注①);`IoPollerWindows.cpp`承接`NetPlatformWindows.cpp`的wepoll实现段,`IoPollerPosix.cpp`承接epoll骨架段;`VmSchedulerIo.cpp`的`#include "net/NetPlatform.h"`改`#include "IoPoller.h"`;`test_net_scheduler.cpp`并入原platform测试的轮询集用例。
+- [ ] **步骤3:git mv上述七文件入模块**(五个平台层文件+`NetSocketTable.{h,cpp}`);`net_platform.h`删轮询声明;模块内命名空间保持`nlang::`;`net_platform_windows.cpp`补`NetSocketPair(int fds[2])`(回环TCP对,wepoll只认socket——R9);`net_slots.h`头注释加锁依据改写为"由`NetExecState::m_mutex`保护(r1下blocking native无GIL,R9)"——原"VM全局锁"前提随intrinsic通道废弃。
+- [ ] **步骤4:`net_state.{h,cpp}`**:
+
+```cpp
+// Per-executor module state, host-managed through ABI v11 moduleState
+// (design §6, plan ruling R8). Holds the socket slot table and the
+// last-error text; the job table and self-pipe join in task 7. The
+// dtor closes every still-open fd (executor teardown = D12 backstop);
+// from task 7 it also waits for in-flight jobs before freeing (R9).
+// m_mutex guards m_slots and m_lastErrorText: r1 blocking natives run
+// with the GIL released, so the committed "all calls under the GIL"
+// table invariant no longer holds (plan ruling R9). Lock order:
+// m_mutex -> GIL (parkForIo/wakeIoWaiters take the GIL internally).
+struct NetExecState {
+    std::mutex m_mutex;
+    NetSocketTable m_slots;
+    std::string m_lastErrorText;
+};
+inline NetExecState* NetState(NativeHost* host) {
+    return static_cast<NetExecState*>(host->moduleState(
+        host, "nlang.net.v1", &NetStateCtor, &NetStateDtor));
+}
+```
+
+(调用形态已按`NativeHost.h`核实:回调为平铺函数指针、首参`self`,故`host->moduleState(host, …)`;tag含版本号,状态布局变更时递增。)
+- [ ] **步骤5:`net_native.cpp`模块入口**:`NLANG_DEFINE_NATIVE_INIT`注册——`regBlocking`:`_nowMs`(返host->nowMs,占blocking通道与其余net一致免混排)/`_lastErrorText`/`_tcpBind`/`_tcpLocalAddress`/`_tcpLocalPort`/`_tcpClose`。bind/close实现从`IntrinsicsNetSupport.cpp`迁出:改C ABI形态(`ArgString/ReturnInt/Raise`→错误码返回,R10;不再Raise——异常映射归脚本)。
+- [ ] **步骤6:删VM耦合**(逐文件):`Intrinsics.h`删174..220块(注释"221=下一空闲"改回"174=下一空闲");`BindingTable.cpp`删`{"net",...}`全部行+`s_HandleClassNames`的TcpListener/TcpStream/UdpSocket/IcmpSocket四行;`VmExecutorIntrinsics.cpp`删`ExecuteIntrinsicNet`级联与ctor链两行;`VmExecutor.h/.cpp`删`ExecuteIntrinsicNet*`/`IntrinsicNet*`/`ReadNetBufferArg`等net助手声明与实现、`m_netSlots`成员、`m_tcpListenerClassIdx`等四类idx、`cacheNetClass`/`cacheExcClass`的net条目、`#include "net/NetSocketTable.h"`、收尾遍历关fd段;`src/vm/CMakeLists.txt`删`IntrinsicsNetSupport.cpp`/`net/*`六TU/`iphlpapi`(ws2_32留——wepoll需要)。
+- [ ] **步骤7:`src/native/CMakeLists.txt`**:`set(NLANG_NATIVE_MODULES math io fs tensor net)`;`target_sources(nlang_net PRIVATE net/net_state.cpp net/net_platform_windows.cpp net/net_platform_icmp_windows.cpp)`(POSIX分支换`net_platform_posix.cpp`);`target_link_libraries(nlang_net PRIVATE ws2_32 iphlpapi)`(Windows);include加`include`+`src/native`;install行加nlang_net。
+- [ ] **步骤8:ctest重定向**:`test_net_platform`/`test_net_slots`改为直接编译`src/native/net/*.cpp`(不链nlang_vm,链ws2_32/iphlpapi;include`src/native`+`include`);新增`test_module_state`:进程内两执行器(先`Runtime::StaticInit()`)各经字节码跑`net.TcpListener.bind`+`close`,断言两执行器句柄值互不干扰(独立槽表)、执行器A析构后其端口可被重新bind(dtor已关fd)。
+- [ ] **步骤9:`stdlib/net.n`全文重写**:
+
+```nlang
+// net.n — 网络通信包:TCP、UDP、ICMP。需显式`import net;`。
+// 阻塞方法在虚拟线程上停泊(不占载体),timeoutMs=0表示无限等待。
+// 失败抛SocketException,超时抛TimeoutException(同属IOException家族)。
+
+// 底层socket错误:连接被拒、对端断开、socket已关闭、选项设置失败等。
+const class SocketException : IOException {
+    public SocketException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// 带timeoutMs的操作在截止前未完成。
+const class TimeoutException : IOException {
+    public TimeoutException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// ---- 内部原语(nlang_net模块注册;下划线名不属公开面) ----
+// 单调毫秒(与VM轮询截止同域);脚本层据此换算绝对截止点(R12)。
+native long _nowMs();
+// 最近一次平台错误的文本(错误码-4时拼入异常消息)。
+native string _lastErrorText();
+
+// 内部:错误码映射异常(-1关闭/-2超时/-3并发违例/-4平台错误/-5参数)。
+void _throwNet(int code, string context) {
+    if (code == -2) { throw TimeoutException("net: " + context + " timed out"); }
+    if (code == -1) { throw SocketException("net: socket closed"); }
+    if (code == -3) { throw SocketException(
+        "net: another operation is parked on this socket"); }
+    if (code == -4) { throw SocketException(
+        "net: " + context + " failed: " + _lastErrorText()); }
+    throw SocketException("net: " + context + " failed");
+}
+
+// (字节助手toBytes/fromBytes已移入io包,r1补注5;脚本便捷面用下方
+//  内部_toBytes/_fromBytes,随任务9分帧一并注册)
+
+// ---- ICMP 便利面(实现随任务11落地) ----
+// 发送 Echo Request 并等待 Echo Reply,返回往返时延毫秒。
+// 超时抛 TimeoutException;主机无法解析或不可达抛 SocketException。
+// Windows 走 IcmpSendEcho2(免管理员),Linux 走 DGRAM ICMP socket。
+native int ping(string host, int timeoutMs = 5000);
+
+// ---- TCP ----
+native int _tcpBind(string host, int port);
+native string _tcpLocalAddress(int handle);
+native int _tcpLocalPort(int handle);
+native int _tcpClose(int handle);
+
+// TCP监听端点。bind后开始监听;close停止监听。
+class TcpListener {
+    private int m_handle;
+    public TcpListener(int handle) { m_handle = handle; }
+
+    // 监听host:port;port=0由系统分配,经localPort()读回。
+    public static TcpListener bind(string host, int port) {
+        int h = _tcpBind(host, port);
+        if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
+        return TcpListener(h);
+    }
+    // 便利重载:监听所有接口的port。
+    public static TcpListener bind(int port) {
+        return bind("0.0.0.0", port);
+    }
+    // 接受下一个连接;停泊直至有连接或超时(实现随任务7落地)。
+    // accept返回TcpStream,声明见任务7。
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
+}
+```
+
+(探针:若`super(message, cause)`双参委托编译失败——`super_with_args.n`仅证双参super于普通类——退路=`super(message)`+cause存本类字段并在`message()`覆写拼接;两路e2e判据相同。)
+- [ ] **步骤10:索引计数同步**:`test_library_index.cpp`与`test_symbol_index.cpp`计数179→**187**(net 0→8:+ping/_nowMs/_lastErrorText/_throwNet/_tcpBind/_tcpLocalAddress/_tcpLocalPort/_tcpClose;io四项已随任务5的177→179入账;类方法与类声明不入计数——io的ByteStream方法先例),注释同步;`test_symbol_index`namespaces 5→6(net自由函数回归,列表插入net字母序[3],tensor/thread后移[4]/[5])。
+- [ ] **步骤11:跑绿**:两条net e2e(模块路径)+全量ctest(含重定向两目标+test_module_state)+`test_library_index`/`test_symbol_index`;e2e全量跑一遍确认无串扰。
+- [ ] **步骤12:提交**`git commit -m "refactor(net): move the net package out of the VM into the nlang_net native module"`。
+
+**验收判据:**两条e2e在模块路径绿(回归网);VM内`grep -ri "net" src/vm/ include/nlang/vm/Intrinsics.h`仅剩`VmSchedulerIo`/`IoPoller`族与注释;索引187;全量ctest绿。
+
+---
+
+### 任务7:TCP核心——accept/connect/read/write/close + 解析作业池
+
+**文件:**
+- 新建:`src/native/net/net_tcp.cpp`、`src/native/net/net_jobs.{h,cpp}`(作业表+自管道ack;工作线程池归VM的VmWorkPool,经submitWork提交,R9/r1补注4)
+- 修改:`stdlib/net.n`(TcpStream+accept)、`src/native/net/net_state.{h,cpp}`(作业表+自管道入状态对象,析构关管道)、`src/native/CMakeLists.txt`(两TU)、`tests/e2e/manifest.txt`
 - 测试:`tests/e2e/stdlib_net_tcp_echo.n`、`stdlib_net_tcp_connect_refused.n`、`stdlib_net_tcp_read_timeout.n`、`stdlib_net_tcp_localhost.n`、`stdlib_net_tcp_close_wakes_reader.n`、`stdlib_net_tcp_concurrent_reader.n`、`stdlib_net_tcp_write_closed.n`、`stdlib_net_tcp_ipv6.n`
 
 **接口:**
-- 消费:ParkForIo、槽表、MintNetHandle、异常idx。
-- 产出:`NetJobTable`+`VmExecutor::SubmitNetResolve(...)`(任务9复用作业表跑ICMP)、TcpStream全部native方法。
+- 消费:任务6的net_state/句柄形态/R10码表/R12绝对截止;任务5的parkForIo重入契约。
+- 产出:内部native `_tcpAccept`/`_tcpResolveStart`/`_tcpResolveWait`/`_tcpResolveEndpoint`/`_tcpResolveRelease`/`_tcpConnectTry`/`_tcpRead`/`_tcpWrite`/`_tcpShutdownWrite`/`_tcpIsClosed`/`_tcpPeerAddress`/`_tcpPeerPort`(任务8补四选项setter)、`NetJobTable`+submitWork提交形态(作业跑VM的VmWorkPool;任务11 ICMP复用作业通道,priority=1)。
 
 - [ ] **步骤1:写失败e2e**(八条,完整代码):
 
@@ -1294,12 +1675,12 @@ int main() {
     TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
     h.conn = srv.accept(5000);
     Thread t = thread.spawn(h.run);
-    cli.write(net.toBytes("ping"));
-    //本任务只有native read/write(readExactly随任务7):4字节缓冲恰好
+    cli.write(io.toBytes("ping"));
+    //本任务只有native read/write(readExactly随任务9):4字节缓冲恰好
     //容纳回环单段echo,fromBytes(整缓冲)即整消息。
     byte[] buf = byte[4];
     int n = cli.read(buf, 5000);
-    if (n != 4 || net.fromBytes(buf) != "ping") { return 1; }
+    if (n != 4 || io.fromBytes(buf) != "ping") { return 1; }
     cli.close();
     thread.join(t);
     srv.close();
@@ -1350,7 +1731,7 @@ int main() {
     }
     // Late data: send BEFORE the deadline, read with a generous
     // timeout — the data must win over the deadline bookkeeping.
-    c1.write(net.toBytes("x"));
+    c1.write(io.toBytes("x"));
     int n = cli.read(buf, 3000);
     if (n != 1 || buf[0] != 120) { return 2; }
     cli.close();
@@ -1371,9 +1752,9 @@ int main() {
     TcpListener srv = TcpListener.bind("127.0.0.1", 0);
     TcpStream cli = TcpStream.connect("localhost", srv.localPort(), 5000);
     TcpStream c = srv.accept(5000);
-    cli.write(net.toBytes("hi"));
+    cli.write(io.toBytes("hi"));
     byte[] buf = byte[2];
-    if (c.read(buf, 5000) != 2 || net.fromBytes(buf) != "hi") { return 1; }
+    if (c.read(buf, 5000) != 2 || io.fromBytes(buf) != "hi") { return 1; }
     cli.close(); c.close(); srv.close();
     io.print("ok");
     return 0;
@@ -1473,8 +1854,8 @@ int main() {
         // A big write guarantees the first send hits the closed peer
         // (a tiny one may sit in the socket buffer — the loop then
         // surfaces EPIPE on the retry).
-        cli.write(net.toBytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        cli.write(net.toBytes("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        cli.write(io.toBytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        cli.write(io.toBytes("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         return 1;
     } catch (SocketException e) {
         io.print("ok");
@@ -1483,7 +1864,7 @@ int main() {
 }
 ```
 
-`stdlib_net_tcp_ipv6.n`(spec§三IPv6全功能:`::`双栈监听+`[::1]`括号地址,D10;测试限`::1`回环):
+`stdlib_net_tcp_ipv6.n`(spec§三IPv6:`::`双栈监听+`[::1]`括号地址,D10;测试限`::1`回环):
 
 ```nlang
 import io;
@@ -1496,13 +1877,13 @@ int main() {
     TcpStream cli = TcpStream.connect("[::1]", srv.localPort(), 5000);
     TcpStream c = srv.accept(5000);
     if (c.peerAddress() != "::1") { return 1; }
-    cli.write(net.toBytes("v6"));
+    cli.write(io.toBytes("v6"));
     byte[] buf = byte[8];
     int n = c.read(buf, 5000);
     c.write(buf, n);
     byte[] echo = byte[8];
     int m = cli.read(echo, 5000);
-    if (m != 2 || net.fromBytes(echo) != "v6") { return 2; }
+    if (m != 2 || io.fromBytes(echo) != "v6") { return 2; }
     cli.close();
     c.close();
     srv.close();
@@ -1514,138 +1895,239 @@ int main() {
 manifest追加八行(均`... 0 ok`,connect_refused亦`0 ok`)。
 
 - [ ] **步骤2:跑e2e确认失败**(TcpStream未声明)。
-- [ ] **步骤3:`stdlib/net.n`追加TcpStream声明**(spec§五全文+R3的count默认参):
+- [ ] **步骤3:`stdlib/net.n`追加TcpListener.accept+内部native声明+TcpStream**(公开面同spec§五;实现切分见裁定):
 
 ```nlang
+native int _tcpAccept(int handle, long deadlineMs);
+native int _tcpResolveStart(string host, int port);
+native int _tcpResolveWait(int jobId, long deadlineMs);
+native string _tcpResolveEndpoint(int jobId, int index);
+native void _tcpResolveRelease(int jobId);
+native int _tcpConnectTry(string address, int port, long deadlineMs);
+native int _tcpRead(int handle, byte[] buf, long deadlineMs);
+native int _tcpWrite(int handle, byte[] data, int count, long deadlineMs);
+native int _tcpShutdownWrite(int handle);
+native int _tcpIsClosed(int handle);
+native string _tcpPeerAddress(int handle);
+native int _tcpPeerPort(int handle);
+
 // TCP字节流连接。connect/accept产出;read/write停泊;close释放。
 class TcpStream {
-    // 解析host(停泊于解析线程)并按序尝试地址;timeoutMs覆盖
+    private int m_handle;
+    public TcpStream(int handle) { m_handle = handle; }
+
+    // 解析host(停泊于解析池)并按序尝试地址;timeoutMs覆盖
     // 解析+连接全程(0=不限)。
-    public static native TcpStream connect(string host, int port, int timeoutMs = 0);
+    public static TcpStream connect(string host, int port, int timeoutMs = 0) {
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
+        string ctx = "connect " + host + ":" + port.toString();
+        int jobId = _tcpResolveStart(host, port);
+        int count = _tcpResolveWait(jobId, deadline);   //停泊于自管道
+        TcpStream result = null;
+        if (count >= 0) {
+            for (int i = 0; i < count; i = i + 1) {
+                int h = _tcpConnectTry(_tcpResolveEndpoint(jobId, i), port, deadline);
+                if (h >= 0) { result = TcpStream(h); break; }
+                if (h == -2) { break; }    //截止已到:不再试下一地址
+            }
+        }
+        _tcpResolveRelease(jobId);         //所有路径释放作业记录(R9)
+        if (result != null) { return result; }
+        if (count < 0) { _throwNet(count, ctx); }
+        _throwNet(count == 0 ? -4 : -2, ctx);   //全败→平台错误;已过截止→超时
+        return TcpStream(0);                    //不可达(上面必抛)
+    }
     // 至多读满buf.length()字节;返回读到的字节数,0=对端已关闭(EOF)。
-    public native int read(byte[] buf, int timeoutMs = 0);
+    public int read(byte[] buf, int timeoutMs = 0) {
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
+        int n = _tcpRead(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "read"); }
+        return n;
+    }
     // 全写:内部循环直至count字节全部发出(默认整数组);返回发出数。
-    public native int write(byte[] data, int count = -1);
-    // 文本便捷面write(string)、readLine、readExactly随任务7追加
-    // (脚本层方法,见任务7步骤2全文)。
-    public native void close();
+    public int write(byte[] data, int count = -1) {
+        int n = (count >= 0) ? count : data.length();
+        int r = _tcpWrite(m_handle, data, n, 0);
+        if (r < 0) { _throwNet(r, "write"); }
+        return r;
+    }
+    // 文本便捷面write(string)、readLine、readExactly随任务9追加
+    // (脚本层方法,见任务9步骤2全文)。
+    public void close() {
+        int r = _tcpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
     // 半关闭:发出FIN,读方向保持可用。
-    public native void shutdownWrite();
-    public native bool isClosed();
-    public native void setNoDelay(bool on);
-    public native void setKeepAlive(bool on);
-    public native void setSendBufferSize(int bytes);
-    public native void setRecvBufferSize(int bytes);
-    public native string peerAddress();
-    public native int peerPort();
-    public native string localAddress();
-    public native int localPort();
-}
-```
-
-(本任务只落native面;三个脚本方法随任务7追加,任务5的e2e不得引用它们。)
-
-- [ ] **步骤4:`NetResolver.cpp`作业表+DNS线程**(完整设计):
-
-```cpp
-/*---
-    NetResolver.cpp — the blocking-OS-call offload threads of the net
-    package (net library design §6): a DNS resolver thread and an ICMP
-    echo worker (separate threads: a slow getaddrinfo must not delay a
-    ping, and vice versa). Jobs live in a per-executor NetJobTable;
-    the context parks (ParkForIo fd=-1 deadline form) and the worker
-    wakes it through VmExecutor::CompleteNetJob (takes the GIL, fills
-    the record, WakeForIo). Like the timer thread, the workers are
-    outside the GcWorldStop rendezvous: they never run bytecode.
-
-    Record lifetime: the context releases its record when it resumes
-    (including on timeout — the worker may still run); the worker
-    marks done. The table frees a record only when both flags are set,
-    so a late completion never touches freed memory.
----*/
-```
-
-- `struct NetJobRecord { int kind; bool done, released; std::vector<NetEndpoint> endpoints; bool resolveOk; int rttMs; int icmpErr; int contextId; }`+`class NetJobTable { Mint; Lookup; MarkDone(id)(GIL内由executor调); Release(id)(intrinsic侧); Submit(job); }`
-- `class NetResolver { explicit NetResolver(VmExecutor&); void StartResolveJob(int ctxId, const std::string& host, int port, deadline, int jobId); void StartIcmpJob(int ctxId, const std::string& host, const uint8_t* payload, int len, deadline, int jobId); void Shutdown(); }`——两条线程惰性启动,`Shutdown()`置位+join(VmExecutor收尾调)。
-- 线程体:cv等队列→取job→无GIL跑`NetResolve`/`NetIcmpEcho`→`executor.CompleteNetJob(jobId)`(GIL内:填记录、`WakeForIo(ctxId)`)。
-
-- [ ] **步骤5:`IntrinsicsNetTcp.cpp`核心实现**(每函数≤50行;bind/accept/connect/read/write/close/shutdownWrite/isClosed/peer*/local*):
-
-```cpp
-//TcpStream.read(byte[] buf, int timeoutMs) — instance: this slot 0,
-//buf slot 1, timeout slot 2. The retry loop re-enters after every
-//wake (the park/resume handshake returns just past RequestPark):
-//try recv first, then check closed, then the deadline (review focus
-//1: data always wins over an expired bookkeeping). SetWaiter marks
-//the direction before parking; EVERY exit path releases it (R5: the
-//deferred fd close runs on the last release; releasing with no
-//waiter set is a no-op).
-bool VmExecutor::IntrinsicTcpRead(uint16_t callParamBase, uint8_t* locals,
-    uint8_t* pResult)
-{
-    int32_t handle = 0;
-    NetSocketSlot* slot = NetSlotFromReceiver(callParamBase, locals, handle);
-    int32_t arrIdx = 0; size_t base = 0; int32_t cap = 0;
-    ReadNetBufferArg(1, callParamBase, locals, arrIdx, base, cap);
-    const int timeoutMs = ReadNetIntArg(2, callParamBase, locals);
-    const auto deadline = IoDeadline(timeoutMs);   //0 -> max() sentinel
-    std::vector<uint8_t> tmp(static_cast<size_t>(cap));
-    for (;;) {
-        const int n = NetRecv(slot->fd, tmp.data(), cap);
-        if (n >= 0) {   //data or EOF (n == 0)
-            m_netSlots.ReleaseWaiter(handle, NetDir::Read);
-            if (n > 0)
-                WriteNetBufferCells(arrIdx, base, tmp.data(), n);
-            WriteNetResultInt(pResult, n);
-            return true;
-        }
-        if (n != kNetWouldBlock) {
-            m_netSlots.ReleaseWaiter(handle, NetDir::Read);
-            RaiseNetSocketError("net: read failed: " + NetLastErrorText());
-        }
-        if (IsNetSlotClosed(handle)) {
-            m_netSlots.ReleaseWaiter(handle, NetDir::Read);   //R5 drain
-            RaiseNetSocketError("net: socket closed");
-        }
-        if (DeadlinePassed(deadline)) {
-            m_netSlots.ReleaseWaiter(handle, NetDir::Read);
-            RaiseNlangException(m_timeoutExcClassIdx, "net: read timed out");
-        }
-        if (slot->readWaiter != 0)   //one waiter per direction
-            RaiseNetSocketError("net: another read is parked on this socket");
-        m_netSlots.SetWaiter(handle, NetDir::Read,
-                             m_spScheduler->CurrentContextId());
-        ParkForCurrentIo(slot->fd, NET_EV_READ, deadline, timeoutMs > 0);
-        slot = NetSlotFromReceiver(callParamBase, locals, handle); //re-lookup
+    public void shutdownWrite() {
+        int r = _tcpShutdownWrite(m_handle);
+        if (r < 0) { _throwNet(r, "shutdownWrite"); }
+    }
+    public bool isClosed() { return _tcpIsClosed(m_handle) == 1; }
+    public string peerAddress() {
+        string s = _tcpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _tcpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public string localAddress() {
+        string s = _tcpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _tcpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
     }
 }
 ```
 
-(`ParkForCurrentIo`=`EnsureSuspensionAllowed(); m_spScheduler->ParkForIo(selfId, fd, ev, deadline, has); RequestPark(ParkSignal::Reason::Io)`——[[noreturn]]抛出,载体搬帧,resume后从内在函数恢复点继续(IntrinsicsChannel.cpp:270-345两阶段握手模板;IO唤醒无条件,无需Channel的commit/abort复核)。`IntrinsicTcpWrite`对称:write兴趣+循环至发满;EPIPE/ERR→`RaiseNetSocketError("write failed: connection lost")`。`accept`=监听fd读兴趣+`NetAccept`+新fd入槽+`MintNetHandle(m_tcpStreamClassIdx,...)`(accept方向waiter同read纪律)。`connect`=先`SubmitNetResolve`停泊(fd=-1),再逐endpoint:`NetOpenTcpStream(ep.family)`+`NetConnect(fd,ep.address,ep.port)`→inprogress则写兴趣停泊→`NetConnectResult`;单endpoint失败即`NetClose`该fd再试下一endpoint(happy-eyeballs-lite,v6-first栈回退v4);全败→SocketException;截止跨两阶段共享(单调点)。)
+(TcpListener类体内追加:`public TcpStream accept(int timeoutMs = 0) { long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0; int h = _tcpAccept(m_handle, deadline); if (h < 0) { _throwNet(h, "accept"); } return TcpStream(h); }`)
 
-其余方法契约(≤10行/个):
+- [ ] **步骤4:`net_jobs.{h,cpp}`作业表+submitWork提交形态**(R9,r1补注4):
 
-| id | 行为 | 抛出 |
+```cpp
+/*---
+    net_jobs — the blocking-OS-call offload of the net module (design
+    §5/D5): DNS resolve and (task 11) ICMP echo jobs are submitted to
+    the VM's generic native worker pool via host->submitWork — the pool
+    is VM infrastructure (r1补注4); the module keeps only the job table
+    and the self-pipe ack. ICMP uses priority 1 so a slow getaddrinfo
+    never delays a ping (two-level queue, libuv precedent) without any
+    module-private threads. Job records live in the per-executor
+    NetExecState; the requesting context parks on the executor's
+    self-pipe read end (parkForIo, ordinary fd interest — the VM poller
+    harvests it). The worker fills the record under the table mutex;
+    submitWork's ack byte (ackFd = self-pipe write end) then lands on
+    the pipe — after fn returns, hence always after the fill. Record
+    lifetime: the context releases on resume (including timeout), the
+    worker marks done; the table frees only when both flags are set —
+    a late completion never touches freed memory.
+---*/
+```
+
+- `struct NetJobRecord { int kind; bool done, released; std::vector<std::string> endpoints; int rttMs; int err; }`+表:`Mint/Lookup/MarkDone(id)(填结果→解锁→通知cv;ack字节由VM池在fn返回后写)/Release(id)/FreeIfBoth`;自管道:`NetExecState`持`int selfPipeFds[2]`(经`NetSocketPair`建,非阻塞、close-on-exec;`selfPipeFds[1]`即submitWork的ackFd),析构关管道。
+- 提交形态:worker fn=模块static C函数,经`host->submitWork(fn, argRecord, st->m_selfPipeFds[1], priority)`提交——`argRecord`为堆记录(持`NetExecState*`+jobId+host/port等,worker用毕释放);DNS priority=0、ICMP priority=1。worker无GIL跑`NetResolve(host,port,endpoints)`→经状态指针`MarkDone`(表mutex下填结果→通知cv)。跨执行器访问状态:argRecord存`NetExecState*`(提交时在调用载体上经moduleState解析——`NativeHost`是每次调用的栈上对象,存其指针调用返回即悬空,R9);执行器析构:dtor置shutdown并在cv上等所有在飞作业到done再释放状态——worker不写已释放内存(R9;池本身在调度器收尾join,晚于全部载体停止——R8前提)。良性竞态(审查第3轮Info):dtor的cv等待在done置位时(fn内、fn返回前)即被唤醒,可先于池的ack写关闭selfPipeFds——`send`到已关fd错误被忽略;Windows句柄复用的杂字节窗口极窄且收尾期无停泊等待者,电平重查契约兜底。
+- `_tcpResolveStart`:字面量IP直接入记录(endpoints当场填,`MarkDone`+直写管道一字节——不经池,统一等待路径);否则`submitWork`(priority=0,见上);返jobId。`_tcpResolveWait`:循环`{ drain自管道读端(读到would-block); 状态mutex临界区内{查记录done→返count; 查截止→返-2; host->parkForIo(host, selfPipeRead, EV_READ, deadline, has)首入登记(锁序状态mutex→GIL,与R9等待方临界区同形态); 返0则return(重入再查)} }`(R9 drain纪律:水平触发防自旋;等待侧临界区镜像R9(审查第2轮):worker的done填充本在同一mutex下,"done已置"与"ack字节在登记之后才写"二必居其一——防一等待者的drain吃掉另一等待者的ack字节后,后者带着done=true睡到永久截止(timeoutMs=0);任务11`_ping`等待循环同此形态;wait从不释放记录——释放在脚本侧`_tcpResolveRelease`统一做,幂等,released/done齐则`FreeIfBoth`释放,worker迟到ack自然收敛,connect提前命中也不漏)。`_tcpResolveEndpoint`:越界返null。
+- [ ] **步骤5:`net_tcp.cpp`**(每函数≤50行)。`_tcpRead`完整体(其余同形态):
+
+```cpp
+//Release the read claim if this call holds it (R9: table access under
+//the state mutex; R5: the last release performs the deferred close).
+static void NetReleaseRead(NetExecState* st, int32_t handle, bool claimed) {
+    if (!claimed) { return; }
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+}
+//_tcpRead(handle, buf, deadlineMs): the park/retry loop lives inside
+//the native (design §7): try recv, then the deadline, then claim +
+//park (review focus 1: data always wins over expired bookkeeping).
+//The slot's waiter field is the context id (committed form); this
+//call claims it before parking and releases it on every exit path.
+static void NetTcpRead(NativeHost* host, uint8_t* ret,
+    const uint8_t* args, int argc)
+{
+    NetExecState* st = NetState(host);
+    const int32_t handle = ArgInt(args, 0);
+    NativeArrayView buf;
+    ArgArray(host, args, 1, &buf);
+    const long long deadline = ArgLong(args, 2);
+    const int self = host->currentContextId(host);   //R14
+    bool claimed = false;   //this call holds the read-direction waiter
+    for (;;) {
+        int fd = -1;
+        {   //fd copied under the mutex: another carrier's Mint may
+            //reallocate the slot vector while we run the syscall.
+            std::lock_guard<std::mutex> g(st->m_mutex);
+            NetSocketSlot* slot = st->m_slots.Lookup(handle);
+            if (!slot) {   //null = stale or closed
+                //Unconditional clear of our direction: a claim here is
+                //either this context's own pre-park claim (releasing it
+                //lets the R5 deferred close proceed) or a foreign one
+                //the closer already woke — that waiter re-enters through
+                //this same null branch without touching the fd, so
+                //closing the fd now cannot race a parked syscall.
+                st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+                ReturnInt(ret, kNetErrClosed);
+                return;
+            }
+            fd = slot->fd;
+            //Re-entry rebuilds this stack: adopt the claim that
+            //survived the park. waiter==self can only be this call's
+            //own claim (D11 keeps foreign readers out while it is set).
+            claimed = (slot->readWaiter == self);
+        }
+        const int n = NetRecv(fd, buf.data, buf.elemCount);   //non-blocking
+        if (n >= 0) {   //data or EOF (n == 0)
+            NetReleaseRead(st, handle, claimed);
+            ReturnInt(ret, n);
+            return;
+        }
+        if (n != kNetWouldBlock) {
+            NetReleaseRead(st, handle, claimed);
+            NetRememberLastError(st);   //lastErrorText under the mutex (R9)
+            ReturnInt(ret, kNetErrPlatform);
+            return;
+        }
+        if (deadline > 0 && host->nowMs(host) >= deadline) {
+            NetReleaseRead(st, handle, claimed);
+            ReturnInt(ret, kNetErrTimeout);
+            return;
+        }
+        //Claim check, claim set and the parkForIo first-entry interest
+        //registration share ONE state-mutex critical section (R9 lost-
+        //wakeup window: the closer either flags closed before the claim
+        //or sees the claim and wakes us after we park).
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        NetSocketSlot* slot = st->m_slots.Lookup(handle);
+        if (!slot) {   //lock held: release directly, not via the helper
+            if (claimed) st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+            ReturnInt(ret, kNetErrClosed);
+            return;
+        }
+        if (slot->readWaiter != 0 && slot->readWaiter != self) {
+            if (claimed) st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+            ReturnInt(ret, kNetErrConcurrent);
+            return;
+        }
+        st->m_slots.SetWaiter(handle, NetDir::Read, self);
+        claimed = true;
+        if (host->parkForIo(host, slot->fd, NET_EV_READ,
+                deadline, deadline > 0) == 0) {
+            return;   //first entry: unwinding under the claim
+        }
+    }
+}
+```
+
+(waiter纪律(R14/R9):槽waiter字段=上下文id(已提交形态),模块经第五回调`host->currentContextId(host)`取得——跨停泊/重入稳定,用于区分"本调用重入"(id相等,claim延续)与"他人并发抢占"(非零且不等→-3);`claimed`栈局部标记"本调用已claim",重入后栈重建、须从槽采纳存活claim(`claimed=(slot->readWaiter==self)`,槽已关闭的分支则无条件清本方向——见草图注释),退出路径只清自己方向(防误清他人waiter破坏R5延迟关fd判定;审查第2轮:不采纳则"停泊后完成"的读/写/accept永久残留waiter,延迟关fd永不落地)。槽表与`lastErrorText`一切访问在`st->m_mutex`下;claim检查、置claim、parkForIo首入登记同一临界区,关闭方`MarkClosed`+读waiter标志同mutex、解锁后再调`wakeIoWaiters`——丢唤醒窗就此闭合。)`_tcpWrite`对称:写兴趣+循环至发满;EPIPE→`kNetErrPlatform`(文本connection lost)。`_tcpAccept`=监听fd读兴趣+`NetAccept`+新fd入槽+返新句柄(accept方向waiter同read纪律)。`_tcpConnectTry`=`NetOpenTcpStream`+非阻塞`NetConnect`→inprogress则写兴趣停泊循环→`NetConnectResult`(SO_ERROR)判成败,失败关fd返码;截止检查同read形态。
+- [ ] **步骤6:其余方法契约**(≤10行/个):
+
+| native | 行为 | 返回 |
 | --- | --- | --- |
-| Close | 读槽上三个waiter id→`MarkClosed`→`RemoveIoWaitsForFd(fd)`→逐个`WakeForIo`;真正关fd由最后一个`ReleaseWaiter`执行(R5);无停泊者时`MarkClosed`即关 | — |
-| ShutdownWrite | `NetShutdownWrite` | SocketException |
-| IsClosed | `Lookup==nullptr或closed`→1/0 | — |
-| PeerAddress/PeerPort/LocalAddress/LocalPort | `NetPeer*/NetLocal*` | SocketException |
+| _tcpClose | 状态mutex临界区{`MarkClosed`→读waiter标志}→解锁→`wakeIoWaiters(fd)`(宿主回调,见下);真正关fd由最后`ReleaseWaiter`执行(R5);无停泊者即关 | 0/-1 |
+| _tcpShutdownWrite | `NetShutdownWrite` | 0/-4 |
+| _tcpIsClosed | 槽缺或closed→1 | 1/0 |
+| _tcpPeer*/_tcpLocal* | `NetPeer*/NetLocal*` | 文本/端口或-4 |
 
-- [ ] **步骤6:`VmExecutor`收尾**:析构/Reset路径`m_netResolver.Shutdown();`+遍历`m_netSlots`关闭未关fd(spec"执行器收尾统一关闭未关socket")。
-- [ ] **步骤7:`CMakeLists.txt`加`IntrinsicsNetTcp.cpp`+`NetResolver.cpp`;删Support TU临时stub的Tcp分支。**
+(`wakeIoWaiters`为任务5 ABI v11第四回调(R13):close native在blocking通道(无GIL)调用,宿主内部取GIL→从`m_ioWaits[fd]`收集等待者id并注销兴趣→逐个`WakeForIo`;真正关fd由最后`ReleaseWaiter`执行(R5)。)
+- [ ] **步骤7:`CMakeLists.txt`加两TU;索引计数同步**(net新增文件面声明12个:`_tcpAccept/_tcpResolveStart/_tcpResolveWait/_tcpResolveEndpoint/_tcpResolveRelease/_tcpConnectTry/_tcpRead/_tcpWrite/_tcpShutdownWrite/_tcpIsClosed/_tcpPeerAddress/_tcpPeerPort`+TcpStream类方法不计数;187→199,`test_library_index`/`test_symbol_index`同步)。
 - [ ] **步骤8:跑绿八条e2e**(单载体)+`--carriers=4`手跑echo一遍(不入manifest);全量ctest绿。
-- [ ] **步骤9:提交**`git commit -m "feat(net): TCP listener/stream with parked IO and the DNS resolver thread"`。
+- [ ] **步骤9:提交**`git commit -m "feat(net): TCP listener/stream natives with parked IO and the DNS job pool"`。
 
-**验收判据:**八条e2e绿;审查焦点1/2/3测试绿;全量ctest绿。
+**验收判据:**八条e2e绿;审查焦点1/2/3测试绿;全量ctest绿;索引199。
 
 ---
 
-### 任务6:TCP选项面
+### 任务8:TCP选项面
 
-**文件:**修改`src/vm/IntrinsicsNetTcp.cpp`、`tests/e2e/manifest.txt`;测试`tests/e2e/stdlib_net_tcp_options.n`。
+**文件:**修改`src/native/net/net_tcp.cpp`、`stdlib/net.n`、`tests/e2e/manifest.txt`;测试`tests/e2e/stdlib_net_tcp_options.n`。
 
-**接口:**消费任务1的`NetSet*`;产出四个setter内在函数(声明已在任务5落地)。
+**接口:**消费任务1的`NetSet*`;产出`_tcpSetNoDelay/_tcpSetKeepAlive/_tcpSetSendBufferSize/_tcpSetRecvBufferSize`+四个脚本setter。
 
 - [ ] **步骤1:写失败e2e**`stdlib_net_tcp_options.n`:
 
@@ -1662,7 +2144,7 @@ int main() {
     cli.setSendBufferSize(8192);
     cli.setRecvBufferSize(8192);
     // Options must not disturb the data path.
-    cli.write(net.toBytes("opt"));
+    cli.write(io.toBytes("opt"));
     byte[] buf = byte[4];
     if (c.read(buf, 5000) != 4) { return 1; }
     cli.close(); c.close(); srv.close();
@@ -1671,16 +2153,16 @@ int main() {
 }
 ```
 
-- [ ] **步骤2:实现四个setter**:统一助手`ApplyOption(callParamBase, locals, bool (*fn)(int,bool))`/`ApplyIntOption(..., int (*fn)(int,int))`;失败`RaiseSocketError("setsockopt <name> failed")`。
-- [ ] **步骤3:manifest加`stdlib_net_tcp_options 0 ok`;跑绿;提交**`git commit -m "feat(net): TCP socket option setters"`。
+- [ ] **步骤2:实现**:四native统一助手`ApplyOption/ApplyIntOption`(setsockopt失败→`kNetErrPlatform`+记last-error);net.n四脚本方法(`if (r < 0) _throwNet(r, "setNoDelay");`形态)。
+- [ ] **步骤3:manifest加`stdlib_net_tcp_options 0 ok`;索引199→203;跑绿;提交**`git commit -m "feat(net): TCP socket option setters"`。
 
 ---
 
-### 任务7:脚本层分帧——readLine/readExactly/write(string)
+### 任务9:脚本层分帧——readLine/readExactly/write(string)
 
-**文件:**修改`stdlib/net.n`、`tests/e2e/manifest.txt`;测试`tests/e2e/stdlib_net_tcp_readline.n`。
+**文件:**修改`stdlib/net.n`、`src/native/net/net_native.cpp`(注册内部`_toBytes`/`_fromBytes`,r1补注5)、`tests/e2e/manifest.txt`;测试`tests/e2e/stdlib_net_tcp_readline.n`。
 
-**接口:**消费native `read`/`write(byte[],int)`;产出三个脚本方法(HTTP分层地基)。
+**接口:**消费native `read`/`write(byte[],int)`;产出三个脚本方法(HTTP分层地基)+模块内部字节转换`_toBytes`/`_fromBytes`(net.n脚本便捷面不能用`io.toBytes`——预置包互不import,r1补注5;约15行UTF-8转换在模块内重复,裁决见spec§六盘点表)。
 
 - [ ] **步骤1:写失败e2e**`stdlib_net_tcp_readline.n`:
 
@@ -1715,7 +2197,7 @@ int main() {
     string hdr = cli.readLine(5000);
     hdr = cli.readLine(5000);          //blank line
     byte[] body = cli.readExactly(5, 5000);
-    if (net.fromBytes(body) != "hello") { return 2; }
+    if (io.fromBytes(body) != "hello") { return 2; }
     cli.close();
     thread.join(t);
     srv.close();
@@ -1724,12 +2206,21 @@ int main() {
 }
 ```
 
-- [ ] **步骤2:net.n实现**(脚本层,无新intrinsic):
+- [ ] **步骤2:注册内部字节转换+net.n实现**:
+
+`net_native.cpp`追加两条注册(普通通道,纯转换;实现语义照任务5的`IoToBytes`/`IoFromBytes`——`ArgString`→`newArray`(RTK_Byte)填cell/对称拼串):`reg(registry,"net","_toBytes",&NetToBytes);``reg(registry,"net","_fromBytes",&NetFromBytes);`。`stdlib/net.n`内部原语段追加:
+
+```nlang
+// 内部UTF-8字节转换(nlang_net模块注册;公开面是io.toBytes/fromBytes,
+//  预置包互不import故脚本便捷面用内部副本,r1补注5)。
+native byte[] _toBytes(string s);
+native string _fromBytes(byte[] data);
+```
 
 ```nlang
     // 文本便捷面:UTF-8编码后全写;返回发出的字节数。
     public int write(string s) {
-        return this.write(net.toBytes(s));
+        return this.write(_toBytes(s));
     }
 
     // 读一行:以'\n'结束,返回不含行尾的文本('\r'被剥离)。
@@ -1737,8 +2228,10 @@ int main() {
     public string readLine(int timeoutMs = 0) {
         string acc = "";
         byte[] one = byte[1];
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
         while (true) {
-            int n = this.read(one, timeoutMs);
+            int n = _tcpRead(m_handle, one, deadline);   //绝对截止跨多次读稳定
+            if (n < 0) { _throwNet(n, "readLine"); }
             if (n == 0) {
                 if (acc == "") { return null; }
                 return acc;
@@ -1749,7 +2242,7 @@ int main() {
                 }
                 return acc;
             }
-            acc = acc + net.fromBytes(one);
+            acc = acc + _fromBytes(one);
         }
     }
 
@@ -1758,9 +2251,11 @@ int main() {
     public byte[] readExactly(int count, int timeoutMs = 0) {
         byte[] payload = byte[count];
         byte[] tmp = byte[count];
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
         int got = 0;
         while (got < count) {
-            int n = this.read(tmp, timeoutMs);
+            int n = _tcpRead(m_handle, tmp, deadline);
+            if (n < 0) { _throwNet(n, "readExactly"); }
             if (n == 0) {
                 throw SocketException("net: connection closed after "
                     + got.toString() + " of " + count.toString()
@@ -1775,17 +2270,17 @@ int main() {
     }
 ```
 
-(逐字节readLine是v1直白实现,正确优先;性能线记入文档"高频分帧建议自带缓冲"。`acc.endsWith("\r")`/`substring(start,end)`(end不含)/`got.toString()`均为现有String面(已对码核实)。)
+(逐字节readLine是v1直白实现,正确优先;性能线记入文档"高频分帧建议自带缓冲"。`acc.endsWith("\r")`/`substring(start,end)`(end不含)/`got.toString()`均为现有String面(已对码核实)。readLine/readExactly直调`_tcpRead`而非公开`read`:跨次读共享同一绝对截止点,公开read每次重算timeoutMs会无限续期。)
 
-- [ ] **步骤3:manifest加`stdlib_net_tcp_readline 0 ok`;跑绿;提交**`git commit -m "feat(net): script-layer framing — readLine, readExactly, text write"`。
+- [ ] **步骤3:manifest加`stdlib_net_tcp_readline 0 ok`;索引203→205(net自由函数+2:`_toBytes`/`_fromBytes`,`test_library_index`/`test_symbol_index`同步);跑绿;提交**`git commit -m "feat(net): script-layer framing — readLine, readExactly, text write"`。
 
 ---
 
-### 任务8:UDP
+### 任务10:UDP
 
-**文件:**新建`src/vm/IntrinsicsNetUdp.cpp`;修改`stdlib/net.n`、`src/vm/CMakeLists.txt`、`tests/e2e/manifest.txt`;测试`stdlib_net_udp_echo.n`、`stdlib_net_udp_connected.n`、`stdlib_net_udp_multicast.n`。
+**文件:**新建`src/native/net/net_udp.cpp`;修改`stdlib/net.n`、`src/native/CMakeLists.txt`、`tests/e2e/manifest.txt`;测试`stdlib_net_udp_echo.n`、`stdlib_net_udp_connected.n`、`stdlib_net_udp_multicast.n`。
 
-**接口:**消费槽表/ParkForIo;产出UDP全部native+R2包装。
+**接口:**消费槽表/parkForIo;产出UDP全部内部native+R2脚本包装。
 
 - [ ] **步骤1:写失败e2e**:
 
@@ -1812,7 +2307,7 @@ int main() {
     UdpEcho e = UdpEcho(); e.s = srv;
     Thread t = thread.spawn(e.run);
     UdpSocket cli = UdpSocket.bind("127.0.0.1", 0);
-    cli.sendTo(net.toBytes("dgram"), "127.0.0.1", srv.localPort());
+    cli.sendTo(io.toBytes("dgram"), "127.0.0.1", srv.localPort());
     byte[] buf = byte[32];
     string from;
     int port = 0;
@@ -1820,7 +2315,7 @@ int main() {
     //fromBytes读整数组:先拷出恰好n字节的缓冲再比较。
     byte[] msg = byte[n];
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
-    if (n != 5 || net.fromBytes(msg) != "dgram") { return 1; }
+    if (n != 5 || io.fromBytes(msg) != "dgram") { return 1; }
     if (from != "127.0.0.1" || port != srv.localPort()) { return 2; }
     cli.close(); srv.close(); thread.join(t);
     io.print("ok");
@@ -1838,9 +2333,9 @@ int main() {
     UdpSocket a = UdpSocket.bind("127.0.0.1", 0);
     UdpSocket b = UdpSocket.bind("127.0.0.1", 0);
     a.connect("127.0.0.1", b.localPort());
-    a.send(net.toBytes("rel"));
+    a.send(io.toBytes("rel"));
     byte[] buf = byte[3];
-    if (b.recv(buf, 5000) != 3 || net.fromBytes(buf) != "rel") { return 1; }
+    if (b.recv(buf, 5000) != 3 || io.fromBytes(buf) != "rel") { return 1; }
     if (a.peerAddress() != "127.0.0.1" || a.peerPort() != b.localPort()) { return 2; }
     a.close(); b.close();
     io.print("ok");
@@ -1860,7 +2355,7 @@ int main() {
     UdpSocket s = UdpSocket.bind("0.0.0.0", 0);
     s.setMulticastTtl(1);
     s.joinMulticast("239.255.255.250");
-    s.sendTo(net.toBytes("m"), "239.255.255.250", s.localPort());
+    s.sendTo(io.toBytes("m"), "239.255.255.250", s.localPort());
     byte[] buf = byte[8];
     string from;
     int port = 0;
@@ -1873,54 +2368,128 @@ int main() {
 }
 ```
 
-- [ ] **步骤2:net.n追加UdpSocket声明**(spec§五全文;`recvFrom`为脚本包装,R2):
+- [ ] **步骤2:net.n追加UdpSocket**(公开面同spec§五;`recvFrom`为脚本包装,R2):
 
 ```nlang
+native int _udpBind(string host, int port);
+native int _udpSendTo(int handle, byte[] data, int count, string host, int port);
+native int _udpConnect(int handle, string host, int port);
+native int _udpSend(int handle, byte[] data, int count);
+native int _udpRecv(int handle, byte[] buf, long deadlineMs);
+native int _udpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _udpLastRecvAddress(int handle);
+native int _udpLastRecvPort(int handle);
+native int _udpSetBroadcast(int handle, bool on);
+native int _udpJoinMulticast(int handle, string group);
+native int _udpLeaveMulticast(int handle, string group);
+native int _udpSetMulticastTtl(int handle, int ttl);
+native int _udpSetTtl(int handle, int ttl);
+native string _udpLocalAddress(int handle);
+native int _udpLocalPort(int handle);
+native string _udpPeerAddress(int handle);
+native int _udpPeerPort(int handle);
+native int _udpClose(int handle);
+
 class UdpSocket {
-    public static native UdpSocket bind(string host = "0.0.0.0", int port = 0);
+    private int m_handle;
+    public UdpSocket(int handle) { m_handle = handle; }
+
+    public static UdpSocket bind(string host = "0.0.0.0", int port = 0) {
+        int h = _udpBind(host, port);
+        if (h < 0) { _throwNet(h, "bind " + host + ":" + port.toString()); }
+        return UdpSocket(h);
+    }
     // count默认-1=全发整数组;≥0只发前count字节(R3,回发接收缓冲用)。
-    public native int sendTo(byte[] data, string host, int port, int count = -1);
+    public int sendTo(byte[] data, string host, int port, int count = -1) {
+        int n = (count >= 0) ? count : data.length();
+        int r = _udpSendTo(m_handle, data, n, host, port);
+        if (r < 0) { _throwNet(r, "sendTo"); }
+        return r;
+    }
     // 收一条数据报,经out参数给出来源地址/端口;停泊直至有数据或超时。
     public int recvFrom(byte[] buf, out string peerAddress, out int peerPort,
                         int timeoutMs = 0) {
-        int n = this.recvFromRaw(buf, timeoutMs);
-        peerAddress = this.lastRecvAddress();
-        peerPort = this.lastRecvPort();
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
+        int n = _udpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recvFrom"); }
+        peerAddress = _udpLastRecvAddress(m_handle);
+        peerPort = _udpLastRecvPort(m_handle);
         return n;
     }
-    public native void connect(string host, int port);
-    public native int send(byte[] data, int count = -1);
-    public native int recv(byte[] buf, int timeoutMs = 0);
-    public native void setBroadcast(bool on);
-    public native void joinMulticast(string group);
-    public native void leaveMulticast(string group);
-    public native void setMulticastTtl(int ttl);
-    public native void setTtl(int ttl);
-    public native string localAddress();
-    public native int localPort();
+    public void connect(string host, int port) {
+        int r = _udpConnect(m_handle, host, port);
+        if (r < 0) { _throwNet(r, "connect"); }
+    }
+    public int send(byte[] data, int count = -1) {
+        int n = (count >= 0) ? count : data.length();
+        int r = _udpSend(m_handle, data, n);
+        if (r < 0) { _throwNet(r, "send"); }
+        return r;
+    }
+    public int recv(byte[] buf, int timeoutMs = 0) {
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
+        int n = _udpRecv(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "recv"); }
+        return n;
+    }
+    public void setBroadcast(bool on) {
+        int r = _udpSetBroadcast(m_handle, on);
+        if (r < 0) { _throwNet(r, "setBroadcast"); }
+    }
+    public void joinMulticast(string group) {
+        int r = _udpJoinMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "joinMulticast"); }
+    }
+    public void leaveMulticast(string group) {
+        int r = _udpLeaveMulticast(m_handle, group);
+        if (r < 0) { _throwNet(r, "leaveMulticast"); }
+    }
+    public void setMulticastTtl(int ttl) {
+        int r = _udpSetMulticastTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setMulticastTtl"); }
+    }
+    public void setTtl(int ttl) {
+        int r = _udpSetTtl(m_handle, ttl);
+        if (r < 0) { _throwNet(r, "setTtl"); }
+    }
+    public string localAddress() {
+        string s = _udpLocalAddress(m_handle);
+        if (s == null) { _throwNet(-4, "localAddress"); }
+        return s;
+    }
+    public int localPort() {
+        int p = _udpLocalPort(m_handle);
+        if (p < 0) { _throwNet(p, "localPort"); }
+        return p;
+    }
     // connect后的对端(未connect时抛SocketException)。
-    public native string peerAddress();
-    public native int peerPort();
-    public native void close();
-    // 内部原语:实际收数据报并把来源存入socket槽(recvFrom包装调用)。
-    private native int recvFromRaw(byte[] buf, int timeoutMs);
-    private native string lastRecvAddress();
-    private native int lastRecvPort();
+    public string peerAddress() {
+        string s = _udpPeerAddress(m_handle);
+        if (s == null) { _throwNet(-4, "peerAddress"); }
+        return s;
+    }
+    public int peerPort() {
+        int p = _udpPeerPort(m_handle);
+        if (p < 0) { _throwNet(p, "peerPort"); }
+        return p;
+    }
+    public void close() {
+        int r = _udpClose(m_handle);
+        if (r < 0) { _throwNet(r, "close"); }
+    }
 }
 ```
 
-(R2探针:私有native若编译/绑定失败→改public+手册标注"内部原语"。)
-
-- [ ] **步骤3:`IntrinsicsNetUdp.cpp`**:bind/sendTo/connect/四个setter/local*=close契约同TCP形态(setsockopt失败抛SocketException);`recvFromRaw`=读兴趣停泊循环(同read形态)+`NetRecvFrom`填槽`lastPeerAddress/lastPeerPort`;`send`=`NetSendTo`(connected态用`NetSend`)。`recvFromRaw`完整体同任务5read骨架(换`NetRecvFrom`)。
-- [ ] **步骤4:manifest三行;跑绿;提交**`git commit -m "feat(net): UDP socket with datagram parking and source reporting"`。
+- [ ] **步骤3:`net_udp.cpp`**:bind/sendTo/connect/五setter/local*=close契约同TCP形态(setsockopt失败→-4+记last-error);`_udpRecvFrom`=读兴趣停泊循环(同`_tcpRead`形态)+`NetRecvFrom`填槽`lastPeerAddress/lastPeerPort`;`_udpSend`=`NetSendTo`(connected态`NetSend`)。
+- [ ] **步骤4:manifest三行;索引205→223(18个`_udp*`);跑绿;提交**`git commit -m "feat(net): UDP socket with datagram parking and source reporting"`。
 
 ---
 
-### 任务9:ICMP——IcmpSocket与ping
+### 任务11:ICMP——IcmpSocket与ping
 
-**文件:**新建`src/vm/IntrinsicsNetIcmp.cpp`;修改`stdlib/net.n`、`src/vm/NetResolver.cpp`(ICMP线程半边)、`src/vm/CMakeLists.txt`、`tests/e2e/manifest.txt`;测试`stdlib_net_ping_loopback.n`、`stdlib_net_icmp_raw.n`。
+**文件:**新建`src/native/net/net_icmp.cpp`;修改`stdlib/net.n`、`src/native/net/net_jobs.{h,cpp}`(ICMP echo作业经submitWork提交,priority=1)、`src/native/CMakeLists.txt`、`tests/e2e/manifest.txt`;测试`stdlib_net_ping_loopback.n`、`stdlib_net_icmp_raw.n`。
 
-**接口:**消费NetJobTable;产出`INTR_Net_Ping`与IcmpSocket五原语。
+**接口:**消费作业表/自管道;产出`ping`实现与IcmpSocket内部native。
 
 - [ ] **步骤1:写失败e2e**:
 
@@ -1960,13 +2529,57 @@ int main() {
 }
 ```
 
-- [ ] **步骤2:net.n追加**`ping`自由函数声明+`IcmpSocket`类(spec§五全文,`recvFrom`同R2包装:`recvFromRaw`+`lastRecvAddress`)。
-- [ ] **步骤3:`IntrinsicsNetIcmp.cpp`**:`ping`=构造echo载荷→`SubmitNetIcmp`作业停泊(fd=-1截止)→唤醒读`rttMs`(-1→TimeoutException,-2→SocketException);`IcmpSocket.bind`=`NetOpenIcmp`+`NetBind`(失败文本含"administrator");`sendTo`=`NetIcmpSend`(载荷校验和Windows raw下为0时native补算);`recvFromRaw`=读兴趣停泊+`NetIcmpRecv`填来源。
-- [ ] **步骤4:manifest两行;跑绿;提交**`git commit -m "feat(net): ICMP echo ping and the raw IcmpSocket"`。
+- [ ] **步骤2:net.n追加**`IcmpSocket`(公开面同spec§五;`recvFrom`同R2包装):
+
+```nlang
+native int _icmpBind(string host);
+native int _icmpSendTo(int handle, byte[] message, string host);
+native int _icmpRecvFrom(int handle, byte[] buf, long deadlineMs);
+native string _icmpLastRecvAddress(int handle);
+native int _icmpClose(int handle);
+
+class IcmpSocket {
+    private int m_handle;
+    public IcmpSocket(int handle) { m_handle = handle; }
+
+    // Windows:SOCK_RAW/IPPROTO_ICMP,需管理员,否则抛 SocketException
+    // ("raw ICMP requires administrator privileges on Windows")。
+    // Linux:SOCK_DGRAM/IPPROTO_ICMP(免特权,受 ping_group_range 约束)。
+    public static IcmpSocket bind(string host = "0.0.0.0") {
+        int h = _icmpBind(host);
+        if (h < 0) { _throwNet(h, "icmp bind"); }
+        return IcmpSocket(h);
+    }
+    // 发送完整 ICMP 消息(类型/代码/校验和/ID/序列/载荷);
+    // Windows raw 下校验和字段为 0 时由 native 自动计算。
+    public int sendTo(byte[] icmpMessage, string host) {
+        int r = _icmpSendTo(m_handle, icmpMessage, host);
+        if (r < 0) { _throwNet(r, "icmp sendTo"); }
+        return r;
+    }
+    // 收到一条 ICMP 消息,返回来源地址(out)。
+    public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
+        long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0;
+        int n = _icmpRecvFrom(m_handle, buf, deadline);
+        if (n < 0) { _throwNet(n, "icmp recvFrom"); }
+        peerAddress = _icmpLastRecvAddress(m_handle);
+        return n;
+    }
+    public void close() {
+        int r = _icmpClose(m_handle);
+        if (r < 0) { _throwNet(r, "icmp close"); }
+    }
+}
+```
+
+(`ping`声明已在任务6落地,本任务实现:`ping(host, timeoutMs)`脚本方法化——`native int _ping(string host, long deadlineMs)`+公开`ping`包装:`long deadline = (timeoutMs > 0) ? _nowMs() + timeoutMs : 0; int rtt = _ping(host, deadline); if (rtt < 0) _throwNet(rtt, "ping " + host); return rtt;`——公开签名不变,超时经-2→TimeoutException。任务6的`native int ping(...)`声明改为脚本方法+`_ping`内部native,公开面不变。)
+
+- [ ] **步骤3:`net_icmp.cpp`**:`_ping`=构造echo载荷→ICMP作业池(独立线程,D5)停泊于自管道(同resolve形态)→读`rttMs`(-1超时→-2,-2不可达→-4);`_icmpBind`=`NetOpenIcmp`+`NetBind`(失败文本含"administrator");`_icmpSendTo`=`NetIcmpSend`(Windows raw校验和为0时补算);`_icmpRecvFrom`=读兴趣停泊+`NetIcmpRecv`填来源。
+- [ ] **步骤4:manifest两行;索引223→229(5个`_icmp*`+`_ping`);跑绿;提交**`git commit -m "feat(net): ICMP echo ping and the raw IcmpSocket"`。
 
 ---
 
-### 任务10:并发与GC加固e2e
+### 任务12:并发与GC加固e2e
 
 **文件:**新建`tests/e2e/stdlib_net_conc_echo.n`(+`.flags --carriers=4`)、`stdlib_net_parked_recv_gc.n`(+`.flags --gc-stress=4`);修改`tests/e2e/manifest.txt`。
 
@@ -2078,7 +2691,7 @@ int main() {
     Storm st = Storm();
     Thread t2 = thread.spawn(st.run);   //GC pressure while parked
     thread.sleep(50);
-    cli.write(net.toBytes("wake"));     //client sends into the parked reader
+    cli.write(io.toBytes("wake"));     //client sends into the parked reader
     thread.join(t1); thread.join(t2);
     if (p.n != 4) { return 1; }
     cli.close(); c.close(); srv.close();
@@ -2091,7 +2704,7 @@ int main() {
 
 ---
 
-### 任务11:示例六件
+### 任务13:示例六件
 
 **文件:**新建`examples/net_echo_server.n`、`net_echo_client.n`、`net_http_mini.n`、`net_udp_echo.n`、`net_ping.n`、`net_conc_bench.n`;修改`tests/e2e/examples_manifest.txt`。
 
@@ -2268,7 +2881,7 @@ int main() {
             contentLength = header.substring(16, header.length()).toInt();
         }
     }
-    string body = net.fromBytes(cli.readExactly(contentLength, 5000));
+    string body = io.fromBytes(cli.readExactly(contentLength, 5000));
     io.print("status: " + status + "\n");
     io.print("body: " + body + "\n");
     cli.close();
@@ -2304,7 +2917,7 @@ int main() {
     Thread t = thread.spawn(srvTask.run);
 
     UdpSocket cli = UdpSocket.bind("127.0.0.1", 0);
-    cli.sendTo(net.toBytes("time?"), "127.0.0.1", srv.localPort());
+    cli.sendTo(io.toBytes("time?"), "127.0.0.1", srv.localPort());
     byte[] buf = byte[64];
     string from;
     int port = 0;
@@ -2312,7 +2925,7 @@ int main() {
     byte[] msg = byte[n];                   //按实收长度拷贝再转字符串
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     io.print("reply from " + from + ":" + port.toString()
-        + " -> " + net.fromBytes(msg) + "\n");
+        + " -> " + io.fromBytes(msg) + "\n");
     cli.close(); srv.close(); thread.join(t);
     io.print("ok");
     return 0;
@@ -2342,11 +2955,13 @@ int main() {
 }
 ```
 
-`examples/net_conc_bench.n`(审查焦点5的示例半;单载体必须完成):
+`examples/net_conc_bench.n`(审查焦点5的示例半;单载体必须完成;吞吐按
+ab/wrk 标准口径——并发数×总请求→msg/s+总耗时,便于与 Go/Node 同型实现
+横向对比):
 
 ```nlang
 // 示例:高并发证据——同进程1000虚拟线程客户端×短消息echo。
-// 停泊不占载体:单载体下也必须跑完(30s门内)。
+// 停泊不占载体:单载体下也必须跑完(30s门内)。吞吐口径同 wrk/ab。
 import io;
 import thread;
 import net;
@@ -2395,6 +3010,7 @@ int main() {
     BenchAccept acc = BenchAccept(); acc.listener = listener;
     Thread acceptor = thread.spawn(acc.run);
 
+    long t0 = io.nowMs();             //计时窗=并发建立+全部请求(ab/wrk口径)
     BenchClient[] cs = BenchClient[1000];
     Thread[] ts = Thread[1000];
     for (int i = 0; i < 1000; i = i + 1) {
@@ -2405,9 +3021,12 @@ int main() {
     }
     int ok = 0;
     for (int i = 0; i < 1000; i = i + 1) { thread.join(ts[i]); ok = ok + cs[i].ok; }
+    long dt = io.nowMs() - t0;
     listener.close();
     thread.join(acceptor);
-    io.print("1000 connections, " + ok.toString() + " echoed\n");
+    io.print("1000 connections, " + ok.toString() + " echoed, "
+        + dt.toString() + " ms, " + (1000000 / (dt + 1)).toString()
+        + " msg/s\n");
     if (ok != 1000) { return 1; }
     io.print("ok");
     return 0;
@@ -2419,65 +3038,66 @@ int main() {
 
 ---
 
-### 任务12:文档(en+zh手册、CHANGELOG、VERSION、mkdocs nav)
+### 任务14:文档(en+zh手册、CHANGELOG、VERSION、mkdocs nav)
 
 **文件:**见文件结构表;无代码测试(由docs strict+snippet审计把关)。
 
 - [ ] **步骤1:手册同步基线判定**(AGENTS.md:手册同步是功能任务的完成定义):`D:/dev/miniconda3/envs/py313/python.exe tools/manual_sync_check.py check`,把`docs/user_manual/SYNC_BASELINE`以来的每个提交逐个判定(语言面/标准库面/诊断文案/退出码/ABI五类);net之外的漂移也在本任务编辑中一并体现。
 - [ ] **步骤2:新建`docs/user_manual/en/specification/library/20-network/`四页**(模板对齐17-concurrency-classes):
-  - `index.md`:包定位(import net;停泊语义——阻塞方法让出载体,千级并发;异常家族SocketException/TimeoutException∈IOException;toBytes/fromBytes;片段审计要求:每页至少一个含main自退出片段)。必含可跑片段:
+  - `index.md`:包定位(import net;停泊语义——阻塞方法让出载体,千级并发,单载体亦成立;异常家族SocketException/TimeoutException∈IOException;字节转换见io.toBytes/fromBytes(io包,r1补注5);片段审计要求:每页至少一个含main自退出片段)。必含可跑片段:
 
 ```nlang
 import net;
 
 int main() {
-    byte[] data = net.toBytes("hi");
-    string back = net.fromBytes(data);
-    if (back != "hi") { return 1; }
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    if (srv.localPort() <= 0) { return 1; }   //端口0由系统分配
+    srv.close();
     return 0;
 }
 ```
 
-  - `tcp.md`:TcpListener/TcpStream全方法表(签名+行为+抛出);自退出echo片段(任务11`net_echo_server.n`main体精简版);半关闭shutdownWrite说明;超时语义(timeoutMs=0无限等,TimeoutException)。
+  - `tcp.md`:TcpListener/TcpStream全方法表(签名+行为+抛出);自退出echo片段(任务13`net_echo_server.n`main体精简版);半关闭shutdownWrite说明;超时语义(timeoutMs=0无限等,TimeoutException)。
   - `udp.md`:UdpSocket方法表;recvFrom来源参数说明;组播/广播要点;数据报截断POSIX语义。
   - `icmp.md`:ping说明(Windows免管理员、Linux受ping_group_range);IcmpSocket管理员要求原文;片段=ping 127.0.0.1(审计真实执行)。
 - [ ] **步骤3:zh镜像四页**(术语与17章zh页一致;去不必要空格)。
 - [ ] **步骤4:同步既有页**:
   - `library/11-conventions.md`:包清单"六个"→"七个",加net一行;
   - `library/19-library-exceptions.md`:SocketException/TimeoutException两行;
+  - `library`io页(en+zh):追加`nowMs`/`parkForIo`/`toBytes`/`fromBytes`四函数说明(停泊原语是通用IO设施,面向持fd原生库与将来管道/进程复用,普通用户无需直接使用;toBytes/fromBytes为通用UTF-8字节转换,自net包迁入,r1补注5);
   - `specification/reference/known-limitations.md`(en+zh):核对网络相关限制可否解除,登记v1实际限制(POSIX原始ICMP受`net.ipv4.ping_group_range`、IPv6测试限`::1`回环);
   - `specification/index.md`与`library`索引nav加20-network;
-  - `getting-started/install-layout.md`(en+zh):stdlib文件清单加`net.n`;
+  - `getting-started/install-layout.md`(en+zh):stdlib文件清单加`net.n`;bin目录说明提及`nlang_net`模块(与nlang_io等原生模块同机制随包分发);
   - `mkdocs.en.yml`/`mkdocs.zh.yml` nav追加。
-- [ ] **步骤5:`CHANGELOG.md`新段`## [0.13.0] - <日期>`**(Added:net包全文一段+示例一句)+`CHANGELOG.zh-CN.md`对称段。
+- [ ] **步骤5:`CHANGELOG.md`新段`## [0.13.0] - <日期>`**(Added:net包全文一段+io停泊原语一句+示例一句)+`CHANGELOG.zh-CN.md`对称段。
 - [ ] **步骤6:`VERSION`→`0.13.0`**。
 - [ ] **步骤7:docs strict+snippet审计跑绿**(`nlang_docs`目标+pytest经gate.sh);提交`git commit -m "docs(net): network library manual pages (en+zh), changelog, v0.13.0"`,随后`D:/dev/miniconda3/envs/py313/python.exe tools/manual_sync_check.py --update`刷新`SYNC_BASELINE`并入同一提交(AGENTS.md手册同步协议)。
 
 ---
 
-### 任务13:全套门禁 + 10k基准 + 循环完善
+### 任务15:全套门禁 + 10k基准 + 循环完善
 
 **文件:**新建`tools/net_bench/net_bench_10k.n`(10000连接版net_conc_bench,不入ctest)。
 
-- [ ] **步骤1:全量构建+ctest**:`bash tools/gate.sh build_gate temp/gate_build cmake --build build-dev --config Release`;`bash tools/gate.sh ctest_gate temp/gate_ctest ctest --test-dir build-dev -C Release`(判决行PASS;基线119+新增3,合并后实测)。
-- [ ] **步骤2:e2e全量**:`bash tools/gate.sh e2e_gate temp/gate_e2e D:/dev/miniconda3/envs/py313/python.exe tests/e2e/run_e2e_tests.py E:/cases/nlang/dev/build-dev/src/tools/ncc/Release/ncc.exe E:/cases/nlang/dev/build-dev/src/tools/nvm/Release/nvm.exe`(基线1755+新增20+示例6,合并后实测)。
-- [ ] **步骤3:IDE树全量ctest**(build-ide树,139条(合并后重测)含Qt族——stdlib/编译器变更硬门[[nlang-ide-tree-gate-requirement]])。
+- [ ] **步骤1:全量构建+ctest**:`bash tools/gate.sh build_gate temp/gate_build cmake --build build-dev --config Release`;`bash tools/gate.sh ctest_gate temp/gate_ctest ctest --test-dir build-dev -C Release`(判决行PASS;基线149+新增(test_module_state等,实施时实测))。
+- [ ] **步骤2:e2e全量**:`bash tools/gate.sh e2e_gate temp/gate_e2e D:/dev/miniconda3/envs/py313/python.exe tests/e2e/run_e2e_tests.py E:/cases/nlang/dev/build-dev/src/tools/ncc/Release/ncc.exe E:/cases/nlang/dev/build-dev/src/tools/nvm/Release/nvm.exe`(基线1790+新增18条(io 1+net 17)+示例6,实测)。
+- [ ] **步骤3:IDE树全量ctest**(build-ide树,含Qt族——stdlib/编译器/预置包变更硬门[[nlang-ide-tree-gate-requirement]];native模块新增亦属预置包分发面变更,核npkg含nlang_net)。
 - [ ] **步骤4:Debug断言冒烟**:`bash tools/debug_assert_smoke.sh`(记忆[[nlang-assert-build-in-gates]]:Release绿≠Debug绿)。
 - [ ] **步骤5:docs strict+pytest+nav-coverage**(干净树门禁配方全套选项)。
-- [ ] **步骤6:10k基准**:`build-dev/src/tools/ncc/Release/ncc.exe tools/net_bench/net_bench_10k.n && build-dev/src/tools/nvm/Release/nvm.exe tools/net_bench/net_bench_10k.ncu --carriers=4`记录耗时/峰值内存到任务报告(spec验收2;不入ctest)。
+- [ ] **步骤6:10k基准**:`build-dev/src/tools/ncc/Release/ncc.exe tools/net_bench/net_bench_10k.n && build-dev/src/tools/nvm/Release/nvm.exe tools/net_bench/net_bench_10k.ncu --carriers=4`记录耗时/吞吐(msg/s,ab/wrk口径,可与Go/Node同型实现对比)/峰值内存到任务报告(spec验收2;不入ctest);另跑单载体一遍佐证"I/O并发与载体数无关"不变量。
 - [ ] **步骤7:循环完善流程**:架构+代码质量双维审核(实现后双维审核记忆),Medium+发现修复后重跑受影响门禁,直到零新发现;然后按提交授权纪律收尾。
 
-**验收判据(spec§十一逐条):**三协议e2e全绿;错误路径全绿;net_conc_bench 30s内完成;10k基准跑通记录;全套门禁GATE行全PASS;symbol_index/守卫同步;en+zh文档+示例+CHANGELOG+spec页齐备;docs审计过。
+**验收判据(spec§十一逐条):**三协议e2e全绿;错误路径全绿;net_conc_bench 30s内完成(单载体);10k基准跑通记录;全套门禁GATE行全PASS;symbol_index/守卫同步;en+zh文档+示例+CHANGELOG+spec页齐备;docs审计过。
 
 ---
 
-## 自查(spec覆盖)
+## 自查(spec覆盖,r1)
 
-- spec§五API面:全部方法有归属任务(TcpListener/bytes=T4,TcpStream核心=T5,选项=T6,分帧=T7,UDP=T8,ICMP/ping=T9);out参数经R2包装保持spec公开面。
-- spec§六native层:九个新文件全部落任务1-9;Intrinsics.h/BindingTable/s_HandleClassNames/级联=T4;CMake链接=T1;wepoll登记=T1。
-- spec§七数据流:read/connect/超时竞态/close竞态=T5实现+T5/T10测试;R5/R6钉死实现形态。
-- spec§八测试策略:19 net e2e+1编译器回归e2e+3 ctest+symbol_index+docs审计+门禁=任务1-13;gc-stress双形态=T10。
-- spec§九示例:六文件=T11(五例+conc_bench)。
-- spec§十集成点:1=T4-T11,2=T1-T9,3=T1-T10,4=T12,5=T12,6=T12。
-- spec§十一验收:T13逐条。
-- spec§十二风险:wepoll告警退路(T1 /W3+退WSAPoll)、防火墙绑127.0.0.1(全局约束)、端口0(全局约束)、ICMP非admin(T9 e2e)、千并发30s(T11实测钉死)。
+- spec§五API面:全部方法有归属任务(TcpListener/异常=T6,io字节转换=T5(io.toBytes/fromBytes,r1补注5),net内部_toBytes/_fromBytes=T9,TcpStream核心+accept=T7,选项=T8,分帧=T9,UDP=T10,ICMP/ping=T11);out参数经R2脚本包装保持spec公开面。
+- spec§六native层:模块九TU落任务6-11;VM侧IoPoller/VmSchedulerIo=任务2/3已提交+任务6拆分;NativeHost.h v11六回调+VmWorkPool通用工作线程池=任务5(r1补注4);通用设施盘点表(r1补注5)各项落任务5(io四项/VmWorkPool)/6(moduleState)/7(submitWork消费)/9(内部字节转换);VM解耦(删intrinsic ID/BindingTable行/句柄类名/级联)=任务6;CMake/cpack=任务6/14。
+- spec§七数据流:read/connect/超时竞态/close竞态=T7实现+T7/T12测试;R5/R6/R7钉死实现形态。
+- spec§八测试策略:18新增net/io e2e(io 1+net 17)+2既有net e2e回归+5 ctest(2重定向+test_module_state+test_work_pool+test_net_scheduler并入)+symbol_index+docs审计+门禁=任务5-15;gc-stress双形态=T12。
+- spec§九示例:六文件=T13(五例+conc_bench;单载体完成=不变量佐证)。
+- spec§十集成点:1=T6-T13,2=T6-T11,3=T5/T6,4=T6-T13,5=T14,6=T14,7=T14。
+- spec§十一验收:T15逐条。
+- spec§十二风险:wepoll告警退路(T1 实测无/W4 /WX 门禁、警告不致败,退WSAPoll未触发,见任务1台账裁决)、ABI v11停泊解卷(T5 e2e+R7双标志,退路=regBlocking占载体+T15单载体基准佐证)、防火墙绑127.0.0.1(全局约束)、端口0(全局约束)、ICMP非admin(T11 e2e)、千并发30s(T13实测钉死)。
