@@ -142,21 +142,33 @@ int NetShutdownWrite(int fd) {
 }
 
 int NetConnectResult(int fd) {
-    //Zero-timeout writability probe (see net_platform.h): a pending
+    //Zero-timeout completion probe (see net_platform.h): a pending
     //connect also reports SO_ERROR == 0, so a stale park wake must not
     //mint a half-open stream — only a finished connect is writable.
-    fd_set wfds;
+    //Windows reports the two outcomes on different sets: success on
+    //writables, failure on exceptfds (the canonical non-blocking
+    //connect idiom). Watching writables alone made a refused connect
+    //look "still in progress" forever: the poller keeps re-firing the
+    //latched connect-failure event, and the park/verdict loop spins
+    //until the deadline (the 10k-connection benchmark stall).
+    fd_set wfds, efds;
     FD_ZERO(&wfds);
     FD_SET(Fd(fd), &wfds);
+    FD_ZERO(&efds);
+    FD_SET(Fd(fd), &efds);
     timeval tv = { 0, 0 };
-    if (select(0, nullptr, &wfds, nullptr, &tv) <= 0)
-        return kNetInProgress;   //not writable yet: still connecting
+    if (select(0, nullptr, &wfds, &efds, &tv) <= 0)
+        return kNetInProgress;   //neither set ready: still connecting
     int err = 0;
     int size = sizeof(err);
     if (getsockopt(Fd(fd), SOL_SOCKET, SO_ERROR,
                    reinterpret_cast<char*>(&err), &size) != 0)
         return -1;
-    if (err == 0) return 0;
+    if (err == 0)
+        //Writables-ready = handshake done. exceptfds-ready with
+        //SO_ERROR == 0 is a spurious exception some AFD builds
+        //report: judge it still in flight, not failed.
+        return FD_ISSET(Fd(fd), &wfds) ? 0 : kNetInProgress;
     char buf[128] = { 0 };
     std::snprintf(buf, sizeof(buf), "connect failed: socket error %d", err);
     g_lastErrorOverride = buf;
