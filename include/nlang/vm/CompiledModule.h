@@ -151,7 +151,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //record, and a fifth import section (staticSlotImports). A v2.12
 //module lacks the class/interface tail bytes and misparses every
 //record after the first class; refuse v2.12 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 13;
+//v2.14 (v0.13.0): OP_Eq_struct/OP_Ne_struct join the opcode set —
+//struct ==/!= now compiles to them instead of a raw handle compare.
+//The wire layout of every record is unchanged; a v2.13 module's
+//struct comparisons silently compare heap indices (identity), so
+//refuse v2.13 and older to keep struct ==/!= value-correct.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 14;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

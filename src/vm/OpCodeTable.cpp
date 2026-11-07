@@ -71,6 +71,8 @@ static const char* s_OpCodeNames[] = {
     "call_delegate",
     "eq_func",
     "ne_func",
+    "eq_struct",
+    "ne_struct",
     "func_to_str",
     "make_bound_func",
     "make_vfunc",

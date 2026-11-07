@@ -400,6 +400,8 @@ static bool DisasmFuncValueOps(OpCode op, BytecodeReader &r,
             return true;
         case OpCode::OP_Eq_func:
         case OpCode::OP_Ne_func:
+        case OpCode::OP_Eq_struct:
+        case OpCode::OP_Ne_struct:
             DisasmU16xN(2, r, out, head, " lhs=%u rhs=%u");
             return true;
         case OpCode::OP_Func_to_str:

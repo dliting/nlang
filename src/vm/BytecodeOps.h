@@ -127,6 +127,13 @@ enum class OpCode : uint8_t {
                         // params staged at callParamBase[0..n)
     OP_Eq_func,         // uint16 lhs, uint16 rhs — content equality (null-guarded)
     OP_Ne_func,         // uint16 lhs, uint16 rhs — negation of OP_Eq_func
+    //v0.13.0: struct ==/!= by field value (the DeepCopyStruct dual) —
+    //the same equality the container entries use, so contains(p) and
+    //get(i) == p agree. Operands are valid struct handles (the resolver
+    //gate allows same-type struct pairs only); null sentinels compare
+    //as plain indices, defensively.
+    OP_Eq_struct,       // uint16 lhs, uint16 rhs — field-value equality
+    OP_Ne_struct,       // uint16 lhs, uint16 rhs — negation of OP_Eq_struct
     OP_Func_to_str,     // no operands; format the handle at pResult as
                         // "func <name>", mint a string object, write handle to pResult
     OP_MakeBoundFunc,   // uint16 funcIdx — receiver at the pResult slot →
@@ -246,6 +253,7 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
+    OpCode::OP_Eq_struct, OpCode::OP_Ne_struct,
     OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,

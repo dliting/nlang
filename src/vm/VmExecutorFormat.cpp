@@ -108,6 +108,35 @@ void VmExecutor::OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode 
     std::memcpy(locals + lhs, &r, sizeof(r));
 }
 
+void VmExecutor::OpStructEquality(BytecodeReader& reader, uint8_t* locals, OpCode op) {
+    //v0.13.0 D2: struct ==/!= — field-value equality through the same
+    //comparator the container entries use. Read-only, so the K8
+    //benign-sharing note of OpFuncEquality applies unchanged.
+    bool bNeg = (op == OpCode::OP_Ne_struct);
+    uint16_t lhs = reader.ReadUint16();
+    uint16_t rhs = reader.ReadUint16();
+    int32_t idxA, idxB;
+    std::memcpy(&idxA, locals + lhs, sizeof(idxA));
+    std::memcpy(&idxB, locals + rhs, sizeof(idxB));
+    //Null sentinel 0 participates as plain index comparison (OpFuncEquality
+    //rule); the resolver gate only emits this opcode for same-type struct
+    //operands, so a stale non-struct read is a broken image, not a user path.
+    bool bEqual;
+    if (idxA <= 0 || idxB <= 0) {
+        bEqual = (idxA == idxB);
+    } else if (static_cast<size_t>(idxA) >= m_structHeap.size()
+        || static_cast<size_t>(idxB) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(idxA)] != RTK_Struct
+        || m_slotKinds[static_cast<size_t>(idxB)] != RTK_Struct) {
+        throw std::runtime_error(
+            "NLang VM: struct equality on a stale non-struct value");
+    } else {
+        bEqual = StructValuesEqual(idxA, idxB);
+    }
+    int32_t r = ((bEqual != bNeg) ? 1 : 0);
+    std::memcpy(locals + lhs, &r, sizeof(r));
+}
+
 std::string VmExecutor::FormatHeapValue(int32_t heapIdx, int depth) {
     if (depth > static_cast<int>(TOSTRING_DEPTH_LIMIT))
         throw std::runtime_error(

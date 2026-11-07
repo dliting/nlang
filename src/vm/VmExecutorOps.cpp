@@ -272,6 +272,11 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpFuncEquality(reader, locals, op);
             break;
 
+        case OpCode::OP_Eq_struct:
+        case OpCode::OP_Ne_struct:
+            OpStructEquality(reader, locals, op);
+            break;
+
         case OpCode::OP_Func_to_str:
             OpFunc_to_str(pResult);
             break;

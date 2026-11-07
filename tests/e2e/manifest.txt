@@ -495,6 +495,13 @@ kl_struct_dict_key 0
 kl_struct_nested_deep 0
 kl_struct_field_kinds 0
 kl_struct_dedup_idiom 0
+# --- v0.13.0 D2: struct ==/!= by value (OP_Eq_struct) + compare gate;
+# ordering / mixed-type / null / scalar comparisons are compile errors ---
+kl_struct_eq_value 0
+err_struct_order_cmp compile_error struct values cannot be ordered
+err_struct_mixed_eq compile_error can only be compared with a struct value of the same type
+err_struct_null_eq compile_error can only be compared with a struct value of the same type
+err_struct_scalar_eq compile_error can only be compared with a struct value of the same type
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---

@@ -950,6 +950,9 @@ private:
 		SnField *L, SnField *R, bool lNull, bool rNull);
 	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk, bool lNull, bool rNull);
+	//v0.13.0 D2: struct ==/!= admits same-type struct pairs only.
+	bool RejectStructCompareMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		SnField *L, SnField *R);
 	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk);
 	//0.7.5 char gates: arithmetic on char is rejected (string concat

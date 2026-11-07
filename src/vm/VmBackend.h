@@ -1472,7 +1472,7 @@ private:
     void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                       uint16_t resultOffset);
     void EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind, bool isString,
-                          bool isFunc, BytecodeEmitter& emitter,
+                          bool isFunc, bool isStruct, BytecodeEmitter& emitter,
                           uint16_t resultOffset, uint16_t rightSlot);
     void EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
                                 bool isString,
@@ -1483,7 +1483,8 @@ private:
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
     void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
-                              bool isString, bool isFunc, BytecodeEmitter& emitter,
+                              bool isString, bool isFunc, bool isStruct,
+                              BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
 
     //New-object emission, shared by the SnNewExpr arm and the 0.9.0

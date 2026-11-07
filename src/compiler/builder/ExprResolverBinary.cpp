@@ -107,6 +107,36 @@ bool ExprResolveAccessor::RejectArrayIdentityMisuse(SnBinaryExpr &sn,
 	return false;
 }
 
+//v0.13.0 D2: struct values compare by field value, so ==/!= is admitted
+//only between two values of the SAME struct type (pointer-identity of the
+//declaration, the CastInfo rule). Everything else used to compile and
+//silently compare raw heap indices: ordering, mixed types, scalars — and
+//null, which a zero-value record can never be, making the comparison
+//vacuous. True = rejected (diagnostic logged).
+bool ExprResolveAccessor::RejectStructCompareMisuse(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, SnField *L, SnField *R)
+{
+	bool lStruct = L && L->Kind() == NK_StructDecl;
+	bool rStruct = R && R->Kind() == NK_StructDecl;
+	if (!lStruct && !rStruct)
+		return false;
+	if (op != SnBinaryExpr::OP_Equal && op != SnBinaryExpr::OP_NotEqual)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"struct values cannot be ordered; only == and != "
+			"are supported.");
+		return true;
+	}
+	if (!(lStruct && rStruct && L == R))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"a struct value can only be compared with a struct "
+			"value of the same type.");
+		return true;
+	}
+	return false;
+}
+
 //0.7.5 numeric promotion (spec §2.2), registry-derived. Narrower-than-
 //int integer operands promote to int FIRST (byte+byte = int, the C#
 //rule); then the result is the smallest type that can implicitly
@@ -208,6 +238,8 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 	if (RejectFuncHandleMisuse(sn, op, L, R, lNull, rNull))
 		return false;
 	if (RejectArrayIdentityMisuse(sn, op, lk, rk, lNull, rNull))
+		return false;
+	if (RejectStructCompareMisuse(sn, op, L, R))
 		return false;
 	if (RejectBoolMisuse(sn, op, lk, rk))
 		return false;
