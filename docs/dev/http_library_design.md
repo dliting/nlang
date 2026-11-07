@@ -7,18 +7,19 @@
 - 用户指示(整体架构):系统设计从nlang语言、工具链和标准库的整体架构考虑,不仅限于本库;若缺少通用字符串解析设施,应补充到标准库;字符串只是例子,其他基础设施缺口也要盘点。
 - 用户裁定(流式):需要支持SSE,v1必须含流式消息体。
 - 用户裁定(版本划分,2026-11-07):v0.13.3=Lambda函数/闭包、v0.13.4=字符串处理增强/URL库、v0.13.5=HTTP库、v0.13.6=WEB框架;本项目自0.13.4起,不等lambda。
-- 用户裁定(基础设施,2026-11-07):gzip尽量采用主流开源库的实现;日期/时间设施需要建立专门的标准库。
+- 用户裁定(基础设施,2026-11-07):gzip尽量采用主流开源库的实现;日期/时间设施需要建立专门的标准库(落点经2026-11-08 datetime归属裁定并入`system`包承载,D24)。
 - 用户裁定(基础设施改进,2026-11-07):改进标准库、语言、虚拟机和工具链的行为是受支持的,只要提出的需求是合理的;通用库需要时新增native亦可。
 - 用户裁定(时钟命名,2026-11-07):`wallMs()`=墙钟(unix毫秒,等价CLOCK_REALTIME);`monoMs()`=单调钟,只用来算间隔、超时、定时器——既有`io.nowMs()`经此改名(不向下兼容);当时的`io.`前缀经2026-11-08时钟归属裁定改为`system.`前缀(见下条)。
 - 用户裁定(项目目的,2026-11-08):开发http系列库的主要目的之一,是检验和改进nlang本身的基础设施;所有功能一律不向下兼容,合理性优先。
-- 用户裁定(时钟归属,2026-11-08):时间相关函数不放`io`包,新建`system`包承载——经核实采纳(调研结论20):时钟非I/O,主流语言归系统设施(Java `System`)或专门time模块;nlang日历面已由`datetime`承载,原始计数器归`system`。环境变量、命令行参数、进程信息为`system`后续居民(本项目无消费者,按消费者立项)。
+- 用户裁定(时钟归属,2026-11-08):时间相关函数不放`io`包,新建`system`包承载——经核实采纳(调研结论20):时钟非I/O,主流语言归系统设施(Java `System`)或专门time模块;nlang日历面由`datetime`承载(同日经datetime归属裁定并入`system`包,D24),原始计数器归`system`。环境变量、命令行参数、进程信息为`system`后续居民(本项目无消费者,按消费者立项)。
 - 用户裁定(内核最小化,2026-11-08):除语言本身需要的基础设施和指令要内建于nvm外,需在C++实现的功能一律放独立库;VM内建注册仅限有明确理由(vm本身依赖,或极致性能优化);spec不合理处可调整。应用:`system`时钟native改由独立`nlang_system.dll`提供,与既有native模块形态统一(取代v2.9「VM内建注册、零新DLL」方案,D20/D23);string三方法经用户裁定保持intrinsic——「string本身就是语言的一部分,需要做成intrinsic」,属「vm本身依赖」的明确例外(D4/D23)。
+- 用户裁定(datetime归属,2026-11-08):「datetime如果是通用的,也可以放到system.n中。保持模块内聚性」——经核实采纳:datetime为通用时间设施(http `Date`/`Expires`头、用户面时间戳),与`wallMs`/`monoMs`同包承载时间设施,不再单设`datetime`包(D24)。
 - 验收参照:`docs/ref/http_verify.md`(url/http/web三库验收规范,B/M/m分级,高并发/SSE/混沌专项)。
 - 既有成果:net库(v0.12.9,stdlib/net.n)、io包字节设施、M:N虚拟线程调度器、`func<R, P…>`函数值与绑定方法引用。
 
 **裁定原则**:不向下兼容;合理性优先,不随便把功能降级为「已知限制」;现状不是设计依据;KISS;性能不敏感的功能归脚本层(标准库形式),性能敏感的归native(如压缩、传输)。
 
-**状态**:v2.10,并入用户内核最小化裁定与string方法形态裁定(2026-11-08)后的修订轮,待循环完善审核后定稿(前九轮记录见修订记录)。
+**状态**:v2.11,并入用户datetime归属裁定(D24)与v2.10审核轮5条次要修正(2026-11-08);v2.10轮审核判决无中级及以上问题,待v2.11增量审核后定稿(前十轮记录见修订记录)。
 
 ---
 
@@ -28,7 +29,7 @@
 
 1. `url`包:RFC 3986通用语法URL解析、构件重组、相对引用解析、百分号编码/解码、表单编码查询串解析与构造。
 2. `http`包:HTTP/1.1协议库,含消息模型(请求/响应/头部,**缓冲与流式双形态**)、客户端(连接池、重定向、分级超时、流式收发、便捷函数)、服务端(高并发、keep-alive、加固解析、chunked流式响应、背压与取消传播、100-continue)。
-3. 配套基础设施(盘点见第六节):`string`新增`indexOf(t, from)`、`toInt(radix)`、`equalsIgnoreCase(t)`三方法(D4);`io`包新增base64编解码,`io.nowMs`移出改名`system.monoMs`;新增`system`时钟包(`wallMs`墙钟/`monoMs`单调钟,D20);新增`datetime`专门包(D20);新增`gzip`包并集成http内容编码(D21)。
+3. 配套基础设施(盘点见第六节):`string`新增`indexOf(t, from)`、`toInt(radix)`、`equalsIgnoreCase(t)`三方法(D4);`io`包新增base64编解码,`io.nowMs`移出改名`system.monoMs`;新增`system`时间包(`wallMs`墙钟/`monoMs`单调钟native+`DateTime`日历面脚本,D20/D24);新增`gzip`包并集成http内容编码(D21)。
 4. 示例(http_hello、http_conc_bench、http_sse、url_tour)、e2e测试、用户手册新章节。
 
 ### 版本划分(用户裁定2026-11-07,D22)
@@ -36,8 +37,8 @@
 | 版本 | 内容 |
 | --- | --- |
 | v0.13.3 | Lambda函数/闭包(独立语言子项目,本项目不依赖) |
-| v0.13.4 | 字符串三方法+io.base64+`system`时钟包+`datetime`包+`url`包(含手册15-system、22-url、23-datetime章,§17.2与§20增补) |
-| v0.13.5 | `http`包全部(分帧、服务器、客户端+池+重定向、流式+背压+取消、加固)+`gzip`包及http集成(含手册24-http、25-gzip章与§20) |
+| v0.13.4 | 字符串三方法+io.base64+`system`时间包(时钟+DateTime)+`url`包(含手册15-system、22-url章,§17.2与§20增补) |
+| v0.13.5 | `http`包全部(分帧、服务器、客户端+池+重定向、流式+背压+取消、加固)+`gzip`包及http集成(含手册23-http、24-gzip章与§20) |
 | v0.13.6 | WEB框架(独立子项目,lambda就位后启动) |
 
 各版本公开面是最终面的子集,后版只增不改——虽不承诺向下兼容,也不自破刚发布的API。
@@ -51,7 +52,7 @@
 | web框架(路由、静态文件、中间件) | 独立后续子项目,排0.13.6(D1/D22);中间件链依赖lambda闭包,协议包保持职责干净。 |
 | SSE helper(event-stream编码封装) | HTTP层只提供chunked流式能力,不理解SSE语义(http_verify §6/SSE-008);helper归web框架,本项目以`http_sse.n`示例演示手工framing。 |
 | MIME content-type嗅探 | 消费者是web框架静态文件服务(0.13.6),届时随框架立项。 |
-| datetime本地时区 | 需要操作系统时区native;v1为UTC基准(D20),本地时区为roadmap后续扩展。 |
+| `DateTime`本地时区 | 需要操作系统时区native;v1为UTC基准(D20),本地时区为roadmap后续扩展。 |
 | gzip流式压缩 | v1压缩只作用于缓冲body(D21);流式gzip需要flush边界控制,随流式设施演进而非v1核心。 |
 | 客户端pipelining | 业界已死(D11调研:cURL 7.65移除、Chrome/Firefox放弃,HTTP/2多路复用取代)。 |
 | CONNECT/代理 | v1无代理场景;协议面留待将来。 |
@@ -70,7 +71,7 @@
 7. **并发设施**:`Channel<T>`容量参数化——capacity≥1为有界,`send`在缓冲满时阻塞(=天然背压);capacity 0为无界(`concurrent.n:59-60`);通道关闭后对已关通道`send`/`recv`抛`ChannelClosedException`;`recv`无超时参数——生产者必须以`finally`关通道兜底,否则消费者永久阻塞(D18)。
 8. **先例**:`examples/net_http_mini.n`是手写HTTP/1.0迷你服务器+客户端(readLine解析请求行、readExactly取body、port 0+localPort、accept超时轮询+SocketException退出),即本包要一般化的雏形。
 9. **索引钉**:`test_library_index.cpp`钉库索引267个自由函数,类方法不计——string方法新增不动此钉,url/http/gzip/io.base64/system.wallMs的自由函数会动(`io.nowMs`移出改名`system.monoMs`为净零),计划精确重算。
-10. **手册结构**:第二部分(标准库)止于第20章网络库;第三部分二进制格式为21/22/23章。0.13.4新增`system`章(插于14-io之后为15,现15-20章顺延为16-21)与url/datetime两章(22/23),格式章顺延为24/25/26;0.13.5新增http/gzip两章(24/25)后再顺延为27/28/29。重编号波及的引用面散布中英两树数十个文件(计数随形态口径而变,spec不钉死),含`§N.M`、`第N章`、`chapter N`(大小写混用)三种节号形态、文件名链接、被重编号章自身的内部节号自引用;陈旧节号的链接本身有效,linkcheck与nav-coverage均测不出,会静默出厂——故同步按§十一.3的规则由实施计划grep列全,spec不手写计数(手写清单已两轮漏项)。
+10. **手册结构**:第二部分(标准库)止于第20章网络库;第三部分二进制格式为21/22/23章。0.13.4新增`system`章(插于14-io之后为15,现15-20章顺延为16-21;含时钟与DateTime日历面,D24)与url章(22),格式章顺延为23/24/25;0.13.5新增http/gzip两章(23/24)后再顺延为25/26/27。重编号波及的引用面散布中英两树数十个文件(计数随形态口径而变,spec不钉死),含`§N.M`、`第N章`、`chapter N`(大小写混用)三种节号形态、文件名链接、被重编号章自身的内部节号自引用;陈旧节号的链接本身有效,linkcheck与nav-coverage均测不出,会静默出厂——故同步按§十一.3的规则由实施计划grep列全,spec不手写计数(手写清单已两轮漏项)。
 11. **测试登记**:`tests/e2e/manifest.txt`与`tests/e2e/examples_manifest.txt`格式为`name expected_exit_code [stdout_substring]`;net族e2e用例命名`stdlib_net_*.n`配`.flags`。
 12. **版本排期**:用户裁定(2026-11-07)总体划分见第一节版本划分表;本项目落点0.13.4/0.13.5,roadmap按此登记。
 
@@ -108,9 +109,9 @@
 | # | 裁定 | 理由 |
 | --- | --- | --- |
 | D1 | 分三层:`url`包与`http`包入本项目,web框架(路由/静态文件/中间件/SSE helper)为独立后续子项目,排v0.13.6。 | 调研结论1:url独立、协议独立、框架薄层是各语言一致的分层;框架中间件链需要闭包捕获(v0.13.3),现在只能退化为绑定方法链,设计价值有限;协议包不含路由保持职责干净(Go ServeMux亦仅为薄封装,后加不破协议层)。 |
-| D2 | url.n、datetime.n与http.n为纯nlang实现:零新增native、零新增DLL;解析、分帧、客户端、服务端全在脚本层。gzip为例外(D21,native)。 | 用户指示(性能不敏感功能用nlang,便于调试与查阅);调研结论3(Python/WEBrick先例);事实5(loader按native未命中触发DLL,纯包天然无需)。逃生口:若conc基准显示解析为热点,热路径可日后native化而API不变。用户裁定(2026-11-07):改进标准库/语言/VM/工具链行为受支持,只要需求合理——本裁定「零新增native」是合理需求下的优先选择而非禁令(system墙钟native即按此裁定新增)。跨包复用native(`datetime.now()`复用`system.wallMs`(新增墙钟native,D20)、http的`bodyText`复用`io.fromBytes`(既有))经`import system;`/`import io;`——预置包间互导入现无先例(stdlib全包零互导入),计划探针任务一并验证;若加载路径不支持,回退为消费包内声明该native并由其命名空间对应的`nlang_<ns>.dll`提供(库索引钉数与DLL清单须计入,D23)。 |
+| D2 | url.n与http.n为纯nlang实现:零新增native、零新增DLL;解析、分帧、客户端、服务端全在脚本层。gzip为例外(D21,native);system.n的DateTime为脚本、wallMs/monoMs为native(D20/D23/D24)。 | 用户指示(性能不敏感功能用nlang,便于调试与查阅);调研结论3(Python/WEBrick先例);事实5(loader按native未命中触发DLL,纯包天然无需)。逃生口:若conc基准显示解析为热点,热路径可日后native化而API不变。用户裁定(2026-11-07):改进标准库/语言/VM/工具链行为受支持,只要需求合理——本裁定「零新增native」是合理需求下的优先选择而非禁令(system墙钟native即按此裁定新增)。跨包复用native(http的`bodyText`复用`io.fromBytes`(既有))经`import io;`——预置包间互导入现无先例(stdlib全包零互导入),计划探针任务一并验证;若加载路径不支持,回退为消费包内声明该native并由其命名空间对应的`nlang_<ns>.dll`提供(库索引钉数与DLL清单须计入,D23;回退态按命名空间新建DLL,与D23纯脚本裁定及§十二.1验收冲突,须重裁)。 |
 | D3 | URL遵RFC 3986通用语法(Go net/url路线):组件拆分存储(scheme/userInfo/host/port/path/query/fragment)、一般语法相对引用解析、unreserved集百分号编码、查询串按application/x-www-form-urlencoded对解析。不做IDN punycode转换——非ASCII主机按字节原样保留交上层(URL-010两策略取「原样保留」档并文档化,DNS失败在连接阶段显现);不做WHATWG特殊规则。 | 调研结论2:两标准互斥,WHATWG需要IDN/punycode与Unicode规范化整套设施,超出v1体量;RFC 3986确定性强、实现小,与nlang字节语义吻合。 |
-| D4 | 补三个通用字符串方法到`string`:`indexOf(t, from)`、`toInt(radix)`、`equalsIgnoreCase(t)`。 | 用户指示(缺通用解析设施应补标准库)。每个在本项目有≥2消费者:indexOf带起点——url组件边界+http头部行扫描(无它则缓冲扫描退化为反复substring,易错且O(n²));toInt(radix)——百分号解码+chunked十六进制分帧;equalsIgnoreCase——头部名/方法/scheme大小写不敏感(RFC 9110),现用toLower()比较每次分配。语义钉死为Java先例(调研结论10):from<0按0、from>length返回-1;toInt严格整串2..36进制、畸形/溢出抛`Exception`(与既有`toInt()`家族同行为,手册§17.2——system章插入重编号后的落点)。已评估通用tokenizer/Scanner:不需要,indexOf+substring+循环足够覆盖,再加抽象属臆测泛化。解冻Phase 11「string方法面冻结」裁定:该裁定防的是无序膨胀,本三项各有明确消费与调研依据,合理性优先。实现形态(用户裁定2026-11-08):三方法保持String面类方法(归`lang`库)并做成intrinsic——string是语言基本类型,其成员操作属内建于nvm的语言基础设施,属内核最小化裁定(D23)「vm本身依赖」的明确例外(string接收者是字符串池索引而非对象,其成员调用只经内建函数表分派,见§七);不做包自由函数。 |
+| D4 | 补三个通用字符串方法到`string`:`indexOf(t, from)`、`toInt(radix)`、`equalsIgnoreCase(t)`。 | 用户指示(缺通用解析设施应补标准库)。每个在本项目有≥2消费者:indexOf带起点——url组件边界+http头部行扫描(无它则缓冲扫描退化为反复substring,易错且O(n²));toInt(radix)——百分号解码+chunked十六进制分帧;equalsIgnoreCase——头部名/方法/scheme大小写不敏感(RFC 9110),现用toLower()比较每次分配。语义钉死为Java先例(调研结论10):from<0按0、from>length返回-1;toInt严格整串2..36进制、畸形/溢出抛`Exception`(与既有`toInt()`家族同行为,手册§17.2——system章插入重编号后的落点)。已评估通用tokenizer/Scanner:不需要,indexOf+substring+循环足够覆盖,再加抽象属臆测泛化。解冻Phase 11「string方法面冻结」裁定:该裁定防的是无序膨胀,本三项各有明确消费与调研依据,合理性优先。实现形态(用户裁定2026-11-08):三方法保持String面类方法(归`lang`库)并做成intrinsic——string是语言基本类型,其成员操作属内建于nvm的语言基础设施,属内核最小化裁定(D23)「vm本身依赖」的明确例外(string接收者是字符串池索引而非对象,成员调用在编译期绑定VM内建实现——专用操作码或内建函数表,不经限定名native查找、无DLL服务路径,见§七);不做包自由函数。 |
 | D5 | 消息模型双形态(缓冲+流式)。请求体:服务器侧`HttpRequest.bodyReader`为分帧感知reader(`read`/`readAll`/`bodyText`/`close`),handler可只读所需部分;`maxBodyBytes`仅在readAll处强制(readAll超限→413);连接循环排干的上限是D19的固定256KB(与`maxBodyBytes`配置无关,排干超限→关连接——响应已由handler定夺,不再改状态码,D19)。响应体:`byte[]`(写出Content-Length)或有界`Channel<byte[]>`(chunked流式,send阻塞=背压)。客户端:缓冲档`request()`内部readAll;流式档`open()`交回`bodyReader`;流式上传经`bodyChannel`(chunked)。 | 用户裁定(需支持SSE,v1含流式);http_verify §6/SSE-008:HTTP层只提供chunked流式能力,不理解SSE语义;调研结论7(Go逐事件Flush模型——有界通道泵即其背压等价物)、结论8(close/排干纪律)。缓冲档覆盖主流工作负载,流式档覆盖SSE/大文件,两档同源于同一reader/分帧实现,无重复逻辑。 |
 | D6 | 并发模型:accept线程+每连接一虚拟线程;handler抛异常→回500并关闭该连接(body超限异常按D5回413,不属此列)。 | 与net_conc_bench/net_http_mini同形,Loom/goroutine先例(虚拟线程使阻塞式每连接一线程廉价);handler异常后连接状态不可知,关闭是Go panic处理的先例。 |
 | D7 | keep-alive:HTTP/1.1默认持久连接;空闲超时`keepAliveTimeoutMs`默认30s;头部阶段另有总时限`headerTimeoutMs`默认10s——请求行+头部未在时限内收齐即断连(Slowloris);body阶段另有每次读间隔时限`bodyTimeoutMs`默认10s(0=不限)——body细水慢灌与半开连接同样有界;响应写出(含流式泵)用分段时限`writeTimeoutMs`默认10s(0=不限),body按≤64KB分段写出,时限是每段间隔而非总时长,超时视为客户端离开(走D18取消路径);新连接一律`setNoDelay(true)`+`setKeepAlive(true)`(net.n二者仅收bool,探测间隔为OS默认,keepalive只作半开兜底,快速发现靠读写时限);尊重`Connection: close`;HTTP/1.0默认关闭、显式keep-alive才持久(RFC 9112 §9)。 | 持久连接是HTTP/1.1默认行为;空闲与头部两时限分离是Go `ReadHeaderTimeout`与Node `headersTimeout`的共同设计(调研结论6),合并为一参会让慢速头部客户端占住空闲额度;body与写出时限补齐Go `Server.ReadTimeout`/`WriteTimeout`的旋钮集——只有头部时限则body阶段Slowloris(HTTP-S02)与半开推送(HTTP-HC-004)无界;每次读间隔/每段写出语义比Go的总时长语义更友好(慢而稳的对端不误杀,细水慢灌仍被切断);各时限均以带deadline的虚拟线程读写实现——VM调度器统一管理deadline,空闲连接是parked虚拟线程而非per-connection定时器,HTTP-HC-003「CPU不随连接数线性上涨」语义满足。 |
@@ -119,23 +120,24 @@
 | D10 | 100-continue:服务器对`Expect: 100-continue`先发`100 Continue`再读body,未知Expect回417;客户端不发Expect,但容忍1xx中间响应(跳过取最终响应)。 | 调研结论15:服务器支持成本低;客户端不发避免额外往返与417陷阱,容忍1xx保证对真实服务器的健壮性。 |
 | D11 | pipelining:客户端不pipelining;服务器不特设机制——缓冲读取器保留已读入的后续字节,连接内顺序处理即自然兼容。 | 调研结论14:pipelining已死,不值得客户端投入;服务器兼容是缓冲读取器的免费副产品。 |
 | D12 | 重定向:客户端默认跟随,上限10(`maxRedirects`可配,0=禁用);301/302/303改GET并丢弃body(可重放);307/308保持方法——缓冲`body`可重放,`bodyChannel`已消费不可重放→抛`HttpException`(Go「not replayable」同行为);跨主机剥离Authorization与Cookie;相对Location经`Url.resolve`解析。 | 调研结论17:Go规则是业界事实标准;跨主机剥离凭据是SSRF基本防御。 |
-| D13 | 异常:`url.n`定义`UrlException : IOException`(解析/解码失败),`http.n`定义`HttpException : IOException`(协议错误:畸形响应行/头部、重定向超限、头部注入字符、body超限),`datetime.n`定义`DateTimeException : Exception`,`gzip.n`定义`GzipException : IOException`;`SocketException`/`TimeoutException`透传;4xx/5xx不是异常。 | 事实4:按包定义异常是既有先例;状态码是响应不是错误(requests/Go一致行为)。 |
+| D13 | 异常:`url.n`定义`UrlException : IOException`(解析/解码失败),`http.n`定义`HttpException : IOException`(协议错误:畸形响应行/头部、重定向超限、头部注入字符、body超限),`system.n`定义`DateTimeException : Exception`,`gzip.n`定义`GzipException : IOException`;`SocketException`/`TimeoutException`透传;4xx/5xx不是异常。 | 事实4:按包定义异常是既有先例;状态码是响应不是错误(requests/Go一致行为)。 |
 | D14 | 服务器生命周期:`HttpServer`实例先配字段再启动——`start(host, port, handler)`非阻塞(accept线程)供测试与同进程场景,`serve(host, port, handler)`阻塞供独立服务器进程(main无需sleep占位);两者均可被另一线程的`close()`唤醒停机(accept经SocketException唤醒,net_http_mini模式);支持port 0+`localPort()`;handler类型`func<HttpResponse, HttpRequest>`;`maxConnections`超限→503+关连接(nginx先例,调研结论13),`maxRequestsPerConnection`超限→末响应`Connection: close`(nginx keepalive_requests先例)。 | main返回即进程退出(§9.3),独立服务器必须有阻塞入口(Go ListenAndServe、Python serve_forever先例);port 0+localPort是e2e/文档围栏自终止的前提(事实8);实例配字段避免静态start的参数鸡生蛋;类类型作函数类型实参有thread.n `func<T>`先例,计划探针确认。 |
 | D15 | 客户端API分两档:便捷自由函数`http.get/post/put/del/request`(共享默认客户端,缓冲档;`timeoutMs`参数=整请求上限)与`HttpClient`类(池、默认头部预置User-Agent——请求自带头部优先、默认只补缺,`Accept-Encoding`由缓冲档发送时注入(D21)、maxRedirects、`maxConnsPerHost`、流式档`open()`)。超时三旋钮:`connectTimeoutMs`默认10s(连接阶段)、`readTimeoutMs`默认10s(每次读间隔,0=不限,SSE长连接调大)、`callTimeoutMs`默认0(整请求含重定向,0=不限)。`HttpRequest`/`HttpResponse`为类。 | 用户目标「方便的客户端API」:requests式一行调用+可配置对象两档是requests/Go/OkHttp共同形态;超时分离是OkHttp/Go/Node共识(调研结论6),整请求超时与SSE长连接互斥故必须拆;`del`避开`delete`关键字风险(计划核实)。 |
 | D16 | chunked双侧读写:读侧——客户端解析chunked响应(含trailer丢弃),服务器解析chunked请求体;写侧——服务器流式响应(`bodyChannel`)与客户端流式上传(`bodyChannel`)均chunked写出,写出侧无缓冲body时恒chunked,有缓冲body恒Content-Length(已知长度优先,调研结论12)。trailer读侧丢弃、写侧不发(v1);chunk extension(`5;foo=bar`尺寸行参数)兼容解析并忽略,不当数据(Go先例,HTTP-CHK-004)。 | 流式形态下写出侧长度未知,chunked必需(用户裁定流式);读侧必须支持因为对端(curl等真实客户端/服务器)会发chunked。 |
 | D17 | TLS接缝:v1传输面直连TcpStream,不预先引入流接口;v1客户端对非`http` scheme(含`https`)在请求组装时抛`HttpException`拒绝;TLS子项目落地时连同其需求(ALPN、握手形态)一并设计接口,机械替换并开放https。 | 避免投机泛化:接口方法集应由TLS真实需求决定;现在定义一个用不上的接口是YAGNI违背;显式拒绝优于明文连上https端口挂到超时(错误信息明确指向缺TLS)。 |
 | D18 | 背压与取消传播:流式响应经有界`Channel<byte[]>`(容量≥1——capacity 0=无界会静默失去背压,不采纳;通道由handler构造并赋值给`bodyChannel`,推荐容量8块),pump(连接线程)逐块`recv`→chunked写出→flush语义(每块即发);`send`阻塞=背压,慢客户端最终阻塞生产者(HTTP-HC-011/SSE-004)。取消:pump写失败(客户端断开)→close通道→生产者`send`抛`ChannelClosedException`→handler/生产者线程停止(SSE-002/HTTP-HC-013)。生产者必须以`finally`关通道(`recv`无超时,事实7;泄漏=连接永久挂起);生产者阻塞在他处到不了`finally`时pump的`recv`停摆——界定以生产者契约为主:handler拥有两线程、必须保证生产者终结,违约属调用方缺陷,库的兜底是每违约请求至多泄漏一个连接;`maxConnections`仅为部署侧可选上限(默认0=不限时不构成封顶)。 | 用户裁定流式/SSE;调研结论7:Go以写失败+context为退出信号,通道泵是其背压等价物;取消必须双向可观测是http_verify红线2。 |
 | D19 | 连接复用纪律:客户端`bodyReader.close()`——body已耗尽→回池;未耗尽即close→直接关连接(取消载体,HTTP-CLI-011:客户端取消传播到连接层,socket及时关闭不泄漏;缓冲档`readAll`恒耗尽,故复用不受影响)。服务器侧handler未读完请求体→连接循环有限排干(≤256KB,Go `maxPostHandlerReadBytes`先例,调研结论8)再复用,排干超限或出错则关连接。出错连接一律不回池。`HttpClient.close()`连同在途连接一并关闭,阻塞中的调用经`SocketException`失败(OkHttp `Call.cancel()`同形)。 | 复用与正确性互锁:未耗尽body的连接回池会把残留字节混进下个请求;服务器侧无界排干让大请求体拖死连接,故取Go的256KB有限值;客户端未耗尽即close语义唯一化为取消(排干复用与取消观测不可兼得,取取消——HTTP-CLI-011为B级,复用损失仅见于流式档主动放弃响应)。 |
-| D20 | 日期/时间建专门`datetime`包(用户裁定2026-11-07):`DateTime`不可变值(UTC日历字段+epoch毫秒),`now()`(复用`system.wallMs`墙钟native——既有`io.nowMs`是steady_clock单调钟,任意起点、非墙钟(`io.n:163-165`、`VmExecutorNativeCallbacks.cpp:380-385`),无法产出日历字段,按用户裁定移出io并改名`system.monoMs`(时钟非I/O,归系统设施,调研结论20;只用于间隔/超时/定时器);新建`system`包承载二者,`wallMs`为新native,等价CLOCK_REALTIME(用户裁定2026-11-07/11-08:改进标准库/VM行为受支持,只要需求合理;不合理名称与归属不因现有实现维持,不向下兼容);`wallMs`/`monoMs`均为普通脚本native,按net库先例由新建`nlang_system.dll`提供(用户裁定2026-11-08:wallMs不属于语言的一部分、无内建理由,时钟实现形态与既有native模块统一,D23),跨包复用路径见D2)、epoch换算、`addMillis`日历运算(days_from_civil/civil_from_days算法,主流C++/fmtlib采用)、ISO 8601 `toString`/`parse`;v1为UTC基准,本地时区需OS时区native,roadmap后续。HTTP的RFC 1123日期格式(`Date`/`Expires`)归http.n实现(协议专属),建于datetime日历原语之上。 | 用户裁定「日期/时间设施需要建立专门的标准库」——内部helper不可发现、不可复用;日历运算是通用设施,与http无关也应存在;UTC-only是范围裁定而非限制(本地时区列roadmap)。 |
+| D20 | 日期/时间日历面`DateTime`建于`system`包(用户裁定2026-11-07建专门标准库、2026-11-08并入`system`包保持时间设施内聚,D24):`DateTime`不可变值(UTC日历字段+epoch毫秒),`now()`(复用同包`wallMs`墙钟native——既有`io.nowMs`是steady_clock单调钟,任意起点、非墙钟(`io.n:163-165`、`VmExecutorNativeCallbacks.cpp:380-385`),无法产出日历字段,按用户裁定移出io并改名`system.monoMs`(时钟非I/O,归系统设施,调研结论20;只用于间隔/超时/定时器);新建`system`包承载二者,`wallMs`为新native,等价CLOCK_REALTIME(用户裁定2026-11-07/11-08:改进标准库/VM行为受支持,只要需求合理;不合理名称与归属不因现有实现维持,不向下兼容);`wallMs`/`monoMs`均为普通脚本native,按net库先例由新建`nlang_system.dll`提供(用户裁定2026-11-08:wallMs不属于语言的一部分、无内建理由,时钟实现形态与既有native模块统一,D23))、epoch换算、`addMillis`日历运算(days_from_civil/civil_from_days算法,主流C++/fmtlib采用)、ISO 8601 `toString`/`parse`;v1为UTC基准,本地时区需OS时区native,roadmap后续。HTTP的RFC 1123日期格式(`Date`/`Expires`)归http.n实现(协议专属),建于`system.DateTime`日历原语之上。 | 用户裁定「日期/时间设施需要建立专门的标准库」——内部helper不可发现、不可复用;日历运算是通用设施,与http无关也应存在;UTC-only是范围裁定而非限制(本地时区列roadmap);并入`system`包是用户内聚性裁定(D24)——时间设施单包可发现,纯脚本面无DLL边界可分。 |
 | D21 | gzip建`gzip`包,native实现采用捆绑zlib(用户裁定2026-11-07「尽量采用主流开源库的实现」):压缩是CPU密集循环+位IO,属性能敏感面,符合native边界;zlib是DEFLATE/gzip的事实标准开源实现(zlib许可,捆绑分发);包形态沿用net库先例(`gzip.n`门面+`nlang_gzip.dll`)。http集成:客户端缓冲档(`request()`)发送时若用户未自设`Accept-Encoding`则注入`gzip`并自动解压——注入发生在发送层而非`defaultHeaders`表,解压与注入绑定:用户显式设置即放弃自动解压(Go transport同构,调研结论18);流式档(`open()`)不注入、不自动解压——v1 gzip仅缓冲(流式gzip见第一节递延裁定),流式路径发一个自己消费不了的编码是自挖坑,流式默认identity(RFC 9110:identity恒可接受),用户显式设置Accept-Encoding则字节原样交调用者;服务器`HttpResponse.compressBody=true`且客户端接受gzip时对缓冲body压缩,加`Content-Encoding: gzip`与`Vary: Accept-Encoding`;流式body不自动压缩(handler可自行预压缩)。 | 手写deflate易错且慢,不符合「采用主流开源库实现」裁定;解压是健壮性刚需(对端普遍gzip),压缩是便利面,同一native一并覆盖;DLL闭包/安装器细节归实施计划。 |
-| D22 | 版本划分按用户裁定(2026-11-07):0.13.3=lambda/闭包(另行)、0.13.4=string增强+io.base64+system时钟+datetime+url、0.13.5=http+gzip、0.13.6=web框架(另行)。各版本公开面是最终面子集,后版只增不改。 | 用户裁定;datetime入0.13.4因它是通用基础设施、与string/base64同批,且0.13.5的http是其消费者;gzip入0.13.5因http是其唯一近期消费者,native捆绑随消费者落地。 |
-| D23 | 最小化语言内核(用户裁定2026-11-08):除语言本身需要的基础设施和指令要内建于nvm外,需在C++实现的功能一律放独立库(`nlang_<ns>.dll`,或捆绑第三方开源库);VM内建注册仅限有明确理由——vm本身依赖,或极致性能优化。本项目应用:`system`时钟两native→新建`nlang_system.dll`(取代v2.9「VM内建注册、零新DLL」方案;`monoMs`经宿主nowMs回调实现,与调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`);gzip→`nlang_gzip.dll`捆绑zlib(已合此裁定);url/datetime/http/io.base64纯脚本(零C++);string三方法保持intrinsic——用户裁定明确理由:string是语言基本类型,其成员操作属内建于nvm的语言基础设施(D4)。既有VM内建函数族(string/list/dict等原语操作)属语言核心运行时基础设施,按本裁定不重构外迁。 | 内核最小化使C++功能可独立构建、分发、调试与替换,与math/io/fs/net既有形态统一;内建例外须有明确理由,防止内核随功能膨胀;string例外与system时钟的形态均经用户裁定(2026-11-08)。 |
+| D22 | 版本划分按用户裁定(2026-11-07):0.13.3=lambda/闭包(另行)、0.13.4=string增强+io.base64+system时间包(时钟+DateTime)+url、0.13.5=http+gzip、0.13.6=web框架(另行)。各版本公开面是最终面子集,后版只增不改。 | 用户裁定;datetime入0.13.4因它是通用基础设施、与string/base64同批,且0.13.5的http是其消费者;datetime并入system包保持时间设施内聚(D24);gzip入0.13.5因http是其唯一近期消费者,native捆绑随消费者落地。 |
+| D23 | 最小化语言内核(用户裁定2026-11-08):除语言本身需要的基础设施和指令要内建于nvm外,需在C++实现的功能一律放独立库(`nlang_<ns>.dll`,或捆绑第三方开源库);VM内建注册仅限有明确理由——vm本身依赖,或极致性能优化。本项目应用:`system`时钟两native→新建`nlang_system.dll`(取代v2.9「VM内建注册、零新DLL」方案;`monoMs`经宿主nowMs回调实现,与调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`);gzip→`nlang_gzip.dll`捆绑zlib(已合此裁定);url/http/io.base64纯脚本(零C++),system.n的DateTime日历面亦为脚本(仅`wallMs`/`monoMs`两条native,D24);string三方法保持intrinsic——用户裁定明确理由:string是语言基本类型,其成员操作属内建于nvm的语言基础设施(D4)。既有VM内建函数族(string/list/dict等原语操作)属语言核心运行时基础设施,按本裁定不重构外迁。 | 内核最小化使C++功能可独立构建、分发、调试与替换,与math/io/fs/net既有形态统一;内建例外须有明确理由,防止内核随功能膨胀;string例外与system时钟的形态均经用户裁定(2026-11-08)。 |
+| D24 | datetime并入`system`包(用户裁定2026-11-08:「datetime如果是通用的,也可以放到system.n中。保持模块内聚性」):不再单设`datetime`包,`stdlib/system.n`同时承载时钟两native与`DateTime`/`DateTimeException`脚本日历面;`DateTime.now()`同包直用`wallMs`,本项目内跨包native消费仅剩http→`io.fromBytes`(D2);手册不单设datetime章,内容并入15-system章。 | 用户裁定;datetime是通用时间设施(盘点见§六),与原始计数器同一主题,同包使时间设施单点可发现;纯脚本面无DLL边界可分,拆分包只增导入面不增内聚;主流参照:Rust `std::time`(SystemTime/Instant同模块)、C++ `<chrono>`(时钟与日历换算同头);Python `time`/`datetime`分立是历史沿革非设计优点。 |
 
 ---
 
 ## 五、脚本层API面
 
-以下为声明草案(签名细节由实施计划钉死;`native`标记仅出现在需要处——url/datetime/http全为脚本实现,io.base64为脚本实现,system.wallMs/monoMs为native(nlang_system.dll,D20/D23),gzip为native)。
+以下为声明草案(签名细节由实施计划钉死;`native`标记仅出现在需要处——url/http全为脚本实现,io.base64为脚本实现,system.n的DateTime为脚本、wallMs/monoMs为native(nlang_system.dll,D20/D23/D24),gzip为native)。
 
 ### stdlib/url.n
 
@@ -170,26 +172,6 @@ public string formEncode(string s);      // application/x-www-form-urlencoded(�
 public string formDecode(string s);
 ```
 
-### stdlib/datetime.n(新增,D20)
-
-```nlang
-const class DateTimeException : Exception { ... }
-
-// 不可变日期时间值,UTC 基准
-const class DateTime {
-    public int year;  public int month;  public int day;
-    public int hour;  public int minute; public int second;  public int millis;
-
-    public static DateTime now();                      // UTC 当前时间(经 system.wallMs 墙钟 native,D20)
-    public static DateTime fromUnixMillis(long millis); // epoch 毫秒超 int32 值域(2026 年≈1.77×10¹²),一律 long
-    public long toUnixMillis();
-    public DateTime addMillis(long millis);            // 日历运算(days_from_civil 算法)
-    public int dayOfWeek();                            // 0=周日..6=周六(http RFC 1123 `Date` 用)
-    public string toString();                          // ISO 8601 "2026-11-07T12:00:00Z"
-    public static DateTime parse(string iso);          // ISO 8601 UTC 形态(以 Z 结尾);畸形抛 DateTimeException
-}
-```
-
 ### stdlib/io.n(base64新增;时钟面移出至system.n)
 
 ```nlang
@@ -199,11 +181,27 @@ public string base64UrlEncode(byte[] data);  // URL 安全字母表,无填充(JW
 public byte[] base64UrlDecode(string s);
 ```
 
-### stdlib/system.n(新增,时钟归属裁定2026-11-08,D20)
+### stdlib/system.n(新增,时钟归属与datetime归属裁定2026-11-08,D20/D24)
 
 ```nlang
 native long wallMs();   // 墙钟:unix 毫秒,等价 CLOCK_REALTIME(D20)
 native long monoMs();   // 单调钟:自 io.nowMs 迁入并改名(只用于间隔/超时/定时器;不向下兼容,D20)
+
+const class DateTimeException : Exception { ... }
+
+// 不可变日期时间值,UTC 基准(D24:与同包时钟一并承载,时间设施单点可发现)
+const class DateTime {
+    public int year;  public int month;  public int day;
+    public int hour;  public int minute; public int second;  public int millis;
+
+    public static DateTime now();                      // UTC 当前时间(同包 wallMs 墙钟 native,D20)
+    public static DateTime fromUnixMillis(long millis); // epoch 毫秒超 int32 值域(2026 年≈1.77×10¹²),一律 long
+    public long toUnixMillis();
+    public DateTime addMillis(long millis);            // 日历运算(days_from_civil 算法)
+    public int dayOfWeek();                            // 0=周日..6=周六(http RFC 1123 `Date` 用)
+    public string toString();                          // ISO 8601 "2026-11-07T12:00:00Z"
+    public static DateTime parse(string iso);          // ISO 8601 UTC 形态(以 Z 结尾);畸形抛 DateTimeException
+}
 ```
 
 ### stdlib/gzip.n(新增,D21)
@@ -324,23 +322,23 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 | --- | --- | --- |
 | `indexOf(t, from)`、`toInt(radix)`、`equalsIgnoreCase` | url组件边界、http头部扫描、百分号/chunked解码、头部名比较 | 补入`string`(D4);语义按Java先例钉死。 |
 | base64编解码 | http认证(Basic)、chunked无关但通用;用户面 | 补入`io`包四函数;位置与变体面按Java/Go/Python先例(调研结论11)。 |
-| 日期/时间 | http `Date`/`Expires`头、用户面 | 专门`datetime`包(D20,用户裁定);纯nlang+`system.wallMs`(新增墙钟native);v1 UTC。 |
+| 日期/时间 | http `Date`/`Expires`头、用户面 | `system`包`DateTime`(D20,用户裁定;经datetime归属裁定并入,D24);纯nlang+同包`wallMs`(新增墙钟native);v1 UTC。 |
 | gzip压缩/解压 | http `Content-Encoding`(解压是健壮性刚需) | `gzip`包,native zlib(D21,用户裁定)。 |
 | 通用tokenizer/Scanner | 同上扫描需求 | 不补:indexOf+substring+循环覆盖全部已知消费者,再加抽象属臆测泛化(D4)。 |
 | `Channel.recv`超时 | 流式pump | 不补:取消语义由生产者`finally`关通道+`ChannelClosedException`覆盖;`recv`停摆(生产者阻塞在他处到不了finally)以生产者契约兜底——违约属调用方缺陷,每违约请求至多泄漏一个连接,`maxConnections`为可选部署上限(D18),不为此扩并发包面;recv超时属并发包独立演进议题。 |
 | MIME content-type嗅探 | web框架静态文件(0.13.6) | 递延至消费者立项。 |
 | SSE helper(event-stream编码) | web框架(0.13.6) | 递延;http层不理解SSE语义(http_verify §6),本项目以示例演示手工framing。 |
-| 本地时区/日历库扩展 | 用户面 | datetime roadmap后续(D20)。 |
-| 时钟函数归属 | datetime.now、net/concurrent超时截止域、http超时 | 移出io新建`system`包(时钟归属裁定,调研结论20);环境变量、命令行参数、进程信息为`system`后续居民,本项目无消费者不预支。 |
+| 本地时区/日历库扩展 | 用户面 | `system.DateTime` roadmap后续(D20/D24)。 |
+| 时钟函数归属 | `DateTime.now`、net/concurrent超时截止域、http超时 | 移出io新建`system`包(时钟归属裁定,调研结论20);环境变量、命令行参数、进程信息为`system`后续居民,本项目无消费者不预支。 |
 
 ---
 
 ## 七、native层结构
 
-- url.n/datetime.n/http.n:零新增native、零新增DLL;新建`system.n`承载墙钟native`wallMs`与自io.n迁入改名的`monoMs`(io.n删除`nowMs`;用户裁定2026-11-07/11-08——改进标准库/VM行为受支持,只要需求合理;不合理名称与归属不因现有实现维持),二者由新建`nlang_system.dll`经NativeHost C ABI提供(沿用math/io/fs/net先例:`monoMs`经宿主nowMs回调实现——与parkForIo/调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`;用户裁定2026-11-08——时钟实现形态与既有native模块统一,D23),datetime经`import system;`消费(路径见D2)。`stdlib/net.n`内部native`_nowMs`(nlang_net.dll注册、计入钉数net 54)是内部面非用户可见,不受时钟归属裁定波及,数目不变。
+- url.n/http.n:零新增native、零新增DLL;新建`system.n`承载墙钟native`wallMs`与自io.n迁入改名的`monoMs`(io.n删除`nowMs`;用户裁定2026-11-07/11-08——改进标准库/VM行为受支持,只要需求合理;不合理名称与归属不因现有实现维持),二者由新建`nlang_system.dll`经NativeHost C ABI提供(沿用math/io/fs/net先例:`monoMs`经宿主nowMs回调实现——与parkForIo/调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`;用户裁定2026-11-08——时钟实现形态与既有native模块统一,D23);`system.n`并承载`DateTime`/`DateTimeException`脚本日历面(D24),`DateTime.now()`同包直用`wallMs`,无跨包native消费。`stdlib/net.n`内部native`_nowMs`(nlang_net.dll注册、计入钉数net 54)是内部面非用户可见,不受时钟归属裁定波及,数目不变。
 - string三方法为VM内建注册(预置包,与既有string natives同路径;用户裁定2026-11-08:string属语言基本类型,成员操作做成intrinsic,D4/D23),仅动`lang.n`声明与VM内建实现。
 - gzip:native实现捆绑zlib(zlib许可),新增`nlang_gzip.dll`(包形态沿用net库先例);CMake集成、DLL闭包与安装器条目归实施计划。
-- url.n/system.n/http.n/datetime.n/gzip.n经stdlib GLOB自动进npkg打包与安装,脚本面无构建系统改动(纯脚本包路径由计划探针验证);`nlang_system.dll`需构建系统改动(CMake模块清单与安装清单,归计划)。
+- url.n/system.n/http.n/gzip.n经stdlib GLOB自动进npkg打包与安装,脚本面无构建系统改动(纯脚本包路径由计划探针验证);`nlang_system.dll`需构建系统改动(CMake模块清单与安装清单,归计划)。
 
 ---
 
@@ -359,7 +357,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 分级约定:**B级=必过e2e**,M级=入e2e或单测必覆盖,m级=择要覆盖。三条红线(增量解析半包/粘包、背压、取消传播)各有专项用例,不允许以「单次绿」交差。与参考标准的偏离集中在本节末「适配清单」,B级判定以该清单为准。参考标准本身经考证不合理的用例可直接修订(用户裁定2026-11-07),修订理由登记于参考文档内。
 
 1. **url单测**(e2e .n,纯计算):URL-001…013逐条;URL-B01…B07全过;URL-S01…S03(安全:path穿越范围、CRLF注入、长度上限);URL-P01…P04(纯函数/错误可区分/并发安全/性能基线);RFC 3986附录B测试向量逐组件断言;percent/form编解码往返;resolve一般语法样例集(RFC 3986 §5.2参考解析向量,URL-003判定见适配清单);queryParams重复键/加号/百分号交互。
-2. **基础设施纯计算单测**(0.13.4):string方法——`indexOf(t, from)`起点边界(from=length、from=-1、命中/未命中)、`toInt(radix)`十六进制/溢出/畸形/负号、`equalsIgnoreCase`ASCII边界与非字母;datetime——epoch毫秒↔日历往返(闰年/世纪年/负epoch)、`addMillis`跨月跨年、`dayOfWeek`已知日期断言(RFC 1123 `Date`消费者)、ISO 8601 `toString`/`parse`往返+畸形抛`DateTimeException`、`now()`值域合理(epoch毫秒晚于2020年,与`system.wallMs`读数一致);base64——四函数往返(空串/1字节/长度3n±1填充位)、畸形输入抛异常、URL安全字母表无`+/`无填充。
+2. **基础设施纯计算单测**(0.13.4):string方法——`indexOf(t, from)`起点边界(from=length、from=-1、命中/未命中)、`toInt(radix)`十六进制/溢出/畸形/负号、`equalsIgnoreCase`ASCII边界与非字母;`DateTime`——epoch毫秒↔日历往返(闰年/世纪年/负epoch)、`addMillis`跨月跨年、`dayOfWeek`已知日期断言(RFC 1123 `Date`消费者)、ISO 8601 `toString`/`parse`往返+畸形抛`DateTimeException`、`now()`值域合理(epoch毫秒晚于2020年,与`system.wallMs`读数一致);base64——四函数往返(空串/1字节/长度3n±1填充位)、畸形输入抛异常、URL安全字母表无`+/`无填充。
 3. **http分帧单测**(纯函数驱动byte[]):HTTP-SRV-001…020逐条(505未知版本、方法token校验、Host必需、CL∧TE拒绝、chunked解码、OWS容错、obs-fold拒绝、100-continue/417、HEAD/304抑制body、HTTP/1.0默认close);HTTP-CHK-001…007(chunked编解码往返、非法chunk size→400、`0\r\n\r\n`精确匹配、chunk extension忽略、trailer丢弃、编码器输出格式);HTTP-S01…S05(431头部超限/条数超限、Slowloris头部/body时限(bodyTimeoutMs)、写侧CRLF注入拒绝、控制字符/`\0`);413;半包/粘包增量解析(红线1);gzip直接单测(0.13.5,http_verify无gzip用例故自拟)——`compress`/`decompress`往返(空/1字节/大缓冲/不可压缩数据)、畸形与截断输入抛`GzipException`。
 4. **服务器e2e**:HTTP-CONN-001…009(keep-alive复用计数、maxConnections→503、maxRequestsPerConnection、空闲/头部/body/write四时限各自断连用例(bodyTimeoutMs慢body细水灌断连、writeTimeoutMs半开/停滞客户端写出断连)、Upgrade可见不握手、Connection多token、半关闭行为明确)。
 5. **客户端e2e**(回环自足,port 0):HTTP-CLI-001…011逐条(含CLI-004超时分离、CLI-008 chunked上传、CLI-010出错连接不回池、CLI-011取消传播:流式reader中途close→服务器观测连接关闭、阻塞调用期间`close()`→`SocketException`且socket关闭);池isClosed探测;重定向链(301→GET、307保持方法、307+`bodyChannel`不可重放抛HttpException、跨主机剥离Authorization、超限抛HttpException);1xx跳过;4xx/5xx不抛;gzip自动解压往返与用户自设Accept-Encoding退出(字节原样不解压,D21)。
@@ -407,18 +405,18 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 
 ## 十一、集成点与文档同步
 
-1. 新增:`stdlib/system.n`、`stdlib/url.n`、`stdlib/datetime.n`、`stdlib/http.n`、`stdlib/gzip.n`(GLOB自动打包);修改:`stdlib/lang.n`三方法声明+VM内建实现、`stdlib/io.n`base64四函数+删除`nowMs`(调用点同步:`examples/net_conc_bench.n`、`tools/net_bench/net_bench_10k.n`(不入e2e manifest,删`nowMs`后静默坏死、CI不报)、e2e`stdlib_io_park_guard/stdlib_io_park_now/stdlib_net_ping_stress`,`io.nowMs()`→`system.monoMs()`;`tests/test_nide/test_mainwindow.cpp`的io补全弹窗计数钉数19随面变化改22(删nowMs、增base64四函数)并同步其枚举注释);native:新建`nlang_system.dll`提供`system.wallMs`/`monoMs`(CMake模块清单、安装清单归计划)、gzip捆绑zlib(CMake、DLL闭包、安装器归计划)。
+1. 新增:`stdlib/system.n`、`stdlib/url.n`、`stdlib/http.n`、`stdlib/gzip.n`(GLOB自动打包);修改:`stdlib/lang.n`三方法声明+VM内建实现、`stdlib/io.n`base64四函数+删除`nowMs`(调用点同步:`examples/net_conc_bench.n`、`tools/net_bench/net_bench_10k.n`(不入e2e manifest,删`nowMs`后静默坏死、CI不报)、e2e`stdlib_io_park_guard/stdlib_io_park_now/stdlib_net_ping_stress`,`io.nowMs()`→`system.monoMs()`;`tests/test_nide/test_mainwindow.cpp`的io补全弹窗计数钉数19随面变化改22(删nowMs、增base64四函数)并同步其枚举注释);native:新建`nlang_system.dll`提供`system.wallMs`/`monoMs`(CMake模块清单、安装清单归计划)、gzip捆绑zlib(CMake、DLL闭包、安装器归计划);测试部署fixture——`tests/CMakeLists.txt`三处显式native DLL清单(`nide_deploy_check`的`NLANG_NATIVE_DLLS`、`nlang_embed_deploy`拷贝清单、`embed_host_smoke`参数)须增`nlang_system.dll`(三清单现亦缺`nlang_net.dll`,既有缺口一并归计划核实补全)。
 2. `test_library_index.cpp`钉数两级:267→276(0.13.4:url自由函数4、io.base64四函数、system.wallMs 1;`io.nowMs`迁入system改名`monoMs`为净零——io 19→22、system 2,总数只随新增增长)→283(0.13.5:http自由函数5(get/post/put/del/request)、gzip自由函数2);string方法与类静态/成员方法不计;计划核实(代码侧注释「266」为陈旧值,重算时顺带修正);符号索引测试同步;IDE树全量ctest收尾(编译器/预置包变更门禁)。
-3. 手册:0.13.4新增`library/15-system.md`(插于14-io之后,现15-20章顺延为16-21)、`library/22-url.md`、`library/23-datetime.md`,格式章21/22/23→24/25/26;0.13.5新增`library/24-http.md`、`library/25-gzip.md`,格式章再顺延为27/28/29;**引用同步规则**(取代手写计数):每轮重编号,对当轮被顺延各章的全部节号引用(`§N.M`、`第N章`、`chapter N`三形态——zh树用「第N章」,en树`chapter`/`Chapter`大小写混用,grep须不区分大小写)与文件名链接随轮顺延,含被顺延章自身的内部节号自引用与章文件自身改名——0.13.4轮波及现15-23章(string方法章§16.2→§17.2及文件`16-string-methods.md`→`17-string-methods.md`、库异常章§19→§20及`19-library-exceptions.md`→`20-library-exceptions.md`、格式章21/22/23→24/25/26及其内部`§21.x`/`§22.x`/`§23.x`自引用),0.13.5轮波及格式章24-26→27-29;由计划在`docs/user_manual/zh/specification/`与`en/specification/`两树按四形态(`§15`–`§29`、`第15章`–`第29章`、`chapter 15`–`chapter 29`不区分大小写、被改名文件名)grep列全——引用面散布数十文件(计数随形态口径而变,spec不钉死),手写清单已两轮漏项,且陈旧节号(含「第N章」纯文本形态)链接有效、linkcheck测不出;0.13.4同步`14-io`删除时钟小节;重编号后的`abi`格式章宿主函数表`nowMs`回调行保持原样(C ABI时钟域名,与脚本命名空间无关,`wallMs`/`monoMs`是脚本层native不入该表;可加注说明`system.monoMs`即由该nowMs回调实现、二者同时钟域),停泊截止域措辞无需改(中英成对);§17.2方法表增三方法;§20库异常两轮增补:0.13.4增UrlException/DateTimeException,0.13.5增HttpException/GzipException;`index.md`目录与版本行;中英成对。
+3. 手册:0.13.4新增`library/15-system.md`(插于14-io之后,现15-20章顺延为16-21;含时钟与DateTime日历面,D24)、`library/22-url.md`,格式章21/22/23→23/24/25;0.13.5新增`library/23-http.md`、`library/24-gzip.md`,格式章再顺延为25/26/27;**引用同步规则**(取代手写计数):每轮重编号,对当轮被顺延各章的全部节号引用(`§N.M`、`第N章`、`chapter N`三形态——zh树用「第N章」,en树`chapter`/`Chapter`大小写混用,grep须不区分大小写)与文件名链接随轮顺延,含被顺延章自身的内部节号自引用与章文件自身改名——0.13.4轮波及现15-23章(string方法章§16.2→§17.2及文件`16-string-methods.md`→`17-string-methods.md`、库异常章§19→§20及`19-library-exceptions.md`→`20-library-exceptions.md`、格式章21/22/23→23/24/25及其内部`§21.x`/`§22.x`/`§23.x`自引用),0.13.5轮波及格式章23-25→25-27;由计划在`docs/user_manual/zh/specification/`与`en/specification/`两树按四形态(`§15`–`§27`、`第15章`–`第27章`、`chapter 15`–`chapter 27`不区分大小写、被改名文件名)grep列全——引用面散布数十文件(计数随形态口径而变,spec不钉死),手写清单已两轮漏项,且陈旧节号(含「第N章」纯文本形态)链接有效、linkcheck测不出;0.13.4同步`14-io`删除时钟小节;重编号后的`abi`格式章宿主函数表`nowMs`回调行保持原样(C ABI时钟域名,与脚本命名空间无关,`wallMs`/`monoMs`是脚本层native不入该表;可加注说明`system.monoMs`即由该nowMs回调实现、二者同时钟域),停泊截止域措辞无需改(中英成对);§17.2方法表增三方法;§20库异常两轮增补:0.13.4增UrlException/DateTimeException,0.13.5增HttpException/GzipException;`index.md`目录与版本行;中英成对。
 4. `CHANGELOG.md`+`VERSION`→0.13.4、0.13.5两级;`docs/roadmap.md`按版本划分表增行。
-5. e2e/示例manifest登记;`check_no_builtin_stdlib.py`正控io期望14→13(删`nowMs`;base64为脚本实现不增native声明),math/fs不变;为`system.n`增设正控(2条native声明——裁定:与math/io/fs同列,保持守卫对预置包native面的覆盖;url/datetime/http纯脚本无native,无需正控)。
+5. e2e/示例manifest登记;`check_no_builtin_stdlib.py`正控io期望14→13(删`nowMs`;base64为脚本实现不增native声明),math/fs不变;为`system.n`增设正控(2条native声明——裁定:与math/io/fs同列,保持守卫对预置包native面的覆盖;url/http纯脚本无native,无需正控)。
 6. 手册围栏与`manual_sync_check.py`基线两轮重锚。
 
 ---
 
 ## 十二、验收标准
 
-1. url/datetime/http全部为纯nlang源,`stdlib/`下无对应DLL(gzip、system除外);`import url;`/`import datetime;`/`import http;`/`import gzip;`在npkg安装形态下可用(探针用例入e2e)。
+1. url/http全部为纯nlang源,安装树中无对应`nlang_<pkg>.dll`(gzip、system除外——native DLL安装到`bin/`);`import system;`/`import url;`/`import http;`/`import gzip;`在npkg安装形态下可用(探针用例入e2e;`import system;`兼覆盖新DLL的npkg形态加载)。
 2. `docs/ref/http_verify.md`全部B级用例通过(按第九节适配清单判定);M级用例覆盖;三条红线(增量解析、背压、取消传播)各有专项用例通过。
 3. RFC 3986附录B向量全过;加固用例全过(431/413/417/505/503/100时序、服务器四时限断连)。
 4. 客户端:默认重定向10、跨主机剥离凭据、池复用可观测、客户端三级超时与服务器四时限语义可观测、gzip自动解压往返。
@@ -438,7 +436,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 | 流式泵死锁(生产者泄漏通道) | D18纪律:生产者`finally`关通道;背压用例(SSE-004)与取消用例(SSE-002)入e2e;bounded通道只约束`send`方向,`recv`停摆以生产者契约兜底(违约至多泄漏一连接),`maxConnections`为可选部署上限(D18/§六)。 |
 | zlib捆绑引入构建/分发面(CMake、DLL闭包、安装器) | 沿用net库native包先例的打包路径;计划列全DLL闭包清单;gzip失败不影响url/http主线。 |
 | 脚本层解析性能未知 | conc基准给出数据;D2逃生口(native化不改API)。 |
-| datetime日历运算边界(闰年、世纪、负epoch) | days_from_civil算法采用主流已验证实现;测试向量含边界年。 |
+| `DateTime`日历运算边界(闰年、世纪、负epoch) | days_from_civil算法采用主流已验证实现;测试向量含边界年。 |
 | 客户端/服务器空闲竞态(D8) | isClosed探测+短空闲超时;残余竞态窗表现为SocketException,语义明确。 |
 | 两轮重编号遗漏被顺延章的节号/文件名引用(陈旧节号链接有效,linkcheck/nav-coverage测不出) | §十一.3引用同步规则,计划按四形态grep列全(`§N.M`/`第N章`/`chapter N`不区分大小写/文件名);manual_sync_check+nav-coverage围栏兜底。 |
 | web框架何时立项 | 依赖lambda闭包(v0.13.6);roadmap按用户划分登记,本项目不预支其设计。 |
@@ -447,6 +445,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 
 ## 修订记录
 
+- 2026-11-08(v2.11):并入用户datetime归属裁定(「datetime如果是通用的,也可以放到system.n中。保持模块内聚性」,经核实采纳,新增D24):不再单设`datetime`包,`stdlib/system.n`同时承载`wallMs`/`monoMs`两native与`DateTime`/`DateTimeException`脚本日历面,`DateTime.now()`同包直用`wallMs`(跨包native消费仅剩http→`io.fromBytes`);手册不单设datetime章,内容并入15-system章,章号方案随之内移(0.13.4格式章21/22/23→23/24/25、0.13.5轮23-25→25-27,grep口径`§15`–`§27`);索引钉数不变(库索引只计.n声明的自由函数,类与静态方法不计)。波及输入节、状态行、事实10、版本划分表、D2/D13/D20/D22/D23、§五(system.n块并入DateTime块)、§六三行、§七、§九第2项、§十一第1/3/5项、§十二.1、§十三风险行。并入v2.10轮审核(0严重/0重要/5次要,均经源码核实,审核判决无中级及以上问题,循环收束):Minor——D4分派机制表述过强,string成员调用实为专用操作码(`length`→`OP_StrLen`)与内建函数表(`LookupIntrinsicId`)两路编译期绑定,「只经内建函数表分派」修正为「专用操作码或内建函数表」(R10-01,本条取代v2.10记录中同句表述)、D2回退路径补「须重裁」标记(回退态按命名空间新建DLL,与D23纯脚本裁定及§十二.1验收冲突,R10-02)、§十二.1探针清单补`import system;`(新DLL的npkg形态加载此前无验收覆盖,R10-03)、§十一.1登记`tests/CMakeLists.txt`三处显式native DLL部署fixture清单须增`nlang_system.dll`(R10-04)、§十二.1「stdlib/下无对应DLL」改「安装树中无对应`nlang_<pkg>.dll`」(native DLL安装到`bin/`而非`stdlib/`,原表述测不出错,R10-05)。
 - 2026-11-08(v2.10):并入用户内核最小化裁定(2026-11-08,四条合并:除语言本身需要的基础设施和指令要内建于nvm外C++功能一律放独立库;最小化语言内核;spec不合理处可调整;内建注册仅限vm本身依赖或极致性能优化等明确理由)。应用:①`system.wallMs`/`monoMs`改由新建`nlang_system.dll`经NativeHost C ABI提供(用户裁定「system.monoMs/wallMs也应该是外部dll,和原来的方式统一」「wallMs不属于语言的一部分,无其他理由,不需要做成intrinsic,做成普通native就可以」,取代v2.9「VM内建注册、零新DLL」方案;`monoMs`经宿主nowMs回调实现、与调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`;波及输入节、状态行、D2回退路径、D20、§五前言、§七、§十一.1/3、§十二.1,新增D23);②string三方法形态经用户裁定保持String面类方法+intrinsic(「string本身就是语言的一部分,需要做成intrinsic」,归`lang`库,属D23「vm本身依赖」明确例外——string接收者是字符串池索引而非对象,成员调用只经内建函数表分派;不做包自由函数;D4、§七);③既有VM内建函数族属语言核心运行时基础设施,不重构外迁(D23)。
 - 2026-11-08(v2.9):并入第九轮审核(0严重/0重要/4次要,经实测核实,审核判决无中级及以上问题,循环收束):Minor——§一.3「v1做」配套清单补`system`时钟包与`io.nowMs`移出改名(R9-01)、`http_verify`红线括注编号对齐参考文档§12.3实际编号(半包/粘包=红线3、取消传播=红线2,原两处错位,R9-02)、事实2的`04-types/string.md`行号改zh树:95(原:166仅en树成立,中文文档默认zh读法落空,R9-03)、事实1的`write`简写补byte[]重载可选`count`参数说明(net.n:297,防按位置绑定误入,R9-04)。
 - 2026-11-08(v2.8):并入第八轮审核(0严重/1重要/2次要,经实测核实):Important——v2.7引用同步规则的grep形态清单本身失实:zh树节号引用主形态是「第N章」(实测`第15章`–`第23章`共21处散布10文件,含`11-conventions.md`——该文件对15-23章的引用全部是「第N章」形态,零`§`/`chapter`形态)且en树有`Chapter 19`大写形态,按v2.7两形态清单列全会静默漏掉10+文件,陈旧「第N章」纯文本引用linkcheck/nav-coverage同样测不出——§十一.3形态清单补为`§N.M`/`第N章`/`chapter N`(大小写不敏感)三形态、计划grep改四形态口径,事实10/§十三随轮同步(R8-01)。Minor——清除v2.7残留的手写计数「36文件」(两处;计数随口径而变,审核者宽口径实测66文件,钉数本身即R7-01要根除的失败模式,R8-02)、版本划分表0.13.4行补「§20增补」(与0.13.5行对称,§20库异常章0.13.4即增UrlException/DateTimeException,R8-03)。
