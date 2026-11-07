@@ -128,11 +128,52 @@ static void TestAdoptGoneDrainsWaiter() {
     CHECK(st.m_slots.OpenCount() == 0);       //waiter drained: closed
 }
 
+//0.12.9 net pass I-1: a fresh call must be distinguishable from a
+//park re-entry. NetTcpWrite resets writeSent only on fresh entry,
+//so the discrimination is the correctness hinge for every exit that
+//leaves the stash behind (write timeout, EPIPE): pre-fix the reset
+//was dead code — claimed was unconditionally true — and the next
+//write resumed at the stale offset (skipped prefix, or a bogus
+//return with nothing sent).
+static void TestAdoptReportsFreshVersusAdopted() {
+    NetExecState st;
+    int32_t h = 0;
+    {
+        std::lock_guard<std::mutex> g(st.m_mutex);
+        h = st.m_slots.Mint(/*fd*/13, kNetKindTcpStream);
+    }
+    int fd = -1;
+    bool claimed = false;
+    bool fresh = false;
+    CHECK(NetAdoptClaim(&st, h, NetDir::Write, /*self*/6, &fd, &claimed,
+        &fresh) == kNetAdoptOk);
+    CHECK(claimed);
+    CHECK(fresh);   //first entry: no prior waiter
+    fresh = false;
+    CHECK(NetAdoptClaim(&st, h, NetDir::Write, /*self again*/6, &fd,
+        &claimed, &fresh) == kNetAdoptOk);   //re-entry after a park
+    CHECK(claimed);
+    CHECK(!fresh);  //adopted: the stash must survive
+    {
+        std::lock_guard<std::mutex> g(st.m_mutex);
+        st.m_slots.ReleaseWaiter(h, NetDir::Write);
+    }
+    CHECK(NetAdoptClaim(&st, h, NetDir::Write, 6, &fd, &claimed,
+        &fresh) == kNetAdoptOk);
+    CHECK(fresh);   //post-timeout release: the next call restarts
+    //Rejection writes nothing: a foreign waiter keeps fresh untouched.
+    fresh = false;
+    CHECK(NetAdoptClaim(&st, h, NetDir::Write, /*ctxB*/7, &fd, &claimed,
+        &fresh) == kNetAdoptConcurrent);
+    CHECK(!fresh);
+}
+
 int main() {
     TestAdoptRejectsForeignWaiter();
     TestAdoptAdoptsOwnClaim();
     TestAdoptFreshCallClaims();
     TestAdoptGoneDrainsWaiter();
+    TestAdoptReportsFreshVersusAdopted();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

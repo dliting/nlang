@@ -52,6 +52,11 @@ struct NetExecState {
     //erase-on-read keeps the map bounded to failures still pending
     //their read.
     std::unordered_map<int, std::string> m_lastErrorText;
+    //The OS error number behind that text (0.12.9 review I-5): same
+    //per-context keying and erase-on-read, exposed to the script as
+    //SocketException.errorCode — a stable, locale-independent handle
+    //on the failure (0 = no OS error, e.g. hand-written contexts).
+    std::unordered_map<int, int> m_lastErrorCode;
     //Job offload (net_jobs.h): the table plus the self-pipe the
     //requesting context parks on — [0] read end (park target), [1]
     //write end (submitWork's ackFd). Built in the ctor through
@@ -70,17 +75,28 @@ struct NetExecState {
 void* NetStateCtor();
 void NetStateDtor(void* state);
 
-//Records the current OS error text for _lastErrorText under the
-//calling context's id (R10 -4 paths, M10). Takes the state mutex —
-//call only while it is NOT already held.
+//Records the current OS error text AND code for _lastErrorText/
+//_lastErrorCode under the calling context's id (R10 -4 paths, M10,
+//I-5). Takes the state mutex — call only while it is NOT already
+//held.
 void NetRememberLastError(NativeHost* h);
+
+//Mutex-held variant for the query natives that already hold
+//st->m_mutex when their socket call fails: writes both stores under
+//the caller's lock (I-5).
+inline void NetSetErrorLocked(NetExecState* st, NativeHost* h,
+                              const std::string& text, int code) {
+    st->m_lastErrorText[h->currentContextId(h)] = text;
+    st->m_lastErrorCode[h->currentContextId(h)] = code;
+}
 
 //The executor's NetExecState, created on the first call. The tag
 //carries the layout version — bump it whenever NetExecState changes
-//(v3: the last-error text became a per-context map, M10).
+//(v3: the last-error text became a per-context map, M10; v4: the
+//error code joined it as a second map, the 0.12.9 fix pass).
 inline NetExecState* NetState(NativeHost* host) {
     return static_cast<NetExecState*>(host->moduleState(
-        host, "nlang.net.v3", &NetStateCtor, &NetStateDtor));
+        host, "nlang.net.v4", &NetStateCtor, &NetStateDtor));
 }
 
 }  //namespace nlang

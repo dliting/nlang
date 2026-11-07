@@ -8,6 +8,135 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.9] - 2026-11-07
+
+Consolidation release: merges the 0.12.8 `net` library into the
+mainline, ships the 0.12.7 post-release fix pass, and lands the
+adversarial-review fix pass over the network library.
+
+### Added
+
+- **`TcpListener.bind(host, port, backlog = 512)`.** The accept-queue
+  depth is now a parameter — the hidden 512 default overflowed under
+  the 10k-connection benchmark's own retry loop.
+- **`SocketException.errorCode`.** The operating system's error number
+  when the failure came from the OS (Windows: the Winsock code —
+  `10061` refused, `10048` in use, `11001` host not found), `0` when
+  there is none. Programs branch on the number; the message text
+  follows the OS locale, and platform texts now end in a stable
+  `(error N)` anchor.
+
+### Fixed
+
+- **A fresh write after a failed write restarts at byte zero.** The
+  per-stream write-progress stash survived a write that ended at its
+  deadline or on a broken pipe — the intended fresh-call reset was
+  dead code (the claim flag it keyed on is always set) — so the next
+  `write` on the stream resumed at the stale offset: a new payload
+  silently skipped its first bytes, or the call returned a bogus byte
+  count having sent nothing. A fresh entry now resets the stash
+  (park re-entries within one call keep it, as before).
+- **UDP receives truncate oversized datagrams as documented.** A
+  datagram longer than the receive buffer raised `SocketException`
+  and destroyed the datagram — on `recvFrom`, and on a connected
+  socket's `recv` too, which mapped the same `WSAEMSGSIZE` to a
+  failure; the buffer now receives the prefix and the excess is
+  discarded on both paths — the sockets-interface behavior the
+  manual always promised (POSIX already behaved).
+- **One stale UDP query no longer eats the next reply.** Windows'
+  connection-reset report is disabled at socket open (libuv's move):
+  with the Windows default, a single `sendTo` to a dead port queued a
+  reset that the socket's next `recvFrom` raised, destroying a real
+  datagram — request/response UDP (the DNS shape) broke on one stale
+  query.
+- **`sendTo`'s `timeoutMs` bounds the whole call, and resolved
+  addresses are tried in order.** Name resolution inside `sendTo`
+  parked without a deadline while the manual promised the send (and
+  the resolve) was bounded; `sendTo` and `IcmpSocket.sendTo` also
+  fell back to the next resolved address on failure, as `connect` and
+  `bind` always did.
+- **Name-resolution failures name the cause.** A failed lookup
+  produced an exception with an empty diagnostic tail ("failed: ").
+  The resolver worker's failure phrase now reaches the caller:
+  "host not found" and siblings, with the getaddrinfo code in
+  `errorCode` — through `connect` and `resolveList`, and through
+  `ping`, whose ICMP job family had no error channel at all.
+- **A failed UDP or ICMP `bind` reports the operating system's
+  verdict.** The error was read after the cleanup close — and a
+  successful `closesocket` resets it — so binding a UDP socket to
+  an in-use port raised "operation completed successfully" with
+  `errorCode` `0`. Every bind path now captures the error before
+  the close, the shape the TCP path already had.
+- **An empty UDP receive buffer is an argument error, not data
+  loss.** `recvFrom(byte[0])` consumed a queued datagram and raised a
+  platform error; the argument guard now precedes the socket call,
+  matching TCP `read`'s (zero is reserved for a genuine empty
+  datagram) — and the ICMP socket's receive applies it too.
+- **`count` past the array length is the net argument error.**
+  `write`/`send`/`sendTo` raised `IndexOutOfBoundsException` for it —
+  a different family than the same class of error everywhere else in
+  the package; all three now raise `SocketException`.
+- **The raw-ICMP administrator text surfaces at socket creation.**
+  Non-admin `IcmpSocket.bind` failed at `socket()` before the
+  promised "raw ICMP requires administrator privileges" text was
+  armed; that path now sets it too.
+- **Stores through length-one view axes are legal.** Both slice
+  producers folded a count-≤1 axis's stride to 0 ("never spans"),
+  and the store gate keyed on stride 0 alone — so a legal element
+  store through a singleton slice (`a[1:2][0] = x`,
+  `m[1:2, :][0, 0] = x`) or a size-1 broadcast axis raised the
+  broadcast rejection. Slice folding and `tensor.slice` now record
+  the axis's true affine step, and the gate derives the rejection
+  from the record itself: an axis blocks stores only when it
+  actually aliases (stride 0 *and* length > 1). A spanning
+  broadcast axis rejects exactly as before; `tensor.slice` also
+  now raises on an int32-overflowing span instead of silently
+  truncating the stride.
+- **Arrays held in `Object`-typed slots survive collection.** The
+  garbage collector's field- and element-trace acceptance did not
+  recognize array records (owned or view) under a declared
+  `Object` kind, so an array stored in an `Object` field or an
+  `Object[]` element was swept while still reachable — the next
+  `as` read a reused slot: wrong data or a dangling handle. Both
+  acceptance predicates now take the array kinds under `Object`.
+- **Protocol calls on view receivers dispatch on the Array
+  face.** `ReceiverClassIndex` had no arm for view records, so
+  `Object o = a[1:3]; o.toString()` read the record's kind byte
+  as a class index — an uncatchable invalid-class-index error at
+  best, and in modules with enough classes a method dispatched
+  through the wrong row with the view as `this`. Views now
+  resolve to the same Array face row owning arrays use.
+- **Oversized tensor shape lists are a catchable error.**
+  `CollectIntCells` copied a shape list's cells into a fixed
+  64-cell buffer before any length check — `tensor.reshape` with
+  a 65-cell shape smashed the stack and killed the process. The
+  walk is bounded by the buffer contract now; the same fix makes
+  `tensor.full(dims, value)` read the dims cells through a
+  strided view's logical content (a linear read used the owner's
+  cells) and reject non-rank-1 dims.
+- **`as` with a class target on array and boxed values is
+  catchable.** `o as SomeClass` where `o` holds an array or a
+  boxed primitive raised an uncatchable host error instead of
+  the `InvalidCastException` the checked-cast error model
+  promises. Both kinds now resolve their protocol rows (Array
+  face / Object root) and walk the same super chain as class
+  records — the Object root upcast succeeds, anything else
+  raises the catchable failure.
+- **Cycles through array records serialize.** Array records took
+  no part in the back-reference table, so a struct whose array
+  field pointed back at the containing array hit the uncatchable
+  depth limit while class cycles round-tripped. Array records
+  now share the object-id space: repeated references write the
+  tag-2 back-reference and read back with identity restored.
+- **`Object`-typed fields serialize their runtime value.**
+  `writeObject` walked class-declared fields as class records
+  unconditionally, so an `Object` field holding an array, a
+  boxed primitive or a string crashed the VM (the value's header
+  read as a class index). The class writer now routes by the
+  runtime kind — arrays serialize as array records, boxed
+  values in a new tagged form — and the reader accepts those
+  forms in `Object`-typed positions only.
+
 ## [0.12.8] - 2026-11-06
 
 ### Added
@@ -144,63 +273,6 @@ All notable changes to NLang are documented here. The format follows
   aborts the losing park. Found by a release e2e run, pinned
   under AddressSanitizer; latent since 0.12.6, with the 0.12.7
   interpreter timing widening the window enough to surface.
-- **Stores through length-one view axes are legal.** Both slice
-  producers folded a count-≤1 axis's stride to 0 ("never spans"),
-  and the store gate keyed on stride 0 alone — so a legal element
-  store through a singleton slice (`a[1:2][0] = x`,
-  `m[1:2, :][0, 0] = x`) or a size-1 broadcast axis raised the
-  broadcast rejection. Slice folding and `tensor.slice` now record
-  the axis's true affine step, and the gate derives the rejection
-  from the record itself: an axis blocks stores only when it
-  actually aliases (stride 0 *and* length > 1). A spanning
-  broadcast axis rejects exactly as before; `tensor.slice` also
-  now raises on an int32-overflowing span instead of silently
-  truncating the stride.
-- **Arrays held in `Object`-typed slots survive collection.** The
-  garbage collector's field- and element-trace acceptance did not
-  recognize array records (owned or view) under a declared
-  `Object` kind, so an array stored in an `Object` field or an
-  `Object[]` element was swept while still reachable — the next
-  `as` read a reused slot: wrong data or a dangling handle. Both
-  acceptance predicates now take the array kinds under `Object`.
-- **Protocol calls on view receivers dispatch on the Array
-  face.** `ReceiverClassIndex` had no arm for view records, so
-  `Object o = a[1:3]; o.toString()` read the record's kind byte
-  as a class index — an uncatchable invalid-class-index error at
-  best, and in modules with enough classes a method dispatched
-  through the wrong row with the view as `this`. Views now
-  resolve to the same Array face row owning arrays use.
-- **Oversized tensor shape lists are a catchable error.**
-  `CollectIntCells` copied a shape list's cells into a fixed
-  64-cell buffer before any length check — `tensor.reshape` with
-  a 65-cell shape smashed the stack and killed the process. The
-  walk is bounded by the buffer contract now; the same fix makes
-  `tensor.full(dims, value)` read the dims cells through a
-  strided view's logical content (a linear read used the owner's
-  cells) and reject non-rank-1 dims.
-- **`as` with a class target on array and boxed values is
-  catchable.** `o as SomeClass` where `o` holds an array or a
-  boxed primitive raised an uncatchable host error instead of
-  the `InvalidCastException` the checked-cast error model
-  promises. Both kinds now resolve their protocol rows (Array
-  face / Object root) and walk the same super chain as class
-  records — the Object root upcast succeeds, anything else
-  raises the catchable failure.
-- **Cycles through array records serialize.** Array records took
-  no part in the back-reference table, so a struct whose array
-  field pointed back at the containing array hit the uncatchable
-  depth limit while class cycles round-tripped. Array records
-  now share the object-id space: repeated references write the
-  tag-2 back-reference and read back with identity restored.
-- **`Object`-typed fields serialize their runtime value.**
-  `writeObject` walked class-declared fields as class records
-  unconditionally, so an `Object` field holding an array, a
-  boxed primitive or a string crashed the VM (the value's header
-  read as a class index). The class writer now routes by the
-  runtime kind — arrays serialize as array records, boxed
-  values in a new tagged form — and the reader accepts those
-  forms in `Object`-typed positions only.
-  truncating the stride.
 
 ## [0.12.6] - 2026-11-03
 

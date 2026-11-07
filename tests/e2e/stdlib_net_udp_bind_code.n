@@ -1,0 +1,25 @@
+import io;
+import net;
+
+// 0.12.9 net round-2 M-1: the OS error is captured before the
+// cleanup close on every bind path — a successful closesocket
+// resets it to 0. Pinned with an in-use UDP port: WSAEADDRINUSE
+// arrives through UdpSocket.bind with the same errorCode (10048)
+// the TCP path already reports.
+int main() {
+    UdpSocket first = UdpSocket.bind("127.0.0.1", 0);
+    int port = first.localPort();
+    int code = 0;
+    string text = "";
+    try { UdpSocket.bind("127.0.0.1", port); return 1; }
+    catch (SocketException e) { code = e.errorCode; text = e.message; }
+    if (code != 10048) { return 2; }
+    //The platform text must not be the reset placeholder ("operation
+    //completed successfully"): the stable "(error N)" anchor proves
+    //the capture happened before the close.
+    if (text.indexOf("(error 10048)") < 0) { return 3; }
+
+    first.close();
+    io.print("ok");
+    return 0;
+}

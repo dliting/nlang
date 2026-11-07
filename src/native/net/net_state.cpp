@@ -64,7 +64,11 @@ void NetStateDtor(void* state) {
 void NetRememberLastError(NativeHost* h) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
-    st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+    std::string text;
+    int code = 0;
+    NetLastErrorInfo(text, code);   //one read: text and code share the error
+    st->m_lastErrorText[h->currentContextId(h)] = text;
+    st->m_lastErrorCode[h->currentContextId(h)] = code;
 }
 
 }  //namespace nlang

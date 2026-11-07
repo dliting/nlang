@@ -8,7 +8,7 @@
 |---|---|---|
 | `UdpSocket.bind(host = "0.0.0.0", port = 0)` | 静态→`UdpSocket` | 绑定本地端点；端口`0`由系统分配，经`localPort()`读回 |
 | `sendTo(data, host, port, count = -1, timeoutMs = 0)` | →`int` | 发送一个数据报——`data`的全部或前`count`个字节——到`host:port`；解析`host`期间以及发送缓冲区满时停泊，由`timeoutMs`约束（§20.1） |
-| `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | →`int` | 取走下一个数据报，经`out`参数报告它的发送者；返回实收字节数；停泊直到有数据报到来或截止时刻到来 |
+| `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | →`int` | 取走下一个数据报，经`out`参数报告它的发送者；返回实收字节数；停泊直到有数据报到来或截止时刻到来。零长度的`buf`是参数错误（`SocketException`）——`0`保留给真正的空数据报 |
 | `connect(host, port)` | — | 把套接字关联到一个对端；此后`send`/`recv`不需要地址，且只有该对端的数据报会到达 |
 | `send(data, count = -1, timeoutMs = 0)` | →`int` | 向关联的对端发送一个数据报；套接字未连接时抛`SocketException`；发送缓冲区满时停泊，由`timeoutMs`约束（§20.1） |
 | `recv(buf, timeoutMs = 0)` | →`int` | 从关联的对端取走下一个数据报并返回它的字节数——`0`是空数据报而非流结束：UDP没有可结束的流 |

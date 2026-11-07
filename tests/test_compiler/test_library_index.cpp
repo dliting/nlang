@@ -52,14 +52,14 @@ static void TestLoadsStdLib()
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
-    // net 53 (the script ping plus the internal _nowMs/_lastErrorText/
+    // net 54 (the script ping plus the internal _nowMs/_lastErrorText/_lastErrorCode/
     // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
     // natives and the 5 _icmp* natives; class methods are not free
     // functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 266);
+    CHECK(env.LibraryIndex().size() == 267);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

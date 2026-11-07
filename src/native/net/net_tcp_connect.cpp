@@ -85,8 +85,9 @@ int NetConnectVerdict(NetExecState* st, int32_t handle, int self,
             fd = slot->fd;   }
     int v = kNetInProgress;
     std::string errText;
+    int soError = 0;
     if (fd >= 0) {
-        v = NetConnectResult(fd);   //outside the lock (I7)
+        v = NetConnectResult(fd, &soError);   //outside the lock (I7)
         if (v < 0)
             errText = NetLastErrorText();
     }
@@ -106,6 +107,7 @@ int NetConnectVerdict(NetExecState* st, int32_t handle, int self,
     }
     if (v < 0) {   //SO_ERROR set: failed, close the half-open stream
         st->m_lastErrorText[self] = errText;
+        st->m_lastErrorCode[self] = soError;   //refused/reset/etc. (I-5)
         st->m_connectInFlight.erase(self);
         if (*claimed)
             st->m_slots.ReleaseWaiter(handle, NetDir::Write);

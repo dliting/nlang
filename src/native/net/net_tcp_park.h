@@ -49,9 +49,15 @@ enum NetAdoptOutcome {
 //kNetAdoptGone = the slot is gone (the direction's waiter is cleared);
 //kNetAdoptConcurrent = a foreign waiter owns the direction, so the
 //caller must not touch its per-direction state (the claim is left as
-//the foreign call set it — this call never claimed).
+//the foreign call set it — this call never claimed). On Ok,
+//*freshCall (when given) tells a first entry (no prior waiter) from
+//a park re-entry (waiter == self): the write path resets its
+//writeSent progress stash only on a fresh entry, so a call after a
+//timed-out or failed write restarts the payload at zero (0.12.9
+//review I-1 — the stash must survive parks within one call and die
+//with it).
 NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
-    int self, int* fd, bool* claimed);
+    int self, int* fd, bool* claimed, bool* freshCall = nullptr);
 
 //Maps a rejected adopt to its R10 error code (Gone -> closed,
 //Concurrent -> concurrent).

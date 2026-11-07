@@ -2,11 +2,12 @@ import io;
 import net;
 
 int main() {
-    //Bind the wildcard address: joinMulticast takes the socket's bound
-    //address as the interface (wildcard → INADDR_ANY), which matches the
-    //default egress interface of the self-sent multicast, so the loop
-    //copy is delivered back to this socket.
-    UdpSocket s = UdpSocket.bind("0.0.0.0", 0);
+    //Bind loopback: joinMulticast takes the socket's bound address as
+    //the interface, and the loop copy of the self-sent multicast is
+    //delivered back on it (verified equivalent to the wildcard bind —
+    //M-4: the wildcard form is the one bind in the suite that trips
+    //the Windows firewall prompt on a fresh machine).
+    UdpSocket s = UdpSocket.bind("127.0.0.1", 0);
     s.setMulticastTtl(1);
     s.joinMulticast("239.255.255.250");
     s.sendTo(io.toBytes("m"), "239.255.255.250", s.localPort());

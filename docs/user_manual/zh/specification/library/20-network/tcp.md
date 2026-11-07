@@ -8,7 +8,7 @@
 
 | 成员 | 形态 | 语义 |
 |---|---|---|
-| `TcpListener.bind(host, port)` | 静态→`TcpListener` | 在`host:port`上绑定并监听；地址被占用或不可用时抛`SocketException` |
+| `TcpListener.bind(host, port, backlog = 512)` | 静态→`TcpListener` | 在`host:port`上绑定并监听；`backlog`是交给操作系统的接受队列深度（连接风暴前调大——队列满时新连接被拒绝；内核会压缩该值，且Windows环回无论请求多大只保留约200个未决连接，风暴中被拒的客户端应当重试）。地址被占用或不可用时抛`SocketException` |
 | `TcpListener.bind(port)` | 静态→`TcpListener` | `bind("0.0.0.0", port)`的简写——全部接口 |
 | `accept(timeoutMs = 0)` | →`TcpStream` | 等待下一个连接，把它作为自己的`TcpStream`返回；停泊直到有连接到来或截止时刻到来 |
 | `localAddress()` | →`string` | 绑定的地址 |

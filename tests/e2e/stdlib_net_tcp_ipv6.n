@@ -2,7 +2,10 @@ import io;
 import net;
 
 int main() {
-    TcpListener srv = TcpListener.bind("::", 0);
+    //Bind the IPv6 loopback, not the "::" wildcard: a wildcard listen
+    //is what triggers the Windows firewall prompt on a fresh machine
+    //(the multicast-test ruling M4 — loopback binds never prompt).
+    TcpListener srv = TcpListener.bind("[::1]", 0);
     //Connect first: the listen backlog lets the kernel complete the
     //handshake, so accept immediately finds the pending connection; if
     //accept came first, the main context would park and connect would

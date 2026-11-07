@@ -1,0 +1,19 @@
+import io;
+import net;
+
+// 0.12.9 net pass M-2: a name-resolution failure carries a real
+// phrase ("host not found"), not an empty tail — the resolver worker
+// has no host context, so the wait native splices the phrase into the
+// caller's error store. The .invalid TLD can never resolve.
+int main() {
+    int sawText = 0;
+    try { TcpStream.connect("nlang-no-such-host.invalid", 80, 3000); return 1; }
+    catch (SocketException e) {
+        string m = e.message;
+        int at = m.indexOf("failed: ");
+        if (at >= 0 && at + 8 < m.length()) { sawText = 1; }
+    }
+    if (sawText != 1) { return 2; }
+    io.print("ok");
+    return 0;
+}

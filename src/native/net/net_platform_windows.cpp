@@ -10,6 +10,10 @@
 #include "net_platform_internal.h"
 
 #include <windows.h>
+#include <mstcpip.h>   //SIO_UDP_CONNRESET (UDP connection-reset report)
+#ifndef SIO_UDP_CONNRESET   //older SDKs: the vendor ioctl code
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -77,6 +81,16 @@ int NetOpenUdp(NetFamily family) {
     NetPlatformInit();
     const SOCKET s = socket(ToAf(family), SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) return -1;
+    //Disable the Windows connection-reset report: a send to a dead
+    //port otherwise queues WSAECONNRESET, and the socket's next
+    //recvFrom raises it and destroys a real datagram — request/
+    //response UDP (the DNS shape) breaks on one stale query (0.12.9
+    //review I-3; POSIX has no such report). Best effort: older
+    //stacks without the ioctl keep the default.
+    BOOL off = FALSE;
+    DWORD ignored = 0;
+    WSAIoctl(s, SIO_UDP_CONNRESET, &off, sizeof(off), nullptr, 0,
+             &ignored, nullptr, nullptr);
     SetNonBlocking(s);
     return ToFd(s);
 }
@@ -133,7 +147,12 @@ int NetRecv(int fd, uint8_t* dst, int len) {
     const int n = recv(Fd(fd), reinterpret_cast<char*>(dst), len, 0);
     if (n > 0) return n;
     if (n == 0) return 0;   //EOF
-    if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
+    const int err = WSAGetLastError();
+    if (NetErrWouldBlock(err)) return kNetWouldBlock;
+    //A datagram longer than the buffer (connected-UDP recv): the
+    //prefix is already in place — truncate, the recvFrom contract
+    //(round-2 M-2). Stream sockets never report WSAEMSGSIZE.
+    if (err == WSAEMSGSIZE && len > 0) return len;
     return -1;
 }
 
@@ -148,7 +167,9 @@ int NetShutdownWrite(int fd) {
     return shutdown(Fd(fd), SD_SEND) == 0 ? 0 : -1;
 }
 
-int NetConnectResult(int fd) {
+int NetConnectResult(int fd, int* soError) {
+    if (soError)
+        *soError = 0;
     //Zero-timeout completion probe (see net_platform.h): a pending
     //connect also reports SO_ERROR == 0, so a stale park wake must not
     //mint a half-open stream — only a finished connect is writable.
@@ -176,6 +197,8 @@ int NetConnectResult(int fd) {
         //SO_ERROR == 0 is a spurious exception some AFD builds
         //report: judge it still in flight, not failed.
         return FD_ISSET(Fd(fd), &wfds) ? 0 : kNetInProgress;
+    if (soError)
+        *soError = err;   //the code behind the text (I-5)
     char buf[128] = { 0 };
     std::snprintf(buf, sizeof(buf), "connect failed: socket error %d", err);
     g_lastErrorOverride = buf;
@@ -189,7 +212,18 @@ int NetRecvFrom(int fd, uint8_t* dst, int len,
     const int n = recvfrom(Fd(fd), reinterpret_cast<char*>(dst), len, 0,
                            reinterpret_cast<sockaddr*>(&ss), &ssLen);
     if (n < 0) {
-        if (NetErrWouldBlock(WSAGetLastError())) return kNetWouldBlock;
+        const int err = WSAGetLastError();
+        if (NetErrWouldBlock(err)) return kNetWouldBlock;
+        //WSAEMSGSIZE is truncation, not failure: the prefix was
+        //copied into dst and the sender was reported. POSIX returns
+        //the truncated length natively; Windows needs the mapping
+        //(0.12.9 review I-2 — the manual's UDP page promises the
+        //sockets-interface behavior).
+        if (err == WSAEMSGSIZE && len > 0) {
+            outAddress = AddrText(reinterpret_cast<sockaddr*>(&ss));
+            outPort = AddrPort(reinterpret_cast<sockaddr*>(&ss));
+            return len;
+        }
         return -1;
     }
     outAddress = AddrText(reinterpret_cast<sockaddr*>(&ss));
@@ -318,9 +352,12 @@ int NetSocketPair(int fds[2]) {
     return 0;
 }
 
-bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out) {
+bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out,
+                int* errOut) {
     NetPlatformInit();
     out.clear();
+    if (errOut)
+        *errOut = 0;
     std::string text = host;
     if (!text.empty() && text.front() == '[' && text.back() == ']')
         text = text.substr(1, text.size() - 2);
@@ -339,7 +376,12 @@ bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* list = nullptr;
-    if (getaddrinfo(text.c_str(), nullptr, &hints, &list) != 0) return false;
+    const int gaiErr = getaddrinfo(text.c_str(), nullptr, &hints, &list);
+    if (gaiErr != 0) {
+        if (errOut)
+            *errOut = gaiErr;   //Windows getaddrinfo returns its own code
+        return false;
+    }
     for (addrinfo* ai = list; ai; ai = ai->ai_next) {
         char buf[INET6_ADDRSTRLEN] = { 0 };
         if (ai->ai_family == AF_INET) {
@@ -368,12 +410,21 @@ bool NetIsNumericAddress(const std::string& host) {
 }
 
 std::string NetLastErrorText() {
+    std::string text;
+    int code = 0;
+    NetLastErrorInfo(text, code);
+    return text;
+}
+
+void NetLastErrorInfo(std::string& outText, int& outCode) {
+    outCode = 0;
     if (!g_lastErrorOverride.empty()) {
-        std::string text = g_lastErrorOverride;
+        outText = g_lastErrorOverride;
         g_lastErrorOverride.clear();
-        return text;
+        return;
     }
     const DWORD err = WSAGetLastError();
+    outCode = static_cast<int>(err);
     wchar_t buf[256] = { 0 };
     FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                    nullptr, err, 0, buf, 255, nullptr);
@@ -381,7 +432,28 @@ std::string NetLastErrorText() {
     WideCharToMultiByte(CP_UTF8, 0, buf, -1, utf8, 511, nullptr, nullptr);
     while (utf8[0] && (utf8[strlen(utf8) - 1] == '\n' || utf8[strlen(utf8) - 1] == '\r'))
         utf8[strlen(utf8) - 1] = 0;
-    return utf8;
+    //Locale-independent anchor for logs: the OS text above follows the
+    //system language, the number is stable (I-5).
+    if (err != 0) {
+        std::snprintf(utf8 + strlen(utf8), sizeof(utf8) - strlen(utf8),
+                      " (error %lu)", err);
+    }
+    outText = utf8;
+}
+
+std::string NetResolveErrorText(int resolveErr) {
+    switch (resolveErr) {
+    case WSAHOST_NOT_FOUND:
+        return "host not found";
+    case WSATRY_AGAIN:
+        return "name resolution temporary failure";
+    case WSANO_RECOVERY:
+        return "name resolution failed";
+    case WSANO_DATA:
+        return "no address record for the name";
+    default:
+        return "name resolution failed";
+    }
 }
 
 }  //namespace nlang

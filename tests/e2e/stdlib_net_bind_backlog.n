@@ -1,0 +1,20 @@
+import io;
+import net;
+
+// 0.12.9 net pass M-5: bind takes an explicit listen backlog — the
+// hidden 512 default overflowed under the 10k benchmark's connect
+// storm. A small explicit backlog accepts and serves normally.
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0, 16);
+    int port = srv.localPort();
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 3000);
+    cli.write(io.toBytes("hi"));
+    TcpStream c = srv.accept(3000);
+    byte[] buf = byte[8];
+    if (c.read(buf, 3000) != 2) { return 1; }
+    cli.close();
+    c.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

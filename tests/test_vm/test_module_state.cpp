@@ -44,7 +44,7 @@ namespace fs = std::filesystem;
 const char* kProbeSource =
     "import net;\n"
     "int main() {\n"
-    "  int h = net._tcpBind(\"127.0.0.1\", 0);\n"
+    "  int h = net._tcpBind(\"127.0.0.1\", 0, 512);\n"
     "  if (h < 1) return -1;\n"
     "  int p = net._tcpLocalPort(h);\n"
     "  if (p < 1) return -2;\n"

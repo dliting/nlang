@@ -2105,6 +2105,22 @@ stdlib_net_closed_slot_setters 0 ok
 stdlib_net_tcp_zero_read 0 ok
 stdlib_net_conc_bytes 0 ok
 stdlib_io_park_guard 0 ok
+#0.12.9 net adversarial-review fix pass: UDP truncation (WSAEMSGSIZE),
+#connection-reset poisoning disabled, empty-buffer argument guard,
+#SocketException.errorCode, resolver failure text, listen backlog knob,
+#count-past-length argument family.
+stdlib_net_udp_truncate 0 ok
+stdlib_net_udp_connreset 0 ok
+stdlib_net_udp_empty_buf 0 ok
+stdlib_net_error_code 0 ok
+stdlib_net_resolve_text 0 ok
+stdlib_net_bind_backlog 0 ok
+#Round-2 review fix pass: bind error captured before the cleanup
+#close on every path, connected recv truncates like recvFrom, and
+#ping failures carry the resolver's phrase.
+stdlib_net_udp_bind_code 0 ok
+stdlib_net_udp_recv_truncate 0 ok
+stdlib_net_ping_error_text 0 ok
 #Final whole-branch review fix pass: GC tracing of arrays in Object slots,
 #view-receiver protocol dispatch, catchable class-target casts on array and
 #boxed values, bounded shape-list collection (tensor.full stride-aware),

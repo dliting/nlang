@@ -74,7 +74,7 @@ int NetShutdownWrite(int fd);
 //(a pending connect also reports no error), so the verdict first probes
 //writability with a zero timeout: only a finished connect — ok or
 //failed — is writable.
-int NetConnectResult(int fd);
+int NetConnectResult(int fd, int* soError = nullptr);
 
 //--- UDP -----------------------------------------------------------------
 int NetOpenUdp(NetFamily family);
@@ -120,7 +120,7 @@ int NetSocketPair(int fds[2]);
 //order. connect tries them in order (v6-first stacks still fall back
 //to v4 when the listener is v4-only).
 bool NetResolve(const std::string& host, int port,
-                std::vector<NetEndpoint>& out);
+                std::vector<NetEndpoint>& out, int* errOut = nullptr);
 //True for a numeric IPv4/IPv6 literal (bracketed "[::1]" accepted) —
 //the _tcpResolveStart fast-path gate: a literal fills its job record
 //on the spot instead of paying a pool round trip. Same test as
@@ -135,8 +135,11 @@ bool NetIsNumericAddress(const std::string& host);
 //-2 = unreachable/error. Resolves first; prefers the first IPv4
 //endpoint (IcmpSendEcho2, unprivileged), else the first IPv6
 //(Icmp6SendEcho2 with source "::"). POSIX skeleton: DGRAM ICMP.
+//resolveErrOut, when given, receives the getaddrinfo code behind a
+//resolution failure (0 otherwise) so the caller can name the cause
+//(round-2 M-3).
 int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len,
-                int timeoutMs);
+                int timeoutMs, int* resolveErrOut = nullptr);
 //Maps a platform ICMP failure code to the verdicts above (external
 //review I5): Windows passes the ICMP_ECHO_REPLY Status, POSIX the
 //recvfrom errno. Pure function so the timeout-vs-unreachable split is
@@ -155,5 +158,15 @@ int NetIcmpRecv(int fd, uint8_t* dst, int len, std::string& outAddress);
 
 //Human-readable last OS error (WSAGetLastError / errno mapped).
 std::string NetLastErrorText();
+//Text and numeric code in one read (0.12.9 review I-5): the code is
+//the OS error number — the override paths (hand-written context
+//texts) carry 0. The text has " (error N)" appended when N != 0 so
+//logs stay diagnosable on any locale.
+void NetLastErrorInfo(std::string& outText, int& outCode);
+//Maps a getaddrinfo failure code to a stable English phrase (the
+//resolver worker runs without a NativeHost, so the per-context error
+//store is out of reach; the wait native splices this in on the
+//caller's context — 0.12.9 review M-2).
+std::string NetResolveErrorText(int resolveErr);
 
 }  //namespace nlang

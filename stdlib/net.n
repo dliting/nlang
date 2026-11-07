@@ -5,10 +5,21 @@
 // (both in the IOException family).
 
 // Low-level socket errors: connection refused, peer dropped, socket
-// already closed, option set failed, and so on.
+// already closed, option set failed, and so on. errorCode carries the
+// operating system's error number when the failure came from the OS
+// (Windows: the Winsock code — 10061 refused, 10048 in-use, 11001
+// host-not-found); 0 when there is none (argument errors, internal
+// conditions). Programs branch on the number, not on message text —
+// the text follows the OS locale.
 const class SocketException : IOException {
+    public int errorCode;
     public SocketException(string message, Exception cause = null) {
         super(message, cause);
+        errorCode = 0;
+    }
+    public SocketException(string message, int code, Exception cause = null) {
+        super(message, cause);
+        errorCode = code;
     }
 }
 
@@ -25,8 +36,11 @@ const class TimeoutException : IOException {
 // the script layer converts timeoutMs to an absolute deadline with it (R12).
 native long _nowMs();
 // Text of the most recent platform error (spliced into the exception
-// message for error code -4).
+// message for error code -4), and the OS error number behind it
+//(spliced into SocketException.errorCode; 0 = no OS error). Both are
+// per-context and consumed on read.
 native string _lastErrorText();
+native int _lastErrorCode();
 // Internal UTF-8 byte conversion (registered by the nlang_net module;
 // the public surface is io.toBytes/fromBytes — builtin packages never
 // import each other, so the script convenience surface uses internal
@@ -42,7 +56,9 @@ void _throwNet(int code, string context) {
     if (code == -3) { throw SocketException(
         "net: another operation is in progress on this socket"); }
     if (code == -4) { throw SocketException(
-        "net: " + context + " failed: " + _lastErrorText()); }
+        "net: " + context + " failed: " + _lastErrorText(), _lastErrorCode()); }
+    if (code == -5) { throw SocketException(
+        "net: " + context + ": invalid argument"); }
     throw SocketException("net: " + context + " failed");
 }
 
@@ -63,12 +79,13 @@ native void _tcpResolveRelease(int jobId);
 // Internal: resolves host to the list of endpoint addresses to try
 // in order (a numeric endpoint comes back as the single-element
 // list, filled on the spot without a pool round trip). Parks on the
-// resolver pool without a deadline — timeoutMs=0 means "no deadline"
-// everywhere in this package. Throws SocketException when the name
-// cannot be resolved.
-List<string> resolveList(string host, int port) {
+// resolver pool; deadlineMs 0 means "no deadline" everywhere in this
+// package — a bounded caller (sendTo) passes its own deadline so the
+// whole call stays bounded (review I-4). Throws SocketException when
+// the name cannot be resolved.
+List<string> resolveList(string host, int port, long deadline = 0) {
     int jobId = _tcpResolveStart(host, port);
-    int count = _tcpResolveWait(jobId, 0);   //parks on the self-pipe
+    int count = _tcpResolveWait(jobId, deadline);   //parks on the self-pipe
     List<string> addrs = {};
     if (count >= 0) {
         for (int i = 0; i < count; i = i + 1) {
@@ -123,12 +140,18 @@ class IcmpSocket {
     }
     // Sends a complete ICMP message (type/code/checksum/ID/sequence/
     // payload); on Windows raw sockets the native layer computes the
-    // checksum when the field is 0.
+    // checksum when the field is 0. Resolved addresses are tried in
+    // order (M-8), like every host-taking method.
     public int sendTo(byte[] icmpMessage, string host) {
         List<string> addrs = resolveList(host, 0);
-        int r = _icmpSendTo(m_handle, icmpMessage, addrs[0]);
-        if (r < 0) { _throwNet(r, "icmp sendTo"); }
-        return r;
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int r = _icmpSendTo(m_handle, icmpMessage, addrs[i]);
+            if (r >= 0) { return r; }
+            lastErr = r;                 //try the next endpoint
+        }
+        _throwNet(lastErr, "icmp sendTo");
+        return 0;                        //unreachable (the throw above)
     }
     // Receives one ICMP message; the source address comes back via out.
     public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
@@ -146,7 +169,7 @@ class IcmpSocket {
 }
 
 // ---- TCP ----
-native int _tcpBind(string host, int port);
+native int _tcpBind(string host, int port, int backlog);
 native string _tcpLocalAddress(int handle);
 native int _tcpLocalPort(int handle);
 native int _tcpClose(int handle);
@@ -170,13 +193,16 @@ class TcpListener {
 
     // Listens on host:port; port=0 is system-assigned, read back via
     // localPort(). host may be a name: it is resolved on the resolver
-    // pool (parking) and the addresses are tried in order.
-    public static TcpListener bind(string host, int port) {
+    // pool (parking) and the addresses are tried in order. backlog is
+    // the accept-queue depth handed to listen (M-5: the default 512
+    // overflows under a connect storm — the 10k benchmark's retry
+    // loop is the evidence; the kernel may still clamp the value).
+    public static TcpListener bind(string host, int port, int backlog = 512) {
         string ctx = "bind " + host + ":" + port.toString();
         List<string> addrs = resolveList(host, port);
         int lastErr = 0;
         for (int i = 0; i < addrs.length(); i = i + 1) {
-            int h = _tcpBind(addrs[i], port);
+            int h = _tcpBind(addrs[i], port, backlog);
             if (h >= 0) { return TcpListener(h); }
             lastErr = h;                 //try the next endpoint
         }
@@ -271,8 +297,8 @@ class TcpStream {
     public int write(byte[] data, int count = -1, int timeoutMs = 0) {
         int n = data.length();
         if (count > n) {
-            throw IndexOutOfBoundsException(
-                "write: count " + count.toString() + " > length " + n.toString());
+            throw SocketException(
+                "net: write: count " + count.toString() + " > length " + n.toString());
         }
         if (count >= 0) { n = count; }
         long deadline = 0;
@@ -436,22 +462,31 @@ class UdpSocket {
     }
     // count defaults to -1 (send the whole array); >=0 sends only the
     // first count bytes (R3, used to echo back a received buffer).
-    // timeoutMs > 0 bounds the send: a full send buffer parks this
-    // context on write interest until the datagram is handed over.
+    // timeoutMs > 0 bounds the send — resolution included (I-4) —
+    // and a full send buffer parks this context on write interest
+    // until the datagram is handed over. Resolved addresses are tried
+    // in order (M-8): on a v6-first stack an unreachable v6 address
+    // falls back to v4, like connect and bind.
     public int sendTo(byte[] data, string host, int port, int count = -1,
                       int timeoutMs = 0) {
         int n = data.length();
         if (count > n) {
-            throw IndexOutOfBoundsException(
-                "sendTo: count " + count.toString() + " > length " + n.toString());
+            throw SocketException(
+                "net: sendTo: count " + count.toString() + " > length " + n.toString());
         }
         if (count >= 0) { n = count; }
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
-        List<string> addrs = resolveList(host, port);
-        int r = _udpSendTo(m_handle, data, n, addrs[0], port, deadline);
-        if (r < 0) { _throwNet(r, "sendTo"); }
-        return r;
+        List<string> addrs = resolveList(host, port, deadline);
+        int lastErr = 0;
+        for (int i = 0; i < addrs.length(); i = i + 1) {
+            int r = _udpSendTo(m_handle, data, n, addrs[i], port, deadline);
+            if (r >= 0) { return r; }
+            lastErr = r;                 //try the next endpoint
+            if (r == -2) { break; }      //deadline passed: stop trying
+        }
+        _throwNet(lastErr, "sendTo");
+        return 0;                        //unreachable (the throw above)
     }
     // Receives one datagram; the source address/port come back via
     // out parameters. Parks until data arrives or the deadline passes.
@@ -485,8 +520,8 @@ class UdpSocket {
     public int send(byte[] data, int count = -1, int timeoutMs = 0) {
         int n = data.length();
         if (count > n) {
-            throw IndexOutOfBoundsException(
-                "send: count " + count.toString() + " > length " + n.toString());
+            throw SocketException(
+                "net: send: count " + count.toString() + " > length " + n.toString());
         }
         if (count >= 0) { n = count; }
         long deadline = 0;

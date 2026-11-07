@@ -13,7 +13,7 @@ rule are §20.1.
 |---|---|---|
 | `UdpSocket.bind(host = "0.0.0.0", port = 0)` | static → `UdpSocket` | Binds a local endpoint; port `0` lets the system assign one, readable back through `localPort()` |
 | `sendTo(data, host, port, count = -1, timeoutMs = 0)` | → `int` | Sends one datagram — all of `data`, or its first `count` bytes — to `host:port`; parks while `host` resolves and when the send buffer is full, bounded by `timeoutMs` (§20.1) |
-| `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | → `int` | Takes the next datagram and reports its sender through the `out` parameters; returns the received byte count; parks until one arrives or the deadline passes |
+| `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | → `int` | Takes the next datagram and reports its sender through the `out` parameters; returns the received byte count; parks until one arrives or the deadline passes. A zero-length `buf` is an argument error (`SocketException`) — `0` is reserved for a genuine empty datagram |
 | `connect(host, port)` | — | Associates the socket with one peer; afterwards `send` / `recv` need no address and only that peer's datagrams arrive |
 | `send(data, count = -1, timeoutMs = 0)` | → `int` | Sends one datagram to the associated peer; raises `SocketException` when the socket is unconnected; parks when the send buffer is full, bounded by `timeoutMs` (§20.1) |
 | `recv(buf, timeoutMs = 0)` | → `int` | Takes the next datagram from the associated peer and returns its byte count — `0` is an empty datagram, not end of stream: UDP has no stream to end |

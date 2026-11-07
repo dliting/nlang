@@ -53,6 +53,11 @@ struct NetJobRecord {
     std::vector<std::string> endpoints;   //resolve: address texts
     int rttMs = 0;           //icmp (task 11)
     int err = 0;             //0 = ok, else the R10 code
+    std::string errText;     //failure phrase, resolve or ICMP (M-2/R2-M-3):
+                             //the worker runs without a NativeHost;
+                             //the wait native splices it into the
+                             //caller's per-context error store
+    int errCode = 0;         //the getaddrinfo code behind errText (I-5)
 };
 
 //Free-list slot table, same shape as NetSocketTable. A record with a
@@ -71,9 +76,13 @@ public:
     int32_t FindOwn(int kind, int owner) const;
     //Fills the result and flags done (caller holds the state mutex;
     //the teardown-cv notify runs in NetFinishResolve after unlock).
-    void MarkDone(int32_t jobId, std::vector<std::string>&& endpoints, int err);
-    //ICMP variant: the result is the RTT instead of an endpoint list.
-    void MarkDoneIcmp(int32_t jobId, int rttMs, int err);
+    void MarkDone(int32_t jobId, std::vector<std::string>&& endpoints, int err,
+        std::string errText = std::string(), int errCode = 0);
+    //ICMP variant: the result is the RTT instead of an endpoint list;
+    //errText/errCode carry the failure phrase when err != 0 (the
+    //ping splice, round-2 M-3).
+    void MarkDoneIcmp(int32_t jobId, int rttMs, int err,
+        std::string errText = std::string(), int errCode = 0);
     //Flags released and frees the record when done is also set.
     void Release(int32_t jobId);
     //Records still awaiting their worker (the dtor's cv predicate).
@@ -87,11 +96,15 @@ private:
 };
 
 //Fills the record under the state mutex, then notifies the teardown
-//cv after the unlock (R9: the dtor waits for in-flight jobs).
+//cv after the unlock (R9: the dtor waits for in-flight jobs). The
+//errText/errCode pair carries the resolver failure phrase (M-2/I-5).
 void NetFinishResolve(NetExecState* st, int32_t jobId,
-    std::vector<std::string>&& endpoints, int err);
-//ICMP variant of NetFinishResolve (the pool worker's completion).
-void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err);
+    std::vector<std::string>&& endpoints, int err,
+    std::string errText = std::string(), int errCode = 0);
+//ICMP variant of NetFinishResolve (the pool worker's completion);
+//errText/errCode ride the record like the resolve family.
+void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err,
+    std::string errText = std::string(), int errCode = 0);
 
 //Drains the self-pipe read end until would-block (ack bytes are hints;
 //the record under the mutex decides). Shared by the resolve wait

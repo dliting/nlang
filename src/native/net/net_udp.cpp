@@ -81,9 +81,17 @@ void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const NetEndpoint& ep = endpoints.front();
     const int fd = NetOpenUdp(ep.family);
     if (fd < 0 || NetBind(fd, ep.address, port) != 0) {
+        //Read the OS error before the cleanup close — a successful
+        //closesocket resets it to 0 (round-2 M-1; the TcpBind shape).
+        std::string text;
+        int code = 0;
+        NetLastErrorInfo(text, code);
         if (fd >= 0)
             NetClose(fd);
-        NetRememberLastError(h);
+        {
+            std::lock_guard<std::mutex> g(st->m_mutex);
+            NetSetErrorLocked(st, h, text, code);
+        }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -216,6 +224,20 @@ void NetUdpSend(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
+//Commits a received datagram's source: stash the peer on the slot
+//(under the same lock as the claim release) for
+//_udpLastRecvAddress/Port.
+void NetUdpStashPeer(NetExecState* st, int32_t handle, bool claimed,
+                     const std::string& from, int fromPort) {
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    if (NetSocketSlot* slot = st->m_slots.Lookup(handle)) {
+        slot->lastPeerAddress = from;
+        slot->lastPeerPort = fromPort;
+    }
+    if (claimed)
+        st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+}
+
 //udpRecvFrom(handle, buf, deadlineMs): the _tcpRead park loop with
 //recvfrom; on success the source is stashed on the slot (under the
 //same lock as the claim release) for _udpLastRecvAddress/Port. n == 0
@@ -227,6 +249,11 @@ void NetUdpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ArgArray(h, a, 1, &buf);
     const long long deadline = ArgLong(a, 2);
     const int self = h->currentContextId(h);   //R14
+    //A zero-length buf is an argument error before any socket call:
+    //recvfrom(len 0) consumes a queued datagram (returning 0, or
+    //WSAEMSGSIZE), and 0 is reserved for a genuine empty datagram
+    //(the _tcpRead guard's rationale, 0.12.9 review M-1).
+    if (buf.elemCount == 0) { ReturnInt(ret, kNetErrArg); return; }
     std::vector<uint8_t> scratch(static_cast<size_t>(buf.elemCount));
     bool claimed = false;
     for (;;) {
@@ -243,13 +270,7 @@ void NetUdpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
             static_cast<int>(buf.elemCount), from, fromPort);
         if (n >= 0) {   //a datagram (possibly empty)
             NetUnpackBytes(buf, scratch.data(), n);
-            std::lock_guard<std::mutex> g(st->m_mutex);
-            if (NetSocketSlot* slot = st->m_slots.Lookup(handle)) {
-                slot->lastPeerAddress = from;
-                slot->lastPeerPort = fromPort;
-            }
-            if (claimed)
-                st->m_slots.ReleaseWaiter(handle, NetDir::Read);
+            NetUdpStashPeer(st, handle, claimed, from, fromPort);
             ReturnInt(ret, n);
             return;
         }
@@ -331,7 +352,9 @@ void NetUdpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const std::string text = NetLocalAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, 0);
         return;
     }
@@ -348,7 +371,9 @@ void NetUdpLocalPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetLocalPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -366,7 +391,9 @@ void NetUdpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const std::string text = NetPeerAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, 0);
         return;
     }
@@ -383,7 +410,9 @@ void NetUdpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetPeerPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }

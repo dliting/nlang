@@ -55,9 +55,13 @@ resolution runs on the runtime's resolver pool, so a slow lookup
 occupies no carrier (§10.1).
 The `timeoutMs` parameter fixes how long the call waits: `0` (the
 default) waits without a deadline, a positive value waits at most
-that many milliseconds. A wait that ends at its deadline raises
-`TimeoutException`; the socket stays open and usable, and a later
-call may succeed.
+that many milliseconds. On the calls that name a host — `connect`,
+`sendTo` — the deadline covers name resolution too. A wait that
+ends at its deadline raises `TimeoutException`; the socket stays
+open and usable, and a later call may succeed — the one caveat is a
+`write` that times out mid-payload: part of the payload may already
+be with the kernel, so the caller cannot know how much went out
+(close and reconnect if the protocol has no resumable framing).
 
 ### One operation per direction
 
@@ -78,7 +82,13 @@ package source as `const` classes deriving from `IOException`
 and `catch (SocketException e)` or `catch (TimeoutException e)`
 narrows to the network. Both carry the usual `message` and `cause`
 fields (§8.3); a platform-level failure appends the operating
-system's error text to the message.
+system's error text to the message. `SocketException` also carries
+an `errorCode` field: the operating system's error number when the
+failure came from the OS (Windows: the Winsock code — `10061`
+connection refused, `10048` address in use, `11001` host not
+found), `0` when there is none (an argument error, an internal
+condition). Branch on the number — the message text follows the
+OS locale, the number does not.
 
 ### Bytes and strings
 
