@@ -67,10 +67,13 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 
 //v0.12.3 dictionary model (spec D2 argument domain): the builtin
 //containers box multi-slot values inside their element storage, but a
-//user template's T-typed field is a bare value slot — struct and
-//function arguments are multi-slot values and are rejected there (a
-//documented staging limitation; interfaces stay allowed: an interface
-//value is a single-slot object handle). True = rejected and logged.
+//user template's T-typed field is a bare value slot — function
+//arguments are multi-slot records and are rejected there (interfaces
+//stay allowed: an interface value is a single-slot object handle).
+//v0.13.0 D3: struct arguments are admitted — every boundary
+//(call formals, local binds, external field stores, foreach) deep-
+//copies the record through the substituted type, so the field's slot
+//holds one private handle. True = rejected and logged.
 static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 	const SnClassDecl &tmpl, const std::vector<SnField*> &typeArgs,
 	const std::string &baseName, const ISourceLocation *pLoc)
@@ -86,15 +89,6 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 		return false;
 	for (auto* pArg : typeArgs)
 	{
-		if (pArg->Kind() == NK_StructDecl)
-		{
-			env.Log(CLL_Error, pLoc,
-				"the struct \"%s\" cannot be a type argument of "
-				"\"%s\": a struct is a multi-slot value, and a "
-				"generic field stores one value slot.",
-				pArg->Name().c_str(), baseName.c_str());
-			return true;
-		}
 		if (IsFuncTypeDecl(pArg))
 		{
 			env.Log(CLL_Error, pLoc,

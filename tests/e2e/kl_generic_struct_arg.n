@@ -1,0 +1,21 @@
+// v0.13.0 D3: user templates accept struct type arguments — every
+// boundary deep-copies the record, so the value-slot layout holds.
+// Round-trip a Point through Box<Point> and compare by value.
+struct Point {
+    int x;
+    int y;
+    public Point(int a, int b) { x = a; y = b; }
+}
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public T get() { return item; }
+}
+int main() {
+    Box<Point> b = Box(Point(1, 2));
+    Point p = b.get();
+    if (p.x != 1) return 1;
+    if (p.y != 2) return 2;
+    if (!(p == Point(1, 2))) return 3;
+    return 0;
+}

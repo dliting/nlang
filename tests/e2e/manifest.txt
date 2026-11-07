@@ -1991,7 +1991,9 @@ generic_mixed_members_run 1
 generic_two_instantiations 0
 generic_nested_instantiation 0
 generic_arg_domain 0
-generic_struct_arg compile_error multi-slot
+kl_generic_struct_arg 0
+kl_generic_struct_independence 0
+kl_generic_struct_transfer_corner 0
 generic_func_arg compile_error multi-slot
 generic_gc_tslot_survives 0
 # Task 1's transient window gates flip with instance execution:
