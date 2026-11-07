@@ -125,6 +125,17 @@ Comparison results are always **`bool`** (`true` / `false`).
   your own classes — `==` is unaffected by the override; see [Object and Boxing](../04-types/object.md)
   "Protocol methods" and [Class](../04-types/class.md)
   "Virtual methods and overriding".
+- **Struct equality** (`==`, `!=`) compares by field value — two
+  structs of the same type with equal fields are equal (nested struct
+  fields recurse, `string` fields compare content, reference-shaped
+  fields compare identity). Ordering a struct is a compile error
+  (`struct values cannot be ordered; only == and != are supported`), and
+  so is comparing one with a struct of another type, a scalar, or null
+  — a struct is never null (`a struct value can only be compared with
+  a struct value of the same type`). See [Struct](../04-types/struct.md).
+- **Function equality** (`==`, `!=`) compares handle content: two
+  references to the same function are equal; ordering is a compile
+  error. See [First-Class Function Values](../../vm-architecture/first-class-function-values.md).
 - **Arithmetic/concatenation with a null operand** is a compile error —
   null only has a value through the comparison-identity path above.
 

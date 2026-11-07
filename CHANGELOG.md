@@ -8,6 +8,50 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-08
+
+The value-equality release: struct `==`/`!=`, container entries and
+`Dict` keys now compare by value where the type carries value
+semantics, user templates accept struct type arguments, and
+const-prefixed functions land on one named diagnostic.
+
+### Added
+
+- **Struct equality compares by field value.** `==`/`!=` on two
+  structs of the same type compare field by field (nested structs
+  recurse, `string` fields compare content, reference-shaped fields
+  compare identity) through the new `OP_Eq_struct`/`OP_Ne_struct`
+  pair (module format 2.14). Ordering a struct, or comparing it with
+  another struct type, a scalar or `null`, is a named compile error.
+- **Struct type arguments for user templates.** `class Box<T>` now
+  instantiates at struct types; every boundary (constructor
+  formals, local binds, field stores, `foreach`) deep-copies the
+  record through the substituted type.
+- **Function container elements and `Dict` keys compare by content.**
+  `List<func<...>>.contains`/`indexOf` and `Dict` keyed on a
+  function type match the (target, receiver, form) triple, so two
+  references to one function are one element and one key.
+
+### Changed
+
+- **`public const int f() {...}` no longer compiles.** const has no
+  meaning on a function; every spelling (bare, public, semi form)
+  now rejects with `const is not allowed on functions; declare it
+  without const.`
+
+### Migration notes
+
+- A `Dict` keyed on struct or function values no longer grows one
+  entry per reference: storing through a second reference to the
+  same key overwrites the first entry (the dedup-by-value idiom
+  `d[p] = d[p] + 1` now works).
+- Struct `==` flips from identity (always false between distinct
+  records) to field-value comparison — recompile every module (the
+  loader refuses 2.13-and-older images).
+- Inside a generic class body, a `T`-to-`T` field move
+  (`item = other.item`) aliases the record instead of copying it;
+  this is the documented corner of the struct type argument.
+
 ## [0.12.9] - 2026-11-07
 
 Consolidation release: merges the 0.12.8 `net` library into the

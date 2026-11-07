@@ -114,6 +114,8 @@ creation (sizes from expressions) reads them from evaluation slots.
 | OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | + out writeback         |
 | OP_Eq_func          | lhs, rhs                             | Handle content equality (null-guarded) |
 | OP_Ne_func          | lhs, rhs                             | Handle content inequality       |
+| OP_Eq_struct        | lhs, rhs                             | Struct field-value equality     |
+| OP_Ne_struct        | lhs, rhs                             | Struct field-value inequality   |
 | OP_Func_to_str      | pResult accumulator                  | "func <name>" / "method <name>"; null → "<null>" |
 
 See [First-Class Function Values](first-class-function-values.md#first-class-function-values)

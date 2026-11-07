@@ -41,7 +41,7 @@ uniformly, and no opcode distinction is needed. The entry is no longer
 serialized as an index: the program package's entry record (in the
 `.npkg` header) or the bare unit's `<modulePath>.main` convention
 resolves it to a table index by qualified name at load time. The
-minimum format version only rises with the toolchain (currently 2.12;
+minimum format version only rises with the toolchain (currently 2.14;
 from 2.2 the type descriptors carry `func` signatures, from 2.3
 default-value expressions serialize with the image — imported stubs
 bind the formal names the function records always carried, from 2.4
@@ -59,9 +59,12 @@ function record gains a trailing eval-area handle bitmap (packed 2-bit
 garbage-collection root classes covering the frame band), from 2.9 the
 enum tables gain per-enum member-method index and access segments,
 from 2.10 array type records carry a rank byte, from 2.11 the array arm
-of the type descriptors carries a rank byte, and from 2.12 every struct
+of the type descriptors carries a rank byte, from 2.12 every struct
 and class record carries a const-aggregate marker byte (after
-fieldCount in struct records, after superClassIdx in class records):
+fieldCount in struct records, after superClassIdx in class records),
+and from 2.14 the opcode set includes the struct equality pair
+(`OP_Eq_struct` / `OP_Ne_struct`; struct comparisons in a 2.13 image
+silently compare heap indices, so those images are refused):
 the loader refuses any image
 below the current version, so older modules must be recompiled.
 

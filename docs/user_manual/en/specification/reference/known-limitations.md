@@ -77,21 +77,8 @@ This page collects the language-level limitations visible to user programs, with
 - **`using` alias declarations belong to the file prologue**: a `using`
   placed after another top-level declaration is a syntax error.
 
-- **`List<struct>` element matching compares identity**: a struct
-  element is stored and retrieved as an independent value copy
-  (§4.7.4 — mutating the source after `add` never shows through),
-  but `contains` / `indexOf` (and `Dict` keys, §12.2) compare struct
-  elements by reference identity, so a struct built with equal fields
-  never `contains`-matches a stored one. Find struct elements by
-  iterating and comparing fields.
-
 - **Creation cost**: `Point[n]` allocates n+1 heap
   objects at creation (the array itself + one struct per element).
-
-- **`List<func<...>>.contains` / `indexOf` use identity comparison**: two
-  references to the same function are distinct heap records, so a
-  freshly created reference never `contains`-matches a stored one.
-  Documented inconsistency with `==` (content equality).
 
 ### Classes, interfaces and modules
 
@@ -109,24 +96,6 @@ This page collects the language-level limitations visible to user programs, with
 - **Method inheritance of defaults**: derived class overrides do not
   inherit default values from the base class method. Each override
   declares its own defaults independently.
-
-- **Instance fields of imported structs are inaccessible across the
-  module boundary**: an imported struct carries its type name but no field layout — reading
-  or writing `s.x` on an imported struct is a compile error. Construction
-  (`lib.Vec(3, 4);`) and passing the value to the producing module's
-  own functions work, and the struct's field defaults still apply at
-  allocation.
-
-- **Enums cannot be imported across modules**: an `enum` is not
-  exported as a module member — a qualified reference (`lib.Color.Red`)
-  reports `Type 'Color' is not a member of package 'lib'.`
-
-- **Cross-module overloads with the same parameter count**: imported
-  free functions, interface static methods, and enum methods are
-  matched by name and parameter count; two same-name overloads with
-  the same parameter count but different parameter types fail at link
-  time with an explicit ambiguity error instead of silently
-  mislinking.
 
 - **`super()` chains only to the direct parent**: there is no syntax for
   invoking a grandparent constructor directly; each ctor forwards to its
@@ -166,13 +135,6 @@ This page collects the language-level limitations visible to user programs, with
 - **No lambda expressions / closures**: only references
   to named functions and methods exist. Bound method references carry
   receiver state and cover the common callback scenarios.
-
-- **`const`-led top-level functions**: `const int f(){}` does not
-  parse, because the `const` entry goes down the same grammar path as
-  const statements: the prefix `const int f(` is indistinguishable
-  from `const int x =`. `const int x = 5;` works; there is currently no
-  legal spelling for a top-level const function (function bodies are
-  unaffected).
 
 ### Concurrency
 

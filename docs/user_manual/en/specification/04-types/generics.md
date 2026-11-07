@@ -123,16 +123,25 @@ exceeds the limit of 16 nested instantiations.`
 ## 4.12.5 Type arguments
 
 A type argument may be a scalar primitive, `string`, an enumeration,
-a class type, an interface type, an array type, or another generic
-instantiation. A `void` type argument is a compile-time error
+a class type, an interface type, a struct type, an array type, or
+another generic instantiation. A `void` type argument is a compile-time error
 (§7.4).
 
-A user-declared generic class additionally rejects struct and
-function type arguments: a struct is a multi-slot value and a
-generic field stores one value slot; a function value is a
-multi-slot record (target, receiver, form). The built-in containers
-accept struct type arguments (a struct key in a `Dict` compares by
-identity, §12.2).
+A user-declared generic class rejects function type arguments: a
+function value is a multi-slot record (target, receiver, form). A
+struct type argument is admitted — every boundary (constructor
+formals, local binds, field stores, `foreach`) deep-copies the
+record through the substituted type, so the field's value slot holds
+one private copy. The built-in containers accept struct type
+arguments alike (a struct key in a `Dict` compares by field value,
+§12.2).
+
+One corner of the struct argument: inside a generic class's own
+method bodies, a `T`-to-`T` move between two `T`-typed fields
+(`item = other.item;`) transfers the record handle without a copy,
+so the two fields then share one record — a write through one shows
+through the other. Only the in-body field move aliases; every
+boundary deep-copies (§4.7.4).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.

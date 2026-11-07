@@ -41,7 +41,11 @@ sequence of elements of type `T`.
 - scalar primitive elements compare value bits, with `NaN` not
   equal to itself;
 - `string` elements compare content (§4.3);
-- class, struct and array elements compare identity — a user
+- `func` elements compare handle content — two references to the
+  same function match (§4.5);
+- struct elements compare by field value (§4.12.5) — a struct built
+  with equal fields `contains`-matches a stored one;
+- class and array elements compare identity — a user
   `equals` override is not consulted (§4.11.2).
 
 The same matching decides `Dict` keys (§12.2).
@@ -84,7 +88,8 @@ A `Dict<K, V>` (§4.12) maps keys of type `K` to values of type `V`.
 
 Key matching is the kind-aware equality of §12.1. The built-in
 containers accept a `struct` type argument, and a struct key
-therefore compares by identity (§4.12.5).
+therefore compares by field value (§4.12.5); a `func` key compares
+handle content — two references to one function are the same key.
 
 `keys()` is the ordering guarantee for the whole dictionary
 surface: the returned list holds every key in insertion order —

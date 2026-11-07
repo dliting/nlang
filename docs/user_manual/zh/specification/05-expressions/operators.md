@@ -58,6 +58,8 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 - **bool只与bool比较，且只比较相等**：`true == true`为真；对bool排序是编译错误（`bool values cannot be ordered; only == and != are supported`），bool与其他类型比较同样是编译错误（`a bool value can only be compared with a bool value`）。
 - **字符串相等**按内容比较；字符串关系序用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`（90）< `'a'`（97））。因为字符串以Unicode转换格式（UTF-8，Unicode Transformation Format）存储且UTF-8字节序等于码点序，对美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的文本排序也正确：`"é" > "z"`为真。见[字符串](../04-types/string.md)「比较」。
 - **class/引用相等**（`==`、`!=`）是同一性（同一堆对象）。要按值比较，用`equals`方法并在自己的类里覆写它——`==`不受覆写影响；见[Object与装箱](../04-types/object.md)「协议方法」与[类](../04-types/class.md)「虚方法与重写」。
+- **结构体相等**（`==`、`!=`）按字段值比较——同类型且字段全部相等的两个结构体相等（嵌套结构体字段递归，`string`字段比较内容，引用形态字段比较同一性）。对结构体排序是编译错误（`struct values cannot be ordered; only == and != are supported`），与另一类型的结构体、标量或null比较同样是编译错误——结构体永不为null（`a struct value can only be compared with a struct value of the same type`）。见[结构体](../04-types/struct.md)。
+- **函数相等**（`==`、`!=`）比较句柄内容：指向同一函数的两个引用相等；排序是编译错误。见[一等函数值](../../vm-architecture/first-class-function-values.md)。
 - **带null操作数的算术/拼接**是编译错误——null只有通过上面的比较同一性路径才有值。
 
 ### 逻辑
