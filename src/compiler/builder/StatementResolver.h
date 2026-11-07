@@ -194,6 +194,13 @@ private:
 	//for plain class members. Logs all diagnostics; never mutates the AST.
 	//Definition in StatementResolverDeclCtor.cpp.
 	void CheckCtorDeclarationContract(SnFunction &sn);
+	//v0.13.0 D5: the modifier contract — NF_Const has no meaning on a
+	//function (functions are not rebindable; const-aggregates are a type
+	//concept). Names the rule for every minted function (public spellings,
+	//class members, semi declarations); the bare top-level spellings are
+	//named by the grammar's TopItem diagnostic arms. Definition in
+	//StatementResolverDecls.cpp.
+	void CheckFunctionModifierContract(SnFunction &sn);
 	//0.9.11 D2: the struct member contract — a struct declares fields and
 	//constructors only, and a struct constructor must not carry static/
 	//virtual/const. Logs all diagnostics; never mutates the AST. Definition

@@ -6,8 +6,8 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (3 at
-the 2026-11-02 re-measure),
+/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (5 at
+the 2026-11-08 re-measure; 3 through 2026-11-07),
 and deterministic parsers cannot use %expect alongside any r/r
 conflict, so there is no %expect here. The counts are pinned by the
 accepted-conflict ledger below and re-measured by the direct bison
@@ -624,6 +624,26 @@ TopItem:	NamespaceMember {
 					} |
 					TopModFunc {
 						$$ = $1;
+					} |
+					//v0.13.0 D5: bare const-led function shapes parse here so
+					//the rejection can name the rule — otherwise the shape
+					//rides the statement path and dies at the body or param
+					//tokens with a bare syntax error. Top-level only: the
+					//in-body `const T p();` zero-argument construction keeps
+					//its LocalDeclList reading. The public spellings mint an
+					//SnFunction and are named by the resolver contract check.
+					//Adds one shared-paren conflict state (1 s/r + 2 r/r) of
+					//the accepted epsilon family — see the FormalParamList
+					//comment and the ledger header counts.
+					KT_Const HeadType TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+						parser.Log(CLL_Error, @1,
+							"const is not allowed on functions; declare it without const.");
+						$$ = nullptr;
+					} |
+					KT_Const KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+						parser.Log(CLL_Error, @1,
+							"const is not allowed on functions; declare it without const.");
+						$$ = nullptr;
 					} ;
 
 //v3H (updated 0.9.15): the bare form without a body is a declaration and
@@ -739,7 +759,9 @@ FormalParamList:	FormalParamList ',' FormalParam {
 							/*on empty */
 							$$ = new PtrList<SnFormalParam>();
 							//v0.9.1: this epsilon and ConcreteParamList's epsilon meet in
-							//the shared paren state (2 r/r). Rule order picks the winner:
+							//the shared paren state (2 r/r; a third such state exists
+						//since v0.13.0 behind the top-level const-function
+						//diagnostic arms on TopItem). Rule order picks the winner:
 							//FormalParamList stays earlier in this file, so the function
 							//header wins and zero-parameter definitions parse (D6).
 						} ;

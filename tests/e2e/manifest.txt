@@ -582,6 +582,9 @@ assert_false_throws 1
 const_local 7
 const_local_compound 7
 const_shallow_member_mut 7
+# --- v0.13.0 D5: const functions rejected by name (both spellings) ---
+err_const_fn_toplevel compile_error const is not allowed on functions
+err_const_fn_public compile_error const is not allowed on functions
 # --- Phase 9b-pre: collection toString (Array/List/Dict) ---
 array_tostring_basic 7
 array_tostring_empty 7

@@ -1,0 +1,8 @@
+// v0.13.0 D5: bare const-prefixed functions are rejected by name —
+// const has no meaning on a function (functions are not rebindable;
+// const-aggregate immutability is a type-level concept). The shape
+// used to die at the body/param tokens with a generic syntax error.
+const int f(int x) {
+    return x;
+}
+int main() { return 0; }

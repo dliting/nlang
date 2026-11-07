@@ -34,6 +34,7 @@ void StatementResolveAccessor::Access(SnFunction &sn)
 	}
 
 	CheckCtorDeclarationContract(sn);
+	CheckFunctionModifierContract(sn);
 
 	//Formals are collected into a vector because ParamList exposes
 	//begin/end iterators but no operator[]; the checks below index by
@@ -58,6 +59,19 @@ void StatementResolveAccessor::Access(SnFunction &sn)
 
 	for (auto &stmt : sn.Body()->Statements())
 		stmt.Accept(*m_pVisitor);
+}
+
+//v0.13.0 D5: NF_Const on a function has no meaning — functions are not
+//rebindable values, and const-aggregate immutability is a type-level
+//concept (const class/struct). Before this contract the public spelling
+//compiled and ran; the bare top-level spelling died in the parser with
+//a generic syntax error (now named by the grammar's TopItem arms).
+void StatementResolveAccessor::CheckFunctionModifierContract(SnFunction &sn)
+{
+	if (sn.ContainFlags(NF_Const)) {
+		m_Env.Log(CLL_Error, sn.Location(),
+			"const is not allowed on functions; declare it without const.");
+	}
 }
 
 //Phase 9f: native declarations are body-less by contract — the
@@ -310,6 +324,52 @@ bool StatementResolveAccessor::RejectUnbracedControlFlowDecl(
 	return true;
 }
 
+//v0.13.0 D5: true when the paragraph is the script's top level. By
+//resolve time SynthesizeScriptEntries has wrapped script-mode top-level
+//statements in a synthesized main, so the test walks to the nearest
+//function and checks its NF_ScriptEntry marker (compile-only flag); no
+//function ancestor at all is also top level.
+static bool ParagraphIsTopLevel(const SnParagraph &paragraph)
+{
+	const SyntaxNode *pNode = paragraph.Parent();
+	while (pNode)
+	{
+		if (pNode->Kind() == NK_Function)
+			return pNode->ContainFlags(NF_ScriptEntry);
+		pNode = pNode->Parent();
+	}
+	return true;
+}
+
+//v0.13.0 D5: the zero-argument semi form `const T f();` rides the
+//statement path at top level (the grammar's TopItem diagnostic arms
+//catch the param/body spellings and the comma-continuation tail is
+//reached only through this shape) — name it here. A class/struct head
+//keeps the legal 0.9.15 zero-argument construction reading (pinned by
+//top_level_const_zero_arg_ctor); only types that can never be call-
+//constructed (scalars, string, array, enum, interface) reject. True =
+//rejected; the caller stops so the declarator walk adds no noise.
+static bool RejectTopLevelConstFnShape(SnLocalDeclStmt &sn,
+	const SnParagraph &paragraph, SnField *pTypeField,
+	BuildEnvironment &env)
+{
+	if (!sn.IsConst() || !ParagraphIsTopLevel(paragraph) || !pTypeField)
+		return false;
+	NodeKind headKind = pTypeField->Kind();
+	if (headKind == NK_ClassDecl || headKind == NK_StructDecl)
+		return false;
+	for (auto &decl : sn.Decls())
+	{
+		if (decl.pCtorArgs && decl.pCtorArgs->empty())
+		{
+			env.Log(CLL_Error, sn.Location(),
+				"const is not allowed on functions; declare it without const.");
+			return true;
+		}
+	}
+	return false;
+}
+
 void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 {
 	NLANG_ASSERT(m_pVisitor);
@@ -350,6 +410,8 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 	}
 	else
 		RejectConstWithoutInit(sn);
+	if (RejectTopLevelConstFnShape(sn, *pParagraph, pTypeField, m_Env))
+		return;
 	RegisterLocalDeclarators(sn, *pParagraph, pTypeField, bIsArray,
 		pSizedElemField);
 }
