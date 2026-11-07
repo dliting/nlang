@@ -116,8 +116,12 @@ bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
     auto kind = m_slotKinds[k1];
     if (kind != RTK_Boxed && kind != RTK_Class && kind != RTK_Struct)
         return false;
-    if (kind == RTK_Class || kind == RTK_Struct)
+    if (kind == RTK_Class)
         return k1 == k2;  //identity (k1!=k2 already checked above → false)
+    //v0.13.0 D1: struct keys carry value semantics (every boundary deep
+    //copies), so identity could never match — compare by field value.
+    if (kind == RTK_Struct)
+        return StructValuesEqual(k1, k2);
     //RTK_Boxed: the shared full-payload comparator (0.7.5: 8-byte rows
     //carry a hi cell a lo-only compare silently dropped).
     return BoxedValuesEqual(k1, k2);
@@ -151,6 +155,53 @@ bool VmExecutor::BoxedValuesEqual(int32_t a, int32_t b) const
         || recA[kBoxedValueSlot + 1] == recB[kBoxedValueSlot + 1];
 }
 
+bool VmExecutor::StructValuesEqual(int32_t a, int32_t b) const
+{
+    //Identity fast path; 0 is the null sentinel and equals only itself.
+    if (a == b) return true;
+    if (a <= 0 || b <= 0
+        || static_cast<size_t>(a) >= m_structHeap.size()
+        || static_cast<size_t>(b) >= m_structHeap.size())
+        return false;
+    if (m_slotKinds[static_cast<size_t>(a)] != RTK_Struct
+        || m_slotKinds[static_cast<size_t>(b)] != RTK_Struct)
+        return false;
+    //Different struct types are different values.
+    const uint16_t typeIdx = m_slotStructIdx[static_cast<size_t>(a)];
+    if (typeIdx != m_slotStructIdx[static_cast<size_t>(b)]
+        || typeIdx >= m_currModule->structs.size())
+        return false;
+    const auto& cs = m_currModule->structs[typeIdx];
+    const auto& recA = m_structHeap[static_cast<size_t>(a)];
+    const auto& recB = m_structHeap[static_cast<size_t>(b)];
+    //Field i lives at cell 2i (uniform stride). The walk mirrors
+    //DeepCopyStruct's member rule — its recursion arm here recurses,
+    //its verbatim-copy arms compare handles.
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        const uint8_t kind = cs.fieldTypeKinds[i];
+        const int32_t cell = i * 2;
+        if (kind == RTK_Struct && cs.fieldStructIndices[i] != 0xFFFF) {
+            if (!StructValuesEqual(recA[cell], recB[cell]))
+                return false;
+        } else if (kind == RTK_String) {
+            if (StrValCopy(recA[cell]) != StrValCopy(recB[cell]))
+                return false;
+        } else if (int row = ScalarPrimIndexOfRtk(kind); row >= 0) {
+            //Narrow kinds keep the value-extension convention in the lo
+            //cell; 8-byte rows carry a hi cell (BoxedValuesEqual rule).
+            if (recA[cell] != recB[cell]) return false;
+            if (kScalarPrims[row].slotWidth >= 8
+                && recA[cell + 1] != recB[cell + 1]) return false;
+        } else {
+            //Reference-shaped fields (class/array/interface/func): the
+            //copy path stores the handle verbatim, so equality is the
+            //handle — the dual of the shallow-copy arm.
+            if (recA[cell] != recB[cell]) return false;
+        }
+    }
+    return true;
+}
+
 //Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List
 //intrinsic. Validates this-heap-idx, upper bound, and handle. Throws uniformly
 //on null/stale/uninitialized; the previous "silently no-op for some methods"
@@ -179,13 +230,17 @@ int32_t VmExecutor::ReadListHandle(uint16_t callParamBase, uint8_t* locals,
 //lines in each intrinsic). Decodes the probe value, then compares it
 //against each stored element: boxed primitives through BoxedValuesEqual
 //(strings by content, scalars by full payload — 0.7.5: 8-byte rows
-//compare both cells) and reference values by identity. Returns the
-//matching index or -1.
+//compare both cells), struct values through StructValuesEqual (v0.13.0
+//D1: every boundary deep-copies, so identity never matched), and
+//reference values by identity. Returns the matching index or -1.
 int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
 {
     bool primitiveT = (value > 0
         && static_cast<size_t>(value) < m_slotKinds.size()
         && m_slotKinds[value] == RTK_Boxed);
+    bool structT = (value > 0
+        && static_cast<size_t>(value) < m_slotKinds.size()
+        && m_slotKinds[value] == RTK_Struct);
     for (size_t i = 0; i < list.elements.size(); ++i) {
         int32_t elem = list.elements[i];
         bool match = false;
@@ -194,6 +249,11 @@ int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
                 && static_cast<size_t>(elem) < m_slotKinds.size()
                 && m_slotKinds[elem] == RTK_Boxed)
                 match = BoxedValuesEqual(elem, value);
+        } else if (structT) {
+            match = (elem > 0
+                && static_cast<size_t>(elem) < m_slotKinds.size()
+                && m_slotKinds[elem] == RTK_Struct)
+                && StructValuesEqual(elem, value);
         } else {
             if (elem == value) match = true;
         }

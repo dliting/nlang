@@ -1,0 +1,21 @@
+//v0.13.0 D1: nested struct fields compare recursively — the comparator
+//mirrors DeepCopyStruct's recursion, so any value the copy machinery
+//can duplicate, the comparison can match.
+struct Inner {
+    int v;
+    public Inner(int a) { v = a; }
+}
+struct Outer {
+    Inner a;
+    Inner b;
+    public Outer(int x, int y) { a = Inner(x); b = Inner(y); }
+}
+
+int main() {
+    List<Outer> l = {};
+    l.add(Outer(1, 2));
+    if (!l.contains(Outer(1, 2))) return 1;
+    if (l.contains(Outer(1, 3))) return 2;
+    if (l.contains(Outer(2, 2))) return 3;
+    return 0;
+}

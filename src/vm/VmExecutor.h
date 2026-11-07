@@ -1852,7 +1852,8 @@ private:
     int32_t ReadDictHandle(uint16_t callParamBase, uint8_t* locals,
         const char* methodName);
     //Phase 8e-4: kind-aware key equality. Branches on m_slotKinds[k]:
-    //  RTK_Class/RTK_Struct → heap-idx identity
+    //  RTK_Class            → heap-idx identity
+    //  RTK_Struct           → StructValuesEqual (below)
     //  RTK_Boxed            → BoxedValuesEqual (below)
     //Returns false when either idx is out of bounds or kind mismatch.
     bool DictKeysEqual(int32_t k1, int32_t k2) const;
@@ -1865,6 +1866,15 @@ private:
     //float keeps IEEE value-bit equality (NaN≠NaN) via the lo cell;
     //8-byte rows compare both cells.
     bool BoxedValuesEqual(int32_t a, int32_t b) const;
+
+    //v0.13.0 D1: field-wise deep equality for two RTK_Struct records —
+    //the DeepCopyStruct dual. Value fields compare by value (nested
+    //structs recurse; strings by content; scalars width-aware, the
+    //BoxedValuesEqual cell discipline); reference-shaped fields
+    //(class/array/interface/func) compare by handle, exactly what the
+    //copy path stores. Read-only: no allocation, no GC, benign under
+    //the sharing model (the OpFuncEquality precedent).
+    bool StructValuesEqual(int32_t a, int32_t b) const;
 
     //Phase 8c: clear per-stream object-ID tables. Called from BS_Reset,
     //BS_Close, and FS_Close so subsequent operations start with a fresh

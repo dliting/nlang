@@ -1,0 +1,22 @@
+//v0.13.0 D1: Dict keys of struct type match by field value — the same
+//deep comparison as List elements, applied at the DictKeysEqual
+//choke point (set dedup, get, containsKey all ride it).
+struct Point {
+    int x;
+    int y;
+    public Point(int a, int b) { x = a; y = b; }
+}
+
+int main() {
+    Dict<Point, int> d = {};
+    d[Point(1, 2)] = 10;
+    if (!d.containsKey(Point(1, 2))) return 1;
+    if (d.count() != 1) return 2;
+    d[Point(1, 2)] = 20;
+    if (d.count() != 1) return 3;
+    if (d[Point(1, 2)] != 20) return 4;
+    d[Point(3, 4)] = 30;
+    if (d.count() != 2) return 5;
+    if (!d.containsKey(Point(3, 4))) return 6;
+    return 0;
+}

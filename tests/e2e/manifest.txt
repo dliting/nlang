@@ -488,6 +488,13 @@ float_div_zero_throws 0
 list_float_zero 7
 # --- P3.8: cover List<struct> round-trip (boxing + heap struct element) ---
 list_struct_basic 7
+# --- v0.13.0 D1: struct elements/keys match by field value (the
+# DeepCopyStruct dual); contains/indexOf/Dict-key choke points ---
+kl_struct_contains 0
+kl_struct_dict_key 0
+kl_struct_nested_deep 0
+kl_struct_field_kinds 0
+kl_struct_dedup_idiom 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
