@@ -27,6 +27,7 @@
 
 #include "net_jobs.h"
 #include "net_platform.h"
+#include "net_platform_internal.h"   //g_lastErrorOverride (worker splice)
 #include "net_slots.h"
 #include "net_state.h"
 #include "net_tcp_park.h"
@@ -79,19 +80,38 @@ struct IcmpJobArg {
 
 //Pool worker (no GIL): the blocking echo round trip, then the fill.
 //The echo data is fixed content — the RTT is the only result the
-//script reads.
+//script reads. A failure carries its phrase on the record (round-2
+//M-3): the resolver's verdict, or an override the platform layer
+//armed — the wait native splices both into the caller's store.
 void IcmpWorker(void* arg) {
     std::unique_ptr<IcmpJobArg> job(static_cast<IcmpJobArg*>(arg));
     static const char kEchoData[] = "nlang ping";
+    int resolveErr = 0;
     const int r = NetIcmpEcho(job->host,
         reinterpret_cast<const uint8_t*>(kEchoData),
-        static_cast<int>(sizeof(kEchoData) - 1), job->timeoutMs);
+        static_cast<int>(sizeof(kEchoData) - 1), job->timeoutMs,
+        &resolveErr);
     if (r >= 0) {
         NetFinishIcmp(job->st, job->jobId, r, 0);
         return;
     }
-    NetFinishIcmp(job->st, job->jobId, 0,
-        r == -1 ? kNetErrTimeout : kNetErrPlatform);
+    if (r == -1) {
+        NetFinishIcmp(job->st, job->jobId, 0, kNetErrTimeout);
+        return;
+    }
+    std::string errText;
+    if (resolveErr != 0) {
+        errText = NetResolveErrorText(resolveErr);
+    } else if (r == -2) {
+        //Either nothing the echo helpers can dial, or the platform
+        //layer armed an override on this worker thread — prefer it.
+        errText = g_lastErrorOverride.empty()
+            ? std::string("host has no usable address")
+            : g_lastErrorOverride;
+        g_lastErrorOverride.clear();
+    }
+    NetFinishIcmp(job->st, job->jobId, 0, kNetErrPlatform, errText,
+                  resolveErr);
 }
 
 //Adopt the job this context already submitted (park re-entry) or mint
@@ -143,6 +163,16 @@ int IcmpEchoTimeout(long long deadline, long long nowMs) {
 //the deadline still allows (external review I3) — a reply and an
 //unreachable verdict are terminal, and an unlimited deadline (0)
 //always allows.
+//The worker's failure phrase rides the record (round-2 M-3): the
+//worker has no NativeHost, so the wait native writes it into THIS
+//context's store under the same mutex as the done-check — the
+//NetTcpResolveWait splice.
+void PingSpliceError(NetExecState* st, int self, const NetJobRecord* rec) {
+    if (rec->err == 0 || rec->errText.empty()) return;
+    st->m_lastErrorText[self] = rec->errText;
+    st->m_lastErrorCode[self] = rec->errCode;
+}
+
 bool IcmpShouldResubmit(int err, long long deadline, long long nowMs) {
     return err == kNetErrTimeout && (deadline <= 0 || nowMs < deadline);
 }
@@ -181,6 +211,7 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
                 PingResubmit(st, &jobId, self, &submit);
                 continue;
             }
+            PingSpliceError(st, self, rec);
             PingReturn(st, jobId, ret, rec->err != 0 ? rec->err : rec->rttMs);
             return;
         }
@@ -224,8 +255,16 @@ void NetIcmpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         return;
     }
     if (NetBind(fd, host, 0) != 0) {
+        //Read the OS error before the cleanup close (round-2 M-1,
+        //the TcpBind shape): a successful closesocket resets it to 0.
+        std::string text;
+        int code = 0;
+        NetLastErrorInfo(text, code);
         NetClose(fd);
-        NetRememberLastError(h);
+        {
+            std::lock_guard<std::mutex> g(st->m_mutex);
+            NetSetErrorLocked(st, h, text, code);
+        }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -277,6 +316,9 @@ void NetIcmpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ArgArray(h, a, 1, &buf);
     const long long deadline = ArgLong(a, 2);
     const int self = h->currentContextId(h);   //R14
+    //Zero-length buf is an argument error (the M-1 recvFrom guard):
+    //len-0 consumes a queued message; 0 means an empty datagram.
+    if (buf.elemCount == 0) { ReturnInt(ret, kNetErrArg); return; }
     std::vector<uint8_t> scratch(static_cast<size_t>(buf.elemCount));
     bool claimed = false;
     for (;;) {

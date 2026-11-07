@@ -9,12 +9,13 @@ sets the scope and the ABI version; §23.2 fixes module
 discovery and loading; §23.3 fixes the module exports and
 registration; §23.4 fixes the calling convention and the value
 cell; §23.5 defines the host function table; §23.6 defines the
-pinned array view; §23.7 states the blocking-section contract.
+pinned array view; §23.7 states the blocking-section contract
+and the input/output (IO) parking built on it.
 
 ## 23.1 Scope and Version
 
-**ABI version.** This chapter describes ABI version **10**. The
-host accepts a module whose version probe reports exactly `10`
+**ABI version.** This chapter describes ABI version **11**. The
+host accepts a module whose version probe reports exactly `11`
 and rejects every other value, including a module that exports
 no probe at all (§23.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
@@ -24,7 +25,8 @@ only the current version.
 (§23.2), the module exports and registration (§23.3), the
 calling convention and the value cell (§23.4), the host
 function table (§23.5), the pinned array view (§23.6) and the
-blocking-section contract (§23.7).
+blocking-section contract and the IO parking built on it
+(§23.7).
 
 **What it does not fix.** The language-side `native`
 declaration, its keying and its argument rules (§7.5); the
@@ -88,7 +90,7 @@ linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | returns `9`; the single version authority (§23.2) |
+| `nlang_abi_version` | `unsigned (void)` | returns `11`; the single version authority (§23.2) |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | called once after the probe passes |
 
 with the registration callbacks
@@ -172,8 +174,8 @@ the call (§23.5, §23.6).
 ## 23.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
-whose first field is `abiVersion`, a `uint32_t` holding `10`,
-followed in fixed order by the sixteen callbacks below. Each
+whose first field is `abiVersion`, a `uint32_t` holding `11`,
+followed in fixed order by the twenty-two callbacks below. Each
 callback takes the table itself as its first parameter, shown
 as `self` in the signatures:
 
@@ -195,6 +197,12 @@ as `self` in the signatures:
 | `newArray` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t length)` |
 | `newArrayShaped` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims)` |
 | `newArrayView` | `int32_t (NativeHost* self, int32_t targetHandle, int32_t rank, const int32_t* dims, const int32_t* strides, int64_t offset)` |
+| `nowMs` | `long long (NativeHost* self)` |
+| `parkForIo` | `int (NativeHost* self, int fd, unsigned events, long long deadlineMs, int hasDeadline)` |
+| `moduleState` | `void* (NativeHost* self, const char* tag, void* (*ctor)(void), void (*dtor)(void*))` |
+| `wakeIoWaiters` | `void (NativeHost* self, int fd)` |
+| `currentContextId` | `int (NativeHost* self)` |
+| `submitWork` | `int (NativeHost* self, void (*fn)(void*), void* arg, int ackFd, int priority)` |
 
 **Strings.** `getString` returns the bytes of the string
 behind `handle`; `newString` creates a string from a
@@ -244,16 +252,18 @@ shared by every native in the run.
 **Arrays.** `newArray` mints a one-dimensional array and
 `newArrayShaped` an array of the given rank (§4.10), both
 zero-initialized, and return the handle. The element kind is
-one of four codes, which mirror the type-kind codes of §21.5:
+one of six codes, which mirror the type-kind codes of §21.5:
 
 | Code | Element type |
 |---|---|
 | `0` | `int` |
 | `1` | `float` |
+| `10` | `byte` |
+| `11` | `ubyte` |
 | `15` | `long` |
 | `17` | `double` |
 
-A kind outside these four raises the base `Exception`. A
+A kind outside these six raises the base `Exception`. A
 negative length or dimension, and any request past the
 allocation guard, raises `IndexOutOfBoundsException` — the
 same outcome as a negative sized creation on the language side
@@ -279,6 +289,43 @@ the array — owning record or view record — behind `handle` and
 returns `1`; a handle that is null or out of range raises
 `NullPointerException`, and a handle of a non-array value
 raises the base `Exception` — there is no non-raising failure.
+
+**Byte cells.** `byte` and `ubyte` arrays use the narrow-cell
+convention: one `int32_t` cell per element holding the value
+in its low byte. A view of such an array reports
+`elemCellBytes` `4` like an `int` array; the addressing of
+§23.6 is unchanged.
+
+**IO parking and the work pool.** `nowMs` returns monotonic
+milliseconds — the clock domain every park deadline in this
+section uses (§10.1); it is not wall time. `parkForIo`
+registers interest in `fd` for `events` — `NLANG_EV_READ` `1`,
+`NLANG_EV_WRITE` `2` — plus an optional absolute deadline, and
+unwinds the caller as §23.7 describes. `wakeIoWaiters`
+unregisters the poller's interest in `fd` and wakes every
+context parked on it — the socket-close path; it takes no
+lock of its own and may be called with none held.
+`currentContextId` returns the calling context's id, stable
+across park and re-entry (§10.1) — the identity a native uses
+to tell its own re-entry from another context's concurrent
+call. It is callable only from a blocking-section native.
+`submitWork` runs `fn(arg)` on the host's generic native
+worker pool, whose workers hold no lock; on completion the
+pool writes one byte to `ackFd`, a file descriptor the caller
+owns (`-1` asks for none). `priority` `0` is normal and `1`
+high — a two-level queue, so a slow lookup never starves
+short jobs. The pool starts lazily and is joined when the
+scheduler shuts down; `submitWork` itself is callable from
+either channel and returns `0`.
+
+**Module state.** `moduleState` returns the host-managed
+per-executor state slot named `tag`: the host calls `ctor`
+once per executor, stores the result with `dtor`, and hands
+the same pointer to every later call; `dtor` runs at executor
+teardown, before the module would unload (modules never
+unload). State stored this way is never visible to another
+executor — the isolation the `net` package's socket table
+relies on.
 
 ## 23.6 Pinned Array Views
 
@@ -342,6 +389,27 @@ keeps them reachable by the collector, and parks the calling
 context; after the native returns it copies the result back
 and resumes the context. The native sees the same `args` and
 `ret` either way.
+
+**Parking.** A blocking native that would wait on a file
+descriptor parks instead of blocking its carrier: it calls
+`parkForIo` (§23.5) with the descriptor, the event bits it
+waits for, and an optional absolute deadline in `nowMs`
+domain. On the first entry `parkForIo` returns `0` — the
+interest is registered and the native must return immediately
+without touching anything else; the host parks the calling
+context and releases the carrier. When the descriptor is ready
+or the deadline passes, the host re-executes the same native
+call with the same staged arguments, and `parkForIo` returns
+`1` — the native retries the operation and either completes or
+parks again. A descriptor below zero parks on the deadline
+alone. Because a wake may arrive without the awaited
+condition holding — another context's close, a stale wake — a
+native re-checks its condition on every return and treats
+`parkForIo` as a retry hint, never as a guarantee. Parking
+exists only for natives the language dispatches: the host
+re-executes the call instruction that invoked the native, so a
+native invoked by the host itself — the native-main root
+window, a host bridge — has no such anchor and must not park.
 
 **Callbacks.** Every host callback guards itself — it takes
 the lock its store needs and releases it before returning —

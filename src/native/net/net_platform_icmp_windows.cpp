@@ -21,7 +21,12 @@ namespace {
 //One IcmpSendEcho2/Icmp6SendEcho2 round trip on a fresh handle.
 int IcmpEchoV4(const in_addr& target, const uint8_t* payload, int len, int timeoutMs) {
     HANDLE h = IcmpCreateFile();
-    if (h == INVALID_HANDLE_VALUE) return -2;
+    if (h == INVALID_HANDLE_VALUE) {
+        //Resource exhaustion, not an address problem — the override
+        //carries the honest phrase to the worker's splice (round-2 M-3).
+        g_lastErrorOverride = "ICMP echo handle creation failed";
+        return -2;
+    }
     std::vector<uint8_t> reply(sizeof(ICMP_ECHO_REPLY) + len + 4);
     auto* rep = reinterpret_cast<ICMP_ECHO_REPLY*>(reply.data());
     const DWORD n = IcmpSendEcho2(h, nullptr, nullptr, nullptr,
@@ -32,14 +37,21 @@ int IcmpEchoV4(const in_addr& target, const uint8_t* payload, int len, int timeo
                           static_cast<DWORD>(timeoutMs));
     //Status carries the verdict: 0 = reply, IP_REQ_TIMED_OUT = no
     //answer, everything else = unreachable/error (external review I5).
+    //The unreachable family arms the override so the worker's splice
+    //names it honestly (round-3 wording nit).
     const int rtt = n > 0 ? NetIcmpStatusVerdict(static_cast<int>(rep->Status)) : -1;
+    if (rtt == -2)
+        g_lastErrorOverride = "host unreachable";
     IcmpCloseHandle(h);
     return rtt;
 }
 
 int IcmpEchoV6(const in6_addr& target, const uint8_t* payload, int len, int timeoutMs) {
     HANDLE h = Icmp6CreateFile();
-    if (h == INVALID_HANDLE_VALUE) return -2;
+    if (h == INVALID_HANDLE_VALUE) {
+        g_lastErrorOverride = "ICMP echo handle creation failed";
+        return -2;
+    }
     std::vector<uint8_t> reply(sizeof(ICMPV6_ECHO_REPLY) + len + 4);
     auto* rep = reinterpret_cast<ICMPV6_ECHO_REPLY*>(reply.data());
     sockaddr_in6 src = { };
@@ -53,6 +65,8 @@ int IcmpEchoV6(const in6_addr& target, const uint8_t* payload, int len, int time
                           static_cast<DWORD>(reply.size()),
                           static_cast<DWORD>(timeoutMs));
     const int rtt = n > 0 ? NetIcmpStatusVerdict(static_cast<int>(rep->Status)) : -1;
+    if (rtt == -2)
+        g_lastErrorOverride = "host unreachable";   //honest splice (v4 twin)
     IcmpCloseHandle(h);
     return rtt;
 }
@@ -65,10 +79,12 @@ int NetIcmpStatusVerdict(int status) {
     return -2;   //IP_DEST_*_UNREACHABLE / IP_TTL_EXPIRED_* / IP_GENERAL_FAILURE
 }
 
-int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int timeoutMs) {
+int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len,
+                int timeoutMs, int* resolveErrOut) {
     NetPlatformInit();
+    if (resolveErrOut) *resolveErrOut = 0;
     std::vector<NetEndpoint> eps;
-    if (!NetResolve(host, 0, eps)) return -2;
+    if (!NetResolve(host, 0, eps, resolveErrOut)) return -2;
     for (const NetEndpoint& ep : eps)
         if (ep.family == NetFamily::Inet) {
             in_addr a;
@@ -87,7 +103,15 @@ int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int ti
 int NetOpenIcmp() {
     NetPlatformInit();
     const SOCKET s = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (s == INVALID_SOCKET) return -1;
+    if (s == INVALID_SOCKET) {
+        //The non-admin failure is at socket creation, not at bind —
+        //surface the promised text here too (M-3; NetBind's WSAEACCES
+        //path covers the bind-stage denial).
+        if (WSAGetLastError() == WSAEACCES)
+            g_lastErrorOverride =
+                "raw ICMP requires administrator privileges on Windows";
+        return -1;
+    }
     SetNonBlocking(s);
     return ToFd(s);
 }

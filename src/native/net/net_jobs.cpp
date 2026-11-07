@@ -54,10 +54,13 @@ NetJobRecord* NetJobTable::Lookup(int32_t jobId) {
 }
 
 void NetJobTable::MarkDone(int32_t jobId,
-    std::vector<std::string>&& endpoints, int err) {
+    std::vector<std::string>&& endpoints, int err, std::string errText,
+    int errCode) {
     if (NetJobRecord* rec = Lookup(jobId)) {
         rec->endpoints = std::move(endpoints);
         rec->err = err;
+        rec->errText = std::move(errText);
+        rec->errCode = errCode;
         rec->done = true;
         FreeIfBoth(jobId);   //release may have come first (net_jobs.h
     }                        //lifetime rule: free on the second flag)
@@ -75,10 +78,13 @@ int32_t NetJobTable::FindOwn(int kind, int owner) const {
     return 0;
 }
 
-void NetJobTable::MarkDoneIcmp(int32_t jobId, int rttMs, int err) {
+void NetJobTable::MarkDoneIcmp(int32_t jobId, int rttMs, int err,
+                               std::string errText, int errCode) {
     if (NetJobRecord* rec = Lookup(jobId)) {
         rec->rttMs = rttMs;
         rec->err = err;
+        rec->errText = std::move(errText);   //ping splice (round-2 M-3)
+        rec->errCode = errCode;
         rec->done = true;
         FreeIfBoth(jobId);   //release may have come first (net_jobs.h
     }                        //lifetime rule: free on the second flag)
@@ -132,12 +138,17 @@ struct ResolveJobArg {
 void ResolveWorker(void* arg) {
     std::unique_ptr<ResolveJobArg> job(static_cast<ResolveJobArg*>(arg));
     std::vector<NetEndpoint> endpoints;
-    const bool ok = NetResolve(job->host, job->port, endpoints);
+    int resolveErr = 0;
+    const bool ok = NetResolve(job->host, job->port, endpoints, &resolveErr);
     std::vector<std::string> texts;
     for (const NetEndpoint& ep : endpoints)
         texts.push_back(ep.address);
+    //The failure phrase rides the record: the worker has no
+    //NativeHost, so the per-context error store is out of reach here;
+    //the wait native splices it in on the caller's context (M-2).
     NetFinishResolve(job->st, job->jobId, std::move(texts),
-        ok ? 0 : kNetErrPlatform);
+        ok ? 0 : kNetErrPlatform,
+        ok ? std::string() : NetResolveErrorText(resolveErr), resolveErr);
 }
 
 }  //namespace
@@ -155,18 +166,22 @@ void NetDrainPipe(int readFd) {
 }
 
 void NetFinishResolve(NetExecState* st, int32_t jobId,
-    std::vector<std::string>&& endpoints, int err) {
+    std::vector<std::string>&& endpoints, int err, std::string errText,
+    int errCode) {
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
-        st->m_jobs.MarkDone(jobId, std::move(endpoints), err);
+        st->m_jobs.MarkDone(jobId, std::move(endpoints), err,
+            std::move(errText), errCode);
     }
     st->m_jobsDoneCv.notify_all();   //teardown wait (R9)
 }
 
-void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err) {
+void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err,
+                   std::string errText, int errCode) {
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
-        st->m_jobs.MarkDoneIcmp(jobId, rttMs, err);
+        st->m_jobs.MarkDoneIcmp(jobId, rttMs, err, std::move(errText),
+                                errCode);
     }
     st->m_jobsDoneCv.notify_all();   //teardown wait (R9)
 }
@@ -221,6 +236,15 @@ void NetTcpResolveWait(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         std::lock_guard<std::mutex> g(st->m_mutex);
         const NetJobRecord* rec = st->m_jobs.Lookup(jobId);
         if (rec && rec->done) {
+            if (rec->err != 0 && !rec->errText.empty()) {
+                //Splice the worker's failure phrase into THIS context's
+                //error store (M-2): the worker could not write it — it
+                //has no NativeHost — and the script's _throwNet reads
+                //it right after the -4 return, like every other path.
+                const int self = h->currentContextId(h);
+                st->m_lastErrorText[self] = rec->errText;
+                st->m_lastErrorCode[self] = rec->errCode;
+            }
             ReturnInt(ret, rec->err != 0 ? rec->err
                 : static_cast<int>(rec->endpoints.size()));
             return;

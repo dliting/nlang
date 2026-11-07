@@ -18,7 +18,7 @@
 
 ### 停泊与超时
 
-每个阻塞方法——`accept`、`read`、`readLine`、`readExactly`、`write`、`send`、`sendTo`、`recv`、`recvFrom`、`connect`、`ping`——停泊发起调用的虚拟线程，直到操作完成或截止时刻到来；载体在此期间运行其他上下文（§10.1）。以主机名给出地址的方法——`bind`、`connect`、`sendTo`、`ping`——在解析名字期间同样停泊：解析在运行时的解析线程池上执行，缓慢的查询不会占用任何载体（§10.1）。`timeoutMs`参数固定这次调用最多等多久：`0`（缺省）不设截止地等待，正值最多等待那么多毫秒。等待在截止时刻结束抛`TimeoutException`；套接字保持打开、仍可用，之后的调用可能成功。
+每个阻塞方法——`accept`、`read`、`readLine`、`readExactly`、`write`、`send`、`sendTo`、`recv`、`recvFrom`、`connect`、`ping`——停泊发起调用的虚拟线程，直到操作完成或截止时刻到来；载体在此期间运行其他上下文（§10.1）。以主机名给出地址的方法——`bind`、`connect`、`sendTo`、`ping`——在解析名字期间同样停泊：解析在运行时的解析线程池上执行，缓慢的查询不会占用任何载体（§10.1）。`timeoutMs`参数固定这次调用最多等多久：`0`（缺省）不设截止地等待，正值最多等待那么多毫秒。以主机名给出的调用——`connect`、`sendTo`——截止同样覆盖名字解析。等待在截止时刻结束抛`TimeoutException`；套接字保持打开、仍可用，之后的调用可能成功——唯一的例外是载荷中途超时的`write`：部分字节可能已经交给内核，调用方无法得知送出了多少（协议没有可续帧时，关闭重连）。
 
 ### 每个方向一个操作
 
@@ -26,7 +26,7 @@
 
 ### 异常
 
-`SocketException`与`TimeoutException`由包源码声明为派生自`IOException`的`const`类（§8.3、§19）：每个net失败都是一个`IOException`，所以`catch (IOException e)`把网络错误与文件错误一起覆盖，`catch (SocketException e)`或`catch (TimeoutException e)`收窄到网络。两者都带通常的`message`与`cause`字段（§8.3）；平台级失败会把操作系统的错误文本追加进消息。
+`SocketException`与`TimeoutException`由包源码声明为派生自`IOException`的`const`类（§8.3、§19）：每个net失败都是一个`IOException`，所以`catch (IOException e)`把网络错误与文件错误一起覆盖，`catch (SocketException e)`或`catch (TimeoutException e)`收窄到网络。两者都带通常的`message`与`cause`字段（§8.3）；平台级失败会把操作系统的错误文本追加进消息。`SocketException`还带一个`errorCode`字段：失败来自操作系统时是它的错误号（Windows上是Winsock错误码——`10061`连接被拒、`10048`地址已被占用、`11001`主机名未找到），没有时为`0`（参数错误、内部状态）。程序按号码分支——消息文本随操作系统语言，号码不随。
 
 ### 字节与字符串
 

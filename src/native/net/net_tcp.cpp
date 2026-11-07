@@ -130,7 +130,7 @@ void NetRelease(NetExecState* st, int32_t handle, NetDir dir, bool claimed) {
 //for the callers' per-direction state (final review I2: a fresh write
 //that adopted through here reset the parked writer's writeSent).
 NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
-    int self, int* fd, bool* claimed) {
+    int self, int* fd, bool* claimed, bool* freshCall) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     NetSocketSlot* slot = st->m_slots.Lookup(handle);
     if (!slot) {
@@ -143,6 +143,7 @@ NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
         : slot->acceptWaiter;
     if (waiter != 0 && waiter != self)
         return kNetAdoptConcurrent;
+    const bool adopted = (waiter == self);   //re-entry keeps its stash
     //External review C1: claim at entry, not at the park. The
     //blocking arm releases the GIL for the whole native body, so two
     //fresh same-direction calls run concurrently until one parks —
@@ -155,6 +156,8 @@ NetAdoptOutcome NetAdoptClaim(NetExecState* st, int32_t handle, NetDir dir,
     //survived the park; every exit path releases when claimed.
     st->m_slots.SetWaiter(handle, dir, self);
     *claimed = true;
+    if (freshCall)
+        *freshCall = !adopted;
     return kNetAdoptOk;
 }
 
@@ -253,6 +256,20 @@ void NetTcpRead(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
+//The write payload's starting offset: a fresh entry restarts at
+//zero (clearing any stash a timed-out or failed write left behind),
+//a park re-entry resumes the stashed progress (I-1 — the stash
+//survives parks within one call and dies with it).
+int NetWriteOffset(NetExecState* st, int32_t handle, bool fresh) {
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    NetSocketSlot* slot = st->m_slots.Lookup(handle);
+    if (!slot)
+        return 0;
+    if (fresh)
+        slot->writeSent = 0;
+    return slot->writeSent;
+}
+
 //--- write -----------------------------------------------------------------
 
 //_tcpWrite(handle, data, count, deadlineMs): full write — loops until
@@ -269,23 +286,17 @@ void NetTcpWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const int self = h->currentContextId(h);
     const std::vector<uint8_t> packed = NetPackBytes(data, count);
     bool claimed = false;
+    bool fresh = false;
     int offset = 0;
     for (;;) {
         int fd = -1;
         const NetAdoptOutcome adopt = NetAdoptClaim(st, handle,
-            NetDir::Write, self, &fd, &claimed);
+            NetDir::Write, self, &fd, &claimed, &fresh);
         if (adopt != kNetAdoptOk) {
             ReturnInt(ret, NetAdoptErrCode(adopt));
             return;
         }
-        {   //the offset stash survives the park; a fresh call restarts
-            std::lock_guard<std::mutex> g(st->m_mutex);
-            if (NetSocketSlot* slot = st->m_slots.Lookup(handle)) {
-                if (!claimed)
-                    slot->writeSent = 0;
-                offset = slot->writeSent;
-            }
-        }
+        offset = NetWriteOffset(st, handle, fresh);
         const int run = NetSendRun(st, handle, fd, packed, &offset);
         if (run < 0) {
             NetRelease(st, handle, NetDir::Write, claimed);
@@ -401,7 +412,9 @@ void NetTcpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const std::string text = NetPeerAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, 0);
         return;
     }
@@ -419,7 +432,9 @@ void NetTcpPeerPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetPeerPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }

@@ -43,7 +43,9 @@ using nlang::NetClose;
 using nlang::NetEndpoint;
 using nlang::NetExecState;
 using nlang::NetIsNumericAddress;
+using nlang::NetLastErrorInfo;
 using nlang::NetLastErrorText;
+using nlang::NetSetErrorLocked;
 using nlang::NetListen;
 using nlang::NetLocalAddress;
 using nlang::NetLocalPort;
@@ -79,14 +81,28 @@ namespace {
 //clients past their connect timeout.
 constexpr int kNetListenBacklog = 512;
 
+//The listen backlog: _tcpBind's optional third argument (M-5 — a
+//connect storm overflows the 512 default, the 10k benchmark's own
+//retry loop is the evidence); missing or non-positive falls back to
+//the default.
+int ListenBacklog(const uint8_t* a, int argc) {
+    if (argc > 2) {
+        const int asked = ArgInt(a, 2);
+        if (asked > 0)
+            return asked;
+    }
+    return kNetListenBacklog;
+}
+
 //Records the failure text for _lastErrorText under the calling
 //context's id (R10: the -4 code carries its message through the
 //state, not through raiseException; M10 keys it per context). Takes
 //the state mutex — call only while it is NOT already held.
-void SetNetError(NativeHost* h, const std::string& text) {
+void SetNetError(NativeHost* h, const std::string& text, int code = 0) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     st->m_lastErrorText[h->currentContextId(h)] = text;
+    st->m_lastErrorCode[h->currentContextId(h)] = code;
 }
 
 // nowMs: the host's monotonic millisecond clock — the same clock
@@ -115,6 +131,23 @@ void LastErrorText(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     const std::string text = it->second;
     st->m_lastErrorText.erase(it);   //consumed on read (M10)
     ReturnString(h, ret, text);
+}
+
+// lastErrorCode: the OS error number behind _lastErrorText's text
+//(I-5): same per-context keying and erase-on-read. 0 when this
+//context has no failure pending or the failure carried no OS code.
+void LastErrorCode(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    NetExecState* st = NetState(h);
+    const int self = h->currentContextId(h);
+    std::lock_guard<std::mutex> g(st->m_mutex);
+    const auto it = st->m_lastErrorCode.find(self);
+    if (it == st->m_lastErrorCode.end()) {
+        ReturnInt(ret, 0);
+        return;
+    }
+    const int code = it->second;
+    st->m_lastErrorCode.erase(it);   //consumed on read (M10)
+    ReturnInt(ret, code);
 }
 
 // toBytes/fromBytes: the module-internal UTF-8 converters (r1 note 5:
@@ -163,7 +196,7 @@ void NetFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 // through _tcpLocalPort. Migrated from the VM intrinsic (task 6): the
 // Raise became the R10 code + last-error text; the script mints the
 // TcpListener object around the returned slot handle.
-void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     NetExecState* st = NetState(h);
     const std::string host = ArgString(h, a, 0);
     const int port = ArgInt(a, 1);
@@ -171,20 +204,28 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     //Idempotent through a once flag (ruling R4); every net native
     //needs the socket subsystem up (Winsock on Windows).
     NetPlatformInit();
-    const std::string context = "bind " + host + ":" + std::to_string(port);
     std::vector<NetEndpoint> endpoints;
     if (!NetResolve(host, port, endpoints) || endpoints.empty()) {
-        SetNetError(h, context + " failed: " + NetLastErrorText());
-        ReturnInt(ret, kNetErrPlatform);
+        std::string text;
+        int code = 0;
+        NetLastErrorInfo(text, code);
+        SetNetError(h, text, code);   //the script's _throwNet composes
+        ReturnInt(ret, kNetErrPlatform);   //"net: <context> failed: "
         return;
     }
     const NetEndpoint& ep = endpoints.front();
     const int fd = NetOpenTcpStream(ep.family);
     if (fd < 0 || NetBind(fd, ep.address, port) != 0
-        || NetListen(fd, kNetListenBacklog) != 0) {
+        || NetListen(fd, ListenBacklog(a, argc)) != 0) {
+        //Read the OS error before the cleanup close: a successful
+        //closesocket resets it to 0 (I-5 — the pre-fix text on this
+        //path was FormatMessage(0), "operation completed").
+        std::string text;
+        int code = 0;
+        NetLastErrorInfo(text, code);
         if (fd >= 0)
             NetClose(fd);
-        SetNetError(h, context + " failed: " + NetLastErrorText());
+        SetNetError(h, text, code);   //the script composes the context
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -210,7 +251,9 @@ void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const std::string text = NetLocalAddress(slot->fd);
     if (text.empty()) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, 0);
         return;
     }
@@ -229,7 +272,9 @@ void TcpLocalPort(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     const int port = NetLocalPort(slot->fd);
     if (port < 0) {
-        st->m_lastErrorText[h->currentContextId(h)] = NetLastErrorText();
+        { std::string errText; int errCode = 0;
+          NetLastErrorInfo(errText, errCode);
+          NetSetErrorLocked(st, h, errText, errCode); }
         ReturnInt(ret, kNetErrPlatform);
         return;
     }
@@ -262,6 +307,7 @@ void TcpClose(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_nowMs", &NowMs);
     regBlocking(registry, "net", "_lastErrorText", &LastErrorText);
+    regBlocking(registry, "net", "_lastErrorCode", &LastErrorCode);
     regBlocking(registry, "net", "_tcpBind", &TcpBind);
     regBlocking(registry, "net", "_tcpLocalAddress", &TcpLocalAddress);
     regBlocking(registry, "net", "_tcpLocalPort", &TcpLocalPort);
@@ -284,7 +330,7 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpSetRecvBufferSize", &NetTcpSetRecvBufferSize);
     reg(registry, "net", "_toBytes", &NetToBytes);
     reg(registry, "net", "_fromBytes", &NetFromBytes);
-    //The 18 datagram natives live in net_udp.cpp (registration hook:
+    //The 20 datagram natives live in net_udp.cpp (registration hook:
     //net_udp.h) — kept out of this TCP-centric entry TU. The 6 ICMP
     //natives likewise live in net_icmp.cpp (hook: net_icmp.h).
     nlang::NetRegisterUdpNatives(registry, reg, regBlocking);

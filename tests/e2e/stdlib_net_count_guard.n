@@ -10,15 +10,15 @@ int main() {
     byte[] d = byte[4];
     UdpSocket u = UdpSocket.bind("127.0.0.1", 0);
     try { u.send(d, 5); return 1; }
-    catch (IndexOutOfBoundsException e) { }
+    catch (SocketException e) { }
     try { u.sendTo(d, "127.0.0.1", 9, 5); return 2; }
-    catch (IndexOutOfBoundsException e) { }
+    catch (SocketException e) { }
 
     TcpListener srv = TcpListener.bind("127.0.0.1", 0);
     TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 3000);
     TcpStream c = srv.accept(3000);
     try { cli.write(d, 5); return 3; }
-    catch (IndexOutOfBoundsException e) { }
+    catch (SocketException e) { }
     if (cli.write(d, 2) != 2) { return 4; }
     byte[] buf = byte[8];
     if (c.read(buf, 3000) != 2) { return 5; }

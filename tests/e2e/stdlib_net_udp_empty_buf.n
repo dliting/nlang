@@ -1,0 +1,35 @@
+import io;
+import net;
+import thread;
+
+// 0.12.9 net pass M-1: an empty receive buffer is an argument error
+// (0 is reserved for a zero-length datagram, as TCP's read reserves
+// it for EOF) and must not consume a queued datagram — the guard
+// precedes the socket call. Pre-fix recvFrom(byte[0]) raised a
+// platform error AND destroyed the queued datagram.
+int main() {
+    UdpSocket rx = UdpSocket.bind("127.0.0.1", 0);
+    int port = rx.localPort();
+    UdpSocket tx = UdpSocket.bind("127.0.0.1", 0);
+    tx.sendTo(io.toBytes("keep"), "127.0.0.1", port);
+    thread.sleep(50);                 //the datagram is queued
+
+    byte[] empty = byte[0];
+    string from;
+    int fromPort = 0;
+    bool argumentError = false;
+    try { rx.recvFrom(empty, out from, out fromPort, 1000); }
+    catch (SocketException e) { argumentError = true; }
+    if (!argumentError) { return 1; }
+
+    byte[] buf = byte[16];            //the datagram must survive
+    int n = rx.recvFrom(buf, out from, out fromPort, 1000);
+    byte[] msg = byte[n];
+    for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
+    if (n != 4 || io.fromBytes(msg) != "keep") { return 2; }
+
+    rx.close();
+    tx.close();
+    io.print("ok");
+    return 0;
+}

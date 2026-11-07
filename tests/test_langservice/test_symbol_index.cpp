@@ -42,7 +42,7 @@ static void TestLoadsRealStdLib() {
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
     // natives and the 5 _icmp* natives; class methods are not free
     // functions).
-    CHECK(index.size() == 266);
+    CHECK(index.size() == 267);
 }
 
 static void TestResolvePrint() {
@@ -289,14 +289,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 266);
+    CHECK(index.size() == 267);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 266);
+    CHECK(index.size() == 267);
 }
 
 static void TestBlockCommentBraces() {

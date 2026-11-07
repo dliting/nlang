@@ -468,3 +468,64 @@ native 成本低,且"支持 ICMP 协议"的立项要求不止于 ping;③ `Timeo
   (thread.spawn),工作线程池的价值在卸载原生阻塞调用,脚本面与虚拟线程
   语义重复;④ 跨包 import 记为语言/工具链路线图项(跨包基类与助手共享的
   前提,本项目范围外)。
+
+- **r2 补注（2026-11-07，0.12.9 发布门对抗评审修复批）**：评审双视角
+  （架构师＋网络程序员）产出4条Important＋9条Minor，全部经主会话独立
+  读码/探针核实后当版修复；递延项记入实施台账。修复批裁定：
+  ① **writeSent跨调用复位**（I-1）——`NetAdoptClaim` 增加 fresh/adopted
+  出参，fresh 入口清零进度暂存，覆盖超时/EPIPE等一切未完成出口（原
+  `!claimed` 复位是死码：claim恒被置位）；② **UDP截断语义**（I-2）——
+  Windows `WSAEMSGSIZE` 映射为"返回len＋报告发送者"（前缀已拷入），
+  与POSIX及手册承诺一致；③ **关闭连接重置报告**（I-3）——`NetOpenUdp`
+  尽力而为禁用 `SIO_UDP_CONNRESET`（libuv同款），请求/响应式UDP不再被
+  一次陈旧查询毒化；④ **sendTo有界解析＋逐地址回退**（I-4/M-8）——
+  `resolveList` 增deadline默认参，sendTo/icmpSendTo镜像connect的逐地址
+  循环；⑤ **错误可编程**（I-5/M-2）——`SocketException.errorCode` 字段
+  承载OS错误号（按上下文存取、读后即焚，与错误文本同生命周期），文本
+  追加"(error N)"锚点；解析失败的静态短语经任务记录由wait原生在调用者
+  上下文拼接（worker无宿主句柄）；连接判定路径带出SO_ERROR码；错误捕获
+  先于清理close（成功close会清零WSA错误）；⑥ **监听积压旋钮**（M-5）——
+  `bind(host, port, backlog = 512)`，10k基准的重试环即撞默认值的实证；
+  ⑦ 小件：UDP空缓冲参数守卫（M-1，TCP read同款先于套接字调用）、ICMP
+  管理员拒绝文本补齐到socket()创建路径（M-3）、count>length参数错并入
+  SocketException族（M-7，与空缓冲一致）、组播e2e夹具改回环绑定（M-4，
+  消灭全套件唯一的通配绑定＝新机防火墙弹窗源）。递延（0.13.x候选）：
+  write超时的bytesSent暴露（M-6）、readLine逐字节syscall优化（M-9）、
+  write返回值改void、poller空闲切片churn、垃圾fd parkForIo响亮失败、
+  解析缓存。
+
+- **r3 补注（2026-11-07，同评审循环第二轮修复批）**：首轮修复后复审
+  产出3条新中级发现，全部独立验证（读码＋回环探针）后TDD修复，复审定
+  零新中级发现后闭环：① **bind错误捕获推广到全部路径**（r2-M-1）——
+  ⑤的"捕获先于清理close"只落在TCP bind；UDP/ICMP bind仍在close后读错
+  误（成功close清零WSA错误），UDP占用端口抛「操作成功完成」＋errorCode
+  0，三条bind路径统一为捕获先行；② **截断语义推广到已连接recv**
+  （r2-M-2）——`WSAEMSGSIZE` 映射只加在recvFrom；已连接UDP的recv同样
+  报10040并销毁数据报，而手册"数据报非流"节的截断承诺无条件；`NetRecv`
+  增加同款映射（前缀已拷入，流式套接字永不报此错）；③ **ping失败短语
+  通道**（r2-M-3）——ICMP作业族无错误通道，`ping`失败恒为空尾
+  （"failed: "）；镜像resolve族：`NetIcmpEcho` 带出getaddrinfo码，
+  errText/errCode乘NetJobRecord，wait原生在调用者上下文拼接
+  （NetTcpResolveWait同款）；ICMP句柄创建失败经override通道携带诚实
+  短语，无可用地址族兜底"host has no usable address"。小件：
+  moduleState标签v3→v4（布局规则：errorCode映射入表）、_icmpRecvFrom
+  补空缓冲守卫（M-1同款）、net_native注册计数注释18→20。
+  台账补充裁定：v0.12.7打标后的7条修复批CHANGELOG条目自[0.12.7]迁入
+  [0.12.9]（git verify：tag 8ad5daa6先于条目commit 64f7e87e，v0.12.8
+  从未打标——条目实际随v0.12.9首航，迁移动作正确）。
+
+- **r3 尾注（2026-11-07）**：复审零新中级发现，循环闭环（两轮修复）。
+  复核意见顺手清偿：不可达判决经override携带「host unreachable」诚实短语
+  （原误标"host has no usable address"）。防火墙扫尾：用户再报nvm弹窗，
+  根因是3条e2e仍绑IPv6通配`"::"`（tcp_ipv6/tcp_localhost/udp_ttl）——
+  M4裁定族漏网件；全部改绑`"[::1]"`（具名连接语义不变），套件内不再有
+  任何通配绑定。
+
+- **r3 尾注补（2026-11-07，ASan门禁判读）**：ASan树net_conc_bench
+  （1000并发回显，--carriers=1）拒连失败。实测根因（探针
+  temp/net_red/backlog_probe.n）：**Windows环回的未accept连接队列被
+  OS钳制约200**——listen(2048)与listen(SOMAXCONN)同样只有200/900，
+  backlog参数在环回上提不上去；ASan慢机下接受排空跟不上突发即触顶
+  拒连（10k基准重试环同因）。处置：示例客户端加有界重试（5次×50ms，
+  与CHANGELOG记录的10k基准同款），示例与手册backlog行如实标注OS
+  钳制。非代码缺陷（0 sanitizer报告；Release树全绿）。

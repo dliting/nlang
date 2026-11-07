@@ -12,7 +12,7 @@ a closed or failed socket.
 
 | Member | Shape | Semantics |
 |---|---|---|
-| `TcpListener.bind(host, port)` | static → `TcpListener` | Binds and listens on `host:port`; raises `SocketException` when the address is in use or unavailable |
+| `TcpListener.bind(host, port, backlog = 512)` | static → `TcpListener` | Binds and listens on `host:port`; `backlog` is the accept-queue depth handed to the operating system (raise it before a connect storm — a full queue refuses further connects; the kernel clamps the value, and Windows loopback holds only about 200 pending connections no matter how large the request, so a client seeing a refused connect under a storm retries). Raises `SocketException` when the address is in use or unavailable |
 | `TcpListener.bind(port)` | static → `TcpListener` | Shorthand for `bind("0.0.0.0", port)` — all interfaces |
 | `accept(timeoutMs = 0)` | → `TcpStream` | Waits for the next connection and returns it as its own `TcpStream`; parks until one arrives or the deadline passes |
 | `localAddress()` | → `string` | The bound address |

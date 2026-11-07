@@ -21,7 +21,7 @@ int main() {
     int port = srv.localPort();
 
     // Own failure: the raw native records the text, this context reads it.
-    if (net._tcpBind("127.0.0.1", port) != -4) { return 1; }
+    if (net._tcpBind("127.0.0.1", port, 512) != -4) { return 1; }
     if (net._lastErrorText() == "") { return 2; }
 
     // Another context fails (and consumes its text through _throwNet);

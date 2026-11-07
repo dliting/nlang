@@ -1,0 +1,30 @@
+import io;
+import net;
+
+// 0.12.9 net round-2 M-2: a datagram longer than the receive
+// buffer is truncated on EVERY receive path — connected recv()
+// mapped WSAEMSGSIZE to a failure and destroyed the datagram
+// while recvFrom() truncated. The manual promises the prefix
+// lands and the excess is discarded, unconditionally.
+int main() {
+    UdpSocket rx = UdpSocket.bind("127.0.0.1", 0);
+    UdpSocket tx = UdpSocket.bind("127.0.0.1", 0);
+    rx.connect("127.0.0.1", tx.localPort());
+    tx.connect("127.0.0.1", rx.localPort());
+
+    string text = "";
+    for (int i = 0; i < 100; i = i + 1) { text = text + "ab"; }  //200 bytes
+    tx.send(io.toBytes(text));
+
+    byte[] buf = byte[64];   //half the datagram
+    int n = rx.recv(buf, 3000);
+    if (n != 64) { return 1; }                    //truncated, not an error
+    byte[] head = byte[64];
+    for (int i = 0; i < 64; i = i + 1) { head[i] = buf[i]; }
+    if (io.fromBytes(head) != text.substring(0, 64)) { return 2; }
+
+    rx.close();
+    tx.close();
+    io.print("ok");
+    return 0;
+}

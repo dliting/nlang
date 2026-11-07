@@ -16,13 +16,13 @@ int main() {
     // The natives reject host names. The check precedes the handle
     // lookup, so the UDP/ICMP calls are pinned with an invalid
     // handle (no admin rights needed for the ICMP one).
-    if (net._tcpBind("localhost", 0) != -5) { return 1; }
+    if (net._tcpBind("localhost", 0, 512) != -5) { return 1; }
     if (net._udpBind("localhost", 0) != -5) { return 2; }
     if (net._udpConnect(0, "localhost", 9) != -5) { return 3; }
     if (net._udpSendTo(0, d, 4, "localhost", 9, 0) != -5) { return 4; }
     if (net._icmpSendTo(0, d, "localhost") != -5) { return 5; }
     // A numeric endpoint still passes the guard untouched.
-    int h = net._tcpBind("127.0.0.1", 0);
+    int h = net._tcpBind("127.0.0.1", 0, 512);
     if (h < 0) { return 6; }
     net._tcpClose(h);
 

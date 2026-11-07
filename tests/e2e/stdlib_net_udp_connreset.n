@@ -1,0 +1,36 @@
+import io;
+import net;
+import thread;
+
+// 0.12.9 net pass I-3: on Windows a UDP socket that sends to a dead
+// port gets a connection-reset report queued; with the Windows
+// default (SIO_UDP_CONNRESET on) the socket's next recvFrom raises
+// WSAECONNRESET and destroys a real datagram — request/response UDP
+// breaks on one stale query. The library disables the report at
+// socket open, so the genuine reply arrives.
+int main() {
+    UdpSocket dead = UdpSocket.bind("127.0.0.1", 0);
+    int deadPort = dead.localPort();
+    dead.close();                     //the port is now unreachable
+
+    UdpSocket sock = UdpSocket.bind("127.0.0.1", 0);
+    int port = sock.localPort();
+    sock.sendTo(io.toBytes("stale"), "127.0.0.1", deadPort);
+    thread.sleep(50);                 //let the reset report land
+
+    UdpSocket peer = UdpSocket.bind("127.0.0.1", 0);
+    peer.sendTo(io.toBytes("reply"), "127.0.0.1", port);
+
+    byte[] buf = byte[16];
+    string from;
+    int fromPort = 0;
+    int n = sock.recvFrom(buf, out from, out fromPort, 5000);
+    byte[] msg = byte[n];
+    for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
+    if (n != 5 || io.fromBytes(msg) != "reply") { return 1; }
+
+    sock.close();
+    peer.close();
+    io.print("ok");
+    return 0;
+}

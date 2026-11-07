@@ -5,7 +5,10 @@ int main() {
     // Dual-stack listener: "localhost" resolves ::1 first, and a v4-only
     // bind would starve the connect behind a black-holed v6 attempt on
     // machines that swallow the closed-port RST (no Happy Eyeballs yet).
-    TcpListener srv = TcpListener.bind("::", 0);
+    // The listener binds the v6 loopback, not the "::" wildcard — a
+    // wildcard listen is a Windows firewall prompt source (the M4
+    // ruling); the named-connect semantics under test are unaffected.
+    TcpListener srv = TcpListener.bind("[::1]", 0);
     TcpStream cli = TcpStream.connect("localhost", srv.localPort(), 5000);
     TcpStream c = srv.accept(5000);
     cli.write(io.toBytes("hi"));

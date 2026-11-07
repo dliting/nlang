@@ -1,0 +1,19 @@
+import io;
+import net;
+
+// 0.12.9 net pass I-5: SocketException.errorCode carries the OS
+// error number — a stable, locale-independent handle programs can
+// branch on (10061 refused, 10048 in-use). Pinned with an in-use
+// port bind: WSAEADDRINUSE = 10048.
+int main() {
+    TcpListener first = TcpListener.bind("127.0.0.1", 0);
+    int port = first.localPort();
+    int code = 0;
+    try { TcpListener.bind("127.0.0.1", port); return 1; }
+    catch (SocketException e) { code = e.errorCode; }
+    if (code != 10048) { return 2; }
+
+    first.close();
+    io.print("ok");
+    return 0;
+}

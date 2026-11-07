@@ -6,7 +6,9 @@ import net;
 // socket. The loopback round trip proves the option landed on a knob
 // the stack accepts.
 int main() {
-    UdpSocket s = UdpSocket.bind("::", 0);
+    //Bind the IPv6 loopback, not the "::" wildcard — a wildcard bind
+    //is a Windows firewall prompt source (the M4 ruling).
+    UdpSocket s = UdpSocket.bind("[::1]", 0);
     s.setTtl(2);
     s.sendTo(io.toBytes("v6"), "::1", s.localPort());
     byte[] buf = byte[8];

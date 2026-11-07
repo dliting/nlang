@@ -1,0 +1,20 @@
+import io;
+import net;
+
+// 0.12.9 net round-2 M-3: ping's failure phrase reaches the
+// caller. The ICMP job family had no error channel, so an
+// unresolvable host produced "net: ping <host> failed: " with
+// an empty tail and errorCode 0 — the resolver's verdict now
+// rides the job record like the TCP resolve family.
+int main() {
+    int code = 0;
+    string text = "";
+    try { net.ping("nlang-no-such-host.invalid", 2000); return 1; }
+    catch (SocketException e) { code = e.errorCode; text = e.message; }
+    //11001 = WSAHOST_NOT_FOUND; the phrase names the cause.
+    if (code != 11001) { return 2; }
+    if (text.indexOf("host not found") < 0) { return 3; }
+
+    io.print("ok");
+    return 0;
+}

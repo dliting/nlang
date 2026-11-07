@@ -11,7 +11,23 @@ class BenchClient {
     public int id = 0;
     public int ok = 0;
     public void run() {
-        TcpStream s = TcpStream.connect("127.0.0.1", port, 20000);
+        //A burst can out-run the accept loop: the un-accepted backlog
+        //queue is small at the operating-system level (about 200
+        //pending connections on Windows loopback — listen's backlog
+        //argument cannot raise it), and an overflowing connect is
+        //refused, not queued. A client that is refused retries — the
+        //same shape the 10k benchmark uses. Slow machines (a
+        //sanitizer build, a loaded CI runner) drain accepts slower
+        //and see more refusals; the retry keeps the measurement about
+        //echo throughput, not about queue depth.
+        TcpStream s = null;
+        for (int attempt = 0; attempt < 5; attempt = attempt + 1) {
+            try { s = TcpStream.connect("127.0.0.1", port, 20000); break; }
+            catch (SocketException e) {
+                if (attempt == 4) { return; }
+                thread.sleep(50);
+            }
+        }
         s.write("msg-" + id.toString() + "\n");
         string echo = s.readLine(20000);
         if (echo == "msg-" + id.toString()) { ok = 1; }
