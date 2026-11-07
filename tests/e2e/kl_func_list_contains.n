@@ -1,0 +1,16 @@
+// v0.13.0 D4: List elements of func type match by handle content —
+// each reference to a function is a distinct record with the same
+// (target, receiver, form) triple, and the content comparator makes
+// contains/indexOf see through the duplication.
+int dbl(int x) { return x * 2; }
+
+int main() {
+    List<func<int, int>> fs = {};
+    fs.add(dbl);
+    func<int, int> a = dbl;
+    if (!fs.contains(a)) return 1;
+    if (fs.indexOf(a) != 0) return 2;
+    fs.add(a);
+    if (fs.length() != 2) return 3;
+    return 0;
+}

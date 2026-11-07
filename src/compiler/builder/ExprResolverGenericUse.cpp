@@ -103,21 +103,6 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 	return false;
 }
 
-//Phase 13 Step 2: Dict keyed by a func type — DictKeysEqual is identity
-//for func records (no interning), so two references to the same function
-//would store as two entries. True = rejected and logged.
-static bool RejectFuncDictKey(BuildEnvironment &env,
-	const std::vector<SnField*> &typeArgs, const std::string &baseName,
-	const ISourceLocation *pLoc)
-{
-	if (baseName != kBuiltinDictTypeName || typeArgs.empty()
-		|| !IsFuncTypeDecl(typeArgs[0]))
-		return false;
-	env.Log(CLL_Error, pLoc,
-		"function types cannot be used as Dict keys.");
-	return true;
-}
-
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
 //`Box<int>`): the base must name a generic-declaration class in scope;
 //the arity check runs against its parameter list; the instantiation is
@@ -160,8 +145,6 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		return false;
 	if (RejectMultiSlotTypeArgs(m_Env, *pTemplate, typeArgs, baseName,
 			genType.Location()))
-		return false;
-	if (RejectFuncDictKey(m_Env, typeArgs, baseName, genType.Location()))
 		return false;
 	auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs);
 	if (!pInstance)

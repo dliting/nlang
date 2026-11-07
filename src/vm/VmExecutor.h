@@ -1879,6 +1879,13 @@ private:
     //the sharing model (the OpFuncEquality precedent).
     bool StructValuesEqual(int32_t a, int32_t b) const;
 
+    //v0.13.0 D4: content equality for two RTK_Func records — the
+    //OpFuncEquality triple (target, receiver, form) lifted into a const
+    //comparator so container entries and Dict keys match two references
+    //to one function (OpMakeFunc never interns). Callers pre-check the
+    //kind; bounds are re-checked defensively.
+    bool FuncRecordValuesEqual(int32_t a, int32_t b) const;
+
     //Phase 8c: clear per-stream object-ID tables. Called from BS_Reset,
     //BS_Close, and FS_Close so subsequent operations start with a fresh
     //identity table. Templated on StreamState so it works for both

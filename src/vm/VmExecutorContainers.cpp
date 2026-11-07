@@ -114,7 +114,8 @@ bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
     //Kind must match.
     if (m_slotKinds[k1] != m_slotKinds[k2]) return false;
     auto kind = m_slotKinds[k1];
-    if (kind != RTK_Boxed && kind != RTK_Class && kind != RTK_Struct)
+    if (kind != RTK_Boxed && kind != RTK_Class && kind != RTK_Struct
+        && kind != RTK_Func)
         return false;
     if (kind == RTK_Class)
         return k1 == k2;  //identity (k1!=k2 already checked above → false)
@@ -122,6 +123,11 @@ bool VmExecutor::DictKeysEqual(int32_t k1, int32_t k2) const {
     //copies), so identity could never match — compare by field value.
     if (kind == RTK_Struct)
         return StructValuesEqual(k1, k2);
+    //v0.13.0 D4: func keys compare by the handle-content triple —
+    //OpMakeFunc never interns, so two references to one function are
+    //distinct records with one identity.
+    if (kind == RTK_Func)
+        return FuncRecordValuesEqual(k1, k2);
     //RTK_Boxed: the shared full-payload comparator (0.7.5: 8-byte rows
     //carry a hi cell a lo-only compare silently dropped).
     return BoxedValuesEqual(k1, k2);
@@ -202,6 +208,20 @@ bool VmExecutor::StructValuesEqual(int32_t a, int32_t b) const
     return true;
 }
 
+bool VmExecutor::FuncRecordValuesEqual(int32_t a, int32_t b) const
+{
+    if (a <= 0 || b <= 0
+        || static_cast<size_t>(a) >= m_structHeap.size()
+        || static_cast<size_t>(b) >= m_structHeap.size())
+        return false;
+    //The record is {target, receiver, form} in cells 0..2 (OpMakeFunc
+    //and the bound/virtual mints); OpFuncEquality compares exactly
+    //these three cells.
+    const auto& recA = m_structHeap[static_cast<size_t>(a)];
+    const auto& recB = m_structHeap[static_cast<size_t>(b)];
+    return recA[0] == recB[0] && recA[1] == recB[1] && recA[2] == recB[2];
+}
+
 //Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List
 //intrinsic. Validates this-heap-idx, upper bound, and handle. Throws uniformly
 //on null/stale/uninitialized; the previous "silently no-op for some methods"
@@ -231,8 +251,10 @@ int32_t VmExecutor::ReadListHandle(uint16_t callParamBase, uint8_t* locals,
 //against each stored element: boxed primitives through BoxedValuesEqual
 //(strings by content, scalars by full payload — 0.7.5: 8-byte rows
 //compare both cells), struct values through StructValuesEqual (v0.13.0
-//D1: every boundary deep-copies, so identity never matched), and
-//reference values by identity. Returns the matching index or -1.
+//D1: every boundary deep-copies, so identity never matched), func
+//values through FuncRecordValuesEqual (v0.13.0 D4: references are not
+//interned), and class/reference values by identity. Returns the
+//matching index or -1.
 int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
 {
     bool primitiveT = (value > 0
@@ -241,6 +263,9 @@ int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
     bool structT = (value > 0
         && static_cast<size_t>(value) < m_slotKinds.size()
         && m_slotKinds[value] == RTK_Struct);
+    bool funcT = (value > 0
+        && static_cast<size_t>(value) < m_slotKinds.size()
+        && m_slotKinds[value] == RTK_Func);
     for (size_t i = 0; i < list.elements.size(); ++i) {
         int32_t elem = list.elements[i];
         bool match = false;
@@ -254,6 +279,11 @@ int32_t VmExecutor::FindListElement(const ListSlot& list, int32_t value)
                 && static_cast<size_t>(elem) < m_slotKinds.size()
                 && m_slotKinds[elem] == RTK_Struct)
                 && StructValuesEqual(elem, value);
+        } else if (funcT) {
+            match = (elem > 0
+                && static_cast<size_t>(elem) < m_slotKinds.size()
+                && m_slotKinds[elem] == RTK_Func)
+                && FuncRecordValuesEqual(elem, value);
         } else {
             if (elem == value) match = true;
         }

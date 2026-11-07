@@ -1164,7 +1164,8 @@ func_cross_mod_internal 7
 func_enum_method_reject compile_error cannot reference the enum method
 func_iface_decl_ref_reject compile_error Incompatible type
 func_cross_module_bare 2
-func_dict_key_reject compile_error cannot be used as Dict keys
+kl_func_dict_key 0
+kl_func_list_contains 0
 func_cross_mod_consumer_arg 2
 cross_mod_func_value 9
 cross_mod_func_value_mismatch compile_error no parameter signature matches

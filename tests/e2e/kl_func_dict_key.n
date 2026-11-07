@@ -1,0 +1,24 @@
+// v0.13.0 D4: Dict accepts func keys, keyed by handle content — two
+// references to the same function are distinct records with the same
+// (target, receiver, form) triple, so a set through the second
+// reference overwrites the first entry instead of appending.
+int dbl(int x) { return x * 2; }
+int inc(int x) { return x + 1; }
+
+int main() {
+    Dict<func<int, int>, int> d = {};
+    func<int, int> a = dbl;
+    d.set(a, 10);
+    func<int, int> b = dbl;
+    d.set(b, 20);
+    if (d.count() != 1) return 1;        // overwrite, not append
+    if (!d.containsKey(b)) return 2;
+    if (d.get(b) != 20) return 3;
+    if (d.remove(b) != 1) return 4;      // removed by content key (bool as int)
+    if (d.count() != 0) return 5;
+    d.set(a, 5);
+    func<int, int> c = inc;
+    d.set(c, 6);
+    if (d.count() != 2) return 6;        // distinct functions coexist
+    return 0;
+}
