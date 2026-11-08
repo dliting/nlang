@@ -19,7 +19,7 @@
 
 **裁定原则**:不向下兼容;合理性优先,不随便把功能降级为「已知限制」;现状不是设计依据;KISS;性能不敏感的功能归脚本层(标准库形式),性能敏感的归native(如压缩、传输)。
 
-**状态**:v2.11定稿——v2.11增量审核判决无中级及以上问题(2条次要已落实,2026-11-08),循环完善流程收束(历轮记录见修订记录)。
+**状态**:v2.13定稿——v2.11增量审核判决无中级及以上问题(2条次要已落实,2026-11-08);v2.12为实施探针驱动的表示修正(query/fragment有无改presence旗标,2026-11-08);v2.13按用户最终裁定(null退出string值域)重定旗标理据、表示不变(2026-11-08),循环完善流程收束(历轮记录见修订记录)。
 
 ---
 
@@ -152,8 +152,10 @@ const class Url {
     public string host;        // 小写化后存储
     public int port;           // 未给出为 -1
     public string path;
-    public string query;       // null=无query、""=空query(URL-013);未百分号解码的原样
-    public string fragment;    // null/""区分同query
+    public string query;       // 未百分号解码的原样;有无由hasQuery判定(URL-013:"http://h"无query、"http://h?"空query)
+    public bool hasQuery;      // string值域不含null(v2.13用户裁定),有无须显式旗标表达
+    public string fragment;    // 有无由hasFragment判定,同query
+    public bool hasFragment;
 
     // 接受任意引用(绝对或相对,如服务器侧的origin-form "/p?q");语法错抛 UrlException。
     // maxBytes>0时限输入长度(服务器侧以头部预算传入),超限抛 UrlException。
@@ -220,7 +222,7 @@ const class HttpException : IOException { ... }
 
 // 大小写不敏感的头部表(键存小写,保留原样供写出)
 class HttpHeaders {
-    public string get(string name);                 // 首个值,无则 null
+    public string get(string name);                 // 首个值,无则 ""(有无由 has 判定;返回string的函数不返回null)
     public List<string> getAll(string name);
     public void set(string name, string value);     // 替换全部同名
     public void add(string name, string value);     // 追加
@@ -445,6 +447,8 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 
 ## 修订记录
 
+- 2026-11-08(v2.13):用户最终裁定为旗标重定理据、表示不变——string是内置值类型,其值域不含null(null属将来的`string&`引用类型;0.13.4 Task 6.5已在编译期把null从string语言面移除:初始化/赋值/传参/返回/比较/case标号/拼接一律编译错误),因此v2.11「query/fragment以null与""区分」的原设计不再可表示:null不能出现在string字段与string比较中,有无只能由显式旗标承载。v2.12记录的「null串与`""`经`==`互等」是裁定前的运行期探针现象(handle 0为内部null表示,读作空内容,已按用户指示记入手册「已知限制」);裁定后该场景为编译错误,旗标表示(`hasQuery`/`hasFragment`)保留。连带修正§五`HttpHeaders.get`草案的「无则null」——返回string的函数不应返回null,改为「无则`""`,有无由`has`判定」。波及§五Url块注释、`HttpHeaders.get`注释、状态行。
+- 2026-11-08(v2.12):实施探针(0.13.4 Task 6)证伪§五Url字段的null表示假设——nlang的null字符串与`""`经`==`互相相等(双向探针均true,`null.length()==0`),「query/fragment以null与""区分」无法经null比较表达;语义区分(URL-013)保留,表示改显式presence旗标`hasQuery`/`hasFragment`(与Go net/url的`ForceQuery`同形;`HttpHeaders.get`的同类混淆已有`has()`伴生覆盖,无需改动)。波及§五Url块、状态行。
 - 2026-11-08(v2.11后补):§九第3项「半包/粘包增量解析(红线1)」为R9-02同类残留错位(v2.9修复时登记为「原两处」,此第三处漏列),按参考文档§12.3实际编号改红线3(红线1=背压)。
 - 2026-11-08(v2.11):并入用户datetime归属裁定(「datetime如果是通用的,也可以放到system.n中。保持模块内聚性」,经核实采纳,新增D24):不再单设`datetime`包,`stdlib/system.n`同时承载`wallMs`/`monoMs`两native与`DateTime`/`DateTimeException`脚本日历面,`DateTime.now()`同包直用`wallMs`(跨包native消费仅剩http→`io.fromBytes`);手册不单设datetime章,内容并入15-system章,章号方案随之内移(0.13.4格式章21/22/23→23/24/25、0.13.5轮23-25→25-27,grep口径`§15`–`§27`);索引钉数不变(库索引只计.n声明的自由函数,类与静态方法不计)。波及输入节、状态行、事实10、版本划分表、D2/D13/D20/D22/D23、§五(system.n块并入DateTime块)、§六三行、§七、§九第2项、§十一第1/3/5项、§十二.1、§十三风险行。并入v2.10轮审核(0严重/0重要/5次要,均经源码核实,审核判决无中级及以上问题,循环收束):Minor——D4分派机制表述过强,string成员调用实为专用操作码(`length`→`OP_StrLen`)与内建函数表(`LookupIntrinsicId`)两路编译期绑定,「只经内建函数表分派」修正为「专用操作码或内建函数表」(R10-01,本条取代v2.10记录中同句表述)、D2回退路径补「须重裁」标记(回退态按命名空间新建DLL,与D23纯脚本裁定及§十二.1验收冲突,R10-02)、§十二.1探针清单补`import system;`(新DLL的npkg形态加载此前无验收覆盖,R10-03)、§十一.1登记`tests/CMakeLists.txt`三处显式native DLL部署fixture清单须增`nlang_system.dll`(R10-04)、§十二.1「stdlib/下无对应DLL」改「安装树中无对应`nlang_<pkg>.dll`」(native DLL安装到`bin/`而非`stdlib/`,原表述测不出错,R10-05)。并入v2.11轮增量审核(0严重/0重要/2次要,经源码核实,审核判决无中级及以上问题,循环收束):Minor——调研结论20「日历面已由`datetime`承载」现时表述加注现落点(R11-01)、§十一.2点名符号索引第二处钉`test_symbol_index.cpp`的`namespaces.size()`6→7——`Packages()`按自由函数面列包,`system.n`落地即新增一名,只改总数钉会漏此钉(R11-02)。
 - 2026-11-08(v2.10):并入用户内核最小化裁定(2026-11-08,四条合并:除语言本身需要的基础设施和指令要内建于nvm外C++功能一律放独立库;最小化语言内核;spec不合理处可调整;内建注册仅限vm本身依赖或极致性能优化等明确理由)。应用:①`system.wallMs`/`monoMs`改由新建`nlang_system.dll`经NativeHost C ABI提供(用户裁定「system.monoMs/wallMs也应该是外部dll,和原来的方式统一」「wallMs不属于语言的一部分,无其他理由,不需要做成intrinsic,做成普通native就可以」,取代v2.9「VM内建注册、零新DLL」方案;`monoMs`经宿主nowMs回调实现、与调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`;波及输入节、状态行、D2回退路径、D20、§五前言、§七、§十一.1/3、§十二.1,新增D23);②string三方法形态经用户裁定保持String面类方法+intrinsic(「string本身就是语言的一部分,需要做成intrinsic」,归`lang`库,属D23「vm本身依赖」明确例外——string接收者是字符串池索引而非对象,成员调用只经内建函数表分派;不做包自由函数;D4、§七);③既有VM内建函数族属语言核心运行时基础设施,不重构外迁(D23)。

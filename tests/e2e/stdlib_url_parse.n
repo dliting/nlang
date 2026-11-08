@@ -1,0 +1,65 @@
+// Url.parse component extraction, normalization (scheme/host lowercase),
+// hasQuery/hasFragment presence flags, and rejection of malformed input.
+import io;
+import url;
+
+int throws(string s) {
+    try {
+        Url.parse(s);
+    } catch (UrlException e) {
+        return 1;
+    }
+    return 0;
+}
+
+int throws(string s, int maxBytes) {
+    try {
+        Url.parse(s, maxBytes);
+    } catch (UrlException e) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    Url u = Url.parse("http://User:pw@[::1]:8080/a/b?x=1#f");
+    if (u.scheme != "http") { return 1; }
+    if (u.userInfo != "User:pw") { return 2; }
+    if (u.host != "[::1]") { return 3; }
+    if (u.port != 8080) { return 4; }
+    if (u.path != "/a/b") { return 5; }
+    if (u.query != "x=1") { return 6; }
+    if (u.fragment != "f") { return 7; }
+    if (u.toString() != "http://User:pw@[::1]:8080/a/b?x=1#f") { return 8; }
+    if (!u.isAbsolute()) { return 9; }
+    Url r = Url.parse("/p?q");
+    if (r.isAbsolute()) { return 10; }
+    if (r.path != "/p" || r.query != "q" || r.hasFragment) { return 11; }
+    Url q = Url.parse("http://h?");
+    if (q.query != "" || !q.hasQuery || q.hasFragment) { return 12; }
+    Url n = Url.parse("HTTP://EXAMPLE.COM:8080/");
+    if (n.scheme != "http" || n.host != "example.com") { return 13; }
+    if (throws("http://[::1") != 1) { return 14; }
+    if (throws("http://h:99999/") != 1) { return 15; }
+    if (throws("http://h/", 5) != 1) { return 16; }
+    if (throws("1http://h/") != 1) { return 17; }
+    // Cross-checks against Go net/url: parseAuthority splits userinfo at
+    // the LAST '@' (url.go:523); an empty port means "not given" (we
+    // normalize it away, where Go keeps "h:" in Host); String() emits the
+    // "//" authority marker only from host/userInfo, so a scheme with a
+    // path-absolute path and no authority must round-trip as "http:/foo"
+    // (Go's OmitHost, url.go:506-509/834) — not "http://foo".
+    Url a = Url.parse("http://a@b@c/");
+    if (a.userInfo != "a@b" || a.host != "c") { return 18; }
+    Url e = Url.parse("http://h:/x");
+    if (e.port != -1 || e.host != "h" || e.path != "/x") { return 19; }
+    if (e.toString() != "http://h/x") { return 20; }
+    Url g = Url.parse("http:/foo");
+    if (g.host != "" || g.path != "/foo" || g.toString() != "http:/foo") { return 21; }
+    // Go cannot represent the empty fragment (Fragment == "" means
+    // absent); the presence flag round-trips "http://h#".
+    Url f = Url.parse("http://h#");
+    if (f.fragment != "" || !f.hasFragment || f.toString() != "http://h#") { return 22; }
+    io.print("ok");
+    return 0;
+}

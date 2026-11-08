@@ -1,0 +1,32 @@
+// url component codecs: percentEncode escapes everything outside the
+// RFC 3986 unreserved set (including '/'), formEncode maps space to
+// '+', and malformed percent escapes raise UrlException.
+import io;
+import url;
+
+int decodeThrows(string s) {
+    try {
+        url.percentDecode(s);
+    } catch (UrlException e) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    if (url.percentEncode("a b/c") != "a%20b%2Fc") { return 1; }
+    if (url.percentEncode("~-._") != "~-._") { return 2; }
+    if (url.percentEncode("é") != "%C3%A9") { return 3; }
+    if (url.formEncode("a b+c") != "a+b%2Bc") { return 4; }
+    if (url.percentDecode("a%20b%2Fc") != "a b/c") { return 5; }
+    if (url.formDecode("a+b%2Bc") != "a b+c") { return 6; }
+    if (decodeThrows("100%") != 1) { return 7; }
+    if (decodeThrows("%2") != 1) { return 8; }
+    if (decodeThrows("%zz") != 1) { return 9; }
+    // Go's shouldEscape (gen_encoding_table.go) keeps the same unreserved
+    // set (A-Z a-z 0-9 - . _ ~) and escapes every sub-delim in component
+    // mode; pin that our encoder agrees on the sub-delims.
+    if (url.percentEncode("!*'()") != "%21%2A%27%28%29") { return 10; }
+    io.print("ok");
+    return 0;
+}
