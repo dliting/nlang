@@ -167,7 +167,13 @@ it like every other subclass. The `net` package (§3.9.4) declares
 two subclasses of `IOException`, `SocketException` and
 `TimeoutException`, raised by the socket operations of chapter 21;
 they reach scope through `import net;` like any package class, and
-`catch` treats them like every other subclass.
+`catch` treats them like every other subclass. The `url` package
+(§3.9.4) declares `UrlException`, a subclass of `IOException`
+raised by the operations of chapter 22, and the `system` package
+declares `DateTimeException`, a direct subclass of `Exception`
+raised by `DateTime.parse` (§15.2); both reach scope through their
+`import` like any package class, and `catch` treats them like
+every other subclass.
 
 Every built-in exception class is a const class (§4.8.12), and
 every constructor has the same shape:

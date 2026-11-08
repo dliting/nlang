@@ -49,6 +49,6 @@
 
 - 类型用PascalCase；方法、函数与变量用camelCase；枚举成员用PascalCase；类型参数是单个大写字母；`main`小写（§3.2）。
 - 纯访问器可以带`get`前缀（`getHashCode`）；主流风格是裸名（`length`、`count`、`keys`）。内建类的方法对谓词用裸名（`contains`、`startsWith`、`containsKey`）；包函数可以带`is`或`has`前缀（`fs.isFile`、`io.hasInput`）。
-- 失败经由抛出§8.3的内建异常类来报告，外加三个包声明的类——`concurrent`的`ChannelClosedException`与`net`的`SocketException`、`TimeoutException`（§8.3）。第20章把每个库操作映射到它所抛出的类。
+- 失败经由抛出§8.3的内建异常类来报告，外加五个包声明的类——`concurrent`的`ChannelClosedException`、`net`的`SocketException`与`TimeoutException`、`url`的`UrlException`、`system`的`DateTimeException`（§8.3）。第20章把每个库操作映射到它所抛出的类。
 - 文本输出经由`toString`渲染值（§5.3、§11.2）；控制台函数的实参面在第14章。
 - 库调用的实参按声明的参数类型与转换规则检查——同类型直接接受，规则允许的隐式加宽自动施加（整型家族与`float`实参进入`double`形参，如`math.sqrt(4)`可编译），收窄一律显式`as`（§4.4、§7.2）。§4.5的基本类型到字符串的强制转换在包调用处不触发：库的`string`形参只接受`string`。io的三个做强制转换的函数（`write`、`print`、`eprint`）是唯一例外（§14.2）。

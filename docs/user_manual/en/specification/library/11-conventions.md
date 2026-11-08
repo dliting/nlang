@@ -118,10 +118,11 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §8.3, plus the three package-declared classes — `concurrent`'s
-  `ChannelClosedException` and `net`'s `SocketException` and
-  `TimeoutException` (§8.3). Chapter 20 maps each library operation
-  to the class it raises.
+  of §8.3, plus the five package-declared classes — `concurrent`'s
+  `ChannelClosedException`, `net`'s `SocketException` and
+  `TimeoutException`, `url`'s `UrlException`, and `system`'s
+  `DateTimeException` (§8.3). Chapter 20 maps each library
+  operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
   the argument surface of the console functions is chapter 14.
 - Arguments of a library call are checked against the declared
