@@ -253,6 +253,19 @@ SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
 			"Cannot resolve types for `as` expression.");
 		return nullptr;
 	}
+	//v0.13.1 stopgap: a bare type parameter as the cast target has no
+	//compile-time kind — the shared body cannot pick a cast path. The
+	//backend used to crash on this shape ("own class missing from the
+	//unit table: T"); reject by name until the kind-dispatched
+	//implementation rides the runtime descriptor.
+	if (pTgtType->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl *>(pTgtType)->IsTypeParamPlaceholder())
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"cannot cast to a type parameter: the operand kind is not "
+			"known until the instantiation.");
+		return nullptr;
+	}
 	//v0.12.2 face gate: a face class (`o as Array`) has no runtime
 	//shape to cast to.
 	if (RejectPreludeFaceUse(m_Env, pTgtType, sn.TargetType()->Location(),

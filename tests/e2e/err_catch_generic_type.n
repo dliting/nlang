@@ -1,0 +1,14 @@
+// v0.13.1: catch on a generic instantiation type must be a named
+// compile error — exception dispatch matches the shared template row
+// and cannot tell instantiations apart, so accepting the spelling
+// would promise more than the runtime does.
+class Box<T> {
+    public Box() { }
+    public T v;
+}
+int main() {
+    Box<int> b = Box();
+    try { throw Exception("x"); }
+    catch (Box<int> e) { return 1; }
+    return 0;
+}

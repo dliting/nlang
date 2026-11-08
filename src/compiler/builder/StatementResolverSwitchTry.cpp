@@ -345,8 +345,31 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 {
 	//1. Resolve catch type (must be Exception or subclass).
 	sn.CatchType()->Accept(*m_pVisitor);
-	if (!sn.CatchType()->IsResolved()
-		|| !IsExceptionSubclass(sn.CatchType()->Field())) {
+	//v0.13.1: catch dispatch matches the shared template row — a generic
+	//instantiation (or a bare type parameter) in the catch position would
+	//accept every instantiation of the template while spelling one, so the
+	//shape is rejected by name; without this arm it fell into the generic
+	//Exception-subclass diagnosis below, which names the wrong defect.
+	bool bGenericCatchRejected = false;
+	if (sn.CatchType()->IsResolved())
+	{
+		auto *pResolved = sn.CatchType()->Field();
+		if (pResolved && pResolved->Kind() == NK_ClassDecl)
+		{
+			auto &cls = static_cast<SnClassDecl &>(*pResolved);
+			if (cls.IsGenericInstantiation() || cls.IsTypeParamPlaceholder())
+			{
+				m_Env.Log(CLL_Error, sn.Location(),
+					"catch type cannot be a generic instantiation: "
+					"exception dispatch matches the template row and "
+					"cannot tell instantiations apart.");
+				bGenericCatchRejected = true;
+			}
+		}
+	}
+	if (!bGenericCatchRejected
+		&& (!sn.CatchType()->IsResolved()
+			|| !IsExceptionSubclass(sn.CatchType()->Field()))) {
 		m_Env.Log(CLL_Error, sn.Location(),
 			"catch type must be Exception or a subclass");
 	}
