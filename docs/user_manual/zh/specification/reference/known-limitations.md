@@ -9,7 +9,7 @@
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
   `toChar`，见[string方法](../library/17-string-methods.md)）；本条是有意的规格缩窄，不是缺陷。
 
-- **跨native边界的null字符串句柄**：`string`的值域不含null（§4.3），但native实现（宿主回调、native绑定）仍可能交出0号句柄——内部的null表示。这样的值在每个读取位置都表现为空串`""`：`length()`为0、与`""`相等、拼接无贡献。后续版本或将把它改为显式错误；返回string的函数不应返回null。
+- **跨native边界的null字符串句柄**：`string`的值域不含null（§4.3），但native实现（宿主回调、native绑定）仍可能交出0号句柄——内部的null表示。这样的值在内置string操作中表现为空串`""`：`length()`为0、与`""`相等、拼接无贡献。后续版本或将把它改为显式错误；返回string的函数不应返回null。
 
 - **标量上下文中的数组值**：数组值只有三类合法去向——自身数组类型（元素类型必须完全一致；方括号拼写之间秩也必须一致，而无括号的`Array<T>`位经边界检查接受任意秩，§4.10.7）、**全部**位置上的`string`目标，以及`Object`（§4.11.1）；`null`恒可转换到数组目标；比较恒为恒等比较；其余用法一律在编译期被明确拒绝。
 

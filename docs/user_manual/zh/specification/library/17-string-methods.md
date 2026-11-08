@@ -19,7 +19,7 @@
 | 方法 | 签名 | 失败行为 |
 | --- | --- | --- |
 | `substring(start[, end])` | → `string` | 字节`[start, end)`；`end`默认为`length()`；`start`或`end`落在`[0, length()]`之外，或`end < start`，抛出`IndexOutOfBoundsException` |
-| `indexOf(t[, from])` | → `int` | 自`from`起`t`的首个字节偏移，不存在则为`-1`；`from`默认为`0`，负`from`按`0`计，越过末尾的`from`产出`-1`；空`t`在`max(from, 0)`处命中 |
+| `indexOf(t[, from])` | → `int` | 自`from`起`t`的首个字节偏移，不存在则为`-1`；`from`默认为`0`，负`from`按`0`计，越过末尾的`from`产出`-1`（空`t`亦然）；其余情况下空`t`在`max(from, 0)`处命中 |
 | `equalsIgnoreCase(t)` | → `bool` | 仅ASCII大小写折叠：只有`A-Z`折叠为`a-z`，其他字节必须逐字节相等 |
 | `startsWith(t)` / `endsWith(t)` / `contains(t)` | → `bool` | — |
 | `toUpper()` / `toLower()` | → `string` | 仅ASCII字母 |

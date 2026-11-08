@@ -35,7 +35,7 @@ The `string` receiver answers the following nineteen methods.
 | Method | Signature | Failure behavior |
 | --- | --- | --- |
 | `substring(start[, end])` | → `string` | the bytes `[start, end)`; `end` defaults to `length()`; `start` or `end` outside `[0, length()]`, or `end < start`, raises `IndexOutOfBoundsException` |
-| `indexOf(t[, from])` | → `int` | the first byte offset of `t` at or after `from`, `-1` if absent; `from` defaults to `0`, a negative `from` counts as `0`, a `from` past the end yields `-1`; an empty `t` matches at `max(from, 0)` |
+| `indexOf(t[, from])` | → `int` | the first byte offset of `t` at or after `from`, `-1` if absent; `from` defaults to `0`, a negative `from` counts as `0`, a `from` past the end yields `-1` (even for an empty `t`); an empty `t` otherwise matches at `max(from, 0)` |
 | `equalsIgnoreCase(t)` | → `bool` | ASCII-only case folding: only `A-Z` fold to `a-z`; every other byte must match exactly |
 | `startsWith(t)` / `endsWith(t)` / `contains(t)` | → `bool` | — |
 | `toUpper()` / `toLower()` | → `string` | ASCII letters only |

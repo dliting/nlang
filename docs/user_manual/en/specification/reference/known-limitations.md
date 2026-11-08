@@ -15,8 +15,8 @@ This page collects the language-level limitations visible to user programs, with
   of `string` excludes null (§4.3), but a native implementation (a host
   callback or a native binding) can still hand back handle 0 — the
   internal null representation. Such a value behaves as the empty string
-  `""` in every read position: `length()` is 0, it compares equal to
-  `""`, and it contributes nothing to concatenation. A later version may
+  `""` in the built-in string operations: `length()` is 0, it compares
+  equal to `""`, and it contributes nothing to concatenation. A later version may
   turn this into an explicit error; functions returning `string` should
   not return null.
 
