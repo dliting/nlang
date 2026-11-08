@@ -1,0 +1,76 @@
+// Url.resolve: RFC 3986 5.4 normal and abnormal reference resolution
+// against the base "http://a/b/c/d;p?q", plus the Go url_test.go
+// resolveReferenceTests extras (authority refs, fragment dropping,
+// empty query, empty base path, opaque refs).
+import io;
+import url;
+
+int relBaseThrows() {
+    try {
+        Url.parse("/b/c/d;p?q").resolve("g");
+    } catch (UrlException e) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    Url b = Url.parse("http://a/b/c/d;p?q");
+    if (b.resolve("g").toString() != "http://a/b/c/g") { return 1; }
+    if (b.resolve("./g").toString() != "http://a/b/c/g") { return 2; }
+    if (b.resolve("g/").toString() != "http://a/b/c/g/") { return 3; }
+    if (b.resolve("/g").toString() != "http://a/g") { return 4; }
+    if (b.resolve("//g").toString() != "http://g") { return 5; }
+    if (b.resolve("?y").toString() != "http://a/b/c/d;p?y") { return 6; }
+    if (b.resolve("g?y").toString() != "http://a/b/c/g?y") { return 7; }
+    if (b.resolve("#s").toString() != "http://a/b/c/d;p?q#s") { return 8; }
+    if (b.resolve("").toString() != "http://a/b/c/d;p?q") { return 9; }
+    if (b.resolve(".").toString() != "http://a/b/c/") { return 10; }
+    if (b.resolve("..").toString() != "http://a/b/") { return 11; }
+    if (b.resolve("../../g").toString() != "http://a/g") { return 12; }
+    if (b.resolve("http://x/y").toString() != "http://x/y") { return 13; }
+    if (relBaseThrows() != 1) { return 14; }
+    if (b.resolve("g#s").toString() != "http://a/b/c/g#s") { return 15; }
+    if (b.resolve("g?y#s").toString() != "http://a/b/c/g?y#s") { return 16; }
+    if (b.resolve(";x").toString() != "http://a/b/c/;x") { return 17; }
+    if (b.resolve("g;x").toString() != "http://a/b/c/g;x") { return 18; }
+    if (b.resolve("g;x?y#s").toString() != "http://a/b/c/g;x?y#s") { return 19; }
+    if (b.resolve("./").toString() != "http://a/b/c/") { return 20; }
+    if (b.resolve("../").toString() != "http://a/b/") { return 21; }
+    if (b.resolve("../g").toString() != "http://a/b/g") { return 22; }
+    if (b.resolve("../..").toString() != "http://a/") { return 23; }
+    if (b.resolve("../../").toString() != "http://a/") { return 24; }
+    // RFC 3986 5.4.2 abnormal examples: ".." never crosses the root,
+    // dot segments are only special as whole segments.
+    if (b.resolve("../../../g").toString() != "http://a/g") { return 25; }
+    if (b.resolve("/./g").toString() != "http://a/g") { return 26; }
+    if (b.resolve("/../g").toString() != "http://a/g") { return 27; }
+    if (b.resolve("g.").toString() != "http://a/b/c/g.") { return 28; }
+    if (b.resolve(".g").toString() != "http://a/b/c/.g") { return 29; }
+    if (b.resolve("g..").toString() != "http://a/b/c/g..") { return 30; }
+    if (b.resolve("..g").toString() != "http://a/b/c/..g") { return 31; }
+    if (b.resolve("./../g").toString() != "http://a/b/g") { return 32; }
+    if (b.resolve("./g/.").toString() != "http://a/b/c/g/") { return 33; }
+    if (b.resolve("g/./h").toString() != "http://a/b/c/g/h") { return 34; }
+    if (b.resolve("g/../h").toString() != "http://a/b/c/h") { return 35; }
+    if (b.resolve("g;x=1/./y").toString() != "http://a/b/c/g;x=1/y") { return 36; }
+    if (b.resolve("g;x=1/../y").toString() != "http://a/b/c/y") { return 37; }
+    if (b.resolve("g?y/./x").toString() != "http://a/b/c/g?y/./x") { return 38; }
+    if (b.resolve("g?y/../x").toString() != "http://a/b/c/g?y/../x") { return 39; }
+    if (b.resolve("g#s/./x").toString() != "http://a/b/c/g#s/./x") { return 40; }
+    if (b.resolve("g#s/../x").toString() != "http://a/b/c/g#s/../x") { return 41; }
+    // Go url_test.go extras: an authority ref carries its own query
+    // and fragment; a ref without a fragment drops the base's; "?"
+    // yields a present-but-empty query.
+    if (Url.parse("https://a/b/c/d;p?q").resolve("//g?q").toString() != "https://g?q") { return 42; }
+    if (Url.parse("https://a/b/c/d;p#s").resolve("?y").toString() != "https://a/b/c/d;p?y") { return 43; }
+    if (Url.parse("https://a/b/c/d;p?q#s").resolve("?").toString() != "https://a/b/c/d;p?") { return 44; }
+    // mergePath with an empty base path roots the reference (Go
+    // resolvePath's empty-base special case).
+    if (Url.parse("http://a").resolve("g").toString() != "http://a/g") { return 45; }
+    // Opaque-path references and bases (Go issue 66084 shapes).
+    if (b.resolve("http:opaque").toString() != "http:opaque") { return 46; }
+    if (Url.parse("http:opaque?x=y#zzz").resolve("?a=b#frag").toString() != "http:opaque?a=b#frag") { return 47; }
+    io.print("ok");
+    return 0;
+}

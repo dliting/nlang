@@ -1,0 +1,33 @@
+// Url.queryParams / Url.encodeQuery: decoded form pairs, repeated
+// keys, key-without-value, the empty query, and the URL-006
+// round-trip.
+import io;
+import url;
+
+int queryParamsThrows() {
+    try {
+        Url.parse("http://h/?k=%zz").queryParams();
+    } catch (UrlException e) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    Url u = Url.parse("http://h/?a=1&a=2&b=&c");
+    Dict<string, List<string>> q = u.queryParams();
+    if (q.keys().length() != 3) { return 1; }
+    if (q["a"].length() != 2) { return 2; }
+    if (q["a"][0] != "1" || q["a"][1] != "2") { return 3; }
+    if (q["b"][0] != "") { return 4; }
+    if (q["c"][0] != "") { return 5; }
+    if (Url.parse("http://h/").queryParams().keys().length() != 0) { return 6; }
+    Dict<string, List<string>> p = {};
+    List<string> vs = {};
+    vs.add("x y");
+    p.set("k", vs);
+    if (Url.encodeQuery(p) != "k=x+y") { return 7; }
+    if (queryParamsThrows() != 1) { return 8; }
+    io.print("ok");
+    return 0;
+}

@@ -189,6 +189,152 @@ const class Url {
         }
         return p;
     }
+
+    // Resolves ref against this absolute base per RFC 3986 5.2. The
+    // result is reparsed through the same constructor, so it follows
+    // the same normalization rules as Url.parse. A non-absolute base
+    // raises UrlException.
+    public Url resolve(string ref) {
+        if (scheme == "") {
+            throw UrlException("url: base reference is not absolute");
+        }
+        Url r = Url(ref);
+        string tscheme = scheme;
+        string tuser = userInfo;
+        string thost = host;
+        int tport = port;
+        string tpath = path;
+        string tquery = query;
+        bool tHasQuery = hasQuery;
+        if (r.scheme != "") {
+            tscheme = r.scheme; tuser = r.userInfo; thost = r.host; tport = r.port;
+            tpath = removeDotSegments(r.path); tquery = r.query; tHasQuery = r.hasQuery;
+        } else if (r.host != "" || r.port >= 0 || r.userInfo != "") {
+            tuser = r.userInfo; thost = r.host; tport = r.port;
+            tpath = removeDotSegments(r.path); tquery = r.query; tHasQuery = r.hasQuery;
+        } else if (r.path == "") {
+            tpath = path;
+            if (r.hasQuery) { tquery = r.query; tHasQuery = true; }
+        } else {
+            if (r.path[0] == 47) {
+                tpath = removeDotSegments(r.path);
+            } else {
+                tpath = removeDotSegments(mergePath(path, r.path));
+            }
+            tquery = r.query; tHasQuery = r.hasQuery;
+        }
+        // Reassemble (RFC 3986 5.3) and reparse. The "//" is emitted
+        // when an authority is present or the path is absolute: an
+        // empty authority with a "//"-prefixed path must survive the
+        // reparse as a path, not collapse into the host.
+        string text = tscheme + ":";
+        if (thost != "" || tuser != ""
+            || (tpath.length() > 0 && tpath[0] == 47)) {
+            text = text + "//";
+            if (tuser != "") { text = text + tuser + "@"; }
+            text = text + thost;
+            if (tport >= 0) { text = text + ":" + tport.toString(); }
+        }
+        text = text + tpath;
+        if (tHasQuery) { text = text + "?" + tquery; }
+        if (r.hasFragment) { text = text + "#" + r.fragment; }
+        return Url(text);
+    }
+
+    // Decodes the query into form-encoded pairs: repeated keys keep
+    // their order in the list, a key without '=' maps to "", and
+    // malformed percent escapes raise UrlException. An absent or empty
+    // query yields an empty Dict.
+    public Dict<string, List<string>> queryParams() {
+        Dict<string, List<string>> result = {};
+        if (!hasQuery) { return result; }
+        List<string> pairs = query.split("&");
+        for (int i = 0; i < pairs.length(); i = i + 1) {
+            string pair = pairs[i];
+            if (pair == "") { continue; }
+            int eq = pair.indexOf("=");
+            string key = pair;
+            string value = "";
+            if (eq >= 0) {
+                key = pair.substring(0, eq);
+                value = pair.substring(eq + 1);
+            }
+            key = formDecode(key);
+            value = formDecode(value);
+            List<string> values;
+            if (result.containsKey(key)) {
+                values = result[key];
+            } else {
+                values = {};
+                result.set(key, values);
+            }
+            values.add(value);
+        }
+        return result;
+    }
+
+    // The inverse of queryParams: form-encodes every (key, value)
+    // pair, joined with '&'. queryParams(Url("...?"+encodeQuery(p)))
+    // returns the same pairs (URL-006).
+    public static string encodeQuery(Dict<string, List<string>> params) {
+        string text = "";
+        List<string> keys = params.keys();
+        for (int i = 0; i < keys.length(); i = i + 1) {
+            string key = keys[i];
+            List<string> values = params[key];
+            for (int j = 0; j < values.length(); j = j + 1) {
+                if (text != "") { text = text + "&"; }
+                text = text + formEncode(key) + "=" + formEncode(values[j]);
+            }
+        }
+        return text;
+    }
+
+    // RFC 3986 5.2.3: if the base path is empty the reference path is
+    // rooted; otherwise it is appended to the base path's parent
+    // directory.
+    private static string mergePath(string basePath, string refPath) {
+        if (basePath == "") { return "/" + refPath; }
+        int slash = -1;
+        for (int i = basePath.length() - 1; i >= 0; i = i - 1) {
+            if (basePath[i] == 47) { slash = i; break; }
+        }
+        if (slash < 0) { return refPath; }
+        return basePath.substring(0, slash + 1) + refPath;
+    }
+
+    // RFC 3986 5.2.4.
+    private static string removeDotSegments(string p) {
+        string input = p;
+        string output = "";
+        while (input != "") {
+            if (input.startsWith("../")) { input = input.substring(3); }
+            else if (input.startsWith("./")) { input = input.substring(2); }
+            else if (input.startsWith("/./")) { input = "/" + input.substring(3); }
+            else if (input == "/.") { input = "/"; }
+            else if (input.startsWith("/../") || input == "/..") {
+                if (input.startsWith("/../")) { input = "/" + input.substring(4); }
+                else { input = "/"; }
+                int sl = -1;
+                for (int i = output.length() - 1; i >= 0; i = i - 1) {
+                    if (output[i] == 47) { sl = i; break; }
+                }
+                if (sl < 0) { output = ""; } else { output = output.substring(0, sl); }
+            }
+            else if (input == "." || input == "..") { input = ""; }
+            else {
+                // Move one path segment (up to the next '/') to the
+                // output.
+                int end = input.length();
+                for (int i = 1; i < input.length(); i = i + 1) {
+                    if (input[i] == 47) { end = i; break; }
+                }
+                output = output + input.substring(0, end);
+                input = input.substring(end);
+            }
+        }
+        return output;
+    }
 }
 
 // Percent-encode one full component value: every byte outside the
