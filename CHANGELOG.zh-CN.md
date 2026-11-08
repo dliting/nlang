@@ -6,14 +6,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.13.4] - 2026-11-08
 
 ### 新增
 
+- **`system`包。**`wallMs`/`monoMs`时钟（由新的`nlang_system`原生模块承载）与`DateTime` UTC日历类型。
+- **`String`方法。**`indexOf(sub, from)`、`toInt(radix)`与`equalsIgnoreCase(other)`。
+- **`io` Base64编解码。**`base64Encode`/`base64Decode`/`base64UrlEncode`/`base64UrlDecode`。
+- **`url`包。**RFC 3986 `Url`（parse/resolve/toString/queryParams/encodeQuery）与`percentEncode`/`percentDecode`/`formEncode`/`formDecode`组件编解码。
 - **`string.EMPTY`。**空字符串`""`的具名常量，声明于预置类`String`。
 
 ### 变更
 
+- **`io.nowMs`移至`system.monoMs`。**时钟面属于`system`而非`io`。
 - **null不再是字符串值。**`string`是内置值类型，其值域不含null（null仍是引用类型的空引用）。在string类型位置写null字面量——初始化、赋值、传参、返回、比较、case标号、拼接、静态常量初始化器——现在是编译错误；此前null被接受并在所有位置读作空字符串。空字符串是`""`/`string.EMPTY`，未初始化的string默认为`""`。跨native边界的null句柄仍读作空字符串（已知限制）。
 
 ## [0.12.9] - 2026-11-07

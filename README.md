@@ -186,7 +186,7 @@ import sources share one syntax:
 |---|---|---|
 | Project file | dotted path relative to the `.nproj` | `utils/helper.n` → `import utils.helper;` |
 | External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` → `import lib;` |
-| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` (shipped with the toolchain) | `import io;` |
+| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` / `net` / `system` / `url` (shipped with the toolchain) | `import io;` |
 
 | Reference | Import needed? | Call form |
 |---|---|---|
@@ -220,8 +220,9 @@ is in `CHANGELOG.md`.
 
 ## Standard Library
 
-`math`, `io`, `fs`, `thread`, `concurrent` and `tensor` are the standard
-six packages — sources shipped with the toolchain (`stdlib/*.n`),
+`math`, `io`, `fs`, `thread`, `concurrent`, `tensor`, `net`, `system`
+and `url` are the standard nine packages — sources shipped with the
+toolchain (`stdlib/*.n`),
 provided at run time by `stdlib.npkg` through the same mechanism as any
 library package; their qualified calls still need an explicit `import`
 (`thread` carries the virtual-thread spawn and suspension primitives;

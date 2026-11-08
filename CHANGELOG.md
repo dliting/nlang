@@ -6,15 +6,26 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.13.4] - 2026-11-08
 
 ### Added
 
+- **`system` package.** `wallMs`/`monoMs` clocks (served by the new
+  `nlang_system` native module) and the `DateTime` UTC calendar type.
+- **`String` methods.** `indexOf(sub, from)`, `toInt(radix)` and
+  `equalsIgnoreCase(other)`.
+- **`io` Base64 codecs.** `base64Encode`/`base64Decode`/
+  `base64UrlEncode`/`base64UrlDecode`.
+- **`url` package.** RFC 3986 `Url` (parse/resolve/toString/
+  queryParams/encodeQuery) and the `percentEncode`/`percentDecode`/
+  `formEncode`/`formDecode` component codecs.
 - **`string.EMPTY`.** The named constant for the empty string `""`,
   declared on the `String` prelude class.
 
 ### Changed
 
+- **`io.nowMs` moved to `system.monoMs`.** The clock face belongs to
+  `system`, not `io`.
 - **null is no longer a string value.** `string` is a builtin value
   type and its value domain excludes null (null remains the empty
   reference of the reference types). Writing the null literal in a

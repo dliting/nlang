@@ -109,7 +109,7 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - **0.13.1：运行时泛型类型参数信息**（用户指示2026-11-01，原排0.12.8，网络库占用后于2026-11-07改排）——接通实例化描述符双载体（对象头部＋调用点隐藏实参，宿主ABI v11→v12）＋`typeName(类型表达式)`语言表达式（具体类型编译期折叠为字面量、类型参数`T`在共享方法体内读运行时描述符返回规范拼写string，用户裁定）＋转型按描述符递归比较区分实例化＋catch泛型类型编译期拒绝＋`.ncu`模板表（无源码预编译包铸新实例化）；静态字段补偿模式随本版写入语言规格与用户手册（用户指示2026-11-01）。目标、缺口取证、非目标与验收见docs/dev/generic_runtime_typeinfo_design.md。设计此功能时，应该全面考虑基本的运行时类型信息和辅助设施的支持。
 - **v0.13.2：值类型引用（&）**（用户指示 2026-11-07）——概要设计已定稿并经用户/编译器专家/系统架构师三视角审核（docs/dev/value_type_reference_design.md）：值类型（标量/enum/struct/string）保持值语义默认、以`&`显式引入引用（局部/形参/返回/foreach四位置；class等身份引用类型上`&`为等价记号）；统一表示（基准记录句柄＋cell偏移）＋记录稳定化（赋值/写入原位更新，堆分配收敛到新位置建立场景）；out参数退役、`&`形参全面取代；用户泛型struct实参解除；容器元素匹配改字段深值比较（配合项，销账已知限制第26/4项）。四期实施：①深值比较＋泛型解除→②记录稳定化→③&表示＋容器getter→④out退役，每期独立停靠，现行值语义测试全数不翻为护栏；并发原位拷贝按单原子存储操作契约核验。
 - **v0.13.3：Lambda函数/闭包**
-- **v0.13.4：字符串处理增强/URL库**
+- **v0.13.4：字符串处理增强/URL库**（已完成，2026-11-08发布）——String三方法（`indexOf(t,from)`/`toInt(radix)`/`equalsIgnoreCase`，VM内建intrinsic）、`io` Base64四编解码、`system`包（`wallMs`/`monoMs`双时钟＋`DateTime` UTC日历类型，新native模块`nlang_system`）、`url`包（RFC 3986 `Url` parse/resolve/toString/queryParams/encodeQuery＋percent/form组件编解码）；null退出string值域＋`string.EMPTY`常量（用户裁定；已知限制：跨native边界null句柄仍读作空串）；`io.nowMs`迁`system.monoMs`；docs/dev/http_library_design.md
 - **v0.13.5：HTTP库**
 - **v0.13.6：WEB框架**
 
