@@ -953,6 +953,9 @@ private:
 	//v0.13.0 D2: struct ==/!= admits same-type struct pairs only.
 	bool RejectStructCompareMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		SnField *L, SnField *R);
+	//v0.13.0 review fix: every operator on a bare type-parameter
+	//operand rejects by name (the shared body cannot know the kind).
+	bool RejectTypeParamOperand(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	bool RejectBoolMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		NodeKind lk, NodeKind rk);
 	//0.7.5 char gates: arithmetic on char is rejected (string concat

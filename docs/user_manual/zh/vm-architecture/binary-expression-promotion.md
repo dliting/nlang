@@ -20,7 +20,7 @@ VM的算术指令用单一指令码加`u8 kind`立即数编码操作数类型（
 
 ## 代码生成
 
-（`EmitExprBinary.cpp`二元路径）：遍历的是`sn.Children()`而非`Left()/Right()`，并按`leftChild.EvalDataType()`分派指令（enum归一为int32）。因为resolver已把两个操作数都包装过，算术与位移的左子节点kind即T_result，混合比较的即公共类型。`string`走专用指令（`OP_Concat_str`、`OP_Eq_str`、`OP_Less_str`家族——按Unicode码点字节序），函数值走`OP_Eq_func`/`OP_Ne_func`，其余走kind立即数家族（`OP_Add`等；`OP_Cmp`另带比较运算符立即数）。`%`同表分派：整型行算`%`，float行算fmod。`&&`/`||`降级为短路分支（`OP_JumpIfNot`加双`OP_LogicalNot`归一），不占用求值区槽位；二元路径把右操作数停放在逐层`EvalAreaClaim`里。
+（`EmitExprBinary.cpp`二元路径）：遍历的是`sn.Children()`而非`Left()/Right()`，并按`leftChild.EvalDataType()`分派指令（enum归一为int32）。因为resolver已把两个操作数都包装过，算术与位移的左子节点kind即T_result，混合比较的即公共类型。`string`走专用指令（`OP_Concat_str`、`OP_Eq_str`、`OP_Less_str`家族——按Unicode码点字节序），函数值走`OP_Eq_func`/`OP_Ne_func`，结构体值走`OP_Eq_struct`/`OP_Ne_struct`（经容器匹配器的比较器按字段值比较），其余走kind立即数家族（`OP_Add`等；`OP_Cmp`另带比较运算符立即数）。`%`同表分派：整型行算`%`，float行算fmod。`&&`/`||`降级为短路分支（`OP_JumpIfNot`加双`OP_LogicalNot`归一），不占用求值区槽位；二元路径把右操作数停放在逐层`EvalAreaClaim`里。
 
 ## FixupExprType与EvalDataType
 

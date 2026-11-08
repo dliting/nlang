@@ -33,6 +33,12 @@
 - **`public const int f() {...}`不再编译通过。**const对函数没有语
   义；所有拼写（裸、public、分号形态）统一以`const is not allowed on
   functions; declare it without const.`拒绝。
+- **泛型体内作用于裸类型参数的运算符成为具名编译错误。**`T`类型操作
+  数上的`==`此前编译为裸槽位比较——对`string`与struct实例化是静默
+  错答案。现在一律以`operator '==' cannot be applied to a type
+  parameter: the operand kind is not known until the instantiation.`
+  拒绝；`T`值的存储、传参与返回保持合法。按种类分派的判等随运行时
+  泛型信息里程碑回归。
 
 ### 迁移注记
 

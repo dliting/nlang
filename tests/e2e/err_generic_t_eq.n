@@ -1,0 +1,10 @@
+// v0.13.0 review finding: == on a type-parameter-typed operand inside
+// a shared generic body compiled to a raw slot comparison — silently
+// wrong for string and struct instantiations. Until runtime kind info
+// lands, every comparison on T is a named compile error.
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public bool same(Box<T> other) { return item == other.item; }
+}
+int main() { return 0; }

@@ -502,6 +502,12 @@ err_struct_order_cmp compile_error struct values cannot be ordered
 err_struct_mixed_eq compile_error can only be compared with a struct value of the same type
 err_struct_null_eq compile_error can only be compared with a struct value of the same type
 err_struct_scalar_eq compile_error can only be compared with a struct value of the same type
+# --- v0.13.0 review fix: operators on a type parameter inside a shared
+# generic body are kind-dependent and reject by name until runtime kind
+# info lands (dictionary model defers them with it) ---
+err_generic_t_eq compile_error cannot be applied to a type parameter
+err_generic_t_order compile_error cannot be applied to a type parameter
+err_generic_t_arith compile_error cannot be applied to a type parameter
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---

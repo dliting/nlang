@@ -63,6 +63,16 @@ A type parameter may be an array element type in a type position —
 parameter is rejected: the element kind is not known until the
 instantiation (§4.10.2).
 
+Operators are kind-dependent in the same way: what `==` means for a
+`T`-typed operand depends on the type argument (content for
+`string`, field value for a struct, identity for a class), and the
+body is compiled once for every instantiation. Comparisons and
+other operators applied to a bare type-parameter operand are
+therefore compile-time errors — `operator '==' cannot be applied to
+a type parameter: the operand kind is not known until the
+instantiation.` Storing, passing and returning a `T` value are
+kind-independent and stay legal.
+
 *Informative:* a default argument on a generic member carries into
 instantiations only in constant-expression shapes — a literal, an
 operator tree over constants, or a reference to a constant, formal,

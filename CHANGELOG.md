@@ -38,6 +38,14 @@ const-prefixed functions land on one named diagnostic.
   meaning on a function; every spelling (bare, public, semi form)
   now rejects with `const is not allowed on functions; declare it
   without const.`
+- **Operators on a bare type parameter inside a generic body are
+  named compile errors.** `==` on `T`-typed operands used to compile
+  to a raw slot comparison — silently wrong for `string` and struct
+  instantiations. Every operator now rejects with `operator '=='
+  cannot be applied to a type parameter: the operand kind is not
+  known until the instantiation.`; storing, passing and returning
+  `T` values stay legal. Kind-dispatched equality returns with the
+  runtime generic-information milestone.
 
 ### Migration notes
 

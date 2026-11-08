@@ -100,9 +100,9 @@ void VmExecutor::OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode 
         throw std::runtime_error(
             "NLang VM: function equality on a stale non-function value");
     } else {
-        const auto& a = m_structHeap[static_cast<size_t>(idxA)];
-        const auto& b = m_structHeap[static_cast<size_t>(idxB)];
-        bEqual = (a[0] == b[0] && a[1] == b[1] && a[2] == b[2]);
+        //The container matcher's comparator is the same triple rule
+        //(target, receiver, form) — share it instead of re-spelling it.
+        bEqual = FuncRecordValuesEqual(idxA, idxB);
     }
     int32_t r = ((bEqual != bNeg) ? 1 : 0);
     std::memcpy(locals + lhs, &r, sizeof(r));

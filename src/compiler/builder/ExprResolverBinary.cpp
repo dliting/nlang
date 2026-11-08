@@ -466,6 +466,8 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	}
 
 	auto op = sn.Op();
+	if (RejectTypeParamOperand(sn, op))
+		return;
 	if (IsCompareOp(op) || op == SnBinaryExpr::OP_LogicalAnd ||
 		op == SnBinaryExpr::OP_LogicalOr ||
 		op == SnBinaryExpr::OP_LogicalNot)

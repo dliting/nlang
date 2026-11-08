@@ -1,7 +1,8 @@
 /*---
-    ExprResolverTypeGates.cpp — 二元表达式的操作数类型门（bool/char 族）
+    ExprResolverTypeGates.cpp — 二元表达式的操作数类型门（bool/char 族
+    与裸类型参数操作数门）
     从 ExprResolverBinary.cpp 抽取（2026-10-18 source-size 守卫驱动的
-    粒度拆分，零行为变化）。
+    粒度拆分，零行为变化；v0.13.0 审查修复再并入类型参数门）。
 ---*/
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
@@ -117,6 +118,61 @@ bool ExprResolveAccessor::RejectCharArithmetic(SnBinaryExpr &sn,
 		return false;
 	m_Env.Log(CLL_Error, sn.Location(),
 		"char values do not support arithmetic; convert with 'as int'.");
+	return true;
+}
+
+//v0.13.0 review fix: an operator applied to a bare type-parameter
+//operand is kind-dependent — equality means content for a string
+//instantiation, field value for a struct, identity for a class, inline
+//scalar compare for an int — and the dictionary model resolves that
+//kind per instantiation at RUNTIME, which a shared body compiled once
+//cannot see. Such operands used to fall through to the raw slot
+//comparison (silently wrong for string and struct arguments); now every
+//SnBinaryExpr operator family rejects by name until runtime kind info
+//lands. Plain assignment is a different node and stays legal: storage
+//and transfer are kind-independent.
+static bool IsTypeParamType(SnField *pType)
+{
+	return pType && pType->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl *>(pType)->IsTypeParamPlaceholder();
+}
+
+static const char *OpSymbol(SnBinaryExpr::Operator op)
+{
+	switch (op)
+	{
+	case SnBinaryExpr::OP_Add: return "+";
+	case SnBinaryExpr::OP_Sub: return "-";
+	case SnBinaryExpr::OP_Mul: return "*";
+	case SnBinaryExpr::OP_Div: return "/";
+	case SnBinaryExpr::OP_Mod: return "%";
+	case SnBinaryExpr::OP_Less: return "<";
+	case SnBinaryExpr::OP_LessEqual: return "<=";
+	case SnBinaryExpr::OP_Greater: return ">";
+	case SnBinaryExpr::OP_GreaterEqual: return ">=";
+	case SnBinaryExpr::OP_Equal: return "==";
+	case SnBinaryExpr::OP_NotEqual: return "!=";
+	case SnBinaryExpr::OP_LogicalAnd: return "&&";
+	case SnBinaryExpr::OP_LogicalOr: return "||";
+	case SnBinaryExpr::OP_Neg: return "-";
+	case SnBinaryExpr::OP_LogicalNot: return "!";
+	case SnBinaryExpr::OP_Shl: return "<<";
+	case SnBinaryExpr::OP_Shr: return ">>";
+	}
+	return "?";
+}
+
+bool ExprResolveAccessor::RejectTypeParamOperand(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op)
+{
+	if (!IsTypeParamType(sn.Left()->EvalDataType())
+		&& !(sn.Right()
+			&& IsTypeParamType(sn.Right()->EvalDataType())))
+		return false;
+	m_Env.Log(CLL_Error, sn.Location(),
+		"operator '%s' cannot be applied to a type parameter: "
+		"the operand kind is not known until the instantiation.",
+		OpSymbol(op));
 	return true;
 }
 

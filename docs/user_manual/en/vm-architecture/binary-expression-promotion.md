@@ -65,7 +65,9 @@ for arithmetic and shift, and the common type for mixed comparison.
 `string` selects the dedicated opcodes (`OP_Concat_str`, `OP_Eq_str`,
 the `OP_Less_str` family — bytewise Unicode code point order),
 function handles
-select `OP_Eq_func`/`OP_Ne_func`, and everything else goes through the
+select `OP_Eq_func`/`OP_Ne_func`, struct values select
+`OP_Eq_struct`/`OP_Ne_struct` (field-value comparison through the
+container matcher's comparator), and everything else goes through the
 kind-immediate family (`OP_Add` and friends; `OP_Cmp` additionally
 carries the compare operator as an immediate). `%` rides the same
 table: integer rows compute `%`, float rows compute fmod. `&&`/`||`
