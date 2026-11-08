@@ -119,8 +119,13 @@ if(NLANG_BUILD_IDE)
         "${Qt5_DIR}/../../../resources" ABSOLUTE)
     get_filename_component(NLANG_QTWEBENGINE_LOCALES
         "${Qt5_DIR}/../../../translations/qtwebengine_locales" ABSOLUTE)
+    #The helper process follows Qt's debug naming (QtWebEngineProcessd
+    #under Debug) while the DLL list above rides $<TARGET_FILE:...> and
+    #is config-aware already — splice the suffix per configuration so
+    #a Debug build launches the Debug process (the release one beside
+    #Debug DLLs fails to load and the help browser dies at startup).
     set(NLANG_QTWEBENGINE_PROCESS
-        "${NLANG_QTWEBENGINE_BIN}/QtWebEngineProcess.exe")
+        "${NLANG_QTWEBENGINE_BIN}/QtWebEngineProcess$<$<CONFIG:Debug>:d>.exe")
     # icudtl.dat and the 3 scale-variant paks; the devtools pak stays
     # out (the help viewer opens no DevTools).
     set(NLANG_QTWEBENGINE_RESOURCE_FILES

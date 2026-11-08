@@ -166,10 +166,17 @@ constexpr int kLoopStopTimeoutMs = 90000;
 //after the timeout. Keep the polling throttled: a runJavaScript per
 //poll crashed the renderer once (thousands of queued IPC round trips).
 constexpr int kHelpSearchProbeMs = 250;
+//Debug WebEngine (the d-suffixed Chromium build) runs several times
+//slower than Release — the first JS round trip on the material bundle
+//blew past the Release ceilings on Debug sweeps. Scale the ceilings
+//by configuration; Release keeps the tight 15s numbers.
+#ifdef _DEBUG
+constexpr int kHelpSearchTimeoutMs = 45000;
+constexpr int kHelpPageLoadTimeoutMs = 45000;
+#else
 constexpr int kHelpSearchTimeoutMs = 15000;
-//Parallel builds make the first page load slow; QTRY's 5s default is
-//not enough for the loadFinished wait under that contention.
 constexpr int kHelpPageLoadTimeoutMs = 15000;
+#endif
 
 //Schedule an action to run inside the modal exec() loop that the NEXT
 //blocking call opens (queue right before triggering it).
@@ -4083,6 +4090,17 @@ private slots:
         //which the docs pipeline must therefore generate (the mkdocs
         //search plugin emits only the .json). A real query must surface
         //real results, covering index load and the search run in one go.
+#ifdef _DEBUG
+        //Qt 5.15's DEBUG QtWebEngineProcessd dies ~1.6s after load on
+        //a Blink CHECK (LocalFrameView::updateLifecyclePhasesInternal
+        //reentrance; captured via --enable-logging=stderr) — every
+        //post-load runJavaScript callback is then dropped, so this
+        //JS-bridge test cannot run against the Debug renderer at all.
+        //Third-party crash, not our wiring: testHelpOpensEmbeddedBrowser
+        //(load + view wiring) stays live in Debug; full coverage runs
+        //in Release builds.
+        QSKIP("Qt 5.15 Debug WebEngine renderer CHECK-crashes after load");
+#endif
         if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -4150,6 +4168,12 @@ private slots:
     void testHelpLinksNavigateToHtmlPages() {
         //Regression for the directory-listing bug: every internal link in
         //the site must land on a .html page, never a directory index.
+#ifdef _DEBUG
+        //Same Debug-renderer crash as testHelpSearchFindsResults: the
+        //click dispatch rides a runJavaScript round trip the crashed
+        //Debug renderer never answers.
+        QSKIP("Qt 5.15 Debug WebEngine renderer CHECK-crashes after load");
+#endif
         if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -4170,7 +4194,9 @@ private slots:
             ".find(a=>a.getAttribute('href').endsWith('.html'));"
             "if(a){a.click();return a.href;}return '';})()",
             [&](const QVariant& v){ clickedUrl = v.toString(); clicked = true; });
-        QTRY_VERIFY(clicked);
+        //QTRY's 5s default is a Release-shaped ceiling; a Debug
+        //WebEngine round trip on the material page can outlast it.
+        QTRY_VERIFY_WITH_TIMEOUT(clicked, kHelpPageLoadTimeoutMs);
         QVERIFY(!clickedUrl.isEmpty());
         QTRY_COMPARE(view->url().toString(), clickedUrl);
         QVERIFY(view->url().toString().endsWith(".html"));

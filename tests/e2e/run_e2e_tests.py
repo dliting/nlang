@@ -243,12 +243,27 @@ def _rejection_violation(expected, stderr):
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
-    #dbg_ tests run under the debugger. Each tool builds into its own
-    #build/src/tools/<tool>/Release directory, so ndb sits two levels
-    #over from the nvm binary (build-tree layout), not next to it.
+    #dbg_ tests run under the debugger. An explicit third argument is
+    #the ndb to use — gates pass it so an ASan/Debug sweep runs dbg_
+    #tests under the same config's debugger (the derived Release path
+    #would silently swap in a non-instrumented binary). Default: each
+    #tool builds into its own build/src/tools/<tool>/Release directory,
+    #so ndb sits two levels over from the nvm binary (build-tree
+    #layout), not next to it.
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
-    ndb = os.path.join(tools_dir, 'ndb', 'Release', 'ndb.exe')
+    ndb = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
+        tools_dir, 'ndb', 'Release', 'ndb.exe')
     _fail_on_stale_tools(ncc, nvm, ndb)
+    #Debug (and ASan, which builds the Debug config) runs several times
+    #slower than Release: asserts on, no optimization, gc-stress
+    #amplified. A flat 30s cap that is generous in Release pushes the
+    #slowest stress tests against their ceiling under Debug, turning
+    #any concurrent machine load into timeout flakes. Scale the
+    #per-test cap by config, read off the tool path; x3 keeps every
+    #test far from its limit and stays under the 3-minute project cap.
+    global TIMEOUT_SEC
+    if '/Debug/' in ncc.replace(os.sep, '/'):
+        TIMEOUT_SEC *= 3
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
