@@ -32,10 +32,23 @@ int main() {
     }
     for (int i = 0; i < 16; i = i + 1) { thread.join(ts[i]); }
     long total = system.monoMs() - t0;
+    int maxRtt = 0;
     for (int i = 0; i < 16; i = i + 1) {
-        if (ps[i].rtt < 0) { return 1; }        //ping failed outright
+        if (ps[i].rtt < 0) {                     //ping failed outright
+            io.eprint("ping failed: rtt=" + ps[i].rtt.toString());
+            return 1;
+        }
+        if (ps[i].rtt > maxRtt) { maxRtt = ps[i].rtt; }
     }
-    if (total > 2000) { return 2; }             //lost wakeup: slept to deadline
+    // The lost-wakeup signature is small rtts (the worker stamps rtt at
+    // echo time) with a large wall clock (waiters slept to their deadline).
+    // A merely slow or loaded machine inflates the rtts too, so requiring
+    // small rtts separates the bug from load — a bare total-time check
+    // false-fails under ASan or system load without pinning anything.
+    if (total > 2000 && maxRtt < 500) {
+        io.eprint("lost wakeup: total=" + total.toString() + " maxrtt=" + maxRtt.toString());
+        return 2;
+    }
     io.print("ok");
     return 0;
 }
