@@ -35,6 +35,40 @@ std::string ArraySpelling(const std::string& elemSpelling, uint8_t rank)
 }
 } //namespace
 
+//Class-typed argument, three shapes: a type-parameter placeholder
+//(position-encoded, runtime-composable; the spelling is the parameter
+//name — diagnostic surface only, canonical keys never contain it, the
+//recipe arm replaces the argument at runtime), a nested instantiation
+//(bare template name per the canonical contract, the argument tree
+//rides `nested`), or an ordinary class/interface (link key; rows are
+//per-module and remap at link time, so the runtime resolves by name,
+//not row).
+static TypeArgDesc ClassArgOf(const ModuleRegistry& reg,
+	const SnClassDecl& cls)
+{
+	TypeArgDesc desc;
+	if (cls.IsTypeParamPlaceholder())
+	{
+		const size_t ordinal =
+			reg.DeclaredGenerics().PlaceholderIndex(&cls);
+		desc.spelling = cls.Name();
+		desc.resolvedKind = RTK_TypeParam;
+		desc.rowRef = kTypeParamArgBase
+			- static_cast<int32_t>(ordinal);
+		return desc;
+	}
+	if (cls.IsGenericInstantiation())
+	{
+		desc.spelling = cls.BaseName();
+		desc.resolvedKind = RTK_Class;
+		desc.nested = BuildTypeArgsOf(reg, cls);
+		return desc;
+	}
+	desc.spelling = LinkKeyOf(reg, cls);
+	desc.resolvedKind = RTK_Class;
+	return desc;
+}
+
 static TypeArgDesc BuildArgOf(const ModuleRegistry& reg, const SnField& arg)
 {
 	TypeArgDesc desc;
@@ -74,37 +108,7 @@ static TypeArgDesc BuildArgOf(const ModuleRegistry& reg, const SnField& arg)
 		return desc;
 	}
 	case NK_ClassDecl:
-	{
-		auto& cls = static_cast<const SnClassDecl&>(arg);
-		//A type-parameter placeholder: position-encoded, runtime-
-		//composable. The spelling is the parameter name — diagnostic
-		//surface only; canonical keys never contain it (the recipe
-		//arm replaces the argument at runtime).
-		if (cls.IsTypeParamPlaceholder())
-		{
-			const size_t ordinal =
-				reg.DeclaredGenerics().PlaceholderIndex(&arg);
-			desc.spelling = arg.Name();
-			desc.resolvedKind = RTK_TypeParam;
-			desc.rowRef = kTypeParamArgBase
-				- static_cast<int32_t>(ordinal);
-			return desc;
-		}
-		//A nested instantiation: bare template name per the canonical
-		//contract, the argument tree rides `nested`.
-		if (cls.IsGenericInstantiation())
-		{
-			desc.spelling = cls.BaseName();
-			desc.resolvedKind = RTK_Class;
-			desc.nested = BuildTypeArgsOf(reg, cls);
-			return desc;
-		}
-		//An ordinary class/interface: link key; rows are per-module and
-		//remap at link time, so the runtime resolves by name, not row.
-		desc.spelling = LinkKeyOf(reg, arg);
-		desc.resolvedKind = RTK_Class;
-		return desc;
-	}
+		return ClassArgOf(reg, static_cast<const SnClassDecl&>(arg));
 	default:
 		//Unreachable through resolved instantiations (func arguments
 		//are rejected at the use site); degrade to a non-sentinel
