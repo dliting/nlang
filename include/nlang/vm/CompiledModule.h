@@ -156,7 +156,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //The wire layout of every record is unchanged; a v2.13 module's
 //struct comparisons silently compare heap indices (identity), so
 //refuse v2.13 and older to keep struct ==/!= value-correct.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 14;
+//v2.15 (v0.13.1): the module descriptor table — one row per generic
+//instantiation descriptor the unit registers (canonical spelling +
+//recipe bytes), between the string-constant and function sections.
+//A v2.14 module has no section and misparses at the first record
+//after the string table; refuse v2.14 and older outright.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 15;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -271,12 +276,28 @@ inline int ArrayElemCells(uint8_t elemRtk)
     return (pi >= 0 && kScalarPrims[pi].slotWidth > 4) ? 2 : 1;
 }
 
+//v2.15 (v0.13.1): one generic-instantiation descriptor row. `spelling`
+//is the canonical no-space form ("Box<int>", see GenericInstDescriptor);
+//`recipe` is empty for a static entry (the spelling is the whole fact) or
+//the runtime-composition bytecode for an entry whose arguments contain
+//type parameters (encoding defined by the emission side). The intern
+//contract makes spelling equality descriptor equality, so consumers
+//resolve a row to a GenericInstDescriptor by interning.
+struct DescriptorEntry {
+    std::string spelling;
+    std::vector<uint8_t> recipe;
+};
+
 struct CompiledModule {
     //v2.0: the module's dotted path (the compile unit's package identity).
     std::string modulePath;
     std::string name;
     std::vector<CompiledFunction> functions;
     std::vector<std::string> stringConstants;
+    //v2.15 (v0.13.1): generic-instantiation descriptor rows, written
+    //between the string-constant and function sections. Bytecode
+    //addresses rows by index (OP_New's descIdx operand).
+    std::vector<DescriptorEntry> descriptorTable;
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
     //0.9.10 (v2.4): interface statics, keyed like enumKeys (qualified).

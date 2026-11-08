@@ -96,6 +96,34 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
         fs.read(mod.stringConstants[i].data(), len);
     }
 
+    // v2.15 (v0.13.1): the generic-instantiation descriptor table,
+    // mirroring the saver's section (u32 count; per entry u16
+    // spellingLen + bytes, u16 recipeLen + bytes).
+    uint32_t descCount = 0;
+    fs.read(reinterpret_cast<char*>(&descCount), sizeof(descCount));
+    if (!fs.good() || descCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad descriptor count");
+    mod.descriptorTable.resize(descCount);
+    for (uint32_t i = 0; i < descCount; ++i) {
+        uint16_t spellingLen = 0;
+        fs.read(reinterpret_cast<char*>(&spellingLen), sizeof(spellingLen));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated descriptor spelling");
+        mod.descriptorTable[i].spelling.resize(spellingLen);
+        fs.read(mod.descriptorTable[i].spelling.data(), spellingLen);
+        uint16_t recipeLen = 0;
+        fs.read(reinterpret_cast<char*>(&recipeLen), sizeof(recipeLen));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated descriptor recipe");
+        mod.descriptorTable[i].recipe.resize(recipeLen);
+        if (recipeLen > 0)
+            fs.read(reinterpret_cast<char*>(
+                        mod.descriptorTable[i].recipe.data()),
+                    recipeLen);
+    }
+
     //Composite record tables parse in this stream order; the per-field
     //parsers live in ModuleLoaderRecords.cpp (source-size split, zero
     //behavior change).

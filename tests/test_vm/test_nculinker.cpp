@@ -1339,6 +1339,46 @@ static void test_two_namespace_records_same_arity() {
     PASS();
 }
 
+//v0.13.1 (v2.15): the descriptor table merges like the string table —
+//dedup by full entry (spelling + recipe bytes): a static entry's identity
+//is its spelling (the intern contract), and recipe entries share an empty
+//spelling, so the recipe bytes join the key. Byte-identical recipes from
+//two units compiling the same template merge; divergence keeps both (the
+//intern pool still folds the composed descriptors at runtime).
+static void test_descriptor_table_merge() {
+    TEST(descriptor_table_merge);
+    CompiledModule lib = MakeUnit("lib");
+    lib.descriptorTable.push_back({"Box<int>", {}});            //own 0
+    lib.descriptorTable.push_back({"Pair<int,string>", {}});    //own 1
+    DescriptorEntry libRecipe;
+    libRecipe.spelling = "";
+    libRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    lib.descriptorTable.push_back(std::move(libRecipe));        //own 2
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    app.descriptorTable.push_back({"Box<int>", {}});            //own 0 (dedup)
+    DescriptorEntry appRecipe;
+    appRecipe.spelling = "";
+    appRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    app.descriptorTable.push_back(std::move(appRecipe));        //own 1 (dedup)
+    app.descriptorTable.push_back({"Hold<int>", {}});           //own 2 (new)
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+    CHECK(merged.descriptorTable.size() == 4,
+          "Box<int>, Pair, recipe, Hold — duplicates fold");
+    CHECK(merged.descriptorTable[0].spelling == "Box<int>",
+          "app's static entry lands first");
+    CHECK(merged.descriptorTable[1].recipe.size() == 7,
+          "app's recipe row lands second");
+    CHECK(merged.descriptorTable[2].spelling == "Hold<int>",
+          "app's Hold appends");
+    CHECK(merged.descriptorTable[3].spelling == "Pair<int,string>",
+          "lib's Pair appends; identical recipes folded");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1445,6 +1485,11 @@ int main() {
         g_fail++;
     }
     try { test_two_namespace_records_same_arity(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_descriptor_table_merge(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

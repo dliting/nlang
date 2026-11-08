@@ -451,7 +451,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 15);  //one above the v2.14 current
+    PatchMinorVersion(dir / "old.ncu", 16);  //one above the v2.15 current
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -466,7 +466,7 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 14, "format minor is 14 (v2.14)");
+    CHECK(NCU_FORMAT_MINOR == 15, "format minor is 15 (v2.15)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");
@@ -525,6 +525,50 @@ void TestConstAggregateMarkerRoundTrip() {
     CHECK(loaded.structs.size() == 1, "one struct record loaded");
     CHECK(loaded.structs[0].isConstAggregate,
           "struct const marker round-trips");
+}
+
+// --- v2.15 (v0.13.1): the module descriptor table — one row per generic
+// --- instantiation descriptor the unit registers (canonical spelling +
+// --- recipe bytes; empty recipe = static spelling, non-empty = runtime
+// --- composition recipe, see Task 5's encoding). Sits between the
+// --- string-constant and function sections; a v2.14 image has no section
+// --- and misparses at the first record, so the floor refuses it.
+
+void TestDescriptorTableRoundTrip() {
+    CHECK(NCU_FORMAT_MINOR == 15, "format minor is 15 (v2.15)");
+    const auto dir = scenarioDir("descriptor_table");
+    CompiledModule cm = MakeUnit("descmod");
+    AddFunc(cm, "descmod.main", 0);
+    cm.descriptorTable.push_back({"Box<int>", {}});      //static spelling
+    cm.descriptorTable.push_back({"Box<int[]>", {}});    //array argument
+    DescriptorEntry withRecipe;
+    withRecipe.spelling = "Box<Box<int>>";
+    withRecipe.recipe = {0x01, 0x00, 0x02, 'B', 'x', 0x02, 0x00};
+    cm.descriptorTable.push_back(std::move(withRecipe));
+    WriteUnit(dir, cm);
+
+    std::string entryKey;
+    CompiledModule loaded = ModuleLoader::Load(
+        (dir / "descmod.ncu").string(), &entryKey);
+    CHECK(loaded.descriptorTable.size() == 3, "three descriptor rows");
+    CHECK(loaded.descriptorTable[0].spelling == "Box<int>",
+          "static row spelling round-trips");
+    CHECK(loaded.descriptorTable[0].recipe.empty(),
+          "static row carries no recipe");
+    CHECK(loaded.descriptorTable[1].spelling == "Box<int[]>",
+          "array-argument spelling round-trips");
+    CHECK(loaded.descriptorTable[2].spelling == "Box<Box<int>>",
+          "recipe row spelling round-trips");
+    CHECK(loaded.descriptorTable[2].recipe.size() == 7,
+          "recipe byte count round-trips");
+    CHECK(loaded.descriptorTable[2].recipe[3] == 'B',
+          "recipe payload survives verbatim");
+
+    //Version floor: a v2.14 image predates the section and is refused.
+    PatchMinorVersion(dir / "descmod.ncu", 14);
+    const FailResult fr = MustFail((dir / "descmod.ncu").string(), {});
+    CHECK(fr.failed, "v2.14 image is refused");
+    CHECK(Contains(fr.msg, "outdated"), "floor diagnostic present");
 }
 
 // --- shape 10: a unit file found for module X whose header names Y is
@@ -815,6 +859,7 @@ int main() {
     TestEnumMethodTablesRoundTrip();
     TestConstAggregateMarkerRoundTrip();
     TestStaticSlotRoundTripAndVersionFloor();
+    TestDescriptorTableRoundTrip();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();
     TestUnreadablePackageNamed();

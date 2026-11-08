@@ -99,6 +99,31 @@ static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
     }
 }
 
+//v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
+//recipe bytes). A static entry's identity is its spelling (the intern
+//contract); recipe entries share an empty spelling, so the bytes join
+//the key — two units compiling the same template emit byte-identical
+//recipes and fold, and any divergence keeps both rows (the intern pool
+//still folds the composed descriptors at runtime).
+static void MergeDescriptors(
+    const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
+    std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>&
+        interned) {
+    for (uint32_t i = 0; i < u.descriptorTable.size(); ++i) {
+        const auto key = std::make_pair(u.descriptorTable[i].spelling,
+                                        u.descriptorTable[i].recipe);
+        auto it = interned.find(key);
+        if (it != interned.end()) {
+            m.descriptors[i] = it->second;
+            continue;
+        }
+        m.descriptors[i] =
+            static_cast<uint32_t>(merged.descriptorTable.size());
+        merged.descriptorTable.push_back(u.descriptorTable[i]);
+        interned.emplace(key, m.descriptors[i]);
+    }
+}
+
 //同限定名 == 同类型（两侧都是表键；跨单元重名只有各单元都注册的无主
 //内建类，同版本 ncc 产出恒等）。
 static void MergeClasses(const CompiledModule& u, CompiledModule& merged,
@@ -221,9 +246,12 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             std::vector<NcuOperandMaps>& maps,
                             std::vector<UnitPushes>& pushes) {
     std::unordered_map<std::string, uint32_t> internedStrings;
+    std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>
+        internedDescriptors;
     BuiltinStubIndex builtinStubs;
     for (size_t ui = 0; ui < units.size(); ++ui) {
         MergeStrings(units[ui], merged, maps[ui], internedStrings);
+        MergeDescriptors(units[ui], merged, maps[ui], internedDescriptors);
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
         MergeStructs(units[ui], merged, maps[ui], pushes[ui]);
         MergeEnums(units[ui], merged, maps[ui], pushes[ui]);

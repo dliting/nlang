@@ -116,6 +116,29 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         fs.write(s.c_str(), len);
     }
 
+    // v2.15 (v0.13.1): the generic-instantiation descriptor table — one
+    // row per registered descriptor (see DescriptorEntry). Per entry:
+    // u16 spellingLen + bytes, u16 recipeLen + bytes (empty recipe =
+    // static spelling row). The u16 caps match the intern spelling's
+    // practical bound (canonical spellings stay well under 64 KiB).
+    uint32_t descCount =
+        static_cast<uint32_t>(mod.descriptorTable.size());
+    fs.write(reinterpret_cast<const char*>(&descCount), sizeof(descCount));
+    for (const auto& desc : mod.descriptorTable) {
+        uint16_t spellingLen =
+            static_cast<uint16_t>(desc.spelling.size());
+        fs.write(reinterpret_cast<const char*>(&spellingLen),
+                 sizeof(spellingLen));
+        fs.write(desc.spelling.c_str(), spellingLen);
+        uint16_t recipeLen =
+            static_cast<uint16_t>(desc.recipe.size());
+        fs.write(reinterpret_cast<const char*>(&recipeLen),
+                 sizeof(recipeLen));
+        if (recipeLen > 0)
+            fs.write(reinterpret_cast<const char*>(desc.recipe.data()),
+                     recipeLen);
+    }
+
     // Functions
     uint32_t funcCount = static_cast<uint32_t>(mod.functions.size());
     fs.write(reinterpret_cast<const char*>(&funcCount), sizeof(funcCount));

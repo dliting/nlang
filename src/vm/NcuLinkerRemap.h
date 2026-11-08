@@ -32,6 +32,10 @@ struct NcuOperandMaps
 	//operands — each unit's own slots append to the merged storage table,
 	//never deduped (a slot is storage identity, not a symbol).
 	std::unordered_map<uint32_t, uint32_t> slots;
+	//v2.15 (v0.13.1): descriptor-table indices are unit-local in OP_New's
+	//descIdx operand — rows merge by full entry (spelling + recipe), so
+	//byte-identical rows from two units share one merged index.
+	std::unordered_map<uint32_t, uint32_t> descriptors;
 };
 
 //原地改写全部表索引操作数（11 个重映射相关操作码族）。onUnmapped(
