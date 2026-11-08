@@ -1,0 +1,22 @@
+// Function values and bound method references pass as arguments — the
+// handler-passing idiom the 0.13.5 http package relies on (Task 1).
+import io;
+
+class Widget {
+    public int twice(int x) {
+        return 2 * x;
+    }
+}
+
+int apply(func<int, int> f, int x) {
+    return f(x);
+}
+
+int main() {
+    Widget w = Widget();
+    if (apply(w.twice, 21) != 42) {
+        return 1;
+    }
+    io.print("ok");
+    return 0;
+}
