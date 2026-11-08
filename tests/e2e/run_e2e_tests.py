@@ -36,6 +36,7 @@ import shutil
 import shlex
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
 DEFAULT_NCC = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'ncc', 'Release', 'ncc.exe')
 DEFAULT_NVM = os.path.join(
@@ -58,8 +59,19 @@ EXAMPLES_DIR = os.path.normpath(
 EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
 
 
+def _newest_file(paths):
+    """(mtime, relpath) of the newest existing path, (0.0, '') if none."""
+    best_mtime, best_name = 0.0, ''
+    for path in paths:
+        mtime = os.path.getmtime(path)
+        if mtime > best_mtime:
+            best_mtime = mtime
+            best_name = os.path.relpath(path, REPO_ROOT)
+    return best_mtime, best_name
+
+
 def _fail_on_stale_tools(ncc, nvm, ndb):
-    """Refuse to run against tool binaries older than any source file.
+    """Refuse to run against artifacts older than their real inputs.
 
     A targeted build refreshes only its own targets, so a changed VM
     source can leave one of ncc/nvm/ndb stale while its siblings look
@@ -67,26 +79,28 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
     read as test-content bugs (the 2026-10-31 "Thread class not
     registered" session: ndb predated the suffix-lookup commit). The
     check over-approximates by design — ANY newer file under src/ or
-    stdlib/ demands a rebuild of the tools; a false alarm costs one
+    include/ demands a rebuild of the tools; a false alarm costs one
     build, a miss costs a misdiagnosed gate.
+
+    Each artifact is compared against its own inputs only. stdlib/*.n
+    is not a tool input (the tools compile it, they do not embed it),
+    so it belongs to the package check below — keeping it in the tool
+    set pressured a no-op tool rebuild on every stdlib edit and tempted
+    the timestamp-forging `touch` that once let a pre-merge nvm.exe
+    pass this guard for a full task (2026-11-08).
     """
-    repo_root = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
-    newest_src = 0.0
-    newest_name = ''
-    for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
-                    'include/**/*.h', 'include/**/*.hpp', 'stdlib/*.n'):
-        for path in glob.glob(os.path.join(repo_root, pattern),
-                              recursive=True):
-            mtime = os.path.getmtime(path)
-            if mtime > newest_src:
-                newest_src = mtime
-                newest_name = os.path.relpath(path, repo_root)
+    newest_src, newest_name = _newest_file(
+        path
+        for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
+                        'include/**/*.h', 'include/**/*.hpp')
+        for path in glob.glob(os.path.join(REPO_ROOT, pattern),
+                              recursive=True))
     for tool in (ncc, nvm, ndb):
         if not os.path.isfile(tool):
             print(f"ERROR: tool not found: {tool}")
             sys.exit(2)
         if os.path.getmtime(tool) < newest_src:
-            print(f"ERROR: {os.path.relpath(tool, repo_root)} is older "
+            print(f"ERROR: {os.path.relpath(tool, REPO_ROOT)} is older "
                   f"than {newest_name} - rebuild the tools before "
                   f"running the suite (stale-binary results are "
                   f"meaningless)")
@@ -99,26 +113,30 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
         print(f"ERROR: {pkg} shadows the system stdlib for modules run "
               f"from tests/e2e; remove it")
         sys.exit(2)
-    #Stale-package hazard: stdlib.npkg is compiled by ncc (the
-    #nlang_stdlib_package step), so a package older than ncc was built
-    #by a superseded compiler — e2e then passes against a stdlib image
-    #no current build produces (the 2026-10-31 redesign ran green
-    #against a pre-flip npkg for a full task before anyone noticed).
-    #Derived from the ncc path (<build>/src/tools/ncc/<cfg>/ncc.exe);
-    #skipped when no npkg sits at that layout (an installed tool tree
-    #ships its package beside the binaries, not under a build root).
-    #Comparing against ncc alone is sufficient: the tool loop above
-    #already forces ncc to be at least as new as every stdlib source,
-    #so npkg >= ncc transitively covers the sources.
+    #Stale-package hazard: stdlib.npkg is compiled by ncc from the
+    #stdlib/*.n sources (the nlang_stdlib_package step), so the package
+    #must be at least as new as BOTH of its inputs — a package older
+    #than the newest source misses the edit (the 2026-10-31 redesign ran
+    #green against a pre-flip npkg for a full task), and a package older
+    #than ncc was built by a superseded compiler. Derived from the ncc
+    #path (<build>/src/tools/ncc/<cfg>/ncc.exe); skipped when no npkg
+    #sits at that layout (an installed tool tree ships its package
+    #beside the binaries, not under a build root).
     build_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(ncc)))))
     npkg = os.path.join(build_root, 'stdlib', 'stdlib.npkg')
-    if os.path.isfile(npkg) and os.path.getmtime(npkg) < os.path.getmtime(ncc):
-        print(f"ERROR: {os.path.relpath(npkg, repo_root)} is older "
-              f"than {os.path.relpath(ncc, repo_root)} - rebuild the "
-              f"nlang_stdlib_package target before running the suite "
-              f"(stale-package results are meaningless)")
-        sys.exit(2)
+    if os.path.isfile(npkg):
+        newest_n, newest_n_name = _newest_file(
+            glob.glob(os.path.join(REPO_ROOT, 'stdlib', '*.n')))
+        for bound, bound_name in (
+                (os.path.getmtime(ncc), os.path.relpath(ncc, REPO_ROOT)),
+                (newest_n, newest_n_name)):
+            if os.path.getmtime(npkg) < bound:
+                print(f"ERROR: {os.path.relpath(npkg, REPO_ROOT)} is "
+                      f"older than {bound_name} - rebuild the "
+                      f"nlang_stdlib_package target before running the "
+                      f"suite (stale-package results are meaningless)")
+                sys.exit(2)
 
 
 def _manifest_configs():
