@@ -239,11 +239,16 @@ static constexpr uint16_t INTR_Array_toString = 173;
 //kind dispatch).
 static constexpr uint16_t INTR_BS_ReadArray = 174;
 static constexpr uint16_t INTR_FS_ReadArray = 175;
+//v0.13.4: String.equalsIgnoreCase (ASCII-only fold). The indexOf-from
+//and toInt-radix overloads reuse the existing IndexOf/ToInt ids — the
+//staged-arg-count predicate fills the missing default slot.
+static constexpr uint16_t INTR_String_EqualsIgnoreCase = 176;
 
-//174 = next fresh id. The v0.13.0 net block (174..220) retired when
+//177 = next fresh id. The v0.13.0 net block (174..220) retired when
 //net moved out of the VM into the nlang_net native module: module
 //natives register by name through the NativeHost ABI and need no
-//intrinsic ids. 0.13.0 is unreleased, so the ids are freed for reuse
-//rather than burned.
+//intrinsic ids. 174 and 175 were reused for the stream/filesystem
+//ReadArray intrinsics; 176 is String.equalsIgnoreCase; 177..220
+//remain free.
 
 }  // namespace nlang

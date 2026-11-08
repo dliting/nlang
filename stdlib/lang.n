@@ -74,6 +74,10 @@ class String {
     public native string substring(int start);
     public native string substring(int start, int end);
     public native int indexOf(string sub);
+    // Byte-offset search starting at 'from': a negative from counts as
+    // 0, from > length returns -1, and an empty needle matches at
+    // max(from, 0).
+    public native int indexOf(string sub, int from);
     public native bool startsWith(string prefix);
     public native bool endsWith(string suffix);
     public native bool contains(string sub);
@@ -83,6 +87,14 @@ class String {
     public native List<string> split(string sep);
     public native string replace(string old, string new_);
     public native int toInt();
+    // Strict whole-string integer parse in the given radix (2..36).
+    // A leading + or - is allowed; "0x"-style prefixes are not.
+    // Malformed text, a radix outside 2..36, or overflow raises
+    // Exception.
+    public native int toInt(int radix);
+    // ASCII case-insensitive comparison: only A-Z fold to a-z; every
+    // other byte must match exactly.
+    public native bool equalsIgnoreCase(string other);
     public native float toFloat();
     public native char charAt(int byteIdx);
     public native int charCount();

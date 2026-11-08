@@ -208,6 +208,7 @@ static const BindingRow s_LiteralRows[] = {
 	{"lang", "String.split",       INTR_String_Split},
 	{"lang", "String.replace",     INTR_String_Replace},
 	{"lang", "String.toInt",       INTR_String_ToInt},
+	{"lang", "String.equalsIgnoreCase", INTR_String_EqualsIgnoreCase},
 	{"lang", "String.toFloat",     INTR_String_ToFloat},
 	{"lang", "String.charAt",      INTR_String_CharAt},
 	{"lang", "String.charCount",   INTR_String_CharCount},
@@ -218,12 +219,14 @@ static const BindingRow s_LiteralRows[] = {
 };
 
 //Pins the String face block above independently of unrelated packages'
-//rows: the 18 string methods + equals + getHashCode. The tie to
-//kStringMethodIntrinsicCount breaks the build when the intrinsic block
-//grows without matching rows (the face itself is frozen).
-constexpr size_t kStringFaceBindingRows = 20;
-static_assert(kStringFaceBindingRows == kStringMethodIntrinsicCount + 2,
-	"String face rows = string-method intrinsics + equals + getHashCode");
+//rows: the 18 string methods + equals + getHashCode + equalsIgnoreCase
+//(the indexOf/toInt overloads share their base row — one row per name).
+//The tie to kStringMethodIntrinsicCount breaks the build when the
+//intrinsic block grows without matching rows (the face itself is frozen).
+constexpr size_t kStringFaceBindingRows = 21;
+static_assert(kStringFaceBindingRows == kStringMethodIntrinsicCount + 3,
+	"String face rows = string-method intrinsics + equals + getHashCode"
+	" + equalsIgnoreCase");
 
 //The literal rows plus the DERIVED static-face rows. A face's row comes
 //from the face table (BuiltinNames.h) — the single hand-maintained

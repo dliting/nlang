@@ -2014,17 +2014,23 @@ private:
 //declaration metadata; the runtime never reads it).
 
 //v0.12.2 (the string-method signature table is retired): the number of
-//argument slots a string-method call must stage. The one synthetic case
-//is substring's 1-arg form —
-//OP_CallIntrinsic carries no argument count, so the missing end slot
-//is filled with receiver.length() (emitted as OP_StrLen; the declared
-//overloads are the interface, the intrinsic still reads both slots).
-//Shared by the emitter and both frame walkers — the three sides keep
-//ONE predicate (former table fields trailingDefault/maxArgs).
+//argument slots a string-method call must stage (receiver excluded):
+//substring 1 or 2, indexOf 1 or 2, toInt 0 or 1; every other method
+//stages exactly its argument count. OP_CallIntrinsic carries no
+//argument count, so a defaulted slot must still be staged and filled
+//(substring's end with receiver.length() via OP_StrLen; indexOf's from
+//with 0; toInt's radix with 10 — see the fill dispatch in
+//EmitMemberTableStringMethod; the declared overloads are the interface,
+//the intrinsic always reads every slot). Shared by the emitter and both
+//frame walkers — the three sides keep ONE predicate (former table
+//fields trailingDefault/maxArgs).
 inline uint16_t StringMethodStagedArgCount(const std::string& name,
     uint16_t argCount)
 {
-    return (name == "substring" && argCount < 2) ? 2 : argCount;
+    if (name == "substring" && argCount < 2) { return 2; }
+    if (name == "indexOf") { return argCount < 2 ? 2 : argCount; }
+    if (name == "toInt") { return argCount < 1 ? 1 : argCount; }
+    return argCount;
 }
 
 } // namespace nlang

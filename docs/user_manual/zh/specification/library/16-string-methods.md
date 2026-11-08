@@ -2,7 +2,7 @@
 
 # 16. string方法
 
-`string`方法是分派到`string`接收者上的内建操作：搜索、切片、大小写转换、解析与码点访问。§16.1固定接收者及其字节语义；§16.2定义十八个方法。
+`string`方法是分派到`string`接收者上的内建操作：搜索、切片、大小写转换、解析与码点访问。§16.1固定接收者及其字节语义；§16.2定义十九个方法。
 
 ## 16.1 接收者与字节语义
 
@@ -12,18 +12,19 @@
 
 ## 16.2 方法
 
-`string`接收者响应下列十八个方法。
+`string`接收者响应下列十九个方法。
 
 | 方法 | 签名 | 失败行为 |
 | --- | --- | --- |
 | `substring(start[, end])` | → `string` | 字节`[start, end)`；`end`默认为`length()`；`start`或`end`落在`[0, length()]`之外，或`end < start`，抛出`IndexOutOfBoundsException` |
-| `indexOf(t)` | → `int` | `t`的首个字节偏移，不存在则为`-1`；空`t`产出`0` |
+| `indexOf(t[, from])` | → `int` | 自`from`起`t`的首个字节偏移，不存在则为`-1`；`from`默认为`0`，负`from`按`0`计，越过末尾的`from`产出`-1`；空`t`在`max(from, 0)`处命中 |
+| `equalsIgnoreCase(t)` | → `bool` | 仅ASCII大小写折叠：只有`A-Z`折叠为`a-z`，其他字节必须逐字节相等 |
 | `startsWith(t)` / `endsWith(t)` / `contains(t)` | → `bool` | — |
 | `toUpper()` / `toLower()` | → `string` | 仅ASCII字母 |
 | `trim()` | → `string` | 剥去首尾的空格、制表符、换行、回车、换页与垂直制表 |
 | `split(sep)` | → `List<string>` | 空`sep`抛出`Exception` |
 | `replace(old, repl)` | → `string` | 每一处不重叠的出现，从左到右；空`old`抛出`Exception` |
-| `toInt()` / `toLong()` | → `int` / `long` | 对整个字符串做严格解析；格式不当的字符串抛出`Exception` |
+| `toInt([radix])` / `toLong()` | → `int` / `long` | 对整个字符串做严格解析；`radix`默认为`10`且须在`2..36`内，不接受`0x`前缀；格式不当的字符串、越界的`radix`或溢出抛出`Exception` |
 | `toFloat()` / `toDouble()` | → `float` / `double` | 对整个字符串做严格解析；格式不当的字符串抛出`Exception` |
 | `toBool()` | → `bool` | 恰为`"true"`或`"false"`；其他任何值抛出`Exception` |
 | `toChar()` | → `char` | 十进制码点数；落在Unicode标量值之外的值抛出`Exception` |

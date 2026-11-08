@@ -1,0 +1,16 @@
+// String.indexOf(sub, from): byte-offset search from a start position
+// (from < 0 counts as 0, from > length returns -1, an empty needle
+// matches at max(from, 0)).
+import io;
+
+int main() {
+    string s = "hello world";
+    if (s.indexOf("o") != 4) { return 1; }
+    if (s.indexOf("o", 5) != 7) { return 2; }
+    if (s.indexOf("o", 8) != -1) { return 3; }
+    if (s.indexOf("o", -3) != 4) { return 4; }
+    if (s.indexOf("", 3) != 3) { return 5; }
+    if (s.indexOf("x", 100) != -1) { return 6; }
+    io.print("ok");
+    return 0;
+}

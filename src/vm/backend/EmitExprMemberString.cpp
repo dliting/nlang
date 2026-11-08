@@ -331,11 +331,29 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
         ++paramIdx;
     }
     if (stagedArgs > argCount) {
-        //dst = StrLen(receiver copy at claim slot 0)
-        emitter.Emit(OpCode::OP_StrLen);
-        emitter.EmitUint16(static_cast<uint16_t>(
-            claimBase + stagedArgs * kFrameSlotBytes));
-        emitter.EmitUint16(claimBase);
+        //Fill the one defaulted slot (the last staged one) with the
+        //method's default: substring's end = receiver.length(),
+        //indexOf's from = 0, toInt's radix = 10. Exactly one slot is
+        //missing in every defaulted form (see the predicate).
+        const uint16_t fillOffset = static_cast<uint16_t>(
+            claimBase + stagedArgs * kFrameSlotBytes);
+        const std::string name = invoke.CalleeName();
+        if (name == "indexOf") {
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(0);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(fillOffset);
+        } else if (name == "toInt") {
+            emitter.Emit(OpCode::OP_ConstInt32);
+            emitter.EmitInt32(10);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(fillOffset);
+        } else {
+            //substring: dst = StrLen(receiver copy at claim slot 0)
+            emitter.Emit(OpCode::OP_StrLen);
+            emitter.EmitUint16(fillOffset);
+            emitter.EmitUint16(claimBase);
+        }
     }
     CopyClaimToCallParams(claimBase, n, emitter);
     emitter.Emit(OpCode::OP_CallIntrinsic);

@@ -3,7 +3,7 @@
 The `string` methods are the built-in operations dispatched on
 a `string` receiver: search, slicing, case conversion, parsing
 and code-point access. §16.1 fixes the receiver and its byte
-semantics; §16.2 defines the eighteen methods.
+semantics; §16.2 defines the nineteen methods.
 
 ## 16.1 Receiver and Byte Semantics
 
@@ -27,18 +27,19 @@ byte access, as "The char bridge" of §4.3 describes.
 
 ## 16.2 Methods
 
-The `string` receiver answers the following eighteen methods.
+The `string` receiver answers the following nineteen methods.
 
 | Method | Signature | Failure behavior |
 | --- | --- | --- |
 | `substring(start[, end])` | → `string` | the bytes `[start, end)`; `end` defaults to `length()`; `start` or `end` outside `[0, length()]`, or `end < start`, raises `IndexOutOfBoundsException` |
-| `indexOf(t)` | → `int` | the first byte offset of `t`, `-1` if absent; an empty `t` yields `0` |
+| `indexOf(t[, from])` | → `int` | the first byte offset of `t` at or after `from`, `-1` if absent; `from` defaults to `0`, a negative `from` counts as `0`, a `from` past the end yields `-1`; an empty `t` matches at `max(from, 0)` |
+| `equalsIgnoreCase(t)` | → `bool` | ASCII-only case folding: only `A-Z` fold to `a-z`; every other byte must match exactly |
 | `startsWith(t)` / `endsWith(t)` / `contains(t)` | → `bool` | — |
 | `toUpper()` / `toLower()` | → `string` | ASCII letters only |
 | `trim()` | → `string` | strips leading and trailing space, tab, newline, carriage return, form feed and vertical tab |
 | `split(sep)` | → `List<string>` | an empty `sep` raises `Exception` |
 | `replace(old, repl)` | → `string` | every non-overlapping occurrence, left to right; an empty `old` raises `Exception` |
-| `toInt()` / `toLong()` | → `int` / `long` | strict whole-string parse; a malformed string raises `Exception` |
+| `toInt([radix])` / `toLong()` | → `int` / `long` | strict whole-string parse; `radix` defaults to `10` and must be in `2..36`; a `0x` prefix is not accepted; a malformed string, a `radix` outside `2..36`, or overflow raises `Exception` |
 | `toFloat()` / `toDouble()` | → `float` / `double` | strict whole-string parse; a malformed string raises `Exception` |
 | `toBool()` | → `bool` | exactly `"true"` or `"false"`; anything else raises `Exception` |
 | `toChar()` | → `char` | a decimal code-point number; a value outside the Unicode scalar values raises `Exception` |

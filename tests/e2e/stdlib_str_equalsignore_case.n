@@ -1,0 +1,12 @@
+// String.equalsIgnoreCase: ASCII-only case folding — only A-Z fold to
+// a-z; every other byte must match exactly.
+import io;
+
+int main() {
+    if (!"GET".equalsIgnoreCase("get")) { return 1; }
+    if (!"Chunked".equalsIgnoreCase("chunked")) { return 2; }
+    if ("chunked".equalsIgnoreCase("Chunked!")) { return 3; }
+    if ("é".equalsIgnoreCase("É")) { return 4; }   // non-ASCII bytes differ
+    io.print("ok");
+    return 0;
+}
