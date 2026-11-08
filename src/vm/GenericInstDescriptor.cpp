@@ -2,6 +2,7 @@
     按拼写的进程级intern池（类契约见同目录头文件）。
 ---*/
 #include "GenericInstDescriptor.h"
+#include <nlang/vm/CompiledModuleRecords.h>
 #include <map>
 #include <memory>
 #include <utility>
@@ -36,6 +37,11 @@ std::string CanonicalSpelling(const std::string& templateName,
 std::string CanonicalArgSpelling(const TypeArgDesc& arg)
 {
 	if (arg.nested.empty())
+		return arg.spelling;
+	//Array arguments carry a complete leaf spelling ("int[]", "int[,]");
+	//the nested element descriptor is structure for the dispatch paths,
+	//never part of the canonical render.
+	if (arg.resolvedKind == RTK_Array)
 		return arg.spelling;
 	std::string spelling = arg.spelling;
 	spelling += "<";

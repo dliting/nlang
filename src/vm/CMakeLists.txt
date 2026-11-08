@@ -61,6 +61,7 @@ add_library(nlang_vm
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
     GenericInstDescriptor.cpp
+    backend/DescriptorSpelling.cpp
     backend/VmBackend.cpp
     backend/DeclPredicates.cpp
     backend/GenerateUnits.cpp

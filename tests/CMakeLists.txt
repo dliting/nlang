@@ -1465,10 +1465,12 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_generic_descriptor
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/compiler
     )
     target_link_libraries(test_generic_descriptor
         PRIVATE
             nlang_vm
+            nlang_compiler
             nlang_runtime
             Qt5::Test
     )

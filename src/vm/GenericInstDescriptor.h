@@ -1,7 +1,7 @@
 /*--- GenericInstDescriptor.h — 泛型实例化描述符：模板裸名＋类型实参表，
     规范拼写为无空格形Base<Arg1,Arg2>，按拼写intern。字典模型的运行时
-    类型实参载体——对象头（Task 6）、隐藏调用槽（Task 7a）、ABI回调
-    （Task 11）与序列化（Task 12）的共享数据面。
+    类型实参载体——对象侧并行数组（实例化身份）、转型比较、typeName、
+    ABI回调与序列化的共享数据面。
 ---*/
 #pragma once
 #include <cstdint>
@@ -20,13 +20,16 @@ namespace nlang
 //form is always derived through CanonicalArgSpelling (reversibility
 //per Rust RFC 2603: the structure defines the spelling, so feeding a
 //descriptor's stored fields back in reproduces the same key).
-//`classRowRef` carries the class/interface row index for class-typed
-//arguments, -1 otherwise.
+//`rowRef` carries the class/interface row index for class-typed
+//arguments and the struct row for struct-typed ones, -1 otherwise.
+//`rank` is the array rank for RTK_Array arguments (the spelling carries
+//the same fact for display; runtime array checks read the field).
 struct TypeArgDesc
 {
 	std::string spelling;
 	uint8_t resolvedKind = 0;
-	int32_t classRowRef = -1;
+	int32_t rowRef = -1;
+	uint8_t rank = 1;
 	std::vector<TypeArgDesc> nested;
 };
 

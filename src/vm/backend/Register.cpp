@@ -5,6 +5,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "backend/DescriptorSpelling.h"
 #include "builder/SymbolSlots.hpp"
 #include <string>
 #include <nlang/compiler/SyntaxTree.h>
@@ -142,6 +143,14 @@ static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field
 std::string VmBackend::KeyOf(const SnField& field) const {
     NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
     return QualifiedName(*m_pRegistry, field);
+}
+
+//v0.13.1: the same spelling exported for the descriptor builder — the
+//instantiation descriptor's argument keys and the row keys must come
+//from one function or they drift apart (a cast would then compare two
+//spellings of one type as different instantiations).
+std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field) {
+    return QualifiedName(reg, field);
 }
 
 //Phase 6 per-unit codegen: reset the per-unit tables and select the unit
