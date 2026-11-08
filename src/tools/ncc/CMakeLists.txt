@@ -22,3 +22,12 @@ target_link_libraries(ncc
         tinyxml2
         nlang_version
 )
+
+#ASan tool chain: copy the asan runtime the loader resolves from the
+#executable's own directory (guard and path in the top-level CMakeLists).
+if(DEFINED NLANG_ASAN_RUNTIME)
+    add_custom_command(TARGET ncc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${NLANG_ASAN_RUNTIME}" $<TARGET_FILE_DIR:ncc>
+        COMMENT "Copying ASan runtime beside ncc")
+endif()
