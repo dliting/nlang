@@ -86,6 +86,8 @@ nav:
           - io包与流:
               - 概览: specification/library/14-io/index.md
               - ByteStream与FileStream: specification/library/14-io/streams.md
+              - Base64: specification/library/14-io/base64.md
+          - system包: specification/library/15-system.md
           - fs包: specification/library/16-fs.md
           - string方法: specification/library/17-string-methods.md
           - 并发类:
@@ -106,6 +108,7 @@ nav:
               - TCP类: specification/library/21-network/tcp.md
               - UdpSocket: specification/library/21-network/udp.md
               - ICMP: specification/library/21-network/icmp.md
+          - url包: specification/library/22-url.md
       - 二进制格式:
           - .ncu单元映像: specification/formats/23-ncu.md
           - .npkg包档案: specification/formats/24-npkg.md

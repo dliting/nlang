@@ -4,7 +4,7 @@
 
 本树是NLang编程语言的规范，具有规范性：它覆盖核心语言、标准库，以及实现产生与消费的二进制格式，并定义符合本规范的实现必须做什么；各章在规范性规则之外配有示例与错误说明。语言的系统入门见[NLang入门](../getting-started/what-is-nlang.md)，它属资料性，并把所摘要的规则链接到本规范的对应条款。英文文本是规范性的。
 
-本规范描述NLang 0.13.4。它是一份活文档：始终描述当前语言，版本历史就是仓库历史——标签（如`v0.11.5`）把整棵树固定在语言演化的某一个时点上。
+本规范描述NLang 0.12.9。它是一份活文档：始终描述当前语言，版本历史就是仓库历史——标签（如`v0.11.5`）把整棵树固定在语言演化的某一个时点上。
 
 本规范与实现不一致时，不一致即其中一方的缺陷：裁定哪一方正确，然后修复那一方。重大语义变更在写入本树之前，先按NLang增强提案（NLEP）流程提出。
 
@@ -55,6 +55,8 @@
 - [13. math包](library/13-math.md)
 - [14. io包与流](library/14-io/index.md)
   - [14.6. ByteStream与FileStream](library/14-io/streams.md)
+  - [14.8. Base64](library/14-io/base64.md)
+- [15. system包](library/15-system.md)
 - [16. fs包](library/16-fs.md)
 - [17. string方法](library/17-string-methods.md)
 - [18. 并发类](library/18-concurrency-classes/index.md)
@@ -73,6 +75,7 @@
   - [21.2. 传输控制协议（TCP）类](library/21-network/tcp.md)
   - [21.3. UdpSocket类](library/21-network/udp.md)
   - [21.4. 互联网控制报文协议（ICMP）面](library/21-network/icmp.md)
+- [22. url包](library/22-url.md)
 
 ### 第三部分 — 二进制格式
 

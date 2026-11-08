@@ -2,7 +2,7 @@
 
 # 20. 库异常
 
-本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、16、18、19与21章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位点的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
+本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、15、16、18、19、21与22章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位点的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
 
 ## 20.1 按单元的抛出映射
 
@@ -16,6 +16,7 @@
 | `io`（§14.3，§14.4） | `IOException` | 没有输入通道的`readLine`；输入结束时或没有输入通道（会话没有stdin）的`readToken`或`readChar`；输入结束时或没有输入通道的带类型读取器；`readFile`、`writeFile`或`appendFile`失败 |
 | `io`（§14.3） | `Exception` | `readChar`落在不是有效Unicode转换格式（UTF-8）的字节序列上；带类型读取器落在格式不当的记号上（即该字符串方法的失败，§17.2） |
 | 流（§14.6） | `NullPointerException` | 经由null流句柄的方法调用 |
+| `system`（§15.2） | `DateTimeException` | `DateTime.parse`的畸形文本或越界日历字段 |
 | `fs`（§16.3） | `IOException` | `size`、`listFiles`、`makeDirs`或`remove`失败 |
 | `fs`（§16.4） | `NullPointerException` | 对`readBytes`或`readFloats`传null路径 |
 | `fs`（§16.4） | `IOException` | `readBytes`或`readFloats`的打开或读取失败（含超过16 MiB上限的文件） |
@@ -28,11 +29,12 @@
 | `tensor`（§19.6） | `Exception` | 步长为零或无法推进的`arange`，或越过上限的范围；长度或形状不匹配；对空数组调用`max`、`min`或`mean` |
 | `net`（§21.2–§21.4） | `TimeoutException` | `accept`、`connect`、`read`、`readLine`、`readExactly`、`recv`、`recvFrom`或`ping`在截止时刻结束等待 |
 | `net`（§21.2–§21.4） | `SocketException` | bind、connect或选项设置器的平台失败；无法解析的主机；已关闭的套接字；同一套接字方向上停泊的第二个操作；未连接的`UdpSocket`上的`peerAddress`或`peerPort`；提前结束的流上的`readExactly` |
+| `url`（§22.1–§22.4） | `UrlException` | `Url.parse`的语法错误或超长引用；非绝对基址上的`resolve`；`percentDecode`或`formDecode`的畸形转义（含`queryParams`经`formDecode`的路径） |
 
 经由`null`接收者的调用在每个单元里都抛出`NullPointerException`（§11.2）；表中各行只列定义章节除此之外另行点名的位点。
 
 ## 20.2 惯例
 
-- 库声明三个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；以及`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
+- 库声明五个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明；以及`UrlException`（`IOException`的子类，由`url`包声明）与`DateTimeException`（`Exception`的直接子类，由`system`包声明）（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
 - 基类`Exception`是没有专属类的实参、范围与解析错误所用的类；不存在`IllegalArgumentException`或同级类。
 - 抛出不是唯一的失败通道。谓词与查询以返回值报告：`fs`的谓词与缺失路径上的`remove`（§16.3）、`io.hasInput`（§14.3），以及`math`超越函数家族产出NaN的定义域错误（§13.4）。null句柄之外的流失败是*宿主级*执行期错误（§14.6，§8.1）：没有`catch`子句处理它们。

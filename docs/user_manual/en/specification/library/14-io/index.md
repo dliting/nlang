@@ -8,7 +8,8 @@ argument admission rule that governs every package call;
 §14.2–§14.4 define the io functions; §14.5 defines the generic
 input/output (IO) facilities that native-backed libraries build
 on; the stream classes (§14.6) and the byte-level encoding of
-stream values (§14.7) are defined on their own page.
+stream values (§14.7) are defined on their own pages, and
+§14.8 defines the Base64 codecs.
 
 ## 14.1 Package Form
 
