@@ -288,10 +288,16 @@ inline int ArrayElemCells(uint8_t elemRtk)
 //   4 ARG_NESTED     u16 recipeLen + child recipe bytes (a full
 //                    TEMPLATE_HEAD-led stream; length-prefixed so the
 //                    parent's argument loop resumes after the child)
+//Rows are self-describing by leading tag: a row from the instantiation
+//path (OP_New, typeName(Box<T>)) leads with TEMPLATE_HEAD; a typeName
+//row for a non-instantiation operand containing a type parameter (T[])
+//is a single ARG encoding — tag 1..4, never 0, so the two forms cannot
+//alias and byte-identical rows still merge.
 //A recipe row's spelling is empty; the runtime composes the canonical
-//spelling per execution (ARG_THIS reads the receiver's descriptor) and
-//interns it. The intern contract makes spelling equality descriptor
-//equality, so consumers resolve a row to a GenericInstDescriptor by
+//spelling per execution (ARG_THIS reads the receiver's descriptor).
+//OP_New rows then intern it — the intern contract makes spelling
+//equality descriptor equality, so consumers resolve a row to a
+//GenericInstDescriptor by
 //interning.
 struct DescriptorEntry {
     std::string spelling;

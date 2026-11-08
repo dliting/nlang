@@ -36,7 +36,7 @@ NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "elseif enum finally for foreach func if implements import in "
     "interface native out private protected public return state "
-    "static struct super switch this throw try using virtual "
+    "static struct super switch this throw try typeName using virtual "
     "while".split())
 NLANG_TYPES = frozenset(
     "bool byte char double float int long short string ubyte uint "

@@ -383,6 +383,19 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_New:
             EmitNew(r, out, head, module);
             return true;
+        //v0.13.1: typeName arms (dst is a frame offset; the ordinal is
+        //the declared type-parameter position, the recipe index a
+        //descriptor-table row).
+        case OpCode::OP_TypeNameArg: {
+            uint16_t dst = r.ReadUint16();
+            uint8_t ordinal = r.ReadByte();
+            out << head << " dst=" << dst << " ordinal="
+                << static_cast<unsigned>(ordinal) << "\n";
+            return true;
+        }
+        case OpCode::OP_TypeNameCompose:
+            DisasmU16xN(2, r, out, head, " dst=%u recipe=%u");
+            return true;
         case OpCode::OP_NullCheck:
             EmitU16(r, out, head, " %u");
             return true;

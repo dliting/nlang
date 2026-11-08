@@ -30,6 +30,7 @@ add_library(nlang_vm
     VmExecutorOpsSlice.cpp
     VmExecutorOpsArrayCheck.cpp
     VmExecutorOpsObjects.cpp
+    VmExecutorOpsDescriptor.cpp
     VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp

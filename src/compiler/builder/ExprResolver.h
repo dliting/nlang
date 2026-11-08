@@ -330,6 +330,11 @@ public:
 	//Resolve this expression.
 	void Access(SnThisExpr &);
 
+	//Resolve typeName(Type): concrete types fold to the canonical
+	//spelling; type-parameter operands read the receiver's
+	//instantiation at run time (rejected in static members).
+	void Access(SnTypeNameExpr &);
+
 	//Resolve class declaration.
 	void Access(SnClassDecl &);
 

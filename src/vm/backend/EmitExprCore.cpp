@@ -366,6 +366,37 @@ void VmBackend::Access(SnThisExpr& expr) {
         return;
 }
 
+//v0.13.1 D4: typeName(Type) — three emission forms, decided by what
+//the resolver recorded. A concrete operand folds at resolve time and
+//rides the ordinary string-constant path; a bare type parameter reads
+//the receiver descriptor's argument (OP_TypeNameArg, the ordinal is
+//the declared parameter position); anything else containing a type
+//parameter (an instantiation like Box<T>, or an array T[]) composes
+//from a recipe row (OP_TypeNameCompose).
+void VmBackend::Access(SnTypeNameExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    const uint16_t resultOffset = m_resultOffset;
+    if (!expr.FoldedSpelling().empty()) {
+        const uint16_t poolIdx = AddStringConstant(expr.FoldedSpelling());
+        emitter.Emit(OpCode::OP_ConstString);
+        emitter.EmitUint16(poolIdx);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        return;
+    }
+    if (expr.TypeParamOrdinal() != SnTypeNameExpr::kNoTypeParamOrdinal) {
+        emitter.Emit(OpCode::OP_TypeNameArg);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitByte(expr.TypeParamOrdinal());
+        return;
+    }
+    const uint16_t recipeIdx = RecipeIndexFor(*expr.TypeRef()->Field());
+    NLANG_ASSERT(recipeIdx != kNoInstDescriptor);
+    emitter.Emit(OpCode::OP_TypeNameCompose);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(recipeIdx);
+}
+
     // New array expression: new T[size]
 void VmBackend::Access(SnExpression& expr) {
     NodeKind kind = expr.Kind();

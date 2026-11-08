@@ -7,7 +7,7 @@ included), structure passthrough, and array-argument rank marks.
 ---*/
 #include <QtTest/QtTest>
 #include "GenericInstDescriptor.h"
-#include "backend/DescriptorSpelling.h"
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/SnTypes.h>

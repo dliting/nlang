@@ -279,6 +279,7 @@ LineComment	\/\/[^\n]*
 "throw"     { return KT_Throw; }
 "true"      { return KT_True; }
 "try"       { return KT_Try; }
+"typeName"  { return KT_TypeName; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
 "ulong"     { return KT_ULong; }

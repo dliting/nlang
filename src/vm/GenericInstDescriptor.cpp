@@ -37,27 +37,6 @@ std::string CanonicalSpelling(const std::string& templateName,
 }
 }
 
-std::string CanonicalArgSpelling(const TypeArgDesc& arg)
-{
-	if (arg.nested.empty())
-		return arg.spelling;
-	//Array arguments carry a complete leaf spelling ("int[]", "int[,]");
-	//the nested element descriptor is structure for the dispatch paths,
-	//never part of the canonical render.
-	if (arg.resolvedKind == RTK_Array)
-		return arg.spelling;
-	std::string spelling = arg.spelling;
-	spelling += "<";
-	for (size_t i = 0; i < arg.nested.size(); ++i)
-	{
-		if (i)
-			spelling += ",";
-		spelling += CanonicalArgSpelling(arg.nested[i]);
-	}
-	spelling += ">";
-	return spelling;
-}
-
 //--- Load-side residency: canonical-spelling parser -----------------------
 //Reversibility per Rust RFC 2603 — the structure defines the spelling,
 //so the spelling rebuilds the structure. Every throw below names a

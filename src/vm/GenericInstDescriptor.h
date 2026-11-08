@@ -1,43 +1,14 @@
 /*--- GenericInstDescriptor.h — 泛型实例化描述符：模板裸名＋类型实参表，
     规范拼写为无空格形Base<Arg1,Arg2>，按拼写intern。字典模型的运行时
     类型实参载体——对象侧并行数组（实例化身份）、转型比较、typeName、
-    ABI回调与序列化的共享数据面。
+    ABI回调与序列化的共享数据面。类型实参词汇（TypeArgDesc与
+    CanonicalArgSpelling）随v0.13.1层界收正迁入编译器侧共享头。
 ---*/
 #pragma once
-#include <cstdint>
-#include <string>
-#include <vector>
+#include <nlang/compiler/TypeArgSpelling.h>
 
 namespace nlang
 {
-
-//One type argument in both forms consumers need: the canonical spelling
-//(display + intern key component) and the resolved structure (per-slot
-//kind dispatch in the call pipeline). The spelling contract: a LEAF
-//argument's spelling is its complete form ("int", "int[]"); an argument
-//carrying `nested` (a nested instantiation) spells as its template's
-//BARE name — the tree in `nested` supplies the rest, and the canonical
-//form is always derived through CanonicalArgSpelling (reversibility
-//per Rust RFC 2603: the structure defines the spelling, so feeding a
-//descriptor's stored fields back in reproduces the same key).
-//`rowRef` carries the class/interface row index for class-typed
-//arguments and the struct row for struct-typed ones, -1 otherwise.
-//`rank` is the array rank for RTK_Array arguments (the spelling carries
-//the same fact for display; runtime array checks read the field).
-struct TypeArgDesc
-{
-	std::string spelling;
-	uint8_t resolvedKind = 0;
-	int32_t rowRef = -1;
-	uint8_t rank = 1;
-	std::vector<TypeArgDesc> nested;
-};
-
-//The argument's tree-complete canonical spelling: leaves pass through;
-//an instantiation argument renders as Name<Arg1,Arg2> built recursively
-//from its nested tree. Intern keys and Spelling() go through this —
-//never join the raw spelling fields of nested arguments.
-std::string CanonicalArgSpelling(const TypeArgDesc& arg);
 
 //Immutable record of one generic instantiation: the template's bare
 //name plus the type-argument list. Spelling() is the canonical no-space

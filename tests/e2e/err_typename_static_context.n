@@ -1,0 +1,8 @@
+// v0.13.1 D4: a static member has no receiver, so typeName of a type
+// parameter there has nothing to read at run time. Rejected by name;
+// the compensation pattern (an instance member answering typeName) is
+// the documented alternative.
+class Hold<T> {
+    public static string name() { return typeName(T); }
+}
+int main() { return 0; }

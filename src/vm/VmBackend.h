@@ -216,6 +216,10 @@ public:
     void Access(SnNameExpr&);
     void Access(SnNewExpr&);
     void Access(SnThisExpr&);
+    //v0.13.1 D4: typeName emission — folded spelling via the string
+    //pool, bare type parameter via OP_TypeNameArg (the receiver's
+    //descriptor), recipe instantiations via OP_TypeNameCompose.
+    void Access(SnTypeNameExpr&);
     void Access(SnNewArrayExpr&);
     void Access(SnInitListExpr&);
     void Access(SnSubscriptExpr&);
@@ -1149,6 +1153,10 @@ private:
     //time through the recipe path). Interns the descriptor so the
     //compile-side and load-side pools agree.
     uint16_t DescriptorIndexFor(SnClassDecl& inst);
+    //v0.13.1: recipe row for a typeName operand containing a type
+    //parameter (see DescriptorSpelling.cpp); the row composes at run
+    //time through OP_TypeNameCompose.
+    uint16_t RecipeIndexFor(const SnField& operand);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]

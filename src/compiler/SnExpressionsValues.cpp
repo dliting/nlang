@@ -212,6 +212,31 @@ std::string SnThisExpr::ToString() const
 	return "this";
 }
 
+//--- SnTypeNameExpr ---
+
+SnTypeNameExpr::SnTypeNameExpr(SnFieldExpr *pType,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pType(pType)
+{
+	NLANG_ASSERT(pType);
+	AddChild(m_pType);
+}
+
+bool SnTypeNameExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnTypeNameExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnTypeNameExpr::ToString() const
+{
+	return "typeName(...)";
+}
+
 SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
 	const ISourceLocation &loc) :
 	Super_(s_Kind, loc), m_pArray(pArray)

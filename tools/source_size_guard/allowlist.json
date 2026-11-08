@@ -155,5 +155,9 @@
     "path": "src/vm/IntrinsicsContainer.cpp",
     "function": "VmExecutor::ExecuteIntrinsicContainerStructural",
     "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/VmExecutorOps.cpp",
+    "reason": "the single instruction-dispatch switch (one case per opcode keeps dispatch inlinable; the arm count tracks the opcode set, so every opcode addition grows this TU by design)"
   }
 ]

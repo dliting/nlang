@@ -336,6 +336,14 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpNew(reader, locals);
             break;
 
+        //v0.13.1: typeName arms (VmExecutorOpsDescriptor.cpp).
+        case OpCode::OP_TypeNameArg:
+            OpTypeNameArg(reader, locals);
+            break;
+        case OpCode::OP_TypeNameCompose:
+            OpTypeNameCompose(reader, locals);
+            break;
+
         case OpCode::OP_CallMethodDirect:
             if (OpCallMethodDirect(reader, locals, pResult))
                 frameDone = true;

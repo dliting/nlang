@@ -79,6 +79,7 @@ identifiers:
 | `throw` |
 | `true` |
 | `try` |
+| `typeName` |
 | `ubyte` |
 | `uint` |
 | `ulong` |

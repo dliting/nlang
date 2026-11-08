@@ -1,0 +1,23 @@
+// v0.13.1 D4: typeName inside a template body reads the receiver's
+// own instantiation — a bare type parameter through the receiver's
+// argument (OP_TypeNameArg), a type-parameter-argument instantiation
+// through the composition recipe (OP_TypeNameCompose).
+class Box<T> {
+    public T value;
+    public Box(T v) { value = v; }
+}
+class Hold<T> {
+    public string showArg() { return typeName(T); }
+    public string showInner() { return typeName(Box<T>); }
+    public string showArray() { return typeName(T[]); }
+}
+int main() {
+    Hold<int> h = Hold();
+    if (h.showArg() != "int") return 1;
+    if (h.showInner() != "Box<int>") return 2;
+    Hold<Box<int>> h2 = Hold();
+    if (h2.showArg() != "Box<int>") return 3;
+    if (h.showArray() != "int[]") return 4;
+    if (h2.showArray() != "Box<int>[]") return 5;
+    return 0;
+}

@@ -209,6 +209,18 @@ enum class OpCode : uint8_t {
                         // validates in [1, kMaxArrayRank] and the extents
                         // go through AllocArrayOnHeap
 
+    // === v0.13.1: runtime generic type info (typeName) ===
+    OP_TypeNameArg,     // u16 dst, u8 paramOrdinal — read the receiver's
+                        // instantiation descriptor (local 0), take the
+                        // ordinal-th type argument's canonical spelling,
+                        // mint a string object, write its handle to
+                        // locals[dst]
+    OP_TypeNameCompose, // u16 dst, u16 recipeIdx — compose the recipe's
+                        // spelling against the receiver's instantiation
+                        // (ARG_THIS steps read local 0), intern the
+                        // descriptor, mint a string of its canonical
+                        // spelling, write the handle to locals[dst]
+
     OP_Count
 };
 
@@ -243,7 +255,9 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_MakeVFunc,
     OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
-    OpCode::OP_Neg};
+    //v0.13.1: OP_TypeNameArg is u16 dst + u8 ordinal — word-then-tag
+    //(OP_Neg is tag-then-word); the group encodes only the 4-byte extent.
+    OpCode::OP_Neg, OpCode::OP_TypeNameArg};
 static constexpr OpCode kStrideKindByte[] = {
     OpCode::OP_PrimCast};
 static constexpr OpCode kStrideTwoWords[] = {
@@ -257,7 +271,7 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
-    OpCode::OP_SlotInitGate};
+    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};

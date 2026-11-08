@@ -118,6 +118,7 @@ add_library(nlang_compiler
     builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
+    builder/TypeArgSpelling.cpp
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp

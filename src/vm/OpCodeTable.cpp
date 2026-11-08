@@ -94,6 +94,8 @@ static const char* s_OpCodeNames[] = {
     "load_element_dyn",
     "store_element_dyn",
     "alloc_array_dyn",
+    "type_name_arg",
+    "type_name_compose",
 };
 
 const char* OpCodeName(OpCode op) {

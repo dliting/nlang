@@ -504,6 +504,11 @@ private:
     //CompiledModule.h DescriptorEntry.
     GenericInstDescriptor* ComposeInstDescriptor(
         const std::vector<uint8_t>& recipe, const uint8_t* locals);
+    //One whole recipe row's spelling, no interning — typeName renders
+    //the string; self-describing by leading tag (0 = instantiation
+    //form, else a single argument encoding).
+    std::string ComposeRecipeRowSpelling(
+        const std::vector<uint8_t>& recipe, const uint8_t* locals);
     //One recipe range's canonical spelling: TEMPLATE_HEAD + argument
     //encodings until end. [pos, end) spans a complete recipe stream
     //(nested streams carry their own length prefix on the tag-4 operand).
@@ -707,6 +712,10 @@ private:
                               uint32_t selfId, uint16_t gatePc);
     void WakeClassInitWaiters(VmStaticSlots::StaticOwnerState* owner);
     void OpNew(BytecodeReader& reader, uint8_t* locals);
+    //v0.13.1: typeName arms — descriptor argument read and recipe
+    //composition (implementations beside OpNew).
+    void OpTypeNameArg(BytecodeReader& reader, uint8_t* locals);
+    void OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);

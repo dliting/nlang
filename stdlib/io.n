@@ -127,8 +127,8 @@ class ByteStream {
     // annotated array type (the cast checks rank and element type).
     public native void writeStruct(Object s);
     public native void writeObject(Object o);
-    public native Object readStruct(string typeName);
-    public native Object readObject(string typeName);
+    public native Object readStruct(string type);
+    public native Object readObject(string type);
     public native Object readArray();
 }
 
@@ -155,8 +155,8 @@ class FileStream {
     public native void writeString(string s);
     public native void writeStruct(Object s);
     public native void writeObject(Object o);
-    public native Object readStruct(string typeName);
-    public native Object readObject(string typeName);
+    public native Object readStruct(string type);
+    public native Object readObject(string type);
     public native Object readArray();
 }
 

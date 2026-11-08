@@ -18,8 +18,9 @@ LITERAL_KW = re.compile(r'"([A-Za-z_#]+)"\s*\{\s*return\s+(KT_\w+)')
 # a helper call (return KwToken(KT_X);) -- a bare "return KT_" would
 # go blind to that action style
 ALL_KT = re.compile(r"return\b[^;]*?\b(KT_\w+)")
-# spec table rows: | `word` | ... |
-TABLE_ROW = re.compile(r"^\|\s*`([a-z_#]+)`\s*\|", re.M)
+# spec table rows: | `word` | ... | (mixed case admitted — typeName is
+# the language's first camelCase reserved word, v0.13.1)
+TABLE_ROW = re.compile(r"^\|\s*`([A-Za-z_#]+)`\s*\|", re.M)
 
 
 def _lexer_keywords():

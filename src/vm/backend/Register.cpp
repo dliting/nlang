@@ -5,7 +5,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
-#include "backend/DescriptorSpelling.h"
+#include <nlang/compiler/TypeArgSpelling.h>
 #include "builder/SymbolSlots.hpp"
 #include <string>
 #include <nlang/compiler/SyntaxTree.h>
@@ -41,116 +41,15 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 
 } // namespace
 
-//True when the node sits directly inside a class/struct/interface/enum
-//body — i.e. it is a type member (method/field/constructor), not a
-//namespace member. Shared by QualifiedName (members keep bare keys) and
-//the entry-point scan (methods are never the entry). 0.9.11 D2: struct
-//constructors join — their table key stays bare like every other type
-//member, and a struct-typed `main` is never the entry point.
-static bool IsTypeMember(const SyntaxNode& node) {
-    const SyntaxNode* pParent = node.Parent();
-    return pParent && (pParent->Kind() == NK_ClassDecl
-        || pParent->Kind() == NK_StructDecl
-        || pParent->Kind() == NK_InterfaceDecl
-        || pParent->Kind() == NK_EnumDecl);
-}
-
-static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field);
-
-//Enclosure-qualified key of an enum or interface-static method:
-//"<unit>.<Type>.<method>" ("lib.Color.rank", "lib.I.twice"; a nested
-//type walks out as "lib.Outer.Inner.rank"). Phase 6 §2 D-ruling
-//(2026-10-02): enum methods never dispatch by name — direct calls use
-//function-table indices — so a bare "rank" cannot disambiguate two
-//same-named methods of different enums in one unit. 0.9.10 D5: interface
-//statics take the same shape — a bare key would collide with namespace-
-//level functions of the same name, and the cross-unit import resolves
-//through the ordinary namespace branch by construction.
-static std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method) {
-    std::vector<const SnField*> enclosure;   //owning enum first, then outer types
-    const SyntaxNode* p = method.Parent();
-    while (p && (p->Kind() == NK_EnumDecl || p->Kind() == NK_ClassDecl
-        || p->Kind() == NK_StructDecl || p->Kind() == NK_InterfaceDecl)) {
-        enclosure.push_back(static_cast<const SnField*>(p));
-        p = p->Parent();
-    }
-    //The outermost type's parent is a namespace, so its key comes from
-    //the registry branch of QualifiedName; inner types append bare names.
-    std::string key = QualifiedName(reg, *enclosure.back());
-    for (auto it = enclosure.rbegin() + 1; it != enclosure.rend(); ++it) {
-        key += '.';
-        key += (*it)->Name();
-    }
-    key += '.';
-    key += method.Name();
-    return key;
-}
-
-//Canonical VM key of a declaration: "<package>.<name>", or the bare name
-//when the node carries no owner tag. The package comes from the compile-
-//time registry (path-derived), NOT from an AST namespace walk — a walk can
-//only name a unit that literally wrote `namespace <path>`, and project
-//members hang off the root, so every project key would stay bare.
-//A CLASS/INSTANCE METHOD always keeps a bare name, even when its owning
-//type is package-nested: methods dispatch by name through their receiver
-//(VmExecutor::FindMethodByName compares the bare name), so a package
-//prefix would make every lookup fail. The exceptions take their
-//enclosure-qualified key instead (EnclosureMethodKey above): enum methods
-//and interface statics never dispatch by name through a receiver, so
-//nothing loses by the prefix, while same-named members of different types
-//(and namespace-level functions) stay distinct keys.
-//A synthetic generic instantiation keeps its ERASED builtin key ("List"
-//for List<int>): the backing CompiledClass is registered once under the
-//base name, and the instantiation node is ownerless, so the registry
-//would otherwise degrade to its display name ("List<int>") — not a key.
-//File-local to Register.cpp; VmBackend::KeyOf is the only exported
-//spelling.
-static std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
-    if (field.Kind() == NK_ClassDecl) {
-        auto& cls = static_cast<const SnClassDecl&>(field);
-        //v0.12.3 dictionary model: the erasure key is the BARE name for
-        //the template row and every instantiation alike — the template
-        //registers the one shared CompiledClass and ClassSlotFor looks
-        //it up by the bare name from both node shapes. A package
-        //prefix would split the two spellings (the instantiation keys
-        //BaseName, the template would key package-qualified).
-        if (cls.IsGenericInstantiation() || cls.IsGenericDeclaration())
-            return cls.BaseName();
-    }
-    if (IsTypeMember(field)) {
-        if (field.Parent()->Kind() == NK_EnumDecl)
-            return EnclosureMethodKey(reg, field);
-        //0.9.10 D5: an interface static takes the qualified key; the
-        //abstract instance members keep bare names (they register no
-        //function record at all).
-        if (field.Parent()->Kind() == NK_InterfaceDecl
-            && field.ContainFlags(NF_Static))
-            return EnclosureMethodKey(reg, field);
-        return field.Name();
-    }
-    //Prelude top-level members key bare (builtin-decls source-of-truth
-    //design §6.7): the records land in every image (IsOwnUnit's prelude
-    //arm) and must spell exactly what bare user code resolves —
-    //"Exception", not "lang.Exception".
-    if (reg.IsPreludeModule(reg.OwnerOf(field)))
-        return field.Name();
-    return reg.QualifiedName(field);
-}
-
 //Codegen-side accessor: every name written into or looked up in the VM
 //tables goes through here, so the spelling cannot drift from what the
 //resolver reports. Requires the registry injected by ModuleBuilder.
+//The key rules themselves (member/prelude/generic-erasure cases) live
+//in the shared LinkKeyOf (builder/TypeArgSpelling.cpp) — the resolver's
+//descriptor spellings and the row keys come from one function there.
 std::string VmBackend::KeyOf(const SnField& field) const {
     NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
-    return QualifiedName(*m_pRegistry, field);
-}
-
-//v0.13.1: the same spelling exported for the descriptor builder — the
-//instantiation descriptor's argument keys and the row keys must come
-//from one function or they drift apart (a cast would then compare two
-//spellings of one type as different instantiations).
-std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field) {
-    return QualifiedName(reg, field);
+    return LinkKeyOf(*m_pRegistry, field);
 }
 
 //Phase 6 per-unit codegen: reset the per-unit tables and select the unit

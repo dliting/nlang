@@ -434,6 +434,7 @@ static bool CollectQualifiedSegments(
 %token KT_Throw
 %token KT_True
 %token KT_Try
+%token KT_TypeName
 %token KT_Ubyte
 %token KT_Uint
 %token KT_ULong
@@ -2246,6 +2247,11 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = new SnThisExpr(@1); } |
 				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
+				//v0.13.1 D4: typeName(Type) — the canonical spelling of a
+				//type as a string. KT_TypeName leads no other rule, so the
+				//parenthesized Type (the same nonterminal the unambiguous
+				//type positions use) needs no dedicated state.
+				KT_TypeName '(' Type ')'	{ $$ = new SnTypeNameExpr($3, @1); } |
 				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
 				//form is allowed bare; dict/struct `{...}` requires an anchored
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict

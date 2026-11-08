@@ -104,9 +104,29 @@ static void PatchNewDescriptor(std::vector<uint8_t>& bc, size_t pos,
                      onUnmapped);
 }
 
-//Type- and slot-channel operands (class/struct/array/enum/static-slot
-//tables). SECOND-operand entries note the offset — OP_New family
-//shapes lead with a dst frame offset.
+//Static-slot channel operands (the storage-table indices of the static
+//access and lazy-init families — spec §6.2/§8).
+static void PatchStaticSlotOperands(OpCode op, std::vector<uint8_t>& bc,
+    size_t pos, const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    switch (op) {
+        case OpCode::OP_LoadStatic:
+            PatchOperand(bc, pos + 3, maps.slots, "static slot", onUnmapped);
+            break;
+        case OpCode::OP_StoreStatic:
+        case OpCode::OP_SlotInitGate:
+        case OpCode::OP_SlotInitDone:
+        case OpCode::OP_SlotInitFail:
+            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+            break;
+        default:
+            break;
+    }
+}
+
+//Type- and descriptor-channel operands (class/struct/array/enum tables,
+//descriptor rows). SECOND-operand entries note the offset — OP_New
+//family shapes lead with a dst frame offset.
 static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
@@ -142,16 +162,12 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_Enum_to_str:
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;
-        case OpCode::OP_LoadStatic:
-            PatchOperand(bc, pos + 3, maps.slots, "static slot", onUnmapped);
-            break;
-        case OpCode::OP_StoreStatic:
-            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
-            break;
-        case OpCode::OP_SlotInitGate:
-        case OpCode::OP_SlotInitDone:
-        case OpCode::OP_SlotInitFail:
-            PatchOperand(bc, pos + 1, maps.slots, "static slot", onUnmapped);
+        //v0.13.1: typeName recipe row — dst frame offset leads, the
+        //descriptor index is the second operand (pos+3). Unlike OP_New
+        //there is no 0xFFFF form (a compose site always names a row).
+        case OpCode::OP_TypeNameCompose:
+            PatchOperand(bc, pos + 3, maps.descriptors, "descriptor",
+                         onUnmapped);
             break;
         default:
             break;
@@ -166,6 +182,7 @@ void NcuRemapBytecodeOperands(std::vector<uint8_t>& bytecode,
         OpCode op = static_cast<OpCode>(bytecode[pos]);
         PatchNameOperands(op, bytecode, pos, maps, onUnmapped);
         PatchTypeOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchStaticSlotOperands(op, bytecode, pos, maps, onUnmapped);
         PatchClassInitOperands(op, bytecode, pos, maps, onUnmapped);
         pos += InstructionStride(op);
     }

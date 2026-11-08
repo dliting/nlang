@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
@@ -416,6 +417,58 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 	}
 	m_Env.Log(CLL_Error, sn.Location(),
 		"'this' can only be used inside a class, struct, or enum method.");
+}
+
+//v0.13.1 D4: typeName(Type). The operand resolves through the ordinary
+//type path; a concrete type folds to its canonical spelling (a
+//constant string), while a type-parameter operand — bare or nested in
+//an instantiation — reads the receiver's own instantiation at run
+//time, which a static member has no receiver for.
+void ExprResolveAccessor::Access(SnTypeNameExpr &sn)
+{
+	NLANG_ASSERT(!sn.IsResolved());
+
+	sn.TypeRef()->Accept(*m_pVisitor);
+	if (!sn.TypeRef()->IsResolved())
+		return;
+	SnField *pType = sn.TypeRef()->Field();
+	if (!pType)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"typeName operand did not resolve to a type.");
+		return;
+	}
+	const TypeArgDesc arg = BuildTypeArgOf(m_Env.Registry(), *pType);
+	const bool bNeedsReceiver = IsTypeParamArg(arg)
+		|| (!arg.nested.empty() && HasTypeParamArg(arg.nested));
+	if (bNeedsReceiver)
+	{
+		//Same rule as `this`: a static member has no receiver to read
+		//the instantiation from (the compensation pattern — an instance
+		//member answering typeName — is the documented alternative).
+		auto *pEnclosing = EnclosingFunction();
+		if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"typeName of a type parameter requires an instance "
+				"context; use an instance member or the compensation "
+				"pattern.");
+			return;
+		}
+		if (IsTypeParamArg(arg))
+			sn.SetTypeParamOrdinal(
+				static_cast<uint8_t>(TypeParamOrdinalOf(arg)));
+		//Type-parameter-argument instantiations keep the resolved decl
+		//for the emission-side recipe registration.
+	}
+	else
+	{
+		//Concrete: fold to the canonical spelling — a compile-time
+		//constant string.
+		sn.SetFoldedSpelling(CanonicalArgSpelling(arg));
+	}
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+	sn.AddFlags(NF_Resolved);
 }
 
 } //namespace nlang

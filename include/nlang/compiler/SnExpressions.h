@@ -894,6 +894,47 @@ public:
 	std::string ToString() const override;
 };
 
+//The "typeName(Type)" expression (v0.13.1 D4): the canonical spelling
+//of a type as a string. The resolver folds concrete types to a
+//constant spelling; a bare type parameter (or an instantiation whose
+//arguments contain one) reads the receiver's own instantiation at run
+//time — a static member has no receiver, so those are rejected there.
+//A plain composite (SnCompoundPlainExpr): the node carries a child (the
+//type subtree) but refers to no field itself — Field() stays null.
+class NLANG_COMPILER_API SnTypeNameExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_TypeNameExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnTypeNameExpr(SnFieldExpr *pType, const ISourceLocation &loc);
+
+	//The type subtree; resolved in place by the resolver.
+	SnFieldExpr *TypeRef() const { return m_pType; }
+
+	//Non-empty when the resolver folded the operand to a constant
+	//spelling (concrete types only — emission emits the string).
+	const std::string &FoldedSpelling() const { return m_foldedSpelling; }
+	void SetFoldedSpelling(std::string spelling)
+		{ m_foldedSpelling = std::move(spelling); }
+
+	//The receiver's type-argument ordinal when the operand is a bare
+	//type parameter (kNoTypeParamOrdinal otherwise); emission reads it
+	//for OP_TypeNameArg.
+	uint8_t TypeParamOrdinal() const { return m_typeParamOrdinal; }
+	void SetTypeParamOrdinal(uint8_t ordinal) { m_typeParamOrdinal = ordinal; }
+	static constexpr uint8_t kNoTypeParamOrdinal = 0xFF;
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pType;
+	std::string m_foldedSpelling;
+	uint8_t m_typeParamOrdinal = kNoTypeParamOrdinal;
+};
+
 //Array subscript access expression (e.g. arr[i]).
 //0.9.0: the node doubles as a sized array creation (`int[n]` / `Foo[n]`)
 //when the base identifier resolves as a TYPE — see NewArrayElem().
