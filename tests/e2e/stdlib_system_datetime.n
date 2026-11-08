@@ -40,6 +40,15 @@ int main() {
     if (DateTime.parse("2000-02-29T00:00:00Z").day != 29) { return 20; }
     if (DateTime.fromUnixMillis(-1).toUnixMillis() != -1) { return 21; }
     if (DateTime.fromUnixMillis(-62167219200000).toUnixMillis() != -62167219200000) { return 22; }
+    // Final review I3: toInt accepts a leading sign, so every field must
+    // be all-digits before conversion — otherwise "T-1:00" normalizes
+    // silently into the previous day and a signed year pads to text
+    // toString can never reparse. The parse domain is exactly the
+    // closed 4-digit-year form toString emits.
+    if (parseThrows("2026-01-01T-1:00:00Z") != 1) { return 23; }
+    if (parseThrows("2026-01-01T00:-1:00Z") != 1) { return 24; }
+    if (parseThrows("+026-01-01T00:00:00Z") != 1) { return 25; }
+    if (parseThrows("-026-01-01T00:00:00Z") != 1) { return 26; }
     io.print("ok");
     return 0;
 }

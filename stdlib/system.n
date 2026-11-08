@@ -105,7 +105,8 @@ const class DateTime {
     }
 
     // Parses exactly the form toString emits, with or without the
-    // fractional part. Malformed text raises DateTimeException.
+    // fractional part: plain digits only (no signs), year 0000..9999.
+    // Malformed text raises DateTimeException.
     public static DateTime parse(string iso) {
         int len = iso.length();
         if (len != 20 && len != 24) {
@@ -117,25 +118,26 @@ const class DateTime {
             || (len == 24 && iso.substring(19, 20) != ".")) {
             throw DateTimeException("DateTime.parse: malformed separator in \"" + iso + "\"");
         }
-        int y = 0;
-        int mo = 0;
-        int d = 0;
-        int hh = 0;
-        int mi = 0;
-        int se = 0;
+        // Positional format needs positional validation: toInt alone
+        // accepts a leading sign, which would silently normalize
+        // "T-1:00" into the previous day and let a signed year pad to
+        // text parse can never reparse. All-digits fields are also
+        // non-negative, so the range checks below need no lower bounds.
+        if (!allDigits(iso.substring(0, 4)) || !allDigits(iso.substring(5, 7))
+            || !allDigits(iso.substring(8, 10)) || !allDigits(iso.substring(11, 13))
+            || !allDigits(iso.substring(14, 16)) || !allDigits(iso.substring(17, 19))
+            || (len == 24 && !allDigits(iso.substring(20, 23)))) {
+            throw DateTimeException("DateTime.parse: non-numeric field in \"" + iso + "\"");
+        }
+        int y = iso.substring(0, 4).toInt();
+        int mo = iso.substring(5, 7).toInt();
+        int d = iso.substring(8, 10).toInt();
+        int hh = iso.substring(11, 13).toInt();
+        int mi = iso.substring(14, 16).toInt();
+        int se = iso.substring(17, 19).toInt();
         int ms = 0;
-        try {
-            y = iso.substring(0, 4).toInt();
-            mo = iso.substring(5, 7).toInt();
-            d = iso.substring(8, 10).toInt();
-            hh = iso.substring(11, 13).toInt();
-            mi = iso.substring(14, 16).toInt();
-            se = iso.substring(17, 19).toInt();
-            if (len == 24) {
-                ms = iso.substring(20, 23).toInt();
-            }
-        } catch (Exception e) {
-            throw DateTimeException("DateTime.parse: non-numeric field in \"" + iso + "\"", e);
+        if (len == 24) {
+            ms = iso.substring(20, 23).toInt();
         }
         int[] dim = int[13];
         dim[1] = 31; dim[3] = 31; dim[4] = 30; dim[5] = 31; dim[6] = 30;
@@ -151,6 +153,15 @@ const class DateTime {
         }
         return DateTime(civilToDays(y, mo, d) * 86400000
             + hh * 3600000 + mi * 60000 + se * 1000 + ms);
+    }
+
+    // True when every byte of s is an ASCII digit and s is non-empty.
+    private static bool allDigits(string s) {
+        for (int i = 0; i < s.length(); i = i + 1) {
+            int c = s[i];
+            if (c < 48 || c > 57) { return false; }
+        }
+        return s.length() > 0;
     }
 
     private static string pad(int v, int width) {
