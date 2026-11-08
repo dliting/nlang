@@ -91,16 +91,16 @@ static void PatchClassInitOperands(OpCode op, std::vector<uint8_t>& bc,
     }
 }
 
-//v0.13.1: OP_New's trailing descriptor-row operand. 0xFFFF is the
-//no-descriptor sentinel, not a table index — skipped.
-static void PatchNewDescriptor(std::vector<uint8_t>& bc, size_t pos,
+//v0.13.1: a descriptor-row operand (OP_New's trailing word, the cast's
+//descIdx). 0xFFFF is the no-descriptor sentinel, not a table index —
+//skipped.
+static void PatchDescriptorOperand(std::vector<uint8_t>& bc, size_t off,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
-    const size_t descOff = pos + 5;
-    const uint16_t descIdx = static_cast<uint16_t>(bc[descOff])
-        | (static_cast<uint16_t>(bc[descOff + 1]) << 8);
+    const uint16_t descIdx = static_cast<uint16_t>(bc[off])
+        | (static_cast<uint16_t>(bc[off + 1]) << 8);
     if (descIdx != 0xFFFF)
-        PatchOperand(bc, descOff, maps.descriptors, "descriptor",
+        PatchOperand(bc, off, maps.descriptors, "descriptor",
                      onUnmapped);
 }
 
@@ -133,10 +133,12 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     switch (op) {
         case OpCode::OP_New:
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
-            PatchNewDescriptor(bc, pos, maps, onUnmapped);
+            PatchDescriptorOperand(bc, pos + 5, maps, onUnmapped);
             break;
         case OpCode::OP_CheckCast:
             PatchOperand(bc, pos + 1, maps.classes, "class", onUnmapped);
+            //v0.13.1: descIdx is the second word (classIdx, descIdx).
+            PatchDescriptorOperand(bc, pos + 3, maps, onUnmapped);
             break;
         case OpCode::OP_CheckArrayType:
             PatchOperand(bc, pos + 5, maps.arrayTypes, "array type",

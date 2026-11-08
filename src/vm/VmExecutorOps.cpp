@@ -443,7 +443,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         //runtime class is operand-classIdx or a subclass thereof. Throws
         //on mismatch. Pushes the same heap idx back to pResult on success.
         case OpCode::OP_CheckCast:
-            OpCheckCast(reader, pResult);
+            OpCheckCast(reader, locals, pResult);
             break;
 
         case OpCode::OP_Throw:

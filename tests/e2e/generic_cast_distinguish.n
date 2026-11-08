@@ -1,0 +1,37 @@
+// v0.13.1 D5: casts distinguish generic instantiations. Both Box<int>
+// and Box<string> ride one erased class row, so the row check alone
+// cannot tell them apart — the instantiation descriptor must join the
+// comparison when the target names one.
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+}
+int main() {
+    Box<int> bi = Box(7);
+    Object o = bi;
+    //Wrong instantiation of the same template must throw (and the
+    //message names both spellings).
+    int acc = 0;
+    try {
+        Box<string> bs = o as Box<string>;
+        acc = acc + 1;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) {
+        if (e.message.indexOf("Box<int>") < 0) return 90;
+        if (e.message.indexOf("Box<string>") < 0) return 91;
+        acc = acc + 2;
+    }
+    //Right instantiation passes and reads back the value.
+    Box<int> back = o as Box<int>;
+    if (back.item != 7) return 92;
+    //The reverse direction (string instantiation first).
+    Box<string> bs2 = Box("y");
+    Object o2 = bs2;
+    try {
+        Box<int> bi2 = o2 as Box<int>;
+        return 93;  // wrong: must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 4; }
+    if (acc != 6) return 94;
+    return 0;
+}

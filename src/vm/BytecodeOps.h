@@ -105,7 +105,10 @@ enum class OpCode : uint8_t {
     // === Phase 8e-1: Object protocol + boxing/cast ===
     OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
     OP_Unbox,           // uint8 typeKind — pop Object ref, type-check, push primitive
-    OP_CheckCast,       // uint16 classIdx — pop ref, verify subclass, throw on mismatch
+    OP_CheckCast,       // uint16 classIdx, uint16 descIdx (0xFFFF = none) — verify
+                        // subclass; when descIdx names a descriptor row the
+                        // operand's instantiation spelling must match too
+                        // (v0.13.1: same template row, different type args)
 
     // === Phase 9d: Exception handling ===
     OP_Throw,           // uint16 src — throw Exception at locals[src] (heap idx)
@@ -250,7 +253,7 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
     OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
-    OpCode::OP_DebugInfo, OpCode::OP_NullCheck, OpCode::OP_CheckCast,
+    OpCode::OP_DebugInfo, OpCode::OP_NullCheck,
     OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
     OpCode::OP_MakeVFunc,
     OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
@@ -271,7 +274,9 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
-    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose};
+    //v0.13.1: OP_CheckCast gained its second u16 (descIdx) — classIdx,
+    //descIdx, the same extent family as the two-word loads.
+    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};

@@ -261,18 +261,26 @@ void VmBackend::EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 }
 
 //As arm: TCK_Downcast — target is a subclass, emit OP_CheckCast classIdx.
+//v0.13.1: a generic-instantiation target also names its descriptor row
+//(the row check alone cannot tell Box<int> from Box<string> — one erased
+//row per template); non-instantiations carry the 0xFFFF sentinel, and
+//recipe rows compose against the receiver at run time like OP_New.
 void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                                  uint16_t resultOffset) {
     auto* targetType = asExpr.ResolvedTarget();
     uint16_t classIdx = 0;
+    uint16_t descIdx = kNoInstDescriptor;
     if (targetType && targetType->Kind() == NK_ClassDecl) {
         //Per-unit: own/builtin classes resolve through the table lookup;
         //a cross-unit class becomes an import placeholder slot.
         classIdx = static_cast<uint16_t>(
             ClassSlotFor(static_cast<SnClassDecl&>(*targetType)));
+        descIdx = DescriptorIndexFor(
+            static_cast<SnClassDecl&>(*targetType));
     }
     emitter.Emit(OpCode::OP_CheckCast);
     emitter.EmitUint16(classIdx);
+    emitter.EmitUint16(descIdx);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
 }

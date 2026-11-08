@@ -400,7 +400,8 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
             EmitU16(r, out, head, " %u");
             return true;
         case OpCode::OP_CheckCast:
-            EmitU16(r, out, head, " classIdx=%u");
+            //v0.13.1: classIdx + descIdx (0xFFFF = no descriptor check).
+            DisasmU16xN(2, r, out, head, " classIdx=%u desc=%u");
             return true;
         case OpCode::OP_Box:
         case OpCode::OP_Unbox:

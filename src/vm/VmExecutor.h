@@ -813,7 +813,15 @@ private:
                                uint8_t rank);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
-    void OpCheckCast(BytecodeReader& reader, uint8_t* pResult);
+    void OpCheckCast(BytecodeReader& reader, uint8_t* locals,
+                     uint8_t* pResult);
+    //v0.13.1: a cast's descriptor row → target descriptor (static rows
+    //pre-interned; recipe rows compose against the receiver).
+    GenericInstDescriptor* CastTargetDescriptor(uint16_t descIdx,
+                                                const uint8_t* locals);
+    //The instantiation-matching tail of OpCheckCast (0xFFFF skips).
+    void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
+                                const uint8_t* locals);
     //The class a checked-cast operand dispatches on: a class record's
     //own header; boxed values and arrays (owned or view) resolve their
     //protocol roots (Object / the Array face — spec 4.1, final-review

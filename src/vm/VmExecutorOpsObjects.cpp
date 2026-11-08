@@ -258,8 +258,25 @@ bool VmExecutor::ClassMatchesTarget(int32_t actualClassIdx,
     return false;
 }
 
-void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
+//v0.13.1 D5: resolve a cast's descriptor row to its target descriptor —
+//static rows are pre-interned in m_descCache; a recipe row (a T-argument
+//target inside a template body) composes against the receiver (slot 0)
+//exactly like OP_New.
+GenericInstDescriptor* VmExecutor::CastTargetDescriptor(
+    uint16_t descIdx, const uint8_t* locals) {
+    if (descIdx >= m_descCache.size())
+        throw std::runtime_error(
+            "NLang VM: invalid descriptor index in OP_CheckCast");
+    if (!m_descCache[descIdx])
+        return ComposeInstDescriptor(
+            m_currModule->descriptorTable[descIdx].recipe, locals);
+    return m_descCache[descIdx];
+}
+
+void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* locals,
+                             uint8_t* pResult) {
     uint16_t targetClassIdx = reader.ReadUint16();
+    uint16_t descIdx = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     //v0.12.7: null is a legal language value — `x as T` on null yields
@@ -293,7 +310,29 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
             + LeafNameOfKey(tgt.name) + "`, got `"
             + LeafNameOfKey(act.name) + "`");
     }
+    //v0.13.1 D5: the row check cannot distinguish instantiations of one
+    //template — the named descriptor row must also match.
+    CheckCastInstantiation(descIdx, heapIdx, locals);
     //Result: same heap idx, unchanged.
+}
+
+//v0.13.1 D5: the instantiation tail of OP_CheckCast — the target's
+//descriptor row must match the operand's own instantiation spelling.
+//An operand WITHOUT a descriptor (a subclass of an instantiation, an
+//erased builtin row) degrades to the row check that already passed;
+//every direct construction of a template row carries one.
+void VmExecutor::CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
+                                        const uint8_t* locals) {
+    if (descIdx == 0xFFFF)
+        return;
+    const GenericInstDescriptor* target =
+        CastTargetDescriptor(descIdx, locals);
+    const GenericInstDescriptor* actual = InstDescriptorOf(heapIdx);
+    if (actual && target && actual != target)
+        RaiseNlangException(m_invalidCastExcClassIdx, std::string(
+            "NLang VM: invalid cast - expected `")
+            + target->Spelling() + "`, got `"
+            + actual->Spelling() + "`");
 }
 
 //Phase 9d: walk superClassIdx chain starting from the actual class at

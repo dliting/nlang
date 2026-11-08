@@ -2306,6 +2306,22 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
+				//v0.13.1 D5: the as-target gains the generic spelling —
+				//`o as Box<int>` distinguishes instantiations of one erased
+				//template row (the descriptor check joins OP_CheckCast).
+				//Both angle spellings mirror Type's generic arms: OT_TypeLt
+				//for scan-flagged names (built-ins), plain '<' with the
+				//mid-rule depth increment for user-declared templates.
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>'	{
+						$$ = new SnAsExpr($1,
+							new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3), @2);
+					} |
+				Expression KT_As IdentifierExpr '<' {
+						parser.Scanner().IncGenericDepth();
+					} TypeList '>'	{
+						$$ = new SnAsExpr($1,
+							new SnGenericTypeExpr(new SnNameExpr($3, @3), $6, @3), @2);
+					} |
 				//v0.12.7: the as-target gains the bracket spellings — the
 				//boundary rank check (OP_CheckArrayRank) is the whole point
 				//of `dyn as int[]`. The generic spelling adds nothing as a
