@@ -14,3 +14,167 @@ native long wallMs();
 // backwards. The same clock domain as io.parkForIo's deadlineMs — use
 // it for intervals, timeouts and timers. Replaces the former io.nowMs.
 native long monoMs();
+
+// Raised for malformed date/time input (DateTime.parse) and
+// out-of-range calendar fields.
+const class DateTimeException : Exception {
+    public DateTimeException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// An immutable UTC calendar timestamp on the proleptic Gregorian
+// calendar; no local-timezone handling yet. The fields are always
+// normalized (month 1..12, day 1..daysInMonth, hour 0..23,
+// minute/second 0..59, millis 0..999).
+const class DateTime {
+    public int year;
+    public int month;
+    public int day;
+    public int hour;
+    public int minute;
+    public int second;
+    public int millis;
+
+    // Decomposes Unix epoch milliseconds (Hinnant's civil_from_days;
+    // the era guards assume C++ truncating division, which the VM
+    // implements).
+    public DateTime(long unixMillis) {
+        long days = unixMillis / 86400000;
+        long rem = unixMillis % 86400000;
+        if (rem < 0) {
+            rem = rem + 86400000;
+            days = days - 1;
+        }
+        long z = days + 719468;
+        long zAdj = z;
+        if (zAdj < 0) { zAdj = zAdj - 146096; }
+        long era = zAdj / 146097;
+        long doe = z - era * 146097;
+        long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        long y = yoe + era * 400;
+        long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        long mp = (5 * doy + 2) / 153;
+        day = (doy - (153 * mp + 2) / 5 + 1) as int;
+        long mo = mp;
+        if (mo < 10) { mo = mo + 3; } else { mo = mo - 9; }
+        month = mo as int;
+        long yr = y;
+        if (month <= 2) { yr = yr + 1; }
+        year = yr as int;
+        hour = (rem / 3600000) as int;
+        minute = (rem % 3600000 / 60000) as int;
+        second = (rem % 60000 / 1000) as int;
+        millis = (rem % 1000) as int;
+    }
+
+    // The current wall-clock instant.
+    public static DateTime now() {
+        return DateTime(wallMs());
+    }
+
+    public static DateTime fromUnixMillis(long unixMillis) {
+        return DateTime(unixMillis);
+    }
+
+    public long toUnixMillis() {
+        return civilToDays(year, month, day) * 86400000
+            + hour * 3600000 + minute * 60000 + second * 1000 + millis;
+    }
+
+    // A new DateTime shifted by the given amount (may cross days,
+    // months or years).
+    public DateTime addMillis(long delta) {
+        return DateTime(this.toUnixMillis() + delta);
+    }
+
+    // 0 = Sunday .. 6 = Saturday (1970-01-01 was a Thursday).
+    public int dayOfWeek() {
+        int r = ((civilToDays(year, month, day) + 4) % 7) as int;
+        if (r < 0) {
+            r = r + 7;
+        }
+        return r;
+    }
+
+    // ISO 8601 UTC form "YYYY-MM-DDThh:mm:ss.mmmZ".
+    public string toString() {
+        return pad(year, 4) + "-" + pad(month, 2) + "-" + pad(day, 2)
+            + "T" + pad(hour, 2) + ":" + pad(minute, 2) + ":"
+            + pad(second, 2) + "." + pad(millis, 3) + "Z";
+    }
+
+    // Parses exactly the form toString emits, with or without the
+    // fractional part. Malformed text raises DateTimeException.
+    public static DateTime parse(string iso) {
+        int len = iso.length();
+        if (len != 20 && len != 24) {
+            throw DateTimeException("DateTime.parse: expected \"YYYY-MM-DDThh:mm:ss[.mmm]Z\", got \"" + iso + "\"");
+        }
+        if (iso.substring(4, 5) != "-" || iso.substring(7, 8) != "-"
+            || iso.substring(10, 11) != "T" || iso.substring(13, 14) != ":"
+            || iso.substring(16, 17) != ":" || iso.substring(len - 1, len) != "Z"
+            || (len == 24 && iso.substring(19, 20) != ".")) {
+            throw DateTimeException("DateTime.parse: malformed separator in \"" + iso + "\"");
+        }
+        int y = 0;
+        int mo = 0;
+        int d = 0;
+        int hh = 0;
+        int mi = 0;
+        int se = 0;
+        int ms = 0;
+        try {
+            y = iso.substring(0, 4).toInt();
+            mo = iso.substring(5, 7).toInt();
+            d = iso.substring(8, 10).toInt();
+            hh = iso.substring(11, 13).toInt();
+            mi = iso.substring(14, 16).toInt();
+            se = iso.substring(17, 19).toInt();
+            if (len == 24) {
+                ms = iso.substring(20, 23).toInt();
+            }
+        } catch (Exception e) {
+            throw DateTimeException("DateTime.parse: non-numeric field in \"" + iso + "\"", e);
+        }
+        int[] dim = int[13];
+        dim[1] = 31; dim[3] = 31; dim[4] = 30; dim[5] = 31; dim[6] = 30;
+        dim[7] = 31; dim[8] = 31; dim[9] = 30; dim[10] = 31; dim[11] = 30; dim[12] = 31;
+        if ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) {
+            dim[2] = 29;
+        } else {
+            dim[2] = 28;
+        }
+        if (mo < 1 || mo > 12 || d < 1 || d > dim[mo]
+            || hh > 23 || mi > 59 || se > 59 || ms > 999) {
+            throw DateTimeException("DateTime.parse: field out of range in \"" + iso + "\"");
+        }
+        return DateTime(civilToDays(y, mo, d) * 86400000
+            + hh * 3600000 + mi * 60000 + se * 1000 + ms);
+    }
+
+    private static string pad(int v, int width) {
+        string s = v.toString();
+        while (s.length() < width) {
+            s = "0" + s;
+        }
+        return s;
+    }
+
+    // Hinnant's days_from_civil: days since 1970-01-01.
+    private static long civilToDays(int y, int m, int d) {
+        int yy = y;
+        if (m <= 2) {
+            yy = yy - 1;
+        }
+        long yyAdj = yy;
+        if (yyAdj < 0) { yyAdj = yyAdj - 399; }
+        long era = yyAdj / 400;
+        long yoe = yy - era * 400;
+        int mAdj = m;
+        if (mAdj > 2) { mAdj = mAdj - 3; } else { mAdj = mAdj + 9; }
+        long doy = (153 * mAdj + 2) / 5 + d - 1;
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + doe - 719468;
+    }
+}
