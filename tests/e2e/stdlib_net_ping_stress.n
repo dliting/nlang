@@ -1,6 +1,7 @@
 import io;
 import thread;
 import net;
+import system;
 
 // Final review I3: concurrent pings share the executor's self-pipe,
 // and the ack byte is only a hint — any waiter's drain can consume a
@@ -24,13 +25,13 @@ class Pinger {
 int main() {
     Pinger[] ps = Pinger[16];
     Thread[] ts = Thread[16];
-    long t0 = io.nowMs();
+    long t0 = system.monoMs();
     for (int i = 0; i < 16; i = i + 1) {
         ps[i] = Pinger();
         ts[i] = thread.spawn(ps[i].run);
     }
     for (int i = 0; i < 16; i = i + 1) { thread.join(ts[i]); }
-    long total = io.nowMs() - t0;
+    long total = system.monoMs() - t0;
     for (int i = 0; i < 16; i = i + 1) {
         if (ps[i].rtt < 0) { return 1; }        //ping failed outright
     }

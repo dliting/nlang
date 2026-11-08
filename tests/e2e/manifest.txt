@@ -2136,3 +2136,4 @@ stdlib_system_clock 0
 stdlib_str_indexof_from 0
 stdlib_str_toint_radix 0
 stdlib_str_equalsignore_case 0
+stdlib_io_base64 0

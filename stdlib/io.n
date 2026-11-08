@@ -160,10 +160,6 @@ class FileStream {
     public native Object readArray();
 }
 
-// Monotonic millisecond clock — the same clock domain as parkForIo's
-// deadlines (arbitrary epoch, not wall time).
-native long nowMs();
-
 // Park the current virtual thread until fd is ready (events: 1 = read,
 // 2 = write) or the absolute deadline is reached (deadlineMs <= 0 means
 // no deadline); fd < 0 is a pure deadline park (timed wakeup), and
@@ -178,3 +174,104 @@ native void parkForIo(int fd, int events, long deadlineMs);
 // network-specific.
 native byte[] toBytes(string s);
 native string fromBytes(byte[] data);
+
+// ---- Base64 codecs (RFC 4648) ---------------------------------------------
+// Standard alphabet with '=' padding; malformed input raises Exception.
+string base64Encode(byte[] data) {
+    const string ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int n = data.length();
+    byte[] dst = byte[((n + 2) / 3) * 4];
+    int j = 0;
+    for (int i = 0; i < n; i = i + 3) {
+        int b0 = data[i];
+        if (b0 < 0) { b0 = b0 + 256; }
+        int b1 = 0;
+        if (i + 1 < n) { b1 = data[i + 1]; if (b1 < 0) { b1 = b1 + 256; } }
+        int b2 = 0;
+        if (i + 2 < n) { b2 = data[i + 2]; if (b2 < 0) { b2 = b2 + 256; } }
+        int v0 = b0 / 4;
+        int v1 = (b0 % 4) * 16 + b1 / 16;
+        int v2 = 0;
+        if (i + 1 < n) { v2 = (b1 % 16) * 4 + b2 / 64; }
+        int v3 = 0;
+        if (i + 2 < n) { v3 = b2 % 64; }
+        dst[j] = ALPHABET[v0] as byte;
+        dst[j + 1] = ALPHABET[v1] as byte;
+        if (i + 1 < n) { dst[j + 2] = ALPHABET[v2] as byte; } else { dst[j + 2] = 61 as byte; }
+        if (i + 2 < n) { dst[j + 3] = ALPHABET[v3] as byte; } else { dst[j + 3] = 61 as byte; }
+        j = j + 4;
+    }
+    return fromBytes(dst[0:j]);
+}
+
+// Decode standard Base64: length must be a multiple of 4; '=' padding
+// only in the last one or two positions with zero leftover bits.
+byte[] base64Decode(string s) {
+    int len = s.length();
+    if (len % 4 != 0) {
+        throw Exception("base64Decode: input length must be a multiple of 4.");
+    }
+    const string ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int[] rev = int[256];
+    for (int i = 0; i < 256; i = i + 1) { rev[i] = -1; }
+    for (int i = 0; i < 64; i = i + 1) { rev[ALPHABET[i]] = i; }
+    if (len == 0) { return byte[0]; }
+    int pad = 0;
+    if ((s[len - 1]) == 61) {
+        pad = pad + 1;
+        if ((s[len - 2]) == 61) { pad = pad + 1; }
+    }
+    byte[] dst = byte[len / 4 * 3 - pad];
+    int j = 0;
+    for (int i = 0; i < len; i = i + 4) {
+        int v0 = rev[s[i]];
+        int v1 = rev[s[i + 1]];
+        int v2 = 0;
+        if (i + 2 < len - pad) { v2 = rev[s[i + 2]]; }
+        int v3 = 0;
+        if (i + 3 < len - pad) { v3 = rev[s[i + 3]]; }
+        if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) {
+            throw Exception("base64Decode: input contains a character outside the Base64 alphabet.");
+        }
+        int groupBytes = 3;
+        if (i == len - 4) {
+            // The padding-bit checks apply only to the final group: pad is a
+            // tail property, and the low bits of a full group are data.
+            groupBytes = 3 - pad;
+            if (pad == 2 && (v1 % 16) != 0) {
+                throw Exception("base64Decode: non-zero bits in padding.");
+            }
+            if (pad == 1 && (v2 % 4) != 0) {
+                throw Exception("base64Decode: non-zero bits in padding.");
+            }
+        }
+        dst[j] = (v0 * 4 + v1 / 16) as byte;
+        if (groupBytes >= 2) { dst[j + 1] = ((v1 % 16) * 16 + v2 / 4) as byte; }
+        if (groupBytes >= 3) { dst[j + 2] = ((v2 % 4) * 64 + v3) as byte; }
+        j = j + groupBytes;
+    }
+    return dst;
+}
+
+// URL-safe alphabet ('-' '_') without padding, JWT style.
+string base64UrlEncode(byte[] data) {
+    string s = base64Encode(data);
+    s = s.replace("+", "-");
+    s = s.replace("/", "_");
+    int end = s.length();
+    while (end > 0 && (s[end - 1]) == 61) { end = end - 1; }
+    return s.substring(0, end);
+}
+
+// Decode URL-safe Base64 with or without padding; a length of 1 mod 4
+// is malformed.
+byte[] base64UrlDecode(string s) {
+    string t = s.replace("-", "+");
+    t = t.replace("_", "/");
+    int rem = t.length() % 4;
+    if (rem == 1) {
+        throw Exception("base64UrlDecode: input length is not a valid Base64 length.");
+    }
+    while (t.length() % 4 != 0) { t = t + "="; }
+    return base64Decode(t);
+}

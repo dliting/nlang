@@ -149,15 +149,12 @@ impose no text encoding on what they read or write.
 
 ## 14.5 Generic IO Facilities
 
-Four functions round out the package as infrastructure for
+Three functions round out the package as infrastructure for
 native-backed libraries rather than everyday user tools: ordinary
 programs reach the same behavior through the blocking calls of the
 `net` package (chapter 20) or the stream classes of §14.6, and
 rarely call these directly.
 
-- `io.nowMs()` returns a `long` reading of a monotonic millisecond
-  clock — an arbitrary epoch, not wall time — in the same clock
-  domain as `parkForIo` deadlines.
 - `io.parkForIo(fd, events, deadlineMs)` parks the calling virtual
   thread until the descriptor `fd` is ready (`events`: `1` read,
   `2` write) or the absolute deadline `deadlineMs` is reached

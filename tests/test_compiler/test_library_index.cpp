@@ -43,8 +43,9 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 269 functions: io 19 (14 natives + 5 typed-reader wrappers; the
-    // v11 clock/park natives and the byte helpers moved from net),
+    // 272 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // Base64 codecs; the v11 park native and the byte helpers moved
+    // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
     // probes), tensor 152 (the v0.12.7 surface: broadcasting
@@ -59,7 +60,7 @@ static void TestLoadsStdLib()
     // functions), system 2 (the wall and monotonic clocks).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 269);
+    CHECK(env.LibraryIndex().size() == 272);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

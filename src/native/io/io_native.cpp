@@ -139,16 +139,11 @@ void IoAppendFile(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     WriteLike(h, a, /*append=*/true, "appendFile");
 }
 
-// v0.13.0 net (r1 note 5): the generic IO surface — monotonic clock,
-// IO parking, and the byte helpers moved out of the net package
-// (string is a byte container; UTF-8 bytes pass through untouched).
-
-// nowMs: the host's monotonic millisecond clock — the same clock
-// domain as parkForIo deadlines (a deadline is an absolute nowMs
-// reading). Pure clock read, no VM state: normal channel.
-void IoNowMs(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
-    ReturnLong(ret, h->nowMs(h));
-}
+// v0.13.0 net (r1 note 5): the generic IO surface — IO parking and the
+// byte helpers moved out of the net package (string is a byte container;
+// UTF-8 bytes pass through untouched). The monotonic clock moved to
+// system.monoMs in v0.13.4 (the host ABI nowMs callback stays: it is the
+// deadline domain of parkForIo).
 
 // parkForIo: registered on the blocking channel, so the GIL is
 // released around this call and the host can park the context and
@@ -223,7 +218,6 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "io", "readFile",   &IoReadFile);
     regBlocking(registry, "io", "writeFile",  &IoWriteFile);
     regBlocking(registry, "io", "appendFile", &IoAppendFile);
-    reg(registry, "io", "nowMs",      &IoNowMs);
     regBlocking(registry, "io", "parkForIo",  &IoParkForIo);
     reg(registry, "io", "toBytes",    &IoToBytes);
     reg(registry, "io", "fromBytes",  &IoFromBytes);
