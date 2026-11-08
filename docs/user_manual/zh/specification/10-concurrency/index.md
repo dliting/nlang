@@ -8,7 +8,7 @@ NLang把并发工作跑成*虚拟线程*：调度到一小撮*载体*线程上�
 
 NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（即操作系统线程）上的轻量执行上下文。一个程序的各上下文共享一个堆（§9.2）：每个上下文看到同样的对象。上下文只在安全点让出其载体——函数入口或循环回边——且每个上下文最多运行1000次循环回边，之后另一个才可被派发。
 
-并发名字分属两个标准库包（第17章），各自按名导入（§3.9.4）：`thread`（声明于`stdlib/thread.n`）回答谁来跑、结果在哪取——`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数；`concurrent`（声明于`stdlib/concurrent.n`）回答跑起来之后怎么配合——`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`、`WaitGroup`。它们的声明位于标准库，其实现内建于虚拟机。
+并发名字分属两个标准库包（第18章），各自按名导入（§3.9.4）：`thread`（声明于`stdlib/thread.n`）回答谁来跑、结果在哪取——`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数；`concurrent`（声明于`stdlib/concurrent.n`）回答跑起来之后怎么配合——`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`、`WaitGroup`。它们的声明位于标准库，其实现内建于虚拟机。
 
 - `thread.spawn(f)`接受一个零参函数值（§7.4）：一个自由函数、一个绑定方法，或持有其一的变量。它启动一个新上下文并立即返回其句柄。类型为`func<void>`的委托产出`Thread`句柄；类型为`func<T>`的委托产出`Future<T>`句柄（§10.5）。
 - `thread.join(t)`挂起调用上下文，直到目标上下文结束。多个上下文可以join同一目标；它们都会被唤醒。join一个已结束的上下文立即返回；把上下文join到自己身上是*宿主级*执行期错误（§8.1）。
@@ -19,7 +19,7 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 
 逃出派生上下文体顶部的异常把该上下文标记为*失败*；它既不传播到宿主，也不传播到入口上下文。失败经由`join`浮现——或经由该上下文`Future`上的`get()`（§10.5）——即原始异常对象，其类、`message`与`backtrace`都保持不变（§8.3）。没有任何上下文观测到的失败不会无声丢失：运行结束时实现把它报告到错误输出，每个未观测的失败上下文一行。
 
-*载体*是运行上下文的操作系统线程。库默认是一个载体；`nvm`至多启动4个载体，接受`N`从1到64的`--carriers=N`；嵌入宿主经`VmExecutor::SetCarrierThreadCount`选入。执行不被一把全局锁串行化：存储保护按*数据类别*分组，每类一把锁——容器（`List`、`Dict`）、同步原语（mutex、信号量、通道）、流，以及字符串维护。同类操作互相串行，不同类同时进行，堆与字符串的分配不需要全局锁。对象字段读写不加锁，所以对象一经跨载体共享——经`spawn`实参或通道——其字段的并发读写就是*数据竞争*：可能读到写入一半的过渡值，但不会损坏内存。容器与字符串的内部结构因此永远不会被并发破坏，共享可变状态用`Mutex`（§10.2）协调。声明了阻塞段（§23.7）的原生调用在等待期间释放它持有的锁，让其他上下文运行；未声明阻塞段的原生在不持锁的情况下运行，其存储操作经自守护回调逐次取得类别锁。
+*载体*是运行上下文的操作系统线程。库默认是一个载体；`nvm`至多启动4个载体，接受`N`从1到64的`--carriers=N`；嵌入宿主经`VmExecutor::SetCarrierThreadCount`选入。执行不被一把全局锁串行化：存储保护按*数据类别*分组，每类一把锁——容器（`List`、`Dict`）、同步原语（mutex、信号量、通道）、流，以及字符串维护。同类操作互相串行，不同类同时进行，堆与字符串的分配不需要全局锁。对象字段读写不加锁，所以对象一经跨载体共享——经`spawn`实参或通道——其字段的并发读写就是*数据竞争*：可能读到写入一半的过渡值，但不会损坏内存。容器与字符串的内部结构因此永远不会被并发破坏，共享可变状态用`Mutex`（§10.2）协调。声明了阻塞段（§25.7）的原生调用在等待期间释放它持有的锁，让其他上下文运行；未声明阻塞段的原生在不持锁的情况下运行，其存储操作经自守护回调逐次取得类别锁。
 
 入口上下文返回时，程序结束：仍在停泊或排队的上下文被丢弃而不再运行。若没有上下文可运行、没有定时器挂起、也没有原生调用被阻塞，实现把死锁报告为*宿主级*执行期错误（§8.1）而非无限等待。
 
@@ -39,14 +39,14 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 
 ## 10.3 Semaphore
 
-`Semaphore`最多容纳N个上下文进入一个区段：互斥锁容纳一个，信号量容纳N。它是`concurrent`标准库包的句柄类（第17章；需要导入，§3.9.4）：
+`Semaphore`最多容纳N个上下文进入一个区段：互斥锁容纳一个，信号量容纳N。它是`concurrent`标准库包的句柄类（第18章；需要导入，§3.9.4）：
 
 - `Semaphore(n)`设置初始许可数。负的`n`是*宿主级*执行期错误（§8.1）。`0`是合法的——信号切换形态，等待者在`acquire`处停下，直到后来的`release`放行。
 - `acquire()`取一个许可。没有许可可用期间，调用者在一个队列中停泊；`release()`把许可直接交给队首的等待者，按到达序。
 - `release()`归还一个许可。没有所有权要求：没有配对`acquire`的`release`是合法的，且计数可以超过初始值。
 - `tryAcquire()`从不停泊：有许可可用时它取走一个并产出`true`，否则产出`false`。
 
-`concurrent`标准库包（第17章）还提供`WaitGroup`：`add(n)`累计未结单位，`done()`注销一个，`wait()`停泊直到计数到达零。约定是`add`先于`wait`、`done`与`add`配对：不配对的`done`会让`wait`提前放行，缺失的`done`会让它永远停泊——程序在§10.1的退出策略下结束。与句柄类不同，`WaitGroup`是包源码中声明的普通NLang代码，构建于`Mutex`与`Channel`之上。
+`concurrent`标准库包（第18章）还提供`WaitGroup`：`add(n)`累计未结单位，`done()`注销一个，`wait()`停泊直到计数到达零。约定是`add`先于`wait`、`done`与`add`配对：不配对的`done`会让`wait`提前放行，缺失的`done`会让它永远停泊——程序在§10.1的退出策略下结束。与句柄类不同，`WaitGroup`是包源码中声明的普通NLang代码，构建于`Mutex`与`Channel`之上。
 
 ## 10.4 Channel
 
@@ -113,8 +113,8 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 | 等任意一个先就绪 | `Future.selectAny(futures)`（返回获胜下标） |
 | 在任务之间传值 | `Channel<T>`（send/recv/close） |
 | 保护共享可变状态 | `Mutex`（lock/unlock/tryLock） |
-| 方法组合或递归体内加锁 | `ReentrantMutex`（可重入，见[ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md)） |
-| 单值计数器/标志位的原子更新 | `AtomicInt`（load/store/compareExchange，见[AtomicInt](../library/17-concurrency-classes/atomic.md)） |
+| 方法组合或递归体内加锁 | `ReentrantMutex`（可重入，见[ReentrantMutex](../library/18-concurrency-classes/reentrant-mutex.md)） |
+| 单值计数器/标志位的原子更新 | `AtomicInt`（load/store/compareExchange，见[AtomicInt](../library/18-concurrency-classes/atomic.md)） |
 | 限制同时进入某段代码的任务数 | `Semaphore(n)` |
 | 等一批任务全部完成 | `WaitGroup`（add/done/wait）或逐个`join` |
 | 一次性唤醒一组等待者 | `Channel.close()`广播 |
@@ -123,11 +123,11 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 
 - [载体与并行](carriers.md)——执行模型、存储保护、哪些代码真并行、确定性与载体数选择
 - [挂起与调度限制](suspension.md)——挂起与阻塞、跨挂起的异常、主退出策略、死锁报告、重入求值内的挂起
-- [并发类](../library/17-concurrency-classes/index.md)——库章节：包形态，外加每类一页
-- [thread包](../library/17-concurrency-classes/thread.md)——`spawn`、`join`、`yield`、`id`、`sleep`
-- [Future](../library/17-concurrency-classes/future.md)——取回派生任务的返回值
-- [Promise](../library/17-concurrency-classes/promise.md)——手工完成源与`Future.selectAny`多路等待
-- [Mutex](../library/17-concurrency-classes/mutex.md)——不可重入互斥
-- [Semaphore](../library/17-concurrency-classes/semaphore.md)——计数信号量
-- [Channel](../library/17-concurrency-classes/channel.md)——消息传递与关闭语义
-- [concurrent包](../library/17-concurrency-classes/concurrent.md)——concurrent包的各个类，含`WaitGroup`
+- [并发类](../library/18-concurrency-classes/index.md)——库章节：包形态，外加每类一页
+- [thread包](../library/18-concurrency-classes/thread.md)——`spawn`、`join`、`yield`、`id`、`sleep`
+- [Future](../library/18-concurrency-classes/future.md)——取回派生任务的返回值
+- [Promise](../library/18-concurrency-classes/promise.md)——手工完成源与`Future.selectAny`多路等待
+- [Mutex](../library/18-concurrency-classes/mutex.md)——不可重入互斥
+- [Semaphore](../library/18-concurrency-classes/semaphore.md)——计数信号量
+- [Channel](../library/18-concurrency-classes/channel.md)——消息传递与关闭语义
+- [concurrent包](../library/18-concurrency-classes/concurrent.md)——concurrent包的各个类，含`WaitGroup`

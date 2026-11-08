@@ -9,7 +9,7 @@ error guidance. For a guided introduction to the language, see
 informative and links here for the rules it summarizes. The English
 text is normative.
 
-The specification describes NLang 0.12.9. It is a living document:
+The specification describes NLang 0.13.4. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
@@ -67,30 +67,30 @@ before they land here.
 - [13. The math Package](library/13-math.md)
 - [14. The io Package and Streams](library/14-io/index.md)
   - [14.6 ByteStream and FileStream](library/14-io/streams.md)
-- [15. The fs Package](library/15-fs.md)
-- [16. string Methods](library/16-string-methods.md)
-- [17. The Concurrency Classes](library/17-concurrency-classes/index.md)
-  - [17.3 The thread Package](library/17-concurrency-classes/thread.md)
-  - [17.4 Future](library/17-concurrency-classes/future.md)
-  - [17.5 Promise](library/17-concurrency-classes/promise.md)
-  - [17.6 Mutex](library/17-concurrency-classes/mutex.md)
-  - [17.7 Semaphore](library/17-concurrency-classes/semaphore.md)
-  - [17.8 ReentrantMutex](library/17-concurrency-classes/reentrant-mutex.md)
-  - [17.9 AtomicInt](library/17-concurrency-classes/atomic.md)
-  - [17.10 Channel](library/17-concurrency-classes/channel.md)
-  - [17.11 The concurrent Package](library/17-concurrency-classes/concurrent.md)
-- [18. The tensor Package](library/18-tensor.md)
-- [19. Library Exceptions](library/19-library-exceptions.md)
-- [20. The Network Library](library/20-network/index.md)
-  - [20.2 The Transmission Control Protocol (TCP) Classes](library/20-network/tcp.md)
-  - [20.3 The UdpSocket Class](library/20-network/udp.md)
-  - [20.4 The Internet Control Message Protocol (ICMP) Surface](library/20-network/icmp.md)
+- [16. The fs Package](library/16-fs.md)
+- [17. string Methods](library/17-string-methods.md)
+- [18. The Concurrency Classes](library/18-concurrency-classes/index.md)
+  - [18.3 The thread Package](library/18-concurrency-classes/thread.md)
+  - [18.4 Future](library/18-concurrency-classes/future.md)
+  - [18.5 Promise](library/18-concurrency-classes/promise.md)
+  - [18.6 Mutex](library/18-concurrency-classes/mutex.md)
+  - [18.7 Semaphore](library/18-concurrency-classes/semaphore.md)
+  - [18.8 ReentrantMutex](library/18-concurrency-classes/reentrant-mutex.md)
+  - [18.9 AtomicInt](library/18-concurrency-classes/atomic.md)
+  - [18.10 Channel](library/18-concurrency-classes/channel.md)
+  - [18.11 The concurrent Package](library/18-concurrency-classes/concurrent.md)
+- [19. The tensor Package](library/19-tensor.md)
+- [20. Library Exceptions](library/20-library-exceptions.md)
+- [21. The Network Library](library/21-network/index.md)
+  - [21.2 The Transmission Control Protocol (TCP) Classes](library/21-network/tcp.md)
+  - [21.3 The UdpSocket Class](library/21-network/udp.md)
+  - [21.4 The Internet Control Message Protocol (ICMP) Surface](library/21-network/icmp.md)
 
 ### Part III — Binary Formats
 
-- [21. The `.ncu` Unit Image](formats/21-ncu.md)
-- [22. The `.npkg` Package Archive](formats/22-npkg.md)
-- [23. The Native Application Binary Interface (ABI)](formats/23-abi.md)
+- [23. The `.ncu` Unit Image](formats/23-ncu.md)
+- [24. The `.npkg` Package Archive](formats/24-npkg.md)
+- [25. The Native Application Binary Interface (ABI)](formats/25-abi.md)
 
 ### Reference
 

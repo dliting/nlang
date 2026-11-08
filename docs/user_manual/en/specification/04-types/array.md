@@ -323,7 +323,7 @@ compile-time error): the view is a value, and stores go through
 its own subscripts, one element at a time.
 
 An axis can map several view positions onto one source position —
-through a broadcast view (`broadcastTo`, §18.2) or by slicing an
+through a broadcast view (`broadcastTo`, §19.2) or by slicing an
 already-broadcast axis. Reads repeat the source element; while such
 an axis spans more than one position, stores are rejected — two
 logical cells naming one source cell would silently corrupt one of

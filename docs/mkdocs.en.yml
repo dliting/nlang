@@ -86,30 +86,30 @@ nav:
           - The io Package and Streams:
               - Overview: specification/library/14-io/index.md
               - ByteStream and FileStream: specification/library/14-io/streams.md
-          - The fs Package: specification/library/15-fs.md
-          - string Methods: specification/library/16-string-methods.md
+          - The fs Package: specification/library/16-fs.md
+          - string Methods: specification/library/17-string-methods.md
           - Concurrency Classes:
-              - Overview: specification/library/17-concurrency-classes/index.md
-              - thread Package: specification/library/17-concurrency-classes/thread.md
-              - Future: specification/library/17-concurrency-classes/future.md
-              - Promise: specification/library/17-concurrency-classes/promise.md
-              - Mutex: specification/library/17-concurrency-classes/mutex.md
-              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
-              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
-              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
-              - Channel: specification/library/17-concurrency-classes/channel.md
-              - concurrent Package: specification/library/17-concurrency-classes/concurrent.md
-          - The tensor Package: specification/library/18-tensor.md
-          - Library Exceptions: specification/library/19-library-exceptions.md
+              - Overview: specification/library/18-concurrency-classes/index.md
+              - thread Package: specification/library/18-concurrency-classes/thread.md
+              - Future: specification/library/18-concurrency-classes/future.md
+              - Promise: specification/library/18-concurrency-classes/promise.md
+              - Mutex: specification/library/18-concurrency-classes/mutex.md
+              - Semaphore: specification/library/18-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/18-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/18-concurrency-classes/atomic.md
+              - Channel: specification/library/18-concurrency-classes/channel.md
+              - concurrent Package: specification/library/18-concurrency-classes/concurrent.md
+          - The tensor Package: specification/library/19-tensor.md
+          - Library Exceptions: specification/library/20-library-exceptions.md
           - The Network Library:
-              - Overview: specification/library/20-network/index.md
-              - TCP Classes: specification/library/20-network/tcp.md
-              - UdpSocket: specification/library/20-network/udp.md
-              - ICMP: specification/library/20-network/icmp.md
+              - Overview: specification/library/21-network/index.md
+              - TCP Classes: specification/library/21-network/tcp.md
+              - UdpSocket: specification/library/21-network/udp.md
+              - ICMP: specification/library/21-network/icmp.md
       - Binary Formats:
-          - The `.ncu` Unit Image: specification/formats/21-ncu.md
-          - The `.npkg` Package Archive: specification/formats/22-npkg.md
-          - The Native Application Binary Interface (ABI): specification/formats/23-abi.md
+          - The `.ncu` Unit Image: specification/formats/23-ncu.md
+          - The `.npkg` Package Archive: specification/formats/24-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/25-abi.md
       - Reference:
           - Known Limitations: specification/reference/known-limitations.md
           - Common Error Messages: specification/reference/common-errors.md

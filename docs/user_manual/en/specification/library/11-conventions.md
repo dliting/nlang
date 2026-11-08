@@ -32,10 +32,10 @@ itself only holds the array method declarations and cannot be
 extended.
 
 The method surfaces are defined across the specification: the
-`string` methods in chapter 16, the `List` and `Dict` methods in
+`string` methods in chapter 17, the `List` and `Dict` methods in
 chapter 12, the default rendering of every value in §11.2, the
 concurrency handle classes and the package classes of `thread` and
-`concurrent` in chapter 10 and chapter 17, the stream handle
+`concurrent` in chapter 10 and chapter 18, the stream handle
 classes in chapter 14, and the exception classes in §8.3.
 
 A package is identified by its file's path — `stdlib/io.n` is the
@@ -47,7 +47,7 @@ scope. A package name used as a value (`int x = math;`) fails to
 resolve — packages are not values. In terms of duties, `io` carries
 content input/output (IO), `math` numeric computation, `fs` the
 filesystem's names and metadata, `tensor` the numeric array kernels
-(chapter 18), `net` the network sockets (chapter 20), `thread` the
+(chapter 19), `net` the network sockets (chapter 21), `thread` the
 virtual-thread spawn and suspension primitives, and `concurrent`
 the coordination classes (§3.9.4).
 
@@ -103,7 +103,7 @@ run-time error at the `toString` site (§8.1).
 
 ## 11.3 string Methods
 
-The `string` method surface is defined in chapter 16.
+The `string` method surface is defined in chapter 17.
 
 ## 11.4 Library Conventions
 
@@ -120,7 +120,7 @@ The standard library follows one surface convention.
 - Failures are reported by raising the built-in exception classes
   of §8.3, plus the three package-declared classes — `concurrent`'s
   `ChannelClosedException` and `net`'s `SocketException` and
-  `TimeoutException` (§8.3). Chapter 19 maps each library operation
+  `TimeoutException` (§8.3). Chapter 20 maps each library operation
   to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
   the argument surface of the console functions is chapter 14.

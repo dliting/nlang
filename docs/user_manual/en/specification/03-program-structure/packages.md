@@ -12,13 +12,13 @@ NLang moves code in four kinds of file.
 - **`.ncu` — unit image.** The compiled artifact of one package.
   Cross-package references inside it are *import slots* — a
   target package path and a qualified name — never bodies
-  (§3.9.3). The format is chapter 21.
+  (§3.9.3). The format is chapter 23.
 - **`.npkg` — package archive.** A container of unit images, one
   member per package, each member named by its package path. A
   project build produces one with an *entry record* naming the
   entry unit (§3.2); a library archive omits the record — the
   standard library ships as `stdlib.npkg` (§3.9.4). The format is
-  chapter 22.
+  chapter 24.
 - **Native host library.** The host dynamic library that carries
   `native` implementations, named from the declaring package,
   which is necessarily single-segment (§7.5).
@@ -80,7 +80,7 @@ file `a/b/c.n` under a search root. At compile time:
   the same name — whose declarations enter the build as stubs;
   a dotted path with no source in the build is a compile-time
   error, since external artifacts carry single-segment names
-  (§3.3, §21.2).
+  (§3.3, §23.2).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies
@@ -269,7 +269,7 @@ The concurrency names split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
-chapters 13–20 describe the units they hold. The declarations in
+chapters 13–21 describe the units they hold. The declarations in
 the `.n` sources are the source of truth for every package,
 prelude included; the implementation binds the declared native
 members to its built-in implementations.

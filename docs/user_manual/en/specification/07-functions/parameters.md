@@ -69,7 +69,7 @@ construction call site, where the object under construction does not
 exist yet (§4.8.6, §4.7.5).
 
 A default expression that crosses a `.ncu` boundary travels as a
-small expression tree over a foldable subset (§21.6); a default
+small expression tree over a foldable subset (§23.6); a default
 outside that subset is reported as an error by the consumer that
 must materialize it. Sources compiled together in one project use
 defaults directly.

@@ -8,7 +8,7 @@ This page collects the language-level limitations visible to user programs, with
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
-  [string methods](../library/16-string-methods.md)); this is a deliberate scope
+  [string methods](../library/17-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
 - **A null string handle across the native boundary**: the value domain
@@ -203,7 +203,7 @@ This page collects the language-level limitations visible to user programs, with
   reads and writes of a shared object's fields (shared through
   `spawn` arguments or a channel) are a data race — a transitional
   value may be read; single-value state takes
-  [AtomicInt](../library/17-concurrency-classes/atomic.md), multi-field invariants take a
+  [AtomicInt](../library/18-concurrency-classes/atomic.md), multi-field invariants take a
   `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count
@@ -238,7 +238,7 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: multi-way waiting stays in the `Future` domain**: a
   `Future` can be completed by hand through a `Promise`
-  ([Promise](../library/17-concurrency-classes/promise.md)), and `Future.selectAny` provides
+  ([Promise](../library/18-concurrency-classes/promise.md)), and `Future.selectAny` provides
   the "whichever decides first" multi-way wait; but channels have no
   "whichever is ready" `recv` variant — to receive from many sources
   whichever comes first, wrap each source with a `Promise` and call
@@ -249,7 +249,7 @@ This page collects the language-level limitations visible to user programs, with
   context. Waiting sides observe the failure through `join`/`Future.get`
   (a rethrow of the original exception object); non-blocking observation
   is available through `thread.isFailed`/`thread.failure` (see
-  [Probing a task's failure](../library/17-concurrency-classes/thread.md#probing-a-tasks-failure)).
+  [Probing a task's failure](../library/18-concurrency-classes/thread.md#probing-a-tasks-failure)).
   A failure nobody ever waited for or retrieved is not silently lost: at
   run end the VM prints one stderr line per such task (task id, exception
   type and message).
@@ -257,8 +257,8 @@ This page collects the language-level limitations visible to user programs, with
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
   deadlock report; composed or recursive methods take
-  [ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md). See
-  [Mutex](../library/17-concurrency-classes/mutex.md).
+  [ReentrantMutex](../library/18-concurrency-classes/reentrant-mutex.md). See
+  [Mutex](../library/18-concurrency-classes/mutex.md).
 
 - **Concurrency: suspension inside carrier-less host windows**: inside
   re-entrant evaluation that runs **during a run** — your `toString`
@@ -283,7 +283,7 @@ This page collects the language-level limitations visible to user programs, with
   degrading to queued waiting at worst; a blocking native that parks
   on a readiness event (`io.parkForIo`, §14.5) hands its carrier back
   for the wait, so in-flight waits are not capped by the pool — every
-  `net` socket method parks this way (chapter 20). A native that does
+  `net` socket method parks this way (chapter 21). A native that does
   not declare blocking must not wait under
   the native declaration contract — a third-party native that waits
   anyway occupies only the carrier executing it, and every other
@@ -302,7 +302,7 @@ This page collects the language-level limitations visible to user programs, with
   group (many distributions ship it disabled), opening one raises
   `SocketException` with the platform's text. On Windows `IcmpSocket`
   raw sockets need administrator rights, while `net.ping` needs none.
-  See [ICMP](../library/20-network/icmp.md).
+  See [ICMP](../library/21-network/icmp.md).
 
 - **IPv6 is exercised on loopback only**: the shipped test suite binds
   `::` and connects `[::1]`; the dual-stack path on real IPv6 routes is

@@ -9,7 +9,7 @@ reference of the reference types, not a string value. Writing the
 null literal in a string-typed position — initialization,
 assignment, argument passing, return, comparison, case label,
 concatenation — is a compile error. The empty string is written
-`""`, and the named constant `string.EMPTY` (§16) names it too.
+`""`, and the named constant `string.EMPTY` (§17) names it too.
 
 Two string values compare by content: `==` holds exactly when both
 sides denote the same byte sequence. The ordering operators
@@ -17,7 +17,7 @@ compare the UTF-8 bytes, which is also code point order.
 
 `length()` returns the number of bytes; `charCount()` returns the
 number of code points. The string methods are defined in
-§16.2.
+§17.2.
 
 *Informative:* `string` is a primitive, but unlike the scalar
 types (integers, floats, `bool`, `char`) it is an **immutable
@@ -183,7 +183,7 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
 null is not in the value domain of `string`: `string s = null;`,
 `s == null`, and passing null to a `string` parameter are compile
 errors. The empty string is `""`, named by the constant
-`string.EMPTY` (§16). An uninitialized string variable (the local
+`string.EMPTY` (§17). An uninitialized string variable (the local
 or field default) is the empty string. If a native implementation
 (a host callback or a native binding) hands back the null handle,
 that value behaves as the empty string in every read position —
@@ -193,4 +193,4 @@ see [Known Limitations](../reference/known-limitations.md). See
 ### String methods
 
 The standard library provides string methods (substring, search, case,
-splitting, `toInt`/`toFloat`, …). See [string methods](../library/16-string-methods.md).
+splitting, `toInt`/`toFloat`, …). See [string methods](../library/17-string-methods.md).

@@ -222,7 +222,7 @@ A string subscript `s[i]` reads the byte at byte offset `i` as a
 out-of-range index is a catchable run-time error (chapter 8). A
 string subscript is read-only: writing through it is a
 compile-time error (§4.3). Code-point access is the `charAt`
-method (§16.2).
+method (§17.2).
 
 The subscript of a `List` or `Dict` is sugar over its `get` and
 `set` methods (§12): `li[i]` reads and writes the element

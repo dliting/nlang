@@ -86,30 +86,30 @@ nav:
           - io包与流:
               - 概览: specification/library/14-io/index.md
               - ByteStream与FileStream: specification/library/14-io/streams.md
-          - fs包: specification/library/15-fs.md
-          - string方法: specification/library/16-string-methods.md
+          - fs包: specification/library/16-fs.md
+          - string方法: specification/library/17-string-methods.md
           - 并发类:
-              - 概览: specification/library/17-concurrency-classes/index.md
-              - thread包: specification/library/17-concurrency-classes/thread.md
-              - Future: specification/library/17-concurrency-classes/future.md
-              - Promise: specification/library/17-concurrency-classes/promise.md
-              - Mutex: specification/library/17-concurrency-classes/mutex.md
-              - Semaphore: specification/library/17-concurrency-classes/semaphore.md
-              - ReentrantMutex: specification/library/17-concurrency-classes/reentrant-mutex.md
-              - AtomicInt: specification/library/17-concurrency-classes/atomic.md
-              - Channel: specification/library/17-concurrency-classes/channel.md
-              - concurrent包: specification/library/17-concurrency-classes/concurrent.md
-          - tensor包: specification/library/18-tensor.md
-          - 库异常: specification/library/19-library-exceptions.md
+              - 概览: specification/library/18-concurrency-classes/index.md
+              - thread包: specification/library/18-concurrency-classes/thread.md
+              - Future: specification/library/18-concurrency-classes/future.md
+              - Promise: specification/library/18-concurrency-classes/promise.md
+              - Mutex: specification/library/18-concurrency-classes/mutex.md
+              - Semaphore: specification/library/18-concurrency-classes/semaphore.md
+              - ReentrantMutex: specification/library/18-concurrency-classes/reentrant-mutex.md
+              - AtomicInt: specification/library/18-concurrency-classes/atomic.md
+              - Channel: specification/library/18-concurrency-classes/channel.md
+              - concurrent包: specification/library/18-concurrency-classes/concurrent.md
+          - tensor包: specification/library/19-tensor.md
+          - 库异常: specification/library/20-library-exceptions.md
           - 网络库:
-              - 概览: specification/library/20-network/index.md
-              - TCP类: specification/library/20-network/tcp.md
-              - UdpSocket: specification/library/20-network/udp.md
-              - ICMP: specification/library/20-network/icmp.md
+              - 概览: specification/library/21-network/index.md
+              - TCP类: specification/library/21-network/tcp.md
+              - UdpSocket: specification/library/21-network/udp.md
+              - ICMP: specification/library/21-network/icmp.md
       - 二进制格式:
-          - .ncu单元映像: specification/formats/21-ncu.md
-          - .npkg包档案: specification/formats/22-npkg.md
-          - 原生应用二进制接口: specification/formats/23-abi.md
+          - .ncu单元映像: specification/formats/23-ncu.md
+          - .npkg包档案: specification/formats/24-npkg.md
+          - 原生应用二进制接口: specification/formats/25-abi.md
       - 参考:
           - 已知限制: specification/reference/known-limitations.md
           - 常见错误消息: specification/reference/common-errors.md

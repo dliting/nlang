@@ -19,7 +19,7 @@ qualifier (`io.print(s)`). The package name is single-segment
 source; the output trio, the input functions and the file
 functions are `native` functions (§7.5), and the typed readers
 are NLang source wrappers over `readToken` and the string
-conversion methods (§16.2).
+conversion methods (§17.2).
 
 **Argument admission.** A call to a package function binds each
 argument against the declared formal type (§7.3); the implicit
@@ -93,13 +93,13 @@ the call waits.
   (UTF-8) bytes; leading whitespace is skipped, as for
   `readToken`. It yields literal characters — input `x` yields
   `'x'` — deliberately unlike the numeric parse of `toChar`
-  (§16.2), where `"120"` yields `'x'`. At end of input it
+  (§17.2), where `"120"` yields `'x'`. At end of input it
   raises `IOException`; with no input channel likewise. A byte
   sequence that is not valid UTF-8 raises `Exception` (§8.3),
   not `IOException`.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
-  convert it with the matching string method (§16.2): end of
+  convert it with the matching string method (§17.2): end of
   input raises `IOException` (from `readToken`), with no input
   channel likewise, and a malformed token fails exactly as that
   string method fails.
@@ -144,7 +144,7 @@ while (io.hasInput()) {
 
 `path` is a host path in the platform's native form; the io
 package defines no path syntax of its own (the `fs` package of
-chapter 15 does). The content is bytes: the io functions
+chapter 16 does). The content is bytes: the io functions
 impose no text encoding on what they read or write.
 
 ## 14.5 Generic IO Facilities
@@ -152,7 +152,7 @@ impose no text encoding on what they read or write.
 Three functions round out the package as infrastructure for
 native-backed libraries rather than everyday user tools: ordinary
 programs reach the same behavior through the blocking calls of the
-`net` package (chapter 20) or the stream classes of §14.6, and
+`net` package (chapter 21) or the stream classes of §14.6, and
 rarely call these directly.
 
 - `io.parkForIo(fd, events, deadlineMs)` parks the calling virtual
@@ -163,14 +163,14 @@ rarely call these directly.
   nothing can wake such a park, so the call does not wait. The
   call returns after the wake — the caller re-checks its condition
   and may park again. This is the parking primitive
-  the `net` package's blocking methods are built on (§20.1), and
+  the `net` package's blocking methods are built on (§21.1), and
   it is generic: a native library holding a descriptor parks
   through the same call, and future pipe and process plumbing
   will too.
 - `io.toBytes(s)` returns the raw Unicode Transformation Format
   (UTF-8) bytes of `s` as a `byte[]` array; `io.fromBytes(data)`
   decodes a `byte[]` array back to a `string`. The conversions
-  bypass the string method surface (§16.2) and carry no length
+  bypass the string method surface (§17.2) and carry no length
   prefix or terminator — the byte-level bridge for socket and
   stream payloads.
 

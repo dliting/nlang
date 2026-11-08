@@ -43,7 +43,7 @@ catchable: access through a `null` reference (§4.8, §5.6, §5.7),
 division or remainder by zero and an out-of-range shift count
 (§5.2), an out-of-range subscript (§5.7), a failed assertion
 (§6.5), a failed `as` downcast (§5.5), and the library errors of
-chapter 19.
+chapter 20.
 
 A *host-level* run-time error (§7.1) is not an exception: no
 `catch` clause handles it and the program ends. The sections that
@@ -153,10 +153,10 @@ classes are `Exception` and its seven direct subclasses:
 | `Exception` | a user `throw` of `Exception` itself; a `Dict` read for an absent key (§4.12); VM sites with no class of their own: an out-of-range shift count (§5.2), a `char` conversion outside the Unicode scalar values (§5.5), a `Channel` constructed with a negative capacity (§10.4) |
 | `NullPointerException` | a member access, method call or call through a `null` class, interface or function reference (§4.8, §5.6, §5.7) |
 | `DivByZeroException` | division or remainder by zero, at any numeric width (§5.2) |
-| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7); a sized array creation with a negative length or an element count past the bound (§4.10); a `string` `substring` or `charAt` out of range (§16.2) |
+| `IndexOutOfBoundsException` | an array or `List` subscript outside its bounds (§5.7); a sized array creation with a negative length or an element count past the bound (§4.10); a `string` `substring` or `charAt` out of range (§17.2) |
 | `AssertionException` | a failed `assert` (§6.5) |
 | `InvalidCastException` | a failed `as` downcast (§5.5) |
-| `IOException` | a failed `io` or `fs` operation (chapter 14, chapter 15) |
+| `IOException` | a failed `io` or `fs` operation (chapter 14, chapter 16) |
 | `InitializationException` | a static initializer failing through the initialization protocol, wrapping the thrown object as its cause (§4.8.8); a read of an initializer-bearing static — class, interface or static local — from inside the initialization it awaits (§4.8.8, §6.1) |
 
 The `concurrent` package (§3.9.4) declares one further direct
@@ -165,7 +165,7 @@ closed channel (§10.4); it reaches scope through
 `import concurrent;` like any package class, and `catch` treats
 it like every other subclass. The `net` package (§3.9.4) declares
 two subclasses of `IOException`, `SocketException` and
-`TimeoutException`, raised by the socket operations of chapter 20;
+`TimeoutException`, raised by the socket operations of chapter 21;
 they reach scope through `import net;` like any package class, and
 `catch` treats them like every other subclass.
 

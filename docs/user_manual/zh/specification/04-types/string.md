@@ -4,11 +4,11 @@
 
 `string`是基本类型，其值是不可变的字节序列，以Unicode转换格式（UTF-8）承载文本。没有任何操作原地修改字符串值。
 
-`string`的值域不含null：null是引用类型的空引用，不是字符串值。在string类型位置写null字面量——初始化、赋值、传参、返回、比较、case标号、拼接——都是编译错误。空字符串写作`""`，其具名常量是`string.EMPTY`（§16）。
+`string`的值域不含null：null是引用类型的空引用，不是字符串值。在string类型位置写null字面量——初始化、赋值、传参、返回、比较、case标号、拼接——都是编译错误。空字符串写作`""`，其具名常量是`string.EMPTY`（§17）。
 
 两个字符串值按内容比较：当且仅当两侧指代同一字节序列时`==`成立。排序运算符比较UTF-8字节，这也正是码点序。
 
-`length()`返回字节数；`charCount()`返回码点数。字符串方法在§16.2定义。
+`length()`返回字节数；`charCount()`返回码点数。字符串方法在§17.2定义。
 
 *资料性：*`string`是基本类型，但不同于整型、浮点、`bool`与`char`这些标量，它是经句柄引用的**不可变对象**。下面各节完整覆盖字符串类型：它是什么、内存语义、如何构造与比较，以及字面量内的转义序列与插值。
 
@@ -100,8 +100,8 @@ string是UTF-8 **字节串**，char是单个Unicode标量值（见[基本类型]
 
 ### Null与空串
 
-null不属于string的值域：`string s = null;`、`s == null`、把null传给string形参都是编译错误。空字符串是`""`，具名常量为`string.EMPTY`（§16）。未初始化的string变量（局部与字段的默认值）就是空串。native实现（宿主回调、native绑定）若交出null句柄，该值在所有读取位置表现为空串——见[已知限制](../reference/known-limitations.md)。class null的语义见[类](class.md)。
+null不属于string的值域：`string s = null;`、`s == null`、把null传给string形参都是编译错误。空字符串是`""`，具名常量为`string.EMPTY`（§17）。未初始化的string变量（局部与字段的默认值）就是空串。native实现（宿主回调、native绑定）若交出null句柄，该值在所有读取位置表现为空串——见[已知限制](../reference/known-limitations.md)。class null的语义见[类](class.md)。
 
 ### 字符串方法
 
-标准库提供字符串方法（截取、查找、大小写、拆分、`toInt`/`toFloat`等）。见[string方法](../library/16-string-methods.md)。
+标准库提供字符串方法（截取、查找、大小写、拆分、`toInt`/`toFloat`等）。见[string方法](../library/17-string-methods.md)。

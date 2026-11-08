@@ -21,7 +21,7 @@ or a loop back edge — and each context runs at most 1000 loop back
 edges before another may be dispatched.
 
 The concurrency names live in two standard-library packages
-(chapter 17), each imported by name (§3.9.4): `thread` — declared
+(chapter 18), each imported by name (§3.9.4): `thread` — declared
 in `stdlib/thread.n` — answers who runs and where the result is
 fetched (`Thread`, `Future<T>`, `Promise<T>`, and the `thread.*`
 functions); `concurrent` — declared in `stdlib/concurrent.n` —
@@ -84,7 +84,7 @@ half-written transitional value may be read, but memory is never
 corrupted. The internal structure of a container or a string is
 therefore never torn by concurrency, and shared mutable state is
 coordinated with a `Mutex` (§10.2). A native call that declares a
-blocking section (§23.7) releases the locks it holds while it
+blocking section (§25.7) releases the locks it holds while it
 waits, so other contexts run; a native that declares none runs
 without holding them, and its stores take the category locks
 through self-guarded callbacks.
@@ -150,7 +150,7 @@ that shape takes the plain `Mutex`.
 
 A `Semaphore` admits at most N contexts into a section: a mutex
 admits one, a semaphore admits N. It is a handle class of the
-`concurrent` standard-library package (chapter 17; import
+`concurrent` standard-library package (chapter 18; import
 required, §3.9.4):
 
 - `Semaphore(n)` sets the initial permit count. A negative `n`
@@ -166,7 +166,7 @@ required, §3.9.4):
 - `tryAcquire()` never parks: it takes a permit and yields
   `true` when one is available, and yields `false` otherwise.
 
-The `concurrent` standard-library package (chapter 17) also
+The `concurrent` standard-library package (chapter 18) also
 provides `WaitGroup`: `add(n)` accumulates outstanding units,
 `done()` retires one, and `wait()` parks until the count reaches
 zero. The contract is `add` before `wait` and `done` paired with
@@ -331,8 +331,8 @@ shipped `examples/conc_*.n` walk through each row:
 | wait for whichever is ready first | `Future.selectAny(futures)` (returns the winning index) |
 | hand values between tasks | `Channel<T>` (send/recv/close) |
 | guard shared mutable state | `Mutex` (lock/unlock/tryLock) |
-| lock inside composed or recursive methods | `ReentrantMutex` (reentrant; see [ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md)) |
-| atomic updates to a single-value counter or flag | `AtomicInt` (load/store/compareExchange; see [AtomicInt](../library/17-concurrency-classes/atomic.md)) |
+| lock inside composed or recursive methods | `ReentrantMutex` (reentrant; see [ReentrantMutex](../library/18-concurrency-classes/reentrant-mutex.md)) |
+| atomic updates to a single-value counter or flag | `AtomicInt` (load/store/compareExchange; see [AtomicInt](../library/18-concurrency-classes/atomic.md)) |
 | cap how many tasks run a section at once | `Semaphore(n)` |
 | wait for a batch of tasks | `WaitGroup` (add/done/wait) or `join` each |
 | wake a group of waiters at once | `Channel.close()` broadcast |
@@ -345,19 +345,19 @@ shipped `examples/conc_*.n` walk through each row:
 - [Suspension and scheduling limits](suspension.md) — suspension versus
   blocking, exceptions across suspension, the main-exit policy, the
   deadlock report, suspension inside re-entrant evaluation
-- [The Concurrency Classes](../library/17-concurrency-classes/index.md) —
+- [The Concurrency Classes](../library/18-concurrency-classes/index.md) —
   the library chapter: package form, plus one page per class
-- [The thread package](../library/17-concurrency-classes/thread.md) —
+- [The thread package](../library/18-concurrency-classes/thread.md) —
   `spawn`, `join`, `yield`, `id`, `sleep`
-- [Future](../library/17-concurrency-classes/future.md) — retrieving a
+- [Future](../library/18-concurrency-classes/future.md) — retrieving a
   spawned task's return value
-- [Promise](../library/17-concurrency-classes/promise.md) — the manual
+- [Promise](../library/18-concurrency-classes/promise.md) — the manual
   completion source, and `Future.selectAny` multi-way waiting
-- [Mutex](../library/17-concurrency-classes/mutex.md) — non-reentrant
+- [Mutex](../library/18-concurrency-classes/mutex.md) — non-reentrant
   mutual exclusion
-- [Semaphore](../library/17-concurrency-classes/semaphore.md) — a counting
+- [Semaphore](../library/18-concurrency-classes/semaphore.md) — a counting
   semaphore
-- [Channel](../library/17-concurrency-classes/channel.md) — message passing
+- [Channel](../library/18-concurrency-classes/channel.md) — message passing
   and closing semantics
-- [The concurrent package](../library/17-concurrency-classes/concurrent.md)
+- [The concurrent package](../library/18-concurrency-classes/concurrent.md)
   — the package's classes, including `WaitGroup`

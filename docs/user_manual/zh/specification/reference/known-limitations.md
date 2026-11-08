@@ -7,7 +7,7 @@
 ### 类型、数组与集合
 
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
-  `toChar`，见[string方法](../library/16-string-methods.md)）；本条是有意的规格缩窄，不是缺陷。
+  `toChar`，见[string方法](../library/17-string-methods.md)）；本条是有意的规格缩窄，不是缺陷。
 
 - **跨native边界的null字符串句柄**：`string`的值域不含null（§4.3），但native实现（宿主回调、native绑定）仍可能交出0号句柄——内部的null表示。这样的值在每个读取位置都表现为空串`""`：`length()`为0、与`""`相等、拼接无贡献。后续版本或将把它改为显式错误；返回string的函数不应返回null。
 
@@ -68,7 +68,7 @@
 
 - **并发：main返回即结束**：`main`返回时仍挂起或排队的虚拟线程被静默丢弃——没有隐式的等待全部；需要完成顺序请显式`thread.join`。运行队列排空而main仍未完成时虚拟机报告死锁错误。见[并发](../10-concurrency/index.md)。
 
-- **并发：存储按类别加锁，同类串行**：堆与字符串分配按载体各自进行、不加锁，对象字段读写不加锁；容器（List/Dict）、同步原语、流与字符串维护各持一把锁——同类操作互斥，跨类并行。纯计算段与对象字段访问可跨载体并行，但依赖容器或字符串维护的密集循环仍在对应的锁上串行；共享对象（经`spawn`实参或通道共享）的字段并发读写属于数据竞争——可能读到过渡值，单值状态用`AtomicInt`（见[AtomicInt](../library/17-concurrency-classes/atomic.md)），多字段不变式用`Mutex`协调。每个虚拟线程连续执行约1000次循环迭代让位一次，保证公平轮转。载体数经`VmExecutor::SetCarrierThreadCount`（嵌入宿主，默认1）或`nvm --carriers=N`（工具，默认至多4）调节。见[载体与并行](../10-concurrency/carriers.md)。
+- **并发：存储按类别加锁，同类串行**：堆与字符串分配按载体各自进行、不加锁，对象字段读写不加锁；容器（List/Dict）、同步原语、流与字符串维护各持一把锁——同类操作互斥，跨类并行。纯计算段与对象字段访问可跨载体并行，但依赖容器或字符串维护的密集循环仍在对应的锁上串行；共享对象（经`spawn`实参或通道共享）的字段并发读写属于数据竞争——可能读到过渡值，单值状态用`AtomicInt`（见[AtomicInt](../library/18-concurrency-classes/atomic.md)），多字段不变式用`Mutex`协调。每个虚拟线程连续执行约1000次循环迭代让位一次，保证公平轮转。载体数经`VmExecutor::SetCarrierThreadCount`（嵌入宿主，默认1）或`nvm --carriers=N`（工具，默认至多4）调节。见[载体与并行](../10-concurrency/carriers.md)。
 
 - **并发：多载体下调度顺序未指定**：单载体（库默认）完全确定——同一程序重复运行产生相同的交错顺序；多载体下调度器可按任意顺序取项（为缓存局部性优先取上次执行过的），交错顺序不保证，程序正确性只依赖`join`、通道与互斥的happens-before（先行发生）。见[并发](../10-concurrency/index.md)。
 
@@ -76,18 +76,18 @@
 
 - **并发：没有`await`关键字**：函数不做异步着色（见[并发](../10-concurrency/index.md)的模型一节）；`Future.get()`就是阻塞式等待，`thread.join`等待无返回值的`Thread`。
 
-- **并发：多路等待限于`Future`域**：`Future`可经`Promise`手工完成（[Promise](../library/17-concurrency-classes/promise.md)），`Future.selectAny`提供「任意一个先决定」的多路等待；但通道上没有「任意一个就绪」的`recv`变体——多源通道要任意收，须为每个源经`Promise`组合一层再对`Future`数组`selectAny`。
+- **并发：多路等待限于`Future`域**：`Future`可经`Promise`手工完成（[Promise](../library/18-concurrency-classes/promise.md)），`Future.selectAny`提供「任意一个先决定」的多路等待；但通道上没有「任意一个就绪」的`recv`变体——多源通道要任意收，须为每个源经`Promise`组合一层再对`Future`数组`selectAny`。
 
-- **并发：派生线程的失败不传播给宿主或main**：未捕获异常被遏制在失败上下文内。等待侧经`join`/`Future.get`观测失败（原异常对象的重抛）；非阻塞观测走`thread.isFailed`/`thread.failure`（见[探测任务失败](../library/17-concurrency-classes/thread.md#探测任务失败)）。无人等待也无人取回的失败不会无声丢失：运行结束时VM对每个这样的任务在stderr打一行（任务id、异常类型与消息）。
+- **并发：派生线程的失败不传播给宿主或main**：未捕获异常被遏制在失败上下文内。等待侧经`join`/`Future.get`观测失败（原异常对象的重抛）；非阻塞观测走`thread.isFailed`/`thread.failure`（见[探测任务失败](../library/18-concurrency-classes/thread.md#探测任务失败)）。无人等待也无人取回的失败不会无声丢失：运行结束时VM对每个这样的任务在stderr打一行（任务id、异常类型与消息）。
 
-- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md)。见[Mutex](../library/17-concurrency-classes/mutex.md)。
+- **并发：`Mutex`不可重入**：互斥体不可重入，持有期间再次`lock`会挂起直至死锁报告——方法组合或递归场景请用[ReentrantMutex](../library/18-concurrency-classes/reentrant-mutex.md)。见[Mutex](../library/18-concurrency-classes/mutex.md)。
 
 - **并发：无载体宿主窗口内不能挂起**：run**进行期间**的重入求值——集合格式化时调用`toString`覆写、运行中触发的宿主回调——各等待点与别处一样正常挂起。只有嵌入宿主在run**之外**经`call()`发起的窗口没有在飞载体来服务等待，那里`yield`/`sleep`/未完成的`join`/未完成的`Future.get`/竞争中的`lock`/零许可`acquire`/空通道`recv`/有界通道满时的`send`/`spawn`一律以"cannot suspend"运行期错误拒绝。阻塞原生调用不受此限：发起调用的虚拟线程挂起并放锁，等待期间其他载体照常运行。
 
-- **并发：占住载体的阻塞原生调用受载体池规模上限**：声明为阻塞的原生调用挂起发起调用的虚拟线程并放锁，执行期间其余载体继续运行其他虚拟线程。以占住载体线程的方式等待的阻塞原生调用受池规模限制，超出时最坏退化为排队等待；以停泊在就绪事件上的方式等待的阻塞原生调用（`io.parkForIo`，§14.5）在等待期间交还载体，在飞的等待不受池规模限制——`net`包的每个套接字方法都以这种方式停泊（第20章）。未声明阻塞的原生按约定不得等待——第三方原生违规等待只会占住执行它的那个载体，其余载体照常运行；补上阻塞声明即可挂起放锁。输出重定向回调不持类别锁，并发输出经控制台互斥量串行，保持回调短小可减少排队。见[载体与并行](../10-concurrency/carriers.md)。
+- **并发：占住载体的阻塞原生调用受载体池规模上限**：声明为阻塞的原生调用挂起发起调用的虚拟线程并放锁，执行期间其余载体继续运行其他虚拟线程。以占住载体线程的方式等待的阻塞原生调用受池规模限制，超出时最坏退化为排队等待；以停泊在就绪事件上的方式等待的阻塞原生调用（`io.parkForIo`，§14.5）在等待期间交还载体，在飞的等待不受池规模限制——`net`包的每个套接字方法都以这种方式停泊（第21章）。未声明阻塞的原生按约定不得等待——第三方原生违规等待只会占住执行它的那个载体，其余载体照常运行；补上阻塞声明即可挂起放锁。输出重定向回调不持类别锁，并发输出经控制台互斥量串行，保持回调短小可减少排队。见[载体与并行](../10-concurrency/carriers.md)。
 
 ### 网络
 
-- **ICMP（互联网控制报文协议）需要平台权限配置**：Linux上`net.ping`与`IcmpSocket`背后的ICMP套接字受sysctl`net.ipv4.ping_group_range`约束，该范围未覆盖当前用户或组时（多数发行版默认关闭）打开即抛`SocketException`并附平台文本。Windows上`IcmpSocket`的原始套接字需要管理员权限，`net.ping`则不需要。见[ICMP](../library/20-network/icmp.md)。
+- **ICMP（互联网控制报文协议）需要平台权限配置**：Linux上`net.ping`与`IcmpSocket`背后的ICMP套接字受sysctl`net.ipv4.ping_group_range`约束，该范围未覆盖当前用户或组时（多数发行版默认关闭）打开即抛`SocketException`并附平台文本。Windows上`IcmpSocket`的原始套接字需要管理员权限，`net.ping`则不需要。见[ICMP](../library/21-network/icmp.md)。
 
 - **IPv6只在回环上测试**：随附测试套件绑`::`连`[::1]`；真实IPv6路由上的双栈路径已实现但未测试。任何`net`地址形参都接受IPv6地址（接受括号形态`"[::1]"`并剥去）。

@@ -4,7 +4,7 @@
 
 本树是NLang编程语言的规范，具有规范性：它覆盖核心语言、标准库，以及实现产生与消费的二进制格式，并定义符合本规范的实现必须做什么；各章在规范性规则之外配有示例与错误说明。语言的系统入门见[NLang入门](../getting-started/what-is-nlang.md)，它属资料性，并把所摘要的规则链接到本规范的对应条款。英文文本是规范性的。
 
-本规范描述NLang 0.12.9。它是一份活文档：始终描述当前语言，版本历史就是仓库历史——标签（如`v0.11.5`）把整棵树固定在语言演化的某一个时点上。
+本规范描述NLang 0.13.4。它是一份活文档：始终描述当前语言，版本历史就是仓库历史——标签（如`v0.11.5`）把整棵树固定在语言演化的某一个时点上。
 
 本规范与实现不一致时，不一致即其中一方的缺陷：裁定哪一方正确，然后修复那一方。重大语义变更在写入本树之前，先按NLang增强提案（NLEP）流程提出。
 
@@ -55,30 +55,30 @@
 - [13. math包](library/13-math.md)
 - [14. io包与流](library/14-io/index.md)
   - [14.6. ByteStream与FileStream](library/14-io/streams.md)
-- [15. fs包](library/15-fs.md)
-- [16. string方法](library/16-string-methods.md)
-- [17. 并发类](library/17-concurrency-classes/index.md)
-  - [17.3. thread包](library/17-concurrency-classes/thread.md)
-  - [17.4. Future](library/17-concurrency-classes/future.md)
-  - [17.5. Promise](library/17-concurrency-classes/promise.md)
-  - [17.6. Mutex](library/17-concurrency-classes/mutex.md)
-  - [17.7. Semaphore](library/17-concurrency-classes/semaphore.md)
-  - [17.8. ReentrantMutex](library/17-concurrency-classes/reentrant-mutex.md)
-  - [17.9. AtomicInt](library/17-concurrency-classes/atomic.md)
-  - [17.10. Channel](library/17-concurrency-classes/channel.md)
-  - [17.11. concurrent包](library/17-concurrency-classes/concurrent.md)
-- [18. tensor包](library/18-tensor.md)
-- [19. 库异常](library/19-library-exceptions.md)
-- [20. 网络库](library/20-network/index.md)
-  - [20.2. 传输控制协议（TCP）类](library/20-network/tcp.md)
-  - [20.3. UdpSocket类](library/20-network/udp.md)
-  - [20.4. 互联网控制报文协议（ICMP）面](library/20-network/icmp.md)
+- [16. fs包](library/16-fs.md)
+- [17. string方法](library/17-string-methods.md)
+- [18. 并发类](library/18-concurrency-classes/index.md)
+  - [18.3. thread包](library/18-concurrency-classes/thread.md)
+  - [18.4. Future](library/18-concurrency-classes/future.md)
+  - [18.5. Promise](library/18-concurrency-classes/promise.md)
+  - [18.6. Mutex](library/18-concurrency-classes/mutex.md)
+  - [18.7. Semaphore](library/18-concurrency-classes/semaphore.md)
+  - [18.8. ReentrantMutex](library/18-concurrency-classes/reentrant-mutex.md)
+  - [18.9. AtomicInt](library/18-concurrency-classes/atomic.md)
+  - [18.10. Channel](library/18-concurrency-classes/channel.md)
+  - [18.11. concurrent包](library/18-concurrency-classes/concurrent.md)
+- [19. tensor包](library/19-tensor.md)
+- [20. 库异常](library/20-library-exceptions.md)
+- [21. 网络库](library/21-network/index.md)
+  - [21.2. 传输控制协议（TCP）类](library/21-network/tcp.md)
+  - [21.3. UdpSocket类](library/21-network/udp.md)
+  - [21.4. 互联网控制报文协议（ICMP）面](library/21-network/icmp.md)
 
 ### 第三部分 — 二进制格式
 
-- [21. `.ncu`单元映像](formats/21-ncu.md)
-- [22. `.npkg`包档案](formats/22-npkg.md)
-- [23. 原生应用二进制接口（ABI）](formats/23-abi.md)
+- [23. `.ncu`单元映像](formats/23-ncu.md)
+- [24. `.npkg`包档案](formats/24-npkg.md)
+- [25. 原生应用二进制接口（ABI）](formats/25-abi.md)
 
 ### 参考
 
