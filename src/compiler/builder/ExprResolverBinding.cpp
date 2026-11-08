@@ -48,9 +48,9 @@ static int FuncRefBindingDistance(const FormalBinding &b)
 //Null-literal policy against a formal type (the null literal is
 //Int32-typed): 0 = no null special case, adjudicate via CalcTypeDistance;
 //1 = accept (null binds an array formal as the raw sentinel 0, same bridge
-//the assignment grants); -1 = reject (null against a string formal would
-//emit OP_Int32_to_str and print "0"). Class/interface formals fall through
-//to the distance calculation.
+//the assignment grants); -1 = reject (string is a value type since
+//0.13.4 — the null literal has no string value). Class/interface formals
+//fall through to the distance calculation.
 static int NullBindingVerdict(SnExpression &caller, const SnField &formal)
 {
 	if (!caller.ContainFlags(NF_NullLiteral))

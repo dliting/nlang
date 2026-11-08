@@ -140,7 +140,7 @@ compiler warning is issued):
 | `float`, `double` | 0 |
 | `bool` | false |
 | `char` | code point 0 |
-| `string` | null handle that reads as the empty string |
+| `string` | the empty string `""` |
 | enum | underlying int value 0 |
 | struct | every field's default (zero when no initializer) |
 | class, interface, `Object` | null |
@@ -150,9 +150,9 @@ compiler warning is issued):
 Reference types default to null: `== null` tests it directly, and using
 the value without a null check — calling a method, accessing a member,
 indexing, taking the length — raises a `null reference error` with a
-backtrace at run time. `string` is the one exception: a null handle
-reads as the empty string, so `.length()` is 0 and concatenation treats
-it as `""` (see [String](../../specification/04-types/string.md)). An enum's default is the underlying
+backtrace at run time. `string` defaults to the empty string `""`,
+usable directly (`.length()` is 0); null is not in the value domain of
+`string` (see [String](../../specification/04-types/string.md)). An enum's default is the underlying
 int value 0: with auto-incremented members that is exactly the first member —
 after `Color c;`, `c == Color.Red` holds; an enum with explicitly
 assigned non-zero values may default to 0, which lands on no member.

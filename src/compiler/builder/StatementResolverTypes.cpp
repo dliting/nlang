@@ -286,10 +286,19 @@ void StatementResolveAccessor::Access(SnClassField &sn)
 		sn.Type()->Accept(*m_pVisitor);
 	//v0.12.6 D1: a static field's initializer is lazy runtime code (D2),
 	//not a compile-time instance default — the constant-surface check
-	//does not apply. Foldable `static const` folding arrives with the
-	//runtime-const tasks.
+	//does not apply; the synthesized $staticInit store type-checks it
+	//through the ordinary assignment machinery. The exception is the
+	//foldable static const (v0.12.6 Task 7): its initializer folds at
+	//compile time with no runtime store, and StaticConstFoldsAtCompileTime
+	//asserts the declaration check rejects what the fold surface rejects
+	//(the null×string sentinel) — so the check must actually run here.
 	if (sn.ContainFlags(NF_Static))
+	{
+		if (StaticConstFoldsAtCompileTime(sn))
+			CheckConstantValueSurface(m_Env, sn, sn.Initializer(),
+				*sn.EvalDataType(), "constant");
 		return;
+	}
 	//0.9.11 D4: the field's type expression resolved in the earlier
 	//ResolveDataTypes pass, so the initializer's constant surface is
 	//checkable here. Interface constants never reach this arm (the

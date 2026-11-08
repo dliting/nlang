@@ -8,6 +8,24 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`string.EMPTY`.** The named constant for the empty string `""`,
+  declared on the `String` prelude class.
+
+### Changed
+
+- **null is no longer a string value.** `string` is a builtin value
+  type and its value domain excludes null (null remains the empty
+  reference of the reference types). Writing the null literal in a
+  string-typed position — initialization, assignment, argument
+  passing, return, comparison, case label, concatenation, static
+  const initializer — is now a compile error; it was previously
+  accepted and read as the empty string everywhere. The empty string
+  is `""` / `string.EMPTY`, and an uninitialized string defaults to
+  `""`. A null handle crossing the native boundary still reads as
+  the empty string (known limitation).
+
 ## [0.12.9] - 2026-11-07
 
 Consolidation release: merges the 0.12.8 `net` library into the

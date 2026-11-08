@@ -3,7 +3,8 @@
 // use site's static type), the scalar sweep (char/long), a T[] handle
 // field (array created outside, passed through the constructor — no
 // new T[n] inside a body), and the zero-slot defaults of uninitialized
-// T fields (int reads 0, string reads null). One shape per early exit.
+// T fields (int reads 0, string reads the empty string). One shape per
+// early exit.
 interface IShape {
     public int area();
 }
@@ -53,7 +54,7 @@ int main() {
     Cell<int> ci = Cell();
     if (ci.load() != 0) { return 5; }
     Cell<string> cs = Cell();
-    if (!(cs.load() == null)) { return 6; }
+    if (cs.load() != "") { return 6; }
     Vec<long> v = Vec(long[2]);
     if (v.length() != 2) { return 7; }
     return 0;

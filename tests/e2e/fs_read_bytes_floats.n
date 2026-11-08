@@ -1,8 +1,7 @@
 // fs_read_bytes_floats — the fs binary read pair: readBytes returns every
 // file byte as an int[] cell, readFloats decodes the whole file as
-// little-endian float32. null path raises NullPointerException; open
-// failures raise IOException; a byte count that is not a multiple of four
-// raises the base Exception.
+// little-endian float32. Open failures raise IOException; a byte count
+// that is not a multiple of four raises the base Exception.
 import io;
 import fs;
 
@@ -32,14 +31,6 @@ int main() {
     if (f[0] != -1.5) return 5;
     if (f[1] != 0.25) return 6;
     if (f[2] != 1024.0) return 7;
-
-    // A null path raises NullPointerException.
-    try {
-        string p = null;
-        int[] nb = fs.readBytes(p);
-        if (nb.length() != -1) return 8;  //unreachable
-    } catch (NullPointerException ex) {
-    }
 
     // An open failure raises IOException with the path in the message.
     try {

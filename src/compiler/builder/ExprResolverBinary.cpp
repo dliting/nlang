@@ -34,18 +34,18 @@ static bool IsCompareOp(SnBinaryExpr::Operator op)
 }
 
 //Mixed string/non-string has no semantics ("a" < 5), in either operand
-//order. Null literals are exempt: KT_Null is Int32-typed, and
-//`s == null` / `c == null` are the established null checks — the null
-//side keeps its raw sentinel bits and takes the identity/sentinel
-//comparison path. True = rejected (diagnostic logged).
+//order. Since 0.13.4 string is a value type, so the null literal is not
+//an exempt other side either — `s == null` is a mixed compare like any
+//other. Class/interface/array null checks keep their own paths (the
+//null literal is Int32-typed and converts to those targets only).
+//True = rejected (diagnostic logged).
 bool ExprResolveAccessor::RejectStringNonStringMix(SnBinaryExpr &sn,
-	NodeKind lk, NodeKind rk, bool lNull, bool rNull)
+	NodeKind lk, NodeKind rk)
 {
-	if ((lk == NK_String) != (rk == NK_String) && !lNull && !rNull)
+	if ((lk == NK_String) != (rk == NK_String))
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
-			"cannot compare string with a non-string operand "
-			"(only null is allowed as the other side).");
+			"cannot compare string with a non-string operand.");
 		return true;
 	}
 	return false;
@@ -203,7 +203,7 @@ bool ExprResolveAccessor::CheckCompareOperands(SnBinaryExpr &sn,
 	NodeKind rk = R ? R->Kind() : NK_Int32;
 	bool lNull = sn.Left()->ContainFlags(NF_NullLiteral);
 	bool rNull = sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral);
-	if (RejectStringNonStringMix(sn, lk, rk, lNull, rNull))
+	if (RejectStringNonStringMix(sn, lk, rk))
 		return false;
 	if (RejectFuncHandleMisuse(sn, op, L, R, lNull, rNull))
 		return false;

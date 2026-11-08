@@ -1,0 +1,6 @@
+// string is a value type: a null literal cannot be an element of a
+// string-typed initializer list.
+int main() {
+    string[] a = [null];
+    return a.length();
+}

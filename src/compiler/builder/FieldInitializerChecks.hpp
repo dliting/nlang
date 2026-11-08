@@ -172,10 +172,18 @@ inline void CheckConstantValueSurface(BuildEnvironment &env,
 		= ClassifyConstantInitializer(pInit);
 	if (RejectConstantFoldability(env, field, pInit, foldKind, subject))
 		return;
-	//null binds every scalar/string slot as its zero sentinel, the same
-	//bridge ordinary declarations grant.
+	//null binds every scalar slot as its zero sentinel, the same bridge
+	//ordinary declarations grant — but string is a value type (0.13.4):
+	//the null literal has no string value.
 	if (foldKind == ConstantFoldKind::Null)
+	{
+		if (declared.Kind() == NK_String)
+			env.Log(CLL_Error, pInit->Location(),
+				"the initializer of %s \"%s\" cannot be null: string "
+				"is a value type; use \"\" or string.EMPTY.",
+				subject, field.Name().c_str());
 		return;
+	}
 	auto *pSourceType = SnBuiltinDataType::InstanceOf(
 		FoldKindNodeKind(foldKind));
 	if (RejectConstantDomainMismatch(env, field, pInit, declared,
@@ -212,7 +220,11 @@ inline bool StaticConstFoldsAtCompileTime(FieldT& field)
 	const ConstantFoldKind foldKind = ClassifyConstantInitializer(pInit);
 	if (foldKind == ConstantFoldKind::NotFoldable)
 		return false;
-	//null folds as the zero sentinel of any scalar/string slot.
+	//null folds as the zero sentinel of any scalar/string slot. A
+	//user-written string null never reaches codegen (the declaration
+	//check in CheckConstantValueSurface rejects it), but folding the
+	//sentinel here keeps the predicate a mirror of the check surface
+	//instead of re-routing the errored field to a runtime const.
 	if (foldKind == ConstantFoldKind::Null)
 		return true;
 	auto *pSourceType = SnBuiltinDataType::InstanceOf(

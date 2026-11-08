@@ -1,0 +1,7 @@
+// string is a value type: a null literal cannot initialize a
+// string-typed local.
+int main() {
+    string s = null;
+    if (s.length() != 0) { return 1; }
+    return 0;
+}

@@ -8,7 +8,8 @@
 // Print a value to stdout followed by a newline and flush.
 // The parameter is a string: array and scalar primitive values convert
 // implicitly (an array renders as e.g. [1, 2]); a class, interface
-// or enum value must call .toString() first, and null is rejected.
+// or enum value must call .toString() first, and the null literal is
+// rejected.
 native void print(string s);
 
 // Write a value to stdout with NO newline, flush included — print's

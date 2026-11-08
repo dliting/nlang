@@ -1,0 +1,10 @@
+// string is a value type: a null literal cannot initialize a
+// string-typed class field.
+class Box {
+    public string name = null;
+}
+
+int main() {
+    Box b = Box();
+    return b.name.length();
+}

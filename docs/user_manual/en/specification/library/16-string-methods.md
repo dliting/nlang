@@ -15,6 +15,9 @@ the declarations, cannot be instantiated, extended, or used as
 a type, and the value type is written with the `string` keyword
 (§4.3).
 
+The prelude class `String` also carries one constant member:
+`string.EMPTY`, the named form of the empty string `""`.
+
 The methods operate on bytes (§4.3): offsets are byte offsets,
 and case conversion touches American Standard Code for Information Interchange (ASCII)
 letters only. Unicode Transformation Format (UTF-8) byte
@@ -52,5 +55,5 @@ A `string` receiver also answers `length()` — the byte count
 same relation as `==`, and takes a `string` argument;
 `getHashCode` hashes the content, so equal strings hash equal.
 Wherever a parameter takes `string`, a null argument is
-accepted and reads as the empty string. The subscript `s[i]`
-reads byte `i` as a `ubyte` (§5.7).
+rejected — null is not a string value (§4.3). The subscript
+`s[i]` reads byte `i` as a `ubyte` (§5.7).

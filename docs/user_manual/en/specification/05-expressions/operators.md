@@ -97,12 +97,9 @@ Comparison results are always **`bool`** (`true` / `false`).
 **Comparison operands are typed**:
 
 - **Mixing string with non-string is a compile error** (`"a" < 5`,
-  `5 == "a"`). The only exception is the null literal: `s == null` /
-  `c == null` compares against the null sentinel — identity for
-  class/reference operands; for string operands, the null side reads as
-  the empty string (handle 0 is the reserved null sentinel; a genuine
-  empty string has its own object and is bitwise different from null).
-  Hence `"" == null` compares equal; any non-empty string does not.
+  `5 == "a"`), the null literal included — `s == null` is a compile
+  error (null is not a string value, §4.3). `c == null` compares a
+  class/reference operand against the null sentinel by identity.
 - **Numeric pairs** get the same symmetric promotion as arithmetic:
   `-2 < -1.5` promotes to double and is true; `1 == 1.0` is true. See
   [Primitive Types](../04-types/primitives.md).

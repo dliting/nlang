@@ -473,6 +473,10 @@ private:
 		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
 	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//0.13.4 field-side sibling: `string.EMPTY` — bind a prelude String
+	//face static const through the keyword-type qualifier.
+	bool TryResolveStringBuiltinConstant(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	//v0.12.2 face bridges (String here, Array in Task 3): per-argument
 	//kind policy from the DECLARED formals, and the resolve tail binding
 	//the declared return type. Shared shape — the emitter keeps its
@@ -930,6 +934,7 @@ private:
 
 	bool RejectIncompatibleCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool RejectArrayTokenCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	bool RejectNullLiteralCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
 		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
@@ -944,8 +949,7 @@ private:
 	Resolve-prefixed helpers return true when resolution may continue.
 	*/
 	bool CheckCompareOperands(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
-	bool RejectStringNonStringMix(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
-		bool lNull, bool rNull);
+	bool RejectStringNonStringMix(SnBinaryExpr &sn, NodeKind lk, NodeKind rk);
 	bool RejectFuncHandleMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		SnField *L, SnField *R, bool lNull, bool rNull);
 	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,

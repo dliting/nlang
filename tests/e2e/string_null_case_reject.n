@@ -1,0 +1,10 @@
+// Pinned existing rejection: null is never a valid case label.
+int main() {
+    string s = "x";
+    int r = 0;
+    switch (s) {
+        case null: { r = 1; break; }
+        default: { break; }
+    }
+    return r;
+}

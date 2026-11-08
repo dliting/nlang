@@ -8,6 +8,8 @@
 
 对`string`接收者的方法调用——`s.substring(1)`——作用于任何`string`表达式，字面量也不例外（`"abc".toUpper()`）。每个字符串方法都由预置类`String`声明（§11.1）：该类只为持有声明而存在，不能实例化、不能继承、也不能用作类型，且值类型以`string`关键字书写（§4.3）。
 
+预置类`String`另有一个常量成员：`string.EMPTY`是空字符串`""`的具名形式。
+
 各方法在字节上操作（§4.3）：偏移是字节偏移，大小写转换只触及美国信息交换标准代码（ASCII）字母。Unicode转换格式（UTF-8）的字节序与码点序一致，所以§4.3的关系比较在UTF-8内容上有确定的结果。码点层——`charAt`与`charCount`——在字节核之上解码UTF-8：码点访问（`charAt`、`charCount`、对字符串的`foreach`）建立在字节访问之上，正如§4.3「char桥接」所述。
 
 ## 16.2 方法
@@ -31,4 +33,4 @@
 | `charAt(byteIndex)` | → `char` | 从该字节偏移开始的码点；越界抛出`IndexOutOfBoundsException`，延续字节抛出`Exception` |
 | `charCount()` | → `int` | 码点数；无效字节序列抛出`Exception` |
 
-`string`接收者也响应`length()`——字节数（§4.3）——以及协议方法`equals`、`getHashCode`与`toString`（§4.11.2、§11.2）：`equals`比较内容，与`==`同一关系，取`string`实参；`getHashCode`按内容哈希，相等的字符串哈希相等。凡形参取`string`的位置都接受null实参，按空字符串读出。下标`s[i]`把字节`i`以`ubyte`读出（§5.7）。
+`string`接收者也响应`length()`——字节数（§4.3）——以及协议方法`equals`、`getHashCode`与`toString`（§4.11.2、§11.2）：`equals`比较内容，与`==`同一关系，取`string`实参；`getHashCode`按内容哈希，相等的字符串哈希相等。形参取`string`的位置不接受null实参——null不是字符串值（§4.3）。下标`s[i]`把字节`i`以`ubyte`读出（§5.7）。

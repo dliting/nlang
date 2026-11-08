@@ -40,7 +40,7 @@ class BenchServe {
     public TcpStream conn;
     public void run() {
         string line = conn.readLine(20000);
-        if (line != null) { conn.write(line + "\n"); }
+        if (line != "") { conn.write(line + "\n"); }
         conn.close();
     }
 }

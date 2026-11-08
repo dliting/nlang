@@ -153,6 +153,17 @@ void StatementResolveAccessor::CheckDefaultTypeCompat(SnFormalParam *param)
 	auto *pFormalType = param->EvalDataType();
 	if (!pDefaultType || !pFormalType)
 		return;
+	//string is a value type (0.13.4): the null literal has no string
+	//value; GetCastInfo would report the int→string rendering TCK_Auto.
+	if (param->Value()->ContainFlags(NF_NullLiteral)
+		&& pFormalType->Kind() == NK_String)
+	{
+		m_Env.Log(CLL_Error, param->Value()->Location(),
+			"default value for parameter \"%s\" cannot be null: string "
+			"is a value type; use \"\" or string.EMPTY.",
+			param->Name().c_str());
+		return;
+	}
 	auto ci = GetCastInfo(pDefaultType, pFormalType);
 	if (ci.Kind() == TCK_None) {
 		m_Env.Log(CLL_Error,

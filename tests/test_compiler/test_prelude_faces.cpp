@@ -153,21 +153,23 @@ private slots:
         TypeCastInfo::StaticInit();
     }
 
-    void stringFaceDeclaredWith22MethodsAndNoBase();
+    void stringFaceDeclaredWith23MethodsAndNoBase();
     void arrayFaceDeclaredWith6MethodsAndNoBase();
     void stringFaceBindingRowsStampIntrinsics();
-    void preludeDeclaresNoStaticFields();
+    void preludeStaticFieldsAreStringEmptyOnly();
 };
 
-void TestPreludeFaces::stringFaceDeclaredWith22MethodsAndNoBase()
+void TestPreludeFaces::stringFaceDeclaredWith23MethodsAndNoBase()
 {
     QVERIFY(withBuild("string_face", "int main() { return 0; }",
         [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
         auto* pString = FindPreludeClassDecl(builder.Registry(), "String");
         QVERIFY(pString != nullptr);
-        //22 methods, but substring declares twice (the no-default-param
-        //overload pair, spec D3) — 23 function members.
-        QCOMPARE(countNativeMethods(*pString), 23);
+        //23 methods (v0.13.4: the indexOf-from and toInt-radix overloads
+        //and equalsIgnoreCase joined the face). Three names declare twice
+        //— substring (the no-default-param overload pair, spec D3) and
+        //the v0.13.4 indexOf/toInt pairs — so 26 function members.
+        QCOMPARE(countNativeMethods(*pString), 26);
         //D10: face classes stay out of the Object hierarchy — no
         //implicit base attached, none declared.
         QVERIFY(pString->SuperClass() == nullptr);
@@ -237,7 +239,7 @@ void TestPreludeFaces::stringFaceBindingRowsStampIntrinsics()
         "int main() { string s = \"ab\"; return s.substring(1).length(); }",
         [](ModuleBuilder&, ModuleBuilder::UnitImages& images) {
         const auto records = classMethodRecords(images, "String");
-        QCOMPARE(int(records.size()), 23);
+        QCOMPARE(int(records.size()), 26);
         for (const auto* fn : records)
         {
             if (fn->name == "substring")
@@ -246,6 +248,23 @@ void TestPreludeFaces::stringFaceBindingRowsStampIntrinsics()
                 //declared records stamp onto the one intrinsic id.
                 QCOMPARE(fn->intrinsicId,
                     uint16_t(INTR_String_Substring));
+                QVERIFY(!fn->isNative);
+            }
+            else if (fn->name == "indexOf" || fn->name == "toInt")
+            {
+                //v0.13.4: the from/radix overloads ride the same
+                //binding row as their base form — the staged-arg-count
+                //predicate fills the defaulted slot at codegen.
+                QCOMPARE(fn->intrinsicId, fn->name == "indexOf"
+                    ? uint16_t(INTR_String_IndexOf)
+                    : uint16_t(INTR_String_ToInt));
+                QVERIFY(!fn->isNative);
+            }
+            else if (fn->name == "equalsIgnoreCase")
+            {
+                //v0.13.4: fresh id, own binding row.
+                QCOMPARE(fn->intrinsicId,
+                    uint16_t(INTR_String_EqualsIgnoreCase));
                 QVERIFY(!fn->isNative);
             }
             else if (fn->name == "length")
@@ -259,12 +278,15 @@ void TestPreludeFaces::stringFaceBindingRowsStampIntrinsics()
     }));
 }
 
-//v0.12.6 Task 11 hardening: the merged tree inlines the prelude units
-//alongside the snippet. The snippet declares exactly one static field,
-//so any additional static anywhere in the tree is a prelude (or other
-//inlined library) static — the exact declaration the static-slot
-//archive's fidelity premise forbids.
-void TestPreludeFaces::preludeDeclaresNoStaticFields()
+//v0.12.6 Task 11 hardening, v0.13.4 amendment: the merged tree inlines
+//the prelude units alongside the snippet. The snippet declares exactly
+//one static field, and the prelude contributes exactly one — the
+//String.EMPTY constant (v0.13.4, a static const on the String face;
+//the cross-unit slot archive carries it faithfully, pinned by the
+//cross_mod_prelude_static e2e). Any additional static anywhere in the
+//tree is an accidental prelude (or other inlined library) static —
+//the declaration the static-slot archive's fidelity premise forbids.
+void TestPreludeFaces::preludeStaticFieldsAreStringEmptyOnly()
 {
     QVERIFY(withBuild("prelude_no_statics",
         "class Probe {\n"
@@ -272,7 +294,7 @@ void TestPreludeFaces::preludeDeclaresNoStaticFields()
         "}\n"
         "int main() { return Probe.total; }",
         [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
-        QCOMPARE(countStaticClassFields(builder.TreeRootView()), 1);
+        QCOMPARE(countStaticClassFields(builder.TreeRootView()), 2);
     }));
 }
 

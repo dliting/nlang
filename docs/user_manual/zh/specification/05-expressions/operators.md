@@ -52,7 +52,7 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 
 **比较操作数是有类型的**：
 
-- **string/非string混合是编译错误**（`"a" < 5`、`5 == "a"`）。唯一例外是null字面量：`s == null` / `c == null`与null哨兵比较——对class/引用操作数是同一性；对string操作数，null侧读作空字符串（句柄0是保留的null哨兵；真正的空字符串有自己的对象，按位与null不同）。因此`"" == null`比较相等，任何非空字符串比较不等。
+- **string/非string混合是编译错误**（`"a" < 5`、`5 == "a"`），null字面量也不例外——`s == null`是编译错误（null不是字符串值，§4.3）。`c == null`对class/引用操作数与null哨兵做同一性比较。
 - **数值对**得到与算术相同的对称提升：`-2 < -1.5`提升为double且为真；`1 == 1.0`为真。见[基本类型](../04-types/primitives.md)。
 - **char只与char比较**（`'a' < 'b'`合法）；char与数值比较不经隐式转换，先`c as int`取码点（`a char value can only be compared with a char value`）。
 - **bool只与bool比较，且只比较相等**：`true == true`为真；对bool排序是编译错误（`bool values cannot be ordered; only == and != are supported`），bool与其他类型比较同样是编译错误（`a bool value can only be compared with a bool value`）。

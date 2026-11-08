@@ -117,11 +117,56 @@ bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 	return true;
 }
 
+//Match a static const field on the face by name — declaration-driven
+//like MatchFaceMethod: the prelude class owns the constant surface.
+static SnField *MatchFaceStaticConst(SnClassDecl &face,
+	const std::string &name)
+{
+	for (auto& child : face.Members())
+	{
+		if (child.Kind() != NK_ClassField)
+			continue;
+		auto& field = static_cast<SnClassField&>(child);
+		if (field.Name() == name
+			&& field.ContainFlags(NF_Static)
+			&& field.ContainFlags(NF_Const))
+			return &field;
+	}
+	return nullptr;
+}
+
+//`string.EMPTY` (0.13.4): static constants on the keyword type, the
+//field-side sibling of the method bridge above. The prelude String
+//face owns the constant surface; this bridge only binds the access —
+//the backend's folded-constant read (EmitMemberConstantRead) emits the
+//inline literal, so the type qualifier never evaluates as a value.
+//True = consumed; false = declined (the name is not a face constant —
+//the generic path keeps the chain and its diagnostics).
+bool ExprResolveAccessor::TryResolveStringBuiltinConstant(
+	SnMemberExpr &snMember, SnFieldExpr *pInnerExpr,
+	SyntaxNode *pSavedContext)
+{
+	if (!(m_pContext && m_pContext->Kind() == NK_String
+		&& pInnerExpr->Kind() == NK_IdentifierExpr))
+		return false;
+	SnClassDecl* pFace = FindPreludeClassDecl(m_Env.Registry(), "String");
+	if (!pFace)
+		return false;   //prelude missing — the method bridge owns that error
+	SnField* pConst = MatchFaceStaticConst(*pFace,
+		static_cast<SnIdentifierExpr&>(*pInnerExpr).Name());
+	if (!pConst)
+		return false;
+	ResolveFieldExprAs(*pInnerExpr, pConst);
+	FinishResolvedMember(snMember, pInnerExpr);
+	m_pContext = pSavedContext;
+	return true;
+}
+
 //Per-arg policy from the DECLARED formals (v0.12.2): exact kind match,
 //no widening — substring offsets are int; a float offset is a compile
-//error. Null matches a string formal: null strings read as "" in this
-//language, so a null argument is the empty-string argument. Array
-//tokens carry their own Kind and match no scalar formal.
+//error. Since 0.13.4 string is a value type, so the null literal has no
+//string value and is rejected against a string formal. Array tokens
+//carry their own Kind and match no scalar formal.
 void ExprResolveAccessor::CheckFaceArgKinds(SnInvokeExpr &invoke,
 	SnFunction &fn, const char *ownerName)
 {
@@ -148,9 +193,16 @@ void ExprResolveAccessor::CheckFaceArgKinds(SnInvokeExpr &invoke,
 		//The null literal is an Int32-typed node flagged NF_NullLiteral
 		//— detection is the flag (the same test every other resolver
 		//site uses), never a kind compare.
-		const bool ok = pArgType->Kind() == pFormalType->Kind()
-			|| (arg.ContainFlags(NF_NullLiteral)
-				&& pFormalType->Kind() == NK_String);
+		if (arg.ContainFlags(NF_NullLiteral)
+			&& pFormalType->Kind() == NK_String)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"Argument %d of %s.%s cannot be null: string is a "
+				"value type; use \"\" or string.EMPTY.",
+				(int)paramIdx + 1, ownerName, fn.Name().c_str());
+			continue;
+		}
+		const bool ok = pArgType->Kind() == pFormalType->Kind();
 		if (!ok)
 			m_Env.Log(CLL_Error, arg.Location(),
 				"Argument %d of %s.%s has type \"%s\"; \"%s\" "

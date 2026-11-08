@@ -1,0 +1,8 @@
+// string is a value type: a null literal cannot be passed to print's
+// string formal.
+import io;
+
+int main() {
+    io.print(null);
+    return 0;
+}

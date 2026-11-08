@@ -9,6 +9,8 @@
 - **string → 数值的`as`被禁止**：`"5" as int`是编译错误（``Invalid cast: `String as Int32` is not allowed``）。等价功能由string方法族覆盖（`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/
   `toChar`，见[string方法](../library/16-string-methods.md)）；本条是有意的规格缩窄，不是缺陷。
 
+- **跨native边界的null字符串句柄**：`string`的值域不含null（§4.3），但native实现（宿主回调、native绑定）仍可能交出0号句柄——内部的null表示。这样的值在每个读取位置都表现为空串`""`：`length()`为0、与`""`相等、拼接无贡献。后续版本或将把它改为显式错误；返回string的函数不应返回null。
+
 - **标量上下文中的数组值**：数组值只有三类合法去向——自身数组类型（元素类型必须完全一致；方括号拼写之间秩也必须一致，而无括号的`Array<T>`位经边界检查接受任意秩，§4.10.7）、**全部**位置上的`string`目标，以及`Object`（§4.11.1）；`null`恒可转换到数组目标；比较恒为恒等比较；其余用法一律在编译期被明确拒绝。
 
   细则：`string`目标覆盖整值位置与元素槽——string局部变量与字段、返回、拼接、string形参（`f(arr)`）、`io.print(arr)`、数组下标（`string[] sa; sa[0] = arr`）与容器存储（`List<string>`下标与`.add`），都经运行期toString强制转换（得`"[1, 2]"`）；比较只对另一个数组或`null`做`==` / `!=`。拒绝清单：标量、class与interface目标，数组操作数的`as`强制转换（`ia as int`——数组目标是合法形式，如`o as int[]`，§4.5），非数组形参，数值二元操作数（`arr + 1`），关系或跨类型比较（`arr < arr2`、`arr == 5`），条件位置（`if (arr)`），`switch`判别式。跨元素与表示互通的数组转换同样拒绝：`string[] b = ia`、协变上转型`Base[] ba = da`、`enum[]`与`int[]`互转都以"an array value only converts to the same array type"失败。从`List<T[]>` / `Dict<K,T[]>`取出的元素遵循同一规则；其数组性对编译器可见——数组面方法在它们上面可用（`li[0].rank()`），`switch`判别式（`switch (li.get(0))`）会被明确拒绝，`foreach`可以把它们迭代进数组类型的循环变量（数组值源可直接使用且只求值一次），以数组类型为键的`Dict`按句柄恒等比较。

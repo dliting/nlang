@@ -139,10 +139,11 @@ Messages](../specification/reference/common-errors.md) for the full error text.
 It is legal and warning-free — every type has a definite default value:
 numbers are 0, `bool` is false, `char` is code point 0, enums hold
 underlying value 0 (the first member for auto-incremented enums),
-structs zero-initialize every field, and string plus the
-other reference types (class, interface, arrays, containers, `func`)
-are null. A null default compares directly with `== null`; using it
-without the check throws a `null reference error` at run time. The full
+structs zero-initialize every field, `string` defaults to the empty
+string `""`, and the other reference types (class, interface, arrays,
+containers, `func`) are null. A null default compares directly with
+`== null`; using it without the check throws a `null reference error`
+at run time. The full
 table is in [Specification /
 Declarations](../specification/03-program-structure/declarations.md), "Default values".
 

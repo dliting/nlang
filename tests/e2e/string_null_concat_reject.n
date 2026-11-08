@@ -1,0 +1,6 @@
+// string is a value type: a null literal is not a concatenation operand.
+int main() {
+    string s = "x";
+    string t = s + null;
+    return t.length();
+}

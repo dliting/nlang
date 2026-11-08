@@ -1,0 +1,7 @@
+// Pinned existing rejection: `as` never performs the implicit int→string
+// conversion, so `null as string` stays a compile error after the
+// null-removal change.
+int main() {
+    string s = null as string;
+    return s.length();
+}

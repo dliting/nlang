@@ -73,6 +73,10 @@
     "reason": "per-intrinsic switch; each arm is a short handler"
   },
   {
+    "path": "src/vm/IntrinsicsString.cpp",
+    "reason": "one per-intrinsic switch family kept in one TU (the switch itself is allowlisted above); file length tracks the String face's growth, arms stay short handlers"
+  },
+  {
     "path": "src/vm/ModuleLoader.cpp",
     "function": "ModuleLoader::Load",
     "reason": "section-tag dispatch reader; one short arm per tag"

@@ -4,15 +4,16 @@
 of bytes holding text in the Unicode Transformation Format (UTF-8).
 No operation modifies a string value in place.
 
-A string value is a handle, and the handle may be null. A null
-handle reads as the empty string in every position: its
-`length()` is 0, concatenation treats it as `""`, and a comparison
-with `""` holds.
+The value domain of `string` excludes null: null is the empty
+reference of the reference types, not a string value. Writing the
+null literal in a string-typed position — initialization,
+assignment, argument passing, return, comparison, case label,
+concatenation — is a compile error. The empty string is written
+`""`, and the named constant `string.EMPTY` (§16) names it too.
 
 Two string values compare by content: `==` holds exactly when both
-sides denote the same byte sequence, with a null side read as the
-empty string. The ordering operators compare the UTF-8 bytes,
-which is also code point order.
+sides denote the same byte sequence. The ordering operators
+compare the UTF-8 bytes, which is also code point order.
 
 `length()` returns the number of bytes; `charCount()` returns the
 number of code points. The string methods are defined in
@@ -51,7 +52,8 @@ source to console".
 *Informative:* strings are **immutable objects** at run time: concatenation and substring
 extraction produce new content, and an existing object's content never
 changes. A string variable holds a handle (a reference) to its string object;
-handle 0 means null and **reads as the empty string** `""`.
+the handle is an internal representation only — the language surface is
+value copy semantics throughout.
 
 - **Constants live as long as the execution**: string literals from the
   source are created as immortal objects when the module starts executing
@@ -84,9 +86,8 @@ handle 0 means null and **reads as the empty string** `""`.
 uses C `strcmp`-style byte-by-byte comparison (e.g. `"Z" < "a"` is true because
 `'Z'` (90) < `'a'` (97)). Because strings are UTF-8 and UTF-8 byte order
 equals code-point order, ordering is also correct for text beyond the American Standard Code for Information Interchange (ASCII):
-`"é" > "z"` is true. Mixed string/non-string comparison is a compile error
-except against the null literal — `s == null` reads the null side as the empty
-string, so `"" == null` is true and any non-empty string compares unequal. The
+`"é" > "z"` is true. Mixed string/non-string comparison is a compile error,
+the null literal included — `s == null` is a compile error. The
 full comparison rules are on [Operators](../05-expressions/operators.md) "Comparison".
 
 ### Escape sequences
@@ -177,12 +178,17 @@ A string is a UTF-8 **byte string**; a char is one Unicode scalar value
   code point as a `char`; in `"x" + 'y'` the char joins the string as its
   UTF-8 encoding.
 
-### Null
+### Null and the empty string
 
-A string variable may hold the null handle (0). Unlike a null class reference
-(which throws on member access), a null string **reads as the empty string**
-`""` — calling `s.length()` on a null string returns 0. See
-[Class](class.md) for the contrasting class null semantics.
+null is not in the value domain of `string`: `string s = null;`,
+`s == null`, and passing null to a `string` parameter are compile
+errors. The empty string is `""`, named by the constant
+`string.EMPTY` (§16). An uninitialized string variable (the local
+or field default) is the empty string. If a native implementation
+(a host callback or a native binding) hands back the null handle,
+that value behaves as the empty string in every read position —
+see [Known Limitations](../reference/known-limitations.md). See
+[Class](class.md) for the class null semantics.
 
 ### String methods
 

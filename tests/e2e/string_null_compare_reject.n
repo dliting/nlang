@@ -1,0 +1,7 @@
+// string is a value type: a null literal is not a comparison operand
+// for a string.
+int main() {
+    string s = "x";
+    if (s == null) { return 1; }
+    return 0;
+}

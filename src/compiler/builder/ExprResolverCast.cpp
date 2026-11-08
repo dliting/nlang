@@ -314,18 +314,27 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 		return true;
 	}
 
-	//The int→class/interface/array bridge (TCK_Auto) exists for the null
-	//literal only: any other int/enum value would end up as a garbage
-	//handle in the slot (an array target doubly so — a raw int would
-	//reintroduce the masquerade). ContainFlags is a flat bit test, so a
-	//null literal wrapped in `as` propagates the flag explicitly in
-	//Access(SnAsExpr).
-	if (castInfo.Kind() == TCK_Auto
-		&& castInfo.Target()
-		&& (castInfo.Target()->Kind() == NK_ClassDecl
-			|| castInfo.Target()->Kind() == NK_InterfaceDecl
-			|| castInfo.Target()->Kind() == NK_ArrayTypeToken)
-		&& !srcExpr.ContainFlags(NF_NullLiteral))
+	return RejectNullLiteralCast(srcExpr, castInfo);
+}
+
+//The two null-literal gates of the TCK_Auto int bridge. The
+//int→class/interface/array bridge exists for the null literal only:
+//any other int/enum value would end up as a garbage handle in the slot
+//(an array target doubly so — a raw int would reintroduce the
+//masquerade). ContainFlags is a flat bit test, so a null literal
+//wrapped in `as` propagates the flag explicitly in Access(SnAsExpr).
+//The int→string cell is the opposite gate: it is the legitimate
+//rendering coercion (`string s = 5` yields "5"), and the null literal
+//has no string value — string is a value type (0.13.4).
+bool ExprResolveAccessor::RejectNullLiteralCast(SnExpression &srcExpr,
+	TypeCastInfo &castInfo)
+{
+	if (castInfo.Kind() != TCK_Auto || !castInfo.Target())
+		return false;
+	const NodeKind kind = castInfo.Target()->Kind();
+	const bool isNull = srcExpr.ContainFlags(NF_NullLiteral);
+	if ((kind == NK_ClassDecl || kind == NK_InterfaceDecl
+		|| kind == NK_ArrayTypeToken) && !isNull)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible value \"%s\": only the null literal converts "
@@ -333,24 +342,29 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 			srcExpr.ToString().c_str());
 		return true;
 	}
+	if (kind == NK_String && isNull)
+	{
+		m_Env.Log(CLL_Error, srcExpr.Location(),
+			"null is not a string value: string is a value type; "
+			"use \"\" or string.EMPTY.");
+		return true;
+	}
 	return false;
 }
 
 //Null literal (KT_Null is Int32-typed) must reach the slot as the raw
 //sentinel 0. Wrapping it destroys the null identity downstream:
-//Int32→String emits OP_Prim_to_str ("0"), TCK_Box to Object allocates
-//a boxed 0. Class/interface targets already treat TCK_Auto as a
-//runtime no-op, so skipping the wrap uniformly is safe there too.
-//Null operands in binary arithmetic/concat are rejected outright by
-//the guard in Access(SnBinaryExpr) (Phase 11 Step 3b) — the skip here
-//cannot leak a raw null into an arithmetic wrap anymore.
+//TCK_Box to Object allocates a boxed 0. Class/interface targets already
+//treat TCK_Auto as a runtime no-op, so skipping the wrap uniformly is
+//safe there too. Null into a string target is rejected outright by the
+//value-type gate in RejectIncompatibleCast (0.13.4), so no string wrap
+//can leak through; null operands in binary arithmetic/concat are
+//rejected by the guard in Access(SnBinaryExpr) (Phase 11 Step 3b).
 bool ExprResolveAccessor::SkipNullIdentityWrap(SnExpression &srcExpr,
 	TypeCastInfo &castInfo)
 {
 	return srcExpr.ContainFlags(NF_NullLiteral)
-		&& (castInfo.Kind() == TCK_Box
-			|| (castInfo.Target()
-				&& castInfo.Target()->Kind() == NK_String));
+		&& castInfo.Kind() == TCK_Box;
 }
 
 bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,

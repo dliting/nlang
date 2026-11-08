@@ -303,6 +303,33 @@ void VmBackend::EmitMemberStringEquals(SnInvokeExpr& invoke,
 //claim size (incl. the synthesized trailing arg) via the SAME
 //StringMethodStagedArgCount predicate — see the ExprPeakDepth
 //MemberExpr branch.
+//Fill the one defaulted slot (the last staged one) with the method's
+//default: substring's end = receiver.length(), indexOf's from = 0,
+//toInt's radix = 10. Exactly one slot is missing in every defaulted
+//form (see the predicate). The receiver copy sits at claim slot 0.
+static void EmitStringMethodDefaultFill(BytecodeEmitter& emitter,
+    const std::string& name, uint16_t claimBase, uint16_t stagedArgs)
+{
+    const uint16_t fillOffset = static_cast<uint16_t>(
+        claimBase + stagedArgs * kFrameSlotBytes);
+    if (name == "indexOf") {
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(0);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(fillOffset);
+    } else if (name == "toInt") {
+        emitter.Emit(OpCode::OP_ConstInt32);
+        emitter.EmitInt32(10);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(fillOffset);
+    } else {
+        //substring: dst = StrLen(receiver copy at claim slot 0)
+        emitter.Emit(OpCode::OP_StrLen);
+        emitter.EmitUint16(fillOffset);
+        emitter.EmitUint16(claimBase);
+    }
+}
+
 //Returns true when the method has a binding row and was emitted.
 bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
                                             SnMemberExpr& member,
@@ -330,31 +357,9 @@ bool VmBackend::EmitMemberTableStringMethod(SnInvokeExpr& invoke,
             claimBase + paramIdx * kFrameSlotBytes);
         ++paramIdx;
     }
-    if (stagedArgs > argCount) {
-        //Fill the one defaulted slot (the last staged one) with the
-        //method's default: substring's end = receiver.length(),
-        //indexOf's from = 0, toInt's radix = 10. Exactly one slot is
-        //missing in every defaulted form (see the predicate).
-        const uint16_t fillOffset = static_cast<uint16_t>(
-            claimBase + stagedArgs * kFrameSlotBytes);
-        const std::string name = invoke.CalleeName();
-        if (name == "indexOf") {
-            emitter.Emit(OpCode::OP_ConstInt32);
-            emitter.EmitInt32(0);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(fillOffset);
-        } else if (name == "toInt") {
-            emitter.Emit(OpCode::OP_ConstInt32);
-            emitter.EmitInt32(10);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(fillOffset);
-        } else {
-            //substring: dst = StrLen(receiver copy at claim slot 0)
-            emitter.Emit(OpCode::OP_StrLen);
-            emitter.EmitUint16(fillOffset);
-            emitter.EmitUint16(claimBase);
-        }
-    }
+    if (stagedArgs > argCount)
+        EmitStringMethodDefaultFill(emitter, invoke.CalleeName(),
+            claimBase, stagedArgs);
     CopyClaimToCallParams(claimBase, n, emitter);
     emitter.Emit(OpCode::OP_CallIntrinsic);
     emitter.EmitUint16(intrinsicId);

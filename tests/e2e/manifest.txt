@@ -656,7 +656,6 @@ cross_mod_default_negative_float 7
 cross_mod_default_float 7
 cross_mod_default_string 7
 cross_mod_default_null 7
-cross_mod_default_null_string 7
 cross_mod_default_override 28
 # Complex cross-module defaults (ExprDesc wire form): formal references,
 # producing-module calls, negation; literals stay on the folded path
@@ -929,6 +928,7 @@ cross_mod_static_inherited 7
 cross_mod_staticness_overload 42
 cross_mod_static_lazy 0
 cross_mod_static_src_inline 106
+cross_mod_prelude_static 0
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0
@@ -991,7 +991,7 @@ stdlib_str_substring_binary_operand 0
 stdlib_str_substring_oob_caught 0
 stdlib_str_split_empty_sep_caught 0
 stdlib_str_replace_empty_old_caught 0
-string_null_assign 0
+stdlib_string_empty 0
 stdlib_fs_exists_type 0
 stdlib_fs_size 0
 stdlib_fs_listfiles 0
@@ -1960,7 +1960,20 @@ string_substring_two_args 0
 string_equals_int_reject compile_error
 string_substring_3args_reject compile_error
 string_toupper_spelling_reject compile_error
-string_null_arg_semantics 0
+string_null_local_reject compile_error null is not a string value
+string_null_assign_reject compile_error null is not a string value
+string_null_return_reject compile_error null is not a string value
+string_null_initlist_reject compile_error null is not a string value
+string_null_compare_reject compile_error cannot compare string with a non-string operand
+string_null_arg_user_reject compile_error cannot be null
+string_null_arg_face_reject compile_error cannot be null
+string_null_default_reject compile_error cannot be null
+string_null_static_const_reject compile_error cannot be null
+string_null_field_reject compile_error cannot be null
+print_null_reject compile_error cannot be null
+string_null_as_reject compile_error cannot perform implicit conversion
+string_null_case_reject compile_error null is not a valid case label
+string_null_concat_reject compile_error null is not a valid arithmetic operand
 string_face_shadow_nonhijack 0
 array_face_shape_crossmod 0
 string_face_shadow_missing_reject compile_error

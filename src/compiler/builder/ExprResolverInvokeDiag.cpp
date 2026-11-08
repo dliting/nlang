@@ -252,8 +252,8 @@ bool ExprResolveAccessor::LogSingleArgumentMismatch(SnExpression &arg,
 		&& pFormalType->Kind() == NK_String)
 	{
 		m_Env.Log(CLL_Error, arg.Location(),
-			"Argument %d of \"%s\" cannot be null: a null value would be "
-			"printed as \"0\".",
+			"Argument %d of \"%s\" cannot be null: string is a value "
+			"type; use \"\" or string.EMPTY.",
 			paramIdx + 1, callee.c_str());
 		return true;
 	}

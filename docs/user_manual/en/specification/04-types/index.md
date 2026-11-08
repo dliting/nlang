@@ -112,8 +112,9 @@ page that explains that type in detail.
   matrix (§4.4). See [Primitives](primitives.md).
 - **`string`** — value semantics *via* an immutable interned object: the
   handle is copied, but the object's content never changes, so "sharing" is
-  harmless. `==` compares content, not identity. A null string handle (0)
-  reads as the empty string `""`. See [String](string.md).
+  harmless. `==` compares content, not identity. null is not in its value
+  domain (writing null is a compile error); the empty string is `""` /
+  `string.EMPTY`. See [String](string.md).
 - **`enum`** — value type backed by int32. Assigned, passed, and returned by
   value; compared by its integer value; there is no independent object
   identity. See [Enum](enum.md).
@@ -183,8 +184,7 @@ assignment, argument passing and return-value conversion;
 - The value is an enumeration and the target is `int`, or the
   value is `int` and the target is an enumeration (§4.6).
 - The value is the `null` literal and the target is a reference
-  type or `string`. No other integer converts implicitly to a
-  reference type.
+  type. No other integer converts implicitly to a reference type.
 - The value is an integer literal whose value fits the target
   integer type's value domain, even when the general conversion
   between the two types is explicit-only; a literal that does not

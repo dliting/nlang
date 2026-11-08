@@ -59,7 +59,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 变量不初始化会怎样？
 
-合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[规范/声明](../specification/03-program-structure/declarations.md)的「默认值」。
+合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string是空字符串`""`，其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[规范/声明](../specification/03-program-structure/declarations.md)的「默认值」。
 
 ### `Point(2, 3)`为什么报「没有构造器」？
 

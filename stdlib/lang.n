@@ -67,6 +67,8 @@ class Object {
 //so its methods are never virtual overrides.
 //substring(start) with one argument means "through the end".
 class String {
+    //The empty string as a named constant, content-equal to "".
+    public static const string EMPTY = "";
     public native int length();
     public native int getHashCode();
     public native int equals(string other);
