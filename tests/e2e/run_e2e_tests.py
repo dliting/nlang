@@ -240,6 +240,19 @@ def _rejection_violation(expected, stderr):
     return None
 
 
+def _describe_run_error(exc):
+    """Human-readable form of a child-run exception. A negative
+    TimeoutExpired timeout is not slowness: time.monotonic() (QPC) keeps
+    counting while the machine is suspended, so a sleep mid-run leaves
+    the deadline far in the past when the pipes finally close. Name the
+    wall-clock jump instead of printing a baffling negative seconds
+    count."""
+    if (isinstance(exc, subprocess.TimeoutExpired)
+            and exc.timeout is not None and exc.timeout < 0):
+        return "wall-clock jump during run (machine suspend?)"
+    return str(exc)
+
+
 def main():
     ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
     nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
@@ -477,9 +490,11 @@ def main():
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
-                    print(f"FAIL {name} (runtime error: {e})")
+                    print(f"FAIL {name} (runtime error: "
+                          f"{_describe_run_error(e)})")
                     failed += 1
-                    errors.append(f"  {name}: runtime error: {e}")
+                    errors.append(f"  {name}: runtime error: "
+                                  f"{_describe_run_error(e)}")
                     continue
 
                 if actual == expected:
@@ -669,9 +684,11 @@ def main():
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
-                print(f"FAIL {name} (runtime error: {e})")
+                print(f"FAIL {name} (runtime error: "
+                      f"{_describe_run_error(e)})")
                 failed += 1
-                errors.append(f"  {name}: runtime error: {e}")
+                errors.append(f"  {name}: runtime error: "
+                              f"{_describe_run_error(e)}")
                 if os.path.isfile(nmod_file):
                     os.remove(nmod_file)
                 continue
