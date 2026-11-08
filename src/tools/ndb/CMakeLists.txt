@@ -11,3 +11,7 @@ if(MSVC)
 endif()
 target_include_directories(ndb PRIVATE ${PROJECT_SOURCE_DIR}/src/vm)
 target_link_libraries(ndb PRIVATE nlang_vm nlang_langservice nlang_version)
+
+#ASan tool chain: ship the asan runtime beside the exe (see the
+#nlang_ship_asan_runtime function in the top-level CMakeLists).
+nlang_ship_asan_runtime(ndb)

@@ -274,3 +274,7 @@ if(WIN32)
     #QtWebEngine runtime beside the exe (embedded help browser).
     nlang_copy_qtwebengine_runtime(nide)
 endif()
+
+#ASan tool chain: ship the asan runtime beside the exe (see the
+#nlang_ship_asan_runtime function in the top-level CMakeLists).
+nlang_ship_asan_runtime(nide)

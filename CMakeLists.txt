@@ -168,15 +168,24 @@ add_subdirectory(examples)
 add_subdirectory(src/3rdparty/tinyxml2)
 #MSVC's /fsanitize=address binaries load clang_rt.asan_dynamic-x86_64.dll
 #from the executable's own directory (or PATH). Build-tree tools run from
-#<build>/src/tools/<tool>/<config>, so the tool targets ship the runtime
-#beside themselves (see src/tools/*/CMakeLists.txt): the stdlib-package
-#step and the e2e gates then launch the ASan tool chain directly. The DLL
-#sits next to cl.exe in the toolset bin dir; guarded on the configure-time
-#flag so non-ASan trees are untouched.
+#<build>/src/tools/<tool>/<config>, so each tool target ships the runtime
+#beside itself via nlang_ship_asan_runtime() (see src/tools/*/CMakeLists
+#txt): the stdlib-package step and the e2e gates then launch the ASan tool
+#chain directly. The DLL sits next to cl.exe in the toolset bin dir, which
+#keeps the runtime version locked to the toolset that built the binaries;
+#guarded on the configure-time flag so non-ASan trees are untouched.
 if(MSVC AND CMAKE_CXX_FLAGS MATCHES "sanitize=address")
     get_filename_component(NLANG_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
     set(NLANG_ASAN_RUNTIME "${NLANG_MSVC_BIN_DIR}/clang_rt.asan_dynamic-x86_64.dll")
 endif()
+function(nlang_ship_asan_runtime target)
+    if(DEFINED NLANG_ASAN_RUNTIME)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${NLANG_ASAN_RUNTIME}" $<TARGET_FILE_DIR:${target}>
+            COMMENT "Copying ASan runtime beside ${target}")
+    endif()
+endfunction()
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
 add_subdirectory(src/tools/ndisasm)
