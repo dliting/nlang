@@ -138,14 +138,14 @@ const class Url {
 
     // Reassembles the components. Round-trips: parsing the output
     // yields the same field values. The authority ("//") is emitted
-    // only when host or userInfo are present: a path-absolute path
-    // without an authority ("http:/foo") must stay path-absolute, or
-    // the first path segment would reparse as the host.
+    // only when host, userInfo, or a port are present: a path-absolute
+    // path without an authority ("http:/foo") must stay path-absolute,
+    // or the first path segment would reparse as the host.
     public string toString() {
         string text = "";
-        if (scheme != "" || host != "" || userInfo != "") {
+        if (scheme != "" || hasAuthority(host, userInfo, port)) {
             if (scheme != "") { text = text + scheme + ":"; }
-            if (host != "" || userInfo != "") {
+            if (hasAuthority(host, userInfo, port)) {
                 text = text + "//";
                 if (userInfo != "") { text = text + userInfo + "@"; }
                 text = text + host;
@@ -156,6 +156,15 @@ const class Url {
         if (hasQuery) { text = text + "?" + query; }
         if (hasFragment) { text = text + "#" + fragment; }
         return text;
+    }
+
+    // Authority presence: a host, a userInfo, or a given port each mean
+    // the URL carries an authority, even with an empty host
+    // ("http://:80"). toString and the RFC 3986 5.3 reassembly in
+    // resolve must agree on this predicate, or port-only authorities
+    // stop round-tripping.
+    private static bool hasAuthority(string host, string userInfo, int port) {
+        return host != "" || userInfo != "" || port >= 0;
     }
 
     private static bool isAlpha(int c) {
@@ -209,7 +218,7 @@ const class Url {
         if (r.scheme != "") {
             tscheme = r.scheme; tuser = r.userInfo; thost = r.host; tport = r.port;
             tpath = removeDotSegments(r.path); tquery = r.query; tHasQuery = r.hasQuery;
-        } else if (r.host != "" || r.port >= 0 || r.userInfo != "") {
+        } else if (hasAuthority(r.host, r.userInfo, r.port)) {
             tuser = r.userInfo; thost = r.host; tport = r.port;
             tpath = removeDotSegments(r.path); tquery = r.query; tHasQuery = r.hasQuery;
         } else if (r.path == "") {
@@ -228,7 +237,7 @@ const class Url {
         // empty authority with a "//"-prefixed path must survive the
         // reparse as a path, not collapse into the host.
         string text = tscheme + ":";
-        if (thost != "" || tuser != ""
+        if (hasAuthority(thost, tuser, tport)
             || (tpath.length() > 0 && tpath[0] == 47)) {
             text = text + "//";
             if (tuser != "") { text = text + tuser + "@"; }

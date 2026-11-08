@@ -60,6 +60,14 @@ int main() {
     // absent); the presence flag round-trips "http://h#".
     Url f = Url.parse("http://h#");
     if (f.fragment != "" || !f.hasFragment || f.toString() != "http://h#") { return 22; }
+    // Final review I1: an empty host with a port is still an authority
+    // (Go String() emits "//" whenever Host is non-empty, and ":8080" is
+    // a non-empty Host): toString must keep the "//" and the port so the
+    // field values round-trip instead of collapsing to "http:/p".
+    Url ph = Url.parse("http://:8080/p");
+    if (ph.host != "" || ph.port != 8080 || ph.path != "/p") { return 23; }
+    if (ph.toString() != "http://:8080/p") { return 24; }
+    if (Url.parse(ph.toString()).port != 8080) { return 25; }
     io.print("ok");
     return 0;
 }

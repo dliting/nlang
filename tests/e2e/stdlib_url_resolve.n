@@ -71,6 +71,10 @@ int main() {
     // Opaque-path references and bases (Go issue 66084 shapes).
     if (b.resolve("http:opaque").toString() != "http:opaque") { return 46; }
     if (Url.parse("http:opaque?x=y#zzz").resolve("?a=b#frag").toString() != "http:opaque?a=b#frag") { return 47; }
+    // Final review I2: an authority ref carrying only a port keeps its
+    // authority through the RFC 3986 5.3 reassembly (Go resolveReference:
+    // base "http://a/b" + "//:80" = "http://:80").
+    if (b.resolve("//:80").toString() != "http://:80") { return 48; }
     io.print("ok");
     return 0;
 }
