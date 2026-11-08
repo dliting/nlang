@@ -507,6 +507,33 @@ add_executable(test_array_view_record
     test_vm/test_array_view_record.cpp
 )
 
+# v0.13.1 Task 4: object-side instantiation descriptors (the parallel
+# array + OP_New descIdx + load-time interning), compile+execute in-process.
+add_executable(test_generic_runtime_info
+    test_vm/test_generic_runtime_info.cpp
+)
+
+target_include_directories(test_generic_runtime_info
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_generic_runtime_info
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_generic_runtime_info)
+target_compile_definitions(test_generic_runtime_info
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm

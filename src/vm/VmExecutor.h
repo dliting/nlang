@@ -12,6 +12,7 @@
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
+#include "GenericInstDescriptor.h"
 #include "ShardFreeList.h"
 #include "VmDomainLocks.h"
 #include "VmScheduler.h"
@@ -337,6 +338,20 @@ public:
     int32_t ReadHeapRecordCellForTests(int32_t handle, size_t cell) const {
         return m_structHeap[static_cast<size_t>(handle)][cell];
     }
+    //v0.13.1 D1: the object's instantiation descriptor — null when the
+    //slot carries none (non-instantiation objects, non-objects, free
+    //slots, out-of-range handles). The read-only view consumed by cast
+    //dispatch, typeName, equality and the ABI callbacks.
+    const GenericInstDescriptor* InstDescriptorOf(int32_t heapIdx) const {
+        if (heapIdx <= 0
+            || static_cast<size_t>(heapIdx) >= m_instDescByHeap.size())
+            return nullptr;
+        return m_instDescByHeap[static_cast<size_t>(heapIdx)];
+    }
+    //Test probe: the descriptor parallel array's length (= heap slots).
+    size_t HeapSlotCountForTests() const {
+        return m_instDescByHeap.size();
+    }
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is
@@ -481,6 +496,9 @@ private:
     void ResetPerRunState(const CompiledModule& module);
     void InitStringStore(const CompiledModule& module);
     void InitStructHeap();
+    //v0.13.1: intern the module's static descriptor rows so OP_New's
+    //descIdx operand resolves to a pointer (recipe rows stay null).
+    void InitDescriptorTable(const CompiledModule& module);
     //K1 Slice 6: cache builtin class indexes (Exception family + Thread)
     //from the freshly linked module — extracted from ResetPerRunState
     //for the function size guard.
@@ -886,8 +904,10 @@ private:
     void HeapSweepPush(int32_t idx);
 
     //Allocate a class object on the heap with recursive field allocation.
-    //Returns the heap index.
-    int32_t AllocClassOnHeap(uint16_t classIdx);
+    //instDesc (v0.13.1 D1) rides the parallel descriptor array — null
+    //for every non-instantiation construction. Returns the heap index.
+    int32_t AllocClassOnHeap(uint16_t classIdx,
+                             GenericInstDescriptor* instDesc = nullptr);
 
     //Phase 9b-pre: collection toString helpers. These recurse through
     //nested collections with a depth cap (TOSTRING_DEPTH_LIMIT) to bound
@@ -2135,6 +2155,17 @@ private:
     //GC infrastructure.
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
+    //v0.13.1 (D1): per-object instantiation descriptor, parallel to
+    //m_structHeap — construction (OP_New) writes the interned
+    //GenericInstDescriptor*; every other slot kind and every free slot
+    //stays null. Descriptors are interned and process-immortal, so the
+    //sweep needs no hook here (freeing the slot just orphans the null).
+    ChunkedArray<GenericInstDescriptor*> m_instDescByHeap;
+    //v0.13.1: descriptor-table rows resolved at run start (index
+    //parallel to CompiledModule::descriptorTable). Static rows intern
+    //from their canonical spelling; recipe rows (runtime composition)
+    //stay null until that path lands.
+    std::vector<GenericInstDescriptor*> m_descCache;
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
     ShardFreeList m_heapShards;   //K8: per-carrier free heap slot shards
     DomainLockSet m_domainLocks;  //K8: Growth (later: Container/Sync/Stream/StrMaint)

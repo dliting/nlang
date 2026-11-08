@@ -34,6 +34,7 @@ void VmExecutor::GrowHeapShardBlockLocked(size_t shard) {
         m_structHeap.Emplace();
         m_slotKinds.Emplace(0);
         m_slotStructIdx.Emplace(0);
+        m_instDescByHeap.Emplace(nullptr);
     }
     m_heapShards.PushBlockDescending(shard, base, m_allocQuantum);
 }
@@ -79,7 +80,23 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     return heapIdx;
 }
 
-int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
+//v0.13.1: intern the module's static descriptor rows so OP_New's
+//descIdx operand resolves to a pointer. Static rows rebuild their
+//argument trees from the canonical spelling (leaf link keys resolve
+//against the linked module's tables); recipe rows (runtime composition)
+//stay null until that path lands.
+void VmExecutor::InitDescriptorTable(const CompiledModule& module) {
+    m_descCache.clear();
+    m_descCache.reserve(module.descriptorTable.size());
+    for (const auto& entry : module.descriptorTable) {
+        m_descCache.push_back(entry.recipe.empty()
+            ? InternDescriptorFromSpelling(entry.spelling, module)
+            : nullptr);
+    }
+}
+
+int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx,
+                                     GenericInstDescriptor* instDesc) {
     if (classIdx >= m_currModule->classes.size())
         throw std::runtime_error("NLang VM: invalid class index in AllocClassOnHeap");
     //0.9.12 T1: field surface comes from the layout view (mirrors the
@@ -93,6 +110,7 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx) {
     m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Class;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] = instDesc;
     m_structHeap[static_cast<size_t>(heapIdx)][0] = static_cast<int32_t>(classIdx);
     for (size_t i = 0; i < fields.size(); ++i) {
         if (fields[i].kind == RTK_Struct && fields[i].structIdx != 0xFFFF) {

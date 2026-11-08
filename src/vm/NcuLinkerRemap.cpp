@@ -91,6 +91,19 @@ static void PatchClassInitOperands(OpCode op, std::vector<uint8_t>& bc,
     }
 }
 
+//v0.13.1: OP_New's trailing descriptor-row operand. 0xFFFF is the
+//no-descriptor sentinel, not a table index — skipped.
+static void PatchNewDescriptor(std::vector<uint8_t>& bc, size_t pos,
+    const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    const size_t descOff = pos + 5;
+    const uint16_t descIdx = static_cast<uint16_t>(bc[descOff])
+        | (static_cast<uint16_t>(bc[descOff + 1]) << 8);
+    if (descIdx != 0xFFFF)
+        PatchOperand(bc, descOff, maps.descriptors, "descriptor",
+                     onUnmapped);
+}
+
 //Type- and slot-channel operands (class/struct/array/enum/static-slot
 //tables). SECOND-operand entries note the offset — OP_New family
 //shapes lead with a dst frame offset.
@@ -100,6 +113,7 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     switch (op) {
         case OpCode::OP_New:
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
+            PatchNewDescriptor(bc, pos, maps, onUnmapped);
             break;
         case OpCode::OP_CheckCast:
             PatchOperand(bc, pos + 1, maps.classes, "class", onUnmapped);

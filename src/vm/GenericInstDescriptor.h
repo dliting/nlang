@@ -69,4 +69,16 @@ private:
 GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	const std::vector<TypeArgDesc>& typeArgs);
 
+struct CompiledModule;
+
+//Load-side residency: intern the descriptor a canonical spelling names,
+//rebuilding its argument tree by parsing (reversibility — the structure
+//defines the spelling). Leaf link keys resolve against the linked
+//module's struct/class/enum tables so the parsed argument carries the
+//runtime kind; an unresolved key stays RTK_Class with rowRef -1
+//(display-correct; dispatch paths degrade gracefully). Throws
+//std::runtime_error on a non-canonical spelling (corrupt image).
+GenericInstDescriptor* InternDescriptorFromSpelling(
+	const std::string& spelling, const CompiledModule& module);
+
 } //namespace nlang

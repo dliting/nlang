@@ -1126,7 +1126,7 @@ private:
         BytecodeEmitter& emitter, uint16_t thisSlot);
 
     //0.9.11 D2: which allocator the ctor-call tail emits. A class
-    //allocates through OP_New(typeIdx); a struct through
+    //allocates through OP_New(typeIdx, descIdx); a struct through
     //OP_AllocStruct(typeIdx, fieldCount). Everything else in the ctor
     //lowering (claim layout {this, formals...}, this staging,
     //callParamBase copy, OP_CallMethodDirect) is shared.
@@ -1134,7 +1134,21 @@ private:
         bool isStruct = false;
         uint16_t typeIdx = 0;     //class slot or struct slot
         uint16_t fieldCount = 0;  //struct only (OP_AllocStruct operand)
+        //v0.13.1 D1: the instantiation descriptor row for OP_New's third
+        //operand — 0xFFFF (kNoInstDescriptor) when the construction
+        //carries no descriptor (non-instantiation types; runtime-recipe
+        //constructions until that path lands).
+        uint16_t descIdx = 0xFFFF;
     };
+    static constexpr uint16_t kNoInstDescriptor = 0xFFFF;
+
+    //v0.13.1: the descriptor-table row for a concrete instantiation's
+    //construction — registers (and dedups by spelling) a static row and
+    //returns its index; kNoInstDescriptor for non-instantiations and
+    //for arguments containing type parameters (those compose at run
+    //time through the recipe path). Interns the descriptor so the
+    //compile-side and load-side pools agree.
+    uint16_t DescriptorIndexFor(SnClassDecl& inst);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]

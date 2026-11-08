@@ -6,6 +6,7 @@
 ---*/
 #include "backend/DescriptorSpelling.h"
 #include "GenericInstDescriptor.h"
+#include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include <nlang/vm/CompiledModuleRecords.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
@@ -141,6 +142,24 @@ bool HasTypeParamArg(const std::vector<TypeArgDesc>& args)
 			return true;
 	}
 	return false;
+}
+
+uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
+{
+	if (!inst.IsGenericInstantiation())
+		return kNoInstDescriptor;
+	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
+	//Arguments containing type parameters cannot spell statically — the
+	//runtime-composition recipe path (its own task) owns those.
+	if (HasTypeParamArg(args))
+		return kNoInstDescriptor;
+	GenericInstDescriptor* desc = InternDescriptor(inst.BaseName(), args);
+	auto& table = m_compiledModule.descriptorTable;
+	for (size_t i = 0; i < table.size(); ++i)
+		if (table[i].spelling == desc->Spelling())
+			return static_cast<uint16_t>(i);
+	table.push_back({desc->Spelling(), {}});
+	return static_cast<uint16_t>(table.size() - 1);
 }
 
 } //namespace nlang

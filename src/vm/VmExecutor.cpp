@@ -141,6 +141,8 @@ void VmExecutor::InitStructHeap() {
     m_slotKinds.Emplace(0);    //sentinel
     m_slotStructIdx.clear();
     m_slotStructIdx.Emplace(0);
+    m_instDescByHeap.clear();
+    m_instDescByHeap.Emplace(nullptr);  //sentinel
     //K8: one shard per carrier plus the host fallback slot.
     m_heapShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_gcPressure.store(false, std::memory_order_release);
@@ -159,6 +161,7 @@ void VmExecutor::InitializeForRun(const CompiledModule& module) {
                         module.interfaces.size());
     ResetPerRunState(module);
     InitStringStore(module);
+    InitDescriptorTable(module);
     InitStructHeap();
     //v0.12.6 D14: an initializer-less struct static's default is a
     //zeroed struct record (nested structs and compile-time field

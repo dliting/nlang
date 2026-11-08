@@ -139,9 +139,16 @@ static void EmitNew(BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const CompiledModule &module) {
     uint16_t dst = r.ReadUint16();
     uint16_t classIdx = r.ReadUint16();
+    uint16_t descIdx = r.ReadUint16();
     out << head << " " << dst << " class=" << classIdx;
     if (classIdx < module.classes.size())
         out << " " << module.classes[classIdx].name;
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none).
+    if (descIdx != 0xFFFF
+        && descIdx < module.descriptorTable.size())
+        out << " desc=" << module.descriptorTable[descIdx].spelling;
+    else
+        out << " desc=none";
     out << "\n";
 }
 

@@ -86,7 +86,7 @@ enum class OpCode : uint8_t {
     OP_CopyStruct,      // uint16 dst, uint16 src, uint16 structIdx
 
     // === Class operations ===
-    OP_New,             // uint16 dst, uint16 classIdx — allocate object on heap
+    OP_New,             // uint16 dst, uint16 classIdx, uint16 descIdx (0xFFFF = none) — allocate object on heap
     OP_CallMethod,      // uint16 methodNameStringIdx, uint16 callParamBase — virtual method dispatch (name-based)
     OP_CallMethodDirect,// uint16 funcIdx, uint16 callParamBase — non-virtual method call
     OP_CallIntrinsic,   // uint16 intrinsicId, uint16 callParamBase — intrinsic function call
@@ -254,7 +254,7 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
     OpCode::OP_Eq_struct, OpCode::OP_Ne_struct,
-    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
+    OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
     OpCode::OP_SlotInitGate};
@@ -262,6 +262,9 @@ static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};
 static constexpr OpCode kStrideThreeWords[] = {
+    //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
+    //descIdx, the same extent family as AllocStruct's three words.
+    OpCode::OP_New,
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,

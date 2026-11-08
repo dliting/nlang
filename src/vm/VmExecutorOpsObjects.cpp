@@ -123,7 +123,18 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t classIdx = reader.ReadUint16();
-    int32_t heapIdx = AllocClassOnHeap(classIdx);
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none). The
+    //cache was interned at run start; a row index past the table is a
+    //corrupt image, not a user error.
+    uint16_t descIdx = reader.ReadUint16();
+    GenericInstDescriptor* instDesc = nullptr;
+    if (descIdx != 0xFFFF) {
+        if (descIdx >= m_descCache.size())
+            throw std::runtime_error(
+                "NLang VM: invalid descriptor index in OP_New");
+        instDesc = m_descCache[descIdx];
+    }
+    int32_t heapIdx = AllocClassOnHeap(classIdx, instDesc);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }

@@ -138,6 +138,7 @@ static void test_link_two_units() {
         em.Emit(OpCode::OP_ConstString); em.EmitUint16(0);
         em.Emit(OpCode::OP_CallFunc);    em.EmitUint16(1); em.EmitUint16(0);
         em.Emit(OpCode::OP_New);         em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);  //v0.13.1: descIdx operand (none here)
         em.Emit(OpCode::OP_AllocStruct); em.EmitUint16(3);
         em.EmitUint16(0); em.EmitUint16(1);
         em.Emit(OpCode::OP_Enum_to_str); em.EmitUint16(0);
@@ -193,6 +194,7 @@ static void test_link_two_units() {
     CHECK(rd.ReadOp() == OpCode::OP_New, "New opcode");
     CHECK(rd.ReadUint16() == 2, "New dst operand untouched by remap");
     CHECK(rd.ReadUint16() == 1, "class slot 0 -> merged lib.Rec at 1");
+    CHECK(rd.ReadUint16() == 0xFFFF, "descIdx sentinel untouched by remap");
     CHECK(rd.ReadOp() == OpCode::OP_AllocStruct, "AllocStruct opcode");
     CHECK(rd.ReadUint16() == 3, "AllocStruct dst operand untouched");
     CHECK(rd.ReadUint16() == 1, "struct slot 0 -> merged lib.Point at 1");

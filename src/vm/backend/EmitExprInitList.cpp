@@ -165,6 +165,9 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
+    //v0.13.1 D1: the init-list arms construct concrete instantiations
+    //too (List<int> {...} shapes); non-instantiations spell 0xFFFF.
+    emitter.EmitUint16(DescriptorIndexFor(classDecl));
     uint16_t ctorIdx = 0xFFFF;
     if (SnFunction* pRegistered = RegisteredCtor(pCtorFn))
         ctorIdx = static_cast<uint16_t>(FunctionSlotFor(*pRegistered));

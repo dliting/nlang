@@ -72,11 +72,14 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
                                     SnExpression* pSkipArg, uint16_t classIdx,
                                     uint16_t resultOffset) {
     SnFunction* pRegistered = RegisteredCtor(pCtorFn);
+    //v0.13.1 D1: a concrete instantiation's construction carries its
+    //descriptor row on every OP_New form below.
+    const uint16_t descIdx = DescriptorIndexFor(*pClassDecl);
     if (pRegistered) {
         const uint16_t ctorIdx =
             static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
         EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, *m_pCurrEmitter,
-                           ctorIdx, CtorAlloc{false, classIdx, 0},
+                           ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                            resultOffset);
         return;
     }
@@ -87,7 +90,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
         const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
         if (ctorIdx != 0xFFFF) {
             EmitCtorInvocation(nullptr, ctorArgs, pSkipArg, *m_pCurrEmitter,
-                               ctorIdx, CtorAlloc{false, classIdx, 0},
+                               ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                                resultOffset);
             return;
         }
@@ -97,6 +100,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
+    emitter.EmitUint16(descIdx);
 }
 
 //The type has a registered ctor — claim {this, formals...} in evalArea,
