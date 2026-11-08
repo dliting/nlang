@@ -70,8 +70,11 @@ body is compiled once for every instantiation. Comparisons and
 other operators applied to a bare type-parameter operand are
 therefore compile-time errors — `operator '==' cannot be applied to
 a type parameter: the operand kind is not known until the
-instantiation.` Storing, passing and returning a `T` value are
-kind-independent and stay legal.
+instantiation.` Null checks are included (`item == null` rejects
+too). A cast restores a concrete kind, so when you know the
+instantiation, `item as string == "a"` compares by content again.
+Storing, passing and returning a `T` value are kind-independent and
+stay legal.
 
 *Informative:* a default argument on a generic member carries into
 instantiations only in constant-expression shapes — a literal, an

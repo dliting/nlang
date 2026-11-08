@@ -43,9 +43,10 @@ const-prefixed functions land on one named diagnostic.
   to a raw slot comparison — silently wrong for `string` and struct
   instantiations. Every operator now rejects with `operator '=='
   cannot be applied to a type parameter: the operand kind is not
-  known until the instantiation.`; storing, passing and returning
-  `T` values stay legal. Kind-dispatched equality returns with the
-  runtime generic-information milestone.
+  known until the instantiation.` — null checks included; a cast
+  (`item as string == "a"`) restores a concrete kind. Storing,
+  passing and returning `T` values stay legal. Kind-dispatched
+  equality returns with the runtime generic-information milestone.
 
 ### Migration notes
 

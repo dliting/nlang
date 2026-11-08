@@ -37,8 +37,9 @@
   数上的`==`此前编译为裸槽位比较——对`string`与struct实例化是静默
   错答案。现在一律以`operator '==' cannot be applied to a type
   parameter: the operand kind is not known until the instantiation.`
-  拒绝；`T`值的存储、传参与返回保持合法。按种类分派的判等随运行时
-  泛型信息里程碑回归。
+  拒绝——null判等也在其列；转换（`item as string == "a"`）换回具体种
+  类后即可比较。`T`值的存储、传参与返回保持合法。按种类分派的判等随
+  运行时泛型信息里程碑回归。
 
 ### 迁移注记
 
