@@ -107,6 +107,19 @@ static void TestCallScalarsAndString() {
     PASS();
 }
 
+//Rulings D26/D27: the embed bridge never hands the host a null string —
+//an nlang "" result (internally handle 0, the live empty string) arrives
+//as String("").
+static void TestCallEmptyStringReturnsEmptyValue() {
+    TEST(TestCallEmptyStringReturnsEmptyValue);
+    Interpreter itp;
+    itp.load(EMBED_VALUES_NCU);
+    Value r = itp.call("values_demo.emptyStr", {});
+    CHECK(r.kind() == Value::Kind::String && r.asString().empty(),
+        "empty string result arrives as Kind::String, not Null");
+    PASS();
+}
+
 static void TestStringResultIsDecodeCopy() {
     TEST(TestStringResultIsDecodeCopy);
     Interpreter itp;
@@ -273,6 +286,43 @@ static void TestHostFunctionArgMarshalByDeclaration() {
     itp.load(EMBED_HOSTFNS_NCU);
     (void)itp.call("hostfns.useShouted", {});
     CHECK(observed == 1, "declared string formal arrives as Kind::String");
+    PASS();
+}
+
+//Rulings D26/D27: an nlang "" argument to a host function arrives as
+//String("") (the same ValueFromCell arm as the result side).
+static void TestHostFunctionEmptyStringArgMarshal() {
+    TEST(TestHostFunctionEmptyStringArgMarshal);
+    Interpreter itp;
+    int observed = 0;
+    itp.registerHostFunction("hostfns", "shouted",
+        [&](const std::vector<Value>& args) -> Value {
+            observed = (args.at(0).kind() == Value::Kind::String &&
+                        args.at(0).asString().empty()) ? 1 : 0;
+            return Value(std::string("x"));
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    (void)itp.call("hostfns.useShoutedEmpty", {});
+    CHECK(observed == 1,
+        "empty string arg to host fn arrives as String(\"\")");
+    PASS();
+}
+
+//Ruling D27 companion: a host function returning Value("") must mint a
+//live object (the host bridge's string-producing API never hands out
+//handle 0), so the empty result crosses as a real "" instead of tripping
+//the native-boundary "returned null string" check.
+static void TestHostFunctionEmptyStringResult() {
+    TEST(TestHostFunctionEmptyStringResult);
+    Interpreter itp;
+    itp.registerHostFunction("hostfns", "hostEmpty",
+        [](const std::vector<Value>& args) -> Value {
+            return Value(std::string());
+        });
+    itp.load(EMBED_HOSTFNS_NCU);
+    Value r = itp.call("hostfns.useHostEmpty", {});
+    CHECK(r.kind() == Value::Kind::String && r.asString().empty(),
+        "host fn returning \"\" crosses as String(\"\")");
     PASS();
 }
 
@@ -627,6 +677,7 @@ int main() {
     TestAddImportDirAfterLoadThrows();
     TestUncaughtScriptThrowSurfacesException();
     TestCallScalarsAndString();
+    TestCallEmptyStringReturnsEmptyValue();
     TestStringResultIsDecodeCopy();
     TestCallFillsDefaults();
     TestCallVoidFunctionReturnsNull();
@@ -638,6 +689,8 @@ int main() {
     TestHostFunctionStringArgs();
     TestHostExceptionBecomesScriptException();
     TestHostFunctionArgMarshalByDeclaration();
+    TestHostFunctionEmptyStringArgMarshal();
+    TestHostFunctionEmptyStringResult();
     TestHostFunctionFuncParamKind();
     TestReentryThrowsBadValue();
     TestScriptExceptionRethrownFromHostFn();

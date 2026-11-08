@@ -11,15 +11,6 @@ This page collects the language-level limitations visible to user programs, with
   [string methods](../library/17-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
-- **A null string handle across the native boundary**: the value domain
-  of `string` excludes null (§4.3), but a native implementation (a host
-  callback or a native binding) can still hand back handle 0 — the
-  internal null representation. Such a value behaves as the empty string
-  `""` in the built-in string operations: `length()` is 0, it compares
-  equal to `""`, and it contributes nothing to concatenation. A later version may
-  turn this into an explicit error; functions returning `string` should
-  not return null.
-
 - **Array values in scalar contexts**: an array value has exactly three
   legal destinations — its own array type (the element type must match
   exactly; between bracket spellings the rank must match too, while a

@@ -21,7 +21,11 @@ If the host cannot find the implementation, the call raises a
 host-level run-time error (§7.1). The host is responsible for
 matching the declared signature: a mismatch between the declaration
 and the host implementation is not a type error and yields
-unspecified results (§0.4). The calling convention is §25.4.
+unspecified results (§0.4). One mismatch is specified: a native
+declared to return `string` must hand back a live string handle —
+the null handle, or an invalid handle that does not denote a live
+string object, raises a host-level run-time error (§7.1) —
+`string` has no null value (§4.3). The calling convention is §25.4.
 
 ### A native declaration
 

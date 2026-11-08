@@ -182,20 +182,29 @@ void test_cons_chain_flatten_and_reclaim()
     PASS();
 }
 
-//Handle 0 (uninitialized) reads as "" — the old pool[0] fallback shape.
+//The string domain has no null: handle 0 IS the immortal empty string
+//(0.13.4 representation ruling D26), so every zero-initialized slot —
+//local, static, and any future allocator — reads as "" with no
+//producer-side fill pass. Go's zero-value string is the model.
 void test_uninitialized_string_reads_empty()
 {
     TEST(uninitialized_string_reads_empty);
     CompiledModule mod;
     CHECK(loadSource("uninit_str",
+        "class Cfg {\n"
+        "    public static string tag;\n"
+        "}\n"
         "int main() {\n"
         "    string s;\n"
         "    if (s != \"\") return 1;\n"
         "    if (s.length() != 0) return 2;\n"
+        "    if (Cfg.tag != \"\") return 3;\n"
+        "    Cfg.tag = \"x\";\n"
+        "    if (Cfg.tag != \"x\") return 4;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    CHECK(exec.Execute(mod) == 0, "null string must read as empty");
+    CHECK(exec.Execute(mod) == 0, "zero handle must read as the empty string");
     PASS();
 }
 

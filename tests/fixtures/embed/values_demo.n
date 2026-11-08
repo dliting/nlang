@@ -9,6 +9,13 @@ string greet(string name) {
     return "hello, " + name;
 }
 
+//Ruling D26: an nlang string result is always a live string — "" is
+//handle 0 internally and must arrive at the host as String(""), never
+//Null (rulings D26/D27 on the embed bridge).
+string emptyStr() {
+    return "";
+}
+
 int withDefaults(int a, int b = 5, int c = 9) {
     return a * 100 + b * 10 + c;
 }

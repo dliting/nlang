@@ -271,8 +271,10 @@ void NetTcpResolveWait(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
-//_tcpResolveEndpoint(jobId, index): the i-th address text; null
-//outside the filled result.
+//_tcpResolveEndpoint(jobId, index): the i-th address text; the empty
+//string (string has no null value — 0.13.4) outside the filled result
+//(callers loop over the count from _tcpResolveWait, so this arm is
+//defensive only).
 void NetTcpResolveEndpoint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
@@ -280,7 +282,7 @@ void NetTcpResolveEndpoint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const int index = ArgInt(a, 1);
     if (!rec || !rec->done || index < 0
         || index >= static_cast<int>(rec->endpoints.size())) {
-        ReturnInt(ret, 0);   //null string
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, rec->endpoints[index]);

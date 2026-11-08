@@ -122,14 +122,21 @@ void VmExecutor::InitStringStore(const CompiledModule& module) {
     //final by now — SetCarrierThreadCount precedes Execute.
     m_strShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_shortStrTable.clear();
-    m_stringObjs.Emplace();   //sentinel slot 0 (handle 0 = null)
-    m_stringObjs[0].form = static_cast<StrObj::Form>(kStrFormDead);
+    //0.13.4 (ruling D26): the string domain has no null — slot 0 is the
+    //immortal, interned empty string, so the zero bit pattern every
+    //allocator already produces (frame locals, struct/class/array
+    //records, static slots, erased generic slots) reads as "" with no
+    //fill pass. Go's zero-value string is the model; reference-kind
+    //slots keep 0 = null (strings reach them only boxed, via OP_Box).
+    m_stringObjs.Emplace();   //slot 0: the empty string
+    m_stringObjs[0].interned = true;
+    m_stringObjs[0].immortal = true;
     m_strMarkBits.push_back(false);
+    m_shortStrTable[""] = 0;  //the one interned entry that never dies
     m_constStrCache.clear();
     m_constStrCache.reserve(module.stringConstants.size());
     for (const std::string& s : module.stringConstants)
         m_constStrCache.push_back(MintConstantString(s));
-    m_emptyStrHandle = MintConstantString("");
 }
 
 //Initialize struct heap with sentinel at index 0, plus GC state.

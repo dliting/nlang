@@ -223,8 +223,8 @@ class TcpListener {
         return TcpStream(h);
     }
     public string localAddress() {
-        //the native boundary reports failure as the empty string (the
-        //null handle reads as ""; string has no null value)
+        //the native boundary reports failure as the empty string
+        //(address text is never empty; string has no null value)
         string s = _tcpLocalAddress(m_handle);
         if (s == "") { _throwNet(-4, "localAddress"); }
         return s;
@@ -375,8 +375,8 @@ class TcpStream {
     }
     public bool isClosed() { return _tcpIsClosed(m_handle) == 1; }
     public string peerAddress() {
-        //the native boundary reports failure as the empty string (the
-        //null handle reads as ""; string has no null value)
+        //the native boundary reports failure as the empty string
+        //(address text is never empty; string has no null value)
         string s = _tcpPeerAddress(m_handle);
         if (s == "") { _throwNet(-4, "peerAddress"); }
         return s;
@@ -387,8 +387,8 @@ class TcpStream {
         return p;
     }
     public string localAddress() {
-        //the native boundary reports failure as the empty string (the
-        //null handle reads as ""; string has no null value)
+        //the native boundary reports failure as the empty string
+        //(address text is never empty; string has no null value)
         string s = _tcpLocalAddress(m_handle);
         if (s == "") { _throwNet(-4, "localAddress"); }
         return s;
@@ -579,8 +579,8 @@ class UdpSocket {
         if (r < 0) { _throwNet(r, "setRecvBufferSize"); }
     }
     public string localAddress() {
-        //the native boundary reports failure as the empty string (the
-        //null handle reads as ""; string has no null value)
+        //the native boundary reports failure as the empty string
+        //(address text is never empty; string has no null value)
         string s = _udpLocalAddress(m_handle);
         if (s == "") { _throwNet(-4, "localAddress"); }
         return s;
@@ -592,8 +592,8 @@ class UdpSocket {
     }
     // The connected peer (throws SocketException when not connected).
     public string peerAddress() {
-        //the native boundary reports failure as the empty string (the
-        //null handle reads as ""; string has no null value)
+        //the native boundary reports failure as the empty string
+        //(address text is never empty; string has no null value)
         string s = _udpPeerAddress(m_handle);
         if (s == "") { _throwNet(-4, "peerAddress"); }
         return s;

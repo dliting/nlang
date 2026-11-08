@@ -30,7 +30,8 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
         //String locals carry a string-store handle, not a heap index —
         //route before the heap-index guard below (a valid handle may
         //lie beyond the struct heap's size). MarkString does its own
-        //validation (0 = null, out-of-range skipped).
+        //validation (0 = the immortal empty string, harmlessly marked;
+        //out-of-range skipped).
         if (ld.typeKind == RTK_String) {
             MarkString(val);
             continue;
@@ -341,6 +342,12 @@ void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
                     sizeof(val));
                 TestRootValue(val, worklist);
             }
+        } else {
+            //Value form (RootMintedNativeHandle): the minted handle lives
+            //only in the native's C++ local until the native writes it
+            //into the staged ret cell, so the registry carries the value
+            //itself. TestRootValue ignores the 0 of address-form entries.
+            TestRootValue(root.value, worklist);
         }
     }
 }

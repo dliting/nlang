@@ -100,7 +100,7 @@ string是UTF-8 **字节串**，char是单个Unicode标量值（见[基本类型]
 
 ### Null与空串
 
-null不属于string的值域：`string s = null;`、`s == null`、把null传给string形参都是编译错误。空字符串是`""`，具名常量为`string.EMPTY`（§17）。未初始化的string变量（局部与字段的默认值）就是空串。native实现（宿主回调、native绑定）若交出null句柄，该值在所有读取位置表现为空串——见[已知限制](../reference/known-limitations.md)。class null的语义见[类](class.md)。
+null不属于string的值域：`string s = null;`、`s == null`、把null传给string形参都是编译错误。空字符串是`""`，具名常量为`string.EMPTY`（§17）。未初始化的string变量（局部与字段的默认值）就是空串。返回string的native实现（宿主回调、native绑定）必须交出真实字符串：跨边界的null句柄是宿主级执行期错误（§7.5、§8.1）。class null的语义见[类](class.md)。
 
 ### 字符串方法
 

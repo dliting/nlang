@@ -5,6 +5,7 @@
 #include "VmExecutor.h"
 #include "VmExecutorSer.h"
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/StackDump.h>
 #include <cstring>
 #include <cstdio>
 
@@ -85,12 +86,14 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         //Boxed receiver: the payload IS the value — format it like the
         //matching primitive-to-string conversion (a boxed string's
         //toString shares the payload handle: string objects are
-        //immutable, and handle 0 reads as "" everywhere).
+        //immutable, and boxing only ever takes the handle out of a live
+        //string slot, so the payload handle is live by construction).
         if (m_slotKinds[static_cast<size_t>(thisHeapIdx)] == RTK_Boxed) {
             const auto& rec = m_structHeap[static_cast<size_t>(thisHeapIdx)];
             int32_t handle;
             if (rec[0] == RTK_String) {
-                handle = rec[1] > 0 ? rec[1] : MintNewString(std::string());
+                NLANG_ASSERT(IsLiveStringHandle(rec[1]));
+                handle = rec[1];
             } else if (ScalarPrimIndexOfRtk(
                            static_cast<uint8_t>(rec[0])) >= 0) {
                 //0.7.5: the full scalar family (narrow rows, uint,

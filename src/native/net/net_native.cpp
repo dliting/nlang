@@ -237,16 +237,17 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     ReturnInt(ret, handle);
 }
 
-// tcpLocalAddress: the bound address text; null (handle 0 — the null
-// literal is the sentinel 0) on a closed slot or a getsockname
-// failure, which the script maps through _throwNet.
+// tcpLocalAddress: the bound address text; the empty string (string
+// has no null value — 0.13.4) on a closed slot or a getsockname
+// failure, which the script maps through _throwNet. Address text is
+// never empty, so "" is an unambiguous failure sentinel.
 void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
         st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     const std::string text = NetLocalAddress(slot->fd);
@@ -254,7 +255,7 @@ void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         { std::string errText; int errCode = 0;
           NetLastErrorInfo(errText, errCode);
           NetSetErrorLocked(st, h, errText, errCode); }
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, text);

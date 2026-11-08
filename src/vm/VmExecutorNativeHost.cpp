@@ -129,7 +129,16 @@ int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     VmExecutor* e = Wrap(self)->executor;
     //K8: lock-free — minting self-locks; rooting rides the registry
     //mutex inside.
-    const int32_t handle = e->MintNewString(utf8 ? utf8 : "");
+    //Ruling D27: the native boundary keeps 0 = null (the ABI's existing
+    //null-handle convention), so the host's string-producing API never
+    //hands out 0. Interning "" returns the internal slot 0 (ruling D26),
+    //so empty content gets a fresh non-interned empty object instead —
+    //equality still holds (a non-interned "" compares by content).
+    int32_t handle = 0;
+    if (utf8 && *utf8)
+        handle = e->MintNewString(utf8);
+    else
+        handle = e->AllocStringObj();   //fresh Flat "" (non-interned)
     //Root across the blocking section: the native may hold this handle
     //for a while before writing it into ret, while other carriers GC.
     e->RootMintedNativeHandle(handle);
@@ -332,6 +341,37 @@ void VmExecutor::RegisterNativeBlocking(const std::string& name,
 }
 
 void VmExecutor::CallNative(const CompiledFunction& callee,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    CallNativeDispatch(callee, callParamBase, locals, pResult);
+    //Ruling D27: one boundary check after dispatch covers every arm
+    //(host hook, blocking DLL, direct DLL).
+    CheckNativeStringResult(callee, pResult);
+}
+
+//Ruling D27: a declared-string native result lives in the ABI's
+//handle-or-null domain. 0 = the native produced no string — a contract
+//violation, not the empty string (a silent "" would hide the producer
+//bug); a non-live handle is a producer bug whose content would
+//otherwise decode as "" after the sweep. Both are host-level errors
+//naming the function; internally handle 0 IS the empty string (ruling
+//D26), and the host's string-producing API (newString) never hands out 0.
+void VmExecutor::CheckNativeStringResult(const CompiledFunction& callee,
+                                         const uint8_t* pResult) {
+    if (callee.returnTypeKind != RTK_String)
+        return;
+    int32_t handle = 0;
+    std::memcpy(&handle, pResult, sizeof(handle));
+    if (handle == 0)
+        throw std::runtime_error("NLang VM: native function '" +
+                                 callee.name + "' returned null string");
+    if (!IsLiveStringHandle(handle))
+        throw std::runtime_error(
+            "NLang VM: native function '" + callee.name +
+            "' returned invalid string handle " + std::to_string(handle));
+}
+
+void VmExecutor::CallNativeDispatch(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
     //Extension point ⑤: the host dispatch hook answers first — host

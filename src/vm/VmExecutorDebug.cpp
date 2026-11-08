@@ -253,9 +253,10 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     }
 }
 
-//String locals hold a string-object handle (0 = null). StrValCopy is the
-//non-mutating accessor — const formatters must not flatten in place —
-//and reads null/invalid handles as "", rendered as "".
+//String locals hold a string-object handle (0 = the empty string,
+//ruling D26). StrValCopy is the non-mutating accessor — const
+//formatters must not flatten in place — and reads invalid handles as
+//"", rendered as "".
 std::string VmExecutor::FormatDebugStringIdx(int32_t idx) const {
     return QuoteString(StrValCopy(idx));
 }

@@ -1729,6 +1729,20 @@ private:
     void CallNative(const CompiledFunction& callee, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
 
+    //The three dispatch arms (host hook, blocking DLL, direct DLL),
+    //split out of CallNative so the single ruling-D27 boundary check
+    //covers every arm from one call site.
+    void CallNativeDispatch(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+
+    //Ruling D27: the native ABI's string-result domain is handle-or-null
+    //— 0 means the native produced no string (the ABI's existing
+    //null-handle convention), a non-live handle is a producer bug. Both
+    //raise a host-level error, so an nlang program never observes a
+    //null string (internally handle 0 IS the empty string — ruling D26).
+    void CheckNativeStringResult(const CompiledFunction& callee,
+                                 const uint8_t* pResult);
+
     //K2 slice 4 (§2.5): the blocking-native arm. `invoke` runs the
     //native (or the host hook) against the staged cells and returns
     //whether the call was handled (the host hook may decline). The arm
@@ -1893,10 +1907,13 @@ private:
     //8-byte cell per staticSlots record, rebuilt with the layout view.
     VmStaticSlots m_staticSlots;
     //String objectization: runtime strings are GC-managed immutable objects.
-    //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
-    //uninitialized, reads as "" — same fallback shape the old pool-index-0
-    //path had). Compile-time constants are eagerly materialized as immortal
-    //Flat objects at Execute() start (JVM constant-pool semantics).
+    //An RTK_String slot holds a handle into m_stringObjs; the string domain
+    //has no null (0.13.4 ruling D26) — handle 0 is the immortal, interned
+    //empty string, so the zero bit pattern is the string default value
+    //(Go's zero-value string). Reference-kind slots keep 0 = null: strings
+    //enter them only boxed, via OP_Box. Compile-time constants are eagerly
+    //materialized as immortal Flat objects at Execute() start (JVM
+    //constant-pool semantics).
     struct StrObj {
         enum class Form : uint8_t { Flat, Cons };
         Form form = Form::Flat;
@@ -1912,7 +1929,6 @@ private:
     std::vector<bool> m_strMarkBits;
     ShardFreeList m_strShards;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
-    int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
     //Name → host function table for native calls. The flag carries the
     //K2 slice 4 blocking declaration (registration channel); non-blocking
     //natives run with the GIL held as before.
@@ -2073,8 +2089,10 @@ private:
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
     int32_t AllocStringObj();                                //raw slot, sets m_gcPressure
     bool IsLiveStringHandle(int32_t handle) const;
-    //Requires an Execute()-initialized store (m_emptyStrHandle); all
-    //callers are mid-execution today.
+    //Requires an Execute()-initialized store; all callers are
+    //mid-execution today. A non-live handle fails fast (ruling D26:
+    //handle 0 is the live empty string, so only a producer bug or a GC
+    //defect reaches the throw).
     const std::string& StrVal(int32_t handle);               //execution path (flattens in place)
     //Shared cons-subtree walk behind both accessors (iterative; deep
     //left-leaning chains stay stack-safe).

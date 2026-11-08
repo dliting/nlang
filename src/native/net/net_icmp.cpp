@@ -360,15 +360,17 @@ void NetIcmpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
-//icmpLastRecvAddress(handle): the source of the last recvFrom (null
-//sentinel 0 when the slot is gone).
+//icmpLastRecvAddress(handle): the source of the last recvFrom (the
+//empty string — string has no null value, 0.13.4 — when the slot is
+//gone; the script reads it right after a successful receive, so the
+//slot is live in practice).
 void NetIcmpLastRecvAddress(NativeHost* h, uint8_t* ret, const uint8_t* a,
     int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, slot->lastPeerAddress);

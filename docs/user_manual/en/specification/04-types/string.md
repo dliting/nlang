@@ -184,10 +184,10 @@ null is not in the value domain of `string`: `string s = null;`,
 `s == null`, and passing null to a `string` parameter are compile
 errors. The empty string is `""`, named by the constant
 `string.EMPTY` (§17). An uninitialized string variable (the local
-or field default) is the empty string. If a native implementation
-(a host callback or a native binding) hands back the null handle,
-that value behaves as the empty string in every read position —
-see [Known Limitations](../reference/known-limitations.md). See
+or field default) is the empty string. A native implementation
+(a host callback or a native binding) that returns `string` must
+hand back a real string: a null handle across the boundary is a
+host-level run-time error (§7.5, §8.1). See
 [Class](class.md) for the class null semantics.
 
 ### String methods

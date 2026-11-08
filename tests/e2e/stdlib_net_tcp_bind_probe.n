@@ -6,6 +6,14 @@ int main() {
     if (l.localPort() <= 0) { return 1; }
     if (l.localAddress() != "127.0.0.1") { return 2; }
     l.close();
+    //0.13.4: a closed slot reports failure as the empty string across
+    //the native boundary (string has no null value), which the script
+    //maps to SocketException — not a host-level null-handle error.
+    int threw = 0;
+    try {
+        string s = l.localAddress();
+    } catch (SocketException e) { threw = 1; }
+    if (threw != 1) { return 3; }
     io.print("ok");
     return 0;
 }

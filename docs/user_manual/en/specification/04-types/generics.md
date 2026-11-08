@@ -55,8 +55,8 @@ type may carry an initializer like any field (§4.8.3). Likewise a
 formal whose type is a bare type parameter cannot carry a default
 value (§7.2). A type-parameter field that is never assigned reads
 as the default value of the type argument it was instantiated with:
-`0` for an integer argument, `null` for a `string` or class
-argument.
+`0` for an integer argument, `""` for a `string` argument, `null`
+for a class argument.
 
 A type parameter may be an array element type in a type position —
 `T[]` is a legal field type — but array creation over a type

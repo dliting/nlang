@@ -1,0 +1,36 @@
+// stdlib_string_default — string is a value type: every string-typed
+// slot defaults to the empty string, never a null handle. Uninitialized
+// locals, struct fields and array elements all read as "" and behave as
+// the empty string in every position (comparison, length, concatenation,
+// method call).
+import io;
+
+struct Point {
+    string tag;
+}
+
+int main() {
+    string s;
+    if (s != "") { return 1; }
+    if (s.length() != 0) { return 2; }
+    if ((s + "x") != "x") { return 3; }
+    if (s.indexOf("a") != -1) { return 4; }
+
+    Point p = Point();
+    if (p.tag != "") { return 5; }
+    if ((p.tag + "!") != "!") { return 6; }
+
+    string[] a = string[3];
+    if (a[0] != "") { return 7; }
+    if (a[2].length() != 0) { return 8; }
+    if ((a[1] + "z") != "z") { return 9; }
+    a[0] = "set";
+    if (a[0] != "set") { return 10; }
+
+    Point[] ps = Point[2];
+    if (ps[0].tag != "") { return 11; }
+    if ((ps[1].tag + "q") != "q") { return 12; }
+
+    io.print("ok");
+    return 0;
+}

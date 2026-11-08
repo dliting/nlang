@@ -18,6 +18,11 @@ public:
     //callee：被调声明（编组的声明源——形参/返回 RTK）。argCells：
     //paramCount 个 8 字节单元。resultCell：8 字节出参。
     //返回 false＝不受理，落回既有 m_natives/惰性 DLL 路径。
+    //string 结果的受理契约（裁定 D27，与 DLL native 同一道派发后检
+    //查）：写 resultCell 的句柄必须是活动字符串——句柄 0＝"没有产出
+    //字符串"，属契约违例，抛 host 级错误"returned null string"；
+    //string 形参单元则一律是活动字符串，句柄 0＝空串（裁定 D26）。
+    //embed 宿主经 MintHostString 铸柄，与 newString 同规永不铸 0。
     virtual bool Call(const CompiledFunction& callee,
                       const uint8_t* argCells, uint32_t argc,
                       uint8_t* resultCell) = 0;

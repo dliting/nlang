@@ -34,8 +34,10 @@ All notable changes to NLang are documented here. The format follows
   const initializer — is now a compile error; it was previously
   accepted and read as the empty string everywhere. The empty string
   is `""` / `string.EMPTY`, and an uninitialized string defaults to
-  `""`. A null handle crossing the native boundary still reads as
-  the empty string (known limitation).
+  `""`. A native function declared to return `string` that hands
+  back a null handle now raises a host-level run-time error, and
+  every string-typed slot — locals, fields, array elements —
+  defaults to `""` instead of a null handle.
 
 ## [0.12.9] - 2026-11-07
 

@@ -55,6 +55,11 @@ int main() {
     if (ci.load() != 0) { return 5; }
     Cell<string> cs = Cell();
     if (cs.load() != "") { return 6; }
+    //the zero-value default reads "": a constructor assignment of a
+    //string-instantiated T field wins over it (ruling D26, no fill pass)
+    Bag<string> bs = Bag("x", "y");
+    if (bs.pick(1) != "x") { return 8; }
+    if (bs.pick(2) != "y") { return 9; }
     Vec<long> v = Vec(long[2]);
     if (v.length() != 2) { return 7; }
     return 0;

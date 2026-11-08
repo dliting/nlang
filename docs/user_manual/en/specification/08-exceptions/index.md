@@ -48,7 +48,8 @@ chapter 20.
 A *host-level* run-time error (§7.1) is not an exception: no
 `catch` clause handles it and the program ends. The sections that
 define host-level failures name their sites — the call-depth
-bound (§7.1), a missing native function (§7.5), the unboxing and
+bound (§7.1), a missing native function (§7.5), a native function
+returning a null or invalid `string` handle (§7.5), the unboxing and
 `null`-downcast failures of §5.5, an enumeration `toString()`
 beyond its member table (§4.6), the `toString` nesting bound of
 §11.2, the stream failures of §14.6, and the concurrency

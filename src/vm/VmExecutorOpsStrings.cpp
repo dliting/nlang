@@ -54,8 +54,8 @@ void VmExecutor::OpConcat_str(BytecodeReader& reader, uint8_t* locals) {
     //Transparent cons (Task 3): O(1) zero-copy node, flattened
     //lazily on first read (iteratively, in place — see StrVal).
     //n appends cost n nodes, all collectable, instead of n O(n)
-    //copies. Null/dead operand handles stay 0 and contribute
-    //nothing at flatten time — same "" fallback as before.
+    //copies. Empty (handle 0, ruling D26) and dead operand handles
+    //contribute nothing at flatten time — same "" fallback as before.
     uint16_t dst = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     int32_t hA, hB;

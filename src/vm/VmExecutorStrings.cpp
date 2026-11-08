@@ -3,13 +3,20 @@ VmExecutorStrings.cpp — string object store: minting + accessors.
 
 Separate TU by the same discipline as VmExecutorDebug.cpp: the executor
 core only gains call sites; all store logic lives here. RTK_String slots
-hold 1-based handles into m_stringObjs (0 = null, reads as ""). Since
-Task 3, concatenation allocates a zero-copy Cons node; StrVal flattens
-in place on first read, StrValCopy serves frozen views, and MarkString
-traces cons children so a dropped chain is reclaimed whole.
+hold handles into m_stringObjs; string is a value type (0.13.4 ruling
+D26): the string domain has no null — handle 0 is the immortal, interned
+empty string, so zero-initialized slots read as "" with no fill pass —
+while reference-kind slots keep 0 = null (strings enter them only boxed,
+via OP_Box). Since Task 3, concatenation allocates
+a zero-copy Cons node; StrVal flattens in place on first read, StrValCopy
+serves frozen views, and MarkString traces cons children so a dropped
+chain is reclaimed whole.
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/StackDump.h>
 #include <algorithm>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -55,7 +62,10 @@ void VmExecutor::GrowStrShardBlockLocked(size_t shard) {
 }
 
 bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
-    return handle > 0
+    //Ruling D26: handle 0 is the live immortal empty string (the string
+    //domain has no null); only negative, out-of-range and swept-dead
+    //slots are non-live.
+    return handle >= 0
         && static_cast<size_t>(handle) < m_stringObjs.size()
         && static_cast<uint8_t>(m_stringObjs[static_cast<size_t>(handle)].form)
                != kStrFormDead;
@@ -126,8 +136,8 @@ bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
 }
 
 //O(1) zero-copy concatenation: content-blind, so never interned (intern
-//sites are content-aware mints only). Null sides stay 0 and contribute
-//nothing at flatten time.
+//sites are content-aware mints only). Empty (handle 0, ruling D26) and
+//dead sides contribute nothing at flatten time.
 //Precondition callers must uphold (OP_Concat_str guards it): left != right.
 //A shared child is not a cycle — edges only point at older nodes, and a
 //live parent keeps its children alive, so no true cycle can form — but
@@ -155,8 +165,8 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
     while (!work.empty()) {
         int32_t h = work.back();
         work.pop_back();
-        if (h == 0 || !IsLiveStringHandle(h))
-            continue;   //null side contributes nothing; dead reads as ""
+        if (!IsLiveStringHandle(h))
+            continue;   //dead reads as the empty string (0 is live: "")
         const StrObj& n = m_stringObjs[static_cast<size_t>(h)];
         if (n.form == StrObj::Form::Cons) {
             work.push_back(n.right);
@@ -182,8 +192,16 @@ const std::string& VmExecutor::StrVal(int32_t handle) {
     //handle must not interleave their moves), and str is written
     //before form, so a racing lock-free reader that observes Flat
     //observes the full content (sharing-model store order).
-    if (!IsLiveStringHandle(handle))
-        return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
+    //Invariant (0.13.4 ruling D26): the string domain has no null —
+    //handle 0 is the immortal empty string and every zero-initialized
+    //slot is a live default — so a non-live handle here is a producer
+    //bug or a GC defect. Fail fast (debug: symbolized dump; every
+    //build: host-level error) instead of silently reading "".
+    if (!IsLiveStringHandle(handle)) {
+        NLANG_ASSERT(IsLiveStringHandle(handle));
+        throw std::runtime_error("NLang VM: invalid string handle " +
+                                 std::to_string(handle));
+    }
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
     if (so.form != StrObj::Form::Cons)
         return so.str;
@@ -218,7 +236,8 @@ std::string VmExecutor::StrValCopy(int32_t handle) const {
 //GC mark face for one string handle: a live cons keeps its whole subtree
 //alive. Iterative worklist (left-leaning chains are arbitrarily deep —
 //no recursion). Handle validation is local (root faces pass raw handles;
-//0 = null and out-of-range are simply not marked).
+//out-of-range is simply not marked; handle 0 is the live empty string
+//and marks harmlessly — immortal, never swept).
 void VmExecutor::MarkString(int32_t handle) {
     std::vector<int32_t> work;
     auto mark = [&](int32_t h) {

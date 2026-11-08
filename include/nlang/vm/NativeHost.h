@@ -160,9 +160,16 @@ struct NativeHost {
 
     // Read a string argument by heap handle. The returned pointer is
     // valid only until the next host callback; copy it immediately.
+    // Handle 0 is the live empty string (ruling D26): getString(0)
+    // returns a valid pointer to "", never NULL.
     const char* (*getString)(NativeHost* self, int32_t handle);
 
-    // Create a heap string from UTF-8; returns its handle.
+    // Create a heap string from UTF-8; returns its handle. Never
+    // returns 0 — empty content (and a null pointer) mints a fresh
+    // non-interned empty object (handle >= 1). A declared-string
+    // native must produce its result through this call: writing 0
+    // into the result cell is a contract violation the host reports
+    // as "returned null string" (ruling D27).
     int32_t (*newString)(NativeHost* self, const char* utf8);
 
     // Create a List<string> in one call; returns its heap handle. Used by

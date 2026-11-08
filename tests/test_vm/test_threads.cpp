@@ -4219,6 +4219,73 @@ static void test_executing_bit_off_while_native_blocked()
     PASS();
 }
 
+// v0.13.4 ruling D27 companion (review round 2, I-1): MintHostString must
+// root its minted handle the way NativeNewString does. The embed host
+// bridge mints string results while its carrier is parked inside
+// RunBlockingNative (the host-hook arm always runs through the blocking
+// protocol), so between the mint and the memcpy into the staged result
+// cell the object is reachable from no root and another carrier's
+// rendezvous can sweep it. The native below reproduces that window in the
+// DLL-native shape: mint via MintHostString, sleep while the churn carrier
+// storms collections under stress thresholds, then write the raw handle
+// into ret. Unrooted, the sweep reclaims the object and the declared-
+// string result check fails with "invalid string handle". Post-fix, the
+// value-form root MintHostString registers is the ONLY protection across
+// the sleep window — the staged ret cell covers the handle only after
+// the native writes it — so the test detects both a missing root push
+// and a mark face that ignores value-form entries.
+static VmExecutor* s_mintHostExec = nullptr;
+static void NbMintHostSlow(NativeHost*, uint8_t* ret,
+                           const uint8_t* args, int)
+{
+    const int32_t handle =
+        s_mintHostExec->MintHostString("hostbridge-survivor");
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        native::ArgInt(args, 0)));
+    std::memcpy(ret, &handle, sizeof(handle));
+}
+static void test_mint_host_string_survives_gc()
+{
+    TEST(mint_host_string_survives_gc);
+    CompiledModule mod = buildLinkedModule("mint_host_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbMintHostSlow(int ms);\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 20000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbMintHostSlow(150);\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    s_mintHostExec = &exec;
+    exec.RegisterNativeBlocking("mint_host_gc.nbMintHostSlow",
+                                &NbMintHostSlow);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    s_mintHostExec = nullptr;
+    CHECK(rc == 0, "run completes (unrooted mint -> host-level error: "
+                   + err + ")");
+    CHECK(io.m_out.find("hostbridge-survivor") != std::string::npos,
+          "the minted host string survived the blocking window (got: "
+          + io.m_out + ")");
+    PASS();
+}
+
 // --- K6 Task 5（D7：收集计数器——压力下收集确实发生）---
 static void test_gc_collection_count_under_stress()
 {
@@ -5288,6 +5355,7 @@ int main()
         runGuarded(test_native_root_owner_removal);
         runGuarded(test_zombie_carrier_generation_guard);
         runGuarded(test_executing_bit_off_while_native_blocked);
+        runGuarded(test_mint_host_string_survives_gc);
         runGuarded(test_gc_collection_count_under_stress);
         runGuarded(test_executing_bit_intact_after_stop_path);
         runGuarded(test_nested_window_single_membership);

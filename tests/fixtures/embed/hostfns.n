@@ -3,6 +3,7 @@
 //answers before the DLL/native path, so no nlang_hostfns module exists.
 native int now();
 native string shouted(string text);
+native string hostEmpty();
 native int willFail();
 native int reenter();
 native int callBoom();
@@ -19,6 +20,19 @@ int useReenter() {
 
 string useShouted() {
     return shouted("abc");
+}
+
+//Empty-string arg across the host-function bridge: the host must see
+//String(""), not Null (ruling D26: handle 0 is the live empty string).
+string useShoutedEmpty() {
+    return shouted("");
+}
+
+//Empty-string RESULT from a host function: the host bridge mints a live
+//object for "" (never handle 0), so the call yields "" instead of
+//tripping the native-boundary "returned null string" check (ruling D27).
+string useHostEmpty() {
+    return hostEmpty();
 }
 
 int catchHostFailure() {
