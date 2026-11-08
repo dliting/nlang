@@ -114,24 +114,37 @@ void SnBinaryExpr::Accept(nlang::ISyntaxNodeVisitor &v)
 	v.Visit(*this);
 }
 
+//One positional spelling source for diagnostics and ToString; the
+//assert pins the table to cover every Operator value, so a new
+//operator breaks the build here instead of printing "?" somewhere.
+namespace
+{
+const char* const kBinaryOpSymbols[] = {
+	"+", "-", "*", "/", "%",
+	"<", "<=", ">", ">=",
+	"==", "!=",
+	"&&", "||",
+	"-", "!",
+	"<<", ">>",
+};
+static_assert(std::size(kBinaryOpSymbols)
+		== SnBinaryExpr::OP_Shr + 1,
+	"kBinaryOpSymbols is positional and must cover every Operator value");
+}
+
+const char* SnBinaryExpr::OperatorSymbol(Operator op)
+{
+	return kBinaryOpSymbols[op];
+}
+
 std::string SnBinaryExpr::ToString() const
 {
-	static const char* opNames[] = {
-		"+", "-", "*", "/", "%",
-		"<", "<=", ">", ">=",
-		"==", "!=",
-		"&&", "||",
-		"-", "!",
-		"<<", ">>",
-	};
-	static_assert(std::size(opNames) == OP_Shr + 1,
-		"opNames is positional and must cover every Operator value");
 	std::stringstream ss;
 	if (m_pRight)
-		ss << m_pLeft->ToString() << " " << opNames[m_op]
+		ss << m_pLeft->ToString() << " " << OperatorSymbol(m_op)
 		   << " " << m_pRight->ToString();
 	else
-		ss << opNames[m_op] << m_pLeft->ToString();
+		ss << OperatorSymbol(m_op) << m_pLeft->ToString();
 	return std::move(ss.str());
 }
 

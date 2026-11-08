@@ -137,31 +137,6 @@ static bool IsTypeParamType(SnField *pType)
 		&& static_cast<SnClassDecl *>(pType)->IsTypeParamPlaceholder();
 }
 
-static const char *OpSymbol(SnBinaryExpr::Operator op)
-{
-	switch (op)
-	{
-	case SnBinaryExpr::OP_Add: return "+";
-	case SnBinaryExpr::OP_Sub: return "-";
-	case SnBinaryExpr::OP_Mul: return "*";
-	case SnBinaryExpr::OP_Div: return "/";
-	case SnBinaryExpr::OP_Mod: return "%";
-	case SnBinaryExpr::OP_Less: return "<";
-	case SnBinaryExpr::OP_LessEqual: return "<=";
-	case SnBinaryExpr::OP_Greater: return ">";
-	case SnBinaryExpr::OP_GreaterEqual: return ">=";
-	case SnBinaryExpr::OP_Equal: return "==";
-	case SnBinaryExpr::OP_NotEqual: return "!=";
-	case SnBinaryExpr::OP_LogicalAnd: return "&&";
-	case SnBinaryExpr::OP_LogicalOr: return "||";
-	case SnBinaryExpr::OP_Neg: return "-";
-	case SnBinaryExpr::OP_LogicalNot: return "!";
-	case SnBinaryExpr::OP_Shl: return "<<";
-	case SnBinaryExpr::OP_Shr: return ">>";
-	}
-	return "?";
-}
-
 bool ExprResolveAccessor::RejectTypeParamOperand(SnBinaryExpr &sn,
 	SnBinaryExpr::Operator op)
 {
@@ -172,7 +147,7 @@ bool ExprResolveAccessor::RejectTypeParamOperand(SnBinaryExpr &sn,
 	m_Env.Log(CLL_Error, sn.Location(),
 		"operator '%s' cannot be applied to a type parameter: "
 		"the operand kind is not known until the instantiation.",
-		OpSymbol(op));
+		SnBinaryExpr::OperatorSymbol(op));
 	return true;
 }
 

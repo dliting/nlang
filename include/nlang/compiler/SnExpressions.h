@@ -817,6 +817,9 @@ public:
 		const ISourceLocation &loc);
 
 	Operator Op() const { return m_op; }
+	//Diagnostic spelling of an operator ("+", "<<", "==", ...) from the
+	//single positional table ToString renders through.
+	static const char* OperatorSymbol(Operator op);
 	SnExpression *Left() const { return m_pLeft; }
 	SnExpression *Right() const { return m_pRight; }
 
