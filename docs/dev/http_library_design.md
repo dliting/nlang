@@ -132,6 +132,7 @@
 | D22 | 版本划分按用户裁定(2026-11-07):0.13.3=lambda/闭包(另行)、0.13.4=string增强+io.base64+system时间包(时钟+DateTime)+url、0.13.5=http+gzip、0.13.6=web框架(另行)。各版本公开面是最终面子集,后版只增不改。 | 用户裁定;datetime入0.13.4因它是通用基础设施、与string/base64同批,且0.13.5的http是其消费者;datetime并入system包保持时间设施内聚(D24);gzip入0.13.5因http是其唯一近期消费者,native捆绑随消费者落地。 |
 | D23 | 最小化语言内核(用户裁定2026-11-08):除语言本身需要的基础设施和指令要内建于nvm外,需在C++实现的功能一律放独立库(`nlang_<ns>.dll`,或捆绑第三方开源库);VM内建注册仅限有明确理由——vm本身依赖,或极致性能优化。本项目应用:`system`时钟两native→新建`nlang_system.dll`(取代v2.9「VM内建注册、零新DLL」方案;`monoMs`经宿主nowMs回调实现,与调度器截止时间同时钟域,`wallMs`经`std::chrono::system_clock`);gzip→`nlang_gzip.dll`捆绑zlib(已合此裁定);url/http/io.base64纯脚本(零C++),system.n的DateTime日历面亦为脚本(仅`wallMs`/`monoMs`两条native,D24);string三方法保持intrinsic——用户裁定明确理由:string是语言基本类型,其成员操作属内建于nvm的语言基础设施(D4)。既有VM内建函数族(string/list/dict等原语操作)属语言核心运行时基础设施,按本裁定不重构外迁。 | 内核最小化使C++功能可独立构建、分发、调试与替换,与math/io/fs/net既有形态统一;内建例外须有明确理由,防止内核随功能膨胀;string例外与system时钟的形态均经用户裁定(2026-11-08)。 |
 | D24 | datetime并入`system`包(用户裁定2026-11-08:「datetime如果是通用的,也可以放到system.n中。保持模块内聚性」):不再单设`datetime`包,`stdlib/system.n`同时承载时钟两native与`DateTime`/`DateTimeException`脚本日历面;`DateTime.now()`同包直用`wallMs`,本项目内跨包native消费仅剩http→`io.fromBytes`(D2);手册不单设datetime章,内容并入15-system章。 | 用户裁定;datetime是通用时间设施(盘点见§六),与原始计数器同一主题,同包使时间设施单点可发现;纯脚本面无DLL边界可分,拆分包只增导入面不增内聚;主流参照:Rust `std::time`(SystemTime/Instant同模块)、C++ `<chrono>`(时钟与日历换算同头);Python `time`/`datetime`分立是历史沿革非设计优点。 |
+| D25 | 正则表达式作独立`re`标准库子项目立项,排在0.13.6前后,不进0.13.4/0.13.5关键路径;引擎按线性时间语义主流实践(RE2族)联网取证选型(用户指示2026-11-08:复杂日期/url解析可能需要正则支持)。本版url/DateTime保持定位式手写严格解析器,不引入正则。 | 正则的真实消费点在0.13.5的HTTP-date多格式解析与0.13.6的路由模式匹配,届时按消费者驱动立项(本表通则);本版两解析器的严格性来自手写文法——Go/Java的net/url同样不用正则,URL文法(authority、IPv6方括号、百分号)进正则反而丢边界控制;引擎选型(标准`std::regex`性能与语义劣于主流、boost违背依赖限制、RE2/PCRE2需捆绑)属疑难决策,须联网取证后裁定,不在本版关键路径空转。 |
 
 ---
 
@@ -327,6 +328,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 | 日期/时间 | http `Date`/`Expires`头、用户面 | `system`包`DateTime`(D20,用户裁定;经datetime归属裁定并入,D24);纯nlang+同包`wallMs`(新增墙钟native);v1 UTC。 |
 | gzip压缩/解压 | http `Content-Encoding`(解压是健壮性刚需) | `gzip`包,native zlib(D21,用户裁定)。 |
 | 通用tokenizer/Scanner | 同上扫描需求 | 不补:indexOf+substring+循环覆盖全部已知消费者,再加抽象属臆测泛化(D4)。 |
+| 正则表达式 | HTTP-date多格式解析(0.13.5)、web框架路由模式(0.13.6)、用户面文本处理 | 用户指示(2026-11-08):复杂日期/url解析可能需要正则支持。裁定:立项独立`re`标准库子项目,排在0.13.6前后,不进0.13.4/0.13.5关键路径;引擎按线性时间语义主流实践(RE2族)联网取证选型。本版url/DateTime为定位式手写严格解析器,不引入正则——其严格性正来自手写文法(Go/Java的net/url同样不用正则),宽松模式匹配反会稀释边界控制(D25)。 |
 | `Channel.recv`超时 | 流式pump | 不补:取消语义由生产者`finally`关通道+`ChannelClosedException`覆盖;`recv`停摆(生产者阻塞在他处到不了finally)以生产者契约兜底——违约属调用方缺陷,每违约请求至多泄漏一个连接,`maxConnections`为可选部署上限(D18),不为此扩并发包面;recv超时属并发包独立演进议题。 |
 | MIME content-type嗅探 | web框架静态文件(0.13.6) | 递延至消费者立项。 |
 | SSE helper(event-stream编码) | web框架(0.13.6) | 递延;http层不理解SSE语义(http_verify §6),本项目以示例演示手工framing。 |
