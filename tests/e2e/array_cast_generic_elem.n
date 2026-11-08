@@ -1,0 +1,81 @@
+// v0.13.1 D5: array element descriptors close the instantiation cast
+// holes. The erased arrayTypes row cannot tell Box<int>[] from
+// Box<string>[] (or an int element from a string one), so two casts
+// silently passed before: a bracketed instantiation target and an
+// Array<E> face target. Array allocation now stamps the element
+// instantiation descriptor on the record and both target forms compare
+// it — element kind for scalar arguments, the descriptor for
+// instantiation arguments.
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+}
+int main() {
+    int acc = 0;
+    //Hole 1: bracketed instantiation target — same erased element row,
+    //different instantiation. One passes, the wrong one throws.
+    Box<int> b7 = Box(7);
+    Box<int> b9 = Box(9);
+    Box<int>[] bi = [b7, b9];
+    Object o = bi;
+    try {
+        Box<string>[] bs = o as Box<string>[];
+        return 90;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) {
+        if (e.message.indexOf("Box<string>") < 0) return 91;
+        acc = acc + 1;
+    }
+    Box<int>[] back = o as Box<int>[];
+    if (back[0].item != 7) return 92;
+    if (back[1].item != 9) return 93;
+    //The string instantiation first, through the sized-declarator
+    //allocation path (a second emission site must stamp too).
+    Box<string> s = Box("y");
+    Box<string> bs2[2];
+    bs2[0] = s;
+    Object o2 = bs2;
+    try {
+        Box<int>[] bi2 = o2 as Box<int>[];
+        return 94;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 2; }
+    Box<string>[] back2 = o2 as Box<string>[];
+    if (back2[0].item != "y") return 95;
+    //Hole 2: Array<E> face target on a scalar array — int[] must not
+    //pass as Array<string>.
+    int[] nums = int[3];
+    nums[0] = 5;
+    Object oNums = nums;
+    try {
+        Array<string> asStr = oNums as Array<string>;
+        return 96;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 4; }
+    Array<int> asInt = oNums as Array<int>;
+    if (asInt[0] != 5) return 97;
+    //A nested instantiation element: Array<Box<int>> vs Array<Box<string>>.
+    Object oBs = bs2;
+    try {
+        Array<Box<int>> abi = oBs as Array<Box<int>>;
+        return 98;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 8; }
+    Array<Box<string>> abs = oBs as Array<Box<string>>;
+    if (abs[0].item != "y") return 99;
+    //Dynamic-rank construction stamps the element descriptor too.
+    int[] dims = int[1];
+    dims[0] = 2;
+    Array<Box<int>> dyn = Array(dims);
+    dyn[0] = b7;
+    Object oDyn = dyn;
+    try {
+        Array<Box<string>> wrongDyn = oDyn as Array<Box<string>>;
+        return 100;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 16; }
+    Array<Box<int>> backDyn = oDyn as Array<Box<int>>;
+    if (backDyn[0].item != 7) return 101;
+    if (acc != 31) return 89;
+    return 0;
+}

@@ -100,6 +100,7 @@ add_library(nlang_vm
     backend/EmitExprMemberString.cpp
     backend/EmitExprMemberArray.cpp
     backend/EmitArrayBoundary.cpp
+    backend/EmitArrayOpcodes.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
     backend/EmitStmtCompound.cpp

@@ -314,6 +314,7 @@ static bool CollectQualifiedSegments(
 %type <v_NodeFlags>				NodeFlagsNonEmpty
 %type <v_pNameExpr>				NameExpr
 %type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
+%type <v_pFieldExpr>				AsGenericTarget
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -2316,12 +2317,31 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 						$$ = new SnAsExpr($1,
 							new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3), @2);
 					} |
-				Expression KT_As IdentifierExpr '<' {
-						parser.Scanner().IncGenericDepth();
-					} TypeList '>'	{
-						$$ = new SnAsExpr($1,
-							new SnGenericTypeExpr(new SnNameExpr($3, @3), $6, @3), @2);
+				//v0.13.1 D5: the plain-'<' generic target routes through
+				//AsGenericTarget (one mid-rule depth increment for the
+				//whole family — see its rule).
+				Expression KT_As AsGenericTarget	{
+						$$ = new SnAsExpr($1, $3, @2);
 					} |
+				//v0.13.1 D5: the annotated array of instantiations —
+				//`o as Box<string>[]`. The element check joins the rank
+				//check (OP_CheckArrayType + the element descriptor row).
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>' OT_Brackets	{
+						$$ = new SnAsExpr($1,
+							new SnArrayTypeExpr(
+								new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3), @7),
+							@2);
+					} |
+				Expression KT_As AsGenericTarget OT_Brackets
+					{ $$ = new SnAsExpr($1, new SnArrayTypeExpr($3, @4), @2); } |
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>' OT_BracketsND	{
+						$$ = new SnAsExpr($1,
+							MakeArrayTypeND(
+								new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3),
+								@7, $7, parser), @2);
+					} |
+				Expression KT_As AsGenericTarget OT_BracketsND
+					{ $$ = new SnAsExpr($1, MakeArrayTypeND($3, @4, $4, parser), @2); } |
 				//v0.12.7: the as-target gains the bracket spellings — the
 				//boundary rank check (OP_CheckArrayRank) is the whole point
 				//of `dyn as int[]`. The generic spelling adds nothing as a
@@ -2343,6 +2363,18 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				} ;
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
+
+//v0.13.1 D5: the plain-'<' generic as-target core for the array-suffix
+//arms (`o as Box<string>[]`). Its ONE mid-rule depth increment is its
+//own parse position — an inline twin inside the Expression arms would
+//put three empty actions on one position, and the reduce/reduce
+//resolution keeps only the first (the suffix arms would go dead).
+AsGenericTarget:	IdentifierExpr '<' {
+						parser.Scanner().IncGenericDepth();
+					} TypeList '>'	{
+						$$ = new SnGenericTypeExpr(
+							new SnNameExpr($1, @1), $4, @1);
+					} ;
 
 MemberExpr:	Expression '.' InvokeExpr		{
 					$$ = new SnMemberExpr($1, $3, @1);

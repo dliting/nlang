@@ -819,6 +819,25 @@ private:
     //pre-interned; recipe rows compose against the receiver).
     GenericInstDescriptor* CastTargetDescriptor(uint16_t descIdx,
                                                 const uint8_t* locals);
+    //v0.13.1 D5: stamp an array allocation's element instantiation
+    //descriptor on the record's heap slot (0xFFFF = nothing to stamp).
+    void StampElemDescriptor(int32_t heapIdx, uint16_t descIdx,
+                             const uint8_t* locals);
+    //v0.13.1 D5: an array record's element instantiation descriptor —
+    //the owning record's stamp, or its owner's through a view (views
+    //validate their element kind against the owner at creation).
+    const GenericInstDescriptor* ArrayElemDescriptorOf(int32_t heapIdx);
+    //v0.13.1 D5: does the record's element satisfy the Array<E> face
+    //target's type argument? (See VmExecutorOpsArrayCheck.cpp for the
+    //two-tier comparison — the erased row cannot subdivide templates.)
+    bool ArrayElemMatchesTarget(int32_t heapIdx,
+                                const GenericInstDescriptor& target);
+    //v0.13.1 D5: the record's element type spelling for cast diagnostics.
+    std::string ArrayElemSpellingOf(int32_t heapIdx);
+    //v0.13.1 D5: the element-instantiation tail of a matching
+    //OP_CheckArrayType row (0xFFFF never reaches here).
+    void CheckArrayTypeElemDescriptor(int32_t heapIdx, uint16_t descIdx,
+                                      const uint8_t* locals);
     //The instantiation-matching tail of OpCheckCast (0xFFFF skips).
     void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
                                 const uint8_t* locals);

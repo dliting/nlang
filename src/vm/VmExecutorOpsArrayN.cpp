@@ -20,6 +20,9 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arrayTypeIdx = reader.ReadUint16();
     uint16_t rank = reader.ReadUint16();
     uint16_t dimsBase = reader.ReadUint16();
+    //v0.13.1: the element instantiation's descriptor row (0xFFFF = the
+    //element is not an instantiation; nothing to stamp).
+    uint16_t descIdx = reader.ReadUint16();
     //The dims are rank consecutive int32 slots. Length validation
     //(per-dim negative/cap and the elemCount product) lives in
     //AllocArrayOnHeap — the single choke point shared with native
@@ -33,6 +36,7 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
                     sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
+    StampElemDescriptor(heapIdx, descIdx, locals);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }
@@ -412,6 +416,8 @@ void VmExecutor::OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arrayTypeIdx = reader.ReadUint16();
     uint16_t dimsSlot = reader.ReadUint16();
+    //v0.13.1: the element instantiation's descriptor row (0xFFFF = none).
+    uint16_t descIdx = reader.ReadUint16();
     int32_t dimsIdx;
     std::memcpy(&dimsIdx, locals + dimsSlot, sizeof(dimsIdx));
     if (dimsIdx <= 0 || static_cast<size_t>(dimsIdx) >= m_structHeap.size())
@@ -438,6 +444,7 @@ void VmExecutor::OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals) {
             sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
+    StampElemDescriptor(heapIdx, descIdx, locals);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }

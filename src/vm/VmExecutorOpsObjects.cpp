@@ -321,12 +321,24 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* locals,
 //An operand WITHOUT a descriptor (a subclass of an instantiation, an
 //erased builtin row) degrades to the row check that already passed;
 //every direct construction of a template row carries one.
+//An ARRAY operand reaching here passed the Array face row check — the
+//record's heap cell holds its ELEMENT's descriptor, so the element side
+//takes its own comparison instead of the object identity compare.
 void VmExecutor::CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
                                         const uint8_t* locals) {
     if (descIdx == 0xFFFF)
         return;
     const GenericInstDescriptor* target =
         CastTargetDescriptor(descIdx, locals);
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind == RTK_Array || kind == RTK_ArrayView) {
+        if (!ArrayElemMatchesTarget(heapIdx, *target))
+            RaiseNlangException(m_invalidCastExcClassIdx, std::string(
+                "NLang VM: invalid cast - expected `")
+                + target->Spelling() + "[]`, got `Array<"
+                + ArrayElemSpellingOf(heapIdx) + ">`");
+        return;
+    }
     const GenericInstDescriptor* actual = InstDescriptorOf(heapIdx);
     if (actual && target && actual != target)
         RaiseNlangException(m_invalidCastExcClassIdx, std::string(

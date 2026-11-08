@@ -160,6 +160,10 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
+    //v0.13.1 D5: clear the descriptor carrier cell — free-list slots
+    //recycle across kinds, and the element stamp write (StampElemDescriptor)
+    //is optional, so a previous tenant's stamp must not survive here.
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
     auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
     record[0] = RTK_Array;
     record[1] = arrayTypeIdx;

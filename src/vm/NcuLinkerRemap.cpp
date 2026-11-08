@@ -124,21 +124,54 @@ static void PatchStaticSlotOperands(OpCode op, std::vector<uint8_t>& bc,
     }
 }
 
-//Type- and descriptor-channel operands (class/struct/array/enum tables,
-//descriptor rows). SECOND-operand entries note the offset — OP_New
-//family shapes lead with a dst frame offset.
+//v0.13.1: the descriptor-channel operands — each opcode's descIdx
+//word position, one table mirroring the emission choke points
+//(EmitArrayOpcodes.cpp). 0xFFFF is the no-descriptor sentinel, not a
+//row index, and skips (PatchDescriptorOperand). typeName's compose row
+//is always a real index, so it patches directly.
+static void PatchDescriptorOperands(OpCode op, std::vector<uint8_t>& bc,
+    size_t pos, const NcuOperandMaps& maps,
+    const std::function<void(const char*, uint16_t)>& onUnmapped) {
+    size_t descOff = 0;
+    switch (op) {
+        case OpCode::OP_New:
+            descOff = 5;  //dst, classIdx, descIdx
+            break;
+        case OpCode::OP_CheckCast:
+            descOff = 3;  //classIdx, descIdx
+            break;
+        case OpCode::OP_CheckArrayType:
+            descOff = 7;  //dst, src, arrayTypeIdx, descIdx
+            break;
+        case OpCode::OP_AllocArrayN:
+        case OpCode::OP_AssembleArrayN:
+            descOff = 9;  //four words, then the element descriptor
+            break;
+        case OpCode::OP_AllocArrayDyn:
+            descOff = 7;  //dst, typeIdx, dimsSlot, descIdx
+            break;
+        case OpCode::OP_TypeNameCompose:
+            PatchOperand(bc, pos + 3, maps.descriptors, "descriptor",
+                         onUnmapped);
+            return;
+        default:
+            return;
+    }
+    PatchDescriptorOperand(bc, pos + descOff, maps, onUnmapped);
+}
+
+//Type-channel operands (class/struct/array/enum tables). SECOND-operand
+//entries note the offset — OP_New family shapes lead with a dst frame
+//offset. The descriptor channel lives in PatchDescriptorOperands.
 static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
     switch (op) {
         case OpCode::OP_New:
             PatchOperand(bc, pos + 3, maps.classes, "class", onUnmapped);
-            PatchDescriptorOperand(bc, pos + 5, maps, onUnmapped);
             break;
         case OpCode::OP_CheckCast:
             PatchOperand(bc, pos + 1, maps.classes, "class", onUnmapped);
-            //v0.13.1: descIdx is the second word (classIdx, descIdx).
-            PatchDescriptorOperand(bc, pos + 3, maps, onUnmapped);
             break;
         case OpCode::OP_CheckArrayType:
             PatchOperand(bc, pos + 5, maps.arrayTypes, "array type",
@@ -164,13 +197,6 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_Enum_to_str:
             PatchOperand(bc, pos + 1, maps.enums, "enum", onUnmapped);
             break;
-        //v0.13.1: typeName recipe row — dst frame offset leads, the
-        //descriptor index is the second operand (pos+3). Unlike OP_New
-        //there is no 0xFFFF form (a compose site always names a row).
-        case OpCode::OP_TypeNameCompose:
-            PatchOperand(bc, pos + 3, maps.descriptors, "descriptor",
-                         onUnmapped);
-            break;
         default:
             break;
     }
@@ -184,6 +210,7 @@ void NcuRemapBytecodeOperands(std::vector<uint8_t>& bytecode,
         OpCode op = static_cast<OpCode>(bytecode[pos]);
         PatchNameOperands(op, bytecode, pos, maps, onUnmapped);
         PatchTypeOperands(op, bytecode, pos, maps, onUnmapped);
+        PatchDescriptorOperands(op, bytecode, pos, maps, onUnmapped);
         PatchStaticSlotOperands(op, bytecode, pos, maps, onUnmapped);
         PatchClassInitOperands(op, bytecode, pos, maps, onUnmapped);
         pos += InstructionStride(op);

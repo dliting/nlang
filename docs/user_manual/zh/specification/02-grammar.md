@@ -188,12 +188,14 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | <identifier> "<" TypeList ">" "{" [ InitEntryList ] "}"
                 | Expression BinaryOp Expression
                 | UnaryOp Expression
-                | Expression "as" TypeName
+                | Expression "as" TypeName [ "[]" | "[,,]" ]
+                | Expression "as" AsGenericTarget
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" ;
+AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -227,7 +229,7 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
                 | Expression | BracedInitExpr ;
 ```
 
-`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。
+`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。
 
 ## 2.7 运算符优先级
 

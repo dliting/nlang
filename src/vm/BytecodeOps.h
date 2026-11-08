@@ -93,10 +93,18 @@ enum class OpCode : uint8_t {
     OP_NullCheck,       // uint16 obj — throw if locals[obj] is null/invalid (hard crash, like Java NPE)
 
     // === Array operations ===
-    OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase
+    OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase,
+                        // uint16 descIdx (0xFFFF = none) — v0.13.1: the element
+                        // instantiation's descriptor row when the element type is
+                        // a generic instantiation; stamped as the record's element
+                        // descriptor so array casts can tell Box<int>[] and
+                        // Box<string>[] apart (one arrayTypes row per erasure)
     OP_LoadElementN,    // uint16 dst, uint16 arr, uint16 idxBase, uint16 rank
     OP_StoreElementN,   // uint16 arr, uint16 idxBase, uint16 src, uint16 rank
-    OP_AssembleArrayN,  // uint16 dst, uint16 typeIdx, uint16 elemsBase, uint16 count
+    OP_AssembleArrayN,  // uint16 dst, uint16 typeIdx, uint16 elemsBase, uint16 count,
+                        // uint16 descIdx (0xFFFF = none) — v0.13.1: the literal-
+                        // array twin stamps the element descriptor like the
+                        // allocator above
     OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
     OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
     OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
@@ -195,10 +203,12 @@ enum class OpCode : uint8_t {
                         // InvalidCastException is raised
 
     // === v0.12.7 Task 5: Object→array downcast check ===
-    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx — null passes
-                        // through; the record's type identity (kind +
+    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx, u16 descIdx — null
+                        // passes through; the record's type identity (kind +
                         // arrayTypes row) must match or a catchable
-                        // InvalidCastException is raised
+                        // InvalidCastException is raised. v0.13.1: a named
+                        // element-descriptor row must also match the record's
+                        // stamped element descriptor (instantiation elements)
 
     // === v0.12.7 Task 4: unannotated Array<E> spelling (no static rank) ===
     OP_LoadElementDyn,  // u16 dst, u16 arr, u16 idxBase, u16 nCoords — the
@@ -207,10 +217,14 @@ enum class OpCode : uint8_t {
                         // IndexOutOfBoundsException (both counts)
     OP_StoreElementDyn, // u16 arr, u16 idxBase, u16 src, u16 nCoords —
                         // store twin of OP_LoadElementDyn
-    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot — dims is a
+    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot, u16 descIdx
+                        // (0xFFFF = none) — dims is a
                         // rank-1 int[] handle; the rank = dims.length()
                         // validates in [1, kMaxArrayRank] and the extents
-                        // go through AllocArrayOnHeap
+                        // go through AllocArrayOnHeap. v0.13.1: descIdx is
+                        // the element instantiation's descriptor row (the
+                        // Array(dims) allocation stamps it like every
+                        // other array creation form)
 
     // === v0.13.1: runtime generic type info (typeName) ===
     OP_TypeNameArg,     // u16 dst, u8 paramOrdinal — read the receiver's
@@ -287,15 +301,21 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
-    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn};
+    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
-    OpCode::OP_AssembleArrayN,
-    OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
+    //v0.13.1: OP_CheckArrayType gained its descIdx word — dst, src,
+    //arrayTypeIdx, descIdx; OP_AllocArrayDyn gained its element
+    //descriptor word the same way (Array(dims) allocations stamp too).
+    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn,
+    OpCode::OP_StrForeachStep};
 static constexpr OpCode kStrideFiveWords[] = {
-    OpCode::OP_MakeArrayView};
+    //v0.13.1: the array allocators gained their descIdx word —
+    //AllocArrayN: dst, typeIdx, rank, dimsBase, descIdx; AssembleArrayN:
+    //dst, typeIdx, elemsBase, count, descIdx.
+    OpCode::OP_MakeArrayView,
+    OpCode::OP_AllocArrayN, OpCode::OP_AssembleArrayN};
 static constexpr OpCode kStrideOutMaskWords[] = {
     OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
     OpCode::OP_CallDelegateOut};

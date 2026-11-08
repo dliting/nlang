@@ -155,4 +155,34 @@ void VmExecutor::OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
 
+//v0.13.1 D5: stamp an array allocation's element instantiation
+//descriptor on the record's heap slot — the array opcodes' shared tail.
+//The stamp rides the same heap-parallel carrier as object descriptors
+//(D1: arrays share the heap index space); for an array record the cell
+//holds the ELEMENT's descriptor, and the owning allocation always
+//resets it first (AllocArrayOnHeap), so a recycled slot never leaks a
+//previous tenant's stamp.
+void VmExecutor::StampElemDescriptor(int32_t heapIdx, uint16_t descIdx,
+                                     const uint8_t* locals) {
+    if (descIdx == 0xFFFF)
+        return;
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] =
+        CastTargetDescriptor(descIdx, locals);
+}
+
+//v0.13.1 D5: an array record's element instantiation descriptor — the
+//owning record's stamp; a view reads its OWNER's (views validate their
+//element kind against the owner at creation, so the owner's element
+//descriptor is the view's).
+const GenericInstDescriptor* VmExecutor::ArrayElemDescriptorOf(
+    int32_t heapIdx) {
+    if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_ArrayView) {
+        const uint8_t rank = static_cast<uint8_t>(
+            m_structHeap[static_cast<size_t>(heapIdx)][2]);
+        heapIdx = m_structHeap[static_cast<size_t>(heapIdx)][
+            ArrayViewTargetCell(rank)];
+    }
+    return InstDescriptorOf(heapIdx);
+}
+
 } // namespace nlang

@@ -1157,6 +1157,9 @@ private:
     //parameter (see DescriptorSpelling.cpp); the row composes at run
     //time through OP_TypeNameCompose.
     uint16_t RecipeIndexFor(const SnField& operand);
+    //v0.13.1: an array allocation's element-instantiation row — 0xFFFF
+    //unless the element type is a generic instantiation.
+    uint16_t ElemDescriptorIndexFor(SnField* pElemType);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
@@ -1581,6 +1584,21 @@ private:
                              SnArrayTypeToken& token,
                              BytecodeEmitter& emitter,
                              uint16_t resultOffset);
+    //v0.13.1 D5: the array opcode emission choke points (definitions
+    //in EmitArrayOpcodes.cpp) — each owns its opcode's complete operand
+    //layout and derives the element descriptor word from the element
+    //field, so allocation sites cannot hand-write a stale sequence.
+    void EmitAllocArrayN(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                         uint8_t rank, uint16_t dimsBase,
+                         SnField* pElemField, BytecodeEmitter& emitter);
+    void EmitAssembleArrayN(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                            uint16_t rowsBase, uint16_t rowCount,
+                            SnField* pElemField, BytecodeEmitter& emitter);
+    void EmitAllocArrayDyn(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                           uint16_t dimsSlot, SnField* pElemField,
+                           BytecodeEmitter& emitter);
+    void EmitCheckArrayTypeOp(uint16_t slot, uint16_t arrayTypeIdx,
+                              SnField* pElemField, BytecodeEmitter& emitter);
     void EmitNDInitListLeaves(SnInitListExpr& node,
                               SnArrayTypeToken& token,
                               std::vector<int32_t>& coords,

@@ -115,6 +115,19 @@ uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+//v0.13.1: the element instantiation's descriptor row for an array
+//allocation — 0xFFFF unless the element type is a generic instantiation
+//(the erased arrayTypes row cannot tell Box<int>[] from Box<string>[];
+//the record's stamped element descriptor does). Bare type-parameter
+//elements never reach here (the resolver rejects arrays of T).
+uint16_t VmBackend::ElemDescriptorIndexFor(SnField* pElemType)
+{
+	if (pElemType && pElemType->Kind() == NK_ClassDecl)
+		return DescriptorIndexFor(
+			static_cast<SnClassDecl&>(*pElemType));
+	return kNoInstDescriptor;
+}
+
 //v0.13.1: recipe row for a typeName operand that contains a type
 //parameter anywhere (the resolver folds concrete operands to a string
 //instead — see Access(SnTypeNameExpr)). The row is one argument

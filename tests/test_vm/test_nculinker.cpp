@@ -450,8 +450,11 @@ static void test_link_array_types_dedup() {
     CompiledFunction lf = MakeFunc("lib.f", 0);
     {
         BytecodeEmitter em;
+        //v0.13.1: five operands — dst, typeIdx, rank, dimsBase, descIdx
+        //(0xFFFF: no element instantiation here).
         em.Emit(OpCode::OP_AllocArrayN);
-        em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(1);
+        em.EmitUint16(0); em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         lf.bytecode = em.TakeBytes();
     }
@@ -468,7 +471,8 @@ static void test_link_array_types_dedup() {
     {
         BytecodeEmitter em;
         em.Emit(OpCode::OP_AllocArrayN);
-        em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(0);
+        em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(1);
+        em.EmitUint16(0); em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }

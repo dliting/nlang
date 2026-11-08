@@ -27,6 +27,8 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arrayTypeIdx = reader.ReadUint16();
     uint16_t elemSlotBase = reader.ReadUint16();
     uint16_t rowCount = reader.ReadUint16();
+    //v0.13.1: the element instantiation's descriptor row (0xFFFF = none).
+    uint16_t descIdx = reader.ReadUint16();
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error(
             "NLang VM: OP_AssembleArrayN on invalid array type");
@@ -43,6 +45,7 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     SnapshotAssembleRows(locals, elemSlotBase, rowCount, rank,
                          rowHandles, dims);
     const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
+    StampElemDescriptor(heapIdx, descIdx, locals);
     NoteGcPressure();
     CopyAssembleRows(heapIdx, arrayType, rowHandles);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));

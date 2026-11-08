@@ -101,10 +101,12 @@ bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
     switch (op) {
         case OpCode::OP_AllocArrayN:
-            DisasmU16xN(4, r, out, head, " dst=%u type=%u rank=%u dimsBase=%u");
+            DisasmU16xN(5, r, out, head,
+                " dst=%u type=%u rank=%u dimsBase=%u desc=%u");
             return true;
         case OpCode::OP_AssembleArrayN:
-            DisasmU16xN(4, r, out, head, " dst=%u type=%u elems=%u count=%u");
+            DisasmU16xN(5, r, out, head,
+                " dst=%u type=%u elems=%u count=%u desc=%u");
             return true;
         case OpCode::OP_LoadElementN:
         case OpCode::OP_LoadElementDyn:
@@ -118,11 +120,15 @@ bool DisasmArrayRecordOps(OpCode op, BytecodeReader &r,
             DisasmU16xN(3, r, out, head, " dst=%u arr=%u flatIdx=%u");
             return true;
         case OpCode::OP_CheckArrayRank:
-        case OpCode::OP_CheckArrayType:
             DisasmU16xN(3, r, out, head, " dst=%u src=%u expect=%u");
             return true;
+        case OpCode::OP_CheckArrayType:
+            DisasmU16xN(4, r, out, head,
+                " dst=%u src=%u expect=%u desc=%u");
+            return true;
         case OpCode::OP_AllocArrayDyn:
-            DisasmU16xN(3, r, out, head, " dst=%u type=%u dims=%u");
+            DisasmU16xN(4, r, out, head,
+                " dst=%u type=%u dims=%u desc=%u");
             return true;
         case OpCode::OP_ArrayShape:
         case OpCode::OP_ArrayLength:

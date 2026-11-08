@@ -214,12 +214,14 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | <identifier> "<" TypeList ">" "{" [ InitEntryList ] "}"
                 | Expression BinaryOp Expression
                 | UnaryOp Expression
-                | Expression "as" TypeName
+                | Expression "as" TypeName [ "[]" | "[,,]" ]
+                | Expression "as" AsGenericTarget
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" ;
+AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -256,7 +258,10 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
 `IdentifierExpr` admits the primitive type keywords so that a type
 name can appear where an expression head is expected (static-style
 member access and type-argument heads). The `func<...>(...)` form is
-a function value expression (chapter 7).
+a function value expression (chapter 7). `AsGenericTarget` is the
+generic `as` target — `e as Box<int>` and its array-suffixed form
+`e as Box<int>[]`; it covers built-in and user-declared templates
+alike.
 
 ## 2.7 Operator Precedence
 
