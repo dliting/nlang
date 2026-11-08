@@ -28,7 +28,7 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 266 functions: io 19 (14 natives + 5 typed-reader wrappers; the
+    // 269 functions: io 19 (14 natives + 5 typed-reader wrappers; the
     // v11 clock/park natives and the byte helpers moved from net),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
@@ -37,12 +37,12 @@ static void TestLoadsRealStdLib() {
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
-    // net 53 (the script ping plus the internal _nowMs/_lastErrorText/
-    // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
-    // setters and the internal _toBytes/_fromBytes, the 20 _udp*
-    // natives and the 5 _icmp* natives; class methods are not free
-    // functions).
-    CHECK(index.size() == 267);
+    // net 54 (the script ping plus the internal _nowMs/_lastErrorText/
+    // _lastErrorCode/_throwNet/_ping/resolveList, the _tcp* natives
+    // incl. the option setters and the internal _toBytes/_fromBytes,
+    // the 20 _udp* natives and the 5 _icmp* natives; class methods
+    // are not free functions), system 2 (the wall and monotonic clocks).
+    CHECK(index.size() == 269);
 }
 
 static void TestResolvePrint() {
@@ -97,13 +97,14 @@ static void TestCompletion() {
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 6);
+    CHECK(namespaces.size() == 7);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "io");
     CHECK(namespaces[2] == "math");
     CHECK(namespaces[3] == "net");
-    CHECK(namespaces[4] == "tensor");
-    CHECK(namespaces[5] == "thread");
+    CHECK(namespaces[4] == "system");
+    CHECK(namespaces[5] == "tensor");
+    CHECK(namespaces[6] == "thread");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -289,14 +290,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 267);
+    CHECK(index.size() == 269);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 267);
+    CHECK(index.size() == 269);
 }
 
 static void TestBlockCommentBraces() {

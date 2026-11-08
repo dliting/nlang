@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Smoke test for examples/embed_host (embedding API e2e).
 
-Usage (ctest passes all four):
-    python run_embed_host.py <embed_host.exe> <ncc.exe> <stdlib.npkg> <nlang_io.dll>
+Usage (ctest passes the host, compiler, package and every native DLL):
+    python run_embed_host.py <embed_host.exe> <ncc.exe> <stdlib.npkg> <native_dll> [...]
 
 Compiles a small stdlib-importing script, runs it through the embed_host
 example host in a temp dir, and asserts the redirected output prefix and
 the reported exit code. The temp dir carries the run-time closure: the
-example exe and nlang_io.dll side by side (the native loader only
+example exe and the native DLLs side by side (the native loader only
 searches the exe dir) and stdlib.npkg next to the .ncu (a link-time
 search dir). Paths are absolute with forward slashes (Windows subprocess
 discipline).
@@ -31,11 +31,13 @@ DEMO_SOURCE = (
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) < 5:
         print(__doc__)
         return 2
-    embed_host, ncc, stdlib_npkg, nlang_io_dll = (
-        os.path.abspath(a).replace('\\', '/') for a in sys.argv[1:])
+    embed_host, ncc, stdlib_npkg = (
+        os.path.abspath(a).replace('\\', '/') for a in sys.argv[1:4])
+    native_dlls = [os.path.abspath(a).replace('\\', '/')
+                   for a in sys.argv[4:]]
 
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'embed_demo.n')
@@ -51,10 +53,11 @@ def main():
             print('ncc failed:\n' + compiled.stdout + compiled.stderr)
             return 1
 
-        #embed_host.exe is self-contained except for the native io module
+        #embed_host.exe is self-contained except for the native modules
         host_exe = os.path.join(tmp, 'embed_host.exe')
         shutil.copyfile(embed_host, host_exe)
-        shutil.copyfile(nlang_io_dll, os.path.join(tmp, 'nlang_io.dll'))
+        for dll in native_dlls:
+            shutil.copyfile(dll, os.path.join(tmp, os.path.basename(dll)))
 
         ran = subprocess.run(
             [host_exe, ncu], capture_output=True, text=True, timeout=60)

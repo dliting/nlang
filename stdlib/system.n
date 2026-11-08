@@ -1,0 +1,16 @@
+// Standard library source for the "system" package — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into
+// every build. The package comes from this file's path (the stem
+// "system"). The clock natives are served by the nlang_system host
+// module; the calendar type added later in this file is plain NLang
+// on top of them.
+
+// Wall clock: Unix epoch milliseconds (the CLOCK_REALTIME domain).
+// Subject to NTP steps and manual changes — use it for timestamps,
+// not for measuring intervals.
+native long wallMs();
+
+// Monotonic clock: milliseconds since an arbitrary epoch, never going
+// backwards. The same clock domain as io.parkForIo's deadlineMs — use
+// it for intervals, timeouts and timers. Replaces the former io.nowMs.
+native long monoMs();

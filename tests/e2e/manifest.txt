@@ -2132,3 +2132,4 @@ array_cast_class_target 7
 array_serialize_cycle 3
 object_field_value_ser 7
 stdlib_probe_funcclass 0
+stdlib_system_clock 0
