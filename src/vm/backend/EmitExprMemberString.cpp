@@ -324,6 +324,8 @@ static void EmitStringMethodDefaultFill(BytecodeEmitter& emitter,
         emitter.EmitUint16(fillOffset);
     } else {
         //substring: dst = StrLen(receiver copy at claim slot 0)
+        NLANG_ASSERT(name == "substring"
+            && "default fill: only substring/indexOf/toInt have a defaulted slot");
         emitter.Emit(OpCode::OP_StrLen);
         emitter.EmitUint16(fillOffset);
         emitter.EmitUint16(claimBase);
