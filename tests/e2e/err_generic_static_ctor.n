@@ -1,0 +1,14 @@
+// v0.13.1: a static member has no receiver, so a type-parameter-
+// argument construction inside it has nothing to compose from at run
+// time. The declaration itself is legal (statics may reference T);
+// the construction is rejected by name.
+class Box<T> {
+    public T value;
+}
+class Hold<T> {
+    public static Box<T> make() {
+        Box<T> b = Box();
+        return b;
+    }
+}
+int main() { return 0; }

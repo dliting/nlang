@@ -143,11 +143,16 @@ static void EmitNew(BytecodeReader &r, std::ostringstream &out,
     out << head << " " << dst << " class=" << classIdx;
     if (classIdx < module.classes.size())
         out << " " << module.classes[classIdx].name;
-    //v0.13.1: the instantiation descriptor row (0xFFFF = none).
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none; recipe
+    //rows compose at run time, so the spelling prints as a row tag).
     if (descIdx != 0xFFFF
-        && descIdx < module.descriptorTable.size())
-        out << " desc=" << module.descriptorTable[descIdx].spelling;
-    else
+        && descIdx < module.descriptorTable.size()) {
+        const auto& row = module.descriptorTable[descIdx];
+        if (row.recipe.empty())
+            out << " desc=" << row.spelling;
+        else
+            out << " desc=recipe#" << descIdx;
+    } else
         out << " desc=none";
     out << "\n";
 }

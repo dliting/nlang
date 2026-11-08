@@ -190,6 +190,104 @@ static void testProbeBoundsAreNull()
     PASS();
 }
 
+//A template-body construction composes its descriptor at run time from
+//the receiver's own arguments (D3 recipes): Hold<int> driving Box(x)
+//inside its ctor yields "Box<int>" alongside the static "Hold<int>".
+static void testRecipeComposesFromReceiver()
+{
+    TEST(recipeComposesFromReceiver);
+    {
+        ExecResult r = runProgram("gri_recipe",
+            "class Box<T> {\n"
+            "    public T value;\n"
+            "    public Box(T v) { value = v; }\n"
+            "}\n"
+            "class Hold<T> {\n"
+            "    public Box<T> inner;\n"
+            "    public Hold(T x) { inner = Box(x); }\n"
+            "}\n"
+            "int main() {\n"
+            "    Hold<int> h = Hold(5);\n"
+            "    return h.inner.value;\n"
+            "}\n");
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 5, "program ran to completion");
+        const auto hits = heapIndicesWithDescriptor(*r.exec);
+        CHECK(hits.size() == 2, "Hold and its inner Box carry descriptors");
+        bool sawHold = false, sawBox = false;
+        for (int32_t idx : hits) {
+            const std::string& spelling =
+                r.exec->InstDescriptorOf(idx)->Spelling();
+            sawHold = sawHold || spelling == "Hold<int>";
+            sawBox = sawBox || spelling == "Box<int>";
+        }
+        CHECK(sawHold, "receiver Hold<int> rides the static row");
+        CHECK(sawBox, "inner Box composed as Box<int> at run time");
+    }
+    PASS();
+}
+
+//Nested composition: a recipe argument that is itself a recipe-driven
+//construction (Box<Box<T>> staged through a typed local).
+static void testNestedRecipeComposes()
+{
+    TEST(nestedRecipeComposes);
+    {
+        ExecResult r = runProgram("gri_recipe_nested",
+            "class Box<T> {\n"
+            "    public T value;\n"
+            "    public Box(T v) { value = v; }\n"
+            "}\n"
+            "class Hold<T> {\n"
+            "    public Box<Box<T>> inner;\n"
+            "    public Hold(T x) {\n"
+            "        Box<T> one = Box(x);\n"
+            "        Box<Box<T>> b = Box(one);\n"
+            "        inner = b;\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Hold<int> h = Hold(5);\n"
+            "    return h.inner.value.value;\n"
+            "}\n");
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 5, "program ran to completion");
+        const auto hits = heapIndicesWithDescriptor(*r.exec);
+        CHECK(hits.size() == 3, "Hold + Box<int> + Box<Box<int>>");
+        bool sawNested = false;
+        for (int32_t idx : hits)
+            if (r.exec->InstDescriptorOf(idx)->Spelling()
+                    == "Box<Box<int>>")
+                sawNested = true;
+        CHECK(sawNested, "nested recipe composed as Box<Box<int>>");
+    }
+    PASS();
+}
+
+//Static template members have no receiver — a type-parameter-argument
+//construction there cannot compose, so the backend rejects it by name.
+static void testStaticBodyConstructionRejected()
+{
+    TEST(staticBodyConstructionRejected);
+    {
+        ExecResult r = runProgram("gri_static_ctor",
+            "class Box<T> {\n"
+            "    public T value;\n"
+            "}\n"
+            "class Hold<T> {\n"
+            "    public static Box<T> make() {\n"
+            "        Box<T> b = Box();\n"
+            "        return b;\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    return 0;\n"
+            "}\n");
+        CHECK(!r.built, "static T-arg construction is rejected");
+    }
+    PASS();
+}
+
 int main()
 {
     //Static tables before any compiler work (the test_array_view_record
@@ -203,6 +301,9 @@ int main()
         testBoxIntRidesConstruction();
         testPlainObjectCarriesNone();
         testProbeBoundsAreNull();
+        testRecipeComposesFromReceiver();
+        testNestedRecipeComposes();
+        testStaticBodyConstructionRejected();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

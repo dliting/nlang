@@ -278,11 +278,21 @@ inline int ArrayElemCells(uint8_t elemRtk)
 
 //v2.15 (v0.13.1): one generic-instantiation descriptor row. `spelling`
 //is the canonical no-space form ("Box<int>", see GenericInstDescriptor);
-//`recipe` is empty for a static entry (the spelling is the whole fact) or
-//the runtime-composition bytecode for an entry whose arguments contain
-//type parameters (encoding defined by the emission side). The intern
-//contract makes spelling equality descriptor equality, so consumers
-//resolve a row to a GenericInstDescriptor by interning.
+//`recipe` is empty for a static entry (the spelling is the whole fact)
+//or the runtime-composition bytecode for an entry whose arguments
+//contain type parameters — a tag stream, little-endian u16 lengths:
+//   0 TEMPLATE_HEAD  u16 nameLen + bytes (template bare name)
+//   1 ARG_CONST      u16 spellingLen + bytes (complete leaf form)
+//   2 ARG_THIS       u8 paramIdx (receiver descriptor's argument index)
+//   3 ARG_ARRAY      u8 rank + one child ARG encoding (the element)
+//   4 ARG_NESTED     u16 recipeLen + child recipe bytes (a full
+//                    TEMPLATE_HEAD-led stream; length-prefixed so the
+//                    parent's argument loop resumes after the child)
+//A recipe row's spelling is empty; the runtime composes the canonical
+//spelling per execution (ARG_THIS reads the receiver's descriptor) and
+//interns it. The intern contract makes spelling equality descriptor
+//equality, so consumers resolve a row to a GenericInstDescriptor by
+//interning.
 struct DescriptorEntry {
     std::string spelling;
     std::vector<uint8_t> recipe;

@@ -499,6 +499,20 @@ private:
     //v0.13.1: intern the module's static descriptor rows so OP_New's
     //descIdx operand resolves to a pointer (recipe rows stay null).
     void InitDescriptorTable(const CompiledModule& module);
+    //v0.13.1 D3: compose this execution's descriptor from a recipe row
+    //(ARG_THIS reads the receiver's descriptor). See the encoding in
+    //CompiledModule.h DescriptorEntry.
+    GenericInstDescriptor* ComposeInstDescriptor(
+        const std::vector<uint8_t>& recipe, const uint8_t* locals);
+    //One recipe range's canonical spelling: TEMPLATE_HEAD + argument
+    //encodings until end. [pos, end) spans a complete recipe stream
+    //(nested streams carry their own length prefix on the tag-4 operand).
+    std::string ComposeRecipeSpelling(const std::vector<uint8_t>& recipe,
+        size_t& pos, size_t end, const uint8_t* locals);
+    //One argument encoding's canonical spelling (the tag-4 arm recurses
+    //into ComposeRecipeSpelling).
+    std::string ComposeArgSpelling(const std::vector<uint8_t>& recipe,
+        size_t& pos, const uint8_t* locals);
     //K1 Slice 6: cache builtin class indexes (Exception family + Thread)
     //from the freshly linked module — extracted from ResetPerRunState
     //for the function size guard.

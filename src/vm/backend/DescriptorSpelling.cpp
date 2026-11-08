@@ -8,6 +8,8 @@
 #include "GenericInstDescriptor.h"
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
+#include "nlang/compiler/BuildEnvironment.h"
+#include "nlang/compiler/Logger.h"
 #include <nlang/vm/CompiledModuleRecords.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -144,17 +146,95 @@ bool HasTypeParamArg(const std::vector<TypeArgDesc>& args)
 	return false;
 }
 
+namespace
+{
+//Append one u16 in the recipe's little-endian wire order.
+void AppendU16(std::vector<uint8_t>& out, uint16_t v)
+{
+	out.push_back(static_cast<uint8_t>(v & 0xFF));
+	out.push_back(static_cast<uint8_t>(v >> 8));
+}
+
+void AppendLenPrefixed(std::vector<uint8_t>& out, uint8_t tag,
+	const std::string& bytes)
+{
+	out.push_back(tag);
+	AppendU16(out, static_cast<uint16_t>(bytes.size()));
+	out.insert(out.end(), bytes.begin(), bytes.end());
+}
+
+//One argument's encoding (see DescriptorEntry): a placeholder spells
+//ARG_THIS with its declared-parameter ordinal; an array wraps its
+//element's encoding with the rank; a nested instantiation embeds a
+//length-prefixed child recipe (its spelling field is the bare template
+//name); a concrete leaf spells ARG_CONST with the complete leaf form.
+void AppendArgRecipe(std::vector<uint8_t>& out, const TypeArgDesc& arg)
+{
+	if (IsTypeParamArg(arg))
+	{
+		out.push_back(2);
+		out.push_back(static_cast<uint8_t>(TypeParamOrdinalOf(arg)));
+		return;
+	}
+	if (arg.resolvedKind == RTK_Array && !arg.nested.empty())
+	{
+		out.push_back(3);
+		out.push_back(arg.rank);
+		AppendArgRecipe(out, arg.nested[0]);
+		return;
+	}
+	if (!arg.nested.empty())
+	{
+		//Child recipe: TEMPLATE_HEAD with the nested template's bare
+		//name (the argument's spelling field), then its arguments.
+		std::vector<uint8_t> child;
+		child.push_back(0);
+		AppendU16(child, static_cast<uint16_t>(arg.spelling.size()));
+		child.insert(child.end(), arg.spelling.begin(), arg.spelling.end());
+		for (const auto& nestedArg : arg.nested)
+			AppendArgRecipe(child, nestedArg);
+		out.push_back(4);
+		AppendU16(out, static_cast<uint16_t>(child.size()));
+		out.insert(out.end(), child.begin(), child.end());
+		return;
+	}
+	AppendLenPrefixed(out, 1, arg.spelling);
+}
+} //namespace
+
 uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 {
 	if (!inst.IsGenericInstantiation())
 		return kNoInstDescriptor;
 	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
-	//Arguments containing type parameters cannot spell statically — the
-	//runtime-composition recipe path (its own task) owns those.
-	if (HasTypeParamArg(args))
-		return kNoInstDescriptor;
-	GenericInstDescriptor* desc = InternDescriptor(inst.BaseName(), args);
 	auto& table = m_compiledModule.descriptorTable;
+	if (HasTypeParamArg(args))
+	{
+		//A static member has no receiver at run time, so the composition
+		//would have nothing to read. The declaration is legal (statics
+		//may reference T); the construction is not.
+		if (m_currFunc && m_currFunc->func
+			&& m_currFunc->func->isStatic)
+		{
+			m_pEnv->Log(CLL_Error, inst.Location(),
+				"constructing a generic type with type-parameter "
+				"arguments requires an instance context.");
+			return kNoInstDescriptor;
+		}
+		std::vector<uint8_t> recipe;
+		recipe.push_back(0);
+		const std::string baseName = inst.BaseName();
+		AppendU16(recipe, static_cast<uint16_t>(baseName.size()));
+		recipe.insert(recipe.end(), baseName.begin(), baseName.end());
+		for (const auto& arg : args)
+			AppendArgRecipe(recipe, arg);
+		for (size_t i = 0; i < table.size(); ++i)
+			if (table[i].recipe == recipe)
+				return static_cast<uint16_t>(i);
+		table.push_back({"", std::move(recipe)});
+		return static_cast<uint16_t>(table.size() - 1);
+	}
+	GenericInstDescriptor* desc = InternDescriptor(inst.BaseName(), args);
 	for (size_t i = 0; i < table.size(); ++i)
 		if (table[i].spelling == desc->Spelling())
 			return static_cast<uint16_t>(i);

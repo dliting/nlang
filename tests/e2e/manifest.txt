@@ -2159,3 +2159,4 @@ array_serialize_cycle 3
 object_field_value_ser 7
 err_catch_generic_type compile_error cannot tell instantiations apart
 err_as_type_param compile_error cannot cast to a type parameter
+err_generic_static_ctor compile_error requires an instance context
