@@ -63,18 +63,34 @@ A type parameter may be an array element type in a type position —
 parameter is rejected: the element kind is not known until the
 instantiation (§4.10.2).
 
-Operators are kind-dependent in the same way: what `==` means for a
-`T`-typed operand depends on the type argument (content for
-`string`, field value for a struct, identity for a class), and the
-body is compiled once for every instantiation. Comparisons and
-other operators applied to a bare type-parameter operand are
-therefore compile-time errors — `operator '==' cannot be applied to
-a type parameter: the operand kind is not known until the
-instantiation.` Null checks are included (`item == null` rejects
-too). A cast restores a concrete kind, so when you know the
-instantiation, `item as string == "a"` compares by content again.
-Storing, passing and returning a `T` value are kind-independent and
-stay legal.
+The equality operators are legal on type-parameter operands: `==`
+and `!=` apply to `T` and `T`, `T` and `null` (both directions), and
+the method body reads the instantiation information carried by the
+receiver object at runtime, dispatching on the kind the
+instantiation was made with — scalars compare by inline value,
+`string` by content, structs by field value, classes and arrays by
+identity, enums by inline value. The `null` side performs a
+reference-domain null test against the resolved kind (the value of a
+scalar argument is never `null`). Concatenation and printing convert
+by the argument kind the same way: `"v=" + item` and `item + "!"`
+in both orders fold the `T` value through its actual kind's string
+form (scalar rendering, the string itself, a struct's `<struct>`, a
+class's virtual `toString`, an enum's numeric value, an array's
+format walk) into the result, and `print` does the same directly.
+The other kind-dependent operators — relational and arithmetic —
+remain compile-time rejections, reporting `operator '...' cannot be
+applied to a type parameter: the operand kind is not known until the
+instantiation.` A cast recovers a concrete kind: when the
+instantiation is known, `item as string == "a"` compares by content
+again. Storing, passing and returning a `T` value are
+kind-independent and stay legal.
+
+All of these dispatches happen inside an instance method or
+constructor body — the instantiation information they read comes
+from the receiver object (`this`). Frames of `static` members have
+no receiver, so equality, concatenation, printing and `as` casts on
+`T` are rejected in `static` context without exception, reporting
+`... requires an instance context.` (§4.12.9).
 
 *Informative:* a default argument on a generic member carries into
 instantiations only in constant-expression shapes — a literal, an
@@ -259,7 +275,104 @@ recursively — instantiations, array types and nested arrays
 included — so a call site in the importing unit checks the same
 types as a call in the declaring unit.
 
+*Informative:* a unit also carries a template table — one row per
+instantiation the unit registers (canonical spelling and
+construction recipe). Linking merges the rows of all units; objects
+constructed across units carry their instantiation information as
+usual (§4.12.9), and equality, casting and `typeName` behave
+identically across units.
+
 *Informative:* all instantiations of one template share a single
 compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
-(§7.4).
+(§7.4). Instantiations are not transparent at runtime: every object
+constructed from an instantiation carries a piece of *instantiation
+information* — the template name and the kind and canonical spelling
+of each argument — read by equality dispatch, casts and `typeName`
+(§4.12.2, §4.12.9).
+
+## 4.12.9 Runtime type information and type parameters
+
+`typeName` takes a type expression and returns its canonical
+spelling as a string. Spellings of concrete types fold at compile
+time — `typeName(int)` is `"int"`, `typeName(Box<int>)` is
+`"Box<int>"`, `typeName(int[,])` is `"int[,]"` (rank in brackets),
+`typeName(List<List<int>>)` is `"List<List<int>>"`. Forms containing
+a type parameter resolve at runtime through the receiver's
+instantiation information:
+
+```nlang
+class Box<T> {
+    public T value;
+    public Box(T v) { this.value = v; }
+}
+class Hold<T> {
+    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+}
+```
+
+A bare `T` reads the receiver's argument spelling; a `T` nested
+inside an argument (`Box<T>`, `T[]`) composes level by level over
+the same argument, and an array over a type parameter appends the
+element spelling in a bracket pair. Like equality, the runtime forms
+of `typeName` require an instance context and are rejected in
+`static` members. `typeName` is a reserved word (§2.4).
+
+Constructing an instantiation whose arguments involve the type
+parameter inside a method body — `List<T> items = {};` — shares one
+construction path with concrete instantiations: the object's
+instantiation information is composed at the construction point from
+the recipe (`T` taken from the receiver's argument, arrays wrap the
+element recipe, nesting recurses), and the object's equality,
+casting and `typeName` behavior then matches an instance written
+with the concrete type.
+
+An `as` cast whose target is a type parameter — `o as T` —
+dispatches on the kind of the receiver's argument into the existing
+cast runtimes: boxed scalars and `string` unbox, structs row-check,
+classes walk the superclass chain and compare the argument's own
+instantiation, arrays go by element type, enums by the integer
+value. A mismatched target raises a catchable `InvalidCastException`
+whose message names the target spelling; a `null` operand passes
+through. Casts distinguish instantiations: an instance of
+`Box<int>` does not cast to `Box<string>`, even though both share
+the same template. Casts with a known instantiation (`item as
+string`) are outside this section and follow the normal cast rules
+of §5.
+
+The type position of `catch` does not accept generic instantiations
+— including the type parameter itself: `catch (Box<int> e)` is a
+compile-time error (`catch on a generic instantiation type ...
+cannot tell instantiations apart`). Exception dispatch matches along
+template rows and cannot tell apart different instantiations of one
+template; accepting the spelling would promise a distinction the
+runtime cannot make (§8.3).
+
+*A compensation pattern:* where you need to record different
+instantiations by type parameter, use a non-generic helper class
+holding a dictionary keyed by spelling, and have the generic class
+pass `typeName(T)` as the key from an instance method body:
+
+```nlang
+class TypeCounter {
+    private static Dict<string, int> counts = {};
+    public static void bump(string key) {
+        if (counts.containsKey(key)) { counts.set(key, counts.get(key) + 1); }
+        else { counts.set(key, 1); }
+    }
+    public static int count(string key) {
+        if (counts.containsKey(key)) { return counts.get(key); }
+        return 0;
+    }
+}
+class Holder<T> {
+    public void note(T item) {
+        TypeCounter.bump(typeName(T));   // one key per instantiation
+    }
+}
+```
+
+The key is the canonical spelling `typeName(T)` produces, so
+`Holder<int>` and `Holder<Box<int>>` each take their own slot.

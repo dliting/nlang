@@ -6,7 +6,7 @@
 
 ## 23.1 范围与版本
 
-**ABI版本。**本章描述ABI版本 **11**。宿主接受版本探针恰好报`11`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§23.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
+**ABI版本。**本章描述ABI版本 **12**。宿主接受版本探针恰好报`12`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§23.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
 
 **本章固定的内容。**模块发现与加载（§23.2）、模块导出与注册（§23.3）、调用约定与值单元（§23.4）、宿主函数表（§23.5）、固定数组视图（§23.6）与阻塞段契约及其上的IO停泊（§23.7）。
 
@@ -25,7 +25,7 @@
 **加载序列。**宿主打开模块文件，然后：
 
 1. 解析导出`nlang_abi_version`；没有该导出的模块被拒绝；
-2. 调用它；除`10`以外的值被拒绝；
+2. 调用它；除`12`以外的值被拒绝；
 3. 解析导出`nlang_native_init`；没有该导出的模块被拒绝；
 4. 调用它一次（§23.3）。
 
@@ -39,7 +39,7 @@
 
 | 导出 | 签名 | 契约 |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | 返回`11`；唯一的版本权威（§23.2） |
+| `nlang_abi_version` | `unsigned (void)` | 返回`12`；唯一的版本权威（§23.2） |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | 探针通过后调用一次 |
 
 连同注册回调
@@ -95,7 +95,7 @@ void fn(NativeHost* host, uint8_t* ret,
 
 ## 23.5 宿主函数表
 
-**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`11`的`uint32_t`——之后按固定顺序跟随下列二十二个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
+**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`12`的`uint32_t`——之后按固定顺序跟随下列二十五个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
 
 | 回调 | 签名 |
 |---|---|
@@ -121,6 +121,9 @@ void fn(NativeHost* host, uint8_t* ret,
 | `wakeIoWaiters` | `void (NativeHost* self, int fd)` |
 | `currentContextId` | `int (NativeHost* self)` |
 | `submitWork` | `int (NativeHost* self, void (*fn)(void*), void* arg, int ackFd, int priority)` |
+| `typeArgCount` | `uint32_t (NativeHost* self)` |
+| `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
+| `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
 
 **字符串。**`getString`返回`handle`背后字符串的字节；`newString`从一个以NUL结尾的Unicode转换格式（UTF-8）缓冲区创建字符串并返回其句柄；`newListString`在一次调用内从`count`个以NUL结尾的缓冲区创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。
 
@@ -162,6 +165,8 @@ void fn(NativeHost* host, uint8_t* ret,
 **IO停泊与工作池。**`nowMs`返回单调毫秒数——本节所有停泊截止时间共用的时钟域（§10.1）；它不是墙上时间。`parkForIo`为`fd`登记`events`——`NLANG_EV_READ`为`1`、`NLANG_EV_WRITE`为`2`——的感兴趣事件，外加可选的绝对截止时间，并按§23.7所述展开调用方。`wakeIoWaiters`注销轮询器对`fd`的感兴趣事件并唤醒停泊其上的每个上下文——套接字关闭路径；它不取自己的锁，可在不持锁时调用。`currentContextId`返回调用上下文的标识，在停泊与重入之间保持稳定（§10.1）——原生函数用它区分自己的重入与别的上下文的并发调用。它只能在阻塞段原生中调用。`submitWork`在宿主的通用原生工作池上运行`fn(arg)`，池中工作线程不持任何锁；完成时池向`ackFd`——调用方拥有的文件描述符（`-1`表示不需要）——写入一个字节。`priority`为`0`是普通、`1`是高优先——两级队列，慢速查找不会饿死短任务。池惰性启动，并在调度器关停时并入；`submitWork`本身经任一通道都可调用，返回`0`。
 
 **模块状态。**`moduleState`返回以`tag`命名的、宿主管理的按执行器状态槽：宿主对每个执行器调用一次`ctor`，把结果与`dtor`一并存储，此后每次调用都交回同一指针；`dtor`在执行器关停时、模块本将卸载之前运行（模块从不卸载）。以这种方式存储的状态对另一个执行器永不可见——`net`包的套接字表正是依赖这一隔离。
+
+**接收者类型实参。**`typeArgCount`、`typeArgKind`与`typeArgName`读取当前调用的接收者的运行期实例化信息（§4.12.9）：接收者是本次原生调用实参区槽0中的值（§23.4）。`typeArgCount`返回接收者实例化的类型实参个数；`typeArgKind`返回第`index`个实参的种类码（§21.5的种类码），`typeArgName`返回其规范拼写的缓冲区。越界的`index`：`typeArgKind`报`0xFF`，`typeArgName`返回空指针。没有接收者的调用——自由函数或静态成员——以及接收者不是泛型实例化的调用，`typeArgCount`报`0`，另两个回调与越界时相同。并发的载体各自停泊在自己的调用上，每个原生调用看到的都是自身的接收者。`typeArgName`返回的缓冲区至少有效到原生函数返回——原生函数应立即复制它。
 
 ## 23.6 固定数组视图
 

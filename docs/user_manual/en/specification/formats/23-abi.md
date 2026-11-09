@@ -14,8 +14,8 @@ and the input/output (IO) parking built on it.
 
 ## 23.1 Scope and Version
 
-**ABI version.** This chapter describes ABI version **11**. The
-host accepts a module whose version probe reports exactly `11`
+**ABI version.** This chapter describes ABI version **12**. The
+host accepts a module whose version probe reports exactly `12`
 and rejects every other value, including a module that exports
 no probe at all (§23.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
@@ -68,7 +68,7 @@ no directory raises a host-level run-time error at the call
 
 1. resolves the export `nlang_abi_version`; a module without
    the export is rejected;
-2. calls it; a value other than `10` is rejected;
+2. calls it; a value other than `12` is rejected;
 3. resolves the export `nlang_native_init`; a module without
    the export is rejected;
 4. calls it once (§23.3).
@@ -90,7 +90,7 @@ linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | returns `11`; the single version authority (§23.2) |
+| `nlang_abi_version` | `unsigned (void)` | returns `12`; the single version authority (§23.2) |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | called once after the probe passes |
 
 with the registration callbacks
@@ -174,8 +174,8 @@ the call (§23.5, §23.6).
 ## 23.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
-whose first field is `abiVersion`, a `uint32_t` holding `11`,
-followed in fixed order by the twenty-two callbacks below. Each
+whose first field is `abiVersion`, a `uint32_t` holding `12`,
+followed in fixed order by the twenty-five callbacks below. Each
 callback takes the table itself as its first parameter, shown
 as `self` in the signatures:
 
@@ -203,6 +203,9 @@ as `self` in the signatures:
 | `wakeIoWaiters` | `void (NativeHost* self, int fd)` |
 | `currentContextId` | `int (NativeHost* self)` |
 | `submitWork` | `int (NativeHost* self, void (*fn)(void*), void* arg, int ackFd, int priority)` |
+| `typeArgCount` | `uint32_t (NativeHost* self)` |
+| `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
+| `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
 
 **Strings.** `getString` returns the bytes of the string
 behind `handle`; `newString` creates a string from a
@@ -326,6 +329,23 @@ teardown, before the module would unload (modules never
 unload). State stored this way is never visible to another
 executor — the isolation the `net` package's socket table
 relies on.
+
+**Receiver type arguments.** `typeArgCount`, `typeArgKind` and
+`typeArgName` read the runtime instantiation information
+(§4.12.9) of the current call's receiver: the receiver is the
+value in slot 0 of the call's argument area (§23.4).
+`typeArgCount` returns the number of type arguments of the
+receiver's instantiation; `typeArgKind` returns the kind code of
+argument `index` (the §21.5 kind codes), and `typeArgName` the
+buffer of its canonical spelling. An out-of-range `index`:
+`typeArgKind` reports `0xFF` and `typeArgName` returns a null
+pointer. A call with no receiver — a free function or a static
+member — and a call whose receiver is not a generic
+instantiation report a count of `0`, with the other two
+callbacks behaving as for an out-of-range index. Concurrent
+carriers each park on their own call, and every native call sees
+its own receiver. The buffer `typeArgName` returns is valid at
+least until the native returns — copy it immediately.
 
 ## 23.6 Pinned Array Views
 

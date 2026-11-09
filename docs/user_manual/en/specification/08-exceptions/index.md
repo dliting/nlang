@@ -100,6 +100,13 @@ clause for a more specific class listed after it is unreachable.
 The `catch` parameter is a regular local variable of the `catch`
 body (§3.5): it may be read and assigned.
 
+A generic instantiation cannot appear in the `catch` type position —
+including the type parameter itself: `catch (Box<int> e)` is a
+compile-time error (`catch on a generic instantiation type ...
+cannot tell instantiations apart`). Exception dispatch matches along
+template rows and cannot tell apart different instantiations of one
+template (§4.12.9).
+
 The `finally` body runs whenever control leaves the `try` region,
 by every path:
 

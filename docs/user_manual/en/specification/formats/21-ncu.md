@@ -12,7 +12,7 @@ states the loading contract.
 ## 21.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.13**, recorded in the header as major `2`, minor `13`
+**2.16**, recorded in the header as major `2`, minor `16`
 (§21.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -22,15 +22,15 @@ chapter wholesale; the specification describes only the current
 version.
 
 **What this chapter fixes.** The container layout (§21.2), the
-function records (§21.3), the type records (§21.4), the type
-descriptors (§21.5), the default values and default expressions
-(§21.6), the import slots (§21.7) and the loading contract
-(§21.8).
+template table (§21.2.1), the function records (§21.3), the type
+records (§21.4), the type descriptors (§21.5), the default values
+and default expressions (§21.6), the import slots (§21.7) and the
+loading contract (§21.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.13
-image carries the instruction set of the 2.13 toolchain — but
+string here. It is pinned to the same format version — a 2.16
+image carries the instruction set of the 2.16 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §23.4; the
 archive that packs images is chapter 22.
@@ -57,30 +57,31 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `13` |
+| version minor | u16 | `16` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
 
-**Sections.** The header is followed by thirteen sections in a
+**Sections.** The header is followed by fourteen sections in a
 fixed order. Each section is a u32 entry count followed by that
 many records:
 
 | # | Section | Record |
 |---|---|---|
 | 1 | string constants | u32 length + bytes |
-| 2 | functions | §21.3 |
-| 3 | structs | §21.4 |
-| 4 | classes | §21.4 |
-| 5 | interfaces | §21.4 |
-| 6 | array types | §21.4 |
-| 7 | enums | §21.4 |
-| 8 | static slots | §21.4 |
-| 9 | function imports | §21.7 |
-| 10 | class imports | §21.7 |
-| 11 | struct imports | §21.7 |
-| 12 | enum imports | §21.7 |
-| 13 | static-slot imports | §21.7 |
+| 2 | template table | §21.2.1 |
+| 3 | functions | §21.3 |
+| 4 | structs | §21.4 |
+| 5 | classes | §21.4 |
+| 6 | interfaces | §21.4 |
+| 7 | array types | §21.4 |
+| 8 | enums | §21.4 |
+| 9 | static slots | §21.4 |
+| 10 | function imports | §21.7 |
+| 11 | class imports | §21.7 |
+| 12 | struct imports | §21.7 |
+| 13 | enum imports | §21.7 |
+| 14 | static-slot imports | §21.7 |
 
 **Names.** Every function, class, struct, interface and
 enumeration is recorded under its qualified key
@@ -92,6 +93,40 @@ single-segment module paths.
 **String constants.** The pool holds the unit's string
 literals; the bytecode and the default values of §21.6
 reference it by index.
+
+### 21.2.1 The Template Table
+
+The template table records the generic-instantiation descriptors
+the unit registers (§4.12.9), one row each:
+
+| Field | Width | Content |
+|---|---|---|
+| canonical spelling | u16 length + bytes | the instantiation's canonical spelling, e.g. `Box<int>`; empty for a recipe row |
+| recipe | u16 length + bytes | the construction recipe behind the spelling; empty for a static row |
+
+An empty recipe means the spelling is the whole fact — the row
+describes an instantiation whose arguments are known at compile
+time. A non-empty recipe leaves the spelling empty, and the
+canonical spelling is composed at runtime from the recipe (forms
+containing a type parameter, §4.12.9). The recipe is a tag
+stream:
+
+| Tag | Content |
+|---|---|
+| `0` template head | u16 length + bytes: the template's bare name |
+| `1` constant argument | u16 length + bytes: the complete argument spelling |
+| `2` receiver argument | u8: the argument index in the receiver's descriptor |
+| `3` array wrapper | a u8 rank (§4.10) + one child argument encoding |
+| `4` nested instantiation | a u16 length + child recipe bytes (a complete stream led by a template head) |
+
+Rows are self-describing by their leading tag: a row from a
+construction site or an instantiation `typeName` leads with the
+template head; a row from a non-instantiation operand (such as
+`T[]`) is a single argument encoding (tags `1`–`4`). The two
+shapes cannot alias, and byte-identical rows still merge.
+Linking merges the rows of all units; objects constructed across
+units carry their instantiation information as usual (§4.12.8,
+§4.12.9).
 
 ## 21.3 Function Records
 
@@ -107,6 +142,7 @@ constructor of the unit, in registration order. Each record:
 | intrinsic id | u16 | `0xFFFF` for an ordinary function; otherwise an engine-internal identifier of a built-in intrinsic |
 | native flag | u8 | `1` for a body-less `native` declaration (§7.5) |
 | static flag | u8 | `1` for a static member (§4.8.8) |
+| instance-method flag | u8 | `1` for a non-static member of a class, struct or enum (instance methods and constructors, §4.8.7); its frame carries the slot-0 receiver, and the native call bridge locates the receiver handle through it (§23.5) |
 | default count | u16 | followed by that many default value records (§21.6) |
 | bytecode size | u32 | followed by that many instruction bytes |
 | try block count | u16 | followed by five u16 values per entry |
@@ -384,8 +420,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.13 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.13 → reject with an
+- **version.** Below 2.16 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.16 → reject with an
   "upgrade the toolchain" diagnostic (§21.1).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string

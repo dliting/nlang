@@ -39,6 +39,11 @@ implicitly converts to string) and `+` with a scalar operand concatenate
 the same way. `string - string` and the other arithmetic forms are
 compile errors. See [String](../04-types/string.md).
 
+A type-parameter value inside a generic class's method body
+concatenates the same way: `"v=" + item` and `item + "!"` in both
+orders convert by the argument's kind and fold into the result
+(§4.12.9).
+
 ### Shift
 
 ```nlang
@@ -136,6 +141,14 @@ Comparison results are always **`bool`** (`true` / `false`).
 - **Function equality** (`==`, `!=`) compares handle content: two
   references to the same function are equal; ordering is a compile
   error. See [First-Class Function Values](../../vm-architecture/first-class-function-values.md).
+- **Type-parameter equality** (inside a generic class's method body):
+  `==`, `!=` apply to `T` operands — `T` with `T`, `T` with `null` in
+  both directions — dispatching on the kind of the instantiation's
+  argument: scalars by value, `string` by content, structs by field
+  value, classes and arrays by identity, enums by inline value.
+  Relational ordering (`<` and the rest) on a type parameter is a
+  compile error. See [Generics](../04-types/generics.md) "Runtime
+  type information and type parameters".
 - **Arithmetic/concatenation with a null operand** is a compile error —
   null only has a value through the comparison-identity path above.
 

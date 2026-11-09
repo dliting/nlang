@@ -26,6 +26,8 @@ a + b    a - b    a * b    a / b    a % b
 
 `string + string`是拼接；`"x" + 'y'`（char隐式转string）与`+`标量操作数同样拼接。`string - string`等是编译错误。见[字符串](../04-types/string.md)。
 
+泛型类方法体内的类型参数值同样拼接：`"v=" + item`与`item + "!"`两序都按实参的种类转换后并入（§4.12.9）。
+
 ### 位移
 
 ```nlang
@@ -60,6 +62,7 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 - **class/引用相等**（`==`、`!=`）是同一性（同一堆对象）。要按值比较，用`equals`方法并在自己的类里覆写它——`==`不受覆写影响；见[Object与装箱](../04-types/object.md)「协议方法」与[类](../04-types/class.md)「虚方法与重写」。
 - **结构体相等**（`==`、`!=`）按字段值比较——同类型且字段全部相等的两个结构体相等（嵌套结构体字段递归，`string`字段比较内容，引用形态字段比较同一性）。对结构体排序是编译错误（`struct values cannot be ordered; only == and != are supported`），与另一类型的结构体、标量或null比较同样是编译错误——结构体永不为null（`a struct value can only be compared with a struct value of the same type`）。见[结构体](../04-types/struct.md)。
 - **函数相等**（`==`、`!=`）比较句柄内容：指向同一函数的两个引用相等；排序是编译错误。见[一等函数值](../../vm-architecture/first-class-function-values.md)。
+- **类型参数相等**（泛型类方法体内）：`==`、`!=`作用于`T`操作数——`T`与`T`、`T`与`null`两个方向——按实例化的实参种类分派：标量按值、`string`按内容、结构体按字段值、类与数组按恒等、枚举按内联值。关系序（`<`等）对类型参数是编译错误。见[泛型](../04-types/generics.md)「运行时类型信息与类型参数」。
 - **带null操作数的算术/拼接**是编译错误——null只有通过上面的比较同一性路径才有值。
 
 ### 逻辑

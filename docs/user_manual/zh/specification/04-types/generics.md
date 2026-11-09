@@ -32,7 +32,9 @@ class Pair<K, V> {
 
 类型参数可以在类型位充当数组元素类型——`T[]`是合法的字段类型——但针对类型参数的数组创建被拒绝：元素种类要到实例化时才已知（§4.10.2）。
 
-运算符同样依赖种类：`==`对`T`类型操作数的含义随类型实参而定（`string`按内容、结构体按字段值、类按恒等），而方法体对全部实例化只编译一次。因此作用于裸类型参数操作数的比较等运算符是编译期错误——报`operator '==' cannot be applied to a type parameter: the operand kind is not known until the instantiation.`。null判等也在其列（`item == null`同样拒绝）。转换能换回具体种类：已知实例化时`item as string == "a"`重新按内容比较。`T`值的存储、传参与返回不依赖种类，保持合法。
+判等运算符对类型参数操作数是合法的：`==`与`!=`作用于`T`与`T`、`T`与`null`（两个方向）时，方法体在运行期读取接收者对象携带的实例化信息，按实例化时的实参种类分派——标量按内联值比较，`string`按内容，结构体按字段值，类与数组按恒等，枚举按内联值。`null`一侧按解析出的种类做引用域判空（标量实参的值永不为`null`）。拼接与打印同样按实参种类转换：`"v=" + item`与`item + "!"`两序都把`T`值经其实际种类的字符串形态（标量渲染、字符串本身、结构体的`<struct>`、类的虚`toString`、枚举的数值、数组的格式遍历）并入结果，`print`直印同理。其余依赖种类的运算符——关系与算术——维持编译期拒绝，报`operator '...' cannot be applied to a type parameter: the operand kind is not known until the instantiation.`。转型能换回具体种类：已知实例化时`item as string == "a"`重新按内容比较。`T`值的存储、传参与返回不依赖种类，保持合法。
+
+上述分派都在实例方法或构造器体内进行——它们读取的实例化信息来自接收者对象（`this`）。`static`成员的帧没有接收者，对`T`的判等、拼接、打印与`as`转型在`static`上下文一律拒绝，报`... requires an instance context.`（§4.12.9）。
 
 *资料性：*泛型成员上的默认实参只在常量表达式形态下随实例化携带——字面量、常量之上的运算符树，或对常量、形参、字段、枚举成员的引用。其他形态——调用表达式或转换——不被携带：经实例化的调用省略这类实参时按缺少实参报错。
 
@@ -138,4 +140,53 @@ class Box<T> {
 
 被导入的函数递归携带真实的形参与返回类型——实例化、数组类型与嵌套数组都在内——所以导入方的调用点检查与声明单元的调用一致。
 
-*资料性：*一个模板的所有实例化共享同一条编译产物；每对象的状态存在实例里。对模板成员的绑定方法引用可用：`func<int> f = b.get;`（§7.4）。
+*资料性：*单元同时携带一张模板表——每行是该单元注册的一个实例化（规范拼写与构造配方）。链接时各单元的行合并；跨单元构造的对象照常携带实例化信息（§4.12.9），判等、转型与`typeName`的行为跨单元一致。
+
+*资料性：*一个模板的所有实例化共享同一条编译产物；每对象的状态存在实例里。对模板成员的绑定方法引用可用：`func<int> f = b.get;`（§7.4）。实例化在运行期不是透明的：每个由实例化构造的对象都携带一份*实例化信息*——模板名与逐实参的种类和规范拼写——供判等分派、转型与`typeName`读取（§4.12.2，§4.12.9）。
+
+## 4.12.9 运行时类型信息与类型参数
+
+`typeName`以类型表达式为实参，返回它的规范拼写字符串。具体类型的拼写编译期折叠——`typeName(int)`是`"int"`，`typeName(Box<int>)`是`"Box<int>"`，`typeName(int[,])`是`"int[,]"`（秩进括号），`typeName(List<List<int>>)`是`"List<List<int>>"`。含类型参数的形态在运行期经接收者的实例化信息解析：
+
+```nlang
+class Box<T> {
+    public T value;
+    public Box(T v) { this.value = v; }
+}
+class Hold<T> {
+    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+}
+```
+
+裸`T`读接收者实参的拼写；`T`嵌在实参内（`Box<T>`、`T[]`）按同样的实参逐层组合，含类型参数的数组把元素拼写接上括号对。与判等同源，`typeName`的运行期形态要求实例上下文，`static`成员中拒绝。`typeName`是保留字（§2.4）。
+
+方法体内以类型参数为实参构造实例化——`List<T> items = {};`——与具体实例化共用一套构造路径：对象携带的实例化信息在构造点按配方组合（`T`取自接收者实参，数组包装元素配方，嵌套照此递归），之后这个对象的判等、转型与`typeName`行为与写出具体类型的实例完全一致。
+
+`as`转型把类型参数当作目标时——`o as T`——按接收者实参的种类分派到既有转型运行时：装箱标量与`string`拆箱，结构体做行检查，类沿超类链并比较实参自身的实例化，数组按元素类型，枚举沿整型值。目标不符时抛可捕获的`InvalidCastException`，消息写明目标拼写；`null`操作数穿透。转型区分实例化：`Box<int>`的实例不能转成`Box<string>`，即使两者共享同一模板。已知实例化的转型（`item as string`）不受此节约束，按§5的正常转型规则。
+
+`catch`的类型位不接受泛型实例化——包括类型参数本身：`catch (Box<int> e)`是编译期错误（`catch on a generic instantiation type ... cannot tell instantiations apart`）。异常分派沿模板行匹配，无法区分同一模板的不同实例化，接受拼写会许诺运行期做不到的区分（§8.3）。
+
+*补偿模式：*需要按类型参数记录不同实例化的场合，用一个非泛型辅助类持有以拼写为键的字典，泛型类在实例方法体内把`typeName(T)`作为键传入：
+
+```nlang
+class TypeCounter {
+    private static Dict<string, int> counts = {};
+    public static void bump(string key) {
+        if (counts.containsKey(key)) { counts.set(key, counts.get(key) + 1); }
+        else { counts.set(key, 1); }
+    }
+    public static int count(string key) {
+        if (counts.containsKey(key)) { return counts.get(key); }
+        return 0;
+    }
+}
+class Holder<T> {
+    public void note(T item) {
+        TypeCounter.bump(typeName(T));   // 每个实例化一个键
+    }
+}
+```
+
+键是`typeName(T)`的规范拼写，因此`Holder<int>`与`Holder<Box<int>>`各占一档。

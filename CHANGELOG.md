@@ -8,6 +8,73 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-10
+
+The runtime generic-information release: every object constructed
+from a generic instantiation carries its instantiation, and the
+language reads it — `typeName`, kind-dispatched operators on `T`,
+instantiation-distinguishing casts.
+
+### Added
+
+- **`typeName(typeExpr)` returns the canonical spelling of a
+  type.** Concrete types fold at compile time (`typeName(int)` is
+  `"int"`, `typeName(Box<int>)` is `"Box<int>"`, `typeName(int[,])`
+  keeps the rank in brackets). Forms containing a type parameter
+  resolve at runtime through the receiver object's instantiation
+  information: a bare `T` reads the receiver's argument, and
+  `Box<T>`/`T[]` compose level by level. `typeName` is a reserved
+  word; the runtime forms require an instance context and are
+  rejected in `static` members.
+- **Operators on a type parameter dispatch by the argument's kind.**
+  The compile-time rejection of `==`/`!=` on `T` (introduced in
+  0.13.0) is lifted: `==`, `!=`, string concatenation (`"v=" + item`,
+  both orders) and `print` now read the instantiation information the
+  receiver carries and dispatch at runtime — scalars by value,
+  `string` by content, structs by field value, classes and arrays by
+  identity, enums by inline value. Relational and arithmetic
+  operators remain compile-time rejections.
+- **`as` casts with a type-parameter target distinguish
+  instantiations.** `o as T` dispatches into the cast runtime of the
+  receiver's argument kind (unbox, struct row-check, superclass walk
+  with instantiation comparison, element kind, enum value); a
+  mismatched target raises a catchable `InvalidCastException` naming
+  the target spelling. An instance of `Box<int>` does not cast to
+  `Box<string>`.
+- **In-body construction over a type parameter carries its
+  instantiation.** `List<T> items = {};` inside a generic method
+  composes the descriptor recipe at the construction point; the
+  object behaves, for equality, casts and `typeName`, exactly like
+  one written with the concrete type.
+- **`catch` rejects generic instantiations at compile time.**
+  `catch (Box<int> e)` — the type parameter included — reports
+  `cannot tell instantiations apart`: exception dispatch matches
+  along template rows.
+- **The `.ncu` image carries a template table** (format 2.15): one
+  row per registered instantiation — the canonical spelling and its
+  composition recipe. Linking merges rows across units, so a
+  pre-compiled package shipped without sources mints new
+  instantiations the same way.
+
+### Changed
+
+- **Host ABI 11 → 12.** Three new table-tail callbacks —
+  `typeArgCount`, `typeArgKind`, `typeArgName` — report the runtime
+  type arguments of the current native instance-method call's
+  receiver. The receiver is located by a record flag (module format
+  2.16 adds an instance-method flag byte after the static flag),
+  never a name-shape guess. Native modules recompile against the new
+  `NativeHost.h`; the `NLANG_DEFINE_NATIVE_INIT` macro emits the new
+  probe automatically.
+
+### Migration notes
+
+- Module format minor moves 2.14 → 2.16 (the template table, then
+  the instance-method flag): every `.ncu` recompiles, and the loader
+  refuses 2.15-and-older images.
+- `typeName` is now a reserved word — a program that uses it as an
+  identifier must rename it.
+
 ## [0.13.0] - 2026-11-08
 
 The value-equality release: struct `==`/`!=`, container entries and
