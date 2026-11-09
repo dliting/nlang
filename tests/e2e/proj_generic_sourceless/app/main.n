@@ -1,0 +1,19 @@
+import io;
+import boxlib;
+
+int main()
+{
+    //Sourceless instantiation: both bindings resolve against the
+    //imported stub (isTemplate + typeParamNames), the ctor/get run
+    //boxlib's own bytecode, and kind() reads the receiver's runtime
+    //descriptor. Self-check before printing (the regex overrides the
+    //exit code).
+    Box<int> bi = Box(3);
+    Box<string> bs = Box("x");
+    int r = bi.get() + bs.get().length();
+    if (r != 4) { return 9; }
+    if (bi.kind() != "int") { return 6; }
+    if (bs.kind() != "string") { return 5; }
+    io.print(r);
+    return 0;
+}

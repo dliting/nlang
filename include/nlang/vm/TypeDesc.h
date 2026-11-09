@@ -61,6 +61,9 @@ static constexpr size_t kMaxParamDescCount = 256;
 //                           serialize — such a signature rebuilds as
 //                           the unmarked func<int, int>, which rejects
 //                           marked references conservatively.
+//  RTK_TypeParam          : u8 typeParamOrdinal (the declared parameter
+//                           position; the consumer stub names the leaf
+//                           from the owning row's typeParamNames)
 //  every scalar kind (RTK_Int32/RTK_Float plus RTK_Byte..RTK_Char) /
 //  RTK_String / RTK_Boxed / RTK_Void / RTK_NonSerialized : kind byte only
 //RTK_NonSerialized is the "type present but not expressible" sentinel
@@ -75,6 +78,9 @@ struct TypeDesc
 	//1 = T[], 2 = T[,] (kMaxArrayRank cap on the wire); every other
 	//kind keeps the default and ignores the byte.
 	uint8_t rank = 1;
+	//RTK_TypeParam arm only: the declared parameter position
+	//(0xFF = none — the defensive default for a label without a slot).
+	uint8_t typeParamOrdinal = 0xFF;
 	std::vector<TypeDesc> elems;
 };
 
@@ -120,6 +126,10 @@ struct TypeLeafSlots
 {
 	std::function<uint32_t(SnField&)> structSlotOf;
 	std::function<uint32_t(SnField&)> classSlotOf;
+	//v0.13.1 D7: a placeholder leaf's declared parameter position (the
+	//registry-interned ordinal). Optional — a null callback yields the
+	//0xFF no-ordinal default (host tests build partial resolvers).
+	std::function<uint8_t(SnField&)> typeParamOrdinalOf;
 };
 
 //Build the descriptor for one resolved type (a declaration field or an

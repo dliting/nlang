@@ -15,10 +15,31 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 
 namespace nlang {
 
+//RTK_Func body: u8 paramCount, then the params and the return as
+//nested descriptors (mirror of ParseFuncElems).
+void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td);
+
+void AppendFuncElems(std::vector<uint8_t>& out, const TypeDesc& td)
+{
+	if (td.elems.empty())
+		throw std::runtime_error(
+			"type descriptor arity violation: func without its "
+			"return descriptor");
+	out.push_back(static_cast<uint8_t>(td.elems.size() - 1));
+	for (const auto &elem : td.elems)
+		AppendTypeDescBytes(out, elem);
+}
+
 void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 {
 	out.push_back(td.kind);
-	if (td.kind == RTK_Struct || td.kind == RTK_Class)
+	if (td.kind == RTK_TypeParam)
+	{
+		//v0.13.1 D7: the declared parameter position rides the leaf —
+		//the consumer stub names it from the owning row's typeParamNames.
+		out.push_back(td.typeParamOrdinal);
+	}
+	else if (td.kind == RTK_Struct || td.kind == RTK_Class)
 	{
 		out.push_back(static_cast<uint8_t>(td.typeIdx & 0xFF));
 		out.push_back(static_cast<uint8_t>(td.typeIdx >> 8));
@@ -52,17 +73,7 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 		AppendTypeDescBytes(out, td.elems[1]);
 	}
 	else if (td.kind == RTK_Func)
-	{
-		//v2.2: u8 paramCount, then paramCount+1 nested descriptors
-		//(params in declaration order, return last).
-		if (td.elems.empty())
-			throw std::runtime_error(
-				"type descriptor arity violation: func without its "
-				"return descriptor");
-		out.push_back(static_cast<uint8_t>(td.elems.size() - 1));
-		for (const auto &elem : td.elems)
-			AppendTypeDescBytes(out, elem);
-	}
+		AppendFuncElems(out, td);
 }
 
 namespace {
@@ -114,6 +125,25 @@ static uint16_t ParseTypeIndex(const uint8_t* pData, size_t size,
 	return idx;
 }
 
+//RTK_TypeParam body: the declared parameter position (u8) — the
+//consumer stub names it from the owning row's typeParamNames.
+static uint8_t ParseTypeParamOrdinal(const uint8_t* pData, size_t size,
+	size_t& pos)
+{
+	if (pos >= size)
+		throw std::runtime_error(
+			"Invalid module: truncated type descriptor");
+	return pData[pos++];
+}
+
+//RTK_Dict body: the key and value descriptors, in wire order.
+void ParseDictBody(TypeDesc& td, const uint8_t* pData, size_t size,
+	size_t& pos, size_t depth)
+{
+	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+}
+
 TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth)
 {
@@ -136,18 +166,19 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
 			break;
 		case RTK_Dict:
-			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
-			td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+			ParseDictBody(td, pData, size, pos, depth);
 			break;
 		case RTK_Func:
 			ParseFuncElems(td, pData, size, pos, depth);
 			break;
 		case RTK_String:
 		case RTK_Boxed:
-		//v0.12.3 dictionary model: a template row's parameterized leaf —
-		//one value slot whatever the instantiation binds (see
-		//BuildTypeDesc's placeholder arm).
-		case RTK_TypeParam:
+		case RTK_TypeParam:   //dictionary-model leaf; ordinal on TypeParam
+			//The kind guard keeps the read off the kind-only leaves.
+			if (td.kind == RTK_TypeParam)
+				td.typeParamOrdinal =
+					ParseTypeParamOrdinal(pData, size, pos);
+			break;
 		//Void leaf: legal only as an RTK_Func return slot — a top-level
 		//one degrades to the int32 placeholder on the consumer side.
 		case RTK_Void:
@@ -311,8 +342,12 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 				//instantiation binds (the unified 8-byte value
 				//representation). The runtime type argument descriptors
 				//carry the per-instantiation representation; the wire
-				//kind is the label itself.
+				//kind is the label itself. v0.13.1 D7: the declared
+				//position rides the leaf so the consumer stub names it.
 				td.kind = RTK_TypeParam;
+				td.typeParamOrdinal = slots.typeParamOrdinalOf
+					? slots.typeParamOrdinalOf(*pClass)
+					: 0xFF;
 				return td;
 			}
 			if (pClass->IsGenericInstantiation())

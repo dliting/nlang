@@ -148,6 +148,15 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
+    //v0.13.1 D7: the template row carries its declared parameters — the
+    //consumer's stub rebuilds a generic declaration from them, so a
+    //sourceless package stays instantiable (the erased row is the one
+    //implementation every instantiation shares; the names are what
+    //BindTypeParamPlaceholderIfAny matches member signatures against).
+    if (sn.IsGenericDeclaration()) {
+        cc.isTemplate = true;
+        cc.typeParamNames = sn.TypeParamNames();
+    }
     //v2.12 (v0.12.4): the declared own bit rides the record — the
     //chain query derives from superClassIdx at the consumer.
     cc.isConstAggregate = sn.IsDeclaredConstAggregate();

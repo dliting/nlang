@@ -244,6 +244,12 @@ TypeLeafSlots VmBackend::LeafSlotResolvers() {
     slots.classSlotOf = [this](SnField& typeNode) {
         return ClassSlotFor(static_cast<SnClassDecl&>(typeNode));
     };
+    //v0.13.1 D7: the placeholder leaf's declared position — the same
+    //registry interning the descriptor spellings use (TypeArgSpelling),
+    //so the wire ordinal matches every other ordinal surface.
+    slots.typeParamOrdinalOf = [this](SnField& typeNode) {
+        return TypeParamOrdinalOfType(typeNode);
+    };
     return slots;
 }
 

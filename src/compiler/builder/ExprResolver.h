@@ -1120,6 +1120,17 @@ private:
 	//minter rejects the member).
 	SnFieldExpr* SubstituteTypeExpr(SnFieldExpr& srcType,
 		const std::vector<SnField*>& typeArgs);
+	//SubstituteTypeExpr's name-leaf arms' shared tail: bind the copy
+	//from the source leaf — a placeholder resolves to the instantiation's
+	//actual argument, any other resolved leaf transfers its binding
+	//(ResolveFieldExprAs's idempotence contract covers the transfer); an
+	//unresolved leaf stays unresolved.
+	void BindSubstitutedLeaf(SnFieldExpr& copy, const SnFieldExpr& srcLeaf,
+		const std::vector<SnField*>& typeArgs);
+	//SubstituteTypeExpr's array arm: substitute the element, re-intern
+	//the token over it.
+	SnFieldExpr* SubstituteArrayTypeExpr(SnArrayTypeExpr& arr,
+		const std::vector<SnField*>& typeArgs);
 	//SubstituteTypeExpr's nested-instantiation arm (`Future<T>`,
 	//`List<T>`): substitute base and arguments, then resolve the copy.
 	SnFieldExpr* SubstituteGenericTypeExpr(SnGenericTypeExpr& gen,

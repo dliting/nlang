@@ -299,6 +299,14 @@ struct CompiledClass {
     //v2.13 (v0.12.6): the class's lazy static-initializer function
     //(0xFFFF = none; u16 = function-index operand width).
     uint16_t staticInitFuncIdx = 0xFFFF;
+    //v0.13.1 (D7): the template marker and the declared type-parameter
+    //names — a generic declaration registers the one erased row, and
+    //this tail is what the consumer stub rebuilds a generic DECLARATION
+    //from, so a sourceless package can still be instantiated (the
+    //dictionary model's consumer-side shape). Non-template rows carry
+    //the defaults.
+    bool isTemplate = false;
+    std::vector<std::string> typeParamNames;
 };
 
 //0.9.12 (v2.7): one exported interface instance-method signature. The

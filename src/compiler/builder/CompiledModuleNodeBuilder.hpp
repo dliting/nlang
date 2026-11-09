@@ -2,6 +2,7 @@
 #include "CompiledModuleStubMembers.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
+#include "TemplateSignatureLeaves.h"
 #include "SyntaxTree.h"
 #include "SnMisc.h"
 #include "SnData.h"
@@ -177,6 +178,13 @@ public:
 			if (nameExistsInRoot(LeafNameOfKey(cm.classes[ci].name)))
 				continue;  //R10-1
 			SnClassDecl *stub = CreateClassStub(cm.classes[ci], cm, loc);
+			//The leaf contract, enforced at the mint entry: a template
+			//row whose signatures diverge from the canonical leaf shapes
+			//(bare leaves must be pre-bound builtins) fails here in
+			//Debug, before any consumer sees the stub
+			//(TemplateSignatureLeaves.h).
+			NLANG_ASSERT(!cm.classes[ci].isTemplate
+				|| TemplateClassSignaturesAreCanonical(*stub));
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 			classStubs.emplace_back(stub, &cm.classes[ci]);

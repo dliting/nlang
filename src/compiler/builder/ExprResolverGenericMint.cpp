@@ -7,6 +7,7 @@
 #include "SnMisc.h"
 #include "SnData.h"
 #include "SnArrayTypeToken.h"
+#include "TemplateSignatureLeaves.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
@@ -264,6 +265,40 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	return pInstance;
 }
 
+//SubstituteTypeExpr's name-leaf arms' shared tail (definition moved out
+//of the arms for the source-size cap — see the declaration comment).
+void ExprResolveAccessor::BindSubstitutedLeaf(SnFieldExpr& copy,
+	const SnFieldExpr& srcLeaf, const std::vector<SnField*>& typeArgs)
+{
+	if (!srcLeaf.IsResolved())
+		return;
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	auto* pBinding = generics.IsPlaceholder(srcLeaf.Field())
+		? typeArgs[generics.PlaceholderIndex(srcLeaf.Field())]
+		: srcLeaf.Field();
+	ResolveFieldExprAs(copy, pBinding);
+}
+
+//SubstituteTypeExpr's array arm (definition moved out of the dispatch
+//for the source-size cap): substitute the element, then re-intern the
+//token over it — ResolveFieldExprAs exactly like Access(SnArrayTypeExpr),
+//because a formal's type is read via Type()->Field() (the token binding).
+SnFieldExpr* ExprResolveAccessor::SubstituteArrayTypeExpr(
+	SnArrayTypeExpr& arr, const std::vector<SnField*>& typeArgs)
+{
+	auto* pElemCopy = SubstituteTypeExpr(*arr.ElementType(), typeArgs);
+	if (!pElemCopy)
+		return nullptr;
+	auto* pCopy = new SnArrayTypeExpr(pElemCopy, *arr.Location(),
+		arr.Rank());
+	if (arr.IsResolved())
+	{
+		ResolveFieldExprAs(*pCopy, m_Env.InternArrayTypeToken(
+			pElemCopy->Field(), arr.Rank()));
+	}
+	return pCopy;
+}
+
 SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 	SnFieldExpr& srcType, const std::vector<SnField*>& typeArgs)
 {
@@ -279,34 +314,32 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		auto* pCopy = new SnNameExpr(
 			new SnIdentifierExpr(new std::string(pInner->Name()),
 				*srcType.Location()), *srcType.Location());
-		if (name.IsResolved())
-		{
-			auto& generics = m_Env.Registry().DeclaredGenerics();
-			auto* pBinding = generics.IsPlaceholder(name.Field())
-				? typeArgs[generics.PlaceholderIndex(name.Field())]
-				: name.Field();
-			ResolveFieldExprAs(*pCopy, pBinding);
-		}
+		BindSubstitutedLeaf(*pCopy, name, typeArgs);
 		return pCopy;
 	}
-	//Array: substitute the element, then re-intern the token over it —
-	//ResolveFieldExprAs exactly like Access(SnArrayTypeExpr), because a
-	//formal's type is read via Type()->Field() (the token binding).
-	if (srcType.Kind() == NK_ArrayTypeExpr)
+	//v0.13.1 D7: the PRE-BOUND builtin leaf family (SnIdentifierExpr
+	//minted through the NodeKind ctor — the compiler-wide idiom for
+	//scalar/string types; the synthesizer's builtin arm uses it too).
+	//A pre-bound leaf's Field() is a builtin datatype, never a
+	//placeholder, so BindSubstitutedLeaf transfers the binding verbatim.
+	//Deleting this arm clones every non-T signature of a stub template
+	//as void (substitute's null becomes the clone's null return type).
+	if (srcType.Kind() == NK_IdentifierExpr)
 	{
-		auto& arr = static_cast<SnArrayTypeExpr&>(srcType);
-		auto* pElemCopy = SubstituteTypeExpr(*arr.ElementType(), typeArgs);
-		if (!pElemCopy)
-			return nullptr;
-		auto* pCopy = new SnArrayTypeExpr(pElemCopy, *srcType.Location(),
-			arr.Rank());
-		if (arr.IsResolved())
-		{
-			ResolveFieldExprAs(*pCopy, m_Env.InternArrayTypeToken(
-				pElemCopy->Field(), arr.Rank()));
-		}
+		auto& id = static_cast<SnIdentifierExpr&>(srcType);
+		//The leaf contract is enforced HERE, at the consumption point:
+		//only the pre-bound builtin family arrives bare — a divergent
+		//mint fails this assertion in Debug instead of cloning a silent
+		//void signature (TemplateSignatureLeaves.h).
+		NLANG_ASSERT(TemplateSignatureLeavesAreCanonical(&srcType));
+		auto* pCopy = new SnIdentifierExpr(
+			new std::string(id.Name()), *srcType.Location());
+		BindSubstitutedLeaf(*pCopy, id, typeArgs);
 		return pCopy;
 	}
+	if (srcType.Kind() == NK_ArrayTypeExpr)
+		return SubstituteArrayTypeExpr(
+			static_cast<SnArrayTypeExpr&>(srcType), typeArgs);
 	//Nested instantiation (`Future<T>`, `List<T>`): substitute base and
 	//arguments, then resolve — the cache mints the ACTUAL instantiation.
 	if (srcType.Kind() == NK_GenericTypeExpr)

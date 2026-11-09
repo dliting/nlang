@@ -37,7 +37,8 @@ namespace nlang
 //states it explicitly.
 inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
-	FieldAccessType access, uint16_t producerIdx)
+	FieldAccessType access, uint16_t producerIdx,
+	const std::vector<std::string> *typeParamNames = nullptr)
 {
 	//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
 	//v1.12: the serialized descriptor supplies the true type; the
@@ -45,7 +46,8 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	//int32 placeholder.
 	SnFieldExpr *pRetType = nullptr;
 	if (cf.returnTypeKind != RTK_Void)
-		pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
+		pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc,
+			typeParamNames);
 
 	//Synthesize paramCount SnFormalParam nodes. v1.12: each formal's true
 	//type and out flag come from the serialized descriptors (free
@@ -90,11 +92,12 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 			const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
 			if (ptd.flags & PTDF_Out)
 				paramFlags |= NF_Out;
-			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
+			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc,
+				typeParamNames);
 		}
 		else
 		{
-			pParamType = new SnIdentifierExpr(NK_Int32, loc);
+			pParamType = PreboundLeafExpr(NK_Int32, loc);
 		}
 		SnExpression *pDefault = nullptr;
 		if (i < cf.defaultValues.size())
@@ -206,6 +209,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 {
 	auto pName = new std::string(LeafNameOfKey(cc.name));
 	auto *pMembers = new PtrList<SnField>();
+	//v0.13.1 D7: a template row's member signatures rebuild against the
+	//row's own declared parameters — the T leaves name them by ordinal,
+	//and the consumer's resolver binds the identifiers through the stub
+	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
+	const std::vector<std::string> *typeParamNames =
+		cc.isTemplate ? &cc.typeParamNames : nullptr;
 
 	//Own fields only (the wire carries own-only since v2.7). Private
 	//fields are rebuilt too — FindClassFieldOffset counts every slot
@@ -223,7 +232,7 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		if (td.kind == RTK_NonSerialized && fi < cc.fieldTypeKinds.size())
 			td.kind = cc.fieldTypeKinds[fi];
 		auto *pField = new SnClassField(
-			SynthTypeExprFromDesc(td, cm, loc),
+			SynthTypeExprFromDesc(td, cm, loc, typeParamNames),
 			new std::string(cc.fieldNames[fi]),
 			fi < cc.fieldAccess.size()
 				? static_cast<FieldAccessType>(cc.fieldAccess[fi])
@@ -252,9 +261,9 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		//byte is orthogonal.
 		SnFunction *pMethod = cm.functions[idx].isStatic
 			? CreateFunctionStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx))
+				ProducerIdxClamp(idx), typeParamNames)
 			: CreateMethodStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx));
+				ProducerIdxClamp(idx), typeParamNames);
 		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
 			pMethod->AddFlags(NF_Virtual);
 		pMembers->push_back(pMethod);
@@ -272,7 +281,7 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 			? static_cast<FieldAccessType>(cc.constructorAccess[ci])
 			: FA_Public;
 		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
-			access, ProducerIdxClamp(idx)));
+			access, ProducerIdxClamp(idx), typeParamNames));
 	}
 
 	//v0.12.6 Task 8: static fields + the $staticInit stub member
@@ -291,6 +300,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v0.13.1 D7: a template row rebuilds as a generic declaration — the
+	//parameter names make IsGenericDeclaration() true, so the consumer's
+	//resolver mints instantiations and binds T signatures against the
+	//stub (BindTypeParamPlaceholderIfAny walks it).
+	if (cc.isTemplate)
+		pDecl->SetTypeParamNames(cc.typeParamNames);
 	//v2.12 (v0.12.4): the const marker survived the wire — rebuild the
 	//own bit so the store gate, ctor exemption, and copy-on-read seal
 	//hold against imported classes (the chain query re-derives from the

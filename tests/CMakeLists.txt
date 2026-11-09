@@ -2347,6 +2347,38 @@ set_tests_properties(proj_generic_cross_unit_run PROPERTIES
     DEPENDS proj_generic_cross_unit_compile
     PASS_REGULAR_EXPRESSION "4")
 
+#v0.13.1 D7: sourceless template consumption — the producer unit is
+#distributed as a library .npkg only (no .n source on any search path),
+#and the consumer instantiates Box<int>/Box<string> against the
+#rebuilt stub: the class record must carry isTemplate + typeParamNames,
+#the T-typed signatures their ordinal leaves. kind() reads the
+#receiver's runtime descriptor through boxlib's own bytecode. The lib
+#member packs without an entry record (the loader's single-member rule);
+#the consumer compile AND run both need -I at the artifact dir (the
+#import slots name the package; the runtime search path locates it).
+#Self-check before printing (the regex overrides the exit code).
+add_test(NAME proj_generic_sourceless_lib_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_generic_sourceless/lib/boxlib.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/boxlib.npkg)
+add_test(NAME proj_generic_sourceless_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_generic_sourceless/app/main.nproj
+        -I ${CMAKE_BINARY_DIR}/e2e_out
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg)
+add_test(NAME proj_generic_sourceless_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg
+        -I ${CMAKE_BINARY_DIR}/e2e_out)
+set_tests_properties(proj_generic_sourceless_lib_compile PROPERTIES
+    TIMEOUT 180)
+set_tests_properties(proj_generic_sourceless_compile PROPERTIES
+    DEPENDS proj_generic_sourceless_lib_compile
+    TIMEOUT 180)
+set_tests_properties(proj_generic_sourceless_run PROPERTIES
+    DEPENDS proj_generic_sourceless_compile
+    PASS_REGULAR_EXPRESSION "4"
+    TIMEOUT 180)
+
 #Concurrency import redesign F11: the Channel init-list arm must find
 #the template row through the alias (ClassSlotFor), not the current
 #unit's image — in a .nproj build the row lives in the owning unit's

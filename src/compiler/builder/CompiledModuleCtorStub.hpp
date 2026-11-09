@@ -40,7 +40,8 @@ namespace nlang
 //mint site states it explicitly.
 inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
-	FieldAccessType access, uint16_t producerIdx)
+	FieldAccessType access, uint16_t producerIdx,
+	const std::vector<std::string> *typeParamNames = nullptr)
 {
 	if (cf.paramCount < 1)
 		throw std::runtime_error(
@@ -69,7 +70,8 @@ inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	//(HasReturn() == false, the D1 constructor shape).
 	SnFieldExpr *pRetType = nullptr;
 	if (cf.returnTypeKind != RTK_Void)
-		pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
+		pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc,
+			typeParamNames);
 
 	auto *pParams = new PtrList<SnFormalParam>();
 	for (uint16_t i = 0; i < formals; ++i)
@@ -82,11 +84,12 @@ inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 			const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
 			if (ptd.flags & PTDF_Out)
 				paramFlags |= NF_Out;
-			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
+			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc,
+				typeParamNames);
 		}
 		else
 		{
-			pParamType = new SnIdentifierExpr(NK_Int32, loc);
+			pParamType = PreboundLeafExpr(NK_Int32, loc);
 		}
 		SnExpression *pDefault = nullptr;
 		if (i < cf.defaultValues.size())

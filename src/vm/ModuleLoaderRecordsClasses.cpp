@@ -212,6 +212,38 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
             && cc.staticInitFuncIdx >= mod.functions.size())
             throw std::runtime_error(
                 "Invalid module: class static init index out of range");
+
+        //v0.13.1 (D7): the template marker + declared type-parameter
+        //names (see the saver). The consumer stub rebuilds a generic
+        //declaration from this tail; a wild flag or count is a corrupt
+        //image — the stub would otherwise mint a template with a
+        //truncated parameter surface.
+        uint8_t templateFlag = 0;
+        fs.read(reinterpret_cast<char*>(&templateFlag),
+                sizeof(templateFlag));
+        if (!fs.good() || templateFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad class template flag");
+        cc.isTemplate = (templateFlag != 0);
+        uint16_t typeParamCount = 0;
+        fs.read(reinterpret_cast<char*>(&typeParamCount),
+                sizeof(typeParamCount));
+        if (!fs.good() || typeParamCount > (1u << 8))
+            throw std::runtime_error(
+                "Invalid module: bad class type-parameter count");
+        cc.typeParamNames.resize(typeParamCount);
+        for (uint16_t j = 0; j < typeParamCount; ++j) {
+            uint32_t tpLen = 0;
+            fs.read(reinterpret_cast<char*>(&tpLen), sizeof(tpLen));
+            if (!fs.good() || tpLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad type-parameter name length");
+            cc.typeParamNames[j].resize(tpLen);
+            fs.read(cc.typeParamNames[j].data(), tpLen);
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated type-parameter names");
+        }
     }
 
     //0.9.12 (v2.7): the class records carry OWN fields and join their
