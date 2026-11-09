@@ -55,6 +55,9 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     m_structHeap[static_cast<size_t>(heapIdx)].assign(recordCells, 0);
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Struct;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = structIdx;
+    //D5 writer side: free-list slots recycle across kinds, so this slot
+    //must not inherit a previous tenant's descriptor stamp.
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
@@ -298,6 +301,9 @@ int32_t VmExecutor::AllocViewOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         ArrayViewRecordCells(rank), 0);
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_ArrayView;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
+    //D5 writer side: free-list slots recycle across kinds, so this slot
+    //must not inherit a previous tenant's descriptor stamp.
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
     auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
     record[0] = RTK_ArrayView;
     record[1] = arrayTypeIdx;

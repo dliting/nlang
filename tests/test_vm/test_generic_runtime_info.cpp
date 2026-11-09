@@ -61,7 +61,8 @@ struct ExecResult {
 };
 
 static ExecResult runProgram(const std::string& tag,
-                             const std::string& source)
+                             const std::string& source,
+                             size_t gcStressThreshold = 0)
 {
     ExecResult out;
     const auto dir = scratchDir();
@@ -93,6 +94,8 @@ static ExecResult runProgram(const std::string& tag,
     out.mod = std::make_unique<CompiledModule>(
         NcuLinker::Link(std::move(loaded.units), loaded.entryKey));
     out.exec = std::make_unique<VmExecutor>();
+    if (gcStressThreshold != 0)
+        out.exec->SetGcStressThresholds(gcStressThreshold);
     out.exitCode = out.exec->Execute(*out.mod);
     return out;
 }
@@ -288,6 +291,65 @@ static void testStaticBodyConstructionRejected()
     PASS();
 }
 
+//The D5 slot-recycling invariant, writer side: heap slots recycle across
+//kinds, so EVERY allocation path must reset the descriptor carrier cell —
+//a struct, box, or view landing on a slot that once held a generic object
+//must not inherit its stamp. The stress threshold (4) drives collections
+//while the churn loops recycle slots heavily: the Box dies early, then
+//struct, boxed-value, and view allocations cycle through the freed slots.
+static void testRecycledSlotsCarryNoDescriptor()
+{
+    TEST(recycledSlotsCarryNoDescriptor);
+    {
+        ExecResult r = runProgram("gri_recycled_slots",
+            "class Box<T> {\n"
+            "    public T value;\n"
+            "    public Box(T v) { value = v; }\n"
+            "}\n"
+            "struct Pt {\n"
+            "    int x;\n"
+            "    int y;\n"
+            "    public Pt(int x, int y) { this.x = x; this.y = y; }\n"
+            "}\n"
+            "int main() {\n"
+            "    Box<int> b = Box(41);\n"
+            "    b = null;\n"
+            "    for (int i = 0; i < 50; i = i + 1) {\n"
+            "        Pt p = Pt(i, i);\n"
+            "    }\n"
+            "    List<long> xs = {};\n"
+            "    for (int i = 0; i < 30; i = i + 1) {\n"
+            "        xs.add(1099511627776);\n"
+            "    }\n"
+            "    int[] arr = [1, 2, 3];\n"
+            "    for (int i = 0; i < 20; i = i + 1) {\n"
+            "        int[] v = arr[0:2];\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n",
+            /*gcStressThreshold=*/4);
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 0, "program ran to completion");
+        const auto hits = heapIndicesWithDescriptor(*r.exec);
+        //Only class instances may carry a descriptor (the live List<long>
+        //is one); a struct, box, or view slot holding one is a recycled
+        //tenant's stamp. The dead Box<int>'s stamp must not survive
+        //anywhere.
+        bool foreignKind = false, sawDeadBox = false;
+        for (int32_t idx : hits) {
+            if (r.exec->HeapSlotKindForTests(idx) != RTK_Class)
+                foreignKind = true;
+            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+                sawDeadBox = true;
+        }
+        CHECK(!foreignKind,
+              "no struct/box/view slot inherits a previous tenant's "
+              "descriptor");
+        CHECK(!sawDeadBox, "the dead Box<int>'s stamp did not survive");
+    }
+    PASS();
+}
+
 int main()
 {
     //Static tables before any compiler work (the test_array_view_record
@@ -304,6 +366,7 @@ int main()
         testRecipeComposesFromReceiver();
         testNestedRecipeComposes();
         testStaticBodyConstructionRejected();
+        testRecycledSlotsCarryNoDescriptor();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

@@ -208,17 +208,23 @@ bool VmExecutor::TypeArgValuesEqual(const TypeArgDesc& arg,
     int32_t lh, rh;
     std::memcpy(&lh, lhs, sizeof(lh));
     std::memcpy(&rh, rhs, sizeof(rh));
+    //8-byte scalar rows decide on both cells: values can share the low
+    //cell while differing in the high cell (1.0 vs 2.0, 2^32 vs 2^33),
+    //so the low-cell identity fast path below must not settle them.
+    const int scalarRow = ScalarPrimIndexOfRtk(arg.resolvedKind);
+    const bool wideScalar = scalarRow >= 0
+        && kScalarPrims[scalarRow].slotWidth >= 8;
     //Identity fast path (also settles null == null for every kind before
     //the heap-reading comparators — OpStructEquality's null rule).
-    if (lh == rh)
+    if (lh == rh && !wideScalar)
         return true;
-    if (int row = ScalarPrimIndexOfRtk(arg.resolvedKind); row >= 0) {
+    if (scalarRow >= 0) {
         //Inline cells: narrow rows hold the value-extended low cell (the
         //OpBox/BoxedValuesEqual convention); 8-byte rows carry the high
         //cell too. Raw-cell compare — the family's float rule.
         if (lh != rh)
             return false;
-        if (kScalarPrims[row].slotWidth < 8)
+        if (!wideScalar)
             return true;
         int32_t lhi, rhi;
         std::memcpy(&lhi, lhs + 4, sizeof(lhi));

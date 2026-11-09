@@ -76,6 +76,26 @@ int main() {
     catch (InvalidCastException e) { acc = acc + 16; }
     Array<Box<int>> backDyn = oDyn as Array<Box<int>>;
     if (backDyn[0].item != 7) return 101;
-    if (acc != 31) return 89;
+    //A VIEW of a stamped array casts through the owner's element stamp:
+    //ArrayElemDescriptorOf peels the view to its owned record, so both
+    //target forms resolve exactly as they do on the array itself.
+    Object oView = bi[0:2];
+    Box<int>[] backView = oView as Box<int>[];
+    if (backView[0].item != 7) return 102;
+    acc = acc + 32;
+    try {
+        Box<string>[] wrongView = oView as Box<string>[];
+        return 103;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 64; }
+    Array<Box<int>> faceView = oView as Array<Box<int>>;
+    if (faceView[0].item != 7) return 104;
+    acc = acc + 128;
+    try {
+        Array<Box<string>> wrongFaceView = oView as Array<Box<string>>;
+        return 105;  // wrong: the cast must not succeed
+    }
+    catch (InvalidCastException e) { acc = acc + 256; }
+    if (acc != 511) return 89;
     return 0;
 }

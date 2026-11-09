@@ -11,6 +11,17 @@ class Hold<T> {
     public string showInner() { return typeName(Box<T>); }
     public string showArray() { return typeName(T[]); }
 }
+//Constructor bodies read the receiver instantiation too: typeName(T)
+//composes against the object under construction, and a T operand
+//compares against null by the resolved kind (scalars never read null).
+class Born<T> {
+    public string tag;
+    public bool nullChecked;
+    public Born(T v) {
+        tag = typeName(T);
+        nullChecked = v == null;
+    }
+}
 int main() {
     Hold<int> h = Hold();
     if (h.showArg() != "int") return 1;
@@ -19,5 +30,12 @@ int main() {
     if (h2.showArg() != "Box<int>") return 3;
     if (h.showArray() != "int[]") return 4;
     if (h2.showArray() != "Box<int>[]") return 5;
+    Born<int> b1 = Born(1);
+    if (b1.tag != "int") return 6;
+    if (b1.nullChecked) return 7;
+    Box<int> nothing = null;
+    Born<Box<int>> b2 = Born(nothing);
+    if (b2.tag != "Box<int>") return 8;
+    if (!b2.nullChecked) return 9;
     return 0;
 }

@@ -35,8 +35,11 @@ private:
 //first use; returned pointers are stable for the process lifetime. The
 //intern key is the full canonical spelling (reversibility per Rust RFC
 //2603: the spelling reconstructs the argument tree). Interning happens
-//on the compile and module-load paths, which are serialized within the
-//process — no locking here.
+//on the compile and module-load paths and, since v0.13.1, at an
+//executor's run start (InitDescriptorTable) and on first instantiation
+//cast or array stamp (CastTargetDescriptor). These paths are serialized
+//within the process today (one executing executor per process — nvm,
+//nide, ndb, the test hosts), so the pool carries no lock of its own.
 GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	const std::vector<TypeArgDesc>& typeArgs);
 

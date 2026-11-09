@@ -62,12 +62,25 @@ int main() {
     // The unset T field reads as null for every reference kind; the
     // mirrored null-first spelling rides the same dispatch.
     if (ci.isNullB() && cs.isNullB() && cp.isNullB() && ct.isNullB()
-        && cc.isNullB() && ca.isNullB()) acc = acc + 32768;
+        && cc.isNullB() && ca.isNullB()) acc = acc + 131072;
     // Scalar instantiations (int, enum) never read as null — the
     // scalar-never-null rule above — so the unset-field null test spans
     // the reference kinds only: string, struct, class, array.
     if (!cs.bNotNull() && !cp.bNotNull() && !ct.bNotNull()
-        && !ca.bNotNull()) acc = acc + 65536;
-    if (acc != 131071) return 89;
+        && !ca.bNotNull()) acc = acc + 262144;
+    // 8-byte scalar instantiations: long/ulong/double inline cells span
+    // a low and a high slot — values that share the low cell (2^32 vs
+    // 2^33, 1.0 vs 2.0) must stay unequal, and only identical bit
+    // patterns compare equal.
+    Cell<long> cl = Cell(4294967296);
+    if (cl.eqA(4294967296)) acc = acc + 524288;
+    if (cl.neA(8589934592)) acc = acc + 1048576;
+    Cell<ulong> cul = Cell(4294967296);
+    if (cul.eqA(4294967296)) acc = acc + 2097152;
+    if (cul.neA(8589934592)) acc = acc + 4194304;
+    Cell<double> cd = Cell(1.0);
+    if (cd.eqA(1.0)) acc = acc + 8388608;
+    if (cd.neA(2.0)) acc = acc + 16777216;
+    if (acc != 33456127) return 89;
     return 0;
 }

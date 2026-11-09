@@ -246,8 +246,9 @@ GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	//Pool keyed by the canonical spelling — the descriptor is immutable,
 	//so spelling equality IS descriptor equality. Function-local static:
 	//initialized on first intern (thread-safe initialization), mutated
-	//only on the compile and module-load paths, which the process
-	//serializes (see the header's contract).
+	//on the compile and module-load paths and, since v0.13.1, at an
+	//executor's run start and first instantiation cast — all serialized
+	//within the process (see the header's contract), so no pool lock.
 	static std::map<std::string,
 		std::unique_ptr<GenericInstDescriptor>> pool;
 	const auto [it, inserted] =

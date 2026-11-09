@@ -89,6 +89,9 @@ int32_t VmExecutor::AllocBoxedValue(uint8_t typeTag, int64_t val)
     }
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Boxed;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
+    //D5 writer side: free-list slots recycle across kinds, so this slot
+    //must not inherit a previous tenant's descriptor stamp.
+    m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
     NoteGcPressure();
     return heapIdx;
 }
