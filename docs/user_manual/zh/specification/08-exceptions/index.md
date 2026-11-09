@@ -101,9 +101,9 @@ try {
 | `IOException` | 失败的`io`或`fs`操作（第14章、第16章） |
 | `InitializationException` | 静态初始化器经初始化协议失败时抛出，被抛对象作为其cause包裹（§4.8.8）；在初始化尚未完成时读取带初始化器的静态成员，类、接口或静态局部皆然（§4.8.8、§6.1） |
 
-`concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。`net`包（§3.9.4）声明了`IOException`的两个子类`SocketException`与`TimeoutException`，由第21章的套接字操作抛出；它们经`import net;`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。`url`包（§3.9.4）声明了`IOException`的子类`UrlException`，由第22章的操作抛出；`system`包声明了`Exception`的直接子类`DateTimeException`，由`DateTime.parse`（§15.2）抛出；它们经各自的`import`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。
+`concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。`net`包（§3.9.4）声明了`IOException`的两个子类`SocketException`与`TimeoutException`，由第21章的套接字操作抛出；它们经`import net;`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。`url`包（§3.9.4）声明了`IOException`的子类`UrlException`，由第22章的操作抛出；`system`包声明了`Exception`的直接子类`DateTimeException`，由`DateTime.parse`（§15.2）抛出；它们经各自的`import`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。`http`包（§3.9.4）声明了`IOException`的子类`HttpException`，由第23章的操作抛出；`gzip`包（§3.9.4）声明了`IOException`的子类`GzipException`，由第24章的操作抛出；它们经各自的`import`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。
 
-每个内建异常类都是const类（§4.8.12），且每个构造器都有相同的形状：`XxxException(string message, Exception cause = null)`——第二个实参可选，用于包装原因异常。
+每个内建异常类都是const类（§4.8.12），且每个构造器都有相同的形状：`XxxException(string message, Exception cause = null)`——第二个实参可选，用于包装原因异常。`HttpException`是库异常类中唯一携带超过继承的三个字段的：其`status`字段指明此次失败用以作答的HTTP状态，无状态可指时为`0`，其构造器把该状态放在消息与原因异常之间（§23.8）。
 
 每个异常实例携带三个只读字段，从`Exception`继承；各类都是const类，因此构造器之外的写入是编译期错误（§4.8.12）：
 

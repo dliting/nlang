@@ -2,7 +2,7 @@
 
 # 20. 库异常
 
-本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、15、16、18、19、21与22章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位点的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
+本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、15、16、18、19、21、22、23与24章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位点的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
 
 ## 20.1 按单元的抛出映射
 
@@ -30,11 +30,14 @@
 | `net`（§21.2–§21.4） | `TimeoutException` | `accept`、`connect`、`read`、`readLine`、`readExactly`、`recv`、`recvFrom`或`ping`在截止时刻结束等待 |
 | `net`（§21.2–§21.4） | `SocketException` | bind、connect或选项设置器的平台失败；无法解析的主机；已关闭的套接字；同一套接字方向上停泊的第二个操作；未连接的`UdpSocket`上的`peerAddress`或`peerPort`；提前结束的流上的`readExactly` |
 | `url`（§22.1–§22.4） | `UrlException` | `Url.parse`的语法错误或超长引用；非绝对基址上的`resolve`；`percentDecode`或`formDecode`的畸形转义（含`queryParams`经`formDecode`的路径） |
+| `http`（§23.2–§23.8） | `HttpException` | 非绝对或scheme不是`http`的请求URL；含回车符或换行符的头名或头值；越过`maxHeaderBytes`或`maxHeaders`的头部块（431）；越过`maxBodyBytes`的正文读取（413）；从对端读到的畸形消息；重定向过多；跨重定向重放的流式正文；已关闭客户端池上的调用 |
+| `http`（§23.4–§23.6） | `TimeoutException` | `HttpBodyReader.read`在截止时刻结束等待；超过`callTimeoutMs`的连接池等待（客户端调用之下的`net`失败原样透出，§23.8） |
+| `gzip`（§24.1） | `GzipException` | 被编码器拒绝的`compress`；未能解出一条完整流的输入的`decompress` |
 
 经由`null`接收者的调用在每个单元里都抛出`NullPointerException`（§11.2）；表中各行只列定义章节除此之外另行点名的位点。
 
 ## 20.2 惯例
 
-- 库声明五个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明；以及`UrlException`（`IOException`的子类，由`url`包声明）与`DateTimeException`（`Exception`的直接子类，由`system`包声明）（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
+- 库声明七个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明；`UrlException`，`IOException`的子类，由`url`包声明；`HttpException`与`GzipException`，`IOException`的子类，分别由`http`与`gzip`包声明；以及`DateTimeException`，`Exception`的直接子类，由`system`包声明（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
 - 基类`Exception`是没有专属类的实参、范围与解析错误所用的类；不存在`IllegalArgumentException`或同级类。
 - 抛出不是唯一的失败通道。谓词与查询以返回值报告：`fs`的谓词与缺失路径上的`remove`（§16.3）、`io.hasInput`（§14.3），以及`math`超越函数家族产出NaN的定义域错误（§13.4）。null句柄之外的流失败是*宿主级*执行期错误（§14.6，§8.1）：没有`catch`子句处理它们。

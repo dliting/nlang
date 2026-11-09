@@ -174,7 +174,7 @@ import来源共用一种语法：
 |---|---|---|
 | 项目文件 | 相对`.nproj`的点分路径 | `utils/helper.n` → `import utils.helper;` |
 | 外部模块 | 文件名主干（单段）：`.ncu`文件，或恰好暴露一个模块的`.npkg` | `lib.ncu` → `import lib;` |
-| 标准库包 | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` / `net` / `system` / `url`（随工具链分发） | `import io;` |
+| 标准库包 | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` / `net` / `system` / `url` / `http` / `gzip`（随工具链分发） | `import io;` |
 
 | 引用目标 | 需要import？ | 调用形式 |
 |---|---|---|
@@ -204,7 +204,7 @@ import来源共用一种语法：
 
 ## 标准库
 
-`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`和`url`是标准库的九个包——源码随工具链分发
+`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`、`url`、`http`和`gzip`是标准库的十一个包——源码随工具链分发
 （`stdlib/*.n`），运行期由`stdlib.npkg`提供，与其他库包同一机制；
 限定调用前需要显式`import`（`thread`承载虚拟线程的派生与挂起原语；
 `concurrent`在内核并发原语之上补足`WaitGroup`）。字符串自带内建方法：

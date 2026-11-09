@@ -9,7 +9,7 @@ error guidance. For a guided introduction to the language, see
 informative and links here for the rules it summarizes. The English
 text is normative.
 
-The specification describes NLang 0.13.4. It is a living document:
+The specification describes NLang 0.13.5. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
@@ -88,6 +88,8 @@ before they land here.
   - [21.3 The UdpSocket Class](library/21-network/udp.md)
   - [21.4 The Internet Control Message Protocol (ICMP) Surface](library/21-network/icmp.md)
 - [22. The url Package](library/22-url.md)
+- [23. The http Package](library/23-http.md)
+- [24. The gzip Package](library/24-gzip.md)
 
 ### Part III — Binary Formats
 

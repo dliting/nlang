@@ -15,6 +15,8 @@ Without PATH set up inside the installation, use `bin\ncc build ...` and
 `bin\nvm <name>.ncu`.
 
 `stdlib_io` needs one line of stdin: `nvm stdlib_io.ncu < examples/stdlib_io.stdin`.
+The `net_*` examples ship a `.flags` file: the test gate runs them as
+`nvm --carriers=1 <name>.ncu`, pinning the run to a single carrier.
 The exit code of a successful run is in the "Exit code" column (Windows
 keeps it within 0-255).
 
@@ -41,6 +43,17 @@ keeps it within 0-255).
 | stdlib_math.n | standard library `math` package | 0 |
 | stdlib_io.n | io console and file content (needs stdin) | 0 |
 | stdlib_fs.n | fs paths/directories/metadata | 0 |
+| tensor_tour.n | `tensor` package: creation, elementwise and reduction kernels across element kinds | 0 |
+| url_tour.n | `url` package: parse/inspect/resolve/query parameters/percent encoding | 0 |
+| http_hello.n | `http` package: a hello service and its client in one process (buffered GET, echo POST, keep-alive reuse) | 0 |
+| http_conc_bench.n | `http` package: 1000 virtual-thread clients on one shared client capped at 4 connections per host | 0 |
+| http_sse.n | `http` package: server-sent events over a chunked stream, early client disconnect, producer cancellation | 0 |
+| net_echo_server.n | TCP echo server: accept loop and one virtual thread per connection | 0 |
+| net_echo_client.n | TCP client: connect, text exchange, `readLine` framing, graceful close | 0 |
+| net_http_mini.n | mini HTTP server and client built on raw `net`: request line, Content-Length, half-close | 0 |
+| net_udp_echo.n | UDP request/reply: `sendTo`/`recvFrom`, datagram semantics | 0 |
+| net_ping.n | ICMP ping: round-trip latency, timeout exception handling | 0 |
+| net_conc_bench.n | 1000 virtual-thread echo clients and a throughput report | 0 |
 | conc_spawn_join.n | concurrency: spawn tasks and wait with `join` | 13 |
 | conc_future.n | concurrency: `Future` return values | 14 |
 | conc_channel_pipeline.n | concurrency: channel producer-consumer and `close` | 15 |
@@ -49,6 +62,8 @@ keeps it within 0-255).
 | conc_waitgroup.n | concurrency: `WaitGroup` over a batch of tasks | 18 |
 | conc_channel_close.n | concurrency: `close` broadcast exit signal | 19 |
 | conc_carriers_demo.n | concurrency: carrier count does not change results (try `nvm --carriers=1` vs `--carriers=8`) | 20 |
+| conc_shared_list.n | concurrency: a shared `List` appended by two tasks, unlocked and `Mutex`-serialized | 21 |
+| conc_selectany.n | concurrency: `Promise`/`Future.selectAny` multi-way waiting and the channel-converge alternative | 22 |
 | hello_project/ | multi-file project (open the `.nproj` in nide) | 0 |
 | libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
 | mnist_mlp/ | two-layer MNIST perceptron — views, broadcasting, axis reductions in batch matrix form (multi-module project; data in `data/`, gate at 0.85) | 0 |

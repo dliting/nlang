@@ -174,12 +174,23 @@ raised by the operations of chapter 22, and the `system` package
 declares `DateTimeException`, a direct subclass of `Exception`
 raised by `DateTime.parse` (§15.2); both reach scope through their
 `import` like any package class, and `catch` treats them like
-every other subclass.
+every other subclass. The `http` package (§3.9.4) declares
+`HttpException`, a subclass of `IOException` raised by the
+operations of chapter 23, and the `gzip` package (§3.9.4) declares
+`GzipException`, a subclass of `IOException` raised by the
+operations of chapter 24; both reach scope through their `import`
+like any package class, and `catch` treats them like every other
+subclass.
 
 Every built-in exception class is a const class (§4.8.12), and
 every constructor has the same shape:
 `XxxException(string message, Exception cause = null)` — the
 second argument is optional and wraps the causing exception.
+`HttpException` is the one library exception class carrying more
+than the inherited three: its `status` field names the HTTP status
+the failure answers with, `0` when the failure has none, and its
+constructor takes that status between the message and the cause
+(§23.8).
 
 Every exception instance carries three read-only fields,
 inherited from `Exception`; the classes are const, so a write

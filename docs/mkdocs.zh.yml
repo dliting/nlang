@@ -109,6 +109,8 @@ nav:
               - UdpSocket: specification/library/21-network/udp.md
               - ICMP: specification/library/21-network/icmp.md
           - url包: specification/library/22-url.md
+          - http包: specification/library/23-http.md
+          - gzip包: specification/library/24-gzip.md
       - 二进制格式:
           - .ncu单元映像: specification/formats/25-ncu.md
           - .npkg包档案: specification/formats/26-npkg.md
