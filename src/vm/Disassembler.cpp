@@ -373,6 +373,7 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
                 " dst=%u ordinal=%u lhs=%u rhs=%u");
             return true;
         case OpCode::OP_TypeArg_to_str:
+        case OpCode::OP_As_TypeParam:
             EmitU8Tag(r, out, head);
             return true;
         default:

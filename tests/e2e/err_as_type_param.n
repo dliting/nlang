@@ -1,9 +1,0 @@
-// v0.13.1 stopgap: `x as T` (a type parameter as the cast target)
-// used to crash the backend ("own class missing from the unit table:
-// T"). Rejected by name until the kind-dispatched implementation
-// lands (flipped in a later task of this version).
-class C<T> {
-    public C() { }
-    public T f(Object o) { return o as T; }
-}
-int main() { return 0; }

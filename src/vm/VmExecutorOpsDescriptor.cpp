@@ -300,4 +300,148 @@ void VmExecutor::OpTypeArgToStr(BytecodeReader& reader,
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 
+//v0.13.1 D6: the boxed-operand arm of OP_As_TypeParam — a scalar/
+//string/enum argument is met by the box whose type tag equals the
+//argument's resolved kind; the payload extracts exactly as OP_Unbox
+//(8-byte rows rebuild cells [1..2], narrow rows and string handles
+//read cell [1]).
+bool VmExecutor::AsBoxedToArg(const TypeArgDesc& arg, size_t slot,
+                              uint8_t* pResult) {
+    if (static_cast<uint8_t>(m_structHeap[slot][0]) != arg.resolvedKind)
+        return false;
+    const int pi = ScalarPrimIndexOfRtk(arg.resolvedKind);
+    if (pi >= 0 && kScalarPrims[pi].slotWidth == 8) {
+        const uint64_t bits =
+            static_cast<uint32_t>(m_structHeap[slot][1])
+            | (static_cast<uint64_t>(
+                static_cast<uint32_t>(m_structHeap[slot][2])) << 32);
+        std::memcpy(pResult, &bits, sizeof(bits));
+    } else {
+        const int32_t val = m_structHeap[slot][1];
+        std::memcpy(pResult, &val, sizeof(val));
+    }
+    return true;
+}
+
+//v0.13.1 D6: the class operand's own instantiation must spell the
+//argument's canonical form when the operand carries a descriptor; a
+//descriptor-less operand (a subclass of an instantiation, an erased
+//builtin row) degrades to the row check — CheckCastInstantiation's
+//shared rule.
+bool VmExecutor::ClassInstantiationMatches(int32_t heapIdx,
+                                           const TypeArgDesc& arg) {
+    const GenericInstDescriptor* actual = InstDescriptorOf(heapIdx);
+    return !actual
+        || actual->Spelling() == CanonicalArgSpelling(arg);
+}
+
+//v0.13.1 D6: the as-T operand's own spelling for the failure message —
+//boxed tags and the string kind through the scalar registry, struct/
+//class records through their leaf names, arrays through the element
+//spelling (ArrayElemSpellingOf).
+std::string VmExecutor::AsOperandSpellingOf(int32_t heapIdx) {
+    const size_t slot = static_cast<size_t>(heapIdx);
+    const uint8_t kind = m_slotKinds[slot];
+    if (kind == RTK_Boxed) {
+        const uint8_t tag =
+            static_cast<uint8_t>(m_structHeap[slot][0]);
+        if (tag == RTK_String)
+            return "string";
+        const int pi = ScalarPrimIndexOfRtk(tag);
+        return pi >= 0 ? kScalarPrims[pi].name : "?";
+    }
+    if (kind == RTK_String)
+        return "string";
+    if (kind == RTK_Struct) {
+        const uint16_t row = m_slotStructIdx[slot];
+        return row < m_currModule->structs.size()
+            ? LeafNameOfKey(
+                m_currModule->structs[static_cast<size_t>(row)].name)
+            : "?";
+    }
+    if (kind == RTK_Class) {
+        const int32_t row = m_structHeap[slot][0];
+        return row >= 0
+                && static_cast<size_t>(row) < m_currModule->classes.size()
+            ? LeafNameOfKey(
+                m_currModule->classes[static_cast<size_t>(row)].name)
+            : "?";
+    }
+    if (kind == RTK_Array || kind == RTK_ArrayView)
+        return ArrayElemSpellingOf(heapIdx) + "[]";
+    return "?";
+}
+
+//v0.13.1 D6: the as-T failure — a catchable InvalidCastException whose
+//message names the target's canonical spelling and the operand's.
+void VmExecutor::RaiseAsTypeParamMismatch(const TypeArgDesc& arg,
+                                          int32_t heapIdx) {
+    RaiseNlangException(m_invalidCastExcClassIdx,
+        "NLang VM: invalid cast - expected `"
+        + CanonicalArgSpelling(arg) + "`, got `"
+        + AsOperandSpellingOf(heapIdx) + "`");
+}
+
+//v0.13.1 D6: the reference-operand arms of OP_As_TypeParam — a string
+//argument accepts the direct string reference (it IS the handle),
+//structs verify their row, classes walk the super chain and compare
+//their own instantiation against the argument's canonical form, arrays
+//verify rank and the element key.
+bool VmExecutor::AsReferenceMatchesArg(const TypeArgDesc& arg,
+                                       int32_t heapIdx, size_t slot,
+                                       uint8_t slotKind) {
+    if (arg.resolvedKind == RTK_String)
+        return slotKind == RTK_String;
+    if (arg.resolvedKind == RTK_Struct)
+        return slotKind == RTK_Struct
+            && m_slotStructIdx[slot]
+                == static_cast<uint16_t>(arg.rowRef);
+    if (arg.resolvedKind == RTK_Class)
+        return slotKind == RTK_Class
+            && ClassMatchesTarget(m_structHeap[slot][0],
+                static_cast<uint16_t>(arg.rowRef))
+            && ClassInstantiationMatches(heapIdx, arg);
+    if (arg.resolvedKind == RTK_Array)
+        return (slotKind == RTK_Array || slotKind == RTK_ArrayView)
+            && m_structHeap[slot][2] == static_cast<int32_t>(arg.rank)
+            && arg.nested.size() == 1
+            && ArrayElemArgMatchesTarget(heapIdx, arg.nested[0]);
+    return false;
+}
+
+//v0.13.1 D6: OP_As_TypeParam — `x as T` decided by the receiver's
+//ordinal-th type argument kind. The value rides the accumulator in and
+//out: null passes through, boxed scalars/strings/enums unbox on a tag
+//match, references dispatch on the argument's kind (the helpers above).
+//A mismatch raises the catchable InvalidCastException naming both
+//spellings.
+void VmExecutor::OpAsTypeParam(BytecodeReader& reader,
+                               const uint8_t* locals, uint8_t* pResult) {
+    const TypeArgDesc& arg =
+        ReceiverTypeArgOf(locals, reader.ReadByte());
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+    if (heapIdx == 0)
+        return;  //null passes through — every target accepts it
+    if (static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        throw std::runtime_error("NLang VM: cast on invalid reference");
+    const size_t slot = static_cast<size_t>(heapIdx);
+    const uint8_t slotKind = m_slotKinds[slot];
+    //Boxed operands: a scalar/string/enum argument unboxes on a tag
+    //match (AsBoxedToArg); every other pairing fails.
+    if (slotKind == RTK_Boxed) {
+        if (!AsBoxedToArg(arg, slot, pResult))
+            RaiseAsTypeParamMismatch(arg, heapIdx);
+        return;
+    }
+    //Scalar targets (enum rides the int32 row) are met only through a
+    //box — a reference kind can never match.
+    if (ScalarPrimIndexOfRtk(arg.resolvedKind) >= 0) {
+        RaiseAsTypeParamMismatch(arg, heapIdx);
+        return;
+    }
+    if (!AsReferenceMatchesArg(arg, heapIdx, slot, slotKind))
+        RaiseAsTypeParamMismatch(arg, heapIdx);
+}
+
 } // namespace nlang

@@ -352,6 +352,9 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         case OpCode::OP_TypeArg_to_str:
             OpTypeArgToStr(reader, locals, pResult);
             break;
+        case OpCode::OP_As_TypeParam:
+            OpAsTypeParam(reader, locals, pResult);
+            break;
 
         case OpCode::OP_CallMethodDirect:
             if (OpCallMethodDirect(reader, locals, pResult))

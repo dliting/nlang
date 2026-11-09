@@ -132,7 +132,15 @@ bool VmExecutor::ArrayElemMatchesTarget(int32_t heapIdx,
     //Array never is) degrades to the row check that already passed.
     if (typeArgs.size() != 1)
         return true;
-    const TypeArgDesc& arg = typeArgs[0];
+    return ArrayElemArgMatchesTarget(heapIdx, typeArgs[0]);
+}
+
+//v0.13.1 D6: the element check against a type-argument descriptor
+//directly — the as-T array arm dispatches on the receiver's argument
+//without a face-target descriptor row, sharing the two-tier comparison
+//above verbatim.
+bool VmExecutor::ArrayElemArgMatchesTarget(int32_t heapIdx,
+                                           const TypeArgDesc& arg) {
     const uint16_t rowIdx = static_cast<uint16_t>(
         m_structHeap[static_cast<size_t>(heapIdx)][1]);
     if (rowIdx >= m_currModule->arrayTypes.size())

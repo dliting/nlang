@@ -832,6 +832,9 @@ private:
     //two-tier comparison — the erased row cannot subdivide templates.)
     bool ArrayElemMatchesTarget(int32_t heapIdx,
                                 const GenericInstDescriptor& target);
+    //v0.13.1 D6: the argument-descriptor form of the element check —
+    //the as-T array arm dispatches without a face-target descriptor row.
+    bool ArrayElemArgMatchesTarget(int32_t heapIdx, const TypeArgDesc& arg);
     //v0.13.1 D5: the record's element type spelling for cast diagnostics.
     std::string ArrayElemSpellingOf(int32_t heapIdx);
     //v0.13.1 D5: the element-instantiation tail of a matching
@@ -854,6 +857,24 @@ private:
     //accumulator's T value.
     void OpTypeArgToStr(BytecodeReader& reader, const uint8_t* locals,
                         uint8_t* pResult);
+    //v0.13.1 D6: OP_As_TypeParam — `x as T` decided by the receiver's
+    //type argument kind (the accumulator holds the value in and out).
+    void OpAsTypeParam(BytecodeReader& reader, const uint8_t* locals,
+                       uint8_t* pResult);
+    //v0.13.1 D6: the reference-operand arms — string handle identity,
+    //struct row, class super chain + instantiation, array rank + element.
+    bool AsReferenceMatchesArg(const TypeArgDesc& arg, int32_t heapIdx,
+                               size_t slot, uint8_t slotKind);
+    //v0.13.1 D6: the boxed-operand arm — tag match against the argument's
+    //resolved kind, then the OP_Unbox payload extract.
+    bool AsBoxedToArg(const TypeArgDesc& arg, size_t slot, uint8_t* pResult);
+    //v0.13.1 D6: the operand's own instantiation must spell the
+    //argument's canonical form when it carries a descriptor.
+    bool ClassInstantiationMatches(int32_t heapIdx, const TypeArgDesc& arg);
+    //v0.13.1 D6: the as-T diagnostics — the operand's kind spelling and
+    //the catchable InvalidCastException naming both sides.
+    std::string AsOperandSpellingOf(int32_t heapIdx);
+    void RaiseAsTypeParamMismatch(const TypeArgDesc& arg, int32_t heapIdx);
     //The instantiation-matching tail of OpCheckCast (0xFFFF skips).
     void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
                                 const uint8_t* locals);

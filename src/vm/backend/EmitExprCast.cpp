@@ -109,6 +109,19 @@ void VmBackend::EmitCastTypeArgToString(BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
+//Cast arm: `x as T` — the accumulator's value is re-kindled through the
+//receiver's ordinal-th type argument (v0.13.1 D6). The opcode reads
+//pResult in and out: a mismatch raises the catchable InvalidCastException,
+//null and passing values stay (the assign writes the result slot back).
+void VmBackend::EmitAsTypeParamOp(BytecodeEmitter& emitter,
+                                  uint16_t resultOffset, uint8_t ordinal) {
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_As_TypeParam);
+    emitter.EmitByte(ordinal);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
 //Cast arm: class → string emits a virtual toString() call — copy
 //resultOffset → callParamBase[0], OP_CallMethod by name, copy back.
 void VmBackend::EmitCastClassToString(BytecodeEmitter& emitter,
@@ -352,57 +365,83 @@ bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     return false;
 }
 
-    //Phase 8e-1.5: `expr as T` runtime-checked cast. Valid kinds:
-    //TCK_Same (no-op; v0.12.7 adds the array rank boundary), TCK_Box,
-    //TCK_Unbox, TCK_Downcast (ancestor→subclass), TCK_Explicit.
+//v0.13.1 D6: the type-parameter-target intercept of `as` — the same
+//placeholder (T as T) is compile-time identity (the value already sits
+//in the result slot); every admitted source emits OP_As_TypeParam on
+//the accumulator. Returns true when the cast was consumed here.
+bool VmBackend::EmitAsTypeParamTarget(SnAsExpr& asExpr,
+                                      BytecodeEmitter& emitter,
+                                      uint16_t resultOffset) {
+    auto* pTarget = asExpr.ResolvedTarget();
+    if (!(pTarget && pTarget->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(pTarget)->IsTypeParamPlaceholder()))
+        return false;
+    if (asExpr.Operand()->EvalDataType() == pTarget)
+        return true;
+    EmitAsTypeParamOp(emitter, resultOffset,
+        TypeParamOrdinalOfType(*pTarget));
+    return true;
+}
+
+//The per-kind emission arms of `as` — returns false for an uncovered
+//kind pair (the caller throws the invariant break).
+bool VmBackend::EmitAsCastKindOp(SnAsExpr& asExpr, TypeCastKind kind,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset) {
+    if (kind == TCK_Same) {
+        //v0.12.7: the boundary rank check; null passes through.
+        EmitArrayRankBoundary(asExpr.ResolvedTarget(),
+                              asExpr.Operand(), resultOffset, emitter);
+        return true;
+    }
+    if (kind == TCK_Box) {
+        EmitAsBoxOp(asExpr, emitter, resultOffset);
+        return true;
+    }
+    if (kind == TCK_Unbox) {
+        EmitAsUnboxOp(asExpr, emitter, resultOffset);
+        return true;
+    }
+    if (kind == TCK_Downcast) {
+        //v0.12.7 Task 5: array token target checks type identity.
+        if (EmitAsArrayDowncastOp(asExpr.ResolvedTarget(),
+                                  resultOffset, emitter))
+            return true;
+        EmitAsDowncastOp(asExpr, emitter, resultOffset);
+        return true;
+    }
+    if (kind == TCK_Explicit) {
+        //Uncovered kind pair — the caller throws the invariant break.
+        return EmitAsExplicitNarrowOp(asExpr, emitter, resultOffset);
+    }
+    //Phase 13: `f as string` — function handles render as "func <name>".
+    if (kind == TCK_Auto)
+        return EmitAsFuncToString(asExpr, emitter, resultOffset);
+    return false;
+}
+
+//Phase 8e-1.5: `expr as T` runtime-checked cast. Valid kinds:
+//TCK_Same (no-op; v0.12.7 adds the array rank boundary), TCK_Box,
+//TCK_Unbox, TCK_Downcast (ancestor→subclass), TCK_Explicit; v0.13.1 D6
+//adds the type-parameter target (the runtime kind decides).
 void VmBackend::Access(SnAsExpr& expr) {
-    //The body's only `kind` is the TypeCastKind local below.
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
-        auto& asExpr = static_cast<SnAsExpr&>(expr);
-        //Evaluate operand to resultOffset (heap idx for ref types).
-        EmitExpression(*asExpr.Operand(), emitter, resultOffset);
-
-        auto kind = asExpr.CastKind();
-        if (kind == TCK_Same) {
-            //v0.12.7: the boundary rank check; null passes through.
-            EmitArrayRankBoundary(asExpr.ResolvedTarget(),
-                                  asExpr.Operand(), resultOffset, emitter);
-            return;
-        }
-        if (kind == TCK_Box) {
-            EmitAsBoxOp(asExpr, emitter, resultOffset);
-            return;
-        }
-        if (kind == TCK_Unbox) {
-            EmitAsUnboxOp(asExpr, emitter, resultOffset);
-            return;
-        }
-        if (kind == TCK_Downcast) {
-            //v0.12.7 Task 5: array token target checks type identity.
-            if (EmitAsArrayDowncastOp(asExpr.ResolvedTarget(),
-                                      resultOffset, emitter))
-                return;
-            EmitAsDowncastOp(asExpr, emitter, resultOffset);
-            return;
-        }
-        if (kind == TCK_Explicit) {
-            if (EmitAsExplicitNarrowOp(asExpr, emitter, resultOffset))
-                return;
-            //Uncovered kind pair — fall through to the invariant throw.
-        }
-        //Phase 13: `f as string` — function handles render as "func <name>".
-        if (kind == TCK_Auto) {
-            if (EmitAsFuncToString(asExpr, emitter, resultOffset))
-                return;
-        }
-        //Other kinds are resolver-rejected — invariant break if reached
-        //(round-13: used to silently leave a stale value).
-        throw std::runtime_error(
-            "NLang backend: unhandled `as` cast kind in codegen: "
-            + std::to_string(static_cast<int>(kind)) + " at "
-            + (expr.Location() ? expr.Location()->ToString()
-                               : std::string("?")));
+    auto& asExpr = static_cast<SnAsExpr&>(expr);
+    //Evaluate operand to resultOffset (heap idx for ref types).
+    EmitExpression(*asExpr.Operand(), emitter, resultOffset);
+    if (EmitAsTypeParamTarget(asExpr, emitter, resultOffset))
+        return;
+    if (EmitAsCastKindOp(asExpr, asExpr.CastKind(), emitter,
+                         resultOffset))
+        return;
+    //Other kinds are resolver-rejected — invariant break if reached
+    //(round-13: used to silently leave a stale value).
+    throw std::runtime_error(
+        "NLang backend: unhandled `as` cast kind in codegen: "
+        + std::to_string(static_cast<int>(asExpr.CastKind())) + " at "
+        + (expr.Location() ? expr.Location()->ToString()
+                           : std::string("?")));
 }
 
 } //namespace nlang

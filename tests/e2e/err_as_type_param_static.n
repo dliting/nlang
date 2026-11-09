@@ -1,0 +1,8 @@
+// v0.13.1 D6: a cast to a type parameter reads the receiver's
+// instantiation descriptor — a static member body has no receiver, so
+// the runtime kind does not exist there (the instance-context rule
+// shared with the D6 operators and typeName of a type parameter).
+class C<T> {
+    public static Object f(Object o) { return o as T; }
+}
+int main() { return 0; }

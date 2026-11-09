@@ -252,6 +252,14 @@ enum class OpCode : uint8_t {
                         // the accumulator through the kind's own render
                         // (scalar registry, string identity, FormatHeap
                         // Value walk) and write the string handle back
+    OP_As_TypeParam,    // u8 paramOrdinal — `x as T`: decide the cast by
+                        // the receiver's ordinal-th type argument kind
+                        // (boxed scalar unbox, string kind check, struct
+                        // row identity, class super-chain + instantiation
+                        // spelling, array element key); a mismatch raises
+                        // catchable InvalidCastException, null passes
+                        // through; the accumulator holds the value in and
+                        // out (reference) or the unboxed payload out
 
     OP_Count
 };
@@ -278,8 +286,9 @@ static constexpr OpCode kStrideNoOperands[] = {
     OpCode::OP_ParaEnd, OpCode::OP_Rethrow, OpCode::OP_PopHandler};
 static constexpr OpCode kStrideByteTag[] = {
     OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox,
-    //v0.13.1 D6: the T to-string conversion — one ordinal byte.
-    OpCode::OP_TypeArg_to_str};
+    //v0.13.1 D6: the T to-string conversion and the as-T cast — one
+    //ordinal byte each.
+    OpCode::OP_TypeArg_to_str, OpCode::OP_As_TypeParam};
 static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,

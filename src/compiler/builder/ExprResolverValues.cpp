@@ -254,18 +254,25 @@ SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
 			"Cannot resolve types for `as` expression.");
 		return nullptr;
 	}
-	//v0.13.1 stopgap: a bare type parameter as the cast target has no
-	//compile-time kind — the shared body cannot pick a cast path. The
-	//backend used to crash on this shape ("own class missing from the
-	//unit table: T"); reject by name until the kind-dispatched
-	//implementation rides the runtime descriptor.
+	//v0.13.1 D6: a cast to the receiver's type parameter reads the
+	//runtime kind (OP_As_TypeParam) — the CastInfo classification
+	//admits the identity source (T as T, the same-placeholder rule)
+	//and the Object downcast; every other source keeps the generic
+	//invalid-cast rejection. A static body has no receiver, so the
+	//runtime kind does not exist there — the instance-context rule
+	//shared with the D6 operators and typeName of a type parameter.
 	if (pTgtType->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl *>(pTgtType)->IsTypeParamPlaceholder())
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"cannot cast to a type parameter: the operand kind is not "
-			"known until the instantiation.");
-		return nullptr;
+		auto *pEnclosing = EnclosingFunction();
+		if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
+		{
+			m_Env.Log(CLL_Error, sn.Location(),
+				"cast to a type parameter requires an instance "
+				"context; use an instance member or the "
+				"compensation pattern.");
+			return nullptr;
+		}
 	}
 	//v0.12.2 face gate: a face class (`o as Array`) has no runtime
 	//shape to cast to.

@@ -99,7 +99,10 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 	{
 		const char c = s[open - 1];
 		if (c == '[')
+		{
+			--open;  //the element range excludes the owning bracket
 			break;
+		}
 		if (c != ',')
 			return false;  //inner not comma-only
 		++rank;
@@ -177,6 +180,10 @@ bool ParseArgRange(const std::string& s, size_t begin, size_t end,
 			return false;
 		out.spelling = s.substr(begin, less - begin);
 		out.resolvedKind = RTK_Class;
+		//The template's class row rides the same lookup the leaf arm
+		//uses — a row-less argument cannot walk a cast super chain.
+		if (int idx = module.FindClass(out.spelling); idx >= 0)
+			out.rowRef = idx;
 		for (const auto& [aBegin, aEnd] :
 			SplitTopLevelArgs(s, less + 1, end - 1))
 		{

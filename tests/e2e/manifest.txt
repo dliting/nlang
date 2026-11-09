@@ -508,6 +508,8 @@ err_struct_scalar_eq compile_error can only be compared with a struct value of t
 # stay rejected ---
 generic_t_eq_matrix 0
 generic_t_concat_print 0
+generic_as_type_param 0
+err_as_type_param_static compile_error requires an instance context
 err_generic_t_eq_static compile_error requires an instance
 err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter

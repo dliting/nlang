@@ -1439,6 +1439,13 @@ private:
 
     //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
     //the `f as string` render.
+    //v0.13.1 D6: `x as T` — the runtime kind decides (OP_As_TypeParam).
+    void EmitAsTypeParamOp(BytecodeEmitter& emitter, uint16_t resultOffset,
+                           uint8_t ordinal);
+    bool EmitAsTypeParamTarget(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                               uint16_t resultOffset);
+    bool EmitAsCastKindOp(SnAsExpr& asExpr, TypeCastKind kind,
+                          BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                      uint16_t resultOffset);
     void EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
