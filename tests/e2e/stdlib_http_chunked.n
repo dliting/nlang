@@ -1,0 +1,57 @@
+// Chunked transfer coding: encode/decode roundtrip, extensions, trailers,
+// truncation → need-more, malformed → 400, end-of-stream sentinel
+// (negative consumed).
+import io;
+import http;
+
+int main() {
+    int c = 0;
+
+    // 1. Encode.
+    byte[] e1 = HttpParser.encodeChunk(io.toBytes("hello"));
+    if (io.fromBytes(e1) != "5\r\nhello\r\n") { return 1; }
+    if (io.fromBytes(HttpParser.encodeLastChunk()) != "0\r\n\r\n") { return 2; }
+
+    // 2. Decode roundtrip, single call sees everything → ended (negative).
+    byte[] m2 = io.toBytes("5\r\nhello\r\n5\r\nworld\r\n0\r\n\r\n");
+    byte[] d2 = HttpParser.decodeChunked(m2, m2.length(), out c);
+    if (d2 == null || io.fromBytes(d2) != "helloworld") { return 3; }
+    if (c != -m2.length()) { return 3; }
+
+    // 3. Extension + trailer (HTAB legal in trailer field content, same
+    // RFC 9110 rule as header values), ended.
+    byte[] m3 = io.toBytes("5;ext=1\r\nhello\r\n0\r\nX-T:\t1\r\n\r\n");
+    byte[] d3 = HttpParser.decodeChunked(m3, m3.length(), out c);
+    if (d3 == null || io.fromBytes(d3) != "hello" || c != -m3.length()) { return 4; }
+
+    // 4. Truncated mid-data → need more (null, consumed 0).
+    byte[] m4 = io.toBytes("5\r\nhel");
+    if (HttpParser.decodeChunked(m4, m4.length(), out c) != null || c != 0) { return 5; }
+
+    // 5. Progress without end: one complete chunk, next incomplete.
+    byte[] m5 = io.toBytes("5\r\nhello\r\n9\r\nabc");
+    byte[] d5 = HttpParser.decodeChunked(m5, m5.length(), out c);
+    if (d5 == null || io.fromBytes(d5) != "hello" || c != 10) { return 6; }
+
+    // 6. Malformed size line → 400.
+    if (chunkReject(io.toBytes("zz\r\nhello\r\n0\r\n\r\n")) != 400) { return 7; }
+
+    // 7. Chunk data not CRLF-terminated → 400.
+    if (chunkReject(io.toBytes("5\r\nhelloX\n0\r\n\r\n")) != 400) { return 8; }
+
+    // 8. Bare LF in size line → 400.
+    if (chunkReject(io.toBytes("5\nhello\r\n0\r\n\r\n")) != 400) { return 9; }
+
+    io.print("ok");
+    return 0;
+}
+
+int chunkReject(byte[] msg) {
+    int c = 0;
+    try {
+        HttpParser.decodeChunked(msg, msg.length(), out c);
+        return -1;
+    } catch (HttpException e) {
+        return e.status;
+    }
+}

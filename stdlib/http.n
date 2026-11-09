@@ -1,0 +1,632 @@
+/* ------------------------------------------------------------------
+ * http.n — HTTP/1.1 protocol library (spec docs/dev/http_library_design.md).
+ * Pure nlang on top of net.n: hardened parsing, buffered and streaming
+ * messages, a threaded server and a pooled client. The gzip codec lives
+ * in the gzip package.
+ * ------------------------------------------------------------------ */
+import io;
+import concurrent;
+import url;
+
+const class HttpException : IOException {
+    public int status;                       // 0 = not an HTTP status error
+    public HttpException(string message, int status = 0, Exception cause = null) {
+        super(message, cause);
+        this.status = status;
+    }
+}
+
+// Case-insensitive header table: keys are matched lowercased, the
+// original spelling is kept for writing. List fields are read as
+// shallow copies (manual §12), so every mutation reads into locals and
+// writes the fields back.
+class HttpHeaders {
+    private List<string> m_names;            // original spelling
+    private List<string> m_lower;            // parallel lowercased keys
+    private List<string> m_values;           // parallel values
+
+    public HttpHeaders() {
+        m_names = {};
+        m_lower = {};
+        m_values = {};
+    }
+
+    private static string lower(string s) {
+        // ASCII-only folding; header field names are ASCII (RFC 9110).
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) {
+            int c = b[i];
+            if (c < 0) { c = c + 256; }
+            if (c >= 65 && c <= 90) { b[i] = (c + 32) as byte; }
+        }
+        return io.fromBytes(b);
+    }
+
+    public string get(string name) {
+        List<string> vs = this.getAll(name);
+        if (vs.length() == 0) { return ""; }
+        return vs[0];
+    }
+
+    public List<string> getAll(string name) {
+        List<string> matched = {};
+        string key = lower(name);
+        List<string> ls = m_lower;
+        List<string> vs = m_values;
+        for (int i = 0; i < ls.length(); i = i + 1) {
+            if (ls[i] == key) { matched.add(vs[i]); }
+        }
+        return matched;
+    }
+
+    public void set(string name, string value) {
+        // this-qualified: a bare remove() would also see fs.remove(string).
+        this.remove(name);
+        this.add(name, value);
+    }
+
+    public void add(string name, string value) {
+        // D9 write-boundary guard: a CR/LF in a name or value would
+        // inject a whole header line (or a request-splitting prefix).
+        // The parser validates the wire bytes before calling add(); this
+        // protects the programmatic path (client/server user headers).
+        if (name.indexOf("\r") >= 0 || name.indexOf("\n") >= 0
+                || value.indexOf("\r") >= 0 || value.indexOf("\n") >= 0) {
+            throw HttpException("http: header name/value must not contain CR or LF", 0);
+        }
+        List<string> ns = m_names;
+        List<string> ls = m_lower;
+        List<string> vs = m_values;
+        ns.add(name);
+        ls.add(lower(name));
+        vs.add(value);
+        m_names = ns;
+        m_lower = ls;
+        m_values = vs;
+    }
+
+    public void remove(string name) {
+        string key = lower(name);
+        List<string> ns = {};
+        List<string> ls = {};
+        List<string> vs = {};
+        for (int i = 0; i < m_lower.length(); i = i + 1) {
+            if (m_lower[i] != key) {
+                ns.add(m_names[i]);
+                ls.add(m_lower[i]);
+                vs.add(m_values[i]);
+            }
+        }
+        m_names = ns;
+        m_lower = ls;
+        m_values = vs;
+    }
+
+    public bool has(string name) {
+        return m_lower.indexOf(lower(name)) >= 0;
+    }
+
+    public List<string> names() {
+        // Deduplicated original spellings, first-seen order.
+        List<string> uniqNames = {};
+        List<string> seen = {};
+        for (int i = 0; i < m_lower.length(); i = i + 1) {
+            if (!seen.contains(m_lower[i])) {
+                seen.add(m_lower[i]);
+                uniqNames.add(m_names[i]);
+            }
+        }
+        return uniqNames;
+    }
+
+    public int count() {
+        return m_names.length();
+    }
+
+    // Shallow copy preserving order and original spellings (consumed
+    // by HttpClient.execute so redirects/retries never mutate the
+    // caller's headers).
+    public HttpHeaders copy() {
+        HttpHeaders merged = HttpHeaders();
+        for (int i = 0; i < m_names.length(); i = i + 1) {
+            merged.add(m_names[i], m_values[i]);
+        }
+        return merged;
+    }
+}
+
+class HttpRequest {
+    public string method = "GET";
+    public Url url;
+    public string version = "HTTP/1.1";
+    public HttpHeaders headers;
+    public byte[] body;                      // client: buffered body (exclusive with bodyChannel)
+    public Channel<byte[]> bodyChannel;      // client: streaming upload (chunked, D16)
+    // The framing-aware request-body reader (HttpBodyReader) arrives with
+    // the server half of the library; buffered bodies only for now.
+    // Documented extensions beyond the spec field list (ledger Ruling):
+    public bool connectionClose;             // parsed "Connection: close" (D9)
+    public int framingMode;                  // HttpParser.MODE_*
+    public int framingLength = -1;           // Content-Length when MODE_LENGTH
+
+    public HttpRequest() {
+        headers = HttpHeaders();
+    }
+
+    public string bodyText() {
+        if (body != null) { return io.fromBytes(body); }
+        return "";
+    }
+}
+
+class HttpResponse {
+    public int statusCode = 200;
+    public string reasonPhrase = "OK";
+    public string version = "HTTP/1.1";
+    public HttpHeaders headers;
+    public byte[] body;
+    public Channel<byte[]> bodyChannel;      // server: streaming response (chunked + backpressure)
+    public Url requestUrl;                   // final URL after redirects (D12)
+    public bool compressBody = false;        // server: gzip the buffered body when accepted (D21)
+    public bool connectionClose;
+    public int framingMode;
+    public int framingLength = -1;
+
+    public HttpResponse() {
+        headers = HttpHeaders();
+    }
+
+    public string bodyText() {
+        if (body != null) { return io.fromBytes(body); }
+        return "";
+    }
+}
+
+// Pure functions over a byte buffer: buffer + bytes available → message
+// + consumed, or "need more" (null). No socket, no state — the whole
+// hardening surface (D9) is testable offline (red line 3).
+class HttpParser {
+    public static const int MODE_NONE = 0;
+    public static const int MODE_LENGTH = 1;
+    public static const int MODE_CHUNKED = 2;
+    public static const int MODE_EOF = 3;
+    // Max bytes handed to one TcpStream.write call (D7): HttpConn.writeAll
+    // slices larger payloads into WRITE_SLICE chunks so each slice gets its
+    // own timeout budget — a slow reader can never hold one write forever.
+    public static const int WRITE_SLICE = 65536;
+
+    public static HttpRequest parseRequest(byte[] buf, int have,
+        int maxHeaderBytes, int maxHeaders, out int consumed) {
+        consumed = 0;
+        int end = findEndOfHeaders(buf, have);
+        int blockLen = have;
+        if (end >= 0) { blockLen = end + 4; }
+        checkHeaderBytes(buf, blockLen, end < 0);          // 400
+        if (end < 0) {
+            if (have > maxHeaderBytes) {
+                throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+            }
+            return null;
+        }
+        if (blockLen > maxHeaderBytes) {
+            throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+        }
+        List<string> lines = headerLines(buf, blockLen);
+        if (lines.length() - 1 > maxHeaders) {
+            throw HttpException("http: too many header fields", 431);
+        }
+        string line0 = lines[0];
+        int sp1 = line0.indexOf(" ");
+        int sp2 = -1;
+        if (sp1 >= 0) { sp2 = line0.indexOf(" ", sp1 + 1); }
+        if (sp1 < 0 || sp2 < 0 || line0.indexOf(" ", sp2 + 1) >= 0) {
+            throw HttpException("http: malformed request line", 400);
+        }
+        HttpRequest req = HttpRequest();
+        req.method = line0.substring(0, sp1);
+        try {
+            req.url = Url.parse(line0.substring(sp1 + 1, sp2));
+        } catch (UrlException e) {
+            throw HttpException("http: malformed request target", 400);
+        }
+        req.version = line0.substring(sp2 + 1);
+        if (!isToken(req.method)) {
+            throw HttpException("http: malformed method", 400);
+        }
+        if (req.version != "HTTP/1.1" && req.version != "HTTP/1.0") {
+            throw HttpException("http: unsupported version " + req.version, 505);
+        }
+        checkTarget(req.url);
+        parseInto(req.headers, lines);
+        checkHost(req.headers, req.version);
+        int fl = 0;
+        req.framingMode = framingOf(req.headers, false, 200, out fl);
+        req.framingLength = fl;
+        req.connectionClose = hasCloseToken(req.headers);
+        if (req.version == "HTTP/1.0" && !hasKeepAliveToken(req.headers)) {
+            req.connectionClose = true;             // D7, RFC 9112 §9
+        }
+        consumed = blockLen;
+        return req;
+    }
+
+    public static HttpResponse parseResponse(byte[] buf, int have,
+        int maxHeaderBytes, out int consumed) {
+        consumed = 0;
+        int end = findEndOfHeaders(buf, have);
+        int blockLen = have;
+        if (end >= 0) { blockLen = end + 4; }
+        checkHeaderBytes(buf, blockLen, end < 0);
+        if (end < 0) {
+            if (have > maxHeaderBytes) {
+                throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+            }
+            return null;
+        }
+        if (blockLen > maxHeaderBytes) {
+            throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+        }
+        List<string> lines = headerLines(buf, blockLen);
+        string line0 = lines[0];
+        int sp1 = line0.indexOf(" ");
+        if (sp1 < 0) { throw HttpException("http: malformed status line", 400); }
+        HttpResponse res = HttpResponse();
+        res.version = line0.substring(0, sp1);
+        if (res.version != "HTTP/1.1" && res.version != "HTTP/1.0") {
+            throw HttpException("http: unsupported version " + res.version, 505);
+        }
+        string rest = line0.substring(sp1 + 1);
+        int sp2 = rest.indexOf(" ");
+        string codeText = rest;
+        string reason = "";
+        if (sp2 >= 0) {
+            codeText = rest.substring(0, sp2);
+            reason = trimOws(rest.substring(sp2 + 1));
+        }
+        res.reasonPhrase = reason;
+        res.statusCode = parseDigits(codeText);
+        if (res.statusCode < 100 || res.statusCode > 999) {
+            throw HttpException("http: malformed status code", 400);
+        }
+        parseInto(res.headers, lines);
+        int fl = 0;
+        res.framingMode = framingOf(res.headers, true, res.statusCode, out fl);
+        res.framingLength = fl;
+        res.connectionClose = hasCloseToken(res.headers);
+        if (res.version == "HTTP/1.0" && !hasKeepAliveToken(res.headers)) {
+            res.connectionClose = true;             // D7, RFC 9112 §9
+        }
+        consumed = blockLen;
+        return res;
+    }
+
+    public static byte[] encodeChunk(byte[] data) {
+        List<byte> acc = {};
+        appendAscii(acc, toHex(data.length()) + "\r\n");
+        for (int i = 0; i < data.length(); i = i + 1) { acc.add(data[i]); }
+        appendAscii(acc, "\r\n");
+        return toByteArray(acc);
+    }
+
+    // List<byte> accumulators are the language's only growable byte
+    // sequence (Array<T> has no add); materialize at API boundaries.
+    public static byte[] toByteArray(List<byte> src) {
+        byte[] d = byte[src.length()];
+        for (int i = 0; i < src.length(); i = i + 1) { d[i] = src.get(i); }
+        return d;
+    }
+
+    public static byte[] encodeLastChunk() {
+        return io.toBytes("0\r\n\r\n");
+    }
+
+    // null + consumed==0 → need more; payload + consumed>0 → progress;
+    // payload (possibly empty) + consumed<0 → stream ended (|consumed|
+    // bytes consumed, last chunk and trailer included).
+    public static byte[] decodeChunked(byte[] buf, int have, out int consumed) {
+        consumed = 0;
+        List<byte> payload = {};
+        int pos = 0;
+        while (true) {
+            int crlf = findCrlf(buf, pos, have);
+            if (crlf < 0) { return chunkProgress(payload); }
+            int size = parseChunkSize(buf, pos, crlf);     // 400 on malformed
+            int dataStart = crlf + 2;
+            if (size == 0) {
+                int t = dataStart;
+                while (true) {
+                    int tcr = findCrlf(buf, t, have);
+                    if (tcr < 0) { return chunkProgress(payload); }
+                    if (tcr == t) { break; }               // empty line ends trailers
+                    checkTrailerLine(buf, t, tcr);        // 400 on malformed
+                    t = tcr + 2;
+                }
+                consumed = -(t + 2);
+                return toByteArray(payload);
+            }
+            if (have < dataStart + size + 2) { return chunkProgress(payload); }
+            if (byteAt(buf, dataStart + size) != 13 || byteAt(buf, dataStart + size + 1) != 10) {
+                throw HttpException("http: chunk data not CRLF-terminated", 400);
+            }
+            for (int i = 0; i < size; i = i + 1) { payload.add(buf[dataStart + i]); }
+            pos = dataStart + size + 2;
+            // Only ever set after a whole chunk: a "need more" exit then
+            // reports progress (consumed > 0), while nothing complete yet
+            // keeps consumed == 0 (the contract above).
+            consumed = pos;
+        }
+    }
+
+    // Need-more exit: a partial chunk collected so far is still progress
+    // (return it with the caller's consumed>0); nothing complete yet →
+    // null with consumed==0 (the contract above).
+    private static byte[] chunkProgress(List<byte> payload) {
+        if (payload.length() > 0) { return toByteArray(payload); }
+        return null;
+    }
+
+    public static bool isToken(string s) {
+        if (s.length() == 0) { return false; }
+        for (int i = 0; i < s.length(); i = i + 1) {
+            if (!isTchar(s[i])) { return false; }
+        }
+        return true;
+    }
+
+    public static List<string> splitTokens(string value) {
+        List<string> toks = {};
+        string tok = "";
+        for (int i = 0; i <= value.length(); i = i + 1) {
+            bool sep = i == value.length() || value[i] == 44 || value[i] == 32 || value[i] == 9;
+            if (sep) {
+                if (tok.length() > 0) { toks.add(tok); }
+                tok = "";
+            } else {
+                tok = tok + value.substring(i, i + 1);
+            }
+        }
+        return toks;
+    }
+
+    // ---- private helpers ----
+
+    private static int byteAt(byte[] b, int i) {
+        int c = b[i];
+        if (c < 0) { c = c + 256; }
+        return c;
+    }
+
+    private static int findCrlf(byte[] buf, int from, int have) {
+        for (int i = from; i + 1 < have; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10) { return i; }
+        }
+        return -1;
+    }
+
+    private static int findEndOfHeaders(byte[] buf, int have) {
+        for (int i = 0; i + 3 < have; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10
+                && byteAt(buf, i + 2) == 13 && byteAt(buf, i + 3) == 10) { return i; }
+        }
+        return -1;
+    }
+
+    // Rejects control chars (400) and bare CR/LF (400); HTAB stays legal
+    // as OWS / field-value content (RFC 9110 OWS = SP / HTAB). A trailing
+    // CR in undecided input is not yet known to be bare → tolerated until
+    // more bytes arrive.
+    private static void checkHeaderBytes(byte[] buf, int len, bool undecided) {
+        for (int i = 0; i < len; i = i + 1) {
+            int c = byteAt(buf, i);
+            if (c == 13) {
+                if (i + 1 < len) {
+                    if (byteAt(buf, i + 1) != 10) { throw HttpException("http: bare CR in header block", 400); }
+                    i = i + 1;
+                } else if (!undecided) {
+                    throw HttpException("http: bare CR in header block", 400);
+                }
+            } else if (c == 10) {
+                if (i == 0 || byteAt(buf, i - 1) != 13) { throw HttpException("http: bare LF in header block", 400); }
+            } else if ((c < 32 && c != 9) || c == 127) {
+                throw HttpException("http: control character in header block", 400);
+            }
+        }
+    }
+
+    private static List<string> headerLines(byte[] buf, int blockLen) {
+        // blockLen ends with CRLFCRLF; split on CRLF, drop the final empty.
+        List<string> lines = {};
+        int start = 0;
+        for (int i = 0; i + 1 < blockLen - 2; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10) {
+                lines.add(io.fromBytes(buf[start:i]));
+                start = i + 2;
+                i = i + 1;
+            }
+        }
+        return lines;
+    }
+
+    private static void parseInto(HttpHeaders headers, List<string> lines) {
+        for (int i = 1; i < lines.length(); i = i + 1) {
+            string ln = lines[i];
+            int colon = ln.indexOf(":");
+            if (colon <= 0) { throw HttpException("http: malformed header line", 400); }
+            int sp = ln.indexOf(" ");
+            int tab = ln.indexOf("\t");
+            if ((sp >= 0 && sp < colon) || (tab >= 0 && tab < colon)) {
+                throw HttpException("http: whitespace before header colon", 400);
+            }
+            string name = ln.substring(0, colon);
+            if (!isToken(name)) { throw HttpException("http: malformed header name", 400); }
+            headers.add(name, trimOws(ln.substring(colon + 1)));
+        }
+    }
+
+    private static void checkHost(HttpHeaders headers, string version) {
+        int n = headers.getAll("Host").length();
+        if (version == "HTTP/1.1") {
+            if (n != 1) { throw HttpException("http: exactly one Host header required", 400); }
+        } else if (n > 1) {
+            throw HttpException("http: exactly one Host header required", 400);
+        }
+    }
+
+    // TE/CL validation + framing decision (D9/D5). `isResponse` + status
+    // select the no-body statuses. Returns the framing mode; the CL value
+    // (-1 when absent) comes back in `framingLength`. Callers write both
+    // onto their own typed message — no Object pun, no downcast. The
+    // parser stays method-agnostic: the HEAD body-suppression rule
+    // (RFC 9112 §6.3) is the client's job (readResponse's requestWasHead
+    // override), because the parser never sees the request method.
+    private static int framingOf(HttpHeaders headers, bool isResponse,
+        int status, out int framingLength) {
+        int chunked = 0;
+        foreach (string v in headers.getAll("Transfer-Encoding")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("chunked")) { chunked = chunked + 1; }
+                else { throw HttpException("http: unsupported transfer encoding", 400); }
+            }
+        }
+        if (chunked > 1) { throw HttpException("http: multiple chunked Transfer-Encoding", 400); }
+        List<string> cls = headers.getAll("Content-Length");
+        int contentLength = -1;
+        if (cls.length() > 0) {
+            if (chunked == 1) { throw HttpException("http: Content-Length with Transfer-Encoding", 400); }
+            foreach (string c in cls) {
+                int d = parseDigits(c);
+                if (d < 0) { throw HttpException("http: invalid Content-Length", 400); }
+                if (contentLength >= 0 && d != contentLength) {
+                    throw HttpException("http: conflicting Content-Length", 400);
+                }
+                contentLength = d;
+            }
+        }
+        int mode = MODE_NONE;
+        if (isResponse && (status < 200 || status == 204 || status == 304)) {
+            mode = MODE_NONE;                       // no body regardless (RFC 9112 §6.3)
+        } else if (chunked == 1) {
+            mode = MODE_CHUNKED;
+        } else if (contentLength >= 0) {
+            mode = MODE_LENGTH;
+        } else if (isResponse) {
+            mode = MODE_EOF;                        // 1.1 without CL: read to close
+        }
+        framingLength = contentLength;
+        return mode;
+    }
+
+    private static bool hasCloseToken(HttpHeaders headers) {
+        foreach (string v in headers.getAll("Connection")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("close")) { return true; }
+            }
+        }
+        return false;
+    }
+
+    // D7: HTTP/1.0 defaults to closing; it persists only when a
+    // Connection token says keep-alive (RFC 9112 §9).
+    private static bool hasKeepAliveToken(HttpHeaders headers) {
+        foreach (string v in headers.getAll("Connection")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("keep-alive")) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static void checkTarget(Url u) {
+        string t = u.toString();
+        if (t == "*") { return; }
+        if (t.length() > 0 && t[0] == 47) { return; }          // origin-form "/"
+        if (u.isAbsolute()) { return; }                        // absolute-form
+        throw HttpException("http: malformed request target", 400);
+    }
+
+    private static void checkTrailerLine(byte[] buf, int start, int cr) {
+        for (int i = start; i < cr; i = i + 1) {
+            int c = byteAt(buf, i);
+            // Same rule as header fields: HTAB is legal value content.
+            if ((c < 32 && c != 9) || c == 127) { throw HttpException("http: control character in trailer", 400); }
+        }
+        string ln = io.fromBytes(buf[start:cr]);
+        if (ln.indexOf(":") <= 0) { throw HttpException("http: malformed trailer line", 400); }
+    }
+
+    private static int parseDigits(string s) {
+        // Strict all-digits → int; -1 on empty/non-digit/overflow.
+        if (s.length() == 0) { return -1; }
+        int v = 0;
+        for (int i = 0; i < s.length(); i = i + 1) {
+            int c = s[i];
+            if (c < 48 || c > 57) { return -1; }
+            // Pre-check before mul-add: a post-check would read already
+            // wrapped state. 214748364 = (INT_MAX - 7) / 10.
+            if (v > 214748364 || (v == 214748364 && (c - 48) > 7)) { return -1; }
+            v = v * 10 + (c - 48);
+        }
+        return v;
+    }
+
+    private static int parseChunkSize(byte[] buf, int start, int crlf) {
+        // hex digits, optional ";ext" ignored; 400 on malformed.
+        int v = -1;
+        int acc = 0;
+        for (int i = start; i < crlf; i = i + 1) {
+            int c = byteAt(buf, i);
+            if (c == 59) { break; }                            // ';' extension
+            int d = -1;
+            if (c >= 48 && c <= 57) { d = c - 48; }
+            else if (c >= 97 && c <= 102) { d = c - 87; }
+            else if (c >= 65 && c <= 70) { d = c - 55; }
+            if (d < 0) { throw HttpException("http: malformed chunk size", 400); }
+            if (v < 0) { v = 0; }
+            // Pre-check before mul-add; 0x7FFFFFF = 0x7FFFFFFF / 16 keeps
+            // acc * 16 + 15 within int32.
+            if (acc > 0x7FFFFFF) { throw HttpException("http: chunk size overflow", 400); }
+            acc = acc * 16 + d;
+            v = acc;
+        }
+        if (v < 0) { throw HttpException("http: malformed chunk size", 400); }
+        return v;
+    }
+
+    private static string toHex(int v) {
+        if (v == 0) { return "0"; }
+        string digits = "0123456789abcdef";
+        string s = "";
+        while (v > 0) {
+            s = digits.substring(v % 16, v % 16 + 1) + s;
+            v = v / 16;
+        }
+        return s;
+    }
+
+    // Public: HttpConn/HttpClient serialize headers through this helper
+    // too (nlang has no friend access for private statics).
+    public static void appendAscii(List<byte> dest, string s) {
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) { dest.add(b[i]); }
+    }
+
+    private static string trimOws(string s) {
+        int a = 0;
+        int b = s.length();
+        while (a < b && (s[a] == 32 || s[a] == 9)) { a = a + 1; }
+        while (b > a && (s[b - 1] == 32 || s[b - 1] == 9)) { b = b - 1; }
+        return s.substring(a, b);
+    }
+
+    private static bool isTchar(int c) {
+        // RFC 9110 tchar = ALPHA / DIGIT / "!" "#" "$" "%" "&" "'" "*"
+        // "+" "-" "." "^" "_" "`" "|" "~" ":"
+        if (c >= 97 && c <= 122) { return true; }
+        if (c >= 65 && c <= 90) { return true; }
+        if (c >= 48 && c <= 57) { return true; }
+        if (c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39
+            || c == 42 || c == 43 || c == 45 || c == 46 || c == 94
+            || c == 95 || c == 96 || c == 124 || c == 126 || c == 58) { return true; }
+        return false;
+    }
+}

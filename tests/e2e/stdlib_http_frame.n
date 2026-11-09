@@ -1,0 +1,154 @@
+// Offline parser vectors: complete/half/sticky messages, the D9 hardening
+// surface (bare CR/LF, obs-fold, space-before-colon, control chars, CL+TE,
+// double chunked, Host rules, version, targets, limits), OWS trimming,
+// case-insensitive header access, response framing. Red line 3 + Review
+// Focus 1/2.
+import io;
+import http;
+
+int main() {
+    int consumed = 0;
+
+    // 1. Complete request.
+    byte[] m1 = io.toBytes("GET /a HTTP/1.1\r\nHost: x\r\nAccept: text\r\n\r\n");
+    HttpRequest r1 = HttpParser.parseRequest(m1, m1.length(), 65536, 100, out consumed);
+    if (r1 == null || consumed != m1.length()) { return 1; }
+    if (r1.method != "GET" || r1.version != "HTTP/1.1") { return 1; }
+    if (r1.headers.get("host") != "x") { return 1; }
+    if (r1.framingMode != HttpParser.MODE_NONE) { return 1; }
+
+    // 2. Byte-by-byte feeding: null until the last byte (half-packet).
+    bool got = false;
+    for (int k = 0; k <= m1.length(); k = k + 1) {
+        HttpRequest rk = HttpParser.parseRequest(m1, k, 65536, 100, out consumed);
+        if (rk == null) {
+            if (k == m1.length()) { return 2; }
+        } else {
+            if (k != m1.length()) { return 2; }
+            got = true;
+        }
+    }
+    if (!got) { return 2; }
+
+    // 3. Sticky packet: two messages in one buffer; consumed pins the split.
+    byte[] m3 = io.toBytes("GET /a HTTP/1.1\r\nHost: x\r\n\r\nPOST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhi");
+    HttpRequest r3a = HttpParser.parseRequest(m3, m3.length(), 65536, 100, out consumed);
+    if (r3a == null || consumed != 28) { return 3; }
+    byte[] rest = m3[consumed:m3.length()];
+    HttpRequest r3b = HttpParser.parseRequest(rest, rest.length(), 65536, 100, out consumed);
+    if (r3b == null || r3b.method != "POST" || r3b.framingLength != 2) { return 3; }
+
+    // 4-9. Rejection vectors (each must throw HttpException with a status).
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\nHost: x\n\n")) != 400) { return 4; }
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nFoo: a\r\n\tb\r\n\r\n")) != 400) { return 5; }
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\r\nHost : x\r\n\r\n")) != 400) { return 6; }
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nA: a\u0001b\r\n\r\n")) != 400) { return 7; }
+    if (rejectStatus(io.toBytes("G/T / HTTP/1.1\r\nHost: x\r\n\r\n")) != 400) { return 8; }
+    if (rejectStatus(io.toBytes("GET / HTTP/2.0\r\nHost: x\r\n\r\n")) != 505) { return 9; }
+
+    // 10-11. Framing conflicts.
+    if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n")) != 400) { return 10; }
+    if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked, chunked\r\n\r\n")) != 400) { return 11; }
+
+    // 12. Host rules: 1.1 requires exactly one; 1.0 may omit.
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\r\nAccept: a\r\n\r\n")) != 400) { return 12; }
+    byte[] m12 = io.toBytes("GET / HTTP/1.0\r\n\r\n");
+    if (HttpParser.parseRequest(m12, m12.length(), 65536, 100, out consumed) == null) { return 12; }
+
+    // 13-14. Limits → 431.
+    if (rejectStatusMax(io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nA: aaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n"), 20, 100) != 431) { return 13; }
+    if (rejectStatusMax(io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nA: a\r\nB: b\r\nC: c\r\n\r\n"), 65536, 2) != 431) { return 14; }
+
+    // 15. Target forms.
+    byte[] m15a = io.toBytes("GET http://h/p HTTP/1.1\r\nHost: h\r\n\r\n");
+    if (HttpParser.parseRequest(m15a, m15a.length(), 65536, 100, out consumed) == null) { return 15; }
+    byte[] m15b = io.toBytes("OPTIONS * HTTP/1.1\r\nHost: h\r\n\r\n");
+    if (HttpParser.parseRequest(m15b, m15b.length(), 65536, 100, out consumed) == null) { return 15; }
+    if (rejectStatus(io.toBytes("GET a b c HTTP/1.1\r\nHost: h\r\n\r\n")) != 400) { return 15; }
+
+    // 16-17. OWS trim + case-insensitive access + multi-value.
+    byte[] m16 = io.toBytes("GET / HTTP/1.1\r\nHost:   x \r\nX: a\r\nx: b\r\n\r\n");
+    HttpRequest r16 = HttpParser.parseRequest(m16, m16.length(), 65536, 100, out consumed);
+    if (r16 == null || r16.headers.get("HOST") != "x") { return 16; }
+    if (r16.headers.getAll("X").length() != 2) { return 16; }
+    if (r16.headers.names().length() != 2) { return 16; }
+
+    // 16b. HTAB is legal OWS and value content (RFC 9110 OWS = SP/HTAB);
+    // only control chars other than HTAB are rejected.
+    byte[] m16b = io.toBytes("GET / HTTP/1.1\r\nHost:\tx \r\nX: a\tb\r\n\r\n");
+    HttpRequest r16b = HttpParser.parseRequest(m16b, m16b.length(), 65536, 100, out consumed);
+    if (r16b == null || r16b.headers.get("host") != "x") { return 16; }
+    if (r16b.headers.get("X") != "a\tb") { return 16; }
+
+    // 17. Header write guard: add/set reject CR/LF (D9 injection).
+    HttpHeaders h17 = HttpHeaders();
+    try {
+        h17.add("X", "ok\r\nInjected: yes");
+        return 17;
+    } catch (HttpException e) {
+        if (e.status != 0) { return 17; }
+    }
+    try {
+        h17.add("Bad\rName", "v");
+        return 17;
+    } catch (HttpException e) {
+        // expected
+    }
+
+    // 18. Connection multi-token close detection + HTTP/1.0 keep-alive
+    // default (D7).
+    byte[] m18 = io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nConnection: keep-alive, close\r\n\r\n");
+    HttpRequest r18 = HttpParser.parseRequest(m18, m18.length(), 65536, 100, out consumed);
+    if (r18 == null || !r18.connectionClose) { return 18; }
+    byte[] m18b = io.toBytes("GET / HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n");
+    HttpRequest r18b = HttpParser.parseRequest(m18b, m18b.length(), 65536, 100, out consumed);
+    if (r18b == null || r18b.connectionClose) { return 18; }
+    byte[] m18c = io.toBytes("GET / HTTP/1.0\r\nHost: x\r\n\r\n");
+    HttpRequest r18c = HttpParser.parseRequest(m18c, m18c.length(), 65536, 100, out consumed);
+    if (r18c == null || !r18c.connectionClose) { return 18; }
+
+    // 19-21. Response parsing + framing.
+    byte[] s19 = io.toBytes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n");
+    HttpResponse p19 = HttpParser.parseResponse(s19, s19.length(), 65536, out consumed);
+    if (p19 == null || p19.statusCode != 200 || p19.reasonPhrase != "OK") { return 19; }
+    if (p19.framingMode != HttpParser.MODE_LENGTH || p19.framingLength != 5) { return 19; }
+    byte[] s20 = io.toBytes("HTTP/1.1 204 No Content\r\n\r\n");
+    HttpResponse p20 = HttpParser.parseResponse(s20, s20.length(), 65536, out consumed);
+    if (p20 == null || p20.framingMode != HttpParser.MODE_NONE) { return 20; }
+    byte[] s21 = io.toBytes("HTTP/1.0 200 OK\r\n\r\n");
+    HttpResponse p21 = HttpParser.parseResponse(s21, s21.length(), 65536, out consumed);
+    if (p21 == null || p21.framingMode != HttpParser.MODE_EOF) { return 21; }
+    if (rejectStatusResp(io.toBytes("HTTP/1.1 abc OK\r\n\r\n")) != 400) { return 22; }
+
+    // 23. Conflicting / malformed Content-Length.
+    if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\n")) != 400) { return 23; }
+    if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n")) != 400) { return 23; }
+
+    io.print("ok");
+    return 0;
+}
+
+// Parses and returns the HttpException status, or -1 if no throw.
+int rejectStatus(byte[] msg) {
+    return rejectStatusMax(msg, 65536, 100);
+}
+
+int rejectStatusMax(byte[] msg, int maxBytes, int maxHeaders) {
+    int c = 0;
+    try {
+        HttpParser.parseRequest(msg, msg.length(), maxBytes, maxHeaders, out c);
+        return -1;
+    } catch (HttpException e) {
+        return e.status;
+    }
+}
+
+int rejectStatusResp(byte[] msg) {
+    int c = 0;
+    try {
+        HttpParser.parseResponse(msg, msg.length(), 65536, out c);
+        return -1;
+    } catch (HttpException e) {
+        return e.status;
+    }
+}
