@@ -167,6 +167,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t staticFlag = func.isStatic ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&staticFlag),
                  sizeof(staticFlag));
+        //v2.16: instance-method flag (the frame's slot-0 __this) — the
+        //ABI v12 native bridge reads it to locate the receiver handle.
+        uint8_t instanceMethodFlag = func.isInstanceMethod ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&instanceMethodFlag),
+                 sizeof(instanceMethodFlag));
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.

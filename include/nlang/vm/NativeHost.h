@@ -67,8 +67,12 @@ extern "C" {
 // moduleState (per-executor module globals with a teardown hook),
 // wakeIoWaiters (close-side wake), currentContextId (the stable caller
 // identity across park/re-entry) and submitWork (the host's generic
-// native worker pool, joined at scheduler teardown).
-#define NLANG_HOST_ABI_VERSION 11u
+// native worker pool, joined at scheduler teardown). Version 12: the
+// receiver's runtime instantiation — typeArgCount/typeArgKind/typeArgName
+// let a native method read the type arguments its receiver was
+// instantiated with (the runtime generic type-parameter information:
+// count, per-argument RTK kind, per-argument canonical name).
+#define NLANG_HOST_ABI_VERSION 12u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -288,6 +292,18 @@ struct NativeHost {
     //precondition). Callable from any channel; returns 0.
     int (*submitWork)(NativeHost* self, void (*fn)(void*), void* arg,
         int ackFd, int priority);
+    //v12: the current call's receiver type arguments (the runtime
+    //generic type-parameter information). All three read the
+    //instantiation descriptor of the object the native method call in
+    //flight received as its receiver (slot 0). typeArgCount answers the
+    //type-argument count (0 for a non-generic or absent receiver); i
+    //past the count answers the out-of-range sentinels — typeArgKind
+    //0xFF (the invalid-RTK sentinel) and typeArgName NULL. The name
+    //pointer stays valid until the native returns (names are interned
+    //for the process lifetime).
+    uint32_t (*typeArgCount)(NativeHost* self);
+    uint8_t (*typeArgKind)(NativeHost* self, uint32_t i);
+    const char* (*typeArgName)(NativeHost* self, uint32_t i);
 };
 
 // Version probe. The host resolves this export first and rejects the

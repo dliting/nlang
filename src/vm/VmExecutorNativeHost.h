@@ -22,6 +22,10 @@ struct VmNativeHost {
     VmExecutor* executor = nullptr;
     std::string stringScratch;    // backs getString returned pointers
     std::string lineScratch;      // backs readLine/readToken pointers
+    //v12: the receiver of the native call in flight (the __this heap
+    //handle of a bare-named non-static method; 0 otherwise). Call-local
+    //like the rest of the wrapper, so concurrent carriers stay isolated.
+    int32_t receiverHeapIdx = 0;
 };
 
 } // namespace nlang

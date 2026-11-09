@@ -161,7 +161,13 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //recipe bytes), between the string-constant and function sections.
 //A v2.14 module has no section and misparses at the first record
 //after the string table; refuse v2.14 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 15;
+//v2.16 (v0.13.1, ABI v12): every function record gains an instance-
+//method flag byte after the static flag (the compiler's
+//HasThisReceiver verdict). The native call bridge reads it to locate
+//the receiver handle in the call's slot 0. A v2.15 module lacks the
+//byte and misparses the record tail; refuse v2.15 and older outright.
+//Minor bump: every .ncu recompiles with the current ncc.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 16;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

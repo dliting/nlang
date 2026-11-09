@@ -357,6 +357,11 @@ public:
     //VmNativeHost itself is private to src/vm, so the method is
     //unreachable for outside users.
     void InitNativeHost(VmNativeHost& host);
+    //v12: fill the call-local receiver handle from the callee's slot 0
+    //(definition in VmExecutorNativeHost.cpp).
+    void FillNativeReceiver(VmNativeHost& host,
+        const CompiledFunction& callee, uint16_t callParamBase,
+        uint8_t* locals);
 
     //Testing knobs (scheduler quota injection + observability, K1
     //decision 5): clamp the back-edge trip limit, then observe the
@@ -1960,6 +1965,12 @@ private:
     static int NativeCurrentContextId(NativeHost* self);
     static int NativeSubmitWork(NativeHost* self, void (*fn)(void*),
         void* arg, int ackFd, int priority);
+    //v12 receiver type-argument side (contract in NativeHost.h): the
+    //call in flight reads its receiver's instantiation descriptor.
+    //Definitions in VmExecutorNativeCallbacks.cpp.
+    static uint32_t NativeTypeArgCount(NativeHost* self);
+    static uint8_t NativeTypeArgKind(NativeHost* self, uint32_t i);
+    static const char* NativeTypeArgName(NativeHost* self, uint32_t i);
     //v10 helpers of the two callbacks above (definitions in
     //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
     //own strides/offset, the resolver peels depth-one to the owning

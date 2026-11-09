@@ -178,7 +178,10 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     compiledFunc.isNative = true;
     //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
-    bool isMethod = HasThisReceiver(func);
+    const bool isInstanceMethod = HasThisReceiver(func);
+    //v2.16: the instance-method flag rides the record (ABI v12 native
+    //bridge).
+    compiledFunc.isInstanceMethod = isInstanceMethod;
     //Frame-layout locals (this + one per formal) with the true runtime
     //kinds. The native path emits no bytecode, so this is metadata-only —
     //the GC never scans a native function's frame (CallNative stages its
@@ -188,13 +191,13 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     //containers), so a reference cell must carry the reference kind, not
     //the int32 placeholder. Mirrors AllocParamsAndDefaults (the non-native
     //path).
-    if (isMethod)
+    if (isInstanceMethod)
         AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
     for (auto& param : func.Params())
         AllocLocal(param.Name(), kFrameSlotBytes,
                    RuntimeTypeKind(param.EvalDataType()), true);
     compiledFunc.paramCount = static_cast<uint16_t>(
-        func.Params().size() + (isMethod ? 1 : 0));
+        func.Params().size() + (isInstanceMethod ? 1 : 0));
     compiledFunc.localsSize = compiledFunc.paramCount * kFrameSlotBytes;
     if (func.HasReturn() && func.ReturnType()) {
         compiledFunc.returnTypeKind = SerializedReturnKind(func);
@@ -225,8 +228,11 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
     // If this is a class, struct, or enum method, allocate slot 0 for
     // 'this' (see HasThisReceiver/ThisReceiverKind).
-    bool isMethod = HasThisReceiver(func);
-    if (isMethod)
+    const bool isInstanceMethod = HasThisReceiver(func);
+    //v2.16: the instance-method flag rides the record (ABI v12 native
+    //bridge).
+    compiledFunc.isInstanceMethod = isInstanceMethod;
+    if (isInstanceMethod)
         AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
 
     // Allocate slots for parameters
@@ -236,7 +242,7 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                    true);
     }
     compiledFunc.paramCount = static_cast<uint16_t>(
-        func.Params().size() + (isMethod ? 1 : 0));
+        func.Params().size() + (isInstanceMethod ? 1 : 0));
 
     //Option B: extract constant-foldable default values for each formal.
     //A default the fold arms miss goes through the v2.3 ExprDesc encoder

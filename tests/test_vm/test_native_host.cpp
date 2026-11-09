@@ -8,6 +8,7 @@
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
+#include "nlang/runtime/PrimitiveTypes.h"
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
@@ -432,6 +433,61 @@ void TestGenericUnaryAndThisDefaults() {
           "(this.count + p.x)");
 }
 
+//v12 ABI (D8): a native instance method reads its receiver's runtime
+//instantiation through the three type-argument callbacks — count, the
+//per-argument kind (the RTK code) and the per-argument name (the
+//canonical spelling). One composed answer pins all three at once:
+//"<count>|<kind>:<name>|..." with the out-of-range sentinels (kind
+//0xFF, name null) probed right past the end. A non-template receiver
+//answers count 0 and the same sentinels. The receiver arrives as the
+//method's slot-0 argument (the __this handle), which CallNative fills
+//for bare-named non-static callees (D8: method keys never carry a
+//package prefix).
+void HsTargs(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    const uint32_t count = host->typeArgCount(host);
+    std::string s = std::to_string(count) + "|";
+    for (uint32_t i = 0; i < count; ++i)
+        s += std::to_string(static_cast<int>(host->typeArgKind(host, i)))
+           + ":" + host->typeArgName(host, i) + "|";
+    if (host->typeArgKind(host, count) != 0xFF
+        || host->typeArgName(host, count) != nullptr)
+        s += "SENTINEL-FAIL|";
+    native::ReturnString(host, ret, s.c_str());
+}
+
+void TestNativeTypeArgs() {
+    const std::string intAnswer =
+        "1|" + std::to_string(static_cast<int>(RTK_Int32)) + ":int|";
+    const std::string stringAnswer =
+        "1|" + std::to_string(static_cast<int>(RTK_String)) + ":string|";
+    const std::string source =
+        "class Box<T> {\n"
+        "    public Box() { }\n"
+        "    public native string targs();\n"
+        "}\n"
+        "class Plain {\n"
+        "    public Plain() { }\n"
+        "    public native string targs();\n"
+        "}\n"
+        "native string hstargs();\n"
+        "int main() {\n"
+        "    Box<int> bi = Box();\n"
+        "    Box<string> bs = Box();\n"
+        "    Plain p = Plain();\n"
+        "    if (bi.targs() != \"" + intAnswer + "\") return 1;\n"
+        "    if (bs.targs() != \"" + stringAnswer + "\") return 2;\n"
+        "    if (p.targs() != \"0|\") return 3;\n"
+        "    if (hstargs() != \"0|\") return 4;\n"
+        "    return 40;\n"
+        "}\n";
+    int rc = runSource("host_type_args", source, [](VmExecutor& e) {
+        e.RegisterNative("targs", &HsTargs);   //methods keep bare keys
+        e.RegisterNative("host_type_args.hstargs", &HsTargs);   //free function
+    });
+    CHECK(rc == 40,
+          "v12 type-argument callbacks answer count/kind/name (rc)");
+}
+
 } // namespace
 
 int main() {
@@ -446,6 +502,7 @@ int main() {
     TestInputPromptSilentOnRedirectedStdout();
     TestGenericMemberDefault();
     TestGenericUnaryAndThisDefaults();
+    TestNativeTypeArgs();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

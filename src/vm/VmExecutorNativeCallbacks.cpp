@@ -461,4 +461,34 @@ int VmExecutor::NativeSubmitWork(NativeHost* self, void (*fn)(void*),
     return e->m_spScheduler->SubmitWork(fn, arg, ackFd, priority);
 }
 
+//--- v12: receiver type-argument reads ---------------------------------------
+//The instantiation descriptor is read-only and interned (process-lifetime
+//stable), so the three reads need no lock beyond the descriptor lookup —
+//the same discipline the cast-dispatch and typeName consumers use.
+
+uint32_t VmExecutor::NativeTypeArgCount(NativeHost* self) {
+    VmNativeHost* h = Wrap(self);
+    const GenericInstDescriptor* desc =
+        h->executor->InstDescriptorOf(h->receiverHeapIdx);
+    return desc ? static_cast<uint32_t>(desc->TypeArgs().size()) : 0;
+}
+
+uint8_t VmExecutor::NativeTypeArgKind(NativeHost* self, uint32_t i) {
+    VmNativeHost* h = Wrap(self);
+    const GenericInstDescriptor* desc =
+        h->executor->InstDescriptorOf(h->receiverHeapIdx);
+    if (!desc || i >= desc->TypeArgs().size())
+        return 0xFF;   //the existing invalid-RTK sentinel
+    return desc->TypeArgs()[i].resolvedKind;
+}
+
+const char* VmExecutor::NativeTypeArgName(NativeHost* self, uint32_t i) {
+    VmNativeHost* h = Wrap(self);
+    const GenericInstDescriptor* desc =
+        h->executor->InstDescriptorOf(h->receiverHeapIdx);
+    if (!desc || i >= desc->TypeArgs().size())
+        return nullptr;   //the name sentinel
+    return desc->TypeArgs()[i].spelling.c_str();
+}
+
 } // namespace nlang

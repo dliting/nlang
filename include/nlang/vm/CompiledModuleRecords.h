@@ -181,6 +181,13 @@ struct CompiledFunction {
     //and name-based instance dispatch (FindMethodByName) must skip
     //these records — static members are a separate namespace.
     bool isStatic = false;
+    //v2.16 (ABI v12): instance method — a class/struct/enum member that
+    //is not static (the compiler's HasThisReceiver verdict). The frame
+    //carries a slot-0 __this receiver, and the native call bridge reads
+    //the receiver's heap handle from the call's slot 0 when this is set
+    //— a flag, not a name-shape guess, so the method-key convention can
+    //evolve without silently disabling receiver reads.
+    bool isInstanceMethod = false;
     //Option B: per-formal default values. Free functions: size ==
     //paramCount. Methods and constructors: paramCount counts the
     //implicit __this slot (locals[0], isParam), so size == paramCount-1

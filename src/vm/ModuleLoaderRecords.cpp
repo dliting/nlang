@@ -99,6 +99,11 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         uint8_t staticFlag = 0;
         fs.read(reinterpret_cast<char*>(&staticFlag), sizeof(staticFlag));
         func.isStatic = (staticFlag != 0);
+        //v2.16: instance-method flag (see ModuleSaver).
+        uint8_t instanceMethodFlag = 0;
+        fs.read(reinterpret_cast<char*>(&instanceMethodFlag),
+                sizeof(instanceMethodFlag));
+        func.isInstanceMethod = (instanceMethodFlag != 0);
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;

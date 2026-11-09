@@ -108,6 +108,12 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.wakeIoWaiters = &VmExecutor::NativeWakeIoWaiters;
     host.c.currentContextId = &VmExecutor::NativeCurrentContextId;
     host.c.submitWork = &VmExecutor::NativeSubmitWork;
+    //v12: receiver type-argument reads (contracts in NativeHost.h;
+    //definitions in VmExecutorNativeCallbacks.cpp). The receiver index
+    //rides the call-local wrapper (CallNative fills it).
+    host.c.typeArgCount = &VmExecutor::NativeTypeArgCount;
+    host.c.typeArgKind = &VmExecutor::NativeTypeArgKind;
+    host.c.typeArgName = &VmExecutor::NativeTypeArgName;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
@@ -360,6 +366,7 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
             "NLang VM: native function not registered: " + callee.name);
     VmNativeHost host;
     InitNativeHost(host);
+    FillNativeReceiver(host, callee, callParamBase, locals);
     if (it->second.blocking) {
         //K8: the blocking arm keeps the store lock — the protocol
         //stages roots and parks frames in executor storage and hands
@@ -379,6 +386,19 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
     //touches goes through the callbacks above, each self-guarded.
     it->second.fn(&host.c, pResult, locals + callParamBase,
                   callee.paramCount);
+}
+
+//v12: the receiver travels in slot 0 of a native instance method's
+//argument area. The record's isInstanceMethod flag (the compiler's
+//HasThisReceiver verdict, serialized v2.16) is the discriminator —
+//never a name-shape guess; isInstanceMethod implies !isStatic.
+void VmExecutor::FillNativeReceiver(VmNativeHost& host,
+    const CompiledFunction& callee, uint16_t callParamBase,
+    uint8_t* locals) {
+    host.receiverHeapIdx = 0;
+    if (callee.isInstanceMethod && callee.paramCount > 0)
+        std::memcpy(&host.receiverHeapIdx, locals + callParamBase,
+                    sizeof(host.receiverHeapIdx));
 }
 
 //--- List<string> construction ---------------------------------------------
