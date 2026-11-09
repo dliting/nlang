@@ -28,7 +28,7 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 276 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 280 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
@@ -44,8 +44,9 @@ static void TestLoadsRealStdLib() {
     // the 20 _udp* natives and the 5 _icmp* natives; class methods
     // are not free functions), system 2 (the wall and monotonic clocks),
     // url 4 (the percent and form codecs; the Url class members are not
-    // free functions).
-    CHECK(index.size() == 276);
+    // free functions), gzip 4 (the compress/decompress wrappers and the
+    // two native codec declarations).
+    CHECK(index.size() == 280);
 }
 
 static void TestResolvePrint() {
@@ -100,15 +101,16 @@ static void TestCompletion() {
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 8);
+    CHECK(namespaces.size() == 9);
     CHECK(namespaces[0] == "fs");
-    CHECK(namespaces[1] == "io");
-    CHECK(namespaces[2] == "math");
-    CHECK(namespaces[3] == "net");
-    CHECK(namespaces[4] == "system");
-    CHECK(namespaces[5] == "tensor");
-    CHECK(namespaces[6] == "thread");
-    CHECK(namespaces[7] == "url");
+    CHECK(namespaces[1] == "gzip");
+    CHECK(namespaces[2] == "io");
+    CHECK(namespaces[3] == "math");
+    CHECK(namespaces[4] == "net");
+    CHECK(namespaces[5] == "system");
+    CHECK(namespaces[6] == "tensor");
+    CHECK(namespaces[7] == "thread");
+    CHECK(namespaces[8] == "url");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -294,14 +296,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 276);
+    CHECK(index.size() == 280);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 276);
+    CHECK(index.size() == 280);
 }
 
 static void TestBlockCommentBraces() {

@@ -2002,7 +2002,7 @@ if(NLANG_BUILD_IDE)
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
-            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>\;$<TARGET_FILE:nlang_system>\;$<TARGET_FILE:nlang_net>
+            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>\;$<TARGET_FILE:nlang_system>\;$<TARGET_FILE:nlang_net>\;$<TARGET_FILE:nlang_gzip>
             -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
             #Scratch nested 9 levels under <build>/tests: the loader's
             #build-tree fallback walks up at most 8, so it cannot rescue
@@ -2722,8 +2722,9 @@ add_custom_target(nlang_embed_deploy ALL
                 $<TARGET_FILE:nlang_fs>
                 $<TARGET_FILE:nlang_system>
                 $<TARGET_FILE:nlang_net>
+                $<TARGET_FILE:nlang_gzip>
                 ${embed_deploy_dir}
-    DEPENDS nlang_stdlib_package nlang_io nlang_math nlang_fs nlang_system nlang_net
+    DEPENDS nlang_stdlib_package nlang_io nlang_math nlang_fs nlang_system nlang_net nlang_gzip
     VERBATIM)
 
 add_executable(test_embed_source
@@ -2760,7 +2761,8 @@ if(Python3_FOUND)
             $<TARGET_FILE:ncc>
             ${NLANG_TEST_STDLIB_DIR}/stdlib.npkg
             $<TARGET_FILE:nlang_io>
-            $<TARGET_FILE:nlang_system>)
+            $<TARGET_FILE:nlang_system>
+            $<TARGET_FILE:nlang_gzip>)
     set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 

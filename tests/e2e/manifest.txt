@@ -2156,3 +2156,4 @@ stdlib_url_percent 0
 stdlib_url_parse 0
 stdlib_url_resolve 0
 stdlib_url_query 0
+stdlib_gzip_roundtrip 0

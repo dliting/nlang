@@ -1,0 +1,73 @@
+// gzip package roundtrip: empty/small/large payloads, malformed and
+// truncated input rejection, deterministic output, concatenated-member
+// and trailing-garbage handling (spec D21/D23).
+import io;
+import gzip;
+
+int main() {
+    // Roundtrip three sizes, including the empty string's byte form.
+    byte[] empty = byte[0];
+    byte[] a = gzip.compress(empty);
+    if (gzip.decompress(a).length() != 0) { return 1; }
+
+    byte[] hello = io.toBytes("hello gzip");
+    byte[] b = gzip.compress(hello);
+    byte[] back = gzip.decompress(b);
+    if (io.fromBytes(back) != "hello gzip") { return 2; }
+
+    // 100 KiB of repeating text compresses far below its size.
+    byte[] big = byte[102400];
+    for (int i = 0; i < 102400; i = i + 1) {
+        big[i] = (65 + (i % 26)) as byte;
+    }
+    byte[] c = gzip.compress(big);
+    if (c.length() >= big.length() / 4) { return 3; }
+    if (gzip.decompress(c).length() != 102400) { return 4; }
+
+    // Deterministic: same input, same output bytes.
+    byte[] b2 = gzip.compress(hello);
+    if (b2.length() != b.length()) { return 5; }
+    for (int i = 0; i < b.length(); i = i + 1) {
+        if (b2[i] != b[i]) { return 5; }
+    }
+
+    // Malformed and truncated input must raise GzipException (catchable).
+    byte[] junk = io.toBytes("not gzip at all");
+    try {
+        gzip.decompress(junk);
+        return 6;
+    } catch (GzipException e) {
+        // expected
+    }
+    try {
+        gzip.decompress(a[0:4]);
+        return 7;
+    } catch (GzipException e) {
+        // expected: truncated stream raises before the body ends
+    }
+
+    // Concatenated gzip members (RFC 1952 §2.2) decode as the
+    // concatenation of their bodies — gunzip/Go/Python semantics.
+    byte[] twice = byte[b.length() * 2];
+    for (int i = 0; i < b.length(); i = i + 1) {
+        twice[i] = b[i];
+        twice[i + b.length()] = b[i];
+    }
+    if (io.fromBytes(gzip.decompress(twice)) != "hello gziphello gzip") {
+        return 8;
+    }
+
+    // Trailing garbage after the last member is rejected, not ignored.
+    byte[] padded = byte[b.length() + 1];
+    for (int i = 0; i < b.length(); i = i + 1) {
+        padded[i] = b[i];
+    }
+    padded[b.length()] = 32 as byte;
+    try {
+        gzip.decompress(padded);
+        return 9;
+    } catch (GzipException e) {
+        // expected
+    }
+    return 0;
+}

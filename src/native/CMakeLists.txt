@@ -9,7 +9,7 @@
 #   Linux:   libnlang_<ns>.so
 #   macOS:   libnlang_<ns>.dylib
 
-set(NLANG_NATIVE_MODULES math io fs tensor net system)
+set(NLANG_NATIVE_MODULES math io fs tensor net system gzip)
 
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
@@ -62,6 +62,24 @@ else()
         net/net_platform_posix.cpp)
 endif()
 
+# gzip module statically inlines vendored zlib 1.3.1 (spec D23); the
+# zlib sources are compiled directly into the module target — no
+# separate static lib, no external dependency.
+target_sources(nlang_gzip PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/adler32.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/compress.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/crc32.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/deflate.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/infback.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/inffast.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/inflate.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/inftrees.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/trees.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/uncompr.c
+    ${PROJECT_SOURCE_DIR}/third_party/zlib/zutil.c)
+target_include_directories(nlang_gzip PRIVATE ${PROJECT_SOURCE_DIR}/third_party/zlib)
+target_compile_definitions(nlang_gzip PRIVATE _CRT_SECURE_NO_WARNINGS)
+
 # Single authoritative output and NOTHING copies the modules around the
 # build tree — hosts resolve them through NativeLibraryLoader's build-tree
 # fallback (walk-up discovery, consulted after explicit search dirs; see
@@ -89,6 +107,6 @@ endforeach()
 
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.
-install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor nlang_net nlang_system
+install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor nlang_net nlang_system nlang_gzip
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION bin)
