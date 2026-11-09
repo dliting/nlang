@@ -1,0 +1,221 @@
+// Client over loopback against a real HttpServer: buffered get/post,
+// defaultHeaders gap-filling, User-Agent, 4xx not an exception (D13),
+// connection pooling (a connection cap proves reuse), gzip roundtrip with
+// header stripping (D21), https rejected at assembly (D17), pool cap plus
+// call deadline (D8), a user-set Accept-Encoding is not auto-decompressed
+// (D21), a failed exchange does not poison the pool, and HEAD delivers no
+// body bytes but keeps Content-Length (HTTP-SRV-014) while asking for no
+// gzip. Review Focus 5/6.
+//
+// The free functions run against a second, uncapped server: they go through
+// the shared default client, whose idle connection would otherwise hold a
+// slot of the capped server for the rest of the run.
+import io;
+import http;
+import gzip;
+import net;
+import concurrent;
+import thread;
+
+// thread.spawn takes a no-arg function, so the slow exchange reads its
+// client, base url and reply channel from the instance (the bound-method
+// pattern of examples/conc_channel_close.n).
+class SlowWorker {
+    public HttpClient cli;
+    public string base;
+    public Channel<int> status;
+
+    public void run() {
+        try {
+            HttpResponse r = cli.request(makeReq("GET", base + "/slow"));
+            status.send(r.statusCode);
+        } catch (Exception e) {
+            status.send(-1);
+        }
+    }
+}
+
+HttpResponse apiHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    if (req.url.path == "/agent") {
+        res.body = io.toBytes(req.headers.get("User-Agent"));
+        return res;
+    }
+    if (req.url.path == "/xmark") {
+        res.body = io.toBytes(req.headers.get("X-Mark"));
+        return res;
+    }
+    if (req.url.path == "/ctype") {
+        res.body = io.toBytes(req.headers.get("Content-Type"));
+        return res;
+    }
+    if (req.url.path == "/ae") {
+        // Reports what the client actually asked for, so the injection rule
+        // is observable from the server side.
+        res.body = io.toBytes(req.headers.get("Accept-Encoding"));
+        return res;
+    }
+    if (req.url.path == "/notfound") {
+        res.statusCode = 404;
+        res.reasonPhrase = "Not Found";
+        res.body = io.toBytes("nope");
+        return res;
+    }
+    if (req.url.path == "/gz") {
+        res.compressBody = true;
+        res.body = io.toBytes("compress me compress me compress me");
+        return res;
+    }
+    if (req.url.path == "/slow") {
+        thread.sleep(500);
+        res.body = io.toBytes("slow");
+        return res;
+    }
+    if (req.url.path == "/boom") {
+        throw HttpException("boom handler", 0);
+    }
+    res.body = io.toBytes("method " + req.method + " body " + req.bodyText());
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    // Two slots, where the pooled client needs exactly one: a client that
+    // opened a connection per request would need far more than two alive at
+    // once. The spare slot absorbs a connection the server is still reaping
+    // when its peer reconnects (the 500 vector).
+    srv.maxConnections = 2;
+    srv.start("127.0.0.1", 0, apiHandler);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    HttpServer freeSrv = HttpServer();
+    freeSrv.start("127.0.0.1", 0, apiHandler);
+    string freeBase = "http://127.0.0.1:" + freeSrv.localPort().toString();
+
+    HttpClient cli = HttpClient();
+    cli.defaultHeaders.set("X-Mark", "marked");
+
+    // 1. Buffered GET + defaultHeaders fill + User-Agent default.
+    HttpResponse r1 = cli.request(makeReq("GET", base + "/xmark"));
+    if (r1.statusCode != 200 || r1.bodyText() != "marked") { return 1; }
+    HttpResponse r2 = cli.request(makeReq("GET", base + "/agent"));
+    if (r2.bodyText() != "nlang-http/1.1") { return 2; }
+
+    // 2. Pooling: three sequential requests, two server slots → all 200.
+    for (int i = 0; i < 3; i = i + 1) {
+        HttpResponse r = cli.request(makeReq("GET", base + "/x"));
+        if (r.statusCode != 200) { return 3; }
+    }
+
+    // 3. POST body echo.
+    HttpRequest p3 = makeReq("POST", base + "/x");
+    p3.body = io.toBytes("payload");
+    HttpResponse r3 = cli.request(p3);
+    if (!r3.bodyText().endsWith("body payload")) { return 4; }
+
+    // 4. 4xx is a response, not an exception (D13).
+    HttpResponse r4 = cli.request(makeReq("GET", base + "/notfound"));
+    if (r4.statusCode != 404 || r4.bodyText() != "nope") { return 5; }
+
+    // 5. gzip: the server compresses, the client decompresses
+    // transparently and strips Content-Encoding/Content-Length (D21).
+    HttpResponse r5 = cli.request(makeReq("GET", base + "/gz"));
+    if (r5.bodyText() != "compress me compress me compress me") { return 6; }
+    if (r5.headers.has("Content-Encoding")) { return 6; }
+
+    // 6. Free functions on the shared default client.
+    HttpResponse r6 = get(freeBase + "/x");
+    if (r6.statusCode != 200) { return 7; }
+    HttpResponse r7 = post(freeBase + "/x", "free-post");
+    if (!r7.bodyText().endsWith("body free-post")) { return 8; }
+    HttpResponse rct = post(freeBase + "/ctype", "x");
+    if (rct.bodyText() != "text/plain; charset=utf-8") { return 8; }
+    HttpResponse r8 = del(freeBase + "/x");
+    if (!r8.bodyText().startsWith("method DELETE")) { return 9; }
+
+    // 7. https rejected at assembly (D17: no TLS in net.n).
+    try {
+        cli.request(makeReq("GET", "https://example.com/"));
+        return 10;
+    } catch (HttpException e) {
+        if (e.status != 0) { return 10; }
+    }
+
+    // 8. User-set Accept-Encoding: no transparent decompress (D21) — the
+    // gzip bytes stay as they are and the header stays visible.
+    HttpRequest rgz = makeReq("GET", base + "/gz");
+    rgz.headers.set("Accept-Encoding", "gzip");
+    HttpResponse r9 = cli.request(rgz);
+    if (!r9.headers.has("Content-Encoding")) { return 11; }
+    if (io.fromBytes(gzip.decompress(r9.body)) != "compress me compress me compress me") { return 11; }
+
+    // 9. A handler failure (500 + connection close) does not poison the
+    // pool: the next request succeeds on a fresh connection.
+    HttpResponse r10 = cli.request(makeReq("GET", base + "/boom"));
+    if (r10.statusCode != 500) { return 12; }
+    HttpResponse r11 = cli.request(makeReq("GET", base + "/x"));
+    if (r11.statusCode != 200) { return 12; }
+
+    cli.close();
+
+    // 10. Pool cap + call deadline (D8): the slow exchange holds the only
+    // slot of a fresh capped client; the second request waits for the pool,
+    // then times out.
+    HttpClient slowCli = HttpClient();
+    slowCli.maxConnsPerHost = 1;
+    slowCli.callTimeoutMs = 150;
+    Channel<int> slowStatus = {};
+    SlowWorker w = SlowWorker();
+    w.cli = slowCli;
+    w.base = base;
+    w.status = slowStatus;
+    thread.spawn(w.run);
+    thread.sleep(50);
+    try {
+        slowCli.request(makeReq("GET", base + "/x"));
+        return 13;
+    } catch (TimeoutException e) {
+        if (e.message.indexOf("pool") < 0) { return 13; }
+    }
+    if (slowStatus.recv() != 200) { return 14; }
+
+    slowCli.close();
+
+    // 11. HEAD: no body bytes delivered, Content-Length kept
+    // (HTTP-SRV-014, HTTP-CLI-001) — without the requestWasHead override
+    // readAll would block until readTimeoutMs.
+    HttpClient headCli = HttpClient();
+    HttpResponse rh = headCli.request(makeReq("HEAD", base + "/x"));
+    if (rh.statusCode != 200) { return 15; }
+    if (rh.body.length() != 0) { return 15; }
+    if (!rh.headers.has("Content-Length")) { return 15; }
+
+    // 12. Accept-Encoding is asked for only when the client can decode the
+    // answer: a HEAD response carries no bytes to decompress, and a Range
+    // response is a slice of a body that auto-decoding would corrupt (the
+    // same two exclusions Go's transport.go makes, for the same reasons).
+    if (headCli.request(makeReq("HEAD", base + "/ae")).bodyText() != "") { return 16; }
+    HttpRequest rrange = makeReq("GET", base + "/ae");
+    rrange.headers.set("Range", "bytes=0-3");
+    if (headCli.request(rrange).bodyText() != "") { return 16; }
+    if (headCli.request(makeReq("GET", base + "/ae")).bodyText() != "gzip") { return 16; }
+
+    // A compressing handler behind a HEAD request must stay readable: with
+    // gzip requested, the server answers with Content-Encoding and a
+    // compressed Content-Length but no body bytes at all.
+    HttpResponse rhgz = headCli.request(makeReq("HEAD", base + "/gz"));
+    if (rhgz.statusCode != 200 || rhgz.body.length() != 0) { return 16; }
+    headCli.close();
+
+    srv.close();
+    freeSrv.close();
+    io.print("ok");
+    return 0;
+}
+
+HttpRequest makeReq(string method, string url) {
+    HttpRequest req = HttpRequest();
+    req.method = method;
+    req.url = Url.parse(url);
+    return req;
+}

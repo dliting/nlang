@@ -28,7 +28,7 @@ static int g_failures = 0;
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 280 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
@@ -45,8 +45,10 @@ static void TestLoadsRealStdLib() {
     // are not free functions), system 2 (the wall and monotonic clocks),
     // url 4 (the percent and form codecs; the Url class members are not
     // free functions), gzip 4 (the compress/decompress wrappers and the
-    // two native codec declarations).
-    CHECK(index.size() == 280);
+    // two native codec declarations), http 6 (the buffered convenience
+    // calls get/post/put/del/request plus the lazy defaultClient; the
+    // Http* class members are not free functions).
+    CHECK(index.size() == 286);
 }
 
 static void TestResolvePrint() {
@@ -101,16 +103,17 @@ static void TestCompletion() {
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 9);
+    CHECK(namespaces.size() == 10);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "gzip");
-    CHECK(namespaces[2] == "io");
-    CHECK(namespaces[3] == "math");
-    CHECK(namespaces[4] == "net");
-    CHECK(namespaces[5] == "system");
-    CHECK(namespaces[6] == "tensor");
-    CHECK(namespaces[7] == "thread");
-    CHECK(namespaces[8] == "url");
+    CHECK(namespaces[2] == "http");
+    CHECK(namespaces[3] == "io");
+    CHECK(namespaces[4] == "math");
+    CHECK(namespaces[5] == "net");
+    CHECK(namespaces[6] == "system");
+    CHECK(namespaces[7] == "tensor");
+    CHECK(namespaces[8] == "thread");
+    CHECK(namespaces[9] == "url");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -296,14 +299,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 280);
+    CHECK(index.size() == 286);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 280);
+    CHECK(index.size() == 286);
 }
 
 static void TestBlockCommentBraces() {

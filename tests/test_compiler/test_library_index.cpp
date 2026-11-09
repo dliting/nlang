@@ -43,7 +43,7 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 280 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
@@ -60,10 +60,12 @@ static void TestLoadsStdLib()
     // functions), system 2 (the wall and monotonic clocks), url 4 (the
     // percent and form codecs; the Url class members are not free
     // functions), gzip 4 (the compress/decompress wrappers and the two
-    // native codec declarations).
+    // native codec declarations), http 6 (the buffered convenience calls
+    // get/post/put/del/request plus the lazy defaultClient; the Http*
+    // class members are not free functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 280);
+    CHECK(env.LibraryIndex().size() == 286);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

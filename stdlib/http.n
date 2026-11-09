@@ -1249,3 +1249,447 @@ class HttpServer {
     public func<HttpResponse, HttpRequest> handler() { return m_handler; }
     public void connDone() { m_active.addAndGet(-1); }
 }
+
+// Per-origin connection pool (D8): at most MAX_IDLE idle connections, kept
+// for MAX_IDLE_MS (shorter than the server keep-alive, so a pooled socket is
+// never borrowed after the peer has dropped it), probed with isClosed() on
+// borrow, and dropped on any failed exchange (D19). When maxConns is reached
+// a borrow waits for a release until the call deadline; the stdlib has no
+// timed acquire primitive, so the wait is a poll with POOL_POLL_MS sleeps
+// (ledger Ruling). close() marks the pool closed: later borrows throw, idle
+// connections close at once, and borrowed ones close when release returns.
+class HttpPool {
+    private static const int MAX_IDLE = 4;
+    private static const int MAX_IDLE_MS = 10000;
+    private static const int POOL_POLL_MS = 2;
+
+    private string m_host;
+    private int m_port;
+    private List<HttpConn> m_idle;
+    private List<long> m_idleSince;
+    private List<HttpConn> m_active;         // borrowed (close() must account for them)
+    private bool m_closed;
+    private int m_total;
+    private Mutex m_mu;
+
+    public HttpPool(string host, int port) {
+        m_host = host;
+        m_port = port;
+        m_idle = {};
+        m_idleSince = {};
+        m_active = {};
+        m_closed = false;
+        m_total = 0;
+        m_mu = Mutex();
+    }
+
+    public HttpConn borrow(int connectTimeoutMs, int callTimeoutMs, int maxConns) {
+        long deadline = 0;
+        if (callTimeoutMs > 0) { deadline = system.monoMs() + callTimeoutMs; }
+        while (true) {
+            m_mu.lock();
+            if (m_closed) {
+                m_mu.unlock();
+                throw HttpException("http: client pool closed", 0);
+            }
+            this.evictIdle();
+            while (m_idle.length() > 0) {
+                List<HttpConn> ids = m_idle;
+                List<long> since = m_idleSince;
+                HttpConn conn = ids[ids.length() - 1];
+                ids.removeAt(ids.length() - 1);
+                since.removeAt(since.length() - 1);
+                m_idle = ids;
+                m_idleSince = since;
+                // Liveness probe: isClosed() only catches closes the client
+                // has already observed (a FIN arriving while idle). A peer
+                // close still in flight surfaces as an exchange error on
+                // first use, and D19 then keeps that connection out.
+                if (!conn.stream.isClosed()) {
+                    this.registerActive(conn);
+                    m_mu.unlock();
+                    return conn;
+                }
+                conn.close();
+                m_total = m_total - 1;
+            }
+            if (maxConns == 0 || m_total < maxConns) {
+                m_total = m_total + 1;
+                m_mu.unlock();
+                try {
+                    TcpStream s = TcpStream.connect(m_host, m_port, connectTimeoutMs);
+                    s.setNoDelay(true);
+                    s.setKeepAlive(true);
+                    HttpConn conn = HttpConn(s);
+                    m_mu.lock();
+                    this.registerActive(conn);
+                    m_mu.unlock();
+                    return conn;
+                } catch (Exception e) {
+                    m_mu.lock();
+                    m_total = m_total - 1;
+                    m_mu.unlock();
+                    throw e;
+                }
+            }
+            m_mu.unlock();
+            if (deadline > 0 && system.monoMs() >= deadline) {
+                throw TimeoutException("http: connection pool wait exceeded "
+                    + callTimeoutMs.toString() + " ms");
+            }
+            thread.sleep(POOL_POLL_MS);
+        }
+    }
+
+    // D19: an exhausted and healthy connection goes back to the pool;
+    // anything else is closed. A connection already reaped by close() (no
+    // longer in m_active) was accounted for there — just return.
+    public void release(HttpConn conn, bool reusable) {
+        m_mu.lock();
+        List<HttpConn> act = m_active;
+        int idx = act.indexOf(conn);
+        if (idx < 0) {
+            m_mu.unlock();
+            return;
+        }
+        act.removeAt(idx);
+        m_active = act;
+        if (reusable && !m_closed && !conn.stream.isClosed()) {
+            this.evictIdle();
+            if (m_idle.length() < MAX_IDLE) {
+                List<HttpConn> ids = m_idle;
+                List<long> since = m_idleSince;
+                ids.add(conn);
+                since.add(system.monoMs());
+                m_idle = ids;
+                m_idleSince = since;
+                m_mu.unlock();
+                return;
+            }
+        }
+        m_total = m_total - 1;
+        m_mu.unlock();
+        conn.close();
+    }
+
+    public void close() {
+        m_mu.lock();
+        m_closed = true;
+        List<HttpConn> ids = m_idle;
+        List<HttpConn> act = m_active;
+        m_idle = {};
+        m_idleSince = {};
+        m_active = {};
+        m_total = m_total - ids.length() - act.length();
+        m_mu.unlock();
+        foreach (HttpConn c in ids) { c.close(); }
+        foreach (HttpConn c in act) { c.close(); }
+    }
+
+    // Caller holds m_mu. Tracks borrowed connections so close() can reach
+    // them (List field reads are shallow copies, manual §12).
+    private void registerActive(HttpConn conn) {
+        List<HttpConn> act = m_active;
+        act.add(conn);
+        m_active = act;
+    }
+
+    // Caller holds m_mu. Drops idle connections past MAX_IDLE_MS or already
+    // closed by the peer.
+    private void evictIdle() {
+        long now = system.monoMs();
+        List<HttpConn> ids = {};
+        List<long> since = {};
+        List<HttpConn> old = m_idle;
+        List<long> oldSince = m_idleSince;
+        for (int i = 0; i < old.length(); i = i + 1) {
+            if (now - oldSince[i] <= MAX_IDLE_MS && !old[i].stream.isClosed()) {
+                ids.add(old[i]);
+                since.add(oldSince[i]);
+            } else {
+                old[i].close();
+                m_total = m_total - 1;
+            }
+        }
+        m_idle = ids;
+        m_idleSince = since;
+    }
+}
+
+// Buffered and streaming client over the pool: one request line + header
+// assembly per attempt, a keep-alive connection reused across calls, and the
+// redirect policy of D12. 4xx and 5xx are responses, not exceptions (D13).
+class HttpClient {
+    private static const int DEFAULT_MAX_HEADER_BYTES = 65536;
+    private static const int DEFAULT_HTTP_PORT = 80;
+
+    public int connectTimeoutMs = 10000;
+    public int readTimeoutMs = 10000;
+    public int callTimeoutMs = 0;            // 0 = wait forever (D8)
+    public int maxRedirects = 10;            // D12
+    public int maxConnsPerHost = 0;          // 0 = unlimited
+    public HttpHeaders defaultHeaders;       // fills gaps only (D15)
+    public static HttpClient shared;         // free-function default client
+
+    private Dict<string, HttpPool> m_pools;
+
+    public HttpClient() {
+        defaultHeaders = HttpHeaders();
+        m_pools = {};
+    }
+
+    // Buffered request: assemble → borrow → exchange → redirects → readAll →
+    // release (D19). The callTimeoutMs argument overrides the field when >0.
+    public HttpResponse request(HttpRequest req, int callTimeoutMs = 0) {
+        // The redirect loop below rewrites url/method/body/headers, so it
+        // works on a copy and leaves the caller's request reusable.
+        req = copyRequest(req);
+        int budget = callTimeoutMs;
+        if (budget <= 0) { budget = this.callTimeoutMs; }
+        HttpResponse res = this.execute(req, budget);
+        int hops = 0;
+        while (isRedirect(res.statusCode) && hops < maxRedirects) {
+            hops = hops + 1;
+            string loc = res.headers.get("Location");
+            if (loc == "") { break; }
+            Url next = res.requestUrl.resolve(loc);
+            // The buffered exchange already read the body and released the
+            // connection; a streaming upload body was consumed by the first
+            // exchange and cannot be replayed when the redirect keeps the
+            // method (307/308, D12).
+            if (req.bodyChannel != null && keepsMethod(res.statusCode)) {
+                throw HttpException("http: cannot replay a streaming body across redirect", 0);
+            }
+            if (!keepsMethod(res.statusCode)) {
+                req.method = "GET";
+                req.body = null;
+            }
+            // Credentials stop at the origin boundary (D12): a redirect that
+            // changes scheme, host or port is a different origin, so the
+            // caller's Authorization and Cookie headers do not follow it.
+            if (originOf(next) != originOf(res.requestUrl)) {
+                req.headers.remove("Authorization");
+                req.headers.remove("Cookie");
+            }
+            req.url = next;
+            res = this.execute(req, budget);
+        }
+        // Only a genuine cap miss throws; maxRedirects = 0 returns the
+        // redirect response itself.
+        if (maxRedirects > 0 && isRedirect(res.statusCode) && hops >= maxRedirects) {
+            throw HttpException("http: too many redirects", 0);
+        }
+        return res;
+    }
+
+    // Streaming variant: the response body stays a reader (Task 5); the
+    // buffered exchange below is the interim behaviour behind the same name.
+    public HttpResponse open(HttpRequest req) {
+        return this.execute(req, this.callTimeoutMs);
+    }
+
+    public void close() {
+        foreach (string k in m_pools.keys()) {
+            m_pools.get(k).close();
+        }
+        m_pools.clear();
+    }
+
+    // One exchange: assemble (D15/D17/D21) → borrow → write → read
+    // status+headers (skip 1xx, D10) → buffered body + conditional
+    // decompress → release per D19.
+    private HttpResponse execute(HttpRequest req, int budget) {
+        Url u = req.url;
+        if (u == null || !u.isAbsolute()) {
+            throw HttpException("http: request url must be absolute", 0);
+        }
+        if (u.scheme != "http") {
+            throw HttpException("http: unsupported scheme " + u.scheme + " (no TLS in net.n)", 0);
+        }
+        int port = normalizePort(u);
+        // Assemble headers onto a copy so retries and redirects stay clean.
+        HttpHeaders h = req.headers.copy();
+        this.fillDefaults(h);
+        bool gzipInjected = false;
+        // Ask for gzip only when the answer can be decoded transparently: a
+        // HEAD response carries no body bytes at all, and a Range response is
+        // a slice of the full body, which auto-decoding would misalign. Go's
+        // transport.go excludes the same two cases for the same reasons.
+        if (req.bodyChannel == null && !h.has("Accept-Encoding")
+            && req.method != "HEAD" && !h.has("Range")) {
+            h.set("Accept-Encoding", "gzip");
+            gzipInjected = true;
+        }
+        if (!h.has("Host")) {
+            string hostHeader = u.host;
+            if (port != DEFAULT_HTTP_PORT) { hostHeader = u.host + ":" + port.toString(); }
+            h.set("Host", hostHeader);
+        }
+        HttpPool pool = this.poolFor(u.host, port);
+        HttpConn conn = pool.borrow(connectTimeoutMs, budget, maxConnsPerHost);
+        bool reusable = false;
+        try {
+            this.writeRequest(conn, req, h, u);
+            HttpResponse res = this.readResponse(conn, req.method == "HEAD");
+            res.requestUrl = u;
+            HttpBodyReader reader = HttpBodyReader(conn, res.framingMode, res.framingLength, 0, readTimeoutMs);
+            res.body = reader.readAll();
+            reusable = !conn.stream.isClosed() && !res.connectionClose
+                && res.framingMode != HttpParser.MODE_EOF;
+            // Transparent decompress only for the Accept-Encoding this client
+            // injected (D21): a user-set one means the user reads the encoding.
+            if (gzipInjected && res.headers.get("Content-Encoding").equalsIgnoreCase("gzip")) {
+                res.body = gzip.decompress(res.body);
+                res.headers.remove("Content-Encoding");
+                res.headers.remove("Content-Length");
+            }
+            return res;
+        } catch (Exception e) {
+            reusable = false;
+            throw e;
+        } finally {
+            pool.release(conn, reusable);
+        }
+    }
+
+    private void writeRequest(HttpConn conn, HttpRequest req, HttpHeaders h, Url u) {
+        byte[] body = req.body;
+        if (body != null && body.length() > 0) {
+            h.set("Content-Length", body.length().toString());
+        }
+        List<byte> head = {};
+        HttpParser.appendAscii(head, req.method + " " + targetOf(u) + " " + req.version + "\r\n");
+        foreach (string name in h.names()) {
+            foreach (string v in h.getAll(name)) {
+                HttpParser.appendAscii(head, name + ": " + v + "\r\n");
+            }
+        }
+        HttpParser.appendAscii(head, "\r\n");
+        conn.writeAll(HttpParser.toByteArray(head), readTimeoutMs);
+        if (body != null && body.length() > 0) {
+            conn.writeAll(body, readTimeoutMs);
+        }
+    }
+
+    // Reads status line + headers, skipping 1xx interim responses (D10).
+    // `requestWasHead` flows to conn.readResponse so a HEAD response's body
+    // framing is suppressed (RFC 9112 §6.3) — the parser cannot see the
+    // request method. The current attempt's method matters: a redirect can
+    // change it (303 → GET), and the flag must follow the redirect's method.
+    private HttpResponse readResponse(HttpConn conn, bool requestWasHead) {
+        while (true) {
+            HttpResponse res = conn.readResponse(readTimeoutMs, DEFAULT_MAX_HEADER_BYTES, requestWasHead);
+            if (res.statusCode < 100 || res.statusCode >= 200) { return res; }
+            // interim response: body-less, keep waiting for the final one
+        }
+    }
+
+    // defaultHeaders fill gaps only (D15): a per-request header of the same
+    // name wins, and User-Agent gets the library default when neither set it.
+    private void fillDefaults(HttpHeaders h) {
+        if (!h.has("User-Agent")) { h.set("User-Agent", "nlang-http/1.1"); }
+        foreach (string name in defaultHeaders.names()) {
+            if (!h.has(name)) {
+                foreach (string v in defaultHeaders.getAll(name)) { h.add(name, v); }
+            }
+        }
+    }
+
+    // Origin-forming port: the scheme default when the URL gives none, so a
+    // redirect that spells out :80 is the same origin as one that omits it.
+    private static int normalizePort(Url u) {
+        if (u.port > 0) { return u.port; }
+        return DEFAULT_HTTP_PORT;
+    }
+
+    private static string originOf(Url u) {
+        return u.scheme + "://" + u.host + ":" + normalizePort(u).toString();
+    }
+
+    // Request target for the request line: origin form (RFC 9112 §3.1.5),
+    // an empty path meaning "/" plus the query if any.
+    private static string targetOf(Url u) {
+        string t = u.path;
+        if (t == "") { t = "/"; }
+        if (u.hasQuery) { t = t + "?" + u.query; }
+        return t;
+    }
+
+    private static bool isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303
+            || status == 307 || status == 308;
+    }
+
+    // 301/302/303 → GET with the body dropped; 307/308 keep method+body (D12).
+    private static bool keepsMethod(int status) {
+        return status == 307 || status == 308;
+    }
+
+    // Shallow copy: the body byte[] is shared (never mutated in place), while
+    // headers get an independent copy so redirect credential stripping stays
+    // local to this call.
+    private static HttpRequest copyRequest(HttpRequest src) {
+        HttpRequest dst = HttpRequest();
+        dst.method = src.method;
+        dst.version = src.version;
+        dst.url = src.url;
+        dst.body = src.body;
+        dst.bodyChannel = src.bodyChannel;
+        dst.headers = src.headers.copy();
+        return dst;
+    }
+
+    private HttpPool poolFor(string host, int port) {
+        string key = host + ":" + port.toString();
+        // Dict.get throws on an absent key, so presence is checked first.
+        if (!m_pools.containsKey(key)) {
+            m_pools.set(key, HttpPool(host, port));
+        }
+        return m_pools.get(key);
+    }
+}
+
+// ---- free functions on the shared default client (D15) ----
+
+// Lock-free lazy init: storing a handle is atomic under the GIL, and the
+// worst case is one throwaway empty client (no socket, no pool, no thread).
+// A Mutex would need a file-scope global, which a library TU cannot carry.
+HttpClient defaultClient() {
+    if (HttpClient.shared == null) { HttpClient.shared = HttpClient(); }
+    return HttpClient.shared;
+}
+
+HttpResponse get(string url, int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.url = Url.parse(url);
+    return request(req, timeoutMs);
+}
+
+HttpResponse post(string url, string body, string contentType = "text/plain; charset=utf-8", int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse(url);
+    req.body = io.toBytes(body);
+    req.headers.set("Content-Type", contentType);
+    return request(req, timeoutMs);
+}
+
+HttpResponse put(string url, string body, string contentType = "text/plain; charset=utf-8", int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "PUT";
+    req.url = Url.parse(url);
+    req.body = io.toBytes(body);
+    req.headers.set("Content-Type", contentType);
+    return request(req, timeoutMs);
+}
+
+HttpResponse del(string url, int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "DELETE";
+    req.url = Url.parse(url);
+    return request(req, timeoutMs);
+}
+
+HttpResponse request(HttpRequest req, int timeoutMs = 0) {
+    return defaultClient().request(req, timeoutMs);
+}

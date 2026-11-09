@@ -2161,3 +2161,5 @@ stdlib_http_frame 0
 stdlib_http_chunked 0
 stdlib_http_server 0
 stdlib_http_harden 0
+stdlib_http_client 0
+stdlib_http_redirect 0
