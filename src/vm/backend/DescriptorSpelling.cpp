@@ -148,4 +148,17 @@ uint16_t VmBackend::RecipeIndexFor(const SnField& operand)
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+//v0.13.1 D6: a placeholder type's declared parameter position — the
+//ordinal the T operations (OP_Eq_T, OP_TypeArg_to_str) read from the
+//receiver's instantiation descriptor. 0xFF (the no-ordinal sentinel,
+//SnTypeNameExpr::kNoTypeParamOrdinal) when the type is not a
+//placeholder; callers reach here only on resolver-admitted operands.
+uint8_t VmBackend::TypeParamOrdinalOfType(const SnField& type)
+{
+	const TypeArgDesc arg = BuildTypeArgOf(*m_pRegistry, type);
+	return IsTypeParamArg(arg)
+		? static_cast<uint8_t>(TypeParamOrdinalOf(arg))
+		: SnTypeNameExpr::kNoTypeParamOrdinal;
+}
+
 } //namespace nlang

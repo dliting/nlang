@@ -1,0 +1,73 @@
+// v0.13.1 D6: ==/!= on type-parameter operands dispatch on the
+// receiver's instantiation kind at runtime — inline scalar compare,
+// string content, struct field value, class/array identity, enum
+// inline value. The null-literal side is the reference-domain null
+// test of the resolved kind (a scalar instantiation is never null).
+struct Pt {
+    int x;
+    int y;
+    public Pt(int x, int y) { this.x = x; this.y = y; }
+}
+enum Color { Red, Green }
+class Tag {
+    public int v;
+    public Tag(int v) { this.v = v; }
+    public string toString() { return "Tag" + v; }
+}
+class Cell<T> {
+    public T a;
+    public T b;
+    public Cell(T a) { this.a = a; }
+    public bool eqA(T other) { return a == other; }
+    public bool neA(T other) { return a != other; }
+    public bool isNullA() { return a == null; }
+    public bool isNullB() { return null == b; }
+    public bool bNotNull() { return b != null; }
+}
+int main() {
+    int acc = 0;
+    // int instantiation: inline scalar compare (equal / unequal).
+    Cell<int> ci = Cell(3);
+    if (ci.eqA(3)) acc = acc + 1;
+    if (ci.neA(4)) acc = acc + 2;
+    // A zero scalar is still not null — the scalar-never-null rule.
+    Cell<int> cz = Cell(0);
+    if (!cz.isNullA()) acc = acc + 4;
+    // string instantiation: content equality.
+    Cell<string> cs = Cell("ab");
+    if (cs.eqA("ab")) acc = acc + 8;
+    if (cs.neA("cd")) acc = acc + 16;
+    if (!cs.isNullA()) acc = acc + 32;
+    // struct instantiation: field-value equality (deep copies compare
+    // equal); a null struct field reads as null.
+    Cell<Pt> cp = Cell(Pt(1, 2));
+    if (cp.eqA(Pt(1, 2))) acc = acc + 64;
+    if (cp.neA(Pt(9, 9))) acc = acc + 128;
+    if (!cp.isNullA()) acc = acc + 256;
+    // class instantiation: identity — equal payloads stay distinct.
+    Tag t1 = Tag(1);
+    Tag t2 = Tag(1);
+    Cell<Tag> ct = Cell(t1);
+    if (ct.eqA(t1)) acc = acc + 512;
+    if (ct.neA(t2)) acc = acc + 1024;
+    // enum instantiation: inline value compare.
+    Cell<Color> cc = Cell(Color.Green);
+    if (cc.eqA(Color.Green)) acc = acc + 2048;
+    if (cc.neA(Color.Red)) acc = acc + 4096;
+    // array instantiation: handle identity (the container indexOf rule).
+    int[] arr = [1, 2];
+    Cell<int[]> ca = Cell(arr);
+    if (ca.eqA(arr)) acc = acc + 8192;
+    if (ca.neA([1, 2])) acc = acc + 16384;
+    // The unset T field reads as null for every reference kind; the
+    // mirrored null-first spelling rides the same dispatch.
+    if (ci.isNullB() && cs.isNullB() && cp.isNullB() && ct.isNullB()
+        && cc.isNullB() && ca.isNullB()) acc = acc + 32768;
+    // Scalar instantiations (int, enum) never read as null — the
+    // scalar-never-null rule above — so the unset-field null test spans
+    // the reference kinds only: string, struct, class, array.
+    if (!cs.bNotNull() && !cp.bNotNull() && !ct.bNotNull()
+        && !ca.bNotNull()) acc = acc + 65536;
+    if (acc != 131071) return 89;
+    return 0;
+}

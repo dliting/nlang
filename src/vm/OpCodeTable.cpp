@@ -96,6 +96,9 @@ static const char* s_OpCodeNames[] = {
     "alloc_array_dyn",
     "type_name_arg",
     "type_name_compose",
+    "eq_t",
+    "ne_t",
+    "type_arg_to_str",
 };
 
 const char* OpCodeName(OpCode op) {

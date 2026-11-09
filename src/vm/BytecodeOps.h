@@ -238,6 +238,21 @@ enum class OpCode : uint8_t {
                         // descriptor, mint a string of its canonical
                         // spelling, write the handle to locals[dst]
 
+    // === v0.13.1 D6: kind-dispatched T operations (==/!= and to-string) ===
+    OP_Eq_T,            // u16 dst, u16 paramOrdinal, u16 lhs, u16 rhs —
+                        // compare two T-typed slots under the receiver's
+                        // ordinal-th type argument kind (scalar inline
+                        // cell rule, string content, struct field value,
+                        // class/array identity, func record content);
+                        // 0xFFFF marks the null-literal side (no slot:
+                        // the reference null test of the kind, and a
+                        // scalar kind is never null); result bool to dst
+    OP_Ne_T,            // same operands, negated verdict
+    OP_TypeArg_to_str,  // u8 paramOrdinal — convert the T-typed value in
+                        // the accumulator through the kind's own render
+                        // (scalar registry, string identity, FormatHeap
+                        // Value walk) and write the string handle back
+
     OP_Count
 };
 
@@ -262,7 +277,9 @@ static constexpr OpCode kStrideNoOperands[] = {
     OpCode::OP_Array_to_str, OpCode::OP_Func_to_str,
     OpCode::OP_ParaEnd, OpCode::OP_Rethrow, OpCode::OP_PopHandler};
 static constexpr OpCode kStrideByteTag[] = {
-    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox};
+    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox,
+    //v0.13.1 D6: the T to-string conversion — one ordinal byte.
+    OpCode::OP_TypeArg_to_str};
 static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
@@ -308,7 +325,10 @@ static constexpr OpCode kStrideFourWords[] = {
     //v0.13.1: OP_CheckArrayType gained its descIdx word — dst, src,
     //arrayTypeIdx, descIdx; OP_AllocArrayDyn gained its element
     //descriptor word the same way (Array(dims) allocations stamp too).
+    //D6: the T equality pair — dst, ordinal, lhs, rhs (0xFFFF = the
+    //null-literal side).
     OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn,
+    OpCode::OP_Eq_T, OpCode::OP_Ne_T,
     OpCode::OP_StrForeachStep};
 static constexpr OpCode kStrideFiveWords[] = {
     //v0.13.1: the array allocators gained their descIdx word —

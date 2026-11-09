@@ -503,9 +503,12 @@ err_struct_mixed_eq compile_error can only be compared with a struct value of th
 err_struct_null_eq compile_error can only be compared with a struct value of the same type
 err_struct_scalar_eq compile_error can only be compared with a struct value of the same type
 # --- v0.13.0 review fix: operators on a type parameter inside a shared
-# generic body are kind-dependent and reject by name until runtime kind
-# info lands (dictionary model defers them with it) ---
-err_generic_t_eq compile_error cannot be applied to a type parameter
+# generic body are kind-dependent — v0.13.1 D6 lifts ==/!= and the
+# string-concat + onto runtime kind dispatch; ordering and arithmetic
+# stay rejected ---
+generic_t_eq_matrix 0
+generic_t_concat_print 0
+err_generic_t_eq_static compile_error requires an instance
 err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---

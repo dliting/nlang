@@ -344,6 +344,15 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpTypeNameCompose(reader, locals);
             break;
 
+        //v0.13.1 D6: kind-dispatched T operations (same TU).
+        case OpCode::OP_Eq_T:
+        case OpCode::OP_Ne_T:
+            OpTypeParamEquality(reader, locals, op);
+            break;
+        case OpCode::OP_TypeArg_to_str:
+            OpTypeArgToStr(reader, locals, pResult);
+            break;
+
         case OpCode::OP_CallMethodDirect:
             if (OpCallMethodDirect(reader, locals, pResult))
                 frameDone = true;

@@ -1,0 +1,57 @@
+// v0.13.1 D6: concatenation and printing of a type-parameter value
+// convert through the runtime kind's own toString path — the scalar
+// registry render, the string itself, "<struct>", the class's virtual
+// toString, the numeric enum value (row granularity), and the array
+// format walk. Both concat orders and a direct io.print cover the one
+// conversion opcode.
+import io;
+struct Pt {
+    int x;
+    int y;
+    public Pt(int x, int y) { this.x = x; this.y = y; }
+}
+enum Color { Red, Green }
+class Tag {
+    public int v;
+    public Tag(int v) { this.v = v; }
+    public string toString() { return "Tag" + v; }
+}
+class Cell<T> {
+    public T a;
+    public Cell(T a) { this.a = a; }
+    public void clear() { a = null; }
+    public string tag() { return "v=" + a; }
+    public string bang() { return a + "!"; }
+}
+int main() {
+    int acc = 0;
+    Cell<int> ci = Cell(3);
+    if (ci.tag() == "v=3") acc = acc + 1;
+    if (ci.bang() == "3!") acc = acc + 2;
+    Cell<string> cs = Cell("ab");
+    if (cs.tag() == "v=ab") acc = acc + 4;
+    if (cs.bang() == "ab!") acc = acc + 8;
+    Cell<Pt> cp = Cell(Pt(1, 2));
+    if (cp.tag() == "v=<struct>") acc = acc + 16;
+    if (cp.bang() == "<struct>!") acc = acc + 32;
+    Cell<Tag> ct = Cell(Tag(7));
+    if (ct.tag() == "v=Tag7") acc = acc + 64;
+    if (ct.bang() == "Tag7!") acc = acc + 128;
+    // Enum arguments erase to their int row: the render is numeric.
+    Cell<Color> cc = Cell(Color.Green);
+    if (cc.tag() == "v=1") acc = acc + 256;
+    if (cc.bang() == "1!") acc = acc + 512;
+    int[] arr = [1, 2];
+    Cell<int[]> ca = Cell(arr);
+    if (ca.tag() == "v=[1, 2]") acc = acc + 1024;
+    if (ca.bang() == "[1, 2]!") acc = acc + 2048;
+    // A null T value prints through the shared null render.
+    Cell<Tag> cn = Cell(Tag(1));
+    cn.clear();
+    if (cn.tag() == "v=<null>") acc = acc + 4096;
+    // The direct print path rides the same conversion.
+    io.print(ci.tag());
+    io.print(ct.bang());
+    if (acc != 8191) return 88;
+    return 0;
+}

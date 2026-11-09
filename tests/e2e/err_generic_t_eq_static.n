@@ -1,0 +1,9 @@
+// v0.13.1 D6: T equality reads the receiver's instantiation
+// descriptor, so a static member body has no receiver to read — the
+// same rule as typeName of a type parameter. Named compile error.
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    static bool probe(Box<T> other) { return other.item == null; }
+}
+int main() { return 0; }

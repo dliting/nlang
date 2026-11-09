@@ -838,6 +838,22 @@ private:
     //OP_CheckArrayType row (0xFFFF never reaches here).
     void CheckArrayTypeElemDescriptor(int32_t heapIdx, uint16_t descIdx,
                                       const uint8_t* locals);
+    //v0.13.1 D6: the receiver's ordinal-th type argument — the kind the
+    //T operations dispatch on (frame slot 0 = this).
+    const TypeArgDesc& ReceiverTypeArgOf(const uint8_t* locals,
+                                         uint8_t ordinal);
+    //v0.13.1 D6: two T-typed slot values under the resolved kind, each
+    //kind mirroring its dedicated equality opcode.
+    bool TypeArgValuesEqual(const TypeArgDesc& arg, const uint8_t* lhs,
+                            const uint8_t* rhs);
+    //v0.13.1 D6: OP_Eq_T/OP_Ne_T — the kind-dispatched comparison
+    //(0xFFFF marks the null-literal side).
+    void OpTypeParamEquality(BytecodeReader& reader, uint8_t* locals,
+                             OpCode op);
+    //v0.13.1 D6: OP_TypeArg_to_str — the kind's own render on the
+    //accumulator's T value.
+    void OpTypeArgToStr(BytecodeReader& reader, const uint8_t* locals,
+                        uint8_t* pResult);
     //The instantiation-matching tail of OpCheckCast (0xFFFF skips).
     void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
                                 const uint8_t* locals);

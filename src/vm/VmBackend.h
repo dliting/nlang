@@ -1160,6 +1160,10 @@ private:
     //v0.13.1: an array allocation's element-instantiation row — 0xFFFF
     //unless the element type is a generic instantiation.
     uint16_t ElemDescriptorIndexFor(SnField* pElemType);
+    //v0.13.1 D6: a placeholder type's declared parameter position (the
+    //ordinal the T opcodes read from the receiver descriptor);
+    //kNoTypeParamOrdinal when the type is not a placeholder.
+    uint8_t TypeParamOrdinalOfType(const SnField& type);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
@@ -1417,11 +1421,18 @@ private:
     bool EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
                             NodeKind dstKind, SnField* sourceType,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
+    bool EmitCastClassSourceToString(SnCastExpr& cast, SnField* sourceType,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
     bool EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
         SnField* sourceType, BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastFuncToString(BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastClassToString(BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastArrayToString(BytecodeEmitter& emitter, uint16_t resultOffset);
+    //v0.13.1 D6: a type-parameter value converts through the receiver's
+    //instantiation kind (OP_TypeArg_to_str).
+    void EmitCastTypeArgToString(BytecodeEmitter& emitter,
+        uint16_t resultOffset, uint8_t ordinal);
     void EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
@@ -1497,7 +1508,8 @@ private:
     void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                       uint16_t resultOffset);
     void EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind, bool isString,
-                          bool isFunc, bool isStruct, BytecodeEmitter& emitter,
+                          bool isFunc, bool isStruct, bool isTypeParam,
+                          BytecodeEmitter& emitter,
                           uint16_t resultOffset, uint16_t rightSlot);
     void EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
                                 bool isString,
@@ -1509,8 +1521,13 @@ private:
                                 uint16_t rightSlot);
     void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
                               bool isString, bool isFunc, bool isStruct,
-                              BytecodeEmitter& emitter,
+                              bool isTypeParam, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
+    //v0.13.1 D6: the OP_Eq_T/OP_Ne_T emission (operand slots, null-side
+    //marker, receiver ordinal).
+    void EmitTypeParamEqualityOp(SnBinaryExpr& bin,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset, uint16_t rightSlot);
 
     //New-object emission, shared by the SnNewExpr arm and the 0.9.0
     //ctor-invoke twin (`Foo(args)` without new, invoke.CtorClass()):

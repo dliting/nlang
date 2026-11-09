@@ -6,6 +6,8 @@
     and MintNewString takes the intern table's domain lock internally.
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/RnTypes.h>
 #include <cstring>
 #include <exception>
 
@@ -129,14 +131,8 @@ std::string VmExecutor::ComposeRecipeSpelling(
 void VmExecutor::OpTypeNameArg(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint8_t ordinal = reader.ReadByte();
-    int32_t thisIdx = 0;
-    std::memcpy(&thisIdx, locals, sizeof(thisIdx));
-    const GenericInstDescriptor* recv = InstDescriptorOf(thisIdx);
-    if (!recv || ordinal >= recv->TypeArgs().size())
-        throw std::runtime_error(
-            "NLang VM: typeName argument without an instance receiver");
-    const int32_t handle = MintNewString(
-        CanonicalArgSpelling(recv->TypeArgs()[ordinal]));
+    const TypeArgDesc& arg = ReceiverTypeArgOf(locals, ordinal);
+    const int32_t handle = MintNewString(CanonicalArgSpelling(arg));
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
 
@@ -183,6 +179,125 @@ const GenericInstDescriptor* VmExecutor::ArrayElemDescriptorOf(
             ArrayViewTargetCell(rank)];
     }
     return InstDescriptorOf(heapIdx);
+}
+
+//v0.13.1 D6: the shared receiver-argument resolution of the T opcodes —
+//frame slot 0 is `this`, and its instantiation descriptor's ordinal-th
+//type argument names the kind this execution dispatches on. A missing
+//descriptor or an out-of-range ordinal is a corrupt image (the resolver
+//rejects static contexts and mismatched parameters before emission).
+const TypeArgDesc& VmExecutor::ReceiverTypeArgOf(const uint8_t* locals,
+                                                 uint8_t ordinal) {
+    int32_t thisIdx = 0;
+    std::memcpy(&thisIdx, locals, sizeof(thisIdx));
+    const GenericInstDescriptor* recv = InstDescriptorOf(thisIdx);
+    if (!recv || ordinal >= recv->TypeArgs().size())
+        throw std::runtime_error(
+            "NLang VM: generic operation without an instance receiver");
+    return recv->TypeArgs()[ordinal];
+}
+
+//v0.13.1 D6: two T-typed slot values under the resolved argument kind —
+//each kind mirrors its dedicated opcode's semantics exactly (scalar
+//inline cells, OP_Eq_str content, OP_Eq_struct field value, func record
+//content, class/array handle identity), so a T comparison always agrees
+//with the same comparison written on the instantiated type.
+bool VmExecutor::TypeArgValuesEqual(const TypeArgDesc& arg,
+                                    const uint8_t* lhs,
+                                    const uint8_t* rhs) {
+    int32_t lh, rh;
+    std::memcpy(&lh, lhs, sizeof(lh));
+    std::memcpy(&rh, rhs, sizeof(rh));
+    //Identity fast path (also settles null == null for every kind before
+    //the heap-reading comparators — OpStructEquality's null rule).
+    if (lh == rh)
+        return true;
+    if (int row = ScalarPrimIndexOfRtk(arg.resolvedKind); row >= 0) {
+        //Inline cells: narrow rows hold the value-extended low cell (the
+        //OpBox/BoxedValuesEqual convention); 8-byte rows carry the high
+        //cell too. Raw-cell compare — the family's float rule.
+        if (lh != rh)
+            return false;
+        if (kScalarPrims[row].slotWidth < 8)
+            return true;
+        int32_t lhi, rhi;
+        std::memcpy(&lhi, lhs + 4, sizeof(lhi));
+        std::memcpy(&rhi, rhs + 4, sizeof(rhi));
+        return lhi == rhi;
+    }
+    switch (arg.resolvedKind) {
+    case RTK_String:
+        return StringsEqual(lh, rh);
+    case RTK_Struct:
+        return StructValuesEqual(lh, rh);
+    case RTK_Func:
+        return FuncRecordValuesEqual(lh, rh);
+    case RTK_Class:
+    case RTK_Array:
+        //Handle identity — the container indexOf rule.
+        return false;  //lh != rh already settled above
+    default:
+        throw std::runtime_error(
+            "NLang VM: equality on an unsupported type argument");
+    }
+}
+
+//v0.13.1 D6: OP_Eq_T/OP_Ne_T — dispatch on the receiver's type argument
+//kind. The null-literal side (0xFFFF, no slot) takes the kind's
+//reference null test: handle kinds compare the other side against 0
+//exactly as their dedicated opcodes' null comparisons do (string rides
+//StringsEqual, the `s == null` rule), and a scalar kind is never null —
+//a zero value is a value, not a null.
+void VmExecutor::OpTypeParamEquality(BytecodeReader& reader,
+                                     uint8_t* locals, OpCode op) {
+    const bool bNeg = (op == OpCode::OP_Ne_T);
+    const uint16_t dst = reader.ReadUint16();
+    const uint16_t ordinal = reader.ReadUint16();
+    const uint16_t lhs = reader.ReadUint16();
+    const uint16_t rhs = reader.ReadUint16();
+    const TypeArgDesc& arg = ReceiverTypeArgOf(
+        locals, static_cast<uint8_t>(ordinal));
+    bool bEqual;
+    if (lhs == 0xFFFF || rhs == 0xFFFF) {
+        const uint8_t* other =
+            (lhs == 0xFFFF) ? locals + rhs : locals + lhs;
+        int32_t handle;
+        std::memcpy(&handle, other, sizeof(handle));
+        if (ScalarPrimIndexOfRtk(arg.resolvedKind) >= 0)
+            bEqual = false;
+        else if (arg.resolvedKind == RTK_String)
+            bEqual = StringsEqual(handle, 0);
+        else
+            bEqual = (handle == 0);
+    } else {
+        bEqual = TypeArgValuesEqual(arg, locals + lhs, locals + rhs);
+    }
+    const int32_t r = ((bEqual != bNeg) ? 1 : 0);
+    std::memcpy(locals + dst, &r, sizeof(r));
+}
+
+//v0.13.1 D6: the kind's own to-string on the accumulator's T value —
+//scalars through the registry renderer (the OP_Prim_to_str body), a
+//string value is already the result, and handle kinds render through
+//the shared FormatHeapValue walk (list/dict formats, the class's
+//virtual toString, "<struct>", the array bracket walk, "<null>").
+void VmExecutor::OpTypeArgToStr(BytecodeReader& reader,
+                                const uint8_t* locals, uint8_t* pResult) {
+    const TypeArgDesc& arg =
+        ReceiverTypeArgOf(locals, reader.ReadByte());
+    if (arg.resolvedKind == RTK_String)
+        return;
+    if (int row = ScalarPrimIndexOfRtk(arg.resolvedKind); row >= 0) {
+        std::string s = RnBuiltinDataType::InstanceOf(
+            kScalarPrims[row].kind)->ValueToString(pResult);
+        const int32_t handle = MintNewString(std::move(s));
+        std::memcpy(pResult, &handle, sizeof(handle));
+        return;
+    }
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
+    const int32_t handle = MintNewString(FormatHeapValue(heapIdx, 0));
+    std::memcpy(pResult, &handle, sizeof(handle));
 }
 
 } // namespace nlang

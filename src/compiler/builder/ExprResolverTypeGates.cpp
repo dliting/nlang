@@ -127,28 +127,82 @@ bool ExprResolveAccessor::RejectCharArithmetic(SnBinaryExpr &sn,
 //scalar compare for an int — and the dictionary model resolves that
 //kind per instantiation at RUNTIME, which a shared body compiled once
 //cannot see. Such operands used to fall through to the raw slot
-//comparison (silently wrong for string and struct arguments); now every
-//SnBinaryExpr operator family rejects by name until runtime kind info
-//lands. Plain assignment is a different node and stays legal: storage
-//and transfer are kind-independent.
+//comparison (silently wrong for string and struct arguments); every
+//SnBinaryExpr operator family rejected by name until runtime kind info
+//landed. v0.13.1 D6 lifts the rejection for ==/!= (T with T of the
+//same parameter, T with the null literal) and for the string
+//concatenation + (one side string, the other T): both dispatch on the
+//receiver's instantiation kind at runtime. Ordering and arithmetic on
+//T stay rejected, and plain assignment is a different node and stays
+//legal: storage and transfer are kind-independent.
 static bool IsTypeParamType(SnField *pType)
 {
 	return pType && pType->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl *>(pType)->IsTypeParamPlaceholder();
 }
 
+//v0.13.1 D6: does this operator on type-parameter operands belong to a
+//family lifted onto runtime kind dispatch? Equality admits T==T (same
+//parameter) and T against the null literal; + admits string
+//concatenation with one T side. Everything else stays kind-dependent.
+static bool IsKindDispatchedOp(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, bool lT, bool rT)
+{
+	const bool lNull = sn.Left()->ContainFlags(NF_NullLiteral);
+	const bool rNull = sn.Right()
+		&& sn.Right()->ContainFlags(NF_NullLiteral);
+	if (op == SnBinaryExpr::OP_Equal || op == SnBinaryExpr::OP_NotEqual)
+		return (lT && rT) || (lT && rNull) || (lNull && rT);
+	if (op == SnBinaryExpr::OP_Add)
+	{
+		SnField *pLT = sn.Left()->EvalDataType();
+		SnField *pRT = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+		return (lT && pRT && pRT->Kind() == NK_String)
+			|| (rT && pLT && pLT->Kind() == NK_String);
+	}
+	return false;
+}
+
 bool ExprResolveAccessor::RejectTypeParamOperand(SnBinaryExpr &sn,
 	SnBinaryExpr::Operator op)
 {
-	if (!IsTypeParamType(sn.Left()->EvalDataType())
-		&& !(sn.Right()
-			&& IsTypeParamType(sn.Right()->EvalDataType())))
+	SnField *pLT = sn.Left()->EvalDataType();
+	SnField *pRT = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+	const bool lT = IsTypeParamType(pLT);
+	const bool rT = IsTypeParamType(pRT);
+	if (!lT && !rT)
 		return false;
-	m_Env.Log(CLL_Error, sn.Location(),
-		"operator '%s' cannot be applied to a type parameter: "
-		"the operand kind is not known until the instantiation.",
-		SnBinaryExpr::OperatorSymbol(op));
-	return true;
+	if (!IsKindDispatchedOp(sn, op, lT, rT))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s' cannot be applied to a type parameter: "
+			"the operand kind is not known until the instantiation.",
+			SnBinaryExpr::OperatorSymbol(op));
+		return true;
+	}
+	//Both admitted families read the receiver's instantiation
+	//descriptor at runtime — the same instance-context rule as
+	//typeName of a type parameter.
+	auto *pEnclosing = EnclosingFunction();
+	if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s' on a type parameter requires an "
+			"instance context; use an instance member or the "
+			"compensation pattern.",
+			SnBinaryExpr::OperatorSymbol(op));
+		return true;
+	}
+	//Two different parameters may resolve to different kinds in one
+	//instantiation — no single dispatch could compare them.
+	if (lT && rT && pLT != pRT)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"values of different type parameters cannot be "
+			"compared.");
+		return true;
+	}
+	return false;
 }
 
 } //namespace nlang

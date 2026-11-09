@@ -171,16 +171,21 @@ void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     //Same LEFT-keyed rule; the resolver gate admits same-type struct
     //pairs for ==/!= only.
     bool isStruct = evalType && evalType->Kind() == NK_StructDecl;
+    //v0.13.1 D6: a type-parameter operand dispatches on the receiver's
+    //instantiation kind at runtime (OP_Eq_T/OP_Ne_T). The resolver gate
+    //admits only ==/!= and string concat for these operands.
+    bool isTypeParam = evalType && evalType->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(evalType)->IsTypeParamPlaceholder();
 
-    EmitBinaryOpCode(bin, numKind, isString, isFunc, isStruct, emitter,
-                     resultOffset, rightSlot);
+    EmitBinaryOpCode(bin, numKind, isString, isFunc, isStruct, isTypeParam,
+                     emitter, resultOffset, rightSlot);
 }
 
 //Opcode dispatch on the resolved left-operand kind; the family emitters
 //below hold the arm bodies. Unsupported operators are an internal error.
 void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
                                  bool isString, bool isFunc, bool isStruct,
-                                 BytecodeEmitter& emitter,
+                                 bool isTypeParam, BytecodeEmitter& emitter,
                                  uint16_t resultOffset, uint16_t rightSlot) {
     auto op = bin.Op();
     switch (op) {
@@ -202,7 +207,7 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
     case SnBinaryExpr::OP_Equal:
     case SnBinaryExpr::OP_NotEqual:
         EmitBinaryEqualityOp(bin, numKind, isString, isFunc, isStruct,
-                             emitter, resultOffset, rightSlot);
+                             isTypeParam, emitter, resultOffset, rightSlot);
         break;
     //0.9.9 shifts: resolver guarantees integer carrier rows and casts
     //both operands to it, so the kind-immediate family applies as-is.
@@ -300,15 +305,50 @@ void VmBackend::EmitBinaryRelationalOp(SnBinaryExpr& bin, NodeKind numKind,
     EmitCmp(emitter, numKind, cmpOp, resultOffset, rightSlot);
 }
 
+//v0.13.1 D6 equality arm: a type-parameter operand compares through the
+//receiver's instantiation kind (OP_Eq_T/OP_Ne_T); the null-literal side
+//passes the 0xFFFF no-slot marker so the scalar-never-null rule stays
+//reachable (a plain 0 slot would read as a zero scalar and match the
+//identity fast path).
+void VmBackend::EmitTypeParamEqualityOp(SnBinaryExpr& bin,
+                                        BytecodeEmitter& emitter,
+                                        uint16_t resultOffset,
+                                        uint16_t rightSlot) {
+    auto childIt = bin.Children().begin();
+    auto& leftChild = static_cast<SnExpression&>(*childIt);
+    const uint8_t ordinal =
+        TypeParamOrdinalOfType(*leftChild.EvalDataType());
+    NLANG_ASSERT(ordinal != SnTypeNameExpr::kNoTypeParamOrdinal);
+    constexpr uint16_t kNoSlot = 0xFFFF;
+    const uint16_t lhsSlot = bin.Left()->ContainFlags(NF_NullLiteral)
+        ? kNoSlot : resultOffset;
+    const uint16_t rhsSlot = bin.Right()
+        && bin.Right()->ContainFlags(NF_NullLiteral)
+        ? kNoSlot : rightSlot;
+    emitter.Emit(bin.Op() == SnBinaryExpr::OP_Equal
+        ? OpCode::OP_Eq_T : OpCode::OP_Ne_T);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(ordinal);
+    emitter.EmitUint16(lhsSlot);
+    emitter.EmitUint16(rhsSlot);
+}
+
 //Equality arm bodies: struct values compare by field value (OP_*_struct,
 //v0.13.0 D2), func handles by handle content (OP_*_func), strings by
-//bytes, primitives by OP_Cmp Eq/Ne.
+//bytes, primitives by OP_Cmp Eq/Ne. v0.13.1 D6: a type-parameter operand
+//compares through the receiver's instantiation kind (OP_Eq_T/OP_Ne_T).
 void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
                                      bool isString, bool isFunc, bool isStruct,
+                                     bool isTypeParam,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
                                      uint16_t rightSlot) {
     auto op = bin.Op();
+    if (isTypeParam)
+    {
+        EmitTypeParamEqualityOp(bin, emitter, resultOffset, rightSlot);
+        return;
+    }
     if (isStruct)
     {
         emitter.Emit(op == SnBinaryExpr::OP_Equal

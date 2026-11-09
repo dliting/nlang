@@ -1,6 +1,7 @@
 /*---
-    EmitExprCast.cpp — 转型与下标表达式发射：cast、as、下标读取。
-    从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
+    EmitExprCast.cpp — 转型表达式发射：cast与as。
+    从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）；
+    下标表达式已拆至EmitContainerSubscript.cpp（2026-11-09）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/BuildEnvironment.h>
@@ -95,6 +96,19 @@ void VmBackend::EmitCastFuncToString(BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
+//Cast arm: type parameter → string converts the accumulator's value
+//through the receiver's instantiation kind (v0.13.1 D6) — same
+//pResult shape as the func arm.
+void VmBackend::EmitCastTypeArgToString(BytecodeEmitter& emitter,
+                                        uint16_t resultOffset,
+                                        uint8_t ordinal) {
+    EmitPResultRefresh(emitter, resultOffset);
+    emitter.Emit(OpCode::OP_TypeArg_to_str);
+    emitter.EmitByte(ordinal);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+}
+
 //Cast arm: class → string emits a virtual toString() call — copy
 //resultOffset → callParamBase[0], OP_CallMethod by name, copy back.
 void VmBackend::EmitCastClassToString(BytecodeEmitter& emitter,
@@ -123,7 +137,32 @@ void VmBackend::EmitCastArrayToString(BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
-//Cast arm: to-string special cases (enum/func/class/array), each
+//Cast arm: NK_ClassDecl sources to string, in the mandatory precedence
+//order — func handle render first (a handle's slot[0] is a function
+//index the virtual toString dispatch would misread as a class index),
+//then the v0.13.1 D6 type-parameter kind dispatch (a placeholder is an
+//NK_ClassDecl with no virtual toString; the kind decides at runtime
+//between the scalar registry render, the string itself, and the heap
+//value walk), then the Phase 8e-9b virtual toString() call.
+bool VmBackend::EmitCastClassSourceToString(SnCastExpr& cast,
+                                            SnField* sourceType,
+                                            BytecodeEmitter& emitter,
+                                            uint16_t resultOffset) {
+    if (static_cast<SnClassDecl*>(
+            cast.Source()->EvalDataType())->IsFuncType()) {
+        EmitCastFuncToString(emitter, resultOffset);
+        return true;
+    }
+    if (static_cast<SnClassDecl*>(sourceType)->IsTypeParamPlaceholder()) {
+        EmitCastTypeArgToString(emitter, resultOffset,
+            TypeParamOrdinalOfType(*sourceType));
+        return true;
+    }
+    EmitCastClassToString(emitter, resultOffset);
+    return true;
+}
+
+//Cast arm: to-string special cases (enum/class-family/array), each
 //reporting whether it emitted so the caller returns before the enum→int
 //collapse in EmitCastNumericOrStringOp.
 bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
@@ -137,33 +176,22 @@ bool VmBackend::EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
         if (EmitCastEnumToString(cast, srcKind, sourceType, emitter,
                                  resultOffset))
             return true;
-    }
-    //Phase 13: func → string renders the handle ("func <name>")
-    //via OP_Func_to_str. MUST precede the class→string branch —
-    //a handle's slot[0] is a function index, and the virtual
-    //toString dispatch would read it as a class index.
-    if (srcKind == NK_ClassDecl && dstKind == NK_String
-        && static_cast<SnClassDecl*>(
-            cast.Source()->EvalDataType())->IsFuncType()) {
-        EmitCastFuncToString(emitter, resultOffset);
-        return true;
-    }
-    //Phase 8e-9b: class → string emits a virtual toString() call.
-    if (srcKind == NK_ClassDecl && dstKind == NK_String) {
-        EmitCastClassToString(emitter, resultOffset);
-        return true;
-    }
-    //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
-    //VM primitive, not a class, so OP_CallMethod doesn't apply).
-    //Array-ness keys on the source expression's array-valued
-    //property (the resolver's single channel) — identifier and
-    //member sources, invoke results, new-array expressions and
-    //container element reads alike. The old Kind/Field() test
-    //missed every non-lvalue shape, which then fell through to
-    //the Int32→String arm and printed the raw handle index.
-    if (dstKind == NK_String && cast.Source()->IsArrayValued()) {
-        EmitCastArrayToString(emitter, resultOffset);
-        return true;
+        if (srcKind == NK_ClassDecl
+            && EmitCastClassSourceToString(cast, sourceType, emitter,
+                                           resultOffset))
+            return true;
+        //Phase 9b-pre: array → string emits OP_Array_to_str (Array is a
+        //VM primitive, not a class, so OP_CallMethod doesn't apply).
+        //Array-ness keys on the source expression's array-valued
+        //property (the resolver's single channel) — identifier and
+        //member sources, invoke results, new-array expressions and
+        //container element reads alike. The old Kind/Field() test
+        //missed every non-lvalue shape, which then fell through to
+        //the Int32→String arm and printed the raw handle index.
+        if (cast.Source()->IsArrayValued()) {
+            EmitCastArrayToString(emitter, resultOffset);
+            return true;
+        }
     }
     return false;
 }
@@ -377,124 +405,4 @@ void VmBackend::Access(SnAsExpr& expr) {
                                : std::string("?")));
 }
 
-//Subscript arm: List<T>/Dict<K,V> get() sugar — classify the generic
-//instantiation (element/key/value boxing tags), then emit the call.
-void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
-                                          BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
-    auto* pGenClass = static_cast<SnClassDecl*>(
-        sub.Array()->EvalDataType());
-    const auto& baseName = pGenClass->BaseName();
-    const auto& typeArgs = pGenClass->GenericTypeArgs();
-    bool isList = (baseName == kBuiltinListTypeName && !typeArgs.empty());
-    bool isDict = (baseName == kBuiltinDictTypeName && typeArgs.size() > 1);
-    //Array-typed slots are interned tokens — raw
-    //handles, no box/unbox (BoxingTagFor default).
-    //Dict keys box when primitive; List's index is int.
-    auto keyBox = isDict
-        ? BoxingTagFor(typeArgs[0])
-        : BoxingTagResult{0, false};
-    SnField* pElem = isList ? typeArgs[0]
-        : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-    auto valBox = BoxingTagFor(pElem);
-    EmitContainerGetCall(sub, keyBox, valBox, emitter, resultOffset);
-}
-
-//Subscript arm: the get() call itself — emits through EvalAreaClaim so
-//nested calls (e.g. foo(li[j])) cannot clobber an outer call's
-//callParamBase slice. Unboxes the get() return for primitive T/V,
-//mirroring the foreach element load and the member-call boxing plans.
-void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
-                                     BoxingTagResult keyBox,
-                                     BoxingTagResult valBox,
-                                     BytecodeEmitter& emitter,
-                                     uint16_t resultOffset) {
-    EvalAreaClaim claim(*this, 2);
-    uint16_t claimBase = claim.base();
-    //Receiver → claim[0] directly (round-4: NOT via
-    //resultOffset — a self-referential read `i = li[i]`
-    //would overwrite the index's source slot with the
-    //List handle before the index is emitted). Same
-    //shape as the array path below; resultOffset is
-    //written only by the final get() store.
-    EmitExpression(*sub.Array(), emitter, claimBase);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(claimBase);
-    //arg0 = index (box primitive Dict keys).
-    uint16_t keyOffset = claimBase + kFrameSlotBytes;
-    EmitExpression(*sub.Index(), emitter, keyOffset);
-    if (keyBox.isPrimitive) {
-        EmitPResultRefresh(emitter, keyOffset);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(keyBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(keyOffset);
-    }
-    //Bulk-copy claim → callParamBase (raw 4-byte moves
-    //preserve tagged representations).
-    for (uint16_t i = 0; i < 2; ++i) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(
-            m_currFunc->callParamBase + i * kFrameSlotBytes);
-    }
-    uint16_t nameIdx = AddStringConstant("get");
-    emitter.Emit(OpCode::OP_CallMethod);
-    emitter.EmitUint16(nameIdx);
-    emitter.EmitUint16(m_currFunc->callParamBase);
-    if (valBox.isPrimitive) {
-        emitter.Emit(OpCode::OP_Unbox);
-        emitter.EmitByte(valBox.tag);
-    }
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-    emitter.Emit(OpCode::OP_ParaEnd);
-}
-
-    // Member expression - struct field access or delegate to inner
-void VmBackend::Access(SnSubscriptExpr& expr) {
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
-        auto& sub = static_cast<SnSubscriptExpr&>(expr);
-        //0.9.0: a type-base subscript is the sized array creation twin
-        //(`int[n]` / `Foo[n]`); it emits through the shared new-array
-        //path — the base names a type and evaluates to nothing.
-        if (sub.NewArrayElem()) {
-            //Stage-2: ND creation — the index list IS the rank; each dim
-            //stages into a consecutive eval-area slot for OP_AllocArrayN.
-            EmitNewArrayND(sub.NewArrayElem(), sub.Indices(),
-                resultOffset, emitter);
-            return;
-        }
-        //0.7.5 string subscript: byte read on a string base.
-        if (sub.Array()->IsResolved() && sub.Array()->EvalDataType()
-            && sub.Array()->EvalDataType()->Kind() == NK_String) {
-            EmitStringByteAt(sub, emitter, resultOffset);
-            return;
-        }
-        //List<T>/Dict<K,V> subscript sugar: li[i] == li.get(i),
-        //d[k] == d.get(k). Dispatch on the base's resolved type being a
-        //generic instantiation (arrays take the OP_LoadElement path below).
-        if (IsContainerSubscript(*sub.Array())) {
-            EmitContainerSubscriptGet(sub, emitter, resultOffset);
-            return;
-        }
-        //v0.12.7 Task 11: a slice axis mints a view instead of loading
-        //an element (the resolver typed the result as the view token).
-        if (HasSliceAxis(sub)) {
-            EmitArrayViewRead(sub, emitter, resultOffset);
-            return;
-        }
-        EmitArraySubscriptRead(sub, emitter, resultOffset);
-}
-
-//Plain array element read (OP_LoadElement): parks receiver AND index in
-//an exclusive EvalAreaClaim(2), mirroring the container get() shape
-//(Phase 10 audit round-3 — the old chain parked the receiver in
-//resultOffset and wrapped PickTempSlot at nesting depth 5). Claim slots
-//stack per nesting level, so read depth is unbounded. No defensive
-//CopyStruct for struct element types (Phase 9d-3): value copies belong
-//at assignment/store boundaries; copying on read broke write-through
-//receivers — `arr[i].f = v` stored into a discarded copy.
 } //namespace nlang
