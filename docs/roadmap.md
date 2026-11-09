@@ -105,8 +105,10 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 ## 进行中
 
 - **0.12.x 系列：内建声明真源化收尾＋用户定义泛型**（用户指示 2026-10-28）——数组/字符串声明面进预置包（承接 0.11.x 内建声明真源化两阶段；按class重实现的设想已于 2026-11-01 否决，见远期特性数组实现路线结论），用户定义泛型`class Foo<T>`完整落地（含误拼诊断文案改写：现"not a built-in generic type"误标声明模板臂，v0.12.1 探针已钉该文案）；系列首版 v0.12.0，v0.12.1 闭括号配对修复落地（嵌套泛型`Box<Box<int>>`解锁，探针已翻转）；v0.12.2 数组/字符串声明面统一（预置面类String/Array声明方法面、resolver按声明校验、类型位拒绝门、签名表退役改绑定表取id）；v0.12.3 并发类拆分（thread.n/concurrent.n两包分工，语言核心与基础容器恒可见的§12.4一句话规则）；v0.12.4 const聚合（`const class`/`const struct`类型级不可变＋NCU v2.12标记）与Exception不可变＋cause链＋失败报告沿链输出；v0.12.5 预置包拆分（语言核心进`lang.n`、基础容器进`containers.n`，builtins单体退役，`import builtins;`成为未知包，项目同名源文件即该包副本）；v0.12.6静态成员与静态局部（class/interface静态字段＋函数内静态局部＋`static const`编译期折叠/懒惰初始化、初始化异常可捕获重试、循环import编译期禁止；docs/dev/static_members_design.md）；v0.12.7数组/张量统一（单一类型`Array<T>`＋方括号静态秩标注与边界秩检查、O(1)视图/slice/广播、数组进Object、序列化数组内容＋调试器视图显示、fs二进制读取对，MNIST MLP验收0.897；docs/dev/array_tensor_design.md）；v0.12.8网络库（net包：TCP监听器/流、UDP、ICMP ping、DNS解析作业，ABI v11 IO停泊与工作池回调，docs/dev/net_library_design.md）；v0.12.9合并发布（0.12.8网络库并入主线、0.12.7打标后修复批收编、两轮对抗评审修复批）
-- **0.13.0：修复手册中所有改动工作量相对小的“已知限制”，合理性优先，不需要向下兼容。
+- **0.13.0：值相等批＋手册已知限制清偿**（用户裁定2026-11-07：并入v0.13.2第①期深值比较＋泛型struct实参解除，其余期次留v0.13.2）——struct `==`/`!=`按字段值比较（`OP_Eq_struct`/`OP_Ne_struct`，NCU v2.14，比较门拒绝排序/异类型/null）；容器元素与Dict键struct按深值、func按句柄内容三元组匹配（`StructValuesEqual`/`FuncRecordValuesEqual`）；用户模板接受struct类型实参（边界深拷，体内T→T搬运别名为已文档化角落）；func类型作Dict键的门删除；const前缀顶层函数两拼写统一具名拒绝（TopItem文法诊断臂＋`CheckFunctionModifierContract`，冲突台账29+3→30+5）；手册语言页删6条陈旧条目（三条跨模块已由绿测试证伪＋List<struct>/List<func>恒等＋const函数）、VM页删2改1（IntList死引用改`int[]`原生存储）、比较/容器/序列化/字节码页同步值语义；CHANGELOG迁移注记（Dict按值键去重、struct==翻转、dedup写法可用）。
 - **0.13.1：运行时泛型类型参数信息**（用户指示2026-11-01，原排0.12.8，网络库占用后于2026-11-07改排）——接通实例化描述符双载体（对象头部＋调用点隐藏实参，宿主ABI v11→v12）＋`typeName(类型表达式)`语言表达式（具体类型编译期折叠为字面量、类型参数`T`在共享方法体内读运行时描述符返回规范拼写string，用户裁定）＋转型按描述符递归比较区分实例化＋catch泛型类型编译期拒绝＋`.ncu`模板表（无源码预编译包铸新实例化）；静态字段补偿模式随本版写入语言规格与用户手册（用户指示2026-11-01）。目标、缺口取证、非目标与验收见docs/dev/generic_runtime_typeinfo_design.md。设计此功能时，应该全面考虑基本的运行时类型信息和辅助设施的支持。
+- **0.13.1a：泛型完善** 静态引用T全面化+游离函数泛型支持，实现帧隐藏描述符槽与调用点隐藏实参。
+- **0.13.1b：跨模块访问完善** 跨模型访问完善 1）支持跨模块同参数数重载，同名同参数数但参数类型不同的两个重载函数。2）解决枚举不能跨模块导入的已知限制。3）解决导入struct的实例字段跨模块访问的已知限制。4) 跨模块游离函数和类的可见性完善，支持private/protected/public访问控制：类缺省public；函数缺省protected（同一package内可见）。
 - **v0.13.2：值类型引用（&）**（用户指示 2026-11-07）——概要设计已定稿并经用户/编译器专家/系统架构师三视角审核（docs/dev/value_type_reference_design.md）：值类型（标量/enum/struct/string）保持值语义默认、以`&`显式引入引用（局部/形参/返回/foreach四位置；class等身份引用类型上`&`为等价记号）；统一表示（基准记录句柄＋cell偏移）＋记录稳定化（赋值/写入原位更新，堆分配收敛到新位置建立场景）；out参数退役、`&`形参全面取代；用户泛型struct实参解除；容器元素匹配改字段深值比较（配合项，销账已知限制第26/4项）。四期实施：①深值比较＋泛型解除→②记录稳定化→③&表示＋容器getter→④out退役，每期独立停靠，现行值语义测试全数不翻为护栏；并发原位拷贝按单原子存储操作契约核验。
 - **v0.13.3：Lambda函数/闭包**
 - **v0.13.4：字符串处理增强/URL库**（已完成，2026-11-08发布）——String三方法（`indexOf(t,from)`/`toInt(radix)`/`equalsIgnoreCase`，VM内建intrinsic）、`io` Base64四编解码、`system`包（`wallMs`/`monoMs`双时钟＋`DateTime` UTC日历类型，新native模块`nlang_system`）、`url`包（RFC 3986 `Url` parse/resolve/toString/queryParams/encodeQuery＋percent/form组件编解码）；null退出string值域＋`string.EMPTY`常量（用户裁定；已知限制：跨native边界null句柄仍读作空串）；`io.nowMs`迁`system.monoMs`；docs/dev/http_library_design.md
@@ -130,14 +132,6 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - 文档子系统延后项：①片段审计扩展到 specification/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
 
 ---
-
-## 当前状态
-
-- **1793 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 32 个示例）；ctest 121 项（build 树，IDE 树另含Qt族）
-- 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 `.ncu` v2.13（加载期链接布局：导入槽＋逐单元模块路径；2.13 新增静态槽位表，早于 2.13 的映像一律拒绝）＋ `.npkg` v1.0 程序包（成员校验和）；`.nmod` 已退役
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ `const class`/`const struct` 类型级不可变 + 泛型容器（类型实参允许 `T[]`）+ 异常（Exception 家族不可变＋cause 原因链，失败报告沿链输出）+ 原生绑定 + 标准库与第三方库统一包机制（显式 import 后裸名与限定名皆可用，通配导入仅限定名）+ 一等函数值（Func/委托）+ 类型别名 + 单一数组类型`Array<T>`（方括号静态秩标注＋O(1)视图/slice/广播＋数组进Object）+ 12 标量基元家族（严格 bool、double 默认、char 码点桥）
-- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持、共享命名空间跨目录三形式不可达（v1 例外）
 
 ## 实施优先级
 
