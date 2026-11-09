@@ -11,6 +11,36 @@
 
 namespace nlang {
 
+//Len-prefixed string body shared by every string arm (struct fields,
+//class fields, T-dispatched type-argument fields): i32 length, then the
+//bytes; the read side validates against the string cap.
+template<typename Writer>
+void VmExecutor::WriteStringBody(const std::string& s, Writer&& write)
+{
+    int32_t len = static_cast<int32_t>(s.size());
+    uint8_t lenBytes[4];
+    std::memcpy(lenBytes, &len, 4);
+    write(lenBytes, 4);
+    write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+}
+
+template<typename Reader>
+int32_t VmExecutor::ReadStringBody(Reader&& read)
+{
+    uint8_t lenBytes[4];
+    read(lenBytes, 4);
+    int32_t len;
+    std::memcpy(&len, lenBytes, 4);
+    if (len < 0 || static_cast<size_t>(len) > MAX_STRING_LENGTH)
+        throw std::runtime_error(
+            "NLang VM: ReadStruct string length out of range ("
+            + std::to_string(len) + ")");
+    std::string s(static_cast<size_t>(len), '\0');
+    if (len > 0)
+        read(reinterpret_cast<uint8_t*>(&s[0]), static_cast<size_t>(len));
+    return MintNewString(std::move(s));
+}
+
 //Phase 8b struct serialization helpers.
 //SerializeStructFields: walks a struct's fields and emits bytes via the Writer.
 //Class fields recurse via SerializeClassFields (Phase 8c); array fields
@@ -47,12 +77,8 @@ void VmExecutor::SerializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_String)
         {
-            const std::string& s = StrVal(slot[i * 2]);
-            int32_t len = static_cast<int32_t>(s.size());
-            uint8_t lenBytes[4];
-            std::memcpy(lenBytes, &len, 4);
-            write(lenBytes, 4);
-            write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+            WriteStringBody(StrVal(slot[i * 2]),
+                std::forward<Writer>(write));
         }
         else if (ftk == RTK_Struct)
         {
@@ -122,24 +148,8 @@ void VmExecutor::DeserializeStructFields(int32_t heapIdx, uint16_t structIdx,
         }
         else if (ftk == RTK_String)
         {
-            uint8_t lenBytes[4];
-            read(lenBytes, 4);
-            int32_t len;
-            std::memcpy(&len, lenBytes, 4);
-            if (len < 0)
-                throw std::runtime_error(
-                    "NLang VM: ReadStruct string length negative ("
-                    + std::to_string(len) + ")");
-            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
-                throw std::runtime_error(
-                    "NLang VM: ReadStruct string length exceeds cap ("
-                    + std::to_string(len) + " > "
-                    + std::to_string(MAX_STRING_LENGTH) + ")");
-            std::string s(static_cast<size_t>(len), '\0');
-            if (len > 0)
-                read(reinterpret_cast<uint8_t*>(&s[0]),
-                    static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i * 2] = MintNewString(std::move(s));
+            m_structHeap[heapIdxSz][i * 2] =
+                ReadStringBody(std::forward<Reader>(read));
         }
         else if (ftk == RTK_Struct)
         {
@@ -251,12 +261,11 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         throw std::runtime_error("NLang VM: invalid class index in class heap slot");
     const auto& cc = m_currModule->classes[static_cast<size_t>(classIdx)];
 
-    //Write/read same-source (phase 5): the name in the stream IS the table
-    //key — qualified for user classes since the key change; the reader
-    //below consumes exactly this string (no cross-version bare-name read).
-    uint32_t nameLen = static_cast<uint32_t>(cc.name.size());
-    write(reinterpret_cast<const uint8_t*>(&nameLen), 4);
-    write(reinterpret_cast<const uint8_t*>(cc.name.data()), nameLen);
+    //Write/read same-source (phase 5): the name in the stream IS the
+    //table key. v0.13.1 D3: the head also carries the instantiation
+    //descriptor as its canonical spelling (VmExecutorSerInstDesc.h).
+    WriteClassRefHead(cc.name, InstDescriptorOf(heapIdx),
+        std::forward<Writer>(write));
 
     //0.9.12 T1: the field surface comes from the layout view; the
     //stream key (cc.name) and subclass checks stay on the record.
@@ -267,9 +276,8 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         int primRow = ScalarPrimIndexOfRtk(static_cast<uint8_t>(ftk));
         if (primRow >= 0)
         {
-            //0.7.5: registry-driven scalar fields at their own width
-            //(class header occupies cell 0; field i spans cells
-            //[1+2i, 2+2i]).
+            //0.7.5: scalar fields at their own width (class header
+            //occupies cell 0; field i spans cells [1+2i, 2+2i]).
             uint8_t bytes[8];
             std::memcpy(bytes, &slot[i * 2 + 1],
                 kScalarPrims[primRow].slotWidth);
@@ -277,12 +285,8 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         }
         else if (ftk == RTK_String)
         {
-            const std::string& s = StrVal(slot[i * 2 + 1]);
-            int32_t len = static_cast<int32_t>(s.size());
-            uint8_t lenBytes[4];
-            std::memcpy(lenBytes, &len, 4);
-            write(lenBytes, 4);
-            write(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+            WriteStringBody(StrVal(slot[i * 2 + 1]),
+                std::forward<Writer>(write));
         }
         else if (ftk == RTK_Struct)
         {
@@ -303,6 +307,14 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
         else if (ftk == RTK_Array)
         {
             SerializeArrayRecord(slot[i * 2 + 1],
+                std::forward<Writer>(write), st, depth + 1);
+        }
+        else if (ftk == RTK_TypeParam)
+        {
+            //v0.13.1 D3: the T field dispatches through the receiver's
+            //instantiation argument (ordinal from the class-row slot).
+            SerializeTypeArgField(InstDescriptorOf(heapIdx),
+                fields[i].classIdx, slot, i * 2 + 1,
                 std::forward<Writer>(write), st, depth + 1);
         }
         else if (ftk == RTK_Func)
@@ -355,8 +367,7 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     if (tag == 3) {
         if (!objTypedField)
             throw std::runtime_error(
-                "NLang VM: ReadObject array record under a class-typed"
-                " field");
+                "NLang VM: ReadObject array record under a class-typed field");
         outHeapIdx = DeserializeArrayRecordTagged(tag,
             std::forward<Reader>(read), st, depth + 1);
         return;
@@ -364,8 +375,7 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     if (tag == 4) {
         if (!objTypedField)
             throw std::runtime_error(
-                "NLang VM: ReadObject boxed value under a class-typed"
-                " field");
+                "NLang VM: ReadObject boxed value under a class-typed field");
         outHeapIdx = ReadBoxedRecord(std::forward<Reader>(read));
         return;
     }
@@ -382,19 +392,11 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
     if (tag != 1)
         throw std::runtime_error("NLang VM: ReadStruct unknown class ref tag");
 
-    uint32_t nameLen;
-    read(reinterpret_cast<uint8_t*>(&nameLen), 4);
-    if (static_cast<size_t>(nameLen) > MAX_STRING_LENGTH)
-        throw std::runtime_error(
-            "NLang VM: ReadStruct class name length exceeds cap ("
-            + std::to_string(nameLen) + " > "
-            + std::to_string(MAX_STRING_LENGTH) + ")");
-    std::string className(static_cast<size_t>(nameLen), '\0');
-    if (nameLen > 0)
-        read(reinterpret_cast<uint8_t*>(&className[0]), nameLen);
+    std::string className;
+    GenericInstDescriptor* instDesc = nullptr;
+    ReadClassRefHead(read, className, instDesc, *m_currModule);
 
-    //Consumes the string the writer above stored: same compilation, same
-    //table key — self-consistent whatever spelling the keys use.
+    //Consumes the string the writer stored: same compilation, same key.
     int classIdx = m_currModule->FindClass(className);
     if (classIdx < 0)
         throw std::runtime_error(
@@ -407,7 +409,10 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
             + declaredName + ", got " + className);
     }
 
-    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
+    //The descriptor (when carried) stamps the fresh object before the
+    //field walk — the T-field arm dispatches through it.
+    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx),
+        instDesc);
     st.deserializeObjIds[st.nextObjId++] = heapIdx;
 
     //0.9.12 T1: the field surface comes from the layout view (mirrors
@@ -429,24 +434,8 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         }
         else if (ftk == RTK_String)
         {
-            uint8_t lenBytes[4];
-            read(lenBytes, 4);
-            int32_t len;
-            std::memcpy(&len, lenBytes, 4);
-            if (len < 0)
-                throw std::runtime_error(
-                    "NLang VM: ReadStruct string length negative ("
-                    + std::to_string(len) + ")");
-            if (static_cast<size_t>(len) > MAX_STRING_LENGTH)
-                throw std::runtime_error(
-                    "NLang VM: ReadStruct string length exceeds cap ("
-                    + std::to_string(len) + " > "
-                    + std::to_string(MAX_STRING_LENGTH) + ")");
-            std::string s(static_cast<size_t>(len), '\0');
-            if (len > 0)
-                read(reinterpret_cast<uint8_t*>(&s[0]),
-                    static_cast<size_t>(len));
-            m_structHeap[heapIdxSz][i * 2 + 1] = MintNewString(std::move(s));
+            m_structHeap[heapIdxSz][i * 2 + 1] =
+                ReadStringBody(std::forward<Reader>(read));
         }
         else if (ftk == RTK_Struct)
         {
@@ -470,6 +459,13 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
         {
             m_structHeap[heapIdxSz][i * 2 + 1] = DeserializeArrayRecord(
                 std::forward<Reader>(read), st, depth + 1);
+        }
+        else if (ftk == RTK_TypeParam)
+        {
+            //v0.13.1 D3: the descriptor stamped above dispatches the
+            //T field through the receiver's instantiation argument.
+            DeserializeTypeArgField(heapIdx, fields[i].classIdx,
+                i * 2 + 1, read, st, depth + 1);
         }
         else if (ftk == RTK_Func)
         {
@@ -497,3 +493,8 @@ void VmExecutor::DeserializeClassFields(uint16_t declaredClassIdx,
 //struct/class definitions they build on, so the existing Ser consumers
 //need no include change.
 #include "VmExecutorSerArray.h"
+
+//Instantiation-aware bits (v0.13.1 D3) — included after the array
+//templates for the same reason: the T-field dispatch recurses into
+//struct/class/array serialization.
+#include "VmExecutorSerInstDesc.h"

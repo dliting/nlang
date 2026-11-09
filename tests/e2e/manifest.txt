@@ -2170,3 +2170,4 @@ array_cast_generic_elem 0
 generic_typename_fold 0
 generic_typename_runtime 0
 err_typename_static_context compile_error requires an instance context
+generic_serialize_roundtrip 0

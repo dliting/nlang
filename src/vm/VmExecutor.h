@@ -924,6 +924,35 @@ private:
     void DeserializeClassFields(uint16_t declaredClassIdx, int32_t& outHeapIdx,
         Reader&& read, StreamState& st, int depth);
 
+    //Len-prefixed string field body shared by every string arm of the
+    //serialization templates (definitions in VmExecutorSer.h).
+    template<typename Writer>
+    void WriteStringBody(const std::string& s, Writer&& write);
+
+    template<typename Reader>
+    int32_t ReadStringBody(Reader&& read);
+
+    //v0.13.1 D3: instantiation-aware serialization (definitions in
+    //VmExecutorSerInstDesc.h). The class-ref head carries the table key
+    //plus the descriptor spelling; the T-field arms dispatch through
+    //the receiver's instantiation argument.
+    template<typename Writer>
+    void WriteClassRefHead(const std::string& className,
+        const GenericInstDescriptor* instDesc, Writer&& write);
+
+    template<typename Reader>
+    void ReadClassRefHead(Reader&& read, std::string& classNameOut,
+        GenericInstDescriptor*& instDescOut, const CompiledModule& module);
+
+    template<typename Writer, typename StreamState>
+    void SerializeTypeArgField(const GenericInstDescriptor* instDesc,
+        uint16_t ordinal, const std::vector<int32_t>& slot,
+        size_t cellOffset, Writer&& write, StreamState& st, int depth);
+
+    template<typename Reader, typename StreamState>
+    void DeserializeTypeArgField(int32_t heapIdx, uint16_t ordinal,
+        size_t cellOffset, Reader&& read, StreamState& st, int depth);
+
     //v0.12.7 Task 13: array content serialization — writeObject's array
     //arm and the array fields of struct/class graphs. Tag 3 in the
     //class-ref tag space; the payload is self-describing (elemKind,

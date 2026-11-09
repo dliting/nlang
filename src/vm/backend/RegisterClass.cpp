@@ -57,10 +57,19 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and
             //scalars (mirrors RegisterStructs).
-            cc.fieldTypeKinds.push_back(
-                RuntimeTypeKind(cf.EvalDataType()));
+            const uint16_t ftk = RuntimeTypeKind(cf.EvalDataType());
+            cc.fieldTypeKinds.push_back(ftk);
             cc.fieldStructIndices.push_back(0xFFFF);
-            cc.fieldClassIndices.push_back(0xFFFF);
+            //v0.13.1 D3: a T-typed field records its type-parameter
+            //ordinal in the class-index slot (0xFFFF otherwise) — the
+            //serializer's T-field arm maps the field onto the receiver
+            //instantiation's argument through it; the erased row alone
+            //cannot know the runtime kind.
+            cc.fieldClassIndices.push_back(
+                ftk == RTK_TypeParam
+                    ? static_cast<uint16_t>(
+                        TypeParamOrdinalOfType(*cf.EvalDataType()))
+                    : 0xFFFF);
             cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
         }
     }

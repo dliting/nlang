@@ -1,0 +1,62 @@
+// v0.13.1 D3: instantiation descriptors survive the object-graph
+// round trip. The stream key is the erased template row ("Cell"), so
+// the descriptor rides the wire as its canonical spelling; a stream
+// that drops it would let any instantiation pass the subclass check
+// and break every kind-dispatched T operation on the decoded object.
+import io;
+
+class Cell<T> {
+    public T a;
+    public Cell(T a) { this.a = a; }
+    public string tag() { return "v=" + a; }
+}
+
+int main() {
+    int acc = 0;
+    ByteStream bs = ByteStream();
+
+    Cell<int> ci = Cell(3);
+    bs.writeObject(ci);
+    Cell<string> cs = Cell("ab");
+    bs.writeObject(cs);
+    Cell<int> inner = Cell(7);
+    Cell<Cell<int>> cc = Cell(inner);
+    bs.writeObject(cc);
+    bs.reset();
+
+    Object o1 = bs.readObject("Cell");
+    Cell<int> back1 = o1 as Cell<int>;
+    if (back1.tag() == "v=3") acc = acc + 1;
+    try {
+        Cell<string> wrong = o1 as Cell<string>;
+        return 90;
+    } catch (InvalidCastException e) {
+        acc = acc + 2;
+    }
+
+    Object o2 = bs.readObject("Cell");
+    Cell<string> back2 = o2 as Cell<string>;
+    if (back2.tag() == "v=ab") acc = acc + 4;
+    try {
+        Cell<int> wrong2 = o2 as Cell<int>;
+        return 91;
+    } catch (InvalidCastException e) {
+        acc = acc + 8;
+    }
+
+    //The nested instantiation spelling rides too: Cell<Cell<int>>
+    //decodes as itself, the inner object's value survives, and the
+    //sibling instantiation is rejected.
+    Object o3 = bs.readObject("Cell");
+    Cell<Cell<int>> back3 = o3 as Cell<Cell<int>>;
+    if (back3.a.a != 7) return 94;
+    try {
+        Cell<Cell<string>> wrong3 = o3 as Cell<Cell<string>>;
+        return 92;
+    } catch (InvalidCastException e) {
+        acc = acc + 16;
+    }
+
+    if (acc != 31) return 93;
+    return 0;
+}

@@ -298,8 +298,13 @@ static void RemapClassMetadata(CompiledModule& merged,
                 Lookup(m.classes, static_cast<uint32_t>(cc.superClassIdx)));
         for (auto& i : cc.fieldStructIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.structs, i));
-        for (auto& i : cc.fieldClassIndices)
-            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.classes, i));
+        //v0.13.1 D3: a T-typed field carries its type-parameter ordinal
+        //in the class-index slot — not a class row, nothing to remap.
+        for (size_t fi = 0; fi < cc.fieldClassIndices.size(); ++fi)
+            if (cc.fieldClassIndices[fi] != 0xFFFF
+                && cc.fieldTypeKinds[fi] != RTK_TypeParam)
+                cc.fieldClassIndices[fi] = static_cast<uint16_t>(
+                    Lookup(m.classes, cc.fieldClassIndices[fi]));
         for (auto& i : cc.methodIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         //v2.6: plural ctor record — every declaration-order index
