@@ -1,0 +1,240 @@
+// Server end-to-end over loopback with raw sockets: GET roundtrip,
+// keep-alive reuse, POST body, handler exception → 500 + close,
+// 413 over maxBodyBytes, 100-continue, HEAD keeps Content-Length but
+// suppresses bytes, maxConnections → 503, maxRequestsPerConnection →
+// Connection: close, HTTP/1.0 close-by-default with explicit keep-alive
+// echo (D7). Review Focus 2 (server side).
+import io;
+import net;
+import http;
+
+HttpResponse echoHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    if (req.url.path == "/boom") {
+        throw HttpException("handler failed", 500);
+    }
+    if (req.url.path == "/echo") {
+        res.body = io.toBytes(req.bodyText());
+        res.headers.set("Content-Type", "text/plain; charset=utf-8");
+        return res;
+    }
+    res.body = io.toBytes("hello " + req.url.path);
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.maxBodyBytes = 100;
+    srv.start("127.0.0.1", 0, echoHandler);
+    int port = srv.localPort();
+    if (port <= 0) { return 1; }
+
+    // 1. GET roundtrip + Date header present.
+    TcpStream c1 = TcpStream.connect("127.0.0.1", port, 5000);
+    c1.write("GET /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string s1 = readResponse(c1);
+    if (!s1.startsWith("HTTP/1.1 200 OK\r\n")) { return 2; }
+    if (indexOfCI(s1, "\r\nDate: ") < 0) { return 2; }
+    if (!s1.endsWith("hello /a")) { return 2; }
+
+    // 2. Keep-alive: second request on the same connection.
+    c1.write("GET /b HTTP/1.1\r\nHost: t\r\n\r\n");
+    string s2 = readResponse(c1);
+    if (!s2.startsWith("HTTP/1.1 200 OK\r\n") || !s2.endsWith("hello /b")) { return 3; }
+    c1.close();
+
+    // 3. POST echo.
+    TcpStream c3 = TcpStream.connect("127.0.0.1", port, 5000);
+    c3.write("POST /echo HTTP/1.1\r\nHost: t\r\nContent-Length: 3\r\n\r\nhi!");
+    string s3 = readResponse(c3);
+    if (!s3.endsWith("hi!")) { return 4; }
+    c3.close();
+
+    // 4. Handler exception → 500 and connection closed.
+    TcpStream c4 = TcpStream.connect("127.0.0.1", port, 5000);
+    c4.write("GET /boom HTTP/1.1\r\nHost: t\r\n\r\n");
+    string s4 = readResponse(c4);
+    if (!s4.startsWith("HTTP/1.1 500")) { return 5; }
+    byte[] probe = byte[1];
+    int pr = 0;
+    try { pr = c4.read(probe, 100); } catch (TimeoutException e) { pr = 1; }
+    if (pr > 0) { return 5; }   // D6: 500 closes the connection (EOF probe)
+
+    // 5. Body over maxBodyBytes → 413.
+    TcpStream c5 = TcpStream.connect("127.0.0.1", port, 5000);
+    c5.write("POST /echo HTTP/1.1\r\nHost: t\r\nContent-Length: 200\r\n\r\n");
+    c5.write(stringOfChar(97, 200));
+    string s5 = readResponse(c5);
+    if (!s5.startsWith("HTTP/1.1 413")) { return 6; }
+    c5.close();
+
+    // 6. Expect: 100-continue → interim response before body.
+    TcpStream c6 = TcpStream.connect("127.0.0.1", port, 5000);
+    c6.write("POST /echo HTTP/1.1\r\nHost: t\r\nContent-Length: 2\r\nExpect: 100-continue\r\n\r\n");
+    string interim = readUntilDoubleCrlf(c6);
+    if (!interim.startsWith("HTTP/1.1 100 ")) { return 7; }
+    c6.write("ok");
+    string s6 = readResponse(c6);
+    if (!s6.endsWith("ok")) { return 7; }
+    c6.close();
+
+    // 7. HEAD: Content-Length kept, bytes suppressed.
+    TcpStream c7 = TcpStream.connect("127.0.0.1", port, 5000);
+    c7.write("HEAD /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string s7 = readResponseHeaders(c7);
+    if (!s7.startsWith("HTTP/1.1 200 OK\r\n")) { return 8; }
+    if (indexOfCI(s7, "\r\nContent-Length: 8\r\n") < 0) { return 8; }
+
+    // 8. maxConnections → 503 for the overflow connection.
+    HttpServer srv2 = HttpServer();
+    srv2.maxConnections = 1;
+    srv2.start("127.0.0.1", 0, echoHandler);
+    TcpStream k1 = TcpStream.connect("127.0.0.1", srv2.localPort(), 5000);
+    k1.write("GET /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string t1 = readResponse(k1);
+    if (!t1.startsWith("HTTP/1.1 200")) { return 9; }
+    TcpStream k2 = TcpStream.connect("127.0.0.1", srv2.localPort(), 5000);
+    k2.write("GET /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string t2 = readResponse(k2);
+    if (!t2.startsWith("HTTP/1.1 503")) { return 9; }
+    k1.close(); k2.close(); srv2.close();
+
+    // 9. maxRequestsPerConnection → last response says close.
+    HttpServer srv3 = HttpServer();
+    srv3.maxRequestsPerConnection = 1;
+    srv3.start("127.0.0.1", 0, echoHandler);
+    TcpStream m1 = TcpStream.connect("127.0.0.1", srv3.localPort(), 5000);
+    m1.write("GET /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string u1 = readResponse(m1);
+    if (indexOfCI(u1, "\r\nConnection: close\r\n") < 0) { return 10; }
+    srv3.close();
+
+    // 10. HTTP/1.0 close-by-default (D7); explicit keep-alive persists
+    // and the response echoes the token (RFC 9112 §9.1.1).
+    HttpServer srv4 = HttpServer();
+    srv4.start("127.0.0.1", 0, echoHandler);
+    TcpStream v1 = TcpStream.connect("127.0.0.1", srv4.localPort(), 5000);
+    v1.write("GET /a HTTP/1.0\r\nHost: t\r\n\r\n");
+    string w1 = readResponse(v1);
+    if (indexOfCI(w1, "\r\nConnection: close\r\n") < 0) { return 11; }
+    v1.close();
+    TcpStream v2 = TcpStream.connect("127.0.0.1", srv4.localPort(), 5000);
+    v2.write("GET /a HTTP/1.0\r\nHost: t\r\nConnection: keep-alive\r\n\r\n");
+    string w2 = readResponse(v2);
+    if (indexOfCI(w2, "\r\nConnection: keep-alive\r\n") < 0) { return 11; }
+    v2.write("GET /b HTTP/1.0\r\nHost: t\r\nConnection: keep-alive\r\n\r\n");
+    string w3 = readResponse(v2);
+    if (!w3.startsWith("HTTP/1.1 200")) { return 11; }
+    v2.close(); srv4.close();
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// Reads status line + headers (through the empty line) plus the body
+// declared by Content-Length (or until close when absent).
+string readResponse(TcpStream s) {
+    string head = readUntilDoubleCrlf(s);
+    if (head == "") { return ""; }
+    int sp = head.indexOf(" ");
+    int sp2 = head.indexOf(" ", sp + 1);
+    string code = head.substring(sp + 1, sp2);
+    if (code == "100") {
+        return readResponse(s);   // skip the interim response, read the final one
+    }
+    int cl = contentLengthOf(head);
+    string body = "";
+    if (cl >= 0) {
+        byte[] b = s.readExactly(cl, 5000);
+        body = io.fromBytes(b);
+    } else if (indexOfCI(head, "Transfer-Encoding: chunked") >= 0) {
+        body = readChunkedBody(s);
+    }
+    return head + body;
+}
+
+string readResponseHeaders(TcpStream s) {
+    return readUntilDoubleCrlf(s);
+}
+
+string readUntilDoubleCrlf(TcpStream s) {
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed()) { return ""; }
+        if (ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    return acc + "\r\n";
+}
+
+string readChunkedBody(TcpStream s) {
+    string acc = "";
+    while (true) {
+        string sizeLine = s.readLine(5000);
+        int sc = sizeLine.indexOf(";");
+        if (sc >= 0) { sizeLine = sizeLine.substring(0, sc); }
+        int n = 0;
+        for (int i = 0; i < sizeLine.length(); i = i + 1) {
+            int c = sizeLine[i];
+            int d = 0;
+            if (c >= 48 && c <= 57) { d = c - 48; }
+            else if (c >= 97 && c <= 102) { d = c - 87; }
+            else { d = -1; }
+            n = n * 16 + d;
+        }
+        if (n == 0) {
+            while (s.readLine(5000) != "") { }   // trailer section
+            break;
+        }
+        byte[] b = s.readExactly(n, 5000);
+        acc = acc + io.fromBytes(b);
+        s.readLine(5000);   // trailing CRLF
+    }
+    return acc;
+}
+
+int contentLengthOf(string head) {
+    string low = lowerAll(head);
+    int p = low.indexOf("\r\ncontent-length: ");
+    if (p < 0) { return -1; }
+    string v = head.substring(p + 18, lineEnd(head, p + 18));
+    return parseInt(v);
+}
+
+int lineEnd(string s, int from) {
+    int p = s.indexOf("\r\n", from);
+    if (p < 0) { return s.length(); }
+    return p;
+}
+
+string lowerAll(string s) {
+    byte[] b = io.toBytes(s);
+    for (int i = 0; i < b.length(); i = i + 1) {
+        int c = b[i];
+        if (c < 0) { c = c + 256; }
+        if (c >= 65 && c <= 90) { b[i] = (c + 32) as byte; }
+    }
+    return io.fromBytes(b);
+}
+
+int indexOfCI(string hay, string needle) {
+    return lowerAll(hay).indexOf(lowerAll(needle));
+}
+
+string stringOfChar(int c, int n) {
+    byte[] b = byte[n];
+    for (int i = 0; i < n; i = i + 1) { b[i] = c as byte; }
+    return io.fromBytes(b);
+}
+
+int parseInt(string s) {
+    int v = 0;
+    for (int i = 0; i < s.length(); i = i + 1) {
+        int c = s[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}

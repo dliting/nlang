@@ -2159,3 +2159,5 @@ stdlib_url_query 0
 stdlib_gzip_roundtrip 0
 stdlib_http_frame 0
 stdlib_http_chunked 0
+stdlib_http_server 0
+stdlib_http_harden 0
