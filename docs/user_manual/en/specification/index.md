@@ -91,9 +91,9 @@ before they land here.
 
 ### Part III — Binary Formats
 
-- [23. The `.ncu` Unit Image](formats/23-ncu.md)
-- [24. The `.npkg` Package Archive](formats/24-npkg.md)
-- [25. The Native Application Binary Interface (ABI)](formats/25-abi.md)
+- [25. The `.ncu` Unit Image](formats/25-ncu.md)
+- [26. The `.npkg` Package Archive](formats/26-npkg.md)
+- [27. The Native Application Binary Interface (ABI)](formats/27-abi.md)
 
 ### Reference
 

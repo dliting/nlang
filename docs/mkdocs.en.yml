@@ -110,9 +110,9 @@ nav:
               - ICMP: specification/library/21-network/icmp.md
           - The url Package: specification/library/22-url.md
       - Binary Formats:
-          - The `.ncu` Unit Image: specification/formats/23-ncu.md
-          - The `.npkg` Package Archive: specification/formats/24-npkg.md
-          - The Native Application Binary Interface (ABI): specification/formats/25-abi.md
+          - The `.ncu` Unit Image: specification/formats/25-ncu.md
+          - The `.npkg` Package Archive: specification/formats/26-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/27-abi.md
       - Reference:
           - Known Limitations: specification/reference/known-limitations.md
           - Common Error Messages: specification/reference/common-errors.md

@@ -110,9 +110,9 @@ nav:
               - ICMP: specification/library/21-network/icmp.md
           - url包: specification/library/22-url.md
       - 二进制格式:
-          - .ncu单元映像: specification/formats/23-ncu.md
-          - .npkg包档案: specification/formats/24-npkg.md
-          - 原生应用二进制接口: specification/formats/25-abi.md
+          - .ncu单元映像: specification/formats/25-ncu.md
+          - .npkg包档案: specification/formats/26-npkg.md
+          - 原生应用二进制接口: specification/formats/27-abi.md
       - 参考:
           - 已知限制: specification/reference/known-limitations.md
           - 常见错误消息: specification/reference/common-errors.md

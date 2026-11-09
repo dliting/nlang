@@ -1,40 +1,40 @@
-# 24. The `.npkg` Package Archive
+# 26. The `.npkg` Package Archive
 
 A *package archive* is the distribution form of a build: it
-packs one *member* — a unit image of chapter 23 — per package
+packs one *member* — a unit image of chapter 25 — per package
 of the build, each member named by its package path (§3.9.1). A
 program archive carries an *entry record*; a library archive
 omits one, and the standard library ships as `stdlib.npkg`
-(§3.9.4). §24.1 sets the scope and the format version; §24.2
-fixes the container; §24.3 defines the entry record and the
-member identity; §24.4 fixes the member checksums; §24.5
+(§3.9.4). §26.1 sets the scope and the format version; §26.2
+fixes the container; §26.3 defines the entry record and the
+member identity; §26.4 fixes the member checksums; §26.5
 states the reading and consumption contract.
 
-## 24.1 Scope and Version
+## 26.1 Scope and Version
 
 **Format version.** This chapter describes format version
 **1.0**, recorded in the header as major `1`, minor `0`
-(§24.2). The reader accepts major `1` with a minor not above
+(§26.2). The reader accepts major `1` with a minor not above
 its own — a newer reader reads an older minor, never the
-reverse — and rejects every other version (§24.5). A format
+reverse — and rejects every other version (§26.5). A format
 change bumps the version and replaces this chapter wholesale;
 the specification describes only the current version.
 
-**What this chapter fixes.** The container layout (§24.2), the
-entry record and member identity (§24.3), the member checksums
-(§24.4) and the reading contract (§24.5).
+**What this chapter fixes.** The container layout (§26.2), the
+entry record and member identity (§26.3), the member checksums
+(§26.4) and the reading contract (§26.5).
 
 **What it does not fix.** The unit image stored inside each
-member — chapter 23 — and the link-closure semantics that
+member — chapter 25 — and the link-closure semantics that
 consume the extracted images (§3.9.3).
 
 **Determinism.** Packing the same set of members twice
 produces byte-identical archives: members are sorted by module
 path and the header records no timestamps.
 
-## 24.2 Container Layout
+## 26.2 Container Layout
 
-**Conventions.** As §23.2: little-endian two's-complement
+**Conventions.** As §25.2: little-endian two's-complement
 integers and length-prefixed byte strings; the width notation
 `u8`, `u16`, `u32` and `u64` is the same.
 
@@ -51,7 +51,7 @@ integers and length-prefixed byte strings; the width notation
 | signature offset | u64 | `0` |
 | signature length | u64 | `0` |
 | member count | u32 | |
-| entry | — | a zero byte marks a library (no entry record); otherwise the entry record: a u16 length and the entry unit's package path, then a u16 length and the entry function's name (§24.3) |
+| entry | — | a zero byte marks a library (no entry record); otherwise the entry record: a u16 length and the entry unit's package path, then a u16 length and the entry function's name (§26.3) |
 
 **Member table.** Immediately after the header, one entry per
 member, in ascending byte-wise module-path order:
@@ -61,21 +61,21 @@ member, in ascending byte-wise module-path order:
 | module path | u16 length + bytes | the package path of the member (§3.9.1) |
 | offset | u64 | the absolute file offset of the member's image bytes |
 | length | u64 | the image byte count |
-| checksum | u64 | §24.4 |
+| checksum | u64 | §26.4 |
 
 **Blobs.** The writer lays the member images out after the
 table in table order, each beginning at its recorded offset; a
 reader follows the recorded offsets and does not require the
 images to be adjacent. A member's bytes are a complete unit
-image (chapter 23).
+image (chapter 25).
 
-## 24.3 Entry Record and Member Identity
+## 26.3 Entry Record and Member Identity
 
 **Entry record.** A program archive names its entry: the entry
 unit's package path and the entry function's name (`main`
 today, §3.2, §9.3). A library archive carries the zero marker
 instead. Within the archive, only the entry-owning member image
-keeps a non-empty entry key (§23.2); the archive's entry record
+keeps a non-empty entry key (§25.2); the archive's entry record
 is the authoritative entry.
 
 **Member identity.** One member per package path: the packer
@@ -83,7 +83,7 @@ rejects a duplicate path. A member's module path is the package
 path of the unit it holds, so a reference to a package path
 resolves to exactly one member.
 
-## 24.4 Member Checksums
+## 26.4 Member Checksums
 
 A member's checksum is a 64-bit hash of its exact image bytes,
 computed by the FNV-1a recurrence: start from the offset basis
@@ -91,10 +91,10 @@ computed by the FNV-1a recurrence: start from the offset basis
 and multiply by the prime 1099511628211 (2^40 + 435), all
 modulo 2^64. The checksum detects accidental corruption; it is
 not a security primitive — the reserved signature block of
-§24.2 is the place for one. Extraction verifies it, and a
-mismatch is an error naming the archive and the member (§24.5).
+§26.2 is the place for one. Extraction verifies it, and a
+mismatch is an error naming the archive and the member (§26.5).
 
-## 24.5 Reading and Consumption
+## 26.5 Reading and Consumption
 
 A reader validates the container before using it:
 
@@ -106,7 +106,7 @@ A reader validates the container before using it:
 - **member bounds.** A member whose recorded offset or length
   does not lie within the file → reject, naming the member.
 
-Extraction of a member verifies its checksum (§24.4); a module
+Extraction of a member verifies its checksum (§26.4); a module
 path that is not a member of the archive is an error.
 
 At compile time, importing an archive as an external artifact

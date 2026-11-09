@@ -25,7 +25,7 @@ unspecified results (§0.4). One mismatch is specified: a native
 declared to return `string` must hand back a live string handle —
 the null handle, or an invalid handle that does not denote a live
 string object, raises a host-level run-time error (§7.1) —
-`string` has no null value (§4.3). The calling convention is §25.4.
+`string` has no null value (§4.3). The calling convention is §27.4.
 
 ### A native declaration
 
@@ -53,7 +53,7 @@ first call); only a further miss throws. On a hit the native is
 invoked directly with the caller's staged argument cells.
 
 - The value layout — one eight-byte cell per argument, the receiver
-  slot of a method, and the return cell — is §25.4 (see also
+  slot of a method, and the return cell — is §27.4 (see also
   [Stack Frame Layout](../../vm-architecture/stack-frame-layout.md)).
 - Resolution failures throw at the call site — never silent garbage: a
   missing `nlang_<package>.dll` reports `cannot find native module
@@ -88,7 +88,7 @@ invoked directly with the caller's staged argument cells.
 - Class-member `native` methods work: dispatch reaches the native through
   the normal method path, with the receiver riding in the first argument
   cell followed by the declared parameters — mirroring the bytecode
-  calling convention (§25.4).
+  calling convention (§27.4).
 - String/struct/class argument marshalling beyond the single-slot value
   cell is not supported.
 

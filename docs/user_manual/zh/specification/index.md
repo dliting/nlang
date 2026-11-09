@@ -79,9 +79,9 @@
 
 ### 第三部分 — 二进制格式
 
-- [23. `.ncu`单元映像](formats/23-ncu.md)
-- [24. `.npkg`包档案](formats/24-npkg.md)
-- [25. 原生应用二进制接口（ABI）](formats/25-abi.md)
+- [25. `.ncu`单元映像](formats/25-ncu.md)
+- [26. `.npkg`包档案](formats/26-npkg.md)
+- [27. 原生应用二进制接口（ABI）](formats/27-abi.md)
 
 ### 参考
 
