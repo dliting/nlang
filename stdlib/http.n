@@ -172,6 +172,7 @@ class HttpResponse {
     public HttpHeaders headers;
     public byte[] body;
     public Channel<byte[]> bodyChannel;      // server: streaming response (chunked + backpressure)
+    public HttpBodyReader bodyReader;        // client: streaming body from open(), null when buffered (D16)
     public Url requestUrl;                   // final URL after redirects (D12)
     public bool compressBody = false;        // server: gzip the buffered body when accepted (D21)
     public bool connectionClose;
@@ -183,6 +184,9 @@ class HttpResponse {
     }
 
     public string bodyText() {
+        // A streaming response (open(), D16) keeps its body in the reader
+        // and leaves `body` null; a buffered one is the inverse.
+        if (bodyReader != null) { return bodyReader.bodyText(); }
         if (body != null) { return io.fromBytes(body); }
         return "";
     }
@@ -678,6 +682,9 @@ class HttpBodyReader {
     private byte[] m_chunkBuf;         // MODE_CHUNKED: decoded chunk not yet consumed
     private int m_chunkPos;
     private int m_timeoutMs;           // D7: per-read deadline
+    private HttpPool m_pool;           // client only (D19): null for server-side readers
+    private bool m_poolable;           // healthy keep-alive: goes back to the pool
+    private bool m_released;           // the pool has already seen this connection
 
     public HttpBodyReader(HttpConn conn, int framingMode, int framingLength,
         long maxBodyBytes, int bodyTimeoutMs) {
@@ -690,6 +697,30 @@ class HttpBodyReader {
         m_chunkBuf = byte[0];
         m_chunkPos = 0;
         m_timeoutMs = bodyTimeoutMs;
+        m_pool = null;
+        m_poolable = false;
+        m_released = false;
+    }
+
+    // Client-side D19 hookup: the reader owns the borrowed connection from
+    // here on, and hands it back once the body ends. The connection is the
+    // one the reader was built with (m_conn), so it is not passed again.
+    public void attachPool(HttpPool pool, bool poolable) {
+        m_pool = pool;
+        m_poolable = poolable;
+        m_released = false;
+    }
+
+    // D19: a client-side reader returns the connection to its pool when the
+    // body is exhausted (and the connection is poolable), otherwise closes it
+    // (cancellation). m_done is checked without requiring !m_closed: a user
+    // close() *after* exhaustion must still pool the connection
+    // (stdlib_http_cancel.n vector 2).
+    private void releaseIfClient() {
+        if (m_pool != null && !m_released && (m_done || m_closed)) {
+            m_released = true;
+            m_pool.release(m_conn, m_poolable && m_done);
+        }
     }
 
     // Copies the next body bytes into buf; returns the count, or -1 once the
@@ -700,12 +731,12 @@ class HttpBodyReader {
         if (buf.length() == 0) { return 0; }
         if (timeoutMs <= 0) { timeoutMs = m_timeoutMs; }
         if (m_mode == HttpParser.MODE_LENGTH) {
-            if (m_remaining <= 0) { m_done = true; return -1; }
+            if (m_remaining <= 0) { this.endBody(); return -1; }
             int want = buf.length();
             if (want > m_remaining) { want = m_remaining as int; }
             byte[] tmp = byte[want];
             int n = m_conn.readBuffered(tmp, timeoutMs);
-            if (n <= 0) { m_done = true; return -1; }   // early EOF = end of body
+            if (n <= 0) { this.endBody(); return -1; }   // early EOF = end of body
             for (int i = 0; i < n; i = i + 1) { buf[i] = tmp[i]; }
             m_remaining = m_remaining - n;
             return n;
@@ -718,7 +749,7 @@ class HttpBodyReader {
             // make this read return 0 with no progress.
             while (m_chunkPos >= m_chunkBuf.length()) {
                 byte[] chunk = m_conn.decodeChunk(timeoutMs);
-                if (chunk == null) { m_done = true; return -1; }
+                if (chunk == null) { this.endBody(); return -1; }
                 m_chunkBuf = chunk;
                 m_chunkPos = 0;
             }
@@ -730,8 +761,15 @@ class HttpBodyReader {
         }
         // MODE_EOF: read until the peer closes.
         int n = m_conn.readBuffered(buf, timeoutMs);
-        if (n <= 0) { m_done = true; return -1; }
+        if (n <= 0) { this.endBody(); return -1; }
         return n;
+    }
+
+    // The body has ended naturally: mark it and let the pool discipline run
+    // (a server-side reader has no pool, so this only flips the flag).
+    private void endBody() {
+        m_done = true;
+        this.releaseIfClient();
     }
 
     // Reads the whole body; throws HttpException(413) past maxBodyBytes (D5).
@@ -753,8 +791,12 @@ class HttpBodyReader {
         return io.fromBytes(this.readAll());
     }
 
+    // Closing an unexhausted body is a cancellation: the connection cannot be
+    // reused (unread body bytes would be mistaken for the next response), so
+    // releaseIfClient() closes it instead of pooling it.
     public void close() {
         m_closed = true;
+        this.releaseIfClient();
     }
 
     // Consumes whatever is left of the body so the connection can be reused;
@@ -936,12 +978,24 @@ class HttpConn {
             res.headers.set("Vary", "Accept-Encoding");
         }
         bool chunked = !noBody && res.bodyChannel != null;
+        // RFC 9112 §9: chunked is a HTTP/1.1-only framing, so a streaming
+        // response to a 1.0 client degrades to raw bytes framed by the
+        // connection close instead.
+        bool rawStream = false;
+        if (chunked && req != null && req.version == "HTTP/1.0") {
+            chunked = false;
+            rawStream = true;
+            res.connectionClose = true;
+        }
         // Closing the channel for HEAD too: without it a producer blocked in
         // send() would leak (the D18 cancellation path).
         if (res.bodyChannel != null && (noBody || head)) { res.bodyChannel.close(); }
-        if (!noBody && !chunked && body != null) {
+        // A degraded raw stream carries neither Transfer-Encoding nor
+        // Content-Length: the close itself bounds the body.
+        if (chunked) { res.headers.set("Transfer-Encoding", "chunked"); }
+        if (!noBody && !chunked && !rawStream && body != null) {
             res.headers.set("Content-Length", body.length().toString());
-        } else if (!noBody && !chunked && !head) {
+        } else if (!noBody && !chunked && !rawStream && !head) {
             res.headers.set("Content-Length", "0");
         }
         if (!res.headers.has("Date")) {
@@ -965,7 +1019,11 @@ class HttpConn {
         this.writeAll(HttpParser.toByteArray(headBytes), writeTimeoutMs);
         if (noBody || head) { return; }
         if (chunked) {
-            this.pumpChunked(res.bodyChannel, writeTimeoutMs);
+            this.pumpChunked(res.bodyChannel, writeTimeoutMs, true);
+            return;
+        }
+        if (rawStream) {
+            this.pumpChunked(res.bodyChannel, writeTimeoutMs, false);
             return;
         }
         if (body != null && body.length() > 0) {
@@ -1017,18 +1075,29 @@ class HttpConn {
         m_cap = m_cap * 2;
     }
 
-    // Streams the channel to the socket as chunked frames (D5/D18); the
-    // terminating 0-chunk closes the stream.
-    private void pumpChunked(Channel<byte[]> ch, int writeTimeoutMs) {
-        while (true) {
-            try {
-                byte[] chunk = ch.recv();
-                stream.write(HttpParser.encodeChunk(chunk), -1, writeTimeoutMs);
-            } catch (ChannelClosedException e) {
-                break;   // closed and drained: recv throws, never returns null
+    // Streams the channel to the socket (D5/D18). framed=true writes chunked
+    // frames and ends with the terminating 0-chunk; framed=false writes the
+    // raw concatenation, for the HTTP/1.0 degradation where chunked is
+    // illegal and the close itself frames the body (RFC 9112 §9).
+    private void pumpChunked(Channel<byte[]> ch, int writeTimeoutMs, bool framed = true) {
+        try {
+            while (true) {
+                try {
+                    byte[] chunk = ch.recv();
+                    byte[] payload = chunk;
+                    if (framed) { payload = HttpParser.encodeChunk(chunk); }
+                    this.writeAll(payload, writeTimeoutMs);   // slices past WRITE_SLICE per deadline
+                } catch (ChannelClosedException e) {
+                    break;   // closed and drained: recv throws, never returns null
+                }
             }
+            if (framed) { this.writeAll(HttpParser.encodeLastChunk(), writeTimeoutMs); }
+        } catch (Exception e) {
+            // Client vanished mid-stream: closing the channel unblocks the
+            // producer with ChannelClosedException (D18).
+            ch.close();
+            throw e;
         }
-        stream.write(HttpParser.encodeLastChunk(), -1, writeTimeoutMs);
     }
 
     // Per-connection keep-alive loop (D6), run on its own thread via
@@ -1441,51 +1510,76 @@ class HttpClient {
     // Buffered request: assemble → borrow → exchange → redirects → readAll →
     // release (D19). The callTimeoutMs argument overrides the field when >0.
     public HttpResponse request(HttpRequest req, int callTimeoutMs = 0) {
-        // The redirect loop below rewrites url/method/body/headers, so it
-        // works on a copy and leaves the caller's request reusable.
+        // The redirect loop rewrites url/method/body/headers, so it works on
+        // a copy and leaves the caller's request reusable.
         req = copyRequest(req);
         int budget = callTimeoutMs;
         if (budget <= 0) { budget = this.callTimeoutMs; }
-        HttpResponse res = this.execute(req, budget);
+        return this.exchangeWithRedirects(req, budget, true);
+    }
+
+    // Streaming request: the response body stays a reader the caller drains
+    // at their own pace (D5/D16). Redirects are followed here too (D12) —
+    // Go's Do and OkHttp both follow redirects for streaming bodies and
+    // discard the redirect response's unread body; the alternative would
+    // hand back a 3xx whose reader the caller has to notice and close.
+    public HttpResponse open(HttpRequest req) {
+        req = copyRequest(req);
+        return this.exchangeWithRedirects(req, this.callTimeoutMs, false);
+    }
+
+    // One exchange per hop, then the D12 redirect policy on top. Both modes
+    // share the policy verbatim; the only difference is whether the exchange
+    // buffers the body (buffered) or hands the reader over (streaming).
+    private HttpResponse exchangeWithRedirects(HttpRequest req, int budget, bool buffered) {
+        HttpResponse res = this.execute(req, budget, buffered);
         int hops = 0;
-        while (isRedirect(res.statusCode) && hops < maxRedirects) {
+        while (hops < maxRedirects && this.applyRedirect(req, res)) {
             hops = hops + 1;
-            string loc = res.headers.get("Location");
-            if (loc == "") { break; }
-            Url next = res.requestUrl.resolve(loc);
-            // The buffered exchange already read the body and released the
-            // connection; a streaming upload body was consumed by the first
-            // exchange and cannot be replayed when the redirect keeps the
-            // method (307/308, D12).
-            if (req.bodyChannel != null && keepsMethod(res.statusCode)) {
-                throw HttpException("http: cannot replay a streaming body across redirect", 0);
-            }
-            if (!keepsMethod(res.statusCode)) {
-                req.method = "GET";
-                req.body = null;
-            }
-            // Credentials stop at the origin boundary (D12): a redirect that
-            // changes scheme, host or port is a different origin, so the
-            // caller's Authorization and Cookie headers do not follow it.
-            if (originOf(next) != originOf(res.requestUrl)) {
-                req.headers.remove("Authorization");
-                req.headers.remove("Cookie");
-            }
-            req.url = next;
-            res = this.execute(req, budget);
+            res = this.execute(req, budget, buffered);
         }
         // Only a genuine cap miss throws; maxRedirects = 0 returns the
         // redirect response itself.
         if (maxRedirects > 0 && isRedirect(res.statusCode) && hops >= maxRedirects) {
+            // Abandoning a streaming response on the throw path must not
+            // strand its connection in the pool's active set.
+            if (res.bodyReader != null) { res.bodyReader.close(); }
             throw HttpException("http: too many redirects", 0);
         }
         return res;
     }
 
-    // Streaming variant: the response body stays a reader (Task 5); the
-    // buffered exchange below is the interim behaviour behind the same name.
-    public HttpResponse open(HttpRequest req) {
-        return this.execute(req, this.callTimeoutMs);
+    // D12: rewrites req for the next hop and returns true, or returns false
+    // when the response is not a followable redirect (not a 3xx, or a 3xx
+    // without Location — then the response is returned as-is).
+    private bool applyRedirect(HttpRequest req, HttpResponse res) {
+        if (!isRedirect(res.statusCode)) { return false; }
+        string loc = res.headers.get("Location");
+        if (loc == "") { return false; }
+        // A reader the caller never got to use is abandoned here: the unread
+        // bytes cannot be replayed, and closing keeps the connection account
+        // straight (D19).
+        if (res.bodyReader != null) { res.bodyReader.close(); }
+        Url next = res.requestUrl.resolve(loc);
+        // The upload body of the first attempt was already consumed, so a
+        // redirect that keeps the method (307/308) cannot be replayed when
+        // that body was a stream (D12; a buffered body was copied and can).
+        if (req.bodyChannel != null && keepsMethod(res.statusCode)) {
+            throw HttpException("http: cannot replay a streaming body across redirect", 0);
+        }
+        if (!keepsMethod(res.statusCode)) {
+            req.method = "GET";
+            req.body = null;
+        }
+        // Credentials stop at the origin boundary (D12): a redirect that
+        // changes scheme, host or port is a different origin, so the
+        // caller's Authorization and Cookie headers do not follow it.
+        if (originOf(next) != originOf(res.requestUrl)) {
+            req.headers.remove("Authorization");
+            req.headers.remove("Cookie");
+        }
+        req.url = next;
+        return true;
     }
 
     public void close() {
@@ -1496,9 +1590,11 @@ class HttpClient {
     }
 
     // One exchange: assemble (D15/D17/D21) → borrow → write → read
-    // status+headers (skip 1xx, D10) → buffered body + conditional
-    // decompress → release per D19.
-    private HttpResponse execute(HttpRequest req, int budget) {
+    // status+headers (skip 1xx, D10) → body. buffered=true reads the body
+    // whole and releases the connection straight back (D19); buffered=false
+    // hands the reader to the caller, who owns the connection until the body
+    // ends (open(), D16/D19).
+    private HttpResponse execute(HttpRequest req, int budget, bool buffered) {
         Url u = req.url;
         if (u == null || !u.isAbsolute()) {
             throw HttpException("http: request url must be absolute", 0);
@@ -1511,11 +1607,16 @@ class HttpClient {
         HttpHeaders h = req.headers.copy();
         this.fillDefaults(h);
         bool gzipInjected = false;
-        // Ask for gzip only when the answer can be decoded transparently: a
-        // HEAD response carries no body bytes at all, and a Range response is
-        // a slice of the full body, which auto-decoding would misalign. Go's
-        // transport.go excludes the same two cases for the same reasons.
-        if (req.bodyChannel == null && !h.has("Accept-Encoding")
+        // gzip is a buffered-path feature (D21): the streaming reader cannot
+        // inflate transparently (gzip.decompress is a whole-buffer API), so
+        // open() neither injects Accept-Encoding nor decompresses — asking
+        // for an encoding this client cannot decode would hand the caller
+        // gzip bytes behind a plainly-typed reader. Within the buffered path,
+        // ask only when the answer can be decoded: a HEAD response carries no
+        // body bytes at all, and a Range response is a slice of the full body,
+        // which auto-decoding would misalign. Go's transport.go excludes the
+        // same two cases for the same reasons.
+        if (buffered && req.bodyChannel == null && !h.has("Accept-Encoding")
             && req.method != "HEAD" && !h.has("Range")) {
             h.set("Accept-Encoding", "gzip");
             gzipInjected = true;
@@ -1527,6 +1628,28 @@ class HttpClient {
         }
         HttpPool pool = this.poolFor(u.host, port);
         HttpConn conn = pool.borrow(connectTimeoutMs, budget, maxConnsPerHost);
+        if (!buffered) {
+            // Streaming: the reader owns the borrowed connection from here
+            // on. Everything thrown before attachPool hands it over has to
+            // put the connection back here, or the pool's active set keeps a
+            // slot nothing will ever release (and m_total never drops).
+            try {
+                this.writeRequest(conn, req, h, u);
+                HttpResponse res = this.readResponse(conn, req.method == "HEAD");
+                res.requestUrl = u;
+                res.body = null;
+                HttpBodyReader reader = HttpBodyReader(
+                    conn, res.framingMode, res.framingLength, 0, readTimeoutMs);
+                bool poolable = !conn.stream.isClosed() && !res.connectionClose
+                    && res.framingMode != HttpParser.MODE_EOF;
+                res.bodyReader = reader;
+                reader.attachPool(pool, poolable);
+                return res;
+            } catch (Exception e) {
+                pool.release(conn, false);
+                throw e;
+            }
+        }
         bool reusable = false;
         try {
             this.writeRequest(conn, req, h, u);
@@ -1554,7 +1677,11 @@ class HttpClient {
 
     private void writeRequest(HttpConn conn, HttpRequest req, HttpHeaders h, Url u) {
         byte[] body = req.body;
-        if (body != null && body.length() > 0) {
+        if (req.bodyChannel != null) {
+            // A streaming upload has no known length, so chunked framing
+            // carries it (D5/D16, HTTP-CLI-008).
+            h.set("Transfer-Encoding", "chunked");
+        } else if (body != null && body.length() > 0) {
             h.set("Content-Length", body.length().toString());
         }
         List<byte> head = {};
@@ -1566,8 +1693,33 @@ class HttpClient {
         }
         HttpParser.appendAscii(head, "\r\n");
         conn.writeAll(HttpParser.toByteArray(head), readTimeoutMs);
-        if (body != null && body.length() > 0) {
+        if (req.bodyChannel != null) {
+            this.pumpUpload(conn, req.bodyChannel);
+        } else if (body != null && body.length() > 0) {
             conn.writeAll(body, readTimeoutMs);
+        }
+    }
+
+    // Upload pump: the whole request body goes out before the response is
+    // read — v1 has no bidirectional reuse of one connection (ledger Ruling),
+    // so a handler that streams a response while the client is still
+    // uploading needs two connections. A write failure closes the channel so
+    // a producer blocked in send() stops instead of hanging (D18, the mirror
+    // of the server-side pumpChunked).
+    private void pumpUpload(HttpConn conn, Channel<byte[]> ch) {
+        try {
+            while (true) {
+                try {
+                    byte[] chunk = ch.recv();
+                    conn.writeAll(HttpParser.encodeChunk(chunk), readTimeoutMs);
+                } catch (ChannelClosedException e) {
+                    break;   // closed and drained: recv throws, never returns null
+                }
+            }
+            conn.writeAll(HttpParser.encodeLastChunk(), readTimeoutMs);
+        } catch (Exception e) {
+            ch.close();
+            throw e;
         }
     }
 

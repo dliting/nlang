@@ -1,0 +1,104 @@
+// Cancellation (Review Focus 4): client disconnect → server write fails
+// → pump closes the channel → producer send throws ChannelClosedException
+// and the handler stops. D19: exhausted reader returns the connection to
+// the pool (maxConnections=1 proves reuse); unexhausted close kills it.
+import io;
+import http;
+import thread;
+import concurrent;
+
+// A file-scope variable cannot sit next to main(), so the producer's
+// cancellation counter lives in a static field of a holder class.
+class CancelCounters {
+    public static AtomicInt stopped = AtomicInt(0);
+}
+
+// Producer body as a bound-method class (no anonymous function literals;
+// see Global Constraints).
+//
+// The producer is paced (sleep between events) for the same reason a real SSE
+// feed is: an unpaced producer pushes all its events through a capacity-1
+// channel in milliseconds, faster than the client's disconnect can reach the
+// server, so the pump would never hit a write error and there would be nothing
+// to cancel — the vector would then pass or fail on a race instead of on D18.
+class SseProducer {
+    // A few tens of events is enough: the client disconnects after two, so the
+    // rest is the window in which the cancellation has to show up. The count
+    // stays small because thread.sleep() rounds up to the platform timer
+    // resolution (~15 ms), which is what paces the feed.
+    private static const int EVENTS = 60;
+    private static const int EVENT_PACE_MS = 3;
+
+    Channel<byte[]> m_ch;
+
+    public SseProducer(Channel<byte[]> ch) { m_ch = ch; }
+
+    public void run() {
+        for (int i = 0; i < EVENTS; i = i + 1) {
+            try {
+                m_ch.send(io.toBytes("data: " + i.toString() + "\n\n"));
+            } catch (ChannelClosedException e) {
+                CancelCounters.stopped.incrementAndGet();
+                return;
+            }
+            thread.sleep(EVENT_PACE_MS);
+        }
+        m_ch.close();
+    }
+}
+
+HttpResponse sseHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.bodyChannel = Channel(1);
+    SseProducer p = SseProducer(res.bodyChannel);
+    thread.spawn(p.run);
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.maxConnections = 1;
+    srv.start("127.0.0.1", 0, sseHandler);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+    HttpClient cli = HttpClient();
+
+    // 1. Early disconnect: read 2 chunks, close → producer stops.
+    HttpRequest r1 = HttpRequest();
+    r1.url = Url.parse(base + "/sse");
+    HttpResponse res1 = cli.open(r1);
+    byte[] buf = byte[4096];
+    int seen = 0;
+    while (seen < 2) {
+        int n = res1.bodyReader.read(buf, 5000);
+        if (n < 0) { return 1; }
+        seen = seen + 1;
+    }
+    res1.bodyReader.close();          // not exhausted → connection closed
+    int waited = 0;
+    while (CancelCounters.stopped.load() == 0 && waited < 5000) {
+        thread.sleep(10);
+        waited = waited + 10;
+    }
+    if (CancelCounters.stopped.load() == 0) { return 2; }
+
+    // 2. Pool discipline: exhaust fully → connection returns to the
+    // pool; maxConnections=1 means the next request must reuse it.
+    HttpRequest r2 = HttpRequest();
+    r2.url = Url.parse(base + "/sse");
+    HttpResponse res2 = cli.open(r2);
+    while (res2.bodyReader.read(buf, 5000) >= 0) { }
+    res2.bodyReader.close();          // exhausted → back to pool
+    HttpResponse res3 = cli.request(makeGet(base + "/sse"));   // buffered drain
+    if (res3.statusCode != 200) { return 3; }
+
+    cli.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+HttpRequest makeGet(string url) {
+    HttpRequest req = HttpRequest();
+    req.url = Url.parse(url);
+    return req;
+}

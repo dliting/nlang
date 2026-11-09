@@ -1,0 +1,150 @@
+// Streaming roundtrips: server bodyChannel → client open() per-chunk
+// (capacity-1 channel forces lockstep = backpressure, Review Focus 1),
+// server stream → buffered client readAll, client chunked upload →
+// server bodyText, HEAD on a stream cancels the producer (D18),
+// HTTP/1.0 stream degrades to EOF framing (RFC 9112 §9).
+import io;
+import http;
+import gzip;
+import thread;
+import concurrent;
+
+// A file-scope variable cannot sit next to main(), so the producer's
+// cancellation counter lives in a static field of a holder class.
+class StreamCounters {
+    public static AtomicInt cancelled = AtomicInt(0);
+}
+
+// Producer body as a bound-method class — the language has no anonymous
+// function literals (see Global Constraints), so the spawned body must
+// live in a state-holding object's run() method.
+class ChunkProducer {
+    Channel<byte[]> m_ch;
+    int m_n;
+    string m_tag;
+
+    public ChunkProducer(Channel<byte[]> ch, int n, string tag) {
+        m_ch = ch;
+        m_n = n;
+        m_tag = tag;
+    }
+
+    public void run() {
+        for (int i = 0; i < m_n; i = i + 1) {
+            try {
+                m_ch.send(io.toBytes(m_tag + i.toString() + ";"));
+            } catch (ChannelClosedException e) {
+                StreamCounters.cancelled.incrementAndGet();
+                return;
+            }
+        }
+        m_ch.close();
+    }
+}
+
+HttpResponse streamHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    if (req.url.path == "/upload") {
+        res.body = io.toBytes("got " + req.bodyText());
+        return res;
+    }
+    if (req.url.path == "/gz") {
+        res.compressBody = true;
+        res.body = io.toBytes("gz-stream-payload");
+        return res;
+    }
+    res.bodyChannel = Channel(1);
+    ChunkProducer p = ChunkProducer(res.bodyChannel, 10, "chunk");
+    thread.spawn(p.run);
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, streamHandler);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+    HttpClient cli = HttpClient();
+
+    // 1. open() per-chunk: order preserved, 10 chunks, reader ends -1.
+    HttpRequest r1 = HttpRequest();
+    r1.url = Url.parse(base + "/stream");
+    HttpResponse res1 = cli.open(r1);
+    if (res1.bodyReader == null) { return 1; }
+    string acc = "";
+    byte[] buf = byte[64];
+    while (true) {
+        int n = res1.bodyReader.read(buf, 5000);
+        if (n < 0) { break; }
+        acc = acc + io.fromBytes(buf[0:n]);
+    }
+    if (acc != "chunk0;chunk1;chunk2;chunk3;chunk4;chunk5;chunk6;chunk7;chunk8;chunk9;") { return 2; }
+    res1.bodyReader.close();
+
+    // 2. Buffered client reads a streamed response via readAll.
+    HttpResponse res2 = cli.request(makeGet(base + "/stream"));
+    if (res2.bodyText() != "chunk0;chunk1;chunk2;chunk3;chunk4;chunk5;chunk6;chunk7;chunk8;chunk9;") { return 3; }
+
+    // 3. Client chunked upload: bodyChannel → server bodyText.
+    HttpRequest r3 = HttpRequest();
+    r3.method = "POST";
+    r3.url = Url.parse(base + "/upload");
+    r3.bodyChannel = Channel(1);
+    ChunkProducer upP = ChunkProducer(r3.bodyChannel, 5, "up");
+    thread.spawn(upP.run);
+    HttpResponse res3 = cli.request(r3);
+    if (res3.bodyText() != "got up0;up1;up2;up3;up4;") { return 4; }
+
+    // 4. open() never injects Accept-Encoding and never decompresses:
+    // with the header set by hand the server gzips, and the streaming
+    // reader must deliver the raw gzip bytes (no transparent inflate).
+    HttpRequest r4 = HttpRequest();
+    r4.url = Url.parse(base + "/gz");
+    r4.headers.set("Accept-Encoding", "gzip");
+    HttpResponse res4 = cli.open(r4);
+    if (!res4.headers.has("Content-Encoding")) { return 5; }
+    byte[] raw = res4.bodyReader.readAll();
+    res4.bodyReader.close();
+    if (io.fromBytes(raw) == "gz-stream-payload") { return 5; }
+    if (io.fromBytes(gzip.decompress(raw)) != "gz-stream-payload") { return 5; }
+
+    // 5. HEAD on a streaming handler: 200 + empty body, and the server
+    // closing the channel on HEAD stops the capacity-1 producer that is
+    // blocked in send() instead of leaking its thread (D18; without the
+    // (noBody || head) close this vector hangs until test timeout).
+    HttpRequest rh0 = HttpRequest();
+    rh0.method = "HEAD";
+    rh0.url = Url.parse(base + "/stream");
+    HttpResponse rh = cli.request(rh0);
+    if (rh.statusCode != 200) { return 6; }
+    if (rh.body.length() != 0) { return 6; }
+    int waited = 0;
+    while (StreamCounters.cancelled.load() == 0 && waited < 5000) {
+        thread.sleep(10);
+        waited = waited + 10;
+    }
+    if (StreamCounters.cancelled.load() == 0) { return 6; }
+
+    // 6. HTTP/1.0 client + streaming response: chunked is illegal on
+    // 1.0, so the server degrades to raw EOF-framed bytes + close
+    // (RFC 9112 §9) — no Transfer-Encoding, body equals the raw
+    // concatenation of the chunks.
+    HttpRequest r6 = HttpRequest();
+    r6.version = "HTTP/1.0";
+    r6.url = Url.parse(base + "/stream");
+    HttpResponse res6 = cli.open(r6);
+    if (res6.headers.has("Transfer-Encoding")) { return 7; }
+    byte[] raw6 = res6.bodyReader.readAll();
+    res6.bodyReader.close();
+    if (io.fromBytes(raw6) != "chunk0;chunk1;chunk2;chunk3;chunk4;chunk5;chunk6;chunk7;chunk8;chunk9;") { return 7; }
+
+    cli.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+HttpRequest makeGet(string url) {
+    HttpRequest req = HttpRequest();
+    req.url = Url.parse(url);
+    return req;
+}
