@@ -19,7 +19,7 @@
 
 **裁定原则**:不向下兼容;合理性优先,不随便把功能降级为「已知限制」;现状不是设计依据;KISS;性能不敏感的功能归脚本层(标准库形式),性能敏感的归native(如压缩、传输)。
 
-**状态**:v2.13定稿——v2.11增量审核判决无中级及以上问题(2条次要已落实,2026-11-08);v2.12为实施探针驱动的表示修正(query/fragment有无改presence旗标,2026-11-08);v2.13按用户最终裁定(null退出string值域)重定旗标理据、表示不变(2026-11-08),循环完善流程收束(历轮记录见修订记录)。
+**状态**:v2.14定稿——与v0.13.5实施计划对齐(`defaultClient()`升入§五http自由函数面、`maxBodyBytes`int→long、§十一.2索引钉283→286与gzip计数修正,2026-11-09);v2.13定稿——v2.11增量审核判决无中级及以上问题(2条次要已落实,2026-11-08);v2.12为实施探针驱动的表示修正(query/fragment有无改presence旗标,2026-11-08);v2.13按用户最终裁定(null退出string值域)重定旗标理据、表示不变(2026-11-08),循环完善流程收束(历轮记录见修订记录)。
 
 ---
 
@@ -122,7 +122,7 @@
 | D12 | 重定向:客户端默认跟随,上限10(`maxRedirects`可配,0=禁用);301/302/303改GET并丢弃body(可重放);307/308保持方法——缓冲`body`可重放,`bodyChannel`已消费不可重放→抛`HttpException`(Go「not replayable」同行为);跨主机剥离Authorization与Cookie;相对Location经`Url.resolve`解析。 | 调研结论17:Go规则是业界事实标准;跨主机剥离凭据是SSRF基本防御。 |
 | D13 | 异常:`url.n`定义`UrlException : IOException`(解析/解码失败),`http.n`定义`HttpException : IOException`(协议错误:畸形响应行/头部、重定向超限、头部注入字符、body超限),`system.n`定义`DateTimeException : Exception`,`gzip.n`定义`GzipException : IOException`;`SocketException`/`TimeoutException`透传;4xx/5xx不是异常。 | 事实4:按包定义异常是既有先例;状态码是响应不是错误(requests/Go一致行为)。 |
 | D14 | 服务器生命周期:`HttpServer`实例先配字段再启动——`start(host, port, handler)`非阻塞(accept线程)供测试与同进程场景,`serve(host, port, handler)`阻塞供独立服务器进程(main无需sleep占位);两者均可被另一线程的`close()`唤醒停机(accept经SocketException唤醒,net_http_mini模式);支持port 0+`localPort()`;handler类型`func<HttpResponse, HttpRequest>`;`maxConnections`超限→503+关连接(nginx先例,调研结论13),`maxRequestsPerConnection`超限→末响应`Connection: close`(nginx keepalive_requests先例)。 | main返回即进程退出(§9.3),独立服务器必须有阻塞入口(Go ListenAndServe、Python serve_forever先例);port 0+localPort是e2e/文档围栏自终止的前提(事实8);实例配字段避免静态start的参数鸡生蛋;类类型作函数类型实参有thread.n `func<T>`先例,计划探针确认。 |
-| D15 | 客户端API分两档:便捷自由函数`http.get/post/put/del/request`(共享默认客户端,缓冲档;`timeoutMs`参数=整请求上限)与`HttpClient`类(池、默认头部预置User-Agent——请求自带头部优先、默认只补缺,`Accept-Encoding`由缓冲档发送时注入(D21)、maxRedirects、`maxConnsPerHost`、流式档`open()`)。超时三旋钮:`connectTimeoutMs`默认10s(连接阶段)、`readTimeoutMs`默认10s(每次读间隔,0=不限,SSE长连接调大)、`callTimeoutMs`默认0(整请求含重定向,0=不限)。`HttpRequest`/`HttpResponse`为类。 | 用户目标「方便的客户端API」:requests式一行调用+可配置对象两档是requests/Go/OkHttp共同形态;超时分离是OkHttp/Go/Node共识(调研结论6),整请求超时与SSE长连接互斥故必须拆;`del`避开`delete`关键字风险(计划核实)。 |
+| D15 | 客户端API分两档:便捷自由函数`http.get/post/put/del/request/defaultClient`(共享默认客户端,缓冲档;`timeoutMs`参数=整请求上限;`defaultClient()`把该共享实例暴露给用户配置)与`HttpClient`类(池、默认头部预置User-Agent——请求自带头部优先、默认只补缺,`Accept-Encoding`由缓冲档发送时注入(D21)、maxRedirects、`maxConnsPerHost`、流式档`open()`)。超时三旋钮:`connectTimeoutMs`默认10s(连接阶段)、`readTimeoutMs`默认10s(每次读间隔,0=不限,SSE长连接调大)、`callTimeoutMs`默认0(整请求含重定向,0=不限)。`HttpRequest`/`HttpResponse`为类。 | 用户目标「方便的客户端API」:requests式一行调用+可配置对象两档是requests/Go/OkHttp共同形态;超时分离是OkHttp/Go/Node共识(调研结论6),整请求超时与SSE长连接互斥故必须拆;`del`避开`delete`关键字风险(计划核实)。 |
 | D16 | chunked双侧读写:读侧——客户端解析chunked响应(含trailer丢弃),服务器解析chunked请求体;写侧——服务器流式响应(`bodyChannel`)与客户端流式上传(`bodyChannel`)均chunked写出,写出侧无缓冲body时恒chunked,有缓冲body恒Content-Length(已知长度优先,调研结论12)。trailer读侧丢弃、写侧不发(v1);chunk extension(`5;foo=bar`尺寸行参数)兼容解析并忽略,不当数据(Go先例,HTTP-CHK-004)。 | 流式形态下写出侧长度未知,chunked必需(用户裁定流式);读侧必须支持因为对端(curl等真实客户端/服务器)会发chunked。 |
 | D17 | TLS接缝:v1传输面直连TcpStream,不预先引入流接口;v1客户端对非`http` scheme(含`https`)在请求组装时抛`HttpException`拒绝;TLS子项目落地时连同其需求(ALPN、握手形态)一并设计接口,机械替换并开放https。 | 避免投机泛化:接口方法集应由TLS真实需求决定;现在定义一个用不上的接口是YAGNI违背;显式拒绝优于明文连上https端口挂到超时(错误信息明确指向缺TLS)。 |
 | D18 | 背压与取消传播:流式响应经有界`Channel<byte[]>`(容量≥1——capacity 0=无界会静默失去背压,不采纳;通道由handler构造并赋值给`bodyChannel`,推荐容量8块),pump(连接线程)逐块`recv`→chunked写出→flush语义(每块即发);`send`阻塞=背压,慢客户端最终阻塞生产者(HTTP-HC-011/SSE-004)。取消:pump写失败(客户端断开)→close通道→生产者`send`抛`ChannelClosedException`→handler/生产者线程停止(SSE-002/HTTP-HC-013)。生产者必须以`finally`关通道(`recv`无超时,事实7;泄漏=连接永久挂起);生产者阻塞在他处到不了`finally`时pump的`recv`停摆——界定以生产者契约为主:handler拥有两线程、必须保证生产者终结,违约属调用方缺陷,库的兜底是每违约请求至多泄漏一个连接;`maxConnections`仅为部署侧可选上限(默认0=不限时不构成封顶)。 | 用户裁定流式/SSE;调研结论7:Go以写失败+context为退出信号,通道泵是其背压等价物;取消必须双向可观测是http_verify红线2。 |
@@ -280,7 +280,7 @@ class HttpServer {
     // start/serve 前可配;启动后只读
     public int maxHeaderBytes = 65536;              // 超限 431(D9)
     public int maxHeaders = 100;                    // 超限 431(D9)
-    public int maxBodyBytes = 16777216;             // 超限 413(D5)
+    public long maxBodyBytes = 16777216;            // 超限 413(D5);long——体量计数器不得在 2GB 处回绕
     public int keepAliveTimeoutMs = 30000;          // 请求间空闲(D7)
     public int headerTimeoutMs = 10000;             // 头部阶段总时限,Slowloris(D7)
     public int bodyTimeoutMs = 10000;               // body 阶段每次读间隔,慢灌/半开(D7)
@@ -305,6 +305,7 @@ public HttpResponse put(string url, string body,
     string contentType = "text/plain; charset=utf-8", int timeoutMs = 0);
 public HttpResponse del(string url, int timeoutMs = 0);
 public HttpResponse request(HttpRequest req, int timeoutMs = 0);
+public HttpClient defaultClient();   // 上述自由函数共用的共享默认客户端(懒初始化,D15)
 ```
 
 ### stdlib/lang.n(string方法面新增,D4)
@@ -410,7 +411,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 ## 十一、集成点与文档同步
 
 1. 新增:`stdlib/system.n`、`stdlib/url.n`、`stdlib/http.n`、`stdlib/gzip.n`(GLOB自动打包);修改:`stdlib/lang.n`三方法声明+VM内建实现、`stdlib/io.n`base64四函数+删除`nowMs`(调用点同步:`examples/net_conc_bench.n`、`tools/net_bench/net_bench_10k.n`(不入e2e manifest,删`nowMs`后静默坏死、CI不报)、e2e`stdlib_io_park_guard/stdlib_io_park_now/stdlib_net_ping_stress`,`io.nowMs()`→`system.monoMs()`;`tests/test_nide/test_mainwindow.cpp`的io补全弹窗计数钉数19随面变化改22(删nowMs、增base64四函数)并同步其枚举注释);native:新建`nlang_system.dll`提供`system.wallMs`/`monoMs`(CMake模块清单、安装清单归计划)、gzip捆绑zlib(CMake、DLL闭包、安装器归计划);测试部署fixture——`tests/CMakeLists.txt`三处显式native DLL清单(`nide_deploy_check`的`NLANG_NATIVE_DLLS`、`nlang_embed_deploy`拷贝清单、`embed_host_smoke`参数)须增`nlang_system.dll`(三清单现亦缺`nlang_net.dll`,既有缺口一并归计划核实补全)。
-2. `test_library_index.cpp`钉数两级:267→276(0.13.4:url自由函数4、io.base64四函数、system.wallMs 1;`io.nowMs`迁入system改名`monoMs`为净零——io 19→22、system 2,总数只随新增增长)→283(0.13.5:http自由函数5(get/post/put/del/request)、gzip自由函数2);string方法与类静态/成员方法不计;计划核实(代码侧注释「266」为陈旧值,重算时顺带修正);符号索引测试两处钉同步——总数267→276→283与`test_symbol_index.cpp`的`namespaces.size()`6→7(`Packages()`按自由函数面列包,`system.n`落地即新增一名);IDE树全量ctest收尾(编译器/预置包变更门禁)。
+2. `test_library_index.cpp`钉数两级:267→276(0.13.4:url自由函数4、io.base64四函数、system.wallMs 1;`io.nowMs`迁入system改名`monoMs`为净零——io 19→22、system 2,总数只随新增增长)→286(0.13.5:http自由函数6(get/post/put/del/request/defaultClient)、gzip 4(脚本自由函数2+native声明2——索引计数含native声明行,先例system 2即两条native声明));string方法与类静态/成员方法不计;计划核实(代码侧注释「266」为陈旧值,重算时顺带修正);符号索引测试两处钉同步——总数267→276→286与`test_symbol_index.cpp`的`namespaces.size()`6→7(`Packages()`按自由函数面列包,`system.n`落地即新增一名);IDE树全量ctest收尾(编译器/预置包变更门禁)。
 3. 手册:0.13.4新增`library/15-system.md`(插于14-io之后,现15-20章顺延为16-21;含时钟与DateTime日历面,D24)、`library/22-url.md`,格式章21/22/23→23/24/25;0.13.5新增`library/23-http.md`、`library/24-gzip.md`,格式章再顺延为25/26/27;**引用同步规则**(取代手写计数):每轮重编号,对当轮被顺延各章的全部节号引用(`§N.M`、`第N章`、`chapter N`三形态——zh树用「第N章」,en树`chapter`/`Chapter`大小写混用,grep须不区分大小写)与文件名链接随轮顺延,含被顺延章自身的内部节号自引用与章文件自身改名——0.13.4轮波及现15-23章(string方法章§16.2→§17.2及文件`16-string-methods.md`→`17-string-methods.md`、库异常章§19→§20及`19-library-exceptions.md`→`20-library-exceptions.md`、格式章21/22/23→23/24/25及其内部`§21.x`/`§22.x`/`§23.x`自引用),0.13.5轮波及格式章23-25→25-27;由计划在`docs/user_manual/zh/specification/`与`en/specification/`两树按四形态(`§15`–`§27`、`第15章`–`第27章`、`chapter 15`–`chapter 27`不区分大小写、被改名文件名)grep列全——引用面散布数十文件(计数随形态口径而变,spec不钉死),手写清单已两轮漏项,且陈旧节号(含「第N章」纯文本形态)链接有效、linkcheck测不出;0.13.4同步`14-io`删除时钟小节;重编号后的`abi`格式章宿主函数表`nowMs`回调行保持原样(C ABI时钟域名,与脚本命名空间无关,`wallMs`/`monoMs`是脚本层native不入该表;可加注说明`system.monoMs`即由该nowMs回调实现、二者同时钟域),停泊截止域措辞无需改(中英成对);§17.2方法表增三方法;§20库异常两轮增补:0.13.4增UrlException/DateTimeException,0.13.5增HttpException/GzipException;`index.md`目录与版本行;中英成对。
 4. `CHANGELOG.md`+`VERSION`→0.13.4、0.13.5两级;`docs/roadmap.md`按版本划分表增行。
 5. e2e/示例manifest登记;`check_no_builtin_stdlib.py`正控io期望14→13(删`nowMs`;base64为脚本实现不增native声明),math/fs不变;为`system.n`增设正控(2条native声明——裁定:与math/io/fs同列,保持守卫对预置包native面的覆盖;url/http纯脚本无native,无需正控)。
@@ -449,6 +450,7 @@ public native bool equalsIgnoreCase(string other); // ASCII 字母大小写不�
 
 ## 修订记录
 
+- 2026-11-09(v2.14):v0.13.5实施计划审核与spec对齐——自由函数的共享默认客户端访问器从实现细节升入显式公开面`defaultClient()`(懒初始化、无锁:GIL下句柄存储原子,最坏多弃一个空客户端实例,理据见实施计划台账Ruling;stdlib无顶层变量初始化先例,互斥量全局不可行),§五http自由函数块补一行,D15面清单与§十一.2索引钉283→286随之(http自由函数5→6)。同轮两处计划驱动修正:`maxBodyBytes`类型int→long(§五HttpServer块——字节体量计数器不得在2GB处回绕,reader累计与比较走long运算,int上限2GB对大上传是真实约束且无long的代价为零);§十一.2 gzip计数「自由函数2」→「4(脚本自由函数2+native声明2)」——索引计数含native声明行(system 2先例),原计数使276→286算术不闭合。波及状态行、D15、§五、§十一.2。
 - 2026-11-08(v2.13):用户最终裁定为旗标重定理据、表示不变——string是内置值类型,其值域不含null(null属将来的`string&`引用类型;0.13.4 Task 6.5已在编译期把null从string语言面移除:初始化/赋值/传参/返回/比较/case标号/拼接一律编译错误),因此v2.11「query/fragment以null与""区分」的原设计不再可表示:null不能出现在string字段与string比较中,有无只能由显式旗标承载。v2.12记录的「null串与`""`经`==`互等」是裁定前的运行期探针现象(handle 0为内部null表示,读作空内容,已按用户指示记入手册「已知限制」);裁定后该场景为编译错误,旗标表示(`hasQuery`/`hasFragment`)保留。连带修正§五`HttpHeaders.get`草案的「无则null」——返回string的函数不应返回null,改为「无则`""`,有无由`has`判定」。波及§五Url块注释、`HttpHeaders.get`注释、状态行。
 - 2026-11-08(v2.12):实施探针(0.13.4 Task 6)证伪§五Url字段的null表示假设——nlang的null字符串与`""`经`==`互相相等(双向探针均true,`null.length()==0`),「query/fragment以null与""区分」无法经null比较表达;语义区分(URL-013)保留,表示改显式presence旗标`hasQuery`/`hasFragment`(与Go net/url的`ForceQuery`同形;`HttpHeaders.get`的同类混淆已有`has()`伴生覆盖,无需改动)。波及§五Url块、状态行。
 - 2026-11-08(v2.11后补):§九第3项「半包/粘包增量解析(红线1)」为R9-02同类残留错位(v2.9修复时登记为「原两处」,此第三处漏列),按参考文档§12.3实际编号改红线3(红线1=背压)。

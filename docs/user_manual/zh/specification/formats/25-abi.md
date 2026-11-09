@@ -122,7 +122,7 @@ void fn(NativeHost* host, uint8_t* ret,
 | `currentContextId` | `int (NativeHost* self)` |
 | `submitWork` | `int (NativeHost* self, void (*fn)(void*), void* arg, int ackFd, int priority)` |
 
-**字符串。**`getString`返回`handle`背后字符串的字节；`newString`从一个以NUL结尾的Unicode转换格式（UTF-8）缓冲区创建字符串并返回其句柄；`newListString`在一次调用内从`count`个以NUL结尾的缓冲区创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。
+**字符串。**`getString`返回`handle`背后字符串的字节；`newString`从一个以NUL结尾的Unicode转换格式（UTF-8）缓冲区创建字符串并返回其句柄；`newListString`在一次调用内从`count`个以NUL结尾的缓冲区创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。声明返回`string`的原生函数必须向`ret`写入一个由`newString`获得的句柄：句柄0表示原生函数没有产出字符串，会抛出带函数名的宿主级错误；不再活动的句柄同样抛出。空字符串是`newString`发出的真实句柄，绝不是0。
 
 **控制台。**`writeOutput`把文本逐字写入标准输出（§14.2）；`writeError`把它写入诊断通道——标准错误，或嵌入宿主掌管各流时会话的单一合并输出视图（§14.2）。`readLine`返回剥去行尾换行符的一行输入，输入结束时返回空指针；空行是`""`（§14.3）。`readToken`跨行跳过空白并返回下一个记号；输入结束时宿主在返回之前抛出，所以空指针结果仅为防御性（§14.3）。`readChar`把一个完整的UTF-8标量解码进`outChar`并返回`0`；输入结束时宿主在返回之前抛出，所以`1`结果仅为防御性（§14.3）。不是有效UTF-8的文本抛出基类`Exception`（§14.3）。`hasInput`在`readLine`仍能产出一行时返回`1`，且从不抛出（§14.3）。输入回调返回的缓冲区只有效到下一次宿主回调。
 

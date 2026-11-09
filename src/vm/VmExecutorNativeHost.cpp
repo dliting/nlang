@@ -352,10 +352,11 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
 //Ruling D27: a declared-string native result lives in the ABI's
 //handle-or-null domain. 0 = the native produced no string — a contract
 //violation, not the empty string (a silent "" would hide the producer
-//bug); a non-live handle is a producer bug whose content would
-//otherwise decode as "" after the sweep. Both are host-level errors
-//naming the function; internally handle 0 IS the empty string (ruling
-//D26), and the host's string-producing API (newString) never hands out 0.
+//bug); a non-live handle is a producer bug whose slot may already
+//hold recycled content, so reading it would decode an arbitrary
+//value. Both are host-level errors naming the function; internally
+//handle 0 IS the empty string (ruling D26), and the host's
+//string-producing API (newString) never hands out 0.
 void VmExecutor::CheckNativeStringResult(const CompiledFunction& callee,
                                          const uint8_t* pResult) {
     if (callee.returnTypeKind != RTK_String)

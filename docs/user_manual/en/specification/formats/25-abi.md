@@ -210,7 +210,13 @@ NUL-terminated UTF-8 (Unicode Transformation Format) buffer
 and returns its handle; `newListString` creates a
 `List<string>` from `count` NUL-terminated buffers in one
 call. The buffer `getString` returns is valid only until the
-next host callback — the native copies it immediately.
+next host callback — the native copies it immediately. A
+native function declared to return `string` must write into
+`ret` a handle obtained from `newString`: handle 0 means the
+native produced no string and raises a host-level error
+naming the function, as does a handle that is no longer
+live. The empty string is a real handle from `newString`,
+never 0.
 
 **Console.** `writeOutput` writes text verbatim to standard
 output (§14.2); `writeError` writes it to the diagnostic
