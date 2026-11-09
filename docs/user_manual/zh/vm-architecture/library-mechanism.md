@@ -21,7 +21,7 @@ mylib/
 - **普通NLang函数**——有函数体；编译进自己所在包的单元映像（如`stdlib.npkg`的成员），运行期与消费方链接后按字节码执行；
 - **`native`函数**——只有签名与文档注释（无函数体）；运行时经宿主应用二进制接口（ABI，application binary interface）分派到`nlang_<包名>.dll`（第5节；DLL按包名第一个点之前的段命名，因此多段包里的`native`声明是编译期诊断）。
 
-标准库同形：`stdlib/io.n`、`math.n`、`fs.n`、`thread.n`是手写的权威声明文件；io/math/fs三个包为纯native，实现由`src/native/`构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll`；thread的native声明由虚拟机本体实现（内建通道分发，无独立动态库）；concurrent是纯NLang实现（无native成员）。
+标准库同形：`stdlib/`下的每份`.n`都是手写的权威声明文件；`math`、`io`、`fs`、`tensor`、`net`、`system`与`gzip`的`native`成员由`src/native/`构建的按包模块实现（`nlang_math.dll`之类）；thread的`native`声明由虚拟机本体实现（内建通道分发，无独立模块）；`url`、`http`、`concurrent`、`lang`与`containers`是纯NLang实现（无`native`成员）。
 
 ## 3. 编译模型：源码完整内联
 
@@ -93,7 +93,7 @@ DLL里的普通C++函数可以被同一个`.n`中的NLang函数体包装组合�
 | 对象 | 作用 |
 |---|---|
 | `stdlib/*.n` | 手写的权威声明——唯一的签名来源 |
-| `src/native/{math,io,fs}/` | native实现，构建为`nlang_math.dll`、`nlang_io.dll`、`nlang_fs.dll` |
+| `src/native/{math,io,fs,tensor,net,system,gzip}/` | native实现，每个包一个模块（`nlang_math.dll`、`nlang_gzip.dll`等） |
 | 重复包检查（`ModuleRegistry::RegisterUnit` + 发现） | 一次构建内每个点分包名只能存在一份；错误指名两条来源路径 |
 | `String`/`Array`面声明（`stdlib/lang.n`）＋绑定表（`src/compiler/builder/BindingTable.cpp`） | string与数组的成员方法——声明在预置包里，以intrinsic分派；库命名空间不用这套机制 |
 | ctest `no_builtin_stdlib` | 一旦硬编码表、math/io/fs的intrinsic家族或它们的id回归，或`stdlib/*.n`被删除而非表被删除，即失败 |

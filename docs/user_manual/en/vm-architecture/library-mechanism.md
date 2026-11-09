@@ -43,13 +43,14 @@ freely mixed (a *mixed library*):
   segment before the first dot, so a `native` in a multi-segment
   package is a compile-time diagnostic).
 
-The standard library follows the same shape: `stdlib/io.n`, `math.n`,
-`fs.n`, and `thread.n` are hand-written authoritative declaration files;
-the io/math/fs packages are pure native, built as `nlang_math.dll`,
-`nlang_io.dll`, `nlang_fs.dll` from `src/native/`; thread's native
-declarations are implemented inside the virtual machine itself
-(intrinsic-channel dispatch, no separate DLL); concurrent is pure NLang
-(no native members).
+The standard library follows the same shape: every `stdlib/*.n` is a
+hand-written authoritative declaration file; the `math`, `io`, `fs`,
+`tensor`, `net`, `system` and `gzip` packages have their `native`
+members implemented in a per-package module built from `src/native/`
+(`nlang_math.dll` and the like); thread's native declarations are
+implemented inside the virtual machine itself (intrinsic-channel
+dispatch, no separate module); `url`, `http`, `concurrent`, `lang` and
+`containers` are pure NLang (no native members).
 
 ## 3. Compilation model: full source inlining
 
@@ -203,7 +204,7 @@ carries no standard-library knowledge.
 | Artifact | Role |
 |---|---|
 | `stdlib/*.n` | hand-written authoritative declarations — the only signature source |
-| `src/native/{math,io,fs}/` | the native implementations, built as `nlang_math.dll`, `nlang_io.dll`, `nlang_fs.dll` |
+| `src/native/{math,io,fs,tensor,net,system,gzip}/` | the native implementations, one module per package (`nlang_math.dll`, `nlang_gzip.dll`, ...) |
 | duplicate-package check (`ModuleRegistry::RegisterUnit` + discovery) | one build may contain only one package of each dotted name; the error names both source paths |
 | `String`/`Array` face declarations (`stdlib/lang.n`) + the binding table (`src/compiler/builder/BindingTable.cpp`) | the string and array member methods — declared in the prelude, dispatched as intrinsics; a library package is not implemented this way |
 | ctest `no_builtin_stdlib` | fails if a hardcoded table, a math/io/fs intrinsic family or their ids return, or if `stdlib/*.n` is deleted while the table remains |

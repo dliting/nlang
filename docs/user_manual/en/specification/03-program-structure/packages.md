@@ -275,10 +275,10 @@ prelude included; the implementation binds the declared native
 members to its built-in implementations.
 
 *Informative:* NLang libraries are carried by `.n` source files:
-the standard `math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n`/`tensor.n`/`net.n`
-ship with the toolchain, and a third-party library is just a
-directory of `.n` files (optionally alongside native dynamic
-libraries). A function implemented outside NLang is declared with
+the standard library ships one `.n` for every package — the prelude
+`lang.n` and `containers.n` plus the eleven standard packages — and a
+third-party library is just a directory of `.n` files (optionally
+alongside native dynamic libraries). A function implemented outside NLang is declared with
 the `native` keyword (`native void print(string s);`) — such a
 declaration carries only the signature and documentation, with no
 body; an ordinary function without `native` is a readable,

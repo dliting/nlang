@@ -6,7 +6,7 @@
 
 本包只有两个入口与一个异常类，而标准库里唯一用它是`http`：服务器的`HttpResponse.compressBody`（§23.5）产出`Accept-Encoding: gzip`客户端所要求的应答，缓冲的客户端路径再把这类应答解回来（§23.6）。
 
-与`url`和`http`不同，本包并非纯`nlang`。两个函数包装了`_gzipCompress`与`_gzipDecompress`这两个`native`成员，由解释器内置的zlib编解码支撑；`native`报告失败时不返回值，也无法抛出本包声明的类，于是脚本层把这一步转成`GzipException`。
+与`url`和`http`不同，本包并非纯`nlang`。两个函数包装了`_gzipCompress`与`_gzipDecompress`这两个`native`成员，实现放在与解释器并排随工具链分发的`nlang_gzip.dll`里，zlib编解码就编译在该模块内（§27.2说明解释器在哪些目录找这类模块）；`native`报告失败时不返回值，也无法抛出本包声明的类，于是脚本层把这一步转成`GzipException`。
 
 ## 24.1 compress与decompress
 
