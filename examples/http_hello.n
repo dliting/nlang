@@ -1,0 +1,43 @@
+// Example: a hello HTTP service and its client in one process —
+// start() on an ephemeral port, a buffered GET, an echo POST, and two
+// keep-alive requests sharing one pooled connection.
+import io;
+import http;
+
+HttpResponse handle(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    if (req.method == "POST") {
+        res.body = io.toBytes("echo: " + req.bodyText());
+        return res;
+    }
+    res.body = io.toBytes("hello, " + req.url.path.substring(1));
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, handle);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    // The free functions are the buffered convenience tier (D14): they read
+    // the whole body and hand back a finished response.
+    HttpResponse r1 = get(base + "/world");
+    io.print(r1.statusCode.toString() + " " + r1.bodyText());
+
+    HttpResponse r2 = post(base + "/echo", "round trip");
+    io.print(r2.bodyText());
+
+    // One client, two requests: the second reuses the first connection
+    // (keep-alive + the per-host pool, D8/D19).
+    HttpClient cli = HttpClient();
+    for (int i = 0; i < 2; i = i + 1) {
+        HttpRequest req = HttpRequest();
+        req.url = Url.parse(base + "/ka" + i.toString());
+        HttpResponse r = cli.request(req);
+        io.print(r.bodyText());
+    }
+    cli.close();
+    srv.close();
+    io.print("ok");
+    return 0;
+}

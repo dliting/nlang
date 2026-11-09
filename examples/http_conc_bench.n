@@ -1,0 +1,79 @@
+// Example: 1000 virtual-thread clients hammer one server through a
+// single shared HttpClient capped at 4 connections per host — the
+// keep-alive reuse path under concurrency. Parking does not occupy a
+// carrier, so the run finishes on any carrier count.
+import io;
+import http;
+import thread;
+import concurrent;
+
+// Top-level variables cannot sit next to an explicit main(), so the shared
+// counters live in static fields of a holder class.
+class BenchCounters {
+    public static AtomicInt ok = AtomicInt(0);
+    public static AtomicInt fail = AtomicInt(0);
+}
+
+HttpResponse handle(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("pong");
+    return res;
+}
+
+// Worker body as a bound-method class (no anonymous function literals).
+class BenchWorker {
+    HttpClient m_cli;
+    string m_base;
+    WaitGroup m_wg;
+
+    public BenchWorker(HttpClient cli, string base, WaitGroup wg) {
+        m_cli = cli;
+        m_base = base;
+        m_wg = wg;
+    }
+
+    public void run() {
+        try {
+            HttpRequest req = HttpRequest();
+            req.url = Url.parse(m_base + "/ping");
+            HttpResponse res = m_cli.request(req);
+            if (res.statusCode == 200 && res.bodyText() == "pong") {
+                BenchCounters.ok.incrementAndGet();
+            } else {
+                BenchCounters.fail.incrementAndGet();
+            }
+        } catch (Exception e) {
+            BenchCounters.fail.incrementAndGet();
+        }
+        m_wg.done();
+    }
+}
+
+int main() {
+    // 4 connections carry 1000 requests: every worker but the first four
+    // waits in pool.borrow, so the run also exercises pool waiting (D8).
+    const int workers = 1000;
+
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, handle);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    HttpClient cli = HttpClient();
+    cli.maxConnsPerHost = 4;
+
+    WaitGroup wg = WaitGroup();
+    wg.add(workers);
+    for (int i = 0; i < workers; i = i + 1) {
+        BenchWorker w = BenchWorker(cli, base, wg);
+        thread.spawn(w.run);
+    }
+    wg.wait();
+    cli.close();
+    srv.close();
+    if (BenchCounters.fail.load() > 0) {
+        io.print("failures " + BenchCounters.fail.load().toString());
+        return 1;
+    }
+    io.print("done " + BenchCounters.ok.load().toString());
+    return 0;
+}

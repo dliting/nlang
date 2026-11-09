@@ -1,0 +1,80 @@
+// Concurrency acceptance (HTTP-HC-001…020 at B level): 300 virtual-thread
+// clients drive one server through a single shared HttpClient capped at 4
+// connections per host, so every request either reuses a keep-alive
+// connection or waits in pool.borrow — both under real contention. The
+// carrier count comes from stdlib_http_conc.flags; the worker count is
+// smaller than examples/http_conc_bench.n's so the 30 s per-test gate has
+// headroom (load tiers: e2e vs example).
+import io;
+import http;
+import thread;
+import concurrent;
+
+// Top-level variables cannot sit next to an explicit main(), so the shared
+// counters live in static fields of a holder class.
+class ConcCounters {
+    public static AtomicInt ok = AtomicInt(0);
+    public static AtomicInt fail = AtomicInt(0);
+}
+
+HttpResponse handle(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("pong");
+    return res;
+}
+
+// Worker body as a bound-method class (no anonymous function literals).
+class BenchWorker {
+    HttpClient m_cli;
+    string m_base;
+    WaitGroup m_wg;
+
+    public BenchWorker(HttpClient cli, string base, WaitGroup wg) {
+        m_cli = cli;
+        m_base = base;
+        m_wg = wg;
+    }
+
+    public void run() {
+        try {
+            HttpRequest req = HttpRequest();
+            req.url = Url.parse(m_base + "/ping");
+            HttpResponse res = m_cli.request(req);
+            if (res.statusCode == 200 && res.bodyText() == "pong") {
+                ConcCounters.ok.incrementAndGet();
+            } else {
+                ConcCounters.fail.incrementAndGet();
+            }
+        } catch (Exception e) {
+            ConcCounters.fail.incrementAndGet();
+        }
+        m_wg.done();
+    }
+}
+
+int main() {
+    const int workers = 300;
+
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, handle);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    HttpClient cli = HttpClient();
+    cli.maxConnsPerHost = 4;
+
+    WaitGroup wg = WaitGroup();
+    wg.add(workers);
+    for (int i = 0; i < workers; i = i + 1) {
+        BenchWorker w = BenchWorker(cli, base, wg);
+        thread.spawn(w.run);
+    }
+    wg.wait();
+    cli.close();
+    srv.close();
+    if (ConcCounters.fail.load() > 0) {
+        io.print("failures " + ConcCounters.fail.load().toString());
+        return 1;
+    }
+    io.print("done " + ConcCounters.ok.load().toString());
+    return 0;
+}

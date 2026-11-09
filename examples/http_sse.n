@@ -1,0 +1,95 @@
+// Example: server-sent events over a chunked stream. The HTTP layer
+// stays SSE-oblivious — the handler frames "data:" events by hand and
+// heartbeats with ':' comment lines. The client consumes per chunk,
+// disconnects early, and the producer stops on ChannelClosedException.
+import io;
+import http;
+import thread;
+import concurrent;
+
+// Top-level variables cannot sit next to an explicit main(), so the shared
+// counters live in static fields of a holder class.
+class SseCounters {
+    public static AtomicInt events = AtomicInt(0);
+    public static AtomicInt stopped = AtomicInt(0);
+}
+
+// Producer body as a bound-method class (no anonymous function literals).
+class SseProducer {
+    Channel<byte[]> m_ch;
+
+    public SseProducer(Channel<byte[]> ch) { m_ch = ch; }
+
+    public void run() {
+        // Paced like a real event feed: a feed that never blocks would
+        // finish before the client's early disconnect can surface as a
+        // write error, and the cancellation (D18) would never be exercised.
+        const int events = 100;
+        const int paceMs = 3;
+        try {
+            for (int i = 0; i < events; i = i + 1) {
+                m_ch.send(io.toBytes("data: tick " + i.toString() + "\n\n"));
+                if (i % 10 == 9) { m_ch.send(io.toBytes(": heartbeat\n\n")); }
+                thread.sleep(paceMs);
+            }
+        } catch (ChannelClosedException e) {
+            SseCounters.stopped.incrementAndGet();
+            return;
+        }
+        m_ch.close();
+    }
+}
+
+HttpResponse sse(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.headers.set("Content-Type", "text/event-stream");
+    res.bodyChannel = Channel(1);
+    SseProducer p = SseProducer(res.bodyChannel);
+    thread.spawn(p.run);
+    return res;
+}
+
+int main() {
+    // thread.sleep() rounds up to the platform timer resolution, so the
+    // producer's pacing (and the polls below) are coarser than the numbers
+    // suggest; the waits stay short on purpose.
+    const int waitStepMs = 10;
+    const int waitLimitMs = 5000;
+
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, sse);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    HttpClient cli = HttpClient();
+    HttpRequest req = HttpRequest();
+    req.url = Url.parse(base + "/events");
+    HttpResponse res = cli.open(req);
+
+    // Consume the stream chunk by chunk and split complete events off the
+    // accumulated text: a chunk boundary can fall anywhere inside an event,
+    // so the leftover stays in `acc` until its terminator arrives.
+    byte[] buf = byte[4096];
+    string acc = "";
+    while (SseCounters.events.load() < 5) {
+        int n = res.bodyReader.read(buf, 5000);
+        if (n < 0) { break; }
+        acc = acc + io.fromBytes(buf[0:n]);
+        while (acc.indexOf("\n\n") >= 0) {
+            string ev = acc.substring(0, acc.indexOf("\n\n"));
+            acc = acc.substring(acc.indexOf("\n\n") + 2);
+            if (ev.startsWith("data: ")) { SseCounters.events.incrementAndGet(); }
+        }
+    }
+    res.bodyReader.close();   // early disconnect (D19: the connection is closed)
+
+    int waited = 0;
+    while (SseCounters.stopped.load() == 0 && waited < waitLimitMs) {
+        thread.sleep(waitStepMs);
+        waited = waited + waitStepMs;
+    }
+    cli.close();
+    srv.close();
+    if (SseCounters.events.load() < 5 || SseCounters.stopped.load() == 0) { return 1; }
+    io.print("events " + SseCounters.events.load().toString() + " stopped");
+    return 0;
+}
