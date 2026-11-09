@@ -2,4 +2,4 @@
 # changes the manual already reflects. Update with
 # `python tools/manual_sync_check.py --update` as part of
 # every manual-sync commit (see AGENTS.md).
-d82a968bdfbb
+bb90a959bd75
