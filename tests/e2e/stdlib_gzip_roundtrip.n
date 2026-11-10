@@ -1,6 +1,7 @@
-// gzip package roundtrip: empty/small/large payloads, malformed and
-// truncated input rejection, deterministic output, concatenated-member
-// and trailing-garbage handling (spec D21/D23).
+// gzip package roundtrip: empty/small/large payloads, a 1 MiB binary payload
+// spanning every byte value, malformed and truncated input rejection,
+// deterministic output, concatenated-member and trailing-garbage handling
+// (spec D21/D23).
 import io;
 import gzip;
 
@@ -23,6 +24,27 @@ int main() {
     byte[] c = gzip.compress(big);
     if (c.length() >= big.length() / 4) { return 3; }
     if (gzip.decompress(c).length() != 102400) { return 4; }
+
+    // 1 MiB spanning every byte value 0..255: the values with the high bit set
+    // (128 stored as byte is -128) are the ones a byte-boundary bug corrupts.
+    byte[] bin = byte[1048576];
+    for (int i = 0; i < 1048576; i = i + 1) {
+        // Three scales keep the pattern from lining up with zlib's 32 KiB
+        // window; every product stays inside int range for this length.
+        bin[i] = ((i * 1009 + (i >> 4) * 997 + (i >> 8) * 613) % 256) as byte;
+    }
+    byte[] d = gzip.compress(bin);
+    if (d.length() < 10) { return 10; }
+    // RFC 1952 §2.3.1: a member opens with the two-octet magic 1f 8b.
+    if (d[0] != (31 as byte) || d[1] != (139 as byte)) { return 10; }
+    // Even the worst case (stored blocks) adds well under 1 %, so growth past
+    // the input length would mean the native output buffer was mis-sized.
+    if (d.length() > bin.length()) { return 11; }
+    byte[] binBack = gzip.decompress(d);
+    if (binBack.length() != bin.length()) { return 12; }
+    for (int i = 0; i < bin.length(); i = i + 1) {
+        if (binBack[i] != bin[i]) { return 13; }
+    }
 
     // Deterministic: same input, same output bytes.
     byte[] b2 = gzip.compress(hello);
