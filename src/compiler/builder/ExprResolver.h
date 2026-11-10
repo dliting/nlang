@@ -183,6 +183,10 @@ class ScriptLocation;
 //Reference-only use below; definition in ModuleRegistry.h.
 class ModuleRegistry;
 
+//Reference-only use below; definition in
+//nlang/compiler/GenericInstanceRegistry.h.
+class GenericInstanceRegistry;
+
 //Helpers shared across the ExprResolver*.cpp TUs (2026-09-25/26 splits).
 //Definitions live across those TUs; builder-internal.
 bool HasNamedArgument(SnInvokeExpr& invoke);
@@ -693,13 +697,27 @@ private:
 		const std::vector<SnFunction*> &candidates, SnFunction *&pFunc,
 		std::vector<FormalBinding> &outBindings, bool &rbAmbiguous);
 	//The candidate sweep under MatchInvokeAgainst (bind / closest
-	//distance / own-TU tie-break). Returns the best distance; -1 when
+	//distance / current-TU tie-break). Returns the best distance; -1 when
 	//nothing binds. rpTied carries the equal-distance pair member for
-	//the ambiguity diagnostic.
+	//the ambiguity diagnostic. outBestTypeArgs carries the winning
+	//candidate's inferred type arguments (0.13.1a: a generic free
+	//function's call check is the unification; empty for ordinary wins).
 	int SweepInvokeCandidates(SnInvokeExpr &invoke,
 		const std::vector<SnFunction*> &candidates,
 		std::vector<FormalBinding> &outBestBindings, bool &rbAmbiguous,
-		SnFunction *&rpBest, SnFunction *&rpTied);
+		SnFunction *&rpBest, SnFunction *&rpTied,
+		std::vector<SnField*> &outBestTypeArgs);
+
+	//One candidate's distance score for the sweep above; false = the
+	//candidate declines (shape mismatch, named arguments on a generic
+	//free function, unification failure, negative binding distance).
+	//Extracted from the sweep for the source-size guard; the scoring
+	//rule lives in the 0.13.1a D4 note below.
+	bool ScoreInvokeCandidate(const GenericInstanceRegistry &generics,
+		SnInvokeExpr &invoke, SnFunction &candidate,
+		const std::vector<SnExpression*> &actuals,
+		std::vector<FormalBinding> &outBindings,
+		std::vector<SnField*> &outTypeArgs, int &rnDistance);
 
 	/*
 	0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst —
@@ -1115,6 +1133,12 @@ private:
 	//owns those with its own diagnostics).
 	void TryInferTemplateRowStaticCall(SnInvokeExpr &invoke,
 		SnClassDecl &tmpl);
+	//0.13.1a Task 4 (D4): a generic FREE function's return type at one
+	//call site — substitute the template row's return type expression
+	//with the invoke's inferred arguments and re-type the invoke's value
+	//slot (the row's own slot reads the placeholder). Silent for void
+	//returns and shapes the substitution does not carry.
+	void SubstituteInvokeReturnType(SnInvokeExpr &invoke, SnFunction &func);
 	//GetDeclaredGenericClassDecl's member-fill loop: each member copy is
 	//substituted then pushed into the early-published shell's member
 	//list (owned by the instance from the push). False = a member shape

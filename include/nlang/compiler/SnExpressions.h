@@ -441,6 +441,20 @@ public:
 	//emission (OP_AllocArrayDyn), never the shared new-object path.
 	SnClassDecl *ArrayDynCtor() const { return m_pArrayDynCtor; }
 	void ArrayDynCtor(SnClassDecl *pInstance) { m_pArrayDynCtor = pInstance; }
+	//0.13.1a Task 4: the call-site inferred type arguments of a generic
+	//FREE-function callee (D4: signature-boundary substitution, no
+	//clone). Non-owning references to tree/registry-owned type fields,
+	//indexed by type-parameter ordinal; empty for ordinary calls. The
+	//backend spells the call's descriptor row from these; the resolver's
+	//return-type substitution consumes them at binding time.
+	const std::vector<SnField*>& InferredTypeArgs() const
+	{
+		return m_inferredTypeArgs;
+	}
+	void SetInferredTypeArgs(std::vector<SnField*> args)
+	{
+		m_inferredTypeArgs = std::move(args);
+	}
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
@@ -449,6 +463,7 @@ private:
 	SnStructDecl *m_pCtorStruct = nullptr;
 	SnFunction *m_pCtorFunction = nullptr;
 	SnClassDecl *m_pArrayDynCtor = nullptr;
+	std::vector<SnField*> m_inferredTypeArgs;
 };
 
 /*

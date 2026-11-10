@@ -40,16 +40,27 @@ Using           = "using" NameExpr ";"
 TopMemberList   = { TopItem } ;
 TopItem         = NamespaceMember | Statement | TopBareFunc | TopModFunc ;
 TopBareFunc     = TopBareHeader Paragraph
-                | "func" TopBareHeader ";" ;
+                | "func" TopBareHeader ";"
+                | TopGenericBareHeader Paragraph
+                | "func" TopGenericBareHeader ";" ;
 TopBareHeader   = ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
-TopModFunc      = TopModHeader FunctionBodyOrSemi ;
+TopGenericBareHeader = ( HeadType | "void" ) <identifier> TypeParams
+                       "(" [ FormalParamList ] ")" ;
+TopModFunc      = TopModHeader FunctionBodyOrSemi
+                | TopGenericModHeader FunctionBodyOrSemi ;
 TopModHeader    = ( AccessType [ NodeFlags ] | NodeFlags )
                   ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
+TopGenericModHeader = ( AccessType [ NodeFlags ] | NodeFlags )
+                      ( HeadType | "void" ) <identifier> TypeParams
+                      "(" [ FormalParamList ] ")" ;
 ```
 
 A top-level function is *bare* when it carries no access modifier and
 no flags (chapter 7); `TopModHeader` requires at least one of the
-two, which is what separates the two forms.
+two, which is what separates the two forms. The two generic variants
+carry a type-parameter name list (`TypeParams`, the declaration shape
+a generic class uses) between the function name and the formal list,
+declaring a generic free function.
 
 ## 2.3 Types and Type Arguments
 

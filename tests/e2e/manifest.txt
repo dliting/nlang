@@ -2183,3 +2183,4 @@ generic_serialize_roundtrip 0
 generic_static_infer 0
 generic_static_intra 0
 generic_qualified_static 0
+generic_free_fn 0

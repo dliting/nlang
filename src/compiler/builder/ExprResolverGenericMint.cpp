@@ -375,6 +375,28 @@ SnFieldExpr* ExprResolveAccessor::SubstituteGenericTypeExpr(
 	return pCopy;
 }
 
+//0.13.1a Task 4 (D4): the call-site value type of a generic free
+//function — the template row's return type expression substituted with
+//the invoke's inferred arguments, per the established convention (the
+//value slot reads the return type expr's resolved Field, exactly what
+//SnFunction::EvalDataType yields). The substituted copy is transient:
+//resolving it binds its leaves, and the resolved field it yields is
+//tree/registry-owned, so the invoke's slot outlives the copy.
+void ExprResolveAccessor::SubstituteInvokeReturnType(
+	SnInvokeExpr& invoke, SnFunction& func)
+{
+	if (!func.HasReturn() || !func.ReturnType())
+		return;
+	std::unique_ptr<SnFieldExpr> pRetCopy(
+		SubstituteTypeExpr(*func.ReturnType(),
+			invoke.InferredTypeArgs()));
+	if (!pRetCopy)
+		return;
+	Access(*pRetCopy);
+	if (pRetCopy->IsResolved())
+		invoke.EvalDataType(pRetCopy->Field());
+}
+
 ExprResolveAccessor::TypeParamBindResult
 ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 {
@@ -382,6 +404,27 @@ ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 	for (SyntaxNode* p = idExpr.Parent(); p; p = p->Parent())
 	{
 		const auto kind = p->Kind();
+		//0.13.1a: a type parameter of a generic FREE function. Checked
+		//before the class arm so the innermost declaration that names the
+		//parameter wins (a nested function inside a generic class method
+		//shadows the class parameters); a non-generic function level must
+		//not shadow — the walk continues to the enclosing class.
+		if (kind == NK_Function)
+		{
+			auto& fn = static_cast<SnFunction&>(*p);
+			if (!fn.IsGenericDeclaration())
+				continue;
+			const auto& params = fn.TypeParamNames();
+			const auto paramIt = std::find(params.begin(), params.end(),
+				name);
+			if (paramIt == params.end())
+				return TypeParamBindResult::NotApplicable;
+			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
+				.PlaceholderFor(fn, name,
+					static_cast<size_t>(paramIt - params.begin()));
+			ResolveFieldExprAs(idExpr, pPlaceholder);
+			return TypeParamBindResult::Bound;
+		}
 		if (kind == NK_ClassDecl)
 		{
 			auto& cls = static_cast<SnClassDecl&>(*p);

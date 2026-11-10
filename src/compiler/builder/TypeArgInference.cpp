@@ -123,6 +123,20 @@ bool ExprMentionsPlaceholder(const GenericInstanceRegistry& generics,
     return false;
 }
 
+//The template's type-parameter count: a free function names its own
+//parameters on the declaration (0.13.1a Task 4); a template-row member
+//inherits the owning class's (Task 2's shape). Zero = nothing to infer.
+size_t TemplateTypeParamArity(const SnFunction& tmplMember)
+{
+    if (tmplMember.IsGenericDeclaration())
+        return tmplMember.TypeParamNames().size();
+    const SyntaxNode* pOwner = tmplMember.Parent();
+    return pOwner && pOwner->Kind() == NK_ClassDecl
+        ? static_cast<const SnClassDecl*>(pOwner)
+            ->TypeParamNames().size()
+        : 0;
+}
+
 } //namespace
 
 TypeArgInferenceResult InferTypeArgsForCall(
@@ -143,11 +157,7 @@ TypeArgInferenceResult InferTypeArgsForCall(
         positional.push_back(pActual);
     }
 
-    const size_t arity = tmplMember.Parent()
-        && tmplMember.Parent()->Kind() == NK_ClassDecl
-        ? static_cast<const SnClassDecl*>(tmplMember.Parent())
-            ->TypeParamNames().size()
-        : 0;
+    const size_t arity = TemplateTypeParamArity(tmplMember);
     if (arity == 0)
         return TypeArgInferenceResult::Mismatched;
     std::vector<const SnField*> bindings(arity, nullptr);

@@ -36,6 +36,7 @@ namespace nlang
 
 class SnClassDecl;
 class SnField;
+class SyntaxNode;
 
 class GenericInstanceRegistry
 {
@@ -44,8 +45,10 @@ public:
 
 	//The template's placeholder for the type parameter `name` at
 	//parameter position `position` (interned on first request; one node
-	//per (template, parameter) pair).
-	SnField* PlaceholderFor(SnClassDecl& tmpl, const std::string& name,
+	//per (template, parameter) pair). The template node is a generic
+	//CLASS declaration or — 0.13.1a — a generic free FUNCTION
+	//declaration; both mint the same opaque placeholder node.
+	SnField* PlaceholderFor(SyntaxNode& tmpl, const std::string& name,
 		size_t position);
 
 	//Is this field one of the interned type-parameter placeholders?
@@ -148,7 +151,7 @@ private:
 	};
 	struct PlaceholderKey
 	{
-		const SnClassDecl* pTemplate;
+		const SyntaxNode* pTemplate;
 		std::string name;
 		bool operator<(const PlaceholderKey& rhs) const
 		{

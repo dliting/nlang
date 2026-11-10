@@ -4,6 +4,7 @@
 #include "SnStatements.h"
 #include <nlang/runtime/RnData.h>
 #include <memory>
+#include <vector>
 
 //Foreword declarations.
 #ifdef NLANG_ENABLE_LLVM
@@ -149,6 +150,17 @@ public:
 		return m_pReturnType != nullptr;
 	}
 
+	//0.13.1a: generic free function declaration — the type parameter
+	//names written on the declaration (`T identity<T>(T v)`). Empty for
+	//ordinary functions; the names scope the body and drive call-site
+	//type-argument inference (the inference walker reads the function's
+	//own formals). Mirrors SnClassDecl's declaration-side generic state.
+	bool IsGenericDeclaration() const { return !m_typeParamNames.empty(); }
+	const std::vector<std::string>& TypeParamNames() const
+	{ return m_typeParamNames; }
+	void SetTypeParamNames(std::vector<std::string> names)
+	{ m_typeParamNames = std::move(names); }
+
 	//Does this function have an implementation a call can run? True when
 	//it carries a body (source), the native flag (a host-table binding),
 	//or the imported flag (a foreign unit's registration). A body-less,
@@ -205,6 +217,7 @@ private:
 	SnFieldExpr *m_pReturnType;
 	std::unique_ptr<ParamList> m_upParams;
 	SnParagraph *m_pBody;
+	std::vector<std::string> m_typeParamNames;
 };
 
 } //namespace nlang

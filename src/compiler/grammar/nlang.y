@@ -335,7 +335,7 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			SliceItem SliceHead SliceStop SliceStepOpt SliceStep
 %type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
-%type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
+%type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader TopGenericBareHeader TopGenericModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
@@ -662,7 +662,42 @@ TopBareFunc:	TopBareHeader Paragraph {
 					KT_Func TopBareHeader ';' {
 						$2->AddFlags(NF_Abstract);
 						$$ = $2;
+					} |
+					//0.13.1a: the generic spellings ride the same Paragraph /
+					//abstract ';' assemblies as the plain header.
+					TopGenericBareHeader Paragraph {
+						$1->Body($2);
+						$$ = $1;
+					} |
+					KT_Func TopGenericBareHeader ';' {
+						$2->AddFlags(NF_Abstract);
+						$$ = $2;
 					} ;
+
+//0.13.1a: generic free function declarations. A REQUIRED TypeParams
+//bracket on arms of its own — NOT the optional TypeParamsOpt the class
+//head uses. After `Type name` the '(' lookahead must keep the baseline
+//deferred decision between the function-formals reading and the
+//constructor-initializer local reading (LocalDeclList shares this state);
+//an epsilon bracket there would lose to shift-preference and hijack every
+//ordinary function definition into LocalDeclList. The '<'-family
+//lookaheads (plain '<' for unknown names, OT_TypeLt for probe-matched
+//spellings like `f<T>(`) have no competing derivation in this state.
+TopGenericBareHeader:	HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $5, @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} |
+						HeadType TT_Identifier TypeParams '(' ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, new PtrList<SnFormalParam>(), @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} |
+						KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $5, @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} ;
 
 TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
@@ -684,7 +719,47 @@ TopModFunc:	TopModHeader FunctionBodyOrSemi {
 						else
 							$1->Body($2);
 						$$ = $1;
+					} |
+					TopGenericModHeader FunctionBodyOrSemi {
+						if ($2 == nullptr)
+							$1->AddFlags(NF_Abstract);
+						else
+							$1->Body($2);
+						$$ = $1;
 					} ;
+
+//Generic variants of the modifier-led header — same matrix, required
+//TypeParams bracket, same reasoning as TopGenericBareHeader above.
+TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, NF_NONE, $2, $3, $6, @2);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
+						AccessTypeNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $6, @2);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
+						AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2, $3, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2, $3, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} ;
 
 TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
@@ -1661,6 +1736,19 @@ TypeParamsOpt:	TypeParams { $$ = $1; } |
 //had no action (0.11.0 shipped single-parameter-only; the spec's
 //TypeParams EBNF always described the list).
 TypeParams:	'<' TT_Identifier TypeParamRests '>' {
+					$$ = $3;
+					$$->insert($$->begin(), *$2);
+					delete $2;
+				} |
+				OT_TypeLt TT_Identifier TypeParamRests '>' {
+					/*0.13.1a: the probe-matched spelling. A generic
+					 *FUNCTION declaration `f<T>(...)` scans as OT_TypeLt —
+					 *the forward probe sees identifier '<' ids '>' '(' and
+					 *cannot see the declaration/expression distinction —
+					 *while a generic CLASS declaration `c<T>` arrives
+					 *plain. The declaration-side list accepts both
+					 *openers; both incremented the scan-time depth, so
+					 *">>" splits identically inside. */
 					$$ = $3;
 					$$->insert($$->begin(), *$2);
 					delete $2;

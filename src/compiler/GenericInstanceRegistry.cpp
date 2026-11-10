@@ -24,7 +24,7 @@ GenericInstanceRegistry::~GenericInstanceRegistry()
 		delete kv.second;
 }
 
-SnField* GenericInstanceRegistry::PlaceholderFor(SnClassDecl& tmpl,
+SnField* GenericInstanceRegistry::PlaceholderFor(SyntaxNode& tmpl,
 	const std::string& name, size_t position)
 {
 	const PlaceholderKey key{&tmpl, name};

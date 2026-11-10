@@ -1160,6 +1160,16 @@ private:
     //time through the recipe path). Interns the descriptor so the
     //compile-side and load-side pools agree.
     uint16_t DescriptorIndexFor(SnClassDecl& inst);
+    //0.13.1a Task 4 (D4): the descriptor-table row for a generic FREE
+    //function call site — the inferred type arguments, the function's
+    //name as the row head (the runtime composes the callee's frame cell
+    //from it; the head name itself is diagnostics-only). Arguments
+    //containing type parameters (a generic body calling generic with T
+    //riding an argument) spell the recipe form so the row composes
+    //against the CALLER's frame cell at execution — the free-function
+    //recursion/forwarding shape.
+    uint16_t FreeCallDescriptorIndexFor(const std::string& funcName,
+        const std::vector<SnField*>& typeArgs);
     //v0.13.1: recipe row for a typeName operand containing a type
     //parameter (see DescriptorSpelling.cpp); the row composes at run
     //time through OP_TypeNameCompose.

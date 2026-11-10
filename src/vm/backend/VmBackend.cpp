@@ -171,8 +171,11 @@ static uint8_t ThisReceiverKind(const SnFunction& func) {
 //0.13.1a: generic-record metadata — the frame descriptor cell is filled
 //only for these records at push, and the cross-module stub rebuild
 //matches the declared parameter names to bind placeholder leaves in
-//signatures (mirroring CompiledClass::typeParamNames). Task 4 extends
-//this to generic free functions.
+//signatures (mirroring CompiledClass::typeParamNames). Task 4: a
+//generic FREE function names its own parameters on the declaration —
+//one implementation record, signature parameterization retained
+//(placeholder leaves), the call-site descriptor row supplies the frame
+//cell.
 static void FillGenericRecordMeta(const SnFunction& func,
                                   CompiledFunction& compiledFunc) {
     auto* pOwner = func.Parent();
@@ -182,6 +185,11 @@ static void FillGenericRecordMeta(const SnFunction& func,
         compiledFunc.isGeneric = true;
         compiledFunc.typeParamNames =
             static_cast<SnClassDecl*>(pOwner)->TypeParamNames();
+    }
+    else if (func.IsGenericDeclaration())
+    {
+        compiledFunc.isGeneric = true;
+        compiledFunc.typeParamNames = func.TypeParamNames();
     }
 }
 

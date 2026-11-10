@@ -345,9 +345,19 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     }
     //Per-unit: cross-unit callees slot as import placeholders
     //(FunctionSlotFor); own ones resolve through m_funcIndexMap.
+    //0.13.1a Task 4: a generic free function's frame cell comes from the
+    //call site's inferred-argument row (D4: the template record serves
+    //every call; the row is what varies). Ordinary callees keep the
+    //same-generic-row forward / none decision.
+    NLANG_ASSERT(!callee->IsGenericDeclaration()
+        || !invoke.InferredTypeArgs().empty());
+    uint16_t descIdx = callee->IsGenericDeclaration()
+        ? FreeCallDescriptorIndexFor(callee->Name(),
+            invoke.InferredTypeArgs())
+        : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
-        emitter, resultOffset, outSpills, StaticCallDescIdxFor(*callee));
+        emitter, resultOffset, outSpills, descIdx);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 

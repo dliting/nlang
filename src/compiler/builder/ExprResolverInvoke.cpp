@@ -397,6 +397,11 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	//A void return resolves to a null EvalDataType here — the established
 	//void-invoke convention.
 	ResolveFieldExprAs(invoke, &func);
+	//0.13.1a Task 4 (D4): the template row's placeholder return types as
+	//the inferred arguments at this call site — the value slot carries
+	//the concrete type the caller sees (`identity(3)` is an Int32 here).
+	if (func.IsGenericDeclaration() && !invoke.InferredTypeArgs().empty())
+		SubstituteInvokeReturnType(invoke, func);
 	BindArrayTypeToken(invoke);
 	return true;
 }

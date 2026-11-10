@@ -109,6 +109,48 @@ uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+//0.13.1a Task 4 (D4): a generic FREE-function call site's descriptor row
+//— the inferred type arguments under the function's name. Two row
+//families, mirroring DescriptorIndexFor: fully concrete arguments intern
+//a static row keyed by the complete spelling; an argument carrying a
+//type parameter (a generic body forwarding its own T) spells the recipe
+//form (TEMPLATE_HEAD + name + arg encodings — the runtime's
+//ComposeInstDescriptor parses exactly this shape) so the frame cell
+//composes against the caller's context at execution.
+uint16_t VmBackend::FreeCallDescriptorIndexFor(const std::string& funcName,
+    const std::vector<SnField*>& typeArgs)
+{
+    std::vector<TypeArgDesc> args;
+    bool bHasTypeParam = false;
+    args.reserve(typeArgs.size());
+    for (const SnField* pArg : typeArgs)
+    {
+        args.push_back(BuildTypeArgOf(*m_pRegistry, *pArg));
+        bHasTypeParam = bHasTypeParam || IsTypeParamArg(args.back());
+    }
+    auto& table = m_compiledModule.descriptorTable;
+    if (bHasTypeParam)
+    {
+        std::vector<uint8_t> recipe;
+        recipe.push_back(0);
+        AppendU16(recipe, static_cast<uint16_t>(funcName.size()));
+        recipe.insert(recipe.end(), funcName.begin(), funcName.end());
+        for (const auto& arg : args)
+            AppendArgRecipe(recipe, arg);
+        for (size_t i = 0; i < table.size(); ++i)
+            if (table[i].recipe == recipe)
+                return static_cast<uint16_t>(i);
+        table.push_back({"", std::move(recipe)});
+        return static_cast<uint16_t>(table.size() - 1);
+    }
+    GenericInstDescriptor* desc = InternDescriptor(funcName, args);
+    for (size_t i = 0; i < table.size(); ++i)
+        if (table[i].spelling == desc->Spelling())
+            return static_cast<uint16_t>(i);
+    table.push_back({desc->Spelling(), {}});
+    return static_cast<uint16_t>(table.size() - 1);
+}
+
 //v0.13.1: the element instantiation's descriptor row for an array
 //allocation — 0xFFFF unless the element type is a generic instantiation
 //(the erased arrayTypes row cannot tell Box<int>[] from Box<string>[];

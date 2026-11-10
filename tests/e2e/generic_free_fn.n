@@ -1,0 +1,14 @@
+// generic_free_fn.n — 0.13.1a: generic free functions.
+T identity<T>(T v) {
+    return v;
+}
+string idTag<T>(T v) {
+    return typeName(T);
+}
+int main() {
+    if (identity(3) != 3) { return 3; }
+    if (identity("hi") != "hi") { return 4; }
+    if (idTag(2.5) != "double") { return 5; }
+    if (idTag("s") != "string") { return 6; }
+    return 0;
+}

@@ -172,6 +172,23 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t instanceMethodFlag = func.isInstanceMethod ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&instanceMethodFlag),
                  sizeof(instanceMethodFlag));
+        //v2.17: generic-function declaration — the flag plus the declared
+        //type-parameter names (the class rows carry the same pair). The
+        //loader rebuilds isGeneric/typeParamNames from this; the wire has
+        //no other source for FREE functions, whose genericity names no
+        //owning class row.
+        uint8_t genericFlag = func.isGeneric ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&genericFlag),
+                 sizeof(genericFlag));
+        uint16_t fnTypeParamCount = static_cast<uint16_t>(
+            func.typeParamNames.size());
+        fs.write(reinterpret_cast<const char*>(&fnTypeParamCount),
+                 sizeof(fnTypeParamCount));
+        for (const auto& tpName : func.typeParamNames) {
+            uint32_t tpLen = static_cast<uint32_t>(tpName.size());
+            fs.write(reinterpret_cast<const char*>(&tpLen), sizeof(tpLen));
+            fs.write(tpName.c_str(), tpLen);
+        }
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.

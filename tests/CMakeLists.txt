@@ -2664,8 +2664,15 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_two_scripts_compile proj_imports_script_lib
     proj_imports_script_compile proj_imports_script_run
     proj_imports_lib_stmts_compile
-    mnist_mlp_compile mnist_mlp_run
+    mnist_mlp_compile
     PROPERTIES TIMEOUT 180)
+
+#mnist_mlp_run alone gets a wider ceiling: the MLP is compute-bound on
+#unvectorized bytecode, so the ASan-instrumented run sits near the wall
+#(measured 166s) and ordinary machine noise pushed it over 180s. User
+#ruling (2026-11-11): 300s until the VM gains vector-computation
+#optimization, at which point the number should come back down.
+set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
