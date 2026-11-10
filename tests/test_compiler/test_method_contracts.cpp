@@ -6,6 +6,7 @@
     底层类型形参的 Type()->Field() 必须同一节点，否则签名恒等谓词
     需要别名展开（探针已确立指针同一性，签名恒等谓词无需别名展开）。
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -53,8 +54,7 @@ struct CompileOutcome
 CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_method_contracts_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_method_contracts_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";

@@ -19,6 +19,7 @@
 // before execution. The library is really compiled by ModuleBuilder and
 // really executed by VmExecutor (no VM internals mocked); it resolves
 // through the same library-index + inline path as the standard library.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -59,7 +60,7 @@ using Files = std::vector<std::pair<std::string, std::string>>;
 
 // A fresh, isolated scenario directory under the temp tree.
 fs::path scenarioDir(const char* name) {
-    auto d = fs::temp_directory_path() / "nlang_test_source_lib" / name;
+    auto d = nlang::test::ScratchDir("nlang_test_source_lib") / name;
     fs::remove_all(d);
     fs::create_directories(d);
     return d;

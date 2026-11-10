@@ -7,6 +7,7 @@ and rejection of the removed string form and of a '*' that is not the
 last path segment. Grammar-level assertions only — the import
 visibility gating is a later task in the same plan.
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -53,7 +54,7 @@ private:
 std::string writeTempSource(const QString& name, const char* body)
 {
     const std::filesystem::path dir =
-        std::filesystem::temp_directory_path() / "nlang_import_tests";
+        nlang::test::ScratchDir("nlang_import_tests");
     std::filesystem::create_directories(dir);
     const std::filesystem::path file = dir / name.toStdString();
     std::ofstream(file, std::ios::binary) << body;
@@ -64,8 +65,7 @@ std::string writeTempSource(const QString& name, const char* body)
 std::pair<bool, std::vector<std::string>> compileSource(
     const std::string& tag, const std::string& path)
 {
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_import_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_import_tests");
     BuildParams params;
     params.m_SourceFiles.push_back(path);
     params.m_sOutputModule = tag;

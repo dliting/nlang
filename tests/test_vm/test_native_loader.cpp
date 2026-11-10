@@ -1,6 +1,7 @@
 // NativeLibraryLoader unit tests. Real fixture shared libraries are built
 // alongside this test; we load them for real (no mocks of the loader) and
 // verify discovery, registration, ABI/entry errors and idempotence.
+#include "test_support/test_scratch.h"
 
 #include "NativeLibraryLoader.h"
 #include "nlang/vm/NativeHost.h"
@@ -272,8 +273,7 @@ void TestBuildTreeFallback() {
 //would load the real module silently.
 void TestExplicitDirsWinOverFallback() {
     namespace fs = std::filesystem;
-    const fs::path decoyDir = fs::temp_directory_path()
-        / "nlang_loader_order_test";
+    const fs::path decoyDir = nlang::test::ScratchDir("nlang_loader_order_test");
     std::error_code ec;
     fs::remove_all(decoyDir, ec);
     fs::create_directories(decoyDir, ec);

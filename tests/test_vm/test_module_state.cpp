@@ -5,6 +5,7 @@
 // (each first bind returns handle 1), and an executor's teardown closes
 // its still-open fds so the next executor can rebind the port (the D12
 // backstop). Real compiler, real bytecode, real sockets — no mocks.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -109,7 +110,7 @@ int main() {
     TypeCastInfo::StaticInit();
 
     const fs::path root =
-        fs::temp_directory_path() / "nlang_test_module_state";
+        nlang::test::ScratchDir("nlang_test_module_state");
 
     int codeA = -1, codeB = -1;
     try {

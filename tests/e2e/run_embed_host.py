@@ -19,6 +19,12 @@ import subprocess
 import sys
 import tempfile
 
+#Windows status for "a DLL the image needs could not be located at launch".
+DLL_NOT_FOUND_STATUS = 0xC0000135
+#An ASan-instrumented image loads its sanitizer runtime from the exe
+#directory at process launch, so a relocated host has to carry it as well.
+ASAN_RUNTIME = 'clang_rt.asan_dynamic-x86_64.dll'
+
 DEMO_SOURCE = (
     "import io;\n"
     "\n"
@@ -54,16 +60,30 @@ def main():
             return 1
 
         #embed_host.exe is self-contained except for the native modules
+        #and, in an ASan tree, the sanitizer runtime the build ships beside
+        #it: once the host lives in the scratch dir, that dir is the exe
+        #directory the loader searches, so the runtime moves with it.
         host_exe = os.path.join(tmp, 'embed_host.exe')
         shutil.copyfile(embed_host, host_exe)
         for dll in native_dlls:
             shutil.copyfile(dll, os.path.join(tmp, os.path.basename(dll)))
+        asan_runtime = os.path.join(
+            os.path.dirname(embed_host), ASAN_RUNTIME)
+        if os.path.exists(asan_runtime):
+            shutil.copyfile(asan_runtime, os.path.join(tmp, ASAN_RUNTIME))
 
         ran = subprocess.run(
             [host_exe, ncu], capture_output=True, text=True, timeout=60)
 
     failures = []
-    if ran.returncode != 0:
+    if ran.returncode == DLL_NOT_FOUND_STATUS:
+        #The process never started, so there is no output to explain it.
+        #Name the closure rule instead of leaving a bare status code.
+        failures.append(
+            'exit code %d (want 0): a DLL the host needs at launch is not '
+            'in the scratch dir beside it (an ASan tree needs %s there too)'
+            % (ran.returncode, ASAN_RUNTIME))
+    elif ran.returncode != 0:
         failures.append('exit code %d (want 0)' % ran.returncode)
     if '[nlang] hello from the embedded runtime' not in ran.stdout:
         failures.append('stdout missing the redirected prefix: %r' % ran.stdout)

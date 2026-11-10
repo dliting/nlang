@@ -17,6 +17,7 @@
     the real compiler instead. The OpPrimCast code-point guard is
     exercised by Task 8's char-language e2e.
 ---*/
+#include "test_support/test_scratch.h"
 #include "VmPrimOps.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -280,8 +281,7 @@ void test_rn_formatters()
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_primops";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_primops");
     std::filesystem::create_directories(dir);
     return dir;
 }

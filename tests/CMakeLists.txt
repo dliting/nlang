@@ -20,6 +20,40 @@ function(nlang_stdlib_test target)
     add_dependencies(${target} nlang_stdlib_package)
 endfunction()
 
+# ctest runs a test exe directly, and an ASan-built one loads
+# clang_rt.asan_dynamic-x86_64.dll from its own directory: without it the
+# process dies at launch with 0xc0000135 and every ASan-tree ctest entry
+# reports a failure that is not a test failure. Shadowing add_executable
+# for this directory ships the runtime beside every test target with one
+# definition, so a new test cannot forget a call the way the per-test
+# helpers above can drift. Assumes the plain `add_executable(<name> …)`
+# form used throughout this file (a keyword-first call would surface as an
+# unknown-target generate error, not a silent miss). Only ASan trees
+# install the shadow; other trees keep the built-in command untouched.
+if(DEFINED NLANG_ASAN_RUNTIME)
+    function(add_executable name)
+        _add_executable(${name} ${ARGN})
+        nlang_ship_asan_runtime(${name})
+    endfunction()
+endif()
+
+# Shared test facilities (test_support/test_scratch.h) are reached as
+# "test_support/…": one directory-scope include path for every test target
+# here, instead of a per-target line for each of the ~100 targets that
+# compile sources into a scratch directory. No header name in tests/ itself
+# collides with a src/include header, so no lookup order is disturbed.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# Scratch-directory helper tests: the contract the suite's temp-file users
+# rely on (distinct names, per-process root, contents kept across calls).
+# Needs nothing but <filesystem>, so it links no nlang library.
+add_executable(test_scratch
+    test_support/test_scratch.cpp
+)
+
+add_test(NAME scratch_tests COMMAND test_scratch)
+set_tests_properties(scratch_tests PROPERTIES TIMEOUT 60)
+
 add_executable(test_vm
     test_vm/test_vm.cpp
 )
@@ -2009,11 +2043,13 @@ if(NLANG_BUILD_IDE)
             #the check from <build>/native — resolution must come from
             #the copied install-form layout (the property under test).
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
+            -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
+            -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
         # 150 s inner bound (see nide_deploy_check.cmake) + the
-        # scratch-copy script overhead.
+        # scratch-copy script overhead and the wrapper's tree kill.
         TIMEOUT 180)
 
     # Library search-path end-to-end tests: a global library dir is indexed

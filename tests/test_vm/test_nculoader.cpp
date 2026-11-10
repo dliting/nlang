@@ -4,6 +4,7 @@
 // path, and the one-shot diagnostics contract (design §4 steps 1-2, §6).
 // No codegen and no linking here: nlink has its own suite
 // (test_nculinker.cpp); these tests pin where the units come from.
+#include "test_support/test_scratch.h"
 #include "NcuLoader.h"
 #include "ModuleLoader.h"
 #include "nlang/vm/CompiledModule.h"
@@ -31,7 +32,7 @@ namespace fs = std::filesystem;
 
 // A fresh, isolated scenario directory under the temp tree.
 fs::path scenarioDir(const char* name) {
-    auto d = fs::temp_directory_path() / "nlang_test_nculoader" / name;
+    auto d = nlang::test::ScratchDir("nlang_test_nculoader") / name;
     fs::remove_all(d);
     fs::create_directories(d);
     return d;

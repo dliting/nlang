@@ -49,6 +49,16 @@ if(NOT EXISTS "${TEST_EXE}")
     message(FATAL_ERROR
         "test_mainwindow.exe not found at ${TEST_EXE} -- build it first")
 endif()
+#The probe run goes through the progress wrapper (see below), so both
+#halves of it must be there; failing here says "the caller did not pass
+#them" instead of "the probe suite did not pass".
+foreach(helper IN ITEMS PYTHON3_EXE QTEST_PROGRESS)
+    if(NOT EXISTS "${${helper}}")
+        message(FATAL_ERROR
+            "${helper} is missing or not set (${${helper}}) -- "
+            "tests/CMakeLists.txt must pass it to this script")
+    endif()
+endforeach()
 
 file(REMOVE_RECURSE "${CHECK_DIR}")
 file(MAKE_DIRECTORY "${CHECK_DIR}")
@@ -78,25 +88,58 @@ file(WRITE "${CHECK_DIR}/qt.conf" "[Paths]\nPrefix=.\n")
 
 #Healthy run: well under a minute (five tests, a handful of real
 #ncc/nvm/ndb child sessions). A broken layout hangs in abort (see
-#header) and gets killed at the bound, which fails the exit-code
-#check below.
+#header), and hanging has to be both stopped and explained, which a
+#bare execute_process TIMEOUT does neither of:
+#  * the test exe holds its own -o log under an exclusive lock for the
+#    whole run, so a run cmake itself kills leaves the log unreadable --
+#    the failure arrives with no output at all;
+#  * the abort/WER path also leaves the spawned ncc/nvm/ndb children
+#    running behind it.
+#tools/qtest_progress.py owns both jobs: at the bound it kills the whole
+#child tree, and because QTest unlocks the log when the process dies, it
+#then reads that log and records the last completed probe. Its 124 means
+#"hit the bound"; any other code is the test exe's own.
 set(RESULT_FILE "${CHECK_DIR}/deploy_check_result.txt")
+set(PROGRESS_FILE "${CHECK_DIR}/deploy_check_progress.txt")
+#The inner bound is settable from the command line so the timeout branch
+#(kill the tree, name the last completed probe) can be measured in
+#seconds instead of 150; the outer backstop keeps its margin behind
+#whatever bound is in use.
+if(NOT PROBE_TIMEOUT)
+    set(PROBE_TIMEOUT 150)
+endif()
+math(EXPR OUTER_TIMEOUT "${PROBE_TIMEOUT} + 25")
 execute_process(
-    COMMAND "${CHECK_DIR}/test_mainwindow.exe"
-        testOpenStandaloneFileJoinsTree
-        testF12OpensStdLibDefinition
-        testBuildAndRun
-        testStdinRowFeedsRunningProgram
-        testDebugPagePopulatesOnStop
-        -o "${RESULT_FILE},txt"
+    COMMAND "${PYTHON3_EXE}" "${QTEST_PROGRESS}"
+        --qtest-log "${RESULT_FILE}"
+        --progress-log "${PROGRESS_FILE}"
+        --timeout ${PROBE_TIMEOUT}
+        -- "${CHECK_DIR}/test_mainwindow.exe"
+            testOpenStandaloneFileJoinsTree
+            testF12OpensStdLibDefinition
+            testBuildAndRun
+            testStdinRowFeedsRunningProgram
+            testDebugPagePopulatesOnStop
     WORKING_DIRECTORY "${CHECK_DIR}"
-    TIMEOUT 150
+    #Backstop for a wedged wrapper: the inner bound kills the test exe
+    #first, so reaching this one means the wrapper never got to report.
+    TIMEOUT ${OUTER_TIMEOUT}
     RESULT_VARIABLE result)
 
 if(NOT result EQUAL 0)
-    if(EXISTS "${RESULT_FILE}")
-        file(READ "${RESULT_FILE}" tail)
-        message("test output:\n${tail}")
+    #Both logs are readable whenever the wrapper did the killing (the
+    #test exe is dead, so its locks are gone); after the outer bound the
+    #progress file is the wrapper's own and still shows how far it got.
+    foreach(log IN ITEMS "${RESULT_FILE}" "${PROGRESS_FILE}")
+        if(EXISTS "${log}")
+            file(READ "${log}" log_text)
+            message("${log}:\n${log_text}")
+        endif()
+    endforeach()
+    if(result EQUAL 124)
+        message(FATAL_ERROR
+            "the deployment probe suite hit the ${PROBE_TIMEOUT} s bound; "
+            "the last completed probe named above says where it stopped")
     endif()
     message(FATAL_ERROR
         "the deployment probe suite did not pass from the scratch "

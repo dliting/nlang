@@ -4,6 +4,7 @@
 // run by VmExecutor. No VM internals are mocked. The third-party namespace
 // must resolve through the same library-index + native-loader path as the
 // standard library.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -56,7 +57,7 @@ constexpr const char* kNativeDllName = MYLIB_DLL_NAME;
 constexpr const char* kMixDllName = MIXLIB_DLL_NAME;
 
 fs::path packageDir() {
-    static const auto dir = fs::temp_directory_path() / "nlang_test_thirdparty";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_thirdparty");
     //Start from a clean slate: a stale prog.ncu left by an earlier run
     //would collide with the module name and fake a build failure.
     fs::remove_all(dir);

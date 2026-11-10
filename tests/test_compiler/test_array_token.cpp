@@ -12,6 +12,7 @@ test_array_flags).
 In-process host: Runtime::StaticInit() must run before any build,
 otherwise the build segfaults unrecoverably.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -72,8 +73,7 @@ struct CompileOutcome
 static CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_array_token_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_array_token_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";

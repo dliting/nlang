@@ -4,6 +4,7 @@
 // LiveStringObjectCount after it. The --gc-stress e2e shapes pin trace
 // correctness end to end; these pin store-level behavior (bounded live
 // population, immortal constants, handle-0 semantics).
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -34,8 +35,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_strings";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_strings");
     std::filesystem::create_directories(dir);
     return dir;
 }

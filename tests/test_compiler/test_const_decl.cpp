@@ -7,6 +7,7 @@ marker lands on the declaration node, and the class form propagates
 through the inheritance chain (a subclass of a const class is sealed
 too). Structs stand alone — no inheritance to walk.
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -53,7 +54,7 @@ private:
 std::string writeTempSource(const QString& name, const char* body)
 {
     const std::filesystem::path dir =
-        std::filesystem::temp_directory_path() / "nlang_const_decl_tests";
+        nlang::test::ScratchDir("nlang_const_decl_tests");
     std::filesystem::create_directories(dir);
     const std::filesystem::path file = dir / name.toStdString();
     std::ofstream(file, std::ios::binary) << body;
@@ -71,8 +72,7 @@ struct BuildOutcome
 
 BuildOutcome compileSource(const QString& tag, const char* body)
 {
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_const_decl_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_const_decl_tests");
     const std::string path = writeTempSource(tag + ".n", body);
     BuildParams params;
     params.m_SourceFiles.push_back(path);

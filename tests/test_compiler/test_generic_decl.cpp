@@ -7,6 +7,7 @@ native) in one template, instantiation signature substitution, and the
 declaration-level contract (bare type-parameter initializers/defaults,
 type-parameter arrays, member-name collisions).
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -57,7 +58,7 @@ private:
 std::string writeTempSource(const QString& name, const char* body)
 {
     const std::filesystem::path dir =
-        std::filesystem::temp_directory_path() / "nlang_generic_decl_tests";
+        nlang::test::ScratchDir("nlang_generic_decl_tests");
     std::filesystem::create_directories(dir);
     const std::filesystem::path file = dir / name.toStdString();
     std::ofstream(file, std::ios::binary) << body;
@@ -68,8 +69,7 @@ std::string writeTempSource(const QString& name, const char* body)
 std::pair<bool, std::vector<std::string>> compileSource(
     const std::string& tag, const std::string& path)
 {
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_generic_decl_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
     BuildParams params;
     params.m_SourceFiles.push_back(path);
     params.m_sOutputModule = tag;
@@ -583,8 +583,7 @@ private slots:
             "    Box<int> b = Box();\n"
             "    return b.f();\n"
             "}\n");
-        const auto dir = std::filesystem::temp_directory_path()
-            / "nlang_generic_decl_tests";
+        const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
         BuildParams params;
         params.m_SourceFiles.push_back(path);
         params.m_sOutputModule = "generic_op_default";
@@ -766,8 +765,7 @@ private slots:
             "    Box<int> b = Box();\n"
             "    return b.f();\n"
             "}\n");
-        const auto dir = std::filesystem::temp_directory_path()
-            / "nlang_generic_decl_tests";
+        const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
         BuildParams params;
         params.m_SourceFiles.push_back(path);
         params.m_sOutputModule = "generic_this_type";

@@ -8,6 +8,7 @@
 // resolves, so each test pins one cross-unit shape end to end (one test,
 // one shape). Source-library scenarios (inlined library TUs, discovery
 // wording) live in test_library_source.cpp on the same per-unit path.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -46,7 +47,7 @@ using Files = std::vector<std::pair<std::string, std::string>>;
 
 // A fresh, isolated scenario directory under the temp tree.
 fs::path scenarioDir(const char* name) {
-    auto d = fs::temp_directory_path() / "nlang_test_perunit" / name;
+    auto d = nlang::test::ScratchDir("nlang_test_perunit") / name;
     fs::remove_all(d);
     fs::create_directories(d);
     return d;

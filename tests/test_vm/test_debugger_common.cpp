@@ -1,4 +1,5 @@
 // --- ndb debugger unit tests: shared harness implementation ---
+#include "test_support/test_scratch.h"
 #include "test_debugger_common.h"
 
 using namespace nlang;
@@ -8,8 +9,7 @@ int g_pass = 0, g_fail = 0;
 //Scratch directory for temp sources and modules.
 std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_debugger";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_debugger");
     std::filesystem::create_directories(dir);
     return dir;
 }

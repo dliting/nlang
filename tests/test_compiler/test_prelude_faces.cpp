@@ -5,6 +5,7 @@
     class hierarchy), and binding-row stamping of the declared native
     records onto the intrinsic channel.
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -54,7 +55,7 @@ private:
 std::string writeTempSource(const QString& name, const char* body)
 {
     const std::filesystem::path dir =
-        std::filesystem::temp_directory_path() / "nlang_prelude_faces_tests";
+        nlang::test::ScratchDir("nlang_prelude_faces_tests");
     std::filesystem::create_directories(dir);
     const std::filesystem::path file = dir / name.toStdString();
     std::ofstream(file, std::ios::binary) << body;
@@ -69,8 +70,7 @@ bool withBuild(const char* szName, const char* szBody, Fn fn)
     BuildParams params;
     params.m_SourceFiles.push_back(writeTempSource(szName, szBody));
     params.m_sOutputModule = szName;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_prelude_faces_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_prelude_faces_tests");
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
     params.m_sStdLibDir = STDLIB_DIR;

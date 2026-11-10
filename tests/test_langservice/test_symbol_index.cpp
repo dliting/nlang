@@ -1,6 +1,7 @@
 /*--- test_symbol_index.cpp - SymbolIndex / FindStdLibDir unit tests -----*
  * Loads the real stdlib/*.n tree (no mocks) and pins the indexed shape.
  */
+#include "test_support/test_scratch.h"
 #include "nlang/langservice/SymbolIndex.h"
 
 #include <algorithm>
@@ -134,7 +135,7 @@ static void TestNlangFunctionIsNotNative() {
     // A function declared without 'native' must index as native=false.
     // The file is bare source now (no wrapper): the package comes from
     // the file stem "mylib".
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_nonnative";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_nonnative");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
@@ -162,7 +163,7 @@ static void TestPackageComesFromFilePath() {
     // nothing from inside the braces (a braced top-level block is a
     // scope the scanner skips) and the head name must not mint a second
     // package; top-level declarations index under the stem.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_pkgstem";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_pkgstem");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
@@ -188,7 +189,7 @@ static void TestClassOnlyPackageHasPackage() {
     // package file that declares only classes extracts no
     // function-shaped symbols, but its root name is still a reserved
     // package name — stdlib/concurrent.n is exactly this shape.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_classonly";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_classonly");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "concurrent.n")
@@ -207,7 +208,7 @@ static void TestClassBodyMethodsSkipped() {
     // A class body at file top level is a scope the scanner must skip:
     // a method is not a package function. Project sources flow through
     // this scanner for go-to-definition, and user files carry classes.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_classbody";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_classbody");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "shapes.n")
@@ -231,7 +232,7 @@ static void TestClassBodyMethodsSkipped() {
 static void TestFindStdLibDir() {
     // Build <tmp>/a/b with <tmp>/a/stdlib; starting from b, the walk up must
     // find it.
-    fs::path root = fs::temp_directory_path() / "nlang_ls_locate";
+    fs::path root = nlang::test::ScratchDir("nlang_ls_locate");
     fs::remove_all(root);
     fs::path start = root / "a" / "b";
     fs::create_directories(start / ".." / "stdlib");
@@ -241,7 +242,7 @@ static void TestFindStdLibDir() {
     fs::remove_all(root);
 
     // No stdlib anywhere -> empty.
-    fs::path none = fs::temp_directory_path() / "nlang_ls_none";
+    fs::path none = nlang::test::ScratchDir("nlang_ls_none");
     fs::remove_all(none);
     fs::create_directories(none);
     CHECK(FindStdLibDir(none.string()).empty());
@@ -316,7 +317,7 @@ static void TestBlockCommentBraces() {
     // matter at the top level: a '{' in comment text must not swallow
     // the next declaration, and a spanning comment's braces must not
     // leak onto the lines after it.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_blockcmt";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_blockcmt");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "place.n")
@@ -345,7 +346,7 @@ static void TestLoadLibraryDirOnce() {
     //resets the guard), keyed by DirKey: folded . / .. segments, one
     //separator form, ASCII lower case on Windows — two spellings of
     //the same dir must not double the symbols.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_dironce";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_dironce");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "once.n") << "int one() {\n    return 1;\n}\n";
@@ -377,8 +378,8 @@ static void TestResolveFirstInsertWins() {
     // order (import paths before the project's own dir), so a package
     // declared in both layers must resolve to the copy the compiler
     // builds: the earlier-indexed one.
-    fs::path dirA = fs::temp_directory_path() / "nlang_ls_first_a";
-    fs::path dirB = fs::temp_directory_path() / "nlang_ls_first_b";
+    fs::path dirA = nlang::test::ScratchDir("nlang_ls_first_a");
+    fs::path dirB = nlang::test::ScratchDir("nlang_ls_first_b");
     fs::remove_all(dirA);
     fs::remove_all(dirB);
     fs::create_directories(dirA);
@@ -410,7 +411,7 @@ static void TestResolveDottedPackage() {
     // not the package. (No in-tree caller feeds a dotted package yet;
     // the compiler's LoadLibrarySource forwards the raw matched root
     // today.)
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_dotted";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_dotted");
     fs::remove_all(tmp);
     fs::create_directories(tmp / "gfx");
     std::ofstream(tmp / "gfx" / "color.n")
@@ -428,7 +429,7 @@ static void TestNestedPackagesFromLibraryDir() {
     // A library tree holds nested package paths: "vendor/graphics.n" is
     // package "vendor.graphics" (the compiler's path-to-package rule).
     // The walk must descend — a flat walk never sees the file at all.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_nested";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_nested");
     fs::remove_all(tmp);
     fs::create_directories(tmp / "vendor" / "deep");
     fs::create_directories(tmp / ".hidden");
@@ -469,8 +470,8 @@ static void TestPackageFilePath() {
     index.Clear();
     CHECK(index.PackageFilePath("io").empty());
 
-    fs::path dirA = fs::temp_directory_path() / "nlang_ls_pkgfile_a";
-    fs::path dirB = fs::temp_directory_path() / "nlang_ls_pkgfile_b";
+    fs::path dirA = nlang::test::ScratchDir("nlang_ls_pkgfile_a");
+    fs::path dirB = nlang::test::ScratchDir("nlang_ls_pkgfile_b");
     fs::remove_all(dirA);
     fs::remove_all(dirB);
     fs::create_directories(dirA);

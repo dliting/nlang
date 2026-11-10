@@ -9,6 +9,7 @@
 // observable behavior is pinned by the e2e fixtures (script_pub_fn:
 // a handwritten main is the entry; err_script_dup_main: synthesized and
 // handwritten mains collide with the same diagnostic).
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -47,7 +48,7 @@ namespace fs = std::filesystem;
 //collide with the module name and fake a build result — start clean.
 fs::path scenarioDir(const char* name) {
     const fs::path dir =
-        fs::temp_directory_path() / "nlang_test_script_wrap" / name;
+        nlang::test::ScratchDir("nlang_test_script_wrap") / name;
     std::error_code ec;
     fs::remove_all(dir, ec);
     fs::create_directories(dir, ec);

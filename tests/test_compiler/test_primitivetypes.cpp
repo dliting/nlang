@@ -7,6 +7,7 @@ round-trips, Rn singleton wiring, and the derived category predicates.
 Console-style suite (same shape as test_array_token). In-process host:
 Runtime::StaticInit() must run before anything else.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/RnTypes.h>
@@ -220,8 +221,7 @@ static bool buildCastHost()
     static bool s_ok = false;
     if (s_builder)
         return s_ok;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_prim_cast_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_prim_cast_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -343,8 +343,7 @@ static bool compileWarnings(const std::string &src, bool noWarn,
     std::vector<std::string> &outWarnings)
 {
     static int s_caseSeq = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_prim_warn_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_prim_warn_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";

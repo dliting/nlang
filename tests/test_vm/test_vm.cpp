@@ -1,3 +1,4 @@
+#include "test_support/test_scratch.h"
 #include "BytecodeEmitter.h"
 #include "BytecodeOps.h"
 #include "BytecodeReader.h"
@@ -139,7 +140,7 @@ void test_module_save_load() {
     mod.functions.push_back(std::move(func));
 
     // Save via the shared writer
-    std::string tmpPath = std::filesystem::temp_directory_path().string() + "/nlang_test_mod.ncu";
+    std::string tmpPath = (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_mod.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, "main"), "WriteCompiledModule failed");
@@ -240,8 +241,8 @@ void test_module_import_slots_roundtrip() {
     mod.enumMethodAccess.push_back({});
     mod.enumImports.push_back({"lib", "lib.Color", 0});
 
-    std::string tmpPath = std::filesystem::temp_directory_path().string()
-        + "/nlang_test_imports.ncu";
+    std::string tmpPath =
+        (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_imports.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, "app.main"),
@@ -560,8 +561,8 @@ void test_module_v27_surface_roundtrip() {
     iface.instanceMethods.push_back(go);
     mod.interfaces.push_back(std::move(iface));
 
-    std::string tmpPath = std::filesystem::temp_directory_path().string()
-        + "/nlang_test_surface.ncu";
+    std::string tmpPath =
+        (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_surface.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, ""), "write surface module");

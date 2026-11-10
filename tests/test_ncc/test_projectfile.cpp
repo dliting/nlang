@@ -3,6 +3,7 @@
 // project XML (tinyxml2) and resolves <File path="..."> entries against the
 // project file's directory. Fixtures are written to a temp dir so the test
 // is self-contained.
+#include "test_support/test_scratch.h"
 #include "ProjectFile.h"
 
 #include <cstdio>
@@ -30,7 +31,7 @@ static fs::path WriteFixture(const fs::path& dir, const char* name,
 
 int main() {
     std::printf("=== ncc ProjectFile Unit Tests ===\n\n");
-    fs::path tmp = fs::temp_directory_path() / "nlang_projfile_test";
+    fs::path tmp = nlang::test::ScratchDir("nlang_projfile_test");
     fs::create_directories(tmp);
 
     // 1. Valid project: name + two sources, paths resolved against the

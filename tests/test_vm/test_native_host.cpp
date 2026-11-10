@@ -2,6 +2,7 @@
 // run; the natives they call are registered in-process and exercise every
 // NativeHost callback (string mint/read, List<string> creation, output,
 // input, exceptions and the PRNG). No VM internals are mocked.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -57,7 +58,7 @@ namespace {
 namespace fs = std::filesystem;
 
 fs::path scratchDir() {
-    static const auto dir = fs::temp_directory_path() / "nlang_test_native_host";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_native_host");
     fs::create_directories(dir);
     return dir;
 }

@@ -8,6 +8,7 @@
     zero-arg channel ctor's contract of never reading the unstaged
     capacity slot.
 ---*/
+#include "test_support/test_scratch.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/CastInfo.h"
@@ -43,8 +44,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_builtin_binding";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_builtin_binding");
     std::filesystem::create_directories(dir);
     return dir;
 }

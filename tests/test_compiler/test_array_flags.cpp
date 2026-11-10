@@ -10,6 +10,7 @@ SnArrayTypeToken (pointer identity), so GenericTypeArgs()[0] exposes
 the array-ness directly. Console-style suite (same shape as
 test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -75,8 +76,7 @@ struct CompileOutcome
 static CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_array_flags_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_array_flags_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -156,8 +156,7 @@ static int runOne(const char* szBody)
     auto out = compileOne(szBody);
     if (!out.ok)
         return -1;
-    const auto modPath = std::filesystem::temp_directory_path()
-        / "nlang_array_flags_tests"
+    const auto modPath = nlang::test::ScratchDir("nlang_array_flags_tests")
         / (out.params->m_sOutputModule + ".ncu");
     CompiledModule mod = ModuleLoader::Load(modPath.string());
     VmExecutor exec;

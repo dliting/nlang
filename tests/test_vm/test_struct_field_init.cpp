@@ -12,6 +12,7 @@
     constructor interaction, and GC survival of minted string defaults
     (SetGcStressThresholds, same white-box hook as test_strings).
 ---*/
+#include "test_support/test_scratch.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
@@ -50,8 +51,7 @@ static int g_pass = 0, g_fail = 0;
 //Scratch directory for the temp sources and modules.
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_struct_field_init";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_struct_field_init");
     std::filesystem::create_directories(dir);
     return dir;
 }

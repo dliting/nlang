@@ -13,6 +13,7 @@ registration flip.
 //Include order: every NLang header BEFORE QtTest — Qt defines `slots`
 //as a macro and would eat VmBackend.h's FuncContext::ClaimClassRecord
 //member of that name.
+#include "test_support/test_scratch.h"
 #include "VmBackend.h"
 #include "ModuleLoader.h"
 #include "BytecodeEmitter.h"
@@ -111,7 +112,7 @@ private slots:
 		func.evalAreaHandleMask.assign(1, 0);
 		mod.functions.push_back(std::move(func));
 
-		const auto path = std::filesystem::temp_directory_path()
+		const auto path = nlang::test::ScratchDir("nlang_test_generic_tparam")
 			/ "nlang_test_tparam_kind.ncu";
 		{
 			std::ofstream fs(path, std::ios::binary);

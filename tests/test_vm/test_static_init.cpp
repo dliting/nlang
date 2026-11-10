@@ -11,6 +11,7 @@ protocol opcodes inside the initializer itself. Runtime once/retry
 semantics are pinned by the e2e probes; these assertions pin the
 emitter shapes the probes cannot see.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -79,8 +80,7 @@ CompileOutcome compileOne(const char* szBody)
         return true;
     }();
     (void)bRuntimeReady;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_static_init_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_static_init_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -117,8 +117,7 @@ CompiledModule loadOne(const char* szBody)
         g_fail++;
         return {};
     }
-    const auto modPath = std::filesystem::temp_directory_path()
-        / "nlang_static_init_tests"
+    const auto modPath = nlang::test::ScratchDir("nlang_static_init_tests")
         / (out.params->m_sOutputModule + ".ncu");
     return ModuleLoader::Load(modPath.string());
 }

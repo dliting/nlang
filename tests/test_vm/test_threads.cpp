@@ -9,6 +9,7 @@
     确定性规约（计划钉死）：断言只用顺序/终值/happens-before，不做墙钟
     断言；交替顺序仅经测试专用配额旋钮强制。
 ---*/
+#include "test_support/test_scratch.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
@@ -53,8 +54,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_threads";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_threads");
     std::filesystem::create_directories(dir);
     return dir;
 }

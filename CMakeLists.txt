@@ -156,24 +156,18 @@ if(NLANG_BUILD_IDE)
     endfunction()
 endif()
 
-# Subdirectories
-add_subdirectory(src/runtime)
-add_subdirectory(src/langservice)
-add_subdirectory(src/compiler)
-add_subdirectory(src/vm)
-add_subdirectory(src/embed)
-#C++ example hosts link nlang_embed; the .n examples ship via the
-#install(DIRECTORY examples/) rule further down.
-add_subdirectory(examples)
-add_subdirectory(src/3rdparty/tinyxml2)
 #MSVC's /fsanitize=address binaries load clang_rt.asan_dynamic-x86_64.dll
-#from the executable's own directory (or PATH). Build-tree tools run from
-#<build>/src/tools/<tool>/<config>, so each tool target ships the runtime
-#beside itself via nlang_ship_asan_runtime() (see src/tools/*/CMakeLists
-#txt): the stdlib-package step and the e2e gates then launch the ASan tool
-#chain directly. The DLL sits next to cl.exe in the toolset bin dir, which
-#keeps the runtime version locked to the toolset that built the binaries;
-#guarded on the configure-time flag so non-ASan trees are untouched.
+#from the executable's own directory (or PATH). A gate launches binaries
+#from wherever they were linked: tools from their tool dir, test exes from
+#their test dir, the embedding host from its example dir. So every such
+#target ships the runtime beside itself via nlang_ship_asan_runtime(): the
+#tool targets (src/tools/*/CMakeLists txt) for the stdlib-package step and
+#the e2e gates, the test targets (tests/CMakeLists.txt) for ctest, and
+#embed_host for embed_host_smoke. The DLL sits next to cl.exe in the
+#toolset bin dir, which keeps the runtime version locked to the toolset
+#that built the binaries; guarded on the configure-time flag so non-ASan
+#trees are untouched. Defined before the subdirectories so all of them can
+#call it.
 if(MSVC AND CMAKE_CXX_FLAGS MATCHES "sanitize=address")
     get_filename_component(NLANG_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
     set(NLANG_ASAN_RUNTIME "${NLANG_MSVC_BIN_DIR}/clang_rt.asan_dynamic-x86_64.dll")
@@ -186,6 +180,17 @@ function(nlang_ship_asan_runtime target)
             COMMENT "Copying ASan runtime beside ${target}")
     endif()
 endfunction()
+
+# Subdirectories
+add_subdirectory(src/runtime)
+add_subdirectory(src/langservice)
+add_subdirectory(src/compiler)
+add_subdirectory(src/vm)
+add_subdirectory(src/embed)
+#C++ example hosts link nlang_embed; the .n examples ship via the
+#install(DIRECTORY examples/) rule further down.
+add_subdirectory(examples)
+add_subdirectory(src/3rdparty/tinyxml2)
 add_subdirectory(src/tools/ncc)
 add_subdirectory(src/tools/nvm)
 add_subdirectory(src/tools/ndisasm)

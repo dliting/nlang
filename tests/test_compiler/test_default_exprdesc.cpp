@@ -21,6 +21,7 @@ Three layers against the serialized default-value expression grammar:
 The e2e suite (cross_mod_default_expr) pins the consumer rebuild path
 end to end; this suite pins the wire contract itself.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -83,8 +84,7 @@ static CompiledModule compileAndLoad(const char* szBody,
     std::unique_ptr<CompileOutcome>& outOutcome)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_default_exprdesc_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_default_exprdesc_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";

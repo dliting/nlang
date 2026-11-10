@@ -8,6 +8,7 @@ the reserved path-segment gate, the per-TU import gates with their
 external .ncu stub tables, and the owner tags MergeTransUnits stamps
 on every merged TU member (top-level and container members).
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -75,8 +76,7 @@ private:
 //be created (the caller fails the test instead of testing nothing).
 std::string writeTempSource(const char* szName, const char* szBody)
 {
-    const std::filesystem::path dir = std::filesystem::temp_directory_path()
-        / "nlang_module_import_tests";
+    const std::filesystem::path dir = nlang::test::ScratchDir("nlang_module_import_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const std::filesystem::path file = dir / szName;
@@ -104,8 +104,7 @@ CompileOutcome compile(const std::string& tag,
     const std::vector<std::string>& sources,
     const std::string& projectDir)
 {
-    const auto outDir = std::filesystem::temp_directory_path()
-        / "nlang_module_import_tests";
+    const auto outDir = nlang::test::ScratchDir("nlang_module_import_tests");
     BuildParams params;
     for (const auto& source : sources)
         params.m_SourceFiles.push_back(source);
@@ -226,7 +225,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
 {
     namespace fs = std::filesystem;
     GateResult failure;
-    const fs::path root = fs::temp_directory_path() / "nlang_import_gate";
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
     const fs::path libSrc = root / "libsrc";
     const fs::path out = root / "out";
     const fs::path proj = root / "proj";
@@ -484,8 +483,7 @@ private slots:
     //utils.sub.deep, directory strings "" / "utils" / "utils.sub".
     void projectModulePaths()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_paths";
+        auto dir = nlang::test::ScratchDir("nlang_proj_paths");
         std::filesystem::create_directories(dir / "utils" / "sub");
         auto write = [&dir](const char* szRel, const char* szBody)
         {
@@ -531,8 +529,7 @@ private slots:
     //still illegal is ONE package name coming from TWO units.
     void duplicatePackagePathRejected()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_dup_pkg";
+        auto dir = nlang::test::ScratchDir("nlang_proj_dup_pkg");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { return 0; }\n";
@@ -988,8 +985,7 @@ private slots:
     //would both silently mis-include it. Reject the file name up front.
     void dottedStemSourceRejected()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_dotted_stem";
+        auto dir = nlang::test::ScratchDir("nlang_proj_dotted_stem");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { return 0; }\n";
@@ -1852,8 +1848,7 @@ private slots:
     //producer declaration order, which is what FindFieldOffset counts).
     void importedStructStubRebuildsFields()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_stub_struct_fields";
+        auto dir = nlang::test::ScratchDir("nlang_stub_struct_fields");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "lib.n", std::ios::binary)
             << "struct Vec {\n"
@@ -1920,8 +1915,7 @@ private slots:
     //stubs (the double-mint the enum import corrects).
     void importedEnumStubRebuildsMembersAndMethods()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_stub_enum";
+        auto dir = nlang::test::ScratchDir("nlang_stub_enum");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "lib.n", std::ios::binary)
             << "enum Color {\n"
@@ -1994,8 +1988,7 @@ private slots:
     void overloadCallsMintDistinctOrdinalRecords()
     {
         namespace fs = std::filesystem;
-        const fs::path root = fs::temp_directory_path()
-            / "nlang_overload_ordinal_records";
+        const fs::path root = nlang::test::ScratchDir("nlang_overload_ordinal_records");
         const fs::path src = root / "src";
         const fs::path out = root / "out";
         std::error_code ec;
@@ -2129,8 +2122,7 @@ private slots:
     //embedded prelude source is written verbatim as the project file.
     void projectSourceNamedLangServesAsPrelude()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_lang";
+        auto dir = nlang::test::ScratchDir("nlang_proj_lang");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { Exception e = Exception(\"x\");\n"
