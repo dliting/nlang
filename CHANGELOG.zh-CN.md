@@ -6,6 +6,20 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.13.5] - 2026-11-09
+
+### 新增
+
+- **`http`包。**在`net`之上用NLang源码写成的HTTP/1.1库，自身不含native代码：消息模型`HttpRequest`/`HttpResponse`/`HttpHeaders`与加固的`HttpParser`、`HttpServer`（每连接一个线程；测试用的非阻塞`start()`与独立服务器的阻塞`serve()`；加固的400/408/413/417/431/500/503/505应答）、`HttpClient`（按origin的连接池、重定向、连接/读取/整体三档独立超时、默认请求头）及其`request`/`open`/`close`、建立在共享客户端之上的requests式自由函数`get`/`post`/`put`/`del`/`request`及其背后共享的`defaultClient()`，以及携带响应`status`的`HttpException`。
+- **流式正文。**请求正文的`HttpBodyReader`（`read`/`readAll`/`bodyText`/`close`/`drain`）、充当`HttpResponse.bodyChannel`的有界`Channel<byte[]>`——`send`阻塞就是背压——以及逐块读取响应的`HttpClient.open()`，其`close`把连接交回连接池。写失败会关闭通道，生产者的下一次`send`因此抛`ChannelClosedException`，已经离开的客户端不再继续产出。
+- **`gzip`包。**整块字节缓冲的`compress`/`decompress`（RFC 1952，载荷为RFC 1951的DEFLATE编解码）与`GzipException`，由新的`nlang_gzip`原生模块承载，zlib编解码编译在该模块内。
+- **示例。**`http_hello.n`、`http_conc_bench.n`（一千个并发工作者共用一个客户端、每主机至多4条持久复用连接，一并压测等连接）与`http_sse.n`（server-sent events：手工chunked分帧，客户端一走处理器就停）。
+
+### 修复
+
+- **`url`保留了只由端口承载的authority。**`toString`与`resolve`里RFC 3986第5.3节的重新装配现在共用同一个authority判定，`http://:8080/p`和以`resolve("//:80")`为基址的解析因此能完整往返，不再丢掉`//`。
+- **`DateTime.parse`要求每个字段全是数字。**`toInt`接受前导正负号，按位置扫描字符串的解析器不能依赖它：`T-1:00`曾被静默归一到前一天，带符号的年份则被补成`parse`再也读不回来的写法。现在每个字段必须全为数字，否则抛出`DateTimeException`。
+
 ## [0.13.4] - 2026-11-08
 
 ### 新增

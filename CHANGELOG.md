@@ -6,6 +6,52 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.5] - 2026-11-09
+
+### Added
+
+- **`http` package.** HTTP/1.1 in NLang source on top of `net`, with
+  no native code of its own: the message model
+  `HttpRequest`/`HttpResponse`/`HttpHeaders` and the hardened
+  `HttpParser`, `HttpServer` (one thread per connection; the
+  non-blocking `start()` for tests and the blocking `serve()` for a
+  standalone server; hardened 400/408/413/417/431/500/503/505
+  answers), `HttpClient` (a connection pool per origin, redirects,
+  separate connect/read/call timeouts, default headers) with
+  `request`/`open`/`close`, the requests-style free functions
+  `get`/`post`/`put`/`del`/`request` and the shared `defaultClient()`
+  they run on, and `HttpException` carrying the response `status`.
+- **Streaming bodies.** `HttpBodyReader`
+  (`read`/`readAll`/`bodyText`/`close`/`drain`) for a request body, a
+  bounded `Channel<byte[]>` as `HttpResponse.bodyChannel` — a blocked
+  `send` is backpressure — and `HttpClient.open()` to read a response
+  chunk by chunk, whose `close` hands the connection back to the pool.
+  A failed write closes the channel, so the producer's next `send`
+  raises `ChannelClosedException` and a client that has gone away
+  stops the work it was causing.
+- **`gzip` package.** `compress`/`decompress` over a whole byte buffer
+  (RFC 1952, carrying the DEFLATE codec of RFC 1951) and
+  `GzipException`, served by the new `nlang_gzip` native module with
+  the zlib codec compiled into it.
+- **Examples.** `http_hello.n`, `http_conc_bench.n` (1000 concurrent
+  workers sending 1000 requests through one client capped at 4 pooled
+  keep-alive connections, so pool waiting is exercised too) and
+  `http_sse.n` (server-sent events: chunked framing done by hand, and a
+  handler that stops when the client goes).
+
+### Fixed
+
+- **`url` keeps an authority carried only by a port.** `toString` and
+  the RFC 3986 §5.3 reassembly in `resolve` now share one authority
+  predicate, so `http://:8080/p` and a `resolve("//:80")` base survive
+  the round trip instead of losing the `//`.
+- **`DateTime.parse` requires plain digits in every field.** `toInt`
+  accepts a leading sign, and a parser that walks the string by position
+  cannot lean on that: `T-1:00` used to normalize silently into the
+  previous day, and a signed year was padded to text `parse` can never
+  read back. Each field must now be all digits, or the parse raises
+  `DateTimeException`.
+
 ## [0.13.4] - 2026-11-08
 
 ### Added
