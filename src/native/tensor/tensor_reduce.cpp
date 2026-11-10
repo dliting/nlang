@@ -12,8 +12,11 @@
 ---*/
 #include "TensorKernels.h"
 
+#include "Elementwise.h"
+
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
@@ -46,6 +49,16 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     ArgArray(host, args, 0, &v);
     const T* cells = CellsOf<const T>(v);
     if (op == RedOp::Sum) {
+        //Floats: contiguous spans take the backend's double-accumulator
+        //flat sum (order-free for the exact sums the suite pins); the
+        //walk keeps the historical double accumulation.
+        double flatAcc = 0.0;
+        if constexpr (!std::is_integral_v<T>) {
+            if (TrySumFlat<T>(v, &flatAcc)) {
+                ReturnScalar(ret, static_cast<T>(flatAcc));
+                return;
+            }
+        }
         Acc acc = 0;
         StrideWalk(v, [&](int64_t addr) {
             acc = static_cast<Acc>(acc + cells[addr]);
@@ -56,6 +69,15 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     if (v.elemCount == 0)
         Raise(host, NEXC_Base, op == RedOp::Max
             ? "tensor.max: empty array" : "tensor.min: empty array");
+    //Floats: contiguous spans take the cmp-and-select flat kernels
+    //(the NaN/tie rule matches this walk exactly); ints keep the walk.
+    T flatBest = T(0);
+    if constexpr (!std::is_integral_v<T>) {
+        if (TryExtremeFlat<T>(v, op == RedOp::Max, &flatBest)) {
+            ReturnScalar(ret, flatBest);
+            return;
+        }
+    }
     T best = T(0);
     bool first = true;
     StrideWalk(v, [&](int64_t addr) {
@@ -77,6 +99,12 @@ void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor.mean: empty array");
     const T* cells = CellsOf<const T>(v);
     double acc = 0.0;
+    if constexpr (!std::is_integral_v<T>) {
+        if (TrySumFlat<T>(v, &acc)) {
+            ReturnDouble(ret, acc / static_cast<double>(v.elemCount));
+            return;
+        }
+    }
     StrideWalk(v, [&](int64_t addr) {
         acc += static_cast<double>(cells[addr]);
     });
@@ -99,6 +127,15 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor: length mismatch ("
             + std::to_string(va.elemCount) + " vs "
             + std::to_string(vb.elemCount) + ")");
+    //Floats: contiguous same-count pairs take the carrier-accumulator
+    //flat dot; ints keep the 64-bit walk.
+    T flatAcc = T(0);
+    if constexpr (!std::is_integral_v<T>) {
+        if (TryDotFlat<T>(va, vb, &flatAcc)) {
+            ReturnScalar(ret, flatAcc);
+            return;
+        }
+    }
     const T* ca = CellsOf<const T>(va);
     const T* cb = CellsOf<const T>(vb);
     int64_t idxA[nlang::kMaxArrayRank] = {0};
@@ -116,7 +153,8 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
 }
 
 //Clamp arm of max/min (array + bound, argc >= 2): elementwise bound,
-//operand shape preserved.
+//operand shape preserved. Floats ride the tier-dispatched flat clamp;
+//ints keep the walk.
 template <typename T>
 void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                  bool isMax, T bound) {
@@ -125,14 +163,18 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank, v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const T* in = CellsOf<const T>(v);
-    T* outCells = CellsOf<T>(out);
-    int64_t at = 0;
-    StrideWalk(v, [&](int64_t addr) {
-        const T cur = in[addr];
-        outCells[at++] = isMax ? (cur > bound ? cur : bound)
-                               : (cur < bound ? cur : bound);
-    });
+    if constexpr (!std::is_integral_v<T>) {
+        RunClampFlat<T>(v, out, isMax, bound);
+    } else {
+        const T* in = CellsOf<const T>(v);
+        T* outCells = CellsOf<T>(out);
+        int64_t at = 0;
+        StrideWalk(v, [&](int64_t addr) {
+            const T cur = in[addr];
+            outCells[at++] = isMax ? (cur > bound ? cur : bound)
+                                   : (cur < bound ? cur : bound);
+        });
+    }
     ReturnInt(ret, handle);
 }
 
@@ -193,6 +235,43 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
+    //Floats on contiguous sources take the two structural fast paths:
+    //axis = rank-1 reduces contiguous segments (one flat double sum per
+    //output cell); axis = 0 accumulates whole rows through the double
+    //addInto. Both mirror the per-cell double accumulator of the
+    //general odometer below; every other case (strided views, middle
+    //axes, ints) keeps the walk.
+    if constexpr (!std::is_integral_v<T>) {
+        if (IsContiguous(v)) {
+            T* outCells = CellsOf<T>(out);
+            if (axis == v.rank - 1) {
+                const int64_t outer = out.elemCount;
+                const T* base = FlatCellsOf<T>(v);
+                for (int64_t r = 0; r < outer; ++r) {
+                    double acc = 0.0;
+                    SumFlatByCarrier<T>(base + r * along, along, &acc);
+                    outCells[r] = static_cast<T>(acc);
+                }
+                ReturnInt(ret, handle);
+                return;
+            }
+            if (axis == 0) {
+                int64_t inner = 1;
+                for (int32_t d = 1; d < v.rank; ++d)
+                    inner *= v.dims[d];
+                std::vector<double> acc(static_cast<size_t>(inner), 0.0);
+                const T* base = FlatCellsOf<T>(v);
+                for (int64_t o = 0; o < along; ++o) {
+                    AddIntoF64ByCarrier<T>(acc.data(), base + o * inner,
+                                           inner);
+                }
+                for (int64_t j = 0; j < inner; ++j)
+                    outCells[j] = static_cast<T>(acc[j]);
+                ReturnInt(ret, handle);
+                return;
+            }
+        }
+    }
     T* outCells = CellsOf<T>(out);
     int64_t idx[nlang::kMaxArrayRank] = {0};
     int64_t base = v.offset;

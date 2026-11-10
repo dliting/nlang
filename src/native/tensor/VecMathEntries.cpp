@@ -10,19 +10,19 @@
 namespace tensor {
 
 void VecExpF32(const float* src, float* dst, int64_t count) {
-    ActiveKernelOps().expF32(src, dst, count);
+    ActiveKernelOps().unaryF32(UnaryKernelOp::Exp, src, dst, count);
 }
 
 void VecExpF64(const double* src, double* dst, int64_t count) {
-    ActiveKernelOps().expF64(src, dst, count);
+    ActiveKernelOps().unaryF64(UnaryKernelOp::Exp, src, dst, count);
 }
 
 void VecTanhF32(const float* src, float* dst, int64_t count) {
-    ActiveKernelOps().tanhF32(src, dst, count);
+    ActiveKernelOps().unaryF32(UnaryKernelOp::Tanh, src, dst, count);
 }
 
 void VecTanhF64(const double* src, double* dst, int64_t count) {
-    ActiveKernelOps().tanhF64(src, dst, count);
+    ActiveKernelOps().unaryF64(UnaryKernelOp::Tanh, src, dst, count);
 }
 
 } // namespace tensor

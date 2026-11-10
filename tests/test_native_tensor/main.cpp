@@ -15,7 +15,8 @@
 namespace test_native_tensor {
 int RunVecMathTests();
 int RunMatMulTests();
-//Later suites (elementwise, reductions) register here.
+int RunElementwiseTests();
+int RunReduceTests();
 } // namespace test_native_tensor
 
 int main() {
@@ -38,6 +39,8 @@ int main() {
         return 2;
     }
     const int fails = test_native_tensor::RunVecMathTests()
-        + test_native_tensor::RunMatMulTests();
+        + test_native_tensor::RunMatMulTests()
+        + test_native_tensor::RunElementwiseTests()
+        + test_native_tensor::RunReduceTests();
     return fails == 0 ? 0 : 1;
 }

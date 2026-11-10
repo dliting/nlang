@@ -30,6 +30,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
     list(APPEND NLANG_TENSOR_KERNEL_SOURCES
         tensor/VecMathSse2.cpp
         tensor/VecMathAvx2.cpp
+        tensor/VecBinarySse2.cpp
+        tensor/VecBinaryAvx2.cpp
+        tensor/VecReduceSse2.cpp
+        tensor/VecReduceAvx2.cpp
         tensor/MatMulSse2.cpp
         tensor/MatMulAvx2.cpp)
     set(NLANG_TENSOR_X64 ON)
@@ -54,11 +58,23 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
         if(NLANG_TENSOR_X64)
             target_compile_definitions(nlang_tensor_kernels
                 PRIVATE NLANG_SIMD_X64=1)
+            #Every AVX2 tier TU needs the arch flag — this list must
+            #track the SIMD tier sources above (a missed file compiles
+            #its intrinsics without the arch contract and misbehaves at
+            #runtime).
             if(MSVC)
-                set_source_files_properties(tensor/VecMathAvx2.cpp
+                set_source_files_properties(
+                    tensor/VecMathAvx2.cpp
+                    tensor/VecBinaryAvx2.cpp
+                    tensor/VecReduceAvx2.cpp
+                    tensor/MatMulAvx2.cpp
                     PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
             else()
-                set_source_files_properties(tensor/VecMathAvx2.cpp
+                set_source_files_properties(
+                    tensor/VecMathAvx2.cpp
+                    tensor/VecBinaryAvx2.cpp
+                    tensor/VecReduceAvx2.cpp
+                    tensor/MatMulAvx2.cpp
                     PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
             endif()
         endif()
