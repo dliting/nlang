@@ -41,6 +41,30 @@ void StageFrameParams(CallFrame& fr, const CompiledFunction& callee,
 
 } // namespace
 
+//0.13.1a: resolve the generic frame's descriptor cell BEFORE the push —
+//the compose path reads the executing frame's context cell (the caller
+//must still be the executing frame here) and a malformed recipe throws
+//without leaving a partial frame on the stack. The interned pool is
+//host memory and never collected, so the resolved pointer is stable
+//across the safepoint below and every later collection. Three-source
+//rule: receiver head wins, kInstDescForwardCaller inherits the caller's
+//own cell, a table index composes against the caller's frame. Non-
+//generic records skip the whole rule — one flag test, zero fill.
+const GenericInstDescriptor* VmExecutor::ResolveFrameInstDesc(
+    const CompiledFunction& callee, uint16_t descIdx,
+    int32_t receiverHeapIdx, const GenericInstDescriptor* callerInstDesc)
+{
+    if (!callee.isGeneric)
+        return nullptr;
+    if (receiverHeapIdx > 0)
+        return InstDescriptorOf(receiverHeapIdx);
+    if (descIdx == kInstDescForwardCaller)
+        return callerInstDesc;
+    if (descIdx != kInstDescNone)
+        return CastTargetDescriptor(descIdx);
+    return nullptr;
+}
+
 //Shared push core. boundThisIdx > 0 selects bound-method staging (the
 //captured receiver rides at slot 0, caller args shift one right);
 //otherwise params copy verbatim from the caller's callParamBase cells.
@@ -65,23 +89,8 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     uint16_t resDstOff = EvalStack().back().resultDstOff;
     const GenericInstDescriptor* callerInstDesc
         = EvalStack().back().instDesc;
-    //0.13.1a: resolve the generic frame's descriptor cell BEFORE the
-    //push — the compose path reads the executing frame's context cell
-    //(EvalStack().back() must still be the CALLER here) and a malformed
-    //recipe throws without leaving a partial frame on the stack. The
-    //interned pool is host memory and never collected, so the resolved
-    //pointer is stable across the safepoint below and every later
-    //collection.
-    const GenericInstDescriptor* frameInstDesc = nullptr;
-    if (callee.isGeneric) {
-        if (receiverHeapIdx > 0) {
-            frameInstDesc = InstDescriptorOf(receiverHeapIdx);
-        } else if (descIdx == kInstDescForwardCaller) {
-            frameInstDesc = callerInstDesc;
-        } else if (descIdx != kInstDescNone) {
-            frameInstDesc = CastTargetDescriptor(descIdx);
-        }
-    }
+    const GenericInstDescriptor* frameInstDesc = ResolveFrameInstDesc(
+        callee, descIdx, receiverHeapIdx, callerInstDesc);
 
     EvalStack().emplace_back();
     CallFrame& fr = EvalStack().back();

@@ -576,6 +576,14 @@ private:
     uint8_t* PushFrameCore(const CompiledFunction& callee,
         uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
         int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx);
+    //0.13.1a: PushFrameCore's descriptor-cell resolution — the
+    //three-source rule (receiver head, caller forward, table row);
+    //null for non-generic records. Must run BEFORE the push (the
+    //compose path reads the caller's cell) and before any safepoint.
+    const GenericInstDescriptor* ResolveFrameInstDesc(
+        const CompiledFunction& callee, uint16_t descIdx,
+        int32_t receiverHeapIdx,
+        const GenericInstDescriptor* callerInstDesc);
     void RecordUnwindAndPopFrame();
     //The frame's result cell: the external C++ cell (root/toString/host
     //windows) or a slot in another frame — resolved fresh, never cached
@@ -694,6 +702,12 @@ private:
     bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    //Virtual-dispatch target resolution: validate the receiver, read its
+    //class header, walk the hierarchy by name. Every rejection happens
+    //before any callee frame exists — the backtrace shows the caller
+    //only (the callee never ran), matching mainstream NPE reporting.
+    int32_t ResolveVirtualCallee(int32_t thisHeapIdx,
+        const std::string& methodName);
     void OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);

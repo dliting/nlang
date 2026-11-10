@@ -64,6 +64,7 @@ add_library(nlang_vm
     GenericInstDescriptor.cpp
     backend/DescriptorSpelling.cpp
     backend/VmBackend.cpp
+    backend/WriteModuleArtifact.cpp
     backend/DeclPredicates.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
@@ -113,6 +114,8 @@ add_library(nlang_vm
     Disassembler.cpp
     DisassemblerPrim.cpp
     DisassemblerWalk.cpp
+    DisassemblerFormat.cpp
+    DisassemblerCalls.cpp
     ModuleLoader.cpp
     ModuleLoaderRecords.cpp
     ModuleLoaderRecordsInterfaces.cpp

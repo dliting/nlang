@@ -253,23 +253,9 @@ bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
     return true;
 }
 
-bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
-    //Virtual method dispatch — name-based lookup.
-    //
-    //Note: the null-receiver check below throws *before* the
-    //dispatched method's frame is constructed. The backtrace
-    //therefore shows the caller (e.g. CallGet) but not the
-    //callee (e.g. Get). This is intentional — the callee never
-    //ran — and matches how mainstream runtimes report NPEs.
-    //K8: lock-free — benign heap + read-only tables; intrinsic/native arms re-acquire internally.
-    uint16_t methodNameIdx = reader.ReadUint16();
-    uint16_t callParamBase = reader.ReadUint16();
-    if (methodNameIdx >= m_currModule->stringConstants.size())
-        throw std::runtime_error("NLang VM: invalid method name string index");
-    const std::string& methodName = m_currModule->stringConstants[methodNameIdx];
-    //Get this from callParamBase[0].
-    int32_t thisHeapIdx;
-    std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+int32_t VmExecutor::ResolveVirtualCallee(int32_t thisHeapIdx,
+    const std::string& methodName)
+{
     if (thisHeapIdx <= 0 || static_cast<size_t>(thisHeapIdx) >= m_structHeap.size())
         RaiseNlangException(m_nullPtrExcClassIdx,
                             "NLang VM: null reference in CallMethod");
@@ -284,7 +270,22 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     int funcIndex = FindMethodByName(classIdx, methodName);
     if (funcIndex < 0)
         throw std::runtime_error("NLang VM: method not found: " + methodName);
-    const CompiledFunction& callee = m_currModule->functions[static_cast<size_t>(funcIndex)];
+    return funcIndex;
+}
+
+bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+    //Virtual method dispatch — name-based lookup.
+    //K8: lock-free — benign heap + read-only tables; intrinsic/native arms re-acquire internally.
+    uint16_t methodNameIdx = reader.ReadUint16();
+    uint16_t callParamBase = reader.ReadUint16();
+    if (methodNameIdx >= m_currModule->stringConstants.size())
+        throw std::runtime_error("NLang VM: invalid method name string index");
+    const std::string& methodName = m_currModule->stringConstants[methodNameIdx];
+    //Get this from callParamBase[0].
+    int32_t thisHeapIdx;
+    std::memcpy(&thisHeapIdx, locals + callParamBase, sizeof(thisHeapIdx));
+    const CompiledFunction& callee = m_currModule->functions[
+        static_cast<size_t>(ResolveVirtualCallee(thisHeapIdx, methodName))];
     //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic suspends
     //mid-frame and resume re-enters at frame.pc; re-executing re-parks forever.
     if (callee.intrinsicId != INTR_None) {

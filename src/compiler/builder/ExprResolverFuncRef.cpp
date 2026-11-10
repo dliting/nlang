@@ -57,6 +57,24 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	return true;
 }
 
+//0.13.1a: a generic record is not a value — its behavior needs an
+//instantiation context, and a func value cannot carry one. Bound
+//instance references keep working: the receiver's head descriptor
+//fills the frame cell at every call.
+static bool RejectGenericRecordTarget(BuildEnvironment &env,
+	const ISourceLocation *loc, const std::string &name,
+	SyntaxNode *pOwner)
+{
+	if (!pOwner || pOwner->Kind() != NK_ClassDecl)
+		return false;
+	if (!static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration())
+		return false;
+	env.Log(CLL_Error, loc,
+		"a function of a generic class cannot be referenced as a "
+		"value; call it directly: \"%s\".", name.c_str());
+	return true;
+}
+
 //Rejection gates of BindFuncRefToExpected: the expected type must be a
 //func instantiation, the callee a free function (not a method) and one
 //without default parameters. True = rejected with the named diagnostic.
@@ -86,19 +104,9 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 			idExpr.Name().c_str());
 		return true;
 	}
-	//0.13.1a: a generic record is not a value — its behavior needs an
-	//instantiation context, and a func value cannot carry one. Bound
-	//instance references keep working: the receiver's head descriptor
-	//fills the frame cell at every call.
-	if (pOwner && pOwner->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration())
-	{
-		env.Log(CLL_Error, idExpr.Location(),
-			"a function of a generic class cannot be referenced as a "
-			"value; call it directly: \"%s\".",
-			idExpr.Name().c_str());
+	if (RejectGenericRecordTarget(env, idExpr.Location(),
+			idExpr.Name(), pOwner))
 		return true;
-	}
 	//Default parameters are filled only on the direct-call path.
 	for (auto &param : pFunc->Params())
 	{
@@ -241,16 +249,10 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	//instantiation context, so the call would degrade to the named
 	//runtime error. Bound instance references keep working: the
 	//receiver's head descriptor fills the frame cell at every call.
-	if (pOwner && pOwner->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration()
-		&& IsReceiverlessFuncRefTarget(*pMethod))
-	{
-		env.Log(CLL_Error, snMember.Location(),
-			"a function of a generic class cannot be referenced as a "
-			"value; call it directly: \"%s\".",
-			inner.Name().c_str());
+	if (IsReceiverlessFuncRefTarget(*pMethod)
+		&& RejectGenericRecordTarget(env, snMember.Location(),
+			inner.Name(), pOwner))
 		return true;
-	}
 	return false;
 }
 
