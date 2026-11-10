@@ -1,0 +1,33 @@
+//A string formal still rejects the three kinds that have no implicit path: a
+//struct (no toString at all), an interface value (no members beyond its own
+//declaration, so no toString either) and an Object (its path to text is
+//.toString() or the unboxing cast). The note must name a way out that exists
+//for that kind, which the old blanket "call .toString() first to pass a class,
+//interface or enum value" did not.
+import io;
+
+struct Point {
+    int x;
+    int y;
+}
+
+interface IDraw {
+    public string draw();
+}
+
+class Dot implements IDraw {
+    public string draw() { return "dot"; }
+}
+
+string wrap(string s) { return s; }
+
+int main() {
+    Point p = Point{1, 2};
+    IDraw d = Dot();
+    Object o = "abc";
+    string a = wrap(p);
+    string b = wrap(d);
+    string c = wrap(o);
+    io.print(a + b + c);
+    return 0;
+}

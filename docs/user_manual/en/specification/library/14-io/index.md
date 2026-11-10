@@ -32,17 +32,19 @@ call to a user-declared function keeps the §4.4 relation:
 but `io.writeFile(42, "x")` does not.
 
 The exception is the output trio `io.print`, `io.write` and
-`io.eprint` (§14.2). The trio additionally accepts arguments
-that render as text (§5.3): scalar primitives, arrays and
-function values. A class, interface or enumeration value is
-rejected — a class or interface value calls `.toString()` first
-(§11.2), and an enumeration variable likewise; an enumeration
-member constant is accepted and prints its member name (§5.3).
-A struct value is rejected outright: structs have no
-`toString` (§11.2). A `null` argument is rejected: it would
-print as `0`. The exception is keyed to these three names under
-the `io` package path; a user package that shadows `io`
-inherits it on exactly those names.
+`io.eprint` (§14.2). The trio additionally accepts every value
+§4.4 converts to `string`: scalar primitives, enumerations,
+arrays, class values and function values, each rendered as §5.3
+fixes (an enumeration by its member name). A struct, interface
+or `Object` value is rejected for the same reasons §4.4 gives:
+a struct has no `toString` (§4.7.7), an interface value has no
+member beyond its own declaration (§4.9) and so no `toString`
+to call, and an `Object` value reaches text only through its own
+`.toString()` call (§4.11.2) or the unboxing of §5.5 — the trio
+performs neither step on the caller's behalf. A `null` argument
+is rejected: it would print as `0`. The exception is keyed to
+these three names under the `io` package path; a user package
+that shadows `io` inherits it on exactly those names.
 
 ## 14.2 Console Output
 

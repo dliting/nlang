@@ -170,8 +170,14 @@ assignment, argument passing and return-value conversion;
 - The value is a scalar primitive, `string` or enumeration and
   the target is `Object` (boxing, §4.11).
 - The target is `string` and the value is a scalar primitive, an
-  enumeration, a class, an array or a function; the conversion
-  renders the value as text, and chapter 5 fixes the rendering.
+  enumeration, an array, a class or a function value; the
+  conversion renders the value as text, and §5.3 fixes the
+  rendering. A struct, interface or `Object` value is not
+  assignable to `string`: a struct has no `toString` (§4.7.7) and
+  an interface value has no member beyond its own declaration
+  (§4.9), so each is written out from its own fields or its own
+  results, and an `Object` value reaches text through
+  `.toString()` (§4.11.2) or the unboxing cast of §5.5.
 - The value is an integer type and the target's value domain
   contains the source's: widening along one sign
   (`byte`→`short`→`int`→`long`, `ubyte`→`ushort`→`uint`→`ulong`)

@@ -45,19 +45,31 @@ static bool IsIoCoercingTrioCall(const std::string &modulePath,
 			|| funcName == "eprint");
 }
 
-//Coerces to string (the trio's accepted argument set): a string,
-//scalar primitive, array or function value — the kinds the cast table
-//adjudicates TCK_Auto against a string target (a function value formats
-//through its own direct conversion). Class, interface, enum and struct
-//values do not coerce: the manual requires an explicit .toString()
-//(struct has none and is rejected outright).
+//Coerces to string (the trio's accepted argument set): exactly the kinds the
+//cast table adjudicates TCK_Auto against a string target — which is also the
+//§4.4 implicit-conversion set and §5.3's rendering set: a string, a scalar
+//primitive, an enumeration (its member name), an array, a class value (the
+//virtual toString) or a function value (its own direct conversion). Enum and
+//class values join the set because printing IS a text rendering: an enumeration
+//wrapped here goes through the same conversion an assignment takes (the member
+//name, not the numeric value), and a class value through its toString. Interface
+//and struct values stay rejected — neither has a toString (an interface value
+//has no members beyond its own declaration, a struct has none at all) — and so
+//does Object, whose only paths to text are .toString() and the unboxing cast.
 static bool CoercesToString(SnField *pArgType)
 {
 	if (!pArgType)
 		return false;
 	const NodeKind k = pArgType->Kind();
-	return k == NK_String || k == NK_ArrayTypeToken
-		|| ScalarPrimIndexOf(k) >= 0 || IsFuncTypeDecl(pArgType);
+	if (k == NK_String || k == NK_ArrayTypeToken || k == NK_EnumDecl)
+		return true;
+	if (ScalarPrimIndexOf(k) >= 0)
+		return true;
+	if (k != NK_ClassDecl)
+		return false;
+	if (IsFuncTypeDecl(pArgType))
+		return true;   //a func<...> handle formats directly
+	return pArgType->Name() != "Object";
 }
 
 //One pending in-place wrap of AdmitCoercingTrioArgs: the argument
@@ -97,10 +109,11 @@ static bool TrioWrapTarget(SnExpression &child, SnExpression *&rpArg,
 //argument that coerces to string in the implicit conversion IN PLACE
 //(the same wrap FixupParamTypesWithBindings applies for user
 //functions), so the call matches the declaration exactly instead of
-//riding the generic binder's distance rung. Values that do not coerce
-//are rejected here with the manual's .toString() wording — an enum left
-//to the binder would slip through on its Int32 mapping and print the
-//numeric value. True = the call may proceed to matching.
+//riding the generic binder's distance rung. Values with no implicit path
+//to string are rejected here, each with the wording that fits its kind (an
+//enum wrapped through this arm takes the same conversion an assignment
+//takes, so it prints its member name and not the numeric value). True = the
+//call may proceed to matching.
 bool ExprResolveAccessor::AdmitCoercingTrioArgs(SnInvokeExpr &invoke)
 {
 	//Scan first, wrap after: FixupExprType erases the argument's list

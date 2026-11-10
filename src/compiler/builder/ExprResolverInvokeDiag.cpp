@@ -189,21 +189,36 @@ bool ExprResolveAccessor::CanImplicitlyBind(const SnField &argType,
 	return k == TCK_Same || k == TCK_Auto || k == TCK_Box;
 }
 
-//One argument's mismatch note. A string formal implicitly takes
-//int/float/array (CanImplicitlyBind admits them), so a value rejected
-//against it is a class/interface/enum — point it at .toString(); every
-//other formal reports the actual vs expected type.
+//One argument's mismatch note. Against a string formal the binder admits the
+//whole §4.4 implicit-conversion set — scalar primitives, enumerations, arrays,
+//class values, function values — so what reaches here is a struct, an interface
+//value or an Object, and only an Object has a toString: a shared "call
+//.toString()" hint would send the other two hunting for a member they do not
+//have. Every kind therefore gets the escape that exists for it, and every other
+//formal reports the actual vs expected type.
 void ExprResolveAccessor::LogArgumentTypeMismatch(SnExpression &arg,
 	const SnField &argType, const SnField &formalType,
 	const std::string &callee, int paramIdx)
 {
 	if (formalType.Kind() == NK_String)
 	{
-		m_Env.Log(CLL_Error, arg.Location(),
-			"Argument %d of \"%s\" has type \"%s\"; call .toString() "
-			"first to pass a class, interface or enum value.",
-			paramIdx + 1, callee.c_str(), argType.ToString().c_str());
-		return;
+		const char *pEscape = nullptr;
+		if (argType.Kind() == NK_StructDecl)
+			pEscape = "a struct has no toString: format its fields into a "
+				"string.";
+		else if (argType.Kind() == NK_InterfaceDecl)
+			pEscape = "an interface value has no members beyond its own "
+				"declaration: pass a string it returns.";
+		else if (argType.Kind() == NK_ClassDecl && argType.Name() == "Object")
+			pEscape = "call .toString() or unbox with an as cast.";
+		if (pEscape != nullptr)
+		{
+			m_Env.Log(CLL_Error, arg.Location(),
+				"Argument %d of \"%s\" has type \"%s\"; %s",
+				paramIdx + 1, callee.c_str(),
+				argType.ToString().c_str(), pEscape);
+			return;
+		}
 	}
 	m_Env.Log(CLL_Error, arg.Location(),
 		"Argument %d of \"%s\" has type \"%s\"; \"%s\" expected.",

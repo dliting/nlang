@@ -342,16 +342,42 @@ void test_io_print_void_not_assignable()
 void test_io_print_rejects_nonprintable()
 {
     TEST(io_print_rejects_nonprintable);
-    //class values must call .toString() explicitly; null would print "0".
-    //Array values ARE printable (0.7.3 B: the coercion branch accepts the
-    //interned token; codegen converts via OP_Array_to_str) — the accept
-    //case lives in test_io_print_accepts_primitives.
+    //v0.13.6: the trio's accepted set is §4.4's implicit →string set, so a
+    //class value prints through its inherited toString and an enum through
+    //its member name (the e2e pkg_print_class_enum walks the same set).
+    //Array values ARE printable (0.7.3 B: OP_Array_to_str) — that accept
+    //case lives in test_io_print_accepts_primitives. What stays rejected is
+    //what has no implicit path to string — struct, interface and Object,
+    //each with the escape that exists for its kind — and null, which would
+    //print "0".
     BuildOutcome cls = buildSource("io_print_cls",
-        "class P { int x; }\n"
-        "int main() { P p = P{1}; io.print(p); return 0; }\n");
-    CHECK(!cls.ok, "io.print(class) must not compile");
-    CHECK(cls.diagnostics.find("toString") != std::string::npos,
-        "diagnostic should point at .toString()");
+        "class P { public string toString() { return \"P\"; } }\n"
+        "int main() { P p = P(); io.print(p); return 0; }\n");
+    CHECK(cls.ok, "io.print(class) must compile (renders toString)");
+
+    BuildOutcome st = buildSource("io_print_struct",
+        "struct S { int x; }\n"
+        "int main() { S s = S{1}; io.print(s); return 0; }\n");
+    CHECK(!st.ok, "io.print(struct) must not compile");
+    CHECK(st.diagnostics.find("a struct has no toString")
+        != std::string::npos,
+        "diagnostic should name the missing toString, not imply one");
+
+    BuildOutcome itf = buildSource("io_print_itf",
+        "interface IDraw { public string draw(); }\n"
+        "class Dot implements IDraw { public string draw() { return \"d\"; } }\n"
+        "int main() { IDraw d = Dot(); io.print(d); return 0; }\n");
+    CHECK(!itf.ok, "io.print(interface) must not compile");
+    CHECK(itf.diagnostics.find("an interface value has no members")
+        != std::string::npos,
+        "diagnostic should point at a string the interface returns");
+
+    BuildOutcome obj = buildSource("io_print_obj",
+        "int main() { Object o = \"abc\"; io.print(o); return 0; }\n");
+    CHECK(!obj.ok, "io.print(Object) must not compile");
+    CHECK(obj.diagnostics.find("unbox with an as cast")
+        != std::string::npos,
+        "diagnostic should offer .toString() or the unboxing cast");
 
     BuildOutcome nil = buildSource("io_print_null",
         "int main() { io.print(null); return 0; }\n");

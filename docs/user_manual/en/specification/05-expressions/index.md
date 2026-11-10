@@ -99,8 +99,10 @@ result has the operand's type; `-` on an unsigned integer wraps
 ## 5.3 String Concatenation
 
 The `+` operator with a `string` operand on either side is string
-concatenation: the other operand is converted to `string` (§4.4)
-and the two byte sequences are joined; the result is `string`.
+concatenation: the other operand is rendered as text by the rules
+below (which types are assignable to `string` in their own right
+is §4.4) and the two byte sequences are joined; the result is
+`string`.
 `+` is left-associative, so `2 + 3 + "y"` is `"5y"` and
 `"y" + 2 + 3` is `"y23"`.
 
@@ -153,15 +155,17 @@ conversion is one of the following:
 - an explicit numeric conversion: a narrowing or sign-changing
   integer conversion, `float` or `double` to an integer, or
   `char` to or from an integer;
-- a function value to `string`; the conversion applies with or
-  without the operator, and §5.3 fixes the rendering.
+- a function value to `string`; §5.3 fixes the rendering. This
+  pair converts implicitly as well (§4.4); the cast is the
+  explicit spelling of the same rendering, and with the unboxing
+  above it is the only way into `string` through `as`.
 
 An implicit conversion that is not one of these — widening
 integers, an integer to a floating-point type, `float` to
-`double`, or any type but a function value to `string` — is a
-compile-time error with `as`: it applies without the operator
-(§4.4). A pair with no
-conversion path is a compile-time error; `bool` has no `as` path
+`double`, or any type but a function value or `Object` to
+`string` — is a compile-time error with `as`: it applies without
+the operator (§4.4). A pair with no conversion path is a
+compile-time error; `bool` has no `as` path
 to or from any type but `Object` (§4.2): its conversion to
 `string` is implicit and takes no operator.
 

@@ -189,6 +189,19 @@ static int ClassFamilyDistance(const SnField &source, const SnField &target,
 	return -1;
 }
 
+//The source kinds the cast table grants an implicit conversion to a string
+//target as TCK_Auto: any class except Object — its edge to text is an
+//unboxing (spec 5.5), never an implicit conversion — and the array type
+//token (0.7.3 B D5, a runtime toString). A func<...> handle shares the
+//class arm. Interface and struct values have no toString at all, and
+//same-token array pairs already verdict 0 at the pointer check above.
+static bool GrantsImplicitToString(NodeKind srcKind, const SnField &source)
+{
+	if (srcKind == NK_ClassDecl)
+		return source.Name() != "Object";
+	return srcKind == NK_ArrayTypeToken;
+}
+
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	const SnField &target) const
 {
@@ -218,18 +231,18 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		&& (srcKind == NK_ArrayTypeToken
 			|| ArrayInstantiationElem(const_cast<SnField*>(&source))))
 		return 1;
+	//v0.13.6: the implicit →string conversion is ONE assignable relation over
+	//initialization, assignment, argument passing and return (spec 4.4), so
+	//the call path grants candidacy on the same single rung the cast table
+	//already uses — the class-family arm below must not reject the call
+	//before it is consulted (the array rung sat after it until now, leaving
+	//a class value coercing on assignment but missing the same formal in a
+	//call). An exact match still wins the overload sweep (0 < kDistToString).
+	if (tgtKind == NK_String && GrantsImplicitToString(srcKind, source))
+		return kDistToString;
 	if (srcKind == NK_ClassDecl || srcKind == NK_InterfaceDecl
 		|| tgtKind == NK_ClassDecl || tgtKind == NK_InterfaceDecl)
 		return ClassFamilyDistance(source, target, srcKind, tgtKind);
-	//0.7.3 B D5: an array argument coerces to a string formal through the
-	//cast table's TCK_Auto (runtime toString). Grant candidacy a finite
-	//distance — the same rung as every scalar→string coercion (0.7.5:
-	//the hardcoded 1 became this rung). Everything else array-token-
-	//shaped stays -1: same-token pairs already returned 0 at the pointer
-	//check above, cross-token and token-vs-scalar pairs have no
-	//conversion.
-	if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
-		return kDistToString;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 	{
 		//0.7.5: distances derive from the registry ladder above (the

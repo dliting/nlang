@@ -780,7 +780,8 @@ private:
 	//(Same/Auto/Box). Mirrors ComputeBindingDistance +
 	//FixupParamTypesWithBindings so the per-argument verdict matches the
 	//final compile result (string->float passes the distance but has no
-	//cast; class->string has a cast but fails the distance).
+	//implicit cast; Object->string has a cast — an unboxing — but no
+	//distance, so spec 5.5 keeps it explicit).
 	bool CanImplicitlyBind(const SnField &argType,
 		const SnField &formalType) const;
 	void LogArgumentTypeMismatch(SnExpression &arg, const SnField &argType,

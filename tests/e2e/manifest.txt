@@ -536,6 +536,12 @@ string_tostring_identity 7
 int_float_tostring 7
 implicit_coercion_class 7
 implicit_coercion_mixed_chain 7
+# --- v0.13.6: §4.4's one to-string relation also binds the argument position,
+# and the io output trio accepts the same set (§14.1); the string-formal note
+# must name a way out that exists for each kind it rejects ---
+arg_class_func_to_string 0 [badge]
+pkg_print_class_enum 0 SLOW
+arg_string_formal_kinds_reject compile_error has type "struct Point";a struct has no toString;has type "interface IDraw";an interface value has no members beyond its own declaration;has type "class Object";call .toString() or unbox with an as cast;!call .toString() first to pass a class, interface or enum value
 # --- Phase 8e-9b P3: boundary tests ---
 enum_tostring_out_of_range_throws 1
 class_tostring_inherited_override 7

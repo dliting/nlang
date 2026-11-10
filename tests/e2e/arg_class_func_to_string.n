@@ -1,0 +1,21 @@
+//§4.4 defines ONE assignability relation, and it governs variable
+//initialization, assignment, argument passing and return alike. A class value
+//and a function value convert implicitly to string in all four positions, so a
+//string formal accepts them just as an assignment does; §5.3 fixes the text
+//they render to. (The initialization and return positions are pinned by
+//implicit_coercion_class; this case pins the argument position.)
+import io;
+
+class Badge {
+    public string toString() { return "badge"; }
+}
+
+string wrap(string s) { return "[" + s + "]"; }
+
+int main() {
+    Badge b = Badge();
+    io.print(wrap(b));
+    func<string, string> f = wrap;
+    io.print(wrap(f));
+    return 0;
+}
