@@ -2166,3 +2166,8 @@ stdlib_http_redirect 0
 stdlib_http_stream 0
 stdlib_http_cancel 0
 stdlib_http_conc 0
+#v0.13.6 net fix pass: readExactly stops at the requested byte count and
+#leaves the rest of the segment in the socket; readLine's contract is pinned
+#for a buffered reader.
+stdlib_net_tcp_readline_utf8 0
+stdlib_net_tcp_read_exactly_split 0

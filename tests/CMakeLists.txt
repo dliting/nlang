@@ -956,7 +956,8 @@ if(WIN32)
         ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_icmp_windows.cpp)
 else()
     list(APPEND NLANG_NET_MODULE_TEST_SOURCES
-        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_posix.cpp)
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_posix.cpp
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_icmp_posix.cpp)
 endif()
 
 # v0.13.0 net: the OS socket abstraction contract (loopback TCP/UDP,

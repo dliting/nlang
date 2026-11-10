@@ -441,6 +441,12 @@ void NetLastErrorInfo(std::string& outText, int& outCode) {
     outText = utf8;
 }
 
+std::string NetTakeLastErrorOverride() {
+    std::string text;
+    text.swap(g_lastErrorOverride);
+    return text;
+}
+
 std::string NetResolveErrorText(int resolveErr) {
     switch (resolveErr) {
     case WSAHOST_NOT_FOUND:

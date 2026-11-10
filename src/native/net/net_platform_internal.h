@@ -101,7 +101,8 @@ inline bool QueryName(int fd, bool peer, sockaddr_storage& ss, int& len) {
 }
 
 //Human-readable override for NetLastErrorText (raw-ICMP admin denial,
-//SO_ERROR verdicts); consumed and cleared by the core TU.
+//SO_ERROR verdicts); handed to the core TU by NetTakeLastErrorOverride
+//(net_platform.h), which consumes and clears it.
 inline thread_local std::string g_lastErrorOverride;
 
 }  //namespace nlang

@@ -59,7 +59,8 @@ if(WIN32)
     target_link_libraries(nlang_net PRIVATE ws2_32 iphlpapi)
 else()
     target_sources(nlang_net PRIVATE
-        net/net_platform_posix.cpp)
+        net/net_platform_posix.cpp
+        net/net_platform_icmp_posix.cpp)
 endif()
 
 # gzip module statically inlines vendored zlib 1.3.1 (spec D23); the

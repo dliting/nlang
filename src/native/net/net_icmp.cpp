@@ -27,7 +27,6 @@
 
 #include "net_jobs.h"
 #include "net_platform.h"
-#include "net_platform_internal.h"   //g_lastErrorOverride (worker splice)
 #include "net_slots.h"
 #include "net_state.h"
 #include "net_tcp_park.h"
@@ -105,10 +104,9 @@ void IcmpWorker(void* arg) {
     } else if (r == -2) {
         //Either nothing the echo helpers can dial, or the platform
         //layer armed an override on this worker thread — prefer it.
-        errText = g_lastErrorOverride.empty()
-            ? std::string("host has no usable address")
-            : g_lastErrorOverride;
-        g_lastErrorOverride.clear();
+        const std::string armed = NetTakeLastErrorOverride();
+        errText = armed.empty() ? std::string("host has no usable address")
+                                : armed;
     }
     NetFinishIcmp(job->st, job->jobId, 0, kNetErrPlatform, errText,
                   resolveErr);
@@ -392,7 +390,9 @@ void NetIcmpClose(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //--- registration ------------------------------------------------------------
 
 //Declared in net_icmp.h: net_native.cpp's module init calls this.
-void NetRegisterIcmpNatives(void* registry, RegisterNativeFn reg,
+//The signature is the uniform one every NetRegister*Natives shares; this
+//module has no non-blocking native, so reg goes unused.
+void NetRegisterIcmpNatives(void* registry, [[maybe_unused]] RegisterNativeFn reg,
     RegisterNativeBlockingFn regBlocking) {
     regBlocking(registry, "net", "_ping", &NetPing);
     regBlocking(registry, "net", "_icmpBind", &NetIcmpBind);

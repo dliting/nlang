@@ -112,6 +112,9 @@ native int _icmpClose(int handle);
 // cannot be resolved or is unreachable.
 // Windows uses IcmpSendEcho2 (no admin rights needed), Linux a DGRAM
 // ICMP socket.
+// timeoutMs = 0 sets no deadline (the package-wide rule): requests are
+// retransmitted -- on the native worker pool, at high priority, ahead of
+// hostname resolution -- until one is answered.
 int ping(string host, int timeoutMs = 5000) {
     long deadline = 0;
     if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
@@ -315,52 +318,64 @@ class TcpStream {
         return this.write(_toBytes(s), -1, timeoutMs);
     }
 
+    private static const int LINE_START = 64;   //readLine's starting line buffer
+
     // Reads one line: ends at '\n' and returns the text without the
     // line terminator (a trailing '\r' is stripped). If the peer
     // closes before the line ends, returns the text accumulated so
-    // far; an empty line and EOF both return the empty string — tell
-    // them apart with isClosed().
+    // far; an empty line and EOF both return the empty string (a
+    // string has no null value), so read() answering 0 is the
+    // end-of-stream signal. The bytes are collected in a buffer
+    // and decoded once, so the line comes out exactly as the same
+    // bytes would through io.fromBytes (a NUL ends the text, and a
+    // character whose bytes arrive in separate reads stays whole);
+    // decoding one byte at a time and joining would rebuild the
+    // string once per byte.
     public string readLine(int timeoutMs = 0) {
-        string acc = "";
+        byte[] acc = byte[LINE_START];
+        int used = 0;
         byte[] one = byte[1];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         while (true) {
             int n = _tcpRead(m_handle, one, deadline);   //absolute deadline stays stable across re-reads
             if (n < 0) { _throwNet(n, "readLine"); }
-            if (n == 0) { return acc; }
-            if (one[0] == 10) {          //'\n'
-                if (acc.length() > 0 && acc.endsWith("\r")) {
-                    return acc.substring(0, acc.length() - 1);
-                }
-                return acc;
+            if (n == 0) { break; }                     //peer closed: keep what arrived
+            if (one[0] == 10) {                        //'\n'
+                if (used > 0 && acc[used - 1] == 13) { used = used - 1; }   //strip '\r'
+                break;
             }
-            acc = acc + _fromBytes(one);
+            if (used == acc.length()) {                //doubling keeps the copying linear
+                byte[] wider = byte[acc.length() * 2];
+                for (int i = 0; i < used; i = i + 1) { wider[i] = acc[i]; }
+                acc = wider;
+            }
+            acc[used] = one[0];
+            used = used + 1;
         }
+        return _fromBytes(acc[0:used]);
     }
 
     // Reads exactly count bytes (fixed-length HTTP body framing);
-    // throws SocketException if the peer closes early. read writes
-    // from the buffer's first cell with no offset argument, so bytes
-    // land in a temp array and are copied cell by cell.
+    // throws SocketException if the peer closes early. Each read targets
+    // the payload's still-missing tail, so the socket is asked for no more
+    // bytes than the body still needs: a peer that coalesced the next
+    // message into the same segment leaves those bytes in the socket
+    // instead of having them swallowed here.
     public byte[] readExactly(int count, int timeoutMs = 0) {
         byte[] payload = byte[count];
-        byte[] tmp = byte[count];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         int got = 0;
         while (got < count) {
-            int n = _tcpRead(m_handle, tmp, deadline);
+            int n = _tcpRead(m_handle, payload[got:count], deadline);
             if (n < 0) { _throwNet(n, "readExactly"); }
             if (n == 0) {
                 throw SocketException("net: connection closed after "
                     + got.toString() + " of " + count.toString()
                     + " bytes");
             }
-            for (int i = 0; i < n; i = i + 1) {
-                payload[got + i] = tmp[i];
-            }
-            got = got + n;
+            got = got + n;    //n never exceeds count - got: the view bounds it
         }
         return payload;
     }

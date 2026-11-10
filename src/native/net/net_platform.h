@@ -163,6 +163,12 @@ std::string NetLastErrorText();
 //texts) carry 0. The text has " (error N)" appended when N != 0 so
 //logs stay diagnosable on any locale.
 void NetLastErrorInfo(std::string& outText, int& outCode);
+//Error text the platform layer armed on the calling thread (Windows: the
+//raw-ICMP bind denial and SO_ERROR verdicts; POSIX: the SO_ERROR connect
+//reason and the ICMP echo socket denial and error verdicts): hands it
+//over and clears it, so the reader consumes it exactly once. An empty
+//answer means nothing was armed, and the caller keeps its fallback words.
+std::string NetTakeLastErrorOverride();
 //Maps a getaddrinfo failure code to a stable English phrase (the
 //resolver worker runs without a NativeHost, so the per-context error
 //store is out of reach; the wait native splices this in on the

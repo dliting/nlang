@@ -442,7 +442,9 @@ void NetUdpClose(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //_udpRecv registers NetTcpRead — the recv park loop is socket-kind
 //agnostic (a datagram is readable data; n == 0 reads as an empty
 //datagram to the UDP script face, as EOF to TCP's).
-void NetRegisterUdpNatives(void* registry, RegisterNativeFn reg,
+//The signature is the uniform one every NetRegister*Natives shares; this
+//module has no non-blocking native, so reg goes unused.
+void NetRegisterUdpNatives(void* registry, [[maybe_unused]] RegisterNativeFn reg,
     RegisterNativeBlockingFn regBlocking) {
     regBlocking(registry, "net", "_udpBind", &NetUdpBind);
     regBlocking(registry, "net", "_udpSendTo", &NetUdpSendTo);

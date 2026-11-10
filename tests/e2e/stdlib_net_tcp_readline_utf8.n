@@ -1,0 +1,100 @@
+import io;
+import thread;
+import net;
+
+// What readLine() owes the caller, in the cases a buffered reader could break:
+// a line of multi-byte characters comes back whole, including when one
+// character is split across two segments; several lines that arrived in one
+// segment are handed out one at a time; a line longer than the first buffer
+// still arrives in full; and text received before the peer closes is returned
+// even though no LF terminates it.
+// Failure codes: 2 = the cafe-e-acute line came back mangled, 3/4/5 = a line of
+// a coalesced segment was split wrong, 6 = the long line lost or changed bytes,
+// 7 = the text received before the peer closed was dropped, 8 = a character
+// split across two segments came back mangled, 9 = readLine raised
+// instead of returning, 10 = a NUL byte inside the line did not end the text
+// the way the same bytes do in io.fromBytes, 11 = past the end of the stream
+// readLine returned something other than the empty string.
+class LineReader {
+    public TcpStream c;
+    public string line = "";
+    public int code = 0;
+
+    public void run() {
+        try {
+            line = c.readLine(5000);
+        } catch (Exception e) {
+            code = 9;
+        }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+
+    // Six bytes on the wire, five characters of text: the e-acute is 0xC3 0xA9.
+    cli.write("caf\u00e9\r\n");
+    if (c.readLine(5000) != "caf\u00e9") { return 2; }
+
+    // Three lines coalesced into one segment, two ended by CRLF and one by a
+    // bare LF: the terminator handling must stay byte-exact.
+    cli.write("GET /x HTTP/1.1\r\nHost: a\nAccept: */*\r\n");
+    if (c.readLine(5000) != "GET /x HTTP/1.1") { return 3; }
+    if (c.readLine(5000) != "Host: a") { return 4; }
+    if (c.readLine(5000) != "Accept: */*") { return 5; }
+
+    // A line longer than any starting buffer: 201 'x' characters.
+    string longLine = "";
+    for (int i = 0; i < 201; i = i + 1) { longLine = longLine + "x"; }
+    cli.write(longLine + "\r\n");
+    if (c.readLine(5000) != longLine) { return 6; }
+
+    // One character's two bytes in two segments: the reader is parked inside the
+    // character when the second byte arrives, so a reader that refills its
+    // buffer has to carry the first byte over instead of decoding it alone.
+    cli.write("caf");
+    byte[] lead = byte[1];
+    lead[0] = -61;                     //0xC3
+    byte[] tail = byte[1];
+    tail[0] = -87;                     //0xA9
+    cli.write(lead, 1, 5000);
+    LineReader r = LineReader();
+    r.c = c;
+    Thread t = thread.spawn(r.run);
+    thread.sleep(50);                  //the reader is waiting on the second byte
+    cli.write(tail, 1, 5000);
+    cli.write("\r\n");
+    thread.join(t);
+    if (r.code != 0) { return r.code; }
+    if (r.line != "caf\u00e9") { return 8; }     //same text, assembled in two halves
+
+    // A NUL byte inside a line: a string cannot hold one, so the line ends where
+    // the NUL ends it -- the same rule the caller gets from io.fromBytes on those
+    // bytes. Decoding byte by byte instead drops the NUL and keeps the bytes
+    // behind it, which makes the two paths disagree about the same input.
+    byte[] nulLine = byte[5];
+    nulLine[0] = 65;                   //'A'
+    nulLine[1] = 0;                    //NUL
+    nulLine[2] = 66;                   //'B'
+    nulLine[3] = 13;                   //'\r'
+    nulLine[4] = 10;                   //'\n'
+    cli.write(nulLine, 5, 5000);
+    string got = c.readLine(5000);
+    if (got.length() != 1 || got[0] != 65) { return 10; }
+
+    // The peer closes before the line ends: the text received so far still has
+    // to be returned (an unterminated final line is not lost).
+    cli.write("tail");
+    cli.shutdownWrite();
+    if (c.readLine(5000) != "tail") { return 7; }
+    // Past the end of the stream there is nothing left to read, and the empty
+    // string is what readLine() answers with -- indistinguishable from an empty
+    // line, which is why read() answering 0 is the documented end-of-input signal.
+    if (c.readLine(5000) != "") { return 11; }
+
+    cli.close(); c.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

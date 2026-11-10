@@ -1,40 +1,31 @@
 /*---
     net_platform_posix.cpp — POSIX implementation of net_platform.h
-    (net library design §6). Compiled on every non-Windows platform;
-    the IO poller set is a VM facility (IoPoller.h / IoPollerPosix.cpp),
-    not part of this layer. Blocking conveniences (NetResolve,
-    NetIcmpEcho) are worker-thread only. ICMP echo uses
-    SOCK_DGRAM/IPPROTO_ICMP (unprivileged ping sockets:
-    net.ipv4.ping_group_range on Linux), where the kernel owns the
-    ICMP id/sequence and delivers the echo reply to this socket.
+    (net library design §6), core sockets + resolver. Compiled on every
+    non-Windows platform; the IO poller set is a VM facility (IoPoller.h
+    / IoPollerPosix.cpp), not part of this layer. Blocking conveniences
+    (NetResolve, NetIcmpEcho) are worker-thread only. Shared socket
+    helpers live in net_platform_posix_internal.h; the ICMP entries live
+    in net_platform_icmp_posix.cpp.
 ---*/
-#include "net_platform.h"
+#include "net_platform_posix_internal.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
-#include <chrono>
 #include <cstring>
-#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <system_error>
 #include <unistd.h>
 
 namespace nlang {
 namespace {
 
-int ToAf(NetFamily family) { return family == NetFamily::Inet ? AF_INET : AF_INET6; }
-
 bool SetSockOptInt(int fd, int level, int name, int value) {
     return setsockopt(fd, level, name, &value, sizeof(value)) == 0;
-}
-
-void SetNonBlocking(int fd) {
-    const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 //Numeric address text (brackets stripped) + port → sockaddr pair.
@@ -203,7 +194,9 @@ int NetShutdownWrite(int fd) {
     return shutdown(fd, SHUT_WR) == 0 ? 0 : -1;
 }
 
-int NetConnectResult(int fd) {
+int NetConnectResult(int fd, int* soError) {
+    if (soError)
+        *soError = 0;
     //Zero-timeout writability probe (see net_platform.h): a pending
     //connect also reports SO_ERROR == 0, so a stale park wake must not
     //mint a half-open stream — only a finished connect is writable
@@ -218,7 +211,16 @@ int NetConnectResult(int fd) {
     int err = 0;
     socklen_t size = sizeof(err);
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &size) != 0) return -1;
-    return err == 0 ? 0 : -1;
+    if (err == 0) return 0;
+    //The reason lives in SO_ERROR, not errno: poll and getsockopt both
+    //succeeded, so the thread's errno is whatever the connect attempt
+    //left behind. Publish the code for the caller and arm the matching
+    //text, so NetLastErrorText on the failure path names the real
+    //failure (the Windows twin arms the same pair; external review I3).
+    if (soError)
+        *soError = err;
+    g_lastErrorOverride = "connect failed: " + NetErrnoText(err);
+    return -1;
 }
 
 int NetRecvFrom(int fd, uint8_t* dst, int len,
@@ -330,8 +332,11 @@ int NetSocketPair(int fds[2]) {
     return 0;
 }
 
-bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out) {
+bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out,
+                int* errOut) {
     out.clear();
+    if (errOut)
+        *errOut = 0;
     std::string text = host;
     if (!text.empty() && text.front() == '[' && text.back() == ']')
         text = text.substr(1, text.size() - 2);
@@ -350,7 +355,12 @@ bool NetResolve(const std::string& host, int port, std::vector<NetEndpoint>& out
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* list = nullptr;
-    if (getaddrinfo(text.c_str(), nullptr, &hints, &list) != 0) return false;
+    const int gaiErr = getaddrinfo(text.c_str(), nullptr, &hints, &list);
+    if (gaiErr != 0) {
+        if (errOut)
+            *errOut = gaiErr;   //POSIX getaddrinfo answers with EAI_* codes
+        return false;
+    }
     for (addrinfo* ai = list; ai; ai = ai->ai_next) {
         char buf[INET6_ADDRSTRLEN] = { 0 };
         if (ai->ai_family == AF_INET) {
@@ -378,110 +388,58 @@ bool NetIsNumericAddress(const std::string& host) {
     return inet_pton(AF_INET6, text.c_str(), &v6) == 1;
 }
 
-#ifdef MSG_ERRQUEUE
-namespace {
-//True when an ICMP error (e.g. destination unreachable) is queued.
-//An unconnected DGRAM ICMP socket does not surface ICMP errors through
-//recvfrom — with IP_RECVERR they land on the socket error queue, which
-//MSG_ERRQUEUE dequeues (external review I5; Linux semantics, hence the
-//guard: BSD sockets report those errors through recvfrom's errno).
-bool IcmpErrqueuePending(int fd) {
-    char ctrl[512];
-    msghdr msg;
-    std::memset(&msg, 0, sizeof(msg));
-    msg.msg_control = ctrl;
-    msg.msg_controllen = sizeof(ctrl);
-    //The error queue of this socket type holds only error records, so a
-    //successful dequeue means an error arrived; EAGAIN means the queue
-    //is empty and the wait really ended in silence.
-    return recvmsg(fd, &msg, MSG_ERRQUEUE | MSG_DONTWAIT) >= 0;
-}
-}  //namespace
-#endif
-
-namespace {
-//The echo probes one family per job: prefer IPv4, fall back to IPv6
-//(the slice re-arm keeps a dual-stack host reachable either way).
-const NetEndpoint* PickEchoEndpoint(const std::vector<NetEndpoint>& eps) {
-    for (const NetEndpoint& e : eps)
-        if (e.family == NetFamily::Inet) return &e;
-    for (const NetEndpoint& e : eps)
-        if (e.family == NetFamily::Inet6) return &e;
-    return nullptr;
-}
-}  //namespace
-
-int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len, int timeoutMs) {
-    //DGRAM ICMP: the kernel rewrites id/sequence and delivers the echo
-    //reply here; SO_RCVTIMEO bounds the blocking recvfrom.
-    std::vector<NetEndpoint> eps;
-    if (!NetResolve(host, 0, eps)) return -2;
-    const NetEndpoint* ep = PickEchoEndpoint(eps);
-    if (!ep) return -2;
-    const int proto = ep->family == NetFamily::Inet ? IPPROTO_ICMP : IPPROTO_ICMPV6;
-    const int fd = socket(ToAf(ep->family), SOCK_DGRAM, proto);
-    if (fd < 0) return -2;
-    const int one = 1;
-#ifdef IP_RECVERR
-    if (ep->family == NetFamily::Inet)
-        setsockopt(fd, IPPROTO_IP, IP_RECVERR, &one, sizeof(one));
-#endif
-#ifdef IPV6_RECVERR
-    if (ep->family == NetFamily::Inet6)
-        setsockopt(fd, IPPROTO_IPV6, IPV6_RECVERR, &one, sizeof(one));
-#endif
-    timeval tv;
-    tv.tv_sec = timeoutMs / 1000;
-    tv.tv_usec = static_cast<long>(timeoutMs % 1000) * 1000;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    const auto start = std::chrono::steady_clock::now();
-    int rtt = -1;
-    if (NetSendTo(fd, payload, len, ep->address, 0) >= 0) {
-        uint8_t reply[1536];
-        std::string from;
-        int port = 0;
-        const int n = NetRecvFrom(fd, reply, sizeof(reply), from, port);
-        if (n >= 0)
-            rtt = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start).count());
-        else {
-            //errno after the failure: EAGAIN/EWOULDBLOCK = SO_RCVTIMEO
-            //expiry, anything else = hard socket error (I5 verdict map).
-            rtt = NetIcmpStatusVerdict(errno);
-#ifdef MSG_ERRQUEUE
-            if (rtt == -1 && IcmpErrqueuePending(fd))
-                rtt = -2;   //the wait ended on a queued ICMP error
-#endif
-        }
+void NetLastErrorInfo(std::string& outText, int& outCode) {
+    if (!g_lastErrorOverride.empty()) {
+        //An armed override wins over errno: it was set by the failing
+        //operation itself (the connect SO_ERROR verdict, an ICMP
+        //denial), while errno here would be a stale survivor of the
+        //syscalls between that failure and this reader — the consume-
+        //once order of the Windows twin. The numeric code travels on
+        //its own channel (the soError out-param), so the override
+        //paths report 0 here.
+        outText = g_lastErrorOverride;
+        g_lastErrorOverride.clear();
+        outCode = 0;
+        return;
     }
-    close(fd);
-    return rtt;
-}
-
-int NetIcmpStatusVerdict(int err) {
-    if (err == 0) return 0;
-    if (err == EAGAIN || err == EWOULDBLOCK || err == ETIMEDOUT) return -1;
-    return -2;   //EHOSTUNREACH / ENETUNREACH / ECONNREFUSED / EACCES ...
-}
-
-int NetOpenIcmp() {
-    const int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-    if (fd < 0) return -1;
-    SetNonBlocking(fd);
-    return fd;
-}
-
-int NetIcmpSend(int fd, const uint8_t* msg, int len, const std::string& addr) {
-    return NetSendTo(fd, msg, len, addr, 0);
-}
-
-int NetIcmpRecv(int fd, uint8_t* dst, int len, std::string& outAddress) {
-    int port = 0;
-    return NetRecvFrom(fd, dst, len, outAddress, port);
+    outCode = errno;
+    if (outCode == 0) {
+        outText.clear();
+        return;
+    }
+    outText = NetErrnoText(outCode);
 }
 
 std::string NetLastErrorText() {
-    return std::strerror(errno);
+    std::string text;
+    int code = 0;
+    NetLastErrorInfo(text, code);
+    return text;
+}
+
+std::string NetTakeLastErrorOverride() {
+    //Swap, not copy-and-clear: the ICMP worker's -2 branch consumes the
+    //text armed on its own thread — by the socket-creation denial or an
+    //echo error verdict — exactly once, as on Windows. An empty return
+    //means nothing was armed, and the caller keeps its fallback words.
+    std::string text;
+    text.swap(g_lastErrorOverride);
+    return text;
+}
+
+std::string NetResolveErrorText(int resolveErr) {
+    switch (resolveErr) {
+    case EAI_NONAME:
+        return "host not found";
+    case EAI_AGAIN:
+        return "name resolution temporary failure";
+    case EAI_FAIL:
+        return "name resolution failed";
+    case EAI_NODATA:
+        return "no address record for the name";
+    default:
+        return "name resolution failed";
+    }
 }
 
 }  //namespace nlang

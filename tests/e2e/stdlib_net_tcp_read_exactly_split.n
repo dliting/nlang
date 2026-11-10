@@ -1,0 +1,71 @@
+import io;
+import thread;
+import net;
+
+// readExactly() has to stop at count bytes and leave the rest of the segment in
+// the socket. Reading with a buffer as wide as the whole request lets the last
+// read pull in more bytes than the body still needs: those bytes are gone from
+// the stream, and storing them walks past the end of the payload array.
+// The reader therefore has to be parked in the middle of the body while the
+// second segment arrives -- reading after both writes are done hides the case,
+// because one read then serves the whole request.
+// Failure codes: 6 = readExactly raised instead of returning, 7 = the four
+// requested bytes are wrong, 8 = the bytes behind the body were swallowed,
+// 9 = an early close returned instead of raising, 10 = the early-close
+// diagnostic lost the byte counts.
+class BodyReader {
+    public TcpStream c;
+    public int code = 0;
+    public byte[] body;
+    public byte[] rest;                 //array fields are filled in, not defaulted
+    public int restCount = -1;
+
+    public BodyReader() { rest = byte[8]; }
+
+    public void run() {
+        try {
+            body = c.readExactly(4, 5000);
+        } catch (Exception e) {
+            code = 6;
+            return;
+        }
+        if (body.length() != 4) { code = 7; return; }
+        if (body[0] != 65 || body[1] != 66 || body[2] != 67 || body[3] != 68) { code = 7; return; }
+        try {
+            restCount = c.read(rest, 5000);
+        } catch (Exception e) {
+            code = 8;
+            return;
+        }
+        if (restCount != 2 || rest[0] != 69 || rest[1] != 70) { code = 8; }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream c = srv.accept(5000);
+    BodyReader r = BodyReader();
+    r.c = c;
+    Thread t = thread.spawn(r.run);
+    thread.sleep(50);                    //the reader is waiting for the body
+    cli.write("AB");
+    thread.sleep(50);                    //two of the four bytes have arrived
+    cli.write("CDEF");                   //the next four are still two too many
+    thread.join(t);
+    if (r.code != 0) { return r.code; }
+
+    // A close after a short write still has to raise, naming how much arrived.
+    cli.write("ABC");
+    cli.shutdownWrite();
+    try {
+        c.readExactly(5, 5000);
+        return 9;
+    } catch (SocketException e) {
+        if (e.message.indexOf("3 of 5") < 0) { return 10; }
+    }
+
+    c.close(); srv.close();
+    io.print("ok");
+    return 0;
+}

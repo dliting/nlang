@@ -19,6 +19,16 @@ it runs through `IcmpSendEcho2` and needs no administrator rights;
 on Linux it uses a datagram ICMP socket, which an unprivileged user
 may open once `net.ipv4.ping_group_range` covers that user or group.
 
+A `timeoutMs` of `0` sets no deadline: echo requests keep coming
+until one is answered, so a host that never answers leaves `ping`
+waiting indefinitely. Each echo request goes out from a worker of
+the host's native worker pool at high priority (§27.5), and a busy
+pool serves high-priority work before normal-priority work — enough
+pings left waiting with no deadline therefore hold the pool against
+the hostname resolution `connect` and `sendTo` need, which runs at
+normal priority. A program that pings addresses that may be down
+passes a positive timeout.
+
 ```nlang
 import io;
 import net;
