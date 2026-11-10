@@ -302,6 +302,12 @@ node、go、cargo（axum/hyper需要rustc 1.85以上，工具链由`srv_rust/rus
 D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/parse_results.py [输出目录]
 ```
 
+把新数据填回本文（正文段落放在`tools/http_perf/doc_template.md`，两张表由脚本从汇总直接生成，不经人手誊抄）：
+
+```bash
+D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/make_baseline_doc.py
+```
+
 公平性探针（第4条那两组数字）单独重跑，它复用主测量生成的nginx配置与NLang服务器：
 
 ```bash
@@ -309,7 +315,8 @@ D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/probe_fairness.py
 ```
 
 每次测量的原始JSON与`results.md`都在`temp/http_perf/`（临时区，不入库）；本文是入库的那份快照，
-重跑出新数据后要同步改本文，或另起一份带日期的快照。
+重跑出新数据后用上面那条命令重生成——要改正文就改模板，别改生成出来的那份；想留多份带日期的快照，
+把命令的第三个参数换成新文件即可。
 
 ## 7 与排期的关系
 
