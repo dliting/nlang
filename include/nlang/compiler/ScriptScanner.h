@@ -6,6 +6,7 @@
 #pragma once
 #include "TypeDef.h"
 #include "ScriptLocation.h"
+#include <vector>
 
 namespace nlang
 {
@@ -181,10 +182,37 @@ public:
 		m_bPendingClassDeclName = false;
 		return bPending;
 	}
+
+	//0.13.1a Task 3: expression-position generic spelling, resolved with
+	//the C# "grammar ambiguities" rule. Declared generic names (Pair,
+	//Hold) cannot live in the scanner's flag set, and in expression
+	//position a plain '<' after an identifier is genuinely ambiguous
+	//(comparison vs spelling) — no parser state can split it. So every
+	//identifier that is immediately followed by a balanced <...> whose
+	//terminator is '.' or '(' (exactly the two shapes the grammar mints:
+	//static member call, constructor call) arms a one-shot flag and the
+	//following '<' arrives as OT_TypeLt, distinct from the comparison
+	//opener by construction. The probe is a pure character scan over the
+	//normalized source (kept by OpenFile/OpenString for this purpose);
+	//no flex state is touched, and unterminated or foreign-char shapes
+	//(quotes, parens, braces inside the angles) leave the comparison
+	//reading intact. Inert in editor mode.
+	void ProbeTypeArgumentOpener(size_t line, size_t column);
+
+	bool TakePendingReceiverLt()
+	{
+		bool bPending = m_bPendingReceiverLt;
+		m_bPendingReceiverLt = false;
+		return bPending;
+	}
 private:
 	void InitScanInfo();
 
 	void FiniScanInfo();
+
+	//Rebuilds the line-start index over the kept scan text (see
+	//m_sScanText).
+	void BuildLineStarts();
 
 	//The current token location.
 	ScriptLocation m_Location;
@@ -215,6 +243,20 @@ private:
 
 	//previous token was "class" (see MarkClassDeclHead()).
 	bool m_bPendingClassDeclName;
+
+	//0.13.1a Task 3: the '<' after an identifier probing as a generic
+	//receiver opener (see ProbeTypeArgumentOpener). Consumed by the
+	//'< rule like the builtin flag.
+	bool m_bPendingReceiverLt;
+
+	//The normalized source, kept while a translation unit is open so the
+	//spelling probe can look past the current token (flex exposes no
+	//position API). Freed by CloseFile/CloseString.
+	std::string m_sScanText;
+
+	//Byte offset of each line start in m_sScanText; maps the lexer's
+	//(line, byte column) to an absolute offset for the probe.
+	std::vector<size_t> m_scanLineStarts;
 };
 
 } //namespace nlang

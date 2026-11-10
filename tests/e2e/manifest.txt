@@ -2172,6 +2172,7 @@ object_field_value_ser 7
 err_catch_generic_type compile_error cannot tell instantiations apart
 err_generic_static_infer_mismatch compile_error has type
 err_generic_static_infer_unbound compile_error cannot infer type argument
+err_generic_qualified_func_value compile_error cannot be referenced as a value
 err_generic_static_ctor 0
 generic_cast_distinguish 0
 array_cast_generic_elem 0
@@ -2181,3 +2182,4 @@ err_typename_static_context 0
 generic_serialize_roundtrip 0
 generic_static_infer 0
 generic_static_intra 0
+generic_qualified_static 0

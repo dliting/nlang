@@ -281,6 +281,36 @@ static void TestOpenFileEncodings() {
     std::remove(kName);
 }
 
+// --- 0.13.1a Task 3: expression-position spelling probe ---
+//The '<' after a declared generic name arrives as OT_TypeLt only when a
+//balanced <...> follows and the terminator is '.' or '(' — exactly the
+//two shapes the grammar mints (static member call, constructor call).
+//Comparison shapes keep the plain '<' (the C# "grammar ambiguities"
+//resolution; see ScriptScanner::ProbeTypeArgumentOpener).
+static void TestReceiverSpellingProbe() {
+    std::printf("receiver spelling probe\n");
+    auto spelling = ScanAll("Pair<int, string>.sig();\n");
+    CHECK(spelling.size() >= 2);
+    if (spelling.size() >= 2)
+        CHECK(spelling[1].type == OT_TypeLt);
+    auto ctor = ScanAll("Hold<int>(5);\n");
+    CHECK(ctor.size() >= 2);
+    if (ctor.size() >= 2)
+        CHECK(ctor[1].type == OT_TypeLt);
+    auto compare = ScanAll("a < b > c;\n");
+    CHECK(compare.size() >= 2);
+    if (compare.size() >= 2)
+        CHECK(compare[1].type == '<');
+    auto callArg = ScanAll("f(a < b, c > d);\n");
+    CHECK(callArg.size() >= 4);
+    if (callArg.size() >= 4)
+        CHECK(callArg[3].type == '<');  //f ( a '<' — the comparison opener
+    auto assign = ScanAll("x = a < b;\n");
+    CHECK(assign.size() >= 4);
+    if (assign.size() >= 4)
+        CHECK(assign[3].type == '<');   //x = a '<' — the comparison opener
+}
+
 int main() {
     TestColumnsWithoutComment();
     TestColumnsAfterSingleLineComment();
@@ -289,6 +319,7 @@ int main() {
     TestUtf8Validator();
     TestUtf8ContentCheck();
     TestOpenFileEncodings();
+    TestReceiverSpellingProbe();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

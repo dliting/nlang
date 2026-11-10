@@ -216,12 +216,14 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | UnaryOp Expression
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
+                | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" ;
 AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
+QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -232,7 +234,8 @@ IdentifierExpr  = <identifier> | TypeKeyword ;
 TypeKeyword     = "int" | "byte" | "ubyte" | "short" | "ushort"
                 | "uint" | "long" | "ulong" | "float" | "double"
                 | "string" | "bool" | "char" ;
-MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr ) ;
+MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr )
+                | QualifiedGenericReceiver "." ( InvokeExpr | IdentifierExpr ) ;
 InvokeExpr      = <identifier> "(" [ ConcreteParamList ] ")" ;
 SubscriptExpr   = Expression "[" SubscriptItemList "]" ;
 SubscriptItemList = SubscriptItem { "," SubscriptItem } ;
@@ -261,7 +264,12 @@ member access and type-argument heads). The `func<...>(...)` form is
 a function value expression (chapter 7). `AsGenericTarget` is the
 generic `as` target — `e as Box<int>` and its array-suffixed form
 `e as Box<int>[]`; it covers built-in and user-declared templates
-alike.
+alike. `QualifiedGenericReceiver` is the explicit instantiation
+spelling in expression position — `Pair<int, string>.sig()` and
+`Hold<int>(5)` (§4.12.2, §4.12.3). Its `<` is recognized only when
+the balanced angle-bracket run closes before `.` or `(`, so
+comparison chains such as `a < b > c` keep their comparison reading;
+the receiver name resolves like a bare template name.
 
 ## 2.7 Operator Precedence
 

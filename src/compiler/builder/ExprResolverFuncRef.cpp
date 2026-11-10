@@ -61,13 +61,20 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 //instantiation context, and a func value cannot carry one. Bound
 //instance references keep working: the receiver's head descriptor
 //fills the frame cell at every call.
+//0.13.1a Task 3: the explicit instantiation spelling (`Tag<int>.tag`)
+//binds the synthetic instantiation's method clones, whose owner is the
+//instantiation, not the declaration — the owner check covers both so
+//the policy rejects at compile time through either spelling.
 static bool RejectGenericRecordTarget(BuildEnvironment &env,
 	const ISourceLocation *loc, const std::string &name,
 	SyntaxNode *pOwner)
 {
 	if (!pOwner || pOwner->Kind() != NK_ClassDecl)
 		return false;
-	if (!static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration())
+	auto *pDecl = static_cast<SnClassDecl*>(pOwner);
+	if (!pDecl->IsGenericDeclaration()
+		&& !(pDecl->IsGenericInstantiation()
+			&& env.Registry().DeclaredGenerics().InstanceOf(pDecl)))
 		return false;
 	env.Log(CLL_Error, loc,
 		"a function of a generic class cannot be referenced as a "

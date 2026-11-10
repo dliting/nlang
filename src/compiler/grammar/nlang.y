@@ -315,6 +315,7 @@ static bool CollectQualifiedSegments(
 %type <v_pNameExpr>				NameExpr
 %type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
 %type <v_pFieldExpr>				AsGenericTarget
+%type <v_pFieldExpr>				QualifiedGenericReceiver
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -2276,15 +2277,25 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//production it must never compete with the comparison
 				//'<' — a plain-'<' opener here would flip every
 				//`a < b` expression state to the generic reading
-				//(0.11 merge re-measure). Declared generics have no
-				//expression-position generic use; their type contexts
-				//parse on the plain-'<' arms. In this state '{' shifts
+				//(0.11 merge re-measure). Since 0.13.1a Task 3 declared
+				//generics gained expression-position use too, through
+				//QualifiedGenericReceiver on the probe-minted OT_TypeLt
+				//(below); their type contexts still parse on the
+				//plain-'<' arms. In this state '{' shifts
 				//(the literal) and a name reduces the type.
 				IdentifierExpr OT_TypeLt TypeList '>' '{' InitEntries '}' {
 					$$ = new SnInitListExpr(
 						new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1),
 						*$6, false, @1);
 					delete $6;
+				} |
+				//0.13.1a Task 3: constructor call on an explicit
+				//instantiation — `Hold<int>(5)`. The receiver is the
+				//probe-minted QualifiedGenericReceiver; SnNewExpr takes
+				//the class name as a SnFieldExpr and the argument list
+				//exactly like the SnInvokeExpr arm does.
+				QualifiedGenericReceiver '(' ConcreteParamList ')' {
+					$$ = new SnNewExpr($1, $3, @1);
 				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
@@ -2376,10 +2387,37 @@ AsGenericTarget:	IdentifierExpr '<' {
 							new SnNameExpr($1, @1), $4, @1);
 					} ;
 
+//0.13.1a Task 3: expression-position generic spelling on a declared
+//generic name — `Pair<int, string>.sig()` (static member call) and
+//`Hold<int>(5)` (constructor call). The opener is the dedicated
+//OT_TypeLt minted by the scanner's spelling probe (an identifier
+//followed by a balanced <...> whose terminator is exactly '.' or '(' —
+//the C# "grammar ambiguities" resolution), so this nonterminal never
+//competes with the plain-'<' comparison arms (same Expression-position
+//discipline as the 0.10.8 anchored literal arm). Base + args mint like
+//the as-target arms; continuations live in MemberExpr ('.') and the
+//Expression constructor arm ('(').
+QualifiedGenericReceiver:
+				IdentifierExpr OT_TypeLt TypeList '>'	{
+					$$ = new SnGenericTypeExpr(
+						new SnNameExpr($1, @1), $3, @1);
+				} ;
+
 MemberExpr:	Expression '.' InvokeExpr		{
 					$$ = new SnMemberExpr($1, $3, @1);
 				} |
 				Expression '.' IdentifierExpr	{
+					$$ = new SnMemberExpr($1, $3, @1);
+				} |
+				//0.13.1a Task 3: explicit type-argument spelling on a
+				//static member call — `Pair<int, string>.sig()`. The
+				//receiver mints through the same SnGenericTypeExpr the
+				//as-target arms use, so the resolver's existing
+				//Access(SnGenericTypeExpr&) arm resolves it.
+				QualifiedGenericReceiver '.' InvokeExpr	{
+					$$ = new SnMemberExpr($1, $3, @1);
+				} |
+				QualifiedGenericReceiver '.' IdentifierExpr	{
 					$$ = new SnMemberExpr($1, $3, @1);
 				} ;
 

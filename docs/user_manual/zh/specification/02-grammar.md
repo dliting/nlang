@@ -190,12 +190,14 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | UnaryOp Expression
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
+                | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" ;
 AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
+QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -206,7 +208,8 @@ IdentifierExpr  = <identifier> | TypeKeyword ;
 TypeKeyword     = "int" | "byte" | "ubyte" | "short" | "ushort"
                 | "uint" | "long" | "ulong" | "float" | "double"
                 | "string" | "bool" | "char" ;
-MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr ) ;
+MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr )
+                | QualifiedGenericReceiver "." ( InvokeExpr | IdentifierExpr ) ;
 InvokeExpr      = <identifier> "(" [ ConcreteParamList ] ")" ;
 SubscriptExpr   = Expression "[" SubscriptItemList "]" ;
 SubscriptItemList = SubscriptItem { "," SubscriptItem } ;
@@ -229,7 +232,7 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
                 | Expression | BracedInitExpr ;
 ```
 
-`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。
+`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。`QualifiedGenericReceiver`是表达式位的显式实例化拼写——`Pair<int, string>.sig()`与`Hold<int>(5)`（§4.12.2，§4.12.3）。拼写的`<`只在成对尖括号段在`.`或`(`之前闭合时才被识别，因此`a < b > c`这类比较链仍按比较解读；接收者名字的解析与裸模板名一致。
 
 ## 2.7 运算符优先级
 

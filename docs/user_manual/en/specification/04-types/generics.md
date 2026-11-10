@@ -85,12 +85,41 @@ instantiation is known, `item as string == "a"` compares by content
 again. Storing, passing and returning a `T` value are
 kind-independent and stay legal.
 
-All of these dispatches happen inside an instance method or
-constructor body — the instantiation information they read comes
-from the receiver object (`this`). Frames of `static` members have
-no receiver, so equality, concatenation, printing and `as` casts on
-`T` are rejected in `static` context without exception, reporting
-`... requires an instance context.` (§4.12.9).
+All of these dispatches happen inside a method or constructor body —
+an instance body reads the instantiation information from the
+receiver object (`this`). A `static` body has no receiver; its
+instantiation context comes from the call site instead. A call
+through the bare class name infers the type arguments from the
+actuals — every type parameter needs a supplying actual — and a call
+through an explicit instantiation spelling fixes them outright:
+`Pair<int, string>.sig()`. With the context in place, equality,
+concatenation, printing, `as` casts and `typeName` on `T` work in
+`static` bodies exactly as in instance bodies (§4.12.9).
+
+```nlang
+class Pair<K, V> {
+    public static string sig() {
+        return typeName(K) + "," + typeName(V);
+    }
+    public static K firstOf(K k, V v) {
+        return k;
+    }
+}
+int main() {
+    if (Pair<int, string>.sig() == "int,string"
+            && Pair.firstOf(4, "x") == 4) {   // firstOf infers K, V from the actuals
+        return 2;
+    }
+    return 1;
+}
+```
+
+A call that leaves a type parameter without a supplying actual is a
+compile-time error naming the fix (`cannot infer type argument for
+"K, V" in "Pair.eq(...)"; spell the instantiation: Pair<K, V>(...)`).
+A function of a generic class cannot be referenced as a `func` value
+through either spelling — the handle record has no slot for the
+instantiation context; call it directly.
 
 *Informative:* a default argument on a generic member carries into
 instantiations only in constant-expression shapes — a literal, an
@@ -124,6 +153,12 @@ constructor call with no declared target is a compile-time error
 (`generic class "Box" cannot be constructed by bare name`). A
 generic class with no declared constructor takes the zero-argument
 form the same way: `Cell<char> cc = Cell();`.
+
+The explicit instantiation spelling constructs without a declared
+target — the spelled type arguments fix the instantiation at the
+call: `Box<int> b = Box<int>(7);`. Both forms share one construction
+path; the constructed object carries its instantiation information
+the same way (§4.12.9).
 
 The containers also construct through the initializer forms:
 `List<int> nums = {};` and `List<int> seed = List();` are
@@ -316,9 +351,11 @@ class Hold<T> {
 A bare `T` reads the receiver's argument spelling; a `T` nested
 inside an argument (`Box<T>`, `T[]`) composes level by level over
 the same argument, and an array over a type parameter appends the
-element spelling in a bracket pair. Like equality, the runtime forms
-of `typeName` require an instance context and are rejected in
-`static` members. `typeName` is a reserved word (§2.4).
+element spelling in a bracket pair. In a `static` body the runtime
+forms read the call site's instantiation context — filled by the
+bare-name inference or the explicit spelling of the call (§4.12.2) —
+so `typeName(T)` works there exactly as in instance bodies.
+`typeName` is a reserved word (§2.4).
 
 Constructing an instantiation whose arguments involve the type
 parameter inside a method body — `List<T> items = {};` — shares one

@@ -26,7 +26,7 @@ ScriptScanner::ScriptScanner(ContextType ct):
 	m_ContextType(ct), m_nStartState(0), m_pTransUnit(nullptr),
 	m_pScanInfo(nullptr), m_pBuffer(nullptr), m_bDeferEof(false),
 	m_nGenericDepth(0), m_bPendingGenericOpen(false),
-	m_bPendingClassDeclName(false)
+	m_bPendingClassDeclName(false), m_bPendingReceiverLt(false)
 {
 }
 
@@ -89,9 +89,14 @@ bool ScriptScanner::OpenFile(const std::string& sFilePath)
 
 	std::string normalized = NormalizeLineEndings(content, contentLength);
 
+	//Keep the normalized text so the spelling probe can look past the
+	//current token (see ProbeTypeArgumentOpener); freed on close.
+	m_sScanText = std::move(normalized);
+	BuildLineStarts();
+
 	InitScanInfo();
-	m_pBuffer = yy_scan_bytes(normalized.data(),
-		static_cast<int>(normalized.size()), m_pScanInfo);
+	m_pBuffer = yy_scan_bytes(m_sScanText.data(),
+		static_cast<int>(m_sScanText.size()), m_pScanInfo);
 	NLANG_ASSERT(m_pBuffer);
 	//Bytes buffers need the same explicit line/column init as string
 	//buffers (flex initializes them only for FILE buffers).
@@ -105,10 +110,16 @@ void ScriptScanner::CloseFile()
 	//The input is an yy_scan_bytes buffer, not a FILE*: yylex_destroy
 	//inside FiniScanInfo frees it — there is no handle to fclose.
 	FiniScanInfo();
+	m_sScanText.clear();
+	m_scanLineStarts.clear();
 }
 
 void ScriptScanner::OpenString(const char* szInput)
 {
+	//Same text-keeping contract as OpenFile: the spelling probe reads
+	//past the current token through this copy.
+	m_sScanText = szInput;
+	BuildLineStarts();
 	InitScanInfo();
 	m_pBuffer = yy_scan_string(szInput, m_pScanInfo);
 	NLANG_ASSERT(m_pBuffer);
@@ -122,6 +133,116 @@ void ScriptScanner::OpenString(const char* szInput)
 void ScriptScanner::CloseString()
 {
 	FiniScanInfo();
+	m_sScanText.clear();
+	m_scanLineStarts.clear();
+}
+
+namespace
+{
+
+//Characters that cannot appear inside a type-argument list; hitting one
+//aborts the probe so the '<' keeps its comparison reading.
+bool IsTypeListForeignChar(char c)
+{
+	return c == '"' || c == '\'' || c == '(' || c == ')'
+		|| c == '{' || c == '}' || c == ';';
+}
+
+//Skips whitespace and both comment forms from the offset; returns the
+//next content offset (the text size at end of input).
+size_t SkipBlanksAndComments(const std::string& text, size_t offset)
+{
+	const size_t size = text.size();
+	while (offset < size)
+	{
+		const char c = text[offset];
+		if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+		{
+			++offset;
+			continue;
+		}
+		if (c == '/' && offset + 1 < size && text[offset + 1] == '/')
+		{
+			while (offset < size && text[offset] != '\n')
+				++offset;
+			continue;
+		}
+		if (c == '/' && offset + 1 < size && text[offset + 1] == '*')
+		{
+			offset += 2;
+			while (offset + 1 < size
+				&& !(text[offset] == '*' && text[offset + 1] == '/'))
+				++offset;
+			offset = (offset + 2 < size) ? offset + 2 : size;
+			continue;
+		}
+		break;
+	}
+	return offset;
+}
+
+//Bound on one probe's forward scan: a pathological open-ended '<'
+//(unterminated comparison) must not walk the rest of the file.
+const size_t MAX_TYPE_LIST_PROBE_CHARS = 4096;
+
+} //namespace
+
+void ScriptScanner::BuildLineStarts()
+{
+	m_scanLineStarts.clear();
+	m_scanLineStarts.push_back(0);
+	for (size_t i = 0; i < m_sScanText.size(); ++i)
+		if (m_sScanText[i] == '\n')
+			m_scanLineStarts.push_back(i + 1);
+}
+
+void ScriptScanner::ProbeTypeArgumentOpener(size_t line, size_t column)
+{
+	m_bPendingReceiverLt = false;
+	if (m_sScanText.empty() || m_ContextType != CT_Compiler
+		|| line == 0 || line > m_scanLineStarts.size())
+		return;
+	//YY_USER_ACTION has advanced yycolumn past the identifier before the
+	//rule calls this, so (line, column) is the first byte after it.
+	const size_t afterToken = m_scanLineStarts[line - 1] + column;
+	const size_t opener = SkipBlanksAndComments(m_sScanText, afterToken);
+	if (opener >= m_sScanText.size() || m_sScanText[opener] != '<')
+		return;
+	size_t depth = 0;
+	size_t i = opener;
+	while (i < m_sScanText.size()
+		&& i - opener <= MAX_TYPE_LIST_PROBE_CHARS)
+	{
+		i = SkipBlanksAndComments(m_sScanText, i);
+		if (i >= m_sScanText.size())
+			return;
+		const char c = m_sScanText[i];
+		if (c == '<')
+		{
+			++depth;
+			++i;
+		}
+		else if (c == '>')
+		{
+			--depth;
+			++i;
+			if (depth == 0)
+			{
+				const size_t follow = SkipBlanksAndComments(m_sScanText, i);
+				if (follow < m_sScanText.size())
+				{
+					const char terminator = m_sScanText[follow];
+					m_bPendingReceiverLt = (terminator == '.'
+						|| terminator == '(');
+				}
+				return;
+			}
+		}
+		else if (IsTypeListForeignChar(c))
+			return;
+		else
+			++i;
+	}
 }
 
 void ScriptScanner::InitScanInfo()

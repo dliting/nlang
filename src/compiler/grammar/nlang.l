@@ -350,19 +350,28 @@ LineComment	\/\/[^\n]*
 
             /* single-char angle brackets with generic-depth tracking */
 "<"         {
-                /* Two openers: a '<' directly after a flagged generic
+                /* Three openers: a '<' directly after a flagged generic
                  * name (the built-in generics; func via its keyword
-                 * rule) reaches the parser as the dedicated OT_TypeLt — the
-                 * anchored generic literal `List<int>{...}` needs that
-                 * type-bracket reading distinct from the comparison '<'
-                 * in expression states. Any other '<' arrives plain;
-                 * TYPE-context generic use (declared generics such as
-                 * `Box<int> b;`) parses on the plain spelling — a
-                 * declared generic's name cannot live in a scan-time
-                 * set. Both openers increment the depth counter, which
-                 * makes ">>" split into two '>' tokens inside a
-                 * type-argument list. */
-                if (scanner.TakePendingGenericOpen())
+                 * rule), or after an identifier whose forward probe
+                 * matched the expression-position spelling shape
+                 * (0.13.1a: `Pair<int, string>.sig()` — declared
+                 * generics cannot live in a scan-time set, so the
+                 * probe substitutes for the flag; see
+                 * ProbeTypeArgumentOpener) reach the parser as the
+                 * dedicated OT_TypeLt — the type-bracket reading
+                 * distinct from the comparison '<' in expression
+                 * states. Any other '<' arrives plain; TYPE-context
+                 * generic use (declared generics such as `Box<int> b;`)
+                 * parses on the plain spelling — a declared generic's
+                 * name cannot live in a scan-time set. All openers
+                 * increment the depth counter, which makes ">>" split
+                 * into two '>' tokens inside a type-argument list.
+                 * Both flags are consumed unconditionally: the probe
+                 * guarantees '<' immediately follows its identifier,
+                 * but a builtin-flag hit must not leave the receiver
+                 * flag armed for a later comparison '<'. */
+                const bool bReceiverLt = scanner.TakePendingReceiverLt();
+                if (scanner.TakePendingGenericOpen() || bReceiverLt)
                 {
                     scanner.IncGenericDepth();
                     return OT_TypeLt;
@@ -398,6 +407,11 @@ LineComment	\/\/[^\n]*
                 scanner.PendingGenericOpen(
                     !scanner.TakePendingClassDeclName()
                     && nlang::IsBuiltinGenericTypeName(yytext));
+                /* 0.13.1a Task 3: expression-position spelling probe.
+                 * YY_USER_ACTION has advanced yycolumn past this
+                 * identifier, so (yylineno, yycolumn) is the first byte
+                 * after it — exactly where the probe starts reading. */
+                scanner.ProbeTypeArgumentOpener(yylineno, yycolumn);
                 return TT_Identifier;
             }
 
