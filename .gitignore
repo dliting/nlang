@@ -13,6 +13,9 @@ release/
 
 # Temp dirs (one-off scripts and artifacts)
 temp/
+
+# Blog articles (published externally, local only)
+blog/
 scratch/
 tests/e2e/_examples_tmp/
 tests/e2e/_imports_tmp/
