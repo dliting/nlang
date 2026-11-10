@@ -1,0 +1,7 @@
+# Pinned so a rerun builds the same Rust stack a table was measured with, the
+# way Cargo.lock pins the crates. Current axum/hyper need edition 2024, i.e.
+# rustc 1.85 or newer; a box whose default toolchain is older gets this one
+# installed by rustup on demand. Raise the channel to measure a newer stack.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"

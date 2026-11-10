@@ -1,0 +1,27 @@
+worker_processes  1;
+error_log  logs/error-perf.log  warn;
+pid        logs/nginx-perf.pid;
+
+events {
+    worker_connections  4096;
+}
+
+http {
+    access_log  off;
+    default_type application/octet-stream;
+    sendfile __SENDFILE__;
+    keepalive_timeout 30s;
+    # Stock nginx ends a keep-alive connection after keepalive_requests
+    # (default 1000) requests. Neither the NLang probe (its server field
+    # maxRequestsPerConnection = 0 means unlimited) nor Node has such a cap,
+    # so the comparison raises it here instead of measuring reconnect churn;
+    # the stock value gets its own sensitivity row if someone wants it.
+    keepalive_requests 100000000;
+    server {
+        listen 127.0.0.1:__PORT__;
+        # Forward slashes only: nginx.conf treats a backslash inside a quoted
+        # value as an escape character, so a Windows-style path here turns
+        # \temp and \nlang into control characters and every request 500s.
+        root "__ROOT__";
+    }
+}
