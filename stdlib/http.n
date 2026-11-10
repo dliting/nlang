@@ -354,7 +354,13 @@ class HttpParser {
                 consumed = -(t + 2);
                 return toByteArray(payload);
             }
-            if (have < dataStart + size + 2) { return chunkProgress(payload); }
+            // "need more", written against the bytes still in hand rather than
+            // as `have < dataStart + size + 2`: a declared size up to
+            // 0x7FFFFFFF (parseChunkSize's cap) would overflow that sum
+            // negative and the CRLF probe below would index out of range.
+            // Both sides here stay within the buffer, and a negative right-hand
+            // side (fewer than two bytes left) still means "need more".
+            if (size > (have - dataStart) - 2) { return chunkProgress(payload); }
             if (byteAt(buf, dataStart + size) != 13 || byteAt(buf, dataStart + size + 1) != 10) {
                 throw HttpException("http: chunk data not CRLF-terminated", 400);
             }
@@ -822,6 +828,9 @@ class HttpConn {
     private static const int DEFAULT_DRAIN_CAP = 262144;
     private static const int CLOSE_SINK_WINDOW = 4096;
     private static const int CLOSE_GRACE_MS = 200;
+    // One text for the head-phase budget, raised at the deadline check and at
+    // the read that timed out (see readRequest).
+    private static const string HEAD_TIMEOUT_TEXT = "http: header phase timeout";
 
     public TcpStream stream;
     private byte[] m_buf;
@@ -887,7 +896,9 @@ class HttpConn {
     // Parses one request from the buffer, refilling as needed. The first wait
     // (no bytes yet) is the keep-alive idle timeout; once bytes have started
     // arriving the header phase is bounded by headerTimeoutMs as a total
-    // budget (Slowloris, D7). null = the peer closed.
+    // budget (Slowloris, D7). null = the peer closed, or an idle keep-alive
+    // connection expired; HttpException(408) = a started head stalled past
+    // its budget.
     public HttpRequest readRequest(int keepAliveTimeoutMs, int headerTimeoutMs,
         int maxHeaderBytes, int maxHeaders) {
         m_chunkDone = false;   // fresh message: the prior chunked stream is over
@@ -904,13 +915,26 @@ class HttpConn {
             if (m_have > 0) {
                 if (deadline < 0) { deadline = system.monoMs() + headerTimeoutMs; }
                 long left = deadline - system.monoMs();
-                if (left <= 0) {
-                    throw HttpException("http: header phase timeout", 408);
-                }
+                if (left <= 0) { throw HttpException(HEAD_TIMEOUT_TEXT, 408); }
                 timeoutMs = headerTimeoutMs;
                 if (left < headerTimeoutMs) { timeoutMs = left as int; }
             }
-            if (!this.fill(timeoutMs)) { return null; }
+            // stream.read reports an expired wait by *throwing* TimeoutException,
+            // so this budget is mostly observed here rather than at the
+            // left <= 0 check above (which only fires when a byte lands exactly
+            // on the boundary; a zero-or-less wait would block forever). The two
+            // intents stay distinct: a client that started its head and then
+            // stalled is the Slowloris case and gets 408, while silence before
+            // the first byte is an expiring keep-alive connection and just
+            // closes.
+            bool got = false;
+            try {
+                got = this.fill(timeoutMs);
+            } catch (TimeoutException e) {
+                if (m_have == 0) { return null; }
+                throw HttpException(HEAD_TIMEOUT_TEXT, 408);
+            }
+            if (!got) { return null; }
         }
     }
 
@@ -1370,10 +1394,11 @@ class HttpPool {
                 since.removeAt(since.length() - 1);
                 m_idle = ids;
                 m_idleSince = since;
-                // Liveness probe: isClosed() only catches closes the client
-                // has already observed (a FIN arriving while idle). A peer
-                // close still in flight surfaces as an exchange error on
-                // first use, and D19 then keeps that connection out.
+                // Liveness probe: isClosed() reports only closes this
+                // client performed on the handle, so a close that arrived
+                // while the connection idled here stays invisible; it
+                // surfaces as a connection error on first use, and D19
+                // then keeps that connection out of the pool.
                 if (!conn.stream.isClosed()) {
                     this.registerActive(conn);
                     m_mu.unlock();
@@ -1463,8 +1488,9 @@ class HttpPool {
         m_active = act;
     }
 
-    // Caller holds m_mu. Drops idle connections past MAX_IDLE_MS or already
-    // closed by the peer.
+    // Caller holds m_mu. Drops idle connections past MAX_IDLE_MS; the
+    // isClosed() test only catches closes this client performed locally,
+    // as a close arriving from the peer while idle stays invisible to it.
     private void evictIdle() {
         long now = system.monoMs();
         List<HttpConn> ids = {};

@@ -42,6 +42,16 @@ int main() {
     // 8. Bare LF in size line → 400.
     if (chunkReject(io.toBytes("5\nhello\r\n0\r\n\r\n")) != 400) { return 9; }
 
+    // 9. The largest size the parser accepts, with far fewer bytes buffered:
+    //    the bounds check must not overflow. 0x7FFFFFFF + a 12-byte buffer is
+    //    plain "need more" (null, consumed 0), never an out-of-range index.
+    byte[] m9 = io.toBytes("7FFFFFFF\r\nx");
+    if (HttpParser.decodeChunked(m9, m9.length(), out c) != null || c != 0) { return 10; }
+
+    // 10. Nine hex digits would need more than int32 to hold → 400 (the size
+    //     has to stay inside int32 for the arithmetic above to mean anything).
+    if (chunkReject(io.toBytes("100000000\r\nx")) != 400) { return 11; }
+
     io.print("ok");
     return 0;
 }

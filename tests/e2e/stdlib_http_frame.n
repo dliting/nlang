@@ -124,6 +124,11 @@ int main() {
     if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\n")) != 400) { return 23; }
     if (rejectStatus(io.toBytes("POST / HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n")) != 400) { return 23; }
 
+    // 24. Bare CR line ending + NUL inside the request line: checkHeaderBytes
+    // scans the whole block (request line included), so both are offline 400s.
+    if (rejectStatus(io.toBytes("GET / HTTP/1.1\rHost: x\r\n\r\n")) != 400) { return 24; }
+    if (rejectStatus(withNul("GET /a", "b HTTP/1.1\r\nHost: x\r\n\r\n")) != 400) { return 24; }
+
     io.print("ok");
     return 0;
 }
@@ -151,4 +156,16 @@ int rejectStatusResp(byte[] msg) {
     } catch (HttpException e) {
         return e.status;
     }
+}
+
+// Splices a NUL byte between two string halves: io.toBytes cannot carry it
+// (strings end at NUL), so the vector is assembled byte-wise.
+byte[] withNul(string head, string tail) {
+    byte[] a = io.toBytes(head);
+    byte[] b = io.toBytes(tail);
+    byte[] m = byte[a.length() + b.length() + 1];
+    for (int i = 0; i < a.length(); i = i + 1) { m[i] = a[i]; }
+    m[a.length()] = 0 as byte;
+    for (int i = 0; i < b.length(); i = i + 1) { m[a.length() + 1 + i] = b[i]; }
+    return m;
 }

@@ -66,17 +66,22 @@ where that difference matters (§23.6).
 ## 24.2 GzipException
 
 `GzipException` derives from `IOException` (§8.3, §20) and is a `const
-class`, so its fields are fixed once constructed. Two messages come
-out of this package:
+class`, so its fields are fixed once constructed. Failures the package
+names itself come back as a `GzipException` with one of two messages:
 
 | Message | Meaning |
 | --- | --- |
 | `gzip: compression failed` | The encoder refused — a codec-side failure rather than anything wrong with the input. |
 | `gzip: input is not a valid gzip stream` | The decoder could not produce one complete stream: the leading bytes are not a recognised header, the compression method is not the one gzip defines, the payload is truncated or fails its integrity check, or bytes follow the last stream. |
 
-A `cause` may ride along, as for any exception (§8.2). Code that only
-wants to know that compression failed can catch `IOException` and stay
-indifferent to which library reported it.
+The rare codec breakdowns that fail before the package can pass a
+verdict — an initialization or a compression step the codec refuses —
+come up as plain `IOException` instead, named after the refused call:
+`gzip: deflateInit2 failed`, `gzip: deflate failed`, `gzip:
+inflateInit2 failed`. A `cause` may ride along, as for any exception
+(§8.2). Both families derive from `IOException`, so code that only
+wants to know that compression went wrong can catch `IOException` and
+stay indifferent to which layer reported it.
 
 ## 24.3 gzip and the http package
 

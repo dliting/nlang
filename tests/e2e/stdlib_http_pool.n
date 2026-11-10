@@ -1,0 +1,151 @@
+// Two promises about the client's connection pool, asserted against a raw
+// TCP server that counts how many connections it has accepted (so reuse,
+// retirement and reopening are all observable from outside the library):
+//
+//   - A close that arrives while a connection sits idle in the pool stays
+//     invisible to the borrow probe: isClosed() reports only closes this
+//     process has performed on the handle (net.n), and a read hitting the
+//     end of the stream does not flip it. The request then rides the dead
+//     connection and fails as a connection error (the residual race window
+//     design D8 accepted), and the failed connection stays out of the pool,
+//     so the request after it rides a fresh one (design D19).
+//   - Idle retirement: a connection idle longer than the pool's 10000 ms
+//     cap (MAX_IDLE_MS) is dropped when the next request borrows it, even
+//     while the server keeps it open, and the client opens a fresh one.
+//
+// The server closes its first connection closeAfterMs after the first
+// response and keeps every later connection open for the retirement phase.
+// Failure codes: 1 = the first exchange wrong, 2 = the accept count wrong
+// after it, 3 = the idle-closed connection went unreported or failed with
+// something other than a connection error, 4 = the request after the idle
+// close wrong, 5 = an over-age idle connection was still reused.
+import io;
+import http;
+import net;
+import thread;
+import concurrent;
+
+class PoolServer {
+    public TcpListener listener;
+    public AtomicInt accepts;      //built in main: instance fields take only
+    public int closeAfterMs = 100; //scalar and string compile-time defaults
+
+    public void run() {
+        try {
+            while (true) {
+                // The deadline has to outlast the eviction sleep (10.3 s)
+                // so the reopened connection is still accepted; the loop
+                // ends when main closes the listener and wakes this call.
+                TcpStream c = listener.accept(20000);
+                int n = accepts.incrementAndGet();
+                ConnTalker t = ConnTalker();
+                t.c = c;
+                t.ordinal = n;
+                t.closeAfterMs = closeAfterMs;
+                thread.spawn(t.run);
+            }
+        } catch (Exception e) {
+            // The listener closes when the test ends: the loop is over.
+        }
+    }
+}
+
+class ConnTalker {
+    public TcpStream c;
+    public int ordinal = 0;
+    public int closeAfterMs = 0;
+
+    public void run() {
+        int served = 0;
+        try {
+            while (true) {
+                // Drain the request head; the blank line ends it. Every
+                // request in this test has an empty body, nothing follows.
+                while (true) {
+                    string line = c.readLine(20000);
+                    if (line == "") { break; }
+                }
+                served = served + 1;
+                string body = "c" + ordinal.toString() + ":" + served.toString();
+                c.write("HTTP/1.1 200 OK\r\nContent-Length: " + body.length().toString() +
+                        "\r\nConnection: keep-alive\r\n\r\n" + body);
+                if (served == 1 && ordinal == 1 && closeAfterMs > 0) {
+                    // Only the first connection dies young: the client sends
+                    // its second request into a connection it believes is
+                    // alive. Every later connection stays open, so the idle
+                    // retirement phase retires a live idle connection.
+                    thread.sleep(closeAfterMs);
+                    c.close();
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            // The client closed the connection (the pool retired it): over.
+        }
+    }
+}
+
+HttpRequest makeReq(string method, string target) {
+    HttpRequest req = HttpRequest();
+    req.method = method;
+    req.url = Url.parse(target);
+    return req;
+}
+
+int main() {
+    PoolServer srv = PoolServer();
+    srv.accepts = AtomicInt();
+    srv.listener = TcpListener.bind("127.0.0.1", 0);
+    int port = srv.listener.localPort();
+    thread.spawn(srv.run);
+    string base = "http://127.0.0.1:" + port.toString();
+
+    HttpClient cli = HttpClient();
+
+    // 1. One request served, then pooled over connection one.
+    HttpResponse r1 = cli.request(makeReq("GET", base + "/p"));
+    if (r1.statusCode != 200 || r1.bodyText() != "c1:1") { return 1; }
+    if (srv.accepts.load() != 1) { return 2; }
+
+    // 2. The server closes the pooled connection while it idles. The FIN
+    // reaches the client during the sleep and flips nothing the borrow can
+    // see, so the request goes out on the dead connection and fails.
+    thread.sleep(300);
+    bool failed = false;
+    string seen = "";
+    try {
+        cli.request(makeReq("GET", base + "/p"));
+    } catch (Exception e) {
+        failed = true;
+        seen = e.message;
+    }
+    if (!failed) { return 3; }
+    // The OS words behind a reset arrive translated (Windows formats the
+    // socket error through the user's locale), so the test pins the stable
+    // English prefixes our own layers put on those failures instead of the
+    // platform's sentence: end-of-stream reads report `connection closed`
+    // (http.n), reset reads and writes report `net: read failed` /
+    // `net: write failed` (net.n).
+    bool connectionClass = seen.contains("connection closed") ||
+        seen.startsWith("net: read failed") || seen.startsWith("net: write failed");
+    if (!connectionClass) { return 3; }
+
+    // 3. The failed connection stayed out of the pool: this request rides a
+    // fresh connection, answered by the second accept.
+    HttpResponse r3 = cli.request(makeReq("GET", base + "/p"));
+    if (r3.statusCode != 200 || r3.bodyText() != "c2:1") { return 4; }
+    if (srv.accepts.load() != 2) { return 4; }
+
+    // 4. Idle retirement: connection two has idled past the pool's 10000 ms
+    // cap while the server still holds it open, so the next borrow drops it
+    // and a third connection answers instead.
+    thread.sleep(10300);
+    HttpResponse r4 = cli.request(makeReq("GET", base + "/p"));
+    if (r4.statusCode != 200 || r4.bodyText() != "c3:1") { return 5; }
+    if (srv.accepts.load() != 3) { return 5; }
+
+    cli.close();
+    srv.listener.close();
+    io.print("ok");
+    return 0;
+}

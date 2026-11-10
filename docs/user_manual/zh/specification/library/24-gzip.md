@@ -43,14 +43,14 @@ int main() {
 
 ## 24.2 GzipException
 
-`GzipException`派生自`IOException`（§8.3、§20），是`const class`，字段一旦构造便不再改变。本包只出两种消息：
+`GzipException`派生自`IOException`（§8.3、§20），是`const class`，字段一旦构造便不再改变。本包自己定名的失败以`GzipException`抛出，只有两种消息：
 
 | 消息 | 含义 |
 | --- | --- |
 | `gzip: compression failed` | 编码器拒绝——编解码器侧的失败，与输入内容无关。 |
 | `gzip: input is not a valid gzip stream` | 解码器未能产出一条完整的流：起始字节不是可辨认的头部、压缩方法不是gzip定义的那一种、载荷被截断或完整性校验失败、或最后一条流之后还有字节。 |
 
-异常可以带上`cause`，与其他异常一致（§8.2）。只想知道「压缩失败了」的代码可以捕获`IOException`，不必过问是哪个库报告的。
+在来得及给出判定之前就发生的编解码器故障——初始化或压缩步骤被编解码器拒绝——则以普通`IOException`浮出，消息按被拒绝的调用命名：`gzip: deflateInit2 failed`、`gzip: deflate failed`、`gzip: inflateInit2 failed`。异常可以带上`cause`，与其他异常一致（§8.2）。两族都派生自`IOException`，只想知道「压缩失败了」的代码可以捕获`IOException`，不必过问是哪一层报告的。
 
 ## 24.3 与http包的关系
 

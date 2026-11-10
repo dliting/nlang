@@ -108,7 +108,7 @@ fields the library fills after receiving.
 
 | `HttpRequest` field | Notes |
 | --- | --- |
-| `method` | `"GET"` at construction. The server fills it from the wire; only upper-case token characters are accepted there (§23.5). |
+| `method` | `"GET"` at construction. The server fills it from the wire: anything that is a well-formed token is accepted, and the method name is case-sensitive (§23.5). |
 | `url` | A `Url` (chapter 22). Client side: must be absolute and `http`, or the call raises `HttpException` before connecting. Server side: the parsed request target — origin form, absolute form and `*` are all read. |
 | `version` | `"HTTP/1.1"` at construction; the parser stores what the peer announced. |
 | `headers` | An `HttpHeaders` map, created empty by the constructor (§23.3). |
@@ -282,8 +282,8 @@ instead of silently sending an empty body (§23.6).
 | `maxHeaderBytes` | 65536 | Header block larger than this: 431. |
 | `maxHeaders` | 100 | More header fields than this: 431. |
 | `maxBodyBytes` | 16777216 | Bound handed to the handler's body reader; `readAll` over it raises `HttpException` 413 (§23.4). |
-| `keepAliveTimeoutMs` | 30000 | How long an idle connection may wait between requests. Also the total budget for a request head once its first byte has arrived (a slow client that dribbles bytes out gets 408). |
-| `headerTimeoutMs` | 10000 | Per-wait budget inside that head phase. |
+| `keepAliveTimeoutMs` | 30000 | How long an idle connection may wait between requests. Silence before the first byte of a request closes the connection with no answer. |
+| `headerTimeoutMs` | 10000 | Total budget for the request line and headers, counted from the first byte: a client that dribbles bytes out is answered 408 once it runs out. A single read never waits longer than this. |
 | `bodyTimeoutMs` | 10000 | Per-read budget for the handler's body reader. |
 | `writeTimeoutMs` | 10000 | Per-write budget for the response. A large body is written in slices, so the bound is per slice, not per message. |
 | `maxConnections` | 0 | `0` is unlimited. Over the cap, a new connection is answered 503 and closed. |
@@ -368,9 +368,12 @@ connection close, or was left with unread body bytes is closed
 instead. At most four idle connections are kept per origin, and an
 idle one older than ten seconds is dropped — shorter than the server's
 own 30-second keep-alive timeout, so a client normally retires an
-idle connection before a server closes it under it. A pooled
-connection already closed by the peer is detected when borrowed and
-replaced.
+idle connection before a server closes it under it. A borrow probes
+only for closes this client performed itself; a close that arrives
+while a connection sits idle in the pool goes unnoticed, and the
+request that borrows it fails with a connection error. Nothing
+retries that request: the failed connection is retired, so the next
+request opens a fresh one.
 
 ```nlang
 import io;
@@ -445,8 +448,11 @@ program with a thousand workers.
 
 **Redirects.** A `301`, `302` or `303` response with a `Location`
 header is followed as a `GET` with the body dropped; `307` and `308`
-keep the method and, when it was buffered, the body. `Location` is
-resolved against the URL of the hop that sent it (chapter 22), so a
+keep the method and, when it was buffered, the body — a streaming
+`bodyChannel` upload cannot be replayed, so a `307`/`308` to such a
+request raises `HttpException` instead of being followed (§23.4).
+`Location` is resolved against the URL of the hop that sent it
+(chapter 22), so a
 relative target works. `Authorization` and `Cookie` do not cross an
 origin boundary: a redirect that changes scheme, host or port travels
 without them. Each hop counts against `maxRedirects`; exceeding the

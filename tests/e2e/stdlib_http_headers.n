@@ -1,0 +1,169 @@
+// Response header shape over raw sockets: the complete header set and its line
+// order for each response kind (keep-alive, handler-set header, error, HTTP/1.0
+// keep-alive echo, streamed). Nothing else in the suite pins the set, so an
+// extra header (Server, X-*) or a reordered line would pass unnoticed here.
+// The Date value moves every second, so it is pinned by position and format
+// rather than by value.
+import io;
+import net;
+import http;
+import concurrent;
+
+HttpResponse shapeHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    if (req.url.path == "/boom") {
+        throw HttpException("handler failed", 500);
+    }
+    if (req.url.path == "/typed") {
+        res.body = io.toBytes("hi!");
+        res.headers.set("Content-Type", "text/plain; charset=utf-8");
+        return res;
+    }
+    if (req.url.path == "/stream") {
+        // One queued chunk plus a closed channel: the pump writes it as a single
+        // chunked frame, so this vector needs no producer thread.
+        res.bodyChannel = Channel(1);
+        res.bodyChannel.send(io.toBytes("ping"));
+        res.bodyChannel.close();
+        return res;
+    }
+    res.body = io.toBytes("hello /a");
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, shapeHandler);
+    int port = srv.localPort();
+    if (port <= 0) { return 1; }
+
+    // 1. Plain keep-alive 200: exactly Content-Length then Date. No Server, and
+    //    no Connection line either -- HTTP/1.1 stays open unless told otherwise.
+    TcpStream c1 = TcpStream.connect("127.0.0.1", port, 5000);
+    c1.write("GET /a HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h1 = readHeaders(c1);
+    if (pinDate(h1) != "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nDate: <gmt>\r\n\r\n") { return 2; }
+    if (!isGmtDate(h1)) { return 2; }
+    c1.close();
+
+    // 2. A handler-set header keeps insertion order, so Content-Type precedes the
+    //    framing line and the date rather than being appended after them.
+    TcpStream c2 = TcpStream.connect("127.0.0.1", port, 5000);
+    c2.write("POST /typed HTTP/1.1\r\nHost: t\r\nContent-Length: 3\r\n\r\nhi!");
+    string h2 = pinDate(readHeaders(c2));
+    if (h2 != "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 3\r\nDate: <gmt>\r\n\r\n") { return 3; }
+    c2.close();
+
+    // 3. The error path: reason phrase, the error body's Content-Type and length,
+    //    the date, then Connection: close last (a 500 closes the connection, D6).
+    TcpStream c3 = TcpStream.connect("127.0.0.1", port, 5000);
+    c3.write("GET /boom HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h3 = pinDate(readHeaders(c3));
+    if (h3 != "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 14\r\nDate: <gmt>\r\nConnection: close\r\n\r\n") { return 4; }
+    c3.close();
+
+    // 4. HTTP/1.0 with an explicit keep-alive: the echoed token is the last line
+    //    of the block (RFC 9112 §9.1.1), after the date.
+    TcpStream c4 = TcpStream.connect("127.0.0.1", port, 5000);
+    c4.write("GET /a HTTP/1.0\r\nHost: t\r\nConnection: keep-alive\r\n\r\n");
+    string h4 = pinDate(readHeaders(c4));
+    if (h4 != "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nDate: <gmt>\r\nConnection: keep-alive\r\n\r\n") { return 5; }
+    c4.close();
+
+    // 5. A streamed body: Transfer-Encoding takes Content-Length's place and
+    //    stays ahead of the date; the chunk itself arrives behind the blank line.
+    TcpStream c5 = TcpStream.connect("127.0.0.1", port, 5000);
+    c5.write("GET /stream HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h5 = pinDate(readHeaders(c5));
+    if (h5 != "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nDate: <gmt>\r\n\r\n") { return 6; }
+    if (readChunkedBody(c5) != "ping") { return 6; }
+    c5.close();
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// Reads the status line and headers through the terminating empty line, so the
+// returned block is exactly what the server wrote before the body.
+string readHeaders(TcpStream s) {
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed()) { return ""; }
+        if (ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    return acc + "\r\n";
+}
+
+// Replaces the Date value with a fixed token: the timestamp moves every second,
+// the block around it must not move at all.
+string pinDate(string head) {
+    int p = indexOfCI(head, "\r\nDate: ");
+    if (p < 0) { return head; }
+    int end = lineEnd(head, p + 8);
+    return head.substring(0, p) + "\r\nDate: <gmt>\r\n" + head.substring(end + 2, head.length());
+}
+
+// True when the Date value is an IMF-fixdate (RFC 7231 §7.1.1.1): the English
+// day-of-week abbreviation, a comma, and the literal " GMT" zone, at the fixed
+// 29-character length that form has.
+bool isGmtDate(string head) {
+    int p = indexOfCI(head, "\r\nDate: ");
+    if (p < 0) { return false; }
+    int end = lineEnd(head, p + 8);
+    if (end - (p + 8) != 29) { return false; }
+    string v = head.substring(p + 8, end);
+    if (v.substring(3, 5) != ", ") { return false; }
+    if (!v.endsWith(" GMT")) { return false; }
+    return "MonTueWedThuFriSatSun".indexOf(v.substring(0, 3)) >= 0;
+}
+
+// Reads the chunk-size lines and concatenates the chunk data up to the
+// zero-length terminator.
+string readChunkedBody(TcpStream s) {
+    string acc = "";
+    while (true) {
+        string sizeLine = s.readLine(5000);
+        int sc = sizeLine.indexOf(";");
+        if (sc >= 0) { sizeLine = sizeLine.substring(0, sc); }
+        int n = 0;
+        for (int i = 0; i < sizeLine.length(); i = i + 1) {
+            int c = sizeLine[i];
+            int d = 0;
+            if (c >= 48 && c <= 57) { d = c - 48; }
+            else if (c >= 97 && c <= 102) { d = c - 87; }
+            else { d = -1; }
+            n = n * 16 + d;
+        }
+        if (n == 0) {
+            while (s.readLine(5000) != "") { }   // trailer section
+            break;
+        }
+        byte[] b = s.readExactly(n, 5000);
+        acc = acc + io.fromBytes(b);
+        s.readLine(5000);   // trailing CRLF
+    }
+    return acc;
+}
+
+int lineEnd(string s, int from) {
+    int p = s.indexOf("\r\n", from);
+    if (p < 0) { return s.length(); }
+    return p;
+}
+
+string lowerAll(string s) {
+    byte[] b = io.toBytes(s);
+    for (int i = 0; i < b.length(); i = i + 1) {
+        int c = b[i];
+        if (c < 0) { c = c + 256; }
+        if (c >= 65 && c <= 90) { b[i] = (c + 32) as byte; }
+    }
+    return io.fromBytes(b);
+}
+
+int indexOfCI(string hay, string needle) {
+    return lowerAll(hay).indexOf(lowerAll(needle));
+}

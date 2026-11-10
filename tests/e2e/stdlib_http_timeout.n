@@ -1,0 +1,96 @@
+// Head-phase timeout budget over the wire: a client that starts its request
+// head and then stalls gets 408 within headerTimeoutMs (Slowloris, D7); a
+// connection that sends nothing at all is closed after keepAliveTimeoutMs
+// without an answer. Neither branch had any coverage before, and
+// TcpStream.read signals its timeout by *throwing* TimeoutException, so the
+// head-phase deadline in readRequest is only observable at the read itself.
+import io;
+import net;
+import http;
+
+HttpResponse okHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("ok");
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.keepAliveTimeoutMs = 500;
+    srv.headerTimeoutMs = 500;
+    srv.start("127.0.0.1", 0, okHandler);
+    int port = srv.localPort();
+
+    // 1. A request head that never finishes: the bytes stop after a partial
+    //    header line, so the head phase must end with 408, not a silent hang-up.
+    if (sendPartial(port, "GET / HTTP/1.1\r\nHost: x\r\nX: ") != 408) { return 1; }
+
+    // 2. The idle wait is a different budget: silence before the first byte
+    //    closes the connection with no response at all (a keep-alive
+    //    connection expiring is not a protocol error).
+    if (idleCloses(port) != 1) { return 2; }
+
+    // 3. A slow client must not poison the accept loop: a normal request after
+    //    the two timeouts above is still served.
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")) != 200) { return 3; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// Sends a partial request head (no terminating blank line) and returns the
+// status the server answers with, or -1 if it closed without answering.
+int sendPartial(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string head = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        head = head + ln + "\r\n";
+    }
+    s.close();
+    return statusOf(head);
+}
+
+// Connects, sends nothing, and reports 1 when the server closed the idle
+// connection within its keep-alive budget, 0 when the read timed out first.
+int idleCloses(int port) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    int closed = 0;
+    try {
+        string ln = s.readLine(3000);
+        if (s.isClosed() || ln == "") { closed = 1; }
+    } catch (Exception e) {
+        closed = 0;
+    }
+    s.close();
+    return closed;
+}
+
+// Sends the raw request bytes and returns the response head.
+string sendRaw(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    s.close();
+    return acc;
+}
+
+int statusOf(string head) {
+    if (!head.startsWith("HTTP/1.1 ")) { return -1; }
+    string code = head.substring(9, 12);
+    int v = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int c = code[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}

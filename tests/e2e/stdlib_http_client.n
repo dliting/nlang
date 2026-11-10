@@ -117,11 +117,15 @@ int main() {
     HttpResponse r4 = cli.request(makeReq("GET", base + "/notfound"));
     if (r4.statusCode != 404 || r4.bodyText() != "nope") { return 5; }
 
-    // 5. gzip: the server compresses, the client decompresses
-    // transparently and strips Content-Encoding/Content-Length (D21).
+    // 5. gzip: the server compresses and marks the response Vary (D21),
+    // the client decompresses transparently and strips the framing
+    // headers that the compressed bytes carried (Content-Encoding, and
+    // Content-Length whose number no longer matches the decoded body).
     HttpResponse r5 = cli.request(makeReq("GET", base + "/gz"));
     if (r5.bodyText() != "compress me compress me compress me") { return 6; }
     if (r5.headers.has("Content-Encoding")) { return 6; }
+    if (r5.headers.has("Content-Length")) { return 6; }
+    if (r5.headers.get("Vary") != "Accept-Encoding") { return 6; }
 
     // 6. Free functions on the shared default client.
     HttpResponse r6 = get(freeBase + "/x");

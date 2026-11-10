@@ -66,7 +66,7 @@ int main() {
 
 | `HttpRequest`字段 | 说明 |
 | --- | --- |
-| `method` | 构造时为`"GET"`。服务器从线上读入填充；线上只接受大写token字符（§23.5）。 |
+| `method` | 构造时为`"GET"`。服务器从线上读入填充：凡合法token皆被接受，方法名区分大小写（§23.5）。 |
 | `url` | 一个`Url`（第22章）。客户端侧：必须是绝对的且scheme为`http`，否则调用在连接之前抛`HttpException`。服务器侧：解析后的请求目标——origin形式、绝对形式与`*`都可读。 |
 | `version` | 构造时为`"HTTP/1.1"`；解析器存下对端声明的版本。 |
 | `headers` | 由构造函数创建的空`HttpHeaders`映射（§23.3）。 |
@@ -205,8 +205,8 @@ int main() {
 | `maxHeaderBytes` | 65536 | 头部块大于此值：431。 |
 | `maxHeaders` | 100 | 头字段数多于此值：431。 |
 | `maxBodyBytes` | 16777216 | 交给处理器正文读取器的上限；越过的`readAll`抛`HttpException`413（§23.4）。 |
-| `keepAliveTimeoutMs` | 30000 | 空闲连接在两个请求之间可等待多久。也是首个字节到达之后整个头部阶段的总时限（一点一点挤字节的慢客户端会拿到408）。 |
-| `headerTimeoutMs` | 10000 | 头部阶段内每次等待的时限。 |
+| `keepAliveTimeoutMs` | 30000 | 空闲连接在两个请求之间可等待多久。请求首字节到来之前的沉默会关闭连接，且不作答。 |
+| `headerTimeoutMs` | 10000 | 请求行与头部的总时限，从首字节起算：一点一点挤字节的慢客户端在时限耗尽后得到408。单次读取不会等得更久。 |
 | `bodyTimeoutMs` | 10000 | 处理器正文读取器每次读取的时限。 |
 | `writeTimeoutMs` | 10000 | 响应每次写入的时限。大正文分片写出，故时限按片而非按整条消息计。 |
 | `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭。 |
@@ -255,7 +255,7 @@ accept循环每连接派生一条线程（§10），每条线程按顺序服务�
 
 `User-Agent`在请求与`defaultHeaders`都未设置时取`nlang-http/1.1`。请求未带`Host`时由URL填充。
 
-**连接池。** 连接按源站（`host:port`）池化。用完且健康的连接回池复用；出过错误、被告知`Connection: close`、以「读到连接关闭」收尾的正文、或被留下未读正文字节的连接一律关闭而不复用。每源站最多保留四条空闲连接，空闲超过十秒的连接被丢弃——短于服务器自身的30秒keep-alive时限，因此客户端通常在服务器抢先关掉空闲连接之前自己先退役它。已被对端关闭的池化连接在借出时探测到并更换。
+**连接池。** 连接按源站（`host:port`）池化。用完且健康的连接回池复用；出过错误、被告知`Connection: close`、以「读到连接关闭」收尾的正文、或被留下未读正文字节的连接一律关闭而不复用。每源站最多保留四条空闲连接，空闲超过十秒的连接被丢弃——短于服务器自身的30秒keep-alive时限，因此客户端通常在服务器抢先关掉空闲连接之前自己先退役它。借出时的探测只认本客户端自己关过的连接；连接在池中空闲期间被对端关闭不会被发现，借到它的那次请求会以连接错误失败。该请求不会自动重试：失败的连接随即退役，其后一次请求重新建立连接。
 
 ```nlang
 import io;
@@ -325,7 +325,7 @@ int main() {
 
 一个客户端、二十个工作者线程、四条连接（§18.11）：每个请求排队等连接，应答从同样几条套接字上回来。`examples/http_conc_bench.n`就是本程序换成一千个工作者。
 
-**重定向。** 带`Location`头的`301`、`302`或`303`响应以`GET`跟随并丢弃正文；`307`与`308`保留方法，并在正文为缓冲时保留正文。`Location`相对发出它的那一跳的URL解析（第22章），故相对目标可用。`Authorization`与`Cookie`不跨越源站边界：改变了scheme、host或端口的重定向不带它们同行。每一跳都计入`maxRedirects`；超过上限抛`HttpException`，消息为`http: too many redirects`。`res.requestUrl`给出返回响应对应的URL。
+**重定向。** 带`Location`头的`301`、`302`或`303`响应以`GET`跟随并丢弃正文；`307`与`308`保留方法，并在正文为缓冲时保留正文——流式`bodyChannel`上传无法重放，这类请求收到`307`/`308`时抛`HttpException`而不跟随（§23.4）。`Location`相对发出它的那一跳的URL解析（第22章），故相对目标可用。`Authorization`与`Cookie`不跨越源站边界：改变了scheme、host或端口的重定向不带它们同行。每一跳都计入`maxRedirects`；超过上限抛`HttpException`，消息为`http: too many redirects`。`res.requestUrl`给出返回响应对应的URL。
 
 **gzip。** 在缓冲路径上，若请求未设置`Accept-Encoding`、方法不是`HEAD`且没有`Range`头，客户端加上`Accept-Encoding: gzip`——HEAD响应没有可解压的正文，而`Range`响应是存储字节的切片，自动解压会把它错位。回答为`Content-Encoding: gzip`时，客户端把它解压进`res.body`，并移除`Content-Encoding`与`Content-Length`。你自己设置了`Accept-Encoding`的请求，其响应原样交回：索要某种编码就意味着要自己读那种编码。`open()`既不添加该头也不解压，因为`gzip.decompress`是整缓冲接口（第24章）；gzip的流式正文得手工解压。同一特性的服务器侧是`HttpResponse.compressBody`（§23.5）。
 
