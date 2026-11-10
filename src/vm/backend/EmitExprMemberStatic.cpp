@@ -6,6 +6,7 @@
 ---*/
 #include "VmBackend.h"
 #include "builder/BuiltinNames.h"
+#include "builder/ModuleRegistry.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
@@ -30,6 +31,18 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
     auto* callee = invoke.Callee();
     if (!(callee && callee->ContainFlags(NF_Static)))
         return false;
+    auto& generics = m_pRegistry->DeclaredGenerics();
+    //0.13.1a Task 2: an inferred template-row static — the resolver
+    //bound the clone member of a minted instantiation (the registry's
+    //fill-time clone maps hold the pair). OP_CallMethodDirect (the
+    //ordinary arm below) has no descriptor operand, so the switch is
+    //mandatory, not stylistic.
+    if (generics.RecordOwnerOfMember(callee))
+    {
+        EmitInferredTemplateRowStaticCall(invoke, *callee, emitter,
+                                          resultOffset);
+        return true;
+    }
     //First active use gates the callee's declaring class (D2/D4) —
     //before the arguments stage.
     EmitStaticFieldGate(callee, emitter);
@@ -44,6 +57,32 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
         EmitOutSpills(outSpills, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
     return true;
+}
+
+//0.13.1a Task 2: the inferred template-row static arm. First active use
+//gates the RECORD OWNER's initializer — the template row owns the
+//compiled records; a clone carries no Parent() of its own. The frame
+//descriptor cell rides OP_CallStatic's operand: the instantiation's
+//descriptor row, a recipe row when a caller type parameter rides an
+//argument (kInstDescNone for a clone the registry never paired —
+//defensive; the resolver's arm always pairs).
+void VmBackend::EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
+                                                  SnFunction& callee,
+                                                  BytecodeEmitter& emitter,
+                                                  uint16_t resultOffset) {
+    auto& generics = m_pRegistry->DeclaredGenerics();
+    SnField* pOwnerMember = generics.RecordOwnerOfMember(&callee);
+    EmitStaticFieldGate(pOwnerMember, emitter);
+    std::vector<OutSpill> outSpills;
+    EmitCallArgs(invoke, &callee, emitter, /*slotBase=*/0,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
+                 &outSpills);
+    auto* pInst = generics.InstantiationOfClone(&callee);
+    const uint16_t descIdx =
+        pInst ? DescriptorIndexFor(*pInst) : kInstDescNone;
+    EmitFreeFunctionCall(static_cast<int>(FunctionSlotFor(callee)), emitter,
+                         resultOffset, outSpills, descIdx);
+    emitter.Emit(OpCode::OP_ParaEnd);
 }
 
 //Static-face call (Future.selectAny(futures)): the type name as a call

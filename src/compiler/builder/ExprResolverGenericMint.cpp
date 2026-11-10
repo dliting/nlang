@@ -134,6 +134,12 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 		//list mutation on either side.
 		m_Env.Registry().DeclaredGenerics()
 			.AdoptMemberClone(pCopy, &member);
+		//The clone-to-instantiation pair (0.13.1a): the backend's static-
+		//call arm reads the instantiation node for the frame descriptor
+		//cell; recorded at the same fill-time point so later member-list
+		//mutation on either side cannot drift the mapping.
+		m_Env.Registry().DeclaredGenerics()
+			.AdoptCloneInstantiation(pCopy, &inst);
 	}
 	return true;
 }

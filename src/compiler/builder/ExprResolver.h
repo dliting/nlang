@@ -1107,6 +1107,14 @@ private:
 	//Access(SnMemberExpr) before the ordinary invoke binding — the
 	//strict type distance would otherwise reject them.
 	void WrapGenericElemArgs(SnFieldExpr *pInnerExpr);
+	//0.13.1a: type-name-qualified static call into a generic template
+	//row (Maker.pass(7)). Infers the type arguments from the actuals,
+	//mints the instantiation, and leaves the resolution context on it —
+	//the queued invoke binding then picks the substituted clone member.
+	//Silent when the call is not the arm's shape (the ordinary binding
+	//owns those with its own diagnostics).
+	void TryInferTemplateRowStaticCall(SnInvokeExpr &invoke,
+		SnClassDecl &tmpl);
 	//GetDeclaredGenericClassDecl's member-fill loop: each member copy is
 	//substituted then pushed into the early-published shell's member
 	//list (owned by the instance from the push). False = a member shape

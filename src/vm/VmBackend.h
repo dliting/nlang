@@ -368,6 +368,13 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //0.13.1a Task 2: an inferred template-row static — the resolver
+    //bound a minted instantiation's clone member; the frame descriptor
+    //cell rides OP_CallStatic's operand (OP_CallMethodDirect has none).
+    void EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
+                                           SnFunction& callee,
+                                           BytecodeEmitter& emitter,
+                                           uint16_t resultOffset);
     //0.12.6: type-name-qualified static field read (Counter.total, the
     //D4 inherited Derived.tag). Keyed on the bound field, never the
     //receiver — the receiver names a type and has no value to emit.

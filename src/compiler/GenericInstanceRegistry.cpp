@@ -94,6 +94,20 @@ void GenericInstanceRegistry::AdoptMemberClone(SnField* pClone,
 	m_memberRecordOwner[pClone] = pSource;
 }
 
+SnClassDecl* GenericInstanceRegistry::InstantiationOfClone(
+	const SnField* pMember) const
+{
+	auto it = m_memberInstantiation.find(pMember);
+	return it != m_memberInstantiation.end()
+		? const_cast<SnClassDecl*>(it->second) : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptCloneInstantiation(SnField* pClone,
+	const SnClassDecl* pInstance)
+{
+	m_memberInstantiation[pClone] = pInstance;
+}
+
 SnClassDecl* GenericInstanceRegistry::FindInstance(
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs) const

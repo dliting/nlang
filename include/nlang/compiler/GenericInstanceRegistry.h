@@ -80,6 +80,17 @@ public:
 	//(called by the member fill right after the copy joins the shell).
 	void AdoptMemberClone(SnField* pClone, const SnField* pSource);
 
+	//The minted instantiation a clone member belongs to, recorded by the
+	//same fill-time pair point as AdoptMemberClone. The backend's static-
+	//call arm reads it for the frame descriptor cell (a clone static's
+	//cell is the instantiation's descriptor row); null for non-clones.
+	SnClassDecl* InstantiationOfClone(const SnField* pMember) const;
+
+	//Record the clone-to-instantiation pair for one instantiation member
+	//(called by the member fill right after the copy joins the shell).
+	void AdoptCloneInstantiation(SnField* pClone,
+		const SnClassDecl* pInstance);
+
 	//The minted instance for (template, type arguments), or null when
 	//this combination has not been minted yet.
 	SnClassDecl* FindInstance(const SnClassDecl* pTemplate,
@@ -152,6 +163,7 @@ private:
 	std::map<InstanceKey, SnClassDecl*> m_instances;
 	std::map<const SnClassDecl*, const SnClassDecl*> m_instanceTemplate;
 	std::map<const SnField*, const SnField*> m_memberRecordOwner;
+	std::map<const SnField*, const SnClassDecl*> m_memberInstantiation;
 	int m_iGenericMintDepth = 0;
 	std::set<const SnClassDecl*> m_depthLimitReportedTmpls;
 };

@@ -1,0 +1,11 @@
+// err_generic_static_infer_unbound.n — 0.13.1a D5: a static whose type
+// parameter no actual supplies names the parameter and points at the
+// explicit spelling instead of the generic invoke-incompatible text.
+class Holder<T> {
+    public static string kind() {
+        return typeName(T);
+    }
+}
+int main() {
+    return Holder.kind().length();
+}

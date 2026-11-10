@@ -391,6 +391,80 @@ static void testRecycledSlotsCarryNoDescriptor()
     PASS();
 }
 
+//Task 2 Step-1b pin (ledgered ruling): a null descriptor cell on a
+//generic static's frame must raise the named runtime error — never a
+//null deref. ncc cannot emit this shape (an under-specified generic
+//call is a compile error, D5), so the bytecode is patched by hand:
+//main's OP_CallStatic descIdx operand is zeroed to kInstDescNone and
+//the executor defense must fire.
+static void testNullDescCellRaisesNamedError()
+{
+    TEST(nullDescCellRaisesNamedError);
+    const std::string src =
+        "class Maker<T> {\n"
+        "    public static int probe(T v) {\n"
+        "        return typeName(T).length();\n"
+        "    }\n"
+        "}\n"
+        "int main() {\n"
+        "    return Maker.probe(7);\n"
+        "}\n";
+    const auto dir = scratchDir();
+    const auto nPath = dir / "gri_null_cell.n";
+    const auto modPath = dir / "gri_null_cell.ncu";
+    std::filesystem::remove(modPath);
+    {
+        std::ofstream file(nPath, std::ios::binary);
+        file << src;
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(nPath.string());
+    params.m_sOutputModule = "gri_null_cell";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    CHECK(builder.BuildArtifacts(), "compile succeeded");
+    NcuLoader::Options loaderOpts;
+    loaderOpts.searchDirs = {dir.string(), STDLIB_DIR};
+    NcuLoader::Result loaded =
+        NcuLoader::LoadClosure(modPath.string(), loaderOpts);
+    auto mod = std::make_unique<CompiledModule>(
+        NcuLinker::Link(std::move(loaded.units), loaded.entryKey));
+
+    //Locate main's OP_CallStatic and strip its descriptor operand. The
+    //sanity conditions keep an operand byte that merely repeats the
+    //opcode value from being patched (funcIdx/callParamBase stay small
+    //and a real descIdx is a table row, never 0xFFFF).
+    CompiledFunction& fn = mod->functions[
+        static_cast<size_t>(mod->entryPoint)];
+    const uint8_t op = static_cast<uint8_t>(OpCode::OP_CallStatic);
+    bool patched = false;
+    for (size_t pc = 0; pc + 7 <= fn.bytecode.size(); ++pc)
+    {
+        if (fn.bytecode[pc] != op || fn.bytecode[pc + 5] == 0xFF)
+            continue;
+        fn.bytecode[pc + 5] = 0xFF;
+        fn.bytecode[pc + 6] = 0xFF;
+        patched = true;
+        break;
+    }
+    CHECK(patched, "main carries an OP_CallStatic with a real descIdx");
+
+    VmExecutor exec;
+    bool bNamedError = false;
+    try {
+        exec.Execute(*mod);
+    } catch (const std::exception& e) {
+        bNamedError = std::string(e.what())
+            .find("generic operation without an instance context")
+            != std::string::npos;
+    }
+    CHECK(bNamedError, "null cell raises the named runtime error");
+    PASS();
+}
+
 int main()
 {
     //Static tables before any compiler work (the test_array_view_record
@@ -409,6 +483,7 @@ int main()
         testStaticBodyComposesFromForwardedContext();
         testStaticFrameCarriesForwardedContext();
         testRecycledSlotsCarryNoDescriptor();
+        testNullDescCellRaisesNamedError();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;
