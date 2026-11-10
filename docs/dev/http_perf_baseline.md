@@ -206,7 +206,7 @@ NLang 4载体对1载体，在32连接时2501对1866、4连接时321对257——�
 ### 已测事实
 
 判据实验是把请求**用全局限流稀疏化**（oha `-q`）：0字节响应、4连接、`--carriers=4`，脚本
-`temp/t15_pace_probe.sh`，每档预热2 s后测8 s（下表每档一次独立运行，与主表的15 s双趟不可直接比数）。
+`tools/http_perf/probe_pace_ab.sh`，每档预热2 s后测8 s（下表每档一次独立运行，与主表的15 s双趟不可直接比数）。
 
 | 限流QPS | P50 ms | 实测RPS | 成功请求（8 s内） |
 | --- | --- | --- | --- |
@@ -227,8 +227,9 @@ NLang 4载体对1载体，在32连接时2501对1866、4连接时321对257——�
 这与主表自洽：1连接64 RPS≈1000/15.6；4连接321（是4×64＝256的1.26倍）；32连接2501（是32/15.6＝2051的
 1.22倍）；128连接5852（128/15.6＝8192的71 %）——单请求量子之外还有一层并行度上限，两者叠加。
 
-本机系统时钟增量实测为156250×100 ns＝15.625 ms（`GetSystemTimeAdjustment`，探针`temp/t15_hold.ps1`），
-比观测量15.11到15.20 ms高约3 %；实测值也从没落到过这个刻度的整数倍上。**这只说明疑似同源，尚未证明因果。**
+本机系统时钟增量实测为156250×100 ns＝15.625 ms（`GetSystemTimeAdjustment`，探针`tools/http_perf/probe_clock_hold.ps1`；
+该字段报的是系统时钟的更新间隔，与某个进程自己申请的分辨率无关，见下文「只是佐证」），比观测量15.11到15.20 ms高约3 %；
+实测值也从没落到过这个刻度的整数倍上。**这只说明疑似同源，尚未证明因果。**
 
 ### 已排除
 
@@ -242,8 +243,8 @@ NLang 4载体对1载体，在32连接时2501对1866、4连接时321对257——�
   1／4／32／128四行与基线的差是+0.4 %、+0.8 %、−3.1 %、+0.6 %（64.8对64.5、324对321、2425对2501、
   5889对5853），其中三行落在各自的两趟散布内，1连接那一行差0.4 %而散布是0.2 %。一格一行，合起来仍是
   「看不出变化」。
-  实验脚本`temp/t15_slice_ab.sh`把`NVM`钉成`build-dev/src/tools/nvm/Release/nvm.exe`，重建日志
-  `temp/t15_build_slice1.log`记录了`VmSchedulerIo.cpp`→`nlang_vm.lib`→`nvm.exe`的重编重链早于那四行的测量，
+  实验脚本`tools/http_perf/probe_slice_ab.sh`把`NVM`钉成`build-dev/src/tools/nvm/Release/nvm.exe`，重建日志
+  （当时写在临时区`temp/t15_build_slice1.log`，属一次性证据，未入库）记录了`VmSchedulerIo.cpp`→`nlang_vm.lib`→`nvm.exe`的重编重链早于那四行的测量，
   所以对比的确实是改过并重建后的二进制。**但这条实验能排除的只是「切片长度是旋钮」**：1 ms与10 ms都小于一个
   15.625 ms的时钟刻度，如果机制是「任何带超时的等待都被时钟刻度向上取整」，改成1 ms本就不会有变化，
   所以它并未排除该机制。（第一轮报告把它当成对该机制的否证，属过度解读，在此更正。）
@@ -253,8 +254,12 @@ NLang 4载体对1载体，在32连接时2501对1866、4连接时321对257——�
 
 ### 只是佐证、不构成排除
 
-- `timeBeginPeriod`自Windows 10 2004版起才是**进程级**的（更早是全局生效），PowerShell里的持有者改不到
-  nvm进程的分辨率，因此此前那组进程外对照实验从未真正改变自变量，它对这条假设既不支持也不否定。
+- `timeBeginPeriod`的申请是**进程级**的：Windows 10 2004（build 19041）之前全局生效，之后只惠及申请进程自己
+  （官方文档仍是全局口径，这次变更没有公告，只有社区实测记录了它）。本机2026-11-10直接验证过：持有申请的进程
+  自身`Thread.Sleep(1)`的中位耗时由15.56 ms降到2.00 ms，同一时刻另一侧不申请的进程仍是15.59 ms，而两边的
+  `GetSystemTimeAdjustment`增量都读作156250——那个字段看不出申请。所以PowerShell里的持有者改不到nvm进程的
+  分辨率，此前那组进程外对照实验从未真正改变自变量，它对这条假设既不支持也不否定。探针
+  `tools/http_perf/probe_clock_hold.ps1`一次跑出上面那三个观测量。
 - 运行时里没有每请求的显式睡眠，只排除了「有人`Sleep`了15 ms」；被超时取整出来的等待看起来同样「没有睡眠」。
 
 ### 未排除的候选与下一个判据实验
@@ -308,11 +313,23 @@ D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/parse_results.py [输
 D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/make_baseline_doc.py
 ```
 
-公平性探针（第4条那两组数字）单独重跑，它复用主测量生成的nginx配置与NLang服务器：
+公平性探针（第4条那两组数字）同样可以单独重跑，它复用主测量生成的nginx配置与NLang服务器，所以先要有一趟
+主测量产出`temp/http_perf/nginx-off.conf`与`temp/http_perf/srv_nlang.ncu`（`PERF_SERVERS=nlang PERF_LADDER=quick`
+就够）；两者缺任何一个，探针都会报`missing prerequisite`退出：
 
 ```bash
 D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/probe_fairness.py
 ```
+
+第5节的两条判别实验同样可以单独重跑（都要先有`PERF_SERVERS=nlang`生成的`temp/http_perf/srv_nlang.ncu`；
+`PERF_DUR`／`PERF_WARM`缩短窗口，`PERF_PACE_QPS`／`PERF_SLICE_CONNS`改档位，便于冒烟）：
+
+```bash
+tools/gate.sh pace-ab temp/t15 bash tools/http_perf/probe_pace_ab.sh
+tools/gate.sh slice-ab temp/t15 bash tools/http_perf/probe_slice_ab.sh A   # 标签给每次构建命名，两轮输出不互相覆盖
+```
+
+定时器分辨率探针只读不测吞吐，不必占机器锁：`powershell -File tools/http_perf/probe_clock_hold.ps1 -Seconds 120`。
 
 每次测量的原始JSON与`results.md`都在`temp/http_perf/`（临时区，不入库）；本文是入库的那份快照，
 重跑出新数据后用上面那条命令重生成——要改正文就改模板，别改生成出来的那份；想留多份带日期的快照，
