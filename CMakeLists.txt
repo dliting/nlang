@@ -161,6 +161,46 @@ if(NLANG_BUILD_IDE)
     endfunction()
 endif()
 
+# ---- AddressSanitizer runtime provisioning ----------------------------------
+# MSVC links the sanitizer DYNAMIC runtime: the flags carry
+# -fsanitize=address as a plain compiler flag, not the EnableASAN project
+# property, so MSBuild never copies clang_rt.asan_dynamic-x86_64.dll beside
+# linked executables — an instrumented exe in an unprovisioned directory
+# dies at load time (0xc0000135). Each executable-creating CMakeLists ends
+# with one sweep call (add_custom_command(TARGET ... POST_BUILD) is
+# directory-bound, so the sweep cannot run centrally); the recursion below
+# covers the directory's whole subtree. cl.exe shares its directory with
+# the clang_rt runtime DLLs, so the compiler path is the lookup.
+function(nlang_copy_asan_runtime target)
+    get_filename_component(_asan_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(_asan_dll "${_asan_bin_dir}/clang_rt.asan_dynamic-x86_64.dll")
+    if(NOT EXISTS "${_asan_dll}")
+        message(FATAL_ERROR "AddressSanitizer runtime DLL not found beside "
+            "the compiler: ${_asan_dll}")
+    endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_asan_dll}" $<TARGET_FILE_DIR:${target}>
+        VERBATIM)
+endfunction()
+
+#Attach the provisioning to every executable target created in dir.
+#(add_custom_command(TARGET ...) is directory-bound, so the call lives in
+#the CMakeLists that creates the targets, not a central sweep.) No-op on
+#non-MSVC trees and builds without the sanitizer flag.
+function(_nlang_sweep_asan_runtime dir)
+    if(NOT MSVC OR NOT CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+        return()
+    endif()
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_t IN LISTS _targets)
+        get_property(_type TARGET ${_t} PROPERTY TYPE)
+        if(_type STREQUAL "EXECUTABLE")
+            nlang_copy_asan_runtime(${_t})
+        endif()
+    endforeach()
+endfunction()
+
 # Subdirectories
 add_subdirectory(src/runtime)
 add_subdirectory(src/langservice)
@@ -359,6 +399,7 @@ if(NLANG_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
 
 # ---- Install rules & release packaging -------------------------------------
 # The release package is a self-contained layout mirroring the proven nide

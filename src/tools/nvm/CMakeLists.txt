@@ -7,3 +7,7 @@ target_include_directories(nvm PRIVATE
     ${PROJECT_SOURCE_DIR}/src/vm
     ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(nvm PRIVATE nlang_vm nlang_langservice nlang_version)
+
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")

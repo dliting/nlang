@@ -20,6 +20,37 @@ function(nlang_stdlib_test target)
     add_dependencies(${target} nlang_stdlib_package)
 endfunction()
 
+# Neutral + tree-private scratch root for every test process. The
+# file-based tests use std::filesystem::temp_directory_path() /
+# "nlang_test_<X>" scratch dirs with FIXED names, so two build trees'
+# ctest suites running concurrently (the norm in parallel gate sweeps)
+# race on the same scratch files — test_nd_resolve's stress red made
+# this explicit (19/20 concurrent same-test pairs failed; isolated
+# TEMP roots: all green). std::filesystem::temp_directory_path()
+# resolves TMP/TEMP on Windows, so stamping each test separates the
+# trees. The root must also stay NEUTRAL: tests walk UP from it
+# (FindStdLibDir absence cases, the docs bare-build dev-label fallback)
+# and must not hit a stdlib dir or the repo VERSION file — which rules
+# out any path inside the source or build trees. The system temp dir is
+# the neutral base; a per-tree MD5 of the binary dir keeps concurrent
+# trees apart beneath it. Within one tree ctest runs serially and the
+# per-test-file dir names already differ. The wrapper covers every
+# add_test site in this file (including the qtest helper) without
+# touching 133 registrations. Forwarding through ${ARGV} re-splits
+# escaped semicolons in COMMAND items, so no add_test call may pass a
+# multi-path -D with \; — hand the test script a single directory or
+# file instead (the nide_deploy_check native-DLL loss made this
+# explicit: only the first of four paths reached the probe).
+string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
+set(NLANG_TEST_SCRATCH_ROOT
+    "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
+function(add_test)
+    _add_test(${ARGV})
+    set_tests_properties(${ARGV1} PROPERTIES
+        ENVIRONMENT "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
+endfunction()
+
 add_executable(test_vm
     test_vm/test_vm.cpp
 )
@@ -2031,7 +2062,7 @@ if(NLANG_BUILD_IDE)
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
-            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>
+            -DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>
             -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
             #Scratch nested 9 levels under <build>/tests: the loader's
             #build-tree fallback walks up at most 8, so it cannot rescue
@@ -2836,3 +2867,7 @@ add_test(NAME proj_user_overload_run
 set_tests_properties(proj_user_overload_run PROPERTIES
     DEPENDS proj_user_overload_compile
     PASS_REGULAR_EXPRESSION "42")
+
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")

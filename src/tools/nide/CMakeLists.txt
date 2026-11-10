@@ -274,3 +274,7 @@ if(WIN32)
     #QtWebEngine runtime beside the exe (embedded help browser).
     nlang_copy_qtwebengine_runtime(nide)
 endif()
+
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")

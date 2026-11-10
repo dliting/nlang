@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 
+from sandbox_closure import stage_executable_closure
+
 DEMO_SOURCE = (
     "import io;\n"
     "\n"
@@ -52,8 +54,9 @@ def main():
             return 1
 
         #embed_host.exe is self-contained except for the native io module
-        host_exe = os.path.join(tmp, 'embed_host.exe')
-        shutil.copyfile(embed_host, host_exe)
+        #— the exe travels with its sanitizer runtime closure (see
+        #sandbox_closure: on non-sanitizer trees nothing extra is copied).
+        host_exe = stage_executable_closure(embed_host, tmp)
         shutil.copyfile(nlang_io_dll, os.path.join(tmp, 'nlang_io.dll'))
 
         ran = subprocess.run(
