@@ -14,7 +14,8 @@
 
 namespace test_native_tensor {
 int RunVecMathTests();
-//Later suites (matmul, elementwise, reductions) register here.
+int RunMatMulTests();
+//Later suites (elementwise, reductions) register here.
 } // namespace test_native_tensor
 
 int main() {
@@ -36,6 +37,7 @@ int main() {
         std::cerr << "tier forcing failed: env " << forced << "\n";
         return 2;
     }
-    const int fails = test_native_tensor::RunVecMathTests();
+    const int fails = test_native_tensor::RunVecMathTests()
+        + test_native_tensor::RunMatMulTests();
     return fails == 0 ? 0 : 1;
 }

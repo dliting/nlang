@@ -27,9 +27,24 @@ struct KernelOps {
     void (*expF64)(const double* src, double* dst, int64_t count);
     void (*tanhF32)(const float* src, float* dst, int64_t count);
     void (*tanhF64)(const double* src, double* dst, int64_t count);
-    //Later families (binary lanes, matmul, reductions) join here as
-    //the driver grows — the table stays the only hardware-facing
-    //surface.
+    //MatMul family: dense row-major C[rows, cols] = A[rows, inner] ·
+    //B[inner, cols], ACCUMULATED into out — the caller passes zeroed
+    //storage (the driver mints fresh zeroed arrays; the scalar loop
+    //has always read back outCells while accumulating). Kernels may
+    //overwrite or read-modify-write out cells, never other memory.
+    //rows/inner/cols == 0 yields no work. Ints wrap like language int
+    //arithmetic; the k accumulation order is the scalar i-k-j order
+    //for every lane (float/double differ only by FMA rounding).
+    void (*matmulF32)(int32_t rows, int32_t inner, int32_t cols,
+                      const float* a, const float* b, float* out);
+    void (*matmulF64)(int32_t rows, int32_t inner, int32_t cols,
+                      const double* a, const double* b, double* out);
+    void (*matmulI32)(int32_t rows, int32_t inner, int32_t cols,
+                      const int32_t* a, const int32_t* b, int32_t* out);
+    void (*matmulI64)(int32_t rows, int32_t inner, int32_t cols,
+                      const int64_t* a, const int64_t* b, int64_t* out);
+    //Later families (binary lanes, reductions) join here as the driver
+    //grows — the table stays the only hardware-facing surface.
 };
 
 //The active table: NLANG_TENSOR_BACKEND names a registered backend

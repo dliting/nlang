@@ -7,9 +7,12 @@
 ---*/
 #include "TensorKernels.h"
 
+#include "TensorBackends.h"
+
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <type_traits>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgInt;
@@ -113,10 +116,10 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ReturnInt(ret, handle);
 }
 
-//MatMul body: naive i-k-j with the accumulator taken from the element
-//type — int/long wrap around (the language-wide arithmetic rule, no
-//silent widening), float/double follow IEEE. Operands arrive dense
-//(ContiguousOperand in the entry).
+//MatMul body: shape gates, then the dense flat kernel from the active
+//backend table (tier/ISA dispatch lives behind the table; int/long
+//wrap around per the language-wide arithmetic rule, float/double
+//follow IEEE). Operands arrive dense (ContiguousOperand in the entry).
 template <typename T>
 void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
                  const NativeArrayView& b) {
@@ -146,15 +149,15 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
     const T* aCells = FlatCellsOf<T>(a);
     const T* bCells = FlatCellsOf<T>(b);
     T* outCells = CellsOf<T>(out);
-    for (int32_t i = 0; i < aRows; ++i) {
-        for (int32_t k = 0; k < aCols; ++k) {
-            const T aik = aCells[static_cast<int64_t>(i) * aCols + k];
-            for (int32_t j = 0; j < bCols; ++j) {
-                T& acc = outCells[static_cast<int64_t>(i) * bCols + j];
-                acc = static_cast<T>(
-                    acc + aik * bCells[static_cast<int64_t>(k) * bCols + j]);
-            }
-        }
+    const KernelOps& ops = ActiveKernelOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.matmulF32(aRows, aCols, bCols, aCells, bCells, outCells);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.matmulF64(aRows, aCols, bCols, aCells, bCells, outCells);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.matmulI32(aRows, aCols, bCols, aCells, bCells, outCells);
+    } else {
+        ops.matmulI64(aRows, aCols, bCols, aCells, bCells, outCells);
     }
     ReturnInt(ret, handle);
 }

@@ -10,6 +10,7 @@
 #include "SimdCpu.h"
 
 #if defined(NLANG_SIMD_X64)
+#include "MatMulTiers.h"
 #include "VecMathTiers.h"
 #endif
 
@@ -45,11 +46,66 @@ void CpuTanhF64(const double* src, double* dst, int64_t count) {
         dst[i] = std::tanh(src[i]);
 }
 
+//Scalar matmul (the portable reference and the fallback tier): plain
+//i-k-j — the exact accumulation order the vector kernels preserve.
+template <typename T>
+void CpuMatMul(int32_t rows, int32_t inner, int32_t cols,
+               const T* a, const T* b, T* out) {
+    for (int32_t i = 0; i < rows; ++i) {
+        for (int32_t k = 0; k < inner; ++k) {
+            const T aik = a[static_cast<int64_t>(i) * inner + k];
+            for (int32_t j = 0; j < cols; ++j) {
+                T& acc = out[static_cast<int64_t>(i) * cols + j];
+                acc = static_cast<T>(
+                    acc + aik * b[static_cast<int64_t>(k) * cols + j]);
+            }
+        }
+    }
+}
+
+void CpuMatMulF32(int32_t rows, int32_t inner, int32_t cols,
+                  const float* a, const float* b, float* out) {
+#if defined(NLANG_SIMD_X64)
+    switch (ActiveSimdTier()) {
+        case SimdTier::Avx2:
+            detail::MatMulF32Avx2(rows, inner, cols, a, b, out);
+            return;
+        case SimdTier::Sse2:
+            detail::MatMulF32Sse2(rows, inner, cols, a, b, out);
+            return;
+        case SimdTier::Scalar:
+            break;
+    }
+#endif
+    CpuMatMul(rows, inner, cols, a, b, out);
+}
+
+void CpuMatMulF64(int32_t rows, int32_t inner, int32_t cols,
+                  const double* a, const double* b, double* out) {
+#if defined(NLANG_SIMD_X64)
+    switch (ActiveSimdTier()) {
+        case SimdTier::Avx2:
+            detail::MatMulF64Avx2(rows, inner, cols, a, b, out);
+            return;
+        case SimdTier::Sse2:
+            detail::MatMulF64Sse2(rows, inner, cols, a, b, out);
+            return;
+        case SimdTier::Scalar:
+            break;
+    }
+#endif
+    CpuMatMul(rows, inner, cols, a, b, out);
+}
+
 const KernelOps kCpuKernelOps = {
     &CpuExpF32,
     &CpuExpF64,
     &CpuTanhF32,
     &CpuTanhF64,
+    &CpuMatMulF32,
+    &CpuMatMulF64,
+    &CpuMatMul<int32_t>,
+    &CpuMatMul<int64_t>,
 };
 
 using KernelOpsRegistry = std::map<std::string, const KernelOps*>;
