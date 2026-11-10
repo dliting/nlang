@@ -29,6 +29,10 @@ T CarrierBinary(BinaryKernelOp op, T a, T b) {
         case BinaryKernelOp::Sub: return static_cast<T>(a - b);
         case BinaryKernelOp::Mul: return static_cast<T>(a * b);
         case BinaryKernelOp::Div: return static_cast<T>(a / b);
+        case BinaryKernelOp::Rsub: return static_cast<T>(b - a);
+        case BinaryKernelOp::Rdiv: return static_cast<T>(b / a);
+        case BinaryKernelOp::ReLUGrad:
+            return b > T(0) ? a : T(0);
     }
     return T(0);
 }
@@ -229,6 +233,26 @@ bool TryExtremeFlat(const NativeArrayView& v, bool isMax, T* out) {
         }
     }
     return true;
+}
+
+//Raw-span extreme (the axis-max fast path addresses rows directly):
+//carrier cell out, count > 0 contract.
+template <typename T>
+void ExtremeFlatByCarrier(bool isMax, const T* cells, int64_t count,
+                          T* out) {
+    if constexpr (std::is_same_v<T, float>) {
+        if (isMax) {
+            ActiveKernelOps().maxF32(cells, count, out);
+        } else {
+            ActiveKernelOps().minF32(cells, count, out);
+        }
+    } else {
+        if (isMax) {
+            ActiveKernelOps().maxF64(cells, count, out);
+        } else {
+            ActiveKernelOps().minF64(cells, count, out);
+        }
+    }
 }
 
 //Flat-sum helpers over raw spans (the axis-arm fast paths address

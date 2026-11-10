@@ -2183,3 +2183,9 @@ generic_serialize_roundtrip 0
 generic_static_infer 0
 generic_static_intra 0
 generic_qualified_static 0
+stdlib_tensor_neg 0
+stdlib_tensor_axis_max 0
+stdlib_tensor_rsub_rdiv 0
+stdlib_tensor_softmax2d 0
+stdlib_tensor_sigmoid_tanh 0
+stdlib_tensor_relugrad 0

@@ -1,0 +1,26 @@
+// tensor.sigmoid / tensor.tanh: monotone activations with the classic
+// anchor values, tolerances at libm-reference precision.
+import tensor;
+
+int main() {
+    float[] z = tensor.fullF(5, 0.0 as float);
+    z[0] = -2.0 as float; z[1] = -1.0 as float;
+    z[3] = 1.0 as float; z[4] = 2.0 as float;
+    float[] sg = tensor.sigmoid(z);
+    if (sg[2] < 0.4999 as float || sg[2] > 0.5001 as float) return 1;
+    if (sg[0] > 0.13 as float || sg[0] < 0.11 as float) return 2;
+    if (sg[4] < 0.88 as float || sg[4] > 0.89 as float) return 3;
+    //monotone
+    if (!(sg[0] < sg[1] && sg[1] < sg[2] && sg[2] < sg[3]
+          && sg[3] < sg[4])) return 4;
+
+    float[] th = tensor.tanh(z);
+    if (th[2] > 0.0001 as float || th[2] < -0.0001 as float) return 5;
+    if (th[0] < -0.97 as float || th[0] > -0.95 as float) return 6;
+    if (th[4] < 0.95 as float || th[4] > 0.97 as float) return 7;
+
+    double[] zd = tensor.arange(-20.0, 21.0, 10.0);
+    double[] thd = tensor.tanh(zd);
+    if (thd[0] != -1.0 || thd[2] != 0.0 || thd[4] != 1.0) return 8;
+    return 0;
+}

@@ -293,6 +293,78 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ReturnInt(ret, handle);
 }
 
+uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args);
+
+//Axis arm of max/min: the axis dim is eliminated, every other dim kept
+//(rank-1 + axis 0 is the full reduction — the scalar return). Floats on
+//contiguous sources with axis = rank-1 reduce contiguous segments
+//through the flat extreme kernels (NaN/tie rule identical to this
+//walk); everything else — strided views, middle axes, ints — keeps the
+//per-cell carrier compare of the odometer.
+template <typename T>
+void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, bool isMax) {
+    const char* who = isMax ? "tensor.max" : "tensor.min";
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    const int32_t axis = ArgInt(args, 1);
+    if (axis < 0 || axis >= v.rank)
+        Raise(host, NEXC_Base, who + std::string(": axis ")
+              + std::to_string(axis) + " out of range for rank "
+              + std::to_string(v.rank));
+    const T* cells = CellsOf<const T>(v);
+    const int32_t along = v.dims[axis];
+    const int32_t outRank = v.rank - 1;
+    if (outRank == 0)
+        Raise(host, NEXC_Base, who + ": rank-1 arrays reduce with "
+              + (isMax ? "max(a)" : "min(a)")
+              + ", not an axis arm");
+    //The static return is an Array; a rank-1 receiver would have to
+    //come back as a scalar, so the axis arm requires rank >= 2.
+    int32_t outDims[nlang::kMaxArrayRank];
+    for (int32_t d = 0; d < outRank; ++d)
+        outDims[d] = v.dims[d < axis ? d : d + 1];
+    const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
+                                          outDims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    T* outCells = CellsOf<T>(out);
+    if constexpr (!std::is_integral_v<T>) {
+        if (IsContiguous(v) && axis == v.rank - 1) {
+            const int64_t outer = out.elemCount;
+            const T* base = FlatCellsOf<T>(v);
+            for (int64_t r = 0; r < outer; ++r) {
+                ExtremeFlatByCarrier<T>(isMax, base + r * along, along,
+                                        outCells + r);
+            }
+            ReturnInt(ret, handle);
+            return;
+        }
+    }
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t base = v.offset;
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        T best = cells[base];
+        for (int64_t s = 1; s < along; ++s) {
+            const T cur = cells[base + s * v.strides[axis]];
+            if (isMax ? cur > best : cur < best) {
+                best = cur;
+            }
+        }
+        outCells[i] = best;
+        for (int32_t d = outRank - 1; d >= 0; --d) {
+            const int32_t src = d < axis ? d : d + 1;
+            idx[d] += 1;
+            base += v.strides[src];
+            if (idx[d] < outDims[d])
+                break;
+            base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
+            idx[d] = 0;
+        }
+    }
+    ReturnInt(ret, handle);
+}
+
 //Kind dispatch on the first view (same contract as the binary family).
 uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
     NativeArrayView v;
@@ -302,6 +374,42 @@ uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
 }
 
 } // namespace
+
+void TensorMaxAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    switch (ElemKindOfFirst(host, args)) {
+        case NEK_Int32:
+            ExtremeAxisKernel<int32_t>(host, ret, args, true); break;
+        case NEK_Int64:
+            ExtremeAxisKernel<int64_t>(host, ret, args, true); break;
+        case NEK_Float32:
+            ExtremeAxisKernel<float>(host, ret, args, true); break;
+        case NEK_Float64:
+            ExtremeAxisKernel<double>(host, ret, args, true); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
+void TensorMinAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    switch (ElemKindOfFirst(host, args)) {
+        case NEK_Int32:
+            ExtremeAxisKernel<int32_t>(host, ret, args, false); break;
+        case NEK_Int64:
+            ExtremeAxisKernel<int64_t>(host, ret, args, false); break;
+        case NEK_Float32:
+            ExtremeAxisKernel<float>(host, ret, args, false); break;
+        case NEK_Float64:
+            ExtremeAxisKernel<double>(host, ret, args, false); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
+
 
 void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args,
                int argc) {

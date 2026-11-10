@@ -33,6 +33,14 @@ struct AvxLanes<float> {
             case BinaryKernelOp::Sub: return _mm256_sub_ps(a, b);
             case BinaryKernelOp::Mul: return _mm256_mul_ps(a, b);
             case BinaryKernelOp::Div: return _mm256_div_ps(a, b);
+            case BinaryKernelOp::Rsub: return _mm256_sub_ps(b, a);
+            case BinaryKernelOp::Rdiv: return _mm256_div_ps(b, a);
+            case BinaryKernelOp::ReLUGrad: {
+                //b > 0 ? a : +0 — the all-ones mask bit-preserves a.
+                const V mask = _mm256_cmp_ps(b, _mm256_setzero_ps(),
+                                             _CMP_GT_OQ);
+                return _mm256_and_ps(a, mask);
+            }
         }
         return a;
     }
@@ -56,6 +64,13 @@ struct AvxLanes<double> {
             case BinaryKernelOp::Sub: return _mm256_sub_pd(a, b);
             case BinaryKernelOp::Mul: return _mm256_mul_pd(a, b);
             case BinaryKernelOp::Div: return _mm256_div_pd(a, b);
+            case BinaryKernelOp::Rsub: return _mm256_sub_pd(b, a);
+            case BinaryKernelOp::Rdiv: return _mm256_div_pd(b, a);
+            case BinaryKernelOp::ReLUGrad: {
+                const V mask = _mm256_cmp_pd(b, _mm256_setzero_pd(),
+                                             _CMP_GT_OQ);
+                return _mm256_and_pd(a, mask);
+            }
         }
         return a;
     }

@@ -1,0 +1,24 @@
+// tensor.max/min with an axis arm: the axis dim is eliminated, float
+// results exact on representable values, out-of-range axis raises.
+import tensor;
+
+int main() {
+    float[,] a = float[2, 3];
+    //row 0: 1 5 2 ; row 1: -1 4 7
+    a[0, 0] = 1.0 as float; a[0, 1] = 5.0 as float; a[0, 2] = 2.0 as float;
+    a[1, 0] = -1.0 as float; a[1, 1] = 4.0 as float; a[1, 2] = 7.0 as float;
+
+    float[] rowMax = tensor.max(a, 1);
+    if (rowMax.shape()[0] != 2) return 1;
+    if (rowMax[0] != 5.0 as float || rowMax[1] != 7.0 as float) return 2;
+
+    float[] rowMin = tensor.min(a, 1);
+    if (rowMin[0] != 1.0 as float || rowMin[1] != -1.0 as float) return 3;
+
+    float[] colMax = tensor.max(a, 0);
+    if (colMax.shape()[0] != 3) return 4;
+    if (colMax[0] != 1.0 as float || colMax[1] != 5.0 as float
+        || colMax[2] != 7.0 as float) return 5;
+
+    return 0;
+}

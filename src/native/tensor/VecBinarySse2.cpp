@@ -32,6 +32,12 @@ struct SseLanes<float> {
             case BinaryKernelOp::Sub: return _mm_sub_ps(a, b);
             case BinaryKernelOp::Mul: return _mm_mul_ps(a, b);
             case BinaryKernelOp::Div: return _mm_div_ps(a, b);
+            case BinaryKernelOp::Rsub: return _mm_sub_ps(b, a);
+            case BinaryKernelOp::Rdiv: return _mm_div_ps(b, a);
+            case BinaryKernelOp::ReLUGrad: {
+                const V mask = _mm_cmpgt_ps(b, _mm_setzero_ps());
+                return _mm_and_ps(a, mask);
+            }
         }
         return a;
     }
@@ -53,6 +59,12 @@ struct SseLanes<double> {
             case BinaryKernelOp::Sub: return _mm_sub_pd(a, b);
             case BinaryKernelOp::Mul: return _mm_mul_pd(a, b);
             case BinaryKernelOp::Div: return _mm_div_pd(a, b);
+            case BinaryKernelOp::Rsub: return _mm_sub_pd(b, a);
+            case BinaryKernelOp::Rdiv: return _mm_div_pd(b, a);
+            case BinaryKernelOp::ReLUGrad: {
+                const V mask = _mm_cmpgt_pd(b, _mm_setzero_pd());
+                return _mm_and_pd(a, mask);
+            }
         }
         return a;
     }

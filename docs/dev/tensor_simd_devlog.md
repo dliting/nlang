@@ -64,3 +64,9 @@
 
 - ctest必须在构建目录跑（或`--test-dir`）：源根目录的空CTestTestfile会让人误判"测试没注册"。
 - 对拍度量的三层容差设计：内核层（atol+rtol混合，预算按K·eps定）、e2e层（精确断言仅限双精确可表示的小数组）、基准层（GFLOP/s绝对预算）。
+
+##10. 标准库表面设计的三课（2026-11-11）
+
+- **静态类型VS numpy语义的边界**：`max(a, axis)`在numpy里rank-1时返回标量，但NLang的native声明静态返回Array<T>——同一签名无法双返回。裁决：axis臂限rank>=2，rank-1给指名诊断（"reduce with max(a), not an axis arm"）。sum家族同型洞是既有潜伏问题（master上不可达），记录不扩散。
+- **重载歧义是既有什么就绕什么**：int数组的`max(a, int)`早被clamp臂占用（int bound），axis臂（int axis）与之类型全同——int/long不发axis公共overload，float/double无歧义正常发。
+- **registry名与.n声明约定**：注册名是无后缀的kind分派入口（addScalar模式），.n用同名重载native声明；后缀名（fullI/negI）只用于每个kind独立内核的创建族。wrapper自指（`return rsubScalar(a, value)`在自己体内）会静默成无限递归——wrapper只能桥接不同名。

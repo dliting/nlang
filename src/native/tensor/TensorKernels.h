@@ -263,4 +263,23 @@ void TensorMulScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
 void TensorDivScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
                      int argc);
 
+//--- v0.14.0 vector-ops additions ---
+//neg (elementwise unary minus), the reversed scalar arms (scalar on
+//the LEFT), the axis max/min arms (mirror of the sum axis arm), the
+//ReLU gate backward and tanh (tensor_activation.cpp).
+void TensorNeg(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc);
+void TensorRsubScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc);
+void TensorRdivScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc);
+void TensorMaxAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+void TensorMinAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+void TensorReluGrad(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorTanh(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                int argc);
+
 } // namespace tensor

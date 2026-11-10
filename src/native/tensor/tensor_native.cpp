@@ -242,5 +242,15 @@ NLANG_DEFINE_NATIVE_INIT {
                 &tensor::TensorMulScalar);
     regBlocking(registry, "tensor", "divScalar",
                 &tensor::TensorDivScalar);
+    //v0.14.0 vector-ops surface.
+    regBlocking(registry, "tensor", "neg", &tensor::TensorNeg);
+    regBlocking(registry, "tensor", "rsubScalar",
+                &tensor::TensorRsubScalar);
+    regBlocking(registry, "tensor", "rdivScalar",
+                &tensor::TensorRdivScalar);
+    regBlocking(registry, "tensor", "maxAxis", &tensor::TensorMaxAxis);
+    regBlocking(registry, "tensor", "minAxis", &tensor::TensorMinAxis);
+    regBlocking(registry, "tensor", "reluGrad", &tensor::TensorReluGrad);
+    regBlocking(registry, "tensor", "tanh", &tensor::TensorTanh);
     return NLANG_HOST_ABI_VERSION;
 }

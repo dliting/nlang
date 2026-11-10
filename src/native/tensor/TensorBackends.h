@@ -31,7 +31,11 @@
 namespace tensor {
 
 enum class UnaryKernelOp : int32_t { Exp, Log, Tanh, Neg };
-enum class BinaryKernelOp : int32_t { Add, Sub, Mul, Div };
+//Rsub/Rdiv keep the scalar on the LEFT (s - a[i], s / a[i]);
+//ReLUGrad is the ReLU gate backward: b > 0 ? a : 0 (b is the
+//pre-activation, a the outgoing gradient).
+enum class BinaryKernelOp : int32_t
+    { Add, Sub, Mul, Div, Rsub, Rdiv, ReLUGrad };
 
 struct KernelOps {
     //Elementwise family: flat spans, count <= 0 must be a no-op.
