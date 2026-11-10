@@ -254,26 +254,14 @@ SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
 			"Cannot resolve types for `as` expression.");
 		return nullptr;
 	}
-	//v0.13.1 D6: a cast to the receiver's type parameter reads the
-	//runtime kind (OP_As_TypeParam) — the CastInfo classification
-	//admits the identity source (T as T, the same-placeholder rule)
-	//and the Object downcast; every other source keeps the generic
-	//invalid-cast rejection. A static body has no receiver, so the
-	//runtime kind does not exist there — the instance-context rule
-	//shared with the D6 operators and typeName of a type parameter.
-	if (pTgtType->Kind() == NK_ClassDecl
-		&& static_cast<SnClassDecl *>(pTgtType)->IsTypeParamPlaceholder())
-	{
-		auto *pEnclosing = EnclosingFunction();
-		if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"cast to a type parameter requires an instance "
-				"context; use an instance member or the "
-				"compensation pattern.");
-			return nullptr;
-		}
-	}
+	//v0.13.1 D6: a cast to a type parameter reads the runtime kind
+	//(OP_As_TypeParam) — the CastInfo classification admits the identity
+	//source (T as T, the same-placeholder rule) and the Object downcast;
+	//every other source keeps the generic invalid-cast rejection.
+	//0.13.1a: static and free generic bodies carry a descriptor cell
+	//(receiver head, caller forward, or call-site row), so the former
+	//instance-context rule is gone; a null cell degrades to the named
+	//runtime error.
 	//v0.12.2 face gate: a face class (`o as Array`) has no runtime
 	//shape to cast to.
 	if (RejectPreludeFaceUse(m_Env, pTgtType, sn.TargetType()->Location(),
@@ -426,11 +414,12 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 		"'this' can only be used inside a class, struct, or enum method.");
 }
 
-//v0.13.1 D4: typeName(Type). The operand resolves through the ordinary
-//type path; a concrete type folds to its canonical spelling (a
+//v0.13.1 D4, 0.13.1a: typeName(Type). The operand resolves through the
+//ordinary type path; a concrete type folds to its canonical spelling (a
 //constant string), while a type-parameter operand — bare or nested in
-//an instantiation — reads the receiver's own instantiation at run
-//time, which a static member has no receiver for.
+//an instantiation — reads the executing frame's descriptor cell at run
+//time (instance frames carry the receiver's head descriptor; static and
+//free frames carry the call-site's or the caller's).
 void ExprResolveAccessor::Access(SnTypeNameExpr &sn)
 {
 	NLANG_ASSERT(!sn.IsResolved());
@@ -446,22 +435,10 @@ void ExprResolveAccessor::Access(SnTypeNameExpr &sn)
 		return;
 	}
 	const TypeArgDesc arg = BuildTypeArgOf(m_Env.Registry(), *pType);
-	const bool bNeedsReceiver = IsTypeParamArg(arg)
+	const bool bNeedsContext = IsTypeParamArg(arg)
 		|| (!arg.nested.empty() && HasTypeParamArg(arg.nested));
-	if (bNeedsReceiver)
+	if (bNeedsContext)
 	{
-		//Same rule as `this`: a static member has no receiver to read
-		//the instantiation from (the compensation pattern — an instance
-		//member answering typeName — is the documented alternative).
-		auto *pEnclosing = EnclosingFunction();
-		if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"typeName of a type parameter requires an instance "
-				"context; use an instance member or the compensation "
-				"pattern.");
-			return;
-		}
 		if (IsTypeParamArg(arg))
 			sn.SetTypeParamOrdinal(
 				static_cast<uint8_t>(TypeParamOrdinalOf(arg)));

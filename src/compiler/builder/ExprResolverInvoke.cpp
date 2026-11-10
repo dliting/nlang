@@ -37,7 +37,7 @@ bool ExprResolveAccessor::TryBindDelegateCall(SnInvokeExpr &snInvoke)
 }
 
 //Phase 12 (D9): a bare (receiver-less) invoke that binds to a METHOD
-//is a frame-shift bug — codegen's bare-invoke path emits OP_CallFunc
+//is a frame-shift bug — codegen's bare-invoke path emits OP_CallStatic
 //with slotBase 0 while the callee's frame expects `this` at slot 0,
 //so the first argument is read as the receiver (enum methods return
 //silent garbage; class methods fail with a field-access error — the
@@ -52,7 +52,7 @@ bool ExprResolveAccessor::RejectBareMethodCall(SnInvokeExpr &snInvoke,
 	if (!pCallee)
 		return false;
 	//0.9.10: a static callee has no receiver expectation — the bare form
-	//emits OP_CallFunc slotBase 0 against a frame with no __this slot.
+	//emits OP_CallStatic slotBase 0 against a frame with no __this slot.
 	if (pCallee->ContainFlags(NF_Static))
 		return false;
 	auto *pInvokeParent = snInvoke.Parent();

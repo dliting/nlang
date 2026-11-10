@@ -1398,7 +1398,7 @@ private:
                            BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
-    //the free-function OP_CallFunc/OP_CallFuncOut tail.
+    //the free-function OP_CallStatic/OP_CallStaticOut tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
                             const std::vector<OutSpill>& outSpills);
@@ -1407,7 +1407,12 @@ private:
                               const std::vector<OutSpill>& outSpills);
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills);
+                              const std::vector<OutSpill>& outSpills,
+                              uint16_t descIdx);
+    //0.13.1a: a receiverless callee's descriptor operand —
+    //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
+    //otherwise (see EmitExprCore.cpp for the rule).
+    uint16_t StaticCallDescIdxFor(const SnFunction& callee) const;
     //The staged-invoke dispatch tail: delegate handle or the
     //Round-11-guarded free-function call.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,

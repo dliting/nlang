@@ -1160,7 +1160,7 @@ private:
 //local/formal slot and requires the matched formal to be an out parameter.
 //TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
 //with bIsOut set, so codegen emits the inner read into the staging slot
-//and records a writeback pair for OP_CallFuncOut/OP_CallMethodDirectOut.
+//and records a writeback pair for OP_CallStaticOut/OP_CallMethodDirectOut.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;

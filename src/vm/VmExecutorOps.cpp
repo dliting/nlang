@@ -239,8 +239,8 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpJumpIfNot(reader, locals);
             break;
 
-        case OpCode::OP_CallFunc:
-            if (OpCallFunc(reader, locals, pResult))
+        case OpCode::OP_CallStatic:
+            if (OpCallStatic(reader, locals, pResult))
                 frameDone = true;
             break;
 
@@ -281,14 +281,14 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpFunc_to_str(pResult);
             break;
 
-        //Phase 9e: OP_CallFunc + out-parameter writeback. Bit i of
+        //Phase 9e: OP_CallStatic + out-parameter writeback. Bit i of
         //outMask marks staging slot i as an out param — after the callee
         //returns, its frame slot i is copied back to the caller's
         //staging area. The backend then spills it into the user variable
         //with plain OP_VarLocal + OP_Assign instructions. The writeback
         //itself now runs in PopFrameWithWriteback (frame machine).
-        case OpCode::OP_CallFuncOut:
-            if (OpCallFuncOut(reader, locals, pResult))
+        case OpCode::OP_CallStaticOut:
+            if (OpCallStaticOut(reader, locals, pResult))
                 frameDone = true;
             break;
 

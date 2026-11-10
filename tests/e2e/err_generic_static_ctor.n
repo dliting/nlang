@@ -1,7 +1,9 @@
-// v0.13.1: a static member has no receiver, so a type-parameter-
-// argument construction inside it has nothing to compose from at run
-// time. The declaration itself is legal (statics may reference T);
-// the construction is rejected by name.
+// 0.13.1a: a T-argument construction inside a static member body
+// composes its recipe against the frame descriptor cell — the
+// caller-forward channel fills it, so the construction resolves to the
+// caller's instantiation (Box<int> here). The former instance-context
+// rejection is gone; an unfilled cell degrades to the named runtime
+// error at the call site.
 class Box<T> {
     public T value;
 }
@@ -10,5 +12,10 @@ class Hold<T> {
         Box<T> b = Box();
         return b;
     }
+    public Box<T> viaInstance() { return make(); }
 }
-int main() { return 0; }
+int main() {
+    Hold<int> h = Hold();
+    if (h.viaInstance() == null) { return 3; }
+    return 0;
+}

@@ -168,6 +168,23 @@ static uint8_t ThisReceiverKind(const SnFunction& func) {
     return RTK_Class;
 }
 
+//0.13.1a: generic-record metadata — the frame descriptor cell is filled
+//only for these records at push, and the cross-module stub rebuild
+//matches the declared parameter names to bind placeholder leaves in
+//signatures (mirroring CompiledClass::typeParamNames). Task 4 extends
+//this to generic free functions.
+static void FillGenericRecordMeta(const SnFunction& func,
+                                  CompiledFunction& compiledFunc) {
+    auto* pOwner = func.Parent();
+    if (pOwner && pOwner->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration())
+    {
+        compiledFunc.isGeneric = true;
+        compiledFunc.typeParamNames =
+            static_cast<SnClassDecl*>(pOwner)->TypeParamNames();
+    }
+}
+
 //Phase 9f: native function declaration (`native int f(...);`). No
 //bytecode — the VM dispatches by name through the host-registered
 //native table (VmExecutor::RegisterNative). The record carries only
@@ -178,6 +195,7 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
     compiledFunc.isNative = true;
     //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
+    FillGenericRecordMeta(func, compiledFunc);
     const bool isInstanceMethod = HasThisReceiver(func);
     //v2.16: the instance-method flag rides the record (ABI v12 native
     //bridge).
@@ -226,6 +244,7 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
     //0.9.10: the serialized static flag drives name-based dispatch
     //(FindMethodByName skips statics) and mirrors the frame layout below.
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
+    FillGenericRecordMeta(func, compiledFunc);
     // If this is a class, struct, or enum method, allocate slot 0 for
     // 'this' (see HasThisReceiver/ThisReceiverKind).
     const bool isInstanceMethod = HasThisReceiver(func);
@@ -295,7 +314,7 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
     ctx.nextOffset += kFrameSlotBytes;
 
     //Call parameter area + evalArea. callParamBase is the final landing
-    //zone consumed by OP_CallFunc; evalArea is a disjoint staging area
+    //zone consumed by OP_CallStatic; evalArea is a disjoint staging area
     //where bindings emit (cursor-based, stack-disciplined). Sizes are
     //computed by ComputeCallSlotStats.
     auto stats = ComputeCallSlotStats(func);

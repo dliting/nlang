@@ -52,10 +52,11 @@ void VmBackend::EmitClassInitGate(SnClassDecl& decl,
     const size_t donePatch = emitter.CurrentOffset();
     emitter.EmitUint16(0);   //donePc placeholder, absolute (OpJump idiom)
     emitter.EmitUint16(0);   //kind: class
-    emitter.Emit(OpCode::OP_CallFunc);
+    emitter.Emit(OpCode::OP_CallStatic);
     emitter.EmitUint16(
         static_cast<uint16_t>(FunctionSlotFor(*init)));
     emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.EmitUint16(kInstDescNone);   //0.13.1a descriptor operand
     emitter.PatchUint16(donePatch, emitter.CurrentOffset());
 }
 
@@ -73,10 +74,11 @@ void VmBackend::EmitInterfaceInitGate(SnInterfaceDecl& decl,
     const size_t donePatch = emitter.CurrentOffset();
     emitter.EmitUint16(0);   //donePc placeholder, absolute (OpJump idiom)
     emitter.EmitUint16(1);   //kind: interface
-    emitter.Emit(OpCode::OP_CallFunc);
+    emitter.Emit(OpCode::OP_CallStatic);
     emitter.EmitUint16(
         static_cast<uint16_t>(FunctionSlotFor(*init)));
     emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.EmitUint16(kInstDescNone);   //0.13.1a descriptor operand
     emitter.PatchUint16(donePatch, emitter.CurrentOffset());
 }
 

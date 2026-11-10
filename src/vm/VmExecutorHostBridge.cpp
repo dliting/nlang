@@ -1,7 +1,7 @@
 /*---
     VmExecutorHostBridge.cpp — 扩展点②的 by-name 入口与宿主值桥。
     桥方法是既有内部机制的薄公开包装（spec §8：无新语义）；
-    CallFunctionByIdx 复刻 OP_CallFunc 帧构造并自填默认值。
+    CallFunctionByIdx 复刻 OP_CallStatic 帧构造并自填默认值。
 ---*/
 #include "VmExecutor.h"
 //ArrayElemCells/kFrameSlotBytes/INTR_None 都在公共头（已核验：

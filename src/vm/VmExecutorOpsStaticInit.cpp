@@ -113,7 +113,7 @@ void VmExecutor::OpClassInitGate(BytecodeReader& reader) {
                 expected, Owner::kInitializing,
                 std::memory_order_acq_rel, std::memory_order_acquire)) {
             owner->ownerCtxId.store(selfId, std::memory_order_release);
-            return;   //fall through to the paired OP_CallFunc
+            return;   //fall through to the paired OP_CallStatic
         }
         if (phase == Owner::kInitializing)
             ParkOnClassInitOwner(owner, selfId, gatePc);

@@ -174,7 +174,7 @@ struct CompiledFunction {
     uint16_t returnTypeKind = 0;
     uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
     //Phase 9f: native function declaration (`native int f(...);`). No
-    //bytecode — OP_CallFunc dispatches by name through the host's
+    //bytecode — OP_CallStatic dispatches by name through the host's
     //native table (VmExecutor::RegisterNative). Body-less by contract.
     bool isNative = false;
     //0.9.10 (v2.4): static member. Static frames carry no __this slot,
@@ -188,6 +188,16 @@ struct CompiledFunction {
     //— a flag, not a name-shape guess, so the method-key convention can
     //evolve without silently disabling receiver reads.
     bool isInstanceMethod = false;
+    //0.13.1a (v2.17): generic record — a member of a generic class row
+    //or a generic free function. Generic frames carry the instantiation
+    //descriptor cell filled at push (receiver head, caller forward, or
+    //call-site descriptor row); T operations read it. Non-generic
+    //records leave the cell null and pay nothing.
+    bool isGeneric = false;
+    //v2.17: declared type-parameter names (generic records only). The
+    //stub rebuild matches these to bind placeholder leaves in
+    //signatures, mirroring CompiledClass::typeParamNames.
+    std::vector<std::string> typeParamNames;
     //Option B: per-formal default values. Free functions: size ==
     //paramCount. Methods and constructors: paramCount counts the
     //implicit __this slot (locals[0], isParam), so size == paramCount-1

@@ -45,7 +45,7 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     SnapshotAssembleRows(locals, elemSlotBase, rowCount, rank,
                          rowHandles, dims);
     const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
-    StampElemDescriptor(heapIdx, descIdx, locals);
+    StampElemDescriptor(heapIdx, descIdx);
     NoteGcPressure();
     CopyAssembleRows(heapIdx, arrayType, rowHandles);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));

@@ -504,25 +504,25 @@ private:
     //v0.13.1: intern the module's static descriptor rows so OP_New's
     //descIdx operand resolves to a pointer (recipe rows stay null).
     void InitDescriptorTable(const CompiledModule& module);
-    //v0.13.1 D3: compose this execution's descriptor from a recipe row
-    //(ARG_THIS reads the receiver's descriptor). See the encoding in
-    //CompiledModule.h DescriptorEntry.
+    //v0.13.1 D3, 0.13.1a: compose this execution's descriptor from a
+    //recipe row (ARG_CONTEXT reads the executing frame's context cell).
+    //See the encoding in CompiledModule.h DescriptorEntry.
     GenericInstDescriptor* ComposeInstDescriptor(
-        const std::vector<uint8_t>& recipe, const uint8_t* locals);
+        const std::vector<uint8_t>& recipe);
     //One whole recipe row's spelling, no interning — typeName renders
     //the string; self-describing by leading tag (0 = instantiation
     //form, else a single argument encoding).
     std::string ComposeRecipeRowSpelling(
-        const std::vector<uint8_t>& recipe, const uint8_t* locals);
+        const std::vector<uint8_t>& recipe);
     //One recipe range's canonical spelling: TEMPLATE_HEAD + argument
     //encodings until end. [pos, end) spans a complete recipe stream
     //(nested streams carry their own length prefix on the tag-4 operand).
     std::string ComposeRecipeSpelling(const std::vector<uint8_t>& recipe,
-        size_t& pos, size_t end, const uint8_t* locals);
+        size_t& pos, size_t end);
     //One argument encoding's canonical spelling (the tag-4 arm recurses
     //into ComposeRecipeSpelling).
     std::string ComposeArgSpelling(const std::vector<uint8_t>& recipe,
-        size_t& pos, const uint8_t* locals);
+        size_t& pos);
     //K1 Slice 6: cache builtin class indexes (Exception family + Thread)
     //from the freshly linked module — extracted from ResetPerRunState
     //for the function size guard.
@@ -552,9 +552,12 @@ private:
     //callParamBase cells and inherits the caller's result cell; the out
     //variants arm the return writeback (bit i = user param i; source
     //frame slot = i + outShift — bound-method delegates shift by 1).
-    //Returns the new top frame's locals pointer.
+    //0.13.1a: descIdx/receiverHeapIdx fill the generic record's frame
+    //descriptor cell (PushFrameCore's three-source rule). Returns the
+    //new top frame's locals pointer.
     uint8_t* PushCalleeFrame(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift);
+        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
+        uint16_t descIdx, int32_t receiverHeapIdx);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
         int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
     //Root/toString/host windows. deferSafepoint: callers that stage raw
@@ -567,10 +570,12 @@ private:
         uint8_t* externalResult, bool deferSafepoint = false);
     void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
-    //bookkeeping both exception paths in RunFrames share.
+    //bookkeeping both exception paths in RunFrames share. descIdx/
+    //receiverHeapIdx fill the generic frame's descriptor cell (0.13.1a
+    //three-source rule: receiver head, caller forward, table row).
     uint8_t* PushFrameCore(const CompiledFunction& callee,
         uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        int32_t boundThisIdx);
+        int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx);
     void RecordUnwindAndPopFrame();
     //The frame's result cell: the external C++ cell (root/toString/host
     //windows) or a slot in another frame — resolved fresh, never cached
@@ -674,7 +679,7 @@ private:
     //was pushed — the dispatcher must re-fetch EvalStack().back() before
     //the next instruction. False = handled inline (native/intrinsic/
     //diagnostic throw).
-    bool OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
     bool OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
@@ -685,7 +690,7 @@ private:
     //OpFuncEquality operand protocol (null sentinel = plain index).
     void OpStructEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpFunc_to_str(uint8_t* pResult);
-    bool OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
+    bool OpCallStaticOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
@@ -821,13 +826,12 @@ private:
     void OpCheckCast(BytecodeReader& reader, uint8_t* locals,
                      uint8_t* pResult);
     //v0.13.1: a cast's descriptor row → target descriptor (static rows
-    //pre-interned; recipe rows compose against the receiver).
-    GenericInstDescriptor* CastTargetDescriptor(uint16_t descIdx,
-                                                const uint8_t* locals);
+    //pre-interned; recipe rows compose against the executing frame's
+    //context cell — 0.13.1a unified the compose source onto the frame).
+    GenericInstDescriptor* CastTargetDescriptor(uint16_t descIdx);
     //v0.13.1 D5: stamp an array allocation's element instantiation
     //descriptor on the record's heap slot (0xFFFF = nothing to stamp).
-    void StampElemDescriptor(int32_t heapIdx, uint16_t descIdx,
-                             const uint8_t* locals);
+    void StampElemDescriptor(int32_t heapIdx, uint16_t descIdx);
     //v0.13.1 D5: an array record's element instantiation descriptor —
     //the owning record's stamp, or its owner's through a view (views
     //validate their element kind against the owner at creation).
@@ -844,12 +848,19 @@ private:
     std::string ArrayElemSpellingOf(int32_t heapIdx);
     //v0.13.1 D5: the element-instantiation tail of a matching
     //OP_CheckArrayType row (0xFFFF never reaches here).
-    void CheckArrayTypeElemDescriptor(int32_t heapIdx, uint16_t descIdx,
-                                      const uint8_t* locals);
-    //v0.13.1 D6: the receiver's ordinal-th type argument — the kind the
-    //T operations dispatch on (frame slot 0 = this).
-    const TypeArgDesc& ReceiverTypeArgOf(const uint8_t* locals,
-                                         uint8_t ordinal);
+    void CheckArrayTypeElemDescriptor(int32_t heapIdx, uint16_t descIdx);
+    //v0.13.1 D6, 0.13.1a D3: the executing frame's ordinal-th type
+    //argument — the kind the T operations dispatch on (the frame's
+    //descriptor cell, not the slot-0 receiver; instance frames carry
+    //the same descriptor their receiver's head does, and static/free
+    //frames carry the call-site's).
+    const TypeArgDesc& ContextTypeArgOf(uint8_t ordinal);
+    //0.13.1a D1: the executing frame's instantiation context — the
+    //cell every T operation and recipe composition reads. Null for
+    //non-generic frames and erased-row degradation.
+    const GenericInstDescriptor* ContextInstDescOf() const {
+        return EvalStack().back().instDesc;
+    }
     //v0.13.1 D6: two T-typed slot values under the resolved kind, each
     //kind mirroring its dedicated equality opcode.
     bool TypeArgValuesEqual(const TypeArgDesc& arg, const uint8_t* lhs,
@@ -881,8 +892,7 @@ private:
     std::string AsOperandSpellingOf(int32_t heapIdx);
     void RaiseAsTypeParamMismatch(const TypeArgDesc& arg, int32_t heapIdx);
     //The instantiation-matching tail of OpCheckCast (0xFFFF skips).
-    void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
-                                const uint8_t* locals);
+    void CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx);
     //The class a checked-cast operand dispatches on: a class record's
     //own header; boxed values and arrays (owned or view) resolve their
     //protocol roots (Object / the Array face — spec 4.1, final-review
@@ -1562,7 +1572,7 @@ private:
     //K1: thread.* free-call intrinsics and the Mutex/Channel method
     //intrinsics (IntrinsicsThread.cpp). Same family contract: return
     //false when the id is not ours. thread.* functions are called via
-    //OP_CallFunc — args start at callParamBase slot 0 (no `this`); the
+    //OP_CallStatic — args start at callParamBase slot 0 (no `this`); the
     //sync-primitive methods ride the receiver-dispatched shape (slot 0
     //= this). K8: the family splits at the dispatch — thread.* arms keep
     //the scheduler domain lock (scheduler state + heap minting), while
@@ -1851,7 +1861,7 @@ private:
     //chain), static handles are a range-checked functions[] index.
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
-    //Free-function delegate ABI (identical to OP_CallFunc, natives
+    //Free-function delegate ABI (identical to OP_CallStatic, natives
     //included); the out write-back copies slots unshifted.
     bool CallDelegateFree(const CompiledFunction& callee,
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
@@ -1865,7 +1875,7 @@ private:
         uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
         uint32_t outMask);
 
-    //Phase 9f: shared native-table dispatch for OP_CallFunc and the method
+    //Phase 9f: shared native-table dispatch for OP_CallStatic and the method
     //call paths (a native method receives `this` at args[0], mirroring the
     //bytecode calling convention). Throws when the host never registered
     //the name — failing at the call site rather than executing the

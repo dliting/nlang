@@ -180,19 +180,11 @@ bool ExprResolveAccessor::RejectTypeParamOperand(SnBinaryExpr &sn,
 			SnBinaryExpr::OperatorSymbol(op));
 		return true;
 	}
-	//Both admitted families read the receiver's instantiation
-	//descriptor at runtime — the same instance-context rule as
-	//typeName of a type parameter.
-	auto *pEnclosing = EnclosingFunction();
-	if (pEnclosing && pEnclosing->ContainFlags(NF_Static))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"operator '%s' on a type parameter requires an "
-			"instance context; use an instance member or the "
-			"compensation pattern.",
-			SnBinaryExpr::OperatorSymbol(op));
-		return true;
-	}
+	//Both admitted families read the executing frame's descriptor cell
+	//at runtime (0.13.1a: static and free generic bodies carry one —
+	//receiver head, caller forward, or call-site row), so the former
+	//instance-context rule is gone; a null cell degrades to the named
+	//runtime error.
 	//Two different parameters may resolve to different kinds in one
 	//instantiation — no single dispatch could compare them.
 	if (lT && rT && pLT != pRT)

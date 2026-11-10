@@ -1,6 +1,6 @@
 /*---
     IntrinsicsThread.cpp — K1 并发内在函数族：
-      · thread.* 自由调用（129-133）：经 OP_CallFunc 的内建函数分支
+      · thread.* 自由调用（129-133）：经 OP_CallStatic 的内建函数分支
         派发，参数自 callParamBase 槽 0 起（无 this）；
       · Mutex/Channel 方法（134-141）：接收者派发形态（槽 0 = this）。
     Slice 5 接入 yield/id，Slice 6 接入 spawn/join，Slice 7 接入 sleep，
@@ -366,7 +366,7 @@ bool VmExecutor::IntrinsicThreadFailure(uint16_t callParamBase,
 }
 
 //thread.sleep(ms)。steady_clock 截止时刻经 ParkForTimer 登记（状态 +
-//定时器表），RequestPark 抛出信号、载体偷帧；恢复点由 OP_CallFunc 内建
+//定时器表），RequestPark 抛出信号、载体偷帧；恢复点由 OP_CallStatic 内建
 //函数处理分支的 pc 推进不变量保证（同 yield/join）。sleep(0) 是纯让出：
 //立即到期的定时器使载体先运行队列中的其他上下文。负时长是对语言面的
 //误用——基础异常拒绝（同 spawn 目标拒绝形态）。

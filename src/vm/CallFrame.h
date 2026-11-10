@@ -7,6 +7,7 @@
 ---*/
 #pragma once
 #include "nlang/vm/CompiledModule.h"
+#include "GenericInstDescriptor.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -42,6 +43,14 @@ struct CallFrame {
     uint32_t outMask = 0;
     uint16_t callParamBase = 0;
     uint8_t outShift = 0;
+    //0.13.1a: the frame's instantiation context — the descriptor every
+    //T operation in this body reads. Filled at push for generic
+    //records: instance shapes from the receiver's head descriptor,
+    //receiver-less direct calls from the call-site descriptor row (or
+    //the caller's own cell via kInstDescForwardCaller). Null = no
+    //context (non-generic records; erased-row degradation reports the
+    //named runtime error). Host memory — never GC-scanned.
+    const GenericInstDescriptor* instDesc = nullptr;
     //Phase 9d: per-frame stack of currently-caught exception heap idxs.
     //Pushed when a catch handler is entered, popped by OP_PopHandler at
     //catch-block exit. OP_Rethrow reads the top entry to re-raise. Per-

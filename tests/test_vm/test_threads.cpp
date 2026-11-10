@@ -251,7 +251,7 @@ void test_frame_recursion_boundary_exact()
     PASS();
 }
 
-//out 写回四 ABI：自由函数（OP_CallFuncOut）。
+//out 写回四 ABI：自由函数（OP_CallStaticOut）。
 void test_frame_out_writeback_func()
 {
     TEST(frame_out_writeback_func);
@@ -841,7 +841,7 @@ void test_thread_ns_user_name_shadows()
 //跨模块：被导入模块中的 thread.id() 调用走序列化/链接轨道。两阶段构建
 //（一次构建塞两个源文件不是本 harness 的构建形态）：先单独编译 b 出
 //thread_xmod_b.ncu，再编译 import 它的 a（导入自盘上 .ncu 解析），闭包
-//装链接后执行——导入单元里的 OP_CallFunc 内建函数分支在链接产物上照
+//装链接后执行——导入单元里的 OP_CallStatic 内建函数分支在链接产物上照
 //常派发。
 void test_thread_ns_cross_module()
 {

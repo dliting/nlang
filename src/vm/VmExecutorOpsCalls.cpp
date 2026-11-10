@@ -9,9 +9,10 @@
 
 namespace nlang {
 
-bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
+    uint16_t descIdx = reader.ReadUint16();
     if (funcIndex >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index");
     const CompiledFunction& callee = m_currModule->functions[funcIndex];
@@ -43,7 +44,9 @@ bool VmExecutor::OpCallFunc(BytecodeReader& reader, uint8_t* locals, uint8_t* pR
     }
     //Resume point = the instruction AFTER this call's immediates.
     EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
-    PushCalleeFrame(callee, callParamBase, 0, 0);
+    //Receiver-less direct call — the descriptor cell fills from the
+    //call-site operand (0.13.1a); no receiver source exists here.
+    PushCalleeFrame(callee, callParamBase, 0, 0, descIdx, 0);
     return true;
 }
 
@@ -51,11 +54,19 @@ void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
     //Static-bound handle to a free function: {funcIdx, this=0,
     //form=0}. Allocation always happens (no interning) so two
     //references to one function are distinct-but-equal records.
+    //0.13.1a: the resolver rejects generic targets at compile time
+    //(a value has no descriptor to pair with); this guard is the
+    //defense backstop for hand-built or linked images.
     //K8: lock-free — AllocFuncRecord pops the calling carrier's
     //shard; the function table is link-time read-only.
     uint16_t funcIdx = reader.ReadUint16();
     if (funcIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
+    if (m_currModule->functions[funcIdx].isGeneric)
+        throw std::runtime_error(
+            "NLang VM: a generic function cannot be referenced as a "
+            "value; call it directly: "
+            + m_currModule->functions[funcIdx].name);
     int32_t heapIdx = AllocFuncRecord(
         static_cast<int32_t>(funcIdx), 0, kFuncFormStatic);
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
@@ -142,9 +153,10 @@ void VmExecutor::OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
-bool VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
+bool VmExecutor::OpCallStaticOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult) {
     uint16_t funcIndex = reader.ReadUint16();
     uint16_t callParamBase = reader.ReadUint16();
+    uint16_t descIdx = reader.ReadUint16();
     uint32_t outMask = reader.ReadUint32();
     if (funcIndex >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index");
@@ -164,7 +176,7 @@ bool VmExecutor::OpCallFuncOut(BytecodeReader& reader, uint8_t* locals, uint8_t*
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
     EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
-    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    PushCalleeFrame(callee, callParamBase, outMask, 0, descIdx, 0);
     return true;
 }
 
@@ -176,7 +188,7 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     const CompiledFunction& callee = m_currModule->functions[funcIndex];
     //K1: pc must advance BEFORE ExecuteIntrinsic — a parking intrinsic
     //(Mutex.lock) suspends mid-frame and resume re-enters at frame.pc;
-    //re-executing the call would re-park forever (OpCallFunc invariant).
+    //re-executing the call would re-park forever (OpCallStatic invariant).
     if (callee.intrinsicId != INTR_None) {
         EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
         ExecuteIntrinsic(callee.intrinsicId, callParamBase, locals, pResult);
@@ -186,13 +198,21 @@ bool VmExecutor::OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uin
     //at args[0] per the bytecode calling convention.
     if (callee.isNative) {
         //v0.13.0 net R7: park re-entry re-executes this call
-        //(OpCallFunc native-branch invariant).
+        //(OpCallStatic native-branch invariant).
         EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
     EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
-    PushCalleeFrame(callee, callParamBase, 0, 0);
+    //0.13.1a: a generic instance callee's frame descriptor comes from
+    //the receiver's head — read the staged receiver handle (slot 0 of
+    //the call's staging area; the resolver guarantees its presence).
+    int32_t receiverHeapIdx = 0;
+    if (callee.isGeneric && callee.isInstanceMethod)
+        std::memcpy(&receiverHeapIdx, locals + callParamBase,
+                    sizeof(receiverHeapIdx));
+    PushCalleeFrame(callee, callParamBase, 0, 0, kInstDescNone,
+                    receiverHeapIdx);
     return true;
 }
 
@@ -214,7 +234,7 @@ bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
             "NLang VM: intrinsic function does not support out parameters: "
             + callee.name);
     //Phase 9f: out writeback needs a callee frame; natives have
-    //none (see OP_CallFuncOut). Reject loudly, not silently.
+    //none (see OP_CallStaticOut). Reject loudly, not silently.
     if (callee.isNative)
         throw std::runtime_error(
             "NLang VM: native function does not support out parameters: "
@@ -224,7 +244,12 @@ bool VmExecutor::OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals,
     //carries the receiver too), so user param i sits at frame slot i
     //and at callParamBase+i — the writeback is unshifted (contrast the
     //bound-delegate ABI, which stages WITHOUT this and shifts by one).
-    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    int32_t receiverHeapIdx = 0;
+    if (callee.isGeneric && callee.isInstanceMethod)
+        std::memcpy(&receiverHeapIdx, locals + callParamBase,
+                    sizeof(receiverHeapIdx));
+    PushCalleeFrame(callee, callParamBase, outMask, 0, kInstDescNone,
+                    receiverHeapIdx);
     return true;
 }
 
@@ -269,13 +294,15 @@ bool VmExecutor::OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* 
     }
     //Phase 9f: native method via virtual dispatch — same table dispatch, this at args[0].
     if (callee.isNative) {
-        //v0.13.0 net R7: park re-entry re-executes this call (OpCallFunc invariant).
+        //v0.13.0 net R7: park re-entry re-executes this call (OpCallStatic invariant).
         EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
         return false;
     }
     EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
-    PushCalleeFrame(callee, callParamBase, 0, 0);
+    //Virtual dispatch: the receiver is already read and validated —
+    //its head descriptor fills a generic callee's frame cell (0.13.1a).
+    PushCalleeFrame(callee, callParamBase, 0, 0, kInstDescNone, thisHeapIdx);
     return true;
 }
 
@@ -290,7 +317,7 @@ void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_
     //Parking: pc must advance BEFORE ExecuteIntrinsic — a parking
     //intrinsic (selectAny) suspends mid-frame and resume re-enters at
     //frame.pc; re-executing the call would re-park forever (the
-    //OpCallFunc/OpCallMethod invariant). The non-parking string faces
+    //OpCallStatic/OpCallMethod invariant). The non-parking string faces
     //are unaffected — their re-entry point is identical either way.
     EvalStack().back().pc = static_cast<uint16_t>(reader.CurrentOffset());
     ExecuteIntrinsic(intrinsicId, callParamBase, locals, pResult);
@@ -379,19 +406,25 @@ int VmExecutor::ResolveDelegateTarget(const std::vector<int32_t>& handle) {
     return funcIndex;
 }
 
-//Free-function ABI — identical to OP_CallFunc: natives read their args
+//Free-function ABI — identical to OP_CallStatic: natives read their args
 //straight from the caller's callParamBase cells (out parameters are
 //impossible without a callee frame, so a nonzero mask is rejected).
+//0.13.1a: a generic callee has no descriptor source through a handle
+//(MakeFunc rejects at bind time; this guard is the defense backstop).
 bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
     uint32_t outMask) {
+    if (callee.isGeneric)
+        throw std::runtime_error(
+            "NLang VM: a generic function cannot be referenced as a "
+            "value; call it directly: " + callee.name);
     if (callee.isNative) {
         if (outMask != 0)
             throw std::runtime_error(
                 "NLang VM: native function does not support out "
                 "parameters: " + callee.name);
         //v0.13.0 net R7: park re-entry re-executes this call — undo the
-        //past-the-call pc the delegate op staged (OpCallFunc native-
+        //past-the-call pc the delegate op staged (OpCallStatic native-
         //branch invariant; the handle cell is unchanged across a park).
         EvalStack().back().pc = EvalStack().back().opPc;
         CallNative(callee, callParamBase, locals, pResult);
@@ -402,7 +435,7 @@ bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
             "block in CallDelegate");
-    PushCalleeFrame(callee, callParamBase, outMask, 0);
+    PushCalleeFrame(callee, callParamBase, outMask, 0, kInstDescNone, 0);
     return true;
 }
 
@@ -438,7 +471,7 @@ bool VmExecutor::CallDelegateBound(const CompiledFunction& callee,
 //Handle layout: [0]=target (funcIdx for form 0, nameIdx for form 1),
 //[1]=this (0 ⟺ free function — the bind-time null guard establishes
 //this invariant), [2]=form. Frame layout differs by form:
-//  - free function: args copy verbatim from callParamBase (OP_CallFunc
+//  - free function: args copy verbatim from callParamBase (OP_CallStatic
 //    ABI; natives read straight from the caller's cells);
 //  - bound method: the captured receiver occupies callee slot 0 and the
 //    caller's args (staged WITHOUT this) shift right by one.

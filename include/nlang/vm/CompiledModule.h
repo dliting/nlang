@@ -166,8 +166,13 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //HasThisReceiver verdict). The native call bridge reads it to locate
 //the receiver handle in the call's slot 0. A v2.15 module lacks the
 //byte and misparses the record tail; refuse v2.15 and older outright.
+//v2.17 (0.13.1a): every function record gains a generic flag byte
+//after the instance-method flag plus a type-parameter name list for
+//generic records; the free-call opcodes gain a u16 descriptor operand
+//(OP_CallStatic family). A v2.16 module misparses the record tail and
+//call operands; refuse v2.16 and older outright.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 16;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 17;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

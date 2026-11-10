@@ -83,17 +83,11 @@ uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 	auto& table = m_compiledModule.descriptorTable;
 	if (HasTypeParamArg(args))
 	{
-		//A static member has no receiver at run time, so the composition
-		//would have nothing to read. The declaration is legal (statics
-		//may reference T); the construction is not.
-		if (m_currFunc && m_currFunc->func
-			&& m_currFunc->func->isStatic)
-		{
-			m_pEnv->Log(CLL_Error, inst.Location(),
-				"constructing a generic type with type-parameter "
-				"arguments requires an instance context.");
-			return kNoInstDescriptor;
-		}
+		//0.13.1a: recipe rows compose against the executing frame's
+		//descriptor cell — instance and static/free frames alike carry
+		//one (receiver head, caller forward, or call-site row), so a
+		//placeholder argument is legal in every generic record body.
+		//The named runtime error on a null cell covers degradation.
 		std::vector<uint8_t> recipe;
 		recipe.push_back(0);
 		const std::string baseName = inst.BaseName();

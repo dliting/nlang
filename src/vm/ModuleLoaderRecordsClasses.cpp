@@ -263,6 +263,28 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
             link = mod.classes[static_cast<size_t>(link)].superClassIdx;
         }
     }
+
+    //0.13.1a: derive the generic-record flags from the template rows —
+    //a member of a template row reads the frame descriptor cell, and
+    //the wire carries the flag on the CLASS (the producer's fill rides
+    //its own AST owner), not per function. Constructors join too (a
+    //template row's ctor body may reference T). Member indices were
+    //bounds-checked above, so the re-walk is a pure stamp.
+    for (uint32_t i = 0; i < classCount; ++i) {
+        const auto& cc = mod.classes[i];
+        if (!cc.isTemplate)
+            continue;
+        for (uint16_t idx : cc.methodIndices)
+            if (idx < mod.functions.size()) {
+                mod.functions[idx].isGeneric = true;
+                mod.functions[idx].typeParamNames = cc.typeParamNames;
+            }
+        for (uint16_t idx : cc.constructorIndices)
+            if (idx < mod.functions.size()) {
+                mod.functions[idx].isGeneric = true;
+                mod.functions[idx].typeParamNames = cc.typeParamNames;
+            }
+    }
 }
 
 } // namespace nlang

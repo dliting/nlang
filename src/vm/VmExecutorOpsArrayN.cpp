@@ -36,7 +36,7 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
                     sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
-    StampElemDescriptor(heapIdx, descIdx, locals);
+    StampElemDescriptor(heapIdx, descIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }
@@ -444,7 +444,7 @@ void VmExecutor::OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals) {
             sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
-    StampElemDescriptor(heapIdx, descIdx, locals);
+    StampElemDescriptor(heapIdx, descIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }

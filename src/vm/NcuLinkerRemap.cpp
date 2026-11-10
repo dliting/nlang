@@ -45,9 +45,9 @@ static void PatchNameOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_MakeVFunc:
             PatchOperand(bc, pos + 1, maps.strings, "string", onUnmapped);
             break;
-        case OpCode::OP_CallFunc:
+        case OpCode::OP_CallStatic:
         case OpCode::OP_CallMethodDirect:
-        case OpCode::OP_CallFuncOut:
+        case OpCode::OP_CallStaticOut:
         case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_MakeFunc:
         case OpCode::OP_MakeBoundFunc:
@@ -92,14 +92,14 @@ static void PatchClassInitOperands(OpCode op, std::vector<uint8_t>& bc,
 }
 
 //v0.13.1: a descriptor-row operand (OP_New's trailing word, the cast's
-//descIdx). 0xFFFF is the no-descriptor sentinel, not a table index —
-//skipped.
+//descIdx). 0xFFFF (none) and 0xFFFE (0.13.1a caller forward) are
+//sentinels, not table indices — skipped.
 static void PatchDescriptorOperand(std::vector<uint8_t>& bc, size_t off,
     const NcuOperandMaps& maps,
     const std::function<void(const char*, uint16_t)>& onUnmapped) {
     const uint16_t descIdx = static_cast<uint16_t>(bc[off])
         | (static_cast<uint16_t>(bc[off + 1]) << 8);
-    if (descIdx != 0xFFFF)
+    if (descIdx != 0xFFFF && descIdx != 0xFFFE)
         PatchOperand(bc, off, maps.descriptors, "descriptor",
                      onUnmapped);
 }
@@ -136,6 +136,12 @@ static void PatchDescriptorOperands(OpCode op, std::vector<uint8_t>& bc,
     switch (op) {
         case OpCode::OP_New:
             descOff = 5;  //dst, classIdx, descIdx
+            break;
+        case OpCode::OP_CallStatic:
+            descOff = 5;  //funcIdx, callParamBase, descIdx (0.13.1a)
+            break;
+        case OpCode::OP_CallStaticOut:
+            descOff = 5;  //funcIdx, callParamBase, descIdx, outMask
             break;
         case OpCode::OP_CheckCast:
             descOff = 3;  //classIdx, descIdx

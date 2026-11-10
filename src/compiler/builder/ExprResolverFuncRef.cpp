@@ -86,6 +86,19 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 			idExpr.Name().c_str());
 		return true;
 	}
+	//0.13.1a: a generic record is not a value — its behavior needs an
+	//instantiation context, and a func value cannot carry one. Bound
+	//instance references keep working: the receiver's head descriptor
+	//fills the frame cell at every call.
+	if (pOwner && pOwner->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration())
+	{
+		env.Log(CLL_Error, idExpr.Location(),
+			"a function of a generic class cannot be referenced as a "
+			"value; call it directly: \"%s\".",
+			idExpr.Name().c_str());
+		return true;
+	}
 	//Default parameters are filled only on the direct-call path.
 	for (auto &param : pFunc->Params())
 	{
@@ -221,6 +234,21 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 		env.Log(CLL_Error, snMember.Location(),
 			"cannot reference the enum method \"%s\": enum receivers are "
 			"int values, not heap objects.", inner.Name().c_str());
+		return true;
+	}
+	//0.13.1a: a receiverless (static) member of a generic class is the
+	//member form of the free-function reject — the handle carries no
+	//instantiation context, so the call would degrade to the named
+	//runtime error. Bound instance references keep working: the
+	//receiver's head descriptor fills the frame cell at every call.
+	if (pOwner && pOwner->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration()
+		&& IsReceiverlessFuncRefTarget(*pMethod))
+	{
+		env.Log(CLL_Error, snMember.Location(),
+			"a function of a generic class cannot be referenced as a "
+			"value; call it directly: \"%s\".",
+			inner.Name().c_str());
 		return true;
 	}
 	return false;

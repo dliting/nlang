@@ -1,9 +1,25 @@
-// v0.13.1 D6: T equality reads the receiver's instantiation
-// descriptor, so a static member body has no receiver to read — the
-// same rule as typeName of a type parameter. Named compile error.
+// 0.13.1a: T equality inside a static member body reads the frame
+// descriptor cell (the caller-forward channel fills it) — the null
+// side takes the kind's reference null test, so a scalar T is never
+// null and a class T compares the handle. The former instance-context
+// rule is gone.
+class Bag<T> {
+    public T f;
+    public void keep(Object o) { f = o as T; }
+    static bool probe(Bag<T> other) { return other.f == null; }
+    public bool viaInstance(Bag<T> other) { return probe(other); }
+}
 class Box<T> {
     public T item;
-    public Box(T v) { item = v; }
-    static bool probe(Box<T> other) { return other.item == null; }
 }
-int main() { return 0; }
+int main() {
+    Bag<int> gi = Bag();
+    Object three = 3;
+    gi.keep(three);
+    if (gi.viaInstance(gi)) { return 3; }   // scalar T: never null
+    Bag<Box<int>> gb = Bag();
+    Object on = null;
+    gb.keep(on);
+    if (!gb.viaInstance(gb)) { return 4; }  // class T: null is null
+    return 0;
+}

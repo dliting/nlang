@@ -51,9 +51,9 @@ void VmExecutor::OpCheckArrayRank(BytecodeReader& reader, uint8_t* locals) {
 //the record's element stamp. A missing stamp means the element is not
 //an instantiation and cannot satisfy an instantiation target.
 void VmExecutor::CheckArrayTypeElemDescriptor(int32_t heapIdx,
-    uint16_t descIdx, const uint8_t* locals) {
+    uint16_t descIdx) {
     const GenericInstDescriptor* target =
-        CastTargetDescriptor(descIdx, locals);
+        CastTargetDescriptor(descIdx);
     const GenericInstDescriptor* stamp = ArrayElemDescriptorOf(heapIdx);
     if (!stamp || stamp->Spelling() != target->Spelling())
         RaiseNlangException(m_invalidCastExcClassIdx,
@@ -98,7 +98,7 @@ void VmExecutor::OpCheckArrayType(BytecodeReader& reader, uint8_t* locals) {
     const auto gotIdx = static_cast<uint16_t>(slot[1]);
     if (gotIdx == expectIdx) {
         if (descIdx != 0xFFFF)
-            CheckArrayTypeElemDescriptor(heapIdx, descIdx, locals);
+            CheckArrayTypeElemDescriptor(heapIdx, descIdx);
         std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
         return;
     }

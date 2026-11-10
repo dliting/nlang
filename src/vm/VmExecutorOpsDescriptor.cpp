@@ -27,17 +27,18 @@ uint16_t RecipeU16(const std::vector<uint8_t>& recipe, size_t& pos)
 }
 } //namespace
 
-//v0.13.1 D3: compose this execution's descriptor from a recipe row —
-//ARG_THIS reads the receiver's own descriptor (frame slot 0 = this).
-//OP_New rows are TEMPLATE_HEAD-led instantiation recipes; the composed
-//canonical spelling round-trips through the parser, so structure and
-//leaf kinds resolve in one place; the intern pool folds repeated
-//compositions into one descriptor.
+//v0.13.1 D3, 0.13.1a: compose this execution's descriptor from a
+//recipe row — ARG_CONTEXT reads the executing frame's descriptor cell
+//(instance frames carry the receiver's head descriptor; static/free
+//frames carry the call-site's). OP_New rows are TEMPLATE_HEAD-led
+//instantiation recipes; the composed canonical spelling round-trips
+//through the parser, so structure and leaf kinds resolve in one place;
+//the intern pool folds repeated compositions into one descriptor.
 GenericInstDescriptor* VmExecutor::ComposeInstDescriptor(
-    const std::vector<uint8_t>& recipe, const uint8_t* locals) {
+    const std::vector<uint8_t>& recipe) {
     size_t pos = 0;
     const std::string spelling =
-        ComposeRecipeSpelling(recipe, pos, recipe.size(), locals);
+        ComposeRecipeSpelling(recipe, pos, recipe.size());
     return InternDescriptorFromSpelling(spelling, *m_currModule);
 }
 
@@ -47,16 +48,16 @@ GenericInstDescriptor* VmExecutor::ComposeInstDescriptor(
 //instantiation form, anything else is a single argument encoding
 //(typeName of T[] rides ARG_ARRAY).
 std::string VmExecutor::ComposeRecipeRowSpelling(
-    const std::vector<uint8_t>& recipe, const uint8_t* locals) {
+    const std::vector<uint8_t>& recipe) {
     size_t pos = 0;
     if (!recipe.empty() && recipe[0] == 0)
-        return ComposeRecipeSpelling(recipe, pos, recipe.size(), locals);
-    return ComposeArgSpelling(recipe, pos, locals);
+        return ComposeRecipeSpelling(recipe, pos, recipe.size());
+    return ComposeArgSpelling(recipe, pos);
 }
 
 //One argument encoding's canonical spelling (see DescriptorEntry).
 std::string VmExecutor::ComposeArgSpelling(
-    const std::vector<uint8_t>& recipe, size_t& pos, const uint8_t* locals)
+    const std::vector<uint8_t>& recipe, size_t& pos)
 {
     if (pos >= recipe.size())
         throw std::runtime_error("NLang VM: truncated descriptor recipe");
@@ -70,19 +71,17 @@ std::string VmExecutor::ComposeArgSpelling(
         pos += len;
         return s;
     }
-    if (tag == 2) {  //ARG_THIS: the receiver descriptor's argument
+    if (tag == 2) {  //ARG_CONTEXT: the frame context's argument
         const uint8_t paramIdx = recipe[pos++];
-        int32_t thisIdx = 0;
-        std::memcpy(&thisIdx, locals, sizeof(thisIdx));  //slot 0 = this
-        const GenericInstDescriptor* recv = InstDescriptorOf(thisIdx);
-        if (!recv || paramIdx >= recv->TypeArgs().size())
+        const GenericInstDescriptor* ctx = ContextInstDescOf();
+        if (!ctx || paramIdx >= ctx->TypeArgs().size())
             throw std::runtime_error(
-                "NLang VM: generic construction without an instance receiver");
-        return CanonicalArgSpelling(recv->TypeArgs()[paramIdx]);
+                "NLang VM: generic operation without an instance context");
+        return CanonicalArgSpelling(ctx->TypeArgs()[paramIdx]);
     }
     if (tag == 3) {  //ARG_ARRAY: element spelling + the bracket run
         const uint8_t rank = recipe[pos++];
-        std::string s = ComposeArgSpelling(recipe, pos, locals);
+        std::string s = ComposeArgSpelling(recipe, pos);
         s += "[";
         for (uint8_t i = 1; i < rank; ++i) s += ",";
         s += "]";
@@ -93,7 +92,7 @@ std::string VmExecutor::ComposeArgSpelling(
         const size_t childEnd = pos + len;
         if (childEnd > recipe.size())
             throw std::runtime_error("NLang VM: truncated descriptor recipe");
-        return ComposeRecipeSpelling(recipe, pos, childEnd, locals);
+        return ComposeRecipeSpelling(recipe, pos, childEnd);
     }
     throw std::runtime_error("NLang VM: unknown descriptor recipe tag");
 }
@@ -101,8 +100,7 @@ std::string VmExecutor::ComposeArgSpelling(
 //One recipe range's canonical spelling: TEMPLATE_HEAD, then argument
 //encodings until end.
 std::string VmExecutor::ComposeRecipeSpelling(
-    const std::vector<uint8_t>& recipe, size_t& pos, size_t end,
-    const uint8_t* locals)
+    const std::vector<uint8_t>& recipe, size_t& pos, size_t end)
 {
     if (pos >= end || recipe[pos] != 0)
         throw std::runtime_error("NLang VM: malformed descriptor recipe");
@@ -117,21 +115,21 @@ std::string VmExecutor::ComposeRecipeSpelling(
     bool first = true;
     while (pos < end) {
         if (!first) spelling += ",";
-        spelling += ComposeArgSpelling(recipe, pos, locals);
+        spelling += ComposeArgSpelling(recipe, pos);
         first = false;
     }
     spelling += ">";
     return spelling;
 }
 
-//v0.13.1: typeName(T) — read the receiver's instantiation descriptor
-//(frame slot 0 = this) and take the ordinal-th type argument's canonical
-//spelling. A missing descriptor is a corrupt image (the resolver rejects
-//static contexts; `this` is a valid receiver here), not a user error.
+//v0.13.1, 0.13.1a: typeName(T) — read the executing frame's context
+//descriptor and take the ordinal-th type argument's canonical spelling.
+//A missing descriptor is a corrupt image (the resolver rejects T reads
+//outside generic records), not a user error.
 void VmExecutor::OpTypeNameArg(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint8_t ordinal = reader.ReadByte();
-    const TypeArgDesc& arg = ReceiverTypeArgOf(locals, ordinal);
+    const TypeArgDesc& arg = ContextTypeArgOf(ordinal);
     const int32_t handle = MintNewString(CanonicalArgSpelling(arg));
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
@@ -147,7 +145,7 @@ void VmExecutor::OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals) {
         throw std::runtime_error(
             "NLang VM: invalid descriptor index in typeName");
     const int32_t handle = MintNewString(ComposeRecipeRowSpelling(
-        m_currModule->descriptorTable[recipeIdx].recipe, locals));
+        m_currModule->descriptorTable[recipeIdx].recipe));
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
 
@@ -158,12 +156,11 @@ void VmExecutor::OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals) {
 //holds the ELEMENT's descriptor, and the owning allocation always
 //resets it first (AllocArrayOnHeap), so a recycled slot never leaks a
 //previous tenant's stamp.
-void VmExecutor::StampElemDescriptor(int32_t heapIdx, uint16_t descIdx,
-                                     const uint8_t* locals) {
+void VmExecutor::StampElemDescriptor(int32_t heapIdx, uint16_t descIdx) {
     if (descIdx == 0xFFFF)
         return;
     m_instDescByHeap[static_cast<size_t>(heapIdx)] =
-        CastTargetDescriptor(descIdx, locals);
+        CastTargetDescriptor(descIdx);
 }
 
 //v0.13.1 D5: an array record's element instantiation descriptor — the
@@ -181,20 +178,18 @@ const GenericInstDescriptor* VmExecutor::ArrayElemDescriptorOf(
     return InstDescriptorOf(heapIdx);
 }
 
-//v0.13.1 D6: the shared receiver-argument resolution of the T opcodes —
-//frame slot 0 is `this`, and its instantiation descriptor's ordinal-th
-//type argument names the kind this execution dispatches on. A missing
-//descriptor or an out-of-range ordinal is a corrupt image (the resolver
-//rejects static contexts and mismatched parameters before emission).
-const TypeArgDesc& VmExecutor::ReceiverTypeArgOf(const uint8_t* locals,
-                                                 uint8_t ordinal) {
-    int32_t thisIdx = 0;
-    std::memcpy(&thisIdx, locals, sizeof(thisIdx));
-    const GenericInstDescriptor* recv = InstDescriptorOf(thisIdx);
-    if (!recv || ordinal >= recv->TypeArgs().size())
+//v0.13.1 D6, 0.13.1a: the shared context-argument resolution of the T
+//opcodes — the executing frame's descriptor cell's ordinal-th type
+//argument names the kind this execution dispatches on. A missing
+//descriptor (erased-row degradation) or an out-of-range ordinal is a
+//named runtime error, not a corrupt image: 0.13.1a lets signatures
+//mention T in places the resolver cannot prove instantiated.
+const TypeArgDesc& VmExecutor::ContextTypeArgOf(uint8_t ordinal) {
+    const GenericInstDescriptor* desc = ContextInstDescOf();
+    if (!desc || ordinal >= desc->TypeArgs().size())
         throw std::runtime_error(
-            "NLang VM: generic operation without an instance receiver");
-    return recv->TypeArgs()[ordinal];
+            "NLang VM: generic operation without an instance context");
+    return desc->TypeArgs()[ordinal];
 }
 
 //v0.13.1 D6: two T-typed slot values under the resolved argument kind —
@@ -248,8 +243,9 @@ bool VmExecutor::TypeArgValuesEqual(const TypeArgDesc& arg,
     }
 }
 
-//v0.13.1 D6: OP_Eq_T/OP_Ne_T — dispatch on the receiver's type argument
-//kind. The null-literal side (0xFFFF, no slot) takes the kind's
+//v0.13.1 D6, 0.13.1a: OP_Eq_T/OP_Ne_T — dispatch on the frame context's
+//type argument kind. The null-literal side (0xFFFF, no slot) takes the
+//kind's
 //reference null test: handle kinds compare the other side against 0
 //exactly as their dedicated opcodes' null comparisons do (string rides
 //StringsEqual, the `s == null` rule), and a scalar kind is never null —
@@ -261,8 +257,8 @@ void VmExecutor::OpTypeParamEquality(BytecodeReader& reader,
     const uint16_t ordinal = reader.ReadUint16();
     const uint16_t lhs = reader.ReadUint16();
     const uint16_t rhs = reader.ReadUint16();
-    const TypeArgDesc& arg = ReceiverTypeArgOf(
-        locals, static_cast<uint8_t>(ordinal));
+    const TypeArgDesc& arg =
+        ContextTypeArgOf(static_cast<uint8_t>(ordinal));
     bool bEqual;
     if (lhs == 0xFFFF || rhs == 0xFFFF) {
         const uint8_t* other =
@@ -289,8 +285,7 @@ void VmExecutor::OpTypeParamEquality(BytecodeReader& reader,
 //virtual toString, "<struct>", the array bracket walk, "<null>").
 void VmExecutor::OpTypeArgToStr(BytecodeReader& reader,
                                 const uint8_t* locals, uint8_t* pResult) {
-    const TypeArgDesc& arg =
-        ReceiverTypeArgOf(locals, reader.ReadByte());
+    const TypeArgDesc& arg = ContextTypeArgOf(reader.ReadByte());
     if (arg.resolvedKind == RTK_String)
         return;
     if (int row = ScalarPrimIndexOfRtk(arg.resolvedKind); row >= 0) {
@@ -415,16 +410,15 @@ bool VmExecutor::AsReferenceMatchesArg(const TypeArgDesc& arg,
     return false;
 }
 
-//v0.13.1 D6: OP_As_TypeParam — `x as T` decided by the receiver's
-//ordinal-th type argument kind. The value rides the accumulator in and
-//out: null passes through, boxed scalars/strings/enums unbox on a tag
-//match, references dispatch on the argument's kind (the helpers above).
-//A mismatch raises the catchable InvalidCastException naming both
-//spellings.
+//v0.13.1 D6, 0.13.1a: OP_As_TypeParam — `x as T` decided by the frame
+//context's ordinal-th type argument kind. The value rides the
+//accumulator in and out: null passes through, boxed scalars/strings/
+//enums unbox on a tag match, references dispatch on the argument's kind
+//(the helpers above). A mismatch raises the catchable
+//InvalidCastException naming both spellings.
 void VmExecutor::OpAsTypeParam(BytecodeReader& reader,
                                const uint8_t* locals, uint8_t* pResult) {
-    const TypeArgDesc& arg =
-        ReceiverTypeArgOf(locals, reader.ReadByte());
+    const TypeArgDesc& arg = ContextTypeArgOf(reader.ReadByte());
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     if (heapIdx == 0)

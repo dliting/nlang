@@ -1,0 +1,10 @@
+//compile_error: ordering on a type parameter stays rejected inside a
+//static member body too (0.13.1a) — the frame descriptor cell carries
+//the runtime kind for equality/concat/as-cast/typeName/construction,
+//but kind-dependent ordering is not admitted, the same rule as in
+//instance bodies.
+class Box<T> {
+    public T item;
+    public static bool first(Box<T> a, Box<T> b) { return a.item < b.item; }
+}
+int main() { return 0; }

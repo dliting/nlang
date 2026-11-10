@@ -139,7 +139,7 @@ void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
         instDesc = m_descCache[descIdx];
         if (!instDesc)
             instDesc = ComposeInstDescriptor(
-                m_currModule->descriptorTable[descIdx].recipe, locals);
+                m_currModule->descriptorTable[descIdx].recipe);
     }
     int32_t heapIdx = AllocClassOnHeap(classIdx, instDesc);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
@@ -260,16 +260,16 @@ bool VmExecutor::ClassMatchesTarget(int32_t actualClassIdx,
 
 //v0.13.1 D5: resolve a cast's descriptor row to its target descriptor —
 //static rows are pre-interned in m_descCache; a recipe row (a T-argument
-//target inside a template body) composes against the receiver (slot 0)
-//exactly like OP_New.
+//target) composes against the executing frame's context cell exactly
+//like OP_New.
 GenericInstDescriptor* VmExecutor::CastTargetDescriptor(
-    uint16_t descIdx, const uint8_t* locals) {
+    uint16_t descIdx) {
     if (descIdx >= m_descCache.size())
         throw std::runtime_error(
             "NLang VM: invalid descriptor index in OP_CheckCast");
     if (!m_descCache[descIdx])
         return ComposeInstDescriptor(
-            m_currModule->descriptorTable[descIdx].recipe, locals);
+            m_currModule->descriptorTable[descIdx].recipe);
     return m_descCache[descIdx];
 }
 
@@ -312,7 +312,7 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* locals,
     }
     //v0.13.1 D5: the row check cannot distinguish instantiations of one
     //template — the named descriptor row must also match.
-    CheckCastInstantiation(descIdx, heapIdx, locals);
+    CheckCastInstantiation(descIdx, heapIdx);
     //Result: same heap idx, unchanged.
 }
 
@@ -324,12 +324,11 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* locals,
 //An ARRAY operand reaching here passed the Array face row check — the
 //record's heap cell holds its ELEMENT's descriptor, so the element side
 //takes its own comparison instead of the object identity compare.
-void VmExecutor::CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx,
-                                        const uint8_t* locals) {
+void VmExecutor::CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx) {
     if (descIdx == 0xFFFF)
         return;
     const GenericInstDescriptor* target =
-        CastTargetDescriptor(descIdx, locals);
+        CastTargetDescriptor(descIdx);
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
     if (kind == RTK_Array || kind == RTK_ArrayView) {
         if (!ArrayElemMatchesTarget(heapIdx, *target))

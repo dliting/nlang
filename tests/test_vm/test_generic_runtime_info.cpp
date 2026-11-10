@@ -267,13 +267,15 @@ static void testNestedRecipeComposes()
     PASS();
 }
 
-//Static template members have no receiver — a type-parameter-argument
-//construction there cannot compose, so the backend rejects it by name.
-static void testStaticBodyConstructionRejected()
+//Static template members read the frame descriptor cell (0.13.1a): the
+//caller-forward channel fills it, so a T-argument construction there
+//composes against the caller's instantiation — the former rejection is
+//gone, and the built object rides the composed spelling.
+static void testStaticBodyComposesFromForwardedContext()
 {
-    TEST(staticBodyConstructionRejected);
+    TEST(staticBodyComposesFromForwardedContext);
     {
-        ExecResult r = runProgram("gri_static_ctor",
+        ExecResult r = runProgram("gri_static_ctor_fwd",
             "class Box<T> {\n"
             "    public T value;\n"
             "}\n"
@@ -282,11 +284,50 @@ static void testStaticBodyConstructionRejected()
             "        Box<T> b = Box();\n"
             "        return b;\n"
             "    }\n"
+            "    public Box<T> viaInstance() { return make(); }\n"
             "}\n"
             "int main() {\n"
+            "    Hold<int> h = Hold();\n"
+            "    Box<int> b = h.viaInstance();\n"
+            "    return 7;\n"
+            "}\n");
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 7, "program ran to completion");
+        const auto hits = heapIndicesWithDescriptor(*r.exec);
+        CHECK(hits.size() == 2, "Hold and the static-made Box carry "
+              "descriptors");
+        bool sawBox = false;
+        for (int32_t idx : hits)
+            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+                sawBox = true;
+        CHECK(sawBox, "the static-body construction composed as Box<int>");
+    }
+    PASS();
+}
+
+//0.13.1a: a bare static call inside a generic class body forwards the
+//executing frame's descriptor cell — the callee's typeName(T) reads the
+//caller's instantiation, and two instantiations of the same row take
+//the same shared body through different cells.
+static void testStaticFrameCarriesForwardedContext()
+{
+    TEST(staticFrameCarriesForwardedContext);
+    {
+        ExecResult r = runProgram("gri_static_fwd_cell",
+            "class Hold<T> {\n"
+            "    public static string name() { return typeName(T); }\n"
+            "    public string viaInstance() { return name(); }\n"
+            "}\n"
+            "int main() {\n"
+            "    Hold<int> h = Hold();\n"
+            "    if (h.viaInstance() != \"int\") { return 3; }\n"
+            "    Hold<string> s = Hold();\n"
+            "    if (s.viaInstance() != \"string\") { return 4; }\n"
             "    return 0;\n"
             "}\n");
-        CHECK(!r.built, "static T-arg construction is rejected");
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 0, "both instantiations read their own "
+              "cell through the shared static body");
     }
     PASS();
 }
@@ -365,7 +406,8 @@ int main()
         testProbeBoundsAreNull();
         testRecipeComposesFromReceiver();
         testNestedRecipeComposes();
-        testStaticBodyConstructionRejected();
+        testStaticBodyComposesFromForwardedContext();
+        testStaticFrameCarriesForwardedContext();
         testRecycledSlotsCarryNoDescriptor();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";

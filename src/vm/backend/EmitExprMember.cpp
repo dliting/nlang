@@ -150,7 +150,7 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
     //Library calls (stdlib or third-party, native or NLang) resolve to an
     //inlined AST function. A namespace-qualified free call emits ONLY its
     //inner invoke (the outer namespace name is never emitted): the invoke
-    //binds an inlined function and dispatches through OP_CallFunc.
+    //binds an inlined function and dispatches through OP_CallStatic.
     {
         SnField* outerField = nullptr;
         if (member.Outer()

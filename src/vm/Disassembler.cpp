@@ -92,9 +92,31 @@ static void EmitConstString(BytecodeReader &r, std::ostringstream &out,
     out << "\n";
 }
 
-//Direct function-index call: "[i] name base=b" (CallFunc/Direct);
-//bWithOutMask appends the Phase 9e uint32 out-mask tail (the *Out pair).
+//Direct function-index call: "[i] name base=b desc=d" (OP_CallStatic
+//carries the 0.13.1a descriptor operand; bWithOutMask appends the
+//Phase 9e uint32 out-mask tail). The bound-method pair (OP_CallMethod*)
+//has no descriptor — its frames fill from the staged receiver.
 static void EmitCallDirect(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module,
+    bool bWithOutMask) {
+    uint16_t funcIdx = r.ReadUint16();
+    uint16_t base = r.ReadUint16();
+    uint16_t descIdx = r.ReadUint16();
+    out << head << " [" << funcIdx << "]";
+    if (funcIdx < module.functions.size())
+        out << " " << module.functions[funcIdx].name;
+    out << " base=" << base << " desc=0x" << std::hex << descIdx
+        << std::dec;
+    if (bWithOutMask) {
+        uint32_t outMask = r.ReadUint32();
+        out << " outMask=0x" << std::hex << outMask << std::dec;
+    }
+    out << "\n";
+}
+
+//Bound-method direct call: "[i] name base=b" (+ the out-mask tail on
+//the *Out form) — no descriptor operand (the receiver fills the cell).
+static void EmitCallMethodDirect(BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const CompiledModule &module,
     bool bWithOutMask) {
     uint16_t funcIdx = r.ReadUint16();
@@ -319,13 +341,17 @@ static bool DisasmCallOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head,
     const CompiledModule &module) {
     switch (op) {
-        case OpCode::OP_CallFunc:
-        case OpCode::OP_CallMethodDirect:
+        case OpCode::OP_CallStatic:
             EmitCallDirect(r, out, head, module, false);
             return true;
-        case OpCode::OP_CallFuncOut:
-        case OpCode::OP_CallMethodDirectOut:
+        case OpCode::OP_CallMethodDirect:
+            EmitCallMethodDirect(r, out, head, module, false);
+            return true;
+        case OpCode::OP_CallStaticOut:
             EmitCallDirect(r, out, head, module, true);
+            return true;
+        case OpCode::OP_CallMethodDirectOut:
+            EmitCallMethodDirect(r, out, head, module, true);
             return true;
         case OpCode::OP_CallMethod:
             EmitCallByName(r, out, head, module);

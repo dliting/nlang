@@ -5,6 +5,10 @@
 
 namespace nlang {
 
+//0.13.1a call-site descriptor operand values (OP_CallStatic family).
+static constexpr uint16_t kInstDescNone = 0xFFFF;          //no descriptor
+static constexpr uint16_t kInstDescForwardCaller = 0xFFFE; //inherit caller frame cell
+
 enum class OpCode : uint8_t {
     // === Control flow ===
     OP_Return,          // return from function
@@ -57,7 +61,10 @@ enum class OpCode : uint8_t {
     OP_LogicalNot,      // uint16 dst, locals[dst] = !locals[dst]
 
     // === Function call ===
-    OP_CallFunc,        // uint16 func_index, uint16 call_param_base; call function, result to pResult
+    OP_CallStatic,        // uint16 func_index, uint16 call_param_base, uint16 descIdx —
+                          // receiver-less direct call (static members, free functions);
+                          // descIdx fills a generic callee's frame descriptor cell
+                          // (0xFFFF none, 0xFFFE forward the caller's own cell)
     OP_ParaEnd,         // mark end of parameter evaluation
 
     // === Switch/case ===
@@ -124,8 +131,8 @@ enum class OpCode : uint8_t {
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
     // === Phase 9e: out-parameter calls ===
-    OP_CallFuncOut,         // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
-                            // like OP_CallFunc; after the callee returns, bit i of outMask
+    OP_CallStaticOut,         // uint16 funcIdx, uint16 callParamBase, uint16 descIdx, uint32 outMask —
+                            // like OP_CallStatic; after the callee returns, bit i of outMask
                             // copies callee frame slot i back to caller staging slot i
     OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
                             // same for non-virtual method calls (this = slot 0)
@@ -181,7 +188,7 @@ enum class OpCode : uint8_t {
     OP_ClassInitGate,   // u16 classIdx, u16 donePc (absolute), u16 kind
                         // (0 = class, 1 = interface) — Done jumps donePc;
                         // the first claimer falls through to the paired
-                        // OP_CallFunc of the owner's $staticInit; a later
+                        // OP_CallStatic of the owner's $staticInit; a later
                         // context parks and re-walks the gate on wake
     OP_ClassInitDone,   // u16 classIdx, u16 kind — publish Done, wake waiters
     OP_ClassInitFail,   // u16 classIdx, u16 kind — reset the owner so the
@@ -307,7 +314,7 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_JumpIfNot, OpCode::OP_Concat_str, OpCode::OP_Eq_str,
     OpCode::OP_Ne_str, OpCode::OP_Less_str, OpCode::OP_LessEqual_str,
     OpCode::OP_Greater_str, OpCode::OP_GreaterEqual_str,
-    OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
+    OpCode::OP_StrLen, OpCode::OP_CallMethod,
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
     OpCode::OP_Eq_struct, OpCode::OP_Ne_struct,
@@ -323,7 +330,10 @@ static constexpr OpCode kStrideKindTwoWords[] = {
 static constexpr OpCode kStrideThreeWords[] = {
     //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
     //descIdx, the same extent family as AllocStruct's three words.
-    OpCode::OP_New,
+    //0.13.1a: OP_CallStatic gained the same third u16 — funcIdx,
+    //callParamBase, descIdx (the receiver-less direct call fills a
+    //generic callee's frame descriptor cell from the call site).
+    OpCode::OP_New, OpCode::OP_CallStatic,
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
@@ -346,8 +356,12 @@ static constexpr OpCode kStrideFiveWords[] = {
     OpCode::OP_MakeArrayView,
     OpCode::OP_AllocArrayN, OpCode::OP_AssembleArrayN};
 static constexpr OpCode kStrideOutMaskWords[] = {
-    OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
+    OpCode::OP_CallMethodDirectOut,
     OpCode::OP_CallDelegateOut};
+static constexpr OpCode kStrideOutMaskDescWords[] = {
+    //0.13.1a: OP_CallStaticOut carries the descriptor operand —
+    //funcIdx, callParamBase, descIdx, outMask.
+    OpCode::OP_CallStaticOut};
 static constexpr OpCode kStrideCmpHead[] = {
     OpCode::OP_Cmp};
 static constexpr OpCode kStrideConst32[] = {
@@ -391,6 +405,7 @@ inline size_t InstructionStride(OpCode op) {
         StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
+        StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
         StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
         StrideGroup(kStrideConst32, 1 + 4),
         StrideGroup(kStrideConst64, 1 + 8)};

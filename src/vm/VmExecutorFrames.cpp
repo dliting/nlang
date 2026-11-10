@@ -44,9 +44,14 @@ void StageFrameParams(CallFrame& fr, const CompiledFunction& callee,
 //Shared push core. boundThisIdx > 0 selects bound-method staging (the
 //captured receiver rides at slot 0, caller args shift one right);
 //otherwise params copy verbatim from the caller's callParamBase cells.
+//descIdx/receiverHeapIdx fill the generic record's frame descriptor
+//cell (0.13.1a): receiver head wins, kInstDescForwardCaller inherits
+//the caller's own cell, a table index composes against the caller's
+//frame (recipe rows read the caller context). Non-generic records
+//skip the whole rule — one flag test, zero fill.
 uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-    int32_t boundThisIdx)
+    int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx)
 {
     if (EvalStack().size() >= RECURSE_LIMIT)
         throw std::runtime_error("NLang VM: recursion limit exceeded");
@@ -58,6 +63,25 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     uint8_t* extResult = EvalStack().back().externalResult;
     int32_t resFrameIdx = EvalStack().back().resultFrameIdx;
     uint16_t resDstOff = EvalStack().back().resultDstOff;
+    const GenericInstDescriptor* callerInstDesc
+        = EvalStack().back().instDesc;
+    //0.13.1a: resolve the generic frame's descriptor cell BEFORE the
+    //push — the compose path reads the executing frame's context cell
+    //(EvalStack().back() must still be the CALLER here) and a malformed
+    //recipe throws without leaving a partial frame on the stack. The
+    //interned pool is host memory and never collected, so the resolved
+    //pointer is stable across the safepoint below and every later
+    //collection.
+    const GenericInstDescriptor* frameInstDesc = nullptr;
+    if (callee.isGeneric) {
+        if (receiverHeapIdx > 0) {
+            frameInstDesc = InstDescriptorOf(receiverHeapIdx);
+        } else if (descIdx == kInstDescForwardCaller) {
+            frameInstDesc = callerInstDesc;
+        } else if (descIdx != kInstDescNone) {
+            frameInstDesc = CastTargetDescriptor(descIdx);
+        }
+    }
 
     EvalStack().emplace_back();
     CallFrame& fr = EvalStack().back();
@@ -73,6 +97,7 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     fr.outMask = outMask;
     fr.callParamBase = callParamBase;
     fr.outShift = outShift;
+    fr.instDesc = frameInstDesc;
     //Safepoint at function entry (same position as the recursive engine:
     //the new frame is on EvalStack() with staged/zeroed locals).
     CheckGCSafepoint();
@@ -80,15 +105,20 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
 }
 
 uint8_t* VmExecutor::PushCalleeFrame(const CompiledFunction& callee,
-    uint16_t callParamBase, uint32_t outMask, uint8_t outShift)
+    uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
+    uint16_t descIdx, int32_t receiverHeapIdx)
 {
-    return PushFrameCore(callee, callParamBase, outMask, outShift, 0);
+    return PushFrameCore(callee, callParamBase, outMask, outShift, 0,
+                         descIdx, receiverHeapIdx);
 }
 
 uint8_t* VmExecutor::PushBoundCalleeFrame(const CompiledFunction& callee,
     int32_t thisIdx, uint16_t callParamBase, uint32_t outMask)
 {
-    return PushFrameCore(callee, callParamBase, outMask, 1, thisIdx);
+    //Bound shapes always carry a receiver — its head descriptor fills
+    //the cell (descIdx stays none; the receiver source wins anyway).
+    return PushFrameCore(callee, callParamBase, outMask, 1, thisIdx,
+                         kInstDescNone, thisIdx);
 }
 
 uint8_t* VmExecutor::PushRootFrame(const CompiledFunction& func,

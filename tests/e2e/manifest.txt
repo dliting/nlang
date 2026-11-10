@@ -505,14 +505,21 @@ err_struct_scalar_eq compile_error can only be compared with a struct value of t
 # --- v0.13.0 review fix: operators on a type parameter inside a shared
 # generic body are kind-dependent — v0.13.1 D6 lifts ==/!= and the
 # string-concat + onto runtime kind dispatch; ordering and arithmetic
-# stay rejected ---
+# stay rejected. 0.13.1a extends the kind-dispatched surface into
+# static member bodies via the frame descriptor cell: the four
+# instance-context rejections become positive pins; the ordering ban
+# holds in static bodies too; a generic-class function stays
+# unreferencable as a func value (neither channel carries an
+# instantiation context) ---
 generic_t_eq_matrix 0
 generic_t_concat_print 0
 generic_as_type_param 0
-err_as_type_param_static compile_error requires an instance context
-err_generic_t_eq_static compile_error requires an instance
+err_as_type_param_static 0
+err_generic_t_eq_static 0
 err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter
+err_static_t_order_stays compile_error cannot be applied to a type parameter
+err_generic_func_value compile_error cannot be referenced as a value
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -2163,11 +2170,11 @@ array_cast_class_target 7
 array_serialize_cycle 3
 object_field_value_ser 7
 err_catch_generic_type compile_error cannot tell instantiations apart
-err_as_type_param compile_error cannot cast to a type parameter
-err_generic_static_ctor compile_error requires an instance context
+err_generic_static_ctor 0
 generic_cast_distinguish 0
 array_cast_generic_elem 0
 generic_typename_fold 0
 generic_typename_runtime 0
-err_typename_static_context compile_error requires an instance context
+err_typename_static_context 0
 generic_serialize_roundtrip 0
+generic_static_intra 0

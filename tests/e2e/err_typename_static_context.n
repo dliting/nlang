@@ -1,8 +1,14 @@
-// v0.13.1 D4: a static member has no receiver, so typeName of a type
-// parameter there has nothing to read at run time. Rejected by name;
-// the compensation pattern (an instance member answering typeName) is
-// the documented alternative.
+// 0.13.1a: typeName of a type parameter inside a static member body
+// reads the frame descriptor cell — the caller-forward channel fills
+// it, so the former instance-context rule (and its compensation
+// pattern) is gone. The composed spelling is the argument's canonical
+// form.
 class Hold<T> {
     public static string name() { return typeName(T); }
+    public string viaInstance() { return name(); }
 }
-int main() { return 0; }
+int main() {
+    Hold<int> h = Hold();
+    if (h.viaInstance() != "int") { return 3; }
+    return 0;
+}
