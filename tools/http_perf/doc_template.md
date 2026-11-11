@@ -263,6 +263,12 @@ RPS同为97与387，P50差0.03与0.04 ms——吞吐低时本机几乎不抖。�
 | 1 | 64／15.55 | 97／10.33 | 11035／0.08 |
 | 4 | 257／15.59 | 387／10.31 | 33043／0.12 |
 
+三列都是两趟取中位数，但分属两次起跑：轮次边界登记与停泊时刻登记两列来自E0那趟（`temp/t16.out`，
+只跑`round`与`immediate`两个形态），加`timeBeginPeriod(1)`那一列来自E1a那趟（`temp/t18.out`，按上面
+§6末的`PERF_CONTROL_MODES="round-tb"`只跑这一个形态）。两次起跑之间`build_control.ps1`重跑过一次，
+三个形态一起重新链接；`tools/http_perf/control_server.cpp`自始未改（该文件只有一次提交），形态之间
+只差一个编译开关，因此两列与一列可以在同表并读。
+
 申请到1 ms分辨率之后量子从15.55 ms落到10.33 ms，正落在10 ms切片附近；RPS从64变成97＝1000/10.33、从257
 变成387＝4/10.33——两格都还是「连接数÷量子」，只是分母由时钟刻度换成了切片。这条把先前的推断变成了
 干预实验：改分辨率，量子跟着换分母；登记时机不动，量子照样在。**分辨率只改量子的长短，不改量子的有无**
@@ -377,20 +383,25 @@ E1a那趟用`PERF_CONTROL_MODES="round-tb" PERF_CONTROL_CONNS="1 4"`起跑（上
 E1在VM里重做只要一次临时补丁加一次重建：在`src/tools/nvm/main.cpp`的`SetupConsoleUtf8()`之后加一句
 `if (std::getenv("NLANG_TIMEBEGIN") != nullptr) timeBeginPeriod(1);`（连同`#include <mmsystem.h>`与
 `#pragma comment(lib, "winmm.lib")`），这样编出的同一份`nvm.exe`靠环境变量分「申请」与「不申请」两臂，中间
-不必重编，也就没有两次构建之间的漂移；分辨率请求随进程退出释放。测完按行删回补丁，并用
-`git status --porcelain src/`确认工作树干净，再重建一次`nvm`：
+不必重编，也就没有两次构建之间的漂移；分辨率请求随进程退出释放。开测前先把打了补丁的`nvm`编出来
+（下面第一条）；测完按行删回补丁，用`git status --porcelain src/`确认工作树干净，再把未打补丁的
+`nvm`重建回去（最后一条），否则工作树干净而二进制仍带补丁，下一轮测量就被它掺水：
 
 ```bash
-tools/gate.sh --shared e1-build temp/t19 cmake --build build-dev --config Release --target nvm
-tools/gate.sh e1-off1 temp/t20 bash tools/http_perf/probe_slice_ab.sh e1-off1        # 对照臂两趟
-tools/gate.sh e1-off2 temp/t20 bash tools/http_perf/probe_slice_ab.sh e1-off2
-NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb1 temp/t20 bash tools/http_perf/probe_slice_ab.sh e1-tb1  # E1臂两趟
-NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb2 temp/t20 bash tools/http_perf/probe_slice_ab.sh e1-tb2
+tools/gate.sh --shared e1-build temp/t19 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
+tools/gate.sh e1-off1 temp/t20_off1 bash tools/http_perf/probe_slice_ab.sh off1                   # 对照臂两趟
+tools/gate.sh e1-off2 temp/t20_off2 bash tools/http_perf/probe_slice_ab.sh off2
+NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb1 temp/t20_tb1 bash tools/http_perf/probe_slice_ab.sh tb1    # E1臂两趟
+NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb2 temp/t20_tb2 bash tools/http_perf/probe_slice_ab.sh tb2
+tools/gate.sh --shared e1-revert temp/t21 cmake --build build-dev --config Release --target nvm  # 删回补丁之后
 ```
 
-档位由`PERF_SLICE_CONNS`控制（默认`1 4 32 128`），每臂两趟取中位数，标签给每次构建命名以免输出互相覆盖。
-只有重建那条用`--shared`（编译不争用时钟），四条测量仍走独占机器锁；`NLANG_TIMEBEGIN`经`gate.sh`透传给
-探针脚本再传给`nvm.exe`，不设即对照臂。
+档位由`PERF_SLICE_CONNS`控制（默认`1 4 32 128`），每臂两趟取中位数。防覆盖要分两层：标签管探针自己的
+产物（JSON叫`slice<标签>_<连接数>c.json`，服务器日志叫`slice_<标签>.log`，打印出来的读数行也以
+`slice<标签>_`开头，本节E1表的四格读数即出自`off1`／`off2`／`tb1`／`tb2`四个标签的JSON），门禁的
+`.out`／`.err`则只按`gate.sh`的第二个参数命名（`tools/gate.sh:199`），四个臂共用一个前缀就会让后一趟
+把前一趟的控制台读数盖掉，故上面第二到第五条各带一个前缀。只有两条重建用`--shared`（编译不争用时钟），
+四条测量仍走独占机器锁；`NLANG_TIMEBEGIN`经`gate.sh`透传给探针脚本再传给`nvm.exe`，不设即对照臂。
 
 可调环境变量：`PERF_CONTROL_DIR`（二进制目录）、`PERF_CONTROL_MODES`（跑哪几个形态，取值`round`／`immediate`
 ／`round-tb`，默认前两个）、`PERF_CONTROL_CONNS`、`PERF_CONTROL_PORT`（起始端口，逐形态加一）、`PERF_PASSES`，
