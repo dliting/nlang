@@ -52,6 +52,10 @@ namespace {
 
 //Collects error diagnostics in memory; the overridable hook of
 //CompileLogger is WriteLog (same shape as test_import_parse.cpp).
+//Each error also records whether the diagnostic carried a source
+//location: the message text alone cannot prove navigability (the
+//IDE compile log jumps on the "(line, char)" header a location
+//produces, not on the bare message).
 class MemLogger : public CompileLogger
 {
 public:
@@ -60,16 +64,31 @@ public:
         return m_errors;
     }
 
+    //True when the FIRST error containing szNeedle carried a location.
+    bool locatedError(const char* szNeedle) const
+    {
+        for (size_t i = 0; i < m_errors.size(); ++i)
+        {
+            if (m_errors[i].find(szNeedle) != std::string::npos)
+                return i < m_located.size() && m_located[i];
+        }
+        return false;
+    }
+
 protected:
-    void WriteLog(CompileLogLevel level, const ISourceLocation*,
+    void WriteLog(CompileLogLevel level, const ISourceLocation* pLocation,
         const char* szMessage) override
     {
         if (level == CLL_Error || level == CLL_Fatal)
+        {
             m_errors.emplace_back(szMessage);
+            m_located.push_back(pLocation != nullptr);
+        }
     }
 
 private:
     std::vector<std::string> m_errors;
+    std::vector<bool> m_located;
 };
 
 //Write one source file; returns an empty string when the file could not
@@ -1157,6 +1176,32 @@ private slots:
             "a strict prefix of a module path must not fire the note");
     }
 
+    //0.13.1a: an unresolved identifier's own rejection must carry the
+    //source position. The not-found fallback used to log "Cannot
+    //resolve the field" with NO location, so for `return
+    //undefined_name;` the only positioned line was the return-check
+    //echo; suppressing that echo as redundant (generic-mint
+    //diagnostics) left the IDE compile log with nothing navigable —
+    //error navigation degraded to nothing, and the journey test even
+    //crashed building a cursor from the absent "(line" block. The
+    //primary diagnostic must be positioned itself.
+    void unresolvedNameErrorCarriesPosition()
+    {
+        auto res = buildGateProject({
+            "int main() {\n"
+            "    return undefined_name;\n"
+            "}\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "the unresolved name must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Cannot resolve the field: undefined_name."),
+            "the named diagnosis must be present");
+        QVERIFY2(res.logger->locatedError(
+            "Cannot resolve the field: undefined_name."),
+            "the not-resolved diagnostic must carry the source position");
+    }
+
     //--- Executed qualified paths (review I2) --------------------------
     //The qualified-path tests above are compile-only; the C1 review bug
     //(a module-qualified call returning func<...> was emitted as a bound
@@ -1312,9 +1357,10 @@ private slots:
     //Spec §7: a bare call to a function that only exists in another
     //directory is rejected with the dedicated visibility wording - and
     //no second generic "does not exist" or "not compatible" report at
-    //the invoke layer behind it. The statement layer still emits its
-    //pre-existing universal "Incompatible type" echo for the unresolved
-    //expression, so the full diagnostic set is exactly two lines.
+    //the invoke layer behind it. The unresolved call's type is the
+    //upstream error itself: the return statement's cast check stays
+    //silent on it (no follow-on "Incompatible type" echo), so the full
+    //diagnostic set is exactly one line.
     void bareCrossDirectoryRejected()
     {
         auto res = buildGateProject({
@@ -1334,10 +1380,10 @@ private slots:
         QVERIFY2(!containsError(res.errors,
             "is not compatible with the declaration"),
             "the hint must replace the generic incompatibility report");
-        QVERIFY2(containsError(res.errors, "Incompatible type"),
-            "the statement layer must still emit its universal echo for "
-            "the unresolved expression (pre-existing behavior)");
-        QVERIFY2(res.errors.size() == 2, joinErrors(res.errors).c_str());
+        QVERIFY2(!containsError(res.errors, "Incompatible type"),
+            "no follow-on echo for an expression whose type never "
+            "resolved (the named diagnostic is the answer)");
+        QVERIFY2(res.errors.size() == 1, joinErrors(res.errors).c_str());
     }
 
     //D7: the own directory stays bare-visible - two root files keep

@@ -1,0 +1,7 @@
+//compile_error: the identifier-resolution rejection must carry the
+//source position — the IDE compile log navigates on the (line, char)
+//header, so an unpositioned diagnostic is unnavigable even when its
+//message names the problem (0.13.1a).
+public int main() {
+    return undefined_name;
+}

@@ -147,8 +147,14 @@ bool ExprResolveAccessor::TryResolveBuiltinNameFallback(
 		break;
 	}
 
-	m_Env.Log(CLL_Error, "Cannot resolve the field: %s.",
-		idExpr.Name().c_str());
+	//Positioned: the IDE compile log navigates on the "(line, char)"
+	//header a location renders, so a diagnostic without one is
+	//unnavigable even when its message names the problem (0.13.1a:
+	//this used to be the only unpositioned line in the fallback, and
+	//suppressing the redundant return-check echo left nothing to
+	//navigate for `return undefined_name;`).
+	m_Env.Log(CLL_Error, idExpr.Location(),
+		"Cannot resolve the field: %s.", idExpr.Name().c_str());
 	//D10: a stamped stdlib class/function lives behind an import; a
 	//package hit is the specific answer, so the generic function/
 	//module-path guesses stay quiet.

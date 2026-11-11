@@ -4290,8 +4290,15 @@ private slots:
         //handlers expect.
         log->resize(600, 200);
         log->document()->adjustSize();
-        const QTextCursor diagnostic(
-            log->document()->find("(line ").block());
+        //Guard BEFORE cursor construction: a QTextCursor built from a
+        //null QTextBlock dereferences a null document handle (an access
+        //violation, not a test failure), so a regression that drops the
+        //positioned "(line ...)" diagnostic must fail cleanly here.
+        const QTextBlock diagnosticBlock =
+            log->document()->find("(line ").block();
+        QVERIFY2(diagnosticBlock.isValid(),
+            "diagnostics must carry a source position for navigation");
+        const QTextCursor diagnostic(diagnosticBlock);
         QVERIFY(!diagnostic.isNull());
         log->setTextCursor(diagnostic);
         QTest::mouseDClick(log->viewport(), Qt::LeftButton, Qt::NoModifier,
