@@ -1,8 +1,9 @@
 // layers.n — the two-layer perceptron (in -> hidden -> out) in batch
-// matrix form: matmul for the linear maps, bias broadcast for the
-// offsets, sum(axis) for the bias gradients, and the scalar arms of the
-// elementwise kernels for scaling. Everything runs on float arrays and
-// views of them.
+// matrix form: the linear maps ride tensor.matmul, the elementwise
+// arithmetic rides the v0.14.0 array operators (each spelling lowers to
+// the same tier-dispatched SIMD kernels the tensor primitives use), and
+// the activations are the stdlib's loop-free compositions. No element
+// loops remain anywhere on the training path.
 import math;
 import tensor;
 
@@ -53,118 +54,81 @@ Params initParams(int inDim, int hidden, int outDim) {
 // training set); the bias broadcast adds b to every row.
 Forward forward(Params p, float[,] x) {
     Forward f;
-    float[,] z1 = tensor.add(tensor.matmul(x, p.w1), p.b1);
+    float[,] z1 = tensor.matmul(x, p.w1) + p.b1;
     f.hidden = tensor.relu(z1);
-    f.logits = tensor.add(tensor.matmul(f.hidden, p.w2), p.b2);
+    f.logits = tensor.matmul(f.hidden, p.w2) + p.b2;
     return f;
-}
-
-// Row-wise softmax with the textbook stabilization: each row is shifted
-// by its own maximum before exp, so exp never overflows and no row can
-// collapse to 0/0.
-float[,] softmaxRows(float[,] logits) {
-    int rows = logits.shape()[0];
-    int cols = logits.shape()[1];
-    float[,] probs = float[rows, cols];
-    float[] shifted = float[cols];
-    for (int i = 0; i < rows; i += 1) {
-        float[] row = logits[i, :];
-        float m = row[0];
-        for (int j = 1; j < cols; j += 1) {
-            if (row[j] > m) {
-                m = row[j];
-            }
-        }
-        for (int j = 0; j < cols; j += 1) {
-            shifted[j] = row[j] - m;
-        }
-        float[] e = tensor.exp(shifted);
-        float total = tensor.sum(e);
-        for (int j = 0; j < cols; j += 1) {
-            probs[i, j] = e[j] / total;
-        }
-    }
-    return probs;
-}
-
-// Mean cross-entropy from logits: for each row, logsumexp (shifted by
-// the row max) minus the logit at the label. Runs on the same row views
-// as softmaxRows; the shift keeps exp bounded.
-double meanCrossEntropy(float[,] logits, int[] labels) {
-    int rows = logits.shape()[0];
-    int cols = logits.shape()[1];
-    float[] shifted = float[cols];
-    double total = 0.0;
-    for (int i = 0; i < rows; i += 1) {
-        float[] row = logits[i, :];
-        float m = row[0];
-        for (int j = 1; j < cols; j += 1) {
-            if (row[j] > m) {
-                m = row[j];
-            }
-        }
-        for (int j = 0; j < cols; j += 1) {
-            shifted[j] = row[j] - m;
-        }
-        float[] e = tensor.exp(shifted);
-        double logSum = math.log(tensor.sum(e)) + m;
-        total = total + logSum - row[labels[i]];
-    }
-    return total / rows;
 }
 
 // Gradients of the mean cross-entropy w.r.t. every parameter, in batch
 // matrix form. hidden and probs come from the forward pass on the same
-// batch; x is the batch input; batchLabels picks the one-hot column.
+// batch; x is the batch input. The ReLU gate flows the gradient exactly
+// where the pre-activation was positive (reluGrad(z1) == reluGrad over
+// hidden: z = 0 gates off either way).
 Grads backward(Params p, float[,] x, float[,] hidden, float[,] probs,
                int[] batchLabels) {
     int batch = probs.shape()[0];
-    int hiddenDim = hidden.shape()[1];
     int outDim = probs.shape()[1];
     float inv = (1.0 / batch) as float;
 
     // dLogits = (probs - oneHot) / batch
     float[,] oneHot = float[batch, outDim];
     for (int i = 0; i < batch; i += 1) {
-        for (int j = 0; j < outDim; j += 1) {
-            oneHot[i, j] = 0.0;
-        }
-        oneHot[i, batchLabels[i]] = 1.0;
+        oneHot[i, batchLabels[i]] = 1.0 as float;
     }
-    float[,] dLogits = tensor.mul(tensor.sub(probs, oneHot), inv);
+    float[,] dLogits = (probs - oneHot) * inv;
 
     Grads g;
     g.w2 = tensor.matmul(tensor.transpose(hidden), dLogits);
     g.b2 = tensor.sum(dLogits, 0);
-    // Back through the second linear map, then through the ReLU gate:
-    // the gradient flows exactly where the activation is positive
-    // (hidden = max(z1, 0) is zero exactly where z1 was).
+    // Back through the second linear map, then through the ReLU gate.
     float[,] dHidden = tensor.matmul(dLogits, tensor.transpose(p.w2));
-    float[,] dZ1 = float[batch, hiddenDim];
-    for (int i = 0; i < batch; i += 1) {
-        for (int j = 0; j < hiddenDim; j += 1) {
-            dZ1[i, j] = 0.0;
-            if (hidden[i, j] > 0.0) {
-                dZ1[i, j] = dHidden[i, j];
-            }
-        }
-    }
+    float[,] dZ1 = tensor.reluGrad(dHidden, hidden);
     g.w1 = tensor.matmul(tensor.transpose(x), dZ1);
     g.b1 = tensor.sum(dZ1, 0);
     return g;
 }
 
-// One plain-SGD step: p <- p - lr * g, elementwise through the scalar
-// arms of mul and sub.
+// One plain-SGD step: p <- p - lr * g, elementwise through the array
+// operators.
 Params sgdStep(Params p, Grads g, float lr) {
-    p.w1 = tensor.sub(p.w1, tensor.mul(g.w1, lr));
-    p.b1 = tensor.sub(p.b1, tensor.mul(g.b1, lr));
-    p.w2 = tensor.sub(p.w2, tensor.mul(g.w2, lr));
-    p.b2 = tensor.sub(p.b2, tensor.mul(g.b2, lr));
+    p.w1 = p.w1 - g.w1 * lr;
+    p.b1 = p.b1 - g.b1 * lr;
+    p.w2 = p.w2 - g.w2 * lr;
+    p.b2 = p.b2 - g.b2 * lr;
     return p;
 }
 
+// Row-wise softmax over the logits — the stdlib's loop-free composition
+// (axis-max shift keeps exp bounded, axis sum normalizes).
+float[,] softmaxRows(float[,] logits) {
+    return tensor.softmax(logits, 1);
+}
+
+// Mean cross-entropy from logits: for each row, logsumexp (shifted by
+// the row max) minus the logit at the label. The shift/exp/sum run as
+// whole-tensor calls; only the label gather stays a per-row loop
+// (O(batch), the same shape numpy's fancy indexing takes).
+double meanCrossEntropy(float[,] logits, int[] labels) {
+    int rows = logits.shape()[0];
+    int[] shape = logits.shape();
+    int[] col = int[2];
+    col[0] = rows;
+    col[1] = 1;
+    float[] m = tensor.max(logits, 1);
+    float[,] mb = tensor.broadcastTo(tensor.reshape(m, col), shape);
+    float[,] e = tensor.exp(logits - mb);
+    float[] s = tensor.sum(e, 1);
+    double total = 0.0;
+    for (int i = 0; i < rows; i += 1) {
+        float logSum = (math.log(s[i]) + m[i]) as float;
+        total = total + logSum - logits[i, labels[i]];
+    }
+    return total / rows;
+}
+
 // Fraction of rows whose largest probability sits on the true label.
+// Evaluation-only (runs once); the argmax stays a small loop.
 double accuracy(float[,] probs, int[] labels) {
     int rows = probs.shape()[0];
     int cols = probs.shape()[1];
