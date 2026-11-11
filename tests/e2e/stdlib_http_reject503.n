@@ -1,0 +1,145 @@
+// D7: the over-capacity answer runs on its own context, so the accept loop is
+// never held up by a client that will not read. Today the answer and its
+// orderly close happen inline in acceptLoop, and HttpConn.close() waits out
+// CLOSE_GRACE_MS (200 ms) for a peer that stays open — five such clients stall
+// the *next* connection by a second. Off the accept loop the next client is
+// served on the spot, and past MAX_INFLIGHT_REJECTIONS the surplus is closed
+// with no answer at all: the second form the manual documents.
+import io;
+import net;
+import http;
+import thread;
+import system;
+
+HttpResponse okHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("ok");
+    return res;
+}
+
+// One flood connection: connect on its own context and stay silent (no request
+// is ever sent). Connecting on contexts keeps the flood's arrival spread to
+// milliseconds; a single-threaded connect loop takes 50-300 ms for 80 sockets,
+// which is the same order as the rejections' 200 ms grace window and puts any
+// "probe in the middle of the burst" assertion on a coin flip.
+class FloodClient {
+    public TcpStream sock;
+    public bool landed;
+    private int m_port;
+
+    public FloodClient(int port) {
+        m_port = port;
+        sock = null;
+        landed = false;
+    }
+
+    public void run() {
+        try { sock = TcpStream.connect("127.0.0.1", m_port, 5000); } catch (Exception e) { }
+        // sock is published before landed: stores retire in order on x86, so a
+        // poller that sees landed also sees the handle that pairs with it.
+        landed = true;
+    }
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.maxConnections = 2;
+    srv.start("127.0.0.1", 0, okHandler);
+    int port = srv.localPort();
+
+    // Both slots held open with no request sent: every later client is over cap.
+    TcpStream a = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream b = TcpStream.connect("127.0.0.1", port, 5000);
+    thread.sleep(100);
+
+    // ① A rejected client that does read still gets its 503. The answer has to
+    // survive the orderly close; this client closes right after reading, so
+    // the drain ends at EOF instead of at the 200 ms grace.
+    if (askStatus(port) != 503) { return 1; }
+
+    // ② Five clients that neither read nor close: each rejection burns the full
+    // grace period on whoever answers it. Free slots do not help while the
+    // accept loop is still grinding through that backlog.
+    List<TcpStream> stuck = {};
+    for (int i = 0; i < 5; i = i + 1) {
+        stuck.add(TcpStream.connect("127.0.0.1", port, 5000));
+    }
+    thread.sleep(50);
+    a.close();
+    b.close();
+    thread.sleep(150);                      //both connection threads release slots
+
+    long t0 = system.monoMs();
+    if (askStatus(port) != 200) { return 3; }
+    if (system.monoMs() - t0 > 500) { return 4; }  //served now, not after a backlog
+
+    // ③ Past the in-flight cap the surplus is dropped without an answer. The
+    // flood sockets are themselves the observation: main reads each one after
+    // every connect has landed, and the server's verdict on that connection —
+    // served and open, answered 503, or closed with nothing — is a sticky fact
+    // about the socket, so nothing has to be timed inside the grace window.
+    // With 2 slots already taken, the first 2 flood clients are served, the
+    // next 64 are answered 503 from their own contexts, and the remaining ~14
+    // close with no answer. Clients that land only after the window has decayed
+    // legitimately get their 503 back, so the assertion asks for a healthy
+    // margin (>= 5) instead of the exact 14.
+    List<FloodClient> flood = {};
+    for (int i = 0; i < 80; i = i + 1) { flood.add(FloodClient(port)); }
+    for (int i = 0; i < 80; i = i + 1) { thread.spawn(flood[i].run); }
+    long deadline = system.monoMs() + 5000;
+    while (!allLanded(flood)) {
+        if (system.monoMs() > deadline) { return 5; }   //connect never even landed
+        thread.sleep(5);
+    }
+    int noAnswer = 0;
+    for (int i = 0; i < 80; i = i + 1) {
+        TcpStream s = flood[i].sock;
+        if (s == null) { continue; }
+        try {
+            if (s.readLine(200).length() == 0) { noAnswer = noAnswer + 1; }
+        } catch (TimeoutException e) {
+            //Served slot: still open, waiting for a request that never comes.
+        } catch (Exception e) {
+            noAnswer = noAnswer + 1;        //a reset is a close without answer too
+        }
+    }
+    if (noAnswer < 5) { return 5; }
+
+    for (int i = 0; i < 80; i = i + 1) {
+        TcpStream s = flood[i].sock;
+        if (s != null) { s.close(); }
+    }
+    for (int i = 0; i < stuck.length(); i = i + 1) { stuck[i].close(); }
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+bool allLanded(List<FloodClient> flood) {
+    for (int i = 0; i < flood.length(); i = i + 1) {
+        if (!flood[i].landed) { return false; }
+    }
+    return true;
+}
+
+// One-shot client: connect, send a complete head, read the status line, close.
+// Returns the status code, or -1 when nothing legible comes back — which is
+// what a connection the server closed without answering gives: readLine
+// returns "" at EOF (stdlib/net.n:343) and a reset arrives as an exception.
+int askStatus(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    int code = -1;
+    try {
+        c.write("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n", 5000);
+        code = statusCodeOf(c.readLine(5000));
+    } catch (Exception e) {
+        code = -1;
+    }
+    c.close();
+    return code;
+}
+
+int statusCodeOf(string line) {
+    if (!line.startsWith("HTTP/1.1 ")) { return -1; }
+    return line.substring(9, 12).toInt();   //exactly the three status digits
+}

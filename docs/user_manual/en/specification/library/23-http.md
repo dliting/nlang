@@ -286,7 +286,7 @@ instead of silently sending an empty body (§23.6).
 | `headerTimeoutMs` | 10000 | Total budget for the request line and headers, counted from the first byte: a client that dribbles bytes out is answered 408 once it runs out. A single read never waits longer than this. |
 | `bodyTimeoutMs` | 10000 | Per-read budget for the handler's body reader. |
 | `writeTimeoutMs` | 10000 | Per-write budget for the response. A large body is written in slices, so the bound is per slice, not per message. |
-| `maxConnections` | 0 | `0` is unlimited. Over the cap, a new connection is answered 503 and closed. |
+| `maxConnections` | 0 | `0` is unlimited. Over the cap, a new connection is answered 503 and closed; while 64 such answers are already in flight, a surplus connection is closed with no answer, so the client reads an empty reply. |
 | `maxRequestsPerConnection` | 0 | `0` is unlimited. The Nth response also closes the connection. |
 
 `start(host, port, handler)` returns once the socket is listening;

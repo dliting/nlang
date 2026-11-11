@@ -1341,17 +1341,31 @@ class HttpConn {
     }
 
     // Answers a connection the server will not serve (over maxConnections).
-    // Public because HttpServer reaches it; not part of the documented user
-    // surface. The request sits unread in the receive queue, so the response
-    // goes out through the orderly close: a plain close would reset the
-    // connection and the client would never see the 503.
-    public void reject503(int writeTimeoutMs) {
-        HttpResponse res = errorResponse(503, "server is at capacity");
-        HttpRequest noReq = null;
+    // Run on its own context (D7) so the accept loop stays free: the write can
+    // block on a client that never reads, and the orderly close below waits out
+    // CLOSE_GRACE_MS for a peer that stays open. Public because HttpServer
+    // reaches it; not part of the documented user surface. The request sits
+    // unread in the receive queue, so the answer goes out through the orderly
+    // close: a plain close would reset the connection and the client would
+    // never see the 503.
+    public void reject503() {
+        // Only the server's accept path rejects, and there the server
+        // reference is set; client-pool connections leave m_srv null.
+        assert(m_srv != null);
         try {
-            this.writeResponse(res, noReq, false, writeTimeoutMs);
-        } catch (Exception e) { }
-        this.close();
+            HttpResponse res = errorResponse(503, "server is at capacity");
+            HttpRequest noReq = null;
+            try {
+                this.writeResponse(res, noReq, false, m_srv.writeTimeoutMs);
+            } catch (Exception e) {
+                // A client that hung up before the answer is not worth a log.
+            }
+            try { this.close(); } catch (Exception e) { }
+        } finally {
+            // The reservation comes back whatever happens: a lost one would
+            // shrink the in-flight cap for the life of the server.
+            m_srv.rejectDone();
+        }
     }
 
     // Serves one parsed request: the Expect handshake, the handler call, the
@@ -1457,9 +1471,18 @@ class HttpServer {
     private AtomicInt m_active;
     private AtomicInt m_closing;
 
+    // A spawn-per-rejection storm is bounded only by the client's willingness
+    // to connect, so the accept loop stops spawning past this many rejections
+    // in flight and closes the socket instead: an over-capacity client that
+    // gets no answer at all is a fine overload signal, and the accept loop
+    // keeps accepting (D7).
+    private static const int MAX_INFLIGHT_REJECTIONS = 64;
+    private AtomicInt m_rejecting;
+
     public HttpServer() {
         m_active = AtomicInt(0);
         m_closing = AtomicInt(0);
+        m_rejecting = AtomicInt(0);
     }
 
     // Binds and starts accepting; returns as soon as the listening socket is
@@ -1505,7 +1528,14 @@ class HttpServer {
             HttpConn conn = HttpConn(sock, this);
             if (maxConnections > 0 && active >= maxConnections) {
                 m_active.addAndGet(-1);
-                conn.reject503(writeTimeoutMs);
+                if (m_rejecting.getAndIncrement() < MAX_INFLIGHT_REJECTIONS) {
+                    thread.spawn(conn.reject503);
+                } else {
+                    m_rejecting.addAndGet(-1);
+                    // No drain here on purpose: the grace wait is exactly what
+                    // must not happen on the accept thread (D7).
+                    try { sock.close(); } catch (Exception e) { }
+                }
                 continue;
             }
             thread.spawn(conn.run);
@@ -1516,6 +1546,7 @@ class HttpServer {
     // public but are not part of the documented user surface.
     public func<HttpResponse, HttpRequest> handler() { return m_handler; }
     public void connDone() { m_active.addAndGet(-1); }
+    public void rejectDone() { m_rejecting.addAndGet(-1); }
 }
 
 // Per-origin connection pool (D8): at most MAX_IDLE idle connections, kept

@@ -209,7 +209,7 @@ int main() {
 | `headerTimeoutMs` | 10000 | 请求行与头部的总时限，从首字节起算：一点一点挤字节的慢客户端在时限耗尽后得到408。单次读取不会等得更久。 |
 | `bodyTimeoutMs` | 10000 | 处理器正文读取器每次读取的时限。 |
 | `writeTimeoutMs` | 10000 | 响应每次写入的时限。大正文分片写出，故时限按片而非按整条消息计。 |
-| `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭。 |
+| `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭；这样的作答最多并发64个，再多出的连接直接关闭而不作答，客户端读到空响应。 |
 | `maxRequestsPerConnection` | 0 | `0`为不限。第N条响应之后同时关闭连接。 |
 
 `start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`close()`停止接受并唤醒阻塞中的`accept`；已在处理的连接在自己的keep-alive循环里把手头的请求做完。
