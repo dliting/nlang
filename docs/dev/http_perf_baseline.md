@@ -244,7 +244,7 @@ rawbase_128c     rps=     9953  p50=  15.33 ms  p90=  16.13 ms  p99=  16.81 ms
 15 ms量子在裸套接字地板上同样存在：这一档的P50就是`E5`成分表要减掉的地板值，`http.n`服务器同档实测P50减去它，
 得到的就是脚本层与协议层的成本——这就是`E5`分解表要核对的目标。1连接行两边都是64 RPS、P50逐格吻合，脚本层成本
 在低并发档不显形；128连接行裸的9953 RPS是`http.n`实测5852的1.7倍，脚本层的成本余量集中在高并发档。`E4`不含任何
-`http.n`代码，因此它与`E0`的差只可能来自parking路径。
+`http.n`代码，因此它与`E0`的差只可能来自parking路径（该地板是修正前登记形态的产物，E2落地后已不成立；E5的减法口径见下文E2读数小节的差值说明）。
 
 ### 已排除
 
@@ -282,7 +282,7 @@ rawbase_128c     rps=     9953  p50=  15.33 ms  p90=  16.13 ms  p99=  16.81 ms
 判据实验E0已跑完（读数见本节末），它把领头假设的一半从「未排除」升为「已证实」：一个不带VM、不带GIL、
 不带载体、不带脚本的纯C++服务器，只把兴趣登记的时机从轮次边界挪到停泊时刻，15 ms量子就整格消失。
 剩下的未排除项因此收窄成一句话——**真服务器凭什么在32与128连接下仍让轮询空转到超时**（控制组在那个
-连接档不空转）。下列各条按代价排序，编号沿用docs/dev/net_http_perf_design.md§3.3的实验编号：
+连接档不空转）——这句已经由E2裁定（读数见本节末）：32连接那一格多出的那段正是登记时机，登记挪到停泊时刻后该格不再被超时终结；128连接那一格修正前就已钉在自身吞吐上限约5.8k RPS，其P50从来不是等待量子，那一格剩下的上限归E5的成分表。下列各条按代价排序，编号沿用docs/dev/net_http_perf_design.md§3.3的实验编号：
 
 1. **E1：在nvm进程内调一次`timeBeginPeriod(1)`**（临时一行、重建、重跑1／4／32／128四行）。E0已在
    VM之外证实「轮次由带超时的等待终结、该超时被15.625 ms刻度向上取整」这条机理，同一检查在控制组里
@@ -400,6 +400,66 @@ RPS同为97与387，P50差0.03与0.04 ms——吞吐低时本机几乎不抖。�
 30 %）。于是缺口是五倍有余，而主表在128连接确实测到5852 RPS。可见0.9 ms里含等待、或者高并发档的每请求
 成本比它低；E5的成分表得先把这笔账算清，否则128连接那一格的剩余上限无从归账。
 
+**E2读数（2026-11-11，机器锁内，D1落地后的二进制，标签`E2`）**。E2不需要补丁：D1（登记挪到停泊时刻，
+提交`2053fb5b`）已在主干，直接对重建后的`build-dev`的`nvm.exe`跑`probe_slice_ab.sh`（配方见§6）。四行读数：
+
+```
+sliceE2_1c       rps=     1798  p50=   0.52 ms  p90=   0.65 ms  p99=   0.71 ms
+sliceE2_4c       rps=     5808  p50=   0.64 ms  p90=   0.78 ms  p99=   0.99 ms
+sliceE2_32c      rps=     5779  p50=   5.35 ms  p90=   6.22 ms  p99=  14.21 ms
+sliceE2_128c     rps=     5685  p50=  21.64 ms  p90=  23.64 ms  p99=  34.96 ms
+```
+
+对照E1那趟的对照臂（同一探针、同机隔日）：
+
+| 连接数 | 修正前（E1对照臂） | 修正后（E2） | 变化 |
+| --- | --- | --- | --- |
+| 1 | 64.5／15.55 | 1798／0.52 | RPS×27.9，P50−15.03 ms |
+| 4 | 326／15.21 | 5808／0.64 | RPS×17.8，P50−14.57 ms |
+| 32 | 2386／15.01 | 5779／5.35 | RPS×2.42，P50−9.66 ms |
+| 128 | 5798／21.72 | 5685／21.64 | RPS−2.0 %，P50−0.08 ms |
+
+**读数落在E2判决的第一支：台阶消失。**1连接P50从15.55 ms落到0.52 ms，进入亚毫秒档——E0控制组里
+「停泊时刻登记」形态对真服务器的预测兑现了，D1据此定为修法。四格现在都满足「延迟≈连接数÷吞吐」
+（0.56、0.69、5.54、22.5 ms对着P50的0.52、0.64、5.35、21.64 ms）：每一格都站在吞吐上限那一侧，
+不再有任何等待量子的台阶；1、4连接那两格的上限是单GIL下每请求的脚本＋VM串行服务率，32与128
+连接是在这个服务率上的排队。128连接那一格修正前后都没动（5798→5685，差在本格4.8 %的散布之内），
+与E1「那一格对切片调短纹丝不动」互证：它从来不受量子支配。它的上限是NLang自己的——主表0 B／128连接
+一行Node 18371、Go 73764、Rust 92701都在5.8k之上一个到两个数量级；三次测到同一档位（主表5852、
+E1臂5898、E2 5685），剩下的上限归E5的成分表。
+
+**与E4地板之差**：E4那四行15.60／15.41／15.33／15.33 ms的地板测于修正前的登记形态，它量的是「轮次
+边界登记＋时钟刻度」这个组合的下限，不是VM停泊层的固有下限——E2落地后1连接P50 0.52 ms比它低30倍。
+E5的「`http.n`实测减地板」减法因此必须改用修正后二进制重跑的E4同档读数，否则脚本层份额会算成负数。
+另外把E0记过的那笔登记代价（停泊时刻登记每次停泊一对`ADD`／`MOD`）在这里结掉：1连接1798 RPS下每秒
+约3.6k次登记调用，而native控制组的停泊时刻登记形态以约六倍的登记密度（11035 RPS）跑出了六倍的吞吐，
+登记系统调用不是E2这一格的上限，缺口在VM与脚本侧，仍归E5。
+
+**E3读数（2026-11-11，机器锁内，临时补丁，标签`E3`）**。补丁只改一处：`NextIoTimeoutMs()`里无带截止
+条目的分支（`VmSchedulerIo.cpp:183-184`）由`return kIoPollSliceMs;`改成`return -1;`——wepoll对负超时按
+不限处理（`src/3rdparty/wepoll/wepoll.c:1265-1274`的`port_wait`的`INFINITE`分支），POSIX侧`epoll_wait`
+同样把负timeout当无限等（`src/vm/IoPollerPosix.cpp:66-69`）。测完按行精确删回、重建`nvm`，
+`git status --porcelain src/`已核过为空。判`GATE e3-infinite: PASS`（带读数；预登记的挂死形态`FAIL rc=1`
+未出现，见§6配方）。四行读数：
+
+```
+sliceE3_1c       rps=     1807  p50=   0.52 ms  p90=   0.64 ms  p99=   0.73 ms
+sliceE3_4c       rps=     5904  p50=   0.63 ms  p90=   0.77 ms  p99=   0.98 ms
+sliceE3_32c      rps=     5878  p50=   5.25 ms  p90=   6.08 ms  p99=  14.04 ms
+sliceE3_128c     rps=     5771  p50=  21.30 ms  p90=  23.34 ms  p99=  35.01 ms
+```
+
+**读数落在E3判据的第一支：登记本身确实唤醒在途等待。**1连接闭环格是判据所在：探针服务器对每个连接的
+头部读都带30 s空闲截止（`stdlib/http.n:914`），所以轮询器进入等待的那一刻，在途条目里只剩accept的
+无截止停泊——连接上下文正在跑脚本，它的fd早被收获轮的收窄清扫注销了。补丁把这种形态的等待超时整个
+摘掉：若挂起只能靠超时周期性终结，服务器会一条都不回话，探针过不了就绪检查（40次`curl -sf`×0.5 s）
+而以rc=1挂死——那个FAIL形态同样是判据的正证（§6）。实测四格照常应答，1连接1807 RPS／0.52 ms对
+E2的1798／0.52差0.5 %，无统计差别：登记先于事件、事件即终结者，挂起不需要任何额外的唤醒。
+4、32、128三格本就不走被改的分支——keep-alive读带截止，`any`为真，切片封顶照旧——它们与E2的
+＋1.5 %到＋1.7 %之差都落在散布之内，顺带证明补丁没有旁路副作用。
+结论：D1的收益来自「登记先于事件、事件即终结者」，spec §三E2行预登记的显式唤醒通道（Go
+`netpollBreak`的形状：POSIX往eventfd写一字节、Windows向IOCP投空完成包）确定不需要，本仓不引入。
+
 ### http.n每响应的次要成本
 
 已核实的两处代码位置，都不是本轮瓶颈：
@@ -494,6 +554,31 @@ tools/gate.sh --shared e1-revert temp/t21 cmake --build build-dev --config Relea
 可调环境变量：`PERF_CONTROL_DIR`（二进制目录）、`PERF_CONTROL_MODES`（跑哪几个形态，取值`round`／`immediate`
 ／`round-tb`，默认前两个）、`PERF_CONTROL_CONNS`、`PERF_CONTROL_PORT`（起始端口，逐形态加一）、`PERF_PASSES`，
 以及共用的`PERF_DUR`／`PERF_WARM`／`PERF_THREADS`／`PERF_REQ_TIMEOUT`。
+
+E2不需要补丁也不需要临时改动——D1已在主干，测前只需保证`build-dev`的`nvm.exe`是从含`2053fb5b`的树
+重建出来的（下面第一条重建是保险做法）：
+
+```bash
+tools/gate.sh --shared e2-build temp/t30b cmake --build build-dev --config Release --target nvm
+tools/gate.sh e2-parksite temp/t30 bash tools/http_perf/probe_slice_ab.sh E2
+```
+
+E3在它之上只改一处：把`NextIoTimeoutMs()`里`if (!any)`分支（`VmSchedulerIo.cpp:183-184`）的
+`return kIoPollSliceMs;`改成`return -1;`（不限等），重建时序与E1一致——先编打补丁的`nvm`、测、按行
+精确删回（不要`git checkout --`：它会丢掉该文件全部未提交改写）、再重建回去；`git status --porcelain src/`
+为空才算还原干净：
+
+```bash
+tools/gate.sh --shared e3-build temp/t31 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
+tools/gate.sh e3-infinite temp/t32 bash tools/http_perf/probe_slice_ab.sh E3
+tools/gate.sh --shared e3-revert temp/t31b cmake --build build-dev --config Release --target nvm  # 删回补丁之后
+```
+
+E3的两种预期结局都算正证：要么挂起仍被登记唤醒、P50保持亚毫秒（`GATE e3-infinite: PASS`带读数，
+本次即此支），要么服务器一条都不回话——探针过不了就绪检查（`probe_slice_ab.sh:70-78`的40次`curl -sf`
+×0.5 s），stderr打`server never answered on …; see …/slice_E3.log`并以rc=1退出，门禁判
+`GATE e3-infinite: FAIL rc=1`。后一种FAIL形态是本判据预期内的正证（挂死＝挂起本身要靠注册唤醒），
+按正证记录，不触发「任一门禁失败全批作废重扫」。
 
 E4裸套接字地板探针不依赖主测量产物——脚本自己渲染`probe_raw_server.n.in`并编译`probe_raw.ncu`，全程只占机器锁。
 标签口径同本节标题：改动前用`base`，本版改完后用`post`（与`probe_slice_ab.sh`的标签口径一致，两趟地板不会互相覆盖）：
