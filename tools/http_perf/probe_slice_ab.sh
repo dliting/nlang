@@ -16,6 +16,8 @@
 #
 # Tag argument: a short label for this build, used in the output file names so
 # runs do not overwrite each other.
+# PERF_OHA_EXTRA applies to the measured oha call only (the warm-up stays
+# unthrottled), so a pacing arm (e.g. "--delay 6ms") does not slow the warm-up.
 #
 # Prerequisite: a previous run_baseline.sh run has to have produced
 # $PERF_OUT/srv_nlang.ncu (PERF_SERVERS=nlang is enough); the probe measures that
@@ -32,6 +34,10 @@ OHA=${OHA:-D:/dev/oha/oha.exe}
 PY313=${PY313:-D:/dev/miniconda3/envs/py313/python.exe}
 PORT=${PERF_PORT_NLANG:-18081}
 CONNS=${PERF_SLICE_CONNS:-"1 4 32 128"}
+#Extra oha flags for the measured run only (the warm-up stays unthrottled),
+#word-split on purpose so several flags fit in one variable: the E5
+#component table needs a closed-loop pacing arm (PERF_OHA_EXTRA="--delay 6ms").
+PERF_OHA_EXTRA=${PERF_OHA_EXTRA:-}
 CARRIERS=${PERF_CARRIERS:-4}
 DUR=${PERF_DUR:-15s}
 WARM=${PERF_WARM:-3s}
@@ -50,9 +56,13 @@ measure() {   # measure <conns>
     "$OHA" --no-tui -z "$WARM" -c "$conns" --worker-threads "$GEN_THREADS" \
         -t "$REQ_TIMEOUT" --disable-compression \
         "http://127.0.0.1:$PORT/b0" > /dev/null 2>&1
+    # A previous run's JSON lingers after the measured oha dies on a bad flag;
+    # without this removal the reader below re-prints the stale numbers and the
+    # probe goes green without a reading (seen with an invalid PERF_DUR value).
+    rm -f "$OUT/$label.json"
     "$OHA" --no-tui -z "$DUR" -c "$conns" --worker-threads "$GEN_THREADS" \
         -t "$REQ_TIMEOUT" --disable-compression \
-        --output-format json -o "$OUT/$label.json" \
+        --output-format json -o "$OUT/$label.json" $PERF_OHA_EXTRA \
         "http://127.0.0.1:$PORT/b0" > /dev/null 2>&1
     "$PY313" -I -c "
 import json,sys
