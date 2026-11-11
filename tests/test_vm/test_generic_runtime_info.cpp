@@ -465,6 +465,69 @@ static void testNullDescCellRaisesNamedError()
     PASS();
 }
 
+//Task 6 Review-Focus-1 pin: the static→free chain fills the callee's
+//frame context cell from a recipe composed against the CALLER's cell.
+//Under per-allocation collections (threshold 4) the interned descriptor
+//pointers live in host memory and must survive every safepoint; the
+//verdicts (exit-code protocol) plus the post-run heap invariants —
+//descriptors only on class slots, both recipe-composed constructions
+//still carrying theirs — prove the fill order beats the safepoint.
+static void testGenericFrameSlotUnderGcStress()
+{
+    TEST(genericFrameSlotUnderGcStress);
+    {
+        ExecResult r = runProgram("gri_gc_stress_chain",
+            "class Hold<U> {\n"
+            "    public U held;\n"
+            "    public Hold(U v) { held = v; }\n"
+            "}\n"
+            "class Ctor<T> {\n"
+            "    public static string probe(T v) {\n"
+            "        return freeTag(v);\n"
+            "    }\n"
+            "    public static Hold<T> wrap(T v) {\n"
+            "        return Hold<T>(v);\n"
+            "    }\n"
+            "}\n"
+            "string freeTag<T>(T v) {\n"
+            "    return typeName(T);\n"
+            "}\n"
+            "int main() {\n"
+            "    if (Ctor<int>.probe(3) != \"int\") { return 3; }\n"
+            "    if (Ctor<string>.probe(\"s\") != \"string\") { return 4; }\n"
+            "    for (int i = 0; i < 40; i = i + 1) {\n"
+            "        if (Ctor<long>.probe(1099511627776) != \"long\") { return 5; }\n"
+            "    }\n"
+            "    Hold<int> a = Ctor<int>.wrap(7);\n"
+            "    Hold<string> b = Ctor<string>.wrap(\"w\");\n"
+            "    if (a.held != 7) { return 6; }\n"
+            "    if (b.held != \"w\") { return 7; }\n"
+            "    return 0;\n"
+            "}\n",
+            /*gcStressThreshold=*/4);
+        REQUIRE(r.built);
+        CHECK(r.exitCode == 0, "every chain verdict survived the "
+              "per-allocation collections");
+        const auto hits = heapIndicesWithDescriptor(*r.exec);
+        CHECK(hits.size() == 2, "exactly the two live constructions "
+              "carry descriptors");
+        bool foreignKind = false, sawInt = false, sawString = false;
+        for (int32_t idx : hits) {
+            if (r.exec->HeapSlotKindForTests(idx) != RTK_Class)
+                foreignKind = true;
+            const std::string spelling =
+                r.exec->InstDescriptorOf(idx)->Spelling();
+            sawInt = sawInt || spelling == "Hold<int>";
+            sawString = sawString || spelling == "Hold<string>";
+        }
+        CHECK(!foreignKind,
+              "descriptor slots stayed kind-restricted under stress");
+        CHECK(sawInt && sawString, "both recipe-composed constructions "
+              "kept their descriptors across the collections");
+    }
+    PASS();
+}
+
 int main()
 {
     //Static tables before any compiler work (the test_array_view_record
@@ -483,6 +546,7 @@ int main()
         testStaticBodyComposesFromForwardedContext();
         testStaticFrameCarriesForwardedContext();
         testRecycledSlotsCarryNoDescriptor();
+        testGenericFrameSlotUnderGcStress();
         testNullDescCellRaisesNamedError();
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
