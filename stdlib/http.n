@@ -853,6 +853,11 @@ class HttpConn {
     private byte[] m_spill;
     private int m_spillLen;
     private bool m_chunkDone;   // chunked terminator seen; reset per message
+    // IMF-fixdate has one-second resolution (RFC 9110 §7.1.1.2), so one text
+    // per second is byte-identical to one text per request (D4). One
+    // connection, one virtual thread, so no synchronization is needed.
+    private long m_dateSec = -1;
+    private string m_dateText = "";
     private HttpServer m_srv;   // owning server; null for client-pool connections
 
     public HttpConn(TcpStream s, HttpServer srv = null) {
@@ -1162,7 +1167,15 @@ class HttpConn {
             res.headers.set("Content-Length", "0");
         }
         if (!res.headers.has("Date")) {
-            res.headers.set("Date", HttpDate.format(system.wallMs()));
+            // D4: the format depends on nothing but the whole second, so the
+            // text is built once per second and reused; a handler that sets
+            // its own Date still wins.
+            long sec = system.wallMs() / 1000;
+            if (sec != m_dateSec) {
+                m_dateSec = sec;
+                m_dateText = HttpDate.format(sec * 1000);
+            }
+            res.headers.set("Date", m_dateText);
         }
         bool wantClose = res.connectionClose || (req != null && req.connectionClose);
         if (wantClose) {

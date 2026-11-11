@@ -2183,3 +2183,4 @@ stdlib_net_tcp_read_exactly_split 0
 stdlib_net_window 0
 stdlib_http_big_head 0
 stdlib_http_single_write 0
+stdlib_http_date_cache 0

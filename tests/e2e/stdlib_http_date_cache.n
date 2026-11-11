@@ -1,0 +1,88 @@
+// D4: the Date header is IMF-fixdate — one-second resolution, RFC 9110
+// §7.1.1.2 — so one text per second is a byte-identical answer. That makes
+// this a characterization test: the wire contract does not change, so these
+// assertions have to hold before the cache exists and after it. What they
+// pin is the two ways the cache can go wrong: a text that stops refreshing
+// (the staleness check goes red once the loop outlives two seconds) and a
+// cache keyed on the monotonic clock (it goes red immediately).
+import io;
+import net;
+import http;
+import system;
+
+HttpResponse timedHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.statusCode = 204;                 //no body: readDate stops at the blank line
+    return res;
+}
+
+HttpResponse mineHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.statusCode = 204;
+    res.headers.set("Date", "Tue, 01 Jan 2030 00:00:00 GMT");
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, timedHandler);
+    int port = srv.localPort();
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+
+    string seen = "";
+    int distinct = 0;
+    int served = 0;
+    long t0 = system.monoMs();
+    //Outlive two second boundaries: a text that stopped refreshing is only
+    //stale enough to notice once the wall clock has moved on by two seconds.
+    while (system.monoMs() - t0 < 2100) {
+        c.write("GET / HTTP/1.1\r\nHost: h\r\n\r\n", 5000);
+        string date = readDate(c);
+        long sec = system.wallMs() / 1000;
+        if (date.length() != 29) { return 1; }
+        if (date.indexOf(" GMT", 25) != 25) { return 2; }
+        //The stamp is the current second or the one just passed (a response can
+        //straddle a boundary between being written and being read); anything
+        //older means the text stopped tracking the wall clock — and a cache
+        //keyed on system.monoMs() lands here too, since monoMs is not an epoch.
+        if (date != HttpDate.format(sec * 1000) && date != HttpDate.format((sec - 1) * 1000)) {
+            return 3;
+        }
+        if (seen.indexOf(date) < 0) { distinct = distinct + 1; seen = seen + date + "|"; }
+        served = served + 1;
+    }
+    if (served < 4) { return 4; }                      //the loop must really have spun
+    long elapsedSec = (system.monoMs() - t0) / 1000;
+    if (distinct > elapsedSec + 2) { return 5; }       //one text per second, not per request
+    c.close();
+    srv.close();
+
+    //The cache fills a missing Date; it never overwrites the handler's own.
+    HttpServer srv2 = HttpServer();
+    srv2.start("127.0.0.1", 0, mineHandler);
+    HttpResponse res = get("http://127.0.0.1:" + srv2.localPort().toString() + "/");
+    if (res.headers.get("Date") != "Tue, 01 Jan 2030 00:00:00 GMT") { return 6; }
+    srv2.close();
+    io.print("ok");
+    return 0;
+}
+
+//Drains the whole head through the blank line, so the next request on this
+//connection starts aligned. Returning at the Date line instead would leave
+//the blank line to be read as the next status line.
+string readDate(TcpStream c) {
+    string status = c.readLine(5000);                    //status line
+    if (status.length() < 12) { return ""; }             //framing slipped → check 1 catches it
+    if (status.substring(9, 12) != "204") { return ""; }
+    string date = "";
+    while (true) {
+        string h = c.readLine(5000);                     //headers until the blank line
+        if (h.length() == 0) { break; }
+        if (h.indexOf("Date:", 0) == 0) {
+            string v = h.substring(6, h.length());
+            while (v.length() > 0 && v[0] == 32) { v = v.substring(1, v.length()); }
+            date = v;
+        }
+    }
+    return date;
+}
