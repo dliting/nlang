@@ -64,6 +64,21 @@ class GenericInstanceRegistry;
 
 class VmBackend : public ICodeBackend {
 public:
+    //0.13.1a Task 5: one erased-container boundary slot's plan — a box
+    //crosses the boundary either statically (the receiver's type
+    //argument is concrete; `tag` is known) or dynamically (the argument
+    //is the calling generic body's own placeholder; the executing
+    //frame's descriptor decides via OP_Box_TypeArg/OP_Unbox_TypeArg).
+    //The member-call path maps callParamBase slot index to plan. Public:
+    //file-local backend records (foreach iterable classification)
+    //embed it.
+    struct ArgBoxPlan {
+        bool needsBox = false;
+        bool bDynamic = false;
+        uint8_t tag = 0;
+        uint8_t dynOrdinal = 0;
+    };
+
     VmBackend();
     ~VmBackend() override;
 
@@ -494,17 +509,18 @@ private:
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
-    //Phase 8e-4 boxing plan for generic method calls, derived
-    //from the declared template signatures (phase-2 D6).
+    //Phase 8e-4 boundary plan for generic method calls, derived
+    //from the declared template signatures (phase-2 D6; the dynamic
+    //variant is 0.13.1a Task 5).
     void PlanGenericMethodBoxing(SnClassDecl& classDecl,
                                  const std::string& methodName,
                                  std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                 bool& returnsBoxed, uint8_t& returnTag);
+                                 ArgBoxPlan& returnPlan);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
     //assign, out spills, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
-                                  SnFunction* callee, bool returnsBoxed,
-                                  uint8_t returnTag,
+                                  SnFunction* callee,
+                                  const ArgBoxPlan& returnPlan,
                                   const std::vector<OutSpill>& outSpills,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset);
@@ -821,11 +837,11 @@ private:
     //0.8.4: get() call over the parked [base, index] claim slots
     //(mirrors EmitContainerGetCall without re-emitting base/index).
     void EmitSubscriptGetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter);
     //0.8.4: set() call over the parked [base, index, result] claim slots.
     void EmitSubscriptSetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter);
 
     //Foreach (EmitStmtForeach.cpp): the user loop variable plus the
@@ -852,9 +868,9 @@ private:
     size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
                                BytecodeEmitter& emitter);
     //Body-prelude: element i into the user slot (LoadElement +
-    //struct deep copy vs get() + unbox).
+    //struct deep copy vs get() + unbox under the boundary plan).
     void EmitForeachLoadElement(bool isArray, SnField* pElemType,
-                                uint8_t elemKind,
+                                uint8_t elemKind, const ArgBoxPlan& elemBox,
                                 const ForeachSlots& slots,
                                 BytecodeEmitter& emitter);
     //Loop tail: i+=1 continue target, back-jump, break/continue
@@ -924,11 +940,6 @@ private:
         size_t tryEndJumpPatch,
         const std::vector<size_t>& catchEndJumpPatches,
         BytecodeEmitter& emitter);
-
-    //Phase 9c: per-argument boxing plan for built-in generic class methods
-    //(List<T>, Dict<K,V>). Maps callParamBase slot index to {type tag, needs
-    //box}. Empty for user methods (no boxing — values pass as heap idxs).
-    struct ArgBoxPlan { uint8_t tag; bool needsBox; };
 
     //Phase 9e: an out-argument writeback. After the *Out call opcode
     //copies callee frame slot `slotIdx` back into callParamBase, this
@@ -1018,6 +1029,17 @@ private:
     void ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
                          BytecodeEmitter& emitter,
                          const std::map<uint16_t, ArgBoxPlan>* pArgPlans);
+
+    //One container-boundary normalization at a slot: refresh it (the box
+    //must read the staged value, not a stale accumulator left behind by
+    //expression emission), emit the dynamic-or-static box opcode, store
+    //back. The uniform front half of every boundary plan application.
+    static void EmitBoundaryBox(const ArgBoxPlan& box,
+                                BytecodeEmitter& emitter, uint16_t slot);
+    //One boundary unbox of the accumulator where it stands — the
+    //dynamic-or-static opcode pair after every container get()/add().
+    static void EmitBoundaryUnbox(const ArgBoxPlan& box,
+                                  BytecodeEmitter& emitter);
 
     //Stage the receiver into claim slot 0 before method-call bindings.
     void StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
@@ -1367,17 +1389,18 @@ private:
     //Literal arm: the same kind set ExtractLiteralDefault folds.
     bool EncodeLiteralDesc(SnLiteralExpr& lit, std::vector<uint8_t>& out);
     static BoxingTagResult BoxingTagFor(SnField* pT);
-    //The boxing tag for one placeholder-typed signature slot (formal or
-    //return); the type argument the placeholder binds to decides it.
-    static BoxingTagResult PlaceholderBoxingTag(
-        const GenericInstanceRegistry& declaredGenerics,
-        SnField* pPlaceholder, const std::vector<SnField*>& typeArgs);
+    //0.13.1a Task 5: the erased-container boundary plan for an element-
+    //typed signature slot against its receiver instantiation — a
+    //static tag when the type argument is concrete, a dynamic frame
+    //ordinal when it is the calling generic body's own placeholder,
+    //no box otherwise (reference kinds pass through).
+    ArgBoxPlan PlanBoundaryBox(SnField* pElemType, SnClassDecl* pReceiverInst);
     //Emit one operand into its claim slot, boxing it in place when
-    //the plan says primitive (the OP_Box sequence needs a pResult
-    //refresh first). Used by the container subscript SET sugar path;
-    //the get path keeps its own inline boxing (EmitExprCast.cpp).
+    //the plan says so (the OP_Box/OP_Box_TypeArg sequence needs a
+    //pResult refresh first). Used by the container subscript SET
+    //sugar path; the get path keeps its own inline unboxing.
     void EmitBoxedOperand(SnExpression& operand, uint16_t slot,
-                          const BoxingTagResult& box,
+                          const ArgBoxPlan& box,
                           BytecodeEmitter& emitter);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
@@ -1485,8 +1508,8 @@ private:
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
-    void EmitContainerGetCall(SnSubscriptExpr& sub, BoxingTagResult keyBox,
-                              BoxingTagResult valBox,
+    void EmitContainerGetCall(SnSubscriptExpr& sub, const ArgBoxPlan& keyBox,
+                              const ArgBoxPlan& valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitStringByteAt(SnSubscriptExpr& sub, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
@@ -1678,19 +1701,19 @@ private:
                                    const int32_t* pExtraConstSlot = nullptr);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
-    void EmitInitListEntryAdd(const InitEntry& entry, BoxingTagResult tBox,
+    void EmitInitListEntryAdd(const InitEntry& entry, const ArgBoxPlan& tBox,
                               uint16_t addNameIdx, uint16_t resultOffset,
                               BytecodeEmitter& emitter);
     void EmitInitListDictForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
-    void EmitInitListEntrySet(const InitEntry& entry, BoxingTagResult kBox,
-                              BoxingTagResult vBox, uint16_t setNameIdx,
+    void EmitInitListEntrySet(const InitEntry& entry, const ArgBoxPlan& kBox,
+                              const ArgBoxPlan& vBox, uint16_t setNameIdx,
                               uint16_t resultOffset, BytecodeEmitter& emitter);
     //0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
-    //box it in place when its declared kind is primitive — the shared
+    //box it in place when the boundary plan says so — the shared
     //shape of the "add"/"set" argument slots.
     void EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
-                                const BoxingTagResult& box,
+                                const ArgBoxPlan& box,
                                 BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);

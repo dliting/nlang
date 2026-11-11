@@ -1,0 +1,10 @@
+// err_generic_free_infer_unbound.n — 0.13.1a: T appearing only in the
+// return type is not inferable from a discarded result; the named
+// diagnostic points at the fix (assign to a typed target).
+List<T> makeList<T>() {
+    return {};
+}
+int main() {
+    makeList();
+    return 0;
+}

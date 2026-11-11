@@ -52,13 +52,13 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
     //(BoxingTagFor default). Dict keys box when primitive; List's
     //index is int.
     auto keyBox = isDict
-        ? BoxingTagFor(typeArgs[0])
-        : BoxingTagResult{0, false};
-    //Value boxes when T/V is primitive (argPlans[2] in the
+        ? PlanBoundaryBox(typeArgs[0], pGenClass)
+        : ArgBoxPlan{};
+    //Value normalizes when T/V is primitive (argPlans[2] in the
     //member-call path; slot 2 here).
     SnField* pElem = isList ? typeArgs[0]
         : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-    auto valBox = BoxingTagFor(pElem);
+    auto valBox = PlanBoundaryBox(pElem, pGenClass);
     //arg0 = index → claim[1]
     EmitBoxedOperand(*sub.Index(), claimBase + kFrameSlotBytes, keyBox,
                      emitter);
@@ -89,15 +89,11 @@ void VmBackend::EmitContainerSubscriptSet(SnSubscriptAssignStmt& sub,
 //subscript SET sugar path; the get path keeps its own inline boxing
 //(EmitExprCast.cpp).
 void VmBackend::EmitBoxedOperand(SnExpression& operand, uint16_t slot,
-                                 const BoxingTagResult& box,
+                                 const ArgBoxPlan& box,
                                  BytecodeEmitter& emitter) {
     EmitExpression(operand, emitter, slot);
-    if (!box.isPrimitive) return;
-    EmitPResultRefresh(emitter, slot);
-    emitter.Emit(OpCode::OP_Box);
-    emitter.EmitByte(box.tag);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(slot);
+    if (!box.needsBox) return;
+    EmitBoundaryBox(box, emitter, slot);
 }
 
 //Element type of the array being stored into: the array-valued

@@ -81,11 +81,48 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 
 	if (m_Env.Registry().IsKnownModule(rModulePath))
 		return true;
+	if (ClaimsExtendedModulePath(rModulePath))
+		return true;
 	//A library namespace the symbol index knows but this build did not
 	//inline (the caller never imported it, so DiscoverLibraryUnits did not
 	//pull it in) is still a library target — RejectUnimportedModuleCall
 	//names the missing import instead of a spurious field error.
 	return m_Env.IsLibraryPackage(pathSegs.front());
+}
+
+//The extended-module arm's claim walk: a chain extending a known
+//module with deeper segments addresses an unimported child package
+//(spec §6.2: a parent import does not open the child) — claim it so
+//RejectUnimportedModuleCall names the exact child path. Without this
+//arm the chain descends into mid-chain members and dies as a bogus
+//"Type not a member" claim plus follow-on noise. The claimed path is
+//the member chain MINUS the invoke tip, and it can never match the
+//TU's import gate, so a chain whose next segment after the first
+//known prefix is a TYPE in that module (lib.Mix.f, lib.Color.Blue.rank
+//— a qualified type access the normal member path owns) is vetoed out
+//of the claim; a same-named type wins over a child package per the
+//m12 priority rule in the decline tests above. Everything else
+//(gfx.color.deep in gfx.color.deep.tone, lib.sub in lib.sub.f) is
+//child-package addressing and stays claimed: an unimported child is
+//exactly an unregistered one, so existence is not checkable here.
+bool ExprResolveAccessor::ClaimsExtendedModulePath(
+	const std::string &modulePath)
+{
+	const auto &reg = m_Env.Registry();
+	for (size_t dot = modulePath.find('.');
+		dot != std::string::npos;
+		dot = modulePath.find('.', dot + 1))
+	{
+		const std::string prefix = modulePath.substr(0, dot);
+		if (!reg.IsKnownModule(prefix))
+			continue;
+		const size_t nextDot = modulePath.find('.', dot + 1);
+		const std::string nextSeg = nextDot == std::string::npos
+			? modulePath.substr(dot + 1)
+			: modulePath.substr(dot + 1, nextDot - dot - 1);
+		return reg.FindModuleType(prefix, nextSeg) == nullptr;
+	}
+	return false;
 }
 
 //Spec §7 row 1: the module is known but not imported into the current

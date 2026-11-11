@@ -227,24 +227,19 @@ void VmBackend::EmitCompoundSubscriptContainer(SnCompoundAssignStmt& ca,
     //(BoxingTagFor default). Dict keys box when primitive; List's
     //index is int.
     auto keyBox = isDict
-        ? BoxingTagFor(typeArgs[0])
-        : BoxingTagResult{0, false};
+        ? PlanBoundaryBox(typeArgs[0], pGenClass)
+        : ArgBoxPlan{};
     SnField* pElem = isList ? typeArgs[0]
         : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-    auto valBox = BoxingTagFor(pElem);
+    auto valBox = PlanBoundaryBox(pElem, pGenClass);
     //1. Base → claim[0], null-checked (receiver first, JLS 15.26.1).
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
-    //2. Index → claim[1]; a Dict key is boxed once in place.
+    //2. Index → claim[1]; a Dict key is normalized once in place.
     EmitExpression(*sub.Index(), emitter, indexSlot);
-    if (keyBox.isPrimitive) {
-        EmitPResultRefresh(emitter, indexSlot);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(keyBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(indexSlot);
-    }
+    if (keyBox.needsBox)
+        EmitBoundaryBox(keyBox, emitter, indexSlot);
     //3. Old element: get() on the parked [base, index] → claim[2],
     //unboxed for primitive T/V.
     EmitSubscriptGetFromClaim(claimBase, indexSlot, oldValSlot,
@@ -263,35 +258,29 @@ void VmBackend::EmitCompoundSubscriptContainer(SnCompoundAssignStmt& ca,
 //mirrors EmitContainerGetCall's unbox discipline but without re-emitting
 //base/index (they were evaluated once for the read-modify-write).
 void VmBackend::EmitSubscriptGetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter) {
     CopyClaimToCallParams(claimBase, 2, emitter);
     uint16_t nameIdx = AddStringConstant("get");
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    if (valBox.isPrimitive) {
-        emitter.Emit(OpCode::OP_Unbox);
-        emitter.EmitByte(valBox.tag);
-    }
+    if (valBox.needsBox)
+        EmitBoundaryUnbox(valBox, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(oldValSlot);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
 //0.8.4: set() call over the parked [base, index, result] claim slots —
-//box the result in place when T/V is primitive (EmitCompoundOp's
-//numeric path leaves pResult stale, so refresh before OP_Box).
+//normalize the result in place when the boundary plan says so
+//(EmitCompoundOp's numeric path leaves pResult stale, so refresh
+//before the box).
 void VmBackend::EmitSubscriptSetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter) {
-    if (valBox.isPrimitive) {
-        EmitPResultRefresh(emitter, oldValSlot);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(valBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(oldValSlot);
-    }
+    if (valBox.needsBox)
+        EmitBoundaryBox(valBox, emitter, oldValSlot);
     CopyClaimToCallParams(claimBase, 3, emitter);
     uint16_t nameIdx = AddStringConstant("set");
     emitter.Emit(OpCode::OP_CallMethod);

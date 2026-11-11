@@ -1,0 +1,10 @@
+// err_generic_free_infer_conflict.n — 0.13.1a: unification is exact
+// match, no implicit numeric promotion (Go/C# precedent). Two formals
+// bind T to different types -> named conflict diagnostic naming T and
+// both candidate types.
+T max<T>(T a, T b) {
+    return b;
+}
+int main() {
+    return max(3, 7.0);
+}

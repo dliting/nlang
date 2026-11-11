@@ -1,0 +1,9 @@
+// err_generic_free_t_default.n — 0.13.1a: a type-parameter-typed formal
+// rejects a default value (same line as the class-template T-initializer
+// rule: without a constraint no meaningful T initial value exists).
+T defVal<T>(T v = 0) {
+    return v;
+}
+int main() {
+    return defVal(3);
+}

@@ -464,16 +464,15 @@ void ExprResolveAccessor::TryInferTemplateRowStaticCall(
 	bool bUnbound = false;
 	for (auto *pCand : candidates)
 	{
-		std::vector<SnField *> candArgs;
-		auto res = InferTypeArgsForCall(generics, *pCand, actuals,
-			candArgs);
-		if (res == TypeArgInferenceResult::Mismatched)
+		auto outcome = InferTypeArgsForCall(generics, *pCand, actuals);
+		if (outcome.result == TypeArgInferenceResult::Mismatched)
 			continue;
-		if (res == TypeArgInferenceResult::Unbound)
+		if (outcome.result == TypeArgInferenceResult::Unbound)
 		{
 			bUnbound = true;
 			continue;
 		}
+		std::vector<SnField *> candArgs = std::move(outcome.bindings);
 		if (BindsOwnTemplatePlaceholder(generics, tmpl, candArgs))
 			return;
 		if (!args.empty() && args != candArgs)

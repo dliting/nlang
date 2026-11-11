@@ -3,6 +3,7 @@
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "SnArrayTypeToken.h"
+#include <nlang/compiler/TypeArgInference.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
 #include <functional>
@@ -719,6 +720,13 @@ private:
 		std::vector<FormalBinding> &outBindings,
 		std::vector<SnField*> &outTypeArgs, int &rnDistance);
 
+	//0.13.1a Task 5: the named diagnosis for the sweep's retained
+	//generic-inference failure (conflicting type arguments / unbound
+	//with the return-position hint). False (nothing logged) when no
+	//failure was retained or it does not belong to this call.
+	bool MaybeLogGenericInferFailure(SnInvokeExpr &invoke,
+		const std::vector<SnFunction*> &candidates);
+
 	/*
 	0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst —
 	overload matching over the candidate ctors of one class/struct with
@@ -1087,11 +1095,20 @@ private:
 	bool TryInferArrayDimsDeferredArgs(SnInvokeExpr &snInvoke,
 		const std::vector<SnExpression*> &deferredBraceArgs,
 		bool &rbSwept);
-	//The LHS declared type published by the assign resolver for
-	//`Channel<int> c = Channel(4);`-shaped calls (the declared-generic
-	//ctor arm reads it); null outside an assignment's RHS resolution.
-	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget.
-	SnField *m_pCtorInvokeTarget = nullptr;
+	//The LHS declared type published by the assign resolver for the
+	//RHS invoke (`Channel<int> c = Channel(4);` ctor arm and the
+	//0.13.1a Task 5 return-position inference arm both read it as the
+	//expected type); null outside an assignment's RHS resolution.
+	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget; cleared
+	//after RHS resolution otherwise.
+	SnField *m_pAssignTargetHint = nullptr;
+
+	//0.13.1a Task 5: the free-function sweep's last generic-inference
+	//failure (reset at each sweep entry; retained for the named
+	//diagnosis when nothing else binds either — LogInvokeFailure
+	//consults it before the generic incompatibility report).
+	SnFunction *m_pGenericInferFailFunc = nullptr;
+	TypeArgInferenceOutcome m_genericInferFail;
 
 	//Declared-generic machinery (`class Name<T, ...>`, registry in
 	//GenericInstanceRegistry.h): mint-or-fetch the synthetic
@@ -1353,6 +1370,12 @@ private:
 	*/
 	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
 		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
+	//The extended-module arm's claim walk (definition beside
+	//TryResolveModuleCallTarget for the source-size cap): true = the
+	//chain addresses an unimported child package; false = a known
+	//prefix's next segment is a type, the normal member path's
+	//qualified type access.
+	bool ClaimsExtendedModulePath(const std::string &modulePath);
 	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,
 		const std::string &modulePath);
 	bool TryResolveModuleQualifiedArgs(SnMemberExpr &snMember,
@@ -1491,11 +1514,12 @@ public:
 		return sn.IsResolved();
 	}
 
-	//K3 task 4: pass-through for the statement resolver's ctor-invoke
-	//target hint (see ExprResolveAccessor::m_pCtorInvokeTarget).
-	void SetCtorInvokeTarget(SnField *pTarget)
+	//K3 task 4 / 0.13.1a Task 5: pass-through for the statement
+	//resolver's assign-target hint (see
+	//ExprResolveAccessor::m_pAssignTargetHint).
+	void SetAssignTargetHint(SnField *pTarget)
 	{
-		m_Accessor.m_pCtorInvokeTarget = pTarget;
+		m_Accessor.m_pAssignTargetHint = pTarget;
 	}
 
 	//Resolve the child data type nodes in a specified field.

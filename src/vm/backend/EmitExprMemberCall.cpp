@@ -1,20 +1,16 @@
 /*---
-    EmitExprMemberCall.cpp — 成员表达式方法调用发射：stdlib/枚举/类/接口方法调用、内建泛型装箱计划与方法分派。
-    从 EmitExprMember.cpp 拆出；字符串/toString 族拆至 EmitExprMemberString.cpp（2026-09-25 可维护性重构，零行为变化）。
+    EmitExprMemberCall.cpp — 成员表达式方法调用发射：stdlib/枚举/类/接口方法调用与方法分派。
+    从 EmitExprMember.cpp 拆出；字符串/toString 族拆至 EmitExprMemberString.cpp（2026-09-25）；
+    泛型装箱规划拆至 EmitGenericBoxing.cpp（0.13.1a Task 5 尺寸守卫拆分）。
 ---*/
 #include "VmBackend.h"
-#include "builder/ModuleRegistry.h"
-#include <nlang/compiler/GenericInstanceRegistry.h>
-#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/compiler/SnMisc.h>
-#include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnStatements.h>
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
-#include <nlang/langservice/SymbolIndex.h>
 #include <cassert>
 #include <map>
 #include <vector>
@@ -244,11 +240,10 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                             BytecodeEmitter& emitter,
                                             uint16_t resultOffset) {
     std::map<uint16_t, ArgBoxPlan> argPlans;
-    bool returnsBoxed = false;
-    uint8_t returnTag = 0;
+    ArgBoxPlan returnPlan;
     if (classDecl.IsGenericInstantiation()) {
         PlanGenericMethodBoxing(classDecl, invoke.CalleeName(), argPlans,
-                                returnsBoxed, returnTag);
+                                returnPlan);
     }
     auto* callee = invoke.Callee();
     //Phase 9e: out-argument spills collected by EmitCallArgs.
@@ -268,142 +263,8 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                  &outSpills);
     //EmitCallArgs now copies `this` to claim[0] and bulk-copies
     //to callParamBase[0] — no separate this-copy needed here.
-    EmitMemberMethodDispatch(invoke, callee, returnsBoxed, returnTag,
+    EmitMemberMethodDispatch(invoke, callee, returnPlan,
                              outSpills, emitter, resultOffset);
-}
-
-//The template's non-static methods of this name (the declared
-//templates declare no method overloads today; the boxing derivation
-//below stays correct for a future overload set by intersecting).
-static void CollectTemplateMethods(SnClassDecl& tmpl,
-                                   const std::string& methodName,
-                                   std::vector<SnFunction*>& out)
-{
-    for (auto& member : tmpl.Members())
-        if (member.Kind() == NK_Function
-            && member.Name() == methodName
-            && !member.ContainFlags(NF_Static))
-            out.push_back(static_cast<SnFunction*>(&member));
-}
-
-//The placeholder every same-name method puts at one formal position —
-//null on any absence or disagreement (the resolver's overload-
-//intersection rule: a mixed position is not element-typed). ParamList
-//is iterable but not indexable, so the position walks each list.
-static SnField* UnanimousFormalPlaceholder(
-    const std::vector<SnFunction*>& methods, size_t iParam,
-    const GenericInstanceRegistry& generics)
-{
-    SnField* pUnanimous = nullptr;
-    for (auto* pFn : methods)
-    {
-        SnFieldExpr* pType = nullptr;
-        size_t i = 0;
-        for (auto& param : pFn->Params())
-            if (i++ == iParam) { pType = param.Type(); break; }
-        SnField* pHere = pType ? pType->Field() : nullptr;
-        if (!pHere || !generics.IsPlaceholder(pHere)
-            || (pUnanimous && pUnanimous != pHere))
-            return nullptr;
-        pUnanimous = pHere;
-    }
-    return pUnanimous;
-}
-
-//The placeholder every same-name method returns — null on any
-//disagreement (the same unanimity the formal side requires).
-static SnField* UnanimousReturnPlaceholder(
-    const std::vector<SnFunction*>& methods,
-    const GenericInstanceRegistry& generics)
-{
-    SnFieldExpr* pFirst = methods.front()->ReturnType();
-    SnField* pLeaf = pFirst ? pFirst->Field() : nullptr;
-    if (!pLeaf || !generics.IsPlaceholder(pLeaf))
-        return nullptr;
-    for (size_t i = 1; i < methods.size(); ++i)
-    {
-        SnFieldExpr* pOther = methods[i]->ReturnType();
-        if (!pOther || pOther->Field() != pLeaf)
-            return nullptr;
-    }
-    return pLeaf;
-}
-
-//The boxing tag for one placeholder-typed slot: the type argument the
-//placeholder binds to decides the tag. Anything else (a null leaf —
-//overload disagreement or absence, a non-placeholder binding, a
-//malformed arg index, a class/struct or array-typed argument) reports
-//not-primitive and never boxes.
-VmBackend::BoxingTagResult VmBackend::PlaceholderBoxingTag(
-    const GenericInstanceRegistry& declaredGenerics, SnField* pPlaceholder,
-    const std::vector<SnField*>& typeArgs)
-{
-    if (!pPlaceholder || !declaredGenerics.IsPlaceholder(pPlaceholder))
-        return {0, false};
-    const size_t argIdx = declaredGenerics.PlaceholderIndex(pPlaceholder);
-    if (argIdx >= typeArgs.size())
-        return {0, false};
-    return BoxingTagFor(typeArgs[argIdx]);
-}
-
-//Boxed-element generic names (intrinsic ABI property): List, Dict and
-//Channel store every element in erased side tables, so a primitive
-//type argument must ride OP_Box across the call boundary. Future and
-//Promise are absent — their values ride the context result slot raw.
-static const char* const kBoxedElementGenericNames[] = {
-    kBuiltinListTypeName, kBuiltinDictTypeName, kBuiltinChannelTypeName,
-};
-
-//Phase-2 D6: the boxing plan reads the DECLARED signatures. The
-//template method's placeholder-typed formals decide which argument
-//slots are element storage; the instance's type arguments decide each
-//slot's tag (add/indexOf/contains at slot 1, set's value at slot 2,
-//get/recv on the return side — the same plan the three retired
-//(baseName, method) tables encoded, now expressed by
-//stdlib/containers.n). Class/struct type arguments never box:
-//BoxingTagFor returns isPrimitive=false and the raw heap handle
-//passes through, as do array-typed slots (the interned token is not
-//a primitive).
-void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
-                                        const std::string& methodName,
-                                        std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                        bool& returnsBoxed,
-                                        uint8_t& returnTag) {
-    const auto& baseName = classDecl.BaseName();
-    bool bBoxedElementGeneric = false;
-    for (const char* szName : kBoxedElementGenericNames)
-        if (baseName == szName) { bBoxedElementGeneric = true; break; }
-    if (!bBoxedElementGeneric || !m_pRegistry)
-        return;
-    auto& declaredGenerics = m_pRegistry->DeclaredGenerics();
-    SnClassDecl* pTemplate = declaredGenerics.InstanceOf(&classDecl);
-    if (!pTemplate)
-        return;
-    std::vector<SnFunction*> methods;
-    CollectTemplateMethods(*pTemplate, methodName, methods);
-    if (methods.empty())
-        return;
-    const auto& typeArgs = classDecl.GenericTypeArgs();
-    //Slot 0 stages the receiver; formal position i boxes slot i+1.
-    size_t maxParams = 0;
-    for (auto* pFn : methods)
-        if (pFn->Params().size() > maxParams)
-            maxParams = pFn->Params().size();
-    for (size_t iParam = 0; iParam < maxParams; ++iParam)
-    {
-        BoxingTagResult tag = PlaceholderBoxingTag(declaredGenerics,
-            UnanimousFormalPlaceholder(methods, iParam, declaredGenerics),
-            typeArgs);
-        if (tag.isPrimitive)
-            argPlans[static_cast<uint16_t>(iParam + 1)] = {tag.tag, true};
-    }
-    BoxingTagResult retTag = PlaceholderBoxingTag(declaredGenerics,
-        UnanimousReturnPlaceholder(methods, declaredGenerics), typeArgs);
-    if (retTag.isPrimitive)
-    {
-        returnsBoxed = true;
-        returnTag = retTag.tag;
-    }
 }
 
 //Class method dispatch: virtual name-based, direct by function index
@@ -411,7 +272,7 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
 //return unbox, result assign, out spills and ParaEnd.
 void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
                                          SnFunction* callee,
-                                         bool returnsBoxed, uint8_t returnTag,
+                                         const ArgBoxPlan& returnPlan,
                                          const std::vector<OutSpill>& outSpills,
                                          BytecodeEmitter& emitter,
                                          uint16_t resultOffset) {
@@ -435,11 +296,12 @@ void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
         //Object protocol methods (shape note in the helper).
         EmitMemberBuiltinMethodCall(invoke, outSpills, emitter);
     }
-    //Phase 8e-3/8e-4: unbox Get() return for primitive T/V.
-    if (returnsBoxed) {
-        emitter.Emit(OpCode::OP_Unbox);
-        emitter.EmitByte(returnTag);
-    }
+    //Phase 8e-3/8e-4: unbox Get() return for primitive T/V. 0.13.1a
+    //Task 5: when the receiver's type argument is the calling body's
+    //own placeholder, the descriptor-dispatched variant lets the
+    //executing frame decide (uniform-T-representation invariant).
+    if (returnPlan.needsBox)
+        EmitBoundaryUnbox(returnPlan, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     //Phase 9e: out spills LAST — OP_VarLocal clobbers pResult,

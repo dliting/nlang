@@ -100,6 +100,8 @@ static const char* s_OpCodeNames[] = {
     "ne_t",
     "type_arg_to_str",
     "as_type_param",
+    "box_type_arg",
+    "unbox_type_arg",
 };
 
 const char* OpCodeName(OpCode op) {

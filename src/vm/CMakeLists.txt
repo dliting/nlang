@@ -99,6 +99,7 @@ add_library(nlang_vm
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberStatic.cpp
     backend/EmitExprMemberString.cpp
+    backend/EmitGenericBoxing.cpp
     backend/EmitExprMemberArray.cpp
     backend/EmitArrayBoundary.cpp
     backend/EmitArrayOpcodes.cpp

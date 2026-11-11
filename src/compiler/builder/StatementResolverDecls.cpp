@@ -125,6 +125,11 @@ void StatementResolveAccessor::ResolveFunctionFormals(SnFunction &sn,
 		auto *param = formals[i];
 		if (!param->Value())
 			continue;
+		//0.13.1a Task 5: a type-parameter-typed formal rejects a
+		//default value outright — the remaining checks presume a
+		//concrete formal type and cannot say anything useful here.
+		if (sn.IsGenericDeclaration() && RejectTypeParamDefault(sn, *param))
+			continue;
 		if (!param->Value()->IsResolved())
 			m_ExprResolver.Resolve(*param->Value(), sn, sn, ERF_None);
 

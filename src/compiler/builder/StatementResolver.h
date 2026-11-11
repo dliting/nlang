@@ -58,6 +58,12 @@ private:
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
+	//0.13.1a Task 5: a type-parameter-typed formal on a generic
+	//declaration rejects a default value (same line as the
+	//class-template T-initializer rule: without a constraint no
+	//meaningful T initial value exists). True = rejected; the caller
+	//skips the remaining default checks for that formal.
+	bool RejectTypeParamDefault(SnFunction &fn, SnFormalParam &param);
 	//P3 review: a ctor default cannot reference `this` (explicitly or
 	//through a bare field) — defaults evaluate at the call site, outside
 	//the object under construction. No-op for non-ctor functions.
@@ -225,7 +231,7 @@ private:
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
 	//arm when the RHS is a bare invoke (ResolveDeclaredGenericCtorTarget).
-	void PropagateCtorInvokeTarget(SnAssignStmt &sn);
+	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);

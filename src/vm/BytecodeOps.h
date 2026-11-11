@@ -268,6 +268,24 @@ enum class OpCode : uint8_t {
                         // through; the accumulator holds the value in and
                         // out (reference) or the unboxed payload out
 
+    // === 0.13.1a Task 5: descriptor-dispatched container-boundary
+    // normalization (the uniform-T-representation invariant: in a
+    // generic frame a T-typed value is raw iff T's kind is scalar,
+    // while erased List/Dict/Channel store every element as a heap
+    // handle). Emitted where the static boxing plan cannot resolve
+    // the tag — the receiver's type argument is the calling generic
+    // body's own placeholder; the executing frame's descriptor decides.
+    OP_Box_TypeArg,     // u8 paramOrdinal — normalize the accumulator's
+                        // T-typed value INTO the erased-container element
+                        // form: scalar kinds box under the descriptor's
+                        // own tag (OpBox mechanics), reference kinds pass
+                        // through (the handle IS the stored form)
+    OP_Unbox_TypeArg,   // u8 paramOrdinal — the inverse boundary: an
+                        // erased-container element INTO the T-typed frame
+                        // form: scalar kinds unbox under the descriptor's
+                        // tag (OpUnbox mechanics), reference kinds pass
+                        // through as the handle
+
     OP_Count
 };
 
@@ -295,7 +313,10 @@ static constexpr OpCode kStrideByteTag[] = {
     OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox,
     //v0.13.1 D6: the T to-string conversion and the as-T cast — one
     //ordinal byte each.
-    OpCode::OP_TypeArg_to_str, OpCode::OP_As_TypeParam};
+    OpCode::OP_TypeArg_to_str, OpCode::OP_As_TypeParam,
+    //0.13.1a Task 5: the container-boundary normalization pair — one
+    //ordinal byte each.
+    OpCode::OP_Box_TypeArg, OpCode::OP_Unbox_TypeArg};
 static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,

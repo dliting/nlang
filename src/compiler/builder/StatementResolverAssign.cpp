@@ -70,6 +70,11 @@ bool StatementResolveAccessor::FinishReturnExpr(SnFunction &outerFunc,
 	if (!outerFunc.ReturnType()->IsResolved())
 		return false;
 	auto pSourceType = pResultExpr->EvalDataType();
+	//A result with no resolved type is already an error upstream (a
+	//failed invoke match has its own named diagnosis); the cast report
+	//would only bury it.
+	if (!pSourceType)
+		return true;
 	auto pTargetType = outerFunc.EvalDataType();
 	//0.7.3 B: array results and array return types both carry the
 	//interned token, so the cast choke point adjudicates — same
@@ -100,10 +105,10 @@ void StatementResolveAccessor::Access(SnAssignStmt &sn)
 	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
 	//arm (`Channel<int> c = Channel(2);`); cleared after RHS resolution
 	//so the hint never leaks past this statement.
-	PropagateCtorInvokeTarget(sn);
+	PropagateAssignTargetHint(sn);
 
 	sn.Right()->Accept(*m_pVisitor);
-	m_ExprResolver.SetCtorInvokeTarget(nullptr);
+	m_ExprResolver.SetAssignTargetHint(nullptr);
 
 	//Init lists set their own EvalDataType and don't go through the
 	//cast-info path — skip cast fixup for them.

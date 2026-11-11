@@ -184,11 +184,11 @@ void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
     //handles, no box/unbox (BoxingTagFor default).
     //Dict keys box when primitive; List's index is int.
     auto keyBox = isDict
-        ? BoxingTagFor(typeArgs[0])
-        : BoxingTagResult{0, false};
+        ? PlanBoundaryBox(typeArgs[0], pGenClass)
+        : ArgBoxPlan{};
     SnField* pElem = isList ? typeArgs[0]
         : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-    auto valBox = BoxingTagFor(pElem);
+    auto valBox = PlanBoundaryBox(pElem, pGenClass);
     EmitContainerGetCall(sub, keyBox, valBox, emitter, resultOffset);
 }
 
@@ -197,8 +197,8 @@ void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
 //callParamBase slice. Unboxes the get() return for primitive T/V,
 //mirroring the foreach element load and the member-call boxing plans.
 void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
-                                     BoxingTagResult keyBox,
-                                     BoxingTagResult valBox,
+                                     const ArgBoxPlan& keyBox,
+                                     const ArgBoxPlan& valBox,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
     EvalAreaClaim claim(*this, 2);
@@ -215,13 +215,8 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     //arg0 = index (box primitive Dict keys).
     uint16_t keyOffset = claimBase + kFrameSlotBytes;
     EmitExpression(*sub.Index(), emitter, keyOffset);
-    if (keyBox.isPrimitive) {
-        EmitPResultRefresh(emitter, keyOffset);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(keyBox.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(keyOffset);
-    }
+    if (keyBox.needsBox)
+        EmitBoundaryBox(keyBox, emitter, keyOffset);
     //Bulk-copy claim → callParamBase (raw 4-byte moves
     //preserve tagged representations).
     for (uint16_t i = 0; i < 2; ++i) {
@@ -235,10 +230,8 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    if (valBox.isPrimitive) {
-        emitter.Emit(OpCode::OP_Unbox);
-        emitter.EmitByte(valBox.tag);
-    }
+    if (valBox.needsBox)
+        EmitBoundaryUnbox(valBox, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     emitter.Emit(OpCode::OP_ParaEnd);

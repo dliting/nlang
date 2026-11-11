@@ -213,8 +213,8 @@ bool ExprResolveAccessor::RejectBareGenericCtorInvoke(
 SnClassDecl *ExprResolveAccessor::ResolveDeclaredGenericCtorTarget(
 	SnInvokeExpr &snInvoke, SnClassDecl &tmpl)
 {
-	auto *pTarget = m_pCtorInvokeTarget;
-	m_pCtorInvokeTarget = nullptr;
+	auto *pTarget = m_pAssignTargetHint;
+	m_pAssignTargetHint = nullptr;
 	auto *pTargetType = pTarget ? pTarget->EvalDataType() : nullptr;
 	auto *pInstance = (pTargetType
 		&& pTargetType->Kind() == NK_ClassDecl

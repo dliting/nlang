@@ -837,6 +837,18 @@ private:
                                uint8_t rank);
     void OpBox(BytecodeReader& reader, uint8_t* pResult);
     void OpUnbox(BytecodeReader& reader, uint8_t* pResult);
+    //0.13.1a Task 5: the descriptor-dispatched container-boundary
+    //normalization pair (the uniform-T-representation invariant) —
+    //the executing frame's ordinal-th type argument decides whether
+    //the accumulator's value crosses the erased-container boundary
+    //through the box or passes through as the handle.
+    void OpBoxTypeArg(BytecodeReader& reader, uint8_t* pResult);
+    void OpUnboxTypeArg(BytecodeReader& reader, uint8_t* pResult);
+    //The shared OpBox/OpUnbox bodies over an explicit tag (the static
+    //opcodes read theirs from the operand byte, the descriptor-
+    //dispatched pair from the frame context).
+    void BoxAccumulatorAs(uint8_t typeTag, uint8_t* pResult);
+    void UnboxAccumulatorAs(uint8_t expectedTag, uint8_t* pResult);
     void OpCheckCast(BytecodeReader& reader, uint8_t* locals,
                      uint8_t* pResult);
     //v0.13.1: a cast's descriptor row → target descriptor (static rows

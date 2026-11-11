@@ -191,20 +191,49 @@ uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
     return mask;
 }
 
+//One container-boundary normalization at a slot: refresh it (the box
+//must read the staged value, not a stale accumulator left behind by
+//expression emission), emit the dynamic-or-static box opcode, store
+//back. The uniform front half of every boundary plan application.
+void VmBackend::EmitBoundaryBox(const ArgBoxPlan& box,
+                                BytecodeEmitter& emitter, uint16_t slot) {
+    EmitPResultRefresh(emitter, slot);
+    if (box.bDynamic) {
+        emitter.Emit(OpCode::OP_Box_TypeArg);
+        emitter.EmitByte(box.dynOrdinal);
+    } else {
+        emitter.Emit(OpCode::OP_Box);
+        emitter.EmitByte(box.tag);
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(slot);
+}
+
+//One boundary unbox of the accumulator where it stands — the
+//dynamic-or-static opcode pair after every container get()/add().
+void VmBackend::EmitBoundaryUnbox(const ArgBoxPlan& box,
+                                  BytecodeEmitter& emitter) {
+    if (box.bDynamic) {
+        emitter.Emit(OpCode::OP_Unbox_TypeArg);
+        emitter.EmitByte(box.dynOrdinal);
+    } else {
+        emitter.Emit(OpCode::OP_Unbox);
+        emitter.EmitByte(box.tag);
+    }
+}
+
 //Optional per-arg boxing application (built-in generic class methods):
-//box the staged argument in place when a plan marks its slot.
+//normalize the staged argument in place when a plan marks its slot —
+//static tag, or the descriptor-dispatched dynamic variant when the
+//type argument is the calling generic body's own placeholder.
 void VmBackend::ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
         BytecodeEmitter& emitter,
         const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     if (!pArgPlans) return;
     auto it = pArgPlans->find(slotIdx);
     if (it == pArgPlans->end() || !it->second.needsBox) return;
-    uint16_t paramOffset = claimBase + slotIdx * kFrameSlotBytes;
-    EmitPResultRefresh(emitter, paramOffset);
-    emitter.Emit(OpCode::OP_Box);
-    emitter.EmitByte(it->second.tag);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(paramOffset);
+    EmitBoundaryBox(it->second, emitter,
+                    claimBase + slotIdx * kFrameSlotBytes);
 }
 
 //For method calls (slotBase=1), copy the receiver to claim[0] BEFORE

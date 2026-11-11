@@ -167,7 +167,17 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
 
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
-    uint8_t typeTag = reader.ReadByte();
+    BoxAccumulatorAs(reader.ReadByte(), pResult);
+}
+
+void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
+    UnboxAccumulatorAs(reader.ReadByte(), pResult);
+}
+
+//The OpBox body over an explicit tag (shared with the descriptor-
+//dispatched boundary pair, which resolves the tag from the frame
+//context at runtime).
+void VmExecutor::BoxAccumulatorAs(uint8_t typeTag, uint8_t* pResult) {
     //0.7.5: payload width from the registry — 8-byte rows (long/ulong)
     //read the full slot; ≤4-byte tags keep the legacy 4-byte read (the
     //upper half of the slot can be stale for narrow writers).
@@ -181,8 +191,9 @@ void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
-void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
-    uint8_t expectedTag = reader.ReadByte();
+//The OpUnbox body over an explicit tag (shared with the descriptor-
+//dispatched boundary pair).
+void VmExecutor::UnboxAccumulatorAs(uint8_t expectedTag, uint8_t* pResult) {
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     if (heapIdx <= 0

@@ -308,6 +308,8 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
             return true;
         case OpCode::OP_Box:
         case OpCode::OP_Unbox:
+        case OpCode::OP_Box_TypeArg:
+        case OpCode::OP_Unbox_TypeArg:
             EmitU8Tag(r, out, head);
             return true;
         default:

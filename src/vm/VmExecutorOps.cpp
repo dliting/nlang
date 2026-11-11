@@ -450,6 +450,17 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpUnbox(reader, pResult);
             break;
 
+        //0.13.1a Task 5: descriptor-dispatched container-boundary
+        //normalization — the accumulator's value crosses the erased-
+        //container boundary under the frame context's type-argument
+        //kind (scalar kinds box/unbox, reference kinds pass through).
+        case OpCode::OP_Box_TypeArg:
+            OpBoxTypeArg(reader, pResult);
+            break;
+        case OpCode::OP_Unbox_TypeArg:
+            OpUnboxTypeArg(reader, pResult);
+            break;
+
         //Phase 8e-1.5: class downcast check.
         //Reads the target classIdx operand. Verifies the heap object's
         //runtime class is operand-classIdx or a subclass thereof. Throws

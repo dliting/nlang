@@ -444,4 +444,37 @@ void VmExecutor::OpAsTypeParam(BytecodeReader& reader,
         RaiseAsTypeParamMismatch(arg, heapIdx);
 }
 
+//0.13.1a Task 5: the erased-container boundary of a generic body — the
+//uniform-T-representation invariant. In a T-typed frame a value is raw
+//iff the descriptor's kind is scalar, while List/Dict/Channel store
+//every element as a heap handle. Where the static boxing plan cannot
+//resolve the tag (the receiver's type argument is the calling body's
+//own placeholder), these opcodes let the executing frame's descriptor
+//decide: scalar kinds cross the boundary through the box (the
+//OpBox/OpUnbox mechanics under the descriptor's own tag), reference
+//kinds pass through unchanged (the handle is the stored form).
+//The descriptor-dispatched boundary pair mirrors the compiler's boxing
+//domain (BoxingTagFor / BoxTypeTagOfKind): registry scalar rows AND
+//string (the boxed-string carrier tag, RTK_String) cross via the box
+//mechanics; every reference kind (class/struct/array/func) is already
+//stored as its heap handle and passes through. Enums resolve to
+//RTK_Int32 and ride that row (the enum≡int32 convention).
+inline bool BoundaryKindBoxes(uint8_t rtk) {
+    return ScalarPrimIndexOfRtk(rtk) >= 0 || rtk == RTK_String;
+}
+
+void VmExecutor::OpBoxTypeArg(BytecodeReader& reader, uint8_t* pResult) {
+    const TypeArgDesc& arg = ContextTypeArgOf(reader.ReadByte());
+    if (!BoundaryKindBoxes(arg.resolvedKind))
+        return;  //a reference element is already the stored form
+    BoxAccumulatorAs(arg.resolvedKind, pResult);
+}
+
+void VmExecutor::OpUnboxTypeArg(BytecodeReader& reader, uint8_t* pResult) {
+    const TypeArgDesc& arg = ContextTypeArgOf(reader.ReadByte());
+    if (!BoundaryKindBoxes(arg.resolvedKind))
+        return;  //a reference element passes through as the handle
+    UnboxAccumulatorAs(arg.resolvedKind, pResult);
+}
+
 } // namespace nlang

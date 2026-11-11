@@ -260,16 +260,18 @@ void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
 		pInitList->InferredTarget(pLeftField);
 }
 
-//K3 task 4: when the RHS is a bare invoke, hand the resolved LHS field
-//to the ctor-invoke arm (ResolveDeclaredGenericCtorTarget consumes it
-//for `Channel<int> c = Channel(4);`-shaped declared-generic calls).
-void StatementResolveAccessor::PropagateCtorInvokeTarget(SnAssignStmt &sn)
+//K3 task 4 / 0.13.1a Task 5: when the RHS is a bare invoke, hand the
+//resolved LHS field to the invoke resolver as the expected type — the
+//declared-generic ctor arm consumes it (`Channel<int> c = Channel(4);`)
+//and the generic free-function sweep unifies the return position
+//against it (`List<string> made = makeList();`).
+void StatementResolveAccessor::PropagateAssignTargetHint(SnAssignStmt &sn)
 {
 	if (sn.Right()->Kind() != NK_InvokeExpr)
 		return;
 	SnField* pLeftField = AssignLeftField(sn);
 	if (pLeftField)
-		m_ExprResolver.SetCtorInvokeTarget(pLeftField);
+		m_ExprResolver.SetAssignTargetHint(pLeftField);
 }
 
 } //namespace nlang

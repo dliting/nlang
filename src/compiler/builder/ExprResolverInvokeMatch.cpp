@@ -279,13 +279,43 @@ static bool IsInCurrentTu(const ModuleRegistry &reg,
 	return reg.OwnerOf(*pFunc) == curModule;
 }
 
+//Equal-distance tie-break of the sweep: a current-TU same-shape
+//declaration shadows the imported best silently (local-beats-glob);
+//an import-vs-import tie stays the loud use-site ambiguity with the
+//tied pair retained for the named diagnostic (v0.12.7 V4).
+static void BreakEqualDistanceTie(const ModuleRegistry &reg,
+	uint32_t curModule, SnFunction &candidate,
+	std::vector<FormalBinding> &tryBind,
+	std::vector<SnField*> &candTypeArgs, SnFunction *&rpBest,
+	std::vector<FormalBinding> &outBestBindings,
+	std::vector<SnField*> &outBestTypeArgs, bool &rbAmbiguous,
+	SnFunction *&rpTied)
+{
+	const bool bCandInCurrentTu = IsInCurrentTu(reg, curModule, &candidate);
+	if (bCandInCurrentTu == IsInCurrentTu(reg, curModule, rpBest))
+	{
+		rbAmbiguous = true;
+		rpTied = &candidate;
+	}
+	else if (bCandInCurrentTu)
+	{
+		//The current-TU candidate shadows the imported tie.
+		rpBest = &candidate;
+		outBestBindings = std::move(tryBind);
+		outBestTypeArgs = std::move(candTypeArgs);
+		rbAmbiguous = false;
+	}
+}
+
 //One candidate's distance score for SweepInvokeCandidates; false = the
 //candidate declines. 0.13.1a Task 4 (D4): a generic FREE function's
 //type check is the call-site type-argument unification — the ordinary
 //distance core scores placeholder formals incompatible — while an
 //ordinary candidate scores by the binding-distance core. The call
 //shape mirrors Task 2's static arm: named arguments decline (the
-//ordinary path reports them).
+//ordinary path reports them). Task 5: the assign-published expected
+//type feeds the return-position unification arm; a failed unification
+//is retained for the named diagnosis when nothing else binds either.
 bool ExprResolveAccessor::ScoreInvokeCandidate(
 	const GenericInstanceRegistry &generics, SnInvokeExpr &invoke,
 	SnFunction &candidate, const std::vector<SnExpression*> &actuals,
@@ -299,9 +329,20 @@ bool ExprResolveAccessor::ScoreInvokeCandidate(
 	{
 		if (HasNamedArgument(invoke))
 			return false;
-		if (InferTypeArgsForCall(generics, candidate, actuals,
-				outTypeArgs) != TypeArgInferenceResult::Bound)
+		//The hint is the declared FIELD (the local/outlet); its type
+		//is the unification actual — the same unwrap the declared-
+		//generic ctor arm does.
+		auto *pExpectedType = m_pAssignTargetHint
+			? m_pAssignTargetHint->EvalDataType() : nullptr;
+		auto outcome = InferTypeArgsForCall(generics, candidate,
+			actuals, pExpectedType);
+		if (outcome.result != TypeArgInferenceResult::Bound)
+		{
+			m_pGenericInferFailFunc = &candidate;
+			m_genericInferFail = std::move(outcome);
 			return false;
+		}
+		outTypeArgs = std::move(outcome.bindings);
 		rnDistance = 0;
 		return true;
 	}
@@ -326,6 +367,9 @@ int ExprResolveAccessor::SweepInvokeCandidates(SnInvokeExpr &invoke,
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(*m_pContext);
 	auto &generics = reg.DeclaredGenerics();
+	//Each sweep owns its inference-failure record: a failure retained
+	//by an earlier invoke must never surface on this one.
+	m_pGenericInferFailFunc = nullptr;
 	int nBestDistance = -1;
 	rpBest = nullptr;
 	rpTied = nullptr;
@@ -348,20 +392,9 @@ int ExprResolveAccessor::SweepInvokeCandidates(SnInvokeExpr &invoke,
 		}
 		else if (n == nBestDistance)
 		{
-			const bool bCandInCurrentTu = IsInCurrentTu(reg, curModule, pCandidate);
-			if (bCandInCurrentTu == IsInCurrentTu(reg, curModule, rpBest))
-			{
-				rbAmbiguous = true;
-				rpTied = pCandidate;
-			}
-			else if (bCandInCurrentTu)
-			{
-				//The current-TU candidate shadows the imported tie.
-				rpBest = pCandidate;
-				outBestBindings = std::move(tryBind);
-				outBestTypeArgs = std::move(candTypeArgs);
-				rbAmbiguous = false;
-			}
+			BreakEqualDistanceTie(reg, curModule, *pCandidate, tryBind,
+				candTypeArgs, rpBest, outBestBindings, outBestTypeArgs,
+				rbAmbiguous, rpTied);
 		}
 	}
 	return nBestDistance;
