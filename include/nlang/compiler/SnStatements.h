@@ -158,6 +158,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pResult;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnReturnStmt.m_pResult
 };
 
 class NLANG_COMPILER_API SnInvokeStmt : public SnStatement
@@ -284,6 +285,7 @@ public:
 private:
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnAssignStmt.m_pRight
 };
 
 //Compound assignment statement (e.g. x += 1, arr[i] *= 2).
@@ -312,6 +314,7 @@ private:
 	SnBinaryExpr::Operator m_op;
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnCompoundAssignStmt.m_pRight
 };
 
 //Assert statement: assert(cond); - exit(1) on failure.
@@ -333,6 +336,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnAssertStmt.m_pCond
 };
 
 //Array subscript assignment statement (e.g. arr[i] = value).
@@ -367,6 +371,7 @@ private:
 	SnExpression *m_pArray;
 	std::vector<SnExpression *> m_pIndices;
 	SnExpression *m_pValue;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnSubscriptAssignStmt.m_pValue
 };
 
 /*
@@ -391,6 +396,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnIfStmt.m_pCond
 	SnStatement *m_pThen;
 	SnStatement *m_pElse;
 };
@@ -416,6 +422,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnWhileStmt.m_pCond
 	SnStatement *m_pBody;
 };
 
@@ -440,6 +447,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnDoStmt.m_pCond
 	SnStatement *m_pBody;
 };
 
@@ -475,6 +483,7 @@ public:
 private:
 	SnStatement *m_pInit;
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnForStmt.m_pCond
 	SnStatement *m_pFini;
 	SnStatement *m_pBody;
 	std::vector<SnAssignStmt*> m_initExtras;
@@ -572,6 +581,7 @@ public:
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	std::unique_ptr<std::vector<SnExpression*>> m_upLabels;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnCaseClause.m_upLabels
 	SnParagraph *m_pBody;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
@@ -603,6 +613,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pCond;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnSwitchStmt.m_pCond
 	std::unique_ptr<std::vector<SnCaseClause*>> m_upCases;
 	SnParagraph *m_pDefault;
 };
@@ -694,6 +705,7 @@ public:
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
 	SnExpression *m_pExpr;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnThrowStmt.m_pExpr
 };
 
 /*

@@ -81,6 +81,13 @@ bool SnAsExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		ResetChild(m_pTargetType, static_cast<SnFieldExpr *>(pNew));
 		return true;
 	}
+	//v0.14.0: the operand is an expression slot that can hold a
+	//tensor-lowered binary (`x = (a + b) as int`).
+	if (m_pOperand == pOld)
+	{
+		ResetChild(m_pOperand, static_cast<SnExpression *>(pNew));
+		return true;
+	}
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
@@ -434,6 +441,21 @@ bool SnInitListExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	{
 		ResetChild(m_pExplicitType, static_cast<SnFieldExpr *>(pNew));
 		return true;
+	}
+	//v0.14.0: the entries are dual storage too (`[a + b, c]`) — sync
+	//the value/key slots beside the children list.
+	for (auto &entry : m_entries)
+	{
+		if (entry.pValue == pOld)
+		{
+			ResetChild(entry.pValue, static_cast<SnExpression *>(pNew));
+			return true;
+		}
+		if (entry.pKey == pOld)
+		{
+			ResetChild(entry.pKey, static_cast<SnExpression *>(pNew));
+			return true;
+		}
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);
 }

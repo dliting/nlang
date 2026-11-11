@@ -1,0 +1,50 @@
+// Per-position lowering cases (v0.14.0): one minimal use per AST holder
+// class in the lowering audit — the pairs are listed in the M5 design
+// appendix §6. Every position must compile, lower, and produce the
+// element-correct result without touching a stale typed slot.
+import io;
+import tensor;
+
+float sum4(float[] v) {
+    return v[0] + v[1] + v[2] + v[3];
+}
+
+int main() {
+    float[] a = tensor.full(4, 0.0 as float);
+    float[] b = tensor.full(4, 1.0 as float);
+    for (int i = 0; i < 4; i += 1) {
+        a[i] = (i + 0.0) as float;
+    }
+    //SnBinaryExpr (nested: the inner swap happens mid-Access of the outer)
+    float[] nested = a * 3.0 as float - b;
+    if (nested[2] != 5.0 as float) return 1;
+    //SnAssignStmt value position
+    float[] assigned = a + b;
+    if (assigned[3] != 4.0 as float) return 2;
+    //SnReturnStmt expression position
+    if (sum4(a + b) != 10.0 as float) return 3;
+    //invoke argument position (tensor.max over a lowered sum)
+    float[] doubled = a * 2.0 as float;
+    if (tensor.max(doubled) != 6.0 as float) return 4;
+    //SnSubscriptExpr base ((a+b)[0] — the existing override covers it)
+    if ((a + b)[1] != 2.0 as float) return 5;
+    //SnSubscriptAssignStmt index slot (m[a+b, j] = v)
+    float[,] grid = float[4, 2];
+    int j = 1;
+    grid[(a[2] + b[2]) as int, j] = 7.0 as float;
+    if (grid[3, 1] != 7.0 as float) return 6;
+    //SnAsExpr operand
+    int asInt = (a[1] + b[1]) as int;
+    if (asInt != 2) return 7;
+    //SnAssertStmt condition (assert takes bool; compare the lowered sum)
+    assert((a[0] + b[0]) == 1.0 as float);
+    //SnIfStmt condition via a lowered subscript base
+    if ((a[2] + b[2]) != 3.0 as float) {
+        return 8;
+    }
+    //SnInitListExpr entry (the lowered binary inside an init list entry)
+    float[] fromInit = [a[1] + b[1], a[2] + b[2]];
+    if (fromInit[1] != 3.0 as float) return 9;
+    io.print("positions ok");
+    return 0;
+}

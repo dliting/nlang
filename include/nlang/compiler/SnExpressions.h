@@ -503,6 +503,7 @@ public:
 private:
 	void Init();
 	SnExpression *m_pOuter;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 	SnFieldExpr *m_pInner;
 };
 
@@ -830,6 +831,7 @@ private:
 	Operator m_op;
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 };
 
 class SnClassDecl;

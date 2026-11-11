@@ -131,6 +131,18 @@ public:
 		return m_upItems->size();
 	}
 
+	//In-place cell assignment (v0.14.0): replaces the node a cell
+	//points at without splicing the list — every iterator into this
+	//list stays valid and keeps its position (the array-operator
+	//lowering swaps children mid-traversal). The parent re-point and
+	//OnAddedToParent live at the Node layer (this list has no owner
+	//back-reference).
+	void assign(const NodeIterator &iPos, Node *pNode)
+	{
+		NLANG_ASSERT(iPos.m_Iter != m_upItems->end() && *iPos.m_Iter);
+		*iPos.m_Iter = pNode;
+	}
+
 	//static empty node list instance.
 	static ImmutableNodeList *NullList()
 	{
@@ -303,7 +315,12 @@ public:
 	*/
 	iterator insert(iterator iPos, NodeType *pNode)
 	{
-		return Super_::push_back(iPos, pNode);
+		//TypedNodeListBase has no positional push_back; route through
+		//the same child-list insertion the node controller uses (the
+		//positional insert was never instantiated before v0.14.0's
+		//array-operator lowering needed it).
+		auto iNode = InsertChildInto(iPos.Source(), pNode, *m_pParent);
+		return iterator(iNode);
 	}
 
 	/*

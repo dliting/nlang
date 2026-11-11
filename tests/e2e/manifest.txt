@@ -2189,3 +2189,8 @@ stdlib_tensor_rsub_rdiv 0
 stdlib_tensor_softmax2d 0
 stdlib_tensor_sigmoid_tanh 0
 stdlib_tensor_relugrad 0
+op_array_arithmetic 0
+op_array_rsub_rdiv 0
+op_array_positions 0
+op_array_arithmetic 0
+op_array_rsub_rdiv 0

@@ -379,6 +379,15 @@ void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
 }
 
 void VmBackend::Access(SnBinaryExpr& expr) {
+    //v0.14.0: a tensor-flagged binary must have been replaced by the
+    //lowering's call before codegen — falling through here would emit
+    //handle arithmetic (BinNumericKindOf falls back to Int32). The
+    //TU-end sweep is the first net; this is the last.
+    if (expr.ContainFlags(NF_TensorOp))
+        throw std::runtime_error(
+            "NLang backend: tensor array arithmetic reached codegen "
+            "unlowered");
+
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
         auto& bin = static_cast<SnBinaryExpr&>(expr);

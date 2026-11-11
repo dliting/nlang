@@ -1,0 +1,16 @@
+// The reversed scalar arms through operators: `10 - a` (rsubScalar)
+// and `2 / a` (rdivScalar) — the scalar sits on the LEFT.
+import tensor;
+
+int main() {
+    float[] a = tensor.full(3, 4.0 as float);
+    float[] r1 = 10.0 as float - a;
+    if (r1[2] != 6.0 as float) return 1;
+    float[] r2 = 2.0 as float / a;
+    if (r2[0] != 0.5 as float || r2[2] != 0.5 as float) return 2;
+    //int wrap semantics ride the same lowering
+    int[] ai = tensor.fullI(2, 7);
+    int[] ri = 20 - ai;
+    if (ri[0] != 13 || ri[1] != 13) return 3;
+    return 0;
+}

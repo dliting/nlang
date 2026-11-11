@@ -90,10 +90,13 @@ bool SyntaxNode::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	auto iRemove = children.find(pOld);
 	if (iRemove == children.end())
 		return false;
-	auto iInsert = RemoveChild(iRemove);
+	//In-place cell replacement (v0.14.0): the list cell keeps its
+	//position, so traversals of this child list stay valid across the
+	//replacement — the array-operator lowering swaps children while
+	//their holders are mid-traversal. The old node is destroyed here
+	//(the protocol owns the destruction; callers must not delete).
+	ReplaceChildCell(iRemove, pNew);
 	delete pOld;
-	if (pNew)
-		InsertChild(iInsert, pNew);
 	return true;
 }
 
@@ -126,10 +129,9 @@ SyntaxNode *SyntaxNode::DoResetChild(SyntaxNode *pOld, SyntaxNode *pNew)
 	{
 		auto iRemove = Children().find(pOld);
 		NLANG_ASSERT(iRemove != Children().end());
-		auto iInsert = RemoveChild(iRemove);
+		//In-place cell replacement (see ReplaceChildNode).
+		ReplaceChildCell(iRemove, pNew);
 		delete pOld;
-		if (pNew)
-			InsertChild(iInsert, pNew);
 	}
 	else
 	{

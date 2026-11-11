@@ -119,6 +119,19 @@ bool ModuleBuilder::ResolveAll()
 		return false;
 	ResolveDataValues();
 	ResolveStatements();
+	//v0.14.0: no tensor-flagged binary may survive resolution — a
+	//survivor means a holder missed the lowering swap. Loud, never
+	//silent wrong code. Skipped on partially failed trees: residual
+	//flagged nodes there are legal.
+	if (!m_upEnv->HasError() && TreeHasUnloweredTensorOp(TreeRoot()))
+	{
+		//Internal inconsistency: no source position to name — the
+		//lowering's own diagnostics carry the positions.
+		m_upEnv->Log(CLL_Error,
+			"internal: an array arithmetic node reached codegen "
+			"unlowered");
+		return false;
+	}
 	return !m_upEnv->HasError();
 }
 
@@ -469,6 +482,20 @@ void ModuleBuilder::ResolveStatements()
 	CheckStructCircularRefs();
 	CheckClassCircularInheritance();
 	CheckMethodContracts();
+}
+
+//v0.14.0: true when a tensor-flagged binary survived resolution — a
+//holder missed the lowering swap.
+bool ModuleBuilder::TreeHasUnloweredTensorOp(SyntaxNode &node)
+{
+	if (node.Kind() == NK_BinaryExpr && node.ContainFlags(NF_TensorOp))
+		return true;
+	for (auto &child : node.Children())
+	{
+		if (TreeHasUnloweredTensorOp(static_cast<SyntaxNode &>(child)))
+			return true;
+	}
+	return false;
 }
 
 //Phase 13: sweep function references still pending after statement
