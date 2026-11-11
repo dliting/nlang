@@ -828,6 +828,10 @@ class HttpBodyReader {
 // window (a head longer than WINDOW_CAP) are parked in an overflow spill.
 class HttpConn {
     private static const int DEFAULT_DRAIN_CAP = 262144;
+    // One write for the head plus a small body: two writes mean two packets
+    // on the wire and two wakeups per response. 8192 stays below
+    // HttpParser.WRITE_SLICE = 65536 so the joined buffer never needs slicing.
+    private static const int JOIN_CAP = 8192;
     private static const int CLOSE_SINK_WINDOW = 4096;
     private static const int CLOSE_GRACE_MS = 200;
     // One text for the head-phase budget, raised at the deadline check and at
@@ -1011,6 +1015,23 @@ class HttpConn {
         }
     }
 
+    // Joining the head and a buffered body into one write (D3): one packet
+    // instead of two, one wakeup on the peer instead of two. Anything the
+    // join could not fit through WRITE_SLICE in a single slice degrades to
+    // the old two-write shape; the bytes on the wire are identical either way.
+    private void writeHeadAndBody(byte[] head, byte[] body, int timeoutMs) {
+        int total = head.length() + body.length();
+        if (body.length() == 0 || total > JOIN_CAP) {
+            this.writeAll(head, timeoutMs);
+            if (body.length() > 0) { this.writeAll(body, timeoutMs); }
+            return;
+        }
+        byte[] joined = byte[total];
+        for (int i = 0; i < head.length(); i = i + 1) { joined[i] = head[i]; }
+        for (int i = 0; i < body.length(); i = i + 1) { joined[head.length() + i] = body[i]; }
+        stream.write(joined, total, timeoutMs);
+    }
+
     // Parses one request from the buffer, refilling as needed. The first wait
     // (no bytes yet) is the keep-alive idle timeout; once bytes have started
     // arriving the header phase is bounded by headerTimeoutMs as a total
@@ -1158,19 +1179,34 @@ class HttpConn {
             }
         }
         HttpParser.appendAscii(headBytes, "\r\n");
-        this.writeAll(HttpParser.toByteArray(headBytes), writeTimeoutMs);
-        if (noBody || head) { return; }
+        // headText, not another headBytes-ish name: the byte list headBytes
+        // is already in scope here.
+        byte[] headText = HttpParser.toByteArray(headBytes);
+        if (noBody || head) {
+            this.writeAll(headText, writeTimeoutMs);
+            return;
+        }
         if (chunked) {
+            // Streaming branches keep two writes: the pump's first chunk may
+            // wait for the producer, and joining would bill that wait to the
+            // head.
+            this.writeAll(headText, writeTimeoutMs);
             this.pumpChunked(res.bodyChannel, writeTimeoutMs, true);
             return;
         }
         if (rawStream) {
+            this.writeAll(headText, writeTimeoutMs);
             this.pumpChunked(res.bodyChannel, writeTimeoutMs, false);
             return;
         }
-        if (body != null && body.length() > 0) {
-            this.writeAll(body, writeTimeoutMs);
+        if (body == null) {
+            this.writeAll(headText, writeTimeoutMs);
+            return;
         }
+        // D3: the buffered body is already in hand, so the head and a small
+        // body go out together; two writes are two packets and two wakeups
+        // per answer.
+        this.writeHeadAndBody(headText, body, writeTimeoutMs);
     }
 
     // The interim response for Expect: 100-continue (D10); no body, no Date.

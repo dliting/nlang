@@ -1,0 +1,125 @@
+// D3: the head and a small body go out as one joined buffer. The observable
+// contract is byte-identical framing on the wire at every JOIN_CAP boundary;
+// the write count itself is what the E5 component table measures (Task 4),
+// because loopback coalescing would make a "one read got everything" assertion
+// flaky.
+import io;
+import net;
+import http;
+
+// The path shapes the response: "/b<n>" = 200 with a body of n zero bytes,
+// "/s<code>" = that status code with an empty body.
+HttpResponse shapedHandler(HttpRequest req) {
+    string p = req.url.path;
+    HttpResponse res = HttpResponse();
+    if (p.startsWith("/s")) {
+        res.statusCode = p.substring(2).toInt(10);
+        res.body = io.toBytes("");
+        return res;
+    }
+    res.body = byte[p.substring(2).toInt(10)];
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, shapedHandler);
+    int port = srv.localPort();
+
+    // 1. Every JOIN_CAP boundary plus the edges: the wire bytes must be exactly
+    //    the head plus the declared body, in that order.
+    int[] sizes = [0, 1, 100, 8191, 8192, 8193, 65536];
+    for (int i = 0; i < sizes.length(); i = i + 1) {
+        if (framingMatches(port, sizes[i]) != 1) { return 10 + i; }
+    }
+
+    // 2. A bodyless status stays head-only.
+    if (headOnly(port, 204) != 1) { return 20; }
+    if (headOnly(port, 304) != 1) { return 21; }
+
+    // 3. HEAD keeps Content-Length and sends no bytes.
+    if (headRequestStaysHeadOnly(port) != 1) { return 22; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// GET /b<n>: 200, Content-Length == n, and exactly n body bytes for readExactly.
+int framingMatches(int port, int n) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    c.write("GET /b" + n.toString() + " HTTP/1.1\r\nHost: h\r\n\r\n");
+    string head = readHead(c);
+    if (statusOf(head) != 200) { c.close(); return 0; }
+    if (contentLengthOf(head) != n) { c.close(); return 0; }
+    byte[] body = c.readExactly(n, 5000);
+    c.close();
+    if (body.length() != n) { return 0; }
+    return 1;
+}
+
+// A 204/304 answer carries no bytes: the next request on the same connection
+// must still parse. A stray body byte would be read as the next status line.
+int headOnly(int port, int code) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    string one = "GET /s" + code.toString() + " HTTP/1.1\r\nHost: h\r\n\r\n";
+    c.write(one);
+    if (statusOf(readHead(c)) != code) { c.close(); return 0; }
+    c.write(one);
+    int second = statusOf(readHead(c));
+    c.close();
+    if (second != code) { return 0; }
+    return 1;
+}
+
+// HEAD: Content-Length stays, the bytes do not (RFC 9112 §6.3).
+int headRequestStaysHeadOnly(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    c.write("HEAD /b100 HTTP/1.1\r\nHost: h\r\n\r\n");
+    string head = readHead(c);
+    if (statusOf(head) != 200) { c.close(); return 0; }
+    if (contentLengthOf(head) != 100) { c.close(); return 0; }
+    c.write("GET /s204 HTTP/1.1\r\nHost: h\r\n\r\n");
+    int second = statusOf(readHead(c));
+    c.close();
+    if (second != 204) { return 0; }
+    return 1;
+}
+
+// Reads up to the blank line that ends the head. readLine answers "" for a blank
+// line and for EOF alike, which is the exit this helper wants either way.
+string readHead(TcpStream c) {
+    string acc = "";
+    while (true) {
+        string ln = c.readLine(5000);
+        if (ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    return acc;
+}
+
+int statusOf(string head) {
+    if (!head.startsWith("HTTP/1.1 ")) { return -1; }
+    string code = head.substring(9, 12);
+    int v = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int c = code[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}
+
+int contentLengthOf(string head) {
+    int at = head.indexOf("Content-Length: ", 0);
+    if (at < 0) { return -1; }
+    int i = at + 16;
+    int v = 0;
+    while (i < head.length()) {
+        int ch = head[i];
+        if (ch < 48 || ch > 57) { break; }
+        v = v * 10 + (ch - 48);
+        i = i + 1;
+    }
+    return v;
+}
