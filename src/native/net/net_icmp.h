@@ -25,6 +25,11 @@ constexpr int kIcmpEchoSliceMs = 5000;
 //(unit-tested in test_net_icmp.cpp).
 int IcmpEchoTimeout(long long deadline, long long nowMs);
 
+//Queue priority for one echo job: 1 (the latency-sensitive lane) when the
+//caller set a deadline it has to meet, 0 for the unbounded wait, which has
+//no latency of its own to protect (0.13.6 perf spec D6).
+int IcmpJobPriority(long long deadline);
+
 //Whether a finished job with this err must be re-submitted: only a
 //slice timeout while the deadline still allows (deadline 0 always
 //allows). Reply and unreachable verdicts are terminal.

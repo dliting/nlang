@@ -113,8 +113,9 @@ native int _icmpClose(int handle);
 // Windows uses IcmpSendEcho2 (no admin rights needed), Linux a DGRAM
 // ICMP socket.
 // timeoutMs = 0 sets no deadline (the package-wide rule): requests are
-// retransmitted -- on the native worker pool, at high priority, ahead of
-// hostname resolution -- until one is answered.
+// retransmitted until one is answered. A request that carries a deadline
+// queues at high priority on the native worker pool; the unbounded wait
+// queues at normal priority, since it has no latency of its own to protect.
 int ping(string host, int timeoutMs = 5000) {
     long deadline = 0;
     if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }

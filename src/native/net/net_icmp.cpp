@@ -157,6 +157,13 @@ int IcmpEchoTimeout(long long deadline, long long nowMs) {
         ? static_cast<int>(left) : kIcmpEchoSliceMs;
 }
 
+//The unbounded wait can afford the ordinary lane; keeping it off the priority
+//lane is what stops a fire-and-forget ping from queueing ahead of the
+//hostname resolution that connect and sendTo need (D6).
+int IcmpJobPriority(long long deadline) {
+    return deadline > 0 ? 1 : 0;
+}
+
 //Declared in net_icmp.h: only a slice timeout re-arms, and only while
 //the deadline still allows (external review I3) — a reply and an
 //unreachable verdict are terminal, and an unlimited deadline (0)
@@ -199,7 +206,8 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
             submit = false;
             h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
                 IcmpEchoTimeout(deadline, h->nowMs(h))},
-                st->m_selfPipeFds[1], 1);   //priority 1 (D5 two-level queue)
+                st->m_selfPipeFds[1], IcmpJobPriority(deadline));
+                                        //lane by deadline presence (0.13.6 D6)
         }
         NetDrainPipe(readFd);
         std::lock_guard<std::mutex> g(st->m_mutex);

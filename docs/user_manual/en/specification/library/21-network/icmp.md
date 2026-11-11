@@ -21,13 +21,13 @@ may open once `net.ipv4.ping_group_range` covers that user or group.
 
 A `timeoutMs` of `0` sets no deadline: echo requests keep coming
 until one is answered, so a host that never answers leaves `ping`
-waiting indefinitely. Each echo request goes out from a worker of
-the host's native worker pool at high priority (§27.5), and a busy
-pool serves high-priority work before normal-priority work — enough
-pings left waiting with no deadline therefore hold the pool against
-the hostname resolution `connect` and `sendTo` need, which runs at
-normal priority. A program that pings addresses that may be down
-passes a positive timeout.
+waiting indefinitely. Each echo request runs on the host's native
+worker pool (§27.5): one that carries a deadline is queued at high
+priority, one with no deadline at normal priority, since a wait of
+unbounded length has no latency of its own to protect. That queue
+order is why a positive timeout is the right choice for an address
+that may be down — such a ping answers inside its own budget instead
+of sitting in the ordinary queue.
 
 ```nlang
 import io;
