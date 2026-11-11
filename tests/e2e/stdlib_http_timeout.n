@@ -7,11 +7,40 @@
 import io;
 import net;
 import http;
+import thread;
+import system;
 
 HttpResponse okHandler(HttpRequest req) {
     HttpResponse res = HttpResponse();
     res.body = io.toBytes("ok");
     return res;
+}
+
+// 2b. The head-phase budget is armed once, at the first readable byte, and a
+//     refill must not re-arm it: a client dribbling 8 bytes every 150 ms is
+//     still cut off at the original 500 ms deadline (Slowloris, D7). The
+//     dribble runs on its own thread so the read side can watch the answer
+//     arrive while bytes are still coming.
+class Dribbler {
+    private TcpStream m_sock;
+
+    public Dribbler(TcpStream sock) { m_sock = sock; }
+
+    public void run() {
+        byte[] msg = io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nX: y\r\n\r\n");
+        int i = 0;
+        while (i < msg.length()) {
+            int take = msg.length() - i;
+            if (take > 8) { take = 8; }
+            try {
+                m_sock.write(msg[i:i + take], -1, 3000);
+            } catch (Exception e) {
+                return;             //the server already gave up on this head
+            }
+            i = i + take;
+            thread.sleep(150);
+        }
+    }
 }
 
 int main() {
@@ -29,6 +58,10 @@ int main() {
     //    closes the connection with no response at all (a keep-alive
     //    connection expiring is not a protocol error).
     if (idleCloses(port) != 1) { return 2; }
+
+    // 2b. The dribbling client: still 408 within the original head budget,
+    //     not re-armed by each refill.
+    if (dribbleTimesOut(port) != 1) { return 4; }
 
     // 3. A slow client must not poison the accept loop: a normal request after
     //    the two timeouts above is still served.
@@ -67,6 +100,25 @@ int idleCloses(int port) {
     }
     s.close();
     return closed;
+}
+
+// Returns 1 only when the server answers 408 within 900 ms of the first byte.
+int dribbleTimesOut(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    Dribbler d = Dribbler(c);
+    long t0 = system.monoMs();
+    thread.spawn(d.run);
+    int st = -1;
+    try {
+        st = statusOf(c.readLine(1500));
+    } catch (Exception e) {
+        st = -1;                    //no answer at all: the budget was re-armed
+    }
+    long elapsed = system.monoMs() - t0;
+    try { c.close(); } catch (Exception e2) { }
+    if (st != 408) { return 0; }
+    if (elapsed > 900) { return 0; }
+    return 1;
 }
 
 // Sends the raw request bytes and returns the response head.

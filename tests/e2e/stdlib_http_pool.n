@@ -124,10 +124,13 @@ int main() {
     // socket error through the user's locale), so the test pins the stable
     // English prefixes our own layers put on those failures instead of the
     // platform's sentence: end-of-stream reads report `connection closed`
-    // (http.n), reset reads and writes report `net: read failed` /
-    // `net: write failed` (net.n).
+    // (http.n), and a reset surfaces as the net.n wrapper of whichever
+    // primitive failed — `net: read failed` / `net: write failed` for the
+    // socket read and write, `net: peekFilled failed` for the windowed
+    // head wait (the head phase reads through peekFilled since D5).
     bool connectionClass = seen.contains("connection closed") ||
-        seen.startsWith("net: read failed") || seen.startsWith("net: write failed");
+        seen.startsWith("net: read failed") || seen.startsWith("net: write failed") ||
+        seen.startsWith("net: peekFilled failed");
     if (!connectionClass) { return 3; }
 
     // 3. The failed connection stayed out of the pool: this request rides a

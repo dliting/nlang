@@ -741,7 +741,7 @@ class HttpBodyReader {
             int want = buf.length();
             if (want > m_remaining) { want = m_remaining as int; }
             byte[] tmp = byte[want];
-            int n = m_conn.readBuffered(tmp, timeoutMs);
+            int n = m_conn.readNext(tmp, timeoutMs);
             if (n <= 0) { this.endBody(); return -1; }   // early EOF = end of body
             for (int i = 0; i < n; i = i + 1) { buf[i] = tmp[i]; }
             m_remaining = m_remaining - n;
@@ -766,7 +766,7 @@ class HttpBodyReader {
             return n;
         }
         // MODE_EOF: read until the peer closes.
-        int n = m_conn.readBuffered(buf, timeoutMs);
+        int n = m_conn.readNext(buf, timeoutMs);
         if (n <= 0) { this.endBody(); return -1; }
         return n;
     }
@@ -820,11 +820,13 @@ class HttpBodyReader {
     }
 }
 
-// Buffered socket wrapper: incremental parsing needs a growable read buffer
-// shared between the message parser and the body reader, because a peer can
-// coalesce a head and body into one segment or split a head across several.
+// Socket wrapper for message assembly: incremental parsing needs one
+// contiguous readable span shared between the message parser and the body
+// reader, because a peer can coalesce a head and body into one segment or
+// split a head across several. The fast path for that span is the TcpStream's
+// own receive window (m_buf aliases it, no copying); items larger than the
+// window (a head longer than WINDOW_CAP) are parked in an overflow spill.
 class HttpConn {
-    private static const int FILL_WINDOW = 8192;
     private static const int DEFAULT_DRAIN_CAP = 262144;
     private static const int CLOSE_SINK_WINDOW = 4096;
     private static const int CLOSE_GRACE_MS = 200;
@@ -833,52 +835,168 @@ class HttpConn {
     private static const string HEAD_TIMEOUT_TEXT = "http: header phase timeout";
 
     public TcpStream stream;
+    // The readable span right now, a mirror: an alias of the TcpStream's
+    // receive window, or a slice of the overflow spill below. The byte truth
+    // lives in only two places, the window and m_spill; the mirror must be
+    // re-aliased after every window or spill operation that consumed bytes.
     private byte[] m_buf;
-    private int m_cap;
     private int m_have;
     private bool m_eof;
+    // Bytes that did not fit in the TcpStream window (a head longer than
+    // WINDOW_CAP): the window is the fast path, this is the overflow. 16 KiB
+    // start, below the 64 KiB default head cap, doubled on demand.
+    private static const int SPILL_START_CAP = 16384;
+    private byte[] m_spill;
+    private int m_spillLen;
     private bool m_chunkDone;   // chunked terminator seen; reset per message
     private HttpServer m_srv;   // owning server; null for client-pool connections
 
     public HttpConn(TcpStream s, HttpServer srv = null) {
         stream = s;
         m_srv = srv;
-        m_buf = byte[FILL_WINDOW];
-        m_cap = FILL_WINDOW;
+        m_buf = byte[0];
+        m_spill = byte[0];
+        m_spillLen = 0;
         m_have = 0;
         m_eof = false;
         m_chunkDone = false;
     }
 
-    // One socket read appended to the buffer; false on EOF. Array<T> has no
-    // add: m_buf is a fixed byte[] whose capacity doubles (copying the m_have
-    // valid bytes) when a read would overrun it.
+    // Waits until more of the stream is readable than the parser has seen;
+    // false means no more bytes will come. The signature and the EOF
+    // semantics match the old one-read-and-append version, so the three call
+    // sites in readRequest, readResponse, and decodeChunk are untouched.
     public bool fill(int timeoutMs) {
-        if (m_eof) { return false; }
-        if (m_cap - m_have < FILL_WINDOW) { this.grow(); }
-        byte[] tmp = byte[FILL_WINDOW];
-        int n = stream.read(tmp, timeoutMs);
-        if (n <= 0) { m_eof = true; return false; }
-        for (int i = 0; i < n; i = i + 1) { m_buf[m_have + i] = tmp[i]; }
-        m_have = m_have + n;
-        return true;
+        bool ended = false;
+        return this.gather(timeoutMs, out ended);
     }
 
-    // Body bytes may already sit in m_buf behind a parsed head (the peer
-    // coalesced head and body into one segment). Drain the buffer first, then
-    // read the socket directly; returns the bytes copied into dst[0..]
-    // (0 = EOF, or dst empty).
-    public int readBuffered(byte[] dst, int timeoutMs) {
+    // Body bytes may already sit in the window or spill behind a parsed head
+    // (the peer coalesced head and body into one segment). Drain what is
+    // readable first, then let the socket read take its course; returns the
+    // bytes copied into dst[0..] (0 = EOF, or dst empty).
+    public int readNext(byte[] dst, int timeoutMs) {
         if (dst.length() == 0) { return 0; }
-        if (m_have > 0) {
-            int n = m_have;
-            if (n > dst.length()) { n = dst.length(); }
-            for (int i = 0; i < n; i = i + 1) { dst[i] = m_buf[i]; }
-            this.discard(n);
-            return n;
-        }
+        if (m_spillLen > 0) { return this.drainSpill(dst, 0); }
         if (m_eof) { return 0; }
-        return stream.read(dst, timeoutMs);
+        // stream.read drains the window first (net.n's order discipline), so
+        // these bytes are window bytes when the mirror says the window holds
+        // any; retreat the mirror by what was taken and re-alias the rest.
+        int n = stream.read(dst, timeoutMs);
+        if (m_have > 0) { m_have = m_have - n; }
+        this.reify();
+        if (n == 0) { m_eof = true; }
+        return n;
+    }
+
+    // Re-points m_buf/m_have at the bytes readable right now: the spill if it
+    // holds any, else the stream window. No syscall either way — the spill
+    // branch is a slice, and the window branch asks for a threshold the mirror
+    // already says is met, which peekFilled answers on the spot. The window
+    // view is an alias the next window operation invalidates, so every place
+    // that consumed bytes re-runs this instead of trusting an older m_buf.
+    private void reify() {
+        if (m_spillLen > 0) { this.mirrorSpill(); return; }
+        if (m_have == 0) { return; }             //nothing mirrored: the parser sees none
+        m_buf = stream.peekFilled(1, 0);         //threshold met: returns without parking
+        m_have = m_buf.length();
+    }
+
+    // The spill half of the mirror: spill bytes are always older than window
+    // bytes, because every gather round empties the window right after parking it.
+    private void mirrorSpill() {
+        m_buf = m_spill[0:m_spillLen];
+        m_have = m_spillLen;
+    }
+
+    // The parse-then-wait loop that replaces fill()'s "one read, append". Every
+    // round waits for at least one byte beyond what the parser already saw, so
+    // the caller's "parse → not enough → wait again" loop can never re-parse the
+    // same bytes — the same property today's fill has, where the read blocks
+    // until a byte arrives. ended reports that nothing more can come, the
+    // information fill()'s false return carries today, which is how readRequest
+    // tells a peer that closed (return null) from a head that stalled (408).
+    private bool gather(int timeoutMs, out bool ended) {
+        ended = false;
+        if (m_eof) { ended = true; return false; }
+        while (true) {
+            if (m_spillLen > 0) {
+                //The head outgrew the window: park each arriving window batch in
+                //the spill so the parser still sees one contiguous head. Consuming
+                //the window right after parking it is what frees the space the
+                //next round waits for (spec §五: full window → consume → wait).
+                byte[] win = stream.peekFilled(1, timeoutMs);
+                if (win.length() == 0) {        //empty view ⟺ EOF (spec §五)
+                    m_eof = true;
+                    ended = true;
+                    return false;
+                }
+                this.pushSpill(win);
+                stream.consume(win.length());   //at least 1 byte: never consume(0)
+                this.mirrorSpill();
+                return true;
+            }
+            if (m_have >= TcpStream.WINDOW_CAP) {
+                this.startSpill();              //full window: waiting cannot grow it
+                continue;
+            }
+            //One more byte than the parser holds: the smallest wait that can make
+            //progress, so a complete head never waits for bytes that will not come.
+            byte[] win = stream.peekFilled(m_have + 1, timeoutMs);
+            if (win.length() == 0) {            //empty view ⟺ EOF
+                m_eof = true;
+                ended = true;
+                return false;
+            }
+            m_buf = win;
+            m_have = win.length();
+            return true;
+        }
+    }
+
+    // The spill only ever holds a head longer than WINDOW_CAP. Both buffers stay
+    // bounded because the parser's own maxHeaderBytes check raises 431 first.
+    private void startSpill() {
+        m_spill = byte[SPILL_START_CAP];
+        m_spillLen = 0;
+        this.pushSpill(m_buf);                  //the mirrored window bytes
+        stream.consume(m_have);                 //== WINDOW_CAP, so never 0 (spec §五)
+        this.mirrorSpill();
+    }
+
+    private void pushSpill(byte[] src) {
+        int n = src.length();
+        if (n == 0) { return; }
+        if (m_spillLen + n > m_spill.length()) { this.growSpill(m_spillLen + n); }
+        for (int i = 0; i < n; i = i + 1) { m_spill[m_spillLen + i] = src[i]; }
+        m_spillLen = m_spillLen + n;
+    }
+
+    private void growSpill(int need) {
+        int cap = m_spill.length();
+        if (cap == 0) { cap = SPILL_START_CAP; }
+        while (cap < need) { cap = cap * 2; }
+        byte[] wider = byte[cap];
+        for (int i = 0; i < m_spillLen; i = i + 1) { wider[i] = m_spill[i]; }
+        m_spill = wider;
+    }
+
+    // readNext's spill half. Spill bytes are always older than window bytes,
+    // because every gather round empties the window right after parking it.
+    private int drainSpill(byte[] dst, int off) {
+        int n = m_spillLen;
+        if (n > dst.length() - off) { n = dst.length() - off; }
+        for (int i = 0; i < n; i = i + 1) { dst[off + i] = m_spill[i]; }
+        this.shiftSpill(n);
+        this.mirrorSpill();     //not reify(): in spill mode the window is empty, so
+                                //the mirror is the spill even once it drains to 0
+        return n;
+    }
+
+    private void shiftSpill(int n) {
+        if (n >= m_spillLen) { m_spillLen = 0; return; }
+        for (int i = n; i < m_spillLen; i = i + 1) { m_spill[i - n] = m_spill[i]; }
+        m_spillLen = m_spillLen - n;
     }
 
     // D7: the timeout bounds each ≤64KB slice, not the whole write — a
@@ -1086,17 +1204,25 @@ class HttpConn {
         }
     }
 
+    // The parser's consume: spill bytes shift here, window bytes go back to the
+    // stream. The mirror is corrected on every branch, because reify() decides
+    // whether a fresh view is even needed by asking it — a mirror left too high
+    // would send that call into a peekFilled(1, 0) on an empty window, which has
+    // no deadline and would park forever.
     private void discard(int n) {
-        // Drop the consumed prefix by shifting the tail down in place.
-        for (int i = n; i < m_have; i = i + 1) { m_buf[i - n] = m_buf[i]; }
+        if (n <= 0) { return; }
+        if (m_spillLen > 0) {
+            //The parser can only have seen spill bytes (m_buf is the spill
+            //slice), so n never reaches the window from here.
+            int take = n;
+            if (take > m_spillLen) { take = m_spillLen; }
+            this.shiftSpill(take);
+            this.mirrorSpill();
+            return;
+        }
+        stream.consume(n);
         m_have = m_have - n;
-    }
-
-    private void grow() {
-        byte[] nb = byte[m_cap * 2];
-        for (int i = 0; i < m_have; i = i + 1) { nb[i] = m_buf[i]; }
-        m_buf = nb;
-        m_cap = m_cap * 2;
+        this.reify();      //re-aliases what is left: consume invalidated the old view
     }
 
     // Streams the channel to the socket (D5/D18). framed=true writes chunked

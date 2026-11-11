@@ -2,7 +2,9 @@
 // (capacity-1 channel forces lockstep = backpressure, Review Focus 1),
 // server stream → buffered client readAll, client chunked upload →
 // server bodyText, HEAD on a stream cancels the producer (D18),
-// HTTP/1.0 stream degrades to EOF framing (RFC 9112 §9).
+// HTTP/1.0 stream degrades to EOF framing (RFC 9112 §9), and a chunked
+// chunk larger than the receive window assembled across window refills
+// (spec §七's 16 KiB case, D5).
 import io;
 import http;
 import gzip;
@@ -42,6 +44,30 @@ class ChunkProducer {
     }
 }
 
+// One chunk whose payload is twice the 8192-byte receive window: decodeChunked
+// needs the whole payload in one readable run, so the window alone cannot hold
+// it and the spill has to assemble it across refills (spec §七's 16 KiB chunk).
+class BigProducer {
+    Channel<byte[]> m_ch;
+    int m_size;
+
+    public BigProducer(Channel<byte[]> ch, int size) {
+        m_ch = ch;
+        m_size = size;
+    }
+
+    public void run() {
+        byte[] payload = byte[m_size];
+        for (int i = 0; i < m_size; i = i + 1) { payload[i] = 122 as byte; }   //'z'
+        try {
+            m_ch.send(payload);
+        } catch (ChannelClosedException e) {
+            return;               //client went away mid-chunk: nothing to report
+        }
+        m_ch.close();
+    }
+}
+
 HttpResponse streamHandler(HttpRequest req) {
     HttpResponse res = HttpResponse();
     if (req.url.path == "/upload") {
@@ -51,6 +77,12 @@ HttpResponse streamHandler(HttpRequest req) {
     if (req.url.path == "/gz") {
         res.compressBody = true;
         res.body = io.toBytes("gz-stream-payload");
+        return res;
+    }
+    if (req.url.path == "/big") {
+        res.bodyChannel = Channel(1);
+        BigProducer bp = BigProducer(res.bodyChannel, 16 * 1024);
+        thread.spawn(bp.run);
         return res;
     }
     res.bodyChannel = Channel(1);
@@ -136,6 +168,13 @@ int main() {
     byte[] raw6 = res6.bodyReader.readAll();
     res6.bodyReader.close();
     if (io.fromBytes(raw6) != "chunk0;chunk1;chunk2;chunk3;chunk4;chunk5;chunk6;chunk7;chunk8;chunk9;") { return 7; }
+
+    // 7. A chunked chunk larger than the receive window: the decoder must
+    // assemble it across window refills (spec §七's 16 KiB case), so the
+    // buffered body arrives complete, byte-for-byte, at both ends.
+    HttpResponse res8 = cli.request(makeGet(base + "/big"));
+    if (res8.body.length() != 16 * 1024) { return 8; }
+    if (res8.body[0] != 122 || res8.body[16 * 1024 - 1] != 122) { return 8; }
 
     cli.close();
     srv.close();
