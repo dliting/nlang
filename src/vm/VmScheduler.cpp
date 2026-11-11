@@ -447,19 +447,17 @@ void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
 //K2 slice 3：析构——置关停、唤醒、join。唯一让定时器线程退出的路径；
 //每 run 的关停标志（m_stopRequested）不影响它（常驻执行器，避免每轮
 //运行反复创建销毁线程的开销）。定时器关注点的其余实现见
-//VmSchedulerTimer.cpp（K5 task 6 拆分）。
+//VmSchedulerTimer.cpp（K5 task 6 拆分）；v0.13.0 net 轮询线程的关停
+//（flag/notify/join/句柄关闭）见 VmSchedulerIo.cpp 的 ShutdownIoPollerThread。
 VmScheduler::~VmScheduler() {
     {
         GilEnsureGuard g(*this);
         m_timerShutdown = true;
-        m_ioThreadShutdown = true;   //v0.13.0 net: same lazy-thread protocol
     }
     m_timerCv.notify_all();
-    m_ioCv.notify_all();
     if (m_timerThread.joinable())
         m_timerThread.join();
-    if (m_ioThread.joinable())
-        m_ioThread.join();
+    ShutdownIoPollerThread();
 }
 
 //K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用

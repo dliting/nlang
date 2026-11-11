@@ -28,6 +28,62 @@ static constexpr int kIoPollSliceMs = 10;
 //file includes it (VmScheduler.cpp is at the source-size budget).
 VmScheduler::VmScheduler() = default;
 
+//Unions the wanted mask with what this fd already has and makes the kernel
+//match it. Add on first sight, Mod once it exists: an IOCP/wepoll Mod of a
+//missing fd fails, so fall back to Add. Registration is what the poller
+//thread's IoPollerWait observes; the table is the cross-park bookkeeping,
+//and it may only UNDER-report the kernel set: the equal-mask shortcut below
+//turns a stale entry into a skipped Add and strands the park on its
+//deadline, while a missing entry self-heals through the Mod/Add pair.
+int VmScheduler::RegisterIoInterestLocked(int fd, uint32_t events) {
+    if (!m_upIoPoller || fd < 0) { return -1; }
+    const auto it = m_ioPollerRegistered.find(fd);
+    const uint32_t wanted = (it == m_ioPollerRegistered.end() ? 0 : it->second) | events;
+    if (it != m_ioPollerRegistered.end() && it->second == wanted) { return 0; }
+    void* poller = m_upIoPoller.get();
+    int rc = IoPollerMod(poller, fd, wanted);
+    if (rc != 0) { rc = IoPollerAdd(poller, fd, wanted); }
+    if (rc == 0) { m_ioPollerRegistered[fd] = wanted; }
+    return rc;
+}
+
+//D1's park-site lifecycle (GIL held): create the poller handle on the first
+//park, union this fd's interest into the kernel set, and start the poller
+//thread if it is missing — all before the context sleeps, so the poller
+//thread is already blocking on this fd. The old shape (sync only when the
+//interest table was empty) made the wake wait for the next loop iteration
+//— the 15 ms step the ablation measurements located.
+//A park racing shutdown touches the interest table and nothing else: no
+//handle, no registration, no thread restart (assigning a new std::thread
+//to the still-joinable m_ioThread would call std::terminate).
+void VmScheduler::ArmIoPollerLocked(int fd, uint32_t events) {
+    if (m_ioThreadShutdown) { return; }
+    if (!m_upIoPoller) {
+        //The injection flag is the test seam for the startup-order failure
+        //side (spec 七): forcing the failure here is the only way to reach
+        //the branch, since IoPollerCreate fails on OS resource exhaustion
+        //only. The assert still fires for a real failure.
+        void* created = m_ioPollerCreateFailsForTests ? nullptr : IoPollerCreate();
+        if (!created) {
+            NLANG_ASSERT(m_ioPollerCreateFailsForTests
+                && "IoPollerCreate failed: no poller thread, parked IO wakes only on an explicit wake");
+        } else {
+            m_upIoPoller.reset(created);
+        }
+    }
+    if (fd >= 0 && m_upIoPoller) {
+        RegisterIoInterestLocked(fd, events);
+    }
+    //No handle (IoPollerCreate failed: OS resource exhaustion, asserted
+    //above) means no thread either — a poller thread with a null handle
+    //could not wait. Same dead end as the old early return in the thread.
+    if (!m_ioThreadStarted && m_upIoPoller) {
+        m_ioThreadStarted = true;
+        m_ioThread = std::thread([this] { IoPollerThreadMain(); });
+    }
+    m_ioCv.notify_all();
+}
+
 void VmScheduler::ParkForIo(int id, int fd, uint32_t events,
     std::chrono::steady_clock::time_point deadline, bool hasDeadline) {
     GilEnsureGuard g(*this);
@@ -44,13 +100,10 @@ void VmScheduler::ParkForIo(int id, int fd, uint32_t events,
         --m_blockedNativeCount;
     ctx->state = ContextState::ParkedIo;
     m_ioWaits.push_back(IoWaitEntry{id, fd, events, deadline, hasDeadline});
+    //D1: arm the poller here, while the GIL is held — see ArmIoPollerLocked.
+    ArmIoPollerLocked(fd, events);
     ReleaseHeldIfCurrent(id);
     NotifyGateWaiters();
-    if (!m_ioThreadStarted) {
-        m_ioThreadStarted = true;
-        m_ioThread = std::thread([this] { IoPollerThreadMain(); });
-    }
-    m_ioCv.notify_all();
 }
 
 void VmScheduler::WakeForIo(int id) {
@@ -87,12 +140,16 @@ void VmScheduler::WakeIoWaitersForFd(int fd) {
             }
         }
         //The fd is closing: every entry for it is gone, so its
-        //baseline entry must go too — if this was the last waiter the
-        //poller cv-sleeps before SyncPollerInterest's del-vanished
-        //loop can run, and a later socket whose fd value the OS
-        //re-uses would match the stale entry and be skipped by the
-        //equal-registration check (final review I1). No kernel del:
-        //the registration dies with the fd.
+        //baseline row must go too. The narrowing sweep alone cannot
+        //guarantee it — the sweep runs only inside a harvest round,
+        //and once the table is empty the poller cv-sleeps again, so
+        //that round may never come; a later socket whose fd value the
+        //OS re-uses would then match the stale row and have its Add
+        //skipped by the equal-mask shortcut, stranding it on the
+        //deadline (final review I1, now pinned by
+        //TestCloseWakesDropsInterest). No kernel del: the registration
+        //dies with the fd, so dropping the row costs nothing and keeps
+        //the table honest ("may only under-report", VmScheduler.h).
         m_ioPollerRegistered.erase(fd);
         m_ioCv.notify_all();
     }
@@ -111,42 +168,6 @@ int VmScheduler::SubmitWork(void (*fn)(void*), void* arg,
         m_upWorkPool = std::make_unique<VmWorkPool>();
     m_upWorkPool->Submit(fn, arg, ackFd, priority);
     return 0;
-}
-
-//Re-syncs the poller registration set to the current interest table:
-//per-fd wanted events are aggregated (several contexts may wait on one
-//socket), registrations equal to m_ioPollerRegistered are skipped (the
-//per-round re-sync costs no syscalls for a steady set), the rest go
-//through Add (fresh fd) or Mod (changed events), and fds that vanished
-//from the table are del'd. Add on an already-registered fd fails with
-//EEXIST, so Mod is the fallback — the pair is idempotent either way.
-//Hashed throughout: the 10k-connection benchmark (task 15) showed the
-//vector scans made each round O(fds²) — hundreds of milliseconds per
-//round once thousands of sockets were parked at once.
-void VmScheduler::SyncPollerInterest(void* poller) {
-    std::unordered_map<int, uint32_t> wanted;
-    for (const IoWaitEntry& e : m_ioWaits) {
-        if (e.fd < 0)
-            continue;   //deadline-only park: no poll interest
-        wanted[e.fd] |= e.events;
-    }
-    for (const auto& w : wanted) {
-        auto prev = m_ioPollerRegistered.find(w.first);
-        if (prev != m_ioPollerRegistered.end() && prev->second == w.second)
-            continue;
-        if (IoPollerAdd(poller, w.first, w.second) != 0)
-            IoPollerMod(poller, w.first, w.second);
-        m_ioPollerRegistered[w.first] = w.second;
-    }
-    for (auto it = m_ioPollerRegistered.begin();
-         it != m_ioPollerRegistered.end();) {
-        if (wanted.find(it->first) != wanted.end()) {
-            ++it;
-        } else {
-            IoPollerDel(poller, it->first);
-            it = m_ioPollerRegistered.erase(it);
-        }
-    }
 }
 
 //Wait timeout: the nearest deadline across entries capped at the poll
@@ -203,37 +224,41 @@ void VmScheduler::HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs)
             ++it;
         }
     }
-    //Empty table: the poller thread cv-sleeps before SyncPollerInterest
-    //can run, so its del-vanished-fds loop never sees these entries —
-    //drop the kernel registrations and the baseline here instead, for
-    //the same re-used-fd reason as WakeIoWaitersForFd (final review
-    //I1). The Add/Mod pair in SyncPollerInterest re-registers whatever
-    //a later park needs.
-    if (m_ioWaits.empty()) {
-        for (const auto& reg : m_ioPollerRegistered)
-            IoPollerDel(poller, reg.first);
-        m_ioPollerRegistered.clear();
+    //Narrowing sweep: anything the kernel still watches but no entry wants
+    //any more must be deleted, or a closed connection keeps waking a carrier
+    //forever. An fd that vanished with the kernel registration alive (the
+    //handle-creation-failure case) is re-registered by its next park, so no
+    //sticky-failure flag is needed here.
+    std::unordered_map<int, uint32_t> wanted;
+    for (const auto& e : m_ioWaits) {
+        if (e.fd < 0) { continue; }
+        wanted[e.fd] |= e.events;
+    }
+    for (auto it = m_ioPollerRegistered.begin(); it != m_ioPollerRegistered.end(); ) {
+        const auto w = wanted.find(it->first);
+        const uint32_t want = (w == wanted.end() ? 0 : w->second);
+        if (want == 0) {
+            IoPollerDel(poller, it->first);      //tolerates EBADF: the fd may be closed
+            it = m_ioPollerRegistered.erase(it);
+        } else if (it->second != want) {
+            if (IoPollerMod(poller, it->first, want) == 0) { it->second = want; }
+            ++it;
+        } else {
+            ++it;
+        }
     }
 }
 
-//The poller thread body (lazy start, see ParkForIo). Empty interest:
-//cv long sleep (releases the global lock). With interest: interest is
-//re-synced to the poller set each loop (idempotent add/mod), the wait
+//The poller thread body (lazy start, see ParkForIo — the handle is
+//already created there, so the thread never creates or closes one).
+//Empty interest: cv long sleep (releases the global lock). With
+//interest: the park site has already registered it (D1), the wait
 //timeout is the nearest deadline capped at kIoPollSliceMs, and the
-//wait itself runs with the global lock RELEASED. Shutdown joins
-//through the destructor's flag+notify (same lazy-thread protocol as
-//the timer thread).
+//wait itself runs with the global lock RELEASED. Harvest only narrows
+//the kernel set (deletes and shrinks); additions live at the park.
+//Shutdown joins through ShutdownIoPollerThread's flag+notify (same
+//lazy-thread protocol as the timer thread).
 void VmScheduler::IoPollerThreadMain() {
-    void* poller = IoPollerCreate();
-    //Poller creation failure is an OS resource exhaustion: readiness
-    //can never be reported, so the thread has nothing to do. Debug
-    //builds assert on it; release builds exit the thread — parked
-    //contexts then only ever wake on their deadlines, and a
-    //deadline-less park hangs (the machine is out of pollable
-    //resources anyway; final review M11a).
-    NLANG_ASSERT(poller != nullptr);
-    if (!poller)
-        return;
     for (;;) {
         GilEnsureGuard gil(*this);
         m_ioCv.wait(gil.Lock(), [this] {
@@ -241,9 +266,12 @@ void VmScheduler::IoPollerThreadMain() {
         });
         if (m_ioThreadShutdown)
             break;
-        SyncPollerInterest(poller);
         const int timeoutMs = NextIoTimeoutMs();
         std::vector<IoPollerEvent> evs;       //thread-local scratch
+        //Capture the raw pointer while the GIL is held; the handle is
+        //reset only after this thread is joined (~VmScheduler), so it
+        //cannot dangle inside this iteration.
+        void* poller = m_upIoPoller.get();
         gil.Release();                       //wait without the GIL
         IoPollerWait(poller, evs, timeoutMs);
         GilEnsureGuard g2(*this);            //harvest under the GIL
@@ -251,7 +279,64 @@ void VmScheduler::IoPollerThreadMain() {
         g2.Release();
         m_runQueueCv.notify_all();           //woken contexts: wake carriers
     }
-    IoPollerClose(poller);
+}
+
+//The io half of the destructor's shutdown (the timer half stays in
+//~VmScheduler; the two threads never interact): set the flag under the
+//GIL, wake the cv long sleep, join, and close the handle only once the
+//thread is gone — the poller runs on the raw pointer it captured under
+//the GIL (IoPollerThreadMain), so closing before the join would be a
+//use-after-free inside IoPollerWait. With the thread never started the
+//joinable check and the reset are both no-ops.
+void VmScheduler::ShutdownIoPollerThread() {
+    {
+        GilEnsureGuard g(*this);
+        m_ioThreadShutdown = true;   //v0.13.0 net: same lazy-thread protocol
+    }
+    m_ioCv.notify_all();
+    if (m_ioThread.joinable())
+        m_ioThread.join();
+    m_upIoPoller.reset();
+}
+
+//D1 test probes: read the park-site registration contract (declarations
+//in VmScheduler.h). Every one takes the GIL; tests call them from the
+//main thread while the poller thread may be mid-iteration.
+int VmScheduler::IoPollerRegisteredForTests(int fd) {
+    GilEnsureGuard g(*this);
+    const auto it = m_ioPollerRegistered.find(fd);
+    return it == m_ioPollerRegistered.end() ? 0 : static_cast<int>(it->second);
+}
+
+int VmScheduler::IoPollerRegistrationCountForTests() {
+    GilEnsureGuard g(*this);
+    return static_cast<int>(m_ioPollerRegistered.size());
+}
+
+bool VmScheduler::IoPollerActiveForTests() {
+    GilEnsureGuard g(*this);
+    return static_cast<bool>(m_upIoPoller);
+}
+
+bool VmScheduler::IoThreadStartedForTests() {
+    GilEnsureGuard g(*this);
+    return m_ioThreadStarted;
+}
+
+void VmScheduler::BeginShutdownForTests() {
+    //The flag+notify half of ShutdownIoPollerThread: the poller has to leave
+    //its cv wait to see the flag, so the notify is part of the shape, not an
+    //extra. Leaving the join (and the handle close) to the destructor is the
+    //point — that is the "flag set, thread not yet joined" window the test
+    //asserts in.
+    GilEnsureGuard g(*this);
+    m_ioThreadShutdown = true;
+    m_ioCv.notify_all();      //WakeIoWaitersForFd:97 notifies inside the guard too
+}
+
+void VmScheduler::SetIoPollerCreateFailsForTests(bool fails) {
+    GilEnsureGuard g(*this);
+    m_ioPollerCreateFailsForTests = fails;
 }
 
 } // namespace nlang

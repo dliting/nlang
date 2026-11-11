@@ -27,6 +27,7 @@
 #pragma once
 #include "CallFrame.h"
 #include "GcWorldStop.h"
+#include "IoPoller.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -897,19 +898,32 @@ private:
         bool hasDeadline = false;
     };
     void IoPollerThreadMain();
-    void SyncPollerInterest(void* poller);   //add/mod to match m_ioWaits
+    void ShutdownIoPollerThread();          //io half of ~VmScheduler (GIL)
+    int RegisterIoInterestLocked(int fd, uint32_t events);
+                                            //union into the kernel set (D1, GIL)
+    void ArmIoPollerLocked(int fd, uint32_t events);
+                                            //create/register/start at park (D1)
     int NextIoTimeoutMs() const;             //nearest deadline, capped
     void HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs);
                                             //ready + expired wakes
     std::vector<IoWaitEntry> m_ioWaits;      //linear table (timer shape)
-    //Last interest set registered with the poller (fd → events): the
-    //per-round re-sync dedups against it (skip unchanged registrations,
-    //del vanished fds). Hashed — the 10k-connection benchmark showed
-    //the vector form made each round O(fds²). Touched under the GIL:
-    //by the poller thread, and by the close-side wake path
-    //(WakeIoWaitersForFd) plus the harvest sleep-transition clear —
-    //the baseline must never outlive the waiters that owned it (a
-    //re-used fd value would match a stale entry and skip re-Add).
+    //Poller set, created at the first park and closed after the poller
+    //thread joins (ShutdownIoPollerThread) — the thread runs on the
+    //captured raw pointer, so the handle must outlive it.
+    IoPollerHandle m_upIoPoller;
+    //Test seam (spec 七 startup-order failure side): makes the park's
+    //IoPollerCreate call return null. Read only at the park's handle
+    //creation site — park and probe both run under the GIL, no race.
+    bool m_ioPollerCreateFailsForTests = false;
+    //Last interest set registered with the poller (fd → events). The
+    //park-site registration (RegisterIoInterestLocked) unions into it,
+    //the harvest round narrows it (del vanished, mod shrunk), and the
+    //close-side wake drops the fd's row. Hashed — the 10k-connection
+    //benchmark showed the vector form made each round O(fds²). Touched
+    //under the GIL only. Contract (D1): the table may only UNDER-report
+    //the kernel set — a stale row makes the equal-mask shortcut skip a
+    //needed Add and strands the park on its deadline, while a missing
+    //row self-heals through the Mod/Add pair.
     std::unordered_map<int, uint32_t> m_ioPollerRegistered;
     bool m_ioThreadStarted = false;
     bool m_ioThreadShutdown = false;
@@ -935,6 +949,18 @@ public:
     //Executor stores live under the five domain locks (K8); this lock
     //sits outside the domain order — see the GilHolder contract above.
     std::mutex& Gil() { return m_gil; }
+
+    //Test probes for the park-site registration contract (D1). Read under
+    //the GIL; no production caller (test_net_scheduler.cpp is their only
+    //consumer). Public because the test drives a live scheduler instance.
+    int IoPollerRegisteredForTests(int fd);      //0 = not registered
+    int IoPollerRegistrationCountForTests();     //set size: "registered nothing" at all
+    bool IoPollerActiveForTests();               //poller handle exists
+    bool IoThreadStartedForTests();
+    void BeginShutdownForTests();                //the destructor's flag+notify half
+    //Startup-order failure side (spec 七): makes the park's IoPollerCreate
+    //call return null so the "no handle, no thread" branch is reachable.
+    void SetIoPollerCreateFailsForTests(bool fails);
 
 private:
     std::mutex m_gil;

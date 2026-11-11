@@ -154,6 +154,170 @@ static void TestRemoveOnClose() {
     NetClose(fd);
 }
 
+//D1: the interest must exist the moment a context parks, not only at the
+//next poller-loop iteration. Before the fix the poller slept on an empty
+//set and the wake arrived at the next 15 ms tick instead of on readiness.
+static void TestRegisterAtPark() {
+    VmScheduler sched;
+    const int id = sched.RegisterContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    CHECK(!sched.IoPollerActiveForTests());      //no poller before the first park
+    sched.ParkForIo(id, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoThreadStartedForTests());
+    CHECK(sched.IoPollerRegisteredForTests(fd) == IO_EV_READ);   //registered at the park
+    sched.WakeIoWaitersForFd(fd);
+    CHECK(WaitUntilRunnable(sched, id, 200));
+    NetClose(fd);
+}
+
+//Two parks on one fd with different masks (a reader then a writer): the
+//kernel interest is the UNION, and neither park may lose the other's bit.
+static void TestUnionMaskAcrossParkSites() {
+    VmScheduler sched;
+    const int r = sched.RegisterContext(), w = sched.RegisterContext();
+    int a = NetOpenUdp(NetFamily::Inet), b = NetOpenUdp(NetFamily::Inet);
+    NetBind(a, "127.0.0.1", 0);
+    NetBind(b, "127.0.0.1", 0);
+    sched.ParkForIo(r, a, IO_EV_READ,  steady_clock::now() + 30s, true);
+    sched.ParkForIo(w, a, IO_EV_WRITE, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerRegisteredForTests(a) == (IO_EV_READ | IO_EV_WRITE));
+    //A park re-declaring the union mask the kernel already has for a takes
+    //the equal-mask shortcut in RegisterIoInterestLocked: no Add/Mod
+    //round-trip. This is the branch the erase in WakeIoWaitersForFd guards:
+    //without it the table over-reports, and a later Add/Mod on an fd the
+    //kernel has dropped fails (EEXIST on POSIX Add, ERROR_INVALID_HANDLE on
+    //IOCP), so pin the shortcut with a fresh context on the same fd.
+    const int r2 = sched.RegisterContext();
+    sched.ParkForIo(r2, a, IO_EV_READ | IO_EV_WRITE, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerRegisteredForTests(a) == (IO_EV_READ | IO_EV_WRITE));
+    //r parks a second time, on the new fd b: its entry on a from the first
+    //park stays live (the explicit Wake(a) below drains it), and
+    //registering b is a fresh Add. b doubles as the sender socket.
+    sched.ParkForIo(r, b, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerRegisteredForTests(b) == IO_EV_READ);
+    const uint8_t m[1] = { 1 };
+    NetSendTo(b, m, 1, "127.0.0.1", NetLocalPort(a));   //b is writable, a is not readable
+    CHECK(WaitUntilRunnable(sched, w, 200));            //the union kept the write bit alive
+    sched.WakeIoWaitersForFd(a);
+    sched.WakeIoWaitersForFd(b);
+    CHECK(WaitUntilRunnable(sched, r, 200));
+    CHECK(WaitUntilRunnable(sched, r2, 200));          //the equal-mask park drains too
+    NetClose(a);
+    NetClose(b);
+}
+
+//A deadline-only park (fd = -1: the wait-for-nothing sleep) must still arm
+//the poller thread — a parked context's deadline is evaluated only inside
+//HarvestIoEvents, so with no thread nobody wakes it — and must register
+//nothing. The count probe is what makes "nothing" observable: the fd-keyed
+//probe alone cannot tell an empty set from an unrelated fd.
+static void TestDeadlineOnlyPark() {
+    VmScheduler sched;
+    const int id = sched.RegisterContext();
+    sched.ParkForIo(id, -1, 0, steady_clock::now() + 100ms, true);
+    CHECK(sched.IoThreadStartedForTests());
+    CHECK(sched.IoPollerRegistrationCountForTests() == 0);
+    const auto t0 = steady_clock::now();
+    CHECK(WaitUntilRunnable(sched, id, 4000));
+    CHECK(steady_clock::now() - t0 >= 90ms);
+}
+
+//D1注销侧走关闭路径的变体(spec 七「删除侧不变量＋走关闭路径的用例」):net
+//模块的socket close(`ABI wakeIoWaiters`)在最后一名等待者消失时一并注销登记。
+//登记必须在调用返回时就已不见,不能指望收窄清扫——清扫只在harvest轮里跑,而
+//表空之后poller线程会重新cv入睡,那一轮可能根本不发生。这条不变量正是既有
+//`TestStaleRegistrationOnFdReuse`(`:102`)依赖的机制:`RegisterIoInterestLocked`
+//的等掩码捷径把陈旧的(fd, events)当成内核里已有登记而跳过Add,新socket就此
+//只能等deadline。
+static void TestCloseWakesDropsInterest() {
+    VmScheduler sched;
+    const int id = sched.RegisterContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    sched.ParkForIo(id, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerRegisteredForTests(fd) == IO_EV_READ);
+    sched.WakeIoWaitersForFd(fd);                 //the close path: last waiter
+    CHECK(sched.IoPollerRegisteredForTests(fd) == 0);   //gone on return, not one round later
+    CHECK(WaitUntilRunnable(sched, id, 200));
+    NetClose(fd);
+}
+
+//D1注销侧走harvest路径:harvest内部的唤醒(这里用一次到期的deadline)在同
+//一轮里抹掉该fd的兴趣,而另一名仍停泊的fd必须保住登记——旧的「表空才清扫」
+//形态只在任意一处都没有等待者时才触发,收窄清扫是D1新增的代码,没有这条用例
+//就没有任何测试覆盖它。断言无竞态:`WakeForIo`(`VmSchedulerIo.cpp:200`)翻状态
+//与清扫同在本轮GIL段内,测试的`Find`要取GIL,只能等poller线程跑到`g2.Release()`
+//(`:251`)之后,那时清扫已经跑完。
+static void TestHarvestNarrowsVanishedInterest() {
+    VmScheduler sched;
+    const int due = sched.RegisterContext(), held = sched.RegisterContext();
+    int fdDue = NetOpenUdp(NetFamily::Inet), fdHeld = NetOpenUdp(NetFamily::Inet);
+    NetBind(fdDue, "127.0.0.1", 0);
+    NetBind(fdHeld, "127.0.0.1", 0);
+    sched.ParkForIo(held, fdHeld, IO_EV_READ, steady_clock::now() + 30s, true);
+    sched.ParkForIo(due, fdDue, IO_EV_READ, steady_clock::now() + 100ms, true);
+    CHECK(sched.IoPollerRegisteredForTests(fdDue) == IO_EV_READ);
+    CHECK(sched.IoPollerRegisteredForTests(fdHeld) == IO_EV_READ);
+    CHECK(WaitUntilRunnable(sched, due, 4000));   //deadline wake, one harvest round
+    CHECK(sched.IoPollerRegisteredForTests(fdDue) == 0);      //swept in that round
+    CHECK(sched.IoPollerRegisteredForTests(fdHeld) == IO_EV_READ);   //narrowing, not clearing
+    sched.WakeIoWaitersForFd(fdHeld);
+    CHECK(WaitUntilRunnable(sched, held, 200));
+    NetClose(fdDue);
+    NetClose(fdHeld);
+}
+
+//D1关停不变量(spec 七):在「关停位已置、poller线程尚未join」的窗口里停泊,
+//既不得登记也不得再起线程——给仍可join的`m_ioThread`赋值新`std::thread`会
+//`std::terminate`,今天无人覆盖。先让一次正常停泊把线程跑起来,再置关停位,
+//第二次停泊落进那个窗口。不再有「deadline仍会唤醒」的断言:IO停泊的deadline
+//只在harvest里评估,关停后线程退出,没有任何一方再看它(`TestWakeOnDeadline`
+//之所以能唤醒,是因为那条用例里poller线程一直活着)。
+static void TestParkAfterShutdown() {
+    VmScheduler sched;
+    const int first = sched.RegisterContext(), late = sched.RegisterContext();
+    int fd1 = NetOpenUdp(NetFamily::Inet), fd2 = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd1, "127.0.0.1", 0);
+    NetBind(fd2, "127.0.0.1", 0);
+    sched.ParkForIo(first, fd1, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoThreadStartedForTests());       //a live poller before shutdown
+    sched.BeginShutdownForTests();                //the destructor's flag+notify half
+    sched.ParkForIo(late, fd2, IO_EV_READ, steady_clock::now() + 200ms, true);
+    //Reaching the checks at all is the std::terminate assertion: restarting the
+    //poller would assign to the still-joinable m_ioThread and abort the binary.
+    CHECK(sched.IoPollerRegisteredForTests(fd2) == 0);        //no interest after shutdown
+    CHECK(sched.IoPollerRegistrationCountForTests() == 1);    //still exactly fd1's
+    CHECK(sched.Find(late)->state == ContextState::ParkedIo); //nothing can wake it now
+    //The handle outlives the exited thread: it is closed only after the join
+    //(Step 6), so the poller's captured pointer cannot dangle.
+    CHECK(sched.IoPollerActiveForTests());
+    sched.WakeIoWaitersForFd(fd1);                //parked contexts are not woken by ~VmScheduler
+    CHECK(WaitUntilRunnable(sched, first, 200));
+    NetClose(fd1);
+    NetClose(fd2);
+}
+
+//D1启动次序的失败侧(spec 七「句柄创建失败的一侧按断言或测试钩子验证不启动
+//线程」):`IoPollerCreate`只在系统资源耗尽时失败,平时打不到这条支路,故用
+//注入开关造出它。句柄没建成就不许起线程——拿着空句柄的poller线程报不出就绪,
+//与旧形态里线程随即退出等价。断言的消息条件是注入开关本身,所以断言构建里
+//这条也不会被`NLANG_ASSERT`打断(真失败时开关为假,断言照旧生效)。
+static void TestHandleCreationFailure() {
+    VmScheduler sched;
+    sched.SetIoPollerCreateFailsForTests(true);
+    const int id = sched.RegisterContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    sched.ParkForIo(id, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(!sched.IoPollerActiveForTests());                  //no handle was made
+    CHECK(!sched.IoThreadStartedForTests());                 //so no thread either
+    CHECK(sched.Find(id)->state == ContextState::ParkedIo);  //the entry is still recorded
+    sched.WakeIoWaitersForFd(fd);              //an explicit wake works without a poller
+    CHECK(WaitUntilRunnable(sched, id, 200));
+    NetClose(fd);
+}
+
 int main() {
     Runtime::StaticInit();
     TestPoller();
@@ -161,6 +325,13 @@ int main() {
     TestWakeOnDeadline();
     TestRemoveOnClose();
     TestStaleRegistrationOnFdReuse();
+    TestRegisterAtPark();
+    TestUnionMaskAcrossParkSites();
+    TestDeadlineOnlyPark();
+    TestCloseWakesDropsInterest();
+    TestHarvestNarrowsVanishedInterest();
+    TestParkAfterShutdown();
+    TestHandleCreationFailure();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }
