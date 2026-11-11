@@ -231,6 +231,21 @@ NLang 4载体对1载体，在32连接时2501对1866、4连接时321对257——�
 该字段报的是系统时钟的更新间隔，与某个进程自己申请的分辨率无关，见下文「只是佐证」），比观测量15.11到15.20 ms高约3 %；
 实测值也从没落到过这个刻度的整数倍上。**这只说明疑似同源，尚未证明因果。**
 
+**E4读数（2026-11-11，机器锁内，未打补丁的二进制，标签`rawbase`）**。裸套接字探针（`tools/http_perf/probe_raw_ab.sh`，只有
+`net`、没有`http.n`：接受、整缓冲扫头终止符、写回一个固定0字节响应、keep-alive）重测四个连接档：
+
+```
+rawbase_1c       rps=       64  p50=  15.60 ms  p90=  16.12 ms  p99=  16.78 ms
+rawbase_4c       rps=      313  p50=  15.41 ms  p90=  16.09 ms  p99=  16.64 ms
+rawbase_32c      rps=     2533  p50=  15.33 ms  p90=  16.08 ms  p99=  16.62 ms
+rawbase_128c     rps=     9953  p50=  15.33 ms  p90=  16.13 ms  p99=  16.81 ms
+```
+
+15 ms量子在裸套接字地板上同样存在：这一档的P50就是`E5`成分表要减掉的地板值，`http.n`服务器同档实测P50减去它，
+得到的就是脚本层与协议层的成本——这就是`E5`分解表要核对的目标。1连接行两边都是64 RPS、P50逐格吻合，脚本层成本
+在低并发档不显形；128连接行裸的9953 RPS是`http.n`实测5852的1.7倍，脚本层的成本余量集中在高并发档。`E4`不含任何
+`http.n`代码，因此它与`E0`的差只可能来自parking路径。
+
 ### 已排除
 
 - **载体数／CPU并行度**：1载体257 RPS对4载体321 RPS，量子一样，只是吞吐变了。
@@ -479,6 +494,16 @@ tools/gate.sh --shared e1-revert temp/t21 cmake --build build-dev --config Relea
 可调环境变量：`PERF_CONTROL_DIR`（二进制目录）、`PERF_CONTROL_MODES`（跑哪几个形态，取值`round`／`immediate`
 ／`round-tb`，默认前两个）、`PERF_CONTROL_CONNS`、`PERF_CONTROL_PORT`（起始端口，逐形态加一）、`PERF_PASSES`，
 以及共用的`PERF_DUR`／`PERF_WARM`／`PERF_THREADS`／`PERF_REQ_TIMEOUT`。
+
+E4裸套接字地板探针不依赖主测量产物——脚本自己渲染`probe_raw_server.n.in`并编译`probe_raw.ncu`，全程只占机器锁。
+标签口径同本节标题：改动前用`base`，本版改完后用`post`（与`probe_slice_ab.sh`的标签口径一致，两趟地板不会互相覆盖）：
+
+```bash
+tools/gate.sh e4-raw temp/t22 bash tools/http_perf/probe_raw_ab.sh base
+```
+
+可调环境变量：`PERF_RAW_PORT`（默认18086）、`PERF_RAW_CONNS`（默认`1 4 32 128`）、`PERF_CARRIERS`，以及共用的
+`PERF_DUR`／`PERF_WARM`／`PERF_THREADS`／`PERF_REQ_TIMEOUT`。
 
 定时器分辨率探针只读不测吞吐，不必占机器锁：`powershell -File tools/http_perf/probe_clock_hold.ps1 -Seconds 120`。
 
