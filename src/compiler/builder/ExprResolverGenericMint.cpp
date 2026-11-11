@@ -380,8 +380,18 @@ SnFieldExpr* ExprResolveAccessor::SubstituteGenericTypeExpr(
 //the invoke's inferred arguments, per the established convention (the
 //value slot reads the return type expr's resolved Field, exactly what
 //SnFunction::EvalDataType yields). The substituted copy is transient:
-//resolving it binds its leaves, and the resolved field it yields is
+//the substitution binds its leaves, and the resolved field it yields is
 //tree/registry-owned, so the invoke's slot outlives the copy.
+//No Access() re-entry here: the copy's static type is the base
+//SnFieldExpr, so an Access call static-dispatches to the defaulted
+//accessor and asserts regardless of the dynamic kind (the Task 4
+//Debug-only crash). Every SubstituteTypeExpr arm already owns the
+//copy's resolution — a resolved source leaf resolves the copy via
+//ResolveFieldExprAs/token interning/an explicit Access on the precise
+//SnGenericTypeExpr static type, and an unresolved source leaf stays
+//unresolved on purpose (the template row's own diagnostic already
+//fired; re-resolving the name at the call site would consult the
+//wrong scope).
 void ExprResolveAccessor::SubstituteInvokeReturnType(
 	SnInvokeExpr& invoke, SnFunction& func)
 {
@@ -392,7 +402,6 @@ void ExprResolveAccessor::SubstituteInvokeReturnType(
 			invoke.InferredTypeArgs()));
 	if (!pRetCopy)
 		return;
-	Access(*pRetCopy);
 	if (pRetCopy->IsResolved())
 		invoke.EvalDataType(pRetCopy->Field());
 }

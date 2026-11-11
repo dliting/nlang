@@ -1124,6 +1124,28 @@ private slots:
             "array-argument substitution must build clean");
     }
 
+    //0.13.1a Task 4 D4: a generic free function invoked in expression
+    //position. The substituted return-type copy (an SnNameExpr for the
+    //T return) is leaf-resolved by the substitution machinery itself;
+    //re-entering the generic accessor on the base-typed copy used to
+    //static-dispatch to the defaulted Access and assert in Debug.
+    void freeGenericInvokeExpressionPosition()
+    {
+        const auto path = writeTempSource("free_generic_invoke.n",
+            "T identity<T>(T v)\n"
+            "{\n"
+            "    return v;\n"
+            "}\n"
+            "int main()\n"
+            "{\n"
+            "    if (identity(3) != 3) { return 1; }\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("free_generic_invoke", path);
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "expression-position generic free-function invoke must build clean");
+    }
+
     //Base-class type arguments (class D<T> : Box<T>, class D : Box<int>)
     //are the construction-shape matrix task's surface — the superclass
     //clause accepts no type arguments in the grammar yet, so nothing
