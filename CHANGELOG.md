@@ -8,6 +8,63 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-12
+
+The tensor vector-ops release: numpy-style array arithmetic in the
+language, a tier-dispatched SIMD kernel layer behind the tensor
+package, and the activation/reduction surface that lets an MLP train
+without a single element loop.
+
+### Added
+
+- **Array arithmetic operators** — `a + b`, `a - b`, `a * b`,
+  `a / b` over numeric arrays (same element kind, right-aligned
+  broadcasting), a scalar on either side (`2 * x`, and the reversed
+  arms `tensor.rsubScalar` / `tensor.rdivScalar` backing `1 - x` and
+  `1 / x`), and unary `-a`. Every spelling lowers to the tensor
+  module's kind-dispatching primitives and rides the vectorized
+  kernels. Requires `import tensor`; string concatenation, the null
+  arithmetic guard and array identity comparison are unchanged.
+  Compound assignment on arrays is not lowered (plain assignment is
+  the supported spelling).
+- **Tensor primitives** — `neg`, `rsubScalar`, `rdivScalar`, the
+  axis arms of `max`/`min` (rank >= 2), `reluGrad(dOut, z)`, `tanh`,
+  `sigmoid`, and the two-array `softmax(x, axis)` (rank-2 rows,
+  rank-1 flat) composed loop-free in the stdlib.
+- **SIMD kernel layer** — runtime CPU tier detection (AVX2+FMA /
+  SSE2 / scalar) behind the `KernelOps` backend table: matmul
+  register-tiled micro-kernels, elementwise binary/unary/clamp lanes,
+  double-accumulator sums, carrier dot, cmp-and-select extrema
+  preserving the scalar NaN/tie rule, axis-0 accumulation, and
+  vectorized exp (Cody-Waite + Taylor, measured 0.65 ulp vs libm)
+  and tanh. Measured on the reference machine: matmul up to 52.6
+  GFLOP/s at the MNIST layer shapes.
+- **Compiler support** — the `ReplaceChildNode` protocol now covers
+  every typed expression slot (per-class overrides + the in-place
+  cell replacement primitive, so mid-traversal splices keep all
+  iterators valid), a TU-end sweep verifies no tensor-flagged binary
+  survives resolution, and the emitter asserts the same at codegen.
+
+### Changed
+
+- **mnist_mlp example** rewritten onto the operator surface: the
+  training loop contains no element loops. End-to-end 9.60 s →
+  1.71 s (~5.6×) against numpy's 0.96 s for the same training
+  (1.78×); test accuracy 0.895 (gate 0.85). The printed losses
+  shifted in the last digits (FMA + lane summation order) — see the
+  example README.
+
+### Known limitations
+
+- Compound assignment on arrays is rejected (plain assignment is the
+  supported spelling). `byte`/`ubyte` arrays take no arithmetic. A
+  rank-1 array with an axis arm is rejected (use the full-reduction
+  form). Floating-point subscripts in array stores are not converted
+  (index through an `int`). The `tensor.n` shell overloads and the
+  lowered operators reach the same kernels through different call
+  depths. GPU (CUDA/ROCm) backends are future work — the KernelOps
+  table is the extension seam.
+
 ## [0.13.1] - 2026-11-10
 
 The runtime generic-information release: every object constructed

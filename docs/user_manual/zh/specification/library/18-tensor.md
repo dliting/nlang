@@ -98,7 +98,10 @@ int[,] p = tensor.matmul(m, m);      // [[7, 10], [15, 22]]
 该包的三个函数用NLang本身编写——其源码是该包的`.n`文件，像任何库函数一样可读可改（§3.9.4）。它们组合native核函数，而不是新增核函数：
 
 - `relu(a)`从下方把数组截到零（`max(a, 0)`），为`float`与`double`声明——整数元素没有激活语义。
-- `softmax(x)`对平移后的元素（`x - max(x)`，防止大输入让`exp`溢出）取指数，再按它们的和归一；结果总和为1。
+- `softmax(x)`对平移后的元素（`x - max(x)`，防止大输入让`exp`溢出）取指数，再按它们的和归一；结果总和为1。双数组形式`softmax(x, axis)`改为沿轴归一：秩2的logit批次用`softmax(logits, 1)`对每行做softmax。轴臂要求秩>=2。
+- `sigmoid(x)`即`1 / (1 + exp(-x))`，由整组原语组合而成。
+- `tanh(x)`走向量化的tanh通道。
+- `reluGrad(dOut, z)`是ReLU门反向：梯度恰好流向`z > 0`的位置（`z = 0`处门关）。
 - `crossEntropyLoss(logits, labels)`计算独热`labels`对`softmax(logits)`的交叉熵：`-sum(labels * log(softmax(logits)))`。形参是秩1的：秩2的批次先经`flatten`摊平（§18.2）。
 
 ```nlang
@@ -116,6 +119,26 @@ int main() {
     return 0;
 }
 ```
+
+## 18.5.1 数组算术运算符
+
+算术运算符下沉到与`tensor`包相同的内核——数值数组上的`a + b`即`tensor.add(a, b)`，广播规则同§18.3.1，元素种类规则也一致。标量在任意一侧走标量臂（`2 * x`即`tensor.mulScalar(x, 2)`）；`s - a`与`s / a`下沉到`tensor.rsubScalar`/`tensor.rdivScalar`（标量在左），`-a`下沉到`tensor.neg`。一元负号与此处的所有逐元素形式一样，只为`int`、`long`、`float`、`double`声明。运算符要求先导入包——它们是`tensor.*`调用的拼写，不是独立的核心表面。
+
+```nlang
+import tensor;
+
+int main() {
+    float[] a = tensor.arange(0.0, 2.0, 1.0);   // 0 1
+    float[] b = a * 2.0 as float - a;           // 仍是[0, 1]
+    float[] c = 1.0 as float - a / 2.0 as float;
+    a = a + b;
+    float[,] m = float[2, 2];
+    float[,] m2 = (m + m) * 2.0 as float;       // 秩2同样广播
+    return 0;
+}
+```
+
+*已知限制。*数组上的复合赋值（`a += b`）未做下沉——请使用运算符形式的普通赋值。元素种类`byte`/`ubyte`无数组算术。秩1数组配轴臂（秩1上的`sum(v, 0)`）被拒绝；请使用全归一形式。数组存储中的浮点下标（`grid[3.0, j]`）不做转换——请以`int`索引。
 
 ## 18.6 错误行为
 

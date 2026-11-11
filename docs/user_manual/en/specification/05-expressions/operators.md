@@ -44,6 +44,25 @@ concatenates the same way: `"v=" + item` and `item + "!"` in both
 orders convert by the argument's kind and fold into the result
 (§4.12.9).
 
+### Array arithmetic
+
+When one or both operands of `+`, `-`, `*`, `/` is a numeric
+array (int, long, float, double elements), the operator lowers
+to the [tensor](../library/18-tensor.md) package's kernels —
+`a + b` is `tensor.add(a, b)` with right-aligned broadcasting;
+`2 * x`, `x - 1` and `1 - x` ride the scalar arms (`1 - x`
+lowers to the reversed arm `tensor.rsubScalar`, since `-` has
+no commute); `-a` is `tensor.neg`. Both array operands must
+carry the same element kind — no silent widening between
+arrays; the scalar side converts by the ordinary rules. The
+operators are spellings of `tensor.*` calls: the package must
+be imported, and a missing import is diagnosed as such.
+Compound assignment on arrays (`a += b`) is not lowered — use
+the plain assignment with the operator form. `string + ...
+` keeps its concatenation reading, and array identity
+comparison (`==`/`!=`) is unchanged. See
+[Tensor](../library/18-tensor.md) §18.5.1.
+
 ### Shift
 
 ```nlang

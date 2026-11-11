@@ -211,6 +211,14 @@ native kernels instead of adding new ones:
 - `softmax(x)` exponentiates the shifted elements
   (`x - max(x)`, which keeps large inputs from overflowing
   `exp`) and normalizes by their sum; the result totals 1.
+  The two-array form `softmax(x, axis)` reduces along an
+  axis instead: for a rank-2 logit batch, `softmax(logits, 1)`
+  softmaxes every row. The axis arm requires rank >= 2.
+- `sigmoid(x)` is `1 / (1 + exp(-x))`, composed from the
+  whole-array primitives.
+- `tanh(x)` rides the vectorized tanh lane.
+- `reluGrad(dOut, z)` is the ReLU gate backward: the gradient
+  flows exactly where `z > 0` (`z = 0` gates off).
 - `crossEntropyLoss(logits, labels)` computes the cross-entropy
   of one-hot `labels` against `softmax(logits)`:
   `-sum(labels * log(softmax(logits)))`. The formals are
@@ -231,6 +239,42 @@ int main() {
     return 0;
 }
 ```
+
+## 18.5.1 Array Arithmetic Operators
+
+The arithmetic operators lower to the same kernels the
+`tensor` package wraps — `a + b` on two numeric arrays is
+`tensor.add(a, b)`, with the broadcasting rule of §18.3.1
+and the same element-kind rules. A scalar on either side
+rides the scalar arms (`2 * x` is `tensor.mulScalar(x, 2)`);
+`s - a` and `s / a` lower to `tensor.rsubScalar` /
+`tensor.rdivScalar` (the scalar sits on the left), `-a` to
+`tensor.neg`. Unary minus, like every elementwise form here,
+is declared for `int`, `long`, `float` and `double` only.
+The operators require the package to be imported — they are
+spellings of `tensor.*` calls, not a separate core surface.
+
+```nlang
+import tensor;
+
+int main() {
+    float[] a = tensor.arange(0.0, 2.0, 1.0);   // 0 1
+    float[] b = a * 2.0 as float - a;           // [0, 1] again
+    float[] c = 1.0 as float - a / 2.0 as float;
+    a = a + b;
+    float[,] m = float[2, 2];
+    float[,] m2 = (m + m) * 2.0 as float;       // rank-2 broadcasts too
+    return 0;
+}
+```
+
+*Known limitations.* Compound assignment on arrays
+(`a += b`) is not lowered — use the plain assignment with the
+operator form. Element kinds `byte`/`ubyte` take no array
+arithmetic. A rank-1 array with an axis arm
+(`sum(v, 0)` on rank-1) is rejected; use the full-reduction
+form. A floating-point subscript in an array store
+(`grid[3.0, j]`) is not converted — index through an `int`.
 
 ## 18.6 Error Behavior
 

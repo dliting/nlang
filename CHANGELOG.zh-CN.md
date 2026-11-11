@@ -6,7 +6,26 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [未发布]
+
+## [0.14.0] - 2026-11-12
+
+张量向量运算版本：语言内的numpy风格数组算术、tensor包背后的分档SIMD内核层，以及让MLP训练摆脱全部逐元素循环的激活/归约表面。
+
+### 新增
+
+- **数组算术运算符**——数值数组（同元素种类，右对齐广播）上的`a + b`、`a - b`、`a * b`、`a / b`，任意一侧的标量（`2 * x`，以及支撑`1 - x`、`1 / x`的反向臂`tensor.rsubScalar`/`tensor.rdivScalar`），与一元`-a`。每种拼写都下沉到tensor模块的按种类分派原语并走向量化内核。要求先`import tensor`；字符串拼接、null算术守卫与数组恒等比较不变。数组上的复合赋值未做下沉（普通赋值是受支持写法）。
+- **张量原语**——`neg`、`rsubScalar`、`rdivScalar`、`max`/`min`的轴臂（秩>=2）、`reluGrad(dOut, z)`、`tanh`、`sigmoid`，以及stdlib中以无循环方式组合的双数组`softmax(x, axis)`（秩2按行、秩1摊平）。
+- **SIMD内核层**——`KernelOps`后端表背后的运行时CPU分档检测（AVX2+FMA/SSE2/标量）：matmul寄存器分块微内核、逐元素二元/一元/clamp通道、双累加器求和、载体点积、保持标量NaN/平局规则的比较选择极值、axis-0累加，以及向量化的exp（Cody-Waite+泰勒，实测对libm 0.65 ulp）与tanh。参考机实测：MNIST层形状的matmul达52.6 GFLOP/s。
+- **编译器支持**——`ReplaceChildNode`协议现覆盖全部typed表达式槽（逐类override+原位cell替换原语，遍历中途splice保持迭代器有效）、TU末扫描验证无tensor标记二元残留，发射器在codegen处同样断言。
+
+### 变更
+
+- **mnist_mlp示例**改写到运算符表面：训练循环不含逐元素循环。端到端9.60秒→1.71秒（约5.6倍），同一训练numpy为0.96秒（1.78倍）；测试准确率0.895（门0.85）。打印loss在末位有漂移（FMA+通道求和次序）——见示例README。
+
+### 已知限制
+
+- 数组上的复合赋值被拒绝（普通赋值是受支持写法）。`byte`/`ubyte`数组无算术。秩1数组配轴臂被拒绝（请用全归一形式）。数组存储中的浮点下标不转换（以`int`索引）。`tensor.n`壳重载与下沉后的运算符经不同调用深度到达相同内核。GPU（CUDA/ROCm）后端是后续工作——`KernelOps`表即扩展缝。
 
 ## [0.13.1] - 2026-11-10
 
