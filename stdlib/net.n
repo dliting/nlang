@@ -254,7 +254,11 @@ class TcpListener {
 // park; close releases the socket.
 class TcpStream {
     private int m_handle;
-    public TcpStream(int handle) { m_handle = handle; }
+    public TcpStream(int handle) {
+        m_handle = handle;
+        m_win = byte[0];        //array fields have no compile-time default (scalars/strings only)
+        m_winView = m_win;      //the view aliases the window from the first byte on
+    }
 
     // Resolves host (parking on the resolver pool) and tries the
     // addresses in order; timeoutMs covers resolution plus connection
@@ -288,10 +292,14 @@ class TcpStream {
     // throws SocketException — 0 is reserved for the EOF signal, so
     // a zero-length read is an argument error, not a silent EOF.
     public int read(byte[] buf, int timeoutMs = 0) {
+        if (buf.length() == 0) { _throwNet(-5, "read"); } //argument error, not EOF
+        if (m_winHave > 0) { return this.drainWindow(buf, 0); } //window first: order over speed
+        if (m_winEof) { return 0; }                        //sticky EOF: no more bytes, ever
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
-        int n = _tcpRead(m_handle, buf, deadline);
+        int n = _tcpRead(m_handle, buf, deadline);   //big read goes straight to the caller
         if (n < 0) { _throwNet(n, "read"); }
+        if (n == 0) { m_winEof = true; }
         return n;
     }
     // Write-all: loops internally until all count bytes are sent
@@ -320,6 +328,126 @@ class TcpStream {
 
     private static const int LINE_START = 64;   //readLine's starting line buffer
 
+    // The single lazy receive window (D5): one syscall per round trip instead
+    // of one per byte, and one place where the parse-then-wait loop asks "is
+    // there more coming?". The window aliases the caller's view, so a view is
+    // valid only until the next window operation.
+    public static const int WINDOW_CAP = 8192;
+    private byte[] m_win;
+    private int m_winHave = 0;
+    private bool m_winEof = false;
+    private bool m_winClosed = false;
+    // The alias view handed to callers. Rebuilt only when the window itself
+    // changes (bytes read in, bytes consumed, the array reallocated), so a
+    // caller that polls every parse round — http.n does — does not pay an
+    // array header per poll.
+    private byte[] m_winView;
+
+    // Waits until the window holds minBytes, the window is full, or the peer
+    // stopped sending; returns the window as an alias (valid until the next
+    // window operation). There is no zero-wait form (spec §五): minBytes < 1 is
+    // an argument error, and a threshold above WINDOW_CAP is satisfied by a
+    // full window — assembling from successive full windows is the caller's job.
+    public byte[] peekFilled(int minBytes = 1, int timeoutMs = 0) {
+        if (minBytes < 1) { _throwNet(-5, "peekFilled"); }
+        if (minBytes > WINDOW_CAP) { minBytes = WINDOW_CAP; }
+        return this.peekWindow(minBytes, this.deadlineFor(timeoutMs), "peekFilled");
+    }
+
+    // Drops the first count bytes of the window: the caller consumed them.
+    // Both bounds are checked (spec §五): no silent clamping, and a closed
+    // stream throws here too — consume never enters native code, so without
+    // this guard stale window bytes would stay readable after close().
+    public void consume(int count) {
+        if (m_winClosed) { _throwNet(-1, "consume"); }
+        if (count <= 0 || count > m_winHave) { _throwNet(-5, "consume"); }
+        this.consumeWindow(count);
+    }
+
+    // Internal: makes the window hold at least want bytes (capped at
+    // WINDOW_CAP) and returns the filled part as an alias view. want is always
+    // at least 1 — every caller, public or internal, asks for one more byte
+    // than it has, which is what keeps "empty view" a pure EOF signal — and the
+    // wait touches the socket only while the window can still hold more. A
+    // passed deadline throws TimeoutException, exactly as _tcpRead's callers do
+    // today; the view comes back shorter only at EOF, and m_winEof then makes
+    // every later call cheap.
+    private byte[] peekWindow(int want, long deadline, string ctx) {
+        if (m_winClosed) { _throwNet(-1, ctx); }
+        if (want > WINDOW_CAP) { want = WINDOW_CAP; }
+        if (m_winEof || want <= m_winHave) { return m_winView; }
+        //Grow first: the window must be able to *hold* want bytes, otherwise
+        //the wait below is satisfied by an already-full small window and the
+        //caller reads a short view as if it were EOF.
+        this.growWindowAtLeast(want);
+        if (want > m_win.length()) { want = m_win.length(); }   //a full window satisfies it
+        while (m_winHave < want) {
+            if (!this.fillWindow(deadline, ctx)) { break; }      //EOF (a timeout throws)
+        }
+        return m_winView;
+    }
+
+    private void syncView() { m_winView = m_win[0:m_winHave]; }
+
+    //Doubles the allocation (from LINE_START, like readLine's accumulator) until
+    //it can hold want bytes, capped at WINDOW_CAP. Growing is separate from
+    //waiting on purpose: a caller that only needs "one more byte than I have"
+    //still asks a small threshold while the buffer itself keeps up with the
+    //stream, so a long message costs one read per segment, not per allocation.
+    private void growWindowAtLeast(int want) {
+        int cap = m_win.length();
+        if (cap == 0) { cap = LINE_START; }
+        while (cap < want && cap < WINDOW_CAP) {
+            int next = cap * 2;
+            if (next > WINDOW_CAP) { next = WINDOW_CAP; }
+            cap = next;                     //cap doubles, so this always advances
+        }
+        if (cap <= m_win.length()) { return; }
+        byte[] wider = byte[cap];
+        for (int i = 0; i < m_winHave; i = i + 1) { wider[i] = m_win[i]; }
+        m_win = wider;
+        this.syncView();                    //the old view aliased the old array
+    }
+
+    // One _tcpRead into the window's free tail. Advances m_winHave and sets
+    // m_winEof on a 0 return; a negative result goes through _throwNet, so the
+    // timeout/closed/concurrent-use mapping stays in one place (net.n:53-63).
+    // False means "no more can come" (EOF); a true return means bytes arrived.
+    private bool fillWindow(long deadline, string ctx) {
+        if (m_winEof || m_winHave == m_win.length()) { return false; }
+        byte[] tail = m_win[m_winHave:m_win.length()];
+        int n = _tcpRead(m_handle, tail, deadline);
+        if (n < 0) { _throwNet(n, ctx); }
+        if (n == 0) { m_winEof = true; return false; }
+        m_winHave = m_winHave + n;
+        this.syncView();
+        return true;
+    }
+
+    private void consumeWindow(int count) {
+        if (count >= m_winHave) { m_winHave = 0; this.syncView(); return; }
+        for (int i = count; i < m_winHave; i = i + 1) { m_win[i - count] = m_win[i]; }
+        m_winHave = m_winHave - count;
+        this.syncView();
+    }
+
+    private int drainWindow(byte[] dst, int off) {
+        int n = m_winHave;
+        if (n > dst.length() - off) { n = dst.length() - off; }
+        for (int i = 0; i < n; i = i + 1) { dst[off + i] = m_win[i]; }
+        this.consumeWindow(n);
+        return n;
+    }
+
+    //net.n's own clock native (_nowMs, not system.monoMs — the package keeps
+    //its deadline arithmetic local, as every existing method does). The shape
+    //is read()'s today (net.n:291-292): 0, and any non-positive timeout, means
+    //"no deadline", which _tcpRead reads as wait forever.
+    private long deadlineFor(int timeoutMs) {
+        if (timeoutMs <= 0) { return 0; }
+        return _nowMs() + timeoutMs;
+    }
+
     // Reads one line: ends at '\n' and returns the text without the
     // line terminator (a trailing '\r' is stripped). If the peer
     // closes before the line ends, returns the text accumulated so
@@ -334,26 +462,39 @@ class TcpStream {
     public string readLine(int timeoutMs = 0) {
         byte[] acc = byte[LINE_START];
         int used = 0;
-        byte[] one = byte[1];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         while (true) {
-            int n = _tcpRead(m_handle, one, deadline);   //absolute deadline stays stable across re-reads
-            if (n < 0) { _throwNet(n, "readLine"); }
-            if (n == 0) { break; }                     //peer closed: keep what arrived
-            if (one[0] == 10) {                        //'\n'
-                if (used > 0 && acc[used - 1] == 13) { used = used - 1; }   //strip '\r'
-                break;
-            }
-            if (used == acc.length()) {                //doubling keeps the copying linear
-                byte[] wider = byte[acc.length() * 2];
+            // One window fill per round instead of one syscall per byte: the
+            // scan for '\n' runs over everything the window already holds.
+            byte[] win = this.peekWindow(1, deadline, "readLine");
+            if (win.length() == 0) { break; }                  //EOF: keep what arrived
+            int nl = indexOfByte(win, 10);                     //'\n'
+            int take = win.length();
+            if (nl >= 0) { take = nl + 1; }                    //the '\n' goes into acc
+            if (used + take > acc.length()) {
+                byte[] wider = byte[(used + take) * 2];
                 for (int i = 0; i < used; i = i + 1) { wider[i] = acc[i]; }
                 acc = wider;
             }
-            acc[used] = one[0];
-            used = used + 1;
+            for (int i = 0; i < take; i = i + 1) { acc[used + i] = win[i]; }
+            used = used + take;
+            this.consumeWindow(take);
+            if (nl >= 0) { break; }
+            //No newline in the whole window: give the next round twice the
+            //buffer. The threshold stays 1 — never wait for bytes the line does
+            //not need — only the allocation grows, so a long line costs one read
+            //per segment instead of one per allocation.
+            this.growWindowAtLeast(m_win.length() * 2);
         }
+        if (used > 0 && acc[used - 1] == 10) { used = used - 1; }             //strip '\n'
+        if (used > 0 && acc[used - 1] == 13) { used = used - 1; }             //strip '\r'
         return _fromBytes(acc[0:used]);
+    }
+
+    private static int indexOfByte(byte[] b, int needle) {
+        for (int i = 0; i < b.length(); i = i + 1) { if (b[i] == needle) { return i; } }
+        return -1;
     }
 
     // Reads exactly count bytes (fixed-length HTTP body framing);
@@ -366,22 +507,35 @@ class TcpStream {
         byte[] payload = byte[count];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
-        int got = 0;
+        int got = this.drainWindow(payload, 0);
+        // Only a read larger than the window, with the window already empty,
+        // bypasses it: a smaller one is one fill away, and bypassing would
+        // leave bytes in the socket that the window already owns.
         while (got < count) {
-            int n = _tcpRead(m_handle, payload[got:count], deadline);
-            if (n < 0) { _throwNet(n, "readExactly"); }
-            if (n == 0) {
-                throw SocketException("net: connection closed after "
-                    + got.toString() + " of " + count.toString()
-                    + " bytes");
+            if (got == 0 && count > WINDOW_CAP) {
+                int n = _tcpRead(m_handle, payload[got:count], deadline);
+                if (n < 0) { _throwNet(n, "readExactly"); }
+                if (n == 0) {
+                    throw SocketException("net: connection closed after "
+                        + got.toString() + " of " + count.toString() + " bytes");
+                }
+                got = got + n;
+                continue;
             }
-            got = got + n;    //n never exceeds count - got: the view bounds it
+            this.peekWindow(count - got, deadline, "readExactly");
+            int n = this.drainWindow(payload, got);
+            if (n == 0) {                       //window could not grow: EOF
+                throw SocketException("net: connection closed after "
+                    + got.toString() + " of " + count.toString() + " bytes");
+            }
+            got = got + n;
         }
         return payload;
     }
     public void close() {
         int r = _tcpClose(m_handle);
         if (r < 0) { _throwNet(r, "close"); }
+        m_winClosed = true;   //window calls throw from here on, residue included
     }
     // Half-close: sends FIN; the read direction stays usable.
     public void shutdownWrite() {

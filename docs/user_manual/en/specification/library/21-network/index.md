@@ -37,7 +37,8 @@ The package surface:
   milliseconds (§21.4).
 - `TcpListener` — bind, accept, close (§21.2).
 - `TcpStream` — connect, read, write, readLine, readExactly,
-  shutdownWrite, close, and the option setters (§21.2).
+  peekFilled, consume, shutdownWrite, close, and the option
+  setters (§21.2).
 - `UdpSocket` — bind, sendTo, recvFrom, connect, send, recv, and
   the broadcast, multicast and buffer-size options (§21.3).
 - `IcmpSocket` — bind, sendTo, recvFrom, close (§21.4).
@@ -45,10 +46,10 @@ The package surface:
 ### Parking and timeouts
 
 Every blocking method — `accept`, `read`, `readLine`,
-`readExactly`, `write`, `send`, `sendTo`, `recv`, `recvFrom`,
-`connect`, `ping` — parks the calling virtual thread until the
-operation completes or the deadline passes; the carrier runs other
-contexts meanwhile (§10.1).
+`readExactly`, `peekFilled`, `write`, `send`, `sendTo`, `recv`,
+`recvFrom`, `connect`, `ping` — parks the calling virtual thread
+until the operation completes or the deadline passes; the carrier
+runs other contexts meanwhile (§10.1).
 Methods that name an address by host name — `bind`, `connect`,
 `sendTo`, `ping` — park while the name resolves as well:
 resolution runs on the runtime's resolver pool, so a slow lookup
@@ -80,7 +81,11 @@ package source as `const` classes deriving from `IOException`
 (§8.3, §20): every net failure is an `IOException`, so
 `catch (IOException e)` covers network and file errors together,
 and `catch (SocketException e)` or `catch (TimeoutException e)`
-narrows to the network. Both carry the usual `message` and `cause`
+narrows to the network. The TCP receive-window calls follow the
+same rules — `peekFilled` raises `TimeoutException` at its
+deadline, and both `peekFilled` and `consume` raise
+`SocketException` once the stream is closed, even while buffered
+window bytes remain (§21.2). Both carry the usual `message` and `cause`
 fields (§8.3); a platform-level failure appends the operating
 system's error text to the message. `SocketException` also carries
 an `errorCode` field: the operating system's error number when the

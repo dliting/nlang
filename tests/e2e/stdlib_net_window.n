@@ -1,0 +1,166 @@
+// The receive window contract (D5): peekFilled blocks until the window holds
+// minBytes and returns an alias of the window (not a copy), which stops being
+// authoritative after the next window operation; consume shifts what the caller
+// read; read/readLine/readExactly consume the window first so bytes never arrive
+// out of order; the empty view is the EOF signal.
+import io;
+import net;
+import system;
+import thread;
+
+// nlang has no lambda: a background feeder is a class holding the connection,
+// started with the bound zero-arg method (the thread.spawn(conn.run) shape).
+class Feeder {
+    private TcpStream m_peer;
+    public Feeder(TcpStream peer) { m_peer = peer; }
+    public void run() {
+        thread.sleep(300);
+        m_peer.write(io.toBytes("LLO"), -1, 5000);   //completes "HE" to "HELLO"
+    }
+}
+
+int main() {
+    TcpListener lst = TcpListener.bind("127.0.0.1", 0);
+    int port = lst.localPort();
+    TcpStream cli = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv = lst.accept(5000);
+
+    // 1. A threshold the window already meets returns at once and consumes
+    //    nothing: two calls in a row see the same five bytes.
+    cli.write(io.toBytes("HELLO"), -1, 5000);
+    byte[] p1 = srv.peekFilled(1, 5000);
+    if (p1.length() != 5) { return 1; }
+    if (io.fromBytes(p1) != "HELLO") { return 2; }
+    if (srv.peekFilled(1, 5000).length() != 5) { return 3; }
+
+    // 2. The view aliases the window, so a consume leaves the old view stale:
+    //    its length still says 5 while a fresh call reports the 3 bytes that
+    //    are actually left (spec §五: the next window operation invalidates it).
+    byte[] stale = srv.peekFilled(1, 5000);
+    srv.consume(2);
+    if (stale.length() != 5) { return 4; }
+    byte[] fresh = srv.peekFilled(1, 5000);
+    if (fresh.length() != 3) { return 5; }
+    if (io.fromBytes(fresh) != "LLO") { return 6; }
+
+    // 3. peekFilled(5) blocks to the threshold: only "HE" is on the wire when
+    //    the wait starts, the rest arrives 300 ms later.
+    TcpStream cli2 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv2 = lst.accept(5000);
+    cli2.write(io.toBytes("HE"), -1, 5000);
+    thread.sleep(100);
+    Feeder f = Feeder(cli2);
+    thread.spawn(f.run);
+    long t0 = system.monoMs();
+    byte[] w = srv2.peekFilled(5, 5000);
+    long waited = system.monoMs() - t0;
+    if (w.length() < 5) { return 7; }
+    if (io.fromBytes(w[0:5]) != "HELLO") { return 8; }
+    if (waited < 150) { return 9; }                //it really blocked to the threshold
+
+    // 4. An emptied window is not EOF: with nothing in flight the wait runs to
+    //    its deadline and throws TimeoutException (spec §五: only EOF gives an
+    //    empty view, "no data yet" needs no separate return value).
+    srv2.consume(5);
+    if (timedOut(srv2) != 1) { return 10; }
+
+    // 5. read consumes the window first: stream order is kept, nothing is
+    //    duplicated or lost across the window/直读 boundary.
+    cli2.write(io.toBytes("WORLD"), -1, 5000);
+    byte[] got = byte[16];
+    int n = srv2.read(got, 5000);
+    if (n != 5) { return 11; }
+    if (io.fromBytes(got[0:5]) != "WORLD") { return 12; }
+
+    // 6. WINDOW_CAP bounds the window: a threshold above the cap is satisfied
+    //    by a full window (enough bytes are in flight to fill it), and the view
+    //    never exceeds the cap — over-cap assembly is the caller's job.
+    if (TcpStream.WINDOW_CAP != 8192) { return 13; }
+    byte[] bulk = byte[TcpStream.WINDOW_CAP + 100];
+    for (int i = 0; i < bulk.length(); i = i + 1) { bulk[i] = 65 as byte; }   //'A'
+    cli.write(bulk, -1, 5000);
+    byte[] full = srv.peekFilled(TcpStream.WINDOW_CAP + 64, 5000);
+    if (full.length() != TcpStream.WINDOW_CAP) { return 14; }
+
+    // 7. Argument errors throw like every other net face: minBytes below 1, a
+    //    non-positive consume, a consume past the unconsumed count (spec §五).
+    TcpStream cli3 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv3 = lst.accept(5000);
+    if (argForms(srv3) != 7) { return 15; }
+
+    // 8. EOF returns the partial bytes without throwing; once those are
+    //    consumed the view stays empty: empty view ⟺ EOF (spec §五).
+    cli3.write(io.toBytes("ABC"), -1, 5000);
+    cli3.close();
+    byte[] part = srv3.peekFilled(9, 5000);
+    if (part.length() != 3) { return 16; }
+    if (io.fromBytes(part) != "ABC") { return 17; }
+    srv3.consume(3);
+    if (srv3.peekFilled(9, 5000).length() != 0) { return 18; }
+
+    // 9. After close() both window calls throw, residue included (spec §五).
+    srv3.close();
+    if (closedForms(srv3) != 3) { return 19; }
+
+    // 10. readLine assembles a line longer than the window across refills, so
+    //     the line length stays unbounded (spec §五's readLine clause).
+    TcpStream cli4 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv4 = lst.accept(5000);
+    int lineLen = 9000;                            //> WINDOW_CAP
+    byte[] line = byte[lineLen + 1];
+    for (int i = 0; i < lineLen; i = i + 1) { line[i] = 120 as byte; }   //'x'
+    line[lineLen] = 10 as byte;                    //'\n' ends the line
+    cli4.write(line, -1, 5000);
+    string ln = srv4.readLine(5000);
+    if (ln.length() != lineLen) { return 20; }
+    byte[] lnBytes = io.toBytes(ln);
+    if (lnBytes.length() != lineLen) { return 21; }
+    if (lnBytes[0] != 120 || lnBytes[lineLen - 1] != 120) { return 22; }
+
+    // 11. readExactly consumes the window when it already holds bytes — the
+    //     direct-read bypass does not cover the "residue present" half (spec
+    //     §五) — and the bypass still serves a fresh over-cap request.
+    cli4.write(io.toBytes("ABCDEFGH"), -1, 5000);
+    if (srv4.peekFilled(3, 5000).length() < 3) { return 23; }
+    byte[] mix = srv4.readExactly(6, 5000);
+    if (io.fromBytes(mix) != "ABCDEF") { return 24; }
+    if (io.fromBytes(srv4.readExactly(2, 5000)) != "GH") { return 25; }
+    TcpStream cli5 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv5 = lst.accept(5000);
+    byte[] big = byte[TcpStream.WINDOW_CAP + 300];
+    for (int i = 0; i < big.length(); i = i + 1) { big[i] = 65 as byte; }
+    cli5.write(big, -1, 5000);
+    byte[] whole = srv5.readExactly(TcpStream.WINDOW_CAP + 300, 5000);
+    if (whole.length() != TcpStream.WINDOW_CAP + 300) { return 26; }
+    if (whole[0] != 65 || whole[TcpStream.WINDOW_CAP + 299] != 65) { return 27; }
+
+    cli.close(); cli2.close(); cli4.close(); cli5.close();
+    srv.close(); srv2.close(); srv4.close(); srv5.close();
+    lst.close();
+    io.print("ok");
+    return 0;
+}
+
+// 400 ms of silence on a live connection must be a TimeoutException, not a
+// returned empty view; any other outcome (including SocketException) is wrong.
+int timedOut(TcpStream s) {
+    try { s.peekFilled(1, 400); } catch (TimeoutException e) { return 1; }
+    return 0;
+}
+
+// Bit mask of the three argument forms that must be rejected as errors.
+int argForms(TcpStream s) {
+    int bits = 0;
+    try { s.peekFilled(0, 5000); } catch (SocketException e) { bits = bits + 1; }
+    try { s.consume(0); } catch (SocketException e) { bits = bits + 2; }
+    try { s.consume(1); } catch (SocketException e) { bits = bits + 4; }
+    return bits;
+}
+
+// Bit mask of the two post-close() forms (spec §五: both throw SocketException).
+int closedForms(TcpStream s) {
+    int bits = 0;
+    try { s.peekFilled(1, 5000); } catch (SocketException e) { bits = bits + 1; }
+    try { s.consume(1); } catch (SocketException e) { bits = bits + 2; }
+    return bits;
+}

@@ -27,8 +27,8 @@
 | `tensor`（§19.6） | `IndexOutOfBoundsException` | 越过§4.10上限的创建长度；负的`reshape`维度 |
 | `tensor`（§19.6） | `DivByZeroException` | 整数`div`除零 |
 | `tensor`（§19.6） | `Exception` | 步长为零或无法推进的`arange`，或越过上限的范围；长度或形状不匹配；对空数组调用`max`、`min`或`mean` |
-| `net`（§21.2–§21.4） | `TimeoutException` | `accept`、`connect`、`read`、`readLine`、`readExactly`、`recv`、`recvFrom`或`ping`在截止时刻结束等待 |
-| `net`（§21.2–§21.4） | `SocketException` | bind、connect或选项设置器的平台失败；无法解析的主机；已关闭的套接字；同一套接字方向上停泊的第二个操作；未连接的`UdpSocket`上的`peerAddress`或`peerPort`；提前结束的流上的`readExactly` |
+| `net`（§21.2–§21.4） | `TimeoutException` | `accept`、`connect`、`read`、`readLine`、`readExactly`、`peekFilled`、`recv`、`recvFrom`或`ping`在截止时刻结束等待 |
+| `net`（§21.2–§21.4） | `SocketException` | bind、connect或选项设置器的平台失败；无法解析的主机；已关闭的套接字——含`close()`之后的`peekFilled`或`consume`，即使窗口里还有缓冲字节；同一套接字方向上停泊的第二个操作；未连接的`UdpSocket`上的`peerAddress`或`peerPort`；小于`1`的`peekFilled`阈值或不在`1…未消费数`之内的`consume`个数；提前结束的流上的`readExactly` |
 | `url`（§22.1–§22.4） | `UrlException` | `Url.parse`的语法错误或超长引用；非绝对基址上的`resolve`；`percentDecode`或`formDecode`的畸形转义（含`queryParams`经`formDecode`的路径） |
 | `http`（§23.2–§23.8） | `HttpException` | 非绝对或scheme不是`http`的请求URL；含回车符或换行符的头名或头值；越过`maxHeaderBytes`或`maxHeaders`的头部块（431）；越过`maxBodyBytes`的正文读取（413）；从对端读到的畸形消息；重定向过多；跨重定向重放的流式正文；已关闭客户端池上的调用 |
 | `http`（§23.4–§23.6） | `TimeoutException` | `HttpBodyReader.read`在截止时刻结束等待；超过`callTimeoutMs`的连接池等待（客户端调用之下的`net`失败原样透出，§23.8） |
