@@ -48,6 +48,16 @@ bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
 //type-parameter-typed members (no concrete kind exists for either).
 void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env);
 
+//0.13.1b: declaration-time cap on a generic declaration's type
+//parameters (definition in GenericDeclContracts.cpp) — ordinals are
+//0-based and the typeName/T-equality ordinal byte reserves its top
+//value (0xFF) as the no-ordinal marker, so a 256th parameter would
+//collide with the sentinel. Shared by the class path and the free
+//function path.
+void CheckGenericTypeParamCount(const std::vector<std::string> &names,
+	const std::string &declName, const ISourceLocation *pLoc,
+	BuildEnvironment &env);
+
 //v0.12.3: reject arrays of a type parameter at the array-token intern
 //entry points (definition in GenericDeclContracts.cpp) — the element
 //kind is not representable in the template's shared row, and a token

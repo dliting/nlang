@@ -103,6 +103,78 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 	return false;
 }
 
+//The declared-template arm's scope probe: a generic-declaration class
+//under the bare name answers; a TYPE that is not a generic declaration
+//is reported back for the miss diagnostics; anything else (including no
+//name at all) leaves both outputs null.
+SnClassDecl *ExprResolveAccessor::FindDeclaredGenericTemplate(
+	const std::string &baseName, SnField **ppNonGenericType)
+{
+	*ppNonGenericType = nullptr;
+	if (!m_pContext)
+		return nullptr;
+	auto *pProbed = FindTypeNameInAncestor(baseName, *m_pContext,
+		*m_pAccessor, false);
+	if (pProbed && pProbed->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
+		return static_cast<SnClassDecl*>(pProbed);
+	*ppNonGenericType = pProbed;
+	return nullptr;
+}
+
+//The declared-template arm's miss diagnostics. The spelling probe is a
+//shape rule (the C# one), so three situations funnel here: a live type
+//that is not generic; a value/function head whose call collided with
+//the shape (`f(a < b, c > (d))` reads as `a<b, c>(d)`); and the plain
+//unknown name. Always returns false.
+bool ExprResolveAccessor::LogDeclaredGenericMiss(SnGenericTypeExpr &genType,
+	const std::string &baseName, SnField *pNonGenericType)
+{
+	//A type that takes no type arguments says so directly.
+	if (pNonGenericType)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"The type \"%s\" is not generic: it takes no type arguments.",
+			baseName.c_str());
+		return false;
+	}
+	//The head names a VALUE, so the shape collision is what happened;
+	//the head's kind picks the fix: a function head means explicit type
+	//arguments on a call, and calls carry none at all (inference reads
+	//the actuals); any other value head gets the parenthesized form.
+	auto *pValueHead = m_pContext
+		? FindFieldInAncestor(baseName, *m_pContext, *m_pAccessor,
+			Flags())
+		: nullptr;
+	if (pValueHead)
+	{
+		if (pValueHead->Kind() == NK_Function)
+		{
+			m_Env.Log(CLL_Error, genType.Location(),
+				"The name \"%s\" resolves to a function, not a generic "
+				"type: this shape reads as a generic instantiation; a "
+				"call carries no type-argument spelling — write the "
+				"call without it.",
+				baseName.c_str());
+			return false;
+		}
+		m_Env.Log(CLL_Error, genType.Location(),
+			"The name \"%s\" resolves to a value, not a generic type: "
+			"this shape reads as a generic instantiation; if you meant "
+			"comparisons as arguments, parenthesize them, for example: "
+			"f((a < b), (c > d)).",
+			baseName.c_str());
+		return false;
+	}
+	//D10: "not a built-in generic type" misled once the miss was merely
+	//an unimported package class — state the miss plainly, then let the
+	//package note name the fix when one exists.
+	m_Env.Log(CLL_Error, genType.Location(),
+		"Cannot resolve the type: \"%s\".", baseName.c_str());
+	MaybeLogPackageHint(baseName);
+	return false;
+}
+
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
 //`Box<int>`): the base must name a generic-declaration class in scope;
 //the arity check runs against its parameter list; the instantiation is
@@ -110,26 +182,13 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	SnGenericTypeExpr &genType, const std::string &baseName)
 {
-	//The base must name a generic-declaration class in scope.
-	SnClassDecl *pTemplate = nullptr;
-	if (m_pContext)
-	{
-		auto *pProbed = FindTypeNameInAncestor(baseName, *m_pContext,
-			*m_pAccessor, false);
-		if (pProbed && pProbed->Kind() == NK_ClassDecl
-			&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
-			pTemplate = static_cast<SnClassDecl*>(pProbed);
-	}
+	//Every answer other than a declared generic template is diagnosed
+	//by the miss path.
+	SnField *pNonGenericType = nullptr;
+	auto *pTemplate = FindDeclaredGenericTemplate(baseName,
+		&pNonGenericType);
 	if (!pTemplate)
-	{
-		//D10: "not a built-in generic type" misled once the miss was
-		//merely an unimported package class — state the miss plainly,
-		//then let the package note name the fix when one exists.
-		m_Env.Log(CLL_Error, genType.Location(),
-			"Cannot resolve the type: \"%s\".", baseName.c_str());
-		MaybeLogPackageHint(baseName);
-		return false;
-	}
+		return LogDeclaredGenericMiss(genType, baseName, pNonGenericType);
 	const size_t expected = pTemplate->TypeParamNames().size();
 	if (genType.TypeArgs().size() != expected)
 	{

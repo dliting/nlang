@@ -1342,6 +1342,16 @@ private:
 	//arity check, instantiation mint-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
 		const std::string &baseName);
+	//The arm's scope probe: a generic-declaration class under the bare
+	//name answers; a non-generic type is reported back for the miss
+	//diagnostics. Null template with a null type = unknown name.
+	SnClassDecl *FindDeclaredGenericTemplate(const std::string &baseName,
+		SnField **ppNonGenericType);
+	//The arm's miss diagnostics: a live type that is not generic, a
+	//value/function head collided with by the spelling shape rule, or
+	//the plain unknown name (with the package hint). Always false.
+	bool LogDeclaredGenericMiss(SnGenericTypeExpr &genType,
+		const std::string &baseName, SnField *pNonGenericType);
 	//D7 helper: probe the scope chain for a DECLARED generic template by
 	//bare name and instantiate it with the given type arguments. Null =
 	//no matching generic declaration in scope (silent — probe semantics

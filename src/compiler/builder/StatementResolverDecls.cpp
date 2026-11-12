@@ -33,6 +33,11 @@ void StatementResolveAccessor::Access(SnFunction &sn)
 			kMaxFuncParams);
 	}
 
+	//0.13.1b: the type-parameter cap rides the same declaration pass
+	//(class side: CheckGenericDeclContract; free-function side: here).
+	CheckGenericTypeParamCount(sn.TypeParamNames(), sn.Name(),
+		sn.Location(), m_Env);
+
 	CheckCtorDeclarationContract(sn);
 	CheckFunctionModifierContract(sn);
 

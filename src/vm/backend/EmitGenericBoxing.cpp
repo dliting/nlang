@@ -107,11 +107,14 @@ VmBackend::ArgBoxPlan VmBackend::PlanBoundaryBox(SnField* pElemType,
     if (tag.isPrimitive)
         return {true, false, tag.tag, 0};
     //Resolved to the calling body's own placeholder: the static tag is
-    //unknowable here — the executing frame's descriptor decides.
+    //unknowable here — the executing frame's descriptor decides. The
+    //declaration-time cap (kMaxGenericTypeParams) keeps the ordinal at
+    //254 or below, so the byte cast is exact and this gate never
+    //silently drops a plan.
     if (pGenerics && pGenerics->IsPlaceholder(pElemType))
     {
         const size_t frameOrdinal = pGenerics->PlaceholderIndex(pElemType);
-        if (frameOrdinal < 256)
+        if (frameOrdinal <= kMaxGenericTypeParams)
             return {true, true, 0, static_cast<uint8_t>(frameOrdinal)};
     }
     return {};

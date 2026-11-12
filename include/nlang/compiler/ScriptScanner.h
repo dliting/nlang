@@ -184,19 +184,28 @@ public:
 	}
 
 	//0.13.1a Task 3: expression-position generic spelling, resolved with
-	//the C# "grammar ambiguities" rule. Declared generic names (Pair,
-	//Hold) cannot live in the scanner's flag set, and in expression
-	//position a plain '<' after an identifier is genuinely ambiguous
-	//(comparison vs spelling) — no parser state can split it. So every
-	//identifier that is immediately followed by a balanced <...> whose
-	//terminator is '.' or '(' (exactly the two shapes the grammar mints:
-	//static member call, constructor call) arms a one-shot flag and the
-	//following '<' arrives as OT_TypeLt, distinct from the comparison
-	//opener by construction. The probe is a pure character scan over the
-	//normalized source (kept by OpenFile/OpenString for this purpose);
-	//no flex state is touched, and unterminated or foreign-char shapes
-	//(quotes, parens, braces inside the angles) leave the comparison
-	//reading intact. Inert in editor mode.
+	//the C# "grammar ambiguities" rule (ECMA-334 §7.6.4.2): the
+	//disambiguation is a SHAPE rule, no identifier case test and no
+	//symbol table. Declared generic names (Pair, Hold) cannot live in
+	//the scanner's flag set, and in expression position a plain '<'
+	//after an identifier is genuinely ambiguous (comparison vs
+	//spelling) — no parser state can split it. So an identifier that is
+	//immediately followed by a balanced <...> whose terminator is '.'
+	//or '(' (exactly the two shapes the grammar mints: static member
+	//call, constructor call) arms a one-shot flag and the following '<'
+	//arrives as OT_TypeLt, distinct from the comparison opener by
+	//construction; a call whose arguments are comparisons colliding
+	//with the shape — `f(a < b, c > (d))` — reads as the spelling too
+	//(C# behaves the same and expects the arguments parenthesized),
+	//and the resolver names that situation when the head resolves to a
+	//value (see TryResolveDeclaredGenericInstance). The reset below
+	//stays unconditional: every identifier rewrites the flag, so a
+	//stale arm cannot cross another identifier. The probe is a pure
+	//character scan over the normalized source (kept by
+	//OpenFile/OpenString for this purpose); no flex state is touched,
+	//and unterminated or foreign-char shapes (quotes, parens, braces
+	//inside the angles) leave the comparison reading intact. Inert in
+	//editor mode.
 	void ProbeTypeArgumentOpener(size_t line, size_t column);
 
 	bool TakePendingReceiverLt()

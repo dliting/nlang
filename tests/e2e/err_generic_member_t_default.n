@@ -1,0 +1,12 @@
+// err_generic_member_t_default.n — 0.13.1b I1: the canonical bare-T
+// default rejection. A method of a generic class rejects a default value
+// on a type-parameter-typed formal with the same message the free
+// function path uses (one rule, one text — the unification target).
+class Box<T> {
+    T grab(T v = 0) {
+        return v;
+    }
+}
+int main() {
+    return 0;
+}

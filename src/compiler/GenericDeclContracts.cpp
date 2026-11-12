@@ -8,6 +8,7 @@
 #include "ModuleBuilderChecks.h"
 #include "BuildEnvironment.h"
 #include "builder/ModuleRegistry.h"
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include "SyntaxTree.h"
 
 namespace nlang
@@ -98,6 +99,25 @@ bool RejectTypeParamArrayElement(SnField *pElemField,
 	return true;
 }
 
+//0.13.1b: declaration-time cap, shared by the class path (from
+//CheckGenericDeclContract) and the free-function path (from the
+//statement resolver's function contract). Ordinals are 0-based and
+//the typeName/T-equality ordinal byte reserves its top value (0xFF)
+//as the no-ordinal marker, so a 256th parameter would silently
+//collide with the sentinel — reject at the declaration instead.
+void CheckGenericTypeParamCount(const std::vector<std::string> &names,
+	const std::string &declName, const ISourceLocation *pLoc,
+	BuildEnvironment &env)
+{
+	if (names.size() <= kMaxGenericTypeParams)
+		return;
+	env.Log(CLL_Error, pLoc,
+		"The declaration \"%s\" declares %zu type parameters; at most "
+		"%zu are supported (the runtime reserves the top ordinal as "
+		"a marker).",
+		declName.c_str(), names.size(), kMaxGenericTypeParams);
+}
+
 //v0.12.3 dictionary model: a generic declaration is one template row —
 //members with bodies compile once against placeholder types, native
 //members keep their lazy host binding, and the two mix freely. The
@@ -109,6 +129,8 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 {
 	if (!cls.IsGenericDeclaration())
 		return;
+	CheckGenericTypeParamCount(cls.TypeParamNames(), cls.Name(),
+		cls.Location(), env);
 	for (auto &member : cls.Members())
 	{
 		CheckMemberNotTypeParamName(cls, member, env);
@@ -139,11 +161,10 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 				BareTypeParamName(param.Type(), env);
 			if (param.Value() && pParamName)
 				env.Log(CLL_Error, param.Location(),
-					"The parameter \"%s\" of the method \"%s\" cannot "
-					"have a default value: the type parameter \"%s\" "
-					"has no concrete kind, so no default value exists.",
-					param.Name().c_str(), member.Name().c_str(),
-					pParamName->c_str());
+					"default value for parameter \"%s\": the type "
+					"parameter \"%s\" has no concrete kind, so no "
+					"default value exists.",
+					param.Name().c_str(), pParamName->c_str());
 		}
 	}
 }

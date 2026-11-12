@@ -2,9 +2,10 @@
 //still never compiles. The head '<' rides the type-argument reading
 //(shift wins in the head states), the second '<' arms the nesting
 //depth, the ">>" splits, and the statement parses as a declaration --
-//the name resolver then rejects it: cannot resolve the type "a".
-//Chained comparisons are also semantically illegal (bool
-//comparisons are strict), so the shape has no legal spelling.
+//the resolver then names the collision: the head names a value, and
+//the shape reads as a generic instantiation. Chained comparisons are
+//also semantically illegal (bool comparisons are strict), so the
+//shape has no legal spelling.
 int main() {
     int a = 1;
     int b = 2;

@@ -1991,7 +1991,7 @@ nested_generic_triple 7
 nested_generic_anchor_runtime 10
 nested_generic_mixed_anchor 0
 nested_closer_shift_regression 4
-nested_closer_chain_stmthead_err compile_error Cannot resolve the type
+nested_closer_chain_stmthead_err compile_error resolves to a value, not a generic type
 window_suspend 0 w[slow-ok]|done
 string_substring_two_args 0
 string_equals_int_reject compile_error
@@ -2190,5 +2190,21 @@ generic_fn_calls_fn 0
 generic_pkg_free_fn 0
 err_generic_free_infer_conflict compile_error conflicting type arguments for T
 err_generic_free_infer_unbound compile_error T appears only in the return type
-err_generic_free_t_default compile_error cannot have a default value
+# 0.13.1b I1: one canonical bare-T default message on both paths.
+err_generic_free_t_default compile_error has no concrete kind
+err_generic_member_t_default compile_error has no concrete kind
+# 0.13.1b I2: declaration-time cap, 255 type parameters (the top ordinal
+# is reserved as the no-ordinal marker).
+err_generic_param_count compile_error at most 255
+err_generic_param_count_fn compile_error at most 255
+# 0.13.1b M2: the spelling probe is a shape rule (the C# one) — a call
+# whose comparison arguments collide with the shape gets a diagnostic
+# naming the parenthesized fix; the parenthesized form itself runs.
+err_spelling_collision_names_the_fix compile_error resolves to a value, not a generic type
+generic_spelling_collision_paren_comparisons 0
+# a live non-generic type with type arguments says so directly.
+err_nongeneric_type_args compile_error is not generic
+# a function head under the same shape learns calls carry no
+# type-argument spelling (inference is from actuals, §4.12.10).
+err_generic_fn_type_args compile_error resolves to a function, not a generic type
 err_generic_native_fn compile_error cannot declare type parameters

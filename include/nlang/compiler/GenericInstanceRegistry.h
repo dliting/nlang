@@ -34,6 +34,14 @@ them when the build ends.
 namespace nlang
 {
 
+//0.13.1b: declaration-time cap on a generic declaration's type
+//parameters. Ordinals are 0-based and travel in one byte on two
+//channels — the frame's boundary-box plan and the typeName/T-equality
+//byte, whose top value (0xFF) is the no-ordinal marker
+//(SnTypeNameExpr::kNoTypeParamOrdinal). The 256th parameter's ordinal
+//would collide with that sentinel; the cap keeps every ordinal ≤ 254.
+constexpr size_t kMaxGenericTypeParams = 255;
+
 class SnClassDecl;
 class SnField;
 class SyntaxNode;

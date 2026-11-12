@@ -174,7 +174,8 @@ void StatementResolveAccessor::CheckDefaultTypeCompat(SnFormalParam *param)
 //T-initializer rule: without a constraint no meaningful T initial
 //value exists — every call site already infers T from its actuals).
 //The formal type must be the bare placeholder; a concrete type keeps
-//its ordinary default contract.
+//its ordinary default contract. 0.13.1b: the message is the canonical
+//text shared with the class-member path (GenericDeclContracts.cpp).
 bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
 	SnFormalParam &param)
 {
@@ -183,10 +184,9 @@ bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
 		|| !m_Env.Registry().DeclaredGenerics().IsPlaceholder(pFormalType))
 		return false;
 	m_Env.Log(CLL_Error, param.Location(),
-		"default value for parameter \"%s\": a type parameter cannot "
-		"have a default value (no meaningful initial value exists "
-		"without a type constraint).",
-		param.Name().c_str());
+		"default value for parameter \"%s\": the type parameter \"%s\" "
+		"has no concrete kind, so no default value exists.",
+		param.Name().c_str(), pFormalType->Name().c_str());
 	return true;
 }
 
