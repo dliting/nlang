@@ -1,7 +1,7 @@
-// err_spelling_collision_names_the_fix.n — 0.13.1b M2: the spelling
-// probe is a shape rule (the C# one) — `a < b, c > (d)` reads as the
-// instantiation `a<b, c>(d)`, so a call whose arguments are comparisons
-// colliding with the shape is rejected with a diagnostic that names the
+// err_spelling_collision_names_the_fix.n — 0.13.1c: rescuable collision
+// shapes re-read as comparisons and run; a collision whose comparison
+// re-read does not parse (here: the misread call carries no argument at
+// all, so the fragment fails) falls back to the diagnostic naming the
 // situation and the parenthesized fix (not a bare cannot-resolve).
 bool both(bool lt, bool gt) {
     return lt && gt;
@@ -10,8 +10,7 @@ int main() {
     int a = 1;
     int b = 2;
     int c = 5;
-    int d = 4;
-    if (!both(a < b, c > (d))) {
+    if (!both(a < b, c > ())) {
         return 1;
     }
     return 0;

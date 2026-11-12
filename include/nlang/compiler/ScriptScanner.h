@@ -72,6 +72,13 @@ public:
 		return m_Location;
 	}
 
+	//The verbatim source bytes between two token locations (1-based
+	//start, one-past end, as the location macros store them). Empty when
+	//either position falls outside the text currently open. Serves the
+	//0.13.1c identity rescue, which re-parses a misread span verbatim.
+	std::string TextBetween(const ScriptLocation &begin,
+		const ScriptLocation &end) const;
+
 	//The scan information for flex internal use.
 	void* ScanInfo() const
 	{
@@ -153,10 +160,23 @@ public:
 
 	//True when the previous token was the identifier "List"/"Dict" or
 	//the func keyword. Consumed (and cleared) by the '<' rule; set by
-	//the identifier rule and the func keyword rule.
+	//the identifier rule and the func keyword rule. The identity-rescue
+	//fragment parse (0.13.1c) suppresses the arming entirely: its span
+	//must re-read as plain comparisons.
 	void PendingGenericOpen(bool bPending)
 	{
-		m_bPendingGenericOpen = bPending;
+		if (!m_bForceComparisonReads)
+			m_bPendingGenericOpen = bPending;
+	}
+
+	//0.13.1c identity rescue: while set, generic-open arming (both the
+	//builtin-name flag above and the spelling probe) is suppressed so
+	//every '<' lexes as the comparison opener. Only the fragment parse
+	//of a rescued span sets it, on a fresh scanner; in-class init keeps
+	//OpenString's InitScanInfo from clearing a set flag.
+	void SetForceComparisonReads(bool bForce)
+	{
+		m_bForceComparisonReads = bForce;
 	}
 
 	bool TakePendingGenericOpen()
@@ -257,6 +277,11 @@ private:
 	//receiver opener (see ProbeTypeArgumentOpener). Consumed by the
 	//'< rule like the builtin flag.
 	bool m_bPendingReceiverLt;
+
+	//0.13.1c identity rescue: forced comparison reading (see
+	//SetForceComparisonReads). Default-initialized so OpenString's
+	//InitScanInfo reset cannot clear it.
+	bool m_bForceComparisonReads = false;
 
 	//The normalized source, kept while a translation unit is open so the
 	//spelling probe can look past the current token (flex exposes no

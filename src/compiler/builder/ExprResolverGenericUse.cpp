@@ -6,6 +6,7 @@
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "ScriptLocation.h"
+#include "ScriptParser.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
@@ -139,33 +140,13 @@ bool ExprResolveAccessor::LogDeclaredGenericMiss(SnGenericTypeExpr &genType,
 		return false;
 	}
 	//The head names a VALUE, so the shape collision is what happened;
-	//the head's kind picks the fix: a function head means explicit type
-	//arguments on a call, and calls carry none at all (inference reads
-	//the actuals); any other value head gets the parenthesized form.
+	//the head's kind picks the fix (function vs other value).
 	auto *pValueHead = m_pContext
 		? FindFieldInAncestor(baseName, *m_pContext, *m_pAccessor,
 			Flags())
 		: nullptr;
 	if (pValueHead)
-	{
-		if (pValueHead->Kind() == NK_Function)
-		{
-			m_Env.Log(CLL_Error, genType.Location(),
-				"The name \"%s\" resolves to a function, not a generic "
-				"type: this shape reads as a generic instantiation; a "
-				"call carries no type-argument spelling — write the "
-				"call without it.",
-				baseName.c_str());
-			return false;
-		}
-		m_Env.Log(CLL_Error, genType.Location(),
-			"The name \"%s\" resolves to a value, not a generic type: "
-			"this shape reads as a generic instantiation; if you meant "
-			"comparisons as arguments, parenthesize them, for example: "
-			"f((a < b), (c > d)).",
-			baseName.c_str());
-		return false;
-	}
+		return LogValueHeadMiss(genType, baseName, pValueHead);
 	//D10: "not a built-in generic type" misled once the miss was merely
 	//an unimported package class — state the miss plainly, then let the
 	//package note name the fix when one exists.
@@ -173,6 +154,107 @@ bool ExprResolveAccessor::LogDeclaredGenericMiss(SnGenericTypeExpr &genType,
 		"Cannot resolve the type: \"%s\".", baseName.c_str());
 	MaybeLogPackageHint(baseName);
 	return false;
+}
+
+//The value-head arm of LogDeclaredGenericMiss: a function head says
+//calls carry no type-argument spelling; any other value head tries the
+//0.13.1c comparison rescue first and names the parenthesized fix on
+//failure. Always returns false.
+bool ExprResolveAccessor::LogValueHeadMiss(SnGenericTypeExpr &genType,
+	const std::string &baseName, SnField *pValueHead)
+{
+	if (pValueHead->Kind() == NK_Function)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"The name \"%s\" resolves to a function, not a generic "
+			"type: this shape reads as a generic instantiation; a "
+			"call carries no type-argument spelling — write the "
+			"call without it.",
+			baseName.c_str());
+		return false;
+	}
+	//0.13.1c identity rescue: the head is a value, so the type
+	//reading is falsified — try the comparison re-read first; on
+	//failure fall through to the named diagnostic unchanged.
+	if (TryRescueComparisonReading(genType))
+		return false;
+	m_Env.Log(CLL_Error, genType.Location(),
+		"The name \"%s\" resolves to a value, not a generic type: "
+		"this shape reads as a generic instantiation; if you meant "
+		"comparisons as arguments, parenthesize them, for example: "
+		"f((a < b), (c > d)).",
+		baseName.c_str());
+	return false;
+}
+
+//Shape discovery for the rescue: the misread call must sit directly in
+//an argument list — the generic head's parent is the minting SnNewExpr
+//and that node's parent is the call (or outer creation) whose argument
+//list splices. Returns the misread node and sets \p ppList to the
+//argument list, or returns null when the shape does not splice.
+static SnNewExpr *FindRescuableMisread(SnGenericTypeExpr &genType,
+	SnExpressionList *&ppList)
+{
+	auto *pParent = genType.Parent();
+	if (!pParent || pParent->Kind() != NK_NewExpr)
+		return nullptr;
+	auto *pMisread = static_cast<SnNewExpr *>(pParent);
+	if (pMisread->ClassName() != &genType)
+		return nullptr;
+	auto *pOwner = pMisread->Parent();
+	if (!pOwner)
+		return nullptr;
+	if (pOwner->Kind() == NK_InvokeExpr)
+		ppList = &static_cast<SnInvokeExpr *>(pOwner)->Params();
+	else if (pOwner->Kind() == NK_NewExpr)
+		ppList = &static_cast<SnNewExpr *>(pOwner)->Args();
+	return ppList ? pMisread : nullptr;
+}
+
+//0.13.1c identity rescue: the head resolved to a value, so the type
+//reading of `a<b, c>(d)` is falsified and the comparison reading is the
+//only sound one (the name-partition invariant). Re-parse the span's
+//verbatim source bytes in forced comparison reading. True = splice
+//staged for the owning list's exit; false = fall back to the 0.13.1b
+//diagnostic unchanged.
+bool ExprResolveAccessor::TryRescueComparisonReading(SnGenericTypeExpr &genType)
+{
+	SnExpressionList *pList = nullptr;
+	auto *pMisread = FindRescuableMisread(genType, pList);
+	if (!pMisread)
+		return false;
+
+	//Span text: the verbatim source bytes captured at reduce time
+	//(SnNewExpr::SpanText) — an AST re-render would compress whitespace
+	//and break the fragment-to-file column correspondence, and multi-line
+	//spans would lose their line structure. No captured bytes (a
+	//different minting arm) means no rescue.
+	const std::string &sSpan = pMisread->SpanText();
+	if (sSpan.empty())
+		return false;
+
+	auto *pSpanStart = static_cast<const ScriptLocation *>(
+		genType.Location());
+	NLANG_ASSERT(pSpanStart);
+	std::vector<SnExpression*> rescued;
+	if (!ScriptParser::ParseFragment(sSpan, *pSpanStart, rescued))
+	{
+		//The span is not well-formed comparisons (an empty argument
+		//list, a stray token shape). Discard whatever parsed and let
+		//the caller log the 0.13.1b diagnostic unchanged.
+		for (auto *pArg : rescued)
+			DeleteNode(pArg);
+		return false;
+	}
+
+	//Wait for the owning list's exit — splicing mid-pass would mutate
+	//a list whose iterators are live (ResolveExpressionList range-for).
+	RescueStash stash;
+	stash.pList = pList;
+	stash.pMisread = pMisread;
+	stash.rescued = std::move(rescued);
+	m_rescueStash.push_back(std::move(stash));
+	return true;
 }
 
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +

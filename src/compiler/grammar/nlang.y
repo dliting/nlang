@@ -2381,7 +2381,13 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//the class name as a SnFieldExpr and the argument list
 				//exactly like the SnInvokeExpr arm does.
 				QualifiedGenericReceiver '(' ConcreteParamList ')' {
-					$$ = new SnNewExpr($1, $3, @1);
+					//0.13.1c identity rescue: keep the verbatim bytes —
+					//when this spelling turns out to be a misread
+					//comparison shape, the rescue re-parses exactly what
+					//was written, not an AST re-render.
+					auto *pNew = new SnNewExpr($1, $3, @1);
+					pNew->SpanText(parser.CaptureSpanText(@1, @4));
+					$$ = pNew;
 				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |

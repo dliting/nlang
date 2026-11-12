@@ -196,17 +196,18 @@ bool ExprResolveAccessor::CheckCreationDim(SnExpression &dim)
 	return false;
 }
 
-bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
+//The creation twin's head gate: only a TYPE EXPRESSION can head a
+//creation — the bare identifier and the splice products of an alias
+//base (name / array / generic — the complete CloneTypeNode product set;
+//the generic form binds the minted instantiation through
+//Access(SnGenericTypeExpr&)). A value expression whose Field() happens
+//to be type-ish (`ks.get(0)[1]` binds the element token) must keep the
+//plain subscript reading. Returns the base field expression, or null
+//when the subscript is not a creation twin.
+static SnFieldExpr *CreationHeadFieldExpr(SnExpression &arrayExpr)
 {
-	auto &arrayExpr = *sn.Array();
 	if (!arrayExpr.IsResolved())
-		return false;
-	//Only a TYPE EXPRESSION can head a creation: the bare identifier and
-	//the splice products of an alias base (name / array / generic — the
-	//complete CloneTypeNode product set; the generic form binds the minted
-	//instantiation through Access(SnGenericTypeExpr&)). A value expression whose Field() happens
-	//to be type-ish (`ks.get(0)[1]` binds the element token) must keep
-	//the plain subscript reading.
+		return nullptr;
 	switch (arrayExpr.Kind())
 	{
 	case NK_IdentifierExpr:
@@ -215,12 +216,21 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	case NK_GenericTypeExpr:
 		break;
 	default:
-		return false;
+		return nullptr;
 	}
 	auto *pBaseFieldExpr = static_cast<SnFieldExpr *>(&arrayExpr);
 	auto *pElemField = pBaseFieldExpr->Field();
 	if (!pElemField || !pElemField->IsTypeField())
+		return nullptr;
+	return pBaseFieldExpr;
+}
+
+bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
+{
+	auto *pBaseFieldExpr = CreationHeadFieldExpr(*sn.Array());
+	if (!pBaseFieldExpr)
 		return false;
+	auto *pElemField = pBaseFieldExpr->Field();
 	if (pBaseFieldExpr->IsArrayType())
 	{
 		m_Env.Log(CLL_Error, sn.Location(),

@@ -881,6 +881,16 @@ public:
 	SnFunction *CtorFunction() const { return m_pCtorFunction; }
 	void CtorFunction(SnFunction *pCtorFunction) { m_pCtorFunction = pCtorFunction; }
 
+	//0.13.1c identity rescue: the verbatim source bytes of the whole
+	//`a<b, c>(d)` spelling, captured at reduce time. Non-empty only for
+	//the QualifiedGenericReceiver constructor arm — when that spelling
+	//turns out to be a misread comparison shape, the rescue re-parses
+	//exactly what was written (an AST re-render would compress
+	//whitespace and break the column correspondence). Everything else
+	//leaves it empty.
+	const std::string &SpanText() const { return m_sSpanText; }
+	void SpanText(std::string sSpan) { m_sSpanText = std::move(sSpan); }
+
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
@@ -892,6 +902,7 @@ private:
 	SnClassDecl *m_pClassDecl;
 	SnStructDecl *m_pStructDecl = nullptr;
 	SnFunction *m_pCtorFunction = nullptr;
+	std::string m_sSpanText;
 };
 
 //The "this" expression — refers to the current object in a method.

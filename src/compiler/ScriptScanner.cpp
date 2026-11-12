@@ -185,6 +185,43 @@ size_t SkipBlanksAndComments(const std::string& text, size_t offset)
 //(unterminated comparison) must not walk the rest of the file.
 const size_t MAX_TYPE_LIST_PROBE_CHARS = 4096;
 
+//"not found" marker of ScanAngleBody (size_t can hold it, text sizes cannot).
+constexpr size_t kAngleBodyNotFound = static_cast<size_t>(-1);
+
+//Scans the balanced <...> body opened at \p opener. Returns the offset
+//of the first byte after the closing '>', or kAngleBodyNotFound when
+//the body runs out of input, exceeds the probe budget, or meets a
+//character no type list may contain.
+size_t ScanAngleBody(const std::string& text, size_t opener)
+{
+	size_t depth = 0;
+	size_t i = opener;
+	while (i < text.size() && i - opener <= MAX_TYPE_LIST_PROBE_CHARS)
+	{
+		i = SkipBlanksAndComments(text, i);
+		if (i >= text.size())
+			return kAngleBodyNotFound;
+		const char c = text[i];
+		if (c == '<')
+		{
+			++depth;
+			++i;
+		}
+		else if (c == '>')
+		{
+			--depth;
+			++i;
+			if (depth == 0)
+				return i;
+		}
+		else if (IsTypeListForeignChar(c))
+			return kAngleBodyNotFound;
+		else
+			++i;
+	}
+	return kAngleBodyNotFound;
+}
+
 } //namespace
 
 void ScriptScanner::BuildLineStarts()
@@ -196,9 +233,35 @@ void ScriptScanner::BuildLineStarts()
 			m_scanLineStarts.push_back(i + 1);
 }
 
+//0.13.1c identity rescue: slice the retained text between two token
+//locations. YY_USER_ACTION stores 1-based start columns and one-past
+//end columns over the same byte grid the line-start table maps, so the
+//conversion matches ProbeTypeArgumentOpener's probe position math.
+std::string ScriptScanner::TextBetween(const ScriptLocation &begin,
+	const ScriptLocation &end) const
+{
+	if (m_sScanText.empty() || m_ContextType != CT_Compiler
+		|| begin.m_nStartLine == 0 || begin.m_nStartCol == 0
+		|| begin.m_nStartLine > m_scanLineStarts.size()
+		|| end.m_nEndLine == 0
+		|| end.m_nEndLine > m_scanLineStarts.size())
+		return {};
+	const size_t beginOffset = m_scanLineStarts[begin.m_nStartLine - 1]
+		+ begin.m_nStartCol - 1;
+	const size_t endOffset = m_scanLineStarts[end.m_nEndLine - 1]
+		+ end.m_nEndCol;
+	if (beginOffset >= endOffset || endOffset > m_sScanText.size())
+		return {};
+	return m_sScanText.substr(beginOffset, endOffset - beginOffset);
+}
+
 void ScriptScanner::ProbeTypeArgumentOpener(size_t line, size_t column)
 {
 	m_bPendingReceiverLt = false;
+	//0.13.1c identity rescue: forced comparison reading skips the shape
+	//probe — the fragment span must re-read as plain comparisons.
+	if (m_bForceComparisonReads)
+		return;
 	if (m_sScanText.empty() || m_ContextType != CT_Compiler
 		|| line == 0 || line > m_scanLineStarts.size())
 		return;
@@ -208,40 +271,14 @@ void ScriptScanner::ProbeTypeArgumentOpener(size_t line, size_t column)
 	const size_t opener = SkipBlanksAndComments(m_sScanText, afterToken);
 	if (opener >= m_sScanText.size() || m_sScanText[opener] != '<')
 		return;
-	size_t depth = 0;
-	size_t i = opener;
-	while (i < m_sScanText.size()
-		&& i - opener <= MAX_TYPE_LIST_PROBE_CHARS)
+	const size_t afterBody = ScanAngleBody(m_sScanText, opener);
+	if (afterBody == kAngleBodyNotFound)
+		return;
+	const size_t follow = SkipBlanksAndComments(m_sScanText, afterBody);
+	if (follow < m_sScanText.size())
 	{
-		i = SkipBlanksAndComments(m_sScanText, i);
-		if (i >= m_sScanText.size())
-			return;
-		const char c = m_sScanText[i];
-		if (c == '<')
-		{
-			++depth;
-			++i;
-		}
-		else if (c == '>')
-		{
-			--depth;
-			++i;
-			if (depth == 0)
-			{
-				const size_t follow = SkipBlanksAndComments(m_sScanText, i);
-				if (follow < m_sScanText.size())
-				{
-					const char terminator = m_sScanText[follow];
-					m_bPendingReceiverLt = (terminator == '.'
-						|| terminator == '(');
-				}
-				return;
-			}
-		}
-		else if (IsTypeListForeignChar(c))
-			return;
-		else
-			++i;
+		const char terminator = m_sScanText[follow];
+		m_bPendingReceiverLt = (terminator == '.' || terminator == '(');
 	}
 }
 

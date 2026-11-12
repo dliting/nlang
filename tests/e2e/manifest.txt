@@ -2213,3 +2213,6 @@ err_typeparam_array_expr compile_error Cannot create an array of the type parame
 generic_instantiation_array_ok 10
 alias_primitive_keywords 10
 err_alias_reserved compile_error syntax error
+spelling_rescue_comparisons 10
+spelling_rescue_nested 10
+err_rescue_semantic_type compile_error bool values cannot be ordered

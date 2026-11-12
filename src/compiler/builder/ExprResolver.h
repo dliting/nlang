@@ -362,9 +362,44 @@ private:
 
 	//Resolve every expression in the list, skipping already-resolved ones
 	//and anything in pDeferredArgs — the bare brace arguments that wait
-	//for the callee's formal type (0.9.0). Null skips nothing.
+	//for the callee's formal type (0.9.0). Null skips nothing. The exit
+	//applies the identity-rescue stashes targeting this list.
 	bool ResolveExpressionList(SnExpressionList &exprs,
 		const std::vector<SnExpression*> *pDeferredArgs = nullptr);
+
+	//0.13.1c identity rescue: one staged splice. The fragment parse of a
+	//misread `a<b, c>(d)` shape succeeded; its rescued arguments wait in
+	//rescued (ownership unassigned) while the owning list finishes the
+	//current pass — splicing mid-pass would walk a live list. Apply
+	//(from ResolveExpressionList's exit) detaches the misread node,
+	//splices the rescued arguments in its place, and resolves them.
+	struct RescueStash
+	{
+		SnExpressionList *pList;
+		SnNewExpr *pMisread;
+		std::vector<SnExpression*> rescued;
+	};
+
+	//0.13.1c identity rescue: the head resolved to a value, so the type
+	//reading of the shape is falsified and the comparison reading is the
+	//only sound one. Re-parses the span's verbatim source bytes in
+	//forced comparison reading. True = splice staged for the owning
+	//list's exit; false = fall back to the 0.13.1b diagnostic.
+	bool TryRescueComparisonReading(SnGenericTypeExpr &genType);
+
+	//The value-head arm of LogDeclaredGenericMiss (extracted for the
+	//source-size guard): a function head says calls carry no
+	//type-argument spelling; any other value head tries the comparison
+	//rescue first and names the parenthesized fix on failure.
+	bool LogValueHeadMiss(SnGenericTypeExpr &genType,
+		const std::string &baseName, SnField *pValueHead);
+
+	//0.13.1c identity rescue: apply the staged splices targeting this
+	//list, then the caller recomputes the list's resolution result over
+	//the repaired children.
+	void ApplyRescueStash(SnExpressionList &exprs);
+
+	std::vector<RescueStash> m_rescueStash;
 
 	//0.9.0: argument prologue of Access(SnInvokeExpr&) — collects the
 	//deferred bare brace arguments into the out vector, resolves every

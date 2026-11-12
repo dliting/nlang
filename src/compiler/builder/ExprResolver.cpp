@@ -158,7 +158,64 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs,
 		if (!expr.IsResolved() && bOK)
 			bOK = false;
 	}
+	//0.13.1c identity rescue: splice staged rescues now — the pass over
+	//this list is done, so no iterator is live — then recompute the
+	//result over the repaired children (the misread node failed
+	//silently by design and is gone by now; siblings that failed with
+	//real diagnostics stay unresolved and keep the list failed).
+	if (!m_rescueStash.empty())
+	{
+		ApplyRescueStash(exprs);
+		bOK = true;
+		for (auto &expr : exprs)
+		{
+			if (!expr.IsResolved())
+			{
+				bOK = false;
+				break;
+			}
+		}
+	}
 	return bOK;
+}
+
+//0.13.1c identity rescue: apply the staged splices targeting this list.
+//The misread creation node is detached and destroyed; its rescued
+//arguments take its place in the owner's children (an argument-count
+//change is fine — the call's arguments were parsed positionally) and
+//resolve through the normal expression path, so a rescued comparison
+//that fails types reports its REAL error, never the shape diagnostic.
+void ExprResolveAccessor::ApplyRescueStash(SnExpressionList &exprs)
+{
+	for (size_t i = 0; i < m_rescueStash.size(); )
+	{
+		if (m_rescueStash[i].pList != &exprs)
+		{
+			++i;
+			continue;
+		}
+		RescueStash stash = std::move(m_rescueStash[i]);
+		m_rescueStash.erase(m_rescueStash.begin() + i);
+
+		auto *pOwner = stash.pMisread->Parent();
+		NLANG_ASSERT(pOwner);
+		auto iPos = pOwner->Children().find(stash.pMisread);
+		NLANG_ASSERT(iPos != pOwner->Children().end());
+		//RemoveChildFrom returns the FOLLOWING iterator; erase invalidates
+		//the erased one, so the first insert must start from the return.
+		iPos = RemoveChildFrom(iPos, *pOwner);
+		DeleteNode(stash.pMisread);
+		for (auto *pRescued : stash.rescued)
+		{
+			iPos = InsertChildInto(iPos, pRescued, *pOwner);
+			++iPos;
+		}
+		for (auto *pRescued : stash.rescued)
+		{
+			if (!pRescued->IsResolved())
+				pRescued->Accept(*m_pVisitor);
+		}
+	}
 }
 
 bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
