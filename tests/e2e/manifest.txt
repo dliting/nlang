@@ -2209,3 +2209,5 @@ err_nongeneric_type_args compile_error is not generic
 err_generic_fn_type_args compile_error resolves to a function, not a generic type
 err_generic_native_fn compile_error cannot declare type parameters
 reserved_words_removed 55
+err_typeparam_array_expr compile_error Cannot create an array of the type parameter
+generic_instantiation_array_ok 10

@@ -12,6 +12,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include "ModuleBuilderChecks.h"
 #include <nlang/runtime/Config.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
@@ -227,6 +228,14 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 			"type once with its rank.");
 		return true;
 	}
+	//0.13.1c D2 alignment: the creation twin joins the declaration-form
+	//gate — a type-parameter element kind is unknown until the
+	//instantiation, so `T[n]` is rejected exactly like `T slot[n];`
+	//(GenericDeclContracts RejectTypeParamArrayElement). An
+	//instantiation head (`Box<T>[n]`) is a legal handle array and is not
+	//a placeholder here.
+	if (RejectTypeParamArrayElement(pElemField, m_Env, sn.Location()))
+		return true;
 	//Stage-2: the creation twin T[2, 3] carries N dimensions — the index
 	//list IS the rank. Named/out forms and slices are rejected inside
 	//ResolveCreationDims.

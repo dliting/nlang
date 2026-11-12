@@ -85,7 +85,8 @@ void CheckClassFieldInitializer(const SnClassDecl &cls,
 //kind until the instantiation — `T a[3]` is the sized-declarator form
 //of new T[3], the same rejection family as new T[n] in bodies (spec
 //D2). The sized-declarator intern (StatementResolveAccessor's
-//local-declaration path) is the one remaining caller.
+//local-declaration path) and, since 0.13.1c, the creation twin
+//(TrySizedArrayCreation, the `T[n]` subscript form) are the callers.
 bool RejectTypeParamArrayElement(SnField *pElemField,
 	BuildEnvironment &env, const ISourceLocation *pLoc)
 {

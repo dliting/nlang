@@ -1,0 +1,12 @@
+//0.13.1c gate tightening: expression-position creation over a type
+//parameter joins the declaration-form rejection — the element kind is
+//not known until the instantiation.
+class Box<T>
+{
+    public T[] make(int n)
+    {
+        T[] arr = T[n];
+        return arr;
+    }
+}
+int main() { return 0; }
