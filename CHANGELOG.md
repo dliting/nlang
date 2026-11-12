@@ -6,6 +6,59 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.6] - 2026-11-12
+
+### Added
+
+- **`TcpStream.peekFilled` and `consume`.** The raw receive window,
+  for code that frames messages itself: `peekFilled(minBytes = 1,
+  timeoutMs = 0)` waits until `minBytes` unconsumed bytes are
+  buffered (the wait target is capped at the 8192-byte window
+  capacity, and `timeoutMs = 0` means no deadline) and returns a
+  view of the window; `consume(count)` discards the bytes already
+  framed, making room for the next refill. An empty view means end
+  of file, the same signal `read` gives. The view is invalidated by
+  the next read or `consume`.
+
+### Changed
+
+- **`TcpStream` reads lose nothing.** `read`, `readLine` and
+  `readExactly` now run over one lazy 8192-byte receive window:
+  bytes `readExactly` takes beyond `count` stay in the window for
+  later reads, so a fixed-size header read followed by a body read
+  no longer consumes and drops the tail; `readLine` assembles a
+  line across window refills, so line length stays unlimited.
+- **Surplus HTTP connections are refused off the accept thread.**
+  At `maxConnections`, a surplus connection now gets its 503 from a
+  short-lived worker; while 64 such answers are already in flight,
+  a surplus connection is closed with no answer, so the client
+  reads an empty reply.
+- **Deadline-free `net.ping` no longer postpones hostname
+  resolution.** A ping with `timeoutMs = 0` keeps its wait off the
+  high-priority native work queue, so a batch of open-ended pings
+  cannot starve name resolution running at normal priority.
+
+### Fixed
+
+- **Timed network waits no longer round up to ~15 ms.** The VM
+  registered deadline parking only at scheduler round boundaries,
+  so a wait whose deadline landed on the OS clock tick slept a
+  whole quantum: ready bytes, timeouts and idle keep-alive
+  cutoffs all arrived ~15 ms late under load. Waits now park on
+  their own deadline, and the p50 latency of the canned HTTP
+  benchmark fell from ~15 ms to ~1 ms per request.
+
+### Performance
+
+- **HTTP serving throughput moved up an order of magnitude.** One
+  lazy receive window per connection replaces the byte-at-a-time
+  reads, the response head is pre-encoded with the `Date` header
+  cached per second, and the head and body go out in one write.
+  On the same-machine five-way benchmark (`tools/http_perf/`) the
+  server now stays within one order of magnitude of Node.js on
+  both the single-connection and the high-concurrency rung, the
+  acceptance gate for this version.
+
 ## [0.13.5] - 2026-11-09
 
 ### Added
