@@ -2211,3 +2211,5 @@ err_generic_native_fn compile_error cannot declare type parameters
 reserved_words_removed 55
 err_typeparam_array_expr compile_error Cannot create an array of the type parameter
 generic_instantiation_array_ok 10
+alias_primitive_keywords 10
+err_alias_reserved compile_error syntax error

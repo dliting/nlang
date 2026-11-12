@@ -244,6 +244,13 @@ LineComment	\/\/[^\n]*
 "float"     { return KT_Float; }
 "for"       { return KT_For; }
 "foreach"   { return KT_Foreach; }
+"fp32"      {
+                /*0.13.1c primitive type aliases: a pure spelling layer
+                 * mapping to the primitive tokens (fp64 below); AST and
+                 * descriptor spellings stay canonical. */
+                return KT_Float;
+            }
+"fp64"      { return KT_Double; }
 "func"      {
                 /* 0.8.3: keyword form of the function type. Same
                  * pending-open flag as the List/Dict identifier rule
@@ -258,6 +265,8 @@ LineComment	\/\/[^\n]*
 "import"    { return KT_Import; }
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
+"int32"     { return KT_Int; }
+"int64"     { return KT_Long; }
 "interface" { return KT_Interface; }
 "long"      { return KT_Long; }
 "native"    { return KT_Native; }

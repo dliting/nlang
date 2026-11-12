@@ -41,12 +41,16 @@
 | `float` |
 | `for` |
 | `foreach` |
+| `fp32` |
+| `fp64` |
 | `func` |
 | `if` |
 | `implements` |
 | `import` |
 | `in` |
 | `int` |
+| `int32` |
+| `int64` |
 | `interface` |
 | `long` |
 | `native` |
@@ -78,6 +82,7 @@
 
 `func`既是保留字，也是函数类型的关键字拼写（第4章）；它的类型实参行为在§1.6中规定。
 
+四个保留字是基本类型关键字的固定别名：`int32`是`int`的拼写，`int64`是`long`的拼写，`fp32`是`float`的拼写，`fp64`是`double`的拼写。别名是纯粹的拼写层：它在一切位置命名同一个类型，诊断与`typeName`始终打印规范名——`typeName(int32)`是`"int"`。
 
 ## 1.5 字面量
 

@@ -81,8 +81,11 @@ def test_keyword_list_matches_scanner_surface():
     #flex source itself, so a keyword added or removed in nlang.l turns
     #this red instead of silently diverging from the lexer's sets.
     scanner = frozenset(re.findall(
-        r'"([A-Za-z]+)"\s*\{[^}]*?return KT_\w+;',
+        r'"([A-Za-z0-9]+)"\s*\{[^}]*?return KT_\w+;',
         _SCANNER.read_text(encoding="utf-8")))
+    #Digits are part of the capture: the 0.13.1c primitive aliases
+    #(fp32/fp64/int32/int64) are reserved words whose spellings carry
+    #numbers, and a letters-only capture silently misses their drift.
     #The body match spans multi-line rule bodies ("func"'s carries a
     #comment plus a PendingGenericOpen call, so the old `\{\s*return`
     #shape cannot see it — a single capture group only, two would make

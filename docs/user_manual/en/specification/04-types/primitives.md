@@ -21,6 +21,10 @@ The scalar primitives and their value domains:
 | `bool` | `true` and `false` | `false` |
 | `char` | the Unicode scalar values | code point 0 |
 
+Four of the types above have fixed alias spellings (§1.4):
+`int32` for `int`, `int64` for `long`, `fp32` for `float`, and
+`fp64` for `double`.
+
 A Unicode scalar value is a code point in the range U+0000 to
 U+10FFFF other than the surrogate range U+D800 to U+DFFF. A
 character literal is checked at compile time (§1.5.3); converting

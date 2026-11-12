@@ -52,12 +52,16 @@ identifiers:
 | `float` |
 | `for` |
 | `foreach` |
+| `fp32` |
+| `fp64` |
 | `func` |
 | `if` |
 | `implements` |
 | `import` |
 | `in` |
 | `int` |
+| `int32` |
+| `int64` |
 | `interface` |
 | `long` |
 | `native` |
@@ -90,6 +94,13 @@ identifiers:
 `func` is both a reserved word and the keyword spelling of the
 function type (chapter 4); its type-argument behavior is specified
 in §1.6.
+
+Four reserved words are fixed aliases of the primitive type
+keywords: `int32` is a spelling of `int`, `int64` of `long`,
+`fp32` of `float`, and `fp64` of `double`. An alias is a pure
+spelling layer: it names the same type in every position, and
+diagnostics and `typeName` always print the canonical name —
+`typeName(int32)` is `"int"`.
 
 ## 1.5 Literals
 

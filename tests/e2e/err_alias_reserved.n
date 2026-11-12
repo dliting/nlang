@@ -1,0 +1,2 @@
+//int32 lexes as the int keyword, so it cannot be an identifier.
+int int32 = 1;

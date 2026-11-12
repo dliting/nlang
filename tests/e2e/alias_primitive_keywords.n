@@ -1,0 +1,22 @@
+//int32/int64/fp32/fp64 are spellings of int/long/float/double.
+int main()
+{
+    int32 a = 7;
+    int64 b = 9000000000;
+    fp32 c = 1.5f;
+    fp64 d = 2.5;
+    //typeName folds to the canonical spelling.
+    if (typeName(int32) != "int")
+        return 11;
+    //a plain keyword type: the comparison reads int, not a generic head.
+    bool lt = a < 10;
+    if (!lt)
+        return 12;
+    if (a != 7 || b <= 1000000000)
+        return 13;
+    if (c <= 1.0f || c >= 2.0f)
+        return 14;
+    if (d <= 2.0 || d >= 3.0)
+        return 15;
+    return 10;
+}
