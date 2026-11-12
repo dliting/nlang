@@ -85,15 +85,15 @@ narrows to the network. The TCP receive-window calls follow the
 same rules — `peekFilled` raises `TimeoutException` at its
 deadline, and both `peekFilled` and `consume` raise
 `SocketException` once the stream is closed, even while buffered
-window bytes remain (§21.2). Both carry the usual `message` and `cause`
-fields (§8.3); a platform-level failure appends the operating
-system's error text to the message. `SocketException` also carries
-an `errorCode` field: the operating system's error number when the
-failure came from the OS (Windows: the Winsock code — `10061`
-connection refused, `10048` address in use, `11001` host not
-found), `0` when there is none (an argument error, an internal
-condition). Branch on the number — the message text follows the
-OS locale, the number does not.
+window bytes remain (§21.2). Both carry the usual `message` and
+`cause` fields (§8.3); a platform-level failure appends the
+operating system's error text to the message. `SocketException`
+also carries an `errorCode` field: the operating system's error
+number when the failure came from the OS (Windows: the Winsock
+code — `10061` connection refused, `10048` address in use, `11001`
+host not found), `0` when there is none (an argument error, an
+internal condition). Branch on the number — the message text
+follows the OS locale, the number does not.
 
 ### Bytes and strings
 
