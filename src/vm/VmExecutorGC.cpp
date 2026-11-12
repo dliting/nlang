@@ -7,6 +7,7 @@
 ---*/
 #include "VmExecutor.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -27,10 +28,12 @@ namespace nlang {
 //(K6 excluded that shape by holding the GIL across every window).
 //GIL-holding callers (spawn tail inside an intrinsic's store guard,
 //guarded function entries) hand the lock off for the WHOLE sequence:
-//the rendezvous contract parks on the cv holding no global lock, and
-//K8's collection itself takes none — its epilogue touches only leaf
-//arms (the quiescence gate, the root-registry iterations) plus one
-//scheduler-domain guard (the registry scan).
+//the rendezvous contract parks on the cv holding no global lock; the
+//elected collector reacquires the GIL only after the rendezvous
+//completes (CollectAndComplete's GIL-before-gate order), and the
+//epilogue touches no domain lock — only leaf arms (the quiescence
+//gate, the root-registry iterations) plus one scheduler-domain guard
+//(the registry scan).
 void VmExecutor::CheckGCSafepoint() {
     if (m_spScheduler->CarrierRunGenerationStale())
         throw ShutdownSignal();   //zombie carrier from a torn-down run
@@ -45,7 +48,7 @@ void VmExecutor::CheckGCSafepoint() {
             stop.WaitForCompletion();
             stop.BeginExecuting();   //Rule A — never under the global lock
         } else {
-            CollectAndReenter(stop);   //K8: lock-free (quiescence-gated)
+            CollectAndReenter(stop);   //K8: quiescence-gated collection
         }
         return;
     }
@@ -68,8 +71,9 @@ void VmExecutor::CheckGCSafepoint() {
 //caller's executing bit was flipped off by its arrival, so bytecode
 //continuing afterwards must re-enter the denominator (BeginExecuting
 //cannot block here — the stop completed — and no global lock is held:
-//the safepoint's handoff released the GIL, the collection's own arms
-//released theirs). If the collection throws, the re-entry still runs
+//the safepoint's handoff released the GIL, and the epilogue released
+//its own GIL and native-minter-gate holds on return). If the
+//collection throws, the re-entry still runs
 //BEFORE the unwind continues: a window teardown that parks would call
 //EndExecuting on an already-off bit (protocol tripwire), and skipping
 //it leaves this thread outside the denominator mid-bytecode. The
@@ -85,12 +89,21 @@ void VmExecutor::CollectAndReenter(GcWorldStop& stop) {
     stop.BeginExecuting();   //Rule A — never under the global lock
 }
 
-//K8 site 2 (Task 5): the last arriver's epilogue — LOCK-FREE
-//collection. The quiescence gate comes first: AssertAllArrived pins
-//the constructive fact that every snapshot member is parked (no
-//window can re-open mid-collection — Rule A waits out the epoch — so
-//no bytecode and no store allocation can run; the mark and sweep
-//arms touch the stores without any domain lock). The scheduler
+//K8 site 2 (Task 5): the last arriver's epilogue. The quiescence gate
+//comes first: AssertAllArrived pins the constructive fact that every
+//snapshot member is parked (no window can re-open mid-collection —
+//Rule A waits out the epoch — so no bytecode and no store allocation
+//can run; the mark and sweep arms touch the stores without any domain
+//lock). The collector then takes the GIL and the exclusive
+//native-minter gate, in that order: mint callbacks wait for the GIL
+//before the gate, so a collector taking the gate first would hold it
+//while the mark scans waited for a GIL a parked-at-the-gate minter
+//holds — an ABBA deadlock (v0.13.6 review C1). The collector's GIL
+//acquisition cannot cycle: parked members hold no GIL (the
+//handoff released it), and a mint callback that does hold it never
+//waits on this stop while holding it (safepoint polls hand the GIL
+//off before waiting). Holding the GIL across the collection makes
+//the mark scans' own GilEnsureGuards nest as no-ops. The scheduler
 //registry scan keeps the scheduler domain (timer-thread state flips
 //— MarkSchedulerRoots), and the two root registries iterate under
 //their leaf mutex (their mutators — blocking-native arms, host
@@ -113,6 +126,34 @@ void VmExecutor::CollectAndComplete() {
     CompletionFirstGuard completeFirst{m_spScheduler->GcStop()};
     if (m_gcThrowOnceForTests.exchange(false, std::memory_order_relaxed))
         throw std::runtime_error("injected collection failure");
+    //C1 lock order (see VmExecutor.h): GIL before native-minter gate.
+    //The mark scans retake the GIL internally; taking the gate first
+    //would leave the collector gate-while-waiting-GIL against minters
+    //that are GIL-while-waiting-gate (the gate-gap seam turned that
+    //into a hang). This acquisition cannot cycle: the safepoint's
+    //handoff released the GIL for every parked rendezvous member,
+    //and a GIL holder outside the denominator (a mint callback)
+    //hands the GIL off before any safepoint wait, so it never waits
+    //on this collection while holding it.
+    GilEnsureGuard collectorGil(*this);
+    //Native-minter gate (see VmExecutor.h): out-of-denominator minters
+    //— blocking-native callbacks, host bridge — allocate across their
+    //own mint+root spans, invisible to the quiescence gate above.
+    //Holding the gate exclusively here keeps a collection and such a
+    //mint mutually exclusive: the minter's root lands before the sweep
+    //or the sweep waits for it. Minters share the gate among
+    //themselves — only the collection relation needs exclusion.
+    std::unique_lock<std::shared_mutex> mintGate(m_nativeAllocGate);
+    //C1 seam (test-only): sleep inside the exclusive gate so a
+    //GIL-holding mint callback deterministically blocks here — the
+    //lock-order window the pin exercises. Unarmed in production.
+    const int gateGapMs =
+        m_collectGateGapTimesForTests.load(std::memory_order_relaxed) > 0
+            ? m_collectGateGapMsForTests.load(std::memory_order_relaxed) : 0;
+    if (gateGapMs > 0) {
+        m_collectGateGapTimesForTests.fetch_sub(1, std::memory_order_relaxed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(gateGapMs));
+    }
     CollectGarbage();
     m_gcPressure.store(false, std::memory_order_release);
 }

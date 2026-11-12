@@ -2,9 +2,11 @@
 #include "NativeLibraryLoader.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstring>
+#include <chrono>
 #include <cstdio>
 #include <iostream>
 #include <exception>
+#include <thread>
 
 namespace nlang {
 
@@ -443,7 +445,54 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     //guard stays for FireOnThrow — the throw-site checkpoint takes the
     //scheduler domain lock (same family as OpThrow/OpRethrow).
     GilEnsureGuard g(*this);
-    const int32_t heapIdx = BuildNlangException(classIdx, msg);
+    //v0.13.6 I1: the mint+root span crosses the native-minter gate. A
+    //raiser parked in a blocking native (or a host thread through the
+    //bridge) builds the exception graph OUTSIDE the rendezvous
+    //denominator, so an elected collection could sweep the fresh slots
+    //between the mints and the root push — the same race the gate
+    //closes for strings and arrays (see VmExecutor.h). The gate scope
+    //must cover the whole graph (instance, message, backtrace): the
+    //earlier handles only become durable at the single root push at
+    //the end, so a collection slipping in between two mint calls with
+    //the gate released would sweep them (review I2). The root push
+    //itself registers only inside a blocking-native section; an
+    //on-carrier raise keeps the bare handle, where the quiescence
+    //contract already covers the span.
+    int32_t heapIdx = 0;
+    {
+        NativeMintGate mintGate(*this);
+        heapIdx = BuildNlangException(classIdx, msg);
+        RootMintedNativeHandle(heapIdx);
+    }
+    //v0.13.6 I1 white-box seam: when armed, pause after the mint and let
+    //real collections run against the raised exception before it reaches
+    //a durable holder (the production window is the GIL gap on the
+    //unwind path, so the pause drops the GIL through a handoff scope —
+    //sleeping under the GIL would freeze the collectors this seam must
+    //exercise and stall against an elected one mid-collection). After
+    //the pause the seam scans the native-call root registry for the value-form
+    //entry RootMintedNativeHandle pushes for heapIdx. Presence is the
+    //rooting contract itself and is GC-timing-independent, which survival
+    //checking is not: the threshold backoff decides whether any
+    //collection fires inside the window at all, and a resident root can
+    //keep unrooted exception objects alive through value aliasing
+    //(v0.13.6 review I1 forensics). Production never arms this knob.
+    const int gapMs = m_mintRootGapMs.load(std::memory_order_relaxed);
+    if (gapMs > 0) {
+        {
+            GilHandoffScope gapWindow(*this);
+            std::this_thread::sleep_for(std::chrono::milliseconds(gapMs));
+        }
+        bool rooted = false;
+        std::lock_guard<std::mutex> rg(m_rootRegistryMutex);
+        for (const NativeCallRoot& r : m_nativeCallRoots) {
+            if (!r.cells && r.value == heapIdx) {
+                rooted = true;
+                break;
+            }
+        }
+        m_lastRaiseMintRootedForTests = rooted;
+    }
     //Debugger checkpoint at the throw site, before unwinding starts
     //(the full NLang stack is still alive).
     FireOnThrow();

@@ -18,6 +18,7 @@ its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
 #include "VmExecutorSer.h"
 #include "NativeLibraryLoader.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -127,6 +128,13 @@ const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle) {
 
 int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     VmExecutor* e = Wrap(self)->executor;
+    //Native-minter gate: mint and root push are one indivisible span
+    //against a collection led by another carrier (contract in
+    //VmExecutor.h) — this thread may sit outside the rendezvous
+    //denominator (blocking-native arm), and between the slot handout
+    //and the root push the object is reachable from no root. Shared
+    //lock: concurrent minters coexist, only the collector is exclusive.
+    NativeMintGate mintGate(*e);
     //K8: lock-free — minting self-locks; rooting rides the registry
     //mutex inside.
     //Ruling D27: the native boundary keeps 0 = null (the ABI's existing
@@ -139,6 +147,11 @@ int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
         handle = e->MintNewString(utf8);
     else
         handle = e->AllocStringObj();   //fresh Flat "" (non-interned)
+    //White-box seam (SetMintRootGapMsForTests): hold the mint-to-root
+    //window open so a test can drive a real collection through it.
+    const int gapMs = e->m_mintRootGapMs.load(std::memory_order_relaxed);
+    if (gapMs > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(gapMs));
     //Root across the blocking section: the native may hold this handle
     //for a while before writing it into ret, while other carriers GC.
     e->RootMintedNativeHandle(handle);
@@ -149,6 +162,8 @@ int32_t VmExecutor::NativeNewListString(NativeHost* self,
                                         const char* const* items,
                                         int count) {
     VmExecutor* e = Wrap(self)->executor;
+    //Native-minter gate (mint+root indivisible; contract in VmExecutor.h).
+    NativeMintGate mintGate(*e);
     //K8: lock-free — the list build holds the Container domain
     //internally; rooting rides the registry mutex.
     const int32_t listHeapIdx = e->BuildListString(items, count);
@@ -291,6 +306,11 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
     //K8: lock-free entry — the probe reads heap slots (benign under
     //the sharing model), the rebuild self-locks (Container), and the
     //rooting rides the registry mutex.
+    //Native-minter gate (contract in VmExecutor.h): probe/rebuild and
+    //the root push must be atomic against a collection — an existing
+    //object can pass the liveness probe and still be swept before the
+    //root lands.
+    NativeMintGate mintGate(*this);
     //Probe the recorded index: kind intact, same class, same message
     //content — a slot recycled by another instance fails one of the
     //three and falls through to the remint. cell[0] = classIdx,

@@ -52,10 +52,17 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
     //Build-then-root-then-throw: between this throw and the blocking
     //arm's catch the GIL is away (the unwinding guard above releases
     //it), and a GC on another carrier must not sweep the in-flight
-    //exception object while the native unwinds toward it.
-    const int32_t heapIdx = e->BuildNlangException(
-        classIdx, message ? message : "");
-    e->RootMintedNativeHandle(heapIdx);
+    //exception object while the native unwinds toward it. The build +
+    //root span rides the native-minter gate (contract in VmExecutor.h)
+    //so a collection cannot sweep the fresh object before its root
+    //lands; FireOnThrow stays outside the gate (scheduler checkpoint).
+    int32_t heapIdx = 0;
+    {
+        NativeMintGate mintGate(*e);
+        heapIdx = e->BuildNlangException(
+            classIdx, message ? message : "");
+        e->RootMintedNativeHandle(heapIdx);
+    }
     e->FireOnThrow();
     throw NLangThrow(heapIdx, message ? message : "");
 }
@@ -218,6 +225,10 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
                                    int32_t length) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
+    //Native-minter gate: GIL first, then the gate (GIL-before-gate is
+    //the global order; contract in VmExecutor.h). Mint + root push are
+    //one span against a collection led by another carrier.
+    NativeMintGate mintGate(*e);
     //NEK values mirror the RTK scalar codes (NativeHost.h tie comment) —
     //accept exactly the six mintable kinds, reject the rest by name.
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
@@ -241,6 +252,8 @@ int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
                                          int32_t rank, const int32_t* dims) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
+    //Native-minter gate (GIL first; contract in VmExecutor.h).
+    NativeMintGate mintGate(*e);
     //Same six mintable kinds as newArray (rationale there).
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
         && elemKind != NEK_Float32 && elemKind != NEK_Float64
@@ -316,6 +329,8 @@ int32_t VmExecutor::NativeNewArrayView(NativeHost* self,
     const int32_t* strides, int64_t offset) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
+    //Native-minter gate (GIL first; contract in VmExecutor.h).
+    NativeMintGate mintGate(*e);
     if (rank < 1 || rank > kMaxArrayRank)
         e->RaiseNlangExceptionBase("newArrayView: rank out of range");
     //The view record stores offset in an int32 cell (element units);

@@ -23,6 +23,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -295,6 +296,39 @@ public:
         m_gcCollectInFailureCatchForTests.store(true,
                                                 std::memory_order_relaxed);
     }
+    //White-box seam for the minter-vs-collection race: pause inside
+    //NativeNewString after the slot leaves the arena and before
+    //RootMintedNativeHandle registers it, and inside RaiseNlangException
+    //after the exception object graph (instance, message, backtrace) is
+    //minted and before it reaches a durable root (v0.13.6 review I1), so
+    //a test can run real collections against the unrooted mint windows.
+    //Production never arms this knob.
+    void SetMintRootGapMsForTests(int ms) {
+        m_mintRootGapMs.store(ms, std::memory_order_relaxed);
+    }
+    //I1 pin readout: true when the armed RaiseNlangException window found
+    //this blocking arm's value-form mint-root entry for the just-minted
+    //exception instance in the native-call root registry (the
+    //RootMintedNativeHandle contract — the instance is then visible to any
+    //collection running in the window). False while the knob is unarmed or
+    //when the raise path skipped the mint-root.
+    bool LastRaiseMintRootedForTests() const {
+        return m_lastRaiseMintRootedForTests;
+    }
+    //White-box seam for the collector-side lock-order pin (v0.13.6
+    //review C1): pause INSIDE the exclusive native-minter gate for the
+    //next `times` elected collections, so a GIL-holding mint callback
+    //meets a gate-holding collection deterministically. If the
+    //collector took the gate before the GIL, the pair deadlocks the
+    //rendezvous (the minter holds the GIL waiting for the gate while
+    //the collector holds the gate waiting for the GIL); under the
+    //global GIL-before-gate order the collector holds both and the
+    //minter merely waits at the gate until the collection finishes.
+    //Production never arms this knob.
+    void SetCollectGateGapMsForTests(int ms, int times) {
+        m_collectGateGapMsForTests.store(ms, std::memory_order_relaxed);
+        m_collectGateGapTimesForTests.store(times, std::memory_order_relaxed);
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
@@ -315,7 +349,14 @@ public:
     //White-box GC drive: the safepoint entry, exposed so tests can force
     //full collections outside a run (the debugger tests reach collection
     //through real execution; white-box heap tests have no frames).
-    void CollectGarbageForTests() { CollectGarbage(); }
+    //Mirrors the elected collector's locks (GIL first, then the
+    //exclusive native-minter gate), so a test-driven collection cannot
+    //sweep under a concurrent minter either.
+    void CollectGarbageForTests() {
+        GilEnsureGuard gil(*this);
+        std::unique_lock<std::shared_mutex> mintGate(m_nativeAllocGate);
+        CollectGarbage();
+    }
     //0.11.4 B white-box probes: corrupt a live array record so tests can
     //drive the native callbacks against a malformed record (the defensive
     //checks are otherwise unreachable — records are VM-built). The tests
@@ -2136,6 +2177,71 @@ private:
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
     ShardFreeList m_heapShards;   //K8: per-carrier free heap slot shards
     DomainLockSet m_domainLocks;  //K8: Growth (later: Container/Sync/Stream/StrMaint)
+    //Native-minter gate: keeps out-of-denominator minting and the
+    //collection from interleaving. A carrier parked inside a blocking
+    //native (and a host thread through the bridge) minted VM objects
+    //OUTSIDE the GC rendezvous — the collection's quiescence premise
+    //("no bytecode and no store allocation can run") never covered
+    //those mints, and a fresh slot could slip between the collector's
+    //root-registry snapshot and the minting thread's root push, getting
+    //swept dead before it was reachable (v0.13.6 net crash:
+    //lastErrorText's mint swept mid-call). The elected collector takes
+    //this gate EXCLUSIVELY across CollectGarbage; every mint callback
+    //takes it SHARED across mint + fill + root push, so a collection
+    //either sees the root or waits for it, while mint-vs-mint stays as
+    //concurrent as the lock-free allocator and m_rootRegistryMutex
+    //already allow. The gate never sits on the hot bytecode path: only
+    //out-of-denominator mint callbacks and the collection itself touch
+    //it, so steady-state multithreaded execution pays nothing (a plain
+    //mutex here would additionally serialize minters against each
+    //other — a global lock wider than the race it closes).
+    //Lock order: GIL before gate before domain/registry locks. The
+    //collector holds the GIL across the whole collection (it retakes
+    //it inside the mark scans); with the gate taken first, that gave
+    //collector-gate/minter-GIL vs minter-gate/collector-GIL — an
+    //ABBA deadlock (v0.13.6 review C1). Mint callbacks that need the
+    //GIL take GilEnsureGuard before the gate; GIL-free mint sites must
+    //raise nothing inside their gate span, because raising takes the
+    //GIL and would invert the order behind the gate.
+    //Reentry: a gated mint span that raises (the array/view error
+    //paths) reaches this gate a second time through RaiseNlangException,
+    //which mints and roots the exception graph through the gate
+    //itself. Shared ownership is not recursive — a waiting writer
+    //blocks new shared owners — so those spans hold the gate through
+    //NativeMintGate below, which counts per-thread depth instead of
+    //locking twice.
+    //Durability contract: a minted handle is only durable once rooted;
+    //a span that mints several objects (the exception graph: instance,
+    //message, backtrace) keeps the gate held across the group, or an
+    //earlier unrooted handle could be swept between two mint calls
+    //(v0.13.6 review I2).
+    std::shared_mutex m_nativeAllocGate;
+    //Shared-gate holder with per-thread reentry depth: mint callbacks
+    //take it at their entry; a raise inside a gated span relocks the
+    //same gate through the raiser's own mint and root push, and the
+    //depth counter keeps the outer hold alive until the last scope
+    //exits. Keyed by gate address so two executors driven from one
+    //thread cannot cross counters.
+    class NativeMintGate {
+    public:
+        explicit NativeMintGate(VmExecutor& exec)
+            : m_gate(exec.m_nativeAllocGate) {
+            if (++ThreadDepth()[&m_gate] == 1)
+                m_gate.lock_shared();
+        }
+        NativeMintGate(const NativeMintGate&) = delete;
+        NativeMintGate& operator=(const NativeMintGate&) = delete;
+        ~NativeMintGate() {
+            if (--ThreadDepth()[&m_gate] == 0)
+                m_gate.unlock_shared();
+        }
+    private:
+        static std::map<std::shared_mutex*, int>& ThreadDepth() {
+            static thread_local std::map<std::shared_mutex*, int> depth;
+            return depth;
+        }
+        std::shared_mutex& m_gate;
+    };
     //K8: slots appended per growth event. DEFAULT_SHARD_BLOCK in
     //production (mimalloc-style batch refill); 1 under gc-stress so the
     //store stays exactly as large as its population.
@@ -2150,6 +2256,10 @@ private:
     std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
     std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
     std::atomic<bool> m_gcCollectInFailureCatchForTests{false};
+    std::atomic<int>  m_mintRootGapMs{0};  //white-box mint/root pause
+    std::atomic<int>  m_collectGateGapMsForTests{0};   //C1 seam: gate pause
+    std::atomic<int>  m_collectGateGapTimesForTests{0}; //C1 seam: remaining
+    bool m_lastRaiseMintRootedForTests = false;  //I1 pin: window registry hit
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
 

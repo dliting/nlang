@@ -151,6 +151,10 @@ int32_t VmExecutor::MintHostString(const std::string& content) {
     //function's empty-string result would then read as "no string
     //produced" at the native-boundary check. Empty content gets a
     //fresh non-interned empty object (equality holds by content).
+    //Native-minter gate: the host thread is outside the rendezvous
+    //denominator, so mint and root push must be one span against a
+    //collection (contract in VmExecutor.h).
+    NativeMintGate mintGate(*this);
     const int32_t handle = content.empty()
         ? AllocStringObj()         //fresh Flat "" (non-interned)
         : MintNewString(content);

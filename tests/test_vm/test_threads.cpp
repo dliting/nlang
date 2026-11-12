@@ -4253,7 +4253,7 @@ static void test_mint_host_string_survives_gc()
         "native string nbMintHostSlow(int ms);\n"
         "void churn() {\n"
         "    int i = 0;\n"
-        "    while (i < 20000) { string g = \"c\" + i; i = i + 1; }\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
         "}\n"
         "int main() {\n"
         "    Thread t = thread.spawn(churn);\n"
@@ -4283,6 +4283,220 @@ static void test_mint_host_string_survives_gc()
     CHECK(io.m_out.find("hostbridge-survivor") != std::string::npos,
           "the minted host string survived the blocking window (got: "
           + io.m_out + ")");
+    PASS();
+}
+
+// 0.13.6 net/http fix (rawprobe crash "_lastErrorText returned invalid
+// string handle"): a blocking-native carrier mints OUTSIDE the GC
+// rendezvous denominator, so the collection's documented quiescence
+// premise ("no bytecode and no store allocation can run") does not
+// cover its mints. The mint-root gap seam (SetMintRootGapMsForTests)
+// holds the window between slot handout and RootMintedNativeHandle
+// open for the whole stress-window collection storm, making the race
+// deterministic: unserialized, the sweep marks the fresh handle dead
+// while it is still unrooted, and the declared-string result check
+// aborts with "returned invalid string handle" — the exact production
+// signature. The fix serializes mint-vs-collection on a leaf gate, so
+// the collection waits for the root instead of sweeping past it.
+static void NbMintSeam(NativeHost* host, uint8_t* ret,
+                       const uint8_t*, int)
+{
+    const int32_t handle = host->newString(host, "seam-survivor");
+    std::memcpy(ret, &handle, sizeof(handle));
+}
+static void test_mint_root_gap_survives_gc()
+{
+    TEST(mint_root_gap_survives_gc);
+    CompiledModule mod = buildLinkedModule("mint_seam_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbMintSeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbMintSeam();\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetMintRootGapMsForTests(300);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("mint_seam_gc.nbMintSeam", &NbMintSeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    exec.SetMintRootGapMsForTests(0);   //do not leak the seam into later tests
+    CHECK(rc == 0, "run completes (sweep killed the unrooted mint: "
+                   + err + ")");
+    CHECK(io.m_out.find("seam-survivor") != std::string::npos,
+          "the minted string survived the mint-to-root gap (got: "
+          + io.m_out + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "collections actually ran against the gap window (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// 0.13.6 review C1 pin (lock order): the mint callbacks that mint with
+// the GIL taken (newArray family, raiseException) acquire GIL-then-gate.
+// The elected safepoint collector must take the GIL before the exclusive
+// gate too — a collector that held the gate first would block on the
+// GIL in the frame-root scan while a GIL-holding minter blocks on the
+// gate (ABBA), stranding every rendezvous waiter: the whole run hangs,
+// exactly in the net/http interleavings the mint fix targeted. The
+// collect-gate gap seam parks the collector inside the exclusive gate
+// while the churner storms collections; the seam native mints arrays
+// (GilEnsureGuard sites) in a loop so the meeting is deterministic.
+// Before the order fix this test hangs (external timeout observes it);
+// with GIL-before-gate the collector already holds the GIL when it
+// takes the gate, so the minter merely waits at the gate and passes.
+static void NbArraySeam(NativeHost* host, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    //Spread the GIL-then-gate attempts across the era of armed gate
+    //pauses: each arm briefly holds the GIL, so one attempt landing
+    //while a collector holds the gate pre-fix deadlocks deterministically.
+    int32_t handle = 0;
+    for (int i = 0; i < 2000; ++i)
+        handle = host->newArray(host, NEK_Int32, 8);
+    (void)handle;   //rooted for the call only; not what the pin asserts
+    const int32_t survivor = host->newString(host, "arrayseam-survivor");
+    std::memcpy(ret, &survivor, sizeof(survivor));
+}
+static void test_gate_gap_array_mint_no_deadlock()
+{
+    TEST(gate_gap_array_mint_no_deadlock);
+    CompiledModule mod = buildLinkedModule("gate_gap_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbArraySeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbArraySeam();\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetCollectGateGapMsForTests(60, 20);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("gate_gap_gc.nbArraySeam", &NbArraySeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    CHECK(rc == 0, "run completes (gate/GIL inversion hangs the run: "
+                   + err + ")");
+    CHECK(io.m_out.find("arrayseam-survivor") != std::string::npos,
+          "the minted string survived the gate-gap storm (got: "
+          + io.m_out + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "elected collections actually ran across the gate gap (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// 0.13.6 review I1 pin (same mint race, raise family): RaiseNlangException
+// mints the Exception instance, its message, and the backtrace List on a
+// parked callback thread (io raises, getArrayView validation, host
+// bridge RaiseHostException) — outside the rendezvous denominator and,
+// unlike NativeRaiseException, neither gated nor rooted before the fix.
+// The mint-root gap seam opens a real window (GIL dropped for the test
+// pause: the probe run showed 1144 collections landing inside it). The pin is
+// the structural readout the seam records — whether a value-form
+// mint-root entry for the raised instance exists in the native-call
+// root registry during the window — because survival checking cannot
+// detect this hazard: forensics showed the unrooted exception objects
+// surviving every in-window collection (a resident Thread-object slot aliases the
+// instance and a resident static-slot handle aliases the message by
+// value, so MarkPhase over-marks both, and whether any collection fires
+// inside the window at all is hostage to the threshold backoff). The
+// script must NOT carry the expected message as a literal — the literal
+// interns as an immortal constant and the native mint dedups into it,
+// making the message unsweepable. The behavioral checks (rc, message
+// content, collection count) stay as supporting assertions: they pin the
+// run contract, not the rooting.
+static void NbRaiseSeam(NativeHost* host, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    NativeArrayView view{};
+    host->getArrayView(host, 0, &view);   //null handle raises: never returns
+    const int32_t survivor = host->newString(host, "unreachable");
+    std::memcpy(ret, &survivor, sizeof(survivor));
+}
+static void test_raise_gap_survives_gc()
+{
+    TEST(raise_gap_survives_gc);
+    CompiledModule mod = buildLinkedModule("raise_gap_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native void nbRaiseSeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    int ok = 0;\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        try {\n"
+        "            nbRaiseSeam();\n"
+        "        } catch (Exception e) {\n"
+        "            string m = e.message;\n"
+        "            io.write(m + \"|\\n\");\n"
+        "            ok = ok + 1;\n"
+        "        }\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return ok;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetMintRootGapMsForTests(250);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("raise_gap_gc.nbRaiseSeam", &NbRaiseSeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    exec.SetMintRootGapMsForTests(0);   //do not leak the seam into later tests
+    CHECK(rc == 3, "the raised message survived every gap window intact "
+                   "(got rc=" + std::to_string(rc) + " " + err + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "collections actually ran against the raise window (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    CHECK(exec.LastRaiseMintRootedForTests(),
+        "every armed raise window found its value-form mint-root entry "
+        "for the raised instance (RootMintedNativeHandle contract; "
+        "v0.13.6 review I1)");
     PASS();
 }
 
@@ -5356,6 +5570,9 @@ int main()
         runGuarded(test_zombie_carrier_generation_guard);
         runGuarded(test_executing_bit_off_while_native_blocked);
         runGuarded(test_mint_host_string_survives_gc);
+        runGuarded(test_mint_root_gap_survives_gc);
+        runGuarded(test_raise_gap_survives_gc);
+        runGuarded(test_gate_gap_array_mint_no_deadlock);
         runGuarded(test_gc_collection_count_under_stress);
         runGuarded(test_executing_bit_intact_after_stop_path);
         runGuarded(test_nested_window_single_membership);
