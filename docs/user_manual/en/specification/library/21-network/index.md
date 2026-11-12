@@ -74,6 +74,18 @@ this socket`) rather than racing the first one for the bytes. The
 usual shape is one context per connection reading and, if needed,
 another writing — reads never split a stream between two readers.
 
+### Closing a handle
+
+`close()` releases the handle and is idempotent: a second call does
+nothing further. A closed handle has no future: every later method
+call on it — the blocking calls, the address accessors and the
+option setters alike — raises `SocketException`, even while a TCP
+receive window still holds unread bytes (§21.2); on a `TcpStream`,
+`isClosed()` reports `true` instead. Half-close is not the closed
+state: `shutdownWrite()` ends only the write side, so later writes
+raise `SocketException` while reads keep working until end of
+stream (§21.2).
+
 ### Exceptions
 
 `SocketException` and `TimeoutException` are declared by the

@@ -6,8 +6,8 @@ receive takes one whole datagram, and delivery is not guaranteed.
 `UdpSocket` covers both roles — an unconnected socket sends and
 receives with explicit addresses (`sendTo` / `recvFrom`), and a
 connected socket uses plain `send` / `recv` with one peer. The
-parking and timeout convention and the one-operation-per-direction
-rule are §21.1.
+parking and timeout convention, the one-operation-per-direction
+rule and the closed-handle rule are §21.1.
 
 | Member | Shape | Semantics |
 |---|---|---|

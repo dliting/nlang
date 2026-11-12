@@ -53,4 +53,6 @@ int main() {
 bytes, including the checksum. On Windows the raw socket requires
 administrator rights; on Linux the unprivileged datagram form is
 used, under the same `net.ipv4.ping_group_range` gate as `net.ping`.
-For plain reachability checks prefer `net.ping`.
+A closed `IcmpSocket` follows the §21.1 closed-handle rule:
+`sendTo` and `recvFrom` raise `SocketException`. For plain
+reachability checks prefer `net.ping`.

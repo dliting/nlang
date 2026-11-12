@@ -3,8 +3,9 @@
 TCP (Transmission Control Protocol) is the connection-oriented,
 ordered, reliable byte stream. `TcpListener` accepts incoming
 connections; `TcpStream` is one established connection. The parking
-and timeout convention and the one-operation-per-direction rule are
-§21.1: every blocking method parks the calling context, raises
+and timeout convention, the one-operation-per-direction rule and
+the closed-handle rule are §21.1: every blocking method parks the
+calling context, raises
 `TimeoutException` at its deadline, and raises `SocketException` on
 a closed or failed socket.
 
@@ -38,7 +39,7 @@ and closing the listener ends the loop through `SocketException`.
 | `peekFilled(minBytes = 1, timeoutMs = 0)` | → `byte[]` | Waits until the stream's receive window (below) holds `minBytes` bytes, until the window is full at `WINDOW_CAP`, or until the peer stops sending, then returns the window's contents as a view; parks until one of the three holds or the deadline passes. `minBytes` below `1` raises `SocketException`; a threshold above `WINDOW_CAP` is satisfied by a full window — assembling successive full windows is the caller's job. A wait that ends at its deadline raises `TimeoutException`; the one way a view comes back shorter than `minBytes` without a timeout is end of stream, so an empty view means the peer closed its write side and the window has drained. After `close()` raises `SocketException`, even while window bytes remain |
 | `consume(count)` | — | Tells the stream the caller consumed the first `count` bytes of the last `peekFilled` view, so the next view starts after them. `count` outside `1…unconsumed` raises `SocketException` — no silent clamping. After `close()` raises `SocketException`, even while window bytes remain |
 | `TcpStream.WINDOW_CAP` | `static const int` = `8192` | The bound of the stream's receive window (below) |
-| `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below) |
+| `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below); a later write raises `SocketException` |
 | `close()` | — | Closes the connection; idempotent. A parked reader on the peer sees end of stream |
 | `isClosed()` | → `bool` | Whether this handle has been closed |
 | `peerAddress()` / `peerPort()` | → `string` / `int` | The remote end |

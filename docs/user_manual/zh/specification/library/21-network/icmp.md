@@ -34,4 +34,4 @@ int main() {
 | `recvFrom(buf, out peerAddress, timeoutMs = 0)` | →`int` | 取走下一条ICMP消息，经`out`参数报告它的源地址；返回实收字节数；停泊直到有消息到来或截止时刻到来 |
 | `close()` | — | 关闭套接字；幂等 |
 
-`IcmpSocket`说的是原始ICMP：消息字节由调用方组装，校验和也算在内。Windows上原始套接字需要管理员权限；Linux上用免特权的原始数据报形态，受与`net.ping`相同的`net.ipv4.ping_group_range`约束。只做普通的可达性检查，请用`net.ping`。
+`IcmpSocket`说的是原始ICMP：消息字节由调用方组装，校验和也算在内。Windows上原始套接字需要管理员权限；Linux上用免特权的原始数据报形态，受与`net.ping`相同的`net.ipv4.ping_group_range`约束。`IcmpSocket`关闭后遵循§21.1的关闭句柄规则：`sendTo`与`recvFrom`抛`SocketException`。只做普通的可达性检查，请用`net.ping`。

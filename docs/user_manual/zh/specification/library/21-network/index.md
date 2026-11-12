@@ -24,6 +24,10 @@
 
 一个套接字同一时刻每个方向只允许一个进行中的操作：一个上下文正在该套接字上读（无论已停泊还是仍在调用中）时，另一个上下文对同一套接字的第二次`read`抛`SocketException`（`another operation is in progress on this socket`），而不是与第一个争抢字节。惯用形态是每个连接一个上下文在读、需要时另一个在写——读永远不会把一个流拆给两个读者。
 
+### 关闭句柄
+
+`close()`释放句柄，且幂等：之后再调用一次什么都不做。已关闭的句柄没有未来：对它的每一次后续方法调用——无论阻塞与否，地址访问器与选项设置器也一样——都抛`SocketException`，即使TCP接收窗口里还留着未读的字节（§21.2）；对`TcpStream`，`isClosed()`则返回`true`。半关闭不是关闭态：`shutdownWrite()`只结束写端，此后写抛`SocketException`，而读继续正常工作直到流结束（§21.2）。
+
 ### 异常
 
 `SocketException`与`TimeoutException`由包源码声明为派生自`IOException`的`const`类（§8.3、§20）：每个net失败都是一个`IOException`，所以`catch (IOException e)`把网络错误与文件错误一起覆盖，`catch (SocketException e)`或`catch (TimeoutException e)`收窄到网络。TCP接收窗口的调用遵循同样的规则——`peekFilled`在截止时刻抛`TimeoutException`；流关闭之后`peekFilled`与`consume`抛`SocketException`，即使窗口里还有缓冲的字节（§21.2）。两者都带通常的`message`与`cause`字段（§8.3）；平台级失败会把操作系统的错误文本追加进消息。`SocketException`还带一个`errorCode`字段：失败来自操作系统时是它的错误号（Windows上是Winsock错误码——`10061`连接被拒、`10048`地址已被占用、`11001`主机名未找到），没有时为`0`（参数错误、内部状态）。程序按号码分支——消息文本随操作系统语言，号码不随。

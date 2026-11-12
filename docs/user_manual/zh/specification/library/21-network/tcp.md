@@ -2,7 +2,7 @@
 
 # 21.2 传输控制协议（TCP）类
 
-传输控制协议（TCP，Transmission Control Protocol）是面向连接、有序、可靠的字节流。`TcpListener`接受进来的连接；`TcpStream`是一条已建立的连接。停泊与超时约定、每方向一个操作的规则都在§21.1：每个阻塞方法停泊调用上下文，在截止时刻抛`TimeoutException`，在套接字已关闭或失败时抛`SocketException`。
+传输控制协议（TCP，Transmission Control Protocol）是面向连接、有序、可靠的字节流。`TcpListener`接受进来的连接；`TcpStream`是一条已建立的连接。停泊与超时约定、每方向一个操作的规则与关闭句柄规则都在§21.1：每个阻塞方法停泊调用上下文，在截止时刻抛`TimeoutException`，在套接字已关闭或失败时抛`SocketException`。
 
 ## TcpListener
 
@@ -31,7 +31,7 @@
 | `peekFilled(minBytes = 1, timeoutMs = 0)` | →`byte[]` | 等到流的接收窗口（见下）攒够`minBytes`个字节、窗口满（`WINDOW_CAP`）、或对端不再发送，然后把窗口当前内容作为视图返回；三者之一到来或截止时刻到来之前停泊。`minBytes`小于`1`抛`SocketException`；超过`WINDOW_CAP`的阈值由满窗口满足——把一个个满窗口拼接起来是调用方的事。等待在截止时刻结束抛`TimeoutException`；视图短于`minBytes`而又不超时的唯一情形是流结束——所以空视图意味着对端关闭了写端且窗口已经排空。`close()`之后调用抛`SocketException`，即使窗口里还有字节（见下） |
 | `consume(count)` | — | 告诉流：调用方已消费最近一次`peekFilled`视图的前`count`个字节，下一个视图从那之后开始。`count`不在`1…未消费数`之内抛`SocketException`——不静默钳制。`close()`之后调用抛`SocketException`，即使窗口里还有字节 |
 | `TcpStream.WINDOW_CAP` | `static const int`=`8192` | 流的接收窗口的上限（见下） |
-| `shutdownWrite()` | — | 半关闭：向对端发送流结束标记，读端保持打开（见下） |
+| `shutdownWrite()` | — | 半关闭：向对端发送流结束标记，读端保持打开（见下）；之后的写抛`SocketException` |
 | `close()` | — | 关闭连接；幂等。对端停泊中的读者会看到流结束 |
 | `isClosed()` | →`bool` | 这个句柄是否已关闭 |
 | `peerAddress()`/`peerPort()` | →`string`/`int` | 远端 |
