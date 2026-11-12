@@ -678,6 +678,10 @@ class HttpDate {
 class HttpBodyReader {
     private static const int READALL_WINDOW = 8192;
     private static const int DRAIN_WINDOW = 4096;
+    // readAll pre-sizes to a declared Content-Length up to this ceiling; past
+    // it the buffer starts at READALL_WINDOW and doubles instead (array
+    // lengths are int, so a body past this size fails at allocation either way).
+    private static const long MAX_PREALLOC_BODY = 1073741824;
 
     private HttpConn m_conn;
     private int m_mode;
@@ -740,10 +744,13 @@ class HttpBodyReader {
             if (m_remaining <= 0) { this.endBody(); return -1; }
             int want = buf.length();
             if (want > m_remaining) { want = m_remaining as int; }
-            byte[] tmp = byte[want];
-            int n = m_conn.readNext(tmp, timeoutMs);
+            // Read straight into the caller's buffer: capping the request to
+            // the body remainder is a length cap on the view, not a reason to
+            // bounce through a temporary (views write through to their source).
+            byte[] dst = buf;
+            if (want < buf.length()) { dst = buf[0:want]; }
+            int n = m_conn.readNext(dst, timeoutMs);
             if (n <= 0) { this.endBody(); return -1; }   // early EOF = end of body
-            for (int i = 0; i < n; i = i + 1) { buf[i] = tmp[i]; }
             m_remaining = m_remaining - n;
             return n;
         }
@@ -778,19 +785,39 @@ class HttpBodyReader {
         this.releaseIfClient();
     }
 
-    // Reads the whole body; throws HttpException(413) past maxBodyBytes (D5).
+    // Reads the whole body into one buffer: pre-sized to the declared
+    // Content-Length when framing declares one (capped by maxBodyBytes and by
+    // MAX_PREALLOC_BODY), otherwise starting at READALL_WINDOW and doubling.
+    // Each read lands in the unread tail — a slice view writing through to
+    // the buffer — so no window staging and no byte-by-byte list copy stand
+    // between the socket and the result. Throws HttpException(413) past
+    // maxBodyBytes (D5).
     public byte[] readAll() {
-        List<byte> acc = {};
-        byte[] tmp = byte[READALL_WINDOW];
+        int initial = READALL_WINDOW;
+        if (m_mode == HttpParser.MODE_LENGTH && m_remaining > initial) {
+            long cap = m_remaining;
+            if (m_max > 0 && cap > m_max) { cap = m_max; }
+            if (cap <= MAX_PREALLOC_BODY) { initial = cap as int; }
+        }
+        byte[] acc = byte[initial];
+        int filled = 0;
         while (true) {
-            int n = this.read(tmp, m_timeoutMs);
+            if (filled == acc.length()) {        // grow first: read needs room
+                byte[] grown = byte[acc.length() * 2];
+                for (int i = 0; i < filled; i = i + 1) { grown[i] = acc[i]; }
+                acc = grown;
+            }
+            int n = this.read(acc[filled:acc.length()], m_timeoutMs);
             if (n < 0) { break; }
-            if (m_max > 0 && acc.length() + n > m_max) {
+            if (m_max > 0 && filled + n > m_max) {
                 throw HttpException("http: body exceeds " + m_max.toString() + " bytes", 413);
             }
-            for (int i = 0; i < n; i = i + 1) { acc.add(tmp[i]); }
+            filled = filled + n;
         }
-        return HttpParser.toByteArray(acc);
+        if (filled == acc.length()) { return acc; }
+        byte[] exact = byte[filled];
+        for (int i = 0; i < filled; i = i + 1) { exact[i] = acc[i]; }
+        return exact;
     }
 
     public string bodyText() {
@@ -1131,6 +1158,41 @@ class HttpConn {
         }
     }
 
+    // Serializes the status line and headers into one buffer (D9):
+    // string.length() is the UTF-8 byte count, so the exact head size is
+    // known before the first byte is written and the encode pass fills a
+    // ready array in place — no byte list to grow, no second pass to flatten
+    // it. The wire bytes match the old list-built head exactly: same status
+    // line, same name spellings and line order (names()/getAll insertion
+    // order), same UTF-8 encoding of values.
+    private byte[] writeHead(HttpResponse res) {
+        string statusLine = res.version + " " + res.statusCode.toString()
+            + " " + res.reasonPhrase + "\r\n";
+        int total = statusLine.length() + 2;
+        foreach (string name in res.headers.names()) {
+            foreach (string v in res.headers.getAll(name)) {
+                total = total + name.length() + 2 + v.length() + 2;
+            }
+        }
+        byte[] buf = byte[total];
+        int off = appendAsciiInto(buf, 0, statusLine);
+        foreach (string name in res.headers.names()) {
+            foreach (string v in res.headers.getAll(name)) {
+                off = appendAsciiInto(buf, off, name + ": " + v + "\r\n");
+            }
+        }
+        appendAsciiInto(buf, off, "\r\n");
+        return buf;
+    }
+
+    // Encodes s with io.toBytes (UTF-8) and writes the bytes at buf[off];
+    // returns the offset just past them.
+    private static int appendAsciiInto(byte[] buf, int off, string s) {
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) { buf[off + i] = b[i]; }
+        return off + b.length();
+    }
+
     // Serializes and writes the response (D5/D14/D21): status line, headers
     // (Date filled when absent), then the body per framing — buffered with
     // Content-Length, a chunked pump for bodyChannel, or no body at all. A
@@ -1183,18 +1245,7 @@ class HttpConn {
         } else if (req != null && req.version == "HTTP/1.0") {
             res.headers.set("Connection", "keep-alive");   // RFC 9112 §9.1.1 echo
         }
-        List<byte> headBytes = {};
-        HttpParser.appendAscii(headBytes, res.version + " " + res.statusCode.toString()
-            + " " + res.reasonPhrase + "\r\n");
-        foreach (string name in res.headers.names()) {
-            foreach (string v in res.headers.getAll(name)) {
-                HttpParser.appendAscii(headBytes, name + ": " + v + "\r\n");
-            }
-        }
-        HttpParser.appendAscii(headBytes, "\r\n");
-        // headText, not another headBytes-ish name: the byte list headBytes
-        // is already in scope here.
-        byte[] headText = HttpParser.toByteArray(headBytes);
+        byte[] headText = this.writeHead(res);
         if (noBody || head) {
             this.writeAll(headText, writeTimeoutMs);
             return;

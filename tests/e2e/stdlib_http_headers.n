@@ -3,7 +3,10 @@
 // keep-alive echo, streamed). Nothing else in the suite pins the set, so an
 // extra header (Server, X-*) or a reordered line would pass unnoticed here.
 // The Date value moves every second, so it is pinned by position and format
-// rather than by value.
+// rather than by value. The last three vectors pin the serialization details a
+// rewriting of the head encoder could silently change: repeated names keep
+// their insertion order, handler-set names keep their exact casing, and a
+// non-ASCII value reaches the wire as its UTF-8 bytes.
 import io;
 import net;
 import http;
@@ -17,6 +20,23 @@ HttpResponse shapeHandler(HttpRequest req) {
     if (req.url.path == "/typed") {
         res.body = io.toBytes("hi!");
         res.headers.set("Content-Type", "text/plain; charset=utf-8");
+        return res;
+    }
+    if (req.url.path == "/cookies") {
+        res.body = io.toBytes("ok");
+        res.headers.add("Set-Cookie", "a=1");
+        res.headers.add("Set-Cookie", "b=2");
+        res.headers.add("Set-Cookie", "c=3");
+        return res;
+    }
+    if (req.url.path == "/case") {
+        res.body = io.toBytes("ok");
+        res.headers.set("X-Custom-Header", "yes");
+        return res;
+    }
+    if (req.url.path == "/notes") {
+        res.body = io.toBytes("ok");
+        res.headers.set("X-Note", "café");
         return res;
     }
     if (req.url.path == "/stream") {
@@ -78,6 +98,33 @@ int main() {
     if (h5 != "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nDate: <gmt>\r\n\r\n") { return 6; }
     if (readChunkedBody(c5) != "ping") { return 6; }
     c5.close();
+
+    // 6. Repeated Set-Cookie lines keep insertion order: all three survive as
+    //    separate lines, first added first, none joined or deduplicated.
+    TcpStream c6 = TcpStream.connect("127.0.0.1", port, 5000);
+    c6.write("GET /cookies HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h6 = pinDate(readHeaders(c6));
+    if (h6 != "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nSet-Cookie: c=3\r\nContent-Length: 2\r\nDate: <gmt>\r\n\r\n") { return 7; }
+    c6.close();
+
+    // 7. A handler-set name is written with the exact casing it was set with:
+    //    folding to lowercase on the wire would change this block.
+    TcpStream c7 = TcpStream.connect("127.0.0.1", port, 5000);
+    c7.write("GET /case HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h7 = pinDate(readHeaders(c7));
+    if (h7 != "HTTP/1.1 200 OK\r\nX-Custom-Header: yes\r\nContent-Length: 2\r\nDate: <gmt>\r\n\r\n") { return 8; }
+    c7.close();
+
+    // 8. A non-ASCII value goes through the header serializer as UTF-8: the
+    //    é in "café" must land as its two bytes 0xC3 0xA9 (signed byte -61 -87),
+    //    pinned numerically so a source-encoding accident cannot redefine the
+    //    expectation.
+    TcpStream c8 = TcpStream.connect("127.0.0.1", port, 5000);
+    c8.write("GET /notes HTTP/1.1\r\nHost: t\r\n\r\n");
+    string h8 = readHeaders(c8);
+    byte[] want8 = [88, 45, 78, 111, 116, 101, 58, 32, 99, 97, 102, -61, -87, 13, 10];
+    if (!hasBytes(h8, want8)) { return 9; }
+    c8.close();
 
     srv.close();
     io.print("ok");
@@ -166,4 +213,19 @@ string lowerAll(string s) {
 
 int indexOfCI(string hay, string needle) {
     return lowerAll(hay).indexOf(lowerAll(needle));
+}
+
+// True when the raw wire bytes of hay contain needle as a contiguous run,
+// compared byte by byte (the point of the vector, not a string convenience).
+bool hasBytes(string hay, byte[] needle) {
+    byte[] hb = io.toBytes(hay);
+    int limit = hb.length() - needle.length();
+    for (int i = 0; i <= limit; i = i + 1) {
+        bool hit = true;
+        for (int j = 0; j < needle.length(); j = j + 1) {
+            if (hb[i + j] != needle[j]) { hit = false; break; }
+        }
+        if (hit) { return true; }
+    }
+    return false;
 }
