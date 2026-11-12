@@ -142,6 +142,12 @@ public:
     //K7: single-embedding-thread constraint — these wrappers do not
     //self-guard the stores they touch; a second embedding thread
     //would need each of them guarded first.
+    //The GC mint gate is applied per call, so it does not span
+    //consecutive calls: an embedder building one multi-call span
+    //(AllocHostList then HostListPushBack*, AllocHostDict then
+    //HostDictUpsert*) must hold the GIL across the whole span or
+    //root the interim handles itself; the gate alone covers each
+    //single call, not the gap between calls.
     int32_t MintHostString(const std::string& content);
     int32_t BoxHostScalar(uint8_t typeTag, int64_t bits);
     int32_t AllocHostList();
