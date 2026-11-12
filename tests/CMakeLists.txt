@@ -2879,6 +2879,9 @@ _nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")
 add_executable(test_native_tensor
     test_native_tensor/main.cpp
     test_native_tensor/TestVecMath.cpp
+    test_native_tensor/TestMatMul.cpp
+    test_native_tensor/TestElementwise.cpp
+    test_native_tensor/TestReduce.cpp
 )
 target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
 target_include_directories(test_native_tensor PRIVATE

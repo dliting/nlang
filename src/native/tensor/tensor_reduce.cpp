@@ -316,7 +316,8 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
     const int32_t along = v.dims[axis];
     const int32_t outRank = v.rank - 1;
     if (outRank == 0)
-        Raise(host, NEXC_Base, who + ": rank-1 arrays reduce with "
+        Raise(host, NEXC_Base, std::string(who)
+              + ": rank-1 arrays reduce with "
               + (isMax ? "max(a)" : "min(a)")
               + ", not an axis arm");
     //The static return is an Array; a rank-1 receiver would have to
