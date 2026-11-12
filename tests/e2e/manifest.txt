@@ -2185,3 +2185,7 @@ stdlib_http_big_head 0
 stdlib_http_single_write 0
 stdlib_http_date_cache 0
 stdlib_http_reject503 0
+#v0.13.6 closed-handle pin: after close() every method of a net handle
+#raises SocketException, close is idempotent, isClosed reports true, and
+#after shutdownWrite() writes raise while reads work until end of stream.
+stdlib_net_closed_state 0

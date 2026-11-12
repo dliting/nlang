@@ -1,0 +1,161 @@
+// Closed-handle contract for all four net handle classes: after close() every
+// method raises SocketException (close itself is idempotent and isClosed()
+// reports true on a TcpStream), and after shutdownWrite() the write side is
+// gone while the read side keeps working until end of stream. The manual's
+// §21.1 "Closing a handle" rule, pinned face by face; temp/closed_faces.n and
+// temp/closed_icmp.n were the observation probes for this table.
+//
+// Failure codes: 11 = a TcpStream closed face, 12 = a TcpListener closed
+// face, 13 = a UdpSocket closed face, 14 = an IcmpSocket closed face,
+// 15 = a half-closed (shutdownWrite) face. The printed masks name the exact
+// faces; each probe function's bit table is documented at its head.
+import io;
+import net;
+
+// TcpStream after close(). Bits, set when the face does NOT behave as the
+// rule requires: 1 write(string), 2 write(bytes), 4 shutdownWrite, 8 read,
+// 16 readLine, 32 readExactly, 64 peekFilled, 128 consume, 256 peerAddress,
+// 512 peerPort, 1024 localAddress, 2048 localPort, 4096 setNoDelay,
+// 8192 setKeepAlive, 16384 setSendBufferSize, 32768 setRecvBufferSize all
+// raise SocketException; 65536 isClosed() reports true; 131072 the repeat
+// close() returns quietly.
+int probeTcpClosed() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    cli.close();
+    int bad = 0;
+    byte[] b = byte[4];
+    try { cli.write("x", 5000); bad = bad + 1; } catch (SocketException e) { }
+    try { cli.write(b, 4, 5000); bad = bad + 2; } catch (SocketException e) { }
+    try { cli.shutdownWrite(); bad = bad + 4; } catch (SocketException e) { }
+    try { cli.read(b, 5000); bad = bad + 8; } catch (SocketException e) { }
+    try { cli.readLine(5000); bad = bad + 16; } catch (SocketException e) { }
+    try { cli.readExactly(1, 5000); bad = bad + 32; } catch (SocketException e) { }
+    try { cli.peekFilled(1, 5000); bad = bad + 64; } catch (SocketException e) { }
+    try { cli.consume(1); bad = bad + 128; } catch (SocketException e) { }
+    try { cli.peerAddress(); bad = bad + 256; } catch (SocketException e) { }
+    try { cli.peerPort(); bad = bad + 512; } catch (SocketException e) { }
+    try { cli.localAddress(); bad = bad + 1024; } catch (SocketException e) { }
+    try { cli.localPort(); bad = bad + 2048; } catch (SocketException e) { }
+    try { cli.setNoDelay(true); bad = bad + 4096; } catch (SocketException e) { }
+    try { cli.setKeepAlive(true); bad = bad + 8192; } catch (SocketException e) { }
+    try { cli.setSendBufferSize(2048); bad = bad + 16384; } catch (SocketException e) { }
+    try { cli.setRecvBufferSize(2048); bad = bad + 32768; } catch (SocketException e) { }
+    if (!cli.isClosed()) { bad = bad + 65536; }
+    cli.close();                                   //repeat close: quiet
+    return bad;
+}
+
+// TcpListener after close(). Bits: 1 accept, 2 localAddress, 3 localPort
+// raise; 4 the repeat close() returns quietly.
+int probeListenerClosed() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    srv.close();
+    int bad = 0;
+    try { srv.accept(100); bad = bad + 1; } catch (SocketException e) { }
+    try { srv.localAddress(); bad = bad + 2; } catch (SocketException e) { }
+    try { srv.localPort(); bad = bad + 4; } catch (SocketException e) { }
+    srv.close();
+    return bad;
+}
+
+// UdpSocket after close() (bound and connected first, so the closed handle
+// is the only deviation from the working state). Bits: 1 send, 2 recv,
+// 4 sendTo, 8 recvFrom, 16 connect, 32 peerAddress, 64 peerPort,
+// 128 localAddress, 256 localPort, 512 setBroadcast, 1024 setTtl,
+// 2048 setMulticastTtl, 4096 setSendBufferSize, 8192 setRecvBufferSize,
+// 16384 joinMulticast, 32768 leaveMulticast raise; 65536 the repeat close()
+// returns quietly.
+int probeUdpClosed() {
+    UdpSocket u = UdpSocket.bind("127.0.0.1", 0);
+    u.connect("127.0.0.1", u.localPort());
+    u.close();
+    int bad = 0;
+    byte[] b = byte[4];
+    string peer = "";
+    int pp = 0;
+    try { u.send(b, 4, 5000); bad = bad + 1; } catch (SocketException e) { }
+    try { u.recv(b, 5000); bad = bad + 2; } catch (SocketException e) { }
+    try { u.sendTo(b, "127.0.0.1", 9); bad = bad + 4; } catch (SocketException e) { }
+    try { u.recvFrom(b, out peer, out pp, 5000); bad = bad + 8; } catch (SocketException e) { }
+    try { u.connect("127.0.0.1", 9); bad = bad + 16; } catch (SocketException e) { }
+    try { u.peerAddress(); bad = bad + 32; } catch (SocketException e) { }
+    try { u.peerPort(); bad = bad + 64; } catch (SocketException e) { }
+    try { u.localAddress(); bad = bad + 128; } catch (SocketException e) { }
+    try { u.localPort(); bad = bad + 256; } catch (SocketException e) { }
+    try { u.setBroadcast(true); bad = bad + 512; } catch (SocketException e) { }
+    try { u.setTtl(4); bad = bad + 1024; } catch (SocketException e) { }
+    try { u.setMulticastTtl(1); bad = bad + 2048; } catch (SocketException e) { }
+    try { u.setSendBufferSize(2048); bad = bad + 4096; } catch (SocketException e) { }
+    try { u.setRecvBufferSize(2048); bad = bad + 8192; } catch (SocketException e) { }
+    try { u.joinMulticast("224.0.0.251"); bad = bad + 16384; } catch (SocketException e) { }
+    try { u.leaveMulticast("224.0.0.251"); bad = bad + 32768; } catch (SocketException e) { }
+    u.close();
+    return bad;
+}
+
+// IcmpSocket after close(). Bits: 1 sendTo, 2 recvFrom raise; 4 the repeat
+// close() returns quietly.
+int probeIcmpClosed() {
+    IcmpSocket ic = IcmpSocket.bind();
+    ic.close();
+    int bad = 0;
+    byte[] b = byte[4];
+    string peer = "";
+    try { ic.sendTo(b, "127.0.0.1"); bad = bad + 1; } catch (SocketException e) { }
+    try { ic.recvFrom(b, out peer, 5000); bad = bad + 2; } catch (SocketException e) { }
+    ic.close();
+    return bad;
+}
+
+// Half-close: shutdownWrite() ends the write side only. The peer (client) is
+// already closed, so the read side sits at end of stream. Bits: 1 write(string)
+// and 2 write(bytes) raise, 4 read returns 0 (end of stream, no raise),
+// 8 readLine returns the empty string, 16 readExactly raises (stream ended
+// early), 32 peekFilled returns the empty view (the end-of-stream signal),
+// 64 close() afterwards returns quietly.
+int probeHalfClosed() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    TcpStream acc = srv.accept(5000);
+    cli.close();                                   //peer gone: read side at EOF
+    acc.shutdownWrite();
+    int bad = 0;
+    byte[] b = byte[4];
+    try { acc.write("x", 5000); bad = bad + 1; } catch (SocketException e) { }
+    try { acc.write(b, 4, 5000); bad = bad + 2; } catch (SocketException e) { }
+    try {
+        if (acc.read(b, 5000) != 0) { bad = bad + 4; }
+    } catch (SocketException e) { bad = bad + 4; }
+    try {
+        if (acc.readLine(5000) != "") { bad = bad + 8; }
+    } catch (SocketException e) { bad = bad + 8; }
+    try { acc.readExactly(1, 5000); bad = bad + 16; } catch (SocketException e) { }
+    try {
+        if (acc.peekFilled(1, 5000).length() != 0) { bad = bad + 32; }
+    } catch (SocketException e) { bad = bad + 32; }
+    acc.close();
+    srv.close();
+    return bad;
+}
+
+int main() {
+    int tcpMask = probeTcpClosed();
+    int srvMask = probeListenerClosed();
+    int udpMask = probeUdpClosed();
+    int icmpMask = probeIcmpClosed();
+    int halfMask = probeHalfClosed();
+    if (tcpMask == 0 && srvMask == 0 && udpMask == 0 && icmpMask == 0 && halfMask == 0) {
+        return 0;
+    }
+    io.print("closed-state masks: tcp=" + tcpMask.toString()
+             + " listener=" + srvMask.toString()
+             + " udp=" + udpMask.toString()
+             + " icmp=" + icmpMask.toString()
+             + " half=" + halfMask.toString() + "\n");
+    if (tcpMask != 0) { return 11; }
+    if (srvMask != 0) { return 12; }
+    if (udpMask != 0) { return 13; }
+    if (icmpMask != 0) { return 14; }
+    return 15;
+}
