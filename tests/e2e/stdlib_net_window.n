@@ -65,7 +65,7 @@ int main() {
     if (timedOut(srv2) != 1) { return 10; }
 
     // 5. read consumes the window first: stream order is kept, nothing is
-    //    duplicated or lost across the window/直读 boundary.
+    //    duplicated or lost across the window/direct-read boundary.
     cli2.write(io.toBytes("WORLD"), -1, 5000);
     byte[] got = byte[16];
     int n = srv2.read(got, 5000);
@@ -98,9 +98,12 @@ int main() {
     srv3.consume(3);
     if (srv3.peekFilled(9, 5000).length() != 0) { return 18; }
 
-    // 9. After close() both window calls throw, residue included (spec §五).
+    // 9. After close() the window calls and read all throw, residue included
+    //    (spec §五: close() invalidates the residue; §21.1: a closed socket is
+    //    a SocketException). This stream is closed on a sticky EOF, so read
+    //    must throw rather than serve the EOF's 0 from the window fast path.
     srv3.close();
-    if (closedForms(srv3) != 3) { return 19; }
+    if (closedForms(srv3) != 7) { return 19; }
 
     // 10. readLine assembles a line longer than the window across refills, so
     //     the line length stays unbounded (spec §五's readLine clause).
@@ -134,8 +137,33 @@ int main() {
     if (whole.length() != TcpStream.WINDOW_CAP + 300) { return 26; }
     if (whole[0] != 65 || whole[TcpStream.WINDOW_CAP + 299] != 65) { return 27; }
 
-    cli.close(); cli2.close(); cli4.close(); cli5.close();
-    srv.close(); srv2.close(); srv4.close(); srv5.close();
+    // 12. A closed stream rejects every read face even while the window still
+    //     holds residue: close() invalidates the residue (spec §五), so read,
+    //     readLine and readExactly throw exactly like peekFilled and consume.
+    TcpStream cli6 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv6 = lst.accept(5000);
+    cli6.write(io.toBytes("REST"), -1, 5000);
+    if (srv6.peekFilled(1, 5000).length() != 4) { return 28; }
+    srv6.close();                                  //residue "REST" still buffered
+    if (closedReadForms(srv6) != 7) { return 29; }
+
+    // 13. A line cut short by EOF keeps its bytes exactly: CR is stripped only
+    //     as part of a complete CRLF terminator, so a stream ending in "x<CR>"
+    //     yields that CR too (base readLine behavior, manual §21.2: a partial
+    //     line is returned as it arrived when the stream ends mid-line).
+    TcpStream cli7 = TcpStream.connect("127.0.0.1", port, 5000);
+    TcpStream srv7 = lst.accept(5000);
+    cli7.write(io.toBytes("y\r\n"), -1, 5000);
+    string full7 = srv7.readLine(5000);
+    if (full7.length() != 1 || full7[0] != 121) { return 30; }   //CRLF pair stripped
+    cli7.write(io.toBytes("x\r"), -1, 5000);
+    cli7.close();
+    byte[] cut = io.toBytes(srv7.readLine(5000));
+    if (cut.length() != 2 || cut[0] != 120 || cut[1] != 13) { return 31; }
+
+    cli.close(); cli2.close(); cli4.close(); cli5.close(); cli6.close();
+    cli7.close();
+    srv.close(); srv2.close(); srv4.close(); srv5.close(); srv7.close();
     lst.close();
     io.print("ok");
     return 0;
@@ -157,10 +185,25 @@ int argForms(TcpStream s) {
     return bits;
 }
 
-// Bit mask of the two post-close() forms (spec §五: both throw SocketException).
+// Bit mask of the three post-close() window/first-call forms (spec §五: all
+// throw SocketException; read's window fast path must not serve a stale 0).
 int closedForms(TcpStream s) {
     int bits = 0;
+    byte[] b = byte[4];
     try { s.peekFilled(1, 5000); } catch (SocketException e) { bits = bits + 1; }
     try { s.consume(1); } catch (SocketException e) { bits = bits + 2; }
+    try { s.read(b, 5000); } catch (SocketException e) { bits = bits + 4; }
+    return bits;
+}
+
+// Bit mask of the three post-close() read faces over window residue: read,
+// readLine and readExactly must reject a closed stream like the window calls
+// do (spec §五: close() invalidates the window residue).
+int closedReadForms(TcpStream s) {
+    int bits = 0;
+    byte[] b = byte[4];
+    try { s.read(b, 5000); } catch (SocketException e) { bits = bits + 1; }
+    try { s.readLine(5000); } catch (SocketException e) { bits = bits + 2; }
+    try { s.readExactly(1, 5000); } catch (SocketException e) { bits = bits + 4; }
     return bits;
 }

@@ -294,6 +294,10 @@ class TcpStream {
     // a zero-length read is an argument error, not a silent EOF.
     public int read(byte[] buf, int timeoutMs = 0) {
         if (buf.length() == 0) { _throwNet(-5, "read"); } //argument error, not EOF
+        //A closed stream throws even with window residue and even on a sticky
+        //EOF: close() voids the residue (spec §五), so read must not serve a
+        //stale drain or the EOF's 0 from the window fast path.
+        if (m_winClosed) { _throwNet(-1, "read"); }
         if (m_winHave > 0) { return this.drainWindow(buf, 0); } //window first: order over speed
         if (m_winEof) { return 0; }                        //sticky EOF: no more bytes, ever
         long deadline = 0;
@@ -450,9 +454,10 @@ class TcpStream {
     }
 
     // Reads one line: ends at '\n' and returns the text without the
-    // line terminator (a trailing '\r' is stripped). If the peer
-    // closes before the line ends, returns the text accumulated so
-    // far; an empty line and EOF both return the empty string (a
+    // line terminator (a '\r' is stripped only as part of a CRLF
+    // pair). If the peer closes before the line ends, returns the
+    // text accumulated so far, byte-for-byte (a CR that never got
+    // its LF stays); an empty line and EOF both return the empty string (a
     // string has no null value), so read() answering 0 is the
     // end-of-stream signal. The bytes are collected in a buffer
     // and decoded once, so the line comes out exactly as the same
@@ -488,8 +493,13 @@ class TcpStream {
             //per segment instead of one per allocation.
             this.growWindowAtLeast(m_win.length() * 2);
         }
-        if (used > 0 && acc[used - 1] == 10) { used = used - 1; }             //strip '\n'
-        if (used > 0 && acc[used - 1] == 13) { used = used - 1; }             //strip '\r'
+        // The CRLF pair is a terminator only when both bytes arrived: an
+        // EOF-partial line keeps its bytes exactly, trailing CR included
+        // (manual §21.2: a partial line is returned as it arrived).
+        if (used > 0 && acc[used - 1] == 10) {
+            used = used - 1;                                                  //strip '\n'
+            if (used > 0 && acc[used - 1] == 13) { used = used - 1; }         //strip '\r'
+        }
         return _fromBytes(acc[0:used]);
     }
 
@@ -505,6 +515,7 @@ class TcpStream {
     // message into the same segment leaves those bytes in the socket
     // instead of having them swallowed here.
     public byte[] readExactly(int count, int timeoutMs = 0) {
+        if (m_winClosed) { _throwNet(-1, "readExactly"); }  //residue voided by close()
         byte[] payload = byte[count];
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
