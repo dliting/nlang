@@ -982,7 +982,6 @@ private:
 	//a lowering-specific diagnostic); phase 2 splices the tensor call
 	//through the parent's ReplaceChildNode protocol and resolves it.
 	bool TryTensorBinaryShape(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
-	SnMemberExpr *BuildTensorCall(SnBinaryExpr &sn);
 	//0.9.9: `<<`/`>>` — the left operand's row decides the result; the
 	//count must convert to that row implicitly (see
 	//ExprResolverBinary.cpp for the full rationale).

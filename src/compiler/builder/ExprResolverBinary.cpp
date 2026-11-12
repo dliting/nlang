@@ -468,19 +468,17 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	auto op = sn.Op();
 	if (RejectTypeParamOperand(sn, op))
 		return;
-	//v0.14.0: array-operand arithmetic lowers to the tensor module's
-	//kind-dispatching primitives. The hook consumes lowering shapes:
-	//the node is REPLACED in its parent (ReplaceChildNode protocol —
-	//the drained binary is destroyed by the protocol) and the
-	//synthesized call takes its place, so this frame must return
-	//without touching sn again.
+	//v0.14.0: array-operand arithmetic resolves AS a tensor call — the
+	//node stays in the tree (no splice, every holder representation
+	//intact) and carries the bound callee + emission plan; codegen
+	//lowers flagged nodes through the standard invoke path.
 	if (op == SnBinaryExpr::OP_Add || op == SnBinaryExpr::OP_Sub
 		|| op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_Mul
 		|| op == SnBinaryExpr::OP_Div)
 	{
 		//Defensive gates the shared pre-hooks own for the scalar path:
 		//a string side belongs to the concat path, a null literal to
-		//the null arithmetic guard — the lowering stays away from both.
+		//the null arithmetic guard — the lowering stays away from them.
 		auto *pLchk = sn.Left()->EvalDataType();
 		auto *pRchk = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
 		const bool stringSide =
@@ -489,16 +487,7 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		const bool nullSide = sn.Left()->ContainFlags(NF_NullLiteral)
 			|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral));
 		if (!stringSide && !nullSide && TryTensorBinaryShape(sn, op))
-		{
-			if (!sn.ContainFlags(NF_TensorOp))
-				return; //diagnosed: the node stays, resolved+Invalid
-			auto *pCall = BuildTensorCall(sn);
-			NLANG_ASSERT(sn.Parent());
-			if (!sn.Parent()->ReplaceChildNode(&sn, pCall))
-				return;
-			pCall->Accept(*m_pVisitor);
 			return;
-		}
 	}
 	if (IsCompareOp(op) || op == SnBinaryExpr::OP_LogicalAnd ||
 		op == SnBinaryExpr::OP_LogicalOr ||

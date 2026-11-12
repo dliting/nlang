@@ -1,34 +1,26 @@
 /*---
     ExprResolverArrayOps.cpp — v0.14.0 numpy-style array arithmetic.
-    `a + b`, `2 * x`, `1 - a`, `-a` on numeric-element arrays lower to
-    the stdlib tensor module's kind-dispatching primitives, so every
-    spelling rides the tier-dispatched SIMD kernels behind them.
+    `a + b`, `2 * x`, `1 - a`, `-a` on numeric-element arrays resolve
+    AS tensor calls: the binary node keeps its position in the tree
+    (every holder representation — child list, typed slots, active
+    traversal frames — stays untouched), and resolution binds onto it
+    the selected tensor-callee overload plus an emission-plan invoke
+    whose params are the node's own operands. Codegen emits the plan
+    through the standard invoke path (staging, safepoints and the
+    native descriptor all reused), so the emitted bytecode is
+    indistinguishable from a hand-written tensor.add(a, b).
 
-    Two-phase design (full rationale in the M5 design appendix,
-    docs/superpowers/specs/2026-11-12-m5-array-operator-lowering-
-    design.md):
-
-    1. Resolution (TryTensorBinaryShape, called from
-       Access(SnBinaryExpr)): classify once — diagnostics for byte
-       arrays, cross-kind pairs, missing import fire here — flag
-       NF_TensorOp, and stamp the array operand's row as the node's
-       result type (the operand-wrap pass then sees TCK_Same).
-    2. Holder swap (BuildTensorCall + the ReplaceChildNode protocol):
-       the call node is synthesized from the detached operands and
-       spliced through the parent's ReplaceChildNode — the protocol
-       keeps every typed slot in sync (the per-class overrides live in
-       SnChildSync.cpp), destroys the drained binary, and leaves every
-       iterator into the child list valid (the in-place cell
-       assignment). Access(SnBinaryExpr) returns IMMEDIATELY after the
-       swap — the binary node is gone and must not be touched.
+    Design appendix: docs/superpowers/specs/2026-11-12-m5-array-
+    operator-lowering-design.md (three adversarial review rounds; the
+    emitter-side lowering replaced mid-traversal node surgery after
+    review rounds surfaced its UAF/holder-coverage costs).
 
     The call requires `import tensor` like every other tensor.* call:
-    the import drives library-unit discovery (an unimported unit is not
-    inlined, so there is nothing to call). Admission is checked at
-    classification time, so an operator use without the import yields
-    exactly one standard "Package 'tensor' is not imported" diagnostic
-    even in nested expressions. Compound assignment on arrays is
-    rejected by name in StatementResolverCompound.
+    the import drives library-unit discovery (an unimported unit is
+    not inlined, so there is nothing to call). Admission is checked at
+    classification time — one diagnostic per operator use even in
+    nested expressions. Compound assignment on arrays is rejected by
+    name in StatementResolverCompound.
 ---*/
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
@@ -119,8 +111,8 @@ const char *TensorFnFor(SnBinaryExpr::Operator op, bool scalarLeft)
 
 /*
 Resolution-time classification (phase 1). True = the node is consumed:
-either a lowering-shape binary (flagged NF_TensorOp with the array
-result row — the holder swap happens right here in the caller) or a
+either a lowering-shape binary (flagged NF_TensorOp, bound to its
+tensor callee and emission plan — the emitter lowers it in place) or a
 lowering-specific diagnostic was logged. False = not an array shape;
 the scalar arithmetic path keeps the node.
 */
@@ -138,22 +130,18 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 
 	//Unary minus on an array: -a -> tensor.neg(a). The grammar gives
 	//unary negation its own operator (OP_Neg, no right operand).
-	if (!sn.Right())
+	const bool unary = !sn.Right();
+	if (unary && op != SnBinaryExpr::OP_Neg)
+		return false;
+
+	//Invalid-operand propagation: a nested operand already diagnosed
+	//(NF_Invalid) consumes this node silently — one diagnostic per
+	//source error, no cascade along the expression chain.
+	if (sn.Left()->IsInvalid()
+		|| (sn.Right() && sn.Right()->IsInvalid()))
 	{
-		if (op != SnBinaryExpr::OP_Neg || !lArr)
-			return false;
-		auto *pElem = ArrayElementRowOf(pL);
-		if (!IsNumericElementRow(pElem))
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"operator '-': array element kind \"%s\" has no "
-				"arithmetic.", pElem ? pElem->ToString().c_str() : "?");
-			sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-			sn.AddFlags(NF_Resolved | NF_Invalid);
-			return true;
-		}
-		sn.EvalDataType(pL);
-		sn.AddFlags(NF_TensorOp | NF_Resolved);
+		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		sn.AddFlags(NF_Resolved | NF_Invalid);
 		return true;
 	}
 
@@ -194,9 +182,8 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 	}
 
 	//Import admission at classification time: one diagnostic per
-	//operator use even in nested expressions (the synthesized call
-	//would fail unit discovery — C1), and no swap leaves an untyped
-	//node behind to poison the parent's classification.
+	//operator use even in nested expressions (the lowered call would
+	//fail unit discovery — C1).
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(sn);
 	if (!reg.ImportGateAllows(curModule, "tensor"))
@@ -210,59 +197,87 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 		return true;
 	}
 
-	//Result type = the array operand's row (the scalar arms return the
-	//array too).
-	sn.EvalDataType(lArr ? pL : pR);
-	sn.AddFlags(NF_TensorOp | NF_Resolved);
-	return true;
-}
-
-/*
-Phase 2: build the tensor.<fn>(...) member call from the flagged
-binary. The operands are DETACHED from the binary (ownership moves to
-the call — the DetachChild contract); the caller splices the call
-through the parent's ReplaceChildNode, which destroys the drained
-binary — nothing here deletes it, and the caller must not either.
-*/
-SnMemberExpr *ExprResolveAccessor::BuildTensorCall(SnBinaryExpr &bin)
-{
-	const bool lArr = IsArrayRow(bin.Left()->EvalDataType());
-	const bool scalarLeft = !lArr && bin.Right() != nullptr;
-	const char *fnName = TensorFnFor(bin.Op(), scalarLeft);
-	NLANG_ASSERT(fnName);
-
-	SnExpression *pLeftNode = nullptr;
-	SnExpression *pRightNode = nullptr;
+	//Bind the callee + emission plan. The plan invoke is a detached
+	//emission node: its params are this node's own operands (ownership
+	//moves from the binary's child list to the plan — the binary stays
+	//in the tree, childless but with its operand slots pointing at the
+	//live plan-owned operands). MatchInvokeAgainst selects the element-
+	//kind overload and produces the formal bindings the emitter stages.
+	const bool scalarLeft = !lArr && rArr;
+	const char *fnName = TensorFnFor(op, unary ? false : scalarLeft);
+	auto candidates = reg.ModuleFunctions("tensor", fnName);
+	if (candidates.empty())
 	{
-		auto &children = bin.Children();
-		auto iL = children.begin();
-		pLeftNode = static_cast<SnExpression *>(&*iL);
-		RemoveChildFrom(iL, bin);
-		if (bin.Right())
-		{
-			auto iR = children.begin();
-			pRightNode = static_cast<SnExpression *>(&*iR);
-			RemoveChildFrom(iR, bin);
-		}
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s': the tensor package exposes no \"%s\" "
+			"primitive.", opName, fnName);
+		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		sn.AddFlags(NF_Resolved | NF_Invalid);
+		return true;
 	}
+
 	UniquePtrList<SnExpression> params;
-	if (scalarLeft)
+	if (unary)
 	{
-		params.Add(pRightNode);
-		params.Add(pLeftNode);
+		params.Add(sn.Left());
+	}
+	else if (scalarLeft)
+	{
+		params.Add(sn.Right());
+		params.Add(sn.Left());
 	}
 	else
 	{
-		params.Add(pLeftNode);
-		if (pRightNode)
-			params.Add(pRightNode);
+		params.Add(sn.Left());
+		params.Add(sn.Right());
+	}
+	//Detach from the binary's child list, then adopt into the plan
+	//(ownership moves — RemoveChildFrom releases, the ctor's list
+	//takes it).
+	{
+		auto &children = sn.Children();
+		while (!children.empty())
+		{
+			auto iChild = children.begin();
+			RemoveChildFrom(iChild, sn);
+		}
 	}
 
-	auto pInvoke = new SnInvokeExpr(new std::string(fnName),
-		std::move(params), *bin.Location());
-	auto pModule = new SnIdentifierExpr(new std::string("tensor"),
-		*bin.Location());
-	return new SnMemberExpr(pModule, pInvoke, *bin.Location());
+	auto pPlan = new SnInvokeExpr(new std::string(fnName),
+		std::move(params), *sn.Location());
+	if (!ResolveExpressionList(pPlan->Params()))
+	{
+		delete pPlan;
+		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		sn.AddFlags(NF_Resolved | NF_Invalid);
+		return true;
+	}
+
+	SnFunction *pCallee = nullptr;
+	std::vector<FormalBinding> bindings;
+	bool bAmbiguous = false;
+	auto match = MatchInvokeAgainst(*pPlan, candidates, pCallee,
+		bindings, bAmbiguous);
+	if (match != FFR_ExactMatch && match != FFR_ApproximateMatch)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s': no matching tensor primitive for the "
+			"operand kinds.", opName);
+		delete pPlan;
+		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+		sn.AddFlags(NF_Resolved | NF_Invalid);
+		return true;
+	}
+	if (match == FFR_ApproximateMatch)
+		FixupParamTypesWithBindings(*pPlan, bindings);
+	pPlan->SetBindings(std::move(bindings));
+
+	sn.TensorCallee(pCallee);
+	sn.TensorCallPlan(std::unique_ptr<SnInvokeExpr>(pPlan));
+	//Result type = the callee's return row (the tensor element array).
+	sn.EvalDataType(pCallee->ReturnType()->EvalDataType());
+	sn.AddFlags(NF_TensorOp | NF_Resolved);
+	return true;
 }
 
 } //namespace nlang

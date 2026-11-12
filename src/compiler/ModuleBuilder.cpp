@@ -7,6 +7,7 @@
 #include "TranslationUnit.h"
 #include "ScriptParser.h"
 #include "SyntaxTree.h"
+#include "SnExpressions.h"
 #include "builder/ExprResolver.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ImportedNodeBuilder.hpp"
@@ -488,8 +489,15 @@ void ModuleBuilder::ResolveStatements()
 //holder missed the lowering swap.
 bool ModuleBuilder::TreeHasUnloweredTensorOp(SyntaxNode &node)
 {
+	//v0.14.0: a tensor-flagged binary lowers at codegen via its bound
+	//callee — a flagged node WITHOUT the binding is the failure shape
+	//(classification flagged it but the binding failed).
 	if (node.Kind() == NK_BinaryExpr && node.ContainFlags(NF_TensorOp))
-		return true;
+	{
+		auto &bin = static_cast<SnBinaryExpr &>(node);
+		if (!bin.TensorCallee() || !bin.TensorCallPlan())
+			return true;
+	}
 	for (auto &child : node.Children())
 	{
 		if (TreeHasUnloweredTensorOp(static_cast<SyntaxNode &>(child)))
