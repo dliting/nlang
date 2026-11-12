@@ -139,8 +139,15 @@ public:
 			//the stub mints public (top-level declarations are public).
 			//0.10.14: the table index rides the stub — the namespace
 			//branch of the cross-unit slot record carries it.
+			//0.13.1a Task 7: generic records pass their type parameter
+			//names so the stub mints a generic declaration (inference
+			//reads the stub's formals; T leaves synthesize by name).
+			const std::vector<std::string> *genericNames = nullptr;
+			if (cm.functions[i].isGeneric
+			    && !cm.functions[i].typeParamNames.empty())
+				genericNames = &cm.functions[i].typeParamNames;
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
-				loc, FA_Public, ProducerIdxClamp(i));
+				loc, FA_Public, ProducerIdxClamp(i), genericNames);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but

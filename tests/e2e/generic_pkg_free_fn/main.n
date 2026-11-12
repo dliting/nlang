@@ -1,0 +1,27 @@
+// main.n — consumer unit: calls the producer's generic free functions
+// through the imported stubs. Plain calls infer against the stub
+// signature (RTK_TypeParam leaves synthesized on rebuild); the
+// forwarding call inside identPick composes a recipe row from the
+// consumer's own frame context (Review Focus 5).
+import pkglib;
+
+T identPick<T>(T v) {
+    return pkglib.pkgPick(v, v);
+}
+
+int main() {
+    // plain inference through the stub: T binds int (qualified form —
+    // the namespace branch of the cross-unit slot record)
+    if (pkglib.pkgPick(3, 4) != 3) { return 3; }
+    // unqualified form: the stub is promoted to the consumer's root,
+    // so the bare name resolves to the same imported record
+    if (pkgPick("a", "b") != "a") { return 8; }
+    // typeName verdict through the stub's forwarded context
+    if (pkglib.pkgTag(5) != "int") { return 4; }
+    // T-forwarding from a consumer generic function (recipe row)
+    if (identPick(7) != 7) { return 5; }
+    if (identPick("w") != "w") { return 6; }
+    // nested: the forwarded call's result feeds another stub inference
+    if (pkglib.pkgTag(identPick(9)) != "int") { return 7; }
+    return 0;
+}

@@ -1,0 +1,11 @@
+// pkglib.n — producer unit (0.13.1a Task 7): generic free functions
+// exported through the wire format. The consumer compiles against this
+// unit's compiled artifact only (the sealed layout), so every call
+// below goes through the .ncu record's isGeneric + typeParamNames
+// fields and the stub rebuild's placeholder-leaf signature.
+T pkgPick<T>(T a, T b) {
+    return a;
+}
+string pkgTag<T>(T v) {
+    return typeName(T);
+}
