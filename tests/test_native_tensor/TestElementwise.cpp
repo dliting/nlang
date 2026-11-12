@@ -34,6 +34,10 @@ double ScalarBinary(tensor::BinaryKernelOp op, double a, double b) {
         case tensor::BinaryKernelOp::Sub: return a - b;
         case tensor::BinaryKernelOp::Mul: return a * b;
         case tensor::BinaryKernelOp::Div: return a / b;
+        case tensor::BinaryKernelOp::Rsub: return b - a;
+        case tensor::BinaryKernelOp::Rdiv: return b / a;
+        case tensor::BinaryKernelOp::ReLUGrad:
+            return b > 0.0 ? a : 0.0;
     }
     return 0.0;
 }
@@ -160,7 +164,11 @@ void CheckDriverStridedUnary() {
     std::mt19937 rng(13u);
     std::uniform_real_distribution<float> span(-1.0f, 1.0f);
     const int64_t count = 257;
-    std::vector<float> owner(count * 2);
+    //The span (offset 3, stride 2, count elements) reaches 3 + 2*count
+    //cells — pad the owner past the last element, or the walk reads
+    //past the allocation (harmless-looking in Release, asserted in
+    //Debug and caught here by the test's own vector indexing).
+    std::vector<float> owner(static_cast<size_t>(count * 2 + 4));
     for (float& v : owner) {
         v = span(rng);
     }
@@ -251,7 +259,7 @@ void CheckDriverBroadcastSingleCell() {
 } // namespace
 
 int RunElementwiseTests() {
-    for (int op = 0; op <= 3; ++op) {
+    for (int op = 0; op <= 6; ++op) {
         NTT_TEST(BinaryF32_flat_ops);
         CheckFlatBinary<float>(static_cast<tensor::BinaryKernelOp>(op),
                                1000, 1e-6, 1e-6, 3u);

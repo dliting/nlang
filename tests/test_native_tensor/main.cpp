@@ -12,6 +12,12 @@
 #include <cstring>
 #include <iostream>
 
+//Debug CRT: route assertion reports to stderr instead of the modal
+//dialog, so ctest runs never block on a dialog.
+#if defined(_CRTDBG_MAP_ALLOC) || defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
 namespace test_native_tensor {
 int RunVecMathTests();
 int RunMatMulTests();
@@ -19,7 +25,14 @@ int RunElementwiseTests();
 int RunReduceTests();
 } // namespace test_native_tensor
 
-int main() {
+int main(int argc, char** argv) {
+#if defined(_DEBUG)
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+    //Optional suite selection for bisection: native_tensor vecmath|
+    //matmul|elementwise|reduce (default: all).
+    const char* suite = argc > 1 ? argv[1] : nullptr;
     const char* forced = std::getenv("NLANG_TENSOR_TIER");
     tensor::SimdTier expect = tensor::SimdTier::Scalar;
     if (forced != nullptr && std::strcmp(forced, "sse2") == 0) {
@@ -38,9 +51,17 @@ int main() {
         std::cerr << "tier forcing failed: env " << forced << "\n";
         return 2;
     }
-    const int fails = test_native_tensor::RunVecMathTests()
-        + test_native_tensor::RunMatMulTests()
-        + test_native_tensor::RunElementwiseTests()
-        + test_native_tensor::RunReduceTests();
+    auto want = [&](const char* name) {
+        return suite == nullptr || std::strcmp(suite, name) == 0;
+    };
+    int fails = 0;
+    if (want("vecmath"))
+        fails += test_native_tensor::RunVecMathTests();
+    if (want("matmul"))
+        fails += test_native_tensor::RunMatMulTests();
+    if (want("elementwise"))
+        fails += test_native_tensor::RunElementwiseTests();
+    if (want("reduce"))
+        fails += test_native_tensor::RunReduceTests();
     return fails == 0 ? 0 : 1;
 }
