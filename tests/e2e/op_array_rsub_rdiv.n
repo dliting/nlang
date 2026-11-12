@@ -3,11 +3,11 @@
 import tensor;
 
 int main() {
-    float[] a = tensor.full(3, 4.0 as float);
-    float[] r1 = 10.0 as float - a;
-    if (r1[2] != 6.0 as float) return 1;
-    float[] r2 = 2.0 as float / a;
-    if (r2[0] != 0.5 as float || r2[2] != 0.5 as float) return 2;
+    float[] a = tensor.full(3, 4.0f);
+    float[] r1 = 10.0f - a;
+    if (r1[2] != 6.0f) return 1;
+    float[] r2 = 2.0f / a;
+    if (r2[0] != 0.5f || r2[2] != 0.5f) return 2;
     //int wrap semantics ride the same lowering
     int[] ai = tensor.fullI(2, 7);
     int[] ri = 20 - ai;

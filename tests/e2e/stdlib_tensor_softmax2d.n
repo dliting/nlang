@@ -5,10 +5,10 @@ import tensor;
 
 int main() {
     float[,] logits = float[2, 3];
-    logits[0, 0] = 1.0 as float; logits[0, 1] = 2.0 as float;
-    logits[0, 2] = 3.0 as float;
-    logits[1, 0] = 1000.0 as float; logits[1, 1] = 1000.0 as float;
-    logits[1, 2] = 1000.0 as float;
+    logits[0, 0] = 1.0f; logits[0, 1] = 2.0f;
+    logits[0, 2] = 3.0f;
+    logits[1, 0] = 1000.0f; logits[1, 1] = 1000.0f;
+    logits[1, 2] = 1000.0f;
 
     float[,] p = tensor.softmax(logits, 1);
     float[] sums = tensor.sum(p, 1);
@@ -17,9 +17,9 @@ int main() {
     double diff1 = sums[1] - 1.0;
     if (diff1 > 0.0001 || diff1 < -0.0001) return 2;
     //row 0: exp(1)/(e1+e2+e3) ~ 0.0903, exp(3)/... ~ 0.6652
-    if (p[0, 2] < 0.66 as float || p[0, 2] > 0.67 as float) return 3;
+    if (p[0, 2] < 0.66f || p[0, 2] > 0.67f) return 3;
     //row 1: uniform thirds — the shift keeps huge logits stable
-    if (p[1, 0] < 0.32 as float || p[1, 0] > 0.34 as float) return 4;
+    if (p[1, 0] < 0.32f || p[1, 0] > 0.34f) return 4;
 
     //axis = 0: columns softmax over rows
     float[,] q = tensor.softmax(logits, 0);

@@ -11,15 +11,15 @@ int main() {
     long[] nl = tensor.neg(tensor.fullL(3, 5000000000));
     if (nl[2] != -5000000000) return 3;
 
-    float[] nf = tensor.neg(tensor.fullF(2, 0.5 as float));
-    if (nf[0] != -0.5 as float || nf[1] >= 0.0 as float) return 4;
+    float[] nf = tensor.neg(tensor.fullF(2, 0.5f));
+    if (nf[0] != -0.5f || nf[1] >= 0.0f) return 4;
 
     double[] nd = tensor.neg(tensor.fullD(2, 1.5));
     if (nd[0] != -1.5) return 5;
 
     //Negation of an expression rides the same native.
-    float[] expr = tensor.neg(tensor.add(tensor.fullF(2, 1.0 as float),
-                                        tensor.fullF(2, 1.0 as float)));
-    if (expr[1] != -2.0 as float) return 6;
+    float[] expr = tensor.neg(tensor.add(tensor.fullF(2, 1.0f),
+                                        tensor.fullF(2, 1.0f)));
+    if (expr[1] != -2.0f) return 6;
     return 0;
 }
