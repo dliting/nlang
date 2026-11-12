@@ -51,6 +51,14 @@ documented surface.
 - A zero-filled array needs no kernel: sized creation `T[n]`
   is zero-initialized (§4.10); an all-ones array is
   `full(n, 1)`.
+- `uniform(dims, low, high)` mints the dims-shaped array (the
+  `full` creation rules: `dims` is a rank-1 `int[]`, the element
+  count rides the §4.10 creation bound) and fills it row-major
+  with `low + (high - low) * u`, one `u` per element drawn from
+  the host PRNG — the same seeded stream `math.random` reads, so
+  a seeded run is reproducible through either surface. The
+  element kind follows the bounds (`float`/`double`); the range
+  is half-open, `[low, high)`.
 - `reshape(a, shape)` returns the elements of `a` in the shape
   described by the rank-1 `int[]` `shape`, read and filled in
   row-major order; the product of the dimensions must equal the
@@ -356,7 +364,8 @@ and the rank. A `gather` index outside the axis range, or a
 `oneHot` label outside the class range, raises
 `IndexOutOfBoundsException` naming the index and the range; a
 `gather` index count that misses the non-axis position count
-raises `Exception`.
+raises `Exception`. A `uniform` call whose `low` exceeds its
+`high` raises `Exception`.
 
 *Informative:* the diagnostics read like
 `tensor.matmul: shape mismatch (2x3 vs 2x2)` for `matmul` and

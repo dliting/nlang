@@ -16,6 +16,7 @@
 - `arange(n)`是等差数列的下标拼写：`0`到`n - 1`、步长1、`int`元素——喂给`gather`与下标表面的形式。
 - `arange(start, stop, step)`返回严格在`stop`之前的半开等差数列`start`、`start + step`、……；元素类型是三个参数的公共类型。`arange(0.0, 1.0, 0.25)`得到`0.0, 0.25, 0.5, 0.75`。
 - 零填充的数组不需要核函数：定长创建`T[n]`即零初始化（§4.10）；全1数组即`full(n, 1)`。
+- `uniform(dims, low, high)`按`full`的创建规则生成`dims`所述形状的数组（`dims`是秩1的`int[]`，元素数受§4.10创建上限约束），并按行主序以`low + (high - low) * u`填充每个元素——`u`逐元素取自宿主PRNG，与`math.random`读取同一条种子流，播种后的运行经两个表面都可再生。元素种类跟随界的类型（`float`/`double`）；区间半开，`[low, high)`。
 - `reshape(a, shape)`把`a`的元素按行主序读出并填入`shape`所述形状，`shape`是秩1的`int[]`；各维之积必须等于`a`的元素数，结果秩遵循§4.10的全局上限（带方括号标注的结果按标注核秩）。至多一个维度可为`-1`——由元素数除以其余各维之积推断，且必须整除。当元素本就按行主序无间隙地排列——程序创建的数组，或恰好连续选取元素的视图——结果是共享这些元素的视图；否则新建一份副本，结果绝不与`a`别名。
 - `concat(a, b, axis)`沿`axis`拼接两个同秩数组：结果在`axis`维上取长度之和，其余各维取操作数的长度——这些长度必须相等。
 - `flatten(a)`把任意秩数组的元素按行主序作为秩1数组返回——元素连续时是视图，否则是副本（与单维`reshape`同一条规则）。*资料性：*这对应NumPy的`ravel`而非NumPy的`flatten`——后者总是复制；NLang保留一词拼写与尽可能返回视图的语义。
@@ -171,7 +172,7 @@ int main() {
 
 ## 18.6 错误行为
 
-每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、或`oneHot`的某个标签越过类别范围，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。
+每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、或`oneHot`的某个标签越过类别范围，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`uniform`的`low`大于`high`抛出`Exception`。
 
 *资料性：*诊断消息的写法形如`matmul`的`tensor.matmul: shape mismatch (2x3 vs 2x2)`、逐元素核函数的`tensor: shape mismatch (2x3 vs 2x2)`。
 

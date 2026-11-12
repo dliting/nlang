@@ -77,3 +77,8 @@
 - **重写丢参事故**：把VisitGather从3参改成带indices的版本时，重写稿漏掉了indices形参，回调收到的是flat本身——gather退化成恒等取对角（picked=[a[0,0],a[1,1],...]），而秩2轴0用例的期望值恰好部分吻合，最小复现"看起来差一点"而非"全错"。教训：**重写小函数比改小函数更容易丢参**——review重写稿时先对旧稿做形参清单比对；期望值部分吻合的用例要再挑一个非对称数据点（本例indices=[2,0,2]若对角化正好[0,1,2]，picked第三个值碰巧相同）。
 - **负例测试的自我矛盾**：op_tensor_gather.n尾部写了"越界抛异常（未捕获exit 1）"却在期望exit 0的manifest下——同一文件正负例混装必然自我矛盾。负例一律独立成`_throw`文件，manifest按exit 1登记。
 - **旧契约测试随功能演进失效**：0.7.3的"数组+数值拒绝"pin在v0.14.0数组标量算术合法化后必然失败——编译器报的不再是类型不匹配而是"未导入tensor包"。pin要随契约演进改写（同种类标量广播合法、混合种类仍拒绝），并补一条新诊断（import gate）的独立pin。
+
+##12. oneHot视图offset事故与uniform设计（2026-11-13）
+
+- **核函数读实参数组必须走记录的offset/strides**：oneHot内核直接`labels[i]`读`v.data`——拥有数组offset=0时全对，切片视图（`labels[first:first+rows]`，offset=first）就从属主元素0开始读。mlp改写用切片视图喂oneHot后训练静默发散（每批标签都错但都合法，无异常可抓），靠三段变体二分（uniform只换init收敛→oneHot换写收敛→切片视图发散）定位。修复走`v.offset + i*strides[0]`。教训：**内核单测用拥有数组永远测不出视图offset bug**——e2e回归钉必须含"切片视图喂核函数"用例（op_tensor_gather/op_tensor_reduce2已加）。此前gather/eq内核写了stride遍历是对的，oneHot漏了——同一文件里两套写法并存，说明"读视图"没有统一的强制入口，值得将来把StrideWalk提为唯一合法路径（编译期约定）。
+- **uniform骑宿主PRNG流**：随机数组内核不own生成器，逐元素调`host->nextRandom`——与math.random同一条流、同一[0,1)映射（高24位/2^24），行主序抽取顺序与嵌套循环逐元素调用完全一致，"调用方播种则整跑可复现"的契约原样保持。e2e钉子同时钉两个方向：同种子uniform自 reproduces、同种子下uniform与math.random嵌套循环逐元素相等。float实参读低半cell（ArgFloat非ArgDouble）——写完走一遍F/D两臂各有reader的创建家族宏模式。

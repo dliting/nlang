@@ -27,6 +27,12 @@ without a single element loop.
   arithmetic guard and array identity comparison are unchanged.
   Compound assignment on arrays is not lowered (plain assignment is
   the supported spelling).
+- **Whole-array random fill** — `uniform(dims, low, high)` mints
+  the dims-shaped array and fills it row-major with
+  `low + (high - low) * u`, one draw per element from the host PRNG
+  (the same seeded stream `math.random` reads, so seeded runs stay
+  reproducible); `float`/`double` element kinds, `[low, high)` range,
+  `Exception` on `low > high`.
 - **Tensor primitives** — `neg`, `rsubScalar`, `rdivScalar`, the
   axis arms of `max`/`min` (rank >= 2), `reluGrad(dOut, z)`, `tanh`,
   `sigmoid`, and the two-array `softmax(x, axis)` (rank-2 rows,

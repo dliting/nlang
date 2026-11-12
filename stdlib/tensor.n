@@ -209,6 +209,20 @@ native Array<int> eq(Array<double> a, Array<double> b);
 // One-hot expansion: float[len, n], row i ones at labels[i].
 native Array<float> oneHot(Array<int> labels, int n);
 
+// Whole-array random fill: dims-shaped array, each element drawn
+// uniformly from [low, high) in row-major order. The draws ride the
+// host PRNG — the same seeded stream math.random reads — so a seeded
+// run is reproducible through either surface. Raises Exception when
+// low > high (the math.randomi range rule).
+Array<float> uniform(int[] dims, float low, float high) {
+    return uniformF(dims, low, high);
+}
+Array<double> uniform(int[] dims, double low, double high) {
+    return uniformD(dims, low, high);
+}
+native Array<float> uniformF(int[] dims, float low, float high);
+native Array<double> uniformD(int[] dims, double low, double high);
+
 
 
 //arange(n): 0..n-1 step 1 — the index-array spelling.

@@ -2197,3 +2197,5 @@ op_tensor_gather 0
 op_tensor_reduce2 0
 op_tensor_gather_throw 1
 tensor_import_required compile_error Package 'tensor' is not imported
+stdlib_tensor_uniform 0
+stdlib_tensor_uniform_throw 1

@@ -211,6 +211,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "arangeL", &tensor::ArangeL);
     regBlocking(registry, "tensor", "arangeF", &tensor::ArangeF);
     regBlocking(registry, "tensor", "arangeD", &tensor::ArangeD);
+    regBlocking(registry, "tensor", "uniformF", &tensor::TensorUniformF);
+    regBlocking(registry, "tensor", "uniformD", &tensor::TensorUniformD);
     regBlocking(registry, "tensor", "strideViewI", &tensor::StrideViewI);
     regBlocking(registry, "tensor", "viewSumI", &tensor::ViewSumI);
     regBlocking(registry, "tensor", "add", &tensor::TensorAdd);

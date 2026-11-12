@@ -1,9 +1,11 @@
 // layers.n — the two-layer perceptron (in -> hidden -> out) in batch
 // matrix form: the linear maps ride tensor.matmul, the elementwise
 // arithmetic rides the v0.14.0 array operators (each spelling lowers to
-// the same tier-dispatched SIMD kernels the tensor primitives use), and
-// the activations are the stdlib's loop-free compositions. No element
-// loops remain anywhere on the training path.
+// the same tier-dispatched SIMD kernels the tensor primitives use), the
+// activations are the stdlib's loop-free compositions, the weight init
+// and the one-hot target ride tensor.uniform / tensor.oneHot, and the
+// loss/accuracy gather through tensor.gather and tensor.argmax. No
+// element loops remain anywhere on the training path.
 import math;
 import tensor;
 
@@ -27,26 +29,17 @@ struct Grads {
 }
 
 // Xavier-style uniform init: every weight drawn from (-scale, scale)
-// with scale = sqrt(6 / (fanIn + fanOut)). The caller seeds the PRNG,
-// so the whole run is deterministic.
+// with scale = sqrt(6 / (fanIn + fanOut)) — one tensor.uniform call per
+// weight matrix, riding the seeded host PRNG (the same stream
+// math.random draws), so the whole run is deterministic.
 Params initParams(int inDim, int hidden, int outDim) {
-    double scale1 = math.sqrt(6.0 / (inDim + hidden));
-    double scale2 = math.sqrt(6.0 / (hidden + outDim));
+    float scale1 = math.sqrt(6.0 / (inDim + hidden)) as float;
+    float scale2 = math.sqrt(6.0 / (hidden + outDim)) as float;
     Params p;
-    p.w1 = float[inDim, hidden];
+    p.w1 = tensor.uniform([inDim, hidden], -scale1, scale1);
     p.b1 = float[hidden];
-    p.w2 = float[hidden, outDim];
+    p.w2 = tensor.uniform([hidden, outDim], -scale2, scale2);
     p.b2 = float[outDim];
-    for (int i = 0; i < inDim; i += 1) {
-        for (int j = 0; j < hidden; j += 1) {
-            p.w1[i, j] = ((math.random() * 2.0 - 1.0) * scale1) as float;
-        }
-    }
-    for (int i = 0; i < hidden; i += 1) {
-        for (int j = 0; j < outDim; j += 1) {
-            p.w2[i, j] = ((math.random() * 2.0 - 1.0) * scale2) as float;
-        }
-    }
     return p;
 }
 
@@ -72,10 +65,7 @@ Grads backward(Params p, float[,] x, float[,] hidden, float[,] probs,
     float inv = 1.0f / batch;
 
     // dLogits = (probs - oneHot) / batch
-    float[,] oneHot = float[batch, outDim];
-    for (int i = 0; i < batch; i += 1) {
-        oneHot[i, batchLabels[i]] = 1.0f;
-    }
+    float[,] oneHot = tensor.oneHot(batchLabels, outDim);
     float[,] dLogits = (probs - oneHot) * inv;
 
     Grads g;

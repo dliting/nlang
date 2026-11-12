@@ -282,6 +282,14 @@ void TensorReluGrad(NativeHost* host, uint8_t* ret, const uint8_t* args,
 void TensorTanh(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 int argc);
 
+//--- v0.14.0 whole-array random fill (tensor_random.cpp) ------------
+//uniform rides the creation family: wrappers route the scalar kind to
+//the suffixed native (the full/arange pattern).
+void TensorUniformF(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorUniformD(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+
 //--- v0.14.0 phase 2: index/expression surface (tensor_gather.cpp) ---
 void TensorGather(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc);
