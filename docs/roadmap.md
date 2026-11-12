@@ -106,19 +106,28 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 
 - **0.12.x 系列：内建声明真源化收尾＋用户定义泛型**（用户指示 2026-10-28）——数组/字符串声明面进预置包（承接 0.11.x 内建声明真源化两阶段；按class重实现的设想已于 2026-11-01 否决，见远期特性数组实现路线结论），用户定义泛型`class Foo<T>`完整落地（含误拼诊断文案改写：现"not a built-in generic type"误标声明模板臂，v0.12.1 探针已钉该文案）；系列首版 v0.12.0，v0.12.1 闭括号配对修复落地（嵌套泛型`Box<Box<int>>`解锁，探针已翻转）；v0.12.2 数组/字符串声明面统一（预置面类String/Array声明方法面、resolver按声明校验、类型位拒绝门、签名表退役改绑定表取id）；v0.12.3 并发类拆分（thread.n/concurrent.n两包分工，语言核心与基础容器恒可见的§12.4一句话规则）；v0.12.4 const聚合（`const class`/`const struct`类型级不可变＋NCU v2.12标记）与Exception不可变＋cause链＋失败报告沿链输出；v0.12.5 预置包拆分（语言核心进`lang.n`、基础容器进`containers.n`，builtins单体退役，`import builtins;`成为未知包，项目同名源文件即该包副本）；v0.12.6静态成员与静态局部（class/interface静态字段＋函数内静态局部＋`static const`编译期折叠/懒惰初始化、初始化异常可捕获重试、循环import编译期禁止；docs/dev/static_members_design.md）；v0.12.7数组/张量统一（单一类型`Array<T>`＋方括号静态秩标注与边界秩检查、O(1)视图/slice/广播、数组进Object、序列化数组内容＋调试器视图显示、fs二进制读取对，MNIST MLP验收0.897；docs/dev/array_tensor_design.md）；v0.12.8网络库（net包：TCP监听器/流、UDP、ICMP ping、DNS解析作业，ABI v11 IO停泊与工作池回调，docs/dev/net_library_design.md）；v0.12.9合并发布（0.12.8网络库并入主线、0.12.7打标后修复批收编、两轮对抗评审修复批）
 - **0.13.0：值相等批＋手册已知限制清偿**（用户裁定2026-11-07：并入v0.13.2第①期深值比较＋泛型struct实参解除，其余期次留v0.13.2）——struct `==`/`!=`按字段值比较（`OP_Eq_struct`/`OP_Ne_struct`，NCU v2.14，比较门拒绝排序/异类型/null）；容器元素与Dict键struct按深值、func按句柄内容三元组匹配（`StructValuesEqual`/`FuncRecordValuesEqual`）；用户模板接受struct类型实参（边界深拷，体内T→T搬运别名为已文档化角落）；func类型作Dict键的门删除；const前缀顶层函数两拼写统一具名拒绝（TopItem文法诊断臂＋`CheckFunctionModifierContract`，冲突台账29+3→30+5）；手册语言页删6条陈旧条目（三条跨模块已由绿测试证伪＋List<struct>/List<func>恒等＋const函数）、VM页删2改1（IntList死引用改`int[]`原生存储）、比较/容器/序列化/字节码页同步值语义；CHANGELOG迁移注记（Dict按值键去重、struct==翻转、dedup写法可用）。
-- **0.13.1：运行时泛型类型参数信息**（用户指示2026-11-01，原排0.12.8，网络库占用后于2026-11-07改排；已交付2026-11-10）——接通实例化描述符双载体（对象头部＋调用点隐藏实参，宿主ABI v11→v12）＋`typeName(类型表达式)`语言表达式（具体类型编译期折叠为字面量、类型参数`T`在共享方法体内读运行时描述符返回规范拼写string，用户裁定）＋转型按描述符递归比较区分实例化＋catch泛型类型编译期拒绝＋`.ncu`模板表（无源码预编译包铸新实例化）；静态字段补偿模式随本版写入语言规格与用户手册（用户指示2026-11-01）。目标、缺口取证、非目标与验收见docs/dev/generic_runtime_typeinfo_design.md。设计此功能时，应该全面考虑基本的运行时类型信息和辅助设施的支持。交付形态：对象头部单载体（接收者侧），`T`判等/拼接/打印/`as`/`typeName`按接收者实参种类分派，静态上下文一律拒绝（报`requires an instance context.`）；NCU v2.15模板表＋v2.16实例方法旗标；ABI v12三回调`typeArgCount`/`typeArgKind`/`typeArgName`（接收者按`isInstanceMethod`旗标定位，不做名字形状猜测，用户裁定）；调用点隐藏实参（静态/游离函数侧）移交0.13.1a。
-- **0.13.1a：泛型完善**（已交付2026-11-12）——静态引用T全面化+游离函数泛型支持，实现帧隐藏描述符槽与调用点隐藏实参：static成员体经裸名推断/显式拼写读取调用点实例化（T上判等/拼接/打印/as/typeName与实例体一致，static体内可用T构造实例化）；游离函数声明类型参数、调用点精确匹配推断（数组/struct/嵌套实例化实参；只在返回类型出现报具名错误），泛型互调转发/递归/嵌套组合，不能引用为func值；跨单元导入的游离泛型函数在消费方完全可用（NCU v2.17函数记录携带泛型旗标+类型参数名）；未解析标识符诊断定位到标识符自身位置；版本串支持字母标记（包名NLang-0.13.1a-win64）。docs/dev/generic_completion_design.md
+- **0.13.1：运行时泛型类型参数信息**（用户指示2026-11-01，原排0.12.8，网络库占用后于2026-11-07改排）——接通实例化描述符双载体（对象头部＋调用点隐藏实参，宿主ABI v11→v12）＋`typeName(类型表达式)`语言表达式（具体类型编译期折叠为字面量、类型参数`T`在共享方法体内读运行时描述符返回规范拼写string，用户裁定）＋转型按描述符递归比较区分实例化＋catch泛型类型编译期拒绝＋`.ncu`模板表（无源码预编译包铸新实例化）；静态字段补偿模式随本版写入语言规格与用户手册（用户指示2026-11-01）。目标、缺口取证、非目标与验收见docs/dev/generic_runtime_typeinfo_design.md。设计此功能时，应该全面考虑基本的运行时类型信息和辅助设施的支持。
+- **0.13.1a：泛型完善**（已交付2026-11-12）静态引用T全面化+游离函数泛型支持，实现帧隐藏描述符槽与调用点隐藏实参。
+- **0.13.1b：泛型递延打磨**（已交付2026-11-12）——显式实例化拼写按形状规则判定（C#式，无大小写检验不查名字表），拼写相撞的三类具名诊断（值头部给出加括号比较形式、函数头部说明调用不携带类型实参拼写、非泛型类型头部说明不接收类型实参）；裸`T`默认值拒绝消息两路径归一；类型参数上限255（约束通道为typeName/T判等序号字节的0xFF无序号标记哨兵）。拼写歧义的具名指向探针（identity规则）递延至0.13.1c。
+- **0.13.1c：抽象函数和泛型接口** 1）支持类级的抽象函数（纯虚函数），支持泛型接口。2）随本版一并完成拼写歧义具名指向探针的设计与实施（identity规则，以RejectTypeNameVariable名字分区为健全性基础；先设计后编码）。3）int/long/float/double等基本类型，增加别名支持，例如int32/int64/fp32/fp64，便于程序员记忆，和现代机器学习或处理器内部术语对齐。4）移除试验遗留保留字`elseif`与`state`（不出现在任何语法产生式，历史实验性关键字，用户指示2026-11-12）：删除词法器关键字规则（nlang.l:241/272）与bison记号声明（nlang.y:406/429），使二者成为普通标识符；同批清理nlang.l标识符规则中已过时的`List < 3`误读限制注释（名字分区规则后场景不可达，nlang.l:391-403）；手册同步（en/zh）：保留字表删两词、§1.4"是否保留与语法使用无关"句删除、§6.3控制流页"单词elseif形式是语法错误"按新行为改写；e2e补"二者可作标识符"钉子。5）类型参数数组创建拒绝门的裁决与收口（2026-11-12博客系列第二篇评审轮发现）：现实现只有一个拒绝门`GenericDeclContracts.cpp`的`RejectTypeParamArrayElement`（唯一调用点`StatementResolverDecls.cpp`），只拦定长声明形态（`T slot[3];`），表达式位创建的类型参数元素数组（`T[] arr = T[2];`）被接受且实测编译运行正确；而中英手册泛型页都声称类型参数的数组创建一律拒绝，设计裁定D2的注释又把两种形态视为同一拒绝家族。三处口径互斥，先裁决——收严门以齐设计与手册意图，或放行现状并改手册与设计表述——再同批收口门与中英手册，e2e钉子钉死裁决存留的形态。
+- **v0.13.2：值类型引用（&）**（用户指示 2026-11-07）——参考概要设计经用户/编译器专家/系统架构师三视角审核（docs/dev/value_type_reference_design.md）：值类型（标量/enum/struct/string）保持值语义默认、以`&`显式引入引用（局部/形参/返回/foreach四位置；class等身份引用类型上`&`为等价记号）；统一表示（基准记录句柄＋cell偏移）＋记录稳定化（赋值/写入原位更新，堆分配收敛到新位置建立场景）；out参数退役、`&`形参全面取代；用户泛型struct实参解除；容器元素匹配改字段深值比较（配合项，销账已知限制第26/4项）。四期实施：①深值比较＋泛型解除→②记录稳定化→③&表示＋容器getter→④out退役，每期独立停靠，现行值语义测试全数不翻为护栏；并发原位拷贝按单原子存储操作契约核验。
+- **v0.13.3：Lambda函数/闭包**
+- **v0.13.4：字符串处理增强/URL库**（已完成，2026-11-08发布）——String三方法（`indexOf(t,from)`/`toInt(radix)`/`equalsIgnoreCase`，VM内建intrinsic）、`io` Base64四编解码、`system`包（`wallMs`/`monoMs`双时钟＋`DateTime` UTC日历类型，新native模块`nlang_system`）、`url`包（RFC 3986 `Url` parse/resolve/toString/queryParams/encodeQuery＋percent/form组件编解码）；null退出string值域＋`string.EMPTY`常量（用户裁定；已知限制：跨native边界null句柄抛异常）；`io.nowMs`迁`system.monoMs`；docs/dev/http_library_design.md
+- **v0.13.5：HTTP库**（已完成，2026-11-09）——纯NLang的`http`包（消息模型`HttpRequest`/`HttpResponse`/`HttpHeaders`＋加固`HttpParser`、`HttpServer`每连接一虚拟线程＋400/408/413/417/431/500/503/505加固应答＋`Expect`/100-continue、`HttpClient`按origin连接池＋重定向＋连接/读取/整体三档独立超时＋默认头、requests式自由函数`get`/`post`/`put`/`del`/`request`、`HttpException`携响应`status`）；流式正文（`HttpBodyReader`的`read`/`readAll`/`bodyText`/`close`/`drain`、有界`Channel<byte[]>`＝背压、写失败→关通道→`ChannelClosedException`＝取消）；`gzip`包（整块缓冲`compress`/`decompress`，新native模块`nlang_gzip`内置zlib）；示例`http_hello.n`/`http_conc_bench.n`/`http_sse.n`＋并发验收套件（百次压测）；手册新增第23/24章、格式章重编号为25/26/27；docs/dev/http_library_design.md
+- **v0.13.6：net/http库性能优化** 1）修复HTTP库实施期间发现的语言面缺口。2）性能门槛（用户裁定2026-11-10：与Node.js处于同一数量级，即同机同参数吞吐比值不超过10倍，单连接与高并发两行同时判定，未达门槛不得收版）本版收口时达标：主表单连接1814 RPS、高并发5907 RPS，与同窗Node.js的吞吐比值0.17与0.35，两行均在门槛内；高并发行的表观下降经三body档同探针复测（git `ee84a593`）判为整机窗口漂移而非代码回归，1 KiB跨版本落差属基线文档已钉死的「量子上限退场后正文成本显形」形态。判定口径见docs/dev/net_http_perf_design.md§一与§七，五方对拍（nginx、node、Go、Rust主流生态）数据与可重跑设施在docs/dev/http_perf_baseline.md与tools/http_perf/。3）`http.n`每响应的两处已定位成本已清偿：响应头与正文合并成一次发送（nginx与hyper都对小正文合并），`Date`头按秒缓存、不再每次重格式化（原实现含两次数组分配与13次串接）；配对A/B复测收益记在docs/dev/http_perf_baseline.md§5末与§6。4）`TcpStream.readLine`的缓冲归属已裁定并落地（D5）：缓冲归`TcpStream`自有的单个8192字节惰性接收窗口，`read`/`readLine`/`readExactly`先消费窗口、行长超过窗口的行跨补窗装配；`http.n`行读取器自带的`FILL_WINDOW`改为通过新增公开面`peekFilled(minBytes = 1, timeoutMs = 0)`与`consume(count)`读取和消费。逐字节解码串接已在修复批消除（同机同一次锁内对拍，64 KiB单行459 ms→243 ms），逐字节一次系统调用的形态随D5接收窗口消除（同输入按8 KiB块读的85 ms档达成）。5）`net.ping`的`timeoutMs = 0`（不设截止时刻）按D6处理：无截止的ping不再排进优先级1的原生工作池，不再推迟优先级0的主机名解析；完全走兴趣表停泊的根治形态随D8递延（Windows的`IcmpSendEcho2`句柄不是可轮询描述符，等平台侧等待形态定案），当前契约已在§21.4写明。6）net包的POSIX实现此前从未编译过（本机无Linux CI），本版已清偿编译期缺口——`net_icmp.cpp`include了只在Windows可用的`net_platform_internal.h`来读线程局部错误文本（改走跨平台访问器`NetTakeLastErrorOverride()`：Windows交出并清除该文本，POSIX无覆盖恒返空串）、`net_platform_posix.cpp`落后于`net_platform.h`的`NetResolve`/`NetIcmpEcho`参数与缺失的`NetResolveErrorText`定义；源码规模守卫同时暴露`net_platform_posix.cpp`超500行，按Windows的布局把ICMP条目拆成独立的`net_platform_icmp_posix.cpp`，两个POSIX翻译单元共用的套接字助手移入新的`net_platform_posix_internal.h`——并新增`tools/posix_net_build_check.sh`（Linux或WSL下编译该模块的Linux源文件清单并核对符号，判决行`GATE posix_net_build: PASS`）；这只证明编译与符号面，运行时仍未验；net族e2e的Linux实跑与该检查接入门禁，按用户裁定（2026-11-10）挪到nlang整体支持Linux时一并做，本版不做（docs/dev/net_http_perf_design.md裁定D8）。7）超过`maxConnections`的连接拒绝（`http.n`的`reject503`）按D7裁定：不再在accept线程上同步写完503再有序关闭，交给短工线程处理，连接风暴期间一批拒绝不再推迟其后的accept；在途拒绝已达64时超量连接直接关闭而无应答，客户端读到空响应，两种形态都写进手册`maxConnections`说明并有e2e覆盖后一种。
+- **v0.13.7：正则表达式库和合并*  1）实现正则表达式库。2）合并master和dev分支修改；
+- **v0.13.8：跨模块功能完善** 1）支持跨模块同参数数重载，同名同参数数但参数类型不同的两个重载函数。3）解决枚举不能跨模块导入的已知限制。4）解决导入struct的实例字段跨模块访问的已知限制。5）跨模块游离函数和类的可见性完善，支持private/protected/public访问控制：类缺省public；函数缺省protected（同一package内可见）。
+- **v0.13.9：WEB框架**——基于`http`包的web框架（路由/中间件/session/静态资源＋SSE helper，本项目只给HTTP分帧能力不解释SSE语义）；随本版一并清偿HTTP库收尾两项：服务器优雅关闭（连接登记表＋排空/强关，含`HttpServer.close()`后重新`start()`/`serve()`不复位关闭标志的复位项）、net`TcpStream.read`区分超时与对端EOF
 
 ## 远期特性
 
-- lambda 表达式 + 闭包捕获；enum 方法引用；跨模块函数引用；多播委托；Func 协变/逆变
+- lambda 表达式 + 闭包捕获；enum 方法引用；多播委托；Func 协变/逆变
 - 底层实现的内存管理全面 RAII 化：智能指针替换文法/构建器中的裸 `new` 与自定义 `UniquePtr` 容器（EnNew/EnDelete 宏已于 2026-08-23 移除）
 - 基于LLVM的本地字节码生成编译器
 - 包管理器：模块依赖管理（阶段 11 延后项）
-- 进程内链接 nlang_vm 的 C/C++ 宿主 API：把编译执行能力以库形式嵌入应用程序（当前集成形态为子进程驱动）
 - 调试信息完善：编译期记录每个函数的源文件名（编译产物内字段，或随包产出编译附加信息文件），让回溯与断点显示真实来源——当前回溯帧以入口单元文件名搭配各函数行号，标准库帧会错位
-- 数组实现路线结论（2026-11-01设计裁定，0.12.7已落地单一类型`Array<T>`）——否决「按class重实现」：代价为元素宽度规则冲突（字段统一8字节步长vs数组按种类4/8）与记录消费者横切特例；声明面与虚派发的收益已由预置面类＋`Array<T>`真类型拿到，如要重开须单独立项
 - 数组特性延后项（0.12.7裁定登记，见docs/dev/array_tensor_design.md D14）：负标量下标（`a[-1]`＝len+neg换算，已裁定支持，牵连List/string下标一致性故实现靠后）；max/min沿轴归约（`ReduceAxisKernel`模板已随sum(axis)落地，有消费者时按需开启）；批量matmul（前导维广播语义）；slice表达式作赋值目标（视图左值机制）
+- HTTP库实施期间的语言面缺口（2026-11-09实测登记）：文件级变量不能与`main()`并存（现报"top-level statements cannot be combined with an explicit main() function"，共享计数器只能塞进只装静态字段的持有类）；类类型形参的实参不能写`f(null)`（须先声明一个值为null的局部变量再传）；同类`static const`不能用于实例字段初始化器。三者都是普通程序员会期待的行为，按合理性优先排期，不记入手册「已知限制」
 - 字符串维持特化存储＋装箱进`Object`（2026-11-01设计结论，取代原「基于class的字符串实现」）：字符串存放在独立存储中，句柄与堆索引共用一个空间因而冲突，装箱是唯一不动物理布局的一致性方案（Go的`any`对字符串同样是装箱）；免装箱的替代路线（并入对象堆、带标签引用）成本远超收益，如要评估须单独立项
 - LSP 支持：VS Code / JetBrains 协议（用户指示 2026-08-21：最后实施）
 - Linux/macOS 打包发布：Windows zip + NSIS（CPack）已落地（2026-08-26）；Linux 暂缓，待源码跨平台移植修复后以 CI 构建 TGZ/DEB
@@ -126,14 +135,6 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - 文档子系统延后项：①片段审计扩展到 specification/vm-architecture 的**运行**审计（约 68 个 bare 围栏块的**标签分类**已由 2026-08-30 导航细化+语法高亮轮吸收；运行审计仍延后）；②站点语言政策决策（含用户 2026-08-30 指示的中英双站方向——机制选型 mkdocs-static-i18n vs 每 locale 独立 build，后者对 file:// 离线更稳）
 
 ---
-
-## 当前状态
-
-- **1793 个 e2e 测试全绿**（`tests/e2e/run_e2e_tests.py`，含 32 个示例）；ctest 121 项（build 树，IDE 树另含Qt族）
-- 工具链：ncc / nvm / ndisasm / ndb（调试器）/ nide（Qt5）全部可用；C++17 + CMake 3.16+，支持离线构建部署
-- 模块格式 `.ncu` v2.13（加载期链接布局：导入槽＋逐单元模块路径；2.13 新增静态槽位表，早于 2.13 的映像一律拒绝）＋ `.npkg` v1.0 程序包（成员校验和）；`.nmod` 已退役
-- 语言面：完整过程式 + OOP（继承/虚方法/接口）+ `const class`/`const struct` 类型级不可变 + 泛型容器（类型实参允许 `T[]`）+ 异常（Exception 家族不可变＋cause 原因链，失败报告沿链输出）+ 原生绑定 + 标准库与第三方库统一包机制（显式 import 后裸名与限定名皆可用，通配导入仅限定名）+ 一等函数值（Func/委托）+ 类型别名 + 单一数组类型`Array<T>`（方括号静态秩标注＋O(1)视图/slice/广播＋数组进Object）+ 12 标量基元家族（严格 bool、double 默认、char 码点桥）
-- 已知遗留：bare `[]` 空 init、bare init list 作函数实参、native 参数列集与签名校验（9f-2）、`List < 3` shadow 比较、继承 ctor 在 `new` 调用点不支持、共享命名空间跨目录三形式不可达（v1 例外）
 
 ## 实施优先级
 
@@ -145,5 +146,5 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 
 | 文档 | 说明 |
 |------|------|
-| docs/user_manual/{zh,en}/specification/ | NLang 语言规范（语言、标准库、二进制格式、参考页），带 § 条款编号，中英双树 61 页 |
+| docs/user_manual/{zh,en}/specification/ | NLang 语言规范（语言、标准库、二进制格式、参考页），带 § 条款编号，中英双树各 70 页 |
 | docs/user_manual/{zh,en}/vm-architecture/ | VM 架构设计（编译管线、堆布局、GC 算法、指令集、库机制），一章一页 16 篇，中英双树 |
