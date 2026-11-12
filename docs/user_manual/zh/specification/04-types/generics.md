@@ -160,7 +160,7 @@ class Box<T> {
 }
 ```
 
-被导入的函数递归携带真实的形参与返回类型——实例化、数组类型与嵌套数组都在内——所以导入方的调用点检查与声明单元的调用一致。
+被导入的函数递归携带真实的形参与返回类型——实例化、数组类型与嵌套数组都在内——所以导入方的调用点检查与声明单元的调用一致。泛型自由函数跨单元同样完全可用：导入的签名携带其类型参数，消费方调用点的推断、转发与`typeName`分派与声明单元内完全一致（§4.12.10）。
 
 *资料性：*单元同时携带一张模板表——每行是该单元注册的一个实例化（规范拼写与构造配方）。链接时各单元的行合并；跨单元构造的对象照常携带实例化信息（§4.12.9），判等、转型与`typeName`的行为跨单元一致。
 
@@ -190,7 +190,7 @@ class Hold<T> {
 
 `catch`的类型位不接受泛型实例化——包括类型参数本身：`catch (Box<int> e)`是编译期错误（`catch on a generic instantiation type ... cannot tell instantiations apart`）。异常分派沿模板行匹配，无法区分同一模板的不同实例化，接受拼写会许诺运行期做不到的区分（§8.3）。
 
-*补偿模式：*需要按类型参数记录不同实例化的场合，用一个非泛型辅助类持有以拼写为键的字典，泛型类在实例方法体内把`typeName(T)`作为键传入：
+*补偿模式：*泛型类不能声明静态字段——其成员属于所有实例化共享的那一份擦除实现——因此需要跨实例存活的按实例化区分的状态，放进一个非泛型辅助类：以拼写为键的字典，泛型类把`typeName(T)`作为键传入。只读取实例化的行为不需要辅助类：`static`方法按调用点上下文分派（§4.12.2），实例方法按接收者分派：
 
 ```nlang
 class TypeCounter {
@@ -212,3 +212,38 @@ class Holder<T> {
 ```
 
 键是`typeName(T)`的规范拼写，因此`Holder<int>`与`Holder<Box<int>>`各占一档。
+
+## 4.12.10 泛型自由函数
+
+顶层函数也可以是泛型的：类型参数写在函数名后的尖括号内，在签名与函数体的任何类型位置——形参、返回与局部类型——指代普通类型。函数体只编译一次，所有调用共享，与泛型类的成员一致。
+
+```nlang
+T pick<T>(T a, T b) { return a; }
+string tag<T>(T v) { return typeName(T); }
+
+int main() {
+    if (pick(3, 7) == 3                     // T = int
+            && pick("a", "b") == "a"        // T = string
+            && tag(9) == "int") {           // typeName读调用点
+        return 1;
+    }
+    return 0;
+}
+```
+
+调用不带类型实参拼写——`pick<int>(3, 7)`不是合法语法。每个类型参数都从调用的实参推断，推断是精确匹配：两个实参给同一类型参数供不同种类不会调和（`conflicting type arguments for T: "Int32" vs "String" (inference is exact match; pass arguments of one type).`）。实参能有什么类型，就能供给什么——标量原语、`string`、枚举、类、接口、结构体、数组类型与嵌套实例化：`rows`与`cols`都声明为`int[]`时，`pick(rows, cols)`推断出`T = int[]`。
+
+只在返回类型中出现的类型参数无法推断——显式拼写不存在，调用的目标类型也不是推断来源。`List<T> makeList<T>()`因此不可调用；调用处报`cannot infer type argument for T: T appears only in the return type; a type parameter must be supplied by an argument.`。裸类型参数形参不携带默认值，同§4.12.2。
+
+函数体内，类型参数的行为与`static`成员体内完全一致（§4.12.2）：实例化上下文来自调用点，`T`上的判等、拼接、打印、`as`转型与`typeName`按调用推断出的种类分派。编译期拒绝也相同——关系与算术运算符作用于`T`报类型参数错误，而存储、传递与返回`T`值保持合法。
+
+泛型函数可以调用其他泛型函数，转发自己的类型参数；递归合法，`T`类型的结果可作为外层推断的实参参与组合：
+
+```nlang
+T head<T>(T a, T b) { return a; }
+T twice<T>(T v) { return head(v, v); }    // twice把T转发给head
+string label<T>(T v) { return typeName(T); }
+// label(twice(9)) == "int"：内层调用先推断，外层在其结果上组合
+```
+
+泛型自由函数不能引用为`func`值——句柄记录没有实例化上下文的槽位，与泛型类的函数一致（§4.12.2）；直接调用它。跨编译单元时，导入的泛型自由函数在导入方完全可用：推断、转发与`typeName`分派经由导入的签名进行，与声明单元内一致（§4.12.8）。

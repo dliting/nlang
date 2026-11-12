@@ -11,13 +11,18 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 endif()
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" NLANG_VERSION)
 string(STRIP "${NLANG_VERSION}" NLANG_VERSION)
-if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "VERSION must be a semantic version (x.y.z), "
-        "found: '${NLANG_VERSION}'")
+if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+[a-z]?$")
+    message(FATAL_ERROR "VERSION must be a semantic version (x.y.z with "
+        "an optional letter tag), found: '${NLANG_VERSION}'")
 endif()
+#project() takes a numeric x.y.z only; the letter tag (a work-version
+#marker like 0.13.1a) rides along in the full string for CPack naming
+#and the --version output.
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" NLANG_VERSION_NUMERIC
+    "${NLANG_VERSION}")
 
 # C is enabled for the vendored libvterm (pure C99 static library).
-project(NLang VERSION ${NLANG_VERSION} LANGUAGES C CXX)
+project(NLang VERSION ${NLANG_VERSION_NUMERIC} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,8 +43,10 @@ if(MSVC)
 endif()
 
 #Generated version header (build tree only, single source: the VERSION
-#file). The INTERFACE target carries the include dir to the tools.
-string(REPLACE "." ";" NLANG_VERSION_LIST "${NLANG_VERSION}")
+#file; the numeric components come from the numeric prefix so a letter
+#tag never reaches MAJOR/MINOR/PATCH). The INTERFACE target carries the
+#include dir to the tools.
+string(REPLACE "." ";" NLANG_VERSION_LIST "${NLANG_VERSION_NUMERIC}")
 list(GET NLANG_VERSION_LIST 0 NLANG_VERSION_MAJOR)
 list(GET NLANG_VERSION_LIST 1 NLANG_VERSION_MINOR)
 list(GET NLANG_VERSION_LIST 2 NLANG_VERSION_PATCH)
@@ -453,17 +460,17 @@ set(CPACK_PACKAGE_NAME "NLang")
 set(CPACK_PACKAGE_VENDOR "NLang Project")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "NLang scripting language compiler, virtual machine and IDE")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION "${NLANG_VERSION}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "NLang")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 
 if(WIN32)
     set(CPACK_GENERATOR "ZIP;NSIS")
     # One deterministic file name for both generators (zip / installer).
-    set(CPACK_PACKAGE_FILE_NAME "NLang-${PROJECT_VERSION}-win64")
+    set(CPACK_PACKAGE_FILE_NAME "NLang-${NLANG_VERSION}-win64")
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
-    set(CPACK_NSIS_DISPLAY_NAME "NLang ${PROJECT_VERSION}")
-    set(CPACK_NSIS_PACKAGE_NAME "NLang ${PROJECT_VERSION}")
+    set(CPACK_NSIS_DISPLAY_NAME "NLang ${NLANG_VERSION}")
+    set(CPACK_NSIS_PACKAGE_NAME "NLang ${NLANG_VERSION}")
     if(NLANG_NSIS_MAKENSIS)
         # CPACK_NSIS_EXECUTABLE exists since CMake 3.21; on older CMake the
         # option would silently fall back to a PATH lookup of makensis.

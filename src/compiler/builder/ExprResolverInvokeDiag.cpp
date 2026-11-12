@@ -133,8 +133,10 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 //m_pGenericInferFailFunc). Two formals disagreeing on one placeholder
 //report the conflict with both candidate types (exact match, no
 //implicit numeric promotion — Go/C# precedent); a placeholder bound
-//nowhere reports unbound, naming the return-position-only fix when
-//the return type is its only mention. Consumes the record; false
+//nowhere reports unbound; when the return type is a parameter's only
+//mention the text says so plainly (no call shape can supply it — free
+//functions take no explicit type-argument spelling, and the target
+//type of the call is not an inference source). Consumes the record; false
 //(nothing logged) when no failure belongs to this call — the ordinary
 //incompatibility report then stands.
 bool ExprResolveAccessor::MaybeLogGenericInferFailure(
@@ -176,7 +178,8 @@ bool ExprResolveAccessor::MaybeLogGenericInferFailure(
 		if (outcome.bReturnOnlyUnbound)
 			m_Env.Log(CLL_Error, invoke.Location(),
 				"cannot infer type argument for %s: %s appears only in "
-				"the return type; assign the result to a typed target.",
+				"the return type; a type parameter must be supplied by "
+				"an argument.",
 				name.c_str(), name.c_str());
 		else
 			m_Env.Log(CLL_Error, invoke.Location(),

@@ -8,6 +8,60 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1a] - 2026-11-12
+
+The generic-completion release: `static` members read the
+instantiation through the call site, and free functions take type
+parameters of their own.
+
+### Added
+
+- **Generic free functions.** A top-level function declares type
+  parameters after its name — `T pick<T>(T a, T b)` — and every call
+  infers them from its actuals (exact match; arrays, structs and
+  nested instantiations supply their types). There is no call-site
+  type-argument spelling; a type parameter mentioned only in the
+  return type is a named compile error. Inside the body, `T` behaves
+  as in a `static` member body: equality, concatenation, printing,
+  `as` casts and `typeName` dispatch on the kind the call was
+  inferred with.
+- **Generic functions call generic functions.** A generic function
+  forwards its type parameters to other generic functions, including
+  itself (recursion), and a `T`-typed result composes as an actual
+  of an outer inference.
+- **`static` member bodies read the call site's instantiation.** A
+  call through the bare class name infers the type arguments from
+  the actuals (`Pair.firstOf(4, "x")`); the explicit spelling fixes
+  them outright (`Pair<int, string>.sig()`). Equality,
+  concatenation, printing, `as` casts and `typeName` on `T` work in
+  `static` bodies exactly as in instance bodies, and a `static` body
+  may construct instantiations over its `T` (`Hold<T>(v)`).
+- **Imported generic free functions.** A generic free function
+  exported from a package is fully usable at the consumer:
+  inference, type-parameter forwarding and `typeName` dispatch work
+  through the imported signature exactly as within the declaring
+  unit.
+
+### Changed
+
+- **Module format 2.16 → 2.17.** Function records carry a generic
+  flag and the declared type-parameter names, so an imported stub
+  rebuilds as a generic declaration at the consumer. Every `.ncu`
+  recompiles.
+- **Diagnostic wording.** The unbound-inference error states the
+  actual rule (`a type parameter must be supplied by an argument`)
+  instead of suggesting an assignment the inference does not
+  perform.
+- **Version strings may carry a letter tag** (`0.13.1a`); package
+  file names use the full version.
+
+### Fixed
+
+- Unresolved-identifier diagnostics carry the identifier's own
+  source position instead of a generic location.
+- A generic invoke's return-type substitution no longer fails an
+  assertion in Debug builds.
+
 ## [0.13.1] - 2026-11-10
 
 The runtime generic-information release: every object constructed

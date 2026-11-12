@@ -141,7 +141,8 @@ Comparison results are always **`bool`** (`true` / `false`).
 - **Function equality** (`==`, `!=`) compares handle content: two
   references to the same function are equal; ordering is a compile
   error. See [First-Class Function Values](../../vm-architecture/first-class-function-values.md).
-- **Type-parameter equality** (inside a generic class's method body):
+- **Type-parameter equality** (inside a generic class's method body,
+  a `static` member body, or a generic function's body):
   `==`, `!=` apply to `T` operands — `T` with `T`, `T` with `null` in
   both directions — dispatching on the kind of the instantiation's
   argument: scalars by value, `string` by content, structs by field

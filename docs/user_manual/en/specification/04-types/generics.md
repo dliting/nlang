@@ -308,7 +308,11 @@ class Box<T> {
 An imported function carries its true formal and return types
 recursively — instantiations, array types and nested arrays
 included — so a call site in the importing unit checks the same
-types as a call in the declaring unit.
+types as a call in the declaring unit. A generic free function is
+fully usable across units as well: the imported signature carries
+its type parameters, and inference, forwarding and `typeName`
+dispatch at the consumer's call sites work exactly as in the
+declaring unit (§4.12.10).
 
 *Informative:* a unit also carries a template table — one row per
 instantiation the unit registers (canonical spelling and
@@ -387,10 +391,14 @@ template rows and cannot tell apart different instantiations of one
 template; accepting the spelling would promise a distinction the
 runtime cannot make (§8.3).
 
-*A compensation pattern:* where you need to record different
-instantiations by type parameter, use a non-generic helper class
-holding a dictionary keyed by spelling, and have the generic class
-pass `typeName(T)` as the key from an instance method body:
+*A compensation pattern:* a generic class cannot declare static
+fields — its members belong to the one erased implementation every
+instantiation shares — so per-instantiation state that must outlive
+instances lives in a non-generic helper class holding a dictionary
+keyed by spelling, with the generic class passing `typeName(T)` as
+the key. Behavior that only reads the instantiation needs no helper:
+`static` methods dispatch on the call site's context (§4.12.2), and
+instance methods on the receiver:
 
 ```nlang
 class TypeCounter {
@@ -413,3 +421,72 @@ class Holder<T> {
 
 The key is the canonical spelling `typeName(T)` produces, so
 `Holder<int>` and `Holder<Box<int>>` each take their own slot.
+
+## 4.12.10 Generic free functions
+
+A top-level function may be generic too: type parameters are
+declared in angle brackets after the function name and name ordinary
+types everywhere in the signature and body — parameter, return and
+local types. The body compiles once and is shared by every call,
+like a generic class's members.
+
+```nlang
+T pick<T>(T a, T b) { return a; }
+string tag<T>(T v) { return typeName(T); }
+
+int main() {
+    if (pick(3, 7) == 3                     // T = int
+            && pick("a", "b") == "a"        // T = string
+            && tag(9) == "int") {           // typeName reads the call site
+        return 1;
+    }
+    return 0;
+}
+```
+
+Calls carry no type-argument spelling — `pick<int>(3, 7)` is not the
+syntax. Every type parameter is inferred from the call's actuals,
+and the inference is exact match: two actuals supplying one type
+parameter with different kinds do not reconcile (`conflicting type
+arguments for T: "Int32" vs "String" (inference is exact match; pass
+arguments of one type).`). Any type an argument can have can supply
+a parameter — scalar primitives, `string`, enums, classes,
+interfaces, structs, array types and nested instantiations: with
+both `rows` and `cols` declared `int[]`, `pick(rows, cols)` infers
+`T = int[]`.
+
+A type parameter that only the return type mentions cannot be
+inferred — no explicit spelling exists, and the target type of the
+call is not an inference source either. `List<T> makeList<T>()` is
+therefore uncallable; the call reports `cannot infer type argument
+for T: T appears only in the return type; a type parameter must be
+supplied by an argument.` A formal whose type is a bare type
+parameter carries no default value, as in §4.12.2.
+
+Inside the body, type parameters behave exactly as in a `static`
+member body (§4.12.2): the instantiation context comes from the call
+site, and equality, concatenation, printing, `as` casts and
+`typeName` on `T` dispatch on the kind the call was inferred with.
+The compile-time rejections are the same — relational and arithmetic
+operators on `T` report the type-parameter error, while storing,
+passing and returning a `T` value stay legal.
+
+A generic function may call other generic functions, forwarding its
+own type parameters; recursion is allowed, and a `T`-typed result
+composes as an actual of an outer inference:
+
+```nlang
+T head<T>(T a, T b) { return a; }
+T twice<T>(T v) { return head(v, v); }    // twice forwards T to head
+string label<T>(T v) { return typeName(T); }
+// label(twice(9)) == "int": the inner call infers first, the outer
+// composes over its result
+```
+
+A generic free function cannot be referenced as a `func` value — the
+handle record has no slot for the instantiation context, like a
+generic class's functions (§4.12.2); call it directly. Across
+compile units, an imported generic free function is fully usable
+from the importing unit: inference, forwarding and `typeName`
+dispatch work through the imported signature exactly as within one
+unit (§4.12.8).
