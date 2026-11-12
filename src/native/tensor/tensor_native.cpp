@@ -252,5 +252,11 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "minAxis", &tensor::TensorMinAxis);
     regBlocking(registry, "tensor", "reluGrad", &tensor::TensorReluGrad);
     regBlocking(registry, "tensor", "tanh", &tensor::TensorTanh);
+    //v0.14.0 phase 2: index/expression surface.
+    regBlocking(registry, "tensor", "gather", &tensor::TensorGather);
+    regBlocking(registry, "tensor", "argmax", &tensor::TensorArgMax);
+    regBlocking(registry, "tensor", "argmin", &tensor::TensorArgMin);
+    regBlocking(registry, "tensor", "eq", &tensor::TensorEq);
+    regBlocking(registry, "tensor", "oneHot", &tensor::TensorOneHot);
     return NLANG_HOST_ABI_VERSION;
 }

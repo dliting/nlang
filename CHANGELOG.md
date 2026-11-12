@@ -31,6 +31,13 @@ without a single element loop.
   axis arms of `max`/`min` (rank >= 2), `reluGrad(dOut, z)`, `tanh`,
   `sigmoid`, and the two-array `softmax(x, axis)` (rank-2 rows,
   rank-1 flat) composed loop-free in the stdlib.
+- **Index and comparison primitives** — `gather(a, axis, indices)`
+  takes one element per non-axis position (the label-gather spelling;
+  a rank-1 source degenerates to fancy indexing), `argmax`/`argmin`
+  along an axis (first-tie), `eq` (broadcast int 0/1 compare of
+  same-kind arrays) and `oneHot(labels, n)`, plus the single-argument
+  `arange(n)` index spelling. Out-of-range gather indices and oneHot
+  labels raise `IndexOutOfBoundsException`.
 - **SIMD kernel layer** — runtime CPU tier detection (AVX2+FMA /
   SSE2 / scalar) behind the `KernelOps` backend table: matmul
   register-tiled micro-kernels, elementwise binary/unary/clamp lanes,

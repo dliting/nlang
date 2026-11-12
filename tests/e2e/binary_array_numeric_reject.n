@@ -1,7 +1,11 @@
-//0.7.3 B pin: an array value in arithmetic with a numeric operand is
-//rejected — the promotion wrapper sees TCK_None against the promoted
-//scalar target (there is no element-wise or decay semantics).
+//0.7.3 B pin, updated for v0.14.0: same-kind array+numeric arithmetic
+//now compiles (it lowers to the tensor package's scalar-broadcast
+//arms), but a mixed-kind pair is still rejected - there is no
+//cross-kind promotion, the resolver demands a matching primitive.
+import tensor;
+
 int main() {
     int[] a = int[2];
-    return a + 1;
+    float[] b = a + 1.5f;
+    return 0;
 }

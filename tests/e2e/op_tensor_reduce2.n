@@ -1,0 +1,39 @@
+// argmax/argmin along an axis + eq + oneHot + arange(n) (v0.14.0
+// phase 2): the loop-elimination surface for the MLP example.
+import io;
+import tensor;
+
+int main() {
+    float[,] probs = float[2, 3];
+    probs[0, 0] = 0.1f; probs[0, 1] = 0.6f;
+    probs[0, 2] = 0.3f;
+    probs[1, 0] = 0.5f; probs[1, 1] = 0.2f;
+    probs[1, 2] = 0.3f;
+    //argmax along axis 1: per-row winner (first-max tie)
+    int[] pred = tensor.argmax(probs, 1);
+    if (pred[0] != 1 || pred[1] != 0) return 1;
+    //tie keeps the first
+    float[,] tie = float[1, 2];
+    tie[0, 0] = 0.5f; tie[0, 1] = 0.5f;
+    if (tensor.argmax(tie, 1)[0] != 0) return 2;
+    //argmin
+    int[] lo = tensor.argmin(probs, 1);
+    if (lo[0] != 0 || lo[1] != 1) return 3;
+    //eq: elementwise equality as int 0/1
+    int[] labels = int[2];
+    labels[0] = 1; labels[1] = 0;
+    int[] hits = tensor.eq(pred, labels);
+    if (tensor.sum(hits) != 2) return 4;
+    int[] one1 = int[1];
+    one1[0] = 1;
+    int[] miss = tensor.eq(tensor.argmax(tie, 1), one1);
+    if (tensor.sum(miss) != 0) return 5;
+    //oneHot: labels -> float[batch, n] rows one at the label
+    float[,] hot = tensor.oneHot(labels, 3);
+    if (hot[0, 0] != 0.0f || hot[0, 1] != 1.0f) return 6;
+    if (hot[1, 2] != 0.0f || hot[1, 0] != 1.0f) return 7;
+    //arange(n): 0..n-1
+    int[] seq = tensor.arange(4);
+    if (seq[0] != 0 || seq[3] != 3 || seq.length() != 4) return 8;
+    return 0;
+}

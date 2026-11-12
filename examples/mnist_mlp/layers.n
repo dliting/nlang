@@ -69,12 +69,12 @@ Grads backward(Params p, float[,] x, float[,] hidden, float[,] probs,
                int[] batchLabels) {
     int batch = probs.shape()[0];
     int outDim = probs.shape()[1];
-    float inv = (1.0 / batch) as float;
+    float inv = 1.0f / batch;
 
     // dLogits = (probs - oneHot) / batch
     float[,] oneHot = float[batch, outDim];
     for (int i = 0; i < batch; i += 1) {
-        oneHot[i, batchLabels[i]] = 1.0 as float;
+        oneHot[i, batchLabels[i]] = 1.0f;
     }
     float[,] dLogits = (probs - oneHot) * inv;
 
@@ -106,9 +106,9 @@ float[,] softmaxRows(float[,] logits) {
 }
 
 // Mean cross-entropy from logits: for each row, logsumexp (shifted by
-// the row max) minus the logit at the label. The shift/exp/sum run as
-// whole-tensor calls; only the label gather stays a per-row loop
-// (O(batch), the same shape numpy's fancy indexing takes).
+// the row max) minus the logit at the label. The shift/exp/sum/log run
+// as whole-tensor calls; the label logit rides gather (one index per
+// row, the same shape numpy's fancy indexing takes). No loop remains.
 double meanCrossEntropy(float[,] logits, int[] labels) {
     int rows = logits.shape()[0];
     int[] shape = logits.shape();
@@ -119,31 +119,17 @@ double meanCrossEntropy(float[,] logits, int[] labels) {
     float[,] mb = tensor.broadcastTo(tensor.reshape(m, col), shape);
     float[,] e = tensor.exp(logits - mb);
     float[] s = tensor.sum(e, 1);
-    double total = 0.0;
-    for (int i = 0; i < rows; i += 1) {
-        float logSum = (math.log(s[i]) + m[i]) as float;
-        total = total + logSum - logits[i, labels[i]];
-    }
+    float[] logSum = tensor.log(s) + m;
+    float[] picked = tensor.gather(logits, 1, labels);
+    double total = tensor.sum(logSum - picked);
     return total / rows;
 }
 
-// Fraction of rows whose largest probability sits on the true label.
-// Evaluation-only (runs once); the argmax stays a small loop.
+// Fraction of rows whose largest probability sits on the true label:
+// argmax over axis 1, elementwise eq against the labels, count the
+// ones. First-max ties match the scan order. No loop remains.
 double accuracy(float[,] probs, int[] labels) {
-    int rows = probs.shape()[0];
-    int cols = probs.shape()[1];
-    int hits = 0;
-    for (int i = 0; i < rows; i += 1) {
-        int best = 0;
-        for (int j = 1; j < cols; j += 1) {
-            if (probs[i, j] > probs[i, best]) {
-                best = j;
-            }
-        }
-        if (best == labels[i]) {
-            hits = hits + 1;
-        }
-    }
-    double hitsD = hits;
-    return hitsD / rows;
+    int[] pred = tensor.argmax(probs, 1);
+    double hits = tensor.sum(tensor.eq(pred, labels));
+    return hits / probs.shape()[0];
 }

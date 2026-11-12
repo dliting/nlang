@@ -184,6 +184,38 @@ native Array<double> reluGrad(Array<double> dOut, Array<double> z);
 native Array<float> tanh(Array<float> x);
 native Array<double> tanh(Array<double> x);
 
+// Gather along an axis with a rank-1 int index array: out drops the
+// axis dim; out[flat] = a[... indices[outer] ...] at the same non-axis
+// position. Index out of range raises IndexOutOfBoundsException.
+native Array<int> gather(Array<int> a, int axis, Array<int> indices);
+native Array<long> gather(Array<long> a, int axis, Array<int> indices);
+native Array<float> gather(Array<float> a, int axis, Array<int> indices);
+native Array<double> gather(Array<double> a, int axis, Array<int> indices);
+
+// Argmax/argmin along an axis: int32 indices, first-max/min tie.
+native Array<int> argmax(Array<int> a, int axis);
+native Array<int> argmax(Array<float> a, int axis);
+native Array<int> argmax(Array<double> a, int axis);
+native Array<int> argmin(Array<int> a, int axis);
+native Array<int> argmin(Array<float> a, int axis);
+native Array<int> argmin(Array<double> a, int axis);
+
+// Elementwise equality: int32 0/1 out (IEEE ==/!= for floats).
+native Array<int> eq(Array<int> a, Array<int> b);
+native Array<int> eq(Array<long> a, Array<long> b);
+native Array<int> eq(Array<float> a, Array<float> b);
+native Array<int> eq(Array<double> a, Array<double> b);
+
+// One-hot expansion: float[len, n], row i ones at labels[i].
+native Array<float> oneHot(Array<int> labels, int n);
+
+
+
+//arange(n): 0..n-1 step 1 — the index-array spelling.
+Array<int> arange(int n) {
+    return arangeI(0, n, 1);
+}
+
 Array<int> add(Array<int> a, int value) {
     return addScalar(a, value);
 }

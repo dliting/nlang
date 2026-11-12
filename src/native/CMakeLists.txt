@@ -26,7 +26,8 @@ set(NLANG_TENSOR_KERNEL_SOURCES
     tensor/tensor_matrix.cpp
     tensor/tensor_reduce.cpp
     tensor/tensor_views.cpp
-    tensor/tensor_activation.cpp)
+    tensor/tensor_activation.cpp
+    tensor/tensor_gather.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
     list(APPEND NLANG_TENSOR_KERNEL_SOURCES
         tensor/VecMathSse2.cpp

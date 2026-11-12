@@ -282,4 +282,16 @@ void TensorReluGrad(NativeHost* host, uint8_t* ret, const uint8_t* args,
 void TensorTanh(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 int argc);
 
+//--- v0.14.0 phase 2: index/expression surface (tensor_gather.cpp) ---
+void TensorGather(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
+void TensorArgMax(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
+void TensorArgMin(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
+void TensorEq(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorOneHot(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
+
 } // namespace tensor

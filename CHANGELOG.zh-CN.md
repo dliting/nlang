@@ -16,6 +16,7 @@
 
 - **数组算术运算符**——数值数组（同元素种类，右对齐广播）上的`a + b`、`a - b`、`a * b`、`a / b`，任意一侧的标量（`2 * x`，以及支撑`1 - x`、`1 / x`的反向臂`tensor.rsubScalar`/`tensor.rdivScalar`），与一元`-a`。每种拼写都下沉到tensor模块的按种类分派原语并走向量化内核。要求先`import tensor`；字符串拼接、null算术守卫与数组恒等比较不变。数组上的复合赋值未做下沉（普通赋值是受支持写法）。
 - **张量原语**——`neg`、`rsubScalar`、`rdivScalar`、`max`/`min`的轴臂（秩>=2）、`reluGrad(dOut, z)`、`tanh`、`sigmoid`，以及stdlib中以无循环方式组合的双数组`softmax(x, axis)`（秩2按行、秩1摊平）。
+- **下标与比较原语**——`gather(a, axis, indices)`对每个非轴位置取一个元素（标签收集拼写；秩1源退化为花式索引）、`argmax`/`argmin`沿轴取胜者（并列保首）、同种类数组广播比较出int 0/1的`eq`、`oneHot(labels, n)`，以及单参数`arange(n)`下标拼写。越界的gather下标与oneHot标签抛出`IndexOutOfBoundsException`。
 - **SIMD内核层**——`KernelOps`后端表背后的运行时CPU分档检测（AVX2+FMA/SSE2/标量）：matmul寄存器分块微内核、逐元素二元/一元/clamp通道、双累加器求和、载体点积、保持标量NaN/平局规则的比较选择极值、axis-0累加，以及向量化的exp（Cody-Waite+泰勒，实测对libm 0.65 ulp）与tanh。参考机实测：MNIST层形状的matmul达52.6 GFLOP/s。
 - **编译器支持**——`ReplaceChildNode`协议现覆盖全部typed表达式槽（逐类override+原位cell替换原语，遍历中途splice保持迭代器有效）、TU末扫描验证无tensor标记二元残留，发射器在codegen处同样断言。
 
