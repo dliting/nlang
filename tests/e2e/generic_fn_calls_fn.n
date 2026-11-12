@@ -46,7 +46,9 @@ int main() {
     if (freeFwd(8) != 8) { return 3; }
     // nested inference: the inner call infers first, the outer composes
     if (freeTag(freeEcho(9)) != "int") { return 4; }
-    // recursion with T forwarding (0xFFFE — same template, same instance)
+    // recursion: the self-call rides a recipe row — FreeCallDescriptorIndexFor
+    // binds the callee's T to the caller's placeholder (0xFFFE is the
+    // same-generic-CLASS member channel; free functions never take it)
     if (rfn(6, 3) != 6) { return 5; }
     // generic-class static → free function with the caller's T (recipe)
     if (Ctor<int>.probe(5) != "int") { return 6; }

@@ -93,6 +93,17 @@ void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 				"implementation is host-provided.",
 				sn.Name().c_str());
 		}
+		//0.13.1a: the host ABI binds one fixed shape per function
+		//name — a generic surface would route every inferred type
+		//argument to that one shape with no descriptor pairing, so
+		//the declaration is rejected instead of failing per call.
+		if (sn.IsGenericDeclaration()) {
+			m_Env.Log(CLL_Error, sn.Location(),
+				"native function \"%s\" cannot declare type "
+				"parameters; the host ABI has one fixed shape "
+				"per function.",
+				sn.Name().c_str());
+		}
 		for (auto *param : formals) {
 			if (param->ContainFlags(NF_Out)) {
 				m_Env.Log(CLL_Error, param->Location(),

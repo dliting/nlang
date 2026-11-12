@@ -455,13 +455,14 @@ interfaces, structs, array types and nested instantiations: with
 both `rows` and `cols` declared `int[]`, `pick(rows, cols)` infers
 `T = int[]`.
 
-A type parameter that only the return type mentions cannot be
-inferred — no explicit spelling exists, and the target type of the
-call is not an inference source either. `List<T> makeList<T>()` is
-therefore uncallable; the call reports `cannot infer type argument
-for T: T appears only in the return type; a type parameter must be
-supplied by an argument.` A formal whose type is a bare type
-parameter carries no default value, as in §4.12.2.
+A type parameter that only the return type mentions infers from the
+call's expected type: with `List<T> makeList<T>()`, the call
+`List<int> xs = makeList();` binds `T = int` from the assignment
+target. A result discarded outright leaves no inference source — the
+call reports `cannot infer type argument for T: T appears only in
+the return type; assign the result to a typed target.` A formal
+whose type is a bare type parameter carries no default value, as in
+§4.12.2.
 
 Inside the body, type parameters behave exactly as in a `static`
 member body (§4.12.2): the instantiation context comes from the call

@@ -21,10 +21,12 @@ parameters of their own.
   infers them from its actuals (exact match; arrays, structs and
   nested instantiations supply their types). There is no call-site
   type-argument spelling; a type parameter mentioned only in the
-  return type is a named compile error. Inside the body, `T` behaves
+  return type infers from the assignment target, and a discarded
+  result reports the named error. Inside the body, `T` behaves
   as in a `static` member body: equality, concatenation, printing,
   `as` casts and `typeName` dispatch on the kind the call was
-  inferred with.
+  inferred with. A native function cannot declare type parameters —
+  the host ABI binds one fixed shape per function.
 - **Generic functions call generic functions.** A generic function
   forwards its type parameters to other generic functions, including
   itself (recursion), and a `T`-typed result composes as an actual
@@ -48,10 +50,6 @@ parameters of their own.
   flag and the declared type-parameter names, so an imported stub
   rebuilds as a generic declaration at the consumer. Every `.ncu`
   recompiles.
-- **Diagnostic wording.** The unbound-inference error states the
-  actual rule (`a type parameter must be supplied by an argument`)
-  instead of suggesting an assignment the inference does not
-  perform.
 - **Version strings may carry a letter tag** (`0.13.1a`); package
   file names use the full version.
 

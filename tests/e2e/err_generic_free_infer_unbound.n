@@ -1,7 +1,8 @@
-// err_generic_free_infer_unbound.n — 0.13.1a: T appearing only in the
-// return type is not inferable at any call shape (no explicit
-// type-argument spelling; the call's target type is not an inference
-// source either — probed both ways).
+// err_generic_free_infer_unbound.n — 0.13.1a: a T appearing only in
+// the return type has no argument to infer from. The assignment-target
+// form DOES infer (generic_free_fn_infer.n pins `List<string> made =
+// makeList();`) — discarding the result leaves no inference source
+// and reports the named error.
 List<T> makeList<T>() {
     return {};
 }

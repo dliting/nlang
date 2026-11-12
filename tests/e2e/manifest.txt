@@ -2191,3 +2191,4 @@ generic_pkg_free_fn 0
 err_generic_free_infer_conflict compile_error conflicting type arguments for T
 err_generic_free_infer_unbound compile_error T appears only in the return type
 err_generic_free_t_default compile_error cannot have a default value
+err_generic_native_fn compile_error cannot declare type parameters

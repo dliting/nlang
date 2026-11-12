@@ -233,7 +233,7 @@ int main() {
 
 调用不带类型实参拼写——`pick<int>(3, 7)`不是合法语法。每个类型参数都从调用的实参推断，推断是精确匹配：两个实参给同一类型参数供不同种类不会调和（`conflicting type arguments for T: "Int32" vs "String" (inference is exact match; pass arguments of one type).`）。实参能有什么类型，就能供给什么——标量原语、`string`、枚举、类、接口、结构体、数组类型与嵌套实例化：`rows`与`cols`都声明为`int[]`时，`pick(rows, cols)`推断出`T = int[]`。
 
-只在返回类型中出现的类型参数无法推断——显式拼写不存在，调用的目标类型也不是推断来源。`List<T> makeList<T>()`因此不可调用；调用处报`cannot infer type argument for T: T appears only in the return type; a type parameter must be supplied by an argument.`。裸类型参数形参不携带默认值，同§4.12.2。
+只在返回类型中出现的类型参数从调用的期望类型推断：`List<T> makeList<T>()`配`List<int> xs = makeList();`时，`T = int`由赋值目标绑定。直接丢弃结果则没有推断来源——调用处报`cannot infer type argument for T: T appears only in the return type; assign the result to a typed target.`。裸类型参数形参不携带默认值，同§4.12.2。
 
 函数体内，类型参数的行为与`static`成员体内完全一致（§4.12.2）：实例化上下文来自调用点，`T`上的判等、拼接、打印、`as`转型与`typeName`按调用推断出的种类分派。编译期拒绝也相同——关系与算术运算符作用于`T`报类型参数错误，而存储、传递与返回`T`值保持合法。
 

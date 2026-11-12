@@ -1,0 +1,9 @@
+// err_generic_native_fn.n — 0.13.1a: a native free function cannot be
+// generic. The host ABI binds one fixed shape per function name; a
+// generic surface would route every inferred type argument to that one
+// shape with no descriptor pairing, so the declaration itself is
+// rejected by name.
+native T tag<T>(T v);
+int main() {
+    return tag(3);
+}
