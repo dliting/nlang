@@ -34,7 +34,10 @@ parameter, return and local types. Members carry bodies like any
 other class — methods and constructors compile once against the
 type parameters. Every method of a generic class must be `native`
 or have a body. A member name must not repeat a type parameter
-name.
+name. A declaration declares at most 255 type parameters — the
+runtime carries a type parameter's ordinal in one byte and reserves
+the top value as a marker, so the last usable ordinal is 254; the
+limit covers generic free functions too (§4.12.10).
 
 ```nlang
 class Pair<K, V> {

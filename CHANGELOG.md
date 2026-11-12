@@ -8,6 +8,41 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1b] - 2026-11-12
+
+Deferred-polish pass on the 0.13.1a generic completion.
+
+### Changed
+
+- **Named diagnostics when a call collides with the instantiation
+  spelling.** The spelling arms by shape — a balanced angle-bracket
+  run closing before `.` or `(` — with no case test and no name
+  lookup, so a call whose arguments are comparisons can still read
+  as a spelling: `both(a < b, c > (d))` parses as `a<b, c>(d)`.
+  0.13.1a rejected that with a bare "cannot resolve the type"; the
+  compiler now names what happened — a head naming a value gets a
+  diagnostic pointing at it and showing the parenthesized form
+  `f((a < b), (c > d))`, a head naming a function learns that a
+  call carries no type-argument spelling, and a plain type under
+  the head name reports that it is not generic and takes no type
+  arguments.
+- **One canonical bare-`T` default message.** The free-function and
+  generic-class paths now report the same rejection text
+  (`default value for parameter "...": the type parameter "..." has
+  no concrete kind, so no default value exists.`) instead of two
+  divergent wordings.
+
+### Fixed
+
+- **Type parameters are capped at 255 per declaration.** A generic
+  class or free function with more type parameters compiled even
+  though type-parameter ordinals travel in one byte on two runtime
+  channels, and the typeName/T-equality byte reserves its top value
+  (0xFF) as the no-ordinal marker — the 256th parameter's ordinal
+  silently collided with that marker, and deeper overflows drop the
+  frame's dynamic boxing plan. The declaration is now rejected with
+  a named diagnostic.
+
 ## [0.13.1a] - 2026-11-12
 
 The generic-completion release: `static` members read the

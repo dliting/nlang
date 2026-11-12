@@ -240,7 +240,7 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
                 | Expression | BracedInitExpr ;
 ```
 
-`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。`QualifiedGenericReceiver`是表达式位的显式实例化拼写——`Pair<int, string>.sig()`与`Hold<int>(5)`（§4.12.2，§4.12.3）。拼写的`<`只在成对尖括号段在`.`或`(`之前闭合时才被识别，因此`a < b > c`这类比较链仍按比较解读；接收者名字的解析与裸模板名一致。
+`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。`QualifiedGenericReceiver`是表达式位的显式实例化拼写——`Pair<int, string>.sig()`与`Hold<int>(5)`（§4.12.2，§4.12.3）。在表达式位，`<`是否开启拼写按形状规则判定，不做大小写检验也不查名字表：成对尖括号段在`.`或`(`之前闭合时保持拼写解读，标识符后其余的`<`一律按比较解读。因此`a < b > c`这类比较链保持比较解读，而实参为比较运算的调用可能与形状相撞——`both(a < b, c > (d))`会被读成拼写`a<b, c>(d)`。此时编译器具名指出碰撞而非笼统的`Cannot resolve the type`错误：头部名字解析为值时，诊断说明这一点并给出加括号形式`f((a < b), (c > d))`；头部名字解析为函数时，诊断说明调用不携带类型实参拼写；名字解析为不接收类型实参的类型时，诊断说明该类型不是泛型。接收者名字的解析与裸模板名一致。
 
 ## 2.7 运算符优先级
 

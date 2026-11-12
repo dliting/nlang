@@ -277,10 +277,21 @@ generic `as` target — `e as Box<int>` and its array-suffixed form
 `e as Box<int>[]`; it covers built-in and user-declared templates
 alike. `QualifiedGenericReceiver` is the explicit instantiation
 spelling in expression position — `Pair<int, string>.sig()` and
-`Hold<int>(5)` (§4.12.2, §4.12.3). Its `<` is recognized only when
-the balanced angle-bracket run closes before `.` or `(`, so
-comparison chains such as `a < b > c` keep their comparison reading;
-the receiver name resolves like a bare template name.
+`Hold<int>(5)` (§4.12.2, §4.12.3). In expression position, whether
+`<` opens a spelling is decided by a shape rule, with no case test
+and no name lookup: a balanced angle-bracket run closing right
+before `.` or `(` keeps its spelling reading, and every other `<`
+after an identifier is comparison. So comparison chains such as
+`a < b > c` keep their comparison reading, and a call whose
+arguments are comparisons can collide with the shape — `both(a < b,
+c > (d))` reads as the spelling `a<b, c>(d)`. The compiler names
+that collision instead of reporting a bare cannot-resolve error:
+when the head names a value, the diagnostic says so and shows the
+parenthesized form `f((a < b), (c > d))`; when it names a function,
+the diagnostic says a call carries no type-argument spelling; when
+it names a type that takes no type arguments, the diagnostic says
+the type is not generic. The receiver name resolves like a bare
+template name.
 
 ## 2.7 Operator Precedence
 
