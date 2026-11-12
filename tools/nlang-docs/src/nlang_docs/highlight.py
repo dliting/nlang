@@ -33,7 +33,8 @@ __all__ = ["NLangLexer"]
 #type words; 0.8.3 made "func" a scanner keyword, so the docs side
 #moved it from NLANG_TYPES to NLANG_KEYWORDS; 0.13.1c removed the
 #experiment-era "elseif"/"state" reserved words and added the
-#fp32/fp64/int32/int64 primitive aliases to the type words.)
+#width-explicit primitive aliases (int8..int64, uint8..uint64,
+#fp32/fp64) to the type words.)
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "enum finally for foreach func if implements import in "
@@ -42,7 +43,8 @@ NLANG_KEYWORDS = frozenset(
     "while".split())
 NLANG_TYPES = frozenset(
     "bool byte char double float int long short string ubyte uint "
-    "ulong ushort void fp32 fp64 int32 int64 Dict List".split())
+    "ulong ushort void fp32 fp64 int8 int16 int32 int64 uint8 uint16 "
+    "uint32 uint64 Dict List".split())
 NLANG_CONSTANTS = frozenset("true false null".split())
 
 

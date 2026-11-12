@@ -1,22 +1,43 @@
-//int32/int64/fp32/fp64 are spellings of int/long/float/double.
+//The numeric primitives have width-explicit alias spellings; each
+//names one primitive type and folds to its canonical name.
 int main()
 {
-    int32 a = 7;
-    int64 b = 9000000000;
-    fp32 c = 1.5f;
-    fp64 d = 2.5;
-    //typeName folds to the canonical spelling.
-    if (typeName(int32) != "int")
+    int8 a8 = -5;
+    int16 a16 = -300;
+    int32 a32 = 7;
+    int64 a64 = 9000000000;
+    uint8 u8 = 250;
+    uint16 u16 = 65535;
+    uint32 u32 = 4000000000;
+    uint64 u64 = 18000000000000000000;
+    fp32 f32 = 1.5f;
+    fp64 f64 = 2.5;
+    if (a8 + a16 != -305)
         return 11;
-    //a plain keyword type: the comparison reads int, not a generic head.
-    bool lt = a < 10;
-    if (!lt)
+    if (a32 != 7 || a64 <= 1000000000)
         return 12;
-    if (a != 7 || b <= 1000000000)
+    if (u8 != 250 || u16 != 65535)
         return 13;
-    if (c <= 1.0f || c >= 2.0f)
+    if (u32 != 4000000000 || u64 != 18000000000000000000)
         return 14;
-    if (d <= 2.0 || d >= 3.0)
+    if (f32 <= 1.0f || f32 >= 2.0f)
         return 15;
+    if (f64 <= 2.0 || f64 >= 3.0)
+        return 16;
+    //typeName folds to the canonical spellings.
+    if (typeName(int8) != "byte" || typeName(int16) != "short")
+        return 17;
+    if (typeName(int32) != "int" || typeName(int64) != "long")
+        return 18;
+    if (typeName(uint8) != "ubyte" || typeName(uint16) != "ushort")
+        return 19;
+    if (typeName(uint32) != "uint" || typeName(uint64) != "ulong")
+        return 20;
+    if (typeName(fp32) != "float" || typeName(fp64) != "double")
+        return 21;
+    //a plain keyword type: the comparison reads ubyte, not a generic head.
+    bool lt = u8 < 100;
+    if (lt)
+        return 22;
     return 10;
 }

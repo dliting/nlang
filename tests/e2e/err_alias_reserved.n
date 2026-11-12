@@ -1,2 +1,4 @@
-//int32 lexes as the int keyword, so it cannot be an identifier.
+//Alias spellings are reserved: they lex as their primitive keyword,
+//so neither can be an identifier.
 int int32 = 1;
+int uint64 = 2;

@@ -265,6 +265,8 @@ LineComment	\/\/[^\n]*
 "import"    { return KT_Import; }
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
+"int8"      { return KT_Byte; }
+"int16"     { return KT_Short; }
 "int32"     { return KT_Int; }
 "int64"     { return KT_Long; }
 "interface" { return KT_Interface; }
@@ -289,6 +291,10 @@ LineComment	\/\/[^\n]*
 "typeName"  { return KT_TypeName; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
+"uint8"     { return KT_Ubyte; }
+"uint16"    { return KT_Ushort; }
+"uint32"    { return KT_Uint; }
+"uint64"    { return KT_ULong; }
 "ulong"     { return KT_ULong; }
 "ushort"    { return KT_Ushort; }
 "using"     { return KT_Using; }

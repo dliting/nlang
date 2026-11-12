@@ -60,8 +60,10 @@ identifiers:
 | `import` |
 | `in` |
 | `int` |
+| `int16` |
 | `int32` |
 | `int64` |
+| `int8` |
 | `interface` |
 | `long` |
 | `native` |
@@ -84,6 +86,10 @@ identifiers:
 | `typeName` |
 | `ubyte` |
 | `uint` |
+| `uint16` |
+| `uint32` |
+| `uint64` |
+| `uint8` |
 | `ulong` |
 | `ushort` |
 | `using` |
@@ -95,12 +101,25 @@ identifiers:
 function type (chapter 4); its type-argument behavior is specified
 in §1.6.
 
-Four reserved words are fixed aliases of the primitive type
-keywords: `int32` is a spelling of `int`, `int64` of `long`,
-`fp32` of `float`, and `fp64` of `double`. An alias is a pure
-spelling layer: it names the same type in every position, and
-diagnostics and `typeName` always print the canonical name —
-`typeName(int32)` is `"int"`.
+The numeric primitive keywords have fixed alias spellings that name
+the type by its width:
+
+| Alias | Type |
+|---|---|
+| `int8` | `byte` |
+| `int16` | `short` |
+| `int32` | `int` |
+| `int64` | `long` |
+| `uint8` | `ubyte` |
+| `uint16` | `ushort` |
+| `uint32` | `uint` |
+| `uint64` | `ulong` |
+| `fp32` | `float` |
+| `fp64` | `double` |
+
+An alias is a pure spelling layer: it names the same type in every
+position, and diagnostics and `typeName` always print the canonical
+name — `typeName(int32)` is `"int"`.
 
 ## 1.5 Literals
 
