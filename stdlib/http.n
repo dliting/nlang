@@ -813,6 +813,10 @@ class HttpBodyReader {
                 throw HttpException("http: body exceeds " + m_max.toString() + " bytes", 413);
             }
             filled = filled + n;
+            if (m_mode == HttpParser.MODE_LENGTH && m_remaining == 0) {
+                this.endBody();     //the declared body is complete: end it here, so
+                break;              //the extra read's -1 (and its grow+copy round) is never paid
+            }
         }
         if (filled == acc.length()) { return acc; }
         byte[] exact = byte[filled];
