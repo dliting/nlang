@@ -36,7 +36,9 @@ class FloodClient {
     public void run() {
         try { sock = TcpStream.connect("127.0.0.1", m_port, 5000); } catch (Exception e) { }
         // sock is published before landed: stores retire in order on x86, so a
-        // poller that sees landed also sees the handle that pairs with it.
+        // poller that sees landed also sees the handle that pairs with it. On a
+        // weakly ordered port (the D8 roadmap) this needs release/acquire or an
+        // explicit fence between the two stores.
         landed = true;
     }
 }

@@ -223,13 +223,16 @@ static void TestDeadlineOnlyPark() {
     CHECK(steady_clock::now() - t0 >= 90ms);
 }
 
-//D1注销侧走关闭路径的变体(spec 七「删除侧不变量＋走关闭路径的用例」):net
-//模块的socket close(`ABI wakeIoWaiters`)在最后一名等待者消失时一并注销登记。
-//登记必须在调用返回时就已不见,不能指望收窄清扫——清扫只在harvest轮里跑,而
-//表空之后poller线程会重新cv入睡,那一轮可能根本不发生。这条不变量正是既有
-//`TestStaleRegistrationOnFdReuse`(`:102`)依赖的机制:`RegisterIoInterestLocked`
-//的等掩码捷径把陈旧的(fd, events)当成内核里已有登记而跳过Add,新socket就此
-//只能等deadline。
+//D1 unregistration via the close path (spec §七 "deletion-side invariants + a
+//close-path case"): the net module's socket close (`ABI wakeIoWaiters`) drops
+//the registration when the last waiter disappears. The registration must be
+//gone by the time the call returns — the narrowing sweep only runs inside
+//harvest rounds, and an empty table lets the poller thread cv-sleep again, so
+//such a round may never happen. This invariant is exactly what
+//`TestStaleRegistrationOnFdReuse` (`:102`) relies on: `RegisterIoInterestLocked`
+//takes its equal-mask shortcut over a stale (fd, events) as if the kernel still
+//had it registered and skips the Add, leaving a new socket to wait for its
+//deadline alone.
 static void TestCloseWakesDropsInterest() {
     VmScheduler sched;
     const int id = sched.RegisterContext();
@@ -243,12 +246,15 @@ static void TestCloseWakesDropsInterest() {
     NetClose(fd);
 }
 
-//D1注销侧走harvest路径:harvest内部的唤醒(这里用一次到期的deadline)在同
-//一轮里抹掉该fd的兴趣,而另一名仍停泊的fd必须保住登记——旧的「表空才清扫」
-//形态只在任意一处都没有等待者时才触发,收窄清扫是D1新增的代码,没有这条用例
-//就没有任何测试覆盖它。断言无竞态:`WakeForIo`(`VmSchedulerIo.cpp:200`)翻状态
-//与清扫同在本轮GIL段内,测试的`Find`要取GIL,只能等poller线程跑到`g2.Release()`
-//(`:251`)之后,那时清扫已经跑完。
+//D1 unregistration via the harvest path: a harvest-internal wake (here a due
+//deadline) erases that fd's interest in the same round while another parked fd
+//must keep its registration. The old "sweep only when the table is empty"
+//shape fired only when no context waited anywhere; the narrowed sweep is
+//D1-new code that no other test would cover. The assertions are race-free:
+//`WakeForIo` (`VmSchedulerIo.cpp:200`) flips the state and sweeps inside the
+//same GIL section, and the test's `Find` needs the GIL, so it can only run
+//after the poller thread passes `g2.Release()` (`:251`) — by then the sweep has
+//already finished.
 static void TestHarvestNarrowsVanishedInterest() {
     VmScheduler sched;
     const int due = sched.RegisterContext(), held = sched.RegisterContext();
@@ -268,12 +274,15 @@ static void TestHarvestNarrowsVanishedInterest() {
     NetClose(fdHeld);
 }
 
-//D1关停不变量(spec 七):在「关停位已置、poller线程尚未join」的窗口里停泊,
-//既不得登记也不得再起线程——给仍可join的`m_ioThread`赋值新`std::thread`会
-//`std::terminate`,今天无人覆盖。先让一次正常停泊把线程跑起来,再置关停位,
-//第二次停泊落进那个窗口。不再有「deadline仍会唤醒」的断言:IO停泊的deadline
-//只在harvest里评估,关停后线程退出,没有任何一方再看它(`TestWakeOnDeadline`
-//之所以能唤醒,是因为那条用例里poller线程一直活着)。
+//D1 shutdown invariant (spec §七): a park landing in the window where the
+//shutdown flag is set but the poller thread is not yet joined must neither
+//register interest nor start a thread — assigning a new `std::thread` to the
+//still-joinable `m_ioThread` would `std::terminate`, uncovered today. A first
+//normal park brings the thread up, the shutdown flag is set, and the second
+//park falls into that window. There is no "deadline would still wake"
+//assertion: an IO park's deadline is only evaluated in harvest, and after
+//shutdown the poller thread exits with nobody watching it (`TestWakeOnDeadline`
+//wakes only because its poller thread stays alive).
 static void TestParkAfterShutdown() {
     VmScheduler sched;
     const int first = sched.RegisterContext(), late = sched.RegisterContext();
@@ -298,11 +307,15 @@ static void TestParkAfterShutdown() {
     NetClose(fd2);
 }
 
-//D1启动次序的失败侧(spec 七「句柄创建失败的一侧按断言或测试钩子验证不启动
-//线程」):`IoPollerCreate`只在系统资源耗尽时失败,平时打不到这条支路,故用
-//注入开关造出它。句柄没建成就不许起线程——拿着空句柄的poller线程报不出就绪,
-//与旧形态里线程随即退出等价。断言的消息条件是注入开关本身,所以断言构建里
-//这条也不会被`NLANG_ASSERT`打断(真失败时开关为假,断言照旧生效)。
+//D1 startup-order failure side (spec §七 "the handle-creation-failure side is
+//verified by assertion or test hook to not start the thread"): `IoPollerCreate`
+//fails only under system-resource exhaustion — a normally unreachable branch —
+//so an injection switch manufactures it. No handle means no thread: a poller
+//thread holding a null handle cannot report readiness, equivalent to the old
+//shape where the thread exits at once. The in-code `NLANG_ASSERT` is
+//conditioned on the injection switch being off, so an injected failure does
+//not abort an assertion build; on a genuine failure the switch reads false and
+//the assertion stands as usual.
 static void TestHandleCreationFailure() {
     VmScheduler sched;
     sched.SetIoPollerCreateFailsForTests(true);
