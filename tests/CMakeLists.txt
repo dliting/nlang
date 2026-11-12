@@ -2609,8 +2609,15 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_two_scripts_compile proj_imports_script_lib
     proj_imports_script_compile proj_imports_script_run
     proj_imports_lib_stmts_compile
-    mnist_mlp_compile mnist_mlp_run
+    mnist_mlp_compile
     PROPERTIES TIMEOUT 180)
+
+#mnist_mlp_run needs its own ceiling: under the address-sanitizer tree
+#the training run measures 165-192 s on this machine (minute-scale
+#machine oscillation, not a regression band), so the shared 180 s family
+#timeout produced false TIMEOUT flakes at the pre-commit sweep. Raised
+#to 300 s by user ruling on 2026-11-12.
+set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
