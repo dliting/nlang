@@ -1,4 +1,5 @@
 #pragma once
+#include <iostream>
 #include <nlang/compiler/ICodeBackend.h>
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/TypeDesc.h"

@@ -194,6 +194,22 @@ uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
 uint16_t VmBackend::BinaryExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited) {
     auto& bin = static_cast<SnBinaryExpr&>(expr);
+    //v0.14.0: a tensor-flagged binary emits through its emission plan
+    //as a 2-arg tensor call — mirror the invoke claim shape (argCount
+    //slots + operand sub-expression depth). The operands are the plan's
+    //params once bound; before binding they are this node's children
+    //(the TU-end sweep rejects bound-less flagged nodes, so a bound
+    //plan is guaranteed at this point).
+    if (bin.ContainFlags(NF_TensorOp)) {
+        uint16_t argDepth = 0;
+        for (auto &param : bin.TensorCallPlan()->Params()) {
+            uint16_t d = ExprPeakDepth(param, visited);
+            if (d > argDepth) argDepth = d;
+        }
+        size_t argCount = 0;
+        for (auto &param : bin.TensorCallPlan()->Params()) ++argCount;
+        return static_cast<uint16_t>(argCount + argDepth);
+    }
     uint16_t l = ExprPeakDepth(*bin.Left(), visited);
     if (bin.Right()) {
         uint16_t r = ExprPeakDepth(*bin.Right(), visited);
