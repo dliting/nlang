@@ -45,8 +45,7 @@ void SumF32Avx2(const float* cells, int64_t count, double* out) {
             _mm256_cvtps_pd(_mm256_castps256_ps128(
                 _mm256_loadu_ps(cells + i))));
         acc1 = _mm256_add_pd(acc1,
-            _mm256_cvtps_pd(_mm256_castps256_ps128(
-                _mm256_loadu_ps(cells + i + 4))));
+            _mm256_cvtps_pd(_mm_loadu_ps(cells + i + 4)));
     }
     double sum = HorizontalSum(acc0) + HorizontalSum(acc1);
     for (; i < count; ++i) {
@@ -239,8 +238,7 @@ void AddIntoF64FromF32Avx2(double* acc, const float* row, int64_t count) {
                 _mm256_loadu_ps(row + i))));
         const __m256d hi = _mm256_add_pd(
             _mm256_loadu_pd(acc + i + 4),
-            _mm256_cvtps_pd(_mm256_castps256_ps128(
-                _mm256_loadu_ps(row + i + 4))));
+            _mm256_cvtps_pd(_mm_loadu_ps(row + i + 4)));
         _mm256_storeu_pd(acc + i, lo);
         _mm256_storeu_pd(acc + i + 4, hi);
     }
