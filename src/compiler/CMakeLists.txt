@@ -111,6 +111,7 @@ add_library(nlang_compiler
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
     builder/ExprResolverGenericMint.cpp
+    builder/ExprResolverGenericMintIface.cpp
     builder/ExprResolverGenericDefaults.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverStaticFace.cpp

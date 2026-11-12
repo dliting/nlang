@@ -3,6 +3,8 @@
     从 ExprResolverGenerics.cpp 抽取（source-size 守卫驱动的拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "GenericMintDepthClaim.hpp"
+#include "GenericMemberClone.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnData.h"
@@ -24,30 +26,6 @@
 namespace nlang
 {
 
-namespace
-{
-//Scoped increment of the concurrent-mint depth around the mint window:
-//nested instantiations fire synchronously inside BOTH phases — template
-//completion resolves the template's own member types (a member type
-//like A<A<T>> resolves through Access back into
-//GetDeclaredGenericClassDecl), and member cloning substitutes them into
-//the instance — each nested mint through a freshly constructed
-//resolver, so the chain counter lives on the registry, shared across
-//resolver instances, and the guard reads it at the mint entry.
-class MintDepthClaim
-{
-public:
-	explicit MintDepthClaim(GenericInstanceRegistry& registry)
-		: m_rRegistry(registry)
-		{ m_rRegistry.EnterMintDepth(); }
-	~MintDepthClaim() { m_rRegistry.LeaveMintDepth(); }
-	MintDepthClaim(const MintDepthClaim&) = delete;
-	MintDepthClaim& operator=(const MintDepthClaim&) = delete;
-private:
-	GenericInstanceRegistry& m_rRegistry;
-};
-}
-
 //==================== declared-generic machinery ====================
 //
 //`class Name<T, ...>` declarations (signature surfaces only) resolve
@@ -59,42 +37,6 @@ private:
 //registry instance is owned by ModuleRegistry — one per BUILD
 //(process-global maps would be keyed by per-build pointers and unit
 //indices; see that header).
-
-//One template member's signature deep-copy: the copy is the metadata
-//surface only — return type and formal parameters with their constant
-//defaults (bodies and native bindings stay with the template row).
-SnField* CloneGenericMember(SnField& src,
-	const std::vector<SnField*>& typeArgs,
-	const std::function<SnFieldExpr*(SnFieldExpr&)>& substitute,
-	const std::function<SnExpression*(SnExpression*)>& cloneDefault)
-{
-	if (src.Kind() == NK_Function)
-	{
-		auto& fn = static_cast<SnFunction&>(src);
-		SnFieldExpr* pRetCopy = fn.ReturnType()
-			? substitute(*fn.ReturnType()) : nullptr;
-		auto* pParams = new PtrList<SnFormalParam>();
-		for (auto& param : fn.Params())
-		{
-			auto* pTypeCopy = param.Type()
-				? substitute(*param.Type()) : nullptr;
-			pParams->push_back(new SnFormalParam(param.Flags(), pTypeCopy,
-				new std::string(param.Name()),
-				cloneDefault(param.Value()), *param.Location()));
-		}
-		return new SnFunction(fn.AccessType(), fn.Flags(), pRetCopy,
-			new std::string(fn.Name()), pParams, *fn.Location());
-	}
-	if (src.Kind() == NK_ClassField)
-	{
-		auto& field = static_cast<SnClassField&>(src);
-		auto* pTypeCopy = field.Type()
-			? substitute(*field.Type()) : nullptr;
-		return new SnClassField(pTypeCopy, new std::string(field.Name()),
-			field.AccessType(), *field.Location());
-	}
-	return nullptr;
-}
 
 //GetDeclaredGenericClassDecl's member-fill loop: each member copy has
 //its type expressions substituted before joining the shell. Copies
@@ -202,7 +144,7 @@ void ExprResolveAccessor::CompleteTemplateForMint(SnClassDecl& tmpl)
 //inside A<T>) grows a genuinely fresh key per link and would recurse
 //until the stack overflowed. The diagnostic is deduped per template
 //per build: every later trip of the same family is the same defect.
-bool ExprResolveAccessor::MintDepthLimitReached(const SnClassDecl& tmpl)
+bool ExprResolveAccessor::MintDepthLimitReached(const SyntaxNode& tmpl)
 {
 	auto& generics = m_Env.Registry().DeclaredGenerics();
 	if (generics.GenericMintDepth() < kMaxGenericInstantiationDepth)
@@ -407,6 +349,21 @@ void ExprResolveAccessor::SubstituteInvokeReturnType(
 }
 
 ExprResolveAccessor::TypeParamBindResult
+ExprResolveAccessor::BindTypeParamInDecl(
+	const std::vector<std::string>& params, const std::string& name,
+	SyntaxNode& tmpl, SnIdentifierExpr& idExpr)
+{
+	const auto paramIt = std::find(params.begin(), params.end(), name);
+	if (paramIt == params.end())
+		return TypeParamBindResult::NotApplicable;
+	auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
+		.PlaceholderFor(tmpl, name,
+			static_cast<size_t>(paramIt - params.begin()));
+	ResolveFieldExprAs(idExpr, pPlaceholder);
+	return TypeParamBindResult::Bound;
+}
+
+ExprResolveAccessor::TypeParamBindResult
 ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 {
 	const std::string& name = idExpr.Name();
@@ -423,36 +380,32 @@ ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 			auto& fn = static_cast<SnFunction&>(*p);
 			if (!fn.IsGenericDeclaration())
 				continue;
-			const auto& params = fn.TypeParamNames();
-			const auto paramIt = std::find(params.begin(), params.end(),
-				name);
-			if (paramIt == params.end())
-				return TypeParamBindResult::NotApplicable;
-			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
-				.PlaceholderFor(fn, name,
-					static_cast<size_t>(paramIt - params.begin()));
-			ResolveFieldExprAs(idExpr, pPlaceholder);
-			return TypeParamBindResult::Bound;
+			return BindTypeParamInDecl(fn.TypeParamNames(), name, fn,
+				idExpr);
 		}
 		if (kind == NK_ClassDecl)
 		{
 			auto& cls = static_cast<SnClassDecl&>(*p);
 			if (!cls.IsGenericDeclaration())
 				return TypeParamBindResult::NotApplicable;
-			const auto& params = cls.TypeParamNames();
-			const auto paramIt = std::find(params.begin(), params.end(),
-				name);
-			if (paramIt == params.end())
-				return TypeParamBindResult::NotApplicable;
 			//Every T-typed member is one value slot (scalars inline in
 			//the low half, heap kinds as handles), so the single shared
 			//template layout holds for every instantiation — T fields
 			//bind to the placeholder like any other T reference.
-			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
-				.PlaceholderFor(cls, name,
-					static_cast<size_t>(paramIt - params.begin()));
-			ResolveFieldExprAs(idExpr, pPlaceholder);
-			return TypeParamBindResult::Bound;
+			return BindTypeParamInDecl(cls.TypeParamNames(), name, cls,
+				idExpr);
+		}
+		//0.13.1c: a type parameter of a generic INTERFACE declaration.
+		//Interface T references are signature positions only (members,
+		//formals, constant TYPES) — the placeholder binds exactly like
+		//the class arm's; no storage kind is ever asked of it.
+		if (kind == NK_InterfaceDecl)
+		{
+			auto& iface = static_cast<SnInterfaceDecl&>(*p);
+			if (!iface.IsGenericDeclaration())
+				return TypeParamBindResult::NotApplicable;
+			return BindTypeParamInDecl(iface.TypeParamNames(), name,
+				iface, idExpr);
 		}
 	}
 	return TypeParamBindResult::NotApplicable;

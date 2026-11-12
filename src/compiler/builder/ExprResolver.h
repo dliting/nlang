@@ -1169,8 +1169,9 @@ private:
 	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs);
 	//GetDeclaredGenericClassDecl's depth guard: true when the entry
-	//must refuse (diagnostic logged once per template per build).
-	bool MintDepthLimitReached(const SnClassDecl& tmpl);
+	//must refuse (diagnostic logged once per template per build). The
+	//key is node identity — the interface mint shares the guard.
+	bool MintDepthLimitReached(const SyntaxNode& tmpl);
 	//GetDeclaredGenericClassDecl's fill window (the mint's second
 	//phase): template completion, superclass refresh and member-clone
 	//fill.
@@ -1208,6 +1209,20 @@ private:
 	//earlier copies stay owned by the shell).
 	bool FillInstanceMembers(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
+	//0.13.1c: GetDeclaredGenericInterfaceDecl's member-fill loop, over
+	//the same CloneGenericMember machinery: interface methods clone as
+	//signature surfaces, constants clone their TYPE only (the folded
+	//initializer stays with the template row). False = an unclonable
+	//member shape (diagnostic logged, fill stopped).
+	bool FillInterfaceInstanceMembers(SnInterfaceDecl& tmpl,
+		const std::vector<SnField*>& typeArgs, SnInterfaceDecl& inst);
+	//0.13.1c: the interface twin of GetDeclaredGenericClassDecl — the
+	//minted SnInterfaceDecl instantiation for typeArgs, member
+	//signatures deep-copied with placeholders substituted, cached in
+	//the registry's interface channel. Same two-phase
+	//publish-then-fill contract and the same depth guard.
+	SnInterfaceDecl* GetDeclaredGenericInterfaceDecl(SnInterfaceDecl& tmpl,
+		const std::vector<SnField*>& typeArgs);
 	//Deep-copy one resolved type expression from a template signature,
 	//rebinding type-parameter placeholders to the instantiation's type
 	//arguments. Null = a shape the substitution does not carry (the
@@ -1255,6 +1270,13 @@ private:
 	//declaration's scope every reference to the parameter (field, param,
 	//return, body) binds to the placeholder alike.
 	enum class TypeParamBindResult { NotApplicable, Bound };
+	//The placeholder-binding walk's declaration-arm shared tail: the
+	//declaration's parameter list either names this type (bind the
+	//interned placeholder, Bound) or the walk continues outward
+	//(NotApplicable). Class and interface arms share it verbatim.
+	TypeParamBindResult BindTypeParamInDecl(
+		const std::vector<std::string>& params, const std::string& name,
+		SyntaxNode& tmpl, SnIdentifierExpr& idExpr);
 	TypeParamBindResult BindTypeParamPlaceholderIfAny(
 		SnIdentifierExpr& idExpr);
 
@@ -1387,10 +1409,17 @@ private:
 	//arity check, instantiation mint-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
 		const std::string &baseName);
-	//The arm's scope probe: a generic-declaration class under the bare
-	//name answers; a non-generic type is reported back for the miss
+	//The arm's interface face (0.13.1c): the probe answered a generic
+	//interface declaration — arity check, mint-and-bind. The class face
+	//keeps its exact shape and consumers.
+	bool TryResolveDeclaredGenericInterfaceInstance(
+		SnGenericTypeExpr &genType, const std::string &baseName,
+		SnInterfaceDecl &tmpl);
+	//The arm's scope probe: a generic-declaration class or interface
+	//under the bare name answers (node identity — the caller branches
+	//on Kind()); a non-generic type is reported back for the miss
 	//diagnostics. Null template with a null type = unknown name.
-	SnClassDecl *FindDeclaredGenericTemplate(const std::string &baseName,
+	SyntaxNode *FindDeclaredGenericTemplate(const std::string &baseName,
 		SnField **ppNonGenericType);
 	//The arm's miss diagnostics: a live type that is not generic, a
 	//value/function head collided with by the spelling shape rule, or

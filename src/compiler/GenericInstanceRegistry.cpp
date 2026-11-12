@@ -20,6 +20,8 @@ GenericInstanceRegistry::~GenericInstanceRegistry()
 	//are detached from any tree, so nothing else frees them.
 	for (auto& kv : m_instances)
 		delete kv.second;
+	for (auto& kv : m_ifaceInstances)
+		delete kv.second;
 	for (auto& kv : m_placeholders)
 		delete kv.second;
 }
@@ -83,7 +85,7 @@ void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs)
 {
-	InstanceKey key{pTemplate, typeArgs};
+	InstanceKey<SnClassDecl> key{pTemplate, typeArgs};
 	m_instances[key] = pInstance;
 	m_instanceTemplate[pInstance] = pTemplate;
 }
@@ -112,7 +114,7 @@ SnClassDecl* GenericInstanceRegistry::FindInstance(
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs) const
 {
-	auto it = m_instances.find(InstanceKey{pTemplate, typeArgs});
+	auto it = m_instances.find(InstanceKey<SnClassDecl>{pTemplate, typeArgs});
 	return it != m_instances.end() ? it->second : nullptr;
 }
 
@@ -121,6 +123,32 @@ void GenericInstanceRegistry::ForEachInstance(
 {
 	for (const auto& kv : m_instances)
 		visitor(*kv.second);
+}
+
+SnInterfaceDecl* GenericInstanceRegistry::FindInterfaceInstance(
+	const SnInterfaceDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs) const
+{
+	auto it = m_ifaceInstances.find(
+		InstanceKey<SnInterfaceDecl>{pTemplate, typeArgs});
+	return it != m_ifaceInstances.end() ? it->second : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptInterfaceInstance(
+	SnInterfaceDecl* pInstance, const SnInterfaceDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs)
+{
+	InstanceKey<SnInterfaceDecl> key{pTemplate, typeArgs};
+	m_ifaceInstances[key] = pInstance;
+	m_ifaceInstanceTemplate[pInstance] = pTemplate;
+}
+
+SnInterfaceDecl* GenericInstanceRegistry::InstanceOfInterface(
+	const SnInterfaceDecl* pInstance) const
+{
+	auto it = m_ifaceInstanceTemplate.find(pInstance);
+	return it != m_ifaceInstanceTemplate.end()
+		? const_cast<SnInterfaceDecl*>(it->second) : nullptr;
 }
 
 } //namespace nlang

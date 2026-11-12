@@ -1,0 +1,12 @@
+//Negative: implementing Container<int> without get() fails the
+//compliance check against the instantiated signature.
+interface Container<T>
+{
+    T get(int i);
+    int size();
+}
+class HalfBox implements Container<int>
+{
+    public int size() { return 4; }
+}
+int main() { return 0; }

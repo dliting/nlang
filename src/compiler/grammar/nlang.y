@@ -313,7 +313,7 @@ static bool CollectQualifiedSegments(
 %type <v_NodeFlags>    			NodeFlag
 %type <v_NodeFlags>				NodeFlagsNonEmpty
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
+%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName ImplementsName
 %type <v_pFieldExpr>				AsGenericTarget
 %type <v_pFieldExpr>				QualifiedGenericReceiver
 %type <v_pFieldExprVec>			TypeList
@@ -1788,14 +1788,41 @@ ImplementsOpt:	KT_Implements NameList {
 				} ;
 
 /*
-Comma-separated list of TypeName values (for the implements clause).
-Returns a PtrList<SnFieldExpr> owning the type-name expressions.
+One implements-clause entry: a plain type name, or the generic
+spelling `I<Args>` (0.13.1c). The generic arms live HERE, not on
+TypeName: TypeName is shared with the `as`-expression position, where
+`x as y < z` is a legal comparison today — the merged LALR state would
+resolve the '<' shift-default for BOTH and silently break that
+spelling. The implements position is unambiguous (a '<' after an
+entry's head can only open type arguments), so the dual angle spellings
+follow the Type rule exactly: OT_TypeLt for scan-flagged names, plain
+'<' (with the scan-time depth increment) for user-declared generics.
+Both mint the same SnGenericTypeExpr the type path builds, so the
+clause resolves through the one generic-use path and the class binds
+the INSTANTIATED interface.
 */
-NameList:	TypeName {
+ImplementsName:	TypeName { $$ = $1; } |
+				IdentifierExpr OT_TypeLt TypeList '>' {
+					$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+						$3, @1);
+				} |
+				IdentifierExpr '<' {
+						parser.Scanner().IncGenericDepth();
+					} TypeList '>' {
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+							$4, @1);
+					} ;
+
+/*
+Comma-separated list of ImplementsName values (for the implements
+clause). Returns a PtrList<SnFieldExpr> owning the type-name
+expressions.
+*/
+NameList:	ImplementsName {
 					$$ = new PtrList<SnFieldExpr>();
 					$$->push_back($1);
 				} |
-				NameList ',' TypeName {
+				NameList ',' ImplementsName {
 					$1->push_back($3);
 					$$ = $1;
 				} ;
@@ -1803,13 +1830,25 @@ NameList:	TypeName {
 /*
 Interface type declaration. Members are method signatures; only a
 static member may carry a body (resolver-enforced). An interface
-establishes a contract that implementing classes must satisfy.
+establishes a contract that implementing classes must satisfy. The
+optional type-parameter list (0.13.1c) mirrors the ClassDecl shape:
+declaration context only, so the leading '<' has no competing
+production.
 */
-InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
-					$$ = new SnInterfaceDecl($2, $4, @1);
+InterfaceDecl:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
+					auto* pIface = new SnInterfaceDecl($2, $5, @1);
+					if ($3)
+						pIface->SetTypeParamNames(std::move(*$3));
+					delete $3;
+					$$ = pIface;
 				} |
-				KT_Interface TT_Identifier '{' '}' {
-					$$ = new SnInterfaceDecl($2, new PtrList<SnField>(), @1);
+				KT_Interface TT_Identifier TypeParamsOpt '{' '}' {
+					auto* pIface = new SnInterfaceDecl($2,
+						new PtrList<SnField>(), @1);
+					if ($3)
+						pIface->SetTypeParamNames(std::move(*$3));
+					delete $3;
+					$$ = pIface;
 				} ;
 
 InterfaceMemberList:	InterfaceMemberList InterfaceMember {

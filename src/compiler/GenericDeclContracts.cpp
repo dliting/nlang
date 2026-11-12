@@ -38,6 +38,8 @@ void CheckMemberNotTypeParamName(const SnClassDecl &cls,
 		}
 }
 
+} //namespace
+
 //Null unless the declared type is a bare type-parameter reference (T,
 //not T[] or List<T>); returns the parameter name. Type-position
 //resolution binds such a reference to the template's interned
@@ -45,7 +47,8 @@ void CheckMemberNotTypeParamName(const SnClassDecl &cls,
 //bind to their own declarations and composite T forms never bind to
 //the placeholder itself, so binding identity is the exact predicate
 //(robust against the identifier-to-name-expression rewrite resolution
-//performs on the way).
+//performs on the way). Shared with the interface member contract
+//(StatementResolverInterface).
 const std::string *BareTypeParamName(const SnFieldExpr *pType,
 	BuildEnvironment &env)
 {
@@ -61,6 +64,9 @@ const std::string *BareTypeParamName(const SnFieldExpr *pType,
 		return nullptr;
 	return &pBound->Name();
 }
+
+namespace
+{
 
 //NK_ClassField arm of CheckGenericDeclContract: a bare type-parameter
 //field type has no concrete kind, so no initial value exists.

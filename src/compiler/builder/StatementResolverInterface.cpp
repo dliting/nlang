@@ -6,6 +6,7 @@
 #include "StatementResolver.h"
 #include "FieldInitializerChecks.hpp"
 #include "BuildEnvironment.h"
+#include "ModuleBuilderChecks.h"
 #include <nlang/compiler/SnExpressions.h>
 
 namespace nlang
@@ -98,6 +99,42 @@ void CheckInterfaceConstantContract(BuildEnvironment &env,
 
 } //namespace
 
+//0.13.1c: a T-typed formal's default value has no concrete kind to
+//construct from (the class contract's gate, mirrored). The member type
+//expressions resolved in the earlier ResolveDataTypes pass, so the
+//placeholder binding is readable here. Non-generic interfaces cannot
+//trip it (no template scope, so no placeholder binding).
+void RejectTypeParamParamDefaults(BuildEnvironment &env, SnFunction &fn)
+{
+	for (auto &param : fn.Params())
+	{
+		const std::string *pParamName =
+			BareTypeParamName(param.Type(), env);
+		if (param.Value() && pParamName)
+			env.Log(CLL_Error, param.Location(),
+				"default value for parameter \"%s\": the type "
+				"parameter \"%s\" has no concrete kind, so no "
+				"default value exists.",
+				param.Name().c_str(), pParamName->c_str());
+	}
+}
+
+//NK_ClassField arm of the member contract: the 0.13.1c T-typed-constant
+//gate (no value domain until the instantiation — nothing exists to fold
+//or store) plus the shared constant contract. Non-generic interfaces
+//cannot trip the gate (no template scope, so no placeholder binding).
+void CheckInterfaceConstantMember(BuildEnvironment &env,
+	SnClassField &classField)
+{
+	if (const std::string *pParamName =
+		BareTypeParamName(classField.Type(), env))
+		env.Log(CLL_Error, classField.Location(),
+			"The interface constant \"%s\" cannot have the type "
+			"parameter \"%s\" as its type.",
+			classField.Name().c_str(), pParamName->c_str());
+	CheckInterfaceConstantContract(env, classField);
+}
+
 //Declaration contract of a single interface member (0.9.10): public by
 //default (FA_Default already resolved to FA_Public by OnAddedToParent,
 //so a non-public member carries an explicit private/protected modifier).
@@ -116,7 +153,7 @@ static void CheckInterfaceMemberContract(BuildEnvironment &env,
 			field.Name().c_str());
 	if (field.Kind() == NK_ClassField)
 	{
-		CheckInterfaceConstantContract(env,
+		CheckInterfaceConstantMember(env,
 			static_cast<SnClassField &>(field));
 		return;
 	}
@@ -140,6 +177,8 @@ static void CheckInterfaceMemberContract(BuildEnvironment &env,
 			"The interface instance method \"%s\" cannot have a body: "
 			"use a static method for shared implementation.",
 			field.Name().c_str());
+	if (fn)
+		RejectTypeParamParamDefaults(env, *fn);
 	if (field.ContainFlags(NF_Native))
 		env.Log(CLL_Error, field.Location(),
 			"The interface member \"%s\" cannot be native: interfaces"

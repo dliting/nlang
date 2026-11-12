@@ -2232,3 +2232,16 @@ err_alias_reserved compile_error syntax error
 spelling_rescue_comparisons 10
 spelling_rescue_nested 10
 err_rescue_semantic_type compile_error bool values cannot be ordered
+# --- 0.13.1c: generic interface declarations. `interface I<T>` declares
+# the template; `implements I<Args>` binds the class to the INSTANTIATED
+# interface (the completeness check reads the substituted signatures), and
+# dispatch through an instantiated-interface-typed value reaches the
+# implementing class. Diagnostics: a T-typed interface constant, a
+# T-typed formal default, an arity miss, and a missing obligation against
+# the instantiation. ---
+generic_iface_basic 0
+generic_iface_two_params 0
+err_generic_iface_const compile_error cannot have the type parameter "T" as its type
+err_generic_iface_default compile_error has no concrete kind, so no default value exists
+err_generic_iface_arity compile_error The generic interface "I" expects 1 type argument(s)
+err_generic_iface_implements_missing compile_error does not implement the method "get(Int32): Int32" required by interface "Container"

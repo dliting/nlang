@@ -105,10 +105,10 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 }
 
 //The declared-template arm's scope probe: a generic-declaration class
-//under the bare name answers; a TYPE that is not a generic declaration
-//is reported back for the miss diagnostics; anything else (including no
-//name at all) leaves both outputs null.
-SnClassDecl *ExprResolveAccessor::FindDeclaredGenericTemplate(
+//or interface (0.13.1c) under the bare name answers; a TYPE that is
+//not a generic declaration is reported back for the miss diagnostics;
+//anything else (including no name at all) leaves both outputs null.
+SyntaxNode *ExprResolveAccessor::FindDeclaredGenericTemplate(
 	const std::string &baseName, SnField **ppNonGenericType)
 {
 	*ppNonGenericType = nullptr;
@@ -119,6 +119,9 @@ SnClassDecl *ExprResolveAccessor::FindDeclaredGenericTemplate(
 	if (pProbed && pProbed->Kind() == NK_ClassDecl
 		&& static_cast<SnClassDecl*>(pProbed)->IsGenericDeclaration())
 		return static_cast<SnClassDecl*>(pProbed);
+	if (pProbed && pProbed->Kind() == NK_InterfaceDecl
+		&& static_cast<SnInterfaceDecl*>(pProbed)->IsGenericDeclaration())
+		return static_cast<SnInterfaceDecl*>(pProbed);
 	*ppNonGenericType = pProbed;
 	return nullptr;
 }
@@ -257,10 +260,43 @@ bool ExprResolveAccessor::TryRescueComparisonReading(SnGenericTypeExpr &genType)
 	return true;
 }
 
+//The declared-template arm's interface face (`interface I<T>` +
+//`I<Args>`): implements entries and every expression-position use share
+//the one Access throat, so the implements clause binds the INSTANTIATED
+//interface and the completeness check reads substituted signatures.
+//False = a diagnostic is logged.
+bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
+	SnGenericTypeExpr &genType, const std::string &baseName,
+	SnInterfaceDecl &tmpl)
+{
+	const size_t expected = tmpl.TypeParamNames().size();
+	if (genType.TypeArgs().size() != expected)
+	{
+		m_Env.Log(CLL_Error, genType.Location(),
+			"The generic interface \"%s\" expects %zu type "
+			"argument(s), but got %zu.",
+			baseName.c_str(), expected, genType.TypeArgs().size());
+		return false;
+	}
+	std::vector<SnField*> typeArgs;
+	std::vector<uint8> outFlags;
+	//No multi-slot gate here: an interface carries no value storage —
+	//its T-typed members are signature positions only, so every
+	//argument kind is a legal substitution.
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+		return false;
+	auto *pInstance = GetDeclaredGenericInterfaceDecl(tmpl, typeArgs);
+	if (!pInstance)
+		return false;
+	ResolveFieldExprAs(genType, pInstance);
+	return true;
+}
+
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
-//`Box<int>`): the base must name a generic-declaration class in scope;
-//the arity check runs against its parameter list; the instantiation is
-//minted (cached) and bound. False = a diagnostic is logged.
+//`Box<int>`): the base must name a generic-declaration class or
+//interface in scope; the arity check runs against its parameter list;
+//the instantiation is minted (cached) and bound. False = a diagnostic
+//is logged.
 bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	SnGenericTypeExpr &genType, const std::string &baseName)
 {
@@ -271,7 +307,11 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		&pNonGenericType);
 	if (!pTemplate)
 		return LogDeclaredGenericMiss(genType, baseName, pNonGenericType);
-	const size_t expected = pTemplate->TypeParamNames().size();
+	if (pTemplate->Kind() == NK_InterfaceDecl)
+		return TryResolveDeclaredGenericInterfaceInstance(genType,
+			baseName, *static_cast<SnInterfaceDecl*>(pTemplate));
+	auto *pClassTemplate = static_cast<SnClassDecl*>(pTemplate);
+	const size_t expected = pClassTemplate->TypeParamNames().size();
 	if (genType.TypeArgs().size() != expected)
 	{
 		m_Env.Log(CLL_Error, genType.Location(),
@@ -284,10 +324,11 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	std::vector<uint8> outFlags;
 	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
 		return false;
-	if (RejectMultiSlotTypeArgs(m_Env, *pTemplate, typeArgs, baseName,
+	if (RejectMultiSlotTypeArgs(m_Env, *pClassTemplate, typeArgs, baseName,
 			genType.Location()))
 		return false;
-	auto *pInstance = GetDeclaredGenericClassDecl(*pTemplate, typeArgs);
+	auto *pInstance = GetDeclaredGenericClassDecl(*pClassTemplate,
+		typeArgs);
 	if (!pInstance)
 		return false;
 	ResolveFieldExprAs(genType, pInstance);

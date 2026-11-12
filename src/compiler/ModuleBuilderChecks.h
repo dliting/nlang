@@ -16,6 +16,7 @@ namespace nlang
 class SnNamespace;
 class SnClassDecl;
 class SnField;
+class SnFieldExpr;
 class SnFunction;
 class BuildEnvironment;
 //struct (not class): MSVC decorates the two differently, so the
@@ -47,6 +48,14 @@ bool CheckStaticNameRules(SnClassDecl &cls, const std::string &name,
 //nor with a body, and initializers/default values on bare
 //type-parameter-typed members (no concrete kind exists for either).
 void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env);
+
+//Null unless the declared type is a bare type-parameter reference (T,
+//not T[] or List<T>); returns the parameter name (definition in
+//GenericDeclContracts.cpp). Shared by the class contract and the
+//interface member contract (0.13.1c) — the interface gates read the
+//same placeholder binding the class gates do.
+const std::string *BareTypeParamName(const SnFieldExpr *pType,
+	BuildEnvironment &env);
 
 //0.13.1b: declaration-time cap on a generic declaration's type
 //parameters (definition in GenericDeclContracts.cpp) — ordinals are

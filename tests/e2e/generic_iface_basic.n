@@ -1,0 +1,25 @@
+//0.13.1c: a generic interface declaration instantiates at the
+//implements site and in expression position; dispatch through the
+//instantiated interface value reaches the implementing class.
+interface Container<T>
+{
+    T get(int i);
+    int size();
+}
+class IntBox implements Container<int>
+{
+    int[] m_items;
+    public IntBox() { m_items = int[4]; }
+    public int get(int i) { return m_items[i]; }
+    public int size() { return 4; }
+    public void set(int i, int v) { m_items[i] = v; }
+}
+int main()
+{
+    IntBox b = IntBox();
+    b.set(0, 42);
+    Container<int> c = b;
+    assert(c.get(0) == 42);
+    assert(c.size() == 4);
+    return 0;
+}

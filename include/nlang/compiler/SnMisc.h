@@ -482,6 +482,35 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+
+	//0.13.1c: generic-declaration surface, mirror of the class side.
+	//The names are the type parameters written on the declaration
+	//(`interface I<T, U>`); they scope the member signatures and drive
+	//the substitution at instantiation.
+	bool IsGenericDeclaration() const { return !m_typeParamNames.empty(); }
+	const std::vector<std::string>& TypeParamNames() const
+	{ return m_typeParamNames; }
+	void SetTypeParamNames(std::vector<std::string> names)
+	{ m_typeParamNames = std::move(names); }
+	//Instantiated-shell markers, mirror of the class side: set by the
+	//interface mint; GenericTypeArgs carries the resolved arguments and
+	//BaseName the erasure identity (the shell shares the template's
+	//bare name, the same way every List<T> shares "List").
+	bool IsGenericInstantiation() const { return m_bIsGenericInst; }
+	void SetGenericInstantiation() { m_bIsGenericInst = true; }
+	const std::vector<SnField*>& GenericTypeArgs() const
+	{ return m_genericTypeArgs; }
+	void SetGenericTypeArgs(std::vector<SnField*> args)
+	{ m_genericTypeArgs = std::move(args); }
+	const std::string& BaseName() const
+	{ return m_bIsGenericInst ? m_baseName : Name(); }
+	void SetBaseName(const std::string& name) { m_baseName = name; }
+
+private:
+	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
+	bool m_bIsGenericInst = false;
+	std::vector<SnField*> m_genericTypeArgs;
+	std::string m_baseName;
 };
 
 //0.9.10 D3: an interface `static const` member. Only the declaration

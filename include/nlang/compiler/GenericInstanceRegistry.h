@@ -44,6 +44,7 @@ constexpr size_t kMaxGenericTypeParams = 255;
 
 class SnClassDecl;
 class SnField;
+class SnInterfaceDecl;
 class SyntaxNode;
 
 class GenericInstanceRegistry
@@ -113,6 +114,22 @@ public:
 	void ForEachInstance(
 		const std::function<void(SnClassDecl&)>& visitor) const;
 
+	//0.13.1c: the interface channel, parallel to the class maps. The
+	//class paths keep their exact types and consumers; GetDeclared-
+	//GenericInterfaceDecl is the only writer, via the same two-phase
+	//publish-then-fill contract (AdoptInterfaceInstance before the
+	//recursive fill window).
+	SnInterfaceDecl* FindInterfaceInstance(
+		const SnInterfaceDecl* pTemplate,
+		const std::vector<const SnField*>& typeArgs) const;
+	void AdoptInterfaceInstance(SnInterfaceDecl* pInstance,
+		const SnInterfaceDecl* pTemplate,
+		const std::vector<const SnField*>& typeArgs);
+	//The interface template a minted interface instantiation was minted
+	//from; null when the node is not one.
+	SnInterfaceDecl* InstanceOfInterface(
+		const SnInterfaceDecl* pInstance) const;
+
 	//Concurrent-mint depth, the live instantiation chain: nested mints
 	//fire synchronously inside BOTH phases of the mint window — the
 	//template-completion preamble resolves member types and the member
@@ -132,8 +149,9 @@ public:
 	//(measured at 131071 guard trips for one six-line program), and
 	//every retry of an already-reported family repeats the same
 	//message. Presentation-only dedup — never gates a mint. Per-build
-	//state.
-	bool MarkDepthLimitReported(const SnClassDecl* pTemplate)
+	//state. The key is node identity: the class and interface templates
+	//dedup in one set (implicit upcast — no cast at call sites).
+	bool MarkDepthLimitReported(const SyntaxNode* pTemplate)
 	{
 		return m_depthLimitReportedTmpls.insert(pTemplate).second;
 	}
@@ -141,9 +159,13 @@ public:
 private:
 	//Pointer-identity key: the template node plus the interned type-
 	//argument fields (interned tokens keep identity per element type).
+	//Templated on the template-node kind (0.13.1c): the class channel
+	//keys on SnClassDecl, the interface channel on SnInterfaceDecl —
+	//one comparison shape, no cross-kind pointer punning.
+	template<typename T>
 	struct InstanceKey
 	{
-		const SnClassDecl* pTemplate;
+		const T* pTemplate;
 		std::vector<const SnField*> typeArgs;
 		bool operator<(const InstanceKey& rhs) const
 		{
@@ -171,12 +193,17 @@ private:
 
 	std::map<PlaceholderKey, SnField*> m_placeholders;
 	std::map<const SnField*, size_t> m_placeholderIndex;
-	std::map<InstanceKey, SnClassDecl*> m_instances;
+	std::map<InstanceKey<SnClassDecl>, SnClassDecl*> m_instances;
 	std::map<const SnClassDecl*, const SnClassDecl*> m_instanceTemplate;
+	//0.13.1c interface channel, parallel to the class maps (kept exact
+	//so the class paths and their consumers stay untouched).
+	std::map<InstanceKey<SnInterfaceDecl>, SnInterfaceDecl*> m_ifaceInstances;
+	std::map<const SnInterfaceDecl*, const SnInterfaceDecl*>
+		m_ifaceInstanceTemplate;
 	std::map<const SnField*, const SnField*> m_memberRecordOwner;
 	std::map<const SnField*, const SnClassDecl*> m_memberInstantiation;
 	int m_iGenericMintDepth = 0;
-	std::set<const SnClassDecl*> m_depthLimitReportedTmpls;
+	std::set<const SyntaxNode*> m_depthLimitReportedTmpls;
 };
 
 } //namespace nlang
