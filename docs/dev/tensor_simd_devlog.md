@@ -70,3 +70,10 @@
 - **静态类型VS numpy语义的边界**：`max(a, axis)`在numpy里rank-1时返回标量，但NLang的native声明静态返回Array<T>——同一签名无法双返回。裁决：axis臂限rank>=2，rank-1给指名诊断（"reduce with max(a), not an axis arm"）。sum家族同型洞是既有潜伏问题（master上不可达），记录不扩散。
 - **重载歧义是既有什么就绕什么**：int数组的`max(a, int)`早被clamp臂占用（int bound），axis臂（int axis）与之类型全同——int/long不发axis公共overload，float/double无歧义正常发。
 - **registry名与.n声明约定**：注册名是无后缀的kind分派入口（addScalar模式），.n用同名重载native声明；后缀名（fullI/negI）只用于每个kind独立内核的创建族。wrapper自指（`return rsubScalar(a, value)`在自己体内）会静默成无限递归——wrapper只能桥接不同名。
+
+##11. gather语义定稿与重写丢参事故（2026-11-13）
+
+- **take-per-position语义的裁决**：numpy有两个相近表面——`np.take(a, idx, axis)`（idx长度成为新轴长）与花式索引`a[arange(n), labels]`（每行取自己的标签）。MLP损失项要的是后者。裁决：`gather(a, axis, indices)`的indices长度==非轴元素数（elemCount/along），indices[flat]按行主序命名该非轴位置的轴下标，结果去掉轴维。秩1源退化成普通花式索引（去掉唯一的轴后没有可走的位置，indices直接驱动唯一轴，长度即输出长度）——数学上不均匀，但程序员直觉（numpy的`v[idx]`）优先。
+- **重写丢参事故**：把VisitGather从3参改成带indices的版本时，重写稿漏掉了indices形参，回调收到的是flat本身——gather退化成恒等取对角（picked=[a[0,0],a[1,1],...]），而秩2轴0用例的期望值恰好部分吻合，最小复现"看起来差一点"而非"全错"。教训：**重写小函数比改小函数更容易丢参**——review重写稿时先对旧稿做形参清单比对；期望值部分吻合的用例要再挑一个非对称数据点（本例indices=[2,0,2]若对角化正好[0,1,2]，picked第三个值碰巧相同）。
+- **负例测试的自我矛盾**：op_tensor_gather.n尾部写了"越界抛异常（未捕获exit 1）"却在期望exit 0的manifest下——同一文件正负例混装必然自我矛盾。负例一律独立成`_throw`文件，manifest按exit 1登记。
+- **旧契约测试随功能演进失效**：0.7.3的"数组+数值拒绝"pin在v0.14.0数组标量算术合法化后必然失败——编译器报的不再是类型不匹配而是"未导入tensor包"。pin要随契约演进改写（同种类标量广播合法、混合种类仍拒绝），并补一条新诊断（import gate）的独立pin。
