@@ -182,6 +182,16 @@ bool IcmpShouldResubmit(int err, long long deadline, long long nowMs) {
     return err == kNetErrTimeout && (deadline <= 0 || nowMs < deadline);
 }
 
+//Submit (or re-arm) one echo-slice job. The work-pool lane follows the
+//deadline's presence (0.13.6 D6): a deadline-free ping waits on the
+//interest table instead of holding a priority-1 pool worker.
+void PingSubmitWork(NativeHost* h, NetExecState* st, int32_t jobId,
+                    const std::string& host, long long deadline) {
+    h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
+        IcmpEchoTimeout(deadline, h->nowMs(h))},
+        st->m_selfPipeFds[1], IcmpJobPriority(deadline));
+}
+
 //ping(host, deadlineMs): mint-or-adopt, submit, park on the self-pipe
 //until the record is done (R9 drain discipline: the ack byte is a
 //hint, the record under the mutex is the truth). The helper timeout
@@ -204,10 +214,7 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     for (;;) {
         if (submit) {
             submit = false;
-            h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
-                IcmpEchoTimeout(deadline, h->nowMs(h))},
-                st->m_selfPipeFds[1], IcmpJobPriority(deadline));
-                                        //lane by deadline presence (0.13.6 D6)
+            PingSubmitWork(h, st, jobId, host, deadline);
         }
         NetDrainPipe(readFd);
         std::lock_guard<std::mutex> g(st->m_mutex);

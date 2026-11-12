@@ -1,8 +1,8 @@
 /*---
 VmExecutorNativeHost.cpp — VmExecutor's implementation of the public
 NativeHost ABI: the function-table callbacks, the native call bridge
-(registration, CallNative dispatch and the K2 blocking-native protocol),
-lazy native-module loading and the one-shot List<string> construction.
+(registration, CallNative dispatch and the K2 blocking-native protocol)
+and the destructor/module-state teardown.
 
 Native code (standard-library DLLs and third-party modules) accesses the VM
 only through these callbacks; the mutable state (PRNG, string/list stores)
@@ -10,6 +10,9 @@ stays here, in the executor.
 
 K6 Task 2 (2026-10-22): the blocking-native arm (RunBlockingNative and
 its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
+
+2026-11-12 source-size split: lazy native-module loading and the one-shot
+List<string> construction moved to VmExecutorNativeLoader.cpp.
 ---*/
 #include "VmExecutor.h"
 #include "InputLineSource.h"
@@ -440,59 +443,6 @@ void VmExecutor::CallNativeDispatch(const CompiledFunction& callee,
     //touches goes through the callbacks above, each self-guarded.
     it->second.fn(&host.c, pResult, locals + callParamBase,
                   callee.paramCount);
-}
-
-//--- List<string> construction ---------------------------------------------
-
-int32_t VmExecutor::BuildListString(const char* const* items, int count) {
-    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
-    if (m_listClassIdx < 0)
-        throw std::runtime_error("NLang VM: List class not registered");
-    int32_t listHeapIdx = AllocClassOnHeap(
-        static_cast<uint16_t>(m_listClassIdx));
-    int32_t listHandle = AllocListHandle();
-    m_structHeap[static_cast<size_t>(listHeapIdx)]
-        [kListHandleFieldOffset] = listHandle;
-    auto& dst = m_listStore[listHandle - 1].elements;
-    if (count > 0)
-        dst.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        const char* text = (items && items[i]) ? items[i] : "";
-        dst.push_back(AllocBoxedValue(RTK_String, MintNewString(text)));
-    }
-    return listHeapIdx;
-}
-
-//--- Native module loading --------------------------------------------------
-
-NativeLibraryLoader& VmExecutor::EnsureNativeLoader() {
-    if (!m_upNativeLoader) {
-        m_upNativeLoader = std::make_unique<NativeLibraryLoader>();
-        //Default: native modules ship beside the executable.
-        m_upNativeLoader->AddSearchDir(NativeLibraryLoader::ExecutableDir());
-    }
-    return *m_upNativeLoader;
-}
-
-void VmExecutor::AddNativeSearchDir(std::string dir) {
-    EnsureNativeLoader().AddSearchDir(std::move(dir));
-}
-
-void VmExecutor::EnsureNativeAvailable(const std::string& name) {
-    if (m_natives.find(name) != m_natives.end())
-        return;
-    //A qualified "ns.name" is satisfied by a loadable module; a bare name
-    //is a host-registered native and is not resolved through a DLL.
-    size_t dot = name.find('.');
-    if (dot == std::string::npos)
-        return;
-    std::string ns = name.substr(0, dot);
-    NativeLibraryLoader& loader = EnsureNativeLoader();
-    loader.EnsureLoaded(ns,
-        [this](const std::string& modNs, const std::string& fnName,
-               NativeFn fn, bool blocking) {
-            m_natives[modNs + "." + fnName] = NativeEntry{fn, blocking};
-        });
 }
 
 //v11 R8: the destructor is defined here (moved from VmExecutor.cpp,

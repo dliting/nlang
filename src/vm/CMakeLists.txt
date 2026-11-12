@@ -8,6 +8,7 @@ add_library(nlang_vm
     VmWorkPool.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
+    VmExecutorRaise.cpp
     VmExecutorPump.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
@@ -35,6 +36,7 @@ add_library(nlang_vm
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
     VmExecutorGCSweep.cpp
+    VmExecutorGCMarks.cpp
     VmExecutorAlloc.cpp
     VmClassLayout.cpp
     VmStaticSlots.cpp
@@ -43,6 +45,7 @@ add_library(nlang_vm
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
     VmExecutorBlockingNative.cpp
     VmExecutorFailure.cpp
