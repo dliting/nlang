@@ -1,0 +1,10 @@
+//0.13.1c: a static method has no instance dispatch slot — a bodyless
+//static declaration is a conflict, not an abstract method.
+class Registry
+{
+    public static int lookup();
+}
+int main()
+{
+    return 0;
+}

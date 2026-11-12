@@ -146,6 +146,7 @@ add_library(nlang_compiler
     builder/StatementResolverDeclDefaults.cpp
     builder/StatementResolverDeclStatic.cpp
     builder/StatementResolverTypes.cpp
+    builder/StatementResolverInterface.cpp
     builder/StatementResolverAssign.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp

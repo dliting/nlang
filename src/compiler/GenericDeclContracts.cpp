@@ -150,11 +150,14 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 		//HasImplementation without the IsImported arm: at source-check
 		//time the declaration is never an import stub, so the predicate
 		//reduces to native-or-body — the same shape the ctor candidate
-		//collector keys off.
-		if (!func.HasImplementation())
+		//collector keys off. 0.13.1c: an abstract member is a third
+		//implementation shape — the obligation transfers to every
+		//instantiation, whose own gate reports it.
+		if (!func.HasImplementation()
+			&& !func.ContainFlags(NF_Abstract))
 			env.Log(CLL_Error, member.Location(),
 				"The method \"%s\" of generic class \"%s\" must be "
-				"native or have a method body.",
+				"native, abstract, or have a method body.",
 				member.Name().c_str(), cls.Name().c_str());
 		for (auto &param : func.Params())
 		{

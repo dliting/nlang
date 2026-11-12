@@ -1,0 +1,30 @@
+//0.13.1c Task 6 pin: binding a method through an abstract-typed
+//variable captures the abstract method record (the static type's
+//declaration); calling that handle at run time rejects because the
+//bound target has no implementation. The instance itself is concrete,
+//so the Task 5 instantiation gate does not fire — the manifest row
+//lands with the runtime defense (Task 6); this file keeps the shape.
+class Shape
+{
+    public virtual int area();
+}
+class Rect : Shape
+{
+    int m_w;
+    int m_h;
+    public Rect(int w, int h)
+    {
+        m_w = w;
+        m_h = h;
+    }
+    public int area()
+    {
+        return m_w * m_h;
+    }
+}
+int main()
+{
+    Shape s = Rect(3, 4);
+    func<int> f = s.area;
+    return f();
+}

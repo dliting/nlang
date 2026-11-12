@@ -378,6 +378,23 @@ public:
 	//it against the base's effective seal.
 	bool IsDeclaredConstAggregate() const { return m_bIsConstAggregate; }
 
+	//0.13.1c: abstract-class queries. A bodyless non-native method is an
+	//abstract method (grammar-minted NF_Abstract | NF_Virtual); an
+	//abstract obligation is one whose dispatch winner is still abstract
+	//(own re-declaration, or a re-abstraction between here and the
+	//concrete ancestor). The walk is on demand — no builder-phase
+	//recording — because the per-name contract checks already reject
+	//signature mismatches and missing interface methods, leaving exactly
+	//"winner still abstract" as the unreported condition.
+	void CollectAbstractObligations(std::vector<const SnFunction*> &out) const;
+	bool IsAbstractClass() const;
+	//First same-name non-static method in dispatch order: own members in
+	//declaration order, then up the superclass chain (FindMethodByName's
+	//order — VmExecutorOpsCalls). Shared by the interface-completeness
+	//check and the obligation walk; chain walks stop at synthesized
+	//builtin classes and are cycle-guarded like the other walks.
+	const SnFunction *FindDispatchWinner(const std::string &name) const;
+
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
 	//Set by ExprResolver when minting a synthetic SnClassDecl for a
 	//built-in generic type. m_genericTypeArgs carries the resolved type

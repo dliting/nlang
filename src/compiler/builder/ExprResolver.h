@@ -1104,6 +1104,16 @@ private:
 	bool TryResolveCtorInvoke(SnInvokeExpr &snInvoke);
 	bool TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		SnInvokeExpr &invoke, const std::string &modulePath);
+	//The qualified-ctor tail: type binding, ctor selection, member wiring
+	//(0.9.12 D-new-7 Field()/EvalDataType split — see the definition).
+	void BindQualifiedCtorTail(SnMemberExpr &snMember, SnInvokeExpr &invoke,
+		SnField &type);
+	//0.13.1c instantiation gate, shared by every creation path (new
+	//expression, bare and module-qualified ctor invoke, class init
+	//list): an abstract class allocates no object. Reports the first
+	//obligation (outermost ancestor first). True = rejected (logged).
+	bool RejectAbstractInstantiation(const SnClassDecl &cls,
+		const ISourceLocation *pLoc);
 	SnField *ProbeCtorType(const std::string &name,
 		const ISourceLocation *pLoc);
 	//TryResolveCtorInvoke's arms: the bare-generic reject (0.9.0; func

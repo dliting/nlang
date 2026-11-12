@@ -1895,18 +1895,25 @@ ClassMemberList:	ClassMemberList ClassMember {
 					$$->push_back($1);
 				} ;
 
+//0.13.1c: a bodyless non-native method IS an abstract method — there
+//is no separate keyword. Abstract implies virtual, so the pair
+//NF_Abstract | NF_Virtual is minted together here (grammar-time, like
+//the explicit `virtual` keyword: PropagateVirtualOverrides reads the
+//ancestor's flag at derived-resolution time, and the class bases are
+//only pointer-bound by then). Native declarations are record-only
+//(isNative) and never abstract.
 ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
 				} |
 				AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @3);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
@@ -1914,7 +1921,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					if ($7 == nullptr)
-						func->AddFlags(NF_Abstract);
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($7);
 					$$ = func;
@@ -1922,16 +1929,16 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 
 				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
@@ -1939,7 +1946,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
-						func->AddFlags(NF_Abstract);
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($7);
 					$$ = func;
@@ -1951,9 +1958,15 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				//by the declaration contract. LALR: '(' after the identifier
 				//separates this shape from the typed productions (after a
 				//reduced Type the parser needs a name token, not '(').
+				//The three ctor-spelling arms (no return type): whether the
+				//member is a constructor is semantic (name == class name),
+				//so the abstract pair stops at NF_Abstract here — NF_Virtual
+				//is dispatch bookkeeping a constructor must never carry
+				//(the ctor flag contract rejects it), and the resolver's
+				//abstract contract pass names the ctor conflict itself.
 				AccessType NodeFlag TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @2);
-					if ($7 == nullptr)
+					if ($7 == nullptr && ($2 & NF_Native) == 0)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);
@@ -1961,7 +1974,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 				AccessType NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
-					if ($7 == nullptr)
+					if ($7 == nullptr && ($2 & NF_Native) == 0)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);

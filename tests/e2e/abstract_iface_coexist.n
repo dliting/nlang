@@ -1,0 +1,48 @@
+//0.13.1c: one class meets an interface obligation and an inherited
+//abstract obligation side by side (distinct names — virtual dispatch is
+//name-based). Ghost satisfies its interface entirely through the
+//abstract winner (spec §2.2 interaction note): legal to declare, still
+//abstract, never instantiated here.
+interface IMove
+{
+    void move(int dx);
+}
+interface IArea
+{
+    int area();
+}
+class Shape
+{
+    public virtual int area();
+}
+class Rect : Shape implements IMove
+{
+    int m_w;
+    int m_h;
+    public Rect(int w, int h)
+    {
+        m_w = w;
+        m_h = h;
+    }
+    public int area()
+    {
+        return m_w * m_h;
+    }
+    public void move(int dx)
+    {
+        m_w = m_w + dx;
+    }
+}
+class Ghost : Shape implements IArea
+{
+}
+int main()
+{
+    Rect r = Rect(3, 4);
+    Shape s = r;
+    assert(s.area() == 12);
+    IMove m = r;
+    m.move(1);
+    assert(r.area() == 16);
+    return 0;
+}

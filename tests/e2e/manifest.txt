@@ -227,6 +227,15 @@ class_deep_ctor 42
 class_method_chain 9
 class_override 2
 class_no_ctor 42
+# --- abstract functions (0.13.1c) ---
+abstract_polymorphism 0
+abstract_reabstract 0
+abstract_iface_coexist 0
+err_abstract_static compile_error The static method "lookup" cannot be abstract
+err_abstract_ctor compile_error The constructor of "Rect" cannot be abstract
+err_abstract_instantiate compile_error Cannot instantiate the abstract class "Shape"
+err_abstract_reabstract compile_error Cannot instantiate the abstract class "Middle"
+err_abstract_generic compile_error Cannot instantiate the abstract class "Box"
 # --- struct-class interop ---
 struct_class_field 42
 struct_class_field_copy 99
@@ -1657,14 +1666,11 @@ cross_mod_ctor_overload 42
 cross_mod_ctor_overload_struct 42
 # --- 0.9.11: a body-less, non-native constructor has no implementation
 # to run, so it is not a call candidate — the resolver matches the same
-# predicate the backend's IsRegisteredCtor uses. A call that would only
-# match such a constructor reports a clear error instead of allocating
-# and silently dropping the arguments; a zero-argument call still
-# allocates (the abstract shape). ---
-ctor_bodyless_arg_no_match compile_error no constructor of class "Cfg" matches the argument list
-ctor_bodyless_only_args compile_error class "Cfg" has no constructor; Cfg() cannot take arguments
+# predicate the backend's IsRegisteredCtor uses. (0.13.1c: the class
+# forms of this family retired — a bodyless class constructor is an
+# abstract method now and the declaration itself is rejected; see
+# err_abstract_ctor. The struct twin keeps the 0.9.11 selection rule.) ---
 ctor_bodyless_arg_no_match_struct compile_error no constructor of struct "Vec" matches the argument list
-ctor_bodyless_zero_arg_alloc 0
 # --- 0.9.12 (NCU v2.7): the class stub rebuilds the full member surface
 # from the wire (own fields, methods, constructors), so a consumer-side
 # public field read and instance method call on an imported object

@@ -1,0 +1,22 @@
+//0.13.1c: re-abstraction re-opens the instantiation gate for the whole
+//subclass chain — Middle re-declares f bodyless, so Middle and Leaf are
+//abstract again even though Base implements f.
+class Base
+{
+    public virtual int f()
+    {
+        return 1;
+    }
+}
+class Middle : Base
+{
+    public virtual int f();
+}
+class Leaf : Middle
+{
+}
+int main()
+{
+    Middle m = Middle();
+    return 0;
+}

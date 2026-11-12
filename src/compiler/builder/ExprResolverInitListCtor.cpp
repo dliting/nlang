@@ -28,6 +28,9 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
 {
     if (pClassDecl->IsBuiltinClass())
         return;
+    //0.13.1c: the init-list spelling allocates like the ctor-call forms.
+    if (RejectAbstractInstantiation(*pClassDecl, sn.Location()))
+        return;
     for (auto& entry : sn.Entries())
     {
         if (!KeyIsIdentifier(entry))

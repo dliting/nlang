@@ -10,6 +10,8 @@
 #include "BuildEnvironment.h"
 #include <nlang/compiler/SnTypes.h>
 #include <nlang/runtime/StackDump.h>
+#include <set>
+#include <vector>
 
 namespace nlang
 {
@@ -359,6 +361,67 @@ SnField *SnClassDecl::FindField(const std::string& sName) const
 	if (m_pSuperClass)
 		return m_pSuperClass->FindField(sName);
 	return nullptr;
+}
+
+//First same-name non-static method in dispatch order (see SnMisc.h).
+const SnFunction *SnClassDecl::FindDispatchWinner(
+	const std::string &name) const
+{
+	std::set<const SnClassDecl*> seen;
+	for (auto *pChain = this; pChain && !seen.count(pChain);
+		pChain = pChain->SuperClass())
+	{
+		seen.insert(pChain);
+		if (pChain->IsBuiltinClass())
+			break;
+		for (auto &member : pChain->Members())
+			if (member.Kind() == NK_Function && member.Name() == name
+				&& !member.ContainFlags(NF_Static))
+				return static_cast<const SnFunction*>(&member);
+	}
+	return nullptr;
+}
+
+//Abstract obligations of the whole chain, outermost ancestor first (the
+//order the instantiation gate reports). NF_Static | NF_Native members
+//never carry the obligation pair (the grammar exempts natives; the
+//static conflict is a declaration error), so the skip here is a shape
+//guard, not the primary defense.
+void SnClassDecl::CollectAbstractObligations(
+	std::vector<const SnFunction*> &out) const
+{
+	std::vector<const SnClassDecl*> chain;
+	std::set<const SnClassDecl*> seen;
+	for (auto *pChain = this; pChain && !seen.count(pChain);
+		pChain = pChain->SuperClass())
+	{
+		seen.insert(pChain);
+		if (pChain->IsBuiltinClass())
+			break;
+		chain.push_back(pChain);
+	}
+	for (auto pIt = chain.rbegin(); pIt != chain.rend(); ++pIt)
+		for (auto &member : (*pIt)->Members())
+		{
+			if (member.Kind() != NK_Function
+				|| !member.ContainFlags(NF_Abstract)
+				|| member.IntersectFlags(NF_Static | NF_Native))
+				continue;
+			//Winner-still-abstract rule: a concrete override anywhere in
+			//dispatch order satisfies the obligation; an abstract winner
+			//(own re-declaration, re-abstraction) keeps it open.
+			auto *pWinner = FindDispatchWinner(member.Name());
+			if (pWinner && !pWinner->ContainFlags(NF_Abstract))
+				continue;
+			out.push_back(static_cast<const SnFunction*>(&member));
+		}
+}
+
+bool SnClassDecl::IsAbstractClass() const
+{
+	std::vector<const SnFunction*> obligations;
+	CollectAbstractObligations(obligations);
+	return !obligations.empty();
 }
 
 void SnClassDecl::Accept(ISyntaxNodeVisitor &v)
