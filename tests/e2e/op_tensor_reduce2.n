@@ -32,6 +32,13 @@ int main() {
     float[,] hot = tensor.oneHot(labels, 3);
     if (hot[0, 0] != 0.0f || hot[0, 1] != 1.0f) return 6;
     if (hot[1, 2] != 0.0f || hot[1, 0] != 1.0f) return 7;
+    //labels as a slice view (offset 1 into the owner): row i must take
+    //the element at owner offset 1 + i, not the owner's element i
+    int[] pool = int[3];
+    pool[0] = 1; pool[1] = 2; pool[2] = 0;
+    int[] sub = pool[1:3];
+    float[,] hotSub = tensor.oneHot(sub, 3);
+    if (hotSub[0, 2] != 1.0f || hotSub[1, 0] != 1.0f) return 9;
     //arange(n): 0..n-1
     int[] seq = tensor.arange(4);
     if (seq[0] != 0 || seq[3] != 3 || seq.length() != 4) return 8;

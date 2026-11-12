@@ -292,7 +292,10 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     ReturnInt(ret, handle);
 }
 
-//oneHot(labels, n): float[len, n], row i ones at labels[i].
+//oneHot(labels, n): float[len, n], row i ones at labels[i]. The
+//labels ride their recorded strides (a slice view's element zero sits
+//offset elements into the owner — a direct data[i] read would take
+//labels from the wrong place).
 void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
 {
     NativeArrayView v;
@@ -306,13 +309,15 @@ void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
               "positive");
     const int32_t len = v.dims[0];
     const int32_t* labels = static_cast<const int32_t*>(v.data);
+    int64_t addr = v.offset;
     for (int32_t i = 0; i < len; ++i)
     {
-        if (labels[i] < 0 || labels[i] >= n)
+        if (labels[addr] < 0 || labels[addr] >= n)
             Raise(host, NEXC_OutOfBounds,
-                  "tensor.oneHot: label " + std::to_string(labels[i])
+                  "tensor.oneHot: label " + std::to_string(labels[addr])
                   + " out of range for " + std::to_string(n)
                   + " classes");
+        addr += v.strides[0];
     }
     int32_t outDims[2] = {len, n};
     const int32_t handle = NewArrayShaped(host, NEK_Float32, 2, outDims);
@@ -321,8 +326,12 @@ void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     float* outCells = static_cast<float*>(out.data);
     for (int32_t i = 0; i < len * n; ++i)
         outCells[i] = 0.0f;
+    addr = v.offset;
     for (int32_t i = 0; i < len; ++i)
-        outCells[static_cast<int64_t>(i) * n + labels[i]] = 1.0f;
+    {
+        outCells[static_cast<int64_t>(i) * n + labels[addr]] = 1.0f;
+        addr += v.strides[0];
+    }
     ReturnInt(ret, handle);
 }
 

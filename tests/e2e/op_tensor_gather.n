@@ -31,5 +31,14 @@ int main() {
     vidx[0] = 1; vidx[1] = 1; vidx[2] = 0;
     float[] vp = tensor.gather(v, 0, vidx);
     if (vp[0] != 20.0f || vp[1] != 20.0f || vp[2] != 10.0f) return 3;
+    //indices as a slice view (offset 2 into the owner): the kernel must
+    //read the recorded strides, not data[i] from the owner start
+    int[] pool = int[6];
+    pool[0] = 2; pool[1] = 0; pool[2] = 1;
+    pool[3] = 0; pool[4] = 2; pool[5] = 1;
+    int[] sub = pool[2:5];
+    float[] pickedSub = tensor.gather(logits, 1, sub);
+    if (pickedSub[0] != 2.0f || pickedSub[1] != 5.0f
+        || pickedSub[2] != 11.0f) return 4;
     return 0;
 }
