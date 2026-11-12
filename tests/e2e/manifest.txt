@@ -2208,3 +2208,4 @@ err_nongeneric_type_args compile_error is not generic
 # type-argument spelling (inference is from actuals, §4.12.10).
 err_generic_fn_type_args compile_error resolves to a function, not a generic type
 err_generic_native_fn compile_error cannot declare type parameters
+reserved_words_removed 55

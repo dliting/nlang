@@ -46,7 +46,6 @@ identifiers:
 | `do` |
 | `double` |
 | `else` |
-| `elseif` |
 | `enum` |
 | `false` |
 | `finally` |
@@ -69,7 +68,6 @@ identifiers:
 | `public` |
 | `return` |
 | `short` |
-| `state` |
 | `static` |
 | `string` |
 | `struct` |
@@ -92,10 +90,6 @@ identifiers:
 `func` is both a reserved word and the keyword spelling of the
 function type (chapter 4); its type-argument behavior is specified
 in §1.6.
-
-Being reserved is independent of grammar use: `elseif` and `state`
-are reserved but appear in no grammar production today (§6.3
-likewise notes that `if` has no `elseif` keyword).
 
 ## 1.5 Literals
 

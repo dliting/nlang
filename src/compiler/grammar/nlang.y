@@ -403,7 +403,6 @@ static bool CollectQualifiedSegments(
 %token KT_Default
 %token KT_Double
 %token KT_Else
-%token KT_Elseif
 %token KT_Enum
 %token KT_False
 %token KT_Finally
@@ -426,7 +425,6 @@ static bool CollectQualifiedSegments(
 %token KT_Public
 %token KT_Return
 %token KT_Short
-%token KT_State
 %token KT_Static
 %token KT_String
 %token KT_Struct

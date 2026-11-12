@@ -31,11 +31,12 @@ __all__ = ["NLangLexer"]
 #(Phase 5 removed the 40th keyword: "namespace" is an ordinary
 #identifier now; the 0.7.5 double family added "double"/"long" to the
 #type words; 0.8.3 made "func" a scanner keyword, so the docs side
-#moved it from NLANG_TYPES to NLANG_KEYWORDS.)
+#moved it from NLANG_TYPES to NLANG_KEYWORDS; 0.13.1c removed the
+#experiment-era "elseif"/"state" reserved words.)
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
-    "elseif enum finally for foreach func if implements import in "
-    "interface native out private protected public return state "
+    "enum finally for foreach func if implements import in "
+    "interface native out private protected public return "
     "static struct super switch this throw try typeName using virtual "
     "while".split())
 NLANG_TYPES = frozenset(

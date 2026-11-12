@@ -238,7 +238,6 @@ LineComment	\/\/[^\n]*
 "default"   { return KT_Default; }
 "double"    { return KT_Double; }
 "else"      { return KT_Else; }
-"elseif"    { return KT_Elseif; }
 "enum"      { return KT_Enum; }
 "false"     { return KT_False; }
 "finally"   { return KT_Finally; }
@@ -269,7 +268,6 @@ LineComment	\/\/[^\n]*
 "public"    { return KT_Public; }
 "return"    { return KT_Return; }
 "short"     { return KT_Short; }
-"state"     { return KT_State; }
 "static"    { return KT_Static; }
 "string"    { return KT_String; }
 "struct"    { return KT_Struct; }
@@ -398,9 +396,7 @@ LineComment	\/\/[^\n]*
                  * arming in the class-name position (`class List<T>`
                  * parses its parameter brackets plain). Every identifier
                  * rewrites this flag, so it can only reach a '<' across
-                 * blanks/comments — a comparison `List < 3` against a
-                 * variable shadowing the type name is misread
-                 * (documented limitation). */
+                 * blanks/comments. */
                 /*Flex action code runs in the global namespace, so the
                  *predicate is qualified with nlang:: (it lives in the
                  *runtime namespace). */

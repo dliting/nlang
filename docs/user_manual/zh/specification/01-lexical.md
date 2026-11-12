@@ -35,7 +35,6 @@
 | `do` |
 | `double` |
 | `else` |
-| `elseif` |
 | `enum` |
 | `false` |
 | `finally` |
@@ -58,7 +57,6 @@
 | `public` |
 | `return` |
 | `short` |
-| `state` |
 | `static` |
 | `string` |
 | `struct` |
@@ -80,7 +78,6 @@
 
 `func`既是保留字，也是函数类型的关键字拼写（第4章）；它的类型实参行为在§1.6中规定。
 
-是否保留与语法使用无关：`elseif`与`state`是保留字，但今天不出现在任何语法产生式中（§6.3同样指出`if`没有`elseif`关键字）。
 
 ## 1.5 字面量
 
