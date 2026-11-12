@@ -73,7 +73,9 @@ void VmBackend::MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
     if (expr.Kind() == NK_BinaryExpr) {
         auto& bin = static_cast<SnBinaryExpr&>(expr);
         if (bin.ContainFlags(NF_TensorOp)) {
-            //The plan is always a 2-arg tensor primitive (bin/unary).
+            //The plan is AT MOST a 2-arg tensor primitive — TensorFnFor
+            //only names the fixed 2-formal (or 1-formal neg) overloads in
+            //stdlib/tensor.n; over-reserving covers the 1-arg neg.
             uint16_t claimSize = 2;
             if (claimSize > maxArgs)
                 maxArgs = claimSize;
