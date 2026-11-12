@@ -359,7 +359,11 @@ int VmExecutor::FindMethodByName(int classIdx,
             if (idx < m_currModule->functions.size()
                 && !m_currModule->functions[idx].isStatic
                 && m_currModule->functions[idx].name == methodName)
+            {
+                if (m_currModule->functions[idx].isAbstract)
+                    RaiseAbstractMethodError(methodName);
                 return static_cast<int>(idx);
+            }
         }
         searchClassIdx = cc.superClassIdx;
     }

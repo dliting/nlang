@@ -177,6 +177,17 @@ struct CompiledFunction {
     //bytecode — OP_CallStatic dispatches by name through the host's
     //native table (VmExecutor::RegisterNative). Body-less by contract.
     bool isNative = false;
+    //0.13.1c (v2.18): pure-virtual declaration (`virtual int f(...);`
+    //without a body). Signature-only record with empty bytecode —
+    //dispatch must find an override; FindMethodByName raises when a
+    //lookup lands here (unreachable through the compiler's own output:
+    //the instantiation gate refuses abstract classes, so a dispatch
+    //winner is always concrete — the flag guards artifacts produced
+    //outside compiler invariants). The consumer stub rebuild marks the
+    //member NF_Abstract from it, keeping Task 5's on-demand
+    //IsAbstractClass()/CollectAbstractObligations working across the
+    //import boundary.
+    bool isAbstract = false;
     //0.9.10 (v2.4): static member. Static frames carry no __this slot,
     //and name-based instance dispatch (FindMethodByName) must skip
     //these records — static members are a separate namespace.

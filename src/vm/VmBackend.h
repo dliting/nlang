@@ -269,6 +269,13 @@ private:
     //binding-table intrinsic stamp.
     void EmitNativeFunctionRecord(SnFunction& func,
         CompiledFunction& compiledFunc);
+    //GenerateFunction's abstract arm (0.13.1c): signature-only record
+    //via FillAbstractFunctionRecord; no binding-table stamp.
+    void EmitAbstractFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
+    //GenerateFunction's body-less dispatch (native vs abstract).
+    void EmitBodylessFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
     //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
     void StampIntrinsicChannel(SnFunction& func,
         CompiledFunction& compiledFunc);    //StampIntrinsicChannel's owner resolution (context walk, with the
@@ -562,6 +569,11 @@ private:
     void CollectSignatureTypeDescs(SnFunction& func, CompiledFunction& compiledFunc);
     //Phase 9f: fill the signature-only record for a `native` declaration.
     void FillNativeFunctionRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //0.13.1c: fill the signature-only record for an abstract declaration.
+    void FillAbstractFunctionRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //The shared body of both: flags, frame-layout locals, param count,
+    //return kind, defaults — everything but the family flag byte.
+    void FillSignatureOnlyRecord(SnFunction& func, CompiledFunction& compiledFunc);
     //Allocate the `this` + formal slots, then collect foldable defaults.
     void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                 CompiledFunction& compiledFunc);
@@ -2135,6 +2147,18 @@ inline uint16_t StringMethodStagedArgCount(const std::string& name,
     uint16_t argCount)
 {
     return (name == "substring" && argCount < 2) ? 2 : argCount;
+}
+
+//0.13.1c: abstract-record admission is a class-member concept — an
+//interface method's bodylessness is intrinsic to the kind (its surface
+//rides CompiledInterface.instanceMethods), so admitting a record for it
+//would mint a second, placeholder-named stub beside the interface's own
+//rebuild. Shared by RegisterFunctions and the generation walk.
+inline bool IsAbstractClassMember(const SnField& field)
+{
+    return field.ContainFlags(NF_Abstract)
+        && field.Parent() != nullptr
+        && field.Parent()->Kind() == NK_ClassDecl;
 }
 
 } // namespace nlang

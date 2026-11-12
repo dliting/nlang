@@ -104,6 +104,14 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         fs.read(reinterpret_cast<char*>(&instanceMethodFlag),
                 sizeof(instanceMethodFlag));
         func.isInstanceMethod = (instanceMethodFlag != 0);
+        //v2.18: abstract declaration (see ModuleSaver). A wild flag is a
+        //corrupt image — the stub rebuild and dispatch defense branch on it.
+        uint8_t abstractFlag = 0;
+        fs.read(reinterpret_cast<char*>(&abstractFlag), sizeof(abstractFlag));
+        if (!fs.good() || abstractFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad function abstract flag");
+        func.isAbstract = (abstractFlag != 0);
         //v2.17: generic-function declaration (see ModuleSaver). isGeneric
         //drives the frame descriptor cell fill at push
         //(ResolveFrameInstDesc); the names carry the declared parameter

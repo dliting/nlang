@@ -171,8 +171,14 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //generic records; the free-call opcodes gain a u16 descriptor operand
 //(OP_CallStatic family). A v2.16 module misparses the record tail and
 //call operands; refuse v2.16 and older outright.
+//v2.18 (0.13.1c): every function record gains an abstract flag byte
+//after the instance-method flag; body-less abstract methods now carry
+//a signature-only record (previously they registered nothing, so the
+//wire lost them and consumer stubs could not see the obligation). A
+//v2.17 module lacks the byte and misparses the record tail; refuse
+//v2.17 and older outright.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 17;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 18;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

@@ -1869,6 +1869,11 @@ private:
     //can share it). Returns a functions[] index or -1.
     int FindMethodByName(int classIdx, const std::string& methodName) const;
 
+    //0.13.1c: raised by FindMethodByName when a lookup lands on an
+    //abstract record (artifact corruption, not a user-land exception).
+    [[noreturn]] void RaiseAbstractMethodError(
+        const std::string& methodName) const;
+
     //Phase 13 Step 2: shared engine for OP_CallDelegate /
     //OP_CallDelegateOut. Reads the handle's form, resolves the target
     //(static funcIdx or by-name on the runtime class), builds the callee

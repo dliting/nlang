@@ -110,7 +110,9 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     for (auto& child : members) {
         if (child.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(child);
-            if (func.Body() || func.ContainFlags(NF_Native)) {
+            if (func.Body() || func.ContainFlags(NF_Native)
+                || IsAbstractClassMember(func))
+            {
                 auto it = m_funcIndexMap.find(&func);
                 if (it != m_funcIndexMap.end())
                     DispatchFunctionGeneration(func, it->second);
@@ -193,14 +195,10 @@ static void FillGenericRecordMeta(const SnFunction& func,
     }
 }
 
-//Phase 9f: native function declaration (`native int f(...);`). No
-//bytecode — the VM dispatches by name through the host-registered
-//native table (VmExecutor::RegisterNative). The record carries only
-//the signature: the native reads args directly from the caller's
-//callParamBase cells and writes the return into pResult.
-void VmBackend::FillNativeFunctionRecord(SnFunction& func,
-                                         CompiledFunction& compiledFunc) {
-    compiledFunc.isNative = true;
+//Shared signature fill for the two body-less record families — native
+//(Phase 9f) and abstract (0.13.1c): flags, locals, param count, defaults.
+void VmBackend::FillSignatureOnlyRecord(SnFunction& func,
+                                        CompiledFunction& compiledFunc) {
     //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
     FillGenericRecordMeta(func, compiledFunc);
@@ -243,6 +241,20 @@ void VmBackend::FillNativeFunctionRecord(SnFunction& func,
             dv.tag = RTK_Unfoldable;
         compiledFunc.defaultValues.push_back(dv);
     }
+}
+
+//Phase 9f: `native int f(...);` — host-table dispatch (RegisterNative).
+void VmBackend::FillNativeFunctionRecord(SnFunction& func,
+                                         CompiledFunction& compiledFunc) {
+    compiledFunc.isNative = true;
+    FillSignatureOnlyRecord(func, compiledFunc);
+}
+
+//0.13.1c: `virtual int f(...);` without a body — the record IS the obligation.
+void VmBackend::FillAbstractFunctionRecord(SnFunction& func,
+                                           CompiledFunction& compiledFunc) {
+    compiledFunc.isAbstract = true;
+    FillSignatureOnlyRecord(func, compiledFunc);
 }
 
 //Allocate slot 0 (`this` for class/enum methods) and one slot per formal,

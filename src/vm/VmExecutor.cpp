@@ -449,6 +449,16 @@ std::string FormatBacktraceFrame(const std::string& funcName,
     throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, msg.c_str()));
 }
 
+//0.13.1c: a name-based dispatch landing on an abstract record means the
+//artifact escaped the compiler's instantiation gate (third-party
+//producer or tampering) — the record has no bytecode to run. Same
+//corruption family as "method not found", named distinctly.
+[[noreturn]] void VmExecutor::RaiseAbstractMethodError(
+    const std::string& methodName) const {
+    throw std::runtime_error("NLang VM: abstract method \"" + methodName
+        + "\" has no implementation.");
+}
+
 //K2 slice 4: the building half of RaiseNlangException, split out so
 //NativeRaiseException can root the fresh object before throwing —
 //between the throw and the blocking arm's catch the GIL is away (the

@@ -1,0 +1,6 @@
+//0.13.1c: the library exports a class with an unimplemented (abstract)
+//method; the consumer completes it.
+class Storage
+{
+    public virtual int put(int v);
+}

@@ -160,6 +160,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 				ProducerIdxClamp(idx), typeParamNames);
 		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
 			pMethod->AddFlags(NF_Virtual);
+		//0.13.1c: abstractness rides the function record (isAbstract) —
+		//the stub member feeds Task 5's on-demand
+		//CollectAbstractObligations/IsAbstractClass, so obligations stay
+		//visible across the .ncu boundary.
+		if (cm.functions[idx].isAbstract)
+			pMethod->AddFlags(NF_Abstract);
 		pMembers->push_back(pMethod);
 	}
 

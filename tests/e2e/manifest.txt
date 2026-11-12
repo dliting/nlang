@@ -236,6 +236,9 @@ err_abstract_ctor compile_error The constructor of "Rect" cannot be abstract
 err_abstract_instantiate compile_error Cannot instantiate the abstract class "Shape"
 err_abstract_reabstract compile_error Cannot instantiate the abstract class "Middle"
 err_abstract_generic compile_error Cannot instantiate the abstract class "Box"
+#Func handle bound on an abstract-typed variable re-dispatches by name on
+#the concrete runtime object — the override's result comes back (12).
+abstract_fnhandle 12
 # --- struct-class interop ---
 struct_class_field 42
 struct_class_field_copy 99
@@ -1684,6 +1687,13 @@ imported_class_method_call 42
 # full 32-bit exit-code comparison (bash would truncate it to 231). ---
 imported_qualified_static 999
 imported_bare_static 999
+# --- 0.13.1c: abstract obligations cross the .ncu wire. The stub rebuild
+# marks the imported abstract method, so a derived class that leaves the
+# obligation unimplemented stays abstract and instantiation is rejected
+# with the missing method named; the implementing consumer dispatches
+# through both derived-typed and base-typed receivers. ---
+abstract_crossmodule compile_error abstract method "put" has no implementation
+abstract_crossmodule_ok 0
 # --- 0.9.11: a default expression that re-enters the same function's own
 # default emission is caught by the shared DefaultEmitGuard instead of
 # recursing forever at compile time; both the free-function and the

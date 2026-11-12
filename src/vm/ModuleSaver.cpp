@@ -172,6 +172,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t instanceMethodFlag = func.isInstanceMethod ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&instanceMethodFlag),
                  sizeof(instanceMethodFlag));
+        //v2.18: abstract declaration — signature-only record carrying
+        //the obligation; dispatch must find an override.
+        uint8_t abstractFlag = func.isAbstract ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&abstractFlag),
+                 sizeof(abstractFlag));
         //v2.17: generic-function declaration — the flag plus the declared
         //type-parameter names (the class rows carry the same pair). The
         //loader rebuilds isGeneric/typeParamNames from this; the wire has

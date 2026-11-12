@@ -169,10 +169,13 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             //the records — the template row is the one implementation
             //every instantiation shares (erasure naming keeps one key;
             //the instantiation copies never register).
-            //Phase 9f: native declarations register like normal functions
-            //(the record carries isNative + param signature); a body-less
-            //non-native declaration gets no record.
-            if (!func.Body() && !func.ContainFlags(NF_Native))
+            //Phase 9f: natives register like normal functions (the record
+            //carries isNative + signature); a body-less non-native gets
+            //no record — except the abstract CLASS member (0.13.1c, see
+            //IsAbstractClassMember): its signature-only record IS the
+            //obligation the consumer stub rebuilds the surface from.
+            if (!func.Body() && !func.ContainFlags(NF_Native)
+                && !IsAbstractClassMember(func))
                 return;
             CompiledFunction cf;
             cf.name = KeyOf(func);
