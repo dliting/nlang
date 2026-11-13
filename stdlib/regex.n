@@ -59,7 +59,9 @@ class RENode {
 
     public int kind;
     public int ch;              // kChar: the literal code point
-    public int classId;         // kClass: index into REProg's class table
+    public int clsNeg;          // kClass: 1 = the '^' form of the set
+    public List<int> clsLo;     // kClass: members as inclusive range pairs
+    public List<int> clsHi;     // kClass: matching upper bounds
     public int anyNotNewline;   // kAny: 1 = "." excludes newline
     public int min;             // kRepeat: minimum count
     public int max;             // kRepeat: maximum count, -1 = unbounded
@@ -71,7 +73,9 @@ class RENode {
     public RENode(int k) {
         kind = k;
         ch = 0;
-        classId = 0;
+        clsNeg = 0;
+        clsLo = {};
+        clsHi = {};
         anyNotNewline = 0;
         min = 0;
         max = 0;
@@ -230,8 +234,8 @@ const class REProg {
 
 // Recursive-descent pattern parser: alternation at the top, sequences
 // inside that, atoms with repetition suffixes innermost. Literals,
-// escapes, groups and the repetition operators are recognized here;
-// the bracket character-class syntax arrives in the next task. Nesting
+// escapes, groups, bracket character classes and the repetition
+// operators are recognized here. Nesting
 // height (groups plus repeat wraps) is bounded so the parser's own
 // recursion stays far inside the VM's call limit.
 class REParser {
@@ -249,6 +253,28 @@ class REParser {
     private static const int kCpBraceOpen = 123;
     private static const int kCpBraceClose = 125;
     private static const int kCpComma = 44;
+    private static const int kCpBracketOpen = 91;
+    private static const int kCpBracketClose = 93;
+    private static const int kCpCaret = 94;
+    private static const int kCpMinus = 45;
+
+    // ASCII bounds the Perl and POSIX class range tables are built
+    // from (Go's regexp/syntax doc.go sets). kCpMin/kCpMax close the
+    // code point domain for the complement classes (\D \S \W).
+    private static const int kCpMin = 0;
+    private static const int kCpExcl = 33;          // '!'
+    private static const int kCpUnitSep = 31;       // US
+    private static const int kCpShiftOut = 14;      // SO
+    private static const int kCpSlash = 47;         // '/'
+    private static const int kCpAt = 64;            // '@'
+    private static const int kCpUnderscore = 95;    // '_'
+    private static const int kCpGrave = 96;         // '`'
+    private static const int kCpTilde = 126;        // '~'
+    private static const int kCpDel = 127;          // DEL
+    private static const int kCpSpace = 32;         // ' '
+    private static const int kCpUpperF = 70;        // 'F'
+    private static const int kCpLowerF = 102;       // 'f'
+    private static const int kCpMax = 1114111;      // last code point
 
     // Backslash escape letters with a defined meaning. Everything else
     // alphanumeric is rejected as an invalid escape sequence; escaped
@@ -259,7 +285,10 @@ class REParser {
     private static const int kChLowerD = 100;
     private static const int kChLowerS = 115;
     private static const int kChLowerW = 119;
-    // \a \f \n \r \t \v map to the C control codes.
+    // \a \f \n \r \t \v map to the C control codes. \b is a word
+    // boundary outside a class and the backspace character inside one
+    // (Perl-family consensus), so only the class path reads kChB.
+    private static const int kChB = 98;
     private static const int kChA = 97;
     private static const int kChF = 102;
     private static const int kChN = 110;
@@ -267,6 +296,7 @@ class REParser {
     private static const int kChT = 116;
     private static const int kChV = 118;
     private static const int kCodeBell = 7;
+    private static const int kCodeBackspace = 8;
     private static const int kCodeTab = 9;
     private static const int kCodeLF = 10;
     private static const int kCodeFF = 12;
@@ -378,6 +408,7 @@ class REParser {
             return n;
         }
         if (cp == kCpLParen) { return this.parseGroup(); }
+        if (cp == kCpBracketOpen) { return this.parseClass(); }
         if (cp == REProg.kCpBackslash) { return this.parseEscape(); }
         mPos = mPos + 1;
         return RENode.makeChar(cp);
@@ -406,6 +437,217 @@ class REParser {
         }
         mPos = mPos + 1;                  // ')'
         return body;
+    }
+
+    // Bracket class: '[' optional '^' then members until ']'. ']' is a
+    // literal member when it comes first (also right after '^'), '-'
+    // when first or just before ']', and x-y is an inclusive range
+    // otherwise (Go's member rules). '&' and '~' stay plain members:
+    // no class set operators exist (spec D3). The ranges and the '^'
+    // negation ride in the node; RECompile only copies them out.
+    private RENode parseClass() {
+        int start = mPos;
+        mPos = mPos + 1;                  // consume '['
+        RENode n = RENode(RENode.kClass);
+        if (mPos < mCpCount && mCps[mPos] == kCpCaret) {
+            n.clsNeg = 1;
+            mPos = mPos + 1;
+        }
+        bool first = true;
+        while (mPos < mCpCount) {
+            int cp = mCps[mPos];
+            if (cp == kCpBracketClose && !first) {
+                mPos = mPos + 1;          // consume ']'
+                return n;
+            }
+            first = false;
+            int lo = this.classAtom(n);   // -1: a set member was merged
+            if (lo >= 0) {
+                // A '-' between two single characters with a character
+                // after it opens a range; anywhere else it is a member.
+                bool dashRange = mPos + 1 < mCpCount
+                    && mCps[mPos] == kCpMinus
+                    && mCps[mPos + 1] != kCpBracketClose;
+                if (dashRange) {
+                    mPos = mPos + 1;      // consume '-'
+                    int hi = this.classAtom(n);
+                    if (hi < 0 || lo > hi) {
+                        this.errAt(start, "invalid character class range");
+                    }
+                    this.addClsRange(n, lo, hi);
+                } else {
+                    this.addClsRange(n, lo, lo);
+                }
+            }
+        }
+        this.errAt(start, "missing closing ]");
+        return n;                         // unreachable: errAt throws
+    }
+
+    // One class member: a single character, possibly escaped, or a
+    // Perl class letter / POSIX name whose ranges merge into n.
+    // Returns the literal code point, or -1 when a set was merged so
+    // no range endpoint exists (a set cannot bound a range).
+    private int classAtom(RENode n) {
+        int cp = mCps[mPos];
+        if (cp == kCpBracketOpen && mPos + 1 < mCpCount
+            && mCps[mPos + 1] == kCpColon) {
+            return this.posixClass(n);    // consumes '[:name:]'
+        }
+        if (cp != REProg.kCpBackslash) { mPos = mPos + 1; return cp; }
+        int esc = mPos;
+        mPos = mPos + 1;
+        if (mPos >= mCpCount) { this.errAt(esc, "trailing \\ in pattern"); }
+        int e = mCps[mPos];
+        mPos = mPos + 1;
+        if (e >= kCpZero && e <= kCpNine) {
+            this.errAt(mPos - 1, "back references are not supported");
+        }
+        if (this.isPerlClassLetter(e)) {
+            this.addPerlRanges(n, e);
+            return -1;
+        }
+        if (e == kChB) { return kCodeBackspace; }  // class \b = backspace
+        int lit = this.controlValue(e);
+        if (lit >= 0) { return lit; }
+        if (REParser.isAlnumCp(e)) {
+            this.errAt(mPos - 1, "invalid escape sequence");
+        }
+        return e;                         // escaped punctuation
+    }
+
+    // POSIX class name '[ :' name ':]'. An unclosed '[:' falls back to
+    // ordinary members: '[' merges into n here, ':' follows as the
+    // next plain member (Go's parser does the same).
+    private int posixClass(RENode n) {
+        int start = mPos;                 // the '[' of '[:'
+        int p = mPos + 2;                 // after '[:'
+        int nameLo = p;
+        while (p < mCpCount && mCps[p] != kCpColon) { p = p + 1; }
+        if (p + 1 >= mCpCount || mCps[p + 1] != kCpBracketClose) {
+            this.addClsRange(n, kCpBracketOpen, kCpBracketOpen);
+            mPos = mPos + 1;              // '[' is a plain member
+            return -1;
+        }
+        string name = mText.substring(this.byteOfCp(nameLo),
+            this.byteOfCp(p));
+        if (!this.posixRanges(n, name)) {
+            this.errAt(start, "invalid character class name");
+        }
+        mPos = p + 2;                     // past ':]'
+        return -1;
+    }
+
+    // The POSIX ASCII classes, one entry per doc.go name. [[:space:]]
+    // includes \v while \s does not: doc.go keeps the difference and
+    // so do we. "word" is \w exactly. False = unknown name.
+    private bool posixRanges(RENode n, string name) {
+        if (name == "alnum") {
+            this.addClsRange(n, kCpZero, kCpNine);
+            this.addClsRange(n, kCpUpperA, kCpUpperZ);
+            this.addClsRange(n, kCpLowerA, kCpLowerZ);
+            return true;
+        }
+        if (name == "alpha") {
+            this.addClsRange(n, kCpUpperA, kCpUpperZ);
+            this.addClsRange(n, kCpLowerA, kCpLowerZ);
+            return true;
+        }
+        if (name == "ascii") {
+            this.addClsRange(n, kCpMin, kCpDel);
+            return true;
+        }
+        if (name == "blank") {
+            this.addClsRange(n, kCodeTab, kCodeTab);
+            this.addClsRange(n, kCpSpace, kCpSpace);
+            return true;
+        }
+        if (name == "cntrl") {
+            this.addClsRange(n, kCpMin, kCpUnitSep);
+            this.addClsRange(n, kCpDel, kCpDel);
+            return true;
+        }
+        if (name == "digit") {
+            this.addClsRange(n, kCpZero, kCpNine);
+            return true;
+        }
+        if (name == "graph") {
+            this.addClsRange(n, kCpExcl, kCpTilde);
+            return true;
+        }
+        if (name == "lower") {
+            this.addClsRange(n, kCpLowerA, kCpLowerZ);
+            return true;
+        }
+        if (name == "print") {
+            this.addClsRange(n, kCpSpace, kCpTilde);
+            return true;
+        }
+        if (name == "punct") {
+            this.addClsRange(n, kCpExcl, kCpSlash);
+            this.addClsRange(n, kCpColon, kCpAt);
+            this.addClsRange(n, kCpBracketOpen, kCpGrave);
+            this.addClsRange(n, kCpBraceOpen, kCpTilde);
+            return true;
+        }
+        if (name == "space") {
+            this.addClsRange(n, kCodeTab, kCodeCR);    // includes \v
+            this.addClsRange(n, kCpSpace, kCpSpace);
+            return true;
+        }
+        if (name == "upper") {
+            this.addClsRange(n, kCpUpperA, kCpUpperZ);
+            return true;
+        }
+        if (name == "word") {
+            this.addPerlRanges(n, kChLowerW);
+            return true;
+        }
+        if (name == "xdigit") {
+            this.addClsRange(n, kCpZero, kCpNine);
+            this.addClsRange(n, kCpUpperA, kCpUpperF);
+            this.addClsRange(n, kCpLowerA, kCpLowerF);
+            return true;
+        }
+        return false;
+    }
+
+    // Perl class letters as ASCII ranges; the uppercase letters are
+    // materialized as complements (Go's parser folds negated classes
+    // the same way), so a class stays "ranges plus one neg flag" and
+    // clsNeg belongs to the '^' syntax alone. \s excludes \v.
+    private void addPerlRanges(RENode n, int e) {
+        if (e == kChLowerD) {
+            this.addClsRange(n, kCpZero, kCpNine);
+        } else if (e == kChD) {
+            this.addClsRange(n, kCpMin, kCpSlash);
+            this.addClsRange(n, kCpColon, kCpMax);
+        } else if (e == kChLowerS) {
+            this.addClsRange(n, kCodeTab, kCodeLF);
+            this.addClsRange(n, kCodeFF, kCodeCR);
+            this.addClsRange(n, kCpSpace, kCpSpace);
+        } else if (e == kChS) {
+            this.addClsRange(n, kCpMin, kCodeBackspace);
+            this.addClsRange(n, kCodeVT, kCodeVT);
+            this.addClsRange(n, kCpShiftOut, kCpUnitSep);
+            this.addClsRange(n, kCpExcl, kCpMax);
+        } else if (e == kChLowerW) {
+            this.addClsRange(n, kCpZero, kCpNine);
+            this.addClsRange(n, kCpUpperA, kCpUpperZ);
+            this.addClsRange(n, kCpUnderscore, kCpUnderscore);
+            this.addClsRange(n, kCpLowerA, kCpLowerZ);
+        } else {                          // kChW
+            this.addClsRange(n, kCpMin, kCpSlash);
+            this.addClsRange(n, kCpColon, kCpAt);
+            this.addClsRange(n, kCpBracketOpen, kCpCaret);
+            this.addClsRange(n, kCpGrave, kCpGrave);
+            this.addClsRange(n, kCpBraceOpen, kCpMax);
+        }
+    }
+
+    private void addClsRange(RENode n, int lo, int hi) {
+        n.clsLo.add(lo);
+        n.clsHi.add(hi);
     }
 
     // Repetition suffixes: * + ? and {n} {n,} {n,m}, each optionally
@@ -525,7 +767,7 @@ class REParser {
         }
         if (this.isPerlClassLetter(e)) {
             RENode n = RENode(RENode.kClass);
-            n.ch = e;                     // RECompile expands the letter
+            this.addPerlRanges(n, e);     // uppercase letter = complement
             return n;
         }
         int lit = this.controlValue(e);
@@ -588,29 +830,6 @@ class REParser {
 // const program.
 class RECompile {
     public static const int kMaxRepeatCount = 1000;   // Go's syntax limit
-
-    // ASCII ranges the Perl class escapes expand to (Go parity).
-    private static const int kDigitLo = 48;
-    private static const int kDigitHi = 57;
-    private static const int kUpperLo = 65;
-    private static const int kUpperHi = 90;
-    private static const int kLowerLo = 97;
-    private static const int kLowerHi = 122;
-    private static const int kUnderscore = 95;
-    // \s is \t \n \f \r and space; the vertical tab (11) is excluded.
-    private static const int kTab = 9;
-    private static const int kLF = 10;
-    private static const int kFF = 12;
-    private static const int kCR = 13;
-    private static const int kSpace = 32;
-
-    // Escape letters the Perl classes are keyed by (RENode.ch).
-    private static const int kChD = 68;
-    private static const int kChS = 83;
-    private static const int kChW = 87;
-    private static const int kChLowerD = 100;
-    private static const int kChLowerS = 115;
-    private static const int kChLowerW = 119;
 
     public static REProg compile(RENode root) {
         REBuilder b = REBuilder();
@@ -717,25 +936,13 @@ class RECompile {
         }
     }
 
-    // The Perl class escapes expand to flat range tables at compile
-    // time; the escape letter rides in RENode.ch from the parser.
-    // \s follows Go's ASCII set exactly: \t \n \f \r and space.
+    // The class ranges ride in RENode.clsLo/clsHi from the parser
+    // (bracket classes parse them directly; the escape letters expand
+    // there), so the builder only copies pairs into the shared table.
     private static int classIdFor(RENode n, REBuilder b) {
-        int e = n.ch;
-        int neg = 0;
-        if (e == kChD || e == kChS || e == kChW) { neg = 1; }
-        int id = b.beginClass(neg, 0);
-        if (e == kChD || e == kChLowerD) {
-            b.addClass(kDigitLo, kDigitHi);
-        } else if (e == kChS || e == kChLowerS) {
-            b.addClass(kTab, kLF);
-            b.addClass(kFF, kCR);
-            b.addClass(kSpace, kSpace);
-        } else {
-            b.addClass(kDigitLo, kDigitHi);
-            b.addClass(kUpperLo, kUpperHi);
-            b.addClass(kUnderscore, kUnderscore);
-            b.addClass(kLowerLo, kLowerHi);
+        int id = b.beginClass(n.clsNeg, 0);
+        for (int i = 0; i < n.clsLo.length(); i = i + 1) {
+            b.addClass(n.clsLo[i], n.clsHi[i]);
         }
         return id;
     }
