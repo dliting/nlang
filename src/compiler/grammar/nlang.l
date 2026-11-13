@@ -238,7 +238,6 @@ LineComment	\/\/[^\n]*
 "default"   { return KT_Default; }
 "double"    { return KT_Double; }
 "else"      { return KT_Else; }
-"elseif"    { return KT_Elseif; }
 "enum"      { return KT_Enum; }
 "false"     { return KT_False; }
 "finally"   { return KT_Finally; }
@@ -269,7 +268,6 @@ LineComment	\/\/[^\n]*
 "public"    { return KT_Public; }
 "return"    { return KT_Return; }
 "short"     { return KT_Short; }
-"state"     { return KT_State; }
 "static"    { return KT_Static; }
 "string"    { return KT_String; }
 "struct"    { return KT_Struct; }
@@ -289,8 +287,6 @@ LineComment	\/\/[^\n]*
 "while"     { return KT_While; }
 
             /* double-character operators */
-"++"        { return OT_INC; }
-"--"        { return OT_DEC; }
 "<<"        { return OT_LSH; }
 "<<="       { return OT_LSHS; }
 ">>"        {
@@ -336,7 +332,6 @@ LineComment	\/\/[^\n]*
 ">="        { return OT_GE; }
 "!="        { return OT_NE; }
 "=="        { return OT_EQ; }
-"~="        { return OT_AEQ; }
 "&&"        { return OT_AND; }
 "||"        { return OT_OR; }
 "&"         { return '&'; }

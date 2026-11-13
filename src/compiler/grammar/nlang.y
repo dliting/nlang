@@ -401,7 +401,6 @@ static bool CollectQualifiedSegments(
 %token KT_Default
 %token KT_Double
 %token KT_Else
-%token KT_Elseif
 %token KT_Enum
 %token KT_False
 %token KT_Finally
@@ -424,7 +423,6 @@ static bool CollectQualifiedSegments(
 %token KT_Public
 %token KT_Return
 %token KT_Short
-%token KT_State
 %token KT_Static
 %token KT_String
 %token KT_Struct
@@ -444,8 +442,6 @@ static bool CollectQualifiedSegments(
 %token KT_While
 
 /*double-character operator type */
-%token OT_INC
-%token OT_DEC
 %token OT_LSH
 %token OT_RSH
 %token OT_LSHS
@@ -454,7 +450,6 @@ static bool CollectQualifiedSegments(
 %token OT_GE
 %token OT_NE
 %token OT_EQ
-%token OT_AEQ
 %token OT_AND
 %token OT_OR
 %token OT_MODS
@@ -478,12 +473,12 @@ static bool CollectQualifiedSegments(
 %left '|'
 %left '^'
 %left '&'
-%left OT_AEQ OT_EQ OT_NE
+%left OT_EQ OT_NE
 %left OT_GE '>' OT_LE '<'
 %left OT_RSH OT_LSH
 %left '-' '+'
 %left '/' '*' '%'
-%right '~' OT_DEC P_Minus OT_INC '!'
+%right '~' P_Minus '!'
 %left KT_As
 
 %nonassoc P_NonMember
@@ -1988,7 +1983,11 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //arms into SubscriptItemList REMOVES the two `ConcreteParam: Expression
 //.' shift/reduce conflicts — ConcreteParam no longer lives in the
 //bracket context — moving the totals to 29/3; every other conflict is
-//unchanged in kind (rule renumbering only, 364→375 family). History: dev's
+//unchanged in kind (rule renumbering only, 364→375 family). Re-measured
+//2026-11-13 (v0.13.7 dead-token teardown, bison 3.8.2): removing the
+//KT_Elseif/KT_State/OT_INC/OT_DEC/OT_AEQ declarations and their
+//precedence entries — no production ever consumed them — holds the
+//totals at 29/3 unchanged. History: dev's
 //line measured 27/3 with every generic opener on the 0.10.8 D1
 //OT_TypeLt token; master's declared-generics line re-adopted the
 //plain-'<' family because a user-declared generic class name cannot

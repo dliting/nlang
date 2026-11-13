@@ -79,14 +79,14 @@ under the installation's `docs\site\`), with the navigation tree on
 the left. The search box is in the window's top-left corner (next to
 the site title) and supports full-text search.
 
-### `v--1` gives a `syntax error`?
+### Why does `v--1` not decrement?
 
-The lexer reads `--` and `++` as single tokens (reserved for
-increment/decrement operators the grammar does not use yet), so `v--1`
-is read as `v`, `--`, `1` and fails as a statement (`syntax error`,
-`Invalid statement.`). Put a space between the two operators
-(`v - -1`) or parenthesize the unary operand (`v - (-1)`). Plain `v+1`
-and `v+-1` are fine — `+-` is not a token.
+nlang has no increment or decrement operators, and `++` and `--` are
+not single tokens — the lexer splits them character by character. So
+`v--1` reads as `v - (-1)`, subtraction of `-1`, and `v+-1` reads as
+`v + (-1)`. A bare `v++;` is a syntax error (`syntax error`,
+`Invalid statement.`) because the second `+` has no operand. Write
+`v = v + 1;` to increment.
 
 See also: [Specification / Expressions](../specification/05-expressions/index.md).
 

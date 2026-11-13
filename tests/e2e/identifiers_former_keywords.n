@@ -1,0 +1,12 @@
+// v0.13.7: words the lexer used to reserve without any matching feature
+// must be usable as plain identifiers (dead keyword scaffold removed).
+import io;
+
+int main() {
+    int state = 3;
+    int elseif = 4;
+    state = state + elseif;
+    string foreachless = "ok";
+    if (state != 7 || foreachless != "ok") { return 1; }
+    return 0;
+}

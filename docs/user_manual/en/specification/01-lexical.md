@@ -46,7 +46,6 @@ identifiers:
 | `do` |
 | `double` |
 | `else` |
-| `elseif` |
 | `enum` |
 | `false` |
 | `finally` |
@@ -69,7 +68,6 @@ identifiers:
 | `public` |
 | `return` |
 | `short` |
-| `state` |
 | `static` |
 | `string` |
 | `struct` |
@@ -91,10 +89,6 @@ identifiers:
 `func` is both a reserved word and the keyword spelling of the
 function type (chapter 4); its type-argument behavior is specified
 in §1.6.
-
-Being reserved is independent of grammar use: `elseif` and `state`
-are reserved but appear in no grammar production today (§6.3
-likewise notes that `if` has no `elseif` keyword).
 
 ## 1.5 Literals
 
@@ -149,11 +143,9 @@ The multi-character operators that appear in the grammar are:
 `<<` `<<=` `>>` `>>=` `<=` `>=` `!=` `==` `&&` `||`
 `%=` `*=` `+=` `-=` `/=` `&=` `|=` `^=`
 
-The lexer also produces the sequences `++` `--` `~=`, but none
-of them appears in any production, so each is rejected as a syntax
-error wherever it occurs. Single-character punctuation
-forms a token of its own. Which token sequences are legal where is
-defined by the grammar (chapter 2).
+Single-character punctuation forms a token
+of its own. Which token sequences are legal where is defined by the
+grammar (chapter 2).
 
 Type-argument brackets: a `<` that follows one of the built-in
 generic names `List`, `Dict`, `Channel`, `Future` or the keyword
