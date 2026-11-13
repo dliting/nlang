@@ -2619,6 +2619,19 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
 #to 300 s by user ruling on 2026-11-12.
 set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
 
+#regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
+#is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
+#host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
+#case total 100 s plus harness slack, inside the ceiling).
+add_test(NAME regex_redos_compile
+    COMMAND ncc build
+        ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
+        -o ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
+add_test(NAME regex_redos_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
+set_tests_properties(regex_redos_run PROPERTIES
+    DEPENDS regex_redos_compile TIMEOUT 300)
+
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
 #search rules; run it from the repo root exactly like the manual gate in
