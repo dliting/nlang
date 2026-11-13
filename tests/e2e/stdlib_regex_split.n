@@ -1,0 +1,42 @@
+// v0.13.7 regex: split() -- plain separators, limit rules, capture groups
+// staying out of the result, and the probed Go pair for empty matches (D10).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    List<string> fs = Regex(",").split("a,b,,c");
+    if (fs.length() != 4) { bad = bad + 1; }
+    if (fs.length() == 4) {
+        if (fs[0] != "a" || fs[1] != "b" || fs[2] != "" || fs[3] != "c") { bad = bad + 1; }
+    }
+    // leading and trailing separators yield empty edge segments
+    List<string> edge = Regex(",").split(",a,");
+    if (edge.length() != 3) { bad = bad + 1; }
+    if (edge.length() == 3) {
+        if (edge[0] != "" || edge[1] != "a" || edge[2] != "") { bad = bad + 1; }
+    }
+    // limit>0 caps segments; the tail stays glued (Go rule); 0 -> empty list
+    List<string> lim = Regex(",").split("a,b,c", 2);
+    if (lim.length() != 2) { bad = bad + 1; }
+    if (lim.length() == 2 && lim[1] != "b,c") { bad = bad + 1; }
+    List<string> zero = Regex(",").split("a,b,c", 0);
+    if (zero.length() != 0) { bad = bad + 1; }
+    // a pattern that never matches yields exactly the input
+    List<string> nm = Regex("x").split("abc");
+    if (nm.length() != 1 || nm[0] != "abc") { bad = bad + 1; }
+    // capture groups are NOT injected into the result (unlike JS/Python)
+    List<string> gp = Regex("(,)").split("a,b");
+    if (gp.length() != 2 || gp[0] != "a" || gp[1] != "b") { bad = bad + 1; }
+    // the probed Go pair (D10): "a*" splitting "ab" gives ["", "b"] -- the
+    // trailing empty remainder after the end-of-string empty match is dropped
+    List<string> em = Regex("a*").split("ab");
+    if (em.length() != 2 || em[0] != "" || em[1] != "b") { bad = bad + 1; }
+    // multibyte separators split on byte-exact boundaries (D4)
+    List<string> zh = Regex("，").split("一，二");
+    if (zh.length() != 2 || zh[0] != "一" || zh[1] != "二") { bad = bad + 1; }
+    // split of the empty input: one empty segment (Go Split parity)
+    List<string> ei = Regex(",").split("");
+    if (ei.length() != 1 || ei[0] != "") { bad = bad + 1; }
+    return bad;
+}

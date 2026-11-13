@@ -1790,6 +1790,36 @@ const class Regex {
         }
         return found;
     }
+
+    // Split on every match, the pattern acting as a plain separator:
+    // capture groups never enter the result (unlike JS and Python).
+    // limit < 0 splits everywhere, 0 yields the empty list, n > 0
+    // returns at most n segments, the last taking the whole remainder.
+    // An empty separator sitting at the end of the input consumes no
+    // segment, so "a*" on "ab" gives ["", "b"] (Go's split rule) while
+    // a non-empty separator at the end still leaves an empty trailing
+    // segment (",a," gives three).
+    public List<string> split(string input) {
+        return this.split(input, -1);
+    }
+
+    public List<string> split(string input, int limit) {
+        List<string> segs = {};
+        if (limit == 0) { return segs; }
+        int cap = -1;
+        if (limit > 0) { cap = limit - 1; }      // n-1 separators + tail
+        List<Match> seps = this.matches(input, cap);
+        int prev = 0;
+        bool skipTail = false;
+        for (int i = 0; i < seps.length(); i = i + 1) {
+            Match m = seps[i];
+            segs.add(input.substring(prev, m.start));
+            prev = m.end;
+            skipTail = (m.end == m.start && m.end == input.length());
+        }
+        if (!skipTail) { segs.add(input.substring(prev)); }
+        return segs;
+    }
 }
 
 // One match result: the span and text of the whole match (group 0)
