@@ -123,8 +123,9 @@ std::string SnBinaryExpr::ToString() const
 		"&&", "||",
 		"-", "!",
 		"<<", ">>",
+		"&", "|", "^", "~",
 	};
-	static_assert(std::size(opNames) == OP_Shr + 1,
+	static_assert(std::size(opNames) == OP_BitNot + 1,
 		"opNames is positional and must cover every Operator value");
 	std::stringstream ss;
 	if (m_pRight)

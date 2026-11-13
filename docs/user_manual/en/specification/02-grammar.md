@@ -218,8 +218,8 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
-                | "==" | "!=" | "&&" | "||" ;
-UnaryOp         = "-" | "+" | "!" ;
+                | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
+UnaryOp         = "-" | "+" | "!" | "~" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -267,12 +267,15 @@ lowest; within a group the listed associativity applies.
 |---|---|---|
 | call, subscript, member | `( )` `[ ]` `.` | left; the call `( )` non-associative |
 | cast | `as` | left |
-| unary | `!` `-` `+` | right |
+| unary | `!` `-` `+` `~` | right |
 | multiplicative | `*` `/` `%` | left |
 | additive | `+` `-` | left |
 | shift | `<<` `>>` | left |
 | relational | `<` `<=` `>` `>=` | left |
 | equality | `==` `!=` | left |
+| bitwise AND | `&` | left |
+| bitwise XOR | `^` | left |
+| bitwise OR | `\|` | left |
 | logical AND | `&&` | left |
 | logical OR | `\|\|` | left |
 

@@ -75,7 +75,7 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
         return InvokeExprPeakDepth(expr, visited, isMethodContext);
     //Non-invoke expressions: recurse into children.
     //UnaryExpr: NLang uses NK_BinaryExpr for both binary and unary.
-    //Unary ops (OP_Neg, OP_LogicalNot) have Right()==nullptr.
+    //Unary ops (OP_Neg, OP_BitNot, OP_LogicalNot) have Right()==nullptr.
     if (kind == NK_BinaryExpr)
         return BinaryExprPeakDepth(expr, visited);
     //CastExpr

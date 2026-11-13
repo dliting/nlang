@@ -32,6 +32,10 @@
 | OP_Neg      | kind, dst             | locals[dst] = -locals[dst] |
 | OP_Shl      | kind, dst, src        | locals[dst] <<= 计数；计数必须在[0, 位宽)内，否则VM抛具名错误 |
 | OP_Shr      | kind, dst, src        | 同上；有符号行算术右移，无符号行逻辑右移 |
+| OP_BitAnd   | kind, dst, src        | locals[dst] &= locals[src] |
+| OP_BitOr    | kind, dst, src        | locals[dst] |= locals[src] |
+| OP_BitXor   | kind, dst, src        | locals[dst] ^= locals[src] |
+| OP_BitNot   | kind, dst             | locals[dst] = ~locals[dst] |
 
 `kind`是标量RTK立即数，选定登记表实例化运算表的行（int32、float、byte、ulong等）。
 

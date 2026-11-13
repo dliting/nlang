@@ -2270,6 +2270,11 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//0.7.5 (between relational and additive), productions did not.
 				Expression OT_LSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shl, $1, $3, @1); } |
 				Expression OT_RSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shr, $1, $3, @1); } |
+				//v0.13.7: bitwise family; tokens and precedence existed
+				//since 0.7.5, productions did not (same history as shift).
+				Expression '&' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitAnd, $1, $3, @1); } |
+				Expression '^' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitXor, $1, $3, @1); } |
+				Expression '|' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitOr, $1, $3, @1); } |
 				Expression OT_EQ Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Equal, $1, $3, @1); } |
 				Expression OT_NE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_NotEqual, $1, $3, @1); } |
 				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |
@@ -2277,6 +2282,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
 				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
+				'~' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
 				//v0.12.7: the as-target gains the bracket spellings — the
 				//boundary rank check (OP_CheckArrayRank) is the whole point

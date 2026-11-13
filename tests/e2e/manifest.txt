@@ -14,6 +14,7 @@ arithmetic_mod 2
 arithmetic_mod_negative 11
 all_int_ops 1
 nested_arith 45
+bitwise_ops 0
 # --- Comparison ---
 compare_ops 1
 # --- Logical ---
@@ -523,6 +524,16 @@ logical_short_circuit_nested 7
 logical_operand_float compile_error operator '&&' requires bool operands
 logical_operand_string compile_error operator '||' requires bool operands
 not_operand_float compile_error operator '!' requires a bool operand
+# --- v0.13.7: bitwise & ^ | ~ operand gates (integer-only, null, enum var, precedence, signed/unsigned) ---
+bitwise_operand_float compile_error operator '&' requires integer operands
+bitwise_operand_bool compile_error operator '^' requires integer operands
+bitwise_operand_char compile_error operator '|' requires integer operands
+bitwise_operand_string compile_error operator '&' requires integer operands
+bitwise_operand_enum_var compile_error requires integer operands, got "enum E"
+bitwise_precedence_eq compile_error operator '&' requires integer operands
+bitwise_not_operand_bool compile_error operator '~' requires an integer operand
+bitwise_operand_null compile_error null is not a valid bitwise operand
+bitwise_signed_unsigned compile_error no implicit common type for "Int32" and "ULong"
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
 # --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---
@@ -669,6 +680,8 @@ cross_mod_default_expr 52
 cross_mod_default_ident 10
 # 0.9.9: shift expressions in cross-module defaults ride the ExprDesc subset
 cross_mod_default_shift 0
+# v0.13.7: bitwise expressions ride the same ExprDesc default subset
+cross_mod_default_bitwise 0
 # 0.9.10 D3: bool/char literals fold into RTK_Bool/RTK_Char defaults
 cross_mod_default_bool_char 8
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected

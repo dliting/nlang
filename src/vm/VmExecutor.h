@@ -665,6 +665,10 @@ private:
     //carrier row) is negative or reaches the row's bit width.
     void CheckShiftCount(int row, const uint8_t* p);
     void OpNeg(BytecodeReader& reader, uint8_t* locals);
+    //0.13.7 bitwise family: one handler for the four opcodes (the
+    //family is one case arm in DispatchFrames); same kind-immediate
+    //encodings as the shift and neg handlers, integer rows only.
+    void OpBitOp(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpCmp(BytecodeReader& reader, uint8_t* locals);
     void OpPrimCast(BytecodeReader& reader, uint8_t* pResult);
     void OpPrimToStr(BytecodeReader& reader, uint8_t* pResult);

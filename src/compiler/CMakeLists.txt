@@ -121,6 +121,7 @@ add_library(nlang_compiler
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
+    builder/ExprResolverBitwise.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
     builder/ExprResolverNewCtor.cpp

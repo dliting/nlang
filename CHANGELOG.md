@@ -6,6 +6,22 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.7] - 2026-11-12
+
+### Added
+
+- **Bitwise operators `&`, `^`, `|`, `~`.** Integer operands only (enum
+  member literals participate as `int`, enum-typed variables are
+  rejected -- exactly how `<<` treats them); the result type follows
+  the arithmetic promotion rules, both operands on equal footing --
+  `-1 & 1099511627776` stays `long` and keeps the high bit. `~` is the
+  bitwise complement (`~5` is `-6`, two's complement), promoting a
+  narrow integer operand to `int` like the binary operators do.
+  Precedence follows the C family: `&`/`^`/`|` sit between equality
+  and the logical operators; `~` sits with the other unary operators.
+  Compiled modules move to image format 2.14; recompile existing
+  `.ncu`/`.npkg`.
+
 ## [0.13.6] - 2026-11-12
 
 ### Added

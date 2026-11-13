@@ -165,8 +165,9 @@ struct RawDecoder
     static const char* opName(uint8_t op)
     {
         static const char* kNames[] =
-            { "add", "sub", "mul", "div", "mod", "shl", "shr" };
-        return op <= EDB_Shr ? kNames[op] : "?op";
+            { "add", "sub", "mul", "div", "mod", "shl", "shr",
+              "band", "bor", "bxor" };
+        return op <= EDB_BitXor ? kNames[op] : "?op";
     }
 
     std::string expr()
@@ -213,6 +214,8 @@ struct RawDecoder
             }
             case ED_Neg:
                 return "(neg " + expr() + ")";
+            case ED_BitNot:
+                return "(bnot " + expr() + ")";
             case ED_Binary:
             {
                 uint8_t op = 0;
@@ -286,6 +289,10 @@ static void test_wire_shapes_compound()
         "int remainder(int a, int b = a % 3) { return b; }\n"
         "int shifted(int a, int b = a << 2) { return b; }\n"
         "int dropped(int a, int b = a >> 1) { return b; }\n"
+        "int anded(int a, int b = a & 3) { return b; }\n"
+        "int ored(int a, int b = a | 8) { return b; }\n"
+        "int xored(int a, int b = a ^ 5) { return b; }\n"
+        "int bnoted(int a, int b = ~a) { return b; }\n"
         "int negate(int a, int b = -a) { return b; }\n"
         "float scaled(int a, float b = a * 1.5f) { return b; }\n"
         "double precise(int a, double b = a * 2.5) { return b; }\n"
@@ -316,6 +323,10 @@ static void test_wire_shapes_compound()
         {"remainder", "(mod (formal 0) (int 3))"},
         {"shifted", "(shl (formal 0) (int 2))"},
         {"dropped", "(shr (formal 0) (int 1))"},
+        {"anded", "(band (formal 0) (int 3))"},
+        {"ored", "(bor (formal 0) (int 8))"},
+        {"xored", "(bxor (formal 0) (int 5))"},
+        {"bnoted", "(bnot (formal 0))"},
         {"negate", "(neg (formal 0))"},
         {"scaled", "(mul (formal 0) (float))"},
         {"precise", "(mul (formal 0) (double))"},
@@ -452,7 +463,7 @@ static void test_reader_rejects_malformed()
         {"truncated binary", {ED_Binary, EDB_Add, ED_FormalRef, 0},
             "truncated stream"},
         {"unknown tag", {0x7A}, "unknown node tag"},
-        {"bad binary operator", {ED_Binary, 0x07}, "bad binary operator"},
+        {"bad binary operator", {ED_Binary, 0x0A}, "bad binary operator"},
         //A complete node followed by junk.
         {"trailing bytes",
             {ED_FormalRef, 0, RTK_Int32, 0, 0, 0, 0}, "trailing bytes"},
@@ -618,11 +629,11 @@ static void test_remap_strings()
     pushU32(deep, 0);
     CHECK(!ExprDescRemapStrings(deep, identity),
         "depth above kMaxExprDescDepth is rejected");
-    std::vector<uint8_t> badOp{ED_Binary, 0x09};
+    std::vector<uint8_t> badOp{ED_Binary, 0x0A};
     pushU32(badOp, 0);
     pushU32(badOp, 0);
     CHECK(!ExprDescRemapStrings(badOp, identity),
-        "binary operator above EDB_Shr is rejected");
+        "binary operator above EDB_BitXor is rejected");
     std::vector<uint8_t> trailing{RTK_Null, RTK_Null};
     CHECK(!ExprDescRemapStrings(trailing, identity),
         "trailing bytes after the root node are rejected");

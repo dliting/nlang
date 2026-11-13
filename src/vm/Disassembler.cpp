@@ -260,6 +260,9 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_Mod:
         case OpCode::OP_Shl:
         case OpCode::OP_Shr:
+        case OpCode::OP_BitAnd:
+        case OpCode::OP_BitOr:
+        case OpCode::OP_BitXor:
             DisasmPrimBinOp(r, out, head);
             return true;
         //kind, cmpOp, lhs, rhs (comparison)
@@ -268,6 +271,7 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
             return true;
         //kind, dst (unary)
         case OpCode::OP_Neg:
+        case OpCode::OP_BitNot:
             DisasmPrimNeg(r, out, head);
             return true;
         case OpCode::OP_LogicalNot:

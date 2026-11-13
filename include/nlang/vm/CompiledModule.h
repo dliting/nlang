@@ -151,7 +151,14 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //record, and a fifth import section (staticSlotImports). A v2.12
 //module lacks the class/interface tail bytes and misparses every
 //record after the first class; refuse v2.12 and older outright.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 13;
+//v2.14 (v0.13.7): bitwise operators enter the foldable default-
+//expression grammar — the ED_BitNot tag (0x24) and the EDB_BitAnd /
+//EDB_BitOr / EDB_BitXor binary codes (7/8/9). A v2.13 module never
+//carries these tags and still loads; an older loader meeting one
+//rejects the module ("unknown node tag" / "bad binary operator").
+//Minor bump: every .ncu recompiles with the current ncc (the loader's
+//hard floor, unchanged).
+inline constexpr uint16_t NCU_FORMAT_MINOR = 14;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

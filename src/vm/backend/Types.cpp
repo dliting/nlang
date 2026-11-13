@@ -312,9 +312,14 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
                                  const std::vector<SnFormalParam*>& formals,
                                  std::vector<uint8_t>& out, bool allowCall,
                                  int depth) {
-    //Unary negation (unary ctor leaves Right() null).
+    //Unary negation / bitwise complement (unary ctor leaves Right() null).
     if (bin.Op() == SnBinaryExpr::OP_Neg && !bin.Right()) {
         AppendU8(out, ED_Neg);
+        return EncodeExprDesc(*bin.Left(), formals, out, allowCall,
+                              depth + 1);
+    }
+    if (bin.Op() == SnBinaryExpr::OP_BitNot && !bin.Right()) {
+        AppendU8(out, ED_BitNot);
         return EncodeExprDesc(*bin.Left(), formals, out, allowCall,
                               depth + 1);
     }
@@ -327,6 +332,9 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
     case SnBinaryExpr::OP_Mod: opCode = EDB_Mod; break;
     case SnBinaryExpr::OP_Shl: opCode = EDB_Shl; break;
     case SnBinaryExpr::OP_Shr: opCode = EDB_Shr; break;
+    case SnBinaryExpr::OP_BitAnd: opCode = EDB_BitAnd; break;
+    case SnBinaryExpr::OP_BitOr: opCode = EDB_BitOr; break;
+    case SnBinaryExpr::OP_BitXor: opCode = EDB_BitXor; break;
     default: return false;  //comparisons/logical ops: out of subset
     }
     AppendU8(out, ED_Binary);

@@ -987,6 +987,14 @@ private:
 		const char* opName);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);
+	//v0.13.7: bitwise family `&`/`^`/`|`/`~` — integer-only gate (same
+	//policy as shift), then the arithmetic family's symmetric promotion
+	//decides the carrier row; `~` uses the unary-promotion left-row rule
+	//(see ExprResolverBitwise.cpp for the full rationale). ResolveBitwise
+	//is the family entry Access() calls; it routes binary vs unary.
+	bool ResolveBitwise(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool ResolveBitwiseBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool ResolveBitNot(SnBinaryExpr &sn);
 
 	/*
 	2026-09-27 decomposition of the allocation resolution family

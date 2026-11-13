@@ -263,10 +263,15 @@ inline SnExpression *SynthExprDescNode(ExprDescCursor &cur,
 				SynthExprDescNode(cur, cm, funcName, stubFormalNames,
 					loc, depth + 1),
 				loc);
+		case ED_BitNot:
+			return new SnBinaryExpr(SnBinaryExpr::OP_BitNot,
+				SynthExprDescNode(cur, cm, funcName, stubFormalNames,
+					loc, depth + 1),
+				loc);
 		case ED_Binary:
 		{
 			uint8_t opCode = 0;
-			if (!cur.U8(opCode) || opCode > EDB_Shr)
+			if (!cur.U8(opCode) || opCode > EDB_BitXor)
 				ThrowMalformedDefault(funcName, "bad binary operator");
 			SnExpression *pLeft = SynthExprDescNode(cur, cm, funcName,
 				stubFormalNames, loc, depth + 1);
@@ -277,10 +282,12 @@ inline SnExpression *SynthExprDescNode(ExprDescCursor &cur,
 				SnBinaryExpr::OP_Mul, SnBinaryExpr::OP_Div,
 				SnBinaryExpr::OP_Mod,
 				SnBinaryExpr::OP_Shl, SnBinaryExpr::OP_Shr,
+				SnBinaryExpr::OP_BitAnd, SnBinaryExpr::OP_BitOr,
+				SnBinaryExpr::OP_BitXor,
 			};
 			//Positional wire-code table: one row per EDB_* code.
 			static_assert(sizeof(kOps) / sizeof(kOps[0])
-				== EDB_Shr + 1, "kOps must cover every EDB binary code");
+				== EDB_BitXor + 1, "kOps must cover every EDB binary code");
 			return new SnBinaryExpr(kOps[opCode], pLeft, pRight, loc);
 		}
 		case ED_Call:

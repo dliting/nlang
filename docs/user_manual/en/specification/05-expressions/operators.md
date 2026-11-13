@@ -86,6 +86,36 @@ Inside a generic argument list a `>>` still closes the nested type
 (`List<List<int>>`); only at expression depth does it act as the shift
 operator, so the two never conflict.
 
+### Bitwise
+
+```nlang
+a & b    a ^ b    a | b    ~a
+```
+
+The binary bitwise operators `&` (and), `^` (exclusive or) and `|` (or)
+require integer operands; enum member literals take part as their int32
+underlying type while enum-typed variables are rejected (exactly how
+`<<` treats them), and char, bool and float operands are compile errors
+— convert with an explicit `as` to take part. The result type follows
+the arithmetic family's symmetric promotion rules: `int & long` is long,
+`byte & byte` is an `int`. Unlike shift, the bitwise operators carry no
+"count" semantics — both operands promote on equal footing:
+`-1 & 1099511627776` is legal, is long and keeps bit 40 (integer
+literals have no type suffix; one beyond the int range automatically
+takes the long carrier). The unary `~` (bitwise complement) applies the
+same unary promotion to its operand: `byte`, `ubyte`, `short` and
+`ushort` promote to `int`, while `int`, `uint`, `long` and `ulong` keep
+themselves; `~5` is `-6`, in two's complement. Bitwise operations have
+neither a runtime range check nor overflow.
+
+Precedence: `~` sits with the other unary operators; `&`, `^` and `|`
+bind looser than the equality comparisons and tighter than the logical
+operators `&&` and `||` — `5 & 3 == 1` reads as `5 & (3 == 1)`, the C
+family convention. The compound forms `&=`, `|=` and `^=` follow the
+compound-assignment family's rules as a whole: store back into the left
+value's declared type with an implicit narrowing, like `+=` and `<<=`;
+see [Compound Assignment](../06-statements/index.md).
+
 ### Comparison
 
 ```nlang

@@ -1,0 +1,11 @@
+//Cross-module default parameter: bitwise expressions must serialize
+//into the .ncu default-expression subset and rebuild in the consumer.
+int andMask(int a, int b = 12 & 10) {
+    return a + b;
+}
+int xorFlip(int a, int b = a ^ 1) {
+    return a + b;
+}
+int flipped(int a, int b = ~a) {
+    return b;
+}

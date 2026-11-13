@@ -19,6 +19,7 @@ namespace nlang {
 //    ED_FormalRef + u8 formal index (an earlier formal of the same
 //                 function; the consumer's forward-ref check enforces it)
 //    ED_Neg       + 1 child ExprDesc (unary negation)
+//    ED_BitNot    + 1 child ExprDesc (bitwise complement)
 //    ED_Binary    + u8 op code (EDB_*) + 2 child ExprDescs
 //    ED_Call      + u16 keyLen + qualified key bytes ("<module>.<func>")
 //                 + u32 paramCount + u8 argCount + argCount child ExprDescs
@@ -29,7 +30,8 @@ inline constexpr uint8_t ED_FormalRef = 0x20;
 inline constexpr uint8_t ED_Neg       = 0x21;
 inline constexpr uint8_t ED_Binary    = 0x22;
 inline constexpr uint8_t ED_Call      = 0x23;
-//Binary op codes, in SnBinaryExpr::Operator order (+ - * / % << >>).
+inline constexpr uint8_t ED_BitNot    = 0x24;
+//Binary op codes, in SnBinaryExpr::Operator order (+ - * / % << >> & ^ |).
 inline constexpr uint8_t EDB_Add = 0;
 inline constexpr uint8_t EDB_Sub = 1;
 inline constexpr uint8_t EDB_Mul = 2;
@@ -37,6 +39,9 @@ inline constexpr uint8_t EDB_Div = 3;
 inline constexpr uint8_t EDB_Mod = 4;
 inline constexpr uint8_t EDB_Shl = 5;
 inline constexpr uint8_t EDB_Shr = 6;
+inline constexpr uint8_t EDB_BitAnd = 7;
+inline constexpr uint8_t EDB_BitOr = 8;
+inline constexpr uint8_t EDB_BitXor = 9;
 //Depth/size ceilings shared by the writer (out-of-subset fallback), the
 //link-time remap and the consumer rebuild (malformed-module reject).
 inline constexpr int kMaxExprDescDepth = 16;
@@ -128,11 +133,12 @@ inline bool ExprDescRemapStrings(std::vector<uint8_t> &bytes,
         case RTK_Null:     return true;
         case ED_FormalRef: { uint8_t v; return cur.U8(v); }
         case ED_Neg:
+        case ED_BitNot:
             return ExprDescRemapStrings(bytes, lookup, depth + 1, cur);
         case ED_Binary:
         {
             uint8_t op = 0;
-            if (!cur.U8(op) || op > EDB_Shr) return false;
+            if (!cur.U8(op) || op > EDB_BitXor) return false;
             return ExprDescRemapStrings(bytes, lookup, depth + 1, cur)
                 && ExprDescRemapStrings(bytes, lookup, depth + 1, cur);
         }

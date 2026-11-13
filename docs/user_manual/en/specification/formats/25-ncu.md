@@ -12,7 +12,7 @@ states the loading contract.
 ## 25.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.13**, recorded in the header as major `2`, minor `13`
+**2.14**, recorded in the header as major `2`, minor `14`
 (§25.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ descriptors (§25.5), the default values and default expressions
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.13
-image carries the instruction set of the 2.13 toolchain — but
+string here. It is pinned to the same format version — a 2.14
+image carries the instruction set of the 2.14 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §27.4; the
 archive that packs images is chapter 26.
@@ -333,7 +333,8 @@ byte:
 | `0xFD` | `null` |
 | `0x20` | a reference to an earlier formal of the same function: a u8 formal index (§7.2) |
 | `0x21` | unary negation, then one child tree |
-| `0x22` | a binary expression: an operator byte (`0` `+`, `1` `-`, `2` `*`, `3` `/`, `4` `%`, `5` `<<`, `6` `>>`), then two child trees |
+| `0x24` | unary bitwise complement, then one child tree |
+| `0x22` | a binary expression: an operator byte (`0` `+`, `1` `-`, `2` `*`, `3` `/`, `4` `%`, `5` `<<`, `6` `>>`, `7` `&`, `8` `|`, `9` `^`), then two child trees |
 | `0x23` | a call: a u16 length and the callee's qualified key, a u32 parameter count, a u8 argument count, then that many child trees |
 
 A default expression tree nests at most 16 levels and spans at
@@ -384,8 +385,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.13 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.13 → reject with an
+- **version.** Below 2.14 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.14 → reject with an
   "upgrade the toolchain" diagnostic (§25.1).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string

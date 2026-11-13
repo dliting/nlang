@@ -1485,6 +1485,11 @@ private:
     void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
                               bool isString, bool isFunc, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
+    //0.13.7 bitwise arms: the opcode follows the node's operator; the
+    //resolver has already fixed the shared integer carrier row.
+    void EmitBitwiseOp(SnBinaryExpr& bin, NodeKind numKind,
+                       BytecodeEmitter& emitter,
+                       uint16_t resultOffset, uint16_t rightSlot);
 
     //New-object emission, shared by the SnNewExpr arm and the 0.9.0
     //ctor-invoke twin (`Foo(args)` without new, invoke.CtorClass()):

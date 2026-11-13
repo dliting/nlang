@@ -211,6 +211,11 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpShr(reader, locals);
             break;
 
+        case OpCode::OP_BitAnd: case OpCode::OP_BitOr:
+        case OpCode::OP_BitXor: case OpCode::OP_BitNot:
+            OpBitOp(reader, locals, op);
+            break;
+
         case OpCode::OP_Neg:
             OpNeg(reader, locals);
             break;

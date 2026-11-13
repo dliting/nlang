@@ -155,6 +155,12 @@ enum class OpCode : uint8_t {
     OP_Shr,             // u8 kind, u16 dst, u16 src — same, arithmetic on
                         // signed rows and logical on unsigned rows
 
+    // === 0.13.7 bitwise operators (integer carrier rows only) ===
+    OP_BitAnd,          // u8 kind, u16 dst, u16 src — locals[dst] &= locals[src]
+    OP_BitOr,           // u8 kind, u16 dst, u16 src — locals[dst] |= locals[src]
+    OP_BitXor,          // u8 kind, u16 dst, u16 src — locals[dst] ^= locals[src]
+    OP_BitNot,          // u8 kind, u16 dst — locals[dst] = ~locals[dst]
+
     // === 0.12.6: static slots (module-wide table, spec §6.2) ===
     OP_LoadStatic,      // uint16 dst, uint16 slotIdx — frame[dst] = slots[slotIdx]
     OP_StoreStatic,     // uint16 slotIdx, uint16 src — slots[slotIdx] = frame[src]
@@ -236,7 +242,7 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_MakeVFunc,
     OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
-    OpCode::OP_Neg};
+    OpCode::OP_Neg, OpCode::OP_BitNot};
 static constexpr OpCode kStrideKindByte[] = {
     OpCode::OP_PrimCast};
 static constexpr OpCode kStrideTwoWords[] = {
@@ -252,7 +258,8 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_SlotInitGate};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
-    OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr};
+    OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr,
+    OpCode::OP_BitAnd, OpCode::OP_BitOr, OpCode::OP_BitXor};
 static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,

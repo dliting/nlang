@@ -36,8 +36,8 @@ accepted.
 
 ## 5.2 Arithmetic and Relational Operators
 
-The binary operators `+ - * / % << >> < <= > >= == != && ||` and
-the unary operators `- + !` are fixed by §2.7. This section fixes
+The binary operators `+ - * / % << >> < <= > >= == != & ^ | && ||`
+and the unary operators `- + ! ~` are fixed by §2.7. This section fixes
 their operand types and results.
 
 `bool` and `char` do not enter arithmetic (§4.2). An

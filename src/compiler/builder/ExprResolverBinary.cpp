@@ -455,6 +455,12 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		if (!ResolveShiftBinary(sn, op))
 			return;
 	}
+	else if (op == SnBinaryExpr::OP_BitAnd || op == SnBinaryExpr::OP_BitOr
+		|| op == SnBinaryExpr::OP_BitXor || op == SnBinaryExpr::OP_BitNot)
+	{
+		if (!ResolveBitwise(sn, op))
+			return;
+	}
 	else if (!ResolveArithmeticBinary(sn, op))
 		return;
 	sn.AddFlags(NF_Resolved);

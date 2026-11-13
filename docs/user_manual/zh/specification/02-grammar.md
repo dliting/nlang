@@ -192,8 +192,8 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
-                | "==" | "!=" | "&&" | "||" ;
-UnaryOp         = "-" | "+" | "!" ;
+                | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
+UnaryOp         = "-" | "+" | "!" | "~" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -237,12 +237,15 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
 |---|---|---|
 | 调用、下标、成员 | `( )` `[ ]` `.` | 左结合；调用`( )`不可结合 |
 | 转换 | `as` | 左结合 |
-| 一元 | `!` `-` `+` | 右结合 |
+| 一元 | `!` `-` `+` `~` | 右结合 |
 | 乘性 | `*` `/` `%` | 左结合 |
 | 加性 | `+` `-` | 左结合 |
 | 移位 | `<<` `>>` | 左结合 |
 | 关系 | `<` `<=` `>` `>=` | 左结合 |
 | 相等 | `==` `!=` | 左结合 |
+| 位与 | `&` | 左结合 |
+| 位异或 | `^` | 左结合 |
+| 位或 | `\|` | 左结合 |
 | 逻辑与 | `&&` | 左结合 |
 | 逻辑或 | `\|\|` | 左结合 |
 

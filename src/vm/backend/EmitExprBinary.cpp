@@ -18,8 +18,8 @@
 
 namespace nlang {
 
-//Unary arm: evaluate operand to resultOffset, then negate in-place
-//(kind immediate keys on the operand's EvalDataType); LogicalNot
+//Unary arm: evaluate operand to resultOffset, then negate or bit-complement
+//in-place (kind immediate keys on the operand's EvalDataType); LogicalNot
 //normalizes to {0,1}.
 void VmBackend::EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                             uint16_t resultOffset) {
@@ -28,6 +28,12 @@ void VmBackend::EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     if (op == SnBinaryExpr::OP_Neg) {
         auto* evalType = bin.Left()->EvalDataType();
         EmitNeg(emitter, BinNumericKindOf(
+            evalType ? evalType->Kind() : NK_Int32), resultOffset);
+    } else if (op == SnBinaryExpr::OP_BitNot) {
+        //Resolver promotes the operand to its integer carrier before
+        //emission, so the kind immediate keys on it like OP_Neg does.
+        auto* evalType = bin.Left()->EvalDataType();
+        EmitBitNot(emitter, BinNumericKindOf(
             evalType ? evalType->Kind() : NK_Int32), resultOffset);
     } else {
         emitter.Emit(OpCode::OP_LogicalNot);
@@ -200,8 +206,9 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
         EmitBinaryEqualityOp(bin, numKind, isString, isFunc, emitter,
                              resultOffset, rightSlot);
         break;
-    //0.9.9 shifts: resolver guarantees integer carrier rows and casts
-    //both operands to it, so the kind-immediate family applies as-is.
+    //0.9.9 shifts / 0.13.7 bitwise family: resolver guarantees integer
+    //carrier rows and casts both operands to it, so the kind-immediate
+    //family applies as-is.
     case SnBinaryExpr::OP_Shl:
         EmitBinOp(emitter, OpCode::OP_Shl, numKind,
                   resultOffset, rightSlot);
@@ -210,10 +217,27 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
         EmitBinOp(emitter, OpCode::OP_Shr, numKind,
                   resultOffset, rightSlot);
         break;
+    case SnBinaryExpr::OP_BitAnd:
+    case SnBinaryExpr::OP_BitOr:
+    case SnBinaryExpr::OP_BitXor:
+        EmitBitwiseOp(bin, numKind, emitter,
+                      resultOffset, rightSlot);
+        break;
     default:
         throw std::runtime_error(
             "NLang backend: unsupported binary operator");
     }
+}
+
+//Bitwise arm bodies: the resolver has already cast both operands to a
+//shared integer carrier row; the opcode follows the node's operator.
+void VmBackend::EmitBitwiseOp(SnBinaryExpr& bin, NodeKind numKind,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset, uint16_t rightSlot) {
+    auto opc = bin.Op() == SnBinaryExpr::OP_BitAnd ? OpCode::OP_BitAnd
+           : bin.Op() == SnBinaryExpr::OP_BitOr ? OpCode::OP_BitOr
+                                                : OpCode::OP_BitXor;
+    EmitBinOp(emitter, opc, numKind, resultOffset, rightSlot);
 }
 
 //Arithmetic arm bodies: Add string-folds to OP_Concat_str, the rest go
@@ -331,7 +355,8 @@ void VmBackend::Access(SnBinaryExpr& expr) {
         auto& bin = static_cast<SnBinaryExpr&>(expr);
         auto op = bin.Op();
 
-        if (op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_LogicalNot) {
+        if (op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_LogicalNot
+            || op == SnBinaryExpr::OP_BitNot) {
             EmitUnaryOp(bin, emitter, resultOffset);
             return;
         }

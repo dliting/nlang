@@ -40,6 +40,10 @@ the compiler picks the kind.
 | OP_Neg      | kind, dst             | locals[dst] = -locals[dst] |
 | OP_Shl      | kind, dst, src        | locals[dst] <<= count; the count must lie in [0, bit width) or the VM raises a named error |
 | OP_Shr      | kind, dst, src        | Same, arithmetic on signed rows and logical on unsigned rows |
+| OP_BitAnd   | kind, dst, src        | locals[dst] &= locals[src] |
+| OP_BitOr    | kind, dst, src        | locals[dst] |= locals[src] |
+| OP_BitXor   | kind, dst, src        | locals[dst] ^= locals[src] |
+| OP_BitNot   | kind, dst             | locals[dst] = ~locals[dst] |
 
 `kind` is the scalar RTK immediate selecting the row of the
 registry-instantiated operation table (int32, float, byte, ulong, ...).

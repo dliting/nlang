@@ -339,6 +339,10 @@ LineComment	\/\/[^\n]*
 "~="        { return OT_AEQ; }
 "&&"        { return OT_AND; }
 "||"        { return OT_OR; }
+"&"         { return '&'; }
+"|"         { return '|'; }
+"^"         { return '^'; }
+"~"         { return '~'; }
 "%="        { return OT_MODS; }
 "&="        { return OT_BANDS; }
 "*="        { return OT_MULS; }

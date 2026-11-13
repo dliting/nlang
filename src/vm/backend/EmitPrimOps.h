@@ -45,6 +45,12 @@ inline void EmitNeg(BytecodeEmitter& e, NodeKind kind, uint16_t dst)
     e.EmitUint16(dst);
 }
 
+inline void EmitBitNot(BytecodeEmitter& e, NodeKind kind, uint16_t dst)
+{
+    e.Emit(OpCode::OP_BitNot); e.EmitByte(RtkOfKind(kind));
+    e.EmitUint16(dst);
+}
+
 inline void EmitPrimToStr(BytecodeEmitter& e, NodeKind kind)
 {
     e.Emit(OpCode::OP_Prim_to_str); e.EmitByte(RtkOfKind(kind));

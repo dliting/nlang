@@ -1,0 +1,51 @@
+// v0.13.7 bitwise operators: value tables, two's-complement pins,
+// symmetric promotion, enum participation, precedence grouping.
+import io;
+
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 4
+}
+
+int main() {
+    int bad = 0;
+    // value tables and two's complement
+    if ((5 & 3) != 1) { bad = bad + 1; }
+    if ((5 | 2) != 7) { bad = bad + 1; }
+    if ((6 ^ 4) != 2) { bad = bad + 1; }
+    if ((~5) != -6) { bad = bad + 1; }
+    if ((~0) != -1) { bad = bad + 1; }
+    if ((~~5) != 5) { bad = bad + 1; }
+    if ((-1 & 255) != 255) { bad = bad + 1; }
+    if ((-8 | 3) != -5) { bad = bad + 1; }
+    if ((-2 ^ -1) != 1) { bad = bad + 1; }
+    // long participation (2^40 = 1099511627776, literal auto-widens to long)
+    if ((1099511627776 & 1099511627775) != 0) { bad = bad + 1; }
+    if ((1099511627776 | 1) != 1099511627777) { bad = bad + 1; }
+    if ((1099511627776 ^ 1099511627776) != 0) { bad = bad + 1; }
+    // symmetric promotion: the wider carrier wins, high bits survive.
+    // -1/~0 sign-extend to all-ones, so every bit of the long operand must
+    // appear in the result; a truncating int-carrier implementation would
+    // yield 0 / 100 here instead (a zero-valued pin like 1 & 2^40 cannot
+    // distinguish the carriers -- both give 0)
+    long mix = -1 & 1099511627776;
+    if (mix != 1099511627776) { bad = bad + 1; }
+    long wideKeep = ~0 & 1099511627876;   // 2^40 + 100, literal auto-widens
+    if (wideKeep != 1099511627876) { bad = bad + 1; }
+    // enum member literals evaluate as int32 (spec D2); enum-typed variables
+    // are rejected by the gate, same as shift (probe temp/bitwise_probe/enum_shift.n)
+    if ((Color.Blue & Color.Green) != 0) { bad = bad + 1; }
+    if ((Color.Blue | Color.Red) != 5) { bad = bad + 1; }
+    if ((Color.Red ^ Color.Blue) != 5) { bad = bad + 1; }
+    if ((Color.Red & 3) != 1) { bad = bad + 1; }
+    // precedence grouping (C family): & tighter than ^ tighter than |
+    if ((3 ^ 1 & 2) != 3) { bad = bad + 1; }   // 3^(1&2)=3, not (3^1)&2=2
+    if ((1 | 2 ^ 3) != 1) { bad = bad + 1; }   // 1|(2^3)=1, not (1|2)^3=0
+    if ((1 & 3 | 4) != 5) { bad = bad + 1; }   // (1&3)|4=5, & tighter than |
+    // longest-match lexing: && never splits into two & (the parse would
+    // fail); operands are bool -- 0.7.5 removed raw-int truthiness, so the
+    // bit tests enter && through != 0 (CheckLogicalBoolOperands)
+    if (!(((1 & 3) != 0) && ((2 | 1) != 0))) { bad = bad + 1; }
+    return bad;
+}

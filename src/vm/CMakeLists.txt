@@ -23,6 +23,7 @@ add_library(nlang_vm
     VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp
     VmExecutorOpsPrim.cpp
+    VmExecutorOpsBit.cpp
     VmExecutorOpsControl.cpp
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
