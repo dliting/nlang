@@ -156,9 +156,9 @@ static void ReadInterfaceGenericTail(std::istream& fs,
 {
     uint8_t templateFlag = 0;
     fs.read(reinterpret_cast<char*>(&templateFlag), sizeof(templateFlag));
-    if (!fs.good())
+    if (!fs.good() || templateFlag > 1)
         throw std::runtime_error(
-            "Invalid module: truncated interface template flag");
+            "Invalid module: bad interface template flag");
     ci.isTemplate = (templateFlag != 0);
     uint16_t typeParamCount = 0;
     fs.read(reinterpret_cast<char*>(&typeParamCount), sizeof(typeParamCount));
