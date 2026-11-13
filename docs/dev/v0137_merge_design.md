@@ -66,3 +66,9 @@
 7. **CHANGELOG自动合并即得正确降序**（0.13.7→…→0.13.4→0.13.3→0.13.2→0.13.1a→0.13.1→0.13.0→0.12.9，en/zh一致），真合并复核即可，无须手工插条目；dev的[0.13.7]条目补合并说明行仍要做（第四节第6条）。
 8. **构建退出码纪律**：`cmake --build … | tail`读到的是tail的退出码；输出重定向日志文件后直读rc。彩排首轮假绿即此因。
 9. **bison A/B对拍配方**：合并前后nlang.y各自喂win_bison比对冲突计数，零新增才过；文法并集由git自动合并完成（彩排验证仅dev侧追加，master产生式无损）。
+
+## 八、重编号与tensor-simd吸收（2026-11-13）
+
+1. **版本重编号（用户裁定）**：0.13.1b→0.13.2、0.13.1c→0.13.3；原v0.13.2值类型引用→v0.13.9、原v0.13.3 Lambda→v0.13.10，两者重排在v0.13.8之后WEB之前；WEB框架→v0.13.11。master侧72d3fda9落账（roadmap、CHANGELOG en/zh、VERSION、手册index锚、三份泛型设计文档前向指针、本文档背景节）；dev侧7841f217同步（roadmap连同用户在途编辑一并采纳，docs/dev/README.md与generic_runtime_typeinfo_design.md的前向指针跟随）。真合并时CHANGELOG处理：dev的[0.13.7]条目正文并入master的[0.13.7]节（tensor条目）与本节第四节的合并说明行，删除master侧小节头，日期用dev侧交付日。
+2. **tensor-simd拓扑（用户裁定）**：tensor-simd是master仓库的worktree分支（自7e5ea0ba即0.13.1b交付后分叉，24提交，VERSION工作值0.14.0），先并入master再由master载荷并dev——dev只解一轮冲突。已执行：合并提交c352f6ee（父72d3fda9＋acdd37b7）。合并前用filter-branch摘除分支历史中误提交的本地独占文件docs/superpowers/specs/2026-11-12-m5-array-operator-lowering-design.md（否则合并提交的第二父链把泄漏blob带入可达历史；旧tip 12b97dd0作废，重写后tip acdd37b7）。幻影版本号v0.14.0全仓44处改v0.13.7（注释/文档/测试指称本工作的版本，0.14.0永不发布）。真合并后tensor-simd分支与worktree在发布收尾删除。
+3. **吸收后的真合并delta（29文件重算时master侧已含tensor内容）**：tests/CMakeLists.txt并集新增tensor的test_native_tensor族注册；manifest.txt并集新增tensor 16行e2e（e2e基线计数随之上涨）；CHANGELOG按1）处理；VERSION真合并仍取0.13.7；SnExpressionsValues.cpp注意tensor把各节点ReplaceChildNode搬去了新TU SnChildSync.cpp——三方并集时若dev改过这些函数体，须把dev语义移植进SnChildSync.cpp而非恢复旧文件体。
