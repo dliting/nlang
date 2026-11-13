@@ -55,7 +55,8 @@ documented surface.
   `full` creation rules: `dims` is a rank-1 `int[]`, the element
   count rides the §4.10 creation bound) and fills it row-major
   with `low + (high - low) * u`, one `u` per element drawn from
-  the host PRNG — the same seeded stream `math.random` reads, so
+  the host pseudorandom number generator (PRNG) — the same
+  seeded stream `math.random` reads, so
   a seeded run is reproducible through either surface. The
   element kind follows the bounds (`float`/`double`); the range
   is half-open, `[low, high)`.
@@ -269,7 +270,7 @@ spellings of `tensor.*` calls, not a separate core surface.
 import tensor;
 
 int main() {
-    float[] a = tensor.arange(0.0, 2.0, 1.0);   // 0 1
+    float[] a = tensor.arange(0.0f, 2.0f, 1.0f);   // 0 1
     float[] b = a * 2.0f - a;                   // [0, 1] again
     float[] c = 1.0f - a / 2.0f;
     a = a + b;
