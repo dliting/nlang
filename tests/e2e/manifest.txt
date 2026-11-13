@@ -2240,6 +2240,7 @@ err_rescue_semantic_type compile_error bool values cannot be ordered
 # T-typed formal default, an arity miss, and a missing obligation against
 # the instantiation. ---
 generic_iface_basic 0
+generic_iface_impl_param 0
 generic_iface_two_params 0
 err_generic_iface_const compile_error cannot have the type parameter "T" as its type
 err_generic_iface_default compile_error has no concrete kind, so no default value exists

@@ -174,10 +174,95 @@ void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
 	//template so inheritance-distance checks (an equals(Object)
 	//argument binding) see the chain.
 	inst.SuperClass(tmpl.SuperClass());
+	//The template's implements edges were resolved against its own
+	//placeholders; the instantiation re-mints them against its concrete
+	//arguments (Box<X> implements Wrapper<X> makes Box<string> a
+	//Wrapper<string>).
+	FillInstanceImplementsEdges(tmpl, typeArgs, inst);
 	//A member the instantiation cannot carry already logged its
 	//diagnostic; the partially filled shell is still served so later
 	//phases maximize diagnostics instead of failing on a null type.
 	FillInstanceMembers(tmpl, typeArgs, inst);
+}
+
+//One implements-edge type argument, substituted against the mint's
+//argument vector (contract on the declaration in ExprResolver.h).
+SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
+	const std::vector<SnField*>& typeArgs)
+{
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	if (generics.IsPlaceholder(pArg))
+		return typeArgs[generics.PlaceholderIndex(pArg)];
+	//A nested instantiation whose arguments embed placeholders
+	//(`Wrapper<Box<X>>` as an edge argument): re-mint it substituted —
+	//the same registry channels the use-site resolution reaches, so
+	//both paths land on one canonical node.
+	if (pArg->Kind() == NK_InterfaceDecl)
+	{
+		auto* pNested = static_cast<SnInterfaceDecl*>(pArg);
+		auto* pNestedTmpl = generics.InstanceOfInterface(pNested);
+		if (!pNestedTmpl)
+			return pArg;
+		std::vector<SnField*> nestedArgs;
+		nestedArgs.reserve(pNested->GenericTypeArgs().size());
+		for (auto* pNestedArg : pNested->GenericTypeArgs())
+			nestedArgs.push_back(
+				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
+		if (auto* pMinted = GetDeclaredGenericInterfaceDecl(
+				*pNestedTmpl, nestedArgs))
+			return pMinted;
+		return pArg;
+	}
+	if (pArg->Kind() == NK_ClassDecl)
+	{
+		auto* pNested = static_cast<SnClassDecl*>(pArg);
+		auto* pNestedTmpl = generics.InstanceOf(pNested);
+		if (!pNestedTmpl)
+			return pArg;
+		std::vector<SnField*> nestedArgs;
+		nestedArgs.reserve(pNested->GenericTypeArgs().size());
+		for (auto* pNestedArg : pNested->GenericTypeArgs())
+			nestedArgs.push_back(
+				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
+		if (auto* pMinted = GetDeclaredGenericClassDecl(
+				*pNestedTmpl, nestedArgs))
+			return pMinted;
+		return pArg;
+	}
+	return pArg;
+}
+
+//The mint's implements-edge substitution (contract on the declaration
+//in ExprResolver.h).
+void ExprResolveAccessor::FillInstanceImplementsEdges(SnClassDecl& tmpl,
+	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
+{
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	for (auto* pEdge : tmpl.ImplementsList())
+	{
+		if (!pEdge->IsGenericInstantiation())
+		{
+			//Bare interface: module-global node, shared directly.
+			inst.AddImplements(pEdge);
+			continue;
+		}
+		auto* pEdgeTmpl = generics.InstanceOfInterface(pEdge);
+		if (!pEdgeTmpl)
+		{
+			//Defensive: an unresolved edge cannot be substituted —
+			//share it and let the template's own contract check speak.
+			inst.AddImplements(pEdge);
+			continue;
+		}
+		std::vector<SnField*> substitutedArgs;
+		substitutedArgs.reserve(pEdge->GenericTypeArgs().size());
+		for (auto* pArg : pEdge->GenericTypeArgs())
+			substitutedArgs.push_back(
+				SubstitutedEdgeTypeArg(pArg, typeArgs));
+		if (auto* pSubstituted = GetDeclaredGenericInterfaceDecl(
+				*pEdgeTmpl, substitutedArgs))
+			inst.AddImplements(pSubstituted);
+	}
 }
 
 SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(

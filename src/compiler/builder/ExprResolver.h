@@ -1173,10 +1173,27 @@ private:
 	//key is node identity — the interface mint shares the guard.
 	bool MintDepthLimitReached(const SyntaxNode& tmpl);
 	//GetDeclaredGenericClassDecl's fill window (the mint's second
-	//phase): template completion, superclass refresh and member-clone
-	//fill.
+	//phase): template completion, superclass refresh, the substituted
+	//implements edges and the member-clone fill.
 	void FillInstanceWindow(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
+	//FillInstanceWindow's implements-edge substitution: the template's
+	//edges were resolved against its own placeholders, so an edge
+	//`Wrapper<X>` must re-mint against the instantiation's concrete
+	//arguments (`Wrapper<string>` for Box<string>) — the canonical node
+	//the use-site resolves to, keeping the pointer-identity class→
+	//interface compatibility check meaningful. Bare (non-generic) edges
+	//are module-global and copied directly.
+	void FillInstanceImplementsEdges(SnClassDecl& tmpl,
+		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
+	//One implements-edge type argument substituted against the mint's
+	//argument vector: a placeholder maps to the mint's concrete arg, a
+	//nested instantiation re-mints with substituted arguments (the
+	//class and interface registry channels both carry the
+	//instance→template reverse lookup), a concrete argument passes
+	//through.
+	SnField* SubstitutedEdgeTypeArg(SnField* pArg,
+		const std::vector<SnField*>& typeArgs);
 	//Template-completion preamble of the mint: signatures resolved and
 	//the implicit Object superclass linked before any cloning (the
 	//depth claim must span this — completing a self-referential
