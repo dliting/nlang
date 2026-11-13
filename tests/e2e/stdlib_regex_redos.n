@@ -1,8 +1,14 @@
 // v0.13.7 regex: the linear-bound acceptance (D9) -- shapes that destroy
 // backtracking engines finish in bounded time on fixed-length input. The
-// absolute caps carry a wide margin against machine jitter (spec 六);
-// this test runs through ctest with its own 300 s ceiling, not the e2e
-// runner (30 s per-test cap), following the mnist_mlp_run precedent.
+// cap guards against order-of-magnitude regressions, not millisecond
+// drift: it sits at ~2.5x the ASan baseline readings (design doc 六), so
+// a slowed-down machine still passes -- on 2026-11-13 the gate run hit a
+// machine-wide slowdown (every reading scaled by a uniform 1.50-1.53x
+// under concurrent load), which broke the old 20 s cap on the
+// needle-miss case (baseline 17733 ms, only 1.13x of headroom). This
+// test runs through ctest with its own
+// 300 s ceiling, not the e2e runner (30 s per-test cap), following the
+// mnist_mlp_run precedent.
 import io;
 import system;
 import regex;
@@ -16,6 +22,10 @@ string nTimes(string unit, int n) {
 int main() {
     int bad = 0;
     int n = 16000;
+    //Per-shape wall cap: ~2.5x the ASan baselines, wide enough for the
+    //machine-wide slowdown band measured on 2026-11-13, tight enough to
+    //fail any order-of-magnitude redos regression (see the header note).
+    const int perCaseCapMs = 45000;
     string hay = nTimes("a", n) + "c";
     long t0 = system.monoMs();
     if (Regex("(a|a)*b").isMatch(hay)) { bad = bad + 1; }
@@ -30,10 +40,10 @@ int main() {
     if (Regex("a*a*a*a*b").isMatch(hay)) { bad = bad + 1; }
     long d4 = system.monoMs() - t0;
     io.print("redos ms: " + d1.toString() + " " + d2.toString() + " " + d3.toString() + " " + d4.toString() + "\n");
-    if (d1 > 20000) { bad = bad + 1; }
-    if (d2 > 20000) { bad = bad + 1; }
-    if (d3 > 20000) { bad = bad + 1; }
-    if (d4 > 20000) { bad = bad + 1; }
+    if (d1 > perCaseCapMs) { bad = bad + 1; }
+    if (d2 > perCaseCapMs) { bad = bad + 1; }
+    if (d3 > perCaseCapMs) { bad = bad + 1; }
+    if (d4 > perCaseCapMs) { bad = bad + 1; }
     // unanchored scan over 64k of text (D9 linearity: the thread-set
     // simulation is linear by construction — there is no fast path):
     // a miss must finish inside the same wall and a hit keeps byte offsets
@@ -42,7 +52,7 @@ int main() {
     if (Regex("needle").isMatch(longHay)) { bad = bad + 1; }
     long d5 = system.monoMs() - t0;
     io.print("needle miss ms: " + d5.toString() + "\n");
-    if (d5 > 20000) { bad = bad + 1; }
+    if (d5 > perCaseCapMs) { bad = bad + 1; }
     string hitHay = nTimes("x", 32000) + "needle";
     Match mh = Regex("needle").match(hitHay);
     if (mh == null) { return bad + 1; }

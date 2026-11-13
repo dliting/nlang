@@ -2,10 +2,14 @@
 """NLang Phase 2 end-to-end test runner.
 
 Usage:
-    conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
+    conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path] [--timeout=SEC]
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
+--timeout=SEC raises the flat 30 s per-test subprocess cap for this
+invocation only: the ASan-instrumented tree runs ~7x slower than Release,
+and its gate run needs more headroom for the pattern-budget case
+(stdlib_regex_size crosses the size limit with 25000 literal atoms).
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
@@ -42,6 +46,8 @@ DEFAULT_NCC = os.path.join(
 DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
+#Flat per-test subprocess cap (compile and run), overridable per invocation
+#with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
@@ -258,9 +264,28 @@ def _rejection_violation(expected, stderr):
     return None
 
 
+def _split_timeout_arg(argv):
+    """Pull a '--timeout=SEC' override out of argv (the positional tool
+    paths stay untouched). The last occurrence wins; a malformed number
+    propagates as a plain ValueError — this flag is set by gate scripts,
+    not typed by hand."""
+    timeout = None
+    rest = []
+    for a in argv:
+        if a.startswith('--timeout='):
+            timeout = int(a.split('=', 1)[1])
+        else:
+            rest.append(a)
+    return rest, timeout
+
+
 def main():
-    ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
-    nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
+    global TIMEOUT_SEC
+    args, timeout = _split_timeout_arg(sys.argv[1:])
+    if timeout is not None:
+        TIMEOUT_SEC = timeout
+    ncc = args[0] if len(args) > 0 else DEFAULT_NCC
+    nvm = args[1] if len(args) > 1 else DEFAULT_NVM
     #dbg_ tests run under the debugger. Each tool builds into its own
     #build/src/tools/<tool>/Release directory, so ndb sits two levels
     #over from the nvm binary (build-tree layout), not next to it.
