@@ -247,3 +247,37 @@ string label<T>(T v) { return typeName(T); }
 ```
 
 泛型自由函数不能引用为`func`值——句柄记录没有实例化上下文的槽位，与泛型类的函数一致（§4.12.2）；直接调用它。跨编译单元时，导入的泛型自由函数在导入方完全可用：推断、转发与`typeName`分派经由导入的签名进行，与声明单元内一致（§4.12.8）。
+
+## 4.12.11 泛型接口
+
+接口可以用泛型类的方式声明类型参数（§4.12.2）：参数写在接口名后的尖括号里，在成员签名中充当普通类型。实例成员仍是抽象签名（§4.9.2），可在参数与返回类型中使用类型参数；静态方法带体，与泛型类的成员一样只对参数编译一次。
+
+```nlang
+interface Pair<T, U> {
+    public T first(T a, U b);
+    public U second(T a, U b);
+    public static T echo(T v) { return v; }
+}
+```
+
+类以实例化形式实现泛型接口：类型实参写在`implements`子句处，固定该类必须满足的契约——每个实例签名都按替换后的类型校验。
+
+```nlang
+class Both implements Pair<int, string> {
+    public int first(int a, string b) { return a; }
+    public string second(int a, string b) { return b; }
+}
+```
+
+每个实例化都是独立的接口类型（§4.12.1）：一个类可以并排实现`Pair<int, string>`与`Pair<string, int>`，一个实例化的值不能转换为另一个。实参个数必须与声明一致——对`interface Pair<T>`拼写`implements Pair<int, string>`报`The generic interface "Pair" expects 1 type argument(s).`。类漏实现成员时报普通契约诊断，签名是替换后的形状（§4.9.1）。
+
+值与分派遵循普通接口模型：经接口类型值的实例调用按名字分派进实现类的记录（§4.9.4），`T`类型的位置按实例化固定的种类移动值——标量实参经引用模型存储，与容器元素一致（§4.12.1）。
+
+静态成员经实例化拼写调用，调用点由此固定实例化，与泛型类的静态调用一致（§4.12.2）：
+
+```nlang
+Pair<int, string>.echo(7)     // T = int，    返回7
+Pair<string, int>.echo("z")   // T = string，返回"z"
+```
+
+静态面保持普通规则：常量只能取具体类型——常量不能以类型参数为类型，实例化之前不存在值域；`T`类型形参不携带默认值（§4.12.2）。跨编译单元时，导入的模板与同单元内完全可用（§4.12.8）：`import lib;`之后，`Pipe<int>.echo(21)`以调用点的实例化调用导入接口的静态方法。

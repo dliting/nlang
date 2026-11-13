@@ -8,6 +8,93 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1c] - 2026-11-13
+
+The abstract-and-generic-interfaces release: bodyless method
+declarations become abstract methods, and interfaces join the
+generic system.
+
+### Added
+
+- **Abstract methods.** A method declaration with no body — the
+  parameter list followed by `;` — declares an abstract method.
+  There is no `abstract` keyword; the missing body is the
+  declaration, and abstract implies virtual: the method participates
+  in dynamic dispatch like any virtual method, and an implementing
+  method in a subclass follows the ordinary override rules. A class
+  that declares or inherits an unimplemented abstract method is an
+  abstract class; instantiating one is a compile-time error that
+  names the first unmet obligation (`Cannot instantiate the abstract
+  class "Shape": the abstract method "area" has no implementation.`).
+  Constructors (`The constructor of "Rect" cannot be abstract`) and
+  `static` methods (`The static method "lookup" cannot be abstract`)
+  reject the abstract declaration; `native` declarations are never
+  abstract.
+- **Abstract methods across modules.** Abstract declarations cross
+  compile units as signature-only records: a base class in an
+  imported module may declare abstract methods, and a subclass in
+  the importing unit must implement them under the same contract.
+  The runtime additionally raises `NLang VM: abstract method ...
+  has no implementation.` for artifacts outside the compiler
+  invariant.
+- **Generic interfaces.** An interface may declare type parameters
+  (`interface Pair<T, U> { ... }`): instance members stay abstract
+  signatures and may use the parameters in their types; static
+  methods carry bodies and compile once against the parameters. A
+  class implements an instantiation — `class Both implements
+  Pair<int, string>` — with every signature checked against the
+  substituted types; each instantiation is a distinct interface
+  type, and one class may implement several. Statics are called
+  through the instantiation spelling (`Pair<int, string>.echo(7)`),
+  at cross-module call sites the same way. An interface constant
+  cannot take a type parameter as its type, and a `T`-typed formal
+  carries no default value.
+
+### Changed
+
+- **Numeric width aliases for every numeric primitive.** The fixed
+  alias spellings cover the whole numeric family — `int8`/`uint8`,
+  `int16`/`uint16`, `int32`/`uint32`, `int64`/`uint64`, `fp32`,
+  `fp64` — each naming its primitive by width as a pure spelling
+  layer; diagnostics and `typeName` always print the canonical name
+  (`typeName(int32)` is `"int"`). The first cut within this release
+  (`int32`, `int64`, `fp32`, `fp64`) was the examples, not the set;
+  the family widened to every numeric primitive before shipping.
+- **`elseif` and `state` are no longer reserved words.** The two
+  words date from an abandoned syntax experiment and appeared in no
+  grammar production; both lex as plain identifiers now.
+
+### Fixed
+
+- **Calls whose comparison arguments collide with the instantiation
+  spelling.** `both(a < b, c > (d))` was misread as a generic
+  construction; the misread creation's source bytes are now
+  re-read as comparisons and spliced back into the call, and a
+  comparison re-read that does not parse keeps the named 0.13.1b
+  diagnostic as the fallback.
+- **Array creation over a type parameter is rejected at the
+  creation site.** `new T[4]` in expression position slipped past
+  the compile-time gate (the declaration position `T[] x;` was and
+  stays legal); the creation form now reports the element-kind
+  error.
+- **Generic casts and instantiation serialization in a host that
+  compiles and runs in one process.** `ncc program.n` (compile and
+  run in-process) walked generic as-cast super chains and
+  instantiation serialization through stale compile-time descriptor
+  state — a correct cast was rejected (``invalid cast - expected `X.Base`, got `Dog```)
+  or the run crashed. The compile backend
+  now keys descriptor table rows by spelling without touching the
+  runtime intern pool, so every run resolves its descriptors
+  against the linked module. The same program through
+  `ncc build` + `nvm` was unaffected.
+
+### ABI
+
+- `.ncu` minor bumped v2.17 → v2.19: every function record gains an
+  abstract flag byte (v2.18), and every interface record gains a
+  generic-declaration tail (v2.19). Modules compiled by older ncc
+  are refused; every `.ncu` recompiles with the current ncc.
+
 ## [0.13.1b] - 2026-11-12
 
 Deferred-polish pass on the 0.13.1a generic completion.

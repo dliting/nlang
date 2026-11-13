@@ -21,7 +21,10 @@ class Square implements IShape {
 
 A class declares conformance with `implements I` (§2.4); a list of
 interfaces may follow, and the `:` base form does not name an
-interface. The compiler validates the contract at the class
+interface. A generic interface is implemented with an
+instantiation — `class Both implements Pair<int, string>` — and the
+contract is checked against the substituted signatures (§4.12.11).
+The compiler validates the contract at the class
 declaration: every instance method of the interface must be
 implemented by the same-name method that dispatch would select on
 the class's inheritance chain, with an exactly matching signature
@@ -73,6 +76,8 @@ interface IMath {
 A static method must carry a body; `this` is not available in it.
 Call it through the interface name (`IMath.twice(21)`) from any
 scope where the interface is visible, including imported modules.
+A generic interface's statics are called through an instantiation
+spelling instead — `Pair<int, string>.echo(7)` (§4.12.11).
 A static constant takes any declared type a class static field
 takes, and its value must be compatible with that type. A scalar
 or string constant whose initializer is a compile-time constant

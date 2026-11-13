@@ -494,3 +494,67 @@ compile units, an imported generic free function is fully usable
 from the importing unit: inference, forwarding and `typeName`
 dispatch work through the imported signature exactly as within one
 unit (§4.12.8).
+
+## 4.12.11 Generic interfaces
+
+An interface may declare type parameters the way a generic class
+does (§4.12.2): the parameters are spelled in angle brackets after
+the interface name and name ordinary types in member signatures.
+Instance members stay abstract signatures (§4.9.2) and may use the
+type parameters in parameter and return types; static methods carry
+bodies and compile once against the parameters, like a generic
+class's members.
+
+```nlang
+interface Pair<T, U> {
+    public T first(T a, U b);
+    public U second(T a, U b);
+    public static T echo(T v) { return v; }
+}
+```
+
+A class implements a generic interface with an instantiation: the
+type arguments are spelled at the `implements` clause and fix the
+contract the class must satisfy — every instance signature is
+checked against the substituted types.
+
+```nlang
+class Both implements Pair<int, string> {
+    public int first(int a, string b) { return a; }
+    public string second(int a, string b) { return b; }
+}
+```
+
+Each instantiation is a distinct interface type (§4.12.1): one
+class may implement `Pair<int, string>` and `Pair<string, int>`
+side by side, and a value of one instantiation does not convert to
+another. The argument count must match the declaration — spelling
+`implements Pair<int, string>` against `interface Pair<T>` reports
+`The generic interface "Pair" expects 1 type argument(s).` A class
+that omits a member reports the ordinary contract diagnostic with
+the substituted signature (§4.9.1).
+
+Values and dispatch follow the ordinary interface model: an
+instance call through an interface-typed value dispatches by name
+into the implementing class's records (§4.9.4), and `T`-typed
+positions move values by the kinds the instantiation fixed —
+scalar arguments store through the reference model exactly as
+container elements do (§4.12.1).
+
+A static member is called through an instantiation spelling, which
+fixes the instantiation at the call site the way a generic class's
+static call does (§4.12.2):
+
+```nlang
+Pair<int, string>.echo(7)     // T = int,    returns 7
+Pair<string, int>.echo("z")   // T = string, returns "z"
+```
+
+The static face keeps its ordinary rules: constants take concrete
+types only — a constant cannot have a type parameter as its type,
+because no value domain exists before the instantiation — and a
+`T`-typed formal carries no default value (§4.12.2). Across
+compile units the imported template is usable exactly as within
+one unit (§4.12.8): after `import lib;`, `Pipe<int>.echo(21)`
+calls the imported interface's static with the call site's
+instantiation.

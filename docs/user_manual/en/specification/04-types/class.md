@@ -304,7 +304,7 @@ catchable like every exception; the cycle `A`'s initializer reads
 `B.b` while `B`'s reads `A.a` surfaces this way at the deeper
 read.
 
-## 4.8.9 Virtual methods and overriding
+## 4.8.9 Virtual methods, overriding and abstract methods
 
 The `virtual` flag marks a method for dynamic dispatch. A call
 through a class reference selects the implementation by walking the
@@ -353,6 +353,55 @@ taken — which is why a signature mismatch would misinterpret the
 argument and return-value bits. Fix the signature to override, or
 rename the method to keep a same-name overload.
 
+### Abstract methods and abstract classes
+
+A method declaration with no body — the parameter list followed by
+a semicolon — declares an *abstract method*: a signature that names
+a dispatch slot without providing an implementation. There is no
+`abstract` keyword; the missing body is the declaration. An abstract
+method is virtual by implication: it participates in dynamic
+dispatch like any virtual method, and the method that supplies the
+implementation in a subclass follows the override rules above (same
+name, exactly matching signature).
+
+```nlang
+class Shape {
+    public virtual int area();   // abstract: no body
+}
+class Rect : Shape {
+    int m_w;
+    int m_h;
+    public Rect(int w, int h) { m_w = w; m_h = h; }
+    public int area() { return m_w * m_h; }
+}
+```
+
+A class that declares an abstract method — or inherits one without
+implementing it — is an *abstract class*. Instantiating one is a
+compile-time error that names the first unmet obligation:
+
+```text
+Cannot instantiate the abstract class "Shape": the abstract
+method "area" has no implementation.
+```
+
+Only a derived class that supplies an implementation for every
+abstract obligation instantiates. A further derived class may leave
+the method abstract again, which keeps the whole chain abstract.
+Interface members are abstract signatures by definition (§4.9.2),
+and an interface obligation may be satisfied by an abstract method
+inherited from an ancestor — the class stays abstract until a
+concrete implementation appears, and cannot be instantiated in the
+meantime.
+
+Two member shapes cannot be abstract. A constructor is an
+allocation step, not a dispatch target, so the bodyless constructor
+spelling is a compile-time error (`The constructor of "Rect" cannot
+be abstract`). A `static` method has no dispatch slot and rejects
+the abstract declaration (`The static method "lookup" cannot be
+abstract`). A `native` declaration is record-only and is never
+abstract.
+
 ## 4.8.10 Identity, equality and null
 
 Two class references compare by identity: `==` holds exactly when
@@ -398,7 +447,10 @@ class B {
 `class D : lib.B` extends an imported base class and
 `class C implements lib.I` implements an imported interface; the
 override and `implements` contracts are enforced across the module
-boundary exactly as within a unit. Visibility is the same rule
+boundary exactly as within a unit. Abstract declarations cross the
+boundary too: a base class in `lib` may declare abstract methods,
+and a subclass in the importing unit must implement them under the
+same contract (§4.8.9). Visibility is the same rule
 everywhere: only `public` members of an imported class are
 reachable, `protected` members are reachable inside a subclass
 body, and a non-`public` constructor cannot be called across the
