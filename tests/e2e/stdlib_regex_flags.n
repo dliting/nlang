@@ -1,0 +1,49 @@
+// v0.13.7 regex: inline flag syntax -- set/clear/combined forms, scoped
+// (?flags:re), and the ASCII-only fold boundary (spec D3/D4).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    // (?i) folds ASCII letters both directions
+    if (!Regex("(?i)abc").isMatch("ABC")) { bad = bad + 1; }
+    if (!Regex("(?i)ABC").isMatch("abc")) { bad = bad + 1; }
+    if (Regex("abc").isMatch("ABC")) { bad = bad + 1; }
+    // (?i) folds ASCII only: é/É stay distinct (D4, registered differential vs Go)
+    if (Regex("(?i)é").isMatch("É")) { bad = bad + 1; }
+    // (?flags:re) scope is the group body only:
+    // a(?i:b)c -- 'b' folds, but the trailing c stays case-sensitive
+    if (!Regex("a(?i:b)c").isMatch("aBc")) { bad = bad + 1; }
+    if (Regex("a(?i:b)c").isMatch("aBC")) { bad = bad + 1; }
+    // (?flags:re) ends with its group: the outer c stays case-sensitive
+    if (!Regex("(?i:ab)c").isMatch("ABc")) { bad = bad + 1; }
+    if (Regex("(?i:ab)c").isMatch("ABC")) { bad = bad + 1; }
+    // (?-i) clears mid-pattern (Go's three flag forms, doc.go)
+    if (!Regex("(?i)abc(?-i)def").isMatch("ABCdef")) { bad = bad + 1; }
+    if (Regex("(?i)abc(?-i)def").isMatch("ABCDEF")) { bad = bad + 1; }
+    // combined set/clear: s was on, (?i-s) clears it again
+    if (!Regex("(?s)(?i)a.b").isMatch("A\nb")) { bad = bad + 1; }
+    if (Regex("(?s)(?i-s)a.b").isMatch("A\nb")) { bad = bad + 1; }
+    // (?s) alone: dot spans newline; off by default (dual-checked with T4)
+    if (!Regex("(?s)a.b").isMatch("a\nb")) { bad = bad + 1; }
+    if (Regex("a.b").isMatch("a\nb")) { bad = bad + 1; }
+    // set-and-clear spelling m-i
+    if (!Regex("(?m-i)^a").isMatch("b\na")) { bad = bad + 1; }
+    // fold flows through classes and repetitions too
+    if (!Regex("(?i)[a-c]+").isMatch("ABC")) { bad = bad + 1; }
+    if (!Regex("(?i)(?:ab)+").isMatch("ABAB")) { bad = bad + 1; }
+    // malformed flags are compile rejections with their own text
+    try { Regex q = Regex("(?q)"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid flag") < 0) { bad = bad + 1; }
+    }
+    try { Regex d = Regex("(?-)"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid flag") < 0) { bad = bad + 1; }
+    }
+    try { Regex p = Regex("(?i-)"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid flag") < 0) { bad = bad + 1; }
+    }
+    return bad;
+}

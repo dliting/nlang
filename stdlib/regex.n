@@ -63,6 +63,7 @@ class RENode {
     public List<int> clsLo;     // kClass: members as inclusive range pairs
     public List<int> clsHi;     // kClass: matching upper bounds
     public int anyNotNewline;   // kAny: 1 = "." excludes newline
+    public int fold;            // kChar/kClass: 1 = ASCII case fold (flag (?i))
     public int min;             // kRepeat: minimum count
     public int max;             // kRepeat: maximum count, -1 = unbounded
     public int lazy;            // kRepeat: 1 = prefer fewer repetitions
@@ -79,6 +80,7 @@ class RENode {
         clsLo = {};
         clsHi = {};
         anyNotNewline = 0;
+        fold = 0;
         min = 0;
         max = 0;
         lazy = 0;
@@ -201,6 +203,22 @@ const class REProg {
     // Code points the engine and the parser inspect directly.
     public static const int kCpBackslash = 92;
     public static const int kCpNewline = 10;
+    public static const int kCpUpperA = 65;
+    public static const int kCpUpperZ = 90;
+    public static const int kCpLowerA = 97;
+    public static const int kCpLowerZ = 122;
+    public static const int kCpCaseGap = 32;     // 'a' minus 'A' inside ASCII
+
+    // ASCII case fold for (?i): 'A'-'Z' map to their lowercase twins and
+    // everything else (every non-ASCII code point included) stays as
+    // written -- the registered differential D4 against Go's full
+    // Unicode fold. Both the pattern side (at compile time) and the
+    // input side (in RESim) run through here, so folded matching is
+    // plain equality on lowercase ASCII.
+    public static int foldAscii(int cp) {
+        if (cp >= kCpUpperA && cp <= kCpUpperZ) { return cp + kCpCaseGap; }
+        return cp;
+    }
 
     private List<int> mOp;
     private List<int> mA1;
@@ -310,9 +328,17 @@ class REParser {
     private static const int kChZ = 122;
     private static const int kChA = 97;
     // '(?...' letters: 'P' opens the '(?P<name>' spelling of a named
-    // group; only 'm' among the bare flag forms is honored for now.
+    // group; 'i' (kChLowerI), 'm' and 's' (kChLowerS) are the inline
+    // flag letters.
     private static const int kChUpperP = 80;
     private static const int kChM = 109;
+    private static const int kChLowerI = 105;
+    // Inline flag bits carried in mFlags by '(?flags)' and '(?flags:re)'
+    // (Go doc.go's three flag letters; D4 limits 'i' to ASCII folding).
+    private static const int kFlagFold = 1;
+    private static const int kFlagLine = 2;
+    private static const int kFlagDot = 4;
+    private static const int kAllFlags = 7;      // union of the bits above
     private static const int kChF = 102;
     private static const int kChN = 110;
     private static const int kChR = 114;
@@ -342,7 +368,7 @@ class REParser {
     private int mCpCount;
     private int mPatternBytes;        // byte length of the pattern text
     private int mHeight;
-    private int mMultiline;           // (?m) in effect: ^ $ bind to lines
+    private int mFlags;               // inline flags in effect (kFlag* bits)
     private int mNumCaptures;         // next group index (0 = whole match)
     private Dict<string, int> mNames; // group name -> group index
 
@@ -356,7 +382,7 @@ class REParser {
         mPatternBytes = raw.length();
         mPos = 0;
         mHeight = 0;
-        mMultiline = 0;
+        mFlags = 0;
         mNumCaptures = 1;             // group 0 is the whole match
         mNames = {};
     }
@@ -441,13 +467,14 @@ class REParser {
             mPos = mPos + 1;
             RENode n = RENode(RENode.kAny);
             n.anyNotNewline = 1;          // '.' excludes newline until (?s)
+            if ((mFlags & kFlagDot) != 0) { n.anyNotNewline = 0; }
             return n;
         }
         if (cp == kCpCaret) {
             mPos = mPos + 1;
             // The flag is baked into the instruction kind here, where
             // it is known (Go's parser does the same rewrite).
-            if (mMultiline == 1) {
+            if ((mFlags & kFlagLine) != 0) {
                 return RENode.makeAnchor(REProg.kOpBeginLine, 0);
             }
             return RENode.makeAnchor(REProg.kOpBeginText, 0);
@@ -457,16 +484,24 @@ class REParser {
             // Without (?m): end of text, or just before a final
             // newline (Perl-family majority reading; Go/JS strict
             // end-of-text is the registered differential).
-            if (mMultiline == 1) {
+            if ((mFlags & kFlagLine) != 0) {
                 return RENode.makeAnchor(REProg.kOpEndLine, 0);
             }
             return RENode.makeAnchor(REProg.kOpEndTextNl, 0);
         }
         if (cp == kCpLParen) { return this.parseGroup(); }
-        if (cp == kCpBracketOpen) { return this.parseClass(); }
+        if (cp == kCpBracketOpen) {
+            RENode n = this.parseClass();
+            // The fold is baked in here, where the flag is known (Go
+            // rewrites each rune and class the same way).
+            n.fold = mFlags & kFlagFold;
+            return n;
+        }
         if (cp == REProg.kCpBackslash) { return this.parseEscape(); }
         mPos = mPos + 1;
-        return RENode.makeChar(cp);
+        RENode lit = RENode.makeChar(cp);
+        lit.fold = mFlags & kFlagFold;
+        return lit;
     }
 
     // '(' opens a capture group, '(?:' a non-capturing one, and
@@ -474,19 +509,19 @@ class REParser {
     // accepts). Group numbers follow opening-paren order, nesting
     // included. '(?=' '(?!' '(?<=' '(?<!' are look-around, which a
     // thread-set engine cannot run (Go/RE2 exclude them too): rejected
-    // at compile time. The bare '(?m)' form is a zero-width flag: from
-    // there to the enclosing group's closing ')' the ^ and $ anchors
-    // bind to lines. Flag groups such as '(?i)' are rejected until the
-    // flags task honors them, with the diagnostic that task pins.
+    // at compile time. Flag forms '(?flags)' (and their '(?-flags)'
+    // clearings) change the flags from where they appear to the
+    // enclosing group's ')'; '(?flags:re)' scopes them to its own body.
+    // Either way this frame restores the flags it saved at its '('.
     private RENode parseGroup() {
         int open = mPos;
-        int savedMultiline = mMultiline;
+        int savedFlags = mFlags;
         mPos = mPos + 1;                  // '('
         int index = 0;                    // 0: non-capturing or flag form
         if (mPos < mCpCount && mCps[mPos] == kCpQuestion) {
             mPos = mPos + 1;              // '?'
             index = this.parseGroupTail(open);
-            if (index < 0) {              // complete '(?m)' marker
+            if (index < 0) {              // complete '(?flags)' marker
                 return RENode(RENode.kEmpty);
             }
         } else {
@@ -499,7 +534,7 @@ class REParser {
             this.errAt(open, "missing closing )");
         }
         mPos = mPos + 1;                  // ')'
-        mMultiline = savedMultiline;      // the flag ends with the group
+        mFlags = savedFlags;              // the flags end with the group
         if (index == 0) { return body; }
         RENode cap = RENode(RENode.kCapture);
         cap.index = index;
@@ -509,7 +544,7 @@ class REParser {
 
     // The text between '(?' and the group body: returns the capture
     // index the form opens (0 for non-capturing), or -1 when the form
-    // was the complete '(?m)' flag marker.
+    // was a complete '(?flags)' flag marker.
     private int parseGroupTail(int open) {
         if (mPos >= mCpCount) {
             this.errAt(open, "missing closing )");
@@ -539,13 +574,58 @@ class REParser {
             mPos = mPos + 2;              // 'P<'
             return this.parseGroupName(open);
         }
-        if (cp == kChM && mPos + 1 < mCpCount && mCps[mPos + 1] == kCpRParen) {
-            mPos = mPos + 2;              // 'm)'
-            mMultiline = 1;               // holds to the enclosing ')'
-            return -1;
+        // Flag segment: 'i' 'm' 's' letters, optionally after a '-',
+        // up to ')' or ':' -- Go doc.go's three flag forms (set, clear,
+        // 'xy-z'). A repeated letter, a second '-' or a '-' with no
+        // letter after it is rejected with the raw text; a set-only or
+        // clear-only segment is fine ('(?-i)' clears, Go parity).
+        int setBits = 0;
+        int clearBits = 0;
+        bool negative = false;
+        bool bad = false;
+        while (mPos < mCpCount && mCps[mPos] != kCpRParen
+            && mCps[mPos] != kCpColon) {
+            int f = mCps[mPos];
+            if (f == kCpMinus) {
+                if (negative) { bad = true; break; }
+                negative = true;
+                mPos = mPos + 1;
+                continue;
+            }
+            int bit = REParser.flagBit(f);
+            if (bit == 0 || ((setBits | clearBits) & bit) != 0) {
+                bad = true;
+                break;
+            }
+            if (negative) { clearBits = clearBits | bit; }
+            else { setBits = setBits | bit; }
+            mPos = mPos + 1;
         }
-        this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
-        return 0;                         // unreachable: errAt throws
+        int term = -1;
+        if (mPos < mCpCount) { term = mCps[mPos]; }
+        if (bad || term < 0 || (setBits | clearBits) == 0
+            || (negative && clearBits == 0)) {
+            this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
+            return 0;                     // unreachable: errAt throws
+        }
+        // clearBits only ever holds bits from kAllFlags, so subtracting
+        // it from kAllFlags yields the mask of the bits to keep.
+        mFlags = (mFlags & (kAllFlags - clearBits)) | setBits;
+        if (term == kCpColon) {
+            mPos = mPos + 1;              // '(?flags:' -- body follows in scope
+            return 0;
+        }
+        mPos = mPos + 1;                  // ')' of '(?flags)'
+        return -1;                        // flag marker: no group body follows
+    }
+
+    // The flag letter's bit, or 0 when the letter is not a recognized
+    // flag; the invalid-flag diagnostic reports the segment verbatim.
+    private static int flagBit(int cp) {
+        if (cp == kChLowerI) { return kFlagFold; }
+        if (cp == kChM) { return kFlagLine; }
+        if (cp == kChLowerS) { return kFlagDot; }
+        return 0;
     }
 
     // A group name between '<' and '>': letters, digits and '_' with a
@@ -953,10 +1033,12 @@ class REParser {
     }
 
     // The raw pattern text of the flag segment at the cursor, up to
-    // ')' or the end, for the invalid-flag diagnostic.
+    // ')' or ':' or the end, for the invalid-flag diagnostic.
     private string flagSegment() {
         int i = mPos;
-        while (i < mCpCount && mCps[i] != kCpRParen) { i = i + 1; }
+        while (i < mCpCount && mCps[i] != kCpRParen && mCps[i] != kCpColon) {
+            i = i + 1;
+        }
         return mText.substring(this.byteOfCp(mPos), this.byteOfCp(i));
     }
 
@@ -1000,9 +1082,13 @@ class RECompile {
 
     private static void emit(RENode n, REBuilder b) {
         if (n.kind == RENode.kChar) {
-            b.addInst(REProg.kOpChar, n.ch, 0, 0);
+            // Under (?i) the pattern letter is lowered here and the
+            // input is lowered in RESim, so matching stays equality.
+            int ch = n.ch;
+            if (n.fold == 1) { ch = REProg.foldAscii(ch); }
+            b.addInst(REProg.kOpChar, ch, n.fold, 0);
         } else if (n.kind == RENode.kClass) {
-            b.addInst(REProg.kOpClass, RECompile.classIdFor(n, b), 0, 0);
+            b.addInst(REProg.kOpClass, RECompile.classIdFor(n, b), n.fold, 0);
         } else if (n.kind == RENode.kAny) {
             b.addInst(REProg.kOpAny, 0, n.anyNotNewline, 0);
         } else if (n.kind == RENode.kAnchor) {
@@ -1103,11 +1189,36 @@ class RECompile {
     // (bracket classes parse them directly; the escape letters expand
     // there), so the builder only copies pairs into the shared table.
     private static int classIdFor(RENode n, REBuilder b) {
-        int id = b.beginClass(n.clsNeg, 0);
+        int id = b.beginClass(n.clsNeg, n.fold);
         for (int i = 0; i < n.clsLo.length(); i = i + 1) {
             b.addClass(n.clsLo[i], n.clsHi[i]);
+            if (n.fold == 1) { RECompile.addFolded(b, n.clsLo[i], n.clsHi[i]); }
         }
         return id;
+    }
+
+    // Under (?i) a class also accepts the ASCII case counterpart of the
+    // letter part of its range. Counterpart pairs are added at compile
+    // time rather than folding the input at match time: a range like
+    // '[A-c]' spans the case gap, so its endpoints cannot simply be
+    // folded. Go/RE2 expand folded classes the same way. Duplicates
+    // against an already-case-covering range are harmless to the
+    // linear-scan classMatch.
+    private static void addFolded(REBuilder b, int lo, int hi) {
+        if (lo <= REProg.kCpUpperZ && hi >= REProg.kCpUpperA) {
+            int l = lo;
+            int h = hi;
+            if (l < REProg.kCpUpperA) { l = REProg.kCpUpperA; }
+            if (h > REProg.kCpUpperZ) { h = REProg.kCpUpperZ; }
+            b.addClass(l + REProg.kCpCaseGap, h + REProg.kCpCaseGap);
+        }
+        if (lo <= REProg.kCpLowerZ && hi >= REProg.kCpLowerA) {
+            int l = lo;
+            int h = hi;
+            if (l < REProg.kCpLowerA) { l = REProg.kCpLowerA; }
+            if (h > REProg.kCpLowerZ) { h = REProg.kCpLowerZ; }
+            b.addClass(l - REProg.kCpCaseGap, h - REProg.kCpCaseGap);
+        }
     }
 }
 
@@ -1285,7 +1396,12 @@ class RESim {
                     break;
                 }
                 if (haveCp) {
-                    if (mOp[id] == REProg.kOpChar && cp == mA1[id]) {
+                    // Under (?i) (a2 == 1) the input is folded here to
+                    // meet the already-lowered pattern letter (D4).
+                    if (mOp[id] == REProg.kOpChar
+                        && (cp == mA1[id]
+                            || (mA2[id] == 1
+                                && REProg.foldAscii(cp) == mA1[id]))) {
                         this.addThread(id + 1, waveCap[t], pos + 1);
                     } else if (mOp[id] == REProg.kOpAny
                         && (mA2[id] == 0 || cp != REProg.kCpNewline)) {
