@@ -279,14 +279,14 @@ class REParser {
     private static const int kCpRParen = 41;
     private static const int kCpPipe = 124;
     private static const int kCpColon = 58;
-    private static const int kCpBraceOpen = 123;
-    private static const int kCpBraceClose = 125;
+    public static const int kCpBraceOpen = 123;
+    public static const int kCpBraceClose = 125;
     private static const int kCpComma = 44;
     private static const int kCpBracketOpen = 91;
     private static const int kCpBracketClose = 93;
     private static const int kCpCaret = 94;
     private static const int kCpMinus = 45;
-    private static const int kCpDollar = 36;
+    public static const int kCpDollar = 36;
     private static const int kCpEqual = 61;       // '='
     private static const int kCpLess = 60;        // '<'
     private static const int kCpGreater = 62;     // '>'
@@ -359,10 +359,10 @@ class REParser {
 
     // ASCII letter and digit bounds: alphanumeric escape letters are
     // reserved for metacharacter syntax.
-    private static const int kCpZero = 48;
+    public static const int kCpZero = 48;
     private static const int kCpSeven = 55;     // '7', the last octal digit
     private static const int kCpEight = 56;     // '8'
-    private static const int kCpNine = 57;
+    public static const int kCpNine = 57;
     private static const int kCpUpperA = 65;
     private static const int kCpUpperZ = 90;
     private static const int kCpLowerA = 97;
@@ -676,7 +676,7 @@ class REParser {
 
     // Name character domain: letters, digits and '_'. The non-digit
     // first-character rule is checked by the caller.
-    private static bool isNameCp(int cp) {
+    public static bool isNameCp(int cp) {
         if (isAlnumCp(cp)) { return true; }
         return cp == kCpUnderscore;
     }
@@ -1820,6 +1820,124 @@ const class Regex {
         if (!skipTail) { segs.add(input.substring(prev)); }
         return segs;
     }
+
+    // Replace every match with the expansion of template (Go's
+    // ReplaceAll; the template grammar in expandTemplate). The input
+    // comes back verbatim when nothing matches.
+    public string replaceAll(string input, string template) {
+        List<Match> ms = this.matches(input);
+        if (ms.length() == 0) { return input; }
+        string built = "";
+        int prev = 0;
+        for (int i = 0; i < ms.length(); i = i + 1) {
+            Match m = ms[i];
+            built = built + input.substring(prev, m.start);
+            built = built + this.expandTemplate(template, m);
+            prev = m.end;
+        }
+        return built + input.substring(prev);
+    }
+
+    // Replace only the first match; the input verbatim when none.
+    public string replaceFirst(string input, string template) {
+        Match m = this.match(input);
+        if (m == null) { return input; }
+        return input.substring(0, m.start) + this.expandTemplate(template, m)
+            + input.substring(m.end);
+    }
+
+    // Template expander, Go's extract rules (regexp.go expand): '$'
+    // followed by '$' yields one literal dollar and skips both; '${'
+    // up to '}' is a delimited reference; otherwise the longest run of
+    // name characters after '$' names the group. A '$' followed by
+    // neither a name character nor '$' nor '{', and a '${' that never
+    // closes, stay literal dollars (Go probed: "$!", "end$", "${1"
+    // all pass through verbatim). Reference text comes from
+    // referenceText; groups that cannot be named contribute nothing,
+    // so a real-but-unknown reference erases its dollar while the
+    // non-references above keep theirs.
+    private string expandTemplate(string template, Match m) {
+        byte[] raw = io.toBytes(template);
+        string built = "";
+        int i = 0;
+        int n = raw.length();
+        while (i < n) {
+            if (raw[i] != REParser.kCpDollar) {
+                int j = i;
+                while (j < n && raw[j] != REParser.kCpDollar) { j = j + 1; }
+                built = built + template.substring(i, j);
+                i = j;
+                continue;
+            }
+            if (i + 1 < n && raw[i + 1] == REParser.kCpDollar) {
+                built = built + "$";
+                i = i + 2;
+                continue;
+            }
+            if (i + 1 < n && raw[i + 1] == REParser.kCpBraceOpen) {
+                int k = i + 2;
+                while (k < n && raw[k] != REParser.kCpBraceClose) { k = k + 1; }
+                if (k < n) {
+                    built = built + this.referenceText(template.substring(i + 2, k), m);
+                    i = k + 1;
+                    continue;
+                }
+                // "${" with no closing brace: not a reference at all,
+                // the dollar stays literal and '{' rescans as plain text.
+                built = built + "$";
+                i = i + 1;
+                continue;
+            }
+            int j = i + 1;
+            while (j < n && REParser.isNameCp(raw[j])) { j = j + 1; }
+            if (j > i + 1) {
+                built = built + this.referenceText(template.substring(i + 1, j), m);
+                i = j;
+                continue;
+            }
+            built = built + "$";
+            i = i + 1;
+        }
+        return built;
+    }
+
+    // Resolve one reference name to its replacement text: an all-digit
+    // name without a leading zero ("$0" alone is legal) selects a group
+    // by number -- at or past the group count nothing matches, Go has
+    // no 99 cap -- and anything else is looked up as a group name. An
+    // unknown name, an unknown number and a group that did not
+    // participate all expand to the empty string; the empty name of
+    // "${}" is group 0 (Go's rule).
+    private string referenceText(string name, Match m) {
+        if (name.length() == 0) { return m.group(0); }
+        byte[] nb = io.toBytes(name);
+        bool allDigits = true;
+        for (int i = 0; i < nb.length(); i = i + 1) {
+            if (nb[i] < REParser.kCpZero || nb[i] > REParser.kCpNine) {
+                allDigits = false;
+                break;
+            }
+        }
+        bool leadingZero = nb.length() > 1 && nb[0] == REParser.kCpZero;
+        if (allDigits && !leadingZero) {
+            // Ten digits cannot index any real program's group table,
+            // and parsing them would risk wrapping the int away.
+            if (nb.length() > kMaxIndexDigits) { return ""; }
+            int idx = 0;
+            for (int i = 0; i < nb.length(); i = i + 1) {
+                idx = idx * 10 + (nb[i] - REParser.kCpZero);
+            }
+            if (idx >= m.groupCount) { return ""; }
+            return m.group(idx);
+        }
+        int idx = this.nameIndexOf(name);
+        if (idx < 0) { return ""; }
+        return m.group(idx);
+    }
+
+    // The longest digit run that can name a group number without
+    // exceeding the integer domain.
+    private static const int kMaxIndexDigits = 9;
 }
 
 // One match result: the span and text of the whole match (group 0)

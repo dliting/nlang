@@ -1,0 +1,49 @@
+// v0.13.7 regex: replacement templates -- $name / $1 / ${name} / $$ under
+// the Go extract rules, unmatched groups as empty strings, malformed $
+// passed through verbatim (spec 五, D11 dollar delivery through nlang).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex ab = Regex("(a)(b)");
+    if (ab.replaceAll("ab", "$2$1") != "ba") { bad = bad + 1; }
+    // "${" templates ride in through the nlang "$$" dollar escape (D11):
+    // "$${2}" folds to "${2}" at the literal layer (probe6_c). A bare or
+    // three-dollar "${2}" trips the interpolation parser (probe6_b:
+    // invalid identifier "2"), so the two-dollar spelling is the rule.
+    if (ab.replaceAll("ab", "$${2}$${1}") != "ba") { bad = bad + 1; }
+    if (ab.replaceAll("ab", "$0") != "ab") { bad = bad + 1; }
+    if (ab.replaceAll("ab", "$1$1") != "aa") { bad = bad + 1; }
+    // $ takes the longest alphanumeric-underscore run as the name: "$1x"
+    // names group "1x" -- it does not exist, so the replacement is empty
+    if (ab.replaceAll("ab", "$1x") != "") { bad = bad + 1; }
+    if (ab.replaceAll("ab", "$${1}x") != "ax") { bad = bad + 1; }
+    // digits with a leading zero form a name, not a group number
+    if (ab.replaceAll("ab", "$01") != "") { bad = bad + 1; }
+    // an all-digit name above the group count resolves to empty (no cap)
+    if (Regex("(a)").replaceAll("a", "$10") != "") { bad = bad + 1; }
+    // a participating empty group expands to empty content
+    if (Regex("(a*)b").replaceAll("b", "[$1]") != "[]") { bad = bad + 1; }
+    // a group that never participated expands to empty too
+    if (Regex("(x)|(y)").replaceAll("y", "[$1]") != "[]") { bad = bad + 1; }
+    // "$$$" folds to "$$" at the nlang layer (probe6_a), so the template
+    // sees $$ and produces one literal dollar
+    if (ab.replaceAll("ab", "$$$") != "$") { bad = bad + 1; }
+    // "$$X" folds to "$X" at the literal layer (probe6_a); group "X" does
+    // not exist, so the whole reference expands to the empty string
+    if (ab.replaceAll("ab", "$$X") != "") { bad = bad + 1; }
+    // malformed $ sequences pass through verbatim (Go extract parity)
+    if (Regex("b").replaceAll("b", "$!") != "$!") { bad = bad + 1; }
+    if (Regex("b").replaceAll("b", "end$") != "end$") { bad = bad + 1; }
+    if (Regex("b").replaceAll("b", "$${1") != "$${1") { bad = bad + 1; }
+    // replaceAll visits every match, replaceFirst only the first
+    if (ab.replaceAll("abab", "X") != "XX") { bad = bad + 1; }
+    if (ab.replaceFirst("abab", "$2$1") != "baab") { bad = bad + 1; }
+    // no match -> the input verbatim
+    if (Regex("z").replaceAll("abc", "X") != "abc") { bad = bad + 1; }
+    // the tour shape: nlang folds "$${value};" to "${value};" (D11)
+    Regex kv = Regex("(?P<key>\\w+)=(?P<value>\\d+)");
+    if (kv.replaceAll("a=1b=2", "$${value};") != "1;2;") { bad = bad + 1; }
+    return bad;
+}
