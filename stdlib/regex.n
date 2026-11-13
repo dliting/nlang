@@ -147,6 +147,16 @@ class REBuilder {
         clsLo.add(lo);
         clsHi.add(hi);
     }
+
+    // Forward references: RECompile reserves a slot with addInst (zero
+    // operands) and patches it once the target instruction index is
+    // known, mirroring Go's compile-time patch lists.
+    public void patch(int id, int op, int p1, int p2, int p3) {
+        ops[id] = op;
+        arg1[id] = p1;
+        arg2[id] = p2;
+        arg3[id] = p3;
+    }
 }
 
 // The compiled NFA: a flat instruction table with parallel operand
@@ -203,40 +213,68 @@ const class REProg {
 
     // Bulk table snapshots: reading a const class container field
     // yields a shallow copy, so a consumer that walks a table (RESim)
-    // pulls each table once instead of copying per element.
+    // pulls each table once instead of copying per element. The class
+    // range pair counts are implicit, as in REBuilder.beginClass: a
+    // class spans clsStarts()[id] .. clsStarts()[id + 1], the last one
+    // to the end of clsLos().
     public List<int> ops() { return mOp; }
     public List<int> a1s() { return mA1; }
     public List<int> a2s() { return mA2; }
     public List<int> a3s() { return mA3; }
-
-    // Class-table reads; the range pair counts are implicit, as in
-    // REBuilder.beginClass.
-    public int clsStart(int id) { return mClsStart[id]; }
-
-    public int clsCount(int id) {
-        int start = mClsStart[id];
-        int stop = mClsLo.length();
-        if (id + 1 < mClsStart.length()) { stop = mClsStart[id + 1]; }
-        return stop - start;
-    }
-    public int clsNeg(int id) { return mClsNeg[id]; }
-    public int clsFold(int id) { return mClsFold[id]; }
-    public int clsLo(int k) { return mClsLo[k]; }
-    public int clsHi(int k) { return mClsHi[k]; }
+    public List<int> clsLos() { return mClsLo; }
+    public List<int> clsHis() { return mClsHi; }
+    public List<int> clsStarts() { return mClsStart; }
+    public List<int> clsNegs() { return mClsNeg; }
+    public List<int> clsFolds() { return mClsFold; }
 }
 
-// Recursive-descent pattern parser. This first cut reads the literal
-// run of a pattern: plain code points and backslash escapes, which are
-// all the quoteMeta round trip needs. Alternation, groups, repetition
-// and character classes arrive in the following tasks on top of this
-// loop; the nesting-height guard is wired here so no later production
-// can forget it.
+// Recursive-descent pattern parser: alternation at the top, sequences
+// inside that, atoms with repetition suffixes innermost. Literals,
+// escapes, groups and the repetition operators are recognized here;
+// the bracket character-class syntax arrives in the next task. Nesting
+// height (groups plus repeat wraps) is bounded so the parser's own
+// recursion stays far inside the VM's call limit.
 class REParser {
     public static const int kMaxNestHeight = 120;
 
-    // ASCII letter and digit bounds: backslash escapes of alphanumeric
-    // characters are reserved for metacharacter syntax. This task only
-    // rejects them; later tasks give letters their escape meanings.
+    // Syntax characters the grammar branches on.
+    private static const int kCpDot = 46;
+    private static const int kCpStar = 42;
+    private static const int kCpPlus = 43;
+    private static const int kCpQuestion = 63;
+    private static const int kCpLParen = 40;
+    private static const int kCpRParen = 41;
+    private static const int kCpPipe = 124;
+    private static const int kCpColon = 58;
+    private static const int kCpBraceOpen = 123;
+    private static const int kCpBraceClose = 125;
+    private static const int kCpComma = 44;
+
+    // Backslash escape letters with a defined meaning. Everything else
+    // alphanumeric is rejected as an invalid escape sequence; escaped
+    // punctuation stands for the literal character.
+    private static const int kChD = 68;
+    private static const int kChS = 83;
+    private static const int kChW = 87;
+    private static const int kChLowerD = 100;
+    private static const int kChLowerS = 115;
+    private static const int kChLowerW = 119;
+    // \a \f \n \r \t \v map to the C control codes.
+    private static const int kChA = 97;
+    private static const int kChF = 102;
+    private static const int kChN = 110;
+    private static const int kChR = 114;
+    private static const int kChT = 116;
+    private static const int kChV = 118;
+    private static const int kCodeBell = 7;
+    private static const int kCodeTab = 9;
+    private static const int kCodeLF = 10;
+    private static const int kCodeFF = 12;
+    private static const int kCodeCR = 13;
+    private static const int kCodeVT = 11;
+
+    // ASCII letter and digit bounds: alphanumeric escape letters are
+    // reserved for metacharacter syntax.
     private static const int kCpZero = 48;
     private static const int kCpNine = 57;
     private static const int kCpUpperA = 65;
@@ -244,14 +282,16 @@ class REParser {
     private static const int kCpLowerA = 97;
     private static const int kCpLowerZ = 122;
 
-    private List<int> mCps;         // pattern decoded to code points
-    private List<int> mCpByte;      // parallel byte offset of each code point
-    private int mPos;               // cursor, in code points
+    private string mText;             // pattern text, for diagnostics
+    private List<int> mCps;           // pattern decoded to code points
+    private List<int> mCpByte;        // parallel byte offset of each code point
+    private int mPos;                 // cursor, in code points
     private int mCpCount;
-    private int mPatternBytes;      // byte length of the pattern text
+    private int mPatternBytes;        // byte length of the pattern text
     private int mHeight;
 
     public REParser(string pattern) {
+        mText = pattern;
         byte[] raw = io.toBytes(pattern);
         mCps = {};
         mCpByte = {};
@@ -263,7 +303,11 @@ class REParser {
     }
 
     public RENode parse() {
-        RENode root = this.parseConcat();
+        RENode root = this.parseAlt();
+        if (mPos < mCpCount) {
+            // Only a stray ')' can end the top-level alternation early.
+            this.errAt(mPos, "missing opening (");
+        }
         return root;
     }
 
@@ -287,29 +331,236 @@ class REParser {
 
     public void leaveLevel() { mHeight = mHeight - 1; }
 
+    // Alternation: left-associative pairs, so the leftmost branch is
+    // the first Alt exit at every level (leftmost-first, D2).
+    private RENode parseAlt() {
+        RENode left = this.parseConcat();
+        while (mPos < mCpCount && mCps[mPos] == kCpPipe) {
+            mPos = mPos + 1;
+            RENode right = this.parseConcat();
+            RENode n = RENode(RENode.kAlt);
+            n.children.add(left);
+            n.children.add(right);
+            left = n;
+        }
+        return left;
+    }
+
+    // A sequence of atoms, stopping at '|' (next branch) or ')' (end
+    // of group). Each repetition applied to an atom adds one tree
+    // level, counted here so chains of quantifiers cannot hide depth.
     private RENode parseConcat() {
         RENode n = RENode(RENode.kConcat);
+        int wraps = 0;
         while (mPos < mCpCount) {
             int cp = mCps[mPos];
-            if (cp == REProg.kCpBackslash) {
-                int esc = mPos;
-                mPos = mPos + 1;
-                if (mPos >= mCpCount) {
-                    this.errAt(esc, "trailing \\ in pattern");
-                }
-                int e = mCps[mPos];
-                mPos = mPos + 1;
-                if (REParser.isAlnumCp(e)) {
-                    this.errAt(mPos - 1, "invalid escape sequence");
-                }
-                n.children.add(RENode.makeChar(e));
-            } else {
-                mPos = mPos + 1;
-                n.children.add(RENode.makeChar(cp));
+            if (cp == kCpPipe || cp == kCpRParen) { break; }
+            RENode item = this.parseRepeat(this.parseAtom());
+            if (item.kind == RENode.kRepeat) {
+                this.enterLevel();
+                wraps = wraps + 1;
             }
+            n.children.add(item);
         }
+        for (int i = 0; i < wraps; i = i + 1) { this.leaveLevel(); }
         return n;
     }
+
+    private RENode parseAtom() {
+        int cp = mCps[mPos];
+        if (cp == kCpStar || cp == kCpPlus || cp == kCpQuestion) {
+            this.errAt(mPos, "nothing to repeat");
+        }
+        if (cp == kCpDot) {
+            mPos = mPos + 1;
+            RENode n = RENode(RENode.kAny);
+            n.anyNotNewline = 1;          // '.' excludes newline until (?s)
+            return n;
+        }
+        if (cp == kCpLParen) { return this.parseGroup(); }
+        if (cp == REProg.kCpBackslash) { return this.parseEscape(); }
+        mPos = mPos + 1;
+        return RENode.makeChar(cp);
+    }
+
+    // '(' starts a capture group (its marks are wired in with the
+    // capture task); '(?:' starts a non-capturing group. Flag groups
+    // such as '(?i)' are rejected until the flags task honors them,
+    // with the diagnostic that task pins.
+    private RENode parseGroup() {
+        int open = mPos;
+        mPos = mPos + 1;                  // '('
+        if (mPos < mCpCount && mCps[mPos] == kCpQuestion) {
+            mPos = mPos + 1;              // '?'
+            if (mPos < mCpCount && mCps[mPos] == kCpColon) {
+                mPos = mPos + 1;          // ':'
+            } else {
+                this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
+            }
+        }
+        this.enterLevel();
+        RENode body = this.parseAlt();
+        this.leaveLevel();
+        if (mPos >= mCpCount || mCps[mPos] != kCpRParen) {
+            this.errAt(open, "missing closing )");
+        }
+        mPos = mPos + 1;                  // ')'
+        return body;
+    }
+
+    // Repetition suffixes: * + ? and {n} {n,} {n,m}, each optionally
+    // followed by '?' to prefer fewer repetitions (lazy). A '{' that
+    // does not open a valid count stays a literal for the next atom,
+    // matching Go's leniency ("a{b" is the literal run a, {, b).
+    private RENode parseRepeat(RENode atom) {
+        while (mPos < mCpCount) {
+            int cp = mCps[mPos];
+            if (cp == kCpStar || cp == kCpPlus || cp == kCpQuestion) {
+                if (atom.kind == RENode.kRepeat) {
+                    this.errAt(mPos, "nothing to repeat");
+                }
+                mPos = mPos + 1;
+                int lazy = 0;
+                if (mPos < mCpCount && mCps[mPos] == kCpQuestion) {
+                    lazy = 1;
+                    mPos = mPos + 1;
+                }
+                atom = this.makeUnbounded(atom, cp, lazy);
+            } else if (cp == kCpBraceOpen) {
+                RENode rep = this.tryParseCounted(atom);
+                if (rep == null) { return atom; }
+                atom = rep;
+            } else {
+                break;
+            }
+        }
+        return atom;
+    }
+
+    private RENode makeUnbounded(RENode atom, int op, int lazy) {
+        RENode n = RENode(RENode.kRepeat);
+        n.min = 0;
+        n.max = -1;
+        if (op == kCpPlus) { n.min = 1; }
+        if (op == kCpQuestion) { n.max = 1; }
+        n.lazy = lazy;
+        n.children.add(atom);
+        return n;
+    }
+
+    // Try to read {lo}, {lo,} or {lo,hi} at the cursor; returns null
+    // (cursor unmoved) when the braces do not hold a valid count, so
+    // the caller can fall back to a literal '{'. Counts beyond the
+    // repeat ceiling are rejected, and the accumulation stops
+    // multiplying past it so long digit runs cannot overflow.
+    private RENode tryParseCounted(RENode atom) {
+        int brace = mPos;
+        int p = mPos + 1;
+        int lo = 0;
+        int hi = 0;
+        bool ok = false;
+        if (p < mCpCount && this.isDigit(mCps[p])) {
+            while (p < mCpCount && this.isDigit(mCps[p])) {
+                if (lo <= RECompile.kMaxRepeatCount) {
+                    lo = lo * 10 + (mCps[p] - kCpZero);
+                }
+                p = p + 1;
+            }
+            hi = lo;
+            if (p < mCpCount && mCps[p] == kCpComma) {
+                p = p + 1;
+                hi = -1;
+                if (p < mCpCount && this.isDigit(mCps[p])) {
+                    hi = 0;
+                    while (p < mCpCount && this.isDigit(mCps[p])) {
+                        if (hi <= RECompile.kMaxRepeatCount) {
+                            hi = hi * 10 + (mCps[p] - kCpZero);
+                        }
+                        p = p + 1;
+                    }
+                }
+            }
+            if (p < mCpCount && mCps[p] == kCpBraceClose) {
+                p = p + 1;
+                ok = true;
+            }
+        }
+        if (!ok) { return null; }
+        if (hi >= 0 && hi < lo) { this.errAt(brace, "invalid repeat count"); }
+        if (lo > RECompile.kMaxRepeatCount
+            || hi > RECompile.kMaxRepeatCount) {
+            this.errAt(brace,
+                "repeat count too large (max " + RECompile.kMaxRepeatCount + ")");
+        }
+        if (atom.kind == RENode.kRepeat) {
+            this.errAt(brace, "nothing to repeat");
+        }
+        int lazy = 0;
+        if (p < mCpCount && mCps[p] == kCpQuestion) {
+            p = p + 1;
+            lazy = 1;
+        }
+        mPos = p;
+        RENode n = RENode(RENode.kRepeat);
+        n.min = lo;
+        n.max = hi;
+        n.lazy = lazy;
+        n.children.add(atom);
+        return n;
+    }
+
+    // Backslash escapes: Perl class letters (\d \D \s \S \w \W) become
+    // class nodes, control letters become code points, and escaped
+    // punctuation becomes a literal. Digit escapes are rejected as
+    // back references until the numeric-escape task settles the
+    // digit families.
+    private RENode parseEscape() {
+        int esc = mPos;
+        mPos = mPos + 1;
+        if (mPos >= mCpCount) { this.errAt(esc, "trailing \\ in pattern"); }
+        int e = mCps[mPos];
+        mPos = mPos + 1;
+        if (e >= kCpZero && e <= kCpNine) {
+            this.errAt(mPos - 1, "back references are not supported");
+        }
+        if (this.isPerlClassLetter(e)) {
+            RENode n = RENode(RENode.kClass);
+            n.ch = e;                     // RECompile expands the letter
+            return n;
+        }
+        int lit = this.controlValue(e);
+        if (lit >= 0) { return RENode.makeChar(lit); }
+        if (REParser.isAlnumCp(e)) {
+            this.errAt(mPos - 1, "invalid escape sequence");
+        }
+        return RENode.makeChar(e);
+    }
+
+    private bool isPerlClassLetter(int e) {
+        if (e == kChD || e == kChLowerD) { return true; }
+        if (e == kChS || e == kChLowerS) { return true; }
+        return e == kChW || e == kChLowerW;
+    }
+
+    private int controlValue(int e) {
+        if (e == kChA) { return kCodeBell; }
+        if (e == kChF) { return kCodeFF; }
+        if (e == kChN) { return kCodeLF; }
+        if (e == kChR) { return kCodeCR; }
+        if (e == kChT) { return kCodeTab; }
+        if (e == kChV) { return kCodeVT; }
+        return -1;
+    }
+
+    // The raw pattern text of the flag segment at the cursor, up to
+    // ')' or the end, for the invalid-flag diagnostic.
+    private string flagSegment() {
+        int i = mPos;
+        while (i < mCpCount && mCps[i] != kCpRParen) { i = i + 1; }
+        return mText.substring(this.byteOfCp(mPos), this.byteOfCp(i));
+    }
+
+    private bool isDigit(int cp) { return cp >= kCpZero && cp <= kCpNine; }
 
     private int byteOfCp(int cpPos) {
         if (cpPos >= mCpCount) { return mPatternBytes; }
@@ -323,13 +574,43 @@ class REParser {
     }
 }
 
-// AST to REProg. Captures emit their kOpMark pairs around the body;
-// repeats expand to copies joined by kOpAlt chains. This first cut
-// compiles literals only, wrapped in the whole-match marks (group 0).
-// The builder tables are assembled here and frozen by REProg's
-// constructor, so compile returns a finished const program.
+// AST to REProg. Repetition expansion mirrors Go's syntax compiler:
+// plus is the body followed by a loop Alt that either re-enters the
+// body or exits, star puts a skip Alt in front of the same loop, and
+// a counted {n,m} chains (m-n) optional copies (the shape Go's parser
+// folds {n,m} into) whose skip edge moves to the next copy. Greedy
+// forms expose the body edge first at every Alt, lazy forms expose
+// the other, so match priority lives entirely in edge order.
+// Alternatives join at a head Alt whose first exit is the left
+// branch. Whole-match marks wrap the body; per-group marks arrive
+// with the capture task. The builder tables are assembled here and
+// frozen by REProg's constructor, so compile returns a finished
+// const program.
 class RECompile {
     public static const int kMaxRepeatCount = 1000;   // Go's syntax limit
+
+    // ASCII ranges the Perl class escapes expand to (Go parity).
+    private static const int kDigitLo = 48;
+    private static const int kDigitHi = 57;
+    private static const int kUpperLo = 65;
+    private static const int kUpperHi = 90;
+    private static const int kLowerLo = 97;
+    private static const int kLowerHi = 122;
+    private static const int kUnderscore = 95;
+    // \s is \t \n \f \r and space; the vertical tab (11) is excluded.
+    private static const int kTab = 9;
+    private static const int kLF = 10;
+    private static const int kFF = 12;
+    private static const int kCR = 13;
+    private static const int kSpace = 32;
+
+    // Escape letters the Perl classes are keyed by (RENode.ch).
+    private static const int kChD = 68;
+    private static const int kChS = 83;
+    private static const int kChW = 87;
+    private static const int kChLowerD = 100;
+    private static const int kChLowerS = 115;
+    private static const int kChLowerW = 119;
 
     public static REProg compile(RENode root) {
         REBuilder b = REBuilder();
@@ -344,18 +625,130 @@ class RECompile {
     private static void emit(RENode n, REBuilder b) {
         if (n.kind == RENode.kChar) {
             b.addInst(REProg.kOpChar, n.ch, 0, 0);
+        } else if (n.kind == RENode.kClass) {
+            b.addInst(REProg.kOpClass, RECompile.classIdFor(n, b), 0, 0);
+        } else if (n.kind == RENode.kAny) {
+            b.addInst(REProg.kOpAny, 0, n.anyNotNewline, 0);
+        } else if (n.kind == RENode.kAlt) {
+            RECompile.emitAlt(n, b);
+        } else if (n.kind == RENode.kRepeat) {
+            RECompile.emitRepeat(n, b);
         } else if (n.kind == RENode.kConcat) {
             for (int i = 0; i < n.children.length(); i = i + 1) {
                 RECompile.emit(n.children[i], b);
             }
         }
+        // kEmpty and an empty sequence emit no instruction: they match
+        // the empty string and the next instruction follows in line.
+    }
+
+    // Alternation: the head Alt prefers the left branch; a left-branch
+    // thread jumps over the right branch at its tail (Go patches both
+    // branch outs to the continuation; here the right tail falls
+    // through to it and the left tail jumps).
+    private static void emitAlt(RENode n, REBuilder b) {
+        int head = b.addInst(REProg.kOpAlt, 0, 0, 0);
+        int startLeft = b.ops.length();
+        RECompile.emit(n.children[0], b);
+        int jmp = b.addInst(REProg.kOpAlt, 0, 0, 0);
+        int startRight = b.ops.length();
+        RECompile.emit(n.children[1], b);
+        int after = b.ops.length();
+        b.patch(head, REProg.kOpAlt, startLeft, startRight, 0);
+        b.patch(jmp, REProg.kOpAlt, after, after, 0);
+    }
+
+    private static void emitRepeat(RENode n, REBuilder b) {
+        RENode body = n.children[0];
+        int min = n.min;
+        int max = n.max;
+        int lazy = n.lazy;
+        if (max == 0) { return; }                 // x{0} matches nothing
+        if (max < 0) {
+            if (min == 0) {
+                // x*: a skip Alt in front, the loop Alt behind the
+                // body, whose tail edge re-enters the head. The exit
+                // is then offered before the first body copy and again
+                // after each iteration (Go's loop frag reached through
+                // its Alt).
+                int head = b.addInst(REProg.kOpAlt, 0, 0, 0);
+                int bodyStart = b.ops.length();
+                RECompile.emit(body, b);
+                int tail = b.addInst(REProg.kOpAlt, 0, 0, 0);
+                int exit = b.ops.length();
+                if (lazy == 0) {
+                    b.patch(head, REProg.kOpAlt, bodyStart, exit, 0);
+                    b.patch(tail, REProg.kOpAlt, head, exit, 0);
+                } else {
+                    b.patch(head, REProg.kOpAlt, exit, bodyStart, 0);
+                    b.patch(tail, REProg.kOpAlt, exit, head, 0);
+                }
+            } else {
+                // x{min,}: min forced copies; the loop Alt re-enters
+                // the last one (Go folds x{min,} into copies plus x+).
+                int bodyStart = b.ops.length();
+                for (int i = 0; i < min; i = i + 1) {
+                    bodyStart = b.ops.length();
+                    RECompile.emit(body, b);
+                }
+                int tail = b.addInst(REProg.kOpAlt, 0, 0, 0);
+                int exit = b.ops.length();
+                if (lazy == 0) {
+                    b.patch(tail, REProg.kOpAlt, bodyStart, exit, 0);
+                } else {
+                    b.patch(tail, REProg.kOpAlt, exit, bodyStart, 0);
+                }
+            }
+            return;
+        }
+        // {min,max}: min forced copies, then (max-min) optional copies
+        // chained so skipping one copy offers the next (the reading
+        // Go's parser folds {n,m} into); x? is {0,1}.
+        for (int i = 0; i < min; i = i + 1) { RECompile.emit(body, b); }
+        for (int i = min; i < max; i = i + 1) {
+            int head = b.addInst(REProg.kOpAlt, 0, 0, 0);
+            RECompile.emit(body, b);
+            int next = b.ops.length();
+            if (lazy == 0) {
+                b.patch(head, REProg.kOpAlt, head + 1, next, 0);
+            } else {
+                b.patch(head, REProg.kOpAlt, next, head + 1, 0);
+            }
+        }
+    }
+
+    // The Perl class escapes expand to flat range tables at compile
+    // time; the escape letter rides in RENode.ch from the parser.
+    // \s follows Go's ASCII set exactly: \t \n \f \r and space.
+    private static int classIdFor(RENode n, REBuilder b) {
+        int e = n.ch;
+        int neg = 0;
+        if (e == kChD || e == kChS || e == kChW) { neg = 1; }
+        int id = b.beginClass(neg, 0);
+        if (e == kChD || e == kChLowerD) {
+            b.addClass(kDigitLo, kDigitHi);
+        } else if (e == kChS || e == kChLowerS) {
+            b.addClass(kTab, kLF);
+            b.addClass(kFF, kCR);
+            b.addClass(kSpace, kSpace);
+        } else {
+            b.addClass(kDigitLo, kDigitHi);
+            b.addClass(kUpperLo, kUpperHi);
+            b.addClass(kUnderscore, kUnderscore);
+            b.addClass(kLowerLo, kLowerHi);
+        }
+        return id;
     }
 }
 
 // Thread-set NFA simulator (Pike VM): one step per code point, active
 // threads deduplicated per instruction slot with first-arrival order
-// preserved, so the first thread to reach kOpMatch is the leftmost
-// first match the language promises.
+// preserved. A thread that steps onto kOpMatch records the match and
+// cuts off the lower-priority threads of the same step; a later step
+// can record over it, but only from a higher-priority thread — that
+// is how greedy repetition extends its span step by step. The thread
+// left on the books is the leftmost first match the language
+// promises (Go's exec.go first-match mode).
 class RESim {
     // UTF-8 decode constants (RFC 3629). Malformed sequences decode to
     // one pseudo code point U+FFFD per byte, Go's RuneError posture.
@@ -391,6 +784,10 @@ class RESim {
     private List<int> mOp;
     private List<int> mA1;
     private List<int> mA2;
+    private List<int> mClsLo;       // class range bounds, flat pairs
+    private List<int> mClsHi;
+    private List<int> mClsStart;    // class id -> first pair index
+    private List<int> mClsNeg;      // per-class negation flag
     private int mInstCount;
     private List<int> mCps;         // input decoded to code points
     private List<int> mCpByte;      // parallel byte offset of each code point
@@ -462,6 +859,10 @@ class RESim {
         mOp = prog.ops();
         mA1 = prog.a1s();
         mA2 = prog.a2s();
+        mClsLo = prog.clsLos();
+        mClsHi = prog.clsHis();
+        mClsStart = prog.clsStarts();
+        mClsNeg = prog.clsNegs();
         mInstCount = prog.instCount();
         byte[] raw = io.toBytes(input);
         mCps = {};
@@ -489,31 +890,55 @@ class RESim {
         mThr = {};
         mCap = {};
         this.addThread(0, this.seedSlots(mStartCp), mStartCp);
-        if (mFound != null) { return this.toBytes(mFound); }
-        for (int pos = mStartCp; pos < cpCount; pos = pos + 1) {
-            // Consume one code point: only consuming instructions take
-            // it; every survivor re-enters as a zero-width closure at
-            // the next position. The fresh start thread joins that same
-            // closure after the survivors, so within one generation the
-            // earlier start keeps priority at every instruction — the
-            // leftmost-first property the language promises (D2).
+        for (int pos = mStartCp; pos <= cpCount; pos = pos + 1) {
+            // One step: each wave thread either consumes the code point
+            // at pos or, at the end of input, simply dies. A thread that
+            // waits on kOpMatch records the match and cuts off every
+            // lower-priority thread of this step (they cannot reach a
+            // longer leftmost match); a later step records over it, and
+            // that is the greedy repetition extending its span. Threads
+            // ahead of the Match in the same wave outrank it and can
+            // still extend, which is how "a*" on "a" ends up "a"
+            // (Go's step(), first-match mode).
             List<int> wave = mThr;
             List<List<int>> waveCap = mCap;
-            int cp = mCps[pos];
             mGen = mGen + 1;
             mThr = {};
             mCap = {};
+            bool haveCp = pos < cpCount;
+            int cp = 0;
+            if (haveCp) { cp = mCps[pos]; }
             for (int t = 0; t < wave.length(); t = t + 1) {
                 int id = wave[t];
-                if (mOp[id] == REProg.kOpChar && cp == mA1[id]) {
-                    this.addThread(id + 1, waveCap[t], pos + 1);
+                if (mOp[id] == REProg.kOpMatch) {
+                    mFound = waveCap[t];
+                    break;
+                }
+                if (haveCp) {
+                    if (mOp[id] == REProg.kOpChar && cp == mA1[id]) {
+                        this.addThread(id + 1, waveCap[t], pos + 1);
+                    } else if (mOp[id] == REProg.kOpAny
+                        && (mA2[id] == 0 || cp != REProg.kCpNewline)) {
+                        this.addThread(id + 1, waveCap[t], pos + 1);
+                    } else if (mOp[id] == REProg.kOpClass
+                        && this.classMatch(mA1[id], cp)) {
+                        this.addThread(id + 1, waveCap[t], pos + 1);
+                    }
                 }
             }
-            if (mFound != null) { return this.toBytes(mFound); }
-            this.addThread(0, this.seedSlots(pos + 1), pos + 1);
-            if (mFound != null) { return this.toBytes(mFound); }
+            if (!haveCp) { break; }            // end of input reached
+            if (mThr.length() == 0 && mFound != null) { break; }
+            if (mFound == null) {
+                // The next start joins the new wave after its survivors,
+                // so an earlier start keeps priority at every
+                // instruction (leftmost-first, D2). Once a match is on
+                // the books no further start is seeded: only surviving
+                // threads can still extend it.
+                this.addThread(0, this.seedSlots(pos + 1), pos + 1);
+            }
         }
-        return null;
+        if (mFound == null) { return null; }
+        return this.toBytes(mFound);
     }
 
     private List<int> seedSlots(int pos) {
@@ -546,10 +971,6 @@ class RESim {
                 slots[mA1[id]] = pos;
             }
             this.addThread(id + 1, slots, pos);
-            return;
-        }
-        if (op == REProg.kOpMatch) {
-            if (mFound == null) { mFound = slots; }
             return;
         }
         if (op == REProg.kOpBeginText) {
@@ -586,6 +1007,10 @@ class RESim {
             if (inBoundary == mA1[id]) { this.addThread(id + 1, slots, pos); }
             return;
         }
+        // Consuming instructions (Char, Class, Any) and Match wait in
+        // the wave: the step loop hands the code point to the first two
+        // and, when a Match's step comes, records the match (Go queues
+        // InstMatch threads the same way).
         mThr.add(id);
         mCap.add(slots);
     }
@@ -599,6 +1024,21 @@ class RESim {
         if (cp >= kCpUpperA && cp <= kCpUpperZ) { return true; }
         if (cp >= kCpLowerA && cp <= kCpLowerZ) { return true; }
         return cp == kCpUnderscore;
+    }
+
+    // Membership against the flat class range table: the class spans
+    // from its start pair index to the next class's start (or the end
+    // of the table), and its negation flag flips the result.
+    private bool classMatch(int clsId, int cp) {
+        int start = mClsStart[clsId];
+        int stop = mClsLo.length();
+        if (clsId + 1 < mClsStart.length()) { stop = mClsStart[clsId + 1]; }
+        int hit = 0;
+        for (int k = start; k < stop; k = k + 1) {
+            if (cp >= mClsLo[k] && cp <= mClsHi[k]) { hit = 1; break; }
+        }
+        if (mClsNeg[clsId] == 1) { hit = 1 - hit; }
+        return hit == 1;
     }
 
     private List<int> newSlots() {

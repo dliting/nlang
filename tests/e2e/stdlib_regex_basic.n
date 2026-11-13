@@ -1,0 +1,75 @@
+// v0.13.7 regex: alternation, any, Perl classes, escapes, leftmost-first.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex alt = Regex("cat|dog");
+    if (!alt.isMatch("my dog")) { bad = bad + 1; }
+    if (alt.isMatch("cow")) { bad = bad + 1; }
+    Match m = alt.match("a dog and a cat");
+    if (m == null) { return bad + 1; }
+    if (m.text != "dog" || m.start != 2) { bad = bad + 1; }   // leftmost, not first branch
+    // leftmost-first at the same start: the left alternative wins (D2)
+    Regex pref = Regex("a|ab");
+    Match mp = pref.match("ab");
+    if (mp == null || mp.text != "a") { bad = bad + 1; }
+    // dot: any codepoint except newline
+    Regex dot = Regex("a.b");
+    if (!dot.isMatch("a中b")) { bad = bad + 1; }               // whole codepoint, D4
+    if (dot.isMatch("a\nb")) { bad = bad + 1; }
+    // Perl classes are ASCII-only (Go parity)
+    Regex digits = Regex("\\d+");
+    if (!digits.isMatch("abc123")) { bad = bad + 1; }
+    if (digits.isMatch("１２３")) { bad = bad + 1; }            // fullwidth digits are not \d
+    if (!Regex("\\w+").isMatch("_x9")) { bad = bad + 1; }
+    if (!Regex("\\s").isMatch("a\tb")) { bad = bad + 1; }
+    if (Regex("\\s").isMatch("a中b")) { bad = bad + 1; }
+    if (Regex("\\D").isMatch("7")) { bad = bad + 1; }
+    if (!Regex("\\D").isMatch("a")) { bad = bad + 1; }
+    if (!Regex("\\S+").isMatch("ab")) { bad = bad + 1; }
+    if (!Regex("\\W").isMatch("!")) { bad = bad + 1; }
+    // control escapes
+    if (!Regex("\\t").isMatch("x\ty")) { bad = bad + 1; }
+    if (!Regex("\\n").isMatch("x\ny")) { bad = bad + 1; }
+    // punctuation escape: dot stays a literal when escaped
+    if (!Regex("a\\.b").isMatch("a.b")) { bad = bad + 1; }
+    if (Regex("a\\.b").isMatch("axb")) { bad = bad + 1; }
+    // non-capturing group with repetition (greedy default, D2)
+    if (!Regex("(?:ab)+c").isMatch("ababc")) { bad = bad + 1; }
+    Match mg = Regex("<a+>").match("<aa>");
+    if (mg == null || mg.text != "<aa>") { bad = bad + 1; }       // greedy eats both a's
+    Match ml = Regex("<a+?>").match("<a>");
+    if (ml == null || ml.text != "<a>") { bad = bad + 1; }        // lazy takes the one a
+    // the same input under both modes: the contrast the modes exist for
+    Match gg = Regex("<.+>").match("<a><b>");
+    if (gg == null || gg.text != "<a><b>") { bad = bad + 1; }     // greedy runs to the last >
+    Match gl = Regex("<.+?>").match("<a><b>");
+    if (gl == null || gl.text != "<a>") { bad = bad + 1; }        // lazy stops at the first >
+    if (!Regex("ab{2}c").isMatch("abbc")) { bad = bad + 1; }
+    if (Regex("ab{2}c").isMatch("abc")) { bad = bad + 1; }
+    if (!Regex("ab{1,2}c").isMatch("abbc")) { bad = bad + 1; }
+    if (Regex("ab{1,2}c").isMatch("abbbc")) { bad = bad + 1; }
+    if (!Regex("ab{2,}c").isMatch("abbbbc")) { bad = bad + 1; }
+    // {n,m} with m < n is a compile rejection (Go parity)
+    try { Regex rr = Regex("ab{2,1}c"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid repeat count") < 0) { bad = bad + 1; }
+    }
+    // an operator without an operand is a compile rejection
+    try { Regex nr = Regex("*a"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("nothing to repeat") < 0) { bad = bad + 1; }
+    }
+    // rejected constructs (spec v1不做, compile-time, pinned messages)
+    try { Regex br = Regex("\\1"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("back references are not supported") < 0) { bad = bad + 1; }
+    }
+    // unbalanced parenthesis rejected
+    try { Regex up = Regex("(abc"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("missing closing )") < 0) { bad = bad + 1; }
+    }
+    return bad;
+}
