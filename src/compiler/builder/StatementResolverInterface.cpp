@@ -1,7 +1,9 @@
 /*---
-    StatementResolverInterface.cpp — interface成员的声明契约：常量面、
-    常量/方法同名歧义、成员公共性与标志面，以及interface成员签名解析。
-    从 StatementResolverTypes.cpp 抽取（2026-11-13 0.13.1c，源文件500行守卫）。
+    StatementResolverInterface.cpp — the declaration contracts of
+    interface members: the constant face, the constant/method name
+    ambiguity, member visibility and flag surface, and interface member
+    signature resolution. Extracted from StatementResolverTypes.cpp
+    (2026-11-13, 0.13.1c, source-size guard).
 ---*/
 #include "StatementResolver.h"
 #include "FieldInitializerChecks.hpp"

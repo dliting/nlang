@@ -1,10 +1,12 @@
 /*---
-    VmBackendSignatures.cpp — body-less记录族的签名面：v1.12类型描述符
-    收集（CollectSignatureTypeDescs）与三张签名-only记录（native/Phase
-    9f、abstract/0.13.1c、共享体FillSignatureOnlyRecord），以及三者与
-    AllocParamsAndDefaults共享的签名助手（this接收者谓词、接收者GC种类、
-    泛型记录元数据）。从VmBackend.cpp分文件（源尺寸守卫拆分，零行为
-    变化；一关注点一TU，同族先例见RegisterInterfaces.cpp）。
+    VmBackendSignatures.cpp — the signature face of the body-less record
+    family: v1.12 type-descriptor collection (CollectSignatureTypeDescs),
+    the three signature-only records (native/Phase 9f, abstract/0.13.1c,
+    shared body FillSignatureOnlyRecord), and the signature helpers
+    shared with AllocParamsAndDefaults (this-receiver predicate, receiver
+    GC kind, generic record metadata). Split from VmBackend.cpp by the
+    source-size guard, zero behavior change; one concern per TU, family
+    precedent in RegisterInterfaces.cpp.
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
@@ -108,7 +110,8 @@ void VmBackend::FillSignatureOnlyRecord(SnFunction& func,
     //Frame-layout locals (this + one per formal) with the true runtime
     //kinds. The native path emits no bytecode, so this is metadata-only —
     //the GC never scans a native function's frame (CallNative stages its
-    //args into its own buffer). The kind-裁决 chain's frame-layout fallback
+    //args into its own buffer). The kind-adjudication chain's
+    //frame-layout fallback
     //reads the param kind from these slots when the v1.12 descriptor
     //degrades the type (func signatures, interface types, depth-cap
     //containers), so a reference cell must carry the reference kind, not
