@@ -44,9 +44,8 @@ string quoteMeta(string s) {
 }
 
 // A node of the pattern syntax tree produced by REParser and consumed
-// by RECompile. The kinds that later tasks reach (quantified repeats,
-// captures, character classes) carry their payload in the shared
-// fields below.
+// by RECompile. Quantified repeats, captures and character classes
+// carry their payload in the shared fields below.
 class RENode {
     public static const int kChar = 0;
     public static const int kClass = 1;
@@ -270,6 +269,9 @@ class REParser {
     private static const int kCpCaret = 94;
     private static const int kCpMinus = 45;
     private static const int kCpDollar = 36;
+    private static const int kCpEqual = 61;       // '='
+    private static const int kCpLess = 60;        // '<'
+    private static const int kCpGreater = 62;     // '>'
 
     // ASCII bounds the Perl and POSIX class range tables are built
     // from (Go's regexp/syntax doc.go sets). kCpMin/kCpMax close the
@@ -307,7 +309,9 @@ class REParser {
     private static const int kChB = 98;
     private static const int kChZ = 122;
     private static const int kChA = 97;
-    // (?flags) letters: only the bare (?m) form is honored for now.
+    // '(?...' letters: 'P' opens the '(?P<name>' spelling of a named
+    // group; only 'm' among the bare flag forms is honored for now.
+    private static const int kChUpperP = 80;
     private static const int kChM = 109;
     private static const int kChF = 102;
     private static const int kChN = 110;
@@ -339,6 +343,8 @@ class REParser {
     private int mPatternBytes;        // byte length of the pattern text
     private int mHeight;
     private int mMultiline;           // (?m) in effect: ^ $ bind to lines
+    private int mNumCaptures;         // next group index (0 = whole match)
+    private Dict<string, int> mNames; // group name -> group index
 
     public REParser(string pattern) {
         mText = pattern;
@@ -351,6 +357,8 @@ class REParser {
         mPos = 0;
         mHeight = 0;
         mMultiline = 0;
+        mNumCaptures = 1;             // group 0 is the whole match
+        mNames = {};
     }
 
     public RENode parse() {
@@ -361,6 +369,13 @@ class REParser {
         }
         return root;
     }
+
+    // Total group count once parse() has run: 1 (the whole match) plus
+    // one per capturing parenthesis.
+    public int groupCount() { return mNumCaptures; }
+
+    // Group name -> group index, filled while parsing.
+    public Dict<string, int> names() { return mNames; }
 
     public void errAt(int cpPos, string reason) {
         throw RegexException("regex: " + reason + " at byte "
@@ -454,28 +469,28 @@ class REParser {
         return RENode.makeChar(cp);
     }
 
-    // '(' starts a capture group (its marks are wired in with the
-    // capture task); '(?:' starts a non-capturing group. The bare
-    // '(?m)' form is a zero-width flag: from there to the group's
-    // closing ')' the ^ and $ anchors bind to lines. Flag groups such
-    // as '(?i)' are rejected until the flags task honors them, with
-    // the diagnostic that task pins.
+    // '(' opens a capture group, '(?:' a non-capturing one, and
+    // '(?P<name>' or '(?<name>' a named capture (the two spellings Go
+    // accepts). Group numbers follow opening-paren order, nesting
+    // included. '(?=' '(?!' '(?<=' '(?<!' are look-around, which a
+    // thread-set engine cannot run (Go/RE2 exclude them too): rejected
+    // at compile time. The bare '(?m)' form is a zero-width flag: from
+    // there to the enclosing group's closing ')' the ^ and $ anchors
+    // bind to lines. Flag groups such as '(?i)' are rejected until the
+    // flags task honors them, with the diagnostic that task pins.
     private RENode parseGroup() {
         int open = mPos;
         int savedMultiline = mMultiline;
         mPos = mPos + 1;                  // '('
+        int index = 0;                    // 0: non-capturing or flag form
         if (mPos < mCpCount && mCps[mPos] == kCpQuestion) {
             mPos = mPos + 1;              // '?'
-            if (mPos < mCpCount && mCps[mPos] == kCpColon) {
-                mPos = mPos + 1;          // ':'
-            } else if (mPos + 1 < mCpCount && mCps[mPos] == kChM
-                       && mCps[mPos + 1] == kCpRParen) {
-                mPos = mPos + 2;          // 'm)'
-                mMultiline = 1;           // holds to the enclosing ')'
+            index = this.parseGroupTail(open);
+            if (index < 0) {              // complete '(?m)' marker
                 return RENode(RENode.kEmpty);
-            } else {
-                this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
             }
+        } else {
+            index = this.nextCaptureIndex();
         }
         this.enterLevel();
         RENode body = this.parseAlt();
@@ -485,7 +500,91 @@ class REParser {
         }
         mPos = mPos + 1;                  // ')'
         mMultiline = savedMultiline;      // the flag ends with the group
-        return body;
+        if (index == 0) { return body; }
+        RENode cap = RENode(RENode.kCapture);
+        cap.index = index;
+        cap.children.add(body);
+        return cap;
+    }
+
+    // The text between '(?' and the group body: returns the capture
+    // index the form opens (0 for non-capturing), or -1 when the form
+    // was the complete '(?m)' flag marker.
+    private int parseGroupTail(int open) {
+        if (mPos >= mCpCount) {
+            this.errAt(open, "missing closing )");
+            return 0;                     // unreachable: errAt throws
+        }
+        int cp = mCps[mPos];
+        if (cp == kCpColon) {
+            mPos = mPos + 1;              // ':'
+            return 0;
+        }
+        if (cp == kCpEqual || cp == kCpExcl) {
+            this.errAt(open, "look-around is not supported");   // (?= (?!
+            return 0;
+        }
+        if (cp == kCpLess) {
+            if (mPos + 1 < mCpCount
+                && (mCps[mPos + 1] == kCpEqual || mCps[mPos + 1] == kCpExcl)) {
+                this.errAt(open, "look-around is not supported"); // (?<= (?<!
+            } else {
+                mPos = mPos + 1;          // '<'
+                return this.parseGroupName(open);
+            }
+            return 0;
+        }
+        if (cp == kChUpperP && mPos + 1 < mCpCount
+            && mCps[mPos + 1] == kCpLess) {
+            mPos = mPos + 2;              // 'P<'
+            return this.parseGroupName(open);
+        }
+        if (cp == kChM && mPos + 1 < mCpCount && mCps[mPos + 1] == kCpRParen) {
+            mPos = mPos + 2;              // 'm)'
+            mMultiline = 1;               // holds to the enclosing ')'
+            return -1;
+        }
+        this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
+        return 0;                         // unreachable: errAt throws
+    }
+
+    // A group name between '<' and '>': letters, digits and '_' with a
+    // non-digit first (Go's name shape). Duplicate names are a compile
+    // error; numbering was decided by paren order, so registration
+    // only records the alias.
+    private int parseGroupName(int open) {
+        int start = mPos;
+        if (mPos < mCpCount && this.isDigit(mCps[mPos])) {
+            this.errAt(open, "invalid named capture");
+        }
+        while (mPos < mCpCount && REParser.isNameCp(mCps[mPos])) { mPos = mPos + 1; }
+        if (mPos == start || mPos >= mCpCount || mCps[mPos] != kCpGreater) {
+            this.errAt(open, "invalid named capture");
+        }
+        mPos = mPos + 1;                  // '>'
+        string name = mText.substring(this.byteOfCp(start),
+            this.byteOfCp(mPos - 1));
+        if (mNames.containsKey(name)) {
+            this.err("duplicate group name \"" + name + "\"");
+        }
+        int index = this.nextCaptureIndex();
+        mNames.set(name, index);
+        return index;
+    }
+
+    // Hands out the next group number; parse order is the numbering
+    // order, so an outer group always precedes its inner ones.
+    private int nextCaptureIndex() {
+        int idx = mNumCaptures;
+        mNumCaptures = mNumCaptures + 1;
+        return idx;
+    }
+
+    // Name character domain: letters, digits and '_'. The non-digit
+    // first-character rule is checked by the caller.
+    private static bool isNameCp(int cp) {
+        if (isAlnumCp(cp)) { return true; }
+        return cp == kCpUnderscore;
     }
 
     // Bracket class: '[' optional '^' then members until ']'. ']' is a
@@ -883,20 +982,19 @@ class REParser {
 // forms expose the body edge first at every Alt, lazy forms expose
 // the other, so match priority lives entirely in edge order.
 // Alternatives join at a head Alt whose first exit is the left
-// branch. Whole-match marks wrap the body; per-group marks arrive
-// with the capture task. The builder tables are assembled here and
+// branch. Whole-match marks wrap the body; each capture node emits its
+// own mark pair around its subtree. The builder tables are assembled here and
 // frozen by REProg's constructor, so compile returns a finished
 // const program.
 class RECompile {
     public static const int kMaxRepeatCount = 1000;   // Go's syntax limit
 
-    public static REProg compile(RENode root) {
+    public static REProg compile(RENode root, int groupCount) {
         REBuilder b = REBuilder();
-        int slotCount = 2;          // whole match only; captures add pairs
         b.addInst(REProg.kOpMark, 0, 0, 0);
         RECompile.emit(root, b);
         b.addInst(REProg.kOpMark, 1, 0, 0);
-        b.addInst(REProg.kOpMatch, slotCount, 0, 0);
+        b.addInst(REProg.kOpMatch, 2 * groupCount, 0, 0);
         return REProg(b);
     }
 
@@ -913,6 +1011,10 @@ class RECompile {
             RECompile.emitAlt(n, b);
         } else if (n.kind == RENode.kRepeat) {
             RECompile.emitRepeat(n, b);
+        } else if (n.kind == RENode.kCapture) {
+            b.addInst(REProg.kOpMark, 2 * n.index, 0, 0);
+            RECompile.emit(n.children[0], b);
+            b.addInst(REProg.kOpMark, 2 * n.index + 1, 0, 0);
         } else if (n.kind == RENode.kConcat) {
             for (int i = 0; i < n.children.length(); i = i + 1) {
                 RECompile.emit(n.children[i], b);
@@ -1234,9 +1336,16 @@ class RESim {
             return;
         }
         if (op == REProg.kOpMark) {
-            if (slots[mA1[id]] < 0) {
+            // Capture semantics (Go the same): a repetition re-entering
+            // a Mark moves the slot to its latest pass, so the reported
+            // capture is the last iteration. Writing a slot clones the
+            // vector (copy-on-write), so threads forked at an Alt keep
+            // their own slot vectors and a group whose branch never ran
+            // stays unset.
+            int slot = mA1[id];
+            if (slots[slot] != pos) {
                 slots = this.copySlots(slots);
-                slots[mA1[id]] = pos;
+                slots[slot] = pos;
             }
             this.addThread(id + 1, slots, pos);
             return;
@@ -1354,15 +1463,27 @@ class RESim {
 const class Regex {
     private string m_pattern;
     private REProg m_prog;
+    private Dict<string, int> m_names;    // group name -> group index
 
     public Regex(string pattern) {
         m_pattern = pattern;
         REParser parser = REParser(pattern);
         RENode ast = parser.parse();
-        m_prog = RECompile.compile(ast);
+        m_names = parser.names();
+        m_prog = RECompile.compile(ast, parser.groupCount());
     }
 
     public string pattern() { return m_pattern; }
+
+    // The index of a named capture group, or -1 when the pattern has
+    // no group of that name. Match's named accessor routes through
+    // this: a const class hands container fields out as snapshots, so
+    // the lookup happens once here instead of per Match method.
+    public int nameIndexOf(string name) {
+        Dict<string, int> names = m_names;
+        if (names.containsKey(name)) { return names.get(name); }
+        return -1;
+    }
 
     public bool isMatch(string input) {
         return RESim.exec(m_prog, input, 0) != null;
@@ -1376,9 +1497,11 @@ const class Regex {
     }
 }
 
-// One match result: the span and text of the whole match (group 0);
-// per-group accessors arrive with capture support. Offsets are byte
-// offsets into the input string, matching String's byte semantics.
+// One match result: the span and text of the whole match (group 0)
+// plus the captures it produced. Offsets are byte offsets into the
+// input string, matching String's byte semantics. The slot vector is a
+// snapshot taken at the match (D7): re-running the Regex never
+// disturbs an existing Match.
 const class Match {
     public string text;
     public int start;
@@ -1397,5 +1520,46 @@ const class Match {
         end = slots[1];
         text = input.substring(start, end);
         groupCount = slots.length() / 2;
+    }
+
+    // The text of group index (0 is the whole match). A group that did
+    // not participate captures the empty string; an out-of-range index
+    // is a caller error (D6).
+    public string group(int index) {
+        this.checkIndex(index);
+        int from = m_slots[2 * index];
+        if (from < 0) { return ""; }
+        return m_input.substring(from, m_slots[2 * index + 1]);
+    }
+
+    // The text of the named group; an unknown name is a caller error.
+    public string group(string name) {
+        int index = m_owner.nameIndexOf(name);
+        if (index < 0) {
+            throw RegexException("no capture group named \"" + name + "\"");
+        }
+        return this.group(index);
+    }
+
+    // The byte offset where group index started, or -1 when the group
+    // did not participate (an empty capture that did participate
+    // reports its real offsets, Go parity).
+    public int groupStart(int index) {
+        this.checkIndex(index);
+        return m_slots[2 * index];
+    }
+
+    // The byte offset just past group index, or -1 when the group did
+    // not participate.
+    public int groupEnd(int index) {
+        this.checkIndex(index);
+        return m_slots[2 * index + 1];
+    }
+
+    private void checkIndex(int index) {
+        if (index < 0 || index >= groupCount) {
+            throw RegexException("group index " + index.toString()
+                + " out of range");
+        }
     }
 }
