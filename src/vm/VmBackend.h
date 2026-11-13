@@ -548,6 +548,12 @@ private:
     //Finalize-time tripwire: evalArea claims must fit the reserved peakDepth.
     void CheckEvalAreaWalkerDrift(SnFunction& func, FuncContext& ctx,
                                   const CallSlotStats& stats);
+    //Finalize-time limit check: a function's code must stay under
+    //kMaxFunctionBytecodeBytes (jump operands are absolute in-function
+    //uint16 pcs). Logs a named error; the build fails with the artifact
+    //unwritten (BuildUnitImages gates on HasError).
+    void CheckFunctionBytecodeSize(const SnFunction& func,
+                                   const std::vector<uint8_t>& bytecode);
     //K2 slice 5: pack the per-slot band classes into the mask (see
     //CompiledFunction::evalAreaHandleMask).
     void BuildEvalAreaHandleMask(CompiledFunction& cf,

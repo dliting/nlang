@@ -6,6 +6,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 
@@ -69,11 +70,34 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     compiledFunc.bytecode = emitter.TakeBytes();
     compiledFunc.localsSize = ctx.nextOffset;
 
+    //Size check before the drift tripwire: user-facing limit (logged)
+    //outranks internal invariant (throws) when both fire.
+    CheckFunctionBytecodeSize(func, compiledFunc.bytecode);
     CheckEvalAreaWalkerDrift(func, ctx, stats);
     BuildEvalAreaHandleMask(compiledFunc, ctx);
 
     m_currFunc = nullptr;
     m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
+}
+
+//Finalize-time limit check: the executor reads a jump operand as an
+//absolute in-function uint16 pc (VmExecutor::OpJump: ReadUint16 then
+//Seek), and the debug line table carries the same u16 pc — so a function
+//whose code reaches kMaxFunctionBytecodeBytes has branch targets that
+//silently wrap to low addresses (the differential-fixture silent-exit
+//family: a 65 KiB main skipped its tail with no error anywhere). Reject
+//the build with a named diagnostic instead of emitting corrupt bytecode;
+//the artifact stays unwritten because BuildUnitImages gates on HasError.
+void VmBackend::CheckFunctionBytecodeSize(
+    const SnFunction& func, const std::vector<uint8_t>& bytecode) {
+    if (bytecode.size() < kMaxFunctionBytecodeBytes)
+        return;
+    m_pEnv->Log(CLL_Error, func.Location(),
+        "function '%s' compiled to %u bytes of bytecode, over the %u-byte "
+        "limit for jump offsets in one function (split it into smaller "
+        "functions)",
+        func.Name().c_str(), static_cast<unsigned>(bytecode.size()),
+        static_cast<unsigned>(kMaxFunctionBytecodeBytes - 1));
 }
 
 //GenerateFunction's native arm. A FuncContext lets FillNativeFunctionRecord

@@ -740,6 +740,30 @@ target_link_libraries(test_array_flags
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
 
+# v0.13.7 Task 15: per-function bytecode size limit. The executor's jump
+# operands are absolute in-function uint16 pcs, so a function whose
+# bytecode reaches 64 KiB silently wraps its branch targets; the backend
+# must reject it with a named diagnostic.
+add_executable(test_function_size
+    test_compiler/test_function_size.cpp
+)
+
+target_include_directories(test_function_size
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_function_size
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME function_size_tests COMMAND test_function_size)
+
 # v0.12.6 Task 8 (D13): import-cycle detection unit tests. Pure edge-graph
 # coverage — both spec §8 forms need stale images no ordinary compilation
 # can produce, so the unit test feeds the graph directly (see the test

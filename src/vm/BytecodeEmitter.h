@@ -6,6 +6,14 @@
 
 namespace nlang {
 
+//Jump operands encode an absolute in-function pc as uint16 (the executor
+//reads them with BytecodeReader::ReadUint16 + Seek), so one function's
+//compiled code must stay under this ceiling or its branch targets wrap
+//silently to low addresses. Enforced at function finalization
+//(VmBackend::CheckFunctionBytecodeSize); the debug line table's u16 pc
+//shares the same width (Disassembler.h).
+constexpr size_t kMaxFunctionBytecodeBytes = 0x10000;
+
 class BytecodeEmitter {
 public:
     void Emit(OpCode op) {
