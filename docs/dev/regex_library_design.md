@@ -65,7 +65,7 @@ v0.13.7路线图的「实现正则表达式库」条目：给nlang标准库一�
 | 构造 | 形态 | 说明 |
 |---|---|---|
 | 字面量 | `abc` | 含多字节字面量，按UTF-8码点整体匹配 |
-| 通配 | `.` | 任一码点；不匹配`\n`除非`(?s)`；无效字节序列按单字节伪码点处理（姿态同Go的RuneError，见D4） |
+| 通配 | `.` | 任一码点；不匹配`\n`除非`(?s)`；无效字节各自解码为U+FFFD占一个匹配位（同Go的RuneError，见D4） |
 | 选与组 | `a|b` `(re)` `(?:re)` `(?P<name>re)` `(?<name>re)` | 命名组两种写法都收（Go同）；名字重复编译期拒绝 |
 | 重复 | `* + ? {n} {n,} {n,m}` | 默认贪婪，后缀`?`转lazy（Pike VM线程表排序调整，无额外实现面）；计数上限1000（同Go syntax上限） |
 | 标志 | `(?i)` `(?m)` `(?s)` `(?flags)` `(?flags:re)` | 标志语法随Go syntax表三形态：置位`xyz`、清除`-xyz`、`xy-z`置`xy`清`z`（如`i-s`）；`(?flags)`从出现处起在当前组内生效至组尾，`(?flags:`限定局部；i=ASCII大小写折叠；m=`^ $`行界；s=通配含换行 |
@@ -75,7 +75,7 @@ v0.13.7路线图的「实现正则表达式库」条目：给nlang标准库一�
 
 排除清单及独立理由见「一、v1不做」；排除的构造在编译期一律报`RegexException`（诊断含模式内字节偏移与原因文本），绝不静默降级为字面量——唯一例外是类内的`&`与`~`恒按普通字面量处理（同Go基线，见「一、v1不做」相应条目）。程序规模设三道上限——模式嵌套高度、编译后指令数、重复计数——超限各报专文`RegexException`（RE2的内存预算思想：不可信模式不得撑爆内存）；具体数字在实施计划钉，spec钉原则与专文要求。
 
-**D4 文本模型：码点粒度匹配，字节偏移报告。** 扫描路径是实现细节、按事实2在实施计划以探针择定；匹配单位是UTF-8码点——`.`与字面量按码点比对，无效UTF-8字节序列按单字节伪码点处理：引导序列未能完成时解码为U+FFFD（与Go的RuneError一致），不构成任何引导序列的字节（孤立续字节、`0xC0`/`0xC1`、`0xF8`–`0xFE`）按自身值解码为单字节伪码点；Go此时一律解码为U+FFFD，两者的差别只在显式`\x{FFFD}`或字面U+FFFD参与匹配时可见，文本本身不做替换。`\d \s \w`及POSIX类只认ASCII（同Go口径），`(?i)`只对ASCII做大小写折叠，`\b`按ASCII词集。理由：nlang的String本就是字节语义（Phase 11），偏移口径与`substring`/`indexOf`全库一致；`.`若按字节会让中文文本里`a.b`匹配`a中b`的部分字节对，是比「`\w`不认汉字」更隐蔽的惊讶面。手册把「`.`按码点、类与折叠按ASCII」的边界写成正面规则而非限制清单。
+**D4 文本模型：码点粒度匹配，字节偏移报告。** 扫描路径是实现细节、按事实2在实施计划以探针择定；匹配单位是UTF-8码点——`.`与字面量按码点比对，无效UTF-8输入字节一律解码为U+FFFD（输入面与Go的RuneError一致；模式文本含无效字节时nlang按字面U+FFFD收编而Go编译期拒绝——登记差分见六）：每个无效字节占一个匹配位、宽1字节，文本本身不做替换。初版裁定的「非引导字节按自身值解码」两族姿态已废弃——自解码值会被任何引用该码点值的模式命中——字面量、`\x{}`转义、类范围（孤立`0xA9`字节误中`©`、`\x{A9}`与`[\x{A0}-\x{FF}]`）——不止`\x{FFFD}`参与时可见；Go对这些一律不中，统一为单族既根治误匹配面又对齐Go（2026-11-13修订，go1.27.3探针`temp/utf8_unify_probe/`实测）。`\d \s \w`及POSIX类只认ASCII（同Go口径），`(?i)`只对ASCII做大小写折叠，`\b`按ASCII词集。理由：nlang的String本就是字节语义（Phase 11），偏移口径与`substring`/`indexOf`全库一致；`.`若按字节会让中文文本里`a.b`匹配`a中b`的部分字节对，是比「`\w`不认汉字」更隐蔽的惊讶面。手册把「`.`按码点、类与折叠按ASCII」的边界写成正面规则而非限制清单。
 
 **D5 API面：一个`Regex`类+一个`Match`类+一个异常+一个自由函数。** 压缩Go方法族的组合爆炸（详见「五、脚本层API面」）。不引入`Matcher`迭代器类（Java式）：`matches()`一次返回全部结果的`List<Match>`，nlang的`List`与`foreach`已覆盖迭代需求。迭代器返回面的动机是流式惰性消费（本机Go基线已为`All`族提供迭代器形态，动机同样是流式而非回溯），而脚本输入整串在内存、结果集受输入长度界定，惰性面没有对应场景。
 
@@ -150,11 +150,11 @@ int main() {
 ## 六、测试策略
 
 - **TDD**：e2e用例族`tests/e2e/stdlib_regex_*.n`（语法解析、字面量与类、重复与lazy、标志、编号/命名捕获、空匹配与边界、split、替换模板、错误诊断、规模上限），每用例先RED后GREEN；编译真`.n`、VM跑真字节码（既有测试哲学）。
-- **差分对拍**：从Go `regexp`与`regexp/syntax`的测试语料（本机源码树内）选取表驱动语料，先用本机Go一次性生成预期值、固化为nlang e2e断言表——nlang引擎结果必须与Go一致（排除面与ASCII口径差异处除外，差异逐条登记Ruling）。错误用例也对拍：不逐字比文案，比「拒绝/接受」与错误位置类别。已知登记差异（差分语料构造时避开或按nlang语义改写）：分组名重复Go 1.22起允许而nlang拒绝（`group(name)`歧义不可接受）；`(?i)`对非ASCII Go折叠而nlang按D4不折叠；`\1`与`(?=`两家都编译期拒绝（Go文案为`invalid escape sequence`/`invalid or unsupported Perl syntax`，行为同类仅文案不同）；`\p{L}`与`(?U)`Go接受而nlang拒绝（Unicode属性类v1不实现、标志集仅i/m/s，见D3表与七.3）；类内`\b`方向相反——nlang按主流共识（Perl/PCRE/Python/JavaScript）作退格U+0008接受、Go拒绝（round14探针实测`[\b]`/`[\B]`均拒；用户裁定2026-11-13对外面从最普遍接受标准），语料避开该行、nlang接受侧由e2e钉退格匹配；`$`的行尾语义方向相反——nlang按主流多数（Perl/PCRE/Ruby/Python/Java/Rust）在`(?m)`关时还匹配末尾换行前、Go/JavaScript仅串末（round14_dollar探针实测：Python与Perl对`abc$`/`"abc\n"`为True、Go为False），语料避开`abc$`/`"abc\n"`行、nlang接受侧由e2e锚点任务钉。
+- **差分对拍**：从Go `regexp`与`regexp/syntax`的测试语料（本机源码树内）选取表驱动语料，先用本机Go一次性生成预期值、固化为nlang e2e断言表——nlang引擎结果必须与Go一致（排除面与ASCII口径差异处除外，差异逐条登记Ruling）。错误用例也对拍：不逐字比文案，比「拒绝/接受」与错误位置类别。已知登记差异（差分语料构造时避开或按nlang语义改写）：分组名重复Go 1.22起允许而nlang拒绝（`group(name)`歧义不可接受）；`(?i)`对非ASCII Go折叠而nlang按D4不折叠；`\1`与`(?=`两家都编译期拒绝（Go文案为`invalid escape sequence`/`invalid or unsupported Perl syntax`，行为同类仅文案不同）；`\p{L}`与`(?U)`Go接受而nlang拒绝（Unicode属性类v1不实现、标志集仅i/m/s，见D3表与七.3）；类内`\b`方向相反——nlang按主流共识（Perl/PCRE/Python/JavaScript）作退格U+0008接受、Go拒绝（round14探针实测`[\b]`/`[\B]`均拒；用户裁定2026-11-13对外面从最普遍接受标准），语料避开该行、nlang接受侧由e2e钉退格匹配；`$`的行尾语义方向相反——nlang按主流多数（Perl/PCRE/Ruby/Python/Java/Rust）在`(?m)`关时还匹配末尾换行前、Go/JavaScript仅串末（round14_dollar探针实测：Python与Perl对`abc$`/`"abc\n"`为True、Go为False），语料避开`abc$`/`"abc\n"`行、nlang接受侧由e2e锚点任务钉；模式文本含无效字节——Go `regexp.Compile`编译期拒绝（`invalid UTF-8`），nlang按D4把无效字节收编为字面U+FFFD——仅`io.fromBytes`运行时构造的模式可达（源码字符串字面量已由词法器校验UTF-8合法性），差分语料的模式文本均为合法UTF-8故天然避开。
 - **线性上界**：D9反例形态+固定长输入（如20万字符）钉时间上限e2e；上限取观测值的宽松倍率，防机器抖动误报。
 - **并发**：`Regex`多上下文共享压测百次+ASan（单次绿不算数，0.12.6先例）。
 - **示例**：`examples/regex_tour.n`随包发布，手册围栏示例真实编译运行。
-- **基准读数（2026-11-13实测，regex_redos验收，16000码点）**：四个回溯杀手形态`(a|a)*b`、`(a*)*b`、`((a|aa)+)+b`、`a*a*a*a*b`在Release构建下为777/579/983/671 ms，ASan构建下为6758/5059/8478/5760 ms；`needle`在64k文本上的未命中扫描为2566 ms（Release）/17733 ms（ASan）。20 s单形态上限两种构建均通过（ASan下未命中扫描余量最窄，机器降频时先看这条）；ctest以`regex_redos_run`独立300 s超时登记（mnist_mlp_run先例），不进30 s帽的e2e runner。
+- **基准读数（2026-11-13实测，regex_redos验收，16000码点）**：四个回溯杀手形态`(a|a)*b`、`(a*)*b`、`((a|aa)+)+b`、`a*a*a*a*b`在Release构建下为777/579/983/671 ms，ASan构建下为6758/5059/8478/5760 ms；`needle`在64k文本上的未命中扫描为2566 ms（Release）/17733 ms（ASan）。单形态上限45 s（2026-11-13修订，原20 s）：同日门禁期间机器受并行负载影响，五读数均匀放大1.50–1.53×，needle miss 26523 ms撞线失败——原上限对ASan基线仅1.13×余量，最窄处先破。45 s约合ASan基线2.5×，覆盖机器降速带，回归判据仍是数量级阶跃（毫秒级漂移不判失败）；ctest以`regex_redos_run`独立300 s超时登记（mnist_mlp_run先例），不进30 s帽的e2e runner。
 
 ## 七、风险与开放问题
 
@@ -183,3 +183,4 @@ int main() {
 | 2026-11-13 | 实施计划审核落实：转义族探针复测（`escape_check`+`digit8`，go1.27.3，比对`syntax/parse.go:1467-1483`）——八进制按Go规则逐条落实（首位`0`或最多三位八进制数字，`\12`/`\101`/`\0`接受，单独`\1`与`\8`/`\9`拒绝），旧「恰三位」表述系对D3「与Go syntax转义表一致」的偏离已纠正；六.差分登记新增两处Go接受/nlang拒绝差分：`\p{L}`（Unicode属性类v1不实现）与`(?U)`（标志集仅i/m/s），差分语料据此避开 |
 | 2026-11-13 | 用户裁定落实（对外接口尽量采用最普遍接受的regex标准，不必与Go一致）：D3准则改为「主流共识为准、Go RE2作兼容基线与差分harness」；类内`\b`裁定按主流共识（Perl/PCRE/Python/JavaScript）作退格U+0008接受——Go 1.27.3探针实测拒绝`[\b]`/`[\B]`（round14探针`temp/go_regprobe/round14`），据此登记nlang接受/Go拒绝差分并语料避开；`(?U)`措辞按探针实况更正（Go实际提供，因非主流共识而不做）、`\Z`因主流语义分裂（Perl/PCRE对Python）不做、类集合运算理由改「接受面分裂」口径；八节登记更正为CMake `GLOB CONFIGURE_DEPENDS`自动收录（实况核验） |
 | 2026-11-13 | 实施计划第14轮审核落实（Critical 0/Important 3/Minor 3，全部独立取证复核）：「`\Z`」条事实前提「v1只给各家同义的`$`」证伪并更正——`$`在主流分裂两派（Perl/PCRE/Ruby/Python/Java/Rust=含末行换行前，round14_dollar实测Python、Perl True；Go/JavaScript=仅串末，实测False）；按11-13准则`$`从主流多数采宽容读法（`(?m)`关时匹配串末或末尾单个`\n`前），登记为对Go/JavaScript的差分、语料避开`abc$`/`"abc\n"`行（计数77→76）；D3准则补「Go与主流多数语义不同从多数」分支；同轮：matches循环改照抄Go `findAll` prevMatchEnd规则（丢弃空候选不终止扫描，`regexp.go:759-795`源码实证）、串尾空匹配起点1→2、`EDB_Xor`→`EDB_BitXor`、差分枚举四处→六处 |
+| 2026-11-13 | 终审后用户裁定落实（合理性优先、不以向下兼容递延）：D4无效字节解码统一为U+FFFD单族——原「不构成引导序列的字节按自身值解码」使孤立字节被任何引用该码点值的模式误匹配（`0xA9`误中`©`、`\x{A9}`、`[\x{A0}-\x{FF}]`，不限于U+FFFD），Go一律不中；既有语料的畸形输入仅`stdlib_regex_escape`的族A引导失败字节（旧姿态下本就解码U+FFFD宽1），故统一无既有语料回归；另登记模式面Go差分（nlang把无效字节模式收编为字面U+FFFD，Go编译期拒绝，见六）；go1.27.3探针`temp/utf8_unify_probe/`实测钉死目标姿态，e2e`stdlib_regex_literal`新增畸形UTF-8族先红后绿，手册§25.6中英同步改写 |

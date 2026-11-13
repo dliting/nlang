@@ -153,10 +153,13 @@ memory, each with its own message.
 Matching reads the input as Unicode Transformation Format (UTF-8)
 code points: `.` matches one code point of any text, and a literal
 matches as whole code points, never as byte fragments. Bytes that
-form no valid UTF-8 sequence are each a one-byte pseudo code point —
-matching neither fails on invalid input nor rewrites it. Reported
-offsets are byte offsets, the same basis as `substring` and
-`indexOf` (§4.3).
+form no valid UTF-8 sequence each decode to one U+FFFD replacement
+character (the Go rule): every invalid byte claims one match slot one
+byte wide, `\x{FFFD}` hits them one by one, and an invalid byte is
+never read as its own code point — a lone `0xA9` byte does not match
+the literal `©`. Matching neither fails on invalid input nor rewrites
+it. Reported offsets are byte offsets, the same basis as `substring`
+and `indexOf` (§4.3).
 
 Letters, digits and spaces, in contrast, mean ASCII: the class
 shorthands `\d \s \w`

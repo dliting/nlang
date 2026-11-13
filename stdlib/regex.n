@@ -1357,11 +1357,10 @@ class RECompile {
 // left on the books is the leftmost first match the language
 // promises (Go's exec.go first-match mode).
 class RESim {
-    // UTF-8 decode constants (RFC 3629). A lead sequence that fails to
-    // complete decodes to one pseudo code point U+FFFD (Go's RuneError
-    // posture); a byte that starts no lead sequence (lone continuation,
-    // 0xC0/0xC1, 0xF8-0xFE) decodes to itself as a one-byte pseudo code
-    // point — manual §25.6.
+    // UTF-8 decode constants (RFC 3629). Any byte outside a valid
+    // sequence decodes to one U+FFFD replacement code point one byte
+    // wide (Go's RuneError rule); the text itself is never rewritten
+    // — manual §25.6.
     private static const int kRepl = 0xFFFD;
     private static const int kAsciiLim = 0x80;
     private static const int kContLo = 0x80;
@@ -1442,10 +1441,12 @@ class RESim {
         while (i < n) {
             int b = src[i];
             if (b < 0) { b = b + 256; }
-            int cp = b;
+            int cp = kRepl;
             int w = 1;
             int need = 0;
-            if (b >= kLead2Lo && b <= kLead2Hi) {
+            if (b < kAsciiLim) {
+                cp = b;
+            } else if (b >= kLead2Lo && b <= kLead2Hi) {
                 need = 1; cp = b & 0x1F;
             } else if (b >= kLead3Lo && b <= kLead3Hi) {
                 need = 2; cp = b & 0x0F;

@@ -61,8 +61,9 @@ int main() {
     if (!Regex("\\Qa.b*(x)\\E").isMatch("a.b*(x)")) { bad = bad + 1; }
     if (Regex("\\Qa.b\\E").isMatch("axb")) { bad = bad + 1; }
     if (!Regex("x\\Qy*z").isMatch("xy*z")) { bad = bad + 1; }
-    // an invalid byte is a width-1 pseudo codepoint (D4: Go's RuneError
-    // posture without rewriting the text): "." consumes exactly one byte.
+    // an invalid byte decodes to one U+FFFD code point one byte wide
+    // (D4: Go's RuneError posture, the text itself is not rewritten):
+    // "." consumes exactly one byte.
     // io.fromBytes keeps raw bytes (probe temp/regex_langprobe/invalid_utf8.n:
     // end=2 b1=224); the byte literal 224 is spelled -32 because nlang
     // bytes are signed (stdlib_http_headers.n precedent).
