@@ -50,3 +50,19 @@
 - opcode重排的隐性错位：四树ctest＋e2e全量兜底；重建时要求看到真实编译行（测试名≠目标名的假绿教训）。
 - 手册逐页并集遗漏：manual_sync_check以基线漂移清零为发布门禁兜底。
 - 与dev会话并发：时机门是唯一防线，进dev树前`git status`必须干净、台账必须关闭。
+
+## 七、彩排记录（2026-11-13，真合并前必读）
+
+彩排分支`merge-rehearsal`（master克隆内）以dev tip 7be9c0ab演练全套解决，提交2684f2a8＋11d6568c。29个冲突文件全部按本设计第四节的裁决落地，bison A/B对拍冲突计数与基线完全一致（32个shift/reduce＋5个reduce/reduce，零新增），全量Debug构建绿，四个代表夹具（bitwise、泛型值相等、泛型混合成员、泛型接口implements实参）行为与manifest钉子一致，nculoader格式钉通过。真合并按同一剧本执行，并叠加dev Task 14-18增量（e60a2473已落Task 14；Task 17脚手架扫荡可能触碰共享文件，进dev树前重算冲突面）。
+
+彩排新增裁决（与第四节并列生效）：
+
+1. **formats页是改名+编辑冲突**：dev在0.13.5把格式章21/22/23改名25/26/27，master在旧路径深编v2.15-v2.19；git按改名落位、按内容报冲突。解决＝master内容胜出＋页内全部自引用重编号：§锚点、"chapter N"、中文"第N章"、路径提及（21-ncu→25-ncu等）、版本示例（2.16→2.19）。library树章节号（21-network/23-http/24-gzip）独立编号不受影响；全手册grep确认零悬挂引用。
+2. **禁止整文件checkout --ours/--theirs，一律三方merge-file**：彩排首轮两处整文件取侧漏掉对侧非冲突内容——SnExpressionsValues.cpp丢master的OperatorSymbol与SnTypeNameExpr定义（ncc链接失败LNK2019）、tests/CMakeLists.txt丢dev的test_scratch测试与net/gzip注册。以共同祖先8bc79ee9做`git merge-file`（dev版为current、master版为other）逐hunk裁决后才安全。
+3. **ASan运行时供给：master的目录扫描全面胜出**：`_nlang_sweep_asan_runtime`按目录枚举BUILDSYSTEM_TARGETS逐exe拷贝，替代dev的add_executable影子与per-target ship调用；tests/CMakeLists保留dev的test_scratch块＋master的add_test scratch-root包装器。e2e注册的`NATIVE_DLL_DIR`目录形态胜出（替代DLL清单的`\;`传参，nide_deploy_check.cmake已支持）。
+4. **执行器TU拆分的移植审计**：master在0.13.1系列新增到VmExecutor.cpp的函数须移植到dev拆分后的TU——RaiseAbstractMethodError→VmExecutorRaise.cpp，FillNativeReceiver留在VmExecutorNativeHost.cpp，native-loader族由dev的VmExecutorNativeLoader.cpp持有。真合并时若dev的拆分再推进（Task 17可能再拆文件），须按同规则重审master侧全部新增函数落位。
+5. **opNames表并集**：master把opNames重构为匿名命名空间kBinaryOpSymbols＋OperatorSymbol访问器（assert钉OP_Shr+1），dev给内联表追加位算子四符号；并集＝master重构＋dev符号追加＋assert扩到OP_BitNot+1。
+6. **run_embed_host.py取dev侧**：dev的runner是功能超集（exe＋显式DLL列表＋旁边ASan运行时拷贝）且与合并注册的7参数契约吻合；master的sandbox_closure staging无增益。随之sandbox_closure.py在全树零导入者＝合并残渣，删除；真合并时若dev Task 15-18开始导入则从master树恢复。
+7. **CHANGELOG自动合并即得正确降序**（0.13.7→…→0.13.4→0.13.1c/b/a→0.13.1→0.13.0→0.12.9，en/zh一致），真合并复核即可，无须手工插条目；dev的[0.13.7]条目补合并说明行仍要做（第四节第6条）。
+8. **构建退出码纪律**：`cmake --build … | tail`读到的是tail的退出码；输出重定向日志文件后直读rc。彩排首轮假绿即此因。
+9. **bison A/B对拍配方**：合并前后nlang.y各自喂win_bison比对冲突计数，零新增才过；文法并集由git自动合并完成（彩排验证仅dev侧追加，master产生式无损）。
