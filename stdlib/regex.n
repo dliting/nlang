@@ -1795,10 +1795,13 @@ const class Regex {
     // capture groups never enter the result (unlike JS and Python).
     // limit < 0 splits everywhere, 0 yields the empty list, n > 0
     // returns at most n segments, the last taking the whole remainder.
-    // An empty separator sitting at the end of the input consumes no
-    // segment, so "a*" on "ab" gives ["", "b"] (Go's split rule) while
-    // a non-empty separator at the end still leaves an empty trailing
-    // segment (",a," gives three).
+    // The rules are Go's Split verbatim (regexp.go): a zero-width match
+    // at text position 0 contributes no leading empty segment ("x*" on
+    // "abc" gives ["a", "b", "c"]), the tail is appended only when the
+    // last separator does not start at the text end ("a*" on "ab" gives
+    // ["", "b"] while ",a," gives three), and a non-empty pattern on
+    // empty input short-circuits to [""] (empty pattern on empty input
+    // yields zero segments).
     public List<string> split(string input) {
         return this.split(input, -1);
     }
@@ -1806,18 +1809,27 @@ const class Regex {
     public List<string> split(string input, int limit) {
         List<string> segs = {};
         if (limit == 0) { return segs; }
-        int cap = -1;
-        if (limit > 0) { cap = limit - 1; }      // n-1 separators + tail
-        List<Match> seps = this.matches(input, cap);
-        int prev = 0;
-        bool skipTail = false;
-        for (int i = 0; i < seps.length(); i = i + 1) {
-            Match m = seps[i];
-            segs.add(input.substring(prev, m.start));
-            prev = m.end;
-            skipTail = (m.end == m.start && m.end == input.length());
+        // Go's early return: len(re.expr) > 0 && len(s) == 0 -> [""]
+        if (m_pattern.length() > 0 && input.length() == 0) {
+            segs.add("");
+            return segs;
         }
-        if (!skipTail) { segs.add(input.substring(prev)); }
+        // Go hands n (not n-1) to FindAllStringIndex: a skipped leading
+        // match still spends its share of the separator budget.
+        List<Match> seps = this.matches(input, limit);
+        int beg = 0;
+        int end = 0;
+        for (int i = 0; i < seps.length(); i = i + 1) {
+            if (limit > 0 && segs.length() >= limit - 1) { break; }
+            Match m = seps[i];
+            end = m.start;
+            // the segment before a match ending at 0 is dropped (Go's
+            // "match[1] != 0" guard: no empty segment before a leading
+            // zero-width match)
+            if (m.end != 0) { segs.add(input.substring(beg, m.start)); }
+            beg = m.end;
+        }
+        if (end != input.length()) { segs.add(input.substring(beg)); }
         return segs;
     }
 
