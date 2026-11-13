@@ -1395,7 +1395,7 @@ dict_set_key_type_reject compile_error Incompatible type
 dict_set_key_coercion 2
 dict_subscript_key_type_reject compile_error Incompatible type
 dict_subscript_key_coercion 2
-binary_array_numeric_reject compile_error Incompatible type
+binary_array_numeric_reject compile_error no matching tensor primitive
 binary_str_array_concat 0 x[1, 2]
 arg_array_to_string_param 5
 io_print_array 0 [1, 2]
@@ -2258,3 +2258,19 @@ err_generic_iface_implements_missing compile_error does not implement the method
 generic_iface_boxing 0
 generic_iface_crossmodule 0
 generic_iface_crossmodule_stub 0
+stdlib_tensor_neg 0
+stdlib_tensor_axis_max 0
+stdlib_tensor_rsub_rdiv 0
+stdlib_tensor_softmax2d 0
+stdlib_tensor_sigmoid_tanh 0
+stdlib_tensor_relugrad 0
+op_array_arithmetic 0
+op_array_rsub_rdiv 0
+op_array_positions 0
+op_array_nesting 0
+op_tensor_gather 0
+op_tensor_reduce2 0
+op_tensor_gather_throw 1
+tensor_import_required compile_error Package 'tensor' is not imported
+stdlib_tensor_uniform 0
+stdlib_tensor_uniform_throw 1

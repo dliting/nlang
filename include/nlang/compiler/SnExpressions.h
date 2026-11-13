@@ -518,6 +518,7 @@ public:
 private:
 	void Init();
 	SnExpression *m_pOuter;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 	SnFieldExpr *m_pInner;
 };
 
@@ -838,6 +839,22 @@ public:
 	SnExpression *Left() const { return m_pLeft; }
 	SnExpression *Right() const { return m_pRight; }
 
+	//v0.13.7 array-operator lowering: a numeric-array binary resolves
+	//AS a tensor call — resolution binds the selected callee overload
+	//and an emission-plan invoke whose params are this node's own
+	//operands (unowned references; the operands stay list-owned here
+	//until the plan adopts them at bind time, after which the node is
+	//childless by design and codegen reads the plan). The emitter
+	//lowers flagged nodes through the standard invoke path — the
+	//bytecode is identical to a hand-written tensor.* call.
+	SnFunction *TensorCallee() const { return m_pTensorCallee; }
+	void TensorCallee(SnFunction *pFn) { m_pTensorCallee = pFn; }
+	SnInvokeExpr *TensorCallPlan() const { return m_pTensorCall.get(); }
+	void TensorCallPlan(std::unique_ptr<SnInvokeExpr> pPlan)
+	{
+		m_pTensorCall = std::move(pPlan);
+	}
+
 	bool IsDataExpr() const override;
 	void Accept(nlang::ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
@@ -845,6 +862,13 @@ private:
 	Operator m_op;
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+	//v0.13.7 array-operator lowering binding (see the accessors above).
+	//The plan invoke is a detached emission node: it adopts the operands
+	//out of this node's child list at bind time, so it is the sole
+	//owner from then on.
+	SnFunction *m_pTensorCallee = nullptr;
+	std::unique_ptr<SnInvokeExpr> m_pTensorCall;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 };
 
 class SnClassDecl;

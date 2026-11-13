@@ -1,0 +1,26 @@
+// Reversed scalar arms: s - a (rsubScalar) and s / a (rdivScalar) —
+// the scalar sits on the LEFT. int semantics wrap/raise like the
+// language; float division by zero yields IEEE inf.
+import tensor;
+
+int main() {
+    float[] a = tensor.fullF(3, 4.0 as float);
+    float[] r1 = tensor.rsubScalar(a, 10.0 as float);   // 6 6 6
+    if (r1[2] != 6.0 as float) return 1;
+    float[] r2 = tensor.rdivScalar(a, 2.0 as float);    // 0.5 x3
+    if (r2[0] != 0.5 as float || r2[2] != 0.5 as float) return 2;
+
+    //int: exact wrap rule, division by zero raises
+    int[] ai = tensor.fullI(2, 7);
+    int[] ri = tensor.rsubScalar(ai, 20);
+    if (ri[0] != 13 || ri[1] != 13) return 3;
+    int[] qi = tensor.rdivScalar(ai, 30);
+    if (qi[0] != 4 || qi[1] != 4) return 4;
+
+    //float zero divisor: IEEE +inf (no raise) — s / a with a -> 0
+    float[] zeros = tensor.fullF(3, 0.0 as float);
+    float[] z = tensor.rdivScalar(zeros, 1.0 as float);
+    if (z[0] != z[0]) return 5;   // NaN would fail; inf passes
+    if (z[0] < 1.0e30 as float) return 5;
+    return 0;
+}

@@ -468,6 +468,27 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 	auto op = sn.Op();
 	if (RejectTypeParamOperand(sn, op))
 		return;
+	//v0.13.7: array-operand arithmetic resolves AS a tensor call — the
+	//node stays in the tree (no splice, every holder representation
+	//intact) and carries the bound callee + emission plan; codegen
+	//lowers flagged nodes through the standard invoke path.
+	if (op == SnBinaryExpr::OP_Add || op == SnBinaryExpr::OP_Sub
+		|| op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_Mul
+		|| op == SnBinaryExpr::OP_Div)
+	{
+		//Defensive gates the shared pre-hooks own for the scalar path:
+		//a string side belongs to the concat path, a null literal to
+		//the null arithmetic guard — the lowering stays away from them.
+		auto *pLchk = sn.Left()->EvalDataType();
+		auto *pRchk = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+		const bool stringSide =
+			(pLchk && pLchk->Kind() == NK_String)
+			|| (pRchk && pRchk->Kind() == NK_String);
+		const bool nullSide = sn.Left()->ContainFlags(NF_NullLiteral)
+			|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral));
+		if (!stringSide && !nullSide && TryTensorBinaryShape(sn, op))
+			return;
+	}
 	if (IsCompareOp(op) || op == SnBinaryExpr::OP_LogicalAnd ||
 		op == SnBinaryExpr::OP_LogicalOr ||
 		op == SnBinaryExpr::OP_LogicalNot)

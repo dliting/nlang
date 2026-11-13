@@ -231,6 +231,9 @@ private:
 	//Phase 13: report every function reference still pending after all
 	//consumers ran (never met an expected func type).
 	void SweepPendingFuncRefs();
+	//v0.13.7: true when a tensor-flagged binary survived resolution.
+	static bool TreeHasUnloweredTensorOp(SyntaxNode &node);
+	//v0.13.7: true when a tensor-flagged binary survived resolution.
 
 	//Check for circular struct references.
 	void CheckStructCircularRefs();

@@ -1,0 +1,35 @@
+// tensor.softmax over an axis: rows of a rank-2 logit matrix come out
+// summing to 1, huge logit gaps stay stable (no overflow), and the
+// rank-1 default matches the axis-0 spelling.
+import tensor;
+
+int main() {
+    float[,] logits = float[2, 3];
+    logits[0, 0] = 1.0f; logits[0, 1] = 2.0f;
+    logits[0, 2] = 3.0f;
+    logits[1, 0] = 1000.0f; logits[1, 1] = 1000.0f;
+    logits[1, 2] = 1000.0f;
+
+    float[,] p = tensor.softmax(logits, 1);
+    float[] sums = tensor.sum(p, 1);
+    double diff0 = sums[0] - 1.0;
+    if (diff0 > 0.0001 || diff0 < -0.0001) return 1;
+    double diff1 = sums[1] - 1.0;
+    if (diff1 > 0.0001 || diff1 < -0.0001) return 2;
+    //row 0: exp(1)/(e1+e2+e3) ~ 0.0903, exp(3)/... ~ 0.6652
+    if (p[0, 2] < 0.66f || p[0, 2] > 0.67f) return 3;
+    //row 1: uniform thirds — the shift keeps huge logits stable
+    if (p[1, 0] < 0.32f || p[1, 0] > 0.34f) return 4;
+
+    //axis = 0: columns softmax over rows
+    float[,] q = tensor.softmax(logits, 0);
+    float[] colSums = tensor.sum(q, 0);
+    double dc = colSums[0] - 1.0;
+    if (dc > 0.0001 || dc < -0.0001) return 5;
+
+    //rank-1: default axis
+    double[] v = tensor.arange(0.0, 2.0, 1.0);   // 0 1
+    double[] pv = tensor.softmax(v);
+    if (pv[1] < 0.7 || pv[1] > 0.75) return 6;
+    return 0;
+}

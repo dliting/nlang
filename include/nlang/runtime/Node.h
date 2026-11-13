@@ -192,6 +192,13 @@ protected:
 	*/
 	NodeIterator RemoveChild(const NodeIterator& iPos);
 
+	//In-place child cell replacement (v0.13.7): the list cell keeps its
+	//position — iterators into the child list stay valid across the
+	//replacement. Re-points the new node and fires OnAddedToParent in
+	//the InsertChild order (cell -> parent -> notification). The OLD
+	//node is left unowned: callers delete it after this returns.
+	void ReplaceChildCell(const NodeIterator &iPos, Node *pNode);
+
 	/*
 	Remove a child from this node and release the ownership of it.
 	Precondition: pNode && pNode->Parent() == this.

@@ -12,8 +12,11 @@
 ---*/
 #include "TensorKernels.h"
 
+#include "Elementwise.h"
+
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
@@ -46,6 +49,16 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     ArgArray(host, args, 0, &v);
     const T* cells = CellsOf<const T>(v);
     if (op == RedOp::Sum) {
+        //Floats: contiguous spans take the backend's double-accumulator
+        //flat sum (order-free for the exact sums the suite pins); the
+        //walk keeps the historical double accumulation.
+        double flatAcc = 0.0;
+        if constexpr (!std::is_integral_v<T>) {
+            if (TrySumFlat<T>(v, &flatAcc)) {
+                ReturnScalar(ret, static_cast<T>(flatAcc));
+                return;
+            }
+        }
         Acc acc = 0;
         StrideWalk(v, [&](int64_t addr) {
             acc = static_cast<Acc>(acc + cells[addr]);
@@ -56,6 +69,15 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     if (v.elemCount == 0)
         Raise(host, NEXC_Base, op == RedOp::Max
             ? "tensor.max: empty array" : "tensor.min: empty array");
+    //Floats: contiguous spans take the cmp-and-select flat kernels
+    //(the NaN/tie rule matches this walk exactly); ints keep the walk.
+    T flatBest = T(0);
+    if constexpr (!std::is_integral_v<T>) {
+        if (TryExtremeFlat<T>(v, op == RedOp::Max, &flatBest)) {
+            ReturnScalar(ret, flatBest);
+            return;
+        }
+    }
     T best = T(0);
     bool first = true;
     StrideWalk(v, [&](int64_t addr) {
@@ -77,6 +99,12 @@ void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor.mean: empty array");
     const T* cells = CellsOf<const T>(v);
     double acc = 0.0;
+    if constexpr (!std::is_integral_v<T>) {
+        if (TrySumFlat<T>(v, &acc)) {
+            ReturnDouble(ret, acc / static_cast<double>(v.elemCount));
+            return;
+        }
+    }
     StrideWalk(v, [&](int64_t addr) {
         acc += static_cast<double>(cells[addr]);
     });
@@ -99,6 +127,15 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor: length mismatch ("
             + std::to_string(va.elemCount) + " vs "
             + std::to_string(vb.elemCount) + ")");
+    //Floats: contiguous same-count pairs take the carrier-accumulator
+    //flat dot; ints keep the 64-bit walk.
+    T flatAcc = T(0);
+    if constexpr (!std::is_integral_v<T>) {
+        if (TryDotFlat<T>(va, vb, &flatAcc)) {
+            ReturnScalar(ret, flatAcc);
+            return;
+        }
+    }
     const T* ca = CellsOf<const T>(va);
     const T* cb = CellsOf<const T>(vb);
     int64_t idxA[nlang::kMaxArrayRank] = {0};
@@ -116,7 +153,8 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
 }
 
 //Clamp arm of max/min (array + bound, argc >= 2): elementwise bound,
-//operand shape preserved.
+//operand shape preserved. Floats ride the tier-dispatched flat clamp;
+//ints keep the walk.
 template <typename T>
 void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                  bool isMax, T bound) {
@@ -125,14 +163,18 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank, v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const T* in = CellsOf<const T>(v);
-    T* outCells = CellsOf<T>(out);
-    int64_t at = 0;
-    StrideWalk(v, [&](int64_t addr) {
-        const T cur = in[addr];
-        outCells[at++] = isMax ? (cur > bound ? cur : bound)
-                               : (cur < bound ? cur : bound);
-    });
+    if constexpr (!std::is_integral_v<T>) {
+        RunClampFlat<T>(v, out, isMax, bound);
+    } else {
+        const T* in = CellsOf<const T>(v);
+        T* outCells = CellsOf<T>(out);
+        int64_t at = 0;
+        StrideWalk(v, [&](int64_t addr) {
+            const T cur = in[addr];
+            outCells[at++] = isMax ? (cur > bound ? cur : bound)
+                                   : (cur < bound ? cur : bound);
+        });
+    }
     ReturnInt(ret, handle);
 }
 
@@ -193,6 +235,43 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
+    //Floats on contiguous sources take the two structural fast paths:
+    //axis = rank-1 reduces contiguous segments (one flat double sum per
+    //output cell); axis = 0 accumulates whole rows through the double
+    //addInto. Both mirror the per-cell double accumulator of the
+    //general odometer below; every other case (strided views, middle
+    //axes, ints) keeps the walk.
+    if constexpr (!std::is_integral_v<T>) {
+        if (IsContiguous(v)) {
+            T* outCells = CellsOf<T>(out);
+            if (axis == v.rank - 1) {
+                const int64_t outer = out.elemCount;
+                const T* base = FlatCellsOf<T>(v);
+                for (int64_t r = 0; r < outer; ++r) {
+                    double acc = 0.0;
+                    SumFlatByCarrier<T>(base + r * along, along, &acc);
+                    outCells[r] = static_cast<T>(acc);
+                }
+                ReturnInt(ret, handle);
+                return;
+            }
+            if (axis == 0) {
+                int64_t inner = 1;
+                for (int32_t d = 1; d < v.rank; ++d)
+                    inner *= v.dims[d];
+                std::vector<double> acc(static_cast<size_t>(inner), 0.0);
+                const T* base = FlatCellsOf<T>(v);
+                for (int64_t o = 0; o < along; ++o) {
+                    AddIntoF64ByCarrier<T>(acc.data(), base + o * inner,
+                                           inner);
+                }
+                for (int64_t j = 0; j < inner; ++j)
+                    outCells[j] = static_cast<T>(acc[j]);
+                ReturnInt(ret, handle);
+                return;
+            }
+        }
+    }
     T* outCells = CellsOf<T>(out);
     int64_t idx[nlang::kMaxArrayRank] = {0};
     int64_t base = v.offset;
@@ -201,6 +280,79 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         for (int64_t s = 0; s < along; ++s)
             acc = static_cast<Acc>(acc + cells[base + s * axisStride]);
         outCells[i] = static_cast<T>(acc);
+        for (int32_t d = outRank - 1; d >= 0; --d) {
+            const int32_t src = d < axis ? d : d + 1;
+            idx[d] += 1;
+            base += v.strides[src];
+            if (idx[d] < outDims[d])
+                break;
+            base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
+            idx[d] = 0;
+        }
+    }
+    ReturnInt(ret, handle);
+}
+
+uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args);
+
+//Axis arm of max/min: the axis dim is eliminated, every other dim kept
+//(rank-1 + axis 0 is the full reduction — the scalar return). Floats on
+//contiguous sources with axis = rank-1 reduce contiguous segments
+//through the flat extreme kernels (NaN/tie rule identical to this
+//walk); everything else — strided views, middle axes, ints — keeps the
+//per-cell carrier compare of the odometer.
+template <typename T>
+void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, bool isMax) {
+    const char* who = isMax ? "tensor.max" : "tensor.min";
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    const int32_t axis = ArgInt(args, 1);
+    if (axis < 0 || axis >= v.rank)
+        Raise(host, NEXC_Base, who + std::string(": axis ")
+              + std::to_string(axis) + " out of range for rank "
+              + std::to_string(v.rank));
+    const T* cells = CellsOf<const T>(v);
+    const int32_t along = v.dims[axis];
+    const int32_t outRank = v.rank - 1;
+    if (outRank == 0)
+        Raise(host, NEXC_Base, std::string(who)
+              + ": rank-1 arrays reduce with "
+              + (isMax ? "max(a)" : "min(a)")
+              + ", not an axis arm");
+    //The static return is an Array; a rank-1 receiver would have to
+    //come back as a scalar, so the axis arm requires rank >= 2.
+    int32_t outDims[nlang::kMaxArrayRank];
+    for (int32_t d = 0; d < outRank; ++d)
+        outDims[d] = v.dims[d < axis ? d : d + 1];
+    const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
+                                          outDims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    T* outCells = CellsOf<T>(out);
+    if constexpr (!std::is_integral_v<T>) {
+        if (IsContiguous(v) && axis == v.rank - 1) {
+            const int64_t outer = out.elemCount;
+            const T* base = FlatCellsOf<T>(v);
+            for (int64_t r = 0; r < outer; ++r) {
+                ExtremeFlatByCarrier<T>(isMax, base + r * along, along,
+                                        outCells + r);
+            }
+            ReturnInt(ret, handle);
+            return;
+        }
+    }
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t base = v.offset;
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        T best = cells[base];
+        for (int64_t s = 1; s < along; ++s) {
+            const T cur = cells[base + s * v.strides[axis]];
+            if (isMax ? cur > best : cur < best) {
+                best = cur;
+            }
+        }
+        outCells[i] = best;
         for (int32_t d = outRank - 1; d >= 0; --d) {
             const int32_t src = d < axis ? d : d + 1;
             idx[d] += 1;
@@ -223,6 +375,42 @@ uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args) {
 }
 
 } // namespace
+
+void TensorMaxAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    switch (ElemKindOfFirst(host, args)) {
+        case NEK_Int32:
+            ExtremeAxisKernel<int32_t>(host, ret, args, true); break;
+        case NEK_Int64:
+            ExtremeAxisKernel<int64_t>(host, ret, args, true); break;
+        case NEK_Float32:
+            ExtremeAxisKernel<float>(host, ret, args, true); break;
+        case NEK_Float64:
+            ExtremeAxisKernel<double>(host, ret, args, true); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
+void TensorMinAxis(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    switch (ElemKindOfFirst(host, args)) {
+        case NEK_Int32:
+            ExtremeAxisKernel<int32_t>(host, ret, args, false); break;
+        case NEK_Int64:
+            ExtremeAxisKernel<int64_t>(host, ret, args, false); break;
+        case NEK_Float32:
+            ExtremeAxisKernel<float>(host, ret, args, false); break;
+        case NEK_Float64:
+            ExtremeAxisKernel<double>(host, ret, args, false); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
+
 
 void TensorSum(NativeHost* host, uint8_t* ret, const uint8_t* args,
                int argc) {

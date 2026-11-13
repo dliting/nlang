@@ -2878,3 +2878,28 @@ set_tests_properties(proj_user_overload_run PROPERTIES
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers
 # this directory's executable targets.
 _nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Native tensor kernel unit tests: the same object set that ships inside
+# nlang_tensor.dll, driven tier-by-tier through NLANG_TENSOR_TIER ctest
+# entries (scalar / sse2 / avx2 — the avx2 entry skips itself when the
+# host CPU cannot execute the forced tier).
+add_executable(test_native_tensor
+    test_native_tensor/main.cpp
+    test_native_tensor/TestVecMath.cpp
+    test_native_tensor/TestMatMul.cpp
+    test_native_tensor/TestElementwise.cpp
+    test_native_tensor/TestReduce.cpp
+)
+target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
+target_include_directories(test_native_tensor PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src/native/tensor)
+add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
+set_tests_properties(native_tensor_scalar PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=scalar")
+add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
+set_tests_properties(native_tensor_sse2 PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=sse2")
+add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
+set_tests_properties(native_tensor_avx2 PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=avx2")

@@ -1,0 +1,50 @@
+// tensor.uniform (v0.13.7): whole-array random fill — mints the
+// dims-shaped array and fills it row-major with low + (high-low)*u,
+// u in [0, 1) drawn from the host PRNG (the same seeded stream
+// math.random draws). Kills the weight-init loops.
+import math;
+import tensor;
+
+int main() {
+    //Shape and range: [low, high) on every element.
+    math.srand(7);
+    float[,] a = tensor.uniform([2, 3], -1.0f, 1.0f);
+    if (a.shape()[0] != 2 || a.shape()[1] != 3) return 1;
+    for (int i = 0; i < 2; i += 1) {
+        for (int j = 0; j < 3; j += 1) {
+            if (a[i, j] < -1.0f || a[i, j] >= 1.0f) return 2;
+        }
+    }
+
+    //Seeded determinism: the same seed reproduces the same array.
+    math.srand(7);
+    float[,] b = tensor.uniform([2, 3], -1.0f, 1.0f);
+    for (int i = 0; i < 2; i += 1) {
+        for (int j = 0; j < 3; j += 1) {
+            if (a[i, j] != b[i, j]) return 3;
+        }
+    }
+
+    //Stream sharing: the kernel and a nested math.random loop with the
+    //same seed see the same draws in the same row-major order.
+    math.srand(9);
+    float[,] c = tensor.uniform([2, 2], 0.0f, 10.0f);
+    math.srand(9);
+    for (int i = 0; i < 2; i += 1) {
+        for (int j = 0; j < 2; j += 1) {
+            float v = (math.random() * 10.0) as float;
+            if (c[i, j] != v) return 4;
+        }
+    }
+
+    //double overload and rank-1 shape.
+    math.srand(11);
+    double[] d = tensor.uniform([4], 2.5, 3.5);
+    for (int i = 0; i < 4; i += 1) {
+        if (d[i] < 2.5 || d[i] >= 3.5) return 5;
+    }
+    math.srand(11);
+    double[] e = tensor.uniform([4], 2.5, 3.5);
+    if (d[0] != e[0] || d[3] != e[3]) return 6;
+    return 0;
+}

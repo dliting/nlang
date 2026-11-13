@@ -67,9 +67,22 @@ void VmBackend::MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
         MaxArgsInvokeExpr(expr, maxArgs, isMethodContext);
         return;
     }
-    //Recurse into children for nested calls.
+    //v0.13.7: a tensor-flagged binary IS a 2-arg tensor call — account
+    //its claim like an invoke, then recurse into the operand
+    //sub-expressions for nested calls.
     if (expr.Kind() == NK_BinaryExpr) {
         auto& bin = static_cast<SnBinaryExpr&>(expr);
+        if (bin.ContainFlags(NF_TensorOp)) {
+            //The plan is AT MOST a 2-arg tensor primitive — TensorFnFor
+            //only names the fixed 2-formal (or 1-formal neg) overloads in
+            //stdlib/tensor.n; over-reserving covers the 1-arg neg.
+            uint16_t claimSize = 2;
+            if (claimSize > maxArgs)
+                maxArgs = claimSize;
+            for (auto &param : bin.TensorCallPlan()->Params())
+                MaxArgsWalkExpr(param, maxArgs);
+            return;
+        }
         MaxArgsWalkExpr(*bin.Left(), maxArgs);
         if (bin.Right()) MaxArgsWalkExpr(*bin.Right(), maxArgs);
     } else if (expr.Kind() == NK_CastExpr) {

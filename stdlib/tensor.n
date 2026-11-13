@@ -147,6 +147,89 @@ native Array<long> divScalar(Array<long> a, long value);
 native Array<float> divScalar(Array<float> a, float value);
 native Array<double> divScalar(Array<double> a, double value);
 
+// Reversed scalar arms (v0.13.7): the scalar sits on the LEFT, so
+// `s - a` and `s / a` stay whole-array calls. int rdiv by zero raises
+// like divScalar; float division follows IEEE.
+native Array<int> rsubScalar(Array<int> a, int value);
+native Array<long> rsubScalar(Array<long> a, long value);
+native Array<float> rsubScalar(Array<float> a, float value);
+native Array<double> rsubScalar(Array<double> a, double value);
+native Array<int> rdivScalar(Array<int> a, int value);
+native Array<long> rdivScalar(Array<long> a, long value);
+native Array<float> rdivScalar(Array<float> a, float value);
+native Array<double> rdivScalar(Array<double> a, double value);
+
+// Elementwise unary minus (v0.13.7): int/long wrap like language
+// arithmetic; float negation is the SIMD sign-flip lane.
+native Array<int> neg(Array<int> a);
+native Array<long> neg(Array<long> a);
+native Array<float> neg(Array<float> a);
+native Array<double> neg(Array<double> a);
+
+// Axis max/min (v0.13.7): the axis dim is eliminated — the symmetric
+// arm of the sum axis family. Overloads with the clamp bound by type.
+// int/long keep clamp-only public overloads (max(intArr, int bound)
+// predates the axis arm and owns the int-second-arg reading); their
+// axis natives stay registered below for internal composition.
+native Array<float> maxAxis(Array<float> a, int axis);
+native Array<double> maxAxis(Array<double> a, int axis);
+native Array<float> minAxis(Array<float> a, int axis);
+native Array<double> minAxis(Array<double> a, int axis);
+
+// Activation backward and tanh (v0.13.7): reluGrad(dOut, z) = where
+// z > 0 the gradient flows, else zero (z = 0 gates off); tanh rides
+// the vector math lane. float/double only.
+native Array<float> reluGrad(Array<float> dOut, Array<float> z);
+native Array<double> reluGrad(Array<double> dOut, Array<double> z);
+native Array<float> tanh(Array<float> x);
+native Array<double> tanh(Array<double> x);
+
+// Gather along an axis with a rank-1 int index array: out drops the
+// axis dim; out[flat] = a[... indices[outer] ...] at the same non-axis
+// position. Index out of range raises IndexOutOfBoundsException.
+native Array<int> gather(Array<int> a, int axis, Array<int> indices);
+native Array<long> gather(Array<long> a, int axis, Array<int> indices);
+native Array<float> gather(Array<float> a, int axis, Array<int> indices);
+native Array<double> gather(Array<double> a, int axis, Array<int> indices);
+
+// Argmax/argmin along an axis: int32 indices, first-max/min tie.
+native Array<int> argmax(Array<int> a, int axis);
+native Array<int> argmax(Array<float> a, int axis);
+native Array<int> argmax(Array<double> a, int axis);
+native Array<int> argmin(Array<int> a, int axis);
+native Array<int> argmin(Array<float> a, int axis);
+native Array<int> argmin(Array<double> a, int axis);
+
+// Elementwise equality: int32 0/1 out (IEEE ==/!= for floats).
+native Array<int> eq(Array<int> a, Array<int> b);
+native Array<int> eq(Array<long> a, Array<long> b);
+native Array<int> eq(Array<float> a, Array<float> b);
+native Array<int> eq(Array<double> a, Array<double> b);
+
+// One-hot expansion: float[len, n], row i ones at labels[i].
+native Array<float> oneHot(Array<int> labels, int n);
+
+// Whole-array random fill: dims-shaped array, each element drawn
+// uniformly from [low, high) in row-major order. The draws ride the
+// host PRNG — the same seeded stream math.random reads — so a seeded
+// run is reproducible through either surface. Raises Exception when
+// low > high (the math.randomi range rule).
+Array<float> uniform(int[] dims, float low, float high) {
+    return uniformF(dims, low, high);
+}
+Array<double> uniform(int[] dims, double low, double high) {
+    return uniformD(dims, low, high);
+}
+native Array<float> uniformF(int[] dims, float low, float high);
+native Array<double> uniformD(int[] dims, double low, double high);
+
+
+
+//arange(n): 0..n-1 step 1 — the index-array spelling.
+Array<int> arange(int n) {
+    return arangeI(0, n, 1);
+}
+
 Array<int> add(Array<int> a, int value) {
     return addScalar(a, value);
 }
@@ -342,35 +425,8 @@ Array<double> relu(Array<double> a) {
     return max(a, 0.0);
 }
 
-// Softmax over the flattened payload, stabilized by the global max
-// (exp(x - m) then normalize by the sum; the shift keeps large inputs
-// from overflowing exp).
-Array<float> softmax(Array<float> x) {
-    float m = max(x);
-    float[] shifted = float[x.length()];
-    for (int i = 0; i < x.length(); i += 1) {
-        shifted[i] = x[i] - m;
-    }
-    float[] e = exp(shifted);
-    float s = sum(e);
-    for (int i = 0; i < e.length(); i += 1) {
-        e[i] = e[i] / s;
-    }
-    return e;
-}
-Array<double> softmax(Array<double> x) {
-    double m = max(x);
-    double[] shifted = double[x.length()];
-    for (int i = 0; i < x.length(); i += 1) {
-        shifted[i] = x[i] - m;
-    }
-    double[] e = exp(shifted);
-    double s = sum(e);
-    for (int i = 0; i < e.length(); i += 1) {
-        e[i] = e[i] / s;
-    }
-    return e;
-}
+// Softmax over the flattened payload lives in the vector-ops layer
+// below (softmax(x) keeps this name; rank-1 reads as axis 0).
 
 // Cross-entropy of one-hot labels against softmax(logits):
 // -sum(labels * log(softmax(logits))). The formals are the rank-1
@@ -387,4 +443,84 @@ double crossEntropyLoss(double[] logits, double[] labels) {
     double[] p = softmax(logits);
     double[] lp = log(p);
     return -sum(mul(labels, lp));
+}
+
+//--- vector-ops layer (v0.13.7): the loop-free composition surface ---
+
+//neg overloads bind the kind-dispatching native directly.
+// s - a and s / a with the scalar on the left (rsub/rdiv); neg,
+// rsubScalar, rdivScalar, reluGrad and tanh bind the kind-dispatching
+// natives directly.
+
+// Axis arms: `max(a, 3)` with an int axis reduces along that axis; the
+// float-bound overloads above keep the clamp reading. rank-1 + axis 0
+// is the full reduction (the scalar overload's value).
+Array<float> max(Array<float> a, int axis) {
+    return maxAxis(a, axis);
+}
+Array<double> max(Array<double> a, int axis) {
+    return maxAxis(a, axis);
+}
+Array<float> min(Array<float> a, int axis) {
+    return minAxis(a, axis);
+}
+Array<double> min(Array<double> a, int axis) {
+    return minAxis(a, axis);
+}
+
+// Logistic sigmoid: 1 / (1 + exp(-x)) — every step a whole-array call
+// (neg, exp, addScalar, rdivScalar), no element loops.
+Array<float> sigmoid(Array<float> x) {
+    return rdivScalar(add(exp(neg(x)), 1.0 as float), 1.0 as float);
+}
+Array<double> sigmoid(Array<double> x) {
+    return rdivScalar(add(exp(neg(x)), 1.0), 1.0);
+}
+
+// Softmax along an axis, loop-free: shift by the axis max (numerically
+// safe exp), exponentiate, normalize by the axis sum — both back-
+// broadcast through reshape + broadcastTo. The default spelling keeps
+// the historical rank-1 reading (axis 0); higher ranks default to the
+// last axis, like the row-wise classifiers use.
+Array<float> softmax(Array<float> x, int axis) {
+    int[] xs = x.shape();
+    int rank = xs.length();
+    int[] ms = int[rank];
+    for (int i = 0; i < rank; i += 1) {
+        if (i == axis) {
+            ms[i] = 1;
+        } else {
+            ms[i] = xs[i];
+        }
+    }
+    Array<float> mb = broadcastTo(reshape(max(x, axis), ms), xs);
+    Array<float> e = exp(sub(x, mb));
+    Array<float> sb = broadcastTo(reshape(sum(e, axis), ms), xs);
+    return div(e, sb);
+}
+Array<double> softmax(Array<double> x, int axis) {
+    int[] xs = x.shape();
+    int rank = xs.length();
+    int[] ms = int[rank];
+    for (int i = 0; i < rank; i += 1) {
+        if (i == axis) {
+            ms[i] = 1;
+        } else {
+            ms[i] = xs[i];
+        }
+    }
+    Array<double> mb = broadcastTo(reshape(max(x, axis), ms), xs);
+    Array<double> e = exp(sub(x, mb));
+    Array<double> sb = broadcastTo(reshape(sum(e, axis), ms), xs);
+    return div(e, sb);
+}
+Array<float> softmax(Array<float> x) {
+    float m = max(x);
+    float[] e = exp(subScalar(x, m));
+    return divScalar(e, sum(e));
+}
+Array<double> softmax(Array<double> x) {
+    double m = max(x);
+    double[] e = exp(subScalar(x, m));
+    return divScalar(e, sum(e));
 }

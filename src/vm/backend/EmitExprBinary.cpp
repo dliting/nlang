@@ -381,6 +381,26 @@ void VmBackend::EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
 void VmBackend::Access(SnBinaryExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
+    //v0.13.7: a tensor-flagged binary lowers through its bound callee
+    //and emission plan via the standard invoke path — the bytecode is
+    //identical to a hand-written tensor.* call. Routed before the
+    //operator dispatch so OP_Neg takes the same arm. The TU-end sweep
+    //guarantees the binding; this arm is the sole emission site.
+    if (expr.ContainFlags(NF_TensorOp)) {
+        auto* pCallee = expr.TensorCallee();
+        auto* pPlan = expr.TensorCallPlan();
+        if (!pCallee || !pPlan)
+            throw std::runtime_error(
+                "NLang backend: tensor array arithmetic reached codegen "
+                "unbound");
+        std::vector<OutSpill> outSpills;
+        EmitCallArgs(*pPlan, pCallee, emitter, /*slotBase=*/0,
+                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
+                     &outSpills);
+        EmitInvokeDispatch(*pPlan, pCallee, emitter, resultOffset,
+                           outSpills);
+        return;
+    }
         auto& bin = static_cast<SnBinaryExpr&>(expr);
         auto op = bin.Op();
 

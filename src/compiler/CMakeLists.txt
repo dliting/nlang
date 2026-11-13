@@ -93,6 +93,7 @@ add_library(nlang_compiler
     SnData.cpp
     SnExpressions.cpp
     SnExpressionsValues.cpp
+    SnChildSync.cpp
     SnStatements.cpp
     SnStatementsFlow.cpp
     SnExtraTypes.cpp
@@ -124,6 +125,7 @@ add_library(nlang_compiler
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
+    builder/ExprResolverArrayOps.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
     builder/ExprResolverNewCtor.cpp

@@ -35,7 +35,7 @@ int main() {
     // MNIST subsets reports 88-92%. The gate sits 4.7 points below the
     // measured value and under the zone floor, so ordinary float noise
     // cannot trip it while a real kernel or view regression does.
-    float baseline = 0.85 as float;
+    float baseline = 0.85f;
 
     Dataset train = data.loadDataset("data/train_images.f32",
                                      "data/train_labels.u8",

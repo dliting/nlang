@@ -1038,6 +1038,11 @@ private:
 		bool lNull, bool rNull);
 	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	//v0.13.7 array-operator lowering (ExprResolverArrayOps.cpp): phase 1
+	//classifies at resolution time (true = consumed — lowering shape or
+	//a lowering-specific diagnostic); phase 2 splices the tensor call
+	//through the parent's ReplaceChildNode protocol and resolves it.
+	bool TryTensorBinaryShape(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	//0.9.9: `<<`/`>>` — the left operand's row decides the result; the
 	//count must convert to that row implicitly (see
 	//ExprResolverBinary.cpp for the full rationale).
