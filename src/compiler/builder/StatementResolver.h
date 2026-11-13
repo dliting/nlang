@@ -175,6 +175,11 @@ private:
 	//with the LHS's declared row as the carrier. Definition in
 	//StatementResolverCompound.cpp.
 	void FinishCompoundShift(SnCompoundAssignStmt &sn, SnField &targetType);
+	//v0.13.7: the bitwise compound gate (&=/|=/^=) — pass-through for
+	//the other operators, integer-only operand check for the bitwise
+	//family. Definition in StatementResolverCompound.cpp.
+	bool CheckCompoundBitwiseTarget(SnCompoundAssignStmt &sn,
+		SnField &targetType);
 	//Shared tail of Access(SnReturnStmt&): the return-position func-ref
 	//binding and the cast fixup against the declared return type. False
 	//when the binding failed (diagnostic logged).

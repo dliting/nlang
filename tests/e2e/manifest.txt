@@ -2202,3 +2202,4 @@ stdlib_http_reject503 0
 #raises SocketException, close is idempotent, isClosed reports true, and
 #after shutdownWrite() writes raise while reads work until end of stream.
 stdlib_net_closed_state 0
+bitwise_compound 0

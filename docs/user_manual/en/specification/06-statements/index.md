@@ -122,7 +122,7 @@ the lvalue; the value must be assignable to the type of the lvalue
 of struct type stores a copy (§4.7), while an array-typed, class or
 interface lvalue stores a reference (§4.10, §4.8).
 
-Compound assignment `x op= e;` with `op` one of `+ - * / % << >>`
+Compound assignment `x op= e;` with `op` one of `+ - * / % << >> & | ^`
 (§2.5) is equivalent to `x = x op e;` (§5.2, §5.3) except that the
 lvalue is evaluated exactly once. Two differences from the binary
 operator:
@@ -145,6 +145,7 @@ Assignment to a `const` local is a compile-time error (§6.1).
 
 ```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
+x &= y ;  x |= y ;  x ^= y ;
 ```
 
 Read-modify-write shorthand for `x = x op y`. Supported left-values: local

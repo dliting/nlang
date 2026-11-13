@@ -350,6 +350,7 @@ LineComment	\/\/[^\n]*
 "-="        { return OT_DECS; }
 "/="        { return OT_DIVS; }
 "|="        { return OT_BORS; }
+"^="        { return OT_BXORS; }
 
             /* single-char angle brackets with generic-depth tracking */
 "<"         {

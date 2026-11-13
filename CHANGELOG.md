@@ -21,6 +21,9 @@ All notable changes to NLang are documented here. The format follows
   and the logical operators; `~` sits with the other unary operators.
   Compiled modules move to image format 2.14; recompile existing
   `.ncu`/`.npkg`.
+- **Compound bitwise assignment `&=`, `|=`, `^=`.** Store-back follows
+  the compound-assignment family: the result is written in the left-hand
+  side's declared type with implicit narrowing.
 
 ## [0.13.6] - 2026-11-12
 

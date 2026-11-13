@@ -50,6 +50,8 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 		FinishCompoundShift(sn, *pTargetType);
 		return;
 	}
+	if (!CheckCompoundBitwiseTarget(sn, *pTargetType))
+		return;
 	auto castInfo = GetCastInfo(pSourceType, pTargetType);
 	auto iExpr = sn.Children().find(sn.m_pRight);
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
@@ -77,6 +79,33 @@ void StatementResolveAccessor::FinishCompoundShift(SnCompoundAssignStmt &sn,
 	m_ExprResolver.AdmitShiftCount(iExpr, &targetType, sn.Location(),
 		opName);
 	sn.AddFlags(NF_Resolved);
+}
+
+//v0.13.7: gate for the bitwise compound forms (&=/|=/^=). True for every
+//other operator (pass-through); for the bitwise ops it applies the
+//integer-only operand rule the binary form shares (PrimKindIsInteger —
+//enum-typed variables are not integer rows). After the gate the right
+//operand takes the arithmetic family's implicit conversion into the
+//declared row and the node store-backs like += (compound family
+//semantics: the store-back narrows, the byte b += 5 precedent). Unlike
+//shift there is no count side, so no count gate runs.
+bool StatementResolveAccessor::CheckCompoundBitwiseTarget(
+	SnCompoundAssignStmt &sn, SnField &targetType)
+{
+	auto op = sn.Op();
+	if (op != SnBinaryExpr::OP_BitAnd && op != SnBinaryExpr::OP_BitOr
+		&& op != SnBinaryExpr::OP_BitXor)
+		return true;
+	const char* opName = op == SnBinaryExpr::OP_BitAnd ? "&="
+		: op == SnBinaryExpr::OP_BitOr ? "|=" : "^=";
+	if (!PrimKindIsInteger(targetType.Kind()))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s' requires integer operands, got \"%s\".",
+			opName, targetType.ToString().c_str());
+		return false;
+	}
+	return true;
 }
 
 } //namespace nlang

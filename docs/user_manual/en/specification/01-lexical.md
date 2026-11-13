@@ -147,11 +147,11 @@ interpreted at the expression level (chapter 5).
 The multi-character operators that appear in the grammar are:
 
 `<<` `<<=` `>>` `>>=` `<=` `>=` `!=` `==` `&&` `||`
-`%=` `*=` `+=` `-=` `/=`
+`%=` `*=` `+=` `-=` `/=` `&=` `|=` `^=`
 
-The lexer also produces the sequences `++` `--` `&=` `|=` `~=`,
-but none of them appears in any production, so each is rejected as
-a syntax error wherever it occurs. Single-character punctuation
+The lexer also produces the sequences `++` `--` `~=`, but none
+of them appears in any production, so each is rejected as a syntax
+error wherever it occurs. Single-character punctuation
 forms a token of its own. Which token sequences are legal where is
 defined by the grammar (chapter 2).
 

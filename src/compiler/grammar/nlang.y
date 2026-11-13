@@ -464,6 +464,7 @@ static bool CollectQualifiedSegments(
 %token OT_DECS
 %token OT_DIVS
 %token OT_BORS
+%token OT_BXORS
 %token OT_Brackets
 %token <v_Int>	OT_BracketsND
 %token OT_TypeLt
@@ -471,7 +472,7 @@ static bool CollectQualifiedSegments(
 %nonassoc P_Then
 %nonassoc KT_Else
 
-%right OT_BORS OT_DIVS OT_DECS OT_INCS OT_MULS OT_BANDS OT_MODS
+%right OT_BXORS OT_BORS OT_DIVS OT_DECS OT_INCS OT_MULS OT_BANDS OT_MODS
 %left OT_OR
 %left OT_AND
 %left '|'
@@ -1118,6 +1119,18 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				IdentifierExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} |
+				//v0.13.7: bitwise compound forms (&=, |=, ^=). The operator
+				//rides the same SnCompoundAssignStmt node; resolver gates and
+				//emission join the compound family in the later stages.
+				IdentifierExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
+				} |
 				MemberExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -1139,6 +1152,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				MemberExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} |
+				MemberExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				MemberExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				MemberExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
+				} |
 				SubscriptExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -1159,6 +1181,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				} |
 				SubscriptExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
 				} ;
 
 /*
@@ -1314,6 +1345,15 @@ FiniFor:	{
 				} |
 				IdentifierExpr OT_RSHS Expression {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BANDS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BORS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BXORS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
 				} ;
 
 /*
