@@ -2216,3 +2216,4 @@ stdlib_regex_escape 0
 stdlib_regex_matches 0
 stdlib_regex_split 0
 stdlib_regex_template 0
+stdlib_regex_diff 0

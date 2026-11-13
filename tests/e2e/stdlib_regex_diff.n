@@ -1,0 +1,1140 @@
+// GENERATED FILE -- do not edit by hand.
+// Produced by temp/go_regprobe/gen_diff/main.go against the local Go standard
+// library: every expectation below is computed by Go (spec section 六). Rejected
+// rows pin accept/reject and a non-empty message only, never message text.
+// Registered differentials avoided in this corpus: duplicate group names,
+// non-ASCII (?i) folding, (?U), \p{L} property classes (Go accepts, nlang
+// rejects), in-class "[\b]" backspace (nlang accepts, Go rejects) and "$"
+// before a final newline (nlang follows the majority Perl-family reading,
+// Go/JS strict end-of-text -- all six registered in spec section 六).
+import io;
+import regex;
+
+string joinTexts(List<Match> ms) {
+    string r = "";
+    for (int i = 0; i < ms.length(); i = i + 1) {
+        if (i > 0) { r = r + "|"; }
+        r = r + ms[i].text;
+    }
+    return r;
+}
+
+string joinStarts(List<Match> ms) {
+    string r = "";
+    for (int i = 0; i < ms.length(); i = i + 1) {
+        if (i > 0) { r = r + "|"; }
+        r = r + ms[i].start.toString();
+    }
+    return r;
+}
+
+string joinStrs(List<string> vs) {
+    string r = "";
+    for (int i = 0; i < vs.length(); i = i + 1) {
+        if (i > 0) { r = r + "|"; }
+        r = r + vs[i];
+    }
+    return r;
+}
+
+string joinGroups(Match m) {
+    string r = "";
+    for (int i = 0; i < m.groupCount; i = i + 1) {
+        if (i > 0) { r = r + "|"; }
+        r = r + m.group(i) + ":" + m.groupStart(i).toString() + ":" + m.groupEnd(i).toString();
+    }
+    return r;
+}
+
+int check0(int bad) {
+    // row 0: /abc/ vs xabcx
+    Regex r0 = Regex("abc");
+    if (!r0.isMatch("xabcx")) { bad = bad + 1; }
+    Match m0 = r0.match("xabcx");
+    if (m0 == null) { bad = bad + 1; } else {
+        if (m0.text != "abc") { bad = bad + 1; }
+        if (m0.start != 1 || m0.end != 4) { bad = bad + 1; }
+        if (joinGroups(m0) != "abc:1:4") { bad = bad + 1; }
+    }
+    List<Match> ms0 = r0.matches("xabcx", -1);
+    if (ms0.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms0) != "abc") { bad = bad + 1; }
+    if (joinStarts(ms0) != "1") { bad = bad + 1; }
+    List<string> sp0 = r0.split("xabcx", -1);
+    if (sp0.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp0) != "x|x") { bad = bad + 1; }
+    if (r0.replaceAll("xabcx", "T") != "xTx") { bad = bad + 1; }
+    if (r0.replaceFirst("xabcx", "T") != "xTx") { bad = bad + 1; }
+    // row 1: /a.c/ vs a\nbc
+    Regex r1 = Regex("a.c");
+    if (r1.isMatch("a\nbc")) { bad = bad + 1; }
+    if (r1.match("a\nbc") != null) { bad = bad + 1; }
+    List<Match> ms1 = r1.matches("a\nbc", -1);
+    if (ms1.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms1) != "") { bad = bad + 1; }
+    if (joinStarts(ms1) != "") { bad = bad + 1; }
+    List<string> sp1 = r1.split("a\nbc", -1);
+    if (sp1.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp1) != "a\nbc") { bad = bad + 1; }
+    if (r1.replaceAll("a\nbc", "T") != "a\nbc") { bad = bad + 1; }
+    if (r1.replaceFirst("a\nbc", "T") != "a\nbc") { bad = bad + 1; }
+    // row 2: /a.c/ vs axc
+    Regex r2 = Regex("a.c");
+    if (!r2.isMatch("axc")) { bad = bad + 1; }
+    Match m2 = r2.match("axc");
+    if (m2 == null) { bad = bad + 1; } else {
+        if (m2.text != "axc") { bad = bad + 1; }
+        if (m2.start != 0 || m2.end != 3) { bad = bad + 1; }
+        if (joinGroups(m2) != "axc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms2 = r2.matches("axc", -1);
+    if (ms2.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms2) != "axc") { bad = bad + 1; }
+    if (joinStarts(ms2) != "0") { bad = bad + 1; }
+    List<string> sp2 = r2.split("axc", -1);
+    if (sp2.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp2) != "|") { bad = bad + 1; }
+    if (r2.replaceAll("axc", "T") != "T") { bad = bad + 1; }
+    if (r2.replaceFirst("axc", "T") != "T") { bad = bad + 1; }
+    // row 3: /cat|dog/ vs my dog
+    Regex r3 = Regex("cat|dog");
+    if (!r3.isMatch("my dog")) { bad = bad + 1; }
+    Match m3 = r3.match("my dog");
+    if (m3 == null) { bad = bad + 1; } else {
+        if (m3.text != "dog") { bad = bad + 1; }
+        if (m3.start != 3 || m3.end != 6) { bad = bad + 1; }
+        if (joinGroups(m3) != "dog:3:6") { bad = bad + 1; }
+    }
+    List<Match> ms3 = r3.matches("my dog", -1);
+    if (ms3.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms3) != "dog") { bad = bad + 1; }
+    if (joinStarts(ms3) != "3") { bad = bad + 1; }
+    List<string> sp3 = r3.split("my dog", -1);
+    if (sp3.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp3) != "my |") { bad = bad + 1; }
+    if (r3.replaceAll("my dog", "T") != "my T") { bad = bad + 1; }
+    if (r3.replaceFirst("my dog", "T") != "my T") { bad = bad + 1; }
+    // row 4: /a|ab/ vs ab
+    Regex r4 = Regex("a|ab");
+    if (!r4.isMatch("ab")) { bad = bad + 1; }
+    Match m4 = r4.match("ab");
+    if (m4 == null) { bad = bad + 1; } else {
+        if (m4.text != "a") { bad = bad + 1; }
+        if (m4.start != 0 || m4.end != 1) { bad = bad + 1; }
+        if (joinGroups(m4) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms4 = r4.matches("ab", -1);
+    if (ms4.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms4) != "a") { bad = bad + 1; }
+    if (joinStarts(ms4) != "0") { bad = bad + 1; }
+    List<string> sp4 = r4.split("ab", -1);
+    if (sp4.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp4) != "|b") { bad = bad + 1; }
+    if (r4.replaceAll("ab", "$0") != "ab") { bad = bad + 1; }
+    if (r4.replaceFirst("ab", "$0") != "ab") { bad = bad + 1; }
+    // row 5: /[a-c]+/ vs abcd
+    Regex r5 = Regex("[a-c]+");
+    if (!r5.isMatch("abcd")) { bad = bad + 1; }
+    Match m5 = r5.match("abcd");
+    if (m5 == null) { bad = bad + 1; } else {
+        if (m5.text != "abc") { bad = bad + 1; }
+        if (m5.start != 0 || m5.end != 3) { bad = bad + 1; }
+        if (joinGroups(m5) != "abc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms5 = r5.matches("abcd", -1);
+    if (ms5.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms5) != "abc") { bad = bad + 1; }
+    if (joinStarts(ms5) != "0") { bad = bad + 1; }
+    List<string> sp5 = r5.split("abcd", -1);
+    if (sp5.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp5) != "|d") { bad = bad + 1; }
+    if (r5.replaceAll("abcd", "T") != "Td") { bad = bad + 1; }
+    if (r5.replaceFirst("abcd", "T") != "Td") { bad = bad + 1; }
+    // row 6: /[^0-9]+/ vs a1b
+    Regex r6 = Regex("[^0-9]+");
+    if (!r6.isMatch("a1b")) { bad = bad + 1; }
+    Match m6 = r6.match("a1b");
+    if (m6 == null) { bad = bad + 1; } else {
+        if (m6.text != "a") { bad = bad + 1; }
+        if (m6.start != 0 || m6.end != 1) { bad = bad + 1; }
+        if (joinGroups(m6) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms6 = r6.matches("a1b", -1);
+    if (ms6.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms6) != "a|b") { bad = bad + 1; }
+    if (joinStarts(ms6) != "0|2") { bad = bad + 1; }
+    List<string> sp6 = r6.split("a1b", -1);
+    if (sp6.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp6) != "|1|") { bad = bad + 1; }
+    if (r6.replaceAll("a1b", "T") != "T1T") { bad = bad + 1; }
+    if (r6.replaceFirst("a1b", "T") != "T1b") { bad = bad + 1; }
+    // row 7: /[a-z&]+/ vs b&c
+    Regex r7 = Regex("[a-z&]+");
+    if (!r7.isMatch("b&c")) { bad = bad + 1; }
+    Match m7 = r7.match("b&c");
+    if (m7 == null) { bad = bad + 1; } else {
+        if (m7.text != "b&c") { bad = bad + 1; }
+        if (m7.start != 0 || m7.end != 3) { bad = bad + 1; }
+        if (joinGroups(m7) != "b&c:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms7 = r7.matches("b&c", -1);
+    if (ms7.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms7) != "b&c") { bad = bad + 1; }
+    if (joinStarts(ms7) != "0") { bad = bad + 1; }
+    List<string> sp7 = r7.split("b&c", -1);
+    if (sp7.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp7) != "|") { bad = bad + 1; }
+    if (r7.replaceAll("b&c", "T") != "T") { bad = bad + 1; }
+    if (r7.replaceFirst("b&c", "T") != "T") { bad = bad + 1; }
+    // row 8: /\d+\D\s\S\w\W/ vs 12 a!x.
+    Regex r8 = Regex("\\d+\\D\\s\\S\\w\\W");
+    if (r8.isMatch("12 a!x.")) { bad = bad + 1; }
+    if (r8.match("12 a!x.") != null) { bad = bad + 1; }
+    List<Match> ms8 = r8.matches("12 a!x.", -1);
+    if (ms8.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms8) != "") { bad = bad + 1; }
+    if (joinStarts(ms8) != "") { bad = bad + 1; }
+    List<string> sp8 = r8.split("12 a!x.", -1);
+    if (sp8.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp8) != "12 a!x.") { bad = bad + 1; }
+    if (r8.replaceAll("12 a!x.", "T") != "12 a!x.") { bad = bad + 1; }
+    if (r8.replaceFirst("12 a!x.", "T") != "12 a!x.") { bad = bad + 1; }
+    // row 9: /(a)(b)/ vs xab
+    Regex r9 = Regex("(a)(b)");
+    if (!r9.isMatch("xab")) { bad = bad + 1; }
+    Match m9 = r9.match("xab");
+    if (m9 == null) { bad = bad + 1; } else {
+        if (m9.text != "ab") { bad = bad + 1; }
+        if (m9.start != 1 || m9.end != 3) { bad = bad + 1; }
+        if (joinGroups(m9) != "ab:1:3|a:1:2|b:2:3") { bad = bad + 1; }
+    }
+    List<Match> ms9 = r9.matches("xab", -1);
+    if (ms9.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms9) != "ab") { bad = bad + 1; }
+    if (joinStarts(ms9) != "1") { bad = bad + 1; }
+    List<string> sp9 = r9.split("xab", -1);
+    if (sp9.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp9) != "x|") { bad = bad + 1; }
+    if (r9.replaceAll("xab", "[$1-$2]") != "x[a-b]") { bad = bad + 1; }
+    if (r9.replaceFirst("xab", "[$1-$2]") != "x[a-b]") { bad = bad + 1; }
+    // row 10: /(?P<k>\w+)=(?P<v>[^ ]*)/ vs server=80
+    Regex r10 = Regex("(?P<k>\\w+)=(?P<v>[^ ]*)");
+    if (!r10.isMatch("server=80")) { bad = bad + 1; }
+    Match m10 = r10.match("server=80");
+    if (m10 == null) { bad = bad + 1; } else {
+        if (m10.text != "server=80") { bad = bad + 1; }
+        if (m10.start != 0 || m10.end != 9) { bad = bad + 1; }
+        if (joinGroups(m10) != "server=80:0:9|server:0:6|80:7:9") { bad = bad + 1; }
+    }
+    List<Match> ms10 = r10.matches("server=80", -1);
+    if (ms10.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms10) != "server=80") { bad = bad + 1; }
+    if (joinStarts(ms10) != "0") { bad = bad + 1; }
+    List<string> sp10 = r10.split("server=80", -1);
+    if (sp10.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp10) != "|") { bad = bad + 1; }
+    if (r10.replaceAll("server=80", "[$k-$v]") != "[server-80]") { bad = bad + 1; }
+    if (r10.replaceFirst("server=80", "[$k-$v]") != "[server-80]") { bad = bad + 1; }
+    // row 11: /((a)(b))/ vs ab
+    Regex r11 = Regex("((a)(b))");
+    if (!r11.isMatch("ab")) { bad = bad + 1; }
+    Match m11 = r11.match("ab");
+    if (m11 == null) { bad = bad + 1; } else {
+        if (m11.text != "ab") { bad = bad + 1; }
+        if (m11.start != 0 || m11.end != 2) { bad = bad + 1; }
+        if (joinGroups(m11) != "ab:0:2|ab:0:2|a:0:1|b:1:2") { bad = bad + 1; }
+    }
+    List<Match> ms11 = r11.matches("ab", -1);
+    if (ms11.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms11) != "ab") { bad = bad + 1; }
+    if (joinStarts(ms11) != "0") { bad = bad + 1; }
+    List<string> sp11 = r11.split("ab", -1);
+    if (sp11.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp11) != "|") { bad = bad + 1; }
+    if (r11.replaceAll("ab", "$1-$2") != "ab-a") { bad = bad + 1; }
+    if (r11.replaceFirst("ab", "$1-$2") != "ab-a") { bad = bad + 1; }
+    // row 12: /(a)?b/ vs b
+    Regex r12 = Regex("(a)?b");
+    if (!r12.isMatch("b")) { bad = bad + 1; }
+    Match m12 = r12.match("b");
+    if (m12 == null) { bad = bad + 1; } else {
+        if (m12.text != "b") { bad = bad + 1; }
+        if (m12.start != 0 || m12.end != 1) { bad = bad + 1; }
+        if (joinGroups(m12) != "b:0:1|:-1:-1") { bad = bad + 1; }
+    }
+    List<Match> ms12 = r12.matches("b", -1);
+    if (ms12.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms12) != "b") { bad = bad + 1; }
+    if (joinStarts(ms12) != "0") { bad = bad + 1; }
+    List<string> sp12 = r12.split("b", -1);
+    if (sp12.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp12) != "|") { bad = bad + 1; }
+    if (r12.replaceAll("b", "[$1]") != "[]") { bad = bad + 1; }
+    if (r12.replaceFirst("b", "[$1]") != "[]") { bad = bad + 1; }
+    // row 13: /(?:ab)+/ vs ababc
+    Regex r13 = Regex("(?:ab)+");
+    if (!r13.isMatch("ababc")) { bad = bad + 1; }
+    Match m13 = r13.match("ababc");
+    if (m13 == null) { bad = bad + 1; } else {
+        if (m13.text != "abab") { bad = bad + 1; }
+        if (m13.start != 0 || m13.end != 4) { bad = bad + 1; }
+        if (joinGroups(m13) != "abab:0:4") { bad = bad + 1; }
+    }
+    List<Match> ms13 = r13.matches("ababc", -1);
+    if (ms13.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms13) != "abab") { bad = bad + 1; }
+    if (joinStarts(ms13) != "0") { bad = bad + 1; }
+    List<string> sp13 = r13.split("ababc", -1);
+    if (sp13.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp13) != "|c") { bad = bad + 1; }
+    if (r13.replaceAll("ababc", "T") != "Tc") { bad = bad + 1; }
+    if (r13.replaceFirst("ababc", "T") != "Tc") { bad = bad + 1; }
+    // row 14: /a+?/ vs aaa
+    Regex r14 = Regex("a+?");
+    if (!r14.isMatch("aaa")) { bad = bad + 1; }
+    Match m14 = r14.match("aaa");
+    if (m14 == null) { bad = bad + 1; } else {
+        if (m14.text != "a") { bad = bad + 1; }
+        if (m14.start != 0 || m14.end != 1) { bad = bad + 1; }
+        if (joinGroups(m14) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms14 = r14.matches("aaa", -1);
+    if (ms14.length() != 3) { bad = bad + 1; }
+    if (joinTexts(ms14) != "a|a|a") { bad = bad + 1; }
+    if (joinStarts(ms14) != "0|1|2") { bad = bad + 1; }
+    List<string> sp14 = r14.split("aaa", -1);
+    if (sp14.length() != 4) { bad = bad + 1; }
+    if (joinStrs(sp14) != "|||") { bad = bad + 1; }
+    if (r14.replaceAll("aaa", "<$0>") != "<a><a><a>") { bad = bad + 1; }
+    if (r14.replaceFirst("aaa", "<$0>") != "<a>aa") { bad = bad + 1; }
+    // row 15: /a.*?z/ vs a1z2z
+    Regex r15 = Regex("a.*?z");
+    if (!r15.isMatch("a1z2z")) { bad = bad + 1; }
+    Match m15 = r15.match("a1z2z");
+    if (m15 == null) { bad = bad + 1; } else {
+        if (m15.text != "a1z") { bad = bad + 1; }
+        if (m15.start != 0 || m15.end != 3) { bad = bad + 1; }
+        if (joinGroups(m15) != "a1z:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms15 = r15.matches("a1z2z", -1);
+    if (ms15.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms15) != "a1z") { bad = bad + 1; }
+    if (joinStarts(ms15) != "0") { bad = bad + 1; }
+    List<string> sp15 = r15.split("a1z2z", -1);
+    if (sp15.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp15) != "|2z") { bad = bad + 1; }
+    if (r15.replaceAll("a1z2z", "T") != "T2z") { bad = bad + 1; }
+    if (r15.replaceFirst("a1z2z", "T") != "T2z") { bad = bad + 1; }
+    // row 16: /ab{2}c/ vs abbbc
+    Regex r16 = Regex("ab{2}c");
+    if (r16.isMatch("abbbc")) { bad = bad + 1; }
+    if (r16.match("abbbc") != null) { bad = bad + 1; }
+    List<Match> ms16 = r16.matches("abbbc", -1);
+    if (ms16.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms16) != "") { bad = bad + 1; }
+    if (joinStarts(ms16) != "") { bad = bad + 1; }
+    List<string> sp16 = r16.split("abbbc", -1);
+    if (sp16.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp16) != "abbbc") { bad = bad + 1; }
+    if (r16.replaceAll("abbbc", "T") != "abbbc") { bad = bad + 1; }
+    if (r16.replaceFirst("abbbc", "T") != "abbbc") { bad = bad + 1; }
+    // row 17: /a{/ vs a{
+    Regex r17 = Regex("a{");
+    if (!r17.isMatch("a{")) { bad = bad + 1; }
+    Match m17 = r17.match("a{");
+    if (m17 == null) { bad = bad + 1; } else {
+        if (m17.text != "a{") { bad = bad + 1; }
+        if (m17.start != 0 || m17.end != 2) { bad = bad + 1; }
+        if (joinGroups(m17) != "a{:0:2") { bad = bad + 1; }
+    }
+    List<Match> ms17 = r17.matches("a{", -1);
+    if (ms17.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms17) != "a{") { bad = bad + 1; }
+    if (joinStarts(ms17) != "0") { bad = bad + 1; }
+    List<string> sp17 = r17.split("a{", -1);
+    if (sp17.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp17) != "|") { bad = bad + 1; }
+    if (r17.replaceAll("a{", "T") != "T") { bad = bad + 1; }
+    if (r17.replaceFirst("a{", "T") != "T") { bad = bad + 1; }
+    // row 18: /^abc/ vs xabc
+    Regex r18 = Regex("^abc");
+    if (r18.isMatch("xabc")) { bad = bad + 1; }
+    if (r18.match("xabc") != null) { bad = bad + 1; }
+    List<Match> ms18 = r18.matches("xabc", -1);
+    if (ms18.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms18) != "") { bad = bad + 1; }
+    if (joinStarts(ms18) != "") { bad = bad + 1; }
+    List<string> sp18 = r18.split("xabc", -1);
+    if (sp18.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp18) != "xabc") { bad = bad + 1; }
+    if (r18.replaceAll("xabc", "T") != "xabc") { bad = bad + 1; }
+    if (r18.replaceFirst("xabc", "T") != "xabc") { bad = bad + 1; }
+    // row 19: /^abc/ vs abc
+    Regex r19 = Regex("^abc");
+    if (!r19.isMatch("abc")) { bad = bad + 1; }
+    Match m19 = r19.match("abc");
+    if (m19 == null) { bad = bad + 1; } else {
+        if (m19.text != "abc") { bad = bad + 1; }
+        if (m19.start != 0 || m19.end != 3) { bad = bad + 1; }
+        if (joinGroups(m19) != "abc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms19 = r19.matches("abc", -1);
+    if (ms19.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms19) != "abc") { bad = bad + 1; }
+    if (joinStarts(ms19) != "0") { bad = bad + 1; }
+    List<string> sp19 = r19.split("abc", -1);
+    if (sp19.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp19) != "|") { bad = bad + 1; }
+    if (r19.replaceAll("abc", "T") != "T") { bad = bad + 1; }
+    if (r19.replaceFirst("abc", "T") != "T") { bad = bad + 1; }
+    return bad;
+}
+
+int check1(int bad) {
+    // row 20: /abc$/ vs abc
+    Regex r20 = Regex("abc$");
+    if (!r20.isMatch("abc")) { bad = bad + 1; }
+    Match m20 = r20.match("abc");
+    if (m20 == null) { bad = bad + 1; } else {
+        if (m20.text != "abc") { bad = bad + 1; }
+        if (m20.start != 0 || m20.end != 3) { bad = bad + 1; }
+        if (joinGroups(m20) != "abc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms20 = r20.matches("abc", -1);
+    if (ms20.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms20) != "abc") { bad = bad + 1; }
+    if (joinStarts(ms20) != "0") { bad = bad + 1; }
+    List<string> sp20 = r20.split("abc", -1);
+    if (sp20.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp20) != "|") { bad = bad + 1; }
+    if (r20.replaceAll("abc", "T") != "T") { bad = bad + 1; }
+    if (r20.replaceFirst("abc", "T") != "T") { bad = bad + 1; }
+    // row 21: /\Afoo/ vs xfoo
+    Regex r21 = Regex("\\Afoo");
+    if (r21.isMatch("xfoo")) { bad = bad + 1; }
+    if (r21.match("xfoo") != null) { bad = bad + 1; }
+    List<Match> ms21 = r21.matches("xfoo", -1);
+    if (ms21.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms21) != "") { bad = bad + 1; }
+    if (joinStarts(ms21) != "") { bad = bad + 1; }
+    List<string> sp21 = r21.split("xfoo", -1);
+    if (sp21.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp21) != "xfoo") { bad = bad + 1; }
+    if (r21.replaceAll("xfoo", "T") != "xfoo") { bad = bad + 1; }
+    if (r21.replaceFirst("xfoo", "T") != "xfoo") { bad = bad + 1; }
+    // row 22: /\bcat\b/ vs a cat.
+    Regex r22 = Regex("\\bcat\\b");
+    if (!r22.isMatch("a cat.")) { bad = bad + 1; }
+    Match m22 = r22.match("a cat.");
+    if (m22 == null) { bad = bad + 1; } else {
+        if (m22.text != "cat") { bad = bad + 1; }
+        if (m22.start != 2 || m22.end != 5) { bad = bad + 1; }
+        if (joinGroups(m22) != "cat:2:5") { bad = bad + 1; }
+    }
+    List<Match> ms22 = r22.matches("a cat.", -1);
+    if (ms22.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms22) != "cat") { bad = bad + 1; }
+    if (joinStarts(ms22) != "2") { bad = bad + 1; }
+    List<string> sp22 = r22.split("a cat.", -1);
+    if (sp22.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp22) != "a |.") { bad = bad + 1; }
+    if (r22.replaceAll("a cat.", "T") != "a T.") { bad = bad + 1; }
+    if (r22.replaceFirst("a cat.", "T") != "a T.") { bad = bad + 1; }
+    // row 23: /\bcat\b/ vs concat
+    Regex r23 = Regex("\\bcat\\b");
+    if (r23.isMatch("concat")) { bad = bad + 1; }
+    if (r23.match("concat") != null) { bad = bad + 1; }
+    List<Match> ms23 = r23.matches("concat", -1);
+    if (ms23.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms23) != "") { bad = bad + 1; }
+    if (joinStarts(ms23) != "") { bad = bad + 1; }
+    List<string> sp23 = r23.split("concat", -1);
+    if (sp23.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp23) != "concat") { bad = bad + 1; }
+    if (r23.replaceAll("concat", "T") != "concat") { bad = bad + 1; }
+    if (r23.replaceFirst("concat", "T") != "concat") { bad = bad + 1; }
+    // row 24: /\Bcat/ vs concat
+    Regex r24 = Regex("\\Bcat");
+    if (!r24.isMatch("concat")) { bad = bad + 1; }
+    Match m24 = r24.match("concat");
+    if (m24 == null) { bad = bad + 1; } else {
+        if (m24.text != "cat") { bad = bad + 1; }
+        if (m24.start != 3 || m24.end != 6) { bad = bad + 1; }
+        if (joinGroups(m24) != "cat:3:6") { bad = bad + 1; }
+    }
+    List<Match> ms24 = r24.matches("concat", -1);
+    if (ms24.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms24) != "cat") { bad = bad + 1; }
+    if (joinStarts(ms24) != "3") { bad = bad + 1; }
+    List<string> sp24 = r24.split("concat", -1);
+    if (sp24.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp24) != "con|") { bad = bad + 1; }
+    if (r24.replaceAll("concat", "T") != "conT") { bad = bad + 1; }
+    if (r24.replaceFirst("concat", "T") != "conT") { bad = bad + 1; }
+    // row 25: /(?i)ABC/ vs abc
+    Regex r25 = Regex("(?i)ABC");
+    if (!r25.isMatch("abc")) { bad = bad + 1; }
+    Match m25 = r25.match("abc");
+    if (m25 == null) { bad = bad + 1; } else {
+        if (m25.text != "abc") { bad = bad + 1; }
+        if (m25.start != 0 || m25.end != 3) { bad = bad + 1; }
+        if (joinGroups(m25) != "abc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms25 = r25.matches("abc", -1);
+    if (ms25.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms25) != "abc") { bad = bad + 1; }
+    if (joinStarts(ms25) != "0") { bad = bad + 1; }
+    List<string> sp25 = r25.split("abc", -1);
+    if (sp25.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp25) != "|") { bad = bad + 1; }
+    if (r25.replaceAll("abc", "T") != "T") { bad = bad + 1; }
+    if (r25.replaceFirst("abc", "T") != "T") { bad = bad + 1; }
+    // row 26: /a(?i:b)c/ vs aBc
+    Regex r26 = Regex("a(?i:b)c");
+    if (!r26.isMatch("aBc")) { bad = bad + 1; }
+    Match m26 = r26.match("aBc");
+    if (m26 == null) { bad = bad + 1; } else {
+        if (m26.text != "aBc") { bad = bad + 1; }
+        if (m26.start != 0 || m26.end != 3) { bad = bad + 1; }
+        if (joinGroups(m26) != "aBc:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms26 = r26.matches("aBc", -1);
+    if (ms26.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms26) != "aBc") { bad = bad + 1; }
+    if (joinStarts(ms26) != "0") { bad = bad + 1; }
+    List<string> sp26 = r26.split("aBc", -1);
+    if (sp26.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp26) != "|") { bad = bad + 1; }
+    if (r26.replaceAll("aBc", "T") != "T") { bad = bad + 1; }
+    if (r26.replaceFirst("aBc", "T") != "T") { bad = bad + 1; }
+    // row 27: /(?i)abc(?-i)def/ vs ABCdef
+    Regex r27 = Regex("(?i)abc(?-i)def");
+    if (!r27.isMatch("ABCdef")) { bad = bad + 1; }
+    Match m27 = r27.match("ABCdef");
+    if (m27 == null) { bad = bad + 1; } else {
+        if (m27.text != "ABCdef") { bad = bad + 1; }
+        if (m27.start != 0 || m27.end != 6) { bad = bad + 1; }
+        if (joinGroups(m27) != "ABCdef:0:6") { bad = bad + 1; }
+    }
+    List<Match> ms27 = r27.matches("ABCdef", -1);
+    if (ms27.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms27) != "ABCdef") { bad = bad + 1; }
+    if (joinStarts(ms27) != "0") { bad = bad + 1; }
+    List<string> sp27 = r27.split("ABCdef", -1);
+    if (sp27.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp27) != "|") { bad = bad + 1; }
+    if (r27.replaceAll("ABCdef", "T") != "T") { bad = bad + 1; }
+    if (r27.replaceFirst("ABCdef", "T") != "T") { bad = bad + 1; }
+    // row 28: /(?i)abc(?-i)def/ vs ABCDEF
+    Regex r28 = Regex("(?i)abc(?-i)def");
+    if (r28.isMatch("ABCDEF")) { bad = bad + 1; }
+    if (r28.match("ABCDEF") != null) { bad = bad + 1; }
+    List<Match> ms28 = r28.matches("ABCDEF", -1);
+    if (ms28.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms28) != "") { bad = bad + 1; }
+    if (joinStarts(ms28) != "") { bad = bad + 1; }
+    List<string> sp28 = r28.split("ABCDEF", -1);
+    if (sp28.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp28) != "ABCDEF") { bad = bad + 1; }
+    if (r28.replaceAll("ABCDEF", "T") != "ABCDEF") { bad = bad + 1; }
+    if (r28.replaceFirst("ABCDEF", "T") != "ABCDEF") { bad = bad + 1; }
+    // row 29: /(?s)a.b/ vs a\nb
+    Regex r29 = Regex("(?s)a.b");
+    if (!r29.isMatch("a\nb")) { bad = bad + 1; }
+    Match m29 = r29.match("a\nb");
+    if (m29 == null) { bad = bad + 1; } else {
+        if (m29.text != "a\nb") { bad = bad + 1; }
+        if (m29.start != 0 || m29.end != 3) { bad = bad + 1; }
+        if (joinGroups(m29) != "a\nb:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms29 = r29.matches("a\nb", -1);
+    if (ms29.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms29) != "a\nb") { bad = bad + 1; }
+    if (joinStarts(ms29) != "0") { bad = bad + 1; }
+    List<string> sp29 = r29.split("a\nb", -1);
+    if (sp29.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp29) != "|") { bad = bad + 1; }
+    if (r29.replaceAll("a\nb", "T") != "T") { bad = bad + 1; }
+    if (r29.replaceFirst("a\nb", "T") != "T") { bad = bad + 1; }
+    // row 30: /(?m)^bar$/ vs foo\nbar\nbaz
+    Regex r30 = Regex("(?m)^bar$");
+    if (!r30.isMatch("foo\nbar\nbaz")) { bad = bad + 1; }
+    Match m30 = r30.match("foo\nbar\nbaz");
+    if (m30 == null) { bad = bad + 1; } else {
+        if (m30.text != "bar") { bad = bad + 1; }
+        if (m30.start != 4 || m30.end != 7) { bad = bad + 1; }
+        if (joinGroups(m30) != "bar:4:7") { bad = bad + 1; }
+    }
+    List<Match> ms30 = r30.matches("foo\nbar\nbaz", -1);
+    if (ms30.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms30) != "bar") { bad = bad + 1; }
+    if (joinStarts(ms30) != "4") { bad = bad + 1; }
+    List<string> sp30 = r30.split("foo\nbar\nbaz", -1);
+    if (sp30.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp30) != "foo\n|\nbaz") { bad = bad + 1; }
+    if (r30.replaceAll("foo\nbar\nbaz", "T") != "foo\nT\nbaz") { bad = bad + 1; }
+    if (r30.replaceFirst("foo\nbar\nbaz", "T") != "foo\nT\nbaz") { bad = bad + 1; }
+    // row 31: /\101/ vs A
+    Regex r31 = Regex("\\101");
+    if (!r31.isMatch("A")) { bad = bad + 1; }
+    Match m31 = r31.match("A");
+    if (m31 == null) { bad = bad + 1; } else {
+        if (m31.text != "A") { bad = bad + 1; }
+        if (m31.start != 0 || m31.end != 1) { bad = bad + 1; }
+        if (joinGroups(m31) != "A:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms31 = r31.matches("A", -1);
+    if (ms31.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms31) != "A") { bad = bad + 1; }
+    if (joinStarts(ms31) != "0") { bad = bad + 1; }
+    List<string> sp31 = r31.split("A", -1);
+    if (sp31.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp31) != "|") { bad = bad + 1; }
+    if (r31.replaceAll("A", "T") != "T") { bad = bad + 1; }
+    if (r31.replaceFirst("A", "T") != "T") { bad = bad + 1; }
+    // row 32: /\12/ vs a\nb
+    Regex r32 = Regex("\\12");
+    if (!r32.isMatch("a\nb")) { bad = bad + 1; }
+    Match m32 = r32.match("a\nb");
+    if (m32 == null) { bad = bad + 1; } else {
+        if (m32.text != "\n") { bad = bad + 1; }
+        if (m32.start != 1 || m32.end != 2) { bad = bad + 1; }
+        if (joinGroups(m32) != "\n:1:2") { bad = bad + 1; }
+    }
+    List<Match> ms32 = r32.matches("a\nb", -1);
+    if (ms32.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms32) != "\n") { bad = bad + 1; }
+    if (joinStarts(ms32) != "1") { bad = bad + 1; }
+    List<string> sp32 = r32.split("a\nb", -1);
+    if (sp32.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp32) != "a|b") { bad = bad + 1; }
+    if (r32.replaceAll("a\nb", "T") != "aTb") { bad = bad + 1; }
+    if (r32.replaceFirst("a\nb", "T") != "aTb") { bad = bad + 1; }
+    // row 33: /\0/ vs a
+    Regex r33 = Regex("\\0");
+    if (r33.isMatch("a")) { bad = bad + 1; }
+    if (r33.match("a") != null) { bad = bad + 1; }
+    List<Match> ms33 = r33.matches("a", -1);
+    if (ms33.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms33) != "") { bad = bad + 1; }
+    if (joinStarts(ms33) != "") { bad = bad + 1; }
+    List<string> sp33 = r33.split("a", -1);
+    if (sp33.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp33) != "a") { bad = bad + 1; }
+    if (r33.replaceAll("a", "T") != "a") { bad = bad + 1; }
+    if (r33.replaceFirst("a", "T") != "a") { bad = bad + 1; }
+    // row 34: /\x41\x{4E2D}/ vs A中
+    Regex r34 = Regex("\\x41\\x{4E2D}");
+    if (!r34.isMatch("A中")) { bad = bad + 1; }
+    Match m34 = r34.match("A中");
+    if (m34 == null) { bad = bad + 1; } else {
+        if (m34.text != "A中") { bad = bad + 1; }
+        if (m34.start != 0 || m34.end != 4) { bad = bad + 1; }
+        if (joinGroups(m34) != "A中:0:4") { bad = bad + 1; }
+    }
+    List<Match> ms34 = r34.matches("A中", -1);
+    if (ms34.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms34) != "A中") { bad = bad + 1; }
+    if (joinStarts(ms34) != "0") { bad = bad + 1; }
+    List<string> sp34 = r34.split("A中", -1);
+    if (sp34.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp34) != "|") { bad = bad + 1; }
+    if (r34.replaceAll("A中", "T") != "T") { bad = bad + 1; }
+    if (r34.replaceFirst("A中", "T") != "T") { bad = bad + 1; }
+    // row 35: /\Qa.b\E/ vs a.b
+    Regex r35 = Regex("\\Qa.b\\E");
+    if (!r35.isMatch("a.b")) { bad = bad + 1; }
+    Match m35 = r35.match("a.b");
+    if (m35 == null) { bad = bad + 1; } else {
+        if (m35.text != "a.b") { bad = bad + 1; }
+        if (m35.start != 0 || m35.end != 3) { bad = bad + 1; }
+        if (joinGroups(m35) != "a.b:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms35 = r35.matches("a.b", -1);
+    if (ms35.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms35) != "a.b") { bad = bad + 1; }
+    if (joinStarts(ms35) != "0") { bad = bad + 1; }
+    List<string> sp35 = r35.split("a.b", -1);
+    if (sp35.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp35) != "|") { bad = bad + 1; }
+    if (r35.replaceAll("a.b", "T") != "T") { bad = bad + 1; }
+    if (r35.replaceFirst("a.b", "T") != "T") { bad = bad + 1; }
+    // row 36: /\Qa.b\E/ vs axb
+    Regex r36 = Regex("\\Qa.b\\E");
+    if (r36.isMatch("axb")) { bad = bad + 1; }
+    if (r36.match("axb") != null) { bad = bad + 1; }
+    List<Match> ms36 = r36.matches("axb", -1);
+    if (ms36.length() != 0) { bad = bad + 1; }
+    if (joinTexts(ms36) != "") { bad = bad + 1; }
+    if (joinStarts(ms36) != "") { bad = bad + 1; }
+    List<string> sp36 = r36.split("axb", -1);
+    if (sp36.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp36) != "axb") { bad = bad + 1; }
+    if (r36.replaceAll("axb", "T") != "axb") { bad = bad + 1; }
+    if (r36.replaceFirst("axb", "T") != "axb") { bad = bad + 1; }
+    // row 37: /a*/ vs ab
+    Regex r37 = Regex("a*");
+    if (!r37.isMatch("ab")) { bad = bad + 1; }
+    Match m37 = r37.match("ab");
+    if (m37 == null) { bad = bad + 1; } else {
+        if (m37.text != "a") { bad = bad + 1; }
+        if (m37.start != 0 || m37.end != 1) { bad = bad + 1; }
+        if (joinGroups(m37) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms37 = r37.matches("ab", -1);
+    if (ms37.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms37) != "a|") { bad = bad + 1; }
+    if (joinStarts(ms37) != "0|2") { bad = bad + 1; }
+    List<string> sp37 = r37.split("ab", -1);
+    if (sp37.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp37) != "|b") { bad = bad + 1; }
+    if (r37.replaceAll("ab", "T") != "TbT") { bad = bad + 1; }
+    if (r37.replaceFirst("ab", "T") != "Tb") { bad = bad + 1; }
+    // row 38: /x*/ vs abc
+    Regex r38 = Regex("x*");
+    if (!r38.isMatch("abc")) { bad = bad + 1; }
+    Match m38 = r38.match("abc");
+    if (m38 == null) { bad = bad + 1; } else {
+        if (m38.text != "") { bad = bad + 1; }
+        if (m38.start != 0 || m38.end != 0) { bad = bad + 1; }
+        if (joinGroups(m38) != ":0:0") { bad = bad + 1; }
+    }
+    List<Match> ms38 = r38.matches("abc", -1);
+    if (ms38.length() != 4) { bad = bad + 1; }
+    if (joinTexts(ms38) != "|||") { bad = bad + 1; }
+    if (joinStarts(ms38) != "0|1|2|3") { bad = bad + 1; }
+    List<string> sp38 = r38.split("abc", -1);
+    if (sp38.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp38) != "a|b|c") { bad = bad + 1; }
+    if (r38.replaceAll("abc", "[$0]") != "[]a[]b[]c[]") { bad = bad + 1; }
+    if (r38.replaceFirst("abc", "[$0]") != "[]abc") { bad = bad + 1; }
+    // row 39: // vs 
+    Regex r39 = Regex("");
+    if (!r39.isMatch("")) { bad = bad + 1; }
+    Match m39 = r39.match("");
+    if (m39 == null) { bad = bad + 1; } else {
+        if (m39.text != "") { bad = bad + 1; }
+        if (m39.start != 0 || m39.end != 0) { bad = bad + 1; }
+        if (joinGroups(m39) != ":0:0") { bad = bad + 1; }
+    }
+    List<Match> ms39 = r39.matches("", -1);
+    if (ms39.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms39) != "") { bad = bad + 1; }
+    if (joinStarts(ms39) != "0") { bad = bad + 1; }
+    List<string> sp39 = r39.split("", -1);
+    if (sp39.length() != 0) { bad = bad + 1; }
+    if (joinStrs(sp39) != "") { bad = bad + 1; }
+    if (r39.replaceAll("", "T") != "T") { bad = bad + 1; }
+    if (r39.replaceFirst("", "T") != "T") { bad = bad + 1; }
+    return bad;
+}
+
+int check2(int bad) {
+    // row 40: // vs a中
+    Regex r40 = Regex("");
+    if (!r40.isMatch("a中")) { bad = bad + 1; }
+    Match m40 = r40.match("a中");
+    if (m40 == null) { bad = bad + 1; } else {
+        if (m40.text != "") { bad = bad + 1; }
+        if (m40.start != 0 || m40.end != 0) { bad = bad + 1; }
+        if (joinGroups(m40) != ":0:0") { bad = bad + 1; }
+    }
+    List<Match> ms40 = r40.matches("a中", -1);
+    if (ms40.length() != 3) { bad = bad + 1; }
+    if (joinTexts(ms40) != "||") { bad = bad + 1; }
+    if (joinStarts(ms40) != "0|1|4") { bad = bad + 1; }
+    List<string> sp40 = r40.split("a中", -1);
+    if (sp40.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp40) != "a|中") { bad = bad + 1; }
+    if (r40.replaceAll("a中", "T") != "TaT中T") { bad = bad + 1; }
+    if (r40.replaceFirst("a中", "T") != "Ta中") { bad = bad + 1; }
+    // row 41: /a/ vs banana
+    Regex r41 = Regex("a");
+    if (!r41.isMatch("banana")) { bad = bad + 1; }
+    Match m41 = r41.match("banana");
+    if (m41 == null) { bad = bad + 1; } else {
+        if (m41.text != "a") { bad = bad + 1; }
+        if (m41.start != 1 || m41.end != 2) { bad = bad + 1; }
+        if (joinGroups(m41) != "a:1:2") { bad = bad + 1; }
+    }
+    List<Match> ms41 = r41.matches("banana", -1);
+    if (ms41.length() != 3) { bad = bad + 1; }
+    if (joinTexts(ms41) != "a|a|a") { bad = bad + 1; }
+    if (joinStarts(ms41) != "1|3|5") { bad = bad + 1; }
+    List<string> sp41 = r41.split("banana", -1);
+    if (sp41.length() != 4) { bad = bad + 1; }
+    if (joinStrs(sp41) != "b|n|n|") { bad = bad + 1; }
+    if (r41.replaceAll("banana", "T") != "bTnTnT") { bad = bad + 1; }
+    if (r41.replaceFirst("banana", "T") != "bTnana") { bad = bad + 1; }
+    // row 42: /\w+/ vs hello world
+    Regex r42 = Regex("\\w+");
+    if (!r42.isMatch("hello world")) { bad = bad + 1; }
+    Match m42 = r42.match("hello world");
+    if (m42 == null) { bad = bad + 1; } else {
+        if (m42.text != "hello") { bad = bad + 1; }
+        if (m42.start != 0 || m42.end != 5) { bad = bad + 1; }
+        if (joinGroups(m42) != "hello:0:5") { bad = bad + 1; }
+    }
+    List<Match> ms42 = r42.matches("hello world", -1);
+    if (ms42.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms42) != "hello|world") { bad = bad + 1; }
+    if (joinStarts(ms42) != "0|6") { bad = bad + 1; }
+    List<string> sp42 = r42.split("hello world", -1);
+    if (sp42.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp42) != "| |") { bad = bad + 1; }
+    if (r42.replaceAll("hello world", "<$0>") != "<hello> <world>") { bad = bad + 1; }
+    if (r42.replaceFirst("hello world", "<$0>") != "<hello> world") { bad = bad + 1; }
+    // row 43: /(\w)=(\d)/ vs a=1 b=2
+    Regex r43 = Regex("(\\w)=(\\d)");
+    if (!r43.isMatch("a=1 b=2")) { bad = bad + 1; }
+    Match m43 = r43.match("a=1 b=2");
+    if (m43 == null) { bad = bad + 1; } else {
+        if (m43.text != "a=1") { bad = bad + 1; }
+        if (m43.start != 0 || m43.end != 3) { bad = bad + 1; }
+        if (joinGroups(m43) != "a=1:0:3|a:0:1|1:2:3") { bad = bad + 1; }
+    }
+    List<Match> ms43 = r43.matches("a=1 b=2", -1);
+    if (ms43.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms43) != "a=1|b=2") { bad = bad + 1; }
+    if (joinStarts(ms43) != "0|4") { bad = bad + 1; }
+    List<string> sp43 = r43.split("a=1 b=2", -1);
+    if (sp43.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp43) != "| |") { bad = bad + 1; }
+    if (r43.replaceAll("a=1 b=2", "$2$1") != "1a 2b") { bad = bad + 1; }
+    if (r43.replaceFirst("a=1 b=2", "$2$1") != "1a b=2") { bad = bad + 1; }
+    // row 44: /,/ vs a,b,,c
+    Regex r44 = Regex(",");
+    if (!r44.isMatch("a,b,,c")) { bad = bad + 1; }
+    Match m44 = r44.match("a,b,,c");
+    if (m44 == null) { bad = bad + 1; } else {
+        if (m44.text != ",") { bad = bad + 1; }
+        if (m44.start != 1 || m44.end != 2) { bad = bad + 1; }
+        if (joinGroups(m44) != ",:1:2") { bad = bad + 1; }
+    }
+    List<Match> ms44 = r44.matches("a,b,,c", -1);
+    if (ms44.length() != 3) { bad = bad + 1; }
+    if (joinTexts(ms44) != ",|,|,") { bad = bad + 1; }
+    if (joinStarts(ms44) != "1|3|4") { bad = bad + 1; }
+    List<string> sp44 = r44.split("a,b,,c", -1);
+    if (sp44.length() != 4) { bad = bad + 1; }
+    if (joinStrs(sp44) != "a|b||c") { bad = bad + 1; }
+    if (r44.replaceAll("a,b,,c", "T") != "aTbTTc") { bad = bad + 1; }
+    if (r44.replaceFirst("a,b,,c", "T") != "aTb,,c") { bad = bad + 1; }
+    // row 45: /,/ vs ,a,
+    Regex r45 = Regex(",");
+    if (!r45.isMatch(",a,")) { bad = bad + 1; }
+    Match m45 = r45.match(",a,");
+    if (m45 == null) { bad = bad + 1; } else {
+        if (m45.text != ",") { bad = bad + 1; }
+        if (m45.start != 0 || m45.end != 1) { bad = bad + 1; }
+        if (joinGroups(m45) != ",:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms45 = r45.matches(",a,", -1);
+    if (ms45.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms45) != ",|,") { bad = bad + 1; }
+    if (joinStarts(ms45) != "0|2") { bad = bad + 1; }
+    List<string> sp45 = r45.split(",a,", -1);
+    if (sp45.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp45) != "|a|") { bad = bad + 1; }
+    if (r45.replaceAll(",a,", "T") != "TaT") { bad = bad + 1; }
+    if (r45.replaceFirst(",a,", "T") != "Ta,") { bad = bad + 1; }
+    // row 46: /(,)/ vs a,b
+    Regex r46 = Regex("(,)");
+    if (!r46.isMatch("a,b")) { bad = bad + 1; }
+    Match m46 = r46.match("a,b");
+    if (m46 == null) { bad = bad + 1; } else {
+        if (m46.text != ",") { bad = bad + 1; }
+        if (m46.start != 1 || m46.end != 2) { bad = bad + 1; }
+        if (joinGroups(m46) != ",:1:2|,:1:2") { bad = bad + 1; }
+    }
+    List<Match> ms46 = r46.matches("a,b", -1);
+    if (ms46.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms46) != ",") { bad = bad + 1; }
+    if (joinStarts(ms46) != "1") { bad = bad + 1; }
+    List<string> sp46 = r46.split("a,b", -1);
+    if (sp46.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp46) != "a|b") { bad = bad + 1; }
+    if (r46.replaceAll("a,b", "T") != "aTb") { bad = bad + 1; }
+    if (r46.replaceFirst("a,b", "T") != "aTb") { bad = bad + 1; }
+    // row 47: /，/ vs 一，二
+    Regex r47 = Regex("，");
+    if (!r47.isMatch("一，二")) { bad = bad + 1; }
+    Match m47 = r47.match("一，二");
+    if (m47 == null) { bad = bad + 1; } else {
+        if (m47.text != "，") { bad = bad + 1; }
+        if (m47.start != 3 || m47.end != 6) { bad = bad + 1; }
+        if (joinGroups(m47) != "，:3:6") { bad = bad + 1; }
+    }
+    List<Match> ms47 = r47.matches("一，二", -1);
+    if (ms47.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms47) != "，") { bad = bad + 1; }
+    if (joinStarts(ms47) != "3") { bad = bad + 1; }
+    List<string> sp47 = r47.split("一，二", -1);
+    if (sp47.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp47) != "一|二") { bad = bad + 1; }
+    if (r47.replaceAll("一，二", "T") != "一T二") { bad = bad + 1; }
+    if (r47.replaceFirst("一，二", "T") != "一T二") { bad = bad + 1; }
+    // row 48: /(?i)(a)(B)/ vs xAby
+    Regex r48 = Regex("(?i)(a)(B)");
+    if (!r48.isMatch("xAby")) { bad = bad + 1; }
+    Match m48 = r48.match("xAby");
+    if (m48 == null) { bad = bad + 1; } else {
+        if (m48.text != "Ab") { bad = bad + 1; }
+        if (m48.start != 1 || m48.end != 3) { bad = bad + 1; }
+        if (joinGroups(m48) != "Ab:1:3|A:1:2|b:2:3") { bad = bad + 1; }
+    }
+    List<Match> ms48 = r48.matches("xAby", -1);
+    if (ms48.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms48) != "Ab") { bad = bad + 1; }
+    if (joinStarts(ms48) != "1") { bad = bad + 1; }
+    List<string> sp48 = r48.split("xAby", -1);
+    if (sp48.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp48) != "x|y") { bad = bad + 1; }
+    if (r48.replaceAll("xAby", "[$1$2]-$2-$1") != "x[Ab]-b-Ay") { bad = bad + 1; }
+    if (r48.replaceFirst("xAby", "[$1$2]-$2-$1") != "x[Ab]-b-Ay") { bad = bad + 1; }
+    // row 49: /a|/ vs b
+    Regex r49 = Regex("a|");
+    if (!r49.isMatch("b")) { bad = bad + 1; }
+    Match m49 = r49.match("b");
+    if (m49 == null) { bad = bad + 1; } else {
+        if (m49.text != "") { bad = bad + 1; }
+        if (m49.start != 0 || m49.end != 0) { bad = bad + 1; }
+        if (joinGroups(m49) != ":0:0") { bad = bad + 1; }
+    }
+    List<Match> ms49 = r49.matches("b", -1);
+    if (ms49.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms49) != "|") { bad = bad + 1; }
+    if (joinStarts(ms49) != "0|1") { bad = bad + 1; }
+    List<string> sp49 = r49.split("b", -1);
+    if (sp49.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp49) != "b") { bad = bad + 1; }
+    if (r49.replaceAll("b", "T") != "TbT") { bad = bad + 1; }
+    if (r49.replaceFirst("b", "T") != "Tb") { bad = bad + 1; }
+    // row 50: /[[:alpha:]]+/ vs a1b
+    Regex r50 = Regex("[[:alpha:]]+");
+    if (!r50.isMatch("a1b")) { bad = bad + 1; }
+    Match m50 = r50.match("a1b");
+    if (m50 == null) { bad = bad + 1; } else {
+        if (m50.text != "a") { bad = bad + 1; }
+        if (m50.start != 0 || m50.end != 1) { bad = bad + 1; }
+        if (joinGroups(m50) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms50 = r50.matches("a1b", -1);
+    if (ms50.length() != 2) { bad = bad + 1; }
+    if (joinTexts(ms50) != "a|b") { bad = bad + 1; }
+    if (joinStarts(ms50) != "0|2") { bad = bad + 1; }
+    List<string> sp50 = r50.split("a1b", -1);
+    if (sp50.length() != 3) { bad = bad + 1; }
+    if (joinStrs(sp50) != "|1|") { bad = bad + 1; }
+    if (r50.replaceAll("a1b", "T") != "T1T") { bad = bad + 1; }
+    if (r50.replaceFirst("a1b", "T") != "T1b") { bad = bad + 1; }
+    // row 51: /[^[:digit:]]/ vs a1
+    Regex r51 = Regex("[^[:digit:]]");
+    if (!r51.isMatch("a1")) { bad = bad + 1; }
+    Match m51 = r51.match("a1");
+    if (m51 == null) { bad = bad + 1; } else {
+        if (m51.text != "a") { bad = bad + 1; }
+        if (m51.start != 0 || m51.end != 1) { bad = bad + 1; }
+        if (joinGroups(m51) != "a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms51 = r51.matches("a1", -1);
+    if (ms51.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms51) != "a") { bad = bad + 1; }
+    if (joinStarts(ms51) != "0") { bad = bad + 1; }
+    List<string> sp51 = r51.split("a1", -1);
+    if (sp51.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp51) != "|1") { bad = bad + 1; }
+    if (r51.replaceAll("a1", "T") != "T1") { bad = bad + 1; }
+    if (r51.replaceFirst("a1", "T") != "T1") { bad = bad + 1; }
+    // row 52: /[一-鿿]+/ vs 中a
+    Regex r52 = Regex("[一-鿿]+");
+    if (!r52.isMatch("中a")) { bad = bad + 1; }
+    Match m52 = r52.match("中a");
+    if (m52 == null) { bad = bad + 1; } else {
+        if (m52.text != "中") { bad = bad + 1; }
+        if (m52.start != 0 || m52.end != 3) { bad = bad + 1; }
+        if (joinGroups(m52) != "中:0:3") { bad = bad + 1; }
+    }
+    List<Match> ms52 = r52.matches("中a", -1);
+    if (ms52.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms52) != "中") { bad = bad + 1; }
+    if (joinStarts(ms52) != "0") { bad = bad + 1; }
+    List<string> sp52 = r52.split("中a", -1);
+    if (sp52.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp52) != "|a") { bad = bad + 1; }
+    if (r52.replaceAll("中a", "T") != "Ta") { bad = bad + 1; }
+    if (r52.replaceFirst("中a", "T") != "Ta") { bad = bad + 1; }
+    // row 53: /\s\S/ vs  a
+    Regex r53 = Regex("\\s\\S");
+    if (!r53.isMatch(" a")) { bad = bad + 1; }
+    Match m53 = r53.match(" a");
+    if (m53 == null) { bad = bad + 1; } else {
+        if (m53.text != " a") { bad = bad + 1; }
+        if (m53.start != 0 || m53.end != 2) { bad = bad + 1; }
+        if (joinGroups(m53) != " a:0:2") { bad = bad + 1; }
+    }
+    List<Match> ms53 = r53.matches(" a", -1);
+    if (ms53.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms53) != " a") { bad = bad + 1; }
+    if (joinStarts(ms53) != "0") { bad = bad + 1; }
+    List<string> sp53 = r53.split(" a", -1);
+    if (sp53.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp53) != "|") { bad = bad + 1; }
+    if (r53.replaceAll(" a", "T") != "T") { bad = bad + 1; }
+    if (r53.replaceFirst(" a", "T") != "T") { bad = bad + 1; }
+    // row 54: /a*b*c/ vs aabbbc
+    Regex r54 = Regex("a*b*c");
+    if (!r54.isMatch("aabbbc")) { bad = bad + 1; }
+    Match m54 = r54.match("aabbbc");
+    if (m54 == null) { bad = bad + 1; } else {
+        if (m54.text != "aabbbc") { bad = bad + 1; }
+        if (m54.start != 0 || m54.end != 6) { bad = bad + 1; }
+        if (joinGroups(m54) != "aabbbc:0:6") { bad = bad + 1; }
+    }
+    List<Match> ms54 = r54.matches("aabbbc", -1);
+    if (ms54.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms54) != "aabbbc") { bad = bad + 1; }
+    if (joinStarts(ms54) != "0") { bad = bad + 1; }
+    List<string> sp54 = r54.split("aabbbc", -1);
+    if (sp54.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp54) != "|") { bad = bad + 1; }
+    if (r54.replaceAll("aabbbc", "T") != "T") { bad = bad + 1; }
+    if (r54.replaceFirst("aabbbc", "T") != "T") { bad = bad + 1; }
+    // row 55: /(?:|a)/ vs 
+    Regex r55 = Regex("(?:|a)");
+    if (!r55.isMatch("")) { bad = bad + 1; }
+    Match m55 = r55.match("");
+    if (m55 == null) { bad = bad + 1; } else {
+        if (m55.text != "") { bad = bad + 1; }
+        if (m55.start != 0 || m55.end != 0) { bad = bad + 1; }
+        if (joinGroups(m55) != ":0:0") { bad = bad + 1; }
+    }
+    List<Match> ms55 = r55.matches("", -1);
+    if (ms55.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms55) != "") { bad = bad + 1; }
+    if (joinStarts(ms55) != "0") { bad = bad + 1; }
+    List<string> sp55 = r55.split("", -1);
+    if (sp55.length() != 1) { bad = bad + 1; }
+    if (joinStrs(sp55) != "") { bad = bad + 1; }
+    if (r55.replaceAll("", "T") != "T") { bad = bad + 1; }
+    if (r55.replaceFirst("", "T") != "T") { bad = bad + 1; }
+    // row 56: /((((((((((a))))))))))/ vs a
+    Regex r56 = Regex("((((((((((a))))))))))");
+    if (!r56.isMatch("a")) { bad = bad + 1; }
+    Match m56 = r56.match("a");
+    if (m56 == null) { bad = bad + 1; } else {
+        if (m56.text != "a") { bad = bad + 1; }
+        if (m56.start != 0 || m56.end != 1) { bad = bad + 1; }
+        if (joinGroups(m56) != "a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1|a:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms56 = r56.matches("a", -1);
+    if (ms56.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms56) != "a") { bad = bad + 1; }
+    if (joinStarts(ms56) != "0") { bad = bad + 1; }
+    List<string> sp56 = r56.split("a", -1);
+    if (sp56.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp56) != "|") { bad = bad + 1; }
+    if (r56.replaceAll("a", "$1") != "a") { bad = bad + 1; }
+    if (r56.replaceFirst("a", "$1") != "a") { bad = bad + 1; }
+    // row 57: /\bz/ vs z
+    Regex r57 = Regex("\\bz");
+    if (!r57.isMatch("z")) { bad = bad + 1; }
+    Match m57 = r57.match("z");
+    if (m57 == null) { bad = bad + 1; } else {
+        if (m57.text != "z") { bad = bad + 1; }
+        if (m57.start != 0 || m57.end != 1) { bad = bad + 1; }
+        if (joinGroups(m57) != "z:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms57 = r57.matches("z", -1);
+    if (ms57.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms57) != "z") { bad = bad + 1; }
+    if (joinStarts(ms57) != "0") { bad = bad + 1; }
+    List<string> sp57 = r57.split("z", -1);
+    if (sp57.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp57) != "|") { bad = bad + 1; }
+    if (r57.replaceAll("z", "T") != "T") { bad = bad + 1; }
+    if (r57.replaceFirst("z", "T") != "T") { bad = bad + 1; }
+    // row 58: /a{0}b/ vs b
+    Regex r58 = Regex("a{0}b");
+    if (!r58.isMatch("b")) { bad = bad + 1; }
+    Match m58 = r58.match("b");
+    if (m58 == null) { bad = bad + 1; } else {
+        if (m58.text != "b") { bad = bad + 1; }
+        if (m58.start != 0 || m58.end != 1) { bad = bad + 1; }
+        if (joinGroups(m58) != "b:0:1") { bad = bad + 1; }
+    }
+    List<Match> ms58 = r58.matches("b", -1);
+    if (ms58.length() != 1) { bad = bad + 1; }
+    if (joinTexts(ms58) != "b") { bad = bad + 1; }
+    if (joinStarts(ms58) != "0") { bad = bad + 1; }
+    List<string> sp58 = r58.split("b", -1);
+    if (sp58.length() != 2) { bad = bad + 1; }
+    if (joinStrs(sp58) != "|") { bad = bad + 1; }
+    if (r58.replaceAll("b", "[$0]") != "[b]") { bad = bad + 1; }
+    if (r58.replaceFirst("b", "[$0]") != "[b]") { bad = bad + 1; }
+    // row 59: /(abc/ rejected by both engines
+    try { Regex r59 = Regex("(abc"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    return bad;
+}
+
+int check3(int bad) {
+    // row 60: /[a/ rejected by both engines
+    try { Regex r60 = Regex("[a"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 61: /a)/ rejected by both engines
+    try { Regex r61 = Regex("a)"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 62: /*a/ rejected by both engines
+    try { Regex r62 = Regex("*a"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 63: /a**/ rejected by both engines
+    try { Regex r63 = Regex("a**"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 64: /a{1001}/ rejected by both engines
+    try { Regex r64 = Regex("a{1001}"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 65: /a{2,1}c/ rejected by both engines
+    try { Regex r65 = Regex("a{2,1}c"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 66: /a{3,2}c/ rejected by both engines
+    try { Regex r66 = Regex("a{3,2}c"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 67: /\1/ rejected by both engines
+    try { Regex r67 = Regex("\\1"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 68: /\x4/ rejected by both engines
+    try { Regex r68 = Regex("\\x4"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 69: /\x{110000}/ rejected by both engines
+    try { Regex r69 = Regex("\\x{110000}"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 70: /(?=a)/ rejected by both engines
+    try { Regex r70 = Regex("(?=a)"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 71: /(?!a)/ rejected by both engines
+    try { Regex r71 = Regex("(?!a)"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 72: /(?x)a/ rejected by both engines
+    try { Regex r72 = Regex("(?x)a"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 73: /\Z/ rejected by both engines
+    try { Regex r73 = Regex("\\Z"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 74: /[[:foo:]]/ rejected by both engines
+    try { Regex r74 = Regex("[[:foo:]]"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    // row 75: /[b-a]/ rejected by both engines
+    try { Regex r75 = Regex("[b-a]"); bad = bad + 1; }
+    catch (RegexException e) { if (e.message.length() == 0) { bad = bad + 1; } }
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    bad = check0(bad);
+    bad = check1(bad);
+    bad = check2(bad);
+    bad = check3(bad);
+    return bad;
+}
