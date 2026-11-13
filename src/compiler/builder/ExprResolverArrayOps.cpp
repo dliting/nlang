@@ -71,6 +71,14 @@ bool IsByteElementRow(const SnField *pElem)
 		|| pElem->Kind() == NK_UByte);
 }
 
+//A nested operand already diagnosed (NF_Invalid): the chain consumes
+//the node silently so one source error yields one diagnostic.
+bool NestedOperandInvalid(const SnBinaryExpr &sn)
+{
+	return sn.Left()->IsInvalid()
+		|| (sn.Right() && sn.Right()->IsInvalid());
+}
+
 const char *OpSpelling(SnBinaryExpr::Operator op)
 {
 	switch (op)
@@ -109,6 +117,29 @@ const char *TensorFnFor(SnBinaryExpr::Operator op, bool scalarLeft)
 
 } //namespace
 
+//Access's hook for the lowering: this operator set carries array
+//operands, and the defensive pre-gates keep the paths whose shared
+//hooks own them away from the lowering (a string side belongs to the
+//concat path, a null literal to the null arithmetic guard).
+bool ExprResolveAccessor::TryTensorBinaryAdmission(SnBinaryExpr &sn)
+{
+	const auto op = sn.Op();
+	if (op != SnBinaryExpr::OP_Add && op != SnBinaryExpr::OP_Sub
+		&& op != SnBinaryExpr::OP_Neg && op != SnBinaryExpr::OP_Mul
+		&& op != SnBinaryExpr::OP_Div)
+		return false;
+	auto *pLchk = sn.Left()->EvalDataType();
+	auto *pRchk = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
+	const bool stringSide =
+		(pLchk && pLchk->Kind() == NK_String)
+		|| (pRchk && pRchk->Kind() == NK_String);
+	const bool nullSide = sn.Left()->ContainFlags(NF_NullLiteral)
+		|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral));
+	if (stringSide || nullSide)
+		return false;
+	return TryTensorBinaryShape(sn, op);
+}
+
 /*
 Resolution-time classification (phase 1). True = the node is consumed:
 either a lowering-shape binary (flagged NF_TensorOp, bound to its
@@ -126,96 +157,113 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 	if (!lArr && !rArr)
 		return false;
 
-	const char *opName = OpSpelling(op);
-
 	//Unary minus on an array: -a -> tensor.neg(a). The grammar gives
 	//unary negation its own operator (OP_Neg, no right operand).
 	const bool unary = !sn.Right();
 	if (unary && op != SnBinaryExpr::OP_Neg)
 		return false;
 
-	//Invalid-operand propagation: a nested operand already diagnosed
-	//(NF_Invalid) consumes this node silently — one diagnostic per
-	//source error, no cascade along the expression chain.
-	if (sn.Left()->IsInvalid()
-		|| (sn.Right() && sn.Right()->IsInvalid()))
+	//Invalid-operand propagation: one diagnostic per source error, no
+	//cascade along the expression chain.
+	if (NestedOperandInvalid(sn))
 	{
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+		ConsumeInvalidTensorShape(sn);
 		return true;
 	}
 
+	const char *opName = OpSpelling(op);
 	auto *pLElem = ArrayElementRowOf(pL);
 	auto *pRElem = ArrayElementRowOf(pR);
-	const SnField *pArrElem = lArr ? pLElem : pRElem;
 	if ((lArr && !IsNumericElementRow(pLElem))
 		|| (rArr && !IsNumericElementRow(pRElem)))
 	{
-		if (IsByteElementRow(pArrElem))
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"operator '%s': array element kind \"byte\" has no "
-				"arithmetic.", opName);
-		}
-		else
-		{
-			m_Env.Log(CLL_Error, sn.Location(),
-				"operator '%s': array element kind \"%s\" has no "
-				"arithmetic.",
-				opName, pArrElem ? pArrElem->ToString().c_str() : "?");
-		}
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+		LogNoArrayArithmetic(sn, opName, lArr ? pLElem : pRElem);
+		ConsumeInvalidTensorShape(sn);
 		return true;
 	}
 
-	//Array x array: the element rows must be identical (no silent
-	//widening between arrays — the language-wide rule).
+	//Array x array: the element rows must be identical.
 	if (lArr && rArr && pLElem != pRElem)
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"operator '%s': element kind mismatch (\"%s\" vs \"%s\").",
-			opName, pL->ToString().c_str(), pR->ToString().c_str());
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+		LogTensorElemKindMismatch(sn, opName, pL, pR);
+		ConsumeInvalidTensorShape(sn);
 		return true;
 	}
 
-	//Import admission at classification time: one diagnostic per
-	//operator use even in nested expressions (the lowered call would
-	//fail unit discovery — C1).
+	if (!TensorImportAdmitted(sn, opName))
+	{
+		ConsumeInvalidTensorShape(sn);
+		return true;
+	}
+	return BindTensorCall(sn, op, unary, lArr, rArr);
+}
+
+//Shared epilogue for consumed-with-diagnostic shapes: the node leaves
+//resolution as a diagnosed terminal non-value, so no arm of the
+//expression chain re-diagnoses it.
+void ExprResolveAccessor::ConsumeInvalidTensorShape(SnBinaryExpr &sn)
+{
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
+	sn.AddFlags(NF_Resolved | NF_Invalid);
+}
+
+//"byte has no arithmetic" is spelled out (its row name reads as a
+//generic placeholder otherwise); every other non-numeric kind is
+//reported by its row.
+void ExprResolveAccessor::LogNoArrayArithmetic(SnBinaryExpr &sn,
+	const char *opName, const SnField *pArrElem)
+{
+	if (IsByteElementRow(pArrElem))
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s': array element kind \"byte\" has no "
+			"arithmetic.", opName);
+		return;
+	}
+	m_Env.Log(CLL_Error, sn.Location(),
+		"operator '%s': array element kind \"%s\" has no "
+		"arithmetic.",
+		opName, pArrElem ? pArrElem->ToString().c_str() : "?");
+}
+
+//Array x array with differing element rows — no silent widening
+//between arrays (the language-wide rule).
+void ExprResolveAccessor::LogTensorElemKindMismatch(SnBinaryExpr &sn,
+	const char *opName, const SnField *pL, const SnField *pR)
+{
+	m_Env.Log(CLL_Error, sn.Location(),
+		"operator '%s': element kind mismatch (\"%s\" vs \"%s\").",
+		opName, pL->ToString().c_str(), pR->ToString().c_str());
+}
+
+//Import admission at classification time: one diagnostic per operator
+//use even in nested expressions (the lowered call would fail unit
+//discovery — C1).
+bool ExprResolveAccessor::TensorImportAdmitted(SnBinaryExpr &sn,
+	const char *opName)
+{
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(sn);
-	if (!reg.ImportGateAllows(curModule, "tensor"))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"Package 'tensor' is not imported. Add 'import tensor;' "
-			"at the top of this file (array arithmetic lowers to the "
-			"tensor package).");
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+	if (reg.ImportGateAllows(curModule, "tensor"))
 		return true;
-	}
+	m_Env.Log(CLL_Error, sn.Location(),
+		"Package 'tensor' is not imported. Add 'import tensor;' "
+		"at the top of this file (array arithmetic lowers to the "
+		"tensor package).");
+	return false;
+}
 
-	//Bind the callee + emission plan. The plan invoke is a detached
-	//emission node: its params are this node's own operands (ownership
-	//moves from the binary's child list to the plan — the binary stays
-	//in the tree, childless but with its operand slots pointing at the
-	//live plan-owned operands). MatchInvokeAgainst selects the element-
-	//kind overload and produces the formal bindings the emitter stages.
-	const bool scalarLeft = !lArr && rArr;
-	const char *fnName = TensorFnFor(op, unary ? false : scalarLeft);
-	auto candidates = reg.ModuleFunctions("tensor", fnName);
-	if (candidates.empty())
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"operator '%s': the tensor package exposes no \"%s\" "
-			"primitive.", opName, fnName);
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
-		return true;
-	}
-
+/*
+Detached emission plan over the binary's own operands. The plan invoke
+is a detached node: its params are this node's operands (ownership
+moves from the binary's child list to the plan — the binary stays in
+the tree, childless but with its operand slots pointing at the live
+plan-owned operands). Returns null when param resolution logs its own
+diagnostic; the caller consumes the binary.
+*/
+SnInvokeExpr *ExprResolveAccessor::BuildTensorCallPlan(SnBinaryExpr &sn,
+	const char *fnName, bool unary, bool scalarLeft)
+{
 	UniquePtrList<SnExpression> params;
 	if (unary)
 	{
@@ -248,8 +296,37 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 	if (!ResolveExpressionList(pPlan->Params()))
 	{
 		delete pPlan;
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+		return nullptr;
+	}
+	return pPlan;
+}
+
+/*
+Callee/plan binding for a classified lowering shape. MatchInvokeAgainst
+selects the element-kind overload and produces the formal bindings the
+emitter stages; the plan invoke is stored on the binary (TensorCallPlan)
+for EmitExprBinary to lower in place.
+*/
+bool ExprResolveAccessor::BindTensorCall(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op, bool unary, bool lArr, bool rArr)
+{
+	const bool scalarLeft = !lArr && rArr;
+	const char *fnName = TensorFnFor(op, unary ? false : scalarLeft);
+	const char *opName = OpSpelling(op);
+	auto candidates = m_Env.Registry().ModuleFunctions("tensor", fnName);
+	if (candidates.empty())
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s': the tensor package exposes no \"%s\" "
+			"primitive.", opName, fnName);
+		ConsumeInvalidTensorShape(sn);
+		return true;
+	}
+
+	auto pPlan = BuildTensorCallPlan(sn, fnName, unary, scalarLeft);
+	if (!pPlan)
+	{
+		ConsumeInvalidTensorShape(sn);
 		return true;
 	}
 
@@ -264,8 +341,7 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 			"operator '%s': no matching tensor primitive for the "
 			"operand kinds.", opName);
 		delete pPlan;
-		sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Int32));
-		sn.AddFlags(NF_Resolved | NF_Invalid);
+		ConsumeInvalidTensorShape(sn);
 		return true;
 	}
 	if (match == FFR_ApproximateMatch)
@@ -277,6 +353,40 @@ bool ExprResolveAccessor::TryTensorBinaryShape(SnBinaryExpr &sn,
 	//Result type = the callee's return row (the tensor element array).
 	sn.EvalDataType(pCallee->ReturnType()->EvalDataType());
 	sn.AddFlags(NF_TensorOp | NF_Resolved);
+	return true;
+}
+
+//A tensor-flagged binary lowers at codegen via its bound callee — a
+//flagged node WITHOUT the binding is the failure shape (classification
+//flagged it but the binding failed).
+static bool TreeHasUnloweredTensorOp(SyntaxNode &node)
+{
+	if (node.Kind() == NK_BinaryExpr && node.ContainFlags(NF_TensorOp))
+	{
+		auto &bin = static_cast<SnBinaryExpr &>(node);
+		if (!bin.TensorCallee() || !bin.TensorCallPlan())
+			return true;
+	}
+	for (auto &child : node.Children())
+	{
+		if (TreeHasUnloweredTensorOp(static_cast<SyntaxNode &>(child)))
+			return true;
+	}
+	return false;
+}
+
+bool TensorOpResolutionFailed(BuildEnvironment &env, SyntaxNode &root)
+{
+	//Partially failed trees pass: residual flagged nodes there are
+	//legal (the resolution aborts before finishing the lowering).
+	if (env.HasError())
+		return false;
+	if (!TreeHasUnloweredTensorOp(root))
+		return false;
+	//Internal inconsistency: no source position to name — the
+	//lowering's own diagnostics carry the positions.
+	env.Log(CLL_Error,
+		"internal: an array arithmetic node reached codegen unlowered");
 	return true;
 }
 

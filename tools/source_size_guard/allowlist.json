@@ -159,5 +159,39 @@
   {
     "path": "src/vm/VmExecutorOps.cpp",
     "reason": "the single instruction-dispatch switch (one case per opcode keeps dispatch inlinable; the arm count tracks the opcode set, so every opcode addition grows this TU by design)"
+  },
+  {
+    "path": "include/nlang/runtime/NodeContainers.h",
+    "reason": "one container-family header: the node-child list class templates over the shared dual-storage invariants; C++ has no partial class, splitting would fragment the family"
+  },
+  {
+    "path": "src/vm/backend/WalkersMaxArgs.cpp",
+    "function": "VmBackend::MaxArgsWalkExpr",
+    "reason": "kind-dispatch walker chain: one arm per expression node kind (same shape as the DebugClient wire-event dispatch and InstructionStride)"
+  },
+  {
+    "path": "src/native/tensor/MatMulAvx2.cpp",
+    "function": "MatMulF32Avx2",
+    "reason": "SIMD lane-unrolled matrix kernel: the register blocking IS the algorithm, splitting it breaks the blocking"
+  },
+  {
+    "path": "src/native/tensor/MatMulAvx2.cpp",
+    "function": "MatMulF64Avx2",
+    "reason": "SIMD lane-unrolled matrix kernel: the register blocking IS the algorithm, splitting it breaks the blocking"
+  },
+  {
+    "path": "src/native/tensor/MatMulSse2.cpp",
+    "function": "MatMulF32Sse2",
+    "reason": "SIMD lane-unrolled matrix kernel: the register blocking IS the algorithm, splitting it breaks the blocking"
+  },
+  {
+    "path": "src/native/tensor/MatMulSse2.cpp",
+    "function": "MatMulF64Sse2",
+    "reason": "SIMD lane-unrolled matrix kernel: the register blocking IS the algorithm, splitting it breaks the blocking"
+  },
+  {
+    "path": "src/native/tensor/tensor_reduce.cpp",
+    "function": "ReturnScalar",
+    "reason": "four one-line carrier-width forwarding overloads; the col-0 signature line makes the span heuristic overcount into the next function"
   }
 ]

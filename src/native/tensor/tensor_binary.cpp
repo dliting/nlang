@@ -104,16 +104,7 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                       "tensor.div: integer division by zero");
         }
         cout[i] = ApplyBin<T>(op, ca[addA], cb[addB]);
-        for (int32_t d = outRank - 1; d >= 0; --d) {
-            idx[d] += 1;
-            addA += sa[d];
-            addB += sb[d];
-            if (idx[d] < outDims[d])
-                break;
-            addA -= static_cast<int64_t>(outDims[d]) * sa[d];
-            addB -= static_cast<int64_t>(outDims[d]) * sb[d];
-            idx[d] = 0;
-        }
+        BroadcastAdvance(sa, sb, outDims, outRank, idx, &addA, &addB);
     }
     ReturnInt(ret, handle);
 }

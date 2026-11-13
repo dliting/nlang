@@ -207,7 +207,8 @@ void DispatchClamp(NativeHost* host, uint8_t* ret, const uint8_t* args,
 //(rank 1 + axis 0 is the full reduction — the scalar return). The
 //outer odometer walks the result coords; the inner loop strides along
 //the source axis. Accumulation mirrors the flattened sum (Acc carrier,
-//narrowed to T on store).
+//narrowed to T on store). Floats on contiguous sources take the flat
+//fast paths first (Elementwise.h); every other case keeps the walk.
 template <typename T, typename Acc>
 void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView v;
@@ -229,49 +230,13 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         return;
     }
     int32_t outDims[nlang::kMaxArrayRank];
-    for (int32_t d = 0; d < outRank; ++d)
-        outDims[d] = v.dims[d < axis ? d : d + 1];
+    AxisRemovedDims(v, axis, outDims);
     const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
                                           outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    //Floats on contiguous sources take the two structural fast paths:
-    //axis = rank-1 reduces contiguous segments (one flat double sum per
-    //output cell); axis = 0 accumulates whole rows through the double
-    //addInto. Both mirror the per-cell double accumulator of the
-    //general odometer below; every other case (strided views, middle
-    //axes, ints) keeps the walk.
-    if constexpr (!std::is_integral_v<T>) {
-        if (IsContiguous(v)) {
-            T* outCells = CellsOf<T>(out);
-            if (axis == v.rank - 1) {
-                const int64_t outer = out.elemCount;
-                const T* base = FlatCellsOf<T>(v);
-                for (int64_t r = 0; r < outer; ++r) {
-                    double acc = 0.0;
-                    SumFlatByCarrier<T>(base + r * along, along, &acc);
-                    outCells[r] = static_cast<T>(acc);
-                }
-                ReturnInt(ret, handle);
-                return;
-            }
-            if (axis == 0) {
-                int64_t inner = 1;
-                for (int32_t d = 1; d < v.rank; ++d)
-                    inner *= v.dims[d];
-                std::vector<double> acc(static_cast<size_t>(inner), 0.0);
-                const T* base = FlatCellsOf<T>(v);
-                for (int64_t o = 0; o < along; ++o) {
-                    AddIntoF64ByCarrier<T>(acc.data(), base + o * inner,
-                                           inner);
-                }
-                for (int64_t j = 0; j < inner; ++j)
-                    outCells[j] = static_cast<T>(acc[j]);
-                ReturnInt(ret, handle);
-                return;
-            }
-        }
-    }
+    if (SumAxisFlatFastPath<T>(v, out, axis, along, ret, handle))
+        return;
     T* outCells = CellsOf<T>(out);
     int64_t idx[nlang::kMaxArrayRank] = {0};
     int64_t base = v.offset;
@@ -280,15 +245,7 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         for (int64_t s = 0; s < along; ++s)
             acc = static_cast<Acc>(acc + cells[base + s * axisStride]);
         outCells[i] = static_cast<T>(acc);
-        for (int32_t d = outRank - 1; d >= 0; --d) {
-            const int32_t src = d < axis ? d : d + 1;
-            idx[d] += 1;
-            base += v.strides[src];
-            if (idx[d] < outDims[d])
-                break;
-            base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
-            idx[d] = 0;
-        }
+        AxisRemovedAdvance(v, axis, outRank, outDims, idx, &base);
     }
     ReturnInt(ret, handle);
 }
@@ -297,10 +254,10 @@ uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args);
 
 //Axis arm of max/min: the axis dim is eliminated, every other dim kept
 //(rank-1 + axis 0 is the full reduction — the scalar return). Floats on
-//contiguous sources with axis = rank-1 reduce contiguous segments
-//through the flat extreme kernels (NaN/tie rule identical to this
-//walk); everything else — strided views, middle axes, ints — keeps the
-//per-cell carrier compare of the odometer.
+//contiguous sources with axis = rank-1 take the flat extreme kernels
+//(NaN/tie rule identical to the walk); everything else — strided
+//views, middle axes, ints — keeps the per-cell carrier compare of the
+//odometer.
 template <typename T>
 void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
                        const uint8_t* args, bool isMax) {
@@ -323,25 +280,15 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
     //The static return is an Array; a rank-1 receiver would have to
     //come back as a scalar, so the axis arm requires rank >= 2.
     int32_t outDims[nlang::kMaxArrayRank];
-    for (int32_t d = 0; d < outRank; ++d)
-        outDims[d] = v.dims[d < axis ? d : d + 1];
+    AxisRemovedDims(v, axis, outDims);
     const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
                                           outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
+    if (ExtremeAxisFlatFastPath<T>(v, out, axis, along, isMax, ret,
+                                   handle))
+        return;
     T* outCells = CellsOf<T>(out);
-    if constexpr (!std::is_integral_v<T>) {
-        if (IsContiguous(v) && axis == v.rank - 1) {
-            const int64_t outer = out.elemCount;
-            const T* base = FlatCellsOf<T>(v);
-            for (int64_t r = 0; r < outer; ++r) {
-                ExtremeFlatByCarrier<T>(isMax, base + r * along, along,
-                                        outCells + r);
-            }
-            ReturnInt(ret, handle);
-            return;
-        }
-    }
     int64_t idx[nlang::kMaxArrayRank] = {0};
     int64_t base = v.offset;
     for (int64_t i = 0; i < out.elemCount; ++i) {
@@ -353,15 +300,7 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
             }
         }
         outCells[i] = best;
-        for (int32_t d = outRank - 1; d >= 0; --d) {
-            const int32_t src = d < axis ? d : d + 1;
-            idx[d] += 1;
-            base += v.strides[src];
-            if (idx[d] < outDims[d])
-                break;
-            base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
-            idx[d] = 0;
-        }
+        AxisRemovedAdvance(v, axis, outRank, outDims, idx, &base);
     }
     ReturnInt(ret, handle);
 }

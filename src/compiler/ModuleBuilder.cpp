@@ -7,7 +7,6 @@
 #include "TranslationUnit.h"
 #include "ScriptParser.h"
 #include "SyntaxTree.h"
-#include "SnExpressions.h"
 #include "builder/ExprResolver.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ImportedNodeBuilder.hpp"
@@ -22,12 +21,7 @@
 #include "ModuleLoader.h"
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <map>
-#include <unordered_map>
-#include <unordered_set>
 #include <functional>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
@@ -120,19 +114,8 @@ bool ModuleBuilder::ResolveAll()
 		return false;
 	ResolveDataValues();
 	ResolveStatements();
-	//v0.13.7: no tensor-flagged binary may survive resolution — a
-	//survivor means a holder missed the lowering swap. Loud, never
-	//silent wrong code. Skipped on partially failed trees: residual
-	//flagged nodes there are legal.
-	if (!m_upEnv->HasError() && TreeHasUnloweredTensorOp(TreeRoot()))
-	{
-		//Internal inconsistency: no source position to name — the
-		//lowering's own diagnostics carry the positions.
-		m_upEnv->Log(CLL_Error,
-			"internal: an array arithmetic node reached codegen "
-			"unlowered");
+	if (TensorOpResolutionFailed(*m_upEnv, TreeRoot()))
 		return false;
-	}
 	return !m_upEnv->HasError();
 }
 
@@ -483,27 +466,6 @@ void ModuleBuilder::ResolveStatements()
 	CheckStructCircularRefs();
 	CheckClassCircularInheritance();
 	CheckMethodContracts();
-}
-
-//v0.13.7: true when a tensor-flagged binary survived resolution — a
-//holder missed the lowering swap.
-bool ModuleBuilder::TreeHasUnloweredTensorOp(SyntaxNode &node)
-{
-	//v0.13.7: a tensor-flagged binary lowers at codegen via its bound
-	//callee — a flagged node WITHOUT the binding is the failure shape
-	//(classification flagged it but the binding failed).
-	if (node.Kind() == NK_BinaryExpr && node.ContainFlags(NF_TensorOp))
-	{
-		auto &bin = static_cast<SnBinaryExpr &>(node);
-		if (!bin.TensorCallee() || !bin.TensorCallPlan())
-			return true;
-	}
-	for (auto &child : node.Children())
-	{
-		if (TreeHasUnloweredTensorOp(static_cast<SyntaxNode &>(child)))
-			return true;
-	}
-	return false;
 }
 
 //Phase 13: sweep function references still pending after statement

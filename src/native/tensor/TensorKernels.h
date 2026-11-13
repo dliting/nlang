@@ -87,6 +87,36 @@ inline void StrideWalkAdvance(const NativeArrayView& v, int64_t* idx,
     }
 }
 
+//Dims of the axis-eliminated result: every source dim except `axis`,
+//in order — the shared shape rule of the axis reduction/gather family.
+inline void AxisRemovedDims(const NativeArrayView& v, int32_t axis,
+                            int32_t* out) {
+    int32_t o = 0;
+    for (int32_t d = 0; d < v.rank; ++d) {
+        if (d == axis)
+            continue;
+        out[o++] = v.dims[d];
+    }
+}
+
+//One step of an axis-eliminated result odometer: idx walks the
+//outRank result coords while the source base moves by the same
+//step's source stride (result dim d reads source dim d<axis?d:d+1)
+//— the shared advance of the axis reduction/gather kernels.
+inline void AxisRemovedAdvance(const NativeArrayView& v, int32_t axis,
+                               int32_t outRank, const int32_t* outDims,
+                               int64_t* idx, int64_t* base) {
+    for (int32_t d = outRank - 1; d >= 0; --d) {
+        const int32_t src = d < axis ? d : d + 1;
+        idx[d] += 1;
+        *base += v.strides[src];
+        if (idx[d] < outDims[d])
+            return;
+        *base -= static_cast<int64_t>(outDims[d]) * v.strides[src];
+        idx[d] = 0;
+    }
+}
+
 //Visit every logical element of a view in row-major order, handing fn
 //the element-unit address (offset included).
 template <typename Fn>
@@ -150,6 +180,24 @@ inline void BroadcastStrides(const NativeArrayView& v, int32_t outRank,
     for (int32_t d = 0; d < outRank; ++d) {
         const int32_t ax = d - (outRank - v.rank);
         out[d] = ax < 0 || v.dims[ax] == 1 ? 0 : v.strides[ax];
+    }
+}
+
+//Paired variant of StrideWalkAdvance for the broadcast walk: two
+//operand bases move by their own broadcast strides under one shared
+//result odometer.
+inline void BroadcastAdvance(const int32_t* sa, const int32_t* sb,
+                             const int32_t* outDims, int32_t outRank,
+                             int64_t* idx, int64_t* addA, int64_t* addB) {
+    for (int32_t d = outRank - 1; d >= 0; --d) {
+        idx[d] += 1;
+        *addA += sa[d];
+        *addB += sb[d];
+        if (idx[d] < outDims[d])
+            return;
+        *addA -= static_cast<int64_t>(outDims[d]) * sa[d];
+        *addB -= static_cast<int64_t>(outDims[d]) * sb[d];
+        idx[d] = 0;
     }
 }
 

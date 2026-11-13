@@ -1042,7 +1042,23 @@ private:
 	//classifies at resolution time (true = consumed — lowering shape or
 	//a lowering-specific diagnostic); phase 2 splices the tensor call
 	//through the parent's ReplaceChildNode protocol and resolves it.
+	//TryTensorBinaryAdmission owns the operator filter and the
+	//string/null pre-gates, so Access keeps its dispatch shape.
+	bool TryTensorBinaryAdmission(SnBinaryExpr &sn);
 	bool TryTensorBinaryShape(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	//Lowering helpers, same TU: the shared consumed-with-diagnostic
+	//epilogue, the element-kind diagnostician, the import admission
+	//gate, and the callee/plan binding split out of the classifier.
+	void ConsumeInvalidTensorShape(SnBinaryExpr &sn);
+	void LogNoArrayArithmetic(SnBinaryExpr &sn, const char *opName,
+		const SnField *pArrElem);
+	void LogTensorElemKindMismatch(SnBinaryExpr &sn, const char *opName,
+		const SnField *pL, const SnField *pR);
+	bool TensorImportAdmitted(SnBinaryExpr &sn, const char *opName);
+	SnInvokeExpr *BuildTensorCallPlan(SnBinaryExpr &sn,
+		const char *fnName, bool unary, bool scalarLeft);
+	bool BindTensorCall(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
+		bool unary, bool lArr, bool rArr);
 	//0.9.9: `<<`/`>>` — the left operand's row decides the result; the
 	//count must convert to that row implicitly (see
 	//ExprResolverBinary.cpp for the full rationale).
@@ -1762,5 +1778,14 @@ then keeps the construct out of its bind.
 */
 bool RejectPreludeFaceUse(class BuildEnvironment &env, SnField *pField,
 	const ISourceLocation *pLoc, const char *szWhat);
+
+/*
+Resolution-exit tripwire (ExprResolverArrayOps.cpp; ModuleBuilder's
+ResolveAll calls it on the merged tree): true aborts the build because
+a tensor-flagged binary reached the exit without its bound callee/plan
+— a holder missed the lowering swap. Partially failed trees pass: the
+flagged residuals there are legal.
+*/
+bool TensorOpResolutionFailed(BuildEnvironment &env, SyntaxNode &root);
 
 } //namespace nlang

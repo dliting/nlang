@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <type_traits>
+#include <vector>
 
 namespace tensor {
 
@@ -273,6 +274,73 @@ void AddIntoF64ByCarrier(double* acc, const T* row, int64_t count) {
     } else {
         ActiveKernelOps().addIntoF64(acc, row, count);
     }
+}
+
+//--- axis-arm fast paths (tensor_reduce.cpp) -------------------------------
+//Float/double reductions on CONTIGUOUS sources reduce whole segments
+//through the flat carriers; both mirror the per-cell double accumulator
+//of the caller's general odometer. Each helper returns false when the
+//shape has no fast path (strided views, middle axes, ints) — the
+//caller keeps its walk.
+
+//sum(a, axis): axis = rank-1 reduces contiguous segments (one flat
+//double sum per output cell); axis = 0 accumulates whole rows through
+//the double addInto.
+template <typename T>
+bool SumAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
+                         int32_t axis, int32_t along, uint8_t* ret,
+                         int32_t handle) {
+    if constexpr (!std::is_integral_v<T>) {
+        if (!IsContiguous(v))
+            return false;
+        T* outCells = CellsOf<T>(out);
+        if (axis == v.rank - 1) {
+            const int64_t outer = out.elemCount;
+            const T* base = FlatCellsOf<T>(v);
+            for (int64_t r = 0; r < outer; ++r) {
+                double acc = 0.0;
+                SumFlatByCarrier<T>(base + r * along, along, &acc);
+                outCells[r] = static_cast<T>(acc);
+            }
+            nlang::native::ReturnInt(ret, handle);
+            return true;
+        }
+        if (axis != 0)
+            return false;
+        int64_t inner = 1;
+        for (int32_t d = 1; d < v.rank; ++d)
+            inner *= v.dims[d];
+        std::vector<double> acc(static_cast<size_t>(inner), 0.0);
+        const T* base = FlatCellsOf<T>(v);
+        for (int64_t o = 0; o < along; ++o)
+            AddIntoF64ByCarrier<T>(acc.data(), base + o * inner, inner);
+        for (int64_t j = 0; j < inner; ++j)
+            outCells[j] = static_cast<T>(acc[j]);
+        nlang::native::ReturnInt(ret, handle);
+        return true;
+    }
+    return false;
+}
+
+//max/min(a, axis): axis = rank-1 reduces contiguous segments through
+//the flat extreme kernels (NaN/tie rule identical to the general walk).
+template <typename T>
+bool ExtremeAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
+                             int32_t axis, int32_t along, bool isMax,
+                             uint8_t* ret, int32_t handle) {
+    if constexpr (!std::is_integral_v<T>) {
+        if (IsContiguous(v) && axis == v.rank - 1) {
+            T* outCells = CellsOf<T>(out);
+            const int64_t outer = out.elemCount;
+            const T* base = FlatCellsOf<T>(v);
+            for (int64_t r = 0; r < outer; ++r)
+                ExtremeFlatByCarrier<T>(isMax, base + r * along, along,
+                                        outCells + r);
+            nlang::native::ReturnInt(ret, handle);
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace tensor

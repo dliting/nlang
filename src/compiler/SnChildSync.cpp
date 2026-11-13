@@ -191,4 +191,48 @@ bool SnMemberExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
+bool SnAsExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	if (m_pTargetType == pOld)
+	{
+		ResetChild(m_pTargetType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	//v0.13.7: the operand is an expression slot that can hold a
+	//tensor-lowered binary (`x = (a + b) as int`).
+	if (m_pOperand == pOld)
+	{
+		ResetChild(m_pOperand, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
+bool SnInitListExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The explicit type of "new Type{...}" is cached in a typed slot beside
+	//the children list; keep it in sync when an alias expansion splices it.
+	if (m_pExplicitType == pOld)
+	{
+		ResetChild(m_pExplicitType, static_cast<SnFieldExpr *>(pNew));
+		return true;
+	}
+	//v0.13.7: the entries are dual storage too (`[a + b, c]`) — sync
+	//the value/key slots beside the children list.
+	for (auto &entry : m_entries)
+	{
+		if (entry.pValue == pOld)
+		{
+			ResetChild(entry.pValue, static_cast<SnExpression *>(pNew));
+			return true;
+		}
+		if (entry.pKey == pOld)
+		{
+			ResetChild(entry.pKey, static_cast<SnExpression *>(pNew));
+			return true;
+		}
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 } //namespace nlang
