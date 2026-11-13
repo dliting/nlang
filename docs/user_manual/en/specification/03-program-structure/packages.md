@@ -269,14 +269,14 @@ The concurrency names split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
-chapters 13–21 describe the units they hold. The declarations in
+chapters 13–25 describe the units they hold. The declarations in
 the `.n` sources are the source of truth for every package,
 prelude included; the implementation binds the declared native
 members to its built-in implementations.
 
 *Informative:* NLang libraries are carried by `.n` source files:
 the standard library ships one `.n` for every package — the prelude
-`lang.n` and `containers.n` plus the eleven standard packages — and a
+`lang.n` and `containers.n` plus the twelve standard packages — and a
 third-party library is just a directory of `.n` files (optionally
 alongside native dynamic libraries). A function implemented outside NLang is declared with
 the `native` keyword (`native void print(string s);`) — such a

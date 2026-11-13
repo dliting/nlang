@@ -400,15 +400,31 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
+```nlang
+int main() {
+    double d = 1.5;
+    int x = 1 & d;
+    return 0;
+}
+```
+
+```text
+Error: operator '&' requires integer operands, got "Double".
+```
+
 Arithmetic mixing `int`/`long` with `ulong` has no implicit common type
 — unify the sign domain explicitly first (`i as ulong` or `u as long`);
 char never converts implicitly to a numeric type (take the code point
 with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
-suppresses this warning family; an explicit `as` never warns). See →
+suppresses this warning family; an explicit `as` never warns); bitwise
+`&` `^` `|` `~` take integer operands only (`null is not a valid
+bitwise operand.` for `null`), and their mixed integer rows promote
+exactly as arithmetic does (`-1 & 1099511627776L` is `long`, so the
+`int`/`ulong` boundary applies there too). See →
 [Types](../04-types/index.md) "Numeric conversion matrix" and
-[Operators](../05-expressions/operators.md) "Arithmetic".
+[Operators](../05-expressions/operators.md) "Arithmetic", "Bitwise".
 
 ### `as` casts
 

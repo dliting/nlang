@@ -1357,8 +1357,11 @@ class RECompile {
 // left on the books is the leftmost first match the language
 // promises (Go's exec.go first-match mode).
 class RESim {
-    // UTF-8 decode constants (RFC 3629). Malformed sequences decode to
-    // one pseudo code point U+FFFD per byte, Go's RuneError posture.
+    // UTF-8 decode constants (RFC 3629). A lead sequence that fails to
+    // complete decodes to one pseudo code point U+FFFD (Go's RuneError
+    // posture); a byte that starts no lead sequence (lone continuation,
+    // 0xC0/0xC1, 0xF8-0xFE) decodes to itself as a one-byte pseudo code
+    // point — manual §25.6.
     private static const int kRepl = 0xFFFD;
     private static const int kAsciiLim = 0x80;
     private static const int kContLo = 0x80;

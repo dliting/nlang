@@ -34,6 +34,16 @@ wider or differently-signed count is rejected
 while a constant that fits the type is accepted. The VM range-checks
 the count at run time.
 
+Bitwise binary expressions (`& ^ |`) gate to integer operands in the
+resolver (`ExprResolverBitwise.cpp`), rejecting a non-integer operand
+(`operator '&' requires integer operands, got "Double".`) under the
+same enum policy as shift (enum members ride through as `int`,
+enum-typed variables have no integer row and are rejected); they then
+share arithmetic's symmetric promotion, so `-1 & 1099511627776L`
+promotes both operands to `long` and `int`/`ulong` stays a compile
+error. Unary `~` reuses the shift left-row rule: a row narrower than
+`int` widens to `int`, a row at or above it keeps itself.
+
 Comparison (`< <= > >= == !=`) and logical (`&& ||`) expressions
 resolve to `bool` (carried as int32 0/1). Comparison first runs the
 type gates — `string` compares only with `string` or `null`, function
@@ -47,8 +57,10 @@ common type the same way arithmetic does (`1 < 2.5` compares as
 
 (`ExprResolverBinary.cpp` `Access(SnBinaryExpr&)`):
 1. Dispatch: comparison and logical operators run the gates and
-   resolve to NK_Bool; shift goes to `ResolveShiftBinary`; everything
-   else to `ResolveArithmeticBinary`.
+   resolve to NK_Bool; shift goes to `ResolveShiftBinary`; the bitwise
+   operators (`& ^ | ~`) go to `ResolveBitwise`
+   (`ExprResolverBitwise.cpp`); everything else to
+   `ResolveArithmeticBinary`.
 2. Compute T_result per the rules above.
 3. Set `sn.EvalDataType(T_result)`.
 4. Wrap each operand via `FixupExprType` in a `SnCastExpr` if its type

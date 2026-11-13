@@ -312,7 +312,19 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型](../04-types/index.md)「数值转换矩阵」与[运算符](../05-expressions/operators.md)「算术」。
+```nlang
+int main() {
+    double d = 1.5;
+    int x = 1 & d;
+    return 0;
+}
+```
+
+```text
+Error: operator '&' requires integer operands, got "Double".
+```
+
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）；位运算`&`、`^`、`|`、`~`只接受整型操作数（`null`报`null is not a valid bitwise operand.`），混合整型行的提升与算术完全一致（`-1 & 1099511627776L`是`long`，`int`与`ulong`的边界同样适用）。详见[类型](../04-types/index.md)「数值转换矩阵」与[运算符](../05-expressions/operators.md)「算术」「位运算符」。
 
 ### `as`转换
 

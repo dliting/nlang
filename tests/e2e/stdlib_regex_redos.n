@@ -34,7 +34,8 @@ int main() {
     if (d2 > 20000) { bad = bad + 1; }
     if (d3 > 20000) { bad = bad + 1; }
     if (d4 > 20000) { bad = bad + 1; }
-    // unanchored literal-prefix scan over 64k of text (D9 fast path):
+    // unanchored scan over 64k of text (D9 linearity: the thread-set
+    // simulation is linear by construction — there is no fast path):
     // a miss must finish inside the same wall and a hit keeps byte offsets
     string longHay = nTimes("x", 32000) + nTimes("y", 32000);
     t0 = system.monoMs();

@@ -8,12 +8,14 @@ VM的算术指令用单一指令码加`u8 kind`立即数编码操作数类型（
 
 位移（`<<` `>>`）是非对称的例外：左操作数的类型行决定结果类型（比`int`窄的左操作数升到`int`），计数须能隐式转换到该类型——更宽或异符号的计数被拒绝（`operator '<<' requires a count implicitly convertible to "Int32", got "UInt32".`），能放进该类型的常量则获准。计数越界由VM在运行期检查。
 
+位运算二元表达式（`& ^ |`）在resolver（`ExprResolverBitwise.cpp`）里以整型为操作数门，非整型操作数被拒绝（`operator '&' requires integer operands, got "Double".`），enum口径与位移相同（enum成员按`int`放行，enum类型变量无整数行被拒）；随后共用算术的对称提升——`-1 & 1099511627776L`两侧都升到`long`，`int`与`ulong`同样没有公共行。一元`~`沿用位移的左操作数行规则：比`int`窄的行升到`int`，其余行保持自身。
+
 比较（`< <= > >= == !=`）与逻辑（`&& ||`）表达式的结果类型是`bool`（以int32的0/1承载）。比较先过类型门——`string`只能与`string`或`null`比较，函数值与数组只支持`==`/`!=`，`bool`与`char`各有误用门——再把混写的数值操作数按算术同样的规则提升到公共类型（`1 < 2.5`按`double`比较）；同类型对、class/enum同一性比较与`null`比较不做包装。
 
 ## resolver
 
 （`ExprResolverBinary.cpp`的`Access(SnBinaryExpr&)`）：
-1. 分派：比较与逻辑运算符先过类型门、结果为NK_Bool；位移走`ResolveShiftBinary`；其余走`ResolveArithmeticBinary`。
+1. 分派：比较与逻辑运算符先过类型门、结果为NK_Bool；位移走`ResolveShiftBinary`；位运算（`& ^ | ~`）走`ResolveBitwise`（`ExprResolverBitwise.cpp`）；其余走`ResolveArithmeticBinary`。
 2. 按上述规则计算T_result。
 3. 设置`sn.EvalDataType(T_result)`。
 4. 若操作数类型与T_result不同，用`FixupExprType`把它包进`SnCastExpr`。包装后，`sn.Children()[0]/[1]`持有（可能已转换的）操作数；`sn.Left()/Right()`已过期但不再被使用。

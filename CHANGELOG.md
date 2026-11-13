@@ -28,7 +28,7 @@ All notable changes to NLang are documented here. The format follows
   family) pattern syntax: literals and escapes, `.` and character
   classes (ranges, negation, POSIX names such as `[:alpha:]`),
   alternation, numbered and named capture groups, repetition
-  (`* + ? {n,m}`, lazy variants), anchors (`^ $ \b \B \z`) and inline
+  (`* + ? {n,m}`, lazy variants), anchors (`^ $ \A \b \B \z`) and inline
   flags (`(?i)`, `(?s)`, `(?m)`); back references and look-around are
   rejected with explicit messages. `Regex(pattern)` compiles once and
   stays shareable across threads; `isMatch`/`match`/`matches`/`split`/
